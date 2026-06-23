@@ -7365,8 +7365,9 @@ export function createSmartAccountVaultsClient(
     };
   }
 
-  async function prepareEarnUsdcAutodepositSetup(
-    args: SmartAccountEarnUsdcAutodepositSetupInput
+  async function prepareEarnUsdcAutodepositSetupStage(
+    args: SmartAccountEarnUsdcAutodepositSetupInput,
+    options: { assumePolicyExists?: boolean } = {}
   ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup> {
     if (args.amountRaw <= BigInt(0)) {
       throw new Error("Autodeposit amount must be greater than 0.");
@@ -7530,6 +7531,8 @@ export function createSmartAccountVaultsClient(
       policyAccount,
       "confirmed"
     );
+    const policyExistsForPlanning =
+      options.assumePolicyExists || Boolean(policyAccountInfo);
     const delegationAccount = await config.connection.getAccountInfo(
       recurringDelegation
     );
@@ -7541,7 +7544,7 @@ export function createSmartAccountVaultsClient(
         );
       }
       throw new Error(
-        policyAccountInfo
+        policyExistsForPlanning
           ? "Autodeposit policy and recurring delegation already exist."
           : "Autodeposit recurring delegation already exists before policy setup."
       );
@@ -7560,7 +7563,7 @@ export function createSmartAccountVaultsClient(
         startTimestamp,
         subscriptionAuthority,
       });
-    const policyCreation = policyAccountInfo
+    const policyCreation = policyExistsForPlanning
       ? null
       : await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
           {
@@ -7690,6 +7693,41 @@ export function createSmartAccountVaultsClient(
         subscriptionAuthorityInitialization: "exists",
       },
     };
+  }
+
+  async function prepareEarnUsdcAutodepositSetup(
+    args: SmartAccountEarnUsdcAutodepositSetupInput
+  ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup> {
+    return prepareEarnUsdcAutodepositSetupStage(args);
+  }
+
+  async function prepareEarnUsdcAutodepositSetupBatch(
+    args: SmartAccountEarnUsdcAutodepositSetupInput
+  ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup[]> {
+    const firstSetup = await prepareEarnUsdcAutodepositSetupStage(args);
+    if (firstSetup.stage !== "create_policy") {
+      return [firstSetup];
+    }
+
+    const recurringDelegationSetup =
+      await prepareEarnUsdcAutodepositSetupStage(
+        {
+          ...args,
+          expiryTimestamp: firstSetup.subscription.expiryTimestamp,
+          nonce: firstSetup.subscription.nonce,
+          periodLengthSeconds: firstSetup.subscription.periodLengthSeconds,
+          policySeed: firstSetup.policy.seed ?? args.policySeed,
+          startTimestamp: firstSetup.subscription.startTimestamp,
+        },
+        {
+          assumePolicyExists: true,
+        }
+      );
+    if (recurringDelegationSetup.stage !== "create_recurring_delegation") {
+      return [firstSetup];
+    }
+
+    return [firstSetup, recurringDelegationSetup];
   }
 
   async function prepareEarnUsdcAutodepositClose(
@@ -8486,6 +8524,7 @@ export function createSmartAccountVaultsClient(
     prepareEarnUsdcWithdraw,
     prepareEarnUsdcCleanup,
     prepareEarnUsdcAutodepositSetup,
+    prepareEarnUsdcAutodepositSetupBatch,
     prepareEarnUsdcAutodepositClose,
     prepareEarnUsdcAutodepositPull,
     prepareClosePolicies,

@@ -5751,21 +5751,243 @@ function DepositChart({
   );
 }
 
+type EarnDepositChartTab = "Forecast" | "Historical";
+
+const EARN_DEPOSIT_CHART_TABS: readonly {
+  id: EarnDepositChartTab;
+  label: string;
+}[] = [
+  { id: "Forecast", label: "Forecast" },
+  { id: "Historical", label: "APY" },
+];
+
+function EarnDepositChartsSection({
+  apy,
+  defaultActiveTab = "Forecast",
+  forecastAmount,
+  forecastAmountOptions,
+  forecastSelection,
+  mainUsdcReserveApyBps,
+  onForecastSelectionChange,
+}: {
+  apy: EarnForecastApy;
+  defaultActiveTab?: EarnDepositChartTab;
+  forecastAmount: number;
+  forecastAmountOptions: ForecastAmountOption[];
+  forecastSelection: ForecastAmountSelection;
+  mainUsdcReserveApyBps: number;
+  onForecastSelectionChange: (selection: ForecastAmountSelection) => void;
+}) {
+  const [activeTab, setActiveTab] =
+    useState<EarnDepositChartTab>(defaultActiveTab);
+  const [forecastRevision, setForecastRevision] = useState(0);
+  const [historicalRevision, setHistoricalRevision] = useState(0);
+  useEffect(() => {
+    setActiveTab(defaultActiveTab);
+  }, [defaultActiveTab]);
+  const handleTabChange = (next: EarnDepositChartTab) => {
+    if (next === activeTab) return;
+    setActiveTab(next);
+    if (next === "Forecast") {
+      setForecastRevision((revision) => revision + 1);
+    } else {
+      setHistoricalRevision((revision) => revision + 1);
+    }
+  };
+
+  return (
+    <section
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        padding: "8px",
+        width: "100%",
+      }}
+    >
+      <style jsx>{`
+        .earn-deposit-chart-panel {
+          transition: opacity 0.34s cubic-bezier(0.2, 0, 0, 1),
+            transform 0.34s cubic-bezier(0.2, 0, 0, 1),
+            filter 0.34s cubic-bezier(0.2, 0, 0, 1);
+        }
+        .earn-forecast-chip {
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .earn-forecast-chip:hover:not(.earn-forecast-chip-active) {
+          background: rgba(0, 0, 0, 0.04);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .earn-deposit-chart-panel {
+            transition: none;
+          }
+        }
+      `}</style>
+      <div
+        style={{
+          alignItems: "center",
+          display: "flex",
+          gap: "8px",
+          justifyContent: "space-between",
+          padding: "0 12px 8px",
+          width: "100%",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flex: 1,
+            gap: "8px",
+            minWidth: 0,
+          }}
+        >
+          {EARN_DEPOSIT_CHART_TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                style={{
+                  background: isActive ? "#F5F5F5" : "transparent",
+                  border: "none",
+                  borderRadius: "9999px",
+                  color: isActive ? "#000" : secondary,
+                  cursor: "pointer",
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  padding: "6px 12px",
+                  transition: "background 0.15s ease",
+                }}
+                type="button"
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+        {activeTab === "Forecast" ? (
+          <div
+            style={{
+              display: "flex",
+              flexShrink: 0,
+              gap: "4px",
+            }}
+          >
+            {forecastAmountOptions.map((option) => {
+              const isActive = option.selection === forecastSelection;
+              return (
+                <button
+                  className={`earn-forecast-chip ${
+                    isActive ? "earn-forecast-chip-active" : ""
+                  }`}
+                  key={option.id}
+                  onClick={() => onForecastSelectionChange(option.selection)}
+                  style={{
+                    background: isActive ? "#000" : "transparent",
+                    border: "none",
+                    borderRadius: "9999px",
+                    color: isActive ? "#fff" : secondary,
+                    cursor: "pointer",
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    lineHeight: "16px",
+                    padding: "4px 10px",
+                  }}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateAreas: '"panel"',
+          position: "relative",
+          width: "100%",
+        }}
+      >
+        <div
+          aria-hidden={activeTab !== "Forecast"}
+          className="earn-deposit-chart-panel"
+          key={`forecast-${forecastRevision}`}
+          style={{
+            filter: activeTab === "Forecast" ? "blur(0)" : "blur(2px)",
+            gridArea: "panel",
+            opacity: activeTab === "Forecast" ? 1 : 0,
+            pointerEvents: activeTab === "Forecast" ? "auto" : "none",
+            transform:
+              activeTab === "Forecast"
+                ? "translateY(0) scale(1)"
+                : "translateY(6px) scale(0.985)",
+          }}
+        >
+          <div style={{ padding: "12px", width: "100%" }}>
+            <DepositChart
+              apy={apy}
+              mainUsdcReserveApyBps={mainUsdcReserveApyBps}
+              principal={forecastAmount}
+            />
+          </div>
+        </div>
+        <div
+          aria-hidden={activeTab !== "Historical"}
+          className="earn-deposit-chart-panel"
+          key={`historical-${historicalRevision}`}
+          style={{
+            filter: activeTab === "Historical" ? "blur(0)" : "blur(2px)",
+            gridArea: "panel",
+            opacity: activeTab === "Historical" ? 1 : 0,
+            pointerEvents: activeTab === "Historical" ? "auto" : "none",
+            transform:
+              activeTab === "Historical"
+                ? "translateY(0) scale(1)"
+                : "translateY(6px) scale(0.985)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              minHeight: "430px",
+              padding: "4px 12px 0",
+              width: "100%",
+            }}
+          >
+            <HistoricalApyChart rangeId="30D" />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function EarnDepositView({
   isSubmitting = false,
   onClose,
   onDraftChange,
   onDraftSubmit,
+  defaultChartTab = "Forecast",
+  showFundingControls = true,
   showCloseButton = true,
   sources = FALLBACK_EARN_DEPOSIT_SOURCES,
+  submitCtaLabel = null,
   submitError = null,
 }: {
   isSubmitting?: boolean;
   onClose?: () => void;
+  defaultChartTab?: EarnDepositChartTab;
   onDraftChange?: (draft: EarnDepositDraft | null) => void;
   onDraftSubmit?: (draft: EarnDepositDraft) => void | Promise<void>;
+  showFundingControls?: boolean;
   showCloseButton?: boolean;
   sources?: EarnDepositSourceOption[];
+  submitCtaLabel?: string | null;
   submitError?: string | null;
 }) {
   const earnForecastApy = useEarnForecastApy();
@@ -5822,10 +6044,13 @@ export function EarnDepositView({
       : hasDepositAmount && numericDepositAmount > selectedSourceBalance
       ? "Insufficient balance"
       : null;
-  const isDepositButtonDisabled = isSubmitting || amountError !== null;
+  const isConnectCta = Boolean(submitCtaLabel);
+  const isDepositButtonDisabled =
+    isSubmitting || (!isConnectCta && amountError !== null);
   const depositButtonLabel = isSubmitting
     ? "Depositing..."
-    : amountError ??
+    : submitCtaLabel ??
+      amountError ??
       `Deposit $${formatEarnActionCtaAmount(effectiveDepositAmount)}`;
   const updateForecastFromInput = () => {
     forecastSelectionTouchedRef.current = true;
@@ -5906,12 +6131,6 @@ export function EarnDepositView({
         .earn-deposit-submit:not(:disabled):hover {
           background: #222 !important;
         }
-        .earn-forecast-chip {
-          transition: background 0.15s ease, color 0.15s ease;
-        }
-        .earn-forecast-chip:hover:not(.earn-forecast-chip-active) {
-          background: rgba(0, 0, 0, 0.04);
-        }
         .earn-source-sheet {
           animation: earn-source-sheet-open 0.18s ease forwards;
           transform-origin: top center;
@@ -5988,162 +6207,104 @@ export function EarnDepositView({
           <DepositVaultRow apyLabel={earnApyLabel} vault={TOP_DEPOSIT_VAULT} />
         </section>
 
-        <section
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            padding: "8px",
-            width: "100%",
-          }}
-        >
-          <div
-            style={{
-              alignItems: "center",
-              display: "flex",
-              gap: "8px",
-              justifyContent: "space-between",
-              padding: "12px 12px 8px",
-              width: "100%",
-            }}
-          >
-            <p
-              style={{
-                color: secondary,
-                flexShrink: 0,
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                margin: 0,
-              }}
-            >
-              Estimated earnings
-            </p>
-            <div
-              style={{
-                display: "flex",
-                flexShrink: 0,
-                gap: "4px",
-              }}
-            >
-              {forecastAmountOptions.map((option) => {
-                const isActive = option.selection === forecastSelection;
-                return (
-                  <button
-                    className={`earn-forecast-chip ${
-                      isActive ? "earn-forecast-chip-active" : ""
-                    }`}
-                    key={option.id}
-                    onClick={() => handleChipClick(option.selection)}
-                    style={{
-                      background: isActive ? "#000" : "transparent",
-                      border: "none",
-                      borderRadius: "9999px",
-                      color: isActive ? "#fff" : secondary,
-                      cursor: "pointer",
-                      fontFamily: font,
-                      fontSize: "13px",
-                      fontWeight: 500,
-                      lineHeight: "16px",
-                      padding: "4px 10px",
-                    }}
-                    type="button"
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div style={{ padding: "12px", width: "100%" }}>
-            <DepositChart
-              apy={earnForecastApy}
-              mainUsdcReserveApyBps={mainUsdcReserveApyBps}
-              principal={forecastAmount}
-            />
-          </div>
-        </section>
+        <EarnDepositChartsSection
+          apy={earnForecastApy}
+          defaultActiveTab={defaultChartTab}
+          forecastAmount={forecastAmount}
+          forecastAmountOptions={forecastAmountOptions}
+          forecastSelection={forecastSelection}
+          mainUsdcReserveApyBps={mainUsdcReserveApyBps}
+          onForecastSelectionChange={handleChipClick}
+        />
 
-        <section
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            padding: "8px 8px 0",
-            width: "100%",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-              padding: "8px 12px",
-              width: "100%",
-            }}
-          >
-            <div
-              onClick={() => {
-                amountInputRef.current?.focus();
-                amountInputRef.current?.select();
-              }}
+        {showFundingControls ? (
+          <>
+            <section
               style={{
-                alignItems: "center",
-                cursor: "text",
                 display: "flex",
-                gap: "4px",
+                flexDirection: "column",
+                padding: "8px 8px 0",
                 width: "100%",
               }}
             >
-              <BucksAmountInput
-                inputRef={amountInputRef}
-                onValueChange={(rawValue) => {
-                  const sanitizedValue = sanitizeBucksAmountInput(
-                    rawValue,
-                    depositAmount
-                  );
-                  if (sanitizedValue !== null) {
-                    depositAmountTouchedRef.current = true;
-                    setDepositAmount(sanitizedValue);
-                    updateForecastFromInput();
-                  }
-                }}
-                value={depositAmount}
-              />
-            </div>
-          </div>
-        </section>
-
-        <section
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            padding: "8px",
-            position: "relative",
-            width: "100%",
-            zIndex: 2,
-          }}
-        >
-          <div
-            style={{ display: "flex", flexDirection: "column", width: "100%" }}
-          >
-            <div style={{ padding: "3px 12px 1px" }}>
-              <p
+              <div
                 style={{
-                  color: secondary,
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                  margin: 0,
-                  padding: "12px 0 4px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                  padding: "8px 12px",
+                  width: "100%",
                 }}
               >
-                From
-              </p>
-            </div>
-            <DepositSourceRow isStatic source={selectedSource} />
-          </div>
-        </section>
+                <div
+                  onClick={() => {
+                    amountInputRef.current?.focus();
+                    amountInputRef.current?.select();
+                  }}
+                  style={{
+                    alignItems: "center",
+                    cursor: "text",
+                    display: "flex",
+                    gap: "4px",
+                    width: "100%",
+                  }}
+                >
+                  <BucksAmountInput
+                    inputRef={amountInputRef}
+                    onValueChange={(rawValue) => {
+                      const sanitizedValue = sanitizeBucksAmountInput(
+                        rawValue,
+                        depositAmount
+                      );
+                      if (sanitizedValue !== null) {
+                        depositAmountTouchedRef.current = true;
+                        setDepositAmount(sanitizedValue);
+                        updateForecastFromInput();
+                      }
+                    }}
+                    value={depositAmount}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                padding: "8px",
+                position: "relative",
+                width: "100%",
+                zIndex: 2,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  width: "100%",
+                }}
+              >
+                <div style={{ padding: "3px 12px 1px" }}>
+                  <p
+                    style={{
+                      color: secondary,
+                      fontFamily: font,
+                      fontSize: "16px",
+                      fontWeight: 400,
+                      lineHeight: "20px",
+                      margin: 0,
+                      padding: "12px 0 4px",
+                    }}
+                  >
+                    From
+                  </p>
+                </div>
+                <DepositSourceRow isStatic source={selectedSource} />
+              </div>
+            </section>
+          </>
+        ) : null}
       </div>
 
       <div
@@ -6173,14 +6334,14 @@ export function EarnDepositView({
           onClick={() => void onDraftSubmit?.(buildCurrentDraft())}
           style={{
             alignItems: "center",
-            background: amountError
+            background: amountError && !isConnectCta
               ? "rgba(249, 54, 60, 0.14)"
               : isDepositButtonDisabled
               ? "rgba(0, 0, 0, 0.04)"
               : "#000",
             border: "none",
             borderRadius: "78px",
-            color: amountError
+            color: amountError && !isConnectCta
               ? "#F9363C"
               : isDepositButtonDisabled
               ? secondary

@@ -6,6 +6,7 @@ import {
 } from "@loyal-labs/actions";
 import {
   createSmartAccountVaultsClient,
+  sendPreparedBatchWithWallet,
   sendPreparedWithWallet,
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountOverview,
@@ -419,6 +420,20 @@ export type EarnDepositResult = {
   error?: string;
 };
 
+export type EarnDepositBatchRequest = EarnDepositRequest & {
+  startStage: "policy" | "policy-finalize";
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+};
+
+export type EarnDepositBatchResult = EarnDepositResult & {
+  batchUnavailable?: boolean;
+  policyConfirmedSlot?: string;
+  policySignature?: string;
+  resumeStage?: "policy-finalize" | "deposit";
+  setupPolicyConfirmedSlot?: string;
+  setupPolicySignature?: string;
+};
+
 export type EarnDepositPolicyStageRequest = {
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   stage: "policy" | "policy-finalize";
@@ -625,6 +640,73 @@ export async function sendPreparedEarnWithClusterPreflight({
   return { success: true, signature: await send() };
 }
 
+function getEarnAutodepositSetupSignatureFields(
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup,
+  signature: string
+):
+  | { authorityInitializationSignature: string }
+  | { policySignature: string }
+  | { recurringDelegationSignature: string } {
+  if (preparedSetup.stage === "initialize_subscription_authority") {
+    return { authorityInitializationSignature: signature };
+  }
+  if (preparedSetup.stage === "create_policy") {
+    return { policySignature: signature };
+  }
+  return { recurringDelegationSignature: signature };
+}
+
+function isMatchingEarnAutodepositSetupBatch(args: {
+  amountRaw: bigint;
+  nextPreparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+}): args is {
+  amountRaw: bigint;
+  nextPreparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup & {
+    stage: "create_recurring_delegation";
+  };
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup & {
+    stage: "create_policy";
+  };
+} {
+  const { nextPreparedSetup, preparedSetup } = args;
+  if (
+    preparedSetup.stage !== "create_policy" ||
+    nextPreparedSetup?.stage !== "create_recurring_delegation"
+  ) {
+    return false;
+  }
+
+  return (
+    preparedSetup.persistence.amountPerPeriodRaw ===
+      args.amountRaw.toString() &&
+    nextPreparedSetup.persistence.amountPerPeriodRaw ===
+      args.amountRaw.toString() &&
+    nextPreparedSetup.persistence.cluster === preparedSetup.persistence.cluster &&
+    nextPreparedSetup.persistence.policyAccount ===
+      preparedSetup.persistence.policyAccount &&
+    nextPreparedSetup.persistence.policySeed ===
+      preparedSetup.persistence.policySeed &&
+    nextPreparedSetup.persistence.recurringDelegation ===
+      preparedSetup.persistence.recurringDelegation &&
+    nextPreparedSetup.persistence.settings === preparedSetup.persistence.settings &&
+    nextPreparedSetup.persistence.vaultPubkey ===
+      preparedSetup.persistence.vaultPubkey &&
+    nextPreparedSetup.persistence.walletAddress ===
+      preparedSetup.persistence.walletAddress &&
+    nextPreparedSetup.persistence.walletUsdcAta ===
+      preparedSetup.persistence.walletUsdcAta &&
+    nextPreparedSetup.policy.account?.toBase58() ===
+      preparedSetup.policy.account?.toBase58() &&
+    nextPreparedSetup.policy.seed === preparedSetup.policy.seed &&
+    nextPreparedSetup.subscription.nonce === preparedSetup.subscription.nonce &&
+    nextPreparedSetup.subscription.recurringDelegation.toBase58() ===
+      preparedSetup.subscription.recurringDelegation.toBase58() &&
+    nextPreparedSetup.vault.pubkey.toBase58() ===
+      preparedSetup.vault.pubkey.toBase58()
+  );
+}
+
 export type VaultTransferCapability =
   | { kind: "blocked"; reason: string }
   | {
@@ -764,6 +846,9 @@ export type SmartAccountSidebarData = {
   executeEarnDeposit: (
     request: EarnDepositRequest
   ) => Promise<EarnDepositResult>;
+  executeEarnDepositBatch: (
+    request: EarnDepositBatchRequest
+  ) => Promise<EarnDepositBatchResult>;
   executeEarnDepositPolicyStage: (
     request: EarnDepositPolicyStageRequest
   ) => Promise<EarnDepositPolicyStageResult>;
@@ -1468,6 +1553,56 @@ export async function prepareEarnAutodepositSetupOnServer(args: {
   const payload =
     (await response.json()) as EarnAutodepositSetupPrepareResponse;
   return hydratePreparedEarnUsdcAutodepositSetup(payload.preparedSetup);
+}
+
+async function prepareEarnAutodepositSetupBatchOnServer(args: {
+  amountRaw: bigint;
+  nonce?: bigint;
+  policySeed?: bigint;
+  walletBalanceFloorRaw?: bigint;
+}): Promise<{
+  nextPreparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+}> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/setup/prepare",
+    {
+      body: JSON.stringify({
+        amountRaw: args.amountRaw.toString(),
+        includeBatch: true,
+        ...(args.nonce !== undefined ? { nonce: args.nonce.toString() } : {}),
+        ...(args.policySeed !== undefined
+          ? { policySeed: args.policySeed.toString() }
+          : {}),
+        ...(args.walletBalanceFloorRaw !== undefined
+          ? { walletBalanceFloorRaw: args.walletBalanceFloorRaw.toString() }
+          : {}),
+      }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare Autodeposit setup."
+    );
+  }
+
+  const payload =
+    (await response.json()) as EarnAutodepositSetupPrepareResponse;
+  return {
+    nextPreparedSetup: payload.nextPreparedSetup
+      ? hydratePreparedEarnUsdcAutodepositSetup(payload.nextPreparedSetup)
+      : null,
+    preparedSetup: hydratePreparedEarnUsdcAutodepositSetup(
+      payload.preparedSetup
+    ),
+  };
 }
 
 async function prepareEarnAutodepositCloseOnServer(args: {
@@ -2223,6 +2358,13 @@ function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
 
       return wallet.signTransaction(transaction);
     },
+    ...(wallet.signAllTransactions
+      ? {
+          signAllTransactions: <T extends Transaction | VersionedTransaction>(
+            transactions: T[]
+          ): Promise<T[]> => wallet.signAllTransactions!(transactions),
+        }
+      : {}),
     sendTransaction: (
       transaction: Transaction | VersionedTransaction,
       nextConnection: ReturnType<typeof useConnection>["connection"],
@@ -2558,6 +2700,11 @@ export function useSmartAccountSidebarData(
   const { connection } = useConnection();
   const wallet = useWallet();
   const walletDataClient = useSolanaWalletDataClient();
+  const activeSettingsPdaRef = useRef<string | null>(
+    user?.settingsPda ?? null
+  );
+  const refreshRunIdRef = useRef(0);
+  activeSettingsPdaRef.current = user?.settingsPda ?? null;
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
   const [isBaseLoading, setIsBaseLoading] = useState(false);
   const [isVaultsLoading, setIsVaultsLoading] = useState(false);
@@ -2618,9 +2765,29 @@ export function useSmartAccountSidebarData(
       invalidateAddresses?: string[];
       readCache?: boolean;
     }) => {
-      if (!user?.settingsPda) {
+      const requestedSettingsPda = user?.settingsPda ?? null;
+      activeSettingsPdaRef.current = requestedSettingsPda;
+      const refreshRunId = refreshRunIdRef.current + 1;
+      refreshRunIdRef.current = refreshRunId;
+      const canCommit = () =>
+        activeSettingsPdaRef.current === requestedSettingsPda &&
+        refreshRunIdRef.current === refreshRunId;
+      const commitIfCurrent = (commit: () => void) => {
+        if (!canCommit()) {
+          return false;
+        }
+        commit();
+        return true;
+      };
+
+      if (!requestedSettingsPda) {
         setOverview(null);
         setError(null);
+        setIsBaseLoading(false);
+        setIsVaultsLoading(false);
+        setIsPoliciesLoading(false);
+        setIsProposalsLoading(false);
+        setIsBestApyReservesLoading(false);
         setScopedErrors({
           base: null,
           vaults: null,
@@ -2630,12 +2797,12 @@ export function useSmartAccountSidebarData(
         });
         setBestApyReservesByStablecoin(null);
         setEarnState(null);
-        setHasEarnStateResolved(false);
+        setHasEarnStateResolved(true);
         setIsEarnStateLoading(false);
         return;
       }
 
-      const settingsPda = user.settingsPda;
+      const settingsPda = requestedSettingsPda;
       let baseOverview: SmartAccountOverview | null = null;
       const shouldReadCache = refreshOptions?.readCache ?? true;
       const invalidateAddresses = refreshOptions?.invalidateAddresses?.filter(
@@ -2672,26 +2839,36 @@ export function useSmartAccountSidebarData(
 
       if (cachedOverview) {
         baseOverview = cachedOverview;
-        setOverview(cachedOverview);
-        setBestApyReservesByStablecoin(cachedBestApyReserves);
-        setVaultActivityByAccountIndex({});
-        vaultActivityLoadPromisesRef.current.clear();
+        const didCommit = commitIfCurrent(() => {
+          setOverview(cachedOverview);
+          setBestApyReservesByStablecoin(cachedBestApyReserves);
+          setVaultActivityByAccountIndex({});
+          vaultActivityLoadPromisesRef.current.clear();
+        });
+        if (!didCommit) {
+          return;
+        }
       }
 
-      setIsBaseLoading(true);
-      setIsVaultsLoading(false);
-      setIsPoliciesLoading(false);
-      setIsProposalsLoading(false);
-      setIsBestApyReservesLoading(false);
-      setIsEarnStateLoading(true);
-      setError(null);
-      setScopedErrors({
-        base: null,
-        vaults: null,
-        policies: null,
-        proposals: null,
-        bestApyReserves: null,
+      const didStartLoading = commitIfCurrent(() => {
+        setIsBaseLoading(true);
+        setIsVaultsLoading(false);
+        setIsPoliciesLoading(false);
+        setIsProposalsLoading(false);
+        setIsBestApyReservesLoading(false);
+        setIsEarnStateLoading(true);
+        setError(null);
+        setScopedErrors({
+          base: null,
+          vaults: null,
+          policies: null,
+          proposals: null,
+          bestApyReserves: null,
+        });
       });
+      if (!didStartLoading) {
+        return;
+      }
 
       const earnStatePromise = fetchEarnState().catch(() => null);
 
@@ -2712,6 +2889,9 @@ export function useSmartAccountSidebarData(
           const base = await fetchSmartAccountGroup<SmartAccountOverviewBase>(
             baseUrl
           );
+          if (!canCommit()) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -2728,6 +2908,9 @@ export function useSmartAccountSidebarData(
           vaultActivityLoadPromisesRef.current.clear();
         }
       } catch (nextError) {
+        if (!canCommit()) {
+          return;
+        }
         const message =
           nextError instanceof Error
             ? nextError.message
@@ -2744,7 +2927,13 @@ export function useSmartAccountSidebarData(
         setIsEarnStateLoading(false);
         return;
       } finally {
-        setIsBaseLoading(false);
+        if (canCommit()) {
+          setIsBaseLoading(false);
+        }
+      }
+
+      if (!canCommit()) {
+        return;
       }
 
       if (!baseOverview) {
@@ -2756,6 +2945,9 @@ export function useSmartAccountSidebarData(
       const loadEarnState = async () => {
         try {
           const nextEarnState = await earnStatePromise;
+          if (!canCommit()) {
+            return;
+          }
           setEarnState(nextEarnState);
           if (!nextEarnState) {
             return;
@@ -2767,8 +2959,10 @@ export function useSmartAccountSidebarData(
               : current
           );
         } finally {
-          setHasEarnStateResolved(true);
-          setIsEarnStateLoading(false);
+          if (canCommit()) {
+            setHasEarnStateResolved(true);
+            setIsEarnStateLoading(false);
+          }
         }
       };
 
@@ -2787,7 +2981,9 @@ export function useSmartAccountSidebarData(
           return;
         }
 
-        setIsVaultsLoading(true);
+        if (!commitIfCurrent(() => setIsVaultsLoading(true))) {
+          return;
+        }
 
         try {
           const vaultsUrl = new URL(
@@ -2808,6 +3004,9 @@ export function useSmartAccountSidebarData(
           const vaults = await fetchSmartAccountGroup<
             SmartAccountVaultSnapshot[]
           >(vaultsUrl);
+          if (!canCommit()) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -2820,6 +3019,9 @@ export function useSmartAccountSidebarData(
           setVaultActivityByAccountIndex({});
           vaultActivityLoadPromisesRef.current.clear();
         } catch (nextError) {
+          if (!canCommit()) {
+            return;
+          }
           const message =
             nextError instanceof Error
               ? nextError.message
@@ -2830,7 +3032,9 @@ export function useSmartAccountSidebarData(
           }));
           setError((current) => current ?? message);
         } finally {
-          setIsVaultsLoading(false);
+          if (canCommit()) {
+            setIsVaultsLoading(false);
+          }
         }
       };
 
@@ -2845,7 +3049,9 @@ export function useSmartAccountSidebarData(
           return;
         }
 
-        setIsPoliciesLoading(true);
+        if (!commitIfCurrent(() => setIsPoliciesLoading(true))) {
+          return;
+        }
 
         try {
           const policiesUrl = new URL(
@@ -2856,6 +3062,9 @@ export function useSmartAccountSidebarData(
             await fetchSmartAccountGroup<SmartAccountPolicyOverview>(
               policiesUrl
             );
+          if (!canCommit()) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -2866,6 +3075,9 @@ export function useSmartAccountSidebarData(
             current ? mergePolicyOverview(current, policies) : current
           );
         } catch (nextError) {
+          if (!canCommit()) {
+            return;
+          }
           const message =
             nextError instanceof Error
               ? nextError.message
@@ -2876,7 +3088,9 @@ export function useSmartAccountSidebarData(
           }));
           setError((current) => current ?? message);
         } finally {
-          setIsPoliciesLoading(false);
+          if (canCommit()) {
+            setIsPoliciesLoading(false);
+          }
         }
       };
 
@@ -2893,6 +3107,9 @@ export function useSmartAccountSidebarData(
 
         if (shouldSkipSmartAccountProposalLoad(baseOverview)) {
           const proposals: SmartAccountProposalSnapshot[] = [];
+          if (!canCommit()) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -2911,7 +3128,9 @@ export function useSmartAccountSidebarData(
           return;
         }
 
-        setIsProposalsLoading(true);
+        if (!commitIfCurrent(() => setIsProposalsLoading(true))) {
+          return;
+        }
 
         try {
           const proposalsUrl = new URL(
@@ -2921,6 +3140,9 @@ export function useSmartAccountSidebarData(
           const proposals = await fetchSmartAccountGroup<
             SmartAccountProposalSnapshot[]
           >(proposalsUrl);
+          if (!canCommit()) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -2937,6 +3159,9 @@ export function useSmartAccountSidebarData(
               : current
           );
         } catch (nextError) {
+          if (!canCommit()) {
+            return;
+          }
           const message =
             nextError instanceof Error
               ? nextError.message
@@ -2947,7 +3172,9 @@ export function useSmartAccountSidebarData(
           }));
           setError((current) => current ?? message);
         } finally {
-          setIsProposalsLoading(false);
+          if (canCommit()) {
+            setIsProposalsLoading(false);
+          }
         }
       };
 
@@ -2961,11 +3188,15 @@ export function useSmartAccountSidebarData(
             SMART_ACCOUNT_BEST_APY_RESERVES_TTL_MS
           )
         ) {
-          setBestApyReservesByStablecoin(cachedBestApyReserves);
+          commitIfCurrent(() =>
+            setBestApyReservesByStablecoin(cachedBestApyReserves)
+          );
           return;
         }
 
-        setIsBestApyReservesLoading(true);
+        if (!commitIfCurrent(() => setIsBestApyReservesLoading(true))) {
+          return;
+        }
 
         try {
           const bestApyReservesUrl = new URL(
@@ -2979,6 +3210,9 @@ export function useSmartAccountSidebarData(
           const reserves = await fetchSmartAccountGroup<
             CurrentBestApyReserveByStablecoinSnapshot[]
           >(bestApyReservesUrl);
+          if (!canCommit()) {
+            return;
+          }
           const cacheValue: CurrentBestApyReserveByStablecoinCache = {
             riskProfile: DEFAULT_BEST_APY_RESERVES_RISK_PROFILE,
             reserves,
@@ -2992,6 +3226,9 @@ export function useSmartAccountSidebarData(
           });
           setBestApyReservesByStablecoin(cacheValue);
         } catch (nextError) {
+          if (!canCommit()) {
+            return;
+          }
           const message =
             nextError instanceof Error
               ? nextError.message
@@ -3001,7 +3238,9 @@ export function useSmartAccountSidebarData(
             bestApyReserves: message,
           }));
         } finally {
-          setIsBestApyReservesLoading(false);
+          if (canCommit()) {
+            setIsBestApyReservesLoading(false);
+          }
         }
       };
 
@@ -3017,7 +3256,7 @@ export function useSmartAccountSidebarData(
   );
 
   useEffect(() => {
-    setHasEarnStateResolved(false);
+    setHasEarnStateResolved(!user?.settingsPda);
     setEarnState(null);
   }, [solanaEnv, user?.settingsPda]);
 
@@ -4687,6 +4926,326 @@ export function useSmartAccountSidebarData(
     [connection, solanaEnv, user?.walletAddress, wallet]
   );
 
+  const executeEarnDepositBatch = useCallback(
+    async (request: EarnDepositBatchRequest): Promise<EarnDepositBatchResult> => {
+      if (!wallet.publicKey) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (!user?.walletAddress) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+
+      if (request.amountRaw <= BigInt(0)) {
+        return { success: false, error: "Amount must be greater than 0." };
+      }
+
+      const walletBridge = createWalletAdapterBridge(wallet);
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+      if (!walletBridge.signAllTransactions) {
+        return { success: false, batchUnavailable: true };
+      }
+
+      if (
+        request.preparedDeposit.persistence.principalAmountRaw !==
+        request.amountRaw.toString()
+      ) {
+        return {
+          success: false,
+          error:
+            "Prepared Earn deposit amount changed. Review the deposit again before signing.",
+        };
+      }
+
+      type EarnDepositBatchStage = "policy" | "policy-finalize" | "deposit";
+      const batchStages: Array<{
+        stage: EarnDepositBatchStage;
+        prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"];
+      }> = [];
+
+      if (
+        request.startStage === "policy" &&
+        request.preparedDeposit.policySetupPrepared
+      ) {
+        batchStages.push({
+          stage: "policy",
+          prepared: request.preparedDeposit.policySetupPrepared,
+        });
+      }
+      if (
+        (request.startStage === "policy" ||
+          request.startStage === "policy-finalize") &&
+        request.preparedDeposit.policyFinalizePrepared
+      ) {
+        batchStages.push({
+          stage: "policy-finalize",
+          prepared: request.preparedDeposit.policyFinalizePrepared,
+        });
+      }
+      batchStages.push({
+        stage: "deposit",
+        prepared: request.preparedDeposit.prepared,
+      });
+
+      if (batchStages.length < 2) {
+        return { success: false, batchUnavailable: true };
+      }
+
+      const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
+      const clusterError = validatePreparedEarnPersistenceCluster({
+        expectedCluster: expectedEarnCluster,
+        operation: "deposit",
+        preparedCluster: request.preparedDeposit.persistence.cluster,
+      });
+      if (clusterError) {
+        return { success: false, error: clusterError };
+      }
+
+      setIsActionPending(true);
+      try {
+        const currentEarnState = earnState ?? (await fetchEarnState());
+        if (currentEarnState && currentEarnState !== earnState) {
+          setEarnState(currentEarnState);
+        }
+
+        const onboarding = currentEarnState?.onboarding;
+        let policyConfirmedSlot =
+          request.policyConfirmedSlot ??
+          onboarding?.policy?.lastSeenSlot ??
+          currentEarnState?.policy?.lastSeenSlot;
+        let policySignature =
+          request.policySignature ??
+          onboarding?.policy?.lastSeenSignature ??
+          currentEarnState?.policy?.lastSeenSignature;
+        let setupPolicyConfirmedSlot =
+          request.setupPolicyConfirmedSlot ??
+          onboarding?.setupPolicy?.lastSeenSlot;
+        let setupPolicySignature =
+          request.setupPolicySignature ??
+          onboarding?.setupPolicy?.lastSeenSignature;
+        let depositConfirmedSlot: string | undefined;
+        let depositSignature: string | undefined;
+
+        const collectedSignatureFields = () => ({
+          ...(policyConfirmedSlot && policySignature
+            ? { policyConfirmedSlot, policySignature }
+            : {}),
+          ...(setupPolicyConfirmedSlot && setupPolicySignature
+            ? { setupPolicyConfirmedSlot, setupPolicySignature }
+            : {}),
+        });
+        const resolveResumeStage =
+          (): EarnDepositBatchResult["resumeStage"] => {
+            if (setupPolicyConfirmedSlot && setupPolicySignature) {
+              return "deposit";
+            }
+            if (!request.preparedDeposit.policyFinalizePrepared) {
+              return policyConfirmedSlot && policySignature
+                ? "deposit"
+                : undefined;
+            }
+            return policyConfirmedSlot && policySignature
+              ? "policy-finalize"
+              : undefined;
+          };
+
+        const confirmationRecordFailureRef: {
+          current: {
+            confirmedSlot: string;
+            error: unknown;
+            stage: EarnDepositBatchStage;
+            signature: string;
+          } | null;
+        } = { current: null };
+
+        try {
+          await sendPreparedBatchWithWallet({
+            connection,
+            wallet: walletBridge,
+            prepared: batchStages.map((stage) => stage.prepared),
+            confirm: true,
+            onTransactionConfirmed: async ({ index, signature }) => {
+              const confirmedStage = batchStages[index];
+              if (!confirmedStage) {
+                throw new Error(
+                  "Confirmed transaction did not match a prepared Earn deposit stage."
+                );
+              }
+
+              const confirmedSlot = await resolveConfirmedSignatureSlot({
+                connection,
+                signature,
+              });
+
+              if (
+                confirmedStage.stage === "policy" ||
+                confirmedStage.stage === "policy-finalize"
+              ) {
+                try {
+                  await postConfirmedEarnDepositPolicyStage({
+                    confirmedSlot,
+                    preparedDeposit: request.preparedDeposit,
+                    signature,
+                    stage: confirmedStage.stage,
+                  });
+                } catch (error) {
+                  confirmationRecordFailureRef.current = {
+                    confirmedSlot,
+                    error,
+                    stage: confirmedStage.stage,
+                    signature,
+                  };
+                  throw error;
+                }
+
+                if (confirmedStage.stage === "policy") {
+                  policyConfirmedSlot = confirmedSlot;
+                  policySignature = signature;
+                } else {
+                  setupPolicyConfirmedSlot = confirmedSlot;
+                  setupPolicySignature = signature;
+                }
+
+                const nextEarnState = await fetchEarnState();
+                if (nextEarnState) {
+                  setEarnState(nextEarnState);
+                }
+                return;
+              }
+
+              const policySignatureResolution =
+                resolveEarnDepositConfirmPolicySignature({
+                  activePolicy: currentEarnState?.policy ?? null,
+                  policyConfirmedSlot,
+                  policySignature,
+                  preparedDeposit: request.preparedDeposit,
+                  setupPolicyConfirmedSlot,
+                  setupPolicySignature,
+                });
+              if ("error" in policySignatureResolution) {
+                throw new Error(policySignatureResolution.error);
+              }
+
+              depositConfirmedSlot = confirmedSlot;
+              depositSignature = signature;
+              try {
+                await postConfirmedEarnDeposit({
+                  preparedDeposit: request.preparedDeposit,
+                  policyConfirmedSlot:
+                    policySignatureResolution.policyConfirmedSlot,
+                  policySignature: policySignatureResolution.policySignature,
+                  setupPolicyConfirmedSlot:
+                    policySignatureResolution.setupPolicyConfirmedSlot,
+                  setupPolicySignature:
+                    policySignatureResolution.setupPolicySignature,
+                  signature,
+                  confirmedSlot,
+                  smartAccountAddress:
+                    request.preparedDeposit.vault.pubkey.toBase58(),
+                });
+              } catch (error) {
+                confirmationRecordFailureRef.current = {
+                  confirmedSlot,
+                  error,
+                  stage: confirmedStage.stage,
+                  signature,
+                };
+                throw error;
+              }
+
+              const nextEarnState = await fetchEarnState();
+              if (nextEarnState) {
+                setEarnState(nextEarnState);
+              }
+            },
+          });
+        } catch (error) {
+          const confirmationRecordFailure =
+            confirmationRecordFailureRef.current;
+          if (confirmationRecordFailure) {
+            return {
+              success: false,
+              signature: confirmationRecordFailure.signature,
+              confirmedSlot: confirmationRecordFailure.confirmedSlot,
+              status: "confirmation_record_failed",
+              ...collectedSignatureFields(),
+              resumeStage: resolveResumeStage(),
+              error:
+                confirmationRecordFailure.error instanceof Error
+                  ? confirmationRecordFailure.error.message
+                  : "Failed to record confirmed Earn deposit stage.",
+            };
+          }
+
+          return {
+            success: false,
+            ...collectedSignatureFields(),
+            resumeStage: resolveResumeStage(),
+            error:
+              error instanceof Error ? error.message : "Earn deposit failed.",
+          };
+        }
+
+        if (!depositSignature || !depositConfirmedSlot) {
+          return {
+            success: false,
+            ...collectedSignatureFields(),
+            resumeStage: resolveResumeStage(),
+            error: "Earn deposit batch did not complete the deposit.",
+          };
+        }
+
+        void refreshAfterTx({
+          accountIndex: request.preparedDeposit.vault.accountIndex,
+          refreshAuthenticatedWallet: false,
+        }).catch((err) => {
+          console.warn("[smart-account] post-earn refresh failed", err);
+        });
+
+        return {
+          success: true,
+          signature: depositSignature,
+          confirmedSlot: depositConfirmedSlot,
+          status: "executed",
+          ...collectedSignatureFields(),
+        };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Earn deposit failed.";
+        console.error("[executeEarnDepositBatch] failed", err);
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [
+      connection,
+      earnState,
+      refreshAfterTx,
+      solanaEnv,
+      user?.walletAddress,
+      wallet,
+    ]
+  );
+
   const executeEarnDeposit = useCallback(
     async (request: EarnDepositRequest): Promise<EarnDepositResult> => {
       console.log("[executeEarnDeposit] called", {
@@ -5359,6 +5918,229 @@ export function useSmartAccountSidebarData(
           };
         }
 
+        if (
+          preparedSetup.stage === "create_policy" &&
+          walletBridge.signAllTransactions
+        ) {
+          let batchPrepare:
+            | Awaited<
+                ReturnType<typeof prepareEarnAutodepositSetupBatchOnServer>
+              >
+            | null = null;
+          try {
+            batchPrepare = await prepareEarnAutodepositSetupBatchOnServer({
+              amountRaw: request.amountRaw,
+              nonce: preparedSetup.subscription.nonce,
+              policySeed: preparedSetup.policy.seed ?? undefined,
+              walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+            });
+          } catch (error) {
+            console.warn(
+              "[executeEarnAutodepositSetup] batch prepare failed; falling back to staged setup",
+              error
+            );
+          }
+
+          if (
+            batchPrepare &&
+            isMatchingEarnAutodepositSetupBatch({
+              amountRaw: request.amountRaw,
+              nextPreparedSetup: batchPrepare.nextPreparedSetup,
+              preparedSetup: batchPrepare.preparedSetup,
+            })
+          ) {
+            const batchPreparedSetup = batchPrepare.preparedSetup;
+            const batchNextPreparedSetup = batchPrepare.nextPreparedSetup;
+            if (!batchPreparedSetup || !batchNextPreparedSetup) {
+              return {
+                success: false,
+                error:
+                  "Autodeposit setup batch did not include a recurring delegation.",
+              };
+            }
+            const batchPreparedSetups: readonly SmartAccountPreparedEarnUsdcAutodepositSetup[] =
+              [
+                batchPreparedSetup,
+                batchNextPreparedSetup,
+              ];
+            const clusterError = batchPreparedSetups
+              .map((setup) =>
+                validatePreparedEarnPersistenceCluster({
+                  expectedCluster: expectedEarnCluster,
+                  operation: "autodeposit setup",
+                  preparedCluster: setup.persistence.cluster,
+                })
+              )
+              .find((error): error is string => Boolean(error));
+            if (clusterError) {
+              return { success: false, error: clusterError };
+            }
+
+            const confirmationRecordFailureRef: {
+              current: {
+                confirmedSlot: string;
+                error: unknown;
+                preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+                signature: string;
+              } | null;
+            } = { current: null };
+            let policyConfirmedSlot: string | undefined;
+            let policySignature: string | undefined;
+            let recurringDelegationConfirmedSlot: string | undefined;
+            let recurringDelegationSent = false;
+            let recurringDelegationSignature: string | undefined;
+            let confirmResponse:
+              | EarnAutodepositSetupConfirmResponse
+              | undefined;
+
+            try {
+              await sendPreparedBatchWithWallet({
+                connection,
+                wallet: walletBridge,
+                prepared: batchPreparedSetups.map((setup) => setup.prepared),
+                confirm: true,
+                onTransactionSent: ({ index }) => {
+                  const sentSetup = batchPreparedSetups[index];
+                  if (sentSetup?.stage === "create_recurring_delegation") {
+                    recurringDelegationSent = true;
+                  }
+                },
+                onTransactionConfirmed: async ({ index, signature }) => {
+                  const confirmedSetup = batchPreparedSetups[index];
+                  if (!confirmedSetup) {
+                    throw new Error(
+                      "Confirmed transaction did not match a prepared Autodeposit setup."
+                    );
+                  }
+
+                  const confirmedSlot = await resolveConfirmedSignatureSlot({
+                    connection,
+                    signature,
+                  });
+                  if (confirmedSetup.stage === "create_policy") {
+                    policyConfirmedSlot = confirmedSlot;
+                    policySignature = signature;
+                  } else {
+                    recurringDelegationConfirmedSlot = confirmedSlot;
+                    recurringDelegationSignature = signature;
+                  }
+
+                  try {
+                    const response =
+                      await postConfirmedEarnAutodepositSetup({
+                        preparedSetup: confirmedSetup,
+                        signature,
+                        confirmedSlot,
+                        walletBalanceFloorRaw:
+                          request.walletBalanceFloorRaw,
+                      });
+                    if (
+                      confirmedSetup.stage === "create_recurring_delegation"
+                    ) {
+                      confirmResponse = response;
+                    }
+                  } catch (error) {
+                    confirmationRecordFailureRef.current = {
+                      confirmedSlot,
+                      error,
+                      preparedSetup: confirmedSetup,
+                      signature,
+                    };
+                    throw error;
+                  }
+                },
+              });
+            } catch (error) {
+              const confirmationRecordFailure =
+                confirmationRecordFailureRef.current;
+              if (confirmationRecordFailure) {
+                return {
+                  success: false,
+                  signature: confirmationRecordFailure.signature,
+                  ...getEarnAutodepositSetupSignatureFields(
+                    confirmationRecordFailure.preparedSetup,
+                    confirmationRecordFailure.signature
+                  ),
+                  confirmedSlot: confirmationRecordFailure.confirmedSlot,
+                  status: "confirmation_record_failed",
+                  preparedSetup: confirmationRecordFailure.preparedSetup,
+                  error:
+                    confirmationRecordFailure.error instanceof Error
+                      ? confirmationRecordFailure.error.message
+                      : "Failed to record confirmed Autodeposit setup.",
+                };
+              }
+
+              if (
+                policySignature &&
+                policyConfirmedSlot &&
+                !recurringDelegationSent
+              ) {
+                return {
+                  success: true,
+                  signature: policySignature,
+                  policySignature,
+                  confirmedSlot: policyConfirmedSlot,
+                  status: "executed",
+                  preparedSetup: batchPreparedSetup,
+                  nextPreparedSetup: batchNextPreparedSetup,
+                };
+              }
+
+              return {
+                success: false,
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Autodeposit setup failed.",
+              };
+            }
+
+            if (
+              !confirmResponse ||
+              !recurringDelegationConfirmedSlot ||
+              !recurringDelegationSignature
+            ) {
+              return {
+                success: false,
+                error:
+                  "Autodeposit setup batch did not complete the recurring delegation.",
+              };
+            }
+
+            const nextEarnState = await fetchEarnState();
+            if (nextEarnState) {
+              setEarnState(nextEarnState);
+            }
+            const scheduledSweeps =
+              confirmResponse.bootstrapSweep?.sweep
+                ? [confirmResponse.bootstrapSweep.sweep]
+                : nextEarnState?.autodeposit?.scheduledSweeps ?? [];
+
+            void refreshAfterTx({
+              accountIndex: batchNextPreparedSetup.vault.accountIndex,
+              signerAddresses: [wallet.publicKey.toBase58()],
+            }).catch((err) => {
+              console.warn(
+                "[smart-account] post-autodeposit-setup refresh failed",
+                err
+              );
+            });
+
+            return {
+              success: true,
+              signature: recurringDelegationSignature,
+              policySignature,
+              recurringDelegationSignature,
+              confirmedSlot: recurringDelegationConfirmedSlot,
+              status: "executed",
+              preparedSetup: batchNextPreparedSetup,
+              bootstrapSweep: confirmResponse.bootstrapSweep,
+              scheduledSweeps,
+            };
+          }
+        }
+
         const setupSend = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "autodeposit setup",
@@ -5694,6 +6476,7 @@ export function useSmartAccountSidebarData(
     executeVaultTransfer,
     executeVaultSwap,
     executeEarnDeposit,
+    executeEarnDepositBatch,
     executeEarnDepositPolicyStage,
     executeEarnPolicySetup,
     executeEarnWithdraw,

@@ -1,6 +1,10 @@
 import { compilePreparedOperation } from "@loyal-labs/loyal-smart-accounts-core";
 import { VersionedTransaction } from "@solana/web3.js";
-import type { SendPreparedWithWalletArgs, WalletAdapterLike } from "./types";
+import type {
+  SendPreparedBatchWithWalletArgs,
+  SendPreparedWithWalletArgs,
+  WalletAdapterLike,
+} from "./types";
 
 async function sendVersionedTransaction(args: {
   wallet: WalletAdapterLike;
@@ -64,6 +68,85 @@ export async function sendPreparedWithWallet({
   }
 
   return signature;
+}
+
+export async function sendPreparedBatchWithWallet({
+  connection,
+  wallet,
+  prepared,
+  confirm = "if-required",
+  sendOptions,
+  onTransactionConfirmed,
+  onTransactionSent,
+}: SendPreparedBatchWithWalletArgs): Promise<string[]> {
+  if (!wallet.signAllTransactions) {
+    throw new Error("Connected wallet does not support signAllTransactions.");
+  }
+  if (prepared.length === 0) {
+    return [];
+  }
+
+  const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+  const transactions = prepared.map((operation) =>
+    compilePreparedOperation({
+      prepared: operation,
+      blockhash: latestBlockhash.blockhash,
+    })
+  );
+  const signedTransactions = await wallet.signAllTransactions(transactions);
+  if (signedTransactions.length !== prepared.length) {
+    throw new Error("Signed transaction count does not match prepared count.");
+  }
+  const signatures: string[] = [];
+
+  for (const [index, signedTransaction] of signedTransactions.entries()) {
+    const operation = prepared[index];
+    if (!operation) {
+      throw new Error("Signed transaction count does not match prepared count.");
+    }
+
+    const signature = await connection.sendRawTransaction(
+      signedTransaction.serialize(),
+      sendOptions
+    );
+    signatures.push(signature);
+    await onTransactionSent?.({
+      index,
+      prepared: operation,
+      signature,
+    });
+
+    const shouldConfirm =
+      confirm === true ||
+      (confirm !== false && operation.requiresConfirmation);
+
+    if (shouldConfirm) {
+      const confirmation = await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: latestBlockhash.blockhash,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        },
+        "confirmed"
+      );
+
+      if (confirmation.value.err) {
+        throw new Error(
+          `Transaction ${signature} failed to confirm: ${JSON.stringify(
+            confirmation.value.err
+          )}`
+        );
+      }
+    }
+
+    await onTransactionConfirmed?.({
+      index,
+      prepared: operation,
+      signature,
+    });
+  }
+
+  return signatures;
 }
 
 export function isWalletAdapterLike(

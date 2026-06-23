@@ -15,9 +15,7 @@ import {
   RefreshCw,
   Repeat2,
   Shield as ShieldIcon,
-  SlidersHorizontal,
   Sparkles,
-  TrendingUp,
   Wallet,
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
@@ -54,7 +52,6 @@ import {
   type SetStateAction,
 } from "react";
 
-import { WalletSignIn } from "@/components/auth/wallet-sign-in";
 import { DogWithMood } from "@/components/chat-input";
 import { PrivateClientPreloader } from "@/components/solana/private-client-preloader";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
@@ -1193,74 +1190,6 @@ function WalletRail({
   );
 }
 
-function SignInValueRow({
-  desc,
-  icon,
-  title,
-}: {
-  desc: string;
-  icon: React.ReactNode;
-  title: string;
-}) {
-  return (
-    <div className="wallet-signin-value">
-      <span aria-hidden="true" className="wallet-signin-value-icon">
-        {icon}
-      </span>
-      <div className="wallet-signin-value-copy">
-        <strong>{title}</strong>
-        <small>{desc}</small>
-      </div>
-    </div>
-  );
-}
-
-function SignedOutDetailPane() {
-  return (
-    <div className="wallet-signin-screen">
-      <div className="wallet-signin-card">
-        <div className="wallet-signin-brand">
-          <div aria-hidden="true" className="wallet-signin-mascot">
-            <DogWithMood />
-          </div>
-          <div className="wallet-signin-headline">
-            <h2>Makes your money bigger</h2>
-            <p>
-              A self-custodial way to earn, automate deposits, and keep control
-              of every move.
-            </p>
-          </div>
-          <div className="wallet-signin-values">
-            <SignInValueRow
-              desc="Automatically moves stablecoins toward better APY"
-              icon={<TrendingUp size={18} strokeWidth={1.9} />}
-              title="Earn"
-            />
-            <SignInValueRow
-              desc="Put idle wallet balances to work automatically"
-              icon={<Repeat2 size={18} strokeWidth={1.9} />}
-              title="Autodeposit"
-            />
-            <SignInValueRow
-              desc="Your funds stay in your custody, with permissions you approve"
-              icon={<SlidersHorizontal size={18} strokeWidth={1.9} />}
-              title="You stay in control"
-            />
-          </div>
-        </div>
-
-        <div className="wallet-signin-form">
-          <div className="wallet-signin-form-head">
-            <h3>Sign in</h3>
-            <p>Connect your Solana wallet to continue.</p>
-          </div>
-          <WalletSignIn />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function WorkspaceDetailSkeleton() {
   return (
     <div
@@ -1788,6 +1717,14 @@ export function AppWalletWorkspace({
   const { connection } = useConnection();
   const wallet = useWallet();
   const { disconnect } = wallet;
+  const { logout, user } = useAuthSession();
+  const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
+  const { open: openSignIn, close: closeSignIn } = useSignInModal();
+  const hasSmartAccountSession =
+    isSignedIn && Boolean(user?.smartAccountAddress && user?.settingsPda);
+  const appAccessMode = hasSmartAccountSession ? "loggedIn" : "anonymous";
+  const canLoadPersonalAccount = appAccessMode === "loggedIn";
+  const canMutateAccount = appAccessMode === "loggedIn";
   const connectedWalletAddress = wallet.publicKey?.toBase58() ?? null;
   const [shouldLoadMainAccountPortfolio, setShouldLoadMainAccountPortfolio] =
     useState(false);
@@ -1802,9 +1739,24 @@ export function AppWalletWorkspace({
     shieldedBalancesUnlockKey !== null &&
     shieldedBalancesUnlockedForKey === shieldedBalancesUnlockKey;
   const walletDesktopData = useWalletDesktopData({
-    enabled: shouldLoadMainAccountPortfolio || hasUnlockedShieldedBalances,
+    enabled:
+      canLoadPersonalAccount &&
+      (shouldLoadMainAccountPortfolio || hasUnlockedShieldedBalances),
     includeSecureBalances: hasUnlockedShieldedBalances,
   });
+  const personalWalletPositions = useMemo<PortfolioPosition[]>(
+    () => (canLoadPersonalAccount ? walletDesktopData.positions : []),
+    [canLoadPersonalAccount, walletDesktopData.positions]
+  );
+  const personalWalletAllTokenRows = useMemo<
+    typeof walletDesktopData.allTokenRows
+  >(
+    () => (canLoadPersonalAccount ? walletDesktopData.allTokenRows : []),
+    [canLoadPersonalAccount, walletDesktopData.allTokenRows]
+  );
+  const personalWalletAddress = canLoadPersonalAccount
+    ? walletDesktopData.walletAddress
+    : null;
   const trackedKaminoUsdcMint = useMemo(
     () => resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
@@ -1812,7 +1764,7 @@ export function AppWalletWorkspace({
   const mainAccountUsdcBalance = useMainAccountUsdcBalance({
     connection,
     mint: trackedKaminoUsdcMint,
-    walletAddress: walletDesktopData.walletAddress,
+    walletAddress: personalWalletAddress,
   });
   const setMainAccountUsdcAmountRaw = mainAccountUsdcBalance.setAmountRaw;
   const debitMainAccountUsdcBalance = useCallback(
@@ -1846,7 +1798,7 @@ export function AppWalletWorkspace({
   );
   const mainAccountStablecoinUsd = useMemo(() => {
     const portfolioStablecoinUsd = sumPublicStablecoinUsd(
-      walletDesktopData.positions,
+      personalWalletPositions,
       stablecoinMints
     );
 
@@ -1855,7 +1807,7 @@ export function AppWalletWorkspace({
     }
 
     const trackedUsdcPosition = findEarnUsdcPosition(
-      walletDesktopData.positions,
+      personalWalletPositions,
       trackedKaminoUsdcMint
     );
     const trackedUsdcPriceUsd =
@@ -1875,11 +1827,13 @@ export function AppWalletWorkspace({
     );
   }, [
     mainAccountUsdcBalance.amount,
+    personalWalletPositions,
     stablecoinMints,
     trackedKaminoUsdcMint,
-    walletDesktopData.positions,
   ]);
-  const mainAccountDisplayUsd = mainAccountStablecoinUsd;
+  const mainAccountDisplayUsd = canLoadPersonalAccount
+    ? mainAccountStablecoinUsd
+    : 0;
   const mainAccountDisplayBalance = useMemo(
     () => splitUsdBalance(mainAccountDisplayUsd),
     [mainAccountDisplayUsd]
@@ -1889,9 +1843,6 @@ export function AppWalletWorkspace({
     authenticatedUserTotalUsd: mainAccountDisplayUsd,
     onAfterTx: refreshMainAccountBalances,
   });
-  const { logout, user } = useAuthSession();
-  const { isHydrated: isAuthHydrated, isSignedIn } = useAuthCapability();
-  const { open: openSignIn, close: closeSignIn } = useSignInModal();
   const {
     position: activeEarnPosition,
     refresh: refreshActiveEarnPosition,
@@ -1901,11 +1852,11 @@ export function AppWalletWorkspace({
   } = useActiveEarnPosition({
     connection,
     earnPolicy: smartAccountData.earnPolicy,
-    enabled: isAuthHydrated && isSignedIn,
+    enabled: isAuthHydrated && canLoadPersonalAccount,
     programId: smartAccountData.overview?.programId,
     settingsPda: smartAccountData.overview?.settingsPda,
     solanaEnv: publicEnv.solanaEnv,
-    walletAddress: walletDesktopData.walletAddress,
+    walletAddress: personalWalletAddress,
   });
   const [earnTransactionsRefreshKey, setEarnTransactionsRefreshKey] =
     useState(0);
@@ -1914,13 +1865,13 @@ export function AppWalletWorkspace({
     invalidateEarnTransactionsCache({
       settingsPda: smartAccountData.overview?.settingsPda,
       solanaEnv: publicEnv.solanaEnv,
-      walletAddress: walletDesktopData.walletAddress ?? undefined,
+      walletAddress: personalWalletAddress ?? undefined,
     });
     setEarnTransactionsRefreshKey((value) => value + 1);
   }, [
     publicEnv.solanaEnv,
     smartAccountData.overview?.settingsPda,
-    walletDesktopData.walletAddress,
+    personalWalletAddress,
   ]);
   const signInOpenedForConnectRef = useRef(false);
   const experimentalModeClickCountRef = useRef(0);
@@ -2155,7 +2106,7 @@ export function AppWalletWorkspace({
   >(null);
   const autodepositCacheScope = useMemo(() => {
     const settingsPda = smartAccountData.overview?.settingsPda;
-    const walletAddress = walletDesktopData.walletAddress;
+    const walletAddress = personalWalletAddress;
     if (!settingsPda || !walletAddress) {
       return null;
     }
@@ -2166,9 +2117,9 @@ export function AppWalletWorkspace({
       walletAddress,
     };
   }, [
+    personalWalletAddress,
     publicEnv.solanaEnv,
     smartAccountData.overview?.settingsPda,
-    walletDesktopData.walletAddress,
   ]);
   useEffect(() => {
     if (!autodepositCacheScope || !smartAccountData.isEarnStateLoading) {
@@ -2291,9 +2242,9 @@ export function AppWalletWorkspace({
     activeDetailSelection === "earnWithdraw";
   const isAuthResolving = !isAuthHydrated;
   const hasSmartAccountShell = Boolean(smartAccountData.overview);
-  const hasWalletShell = Boolean(walletDesktopData.walletAddress);
+  const hasWalletShell = Boolean(personalWalletAddress);
   const isWorkspaceLoading =
-    isSignedIn &&
+    canLoadPersonalAccount &&
     walletDesktopData.isLoading &&
     !hasWalletShell &&
     !hasSmartAccountShell;
@@ -2303,16 +2254,13 @@ export function AppWalletWorkspace({
   // without this the pane briefly flashes "No vaults found" before the Main
   // Account appears.
   const isSmartAccountShellLoading =
-    isSignedIn &&
+    canLoadPersonalAccount &&
     !hasSmartAccountShell &&
     (smartAccountData.isLoading || !user?.settingsPda);
   const isSmartAccountRateLimited =
-    isSignedIn && isRateLimitedSmartAccountError(smartAccountData.error);
-  const showWorkspaceShell =
-    isAuthHydrated &&
-    (isSignedIn ||
-      activeSection === "policies" ||
-      activeSection === "settings");
+    canLoadPersonalAccount &&
+    isRateLimitedSmartAccountError(smartAccountData.error);
+  const showAccountShell = isAuthHydrated;
   const selectedAgent =
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
@@ -2345,7 +2293,7 @@ export function AppWalletWorkspace({
       })
     );
     if (fromVault.length > 0) return fromVault;
-    const addr = walletDesktopData.walletAddress;
+    const addr = personalWalletAddress;
     if (!addr) return [];
     return [
       {
@@ -2358,7 +2306,7 @@ export function AppWalletWorkspace({
     ];
   }, [
     selectedVault,
-    walletDesktopData.walletAddress,
+    personalWalletAddress,
     walletDesktopData.walletLabel,
   ]);
   const selectedApproval = useMemo(
@@ -2501,10 +2449,8 @@ export function AppWalletWorkspace({
     );
   }, [selectedVault?.spendingLimits]);
   const walletSpendingLimitActionKeys = new Set([
-    `set:${selectedVaultAccountIndex}:${walletDesktopData.walletAddress ?? ""}`,
-    `delete:${selectedVaultAccountIndex}:${
-      walletDesktopData.walletAddress ?? ""
-    }`,
+    `set:${selectedVaultAccountIndex}:${personalWalletAddress ?? ""}`,
+    `delete:${selectedVaultAccountIndex}:${personalWalletAddress ?? ""}`,
   ]);
   const pendingSpendingLimitKeys = selectedAgent
     ? new Set([
@@ -2517,7 +2463,7 @@ export function AppWalletWorkspace({
     ? `delete-signer:${selectedVaultAccountIndex}:${selectedAgent.address}`
     : null;
   const derivedTokens = useMemo<SwapToken[]>(() => {
-    const positions = walletDesktopData.positions;
+    const positions = personalWalletPositions;
 
     if (!positions || positions.length === 0) {
       return fallbackSwapTokens;
@@ -2547,7 +2493,7 @@ export function AppWalletWorkspace({
     }
 
     return tokens;
-  }, [walletDesktopData.positions]);
+  }, [personalWalletPositions]);
   const vaultDerivedTokens = useMemo<SwapToken[]>(() => {
     const vault = smartAccountData.overview?.vaults.find(
       (entry) => entry.accountIndex === selectedVaultAccountIndex
@@ -2559,7 +2505,7 @@ export function AppWalletWorkspace({
   }, [smartAccountData.overview?.vaults, selectedVaultAccountIndex]);
   const securedTokens = useMemo<SwapToken[]>(
     () =>
-      walletDesktopData.positions
+      personalWalletPositions
         .filter((position) => position.securedBalance > 0)
         .map((position) => ({
           balance: position.securedBalance,
@@ -2570,7 +2516,7 @@ export function AppWalletWorkspace({
           price: position.priceUsd ?? 0,
           symbol: position.asset.symbol,
         })),
-    [walletDesktopData.positions]
+    [personalWalletPositions]
   );
   const shieldSourceTokens = useMemo(
     () => [...derivedTokens, ...securedTokens],
@@ -2578,8 +2524,8 @@ export function AppWalletWorkspace({
   );
   const mainAccountUsdcPosition = useMemo(
     () =>
-      findEarnUsdcPosition(walletDesktopData.positions, trackedKaminoUsdcMint),
-    [trackedKaminoUsdcMint, walletDesktopData.positions]
+      findEarnUsdcPosition(personalWalletPositions, trackedKaminoUsdcMint),
+    [personalWalletPositions, trackedKaminoUsdcMint]
   );
   const mainAccountVisibleUsdcBalanceRaw = useMemo(
     () =>
@@ -2590,28 +2536,32 @@ export function AppWalletWorkspace({
   const earnDepositSources = useMemo<EarnDepositSourceOption[]>(() => {
     const sources: EarnDepositSourceOption[] = [];
     const mainUsdcPosition = mainAccountUsdcPosition;
-    const mainUsdcBalance =
-      mainAccountUsdcBalance.amount ?? mainUsdcPosition?.publicBalance ?? 0;
+    const mainUsdcBalance = canLoadPersonalAccount
+      ? mainAccountUsdcBalance.amount ?? mainUsdcPosition?.publicBalance ?? 0
+      : 0;
     const mainBalance = splitUsdcSourceBalance(mainUsdcBalance);
 
     sources.push({
-      addressLabel: formatAddressForEarnSource(walletDesktopData.walletAddress),
+      addressLabel: canLoadPersonalAccount
+        ? formatAddressForEarnSource(personalWalletAddress)
+        : "Not connected",
       balance: mainUsdcBalance,
       balanceFraction: mainBalance.fraction,
       balanceWhole: mainBalance.whole,
       decimals: 6,
       icon: getWalletIcon(),
       id: "main",
-      label: "Main",
+      label: canLoadPersonalAccount ? "Main" : "Wallet",
       mint: trackedKaminoUsdcMint ?? mainUsdcPosition?.asset.mint ?? null,
     });
 
     return sources;
   }, [
+    canLoadPersonalAccount,
     mainAccountUsdcBalance.amount,
     mainAccountUsdcPosition,
+    personalWalletAddress,
     trackedKaminoUsdcMint,
-    walletDesktopData.walletAddress,
   ]);
   const autodepositWalletBalanceFloorRaw = useMemo(() => {
     const loadedFloorRaw =
@@ -2750,6 +2700,9 @@ export function AppWalletWorkspace({
             draft: pendingEarnDepositDraft,
             isPolicySetupFlow: isEarnDepositPolicySetupFlow,
             preparedDeposit: pendingEarnDepositPrepared,
+            showBatchTransactions: Boolean(
+              wallet.signAllTransactions && pendingEarnDepositPrepared
+            ),
             stage: earnDepositReviewStage,
           })
         : null,
@@ -2759,6 +2712,7 @@ export function AppWalletWorkspace({
       isEarnDepositPolicySetupFlow,
       pendingEarnDepositDraft,
       pendingEarnDepositPrepared,
+      wallet.signAllTransactions,
     ]
   );
   const earnWithdrawReviewItem = useMemo(
@@ -2843,7 +2797,7 @@ export function AppWalletWorkspace({
                   rows: [
                     {
                       label: "Wallet",
-                      value: shortCommandAddress(walletDesktopData.walletAddress),
+                      value: shortCommandAddress(personalWalletAddress),
                     },
                     {
                       label: "Why sign",
@@ -2866,7 +2820,7 @@ export function AppWalletWorkspace({
               title: "Shielded balances",
             }
           : null,
-      [isShieldedBalancesUnlockReviewOpen, walletDesktopData.walletAddress]
+      [isShieldedBalancesUnlockReviewOpen, personalWalletAddress]
     );
   // A staged wallet action is being reviewed in the right pane.
   const isReviewApprovalFocused = Boolean(
@@ -2920,7 +2874,7 @@ export function AppWalletWorkspace({
       : "0";
   const earnEarningsCacheKey = [
     publicEnv.solanaEnv,
-    walletDesktopData.walletAddress ?? "anonymous",
+    personalWalletAddress ?? "anonymous",
     smartAccountData.overview?.settingsPda ?? "no-settings",
     earnEarningsPrincipalAmountRaw,
   ].join(":");
@@ -2937,22 +2891,22 @@ export function AppWalletWorkspace({
   const shieldSecuredBalance = useMemo(() => {
     if (!shieldToken.mint) return 0;
 
-    const position = walletDesktopData.positions.find(
+    const position = personalWalletPositions.find(
       (entry) => entry.asset.mint === shieldToken.mint
     );
 
     return position?.securedBalance ?? 0;
-  }, [shieldToken.mint, walletDesktopData.positions]);
+  }, [personalWalletPositions, shieldToken.mint]);
 
   useEffect(() => {
     if (!isAuthHydrated) {
       return;
     }
 
-    if (!isSignedIn) {
+    if (appAccessMode === "anonymous") {
       invalidateEarnClientCaches();
     }
-  }, [invalidateEarnClientCaches, isAuthHydrated, isSignedIn]);
+  }, [appAccessMode, invalidateEarnClientCaches, isAuthHydrated]);
 
   useEffect(() => {
     setConnectAgentAddress(
@@ -3100,7 +3054,7 @@ export function AppWalletWorkspace({
     setDetailSelection("connect");
     setSelectedDetail("Connection request");
 
-    if (isSignedIn) {
+    if (canLoadPersonalAccount) {
       if (signInOpenedForConnectRef.current) {
         signInOpenedForConnectRef.current = false;
         closeSignIn();
@@ -3113,7 +3067,7 @@ export function AppWalletWorkspace({
   }, [
     closeSignIn,
     connectAgentAddress,
-    isSignedIn,
+    canLoadPersonalAccount,
     openSignIn,
     setDetailSelection,
   ]);
@@ -3132,12 +3086,21 @@ export function AppWalletWorkspace({
   }, [selectedApprovalId, smartAccountData.approvals, draftProposal]);
 
   useEffect(() => {
-    if (!isSignedIn) {
+    if (!isAuthHydrated) {
+      return;
+    }
+
+    if (appAccessMode === "anonymous") {
       hasRestoredSelectionRef.current = false;
       hasLocalDetailSelectionRef.current = false;
       setIsSelectionRestored(false);
+      if (!connectAgentAddress) {
+        setSelectedSignerId(null);
+        setDetailSelectionState("earn");
+        setSelectedDetail("Earn");
+      }
     }
-  }, [isSignedIn]);
+  }, [appAccessMode, connectAgentAddress, isAuthHydrated]);
 
   // Lazy-load the agent's own wallet portfolio when an agent (non-Main Account
   // signer) is selected. Skips the Main Account row — that wallet is already
@@ -3158,7 +3121,7 @@ export function AppWalletWorkspace({
   useEffect(() => {
     if (
       hasRestoredSelectionRef.current ||
-      !isSignedIn ||
+      !canLoadPersonalAccount ||
       !smartAccountData.overview ||
       walletDesktopData.isLoading ||
       smartAccountData.isBaseLoading
@@ -3246,7 +3209,7 @@ export function AppWalletWorkspace({
     setSelectedDetail(`${storedSigner.label} · ${storedSigner.shortAddress}`);
     hasRestoredSelectionRef.current = true;
   }, [
-    isSignedIn,
+    canLoadPersonalAccount,
     smartAccountData,
     smartAccountData.overview,
     setDetailSelection,
@@ -3256,7 +3219,7 @@ export function AppWalletWorkspace({
   ]);
 
   useEffect(() => {
-    if (!hasRestoredSelectionRef.current || !isSignedIn) return;
+    if (!hasRestoredSelectionRef.current || !canLoadPersonalAccount) return;
 
     const stableSelection =
       detailSelection === "action" ? actionReturnSelection : detailSelection;
@@ -3303,7 +3266,7 @@ export function AppWalletWorkspace({
   }, [
     actionReturnSelection,
     detailSelection,
-    isSignedIn,
+    canLoadPersonalAccount,
     selectedAgent,
     selectedSignerId,
     selectedVault,
@@ -3706,12 +3669,12 @@ export function AppWalletWorkspace({
   );
 
   const handleCommandCopyWalletAddress = useCallback(() => {
-    if (!walletDesktopData.walletAddress) return;
+    if (!personalWalletAddress) return;
 
-    void navigator.clipboard?.writeText(walletDesktopData.walletAddress);
+    void navigator.clipboard?.writeText(personalWalletAddress);
     setDogNice(true);
     setTimeout(() => setDogNice(false), 1600);
-  }, [walletDesktopData.walletAddress]);
+  }, [personalWalletAddress]);
 
   const handleCommandReceiveOrTopUp = useCallback(() => {
     if (activeDetailSelection === "wallet") {
@@ -3882,6 +3845,11 @@ export function AppWalletWorkspace({
 
   const handleSaveAutodeposit = useCallback(
     async (keepAmount: string) => {
+      if (!canMutateAccount) {
+        openSignIn();
+        return;
+      }
+
       const source = earnDepositSources.find((entry) => entry.id === "main");
       if (!source) {
         setProposalActionError("Main Account USDC source is not loaded yet.");
@@ -3996,9 +3964,11 @@ export function AppWalletWorkspace({
     },
     [
       autodepositConfig,
+      canMutateAccount,
       earnDepositSources,
       invalidateEarnClientCaches,
       markDetailPaneTransition,
+      openSignIn,
       setDetailSelection,
       smartAccountData,
     ]
@@ -4157,7 +4127,7 @@ export function AppWalletWorkspace({
       draft: EarnDepositDraft
     ): Promise<SmartAccountPreparedEarnUsdcDeposit> => {
       const overview = smartAccountData.overview;
-      const walletAddress = walletDesktopData.walletAddress;
+      const walletAddress = personalWalletAddress;
       const policySignerPublicKey = smartAccountData.earnPolicySignerPublicKey;
 
       if (!overview || !walletAddress) {
@@ -4245,7 +4215,7 @@ export function AppWalletWorkspace({
       smartAccountData.earnPolicySignerPublicKey,
       smartAccountData.hasEarnStateResolved,
       smartAccountData.overview,
-      walletDesktopData.walletAddress,
+      personalWalletAddress,
     ]
   );
 
@@ -4256,7 +4226,7 @@ export function AppWalletWorkspace({
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
       const overview = smartAccountData.overview;
       const policy = smartAccountData.earnPolicy;
-      const walletAddress = walletDesktopData.walletAddress;
+      const walletAddress = personalWalletAddress;
 
       if (!overview || !walletAddress) {
         throw new Error("Smart-account overview is not loaded yet.");
@@ -4354,7 +4324,7 @@ export function AppWalletWorkspace({
       smartAccountData.earnAutodeposit,
       smartAccountData.earnPolicy,
       smartAccountData.overview,
-      walletDesktopData.walletAddress,
+      personalWalletAddress,
     ]
   );
 
@@ -4462,6 +4432,11 @@ export function AppWalletWorkspace({
 
   const handleSubmitEarnDepositDraft = useCallback(
     async (draft: EarnDepositDraft) => {
+      if (!canMutateAccount) {
+        openSignIn();
+        return;
+      }
+
       const requiresPolicySetup =
         smartAccountData.requiresEarnPolicySetupForDeposit;
       setProposalActionError(null);
@@ -4540,9 +4515,11 @@ export function AppWalletWorkspace({
     },
     [
       debitMainAccountUsdcBalance,
+      canMutateAccount,
       hasEarnPosition,
       invalidateEarnClientCaches,
       markDetailPaneTransition,
+      openSignIn,
       prepareEarnDepositInBrowser,
       setActiveEarnPosition,
       setDetailSelection,
@@ -4685,6 +4662,72 @@ export function AppWalletWorkspace({
       let stageSignatures: EarnDepositPolicyStageSignatures = {
         ...earnDepositPolicyStageSignatures,
       };
+      const amountRaw = parseTokenAmountLabelToRaw(
+        pendingEarnDepositDraft.amountLabel,
+        pendingEarnDepositDraft.tokenDecimals
+      );
+
+      if (stage === "policy" || stage === "policy-finalize") {
+        const batchResult = await smartAccountData.executeEarnDepositBatch({
+          amountRaw,
+          preparedDeposit: pendingEarnDepositPrepared,
+          startStage: stage,
+          ...stageSignatures,
+        });
+
+        if (!batchResult.batchUnavailable) {
+          stageSignatures = {
+            ...stageSignatures,
+            ...(batchResult.policyConfirmedSlot && batchResult.policySignature
+              ? {
+                  policyConfirmedSlot: batchResult.policyConfirmedSlot,
+                  policySignature: batchResult.policySignature,
+                }
+              : {}),
+            ...(batchResult.setupPolicyConfirmedSlot &&
+            batchResult.setupPolicySignature
+              ? {
+                  setupPolicyConfirmedSlot:
+                    batchResult.setupPolicyConfirmedSlot,
+                  setupPolicySignature: batchResult.setupPolicySignature,
+                }
+              : {}),
+          };
+          setEarnDepositPolicyStageSignatures(stageSignatures);
+
+          if (!batchResult.success) {
+            if (batchResult.resumeStage) {
+              setEarnDepositReviewStage(batchResult.resumeStage);
+            }
+            throw new Error(batchResult.error ?? "Earn deposit failed.");
+          }
+
+          markDetailPaneTransition("back");
+          setPendingEarnDepositDraft(null);
+          setPendingEarnDepositPrepared(null);
+          setEarnDepositReviewStage("deposit");
+          setIsEarnDepositPolicySetupFlow(false);
+          setEarnDepositPolicyStageSignatures({});
+          setEarnDepositPrepareError(null);
+          invalidateEarnClientCaches();
+          setActiveEarnPosition((current) => {
+            return buildPostDepositEarnPosition({
+              amountRaw,
+              confirmedSlot: batchResult.confirmedSlot,
+              current,
+              preparedDeposit: pendingEarnDepositPrepared,
+            });
+          });
+          debitMainAccountUsdcBalance(amountRaw);
+          suppressEarnSubscriptionRefreshThroughSlot(
+            batchResult.confirmedSlot
+          );
+          setSelectedSignerId(null);
+          setDetailSelection("earn");
+          setSelectedDetail("Earn");
+          return;
+        }
+      }
 
       for (;;) {
         setEarnDepositReviewStage(stage);
@@ -4733,10 +4776,6 @@ export function AppWalletWorkspace({
           continue;
         }
 
-        const amountRaw = parseTokenAmountLabelToRaw(
-          pendingEarnDepositDraft.amountLabel,
-          pendingEarnDepositDraft.tokenDecimals
-        );
         const result = await smartAccountData.executeEarnDeposit({
           amountRaw,
           ...stageSignatures,
@@ -5246,8 +5285,8 @@ export function AppWalletWorkspace({
       setSelectedSignerId(agent.id);
 
       if (
-        walletDesktopData.walletAddress &&
-        agent.address === walletDesktopData.walletAddress
+        personalWalletAddress &&
+        agent.address === personalWalletAddress
       ) {
         setDetailSelection("wallet");
         setSelectedDetail(`${agent.label} · ${agent.shortAddress}`);
@@ -5259,8 +5298,8 @@ export function AppWalletWorkspace({
     },
     [
       markDetailPaneTransition,
+      personalWalletAddress,
       setDetailSelection,
-      walletDesktopData.walletAddress,
     ]
   );
 
@@ -5590,7 +5629,7 @@ export function AppWalletWorkspace({
       derivedTokens,
       trackedKaminoUsdcMint
     );
-    const tokenCommands = walletDesktopData.allTokenRows.map((token, index) => {
+    const tokenCommands = personalWalletAllTokenRows.map((token, index) => {
       const tokenKind = token.isSecured ? "Shielded balance" : "Balance";
       const tokenValue = token.value ? ` · ${token.value}` : "";
 
@@ -5788,8 +5827,8 @@ export function AppWalletWorkspace({
             onSelect: () => setIsBalanceHidden((current) => !current),
           },
           {
-            description: shortCommandAddress(walletDesktopData.walletAddress),
-            disabled: !walletDesktopData.walletAddress,
+            description: shortCommandAddress(personalWalletAddress),
+            disabled: !personalWalletAddress,
             icon: <Copy size={18} strokeWidth={1.8} />,
             id: "account:copy-wallet",
             keywords: ["copy", "address", "wallet"],
@@ -5830,14 +5869,14 @@ export function AppWalletWorkspace({
     isSignedIn,
     latestPendingApproval,
     openSignIn,
+    personalWalletAddress,
+    personalWalletAllTokenRows,
     runOnWallet,
     runProposalAction,
     selectedSignerId,
     selectedVault,
     smartAccountData,
     trackedKaminoUsdcMint,
-    walletDesktopData.allTokenRows,
-    walletDesktopData.walletAddress,
   ]);
 
   const handleTransientDetailBack = useCallback(() => {
@@ -5984,10 +6023,6 @@ export function AppWalletWorkspace({
       return <WorkspaceDetailSkeleton />;
     }
 
-    if (!isSignedIn) {
-      return <SignedOutDetailPane />;
-    }
-
     if (smartAccountData.error && !smartAccountData.overview) {
       return (
         <WorkspaceErrorPane
@@ -6004,10 +6039,9 @@ export function AppWalletWorkspace({
     // the default (Earn) first. `isWorkspaceLoading` clears as soon as the
     // wallet address loads — which is before `overview`/restore — so without
     // this guard the default pane paints in that gap. Gated on `settingsPda`
-    // (known from the session before `overview` loads) so users with no smart
-    // account — whose data load no-ops and never restores — don't hang here,
-    // and placed after the error check so a load failure still surfaces.
-    if (isSignedIn && Boolean(user?.settingsPda) && !isSelectionRestored) {
+    // The anonymous preview path skips this gate entirely so it can render the
+    // Earn deposit surface with empty personal state.
+    if (canLoadPersonalAccount && !isSelectionRestored) {
       return <WorkspaceDetailSkeleton />;
     }
 
@@ -6034,14 +6068,17 @@ export function AppWalletWorkspace({
     if (isEarnDepositDetailActive) {
       return (
         <EarnDepositView
+          defaultChartTab={canMutateAccount ? "Forecast" : "Historical"}
           isSubmitting={
             smartAccountData.isActionPending || isEarnDepositPreparePending
           }
           onDraftChange={handleEarnDepositFormDraftChange}
           onClose={handleOpenEarn}
           onDraftSubmit={handleSubmitEarnDepositDraft}
+          showFundingControls={canMutateAccount}
           showCloseButton={hasEarnAccess}
           sources={earnDepositSources}
+          submitCtaLabel={canMutateAccount ? null : "Connect"}
           submitError={earnDepositPrepareError}
         />
       );
@@ -6067,7 +6104,7 @@ export function AppWalletWorkspace({
             expectedPrincipalAmountRaw: earnEarningsPrincipalAmountRaw,
             settingsPda: smartAccountData.overview?.settingsPda,
             solanaEnv: publicEnv.solanaEnv,
-            walletAddress: walletDesktopData.walletAddress,
+            walletAddress: personalWalletAddress,
           }}
           hasCurrentPosition={hasEarnAccess}
           isAutodepositConfigured={Boolean(autodepositConfig)}
@@ -6119,37 +6156,45 @@ export function AppWalletWorkspace({
     if (detailSelection === "wallet") {
       const isMainAccountDetail = Boolean(
         selectedAgent?.address &&
-          walletDesktopData.walletAddress &&
-          selectedAgent.address === walletDesktopData.walletAddress
+          personalWalletAddress &&
+          selectedAgent.address === personalWalletAddress
       );
       const walletDetailAddress =
-        selectedMockRootSigner?.address ?? walletDesktopData.walletAddress;
+        selectedMockRootSigner?.address ?? personalWalletAddress;
       const walletDetailIcon = selectedMockRootSigner?.icon ?? getWalletIcon();
+      const walletFallbackBalanceWhole = canLoadPersonalAccount
+        ? walletDesktopData.balanceWhole
+        : "0";
+      const walletFallbackBalanceFraction = canLoadPersonalAccount
+        ? walletDesktopData.balanceFraction
+        : "00";
+      const canUseWalletDetailData =
+        canLoadPersonalAccount && !selectedMockRootSigner;
       const walletDetailBalanceWhole =
         selectedMockRootSigner?.balanceWhole ??
         (isMainAccountDetail
           ? mainAccountDisplayBalance.balanceWhole
-          : walletDesktopData.balanceWhole);
+          : walletFallbackBalanceWhole);
       const walletDetailBalanceFraction =
         selectedMockRootSigner?.balanceFraction ??
         (isMainAccountDetail
           ? mainAccountDisplayBalance.balanceFraction
-          : walletDesktopData.balanceFraction);
-      const walletDetailTokenRows = selectedMockRootSigner
-        ? []
-        : walletDesktopData.allTokenRows;
-      const walletDetailCashTokenRows = selectedMockRootSigner
-        ? []
-        : walletDesktopData.cashTokenRows;
-      const walletDetailInvestmentTokenRows = selectedMockRootSigner
-        ? []
-        : walletDesktopData.investmentTokenRows;
-      const walletDetailActivityRows = selectedMockRootSigner
-        ? []
-        : walletDesktopData.allActivityRows;
-      const walletDetailTransactionDetails = selectedMockRootSigner
-        ? {}
-        : walletDesktopData.transactionDetails;
+          : walletFallbackBalanceFraction);
+      const walletDetailTokenRows = canUseWalletDetailData
+        ? personalWalletAllTokenRows
+        : [];
+      const walletDetailCashTokenRows = canUseWalletDetailData
+        ? walletDesktopData.cashTokenRows
+        : [];
+      const walletDetailInvestmentTokenRows = canUseWalletDetailData
+        ? walletDesktopData.investmentTokenRows
+        : [];
+      const walletDetailActivityRows = canUseWalletDetailData
+        ? walletDesktopData.allActivityRows
+        : [];
+      const walletDetailTransactionDetails = canUseWalletDetailData
+        ? walletDesktopData.transactionDetails
+        : {};
 
       return (
         <WalletDetailView
@@ -6242,7 +6287,7 @@ export function AppWalletWorkspace({
           }
           getTokenActions={getTokenActions}
           onActivityTabOpen={() => {
-            if (!selectedMockRootSigner) {
+            if (!selectedMockRootSigner && canLoadPersonalAccount) {
               void walletDesktopData.loadActivity();
             }
           }}
@@ -6265,7 +6310,7 @@ export function AppWalletWorkspace({
           onSetSpendingLimit={
             selectedSignerId && !selectedMockRootSigner
               ? async (amountUsd) => {
-                  if (!walletDesktopData.walletAddress) {
+                  if (!personalWalletAddress) {
                     throw new Error(
                       "Connect a wallet before setting a spending limit."
                     );
@@ -6273,7 +6318,7 @@ export function AppWalletWorkspace({
 
                   handleCreateSpendingLimitDraft({
                     kind: "set",
-                    signerAddress: walletDesktopData.walletAddress,
+                    signerAddress: personalWalletAddress,
                     signerLabel: "Main Account",
                     accountIndex: selectedVaultAccountIndex,
                     amountUsd,
@@ -6287,7 +6332,7 @@ export function AppWalletWorkspace({
           onDeleteSpendingLimit={
             selectedSignerId && !selectedMockRootSigner
               ? async (spendingLimit) => {
-                  if (!walletDesktopData.walletAddress) {
+                  if (!personalWalletAddress) {
                     throw new Error(
                       "Connect a wallet before deleting a spending limit."
                     );
@@ -6295,7 +6340,7 @@ export function AppWalletWorkspace({
 
                   handleCreateSpendingLimitDraft({
                     kind: "delete",
-                    signerAddress: walletDesktopData.walletAddress,
+                    signerAddress: personalWalletAddress,
                     signerLabel: "Main Account",
                     accountIndex: selectedVaultAccountIndex,
                     spendingLimitAddress: spendingLimit.address,
@@ -6480,7 +6525,7 @@ export function AppWalletWorkspace({
     if (isMockBackupSignerFlowEnabled && detailSelection === "addSigner") {
       return (
         <AddSignerPane
-          connectedWalletAddress={walletDesktopData.walletAddress}
+          connectedWalletAddress={personalWalletAddress}
           existingSigners={allKnownSignerEntries}
           isBackupLimitReached={hasBackupAccount}
           onPreviewSigner={({ signerAddress }) => {
@@ -6610,7 +6655,7 @@ export function AppWalletWorkspace({
               derivedTokens.find(
                 (nextToken) => nextToken.mint === token.mint
               ) ??
-              walletDesktopData.positions
+              personalWalletPositions
                 .filter((position) => position.asset.mint === token.mint)
                 .map(portfolioPositionToSwapToken)[0] ??
               token;
@@ -6645,7 +6690,7 @@ export function AppWalletWorkspace({
             onCreateDraft: handleCreateDraftProposal,
           })
         : undefined;
-      const ownAddress = walletDesktopData.walletAddress ?? null;
+      const ownAddress = personalWalletAddress;
       const recipientSuggestions: RecipientSuggestion[] | undefined = (() => {
         if (sendingFromVault) {
           if (!ownAddress) return undefined;
@@ -6707,8 +6752,8 @@ export function AppWalletWorkspace({
     if (type === "receivePanel") {
       const receiveAddress =
         actionReturnSelection === "vault"
-          ? selectedVault?.entry.address ?? walletDesktopData.walletAddress
-          : walletDesktopData.walletAddress;
+          ? selectedVault?.entry.address ?? personalWalletAddress
+          : personalWalletAddress;
 
       return (
         <ReceiveContent
@@ -7012,9 +7057,10 @@ export function AppWalletWorkspace({
     <main
       className="wallet-workspace"
       data-policy-view={activeSection === "policies" ? policyView : undefined}
+      data-app-mode={appAccessMode}
       data-rate-limited={isSmartAccountRateLimited}
       data-review-focused={isReviewApprovalFocused || isEarnReviewExiting}
-      data-signed-in={showWorkspaceShell}
+      data-signed-in={showAccountShell}
       data-workspace-section={activeSection}
       style={
         {
@@ -7023,7 +7069,9 @@ export function AppWalletWorkspace({
         } as React.CSSProperties
       }
     >
-      <PrivateClientPreloader enabled={hasUnlockedShieldedBalances} />
+      <PrivateClientPreloader
+        enabled={canLoadPersonalAccount && hasUnlockedShieldedBalances}
+      />
 
       <WalletRail
         activeSection={activeSection}
@@ -7064,7 +7112,7 @@ export function AppWalletWorkspace({
         ) : null}
       </AnimatePresence>
 
-      {showWorkspaceShell &&
+      {showAccountShell &&
       (!isSmartAccountRateLimited ||
         activeSection === "policies" ||
         activeSection === "settings") ? (
@@ -7084,6 +7132,7 @@ export function AppWalletWorkspace({
                 approvals={smartAccountData.approvals}
                 balanceFraction={totalBalance.balanceFraction}
                 balanceWhole={totalBalance.balanceWhole}
+                earnDepositLabel={canMutateAccount ? "Deposit" : "Connect"}
                 earnBalance={earnCurrentBalanceAmount}
                 hasEarnPosition={hasEarnAccess}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
@@ -7110,11 +7159,16 @@ export function AppWalletWorkspace({
                 onOpenSend={() => handleRailAction("send")}
                 onOpenShield={() => handleRailAction("shield")}
                 onOpenSwap={() => handleRailAction("swap")}
-                onOpenEarnDeposit={handleOpenEarnDeposit}
+                onOpenEarnDeposit={
+                  canMutateAccount ? handleOpenEarnDeposit : openSignIn
+                }
                 onOpenEarn={
                   hasEarnAccess ? handleOpenEarn : handleOpenEarnDeposit
                 }
                 onOpenAutodeposit={handleOpenAutodeposit}
+                onOpenCreateAccount={
+                  canMutateAccount ? undefined : openSignIn
+                }
                 autodepositDepositedLabel={autodepositDepositedLabel}
                 autodepositFloorLabel={autodepositFloorLabel}
                 isAutodepositConfigured={Boolean(autodepositConfig)}
@@ -7154,8 +7208,14 @@ export function AppWalletWorkspace({
                 smartAccountError={smartAccountData.error}
                 topInset={47}
                 vaultEntries={smartAccountData.vaultEntries}
-                portfolioChange24h={walletDesktopData.portfolioChange24h}
-                earningsSummary={walletDesktopData.earningsSummary}
+                portfolioChange24h={
+                  canLoadPersonalAccount
+                    ? walletDesktopData.portfolioChange24h
+                    : null
+                }
+                earningsSummary={
+                  canLoadPersonalAccount ? walletDesktopData.earningsSummary : null
+                }
               />
             )}
           </section>
@@ -7179,7 +7239,7 @@ export function AppWalletWorkspace({
         </div>
       </section>
 
-      {showWorkspaceShell &&
+      {showAccountShell &&
       (!isSmartAccountRateLimited || activeSection === "policies") ? (
         <>
           <button
@@ -7238,10 +7298,12 @@ export function AppWalletWorkspace({
                 refreshKey={earnTransactionsRefreshKey}
                 scheduledSweepExecuteError={scheduledSweepExecuteError}
                 scheduledSweeps={earnTransactionScheduledSweeps}
-                showPolicyRefundScan={isMockBackupSignerFlowEnabled}
+                showPolicyRefundScan={
+                  canLoadPersonalAccount && isMockBackupSignerFlowEnabled
+                }
                 settingsPda={smartAccountData.overview?.settingsPda}
                 solanaEnv={publicEnv.solanaEnv}
-                walletAddress={walletDesktopData.walletAddress}
+                walletAddress={personalWalletAddress}
               />
             ) : shouldShowApprovalsSkeleton ? (
               <WorkspaceApprovalsSkeleton />

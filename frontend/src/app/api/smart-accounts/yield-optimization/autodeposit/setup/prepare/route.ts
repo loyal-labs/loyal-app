@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       connection: getConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
-    const preparedSetup = await client.prepareEarnUsdcAutodepositSetup({
+    const prepareArgs = {
       amountRaw: parsed.amountRaw,
       cluster,
       feePayer: new PublicKey(principal.walletAddress),
@@ -85,9 +85,20 @@ export async function POST(request: Request) {
       settingsPda: new PublicKey(principal.settingsPda),
       signer: new PublicKey(principal.walletAddress),
       walletAddress: new PublicKey(principal.walletAddress),
-    });
+    };
+    const preparedSetups = parsed.includeBatch
+      ? await client.prepareEarnUsdcAutodepositSetupBatch(prepareArgs)
+      : [await client.prepareEarnUsdcAutodepositSetup(prepareArgs)];
+    const preparedSetup = preparedSetups[0];
+
+    if (!preparedSetup) {
+      throw new Error("Failed to prepare Earn autodeposit setup.");
+    }
 
     return NextResponse.json({
+      nextPreparedSetup: preparedSetups[1]
+        ? serializePreparedEarnUsdcAutodepositSetup(preparedSetups[1])
+        : null,
       preparedSetup: serializePreparedEarnUsdcAutodepositSetup(preparedSetup),
     });
   } catch (error) {

@@ -14,6 +14,7 @@ import {
 
 export type EarnAutodepositSetupPrepareRequestBody = {
   amountRaw: string;
+  includeBatch?: boolean;
   nonce?: string;
   policySeed?: string;
   walletBalanceFloorRaw?: string;
@@ -167,6 +168,7 @@ export type WireSmartAccountPreparedEarnUsdcAutodepositClose = {
 };
 
 export type EarnAutodepositSetupPrepareResponse = {
+  nextPreparedSetup?: WireSmartAccountPreparedEarnUsdcAutodepositSetup | null;
   preparedSetup: WireSmartAccountPreparedEarnUsdcAutodepositSetup;
 };
 
@@ -330,18 +332,27 @@ function requirePreparedMetadataValue(
 
 export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
+  includeBatch: boolean;
   nonce?: bigint;
   policySeed?: bigint;
   walletBalanceFloorRaw?: bigint;
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
+  const includeBatchValue = record.includeBatch;
   const nonce = readOptionalUnsignedIntegerString(record, "nonce");
   const policySeed = readOptionalUnsignedIntegerString(record, "policySeed");
   const walletBalanceFloorRaw = readOptionalUnsignedIntegerString(
     record,
     "walletBalanceFloorRaw"
   );
+  if (
+    includeBatchValue !== undefined &&
+    includeBatchValue !== null &&
+    typeof includeBatchValue !== "boolean"
+  ) {
+    throw new Error("includeBatch must be a boolean when provided.");
+  }
 
   if (amountRaw <= BigInt(0)) {
     throw new Error("amountRaw must be greater than 0.");
@@ -349,6 +360,10 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
 
   return {
     amountRaw,
+    includeBatch:
+      includeBatchValue === undefined || includeBatchValue === null
+        ? false
+        : includeBatchValue === true,
     ...(nonce ? { nonce: BigInt(nonce) } : {}),
     ...(policySeed ? { policySeed: BigInt(policySeed) } : {}),
     ...(walletBalanceFloorRaw

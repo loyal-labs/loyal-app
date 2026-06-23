@@ -177,6 +177,7 @@ export function EarnYieldIcon({ size = 48 }: { size?: number }) {
 
 function EarnPortfolioRow({
   balance = 0,
+  depositLabel = "Deposit",
   hasPosition = false,
   isAutodepositConfigured = false,
   isBalanceHidden = false,
@@ -185,6 +186,7 @@ function EarnPortfolioRow({
   onOpen,
 }: {
   balance?: number;
+  depositLabel?: string;
   hasPosition?: boolean;
   isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
@@ -360,7 +362,7 @@ function EarnPortfolioRow({
           }}
           type="button"
         >
-          Deposit
+          {depositLabel}
         </button>
       </div>
     </>
@@ -1150,6 +1152,7 @@ export function PortfolioContent({
   onOpenEarnDeposit,
   onOpenEarn,
   onOpenAutodeposit,
+  onOpenCreateAccount,
   onOpenCommandMenu,
   onOpenVault,
   onOpenAgent,
@@ -1158,6 +1161,7 @@ export function PortfolioContent({
   onSmartAccountRetry,
   portfolioChange24h = null,
   earningsSummary = null,
+  earnDepositLabel = "Deposit",
   autodepositDepositedLabel,
   autodepositFloorLabel,
   earnBalance = 0,
@@ -1198,6 +1202,7 @@ export function PortfolioContent({
   onOpenEarnDeposit?: () => void;
   onOpenEarn?: () => void;
   onOpenAutodeposit?: () => void;
+  onOpenCreateAccount?: () => void;
   isAutodepositConfigured?: boolean;
   onOpenCommandMenu?: () => void;
   onOpenVault: (accountIndex: number) => void;
@@ -1207,6 +1212,7 @@ export function PortfolioContent({
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
+  earnDepositLabel?: string;
   autodepositDepositedLabel?: string;
   autodepositFloorLabel?: string;
   earnBalance?: number;
@@ -1885,6 +1891,7 @@ export function PortfolioContent({
           {onOpenEarn ? (
             <EarnPortfolioRow
               balance={earnBalance}
+              depositLabel={earnDepositLabel}
               hasPosition={hasEarnPosition}
               isAutodepositConfigured={isAutodepositConfigured}
               isBalanceHidden={isBalanceHidden}
@@ -2192,6 +2199,11 @@ export function PortfolioContent({
                 );
               })}
             </>
+          ) : onOpenCreateAccount ? (
+            <AddSignerTreeRow
+              label="Create account"
+              onOpen={onOpenCreateAccount}
+            />
           ) : (
             <div
               style={{

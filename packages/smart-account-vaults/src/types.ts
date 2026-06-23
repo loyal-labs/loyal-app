@@ -187,6 +187,9 @@ export type WalletAdapterLike = {
   signTransaction<T extends Transaction | VersionedTransaction>(
     transaction: T
   ): Promise<T>;
+  signAllTransactions?<T extends Transaction | VersionedTransaction>(
+    transactions: T[]
+  ): Promise<T[]>;
   sendTransaction?(
     transaction: Transaction | VersionedTransaction,
     connection: Connection,
@@ -200,6 +203,24 @@ export type SendPreparedWithWalletArgs = {
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   confirm?: boolean | "if-required";
   sendOptions?: SendOptions;
+};
+
+export type SendPreparedBatchWithWalletArgs = {
+  connection: Connection;
+  wallet: WalletAdapterLike;
+  prepared: readonly PreparedLoyalSmartAccountsOperation<string>[];
+  confirm?: boolean | "if-required";
+  sendOptions?: SendOptions;
+  onTransactionConfirmed?: (args: {
+    index: number;
+    prepared: PreparedLoyalSmartAccountsOperation<string>;
+    signature: string;
+  }) => Promise<void> | void;
+  onTransactionSent?: (args: {
+    index: number;
+    prepared: PreparedLoyalSmartAccountsOperation<string>;
+    signature: string;
+  }) => Promise<void> | void;
 };
 
 export type SmartAccountTransferProposalInput = {

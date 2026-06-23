@@ -328,6 +328,7 @@ export function buildEarnDepositReviewItem(args: {
   draft: EarnDepositDraft;
   isPolicySetupFlow?: boolean;
   preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit | null;
+  showBatchTransactions?: boolean;
   stage?: EarnDepositReviewStage;
 }): ApprovalReviewDisplayItem {
   const preparedDeposit = args.preparedDeposit ?? null;
@@ -363,63 +364,72 @@ export function buildEarnDepositReviewItem(args: {
     },
     ...targetRows,
   ];
+  const getStageSummary = (item: EarnDepositReviewStage) => {
+    if (item === "policy") {
+      return "Create Safe Earn route policy";
+    }
+    if (item === "policy-finalize") {
+      return "Create Kamino obligation policy";
+    }
+    return `Deposit $${args.draft.amountLabel} ${args.draft.symbol} into ${EARN_VAULT_LABEL}`;
+  };
+  const getStageRows = (
+    item: EarnDepositReviewStage
+  ): ApprovalReviewDisplaySection["rows"] => {
+    if (item === "policy") {
+      return [
+        { label: "Setup", value: "Create Safe Earn route policy" },
+        { label: "Kamino policy", value: "Deposit and withdraw USDC" },
+        { label: "Markets", value: `Kamino markets: ${safeMarketLabels}` },
+        { label: "Mints", value: stablecoinMintLabels },
+        ...(preparedDeposit?.policy.account
+          ? [
+              {
+                label: "Policy account",
+                value: shortenAddress(preparedDeposit.policy.account.toBase58()),
+              },
+            ]
+          : []),
+      ];
+    }
+
+    if (item === "policy-finalize") {
+      return [
+        { label: "Setup", value: "Create Kamino obligation policy" },
+        { label: "Permission", value: "Initialize the Earn obligation" },
+        ...(preparedDeposit?.setupPolicy?.account
+          ? [
+              {
+                label: "Policy account",
+                value: shortenAddress(
+                  preparedDeposit.setupPolicy.account.toBase58()
+                ),
+              },
+            ]
+          : []),
+      ];
+    }
+
+    return depositRows;
+  };
   const reviewSections: ApprovalReviewDisplaySection[] = stages.map(
-    (item, itemIndex) => {
-      const title =
+    (item, itemIndex) => ({
+      title:
         stages.length > 1
           ? `Approval #${itemIndex + 1}`
           : item === "deposit"
           ? "Transaction #1"
-          : "Approval #1";
-
-      if (item === "policy") {
-        return {
-          title,
-          rows: [
-            { label: "Setup", value: "Create Safe Earn route policy" },
-            { label: "Kamino policy", value: "Deposit and withdraw USDC" },
-            { label: "Markets", value: `Kamino markets: ${safeMarketLabels}` },
-            { label: "Mints", value: stablecoinMintLabels },
-            ...(preparedDeposit?.policy.account
-              ? [
-                  {
-                    label: "Policy account",
-                    value: shortenAddress(
-                      preparedDeposit.policy.account.toBase58()
-                    ),
-                  },
-                ]
-              : []),
-          ],
-        };
-      }
-
-      if (item === "policy-finalize") {
-        return {
-          title,
-          rows: [
-            { label: "Setup", value: "Create Kamino obligation policy" },
-            { label: "Permission", value: "Initialize the Earn obligation" },
-            ...(preparedDeposit?.setupPolicy?.account
-              ? [
-                  {
-                    label: "Policy account",
-                    value: shortenAddress(
-                      preparedDeposit.setupPolicy.account.toBase58()
-                    ),
-                  },
-                ]
-              : []),
-          ],
-        };
-      }
-
-      return {
-        title,
-        rows: depositRows,
-      };
-    }
+          : "Approval #1",
+      rows: getStageRows(item),
+    })
   );
+  const currentStageIndex = stages.indexOf(stage);
+  const remainingStages =
+    currentStageIndex >= 0 ? stages.slice(currentStageIndex) : stages;
+  const batchPreviewStages =
+    args.showBatchTransactions && remainingStages.length > 1
+      ? remainingStages
+      : null;
 
   const approvalTitle =
     approvalCount > 1
@@ -427,11 +437,12 @@ export function buildEarnDepositReviewItem(args: {
       : stage === "deposit"
       ? "Deposit"
       : "Approval";
+  const policyMascotNote = `First, let's set up the policy that lets Loyal agents route your money across Kamino stablecoin reserves: ${safeMarketLabels}. You keep full custody the whole time.`;
 
   const policyPage: ApprovalReviewPage = {
     title: approvalTitle,
     heading: "Set up Safe Earn routing",
-    mascotNote: `First, let's set up the policy that lets Loyal agents route your money across Kamino stablecoin reserves: ${safeMarketLabels}. You keep full custody the whole time.`,
+    mascotNote: policyMascotNote,
     rows: [
       {
         label: "What you're approving",
@@ -522,8 +533,27 @@ export function buildEarnDepositReviewItem(args: {
       },
     ],
   };
+  const batchPage: ApprovalReviewPage | null = batchPreviewStages
+    ? {
+        title: `${batchPreviewStages.length} transactions`,
+        amount: `$${args.draft.amountLabel}`,
+        heading: `Deposit into ${EARN_VAULT_LABEL}`,
+        hideAmountHeading: true,
+        mascotNote: policyMascotNote,
+        rows: batchPreviewStages.map((item, index) => ({
+          label: `Transaction #${index + 1}`,
+          value: getStageSummary(item),
+        })),
+        collapsibles: batchPreviewStages.map((item, index) => ({
+          title: `Transaction #${index + 1} details`,
+          rows: getStageRows(item),
+        })),
+      }
+    : null;
   const pages =
-    stage === "policy"
+    batchPage
+      ? [batchPage]
+      : stage === "policy"
       ? [policyPage]
       : stage === "policy-finalize"
       ? [finalizePage]
@@ -535,7 +565,9 @@ export function buildEarnDepositReviewItem(args: {
     destinationLabel: EARN_VAULT_LABEL,
     pages,
     primaryActionLabel:
-      stage === "deposit" ? `Deposit $${args.draft.amountLabel}` : "Sign",
+      batchPage || stage !== "deposit"
+        ? "Sign"
+        : `Deposit $${args.draft.amountLabel}`,
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,
