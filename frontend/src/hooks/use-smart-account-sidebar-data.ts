@@ -674,7 +674,10 @@ export type SmartAccountSidebarData = {
     accountIndex: number,
     options?: { forceRefresh?: boolean }
   ) => Promise<void>;
-  refresh: (options?: { invalidateAddresses?: string[] }) => Promise<void>;
+  refresh: (options?: {
+    invalidateAddresses?: string[];
+    readCache?: boolean;
+  }) => Promise<void>;
   /**
    * Invalidate caches and re-fetch portfolio + activity after an on-chain tx.
    * Pass the affected vault/signer addresses to make sure their balances

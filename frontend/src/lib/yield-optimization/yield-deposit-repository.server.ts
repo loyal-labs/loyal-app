@@ -2506,7 +2506,8 @@ export async function recordConfirmedYieldDeposit(
           })
           .returning({ id: userYieldPositionDeposits.id })
       : [];
-  let depositId = recoverDepositId ?? insertedDeposits[0]?.id ?? null;
+  let depositId: bigint | null =
+    recoverDepositId ?? insertedDeposits[0]?.id ?? null;
   if (depositId === null && recoverDepositId === null) {
     const replayedDepositAccounting = await resolveIdempotentDepositAccounting(
       input,
