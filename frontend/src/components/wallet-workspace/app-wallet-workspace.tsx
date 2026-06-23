@@ -5359,6 +5359,7 @@ export function AppWalletWorkspace({
           currentPositionHoldings={activeEarnPosition?.holdings}
           currentPositionMarketName={activeEarnPosition?.display?.marketName}
           currentPositionTokenSymbol={activeEarnPosition?.display?.mintSymbol}
+          currentSupplyApyBps={activeEarnPosition?.currentSupplyApyBps}
           earningsCacheKey={earnEarningsCacheKey}
           earningsCacheScope={{
             expectedPrincipalAmountRaw: activeEarnPosition?.principalAmountRaw,

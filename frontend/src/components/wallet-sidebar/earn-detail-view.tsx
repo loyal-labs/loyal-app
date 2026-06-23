@@ -80,6 +80,38 @@ const FALLBACK_EARN_APY = {
   rangeLowBps: FALLBACK_EARN_FORECAST.rangeLowBps,
 } as const satisfies EarnForecastApy;
 
+function parseCurrentSupplyApyBps(value: string | null | undefined) {
+  if (value == null) {
+    return null;
+  }
+
+  if (value.trim().length === 0) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : null;
+}
+
+function resolveActiveEarnForecastApy({
+  currentSupplyApyBps,
+  fallback,
+}: {
+  currentSupplyApyBps?: string | null;
+  fallback: EarnForecastApy;
+}): EarnForecastApy {
+  const apyBps = parseCurrentSupplyApyBps(currentSupplyApyBps);
+  if (apyBps === null) {
+    return fallback;
+  }
+
+  return {
+    apyBps,
+    rangeHighBps: apyBps,
+    rangeLowBps: apyBps,
+  };
+}
+
 export type EarnDepositSourceOption = {
   addressLabel: string;
   balance: number;
@@ -1303,12 +1335,14 @@ function EarningsBlock({
   apy,
   earningsData,
   estimatedEarnedUsd,
+  forecastPrincipalAmount,
   isBalanceHidden = false,
   principalAmount,
 }: {
   apy: EarnForecastApy;
   earningsData: EarnEarningsResponse | null;
   estimatedEarnedUsd: number;
+  forecastPrincipalAmount: number;
   isBalanceHidden?: boolean;
   principalAmount: number;
 }) {
@@ -1329,7 +1363,7 @@ function EarningsBlock({
       setHistoricalRevision((r) => r + 1);
     }
   };
-  const forecastAmount = principalAmount;
+  const forecastAmount = forecastPrincipalAmount;
   const placeholderBars = useMemo(
     () =>
       principalAmount > 0
@@ -2334,6 +2368,7 @@ export function EarnDetailView({
   currentPositionHoldings,
   currentPositionMarketName = "Main Kamino",
   currentPositionTokenSymbol = "USDC",
+  currentSupplyApyBps,
   earningsCacheKey,
   earningsCacheScope,
   hasCurrentPosition = false,
@@ -2360,6 +2395,7 @@ export function EarnDetailView({
   currentPositionHoldings?: ActiveEarnPositionHolding[];
   currentPositionMarketName?: string;
   currentPositionTokenSymbol?: string;
+  currentSupplyApyBps?: string | null;
   earningsCacheKey?: string;
   earningsCacheScope?: {
     expectedPrincipalAmountRaw?: string | null;
@@ -2377,6 +2413,14 @@ export function EarnDetailView({
   principalAmount?: number;
 }) {
   const earnForecastApy = useEarnForecastApy();
+  const activeEarnForecastApy = useMemo(
+    () =>
+      resolveActiveEarnForecastApy({
+        currentSupplyApyBps,
+        fallback: earnForecastApy,
+      }),
+    [currentSupplyApyBps, earnForecastApy]
+  );
   const { data: earningsRangeSet, error: earningsError } = useEarnEarnings({
     cacheKey: earningsCacheKey,
     enabled: hasCurrentPosition,
@@ -2435,6 +2479,10 @@ export function EarnDetailView({
           },
         ];
   const displayBalanceAmount = currentBalanceAmount;
+  const forecastPrincipalAmount =
+    hasCurrentPosition && currentBalanceAmount > 0
+      ? currentBalanceAmount
+      : principalAmount;
   const estimatedEarnedUsd = deriveEstimatedEarnedSummaryAmount({
     apyBps: estimatedEarnedAmountApyBps,
     earningsData,
@@ -2643,11 +2691,12 @@ export function EarnDetailView({
 
       {hasCurrentPosition ? (
         <EarningsBlock
-          apy={earnForecastApy}
+          apy={activeEarnForecastApy}
           earningsData={earningsDailyData}
           estimatedEarnedUsd={estimatedEarnedUsd}
+          forecastPrincipalAmount={forecastPrincipalAmount}
           isBalanceHidden={isBalanceHidden}
-          key={`${principalAmount}:${earnForecastApy.apyBps}`}
+          key={`${forecastPrincipalAmount}:${activeEarnForecastApy.apyBps}`}
           principalAmount={principalAmount}
         />
       ) : null}
