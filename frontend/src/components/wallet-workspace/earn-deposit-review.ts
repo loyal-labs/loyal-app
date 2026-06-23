@@ -11,6 +11,7 @@ import type {
 import type {
   SmartAccountPreparedEarnUsdcAutodepositClose,
   SmartAccountPreparedEarnUsdcAutodepositSetup,
+  SmartAccountPreparedEarnUsdcCleanup,
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
@@ -88,6 +89,17 @@ function formatKaminoMarketLabel(market: string | null | undefined): string {
     marketName ? `${marketName} Market` : "Kamino market",
     market
   );
+}
+
+function formatSolLamports(lamports: number): string {
+  if (!Number.isFinite(lamports) || lamports <= 0) {
+    return "0 SOL";
+  }
+
+  return `${(lamports / 1_000_000_000).toLocaleString("en-US", {
+    maximumFractionDigits: 6,
+    minimumFractionDigits: 6,
+  })} SOL`;
 }
 
 function getDepositTargetRows(
@@ -473,7 +485,7 @@ export function buildEarnDepositReviewItem(args: {
     hideAmountHeading: true,
     mascotNote: isPolicySetupFlow
       ? `Now you'll deposit $${args.draft.amountLabel} into Earn. As soon as it lands, Loyal agents can start optimizing it across the Safe reserves.`
-      : "Your Earn policy is already ready, so this top-up can go straight into Earn and route to the current Safe reserve.",
+      : "Your Earn policy is already ready, so this deposit can go straight into Earn and route to the current Safe reserve.",
     rows: [
       {
         label: "First",
@@ -708,6 +720,101 @@ export function buildEarnWithdrawReviewItem(args: {
     summaryLabel: "Withdraw from Earn vault",
     symbol: args.draft.symbol,
     title: actionLabel,
+  };
+}
+
+export function buildEarnCleanupReviewItem(args: {
+  preparedCleanup?: (SmartAccountPreparedEarnUsdcCleanup & {
+    estimatedRefundLamports?: number | null;
+  }) | null;
+}): ApprovalReviewDisplayItem {
+  const preparedCleanup = args.preparedCleanup ?? null;
+  const idleTransferRaw = preparedCleanup?.persistence.idleTransferAmountRaw
+    ? BigInt(preparedCleanup.persistence.idleTransferAmountRaw)
+    : BigInt(0);
+  const estimatedRefundLamports =
+    preparedCleanup?.estimatedRefundLamports ?? null;
+  const rows: ApprovalReviewDisplaySection["rows"] = [
+    {
+      label: "Earn balance",
+      value: "$0.00 USDC",
+    },
+    {
+      label: "Cleanup",
+      value: "Close Earn routing policies and vault token accounts",
+    },
+    ...(preparedCleanup?.setupPolicy
+      ? [
+          {
+            label: "Setup policy",
+            value: shortenAddress(
+              preparedCleanup.setupPolicy.account.toBase58()
+            ),
+          },
+        ]
+      : []),
+    ...(preparedCleanup?.persistence.closedCollateralAtas.length
+      ? [
+          {
+            label: "Collateral accounts",
+            value: `${preparedCleanup.persistence.closedCollateralAtas.length}`,
+          },
+        ]
+      : []),
+    ...(idleTransferRaw > BigInt(0)
+      ? [
+          {
+            label: "Idle vault USDC",
+            value: `${Number(idleTransferRaw) / 1_000_000} USDC`,
+          },
+        ]
+      : []),
+    ...(preparedCleanup?.autodepositClosePrepared
+      ? [
+          {
+            label: "Autodeposit",
+            value: "Close recurring allowance and refund rent",
+          },
+        ]
+      : []),
+    ...(estimatedRefundLamports !== null
+      ? [
+          {
+            label: "Estimated refund",
+            value: formatSolLamports(estimatedRefundLamports),
+          },
+        ]
+      : []),
+  ];
+
+  return {
+    actionMode: "execute",
+    amount: "$0",
+    destinationLabel: "Main Account",
+    pages: [
+      {
+        heading: "Close Earn setup",
+        hideAmountHeading: true,
+        mascotNote:
+          "Your Earn balance is already withdrawn. This closes the remaining Earn accounts and refunds rent where possible.",
+        rows,
+        title: "Close Earn setup",
+      },
+    ],
+    primaryActionLabel: "Close policies",
+    reviewSections: [
+      {
+        rows,
+        title: "Cleanup",
+      },
+    ],
+    secondaryActionLabel: "Cancel",
+    sourceLabel: EARN_VAULT_LABEL,
+    status: "draft",
+    statusLabel: "Ready to close",
+    summaryLabel: "Close Earn setup",
+    symbol: "USDC",
+    title: "Close Earn setup",
   };
 }
 

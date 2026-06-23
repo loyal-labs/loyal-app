@@ -368,35 +368,32 @@ function EarnPortfolioRow({
 }
 
 function AutodepositStatusCard({
-  amountLabel,
   depositedLabel,
+  floorLabel,
   hasEarnPosition = false,
   isBalanceHidden = false,
   isConfigured = false,
   isError = false,
   isLoading = false,
-  nextPeriodLabel = null,
+  marginBottom = 16,
   onRetry,
   onSetUp,
-  progress,
 }: {
-  amountLabel?: string;
   depositedLabel?: string;
+  floorLabel?: string;
   hasEarnPosition?: boolean;
   isBalanceHidden?: boolean;
   isConfigured?: boolean;
   isError?: boolean;
   isLoading?: boolean;
-  nextPeriodLabel?: string | null;
+  marginBottom?: number;
   onRetry?: () => void;
   onSetUp?: () => void;
-  progress?: number;
 }) {
   if (isConfigured && !isError && !isLoading) {
     const [depositedWhole, depositedFraction] = (
       depositedLabel ?? "$0.00"
     ).split(".");
-    const progressPercent = Math.max(0, Math.min(1, progress ?? 0)) * 100;
     const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -407,25 +404,27 @@ function AutodepositStatusCard({
     return (
       <>
         <style jsx>{`
-          .autodeposit-goal-card:hover {
-            background: ${rowHoverBackground} !important;
+          .autodeposit-status-card:hover {
+            background: rgba(249, 54, 60, 0.08) !important;
           }
-          .autodeposit-goal-card:focus-visible {
+          .autodeposit-status-card:focus-visible {
             outline: 2px solid rgba(249, 54, 60, 0.45);
             outline-offset: 2px;
           }
         `}</style>
         <div
           aria-label="Edit Autodeposit"
-          className="autodeposit-goal-card"
+          className="autodeposit-status-card"
           onClick={onSetUp}
           onKeyDown={handleKeyDown}
           role="button"
           style={{
+            background:
+              "linear-gradient(90deg, rgba(249, 54, 60, 0.04) 0%, rgba(249, 54, 60, 0.08) 100%)",
             borderRadius: "16px",
             cursor: "pointer",
             display: "flex",
-            marginBottom: "16px",
+            marginBottom,
             overflow: "hidden",
             padding: "0 12px",
             transition: "background 0.15s ease",
@@ -455,7 +454,9 @@ function AutodepositStatusCard({
                 display: "flex",
                 flexDirection: "column",
                 gap: "2px",
-                padding: "9px 0",
+                justifyContent: "center",
+                minHeight: "60px",
+                padding: "4px 0",
               }}
             >
               <span
@@ -465,12 +466,12 @@ function AutodepositStatusCard({
                   fontSize: "13px",
                   fontWeight: 400,
                   lineHeight: "16px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
                 }}
               >
-                {nextPeriodLabel
-                  ? `Autodeposit goal by ${nextPeriodLabel}`
-                  : "Autodeposit goal"}
+                Autodeposited this month
               </span>
               <span
                 style={{
@@ -494,30 +495,23 @@ function AutodepositStatusCard({
                       : "rgba(60, 60, 67, 0.4)",
                   }}
                 >
-                  .{depositedFraction ?? "00"} out of {amountLabel ?? "$0.00"}
+                  .{depositedFraction ?? "00"}
                 </span>
               </span>
-            </div>
-            <div style={{ padding: "3px 0 9px" }}>
-              <div
+              <span
                 style={{
-                  background: "rgba(0, 0, 0, 0.04)",
-                  borderRadius: "34px",
-                  height: "8px",
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 400,
+                  lineHeight: "16px",
                   overflow: "hidden",
-                  width: "100%",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
               >
-                <div
-                  style={{
-                    background: "#F9363C",
-                    borderRadius: "34px",
-                    height: "8px",
-                    transition: "width 0.3s ease",
-                    width: `${progressPercent}%`,
-                  }}
-                />
-              </div>
+                Keeps at least {floorLabel ?? "$0.00"} in your wallet
+              </span>
             </div>
           </div>
         </div>
@@ -557,7 +551,7 @@ function AutodepositStatusCard({
             : "linear-gradient(90deg, rgba(249, 54, 60, 0.04) 0%, rgba(249, 54, 60, 0.08) 100%)",
           borderRadius: "16px",
           display: "flex",
-          marginBottom: "22px",
+          marginBottom,
           overflow: "hidden",
           padding: "0 12px",
           width: "100%",
@@ -1164,10 +1158,8 @@ export function PortfolioContent({
   onSmartAccountRetry,
   portfolioChange24h = null,
   earningsSummary = null,
-  autodepositAmountLabel,
   autodepositDepositedLabel,
-  autodepositNextPeriodLabel = null,
-  autodepositProgress,
+  autodepositFloorLabel,
   earnBalance = 0,
   enableMockBackupSignerFlow = true,
   hasEarnStateLoadError = false,
@@ -1215,10 +1207,8 @@ export function PortfolioContent({
   onSmartAccountRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
-  autodepositAmountLabel?: string;
   autodepositDepositedLabel?: string;
-  autodepositNextPeriodLabel?: string | null;
-  autodepositProgress?: number;
+  autodepositFloorLabel?: string;
   earnBalance?: number;
   enableMockBackupSignerFlow?: boolean;
   hasEarnStateLoadError?: boolean;
@@ -1246,6 +1236,7 @@ export function PortfolioContent({
     !hasEarnStateResolved &&
     !hasEarnStateLoadError &&
     !isAutodepositConfigured;
+  const shouldShowAutodepositAsBalance = Boolean(onOpenAutodeposit);
   const sortedVaultEntries = useMemo(
     () =>
       [...vaultEntries].sort(
@@ -1458,37 +1449,39 @@ export function PortfolioContent({
         </defs>
       </svg>
 
-      {/* Header: balance label + disconnect + settings + close */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: showHeaderControls ? "8px" : "8px 8px 0",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
-          <div
-            style={{
-              padding: "0 12px",
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "13px",
-                fontWeight: 400,
-                lineHeight: "16px",
-                color: secondary,
-              }}
-            >
-              Total Balance
-            </span>
+      {showHeaderControls || !shouldShowAutodepositAsBalance ? (
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            justifyContent: "space-between",
+            padding: showHeaderControls ? "8px" : "8px 8px 0",
+          }}
+        >
+          <div style={{ alignItems: "center", display: "flex", flex: 1 }}>
+            {!shouldShowAutodepositAsBalance ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  padding: "0 12px",
+                }}
+              >
+                <span
+                  style={{
+                    color: secondary,
+                    fontFamily: font,
+                    fontSize: "13px",
+                    fontWeight: 400,
+                    lineHeight: "16px",
+                  }}
+                >
+                  Total Balance
+                </span>
+              </div>
+            ) : null}
           </div>
-        </div>
-        {/* Cmd+K command menu trigger temporarily hidden.
+          {/* Cmd+K command menu trigger temporarily hidden.
         {onOpenCommandMenu ? (
           <button
             className="portfolio-command-btn"
@@ -1520,217 +1513,245 @@ export function PortfolioContent({
           </button>
         ) : null}
         */}
-        {showHeaderControls && (
-          <div
-            style={{
-              display: "flex",
-              gap: "8px",
-              alignItems: "center",
-              paddingLeft: "12px",
-            }}
-          >
-            {onDisconnect && (
+          {showHeaderControls && (
+            <div
+              style={{
+                alignItems: "center",
+                display: "flex",
+                gap: "8px",
+                paddingLeft: "12px",
+              }}
+            >
+              {onDisconnect && (
+                <button
+                  className="portfolio-disconnect-btn"
+                  onClick={onDisconnect}
+                  style={{
+                    background: "rgba(60, 60, 67, 0.06)",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: "rgba(60, 60, 67, 0.45)",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    fontFamily: font,
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    lineHeight: "18px",
+                    padding: "2px 8px",
+                    transition: "background 0.15s ease, color 0.15s ease",
+                  }}
+                  type="button"
+                >
+                  Disconnect
+                </button>
+              )}
               <button
-                className="portfolio-disconnect-btn"
-                onClick={onDisconnect}
+                className="portfolio-close-btn"
+                onClick={onClose}
                 style={{
-                  background: "rgba(60, 60, 67, 0.06)",
+                  alignItems: "center",
+                  background: "rgba(0, 0, 0, 0.04)",
                   border: "none",
-                  borderRadius: "6px",
-                  padding: "2px 8px",
-                  fontFamily: font,
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  lineHeight: "18px",
-                  color: "rgba(60, 60, 67, 0.45)",
+                  borderRadius: "9999px",
+                  color: "#3C3C43",
                   cursor: "pointer",
-                  transition: "background 0.15s ease, color 0.15s ease",
-                  flexShrink: 0,
+                  display: "flex",
+                  height: "36px",
+                  justifyContent: "center",
+                  transition: "all 0.2s ease",
+                  width: "36px",
                 }}
                 type="button"
               >
-                Disconnect
+                <X size={24} />
               </button>
-            )}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Balance */}
+      {shouldShowAutodepositAsBalance ? (
+        <div
+          style={{
+            margin: "0 8px",
+            padding: "8px 0 12px",
+            width: "calc(100% - 16px)",
+          }}
+        >
+          <AutodepositStatusCard
+            depositedLabel={autodepositDepositedLabel}
+            floorLabel={autodepositFloorLabel}
+            hasEarnPosition={hasEarnPosition}
+            isBalanceHidden={isBalanceHidden}
+            isConfigured={isAutodepositConfigured}
+            isError={hasEarnStateLoadError}
+            isLoading={shouldShowAutodepositSkeleton}
+            marginBottom={0}
+            onRetry={onSmartAccountRetry}
+            onSetUp={onOpenAutodeposit}
+          />
+        </div>
+      ) : (
+        <div
+          style={{
+            alignItems: "stretch",
+            background: isWalletSelected ? rowHoverBackground : "transparent",
+            border: "none",
+            borderRadius: "16px",
+            cursor: "default",
+            display: "flex",
+            flexDirection: "column",
+            margin: "0 8px",
+            padding: showHeaderControls ? "8px 12px" : "0 12px 8px",
+            textAlign: "left",
+            transition: "background 0.15s ease",
+            width: "calc(100% - 16px)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <div style={{ borderRadius: "8px", overflow: "hidden" }}>
+              <span
+                style={{
+                  color: isBalanceHidden ? "#BBBBC0" : "#000",
+                  display: "block",
+                  filter: isBalanceHidden ? "url(#rs-pixelate-lg)" : "none",
+                  fontFamily: font,
+                  fontSize: "40px",
+                  fontWeight: 600,
+                  letterSpacing: "-0.44px",
+                  lineHeight: "48px",
+                  transition: "filter 0.15s ease, color 0.15s ease",
+                  userSelect: isBalanceHidden ? "none" : "auto",
+                }}
+              >
+                {balanceWhole}
+                <span
+                  style={{
+                    color: isBalanceHidden
+                      ? "#BBBBC0"
+                      : "rgba(60, 60, 67, 0.4)",
+                    transition: "color 0.15s ease",
+                  }}
+                >
+                  {balanceFraction}
+                </span>
+              </span>
+            </div>
             <button
-              className="portfolio-close-btn"
-              onClick={onClose}
+              onClick={(event) => {
+                event.stopPropagation();
+                onBalanceHiddenChange(!isBalanceHidden);
+              }}
               style={{
-                width: "36px",
-                height: "36px",
-                display: "flex",
-                justifyContent: "center",
                 alignItems: "center",
-                background: "rgba(0, 0, 0, 0.04)",
+                background: "none",
                 border: "none",
-                borderRadius: "9999px",
                 cursor: "pointer",
-                transition: "all 0.2s ease",
-                color: "#3C3C43",
+                display: "flex",
+                flexShrink: 0,
+                padding: 0,
               }}
               type="button"
             >
-              <X size={24} />
+              {isBalanceHidden ? (
+                <EyeOff
+                  size={22}
+                  strokeWidth={1.5}
+                  style={{ color: "rgba(60, 60, 67, 0.5)" }}
+                />
+              ) : (
+                <Eye
+                  size={22}
+                  strokeWidth={1.5}
+                  style={{ color: "rgba(60, 60, 67, 0.5)" }}
+                />
+              )}
             </button>
           </div>
-        )}
-      </div>
+          {(() => {
+            const hasChange = portfolioChange24h !== null;
+            const earnedUsd = earningsSummary?.totalEarnedUsd ?? 0;
+            const hasEarned =
+              typeof earnedUsd === "number" &&
+              Number.isFinite(earnedUsd) &&
+              earnedUsd > 0;
 
-      {/* Balance */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "stretch",
-          width: "calc(100% - 16px)",
-          margin: "0 8px",
-          padding: showHeaderControls ? "8px 12px" : "0 12px 8px",
-          borderRadius: "16px",
-          background: isWalletSelected ? rowHoverBackground : "transparent",
-          border: "none",
-          cursor: "default",
-          textAlign: "left",
-          transition: "background 0.15s ease",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <div style={{ borderRadius: "8px", overflow: "hidden" }}>
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "40px",
-                fontWeight: 600,
-                lineHeight: "48px",
-                letterSpacing: "-0.44px",
-                color: isBalanceHidden ? "#BBBBC0" : "#000",
-                filter: isBalanceHidden ? "url(#rs-pixelate-lg)" : "none",
-                transition: "filter 0.15s ease, color 0.15s ease",
-                userSelect: isBalanceHidden ? "none" : "auto",
-                display: "block",
-              }}
-            >
-              {balanceWhole}
+            if (!hasChange && !hasEarned) {
+              return null;
+            }
+
+            const changeColor = hasChange
+              ? portfolioChange24h.percent >= 0
+                ? "#34C759"
+                : "#F9363C"
+              : secondary;
+            const sign = (value: number) => (value >= 0 ? "+" : "");
+            const formatUsd = (value: number) => {
+              const abs = Math.abs(value).toLocaleString("en-US", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              });
+              return `${value < 0 ? "-" : ""}$${abs}`;
+            };
+
+            return (
               <span
                 style={{
-                  color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
-                  transition: "color 0.15s ease",
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
                 }}
               >
-                {balanceFraction}
-              </span>
-            </span>
-          </div>
-          <button
-            onClick={(event) => {
-              event.stopPropagation();
-              onBalanceHiddenChange(!isBalanceHidden);
-            }}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: 0,
-              display: "flex",
-              alignItems: "center",
-              flexShrink: 0,
-            }}
-            type="button"
-          >
-            {isBalanceHidden ? (
-              <EyeOff
-                size={22}
-                strokeWidth={1.5}
-                style={{ color: "rgba(60, 60, 67, 0.5)" }}
-              />
-            ) : (
-              <Eye
-                size={22}
-                strokeWidth={1.5}
-                style={{ color: "rgba(60, 60, 67, 0.5)" }}
-              />
-            )}
-          </button>
-        </div>
-        {(() => {
-          const hasChange = portfolioChange24h !== null;
-          const earnedUsd = earningsSummary?.totalEarnedUsd ?? 0;
-          const hasEarned =
-            typeof earnedUsd === "number" &&
-            Number.isFinite(earnedUsd) &&
-            earnedUsd > 0;
-
-          if (!hasChange && !hasEarned) {
-            return null;
-          }
-
-          const changeColor = hasChange
-            ? portfolioChange24h.percent >= 0
-              ? "#34C759"
-              : "#F9363C"
-            : secondary;
-          const sign = (value: number) => (value >= 0 ? "+" : "");
-          const formatUsd = (value: number) => {
-            const abs = Math.abs(value).toLocaleString("en-US", {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            });
-            return `${value < 0 ? "-" : ""}$${abs}`;
-          };
-
-          return (
-            <span
-              style={{
-                fontFamily: font,
-                fontSize: "14px",
-                fontWeight: 400,
-                lineHeight: "20px",
-                color: secondary,
-              }}
-            >
-              {hasChange && (
-                <>
+                {hasChange && (
+                  <>
+                    <span
+                      style={{
+                        color: isBalanceHidden ? "#BBBBC0" : changeColor,
+                        filter: isBalanceHidden
+                          ? "url(#rs-pixelate-sm)"
+                          : "none",
+                        transition: "filter 0.15s ease, color 0.15s ease",
+                        userSelect: isBalanceHidden ? "none" : "auto",
+                      }}
+                    >
+                      {`${sign(
+                        portfolioChange24h.percent
+                      )}${portfolioChange24h.percent.toFixed(2)}% (${sign(
+                        portfolioChange24h.usdAmount
+                      )}${formatUsd(portfolioChange24h.usdAmount)})`}
+                    </span>
+                    {" · 24h"}
+                  </>
+                )}
+                {hasChange && hasEarned ? " · " : null}
+                {hasEarned && (
                   <span
                     style={{
-                      color: isBalanceHidden ? "#BBBBC0" : changeColor,
+                      color: isBalanceHidden ? "#BBBBC0" : "#34C759",
                       filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                       transition: "filter 0.15s ease, color 0.15s ease",
                       userSelect: isBalanceHidden ? "none" : "auto",
                     }}
                   >
-                    {`${sign(
-                      portfolioChange24h.percent
-                    )}${portfolioChange24h.percent.toFixed(2)}% (${sign(
-                      portfolioChange24h.usdAmount
-                    )}${formatUsd(portfolioChange24h.usdAmount)})`}
+                    {`+${formatUsd(earnedUsd)} earned`}
                   </span>
-                  {" · 24h"}
-                </>
-              )}
-              {hasChange && hasEarned ? " · " : null}
-              {hasEarned && (
-                <span
-                  style={{
-                    color: isBalanceHidden ? "#BBBBC0" : "#34C759",
-                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                    transition: "filter 0.15s ease, color 0.15s ease",
-                    userSelect: isBalanceHidden ? "none" : "auto",
-                  }}
-                >
-                  {`+${formatUsd(earnedUsd)} earned`}
-                </span>
-              )}
-            </span>
-          );
-        })()}
-      </div>
+                )}
+              </span>
+            );
+          })()}
+        </div>
+      )}
 
       {/* Action buttons: receive, send, swap + Shield pill */}
       {showActionButtons && (
         <div
           style={{
+            alignItems: "center",
             display: "flex",
             gap: "16px",
-            alignItems: "center",
             padding: "8px 20px",
           }}
         >
@@ -1738,17 +1759,17 @@ export function PortfolioContent({
             className="portfolio-action-btn"
             onClick={onOpenReceive}
             style={{
-              width: "44px",
-              height: "44px",
-              borderRadius: "9999px",
+              alignItems: "center",
               background: "rgba(249, 54, 60, 0.14)",
               border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              borderRadius: "9999px",
               cursor: "pointer",
-              transition: "background 0.15s ease",
+              display: "flex",
               flexShrink: 0,
+              height: "44px",
+              justifyContent: "center",
+              transition: "background 0.15s ease",
+              width: "44px",
             }}
             type="button"
           >
@@ -1761,17 +1782,17 @@ export function PortfolioContent({
             className="portfolio-action-btn"
             onClick={onOpenSend}
             style={{
-              width: "44px",
-              height: "44px",
-              borderRadius: "9999px",
+              alignItems: "center",
               background: "rgba(249, 54, 60, 0.14)",
               border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              borderRadius: "9999px",
               cursor: "pointer",
-              transition: "background 0.15s ease",
+              display: "flex",
               flexShrink: 0,
+              height: "44px",
+              justifyContent: "center",
+              transition: "background 0.15s ease",
+              width: "44px",
             }}
             type="button"
           >
@@ -1784,17 +1805,17 @@ export function PortfolioContent({
             className="portfolio-action-btn"
             onClick={onOpenSwap}
             style={{
-              width: "44px",
-              height: "44px",
-              borderRadius: "9999px",
+              alignItems: "center",
               background: "rgba(249, 54, 60, 0.14)",
               border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              borderRadius: "9999px",
               cursor: "pointer",
-              transition: "background 0.15s ease",
+              display: "flex",
               flexShrink: 0,
+              height: "44px",
+              justifyContent: "center",
+              transition: "background 0.15s ease",
+              width: "44px",
             }}
             type="button"
           >
@@ -1804,16 +1825,16 @@ export function PortfolioContent({
             className="portfolio-shield-btn"
             onClick={onOpenShield}
             style={{
-              flex: 1,
-              display: "flex",
-              gap: "6px",
               alignItems: "center",
-              justifyContent: "center",
-              padding: "10px 16px 10px 8px",
-              borderRadius: "9999px",
               background: "transparent",
               border: "2px solid rgba(60, 60, 67, 0.18)",
+              borderRadius: "9999px",
               cursor: "pointer",
+              display: "flex",
+              flex: 1,
+              gap: "6px",
+              justifyContent: "center",
+              padding: "10px 16px 10px 8px",
               transition: "background 0.15s ease",
             }}
             type="button"
@@ -1821,11 +1842,11 @@ export function PortfolioContent({
             <Image alt="Shield" height={20} src="/Shield.svg" width={20} />
             <span
               style={{
+                color: "#000",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 400,
                 lineHeight: "20px",
-                color: "#000",
               }}
             >
               Shield
@@ -1861,21 +1882,6 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
-          {onOpenAutodeposit ? (
-            <AutodepositStatusCard
-              amountLabel={autodepositAmountLabel}
-              depositedLabel={autodepositDepositedLabel}
-              hasEarnPosition={hasEarnPosition}
-              isBalanceHidden={isBalanceHidden}
-              isConfigured={isAutodepositConfigured}
-              isError={hasEarnStateLoadError}
-              isLoading={shouldShowAutodepositSkeleton}
-              nextPeriodLabel={autodepositNextPeriodLabel}
-              onRetry={onSmartAccountRetry}
-              onSetUp={onOpenAutodeposit}
-              progress={autodepositProgress}
-            />
-          ) : null}
           {onOpenEarn ? (
             <EarnPortfolioRow
               balance={earnBalance}
@@ -1905,12 +1911,12 @@ export function PortfolioContent({
                   // The root signer is mirrored into every vault, so render the
                   // single Main Account row only for the first vault that has
                   // it — otherwise it duplicates once per vault.
-                  const firstVaultWithMainAccount = sortedVaultEntries.findIndex(
-                    (candidate) =>
+                  const firstVaultWithMainAccount =
+                    sortedVaultEntries.findIndex((candidate) =>
                       candidate.signers.some(
                         (entry) => entry.label === "Main Account"
                       )
-                  );
+                    );
                   if (vaultIndex !== firstVaultWithMainAccount) {
                     return null;
                   }

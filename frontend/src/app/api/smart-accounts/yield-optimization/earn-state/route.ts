@@ -6,6 +6,7 @@ import { PublicKey } from "@solana/web3.js";
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
+import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   findCurrentEarnAutodepositState,
   findPendingEarnAutodepositScheduledSweeps,
@@ -227,6 +228,7 @@ export async function GET(request: Request) {
     position: position
       ? serializePosition(position, currentTotalAmountRaw)
       : null,
+    policySignerPublicKey: getDeploymentPolicySignerPublicKey().toBase58(),
     settingsPda: principal.settingsPda,
     vault: {
       accountIndex: EARN_VAULT_INDEX,

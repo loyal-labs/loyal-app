@@ -212,6 +212,7 @@ type EarnStateResponse = {
     vaultIndex: number;
     vaultPubkey: string;
   } | null;
+  policySignerPublicKey: string;
   position: {
     currentTotalAmountRaw: string;
     principalAmountRaw: string;
@@ -435,6 +436,7 @@ export type EarnWithdrawRequest = {
   amountRaw: bigint;
   autodepositCloseAlreadyCompleted?: boolean;
   mode: "partial" | "full";
+  onConfirmationRecorded?: () => Promise<void> | void;
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
   recordConfirmationAsync?: boolean;
   stepIndex?: number;
@@ -641,7 +643,9 @@ export type VaultTransferCapability =
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   earnAutodeposit: EarnStateResponse["autodeposit"];
+  earnOnboarding: EarnStateResponse["onboarding"] | null;
   earnPolicy: EarnStateResponse["policy"];
+  earnPolicySignerPublicKey: string | null;
   earnStateLoadErrors: EarnStateResponse["loadErrors"];
   hasEarnStateResolved: boolean;
   isLoading: boolean;
@@ -1063,27 +1067,32 @@ export function readSmartAccountOverviewCache(args: {
 }
 
 export function createOverviewFromCache(
-  cache: SmartAccountOverviewCachePayload
+  cache: SmartAccountOverviewCachePayload,
+  options: { includeVaultSnapshots?: boolean } = {}
 ): SmartAccountOverview | null {
   const base = cache.groups.base?.data;
   if (!base) {
     return null;
   }
 
-  return mergeCachedGroupsOntoOverview(createOverviewFromBase(base), cache);
+  return mergeCachedGroupsOntoOverview(createOverviewFromBase(base), cache, {
+    includeVaultSnapshots: options.includeVaultSnapshots ?? true,
+  });
 }
 
 function mergeCachedGroupsOntoOverview(
   baseOverview: SmartAccountOverview,
-  cache: SmartAccountOverviewCachePayload | null
+  cache: SmartAccountOverviewCachePayload | null,
+  options: { includeVaultSnapshots?: boolean } = {}
 ): SmartAccountOverview {
   if (!cache) {
     return baseOverview;
   }
 
   let overview = baseOverview;
+  const includeVaultSnapshots = options.includeVaultSnapshots ?? true;
 
-  if (cache.groups.vaults) {
+  if (includeVaultSnapshots && cache.groups.vaults) {
     const expectedIndexes = new Set(
       baseOverview.vaults.map((vault) => vault.accountIndex)
     );
@@ -1665,31 +1674,14 @@ async function postConfirmedEarnCleanup(args: {
   }
 }
 
-export function hasInitializedEarnYieldRoutingPolicy(
-  overview: SmartAccountOverview | null
-): boolean {
-  return (
-    overview?.policies.some(
-      (policy) =>
-        policy.state === "ProgramInteraction" && policy.accountIndex === 1
-    ) ?? false
-  );
-}
-
 export function shouldInitializeEarnYieldRoutingPolicyForDeposit({
   hasActiveEarnPosition,
   hasEarnPolicy = false,
-  overview,
 }: {
   hasActiveEarnPosition: boolean;
   hasEarnPolicy?: boolean;
-  overview: SmartAccountOverview | null;
 }): boolean {
-  return (
-    !hasActiveEarnPosition &&
-    !hasEarnPolicy &&
-    !hasInitializedEarnYieldRoutingPolicy(overview)
-  );
+  return !hasActiveEarnPosition && !hasEarnPolicy;
 }
 
 function isActiveEarnStatePosition(
@@ -2539,11 +2531,16 @@ export function useSmartAccountSidebarData(
   options: {
     authenticatedUserTotalUsd?: number | null;
     authenticatedUserCashUsd?: number | null;
+    loadVaultSnapshots?: boolean;
     onAfterTx?: () => Promise<void> | void;
   } = {}
 ): SmartAccountSidebarData {
-  const { authenticatedUserCashUsd, authenticatedUserTotalUsd, onAfterTx } =
-    options;
+  const {
+    authenticatedUserCashUsd,
+    authenticatedUserTotalUsd,
+    loadVaultSnapshots = false,
+    onAfterTx,
+  } = options;
   const publicEnv = usePublicEnv();
   const solanaEnv = publicEnv.solanaEnv;
   const stablecoinMints = useMemo(
@@ -2605,11 +2602,12 @@ export function useSmartAccountSidebarData(
   const signerActivityLoadPromisesRef = useRef<Map<string, Promise<void>>>(
     new Map()
   );
+  const earnPolicy = earnState?.policy ?? null;
   const requiresEarnPolicySetupForDeposit =
     shouldInitializeEarnYieldRoutingPolicyForDeposit({
-      hasActiveEarnPosition: isActiveEarnStatePosition(earnState),
-      hasEarnPolicy: Boolean(earnState?.policy),
-      overview,
+      hasActiveEarnPosition:
+        Boolean(earnPolicy) && isActiveEarnStatePosition(earnState),
+      hasEarnPolicy: Boolean(earnPolicy),
     });
 
   const refresh = useCallback(
@@ -2651,7 +2649,9 @@ export function useSmartAccountSidebarData(
           })
         : null;
       const cachedOverview = cachedPayload
-        ? createOverviewFromCache(cachedPayload)
+        ? createOverviewFromCache(cachedPayload, {
+            includeVaultSnapshots: loadVaultSnapshots,
+          })
         : null;
       const cachedBestApyReserves =
         cachedPayload?.groups.bestApyReserves?.data ??
@@ -2698,7 +2698,8 @@ export function useSmartAccountSidebarData(
             cachedOverview ??
             mergeCachedGroupsOntoOverview(
               createOverviewFromBase(cachedPayload.groups.base.data),
-              cachedPayload
+              cachedPayload,
+              { includeVaultSnapshots: loadVaultSnapshots }
             );
         } else {
           const baseUrl = new URL(
@@ -2716,7 +2717,8 @@ export function useSmartAccountSidebarData(
           });
           baseOverview = mergeCachedGroupsOntoOverview(
             createOverviewFromBase(base),
-            cachedPayload
+            cachedPayload,
+            { includeVaultSnapshots: loadVaultSnapshots }
           );
           setOverview(baseOverview);
           setVaultActivityByAccountIndex({});
@@ -2768,6 +2770,10 @@ export function useSmartAccountSidebarData(
       };
 
       const loadVaults = async () => {
+        if (!loadVaultSnapshots) {
+          return;
+        }
+
         if (
           canUseFreshCache &&
           isSmartAccountOverviewCacheGroupFresh(
@@ -3004,7 +3010,7 @@ export function useSmartAccountSidebarData(
         loadBestApyReserves(),
       ]);
     },
-    [solanaEnv, user?.settingsPda]
+    [loadVaultSnapshots, solanaEnv, user?.settingsPda]
   );
 
   useEffect(() => {
@@ -4429,17 +4435,19 @@ export function useSmartAccountSidebarData(
       if (currentEarnState && currentEarnState !== earnState) {
         setEarnState(currentEarnState);
       }
+      const currentEarnPolicy = currentEarnState?.policy ?? null;
       if (
         !shouldInitializeEarnYieldRoutingPolicyForDeposit({
-          hasActiveEarnPosition: isActiveEarnStatePosition(currentEarnState),
-          hasEarnPolicy: Boolean(currentEarnState?.policy),
-          overview,
+          hasActiveEarnPosition:
+            Boolean(currentEarnPolicy) &&
+            isActiveEarnStatePosition(currentEarnState),
+          hasEarnPolicy: Boolean(currentEarnPolicy),
         })
       ) {
         return {
           success: true,
           status: "executed",
-          policy: currentEarnState?.policy ?? undefined,
+          policy: currentEarnPolicy ?? undefined,
         };
       }
 
@@ -5048,6 +5056,27 @@ export function useSmartAccountSidebarData(
             confirmedSlot,
             smartAccountAddress: preparedWithdraw.vault.pubkey.toBase58(),
           });
+
+          try {
+            await Promise.resolve(request.onConfirmationRecorded?.());
+          } catch (error) {
+            console.warn(
+              "[executeEarnWithdraw] post-confirm UI refresh failed",
+              error
+            );
+          }
+
+          try {
+            const nextEarnState = await fetchEarnState();
+            if (nextEarnState) {
+              setEarnState(nextEarnState);
+            }
+          } catch (error) {
+            console.warn(
+              "[executeEarnWithdraw] post-confirm Earn state refresh failed",
+              error
+            );
+          }
         };
         const shouldRecordConfirmationAsync =
           request.mode === "partial" &&
@@ -5617,12 +5646,17 @@ export function useSmartAccountSidebarData(
   );
 
   const isLoading =
-    isBaseLoading || isVaultsLoading || isPoliciesLoading || isProposalsLoading;
+    isBaseLoading ||
+    (loadVaultSnapshots && isVaultsLoading) ||
+    isPoliciesLoading ||
+    isProposalsLoading;
 
   return {
     overview,
     earnAutodeposit: earnState?.autodeposit ?? null,
-    earnPolicy: earnState?.policy ?? null,
+    earnOnboarding: earnState?.onboarding ?? null,
+    earnPolicy,
+    earnPolicySignerPublicKey: earnState?.policySignerPublicKey ?? null,
     earnStateLoadErrors: earnState?.loadErrors ?? {},
     hasEarnStateResolved,
     isLoading,

@@ -20,6 +20,7 @@ import {
   type RefObject,
 } from "react";
 
+import { DogWithMood } from "@/components/chat-input";
 import {
   FALLBACK_EARN_FORECAST,
   formatEarnApyLabel,
@@ -74,6 +75,8 @@ const USDC_RAW_SCALE = BigInt(1_000_000);
 const USDC_DISPLAY_DUST_TOLERANCE = 1.5 / Number(USDC_RAW_SCALE);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const EARN_NUMBER_FLOW_PLUGINS = [continuous];
+const EARN_CLEANUP_MASCOT_TEXT =
+  "You've already withdrawn the USDC. I can close the remaining Earn accounts and refund rent where possible.";
 const FALLBACK_EARN_APY = {
   apyBps: FALLBACK_EARN_FORECAST.apyBps,
   rangeHighBps: FALLBACK_EARN_FORECAST.rangeHighBps,
@@ -2421,9 +2424,11 @@ export function EarnDetailView({
       }),
     [currentSupplyApyBps, earnForecastApy]
   );
+  const hasPositiveCurrentBalance =
+    hasCurrentPosition && currentBalanceAmount > 0;
   const { data: earningsRangeSet, error: earningsError } = useEarnEarnings({
     cacheKey: earningsCacheKey,
-    enabled: hasCurrentPosition,
+    enabled: hasPositiveCurrentBalance,
     expectedPrincipalAmountRaw: earningsCacheScope?.expectedPrincipalAmountRaw,
     settingsPda: earningsCacheScope?.settingsPda,
     solanaEnv: earningsCacheScope?.solanaEnv,
@@ -3138,8 +3143,10 @@ function BucksAmountInput({
 }
 
 export function EarnWithdrawView({
+  cleanupOnly = false,
   currentPositionHoldings,
   isSubmitting = false,
+  onCleanupSubmit,
   onClose,
   onDraftChange,
   onDraftSubmit,
@@ -3147,8 +3154,10 @@ export function EarnWithdrawView({
   destinations = FALLBACK_EARN_DEPOSIT_SOURCES,
   submitError = null,
 }: {
+  cleanupOnly?: boolean;
   currentPositionHoldings?: ActiveEarnPositionHolding[];
   isSubmitting?: boolean;
+  onCleanupSubmit?: () => void | Promise<void>;
   onClose?: () => void;
   onDraftChange?: (draft: EarnWithdrawDraft | null) => void;
   onDraftSubmit?: (draft: EarnWithdrawDraft) => void | Promise<void>;
@@ -3262,6 +3271,372 @@ export function EarnWithdrawView({
       window.cancelAnimationFrame(frame);
     };
   }, []);
+
+  const [cleanupMascotVisibleLength, setCleanupMascotVisibleLength] =
+    useState(0);
+  const cleanupMascotVisibleText = EARN_CLEANUP_MASCOT_TEXT.slice(
+    0,
+    cleanupMascotVisibleLength
+  );
+  const isCleanupMascotTextComplete =
+    cleanupMascotVisibleLength >= EARN_CLEANUP_MASCOT_TEXT.length;
+
+  useEffect(() => {
+    if (!cleanupOnly) {
+      setCleanupMascotVisibleLength(0);
+      return;
+    }
+
+    const prefersReducedMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
+      setCleanupMascotVisibleLength(EARN_CLEANUP_MASCOT_TEXT.length);
+      return;
+    }
+
+    setCleanupMascotVisibleLength(0);
+
+    let index = 0;
+    let intervalId: number | null = null;
+    const startTimeoutId = window.setTimeout(() => {
+      intervalId = window.setInterval(() => {
+        index = Math.min(EARN_CLEANUP_MASCOT_TEXT.length, index + 1);
+        setCleanupMascotVisibleLength(index);
+
+        if (
+          index >= EARN_CLEANUP_MASCOT_TEXT.length &&
+          intervalId !== null
+        ) {
+          window.clearInterval(intervalId);
+        }
+      }, 30);
+    }, 240);
+
+    return () => {
+      window.clearTimeout(startTimeoutId);
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [cleanupOnly]);
+
+  if (cleanupOnly) {
+    const isCleanupButtonDisabled = isSubmitting || !onCleanupSubmit;
+    const cleanupButtonLabel = isSubmitting
+      ? "Preparing..."
+      : "Close policies";
+
+    return (
+      <div
+        style={{
+          background: "#fff",
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          overflow: "hidden",
+          width: "100%",
+        }}
+      >
+        <style jsx>{`
+          .earn-cleanup-submit:not(:disabled):hover {
+            background: rgba(249, 54, 60, 0.2) !important;
+          }
+          .earn-cleanup-mascot-note {
+            align-items: flex-end;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 4px 0 0;
+            width: 100%;
+          }
+          .earn-cleanup-mascot-bubble {
+            animation: earn-cleanup-bubble-unravel 0.62s
+              cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+            background: #fff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 18px;
+            box-sizing: border-box;
+            box-shadow:
+              0 10px 24px rgba(0, 0, 0, 0.08),
+              0 2px 6px rgba(0, 0, 0, 0.04);
+            color: rgba(0, 0, 0, 0.86);
+            font-family: ${font};
+            font-size: 15px;
+            font-weight: 500;
+            line-height: 21px;
+            max-width: 100%;
+            padding: 12px 16px;
+            position: relative;
+            transform-origin: 100% 50%;
+            width: 100%;
+          }
+          .earn-cleanup-mascot-bubble-content {
+            display: block;
+            position: relative;
+          }
+          .earn-cleanup-mascot-bubble-measure {
+            display: block;
+            visibility: hidden;
+          }
+          .earn-cleanup-mascot-bubble-stream {
+            display: block;
+            inset: 0;
+            position: absolute;
+            white-space: normal;
+          }
+          .earn-cleanup-mascot-bubble-cursor {
+            animation: earn-cleanup-stream-cursor 0.8s step-end infinite;
+            background: currentColor;
+            border-radius: 9999px;
+            display: inline-block;
+            height: 1em;
+            margin-left: 2px;
+            transform: translateY(2px);
+            width: 2px;
+          }
+          .earn-cleanup-mascot-bubble-cursor[data-complete="true"] {
+            animation: none;
+            opacity: 0;
+          }
+          .earn-cleanup-mascot-bubble::before {
+            animation: earn-cleanup-bubble-tail 0.62s
+              cubic-bezier(0.16, 1, 0.3, 1) 0.08s both;
+            background: #fff;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+            border-right: 1px solid rgba(0, 0, 0, 0.08);
+            bottom: -6px;
+            content: "";
+            height: 11px;
+            position: absolute;
+            right: 34px;
+            transform: rotate(45deg);
+            width: 11px;
+          }
+          .earn-cleanup-mascot-dog {
+            animation: earn-cleanup-dog-slide-in 0.5s
+              cubic-bezier(0.16, 1, 0.3, 1) both;
+            flex-shrink: 0;
+            height: 70px;
+            margin-right: 4px;
+            width: 88px;
+          }
+          .earn-cleanup-mascot-dog :global(svg) {
+            display: block;
+            height: 100%;
+            width: 100%;
+          }
+          @keyframes earn-cleanup-bubble-unravel {
+            from {
+              opacity: 0;
+              transform: translateX(4px) scaleX(0.08);
+            }
+            to {
+              opacity: 1;
+              transform: translateX(0) scaleX(1);
+            }
+          }
+          @keyframes earn-cleanup-bubble-tail {
+            from {
+              opacity: 0;
+              transform: translateY(-3px) rotate(45deg) scale(0.3);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0) rotate(45deg) scale(1);
+            }
+          }
+          @keyframes earn-cleanup-dog-slide-in {
+            from {
+              opacity: 0;
+              transform: translateX(28px);
+            }
+            to {
+              opacity: 1;
+              transform: translateX(0);
+            }
+          }
+          @keyframes earn-cleanup-stream-cursor {
+            0%,
+            48% {
+              opacity: 1;
+            }
+            49%,
+            100% {
+              opacity: 0;
+            }
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .earn-cleanup-mascot-bubble,
+            .earn-cleanup-mascot-bubble::before,
+            .earn-cleanup-mascot-bubble-cursor,
+            .earn-cleanup-mascot-dog {
+              animation: none;
+            }
+          }
+        `}</style>
+        <div
+          style={{
+            alignItems: "center",
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "10px 20px 8px",
+          }}
+        >
+          <h2
+            style={{
+              color: "#000",
+              flex: 1,
+              fontFamily: font,
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "28px",
+              margin: 0,
+              minWidth: 0,
+            }}
+          >
+            Withdraw
+          </h2>
+          <CloseButton iconColor="#85868A" onClick={onClose} />
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            padding: "28px 20px 8px",
+            scrollbarWidth: "none",
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              alignItems: "center",
+              display: "flex",
+              gap: "12px",
+              padding: "8px 0 28px",
+            }}
+          >
+            <EarnYieldIcon />
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                minWidth: 0,
+              }}
+            >
+              <span
+                style={{
+                  color: secondary,
+                  fontFamily: font,
+                  fontSize: "14px",
+                  lineHeight: "18px",
+                }}
+              >
+                Earn balance
+              </span>
+              <span
+                style={{
+                  color: "#000",
+                  fontFamily: font,
+                  fontSize: "32px",
+                  fontWeight: 600,
+                  lineHeight: "38px",
+                }}
+              >
+                $0
+                <span style={{ color: "rgba(60, 60, 67, 0.4)" }}>.00</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="earn-cleanup-mascot-note">
+            <div className="earn-cleanup-mascot-bubble">
+              <span
+                aria-label={EARN_CLEANUP_MASCOT_TEXT}
+                className="earn-cleanup-mascot-bubble-content"
+              >
+                <span
+                  aria-hidden="true"
+                  className="earn-cleanup-mascot-bubble-measure"
+                >
+                  {EARN_CLEANUP_MASCOT_TEXT}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="earn-cleanup-mascot-bubble-stream"
+                >
+                  {cleanupMascotVisibleText}
+                  <span
+                    className="earn-cleanup-mascot-bubble-cursor"
+                    data-complete={isCleanupMascotTextComplete}
+                  />
+                </span>
+              </span>
+            </div>
+            <div className="earn-cleanup-mascot-dog">
+              <DogWithMood nice />
+            </div>
+          </div>
+        </div>
+
+        <div
+          style={{
+            background:
+              "linear-gradient(to bottom, rgba(255,255,255,0), #fff 28%)",
+            padding: "16px 32px 24px",
+            width: "100%",
+          }}
+        >
+          {submitError ? (
+            <p
+              style={{
+                color: "#F9363C",
+                fontFamily: font,
+                fontSize: "13px",
+                lineHeight: "18px",
+                margin: "0 0 10px",
+              }}
+            >
+              {submitError}
+            </p>
+          ) : null}
+          <button
+            className="earn-cleanup-submit"
+            disabled={isCleanupButtonDisabled}
+            onClick={() => {
+              void onCleanupSubmit?.();
+            }}
+            style={{
+              alignItems: "center",
+              background: isCleanupButtonDisabled
+                ? "rgba(0, 0, 0, 0.04)"
+                : "rgba(249, 54, 60, 0.14)",
+              border: "none",
+              borderRadius: "78px",
+              color: isCleanupButtonDisabled ? secondary : "#F9363C",
+              cursor: isCleanupButtonDisabled ? "default" : "pointer",
+              display: "flex",
+              fontFamily: font,
+              fontSize: "17px",
+              fontWeight: 500,
+              height: "50px",
+              justifyContent: "center",
+              lineHeight: "22px",
+              padding: "15px 12px",
+              transition: "background 0.15s ease",
+              width: "100%",
+            }}
+            type="button"
+          >
+            {cleanupButtonLabel}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

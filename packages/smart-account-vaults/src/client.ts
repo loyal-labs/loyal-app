@@ -215,6 +215,8 @@ const KAMINO_DEPOSIT_INSTRUCTIONS_URL =
   "https://api.kamino.finance/ktx/klend/deposit-instructions";
 const KAMINO_WITHDRAW_INSTRUCTIONS_URL =
   "https://api.kamino.finance/ktx/klend/withdraw-instructions";
+const KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL =
+  "/api/kamino/klend/deposit-instructions";
 const KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL =
   "/api/kamino/klend/withdraw-instructions";
 const KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS = 39_532_800;
@@ -1779,11 +1781,16 @@ async function fetchKaminoDepositInstruction(args: {
     reserve: args.reserve.toBase58(),
     amount,
   };
-  const response = await fetch(KAMINO_DEPOSIT_INSTRUCTIONS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody),
-  });
+  const response = await fetch(
+    typeof window === "undefined"
+      ? KAMINO_DEPOSIT_INSTRUCTIONS_URL
+      : KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    }
+  );
 
   if (!response.ok) {
     throw new Error(

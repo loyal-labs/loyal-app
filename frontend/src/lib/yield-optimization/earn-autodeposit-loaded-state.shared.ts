@@ -34,17 +34,6 @@ export type LoadedEarnAutodepositConfig = {
   state: "created" | "creating" | "paused";
 };
 
-export type EarnAutodepositProgressScale = {
-  goalAmount: number;
-  goalLabel: string;
-  progress: number;
-};
-
-const AUTODEPOSIT_PROGRESS_MILESTONES = [
-  100, 500, 1_000, 5_000, 10_000,
-] as const;
-const AUTODEPOSIT_PROGRESS_INCREMENT = 5_000;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -137,46 +126,6 @@ function formatNextPeriodLabel(
     day: "2-digit",
     month: "short",
   });
-}
-
-function parseAmountLabelToNumber(amount: string | number | null | undefined) {
-  if (typeof amount === "number") {
-    return Number.isFinite(amount) ? Math.max(0, amount) : 0;
-  }
-
-  const normalized = (amount ?? "").replace(/,/g, "").trim();
-  if (!normalized || !/^\d+(\.\d+)?$/.test(normalized)) {
-    return 0;
-  }
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
-}
-
-function formatProgressGoalLabel(amount: number) {
-  return `$${amount.toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  })}`;
-}
-
-export function getEarnAutodepositProgressScale(
-  depositedAmount: string | number | null | undefined
-): EarnAutodepositProgressScale {
-  const deposited = parseAmountLabelToNumber(depositedAmount);
-  const milestone = AUTODEPOSIT_PROGRESS_MILESTONES.find(
-    (goal) => deposited < goal
-  );
-  const goalAmount =
-    milestone ??
-    (Math.floor(deposited / AUTODEPOSIT_PROGRESS_INCREMENT) + 1) *
-      AUTODEPOSIT_PROGRESS_INCREMENT;
-
-  return {
-    goalAmount,
-    goalLabel: formatProgressGoalLabel(goalAmount),
-    progress: goalAmount > 0 ? Math.min(deposited / goalAmount, 1) : 0,
-  };
 }
 
 export function earnAutodepositConfigFromLoadedState(

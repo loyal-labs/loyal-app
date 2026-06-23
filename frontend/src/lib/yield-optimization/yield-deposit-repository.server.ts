@@ -388,6 +388,16 @@ type YieldDepositRepositoryDependencies = {
 };
 
 type AggregatePositionUpsertMode = "increment-principal" | "recover-principal";
+type IdempotentDepositAccountingResult =
+  | {
+      kind: "complete";
+      position: UserYieldPositionRecord;
+    }
+  | {
+      depositId: bigint;
+      kind: "recover";
+    }
+  | null;
 
 function sortYieldPositionHistoryEventsDescending(
   events: UserYieldPositionHistoryEventRecord[]
@@ -704,13 +714,38 @@ export async function recordConfirmedEarnCleanup(
       updatedAt: now,
     })
     .where(eq(vaultIdleTokenBalancesCurrent.vaultId, vault.id)) as never;
+  const closeActivePositions = client.db
+    .update(userYieldPositions)
+    .set({
+      currentAmountRaw: BigInt(0),
+      currentObservedAt: now,
+      currentObservedSlot: input.confirmedSlot,
+      lastConfirmedSlot: input.confirmedSlot,
+      principalAmountRaw: BigInt(0),
+      status: "closed",
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(userYieldPositions.settings, input.settings),
+        eq(userYieldPositions.vaultIndex, input.vaultIndex),
+        eq(userYieldPositions.vaultPubkey, input.vaultPubkey),
+        eq(userYieldPositions.walletAddress, input.walletAddress),
+        eq(userYieldPositions.status, "active")
+      )
+    ) as never;
   const deactivateVault = client.db
     .update(managedVaults)
     .set({ active: false, lastSeenAt: now })
     .where(eq(managedVaults.id, vault.id)) as never;
 
   if (policyIds.length === 0) {
-    await client.db.batch([zeroReserveRows, zeroIdleRows, deactivateVault]);
+    await client.db.batch([
+      zeroReserveRows,
+      zeroIdleRows,
+      closeActivePositions,
+      deactivateVault,
+    ]);
     return;
   }
 
@@ -728,6 +763,7 @@ export async function recordConfirmedEarnCleanup(
     deactivatePolicies,
     zeroReserveRows,
     zeroIdleRows,
+    closeActivePositions,
     deactivateVault,
   ]);
 }
@@ -1474,10 +1510,10 @@ async function resolveWithdrawalSource(
   };
 }
 
-async function findIdempotentDepositPosition(
+async function resolveIdempotentDepositAccounting(
   input: ConfirmedYieldDepositInput,
-  dependencies: Pick<YieldDepositRepositoryDependencies, "client">
-): Promise<UserYieldPositionRecord | null> {
+  dependencies: YieldDepositRepositoryDependencies
+): Promise<IdempotentDepositAccountingResult> {
   const deposit =
     await dependencies.client.db.query.userYieldPositionDeposits.findFirst({
       where: eq(
@@ -1574,30 +1610,38 @@ async function findIdempotentDepositPosition(
         where: eq(userYieldPositions.id, event.positionId),
       });
     if (position) {
-      return position;
+      if (
+        position.status === "active" &&
+        position.lastDepositSignature === input.depositSignature &&
+        currentPositionMatchesHoldingEvent(position, event)
+      ) {
+        return { kind: "complete", position };
+      }
+
+      const shouldIncrementPrincipal =
+        event.eventType === "deposit_top_up" &&
+        position.lastDepositSignature !== input.depositSignature;
+      const principalAmountRaw =
+        event.eventType === "deposit_initialized"
+          ? input.principalAmountRaw
+          : shouldIncrementPrincipal
+            ? sql`${userYieldPositions.principalAmountRaw} + ${input.principalAmountRaw}`
+            : undefined;
+      const repairedPosition = await applyHoldingEventToPosition({
+        client: dependencies.client,
+        event,
+        lastConfirmedSlot: input.confirmedSlot,
+        lastDepositSignature: input.depositSignature,
+        now: dependencies.now(),
+        principalAmountRaw,
+        status: "active",
+      });
+
+      return { kind: "complete", position: repairedPosition };
     }
   }
 
-  const position =
-    await dependencies.client.db.query.userYieldPositions.findFirst({
-      where: and(
-        eq(userYieldPositions.settings, input.settings),
-        eq(userYieldPositions.vaultIndex, input.vaultIndex),
-        eq(userYieldPositions.walletAddress, input.walletAddress),
-        eq(userYieldPositions.vaultPubkey, input.vaultPubkey),
-        eq(userYieldPositions.lastDepositSignature, input.depositSignature)
-      ),
-      orderBy: [
-        desc(userYieldPositions.updatedAt),
-        desc(userYieldPositions.id),
-      ],
-    });
-
-  if (!position) {
-    throw new Error("Duplicate deposit position is missing.");
-  }
-
-  return position;
+  return { depositId: deposit.id, kind: "recover" };
 }
 
 async function findIdempotentWithdrawalPosition(
@@ -2337,17 +2381,21 @@ export async function recordConfirmedYieldDeposit(
     throw new Error("Deposit policy initialization must be create or reuse.");
   }
 
-  const idempotentPosition = await findIdempotentDepositPosition(
+  const idempotentDepositAccounting = await resolveIdempotentDepositAccounting(
     input,
     dependencies
   );
-  if (idempotentPosition) {
-    return idempotentPosition;
+  if (idempotentDepositAccounting?.kind === "complete") {
+    return idempotentDepositAccounting.position;
   }
+  const recoverDepositId =
+    idempotentDepositAccounting?.kind === "recover"
+      ? idempotentDepositAccounting.depositId
+      : null;
 
   const { client } = dependencies;
   const now = dependencies.now();
-  const activeVaultPosition = await findReconciledActiveYieldPositionForVault(
+  let activeVaultPosition = await findReconciledActiveYieldPositionForVault(
     {
       cluster: input.cluster,
       settings: input.settings,
@@ -2357,7 +2405,7 @@ export async function recordConfirmedYieldDeposit(
     },
     dependencies
   );
-  const reservePosition =
+  let reservePosition =
     await dependencies.client.db.query.userYieldPositions.findFirst({
       where: and(
         eq(userYieldPositions.settings, input.settings),
@@ -2367,6 +2415,38 @@ export async function recordConfirmedYieldDeposit(
       ),
       orderBy: [desc(userYieldPositions.id)],
     });
+  if (
+    // A zero-balance refill with an active Earn policy prepares as "reuse".
+    // This repair is only for stale aggregate rows left behind after cleanup,
+    // where the next real first deposit has already created fresh policies.
+    input.policyInitialization === "create" &&
+    activeVaultPosition?.status === "active" &&
+    activeVaultPosition.currentAmountRaw === BigInt(0) &&
+    activeVaultPosition.principalAmountRaw === BigInt(0)
+  ) {
+    await client.db
+      .update(userYieldPositions)
+      .set({
+        currentObservedAt: now,
+        currentObservedSlot: input.confirmedSlot,
+        lastConfirmedSlot: input.confirmedSlot,
+        status: "closed",
+        updatedAt: now,
+      })
+      .where(eq(userYieldPositions.id, activeVaultPosition.id));
+
+    activeVaultPosition = {
+      ...activeVaultPosition,
+      currentObservedAt: now,
+      currentObservedSlot: input.confirmedSlot,
+      lastConfirmedSlot: input.confirmedSlot,
+      status: "closed",
+      updatedAt: now,
+    };
+    if (reservePosition?.id === activeVaultPosition.id) {
+      reservePosition = activeVaultPosition;
+    }
+  }
   const existingPosition =
     input.policyInitialization === "reuse"
       ? activeVaultPosition ?? reservePosition
@@ -2416,18 +2496,39 @@ export async function recordConfirmedYieldDeposit(
     walletAddress: input.walletAddress,
   };
 
-  const insertedDeposits = await client.db
-    .insert(userYieldPositionDeposits)
-    .values(depositValues)
-    .onConflictDoNothing({
-      target: [userYieldPositionDeposits.depositSignature],
-    })
-    .returning({ id: userYieldPositionDeposits.id });
+  const insertedDeposits =
+    recoverDepositId === null
+      ? await client.db
+          .insert(userYieldPositionDeposits)
+          .values(depositValues)
+          .onConflictDoNothing({
+            target: [userYieldPositionDeposits.depositSignature],
+          })
+          .returning({ id: userYieldPositionDeposits.id })
+      : [];
+  let depositId = recoverDepositId ?? insertedDeposits[0]?.id ?? null;
+  if (depositId === null && recoverDepositId === null) {
+    const replayedDepositAccounting = await resolveIdempotentDepositAccounting(
+      input,
+      dependencies
+    );
+    if (replayedDepositAccounting?.kind === "complete") {
+      return replayedDepositAccounting.position;
+    }
+    depositId =
+      replayedDepositAccounting?.kind === "recover"
+        ? replayedDepositAccounting.depositId
+        : null;
+  }
 
-  if (insertedDeposits.length > 0) {
-    const [insertedDeposit] = insertedDeposits;
+  if (depositId !== null) {
+    const shouldTreatAsTopUp =
+      input.policyInitialization === "reuse" &&
+      hasActiveExistingPosition &&
+      existingPosition !== null &&
+      existingPosition !== undefined;
     const position =
-      hasActiveExistingPosition && existingPosition
+      shouldTreatAsTopUp
         ? existingPosition
         : await upsertAggregatePosition({
             client,
@@ -2436,11 +2537,11 @@ export async function recordConfirmedYieldDeposit(
             now,
           });
     const sameCurrentHolding =
-      !hasActiveExistingPosition ||
+      !shouldTreatAsTopUp ||
       (existingPosition.currentReserve === input.targetReserve &&
         existingPosition.currentMarket === input.market &&
         existingPosition.currentLiquidityMint === input.liquidityMint);
-    const nextCurrentAmountRaw = hasActiveExistingPosition
+    const nextCurrentAmountRaw = shouldTreatAsTopUp
       ? sameCurrentHolding
         ? existingPosition.currentAmountRaw + input.principalAmountRaw
         : input.principalAmountRaw
@@ -2449,16 +2550,16 @@ export async function recordConfirmedYieldDeposit(
       amountRaw: nextCurrentAmountRaw,
       client,
       createdAt: now,
-      eventType: hasActiveExistingPosition
+      eventType: shouldTreatAsTopUp
         ? "deposit_top_up"
         : "deposit_initialized",
       holdingDeltaRaw: input.principalAmountRaw,
       liquidityMint:
-        hasActiveExistingPosition && existingPosition && sameCurrentHolding
+        shouldTreatAsTopUp && sameCurrentHolding
           ? existingPosition.currentLiquidityMint
           : input.liquidityMint,
       market:
-        hasActiveExistingPosition && existingPosition && sameCurrentHolding
+        shouldTreatAsTopUp && sameCurrentHolding
           ? existingPosition.currentMarket
           : input.market,
       observedAt: now,
@@ -2466,10 +2567,10 @@ export async function recordConfirmedYieldDeposit(
       positionId: position.id,
       principalDeltaRaw: input.principalAmountRaw,
       reserve:
-        hasActiveExistingPosition && existingPosition && sameCurrentHolding
+        shouldTreatAsTopUp && sameCurrentHolding
           ? existingPosition.currentReserve
           : input.targetReserve,
-      sourceDepositId: insertedDeposit.id,
+      sourceDepositId: depositId,
       sourceSignature: input.depositSignature,
     });
 
@@ -2479,7 +2580,7 @@ export async function recordConfirmedYieldDeposit(
       lastConfirmedSlot: input.confirmedSlot,
       lastDepositSignature: input.depositSignature,
       now,
-      principalAmountRaw: hasActiveExistingPosition
+      principalAmountRaw: shouldTreatAsTopUp
         ? sql`${userYieldPositions.principalAmountRaw} + ${input.principalAmountRaw}`
         : position.principalAmountRaw,
       status: "active",

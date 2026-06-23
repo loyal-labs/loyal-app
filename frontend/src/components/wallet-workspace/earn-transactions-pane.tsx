@@ -1266,6 +1266,11 @@ export function EarnTransactionsPane({
     scheduledSweepExecutionRequestedAtMs,
     setScheduledSweepExecutionRequestedAtMs,
   ] = useState<number | null>(null);
+  const [
+    earnActionRefreshRequestedAtMs,
+    setEarnActionRefreshRequestedAtMs,
+  ] = useState<number | null>(null);
+  const lastRefreshKeyRef = useRef<number | null>(null);
   const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
     EarnPolicyRefundScanPolicy[] | null
   >(null);
@@ -1282,6 +1287,18 @@ export function EarnTransactionsPane({
   useEffect(() => {
     scheduledSweepsLengthRef.current = scheduledSweeps.length;
   }, [scheduledSweeps.length]);
+
+  useEffect(() => {
+    if (lastRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+
+    const previousRefreshKey = lastRefreshKeyRef.current;
+    lastRefreshKeyRef.current = refreshKey;
+    if (previousRefreshKey !== null || refreshKey > 0) {
+      setEarnActionRefreshRequestedAtMs(Date.now());
+    }
+  }, [refreshKey]);
 
   useEffect(() => {
     const feedKey = `${solanaEnv}:${settingsPda ?? ""}:${walletAddress ?? ""}`;
@@ -1301,6 +1318,14 @@ export function EarnTransactionsPane({
       return;
     }
 
+    if (
+      scheduledSweepExecutionRequestedAtMs === null ||
+      scheduledSweepExecuteError
+    ) {
+      setRenderedScheduledSweeps([]);
+      return;
+    }
+
     setRenderedScheduledSweeps((current) =>
       current.filter(
         (sweep) =>
@@ -1309,6 +1334,8 @@ export function EarnTransactionsPane({
     );
   }, [
     isAutodepositConfigured,
+    scheduledSweepExecuteError,
+    scheduledSweepExecutionRequestedAtMs,
     scheduledSweeps,
     settingsPda,
     solanaEnv,
@@ -1361,6 +1388,7 @@ export function EarnTransactionsPane({
       feedKeyRef.current = null;
       knownTransactionIdsRef.current = null;
       setScheduledSweepExecutionRequestedAtMs(null);
+      setEarnActionRefreshRequestedAtMs(null);
       return;
     }
 
@@ -1399,6 +1427,25 @@ export function EarnTransactionsPane({
         );
       });
     };
+    const hasConfirmedRequestedEarnAction = (items: EarnTransactionItem[]) => {
+      if (earnActionRefreshRequestedAtMs === null) {
+        return false;
+      }
+
+      return items.some((item) => {
+        if (item.kind !== "deposit" && item.kind !== "withdraw") {
+          return false;
+        }
+
+        const confirmedAt = parseEarnTransactionInstant(
+          getEarnTransactionConfirmedAt(item)
+        );
+        return (
+          confirmedAt !== null &&
+          confirmedAt.getTime() >= earnActionRefreshRequestedAtMs - 5_000
+        );
+      });
+    };
 
     const applyTransactions = (items: EarnTransactionItem[]) => {
       const previousIds = knownTransactionIdsRef.current;
@@ -1419,6 +1466,9 @@ export function EarnTransactionsPane({
         ) {
           setScheduledSweepExecutionRequestedAtMs(null);
         }
+        if (hasConfirmedRequestedEarnAction(items)) {
+          setEarnActionRefreshRequestedAtMs(null);
+        }
         // Same id set as the last render — skip the no-op state update.
         return;
       }
@@ -1431,6 +1481,9 @@ export function EarnTransactionsPane({
         scheduledSweepsLengthRef.current === 0
       ) {
         setScheduledSweepExecutionRequestedAtMs(null);
+      }
+      if (hasConfirmedRequestedEarnAction(items)) {
+        setEarnActionRefreshRequestedAtMs(null);
       }
     };
 
@@ -1488,16 +1541,29 @@ export function EarnTransactionsPane({
       }
     };
 
-    const isFastPolling =
+    const nowMs = Date.now();
+    const isScheduledSweepFastPolling =
       scheduledSweepExecutionRequestedAtMs !== null &&
-      Date.now() - scheduledSweepExecutionRequestedAtMs <
+      nowMs - scheduledSweepExecutionRequestedAtMs <
         EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
+    const isEarnActionFastPolling =
+      earnActionRefreshRequestedAtMs !== null &&
+      nowMs - earnActionRefreshRequestedAtMs <
+        EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
+    const isFastPolling =
+      isScheduledSweepFastPolling || isEarnActionFastPolling;
     const pollIntervalMs = isFastPolling
       ? EARN_TRANSACTIONS_FAST_POLL_INTERVAL_MS
       : EARN_TRANSACTIONS_POLL_INTERVAL_MS;
 
-    if (scheduledSweepExecutionRequestedAtMs !== null && !isFastPolling) {
+    if (
+      scheduledSweepExecutionRequestedAtMs !== null &&
+      !isScheduledSweepFastPolling
+    ) {
       setScheduledSweepExecutionRequestedAtMs(null);
+    }
+    if (earnActionRefreshRequestedAtMs !== null && !isEarnActionFastPolling) {
+      setEarnActionRefreshRequestedAtMs(null);
     }
 
     void loadTransactions({
@@ -1506,16 +1572,32 @@ export function EarnTransactionsPane({
     });
     refreshScheduledSweeps();
 
-    // Pseudo-realtime: poll the cached fetcher so new transactions appear
+    // Pseudo-realtime: poll the cached fetcher so confirmed Earn actions appear
     // without a reload. Refresh loaded Earn state on the same cadence because
     // scheduled sweep lots are created by the background worker after setup.
     const intervalId = window.setInterval(() => {
-      const shouldFastPoll =
+      const intervalNowMs = Date.now();
+      const shouldFastPollScheduledSweeps =
         scheduledSweepExecutionRequestedAtMs !== null &&
-        Date.now() - scheduledSweepExecutionRequestedAtMs <
+        intervalNowMs - scheduledSweepExecutionRequestedAtMs <
           EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
-      if (scheduledSweepExecutionRequestedAtMs !== null && !shouldFastPoll) {
+      const shouldFastPollEarnAction =
+        earnActionRefreshRequestedAtMs !== null &&
+        intervalNowMs - earnActionRefreshRequestedAtMs <
+          EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
+      const shouldFastPoll =
+        shouldFastPollScheduledSweeps || shouldFastPollEarnAction;
+      if (
+        scheduledSweepExecutionRequestedAtMs !== null &&
+        !shouldFastPollScheduledSweeps
+      ) {
         setScheduledSweepExecutionRequestedAtMs(null);
+      }
+      if (
+        earnActionRefreshRequestedAtMs !== null &&
+        !shouldFastPollEarnAction
+      ) {
+        setEarnActionRefreshRequestedAtMs(null);
       }
       void loadTransactions({ fresh: shouldFastPoll, silent: true });
       refreshScheduledSweeps();
@@ -1527,6 +1609,7 @@ export function EarnTransactionsPane({
     };
   }, [
     isAuthenticated,
+    earnActionRefreshRequestedAtMs,
     isHydrated,
     onRefreshScheduledSweeps,
     refreshKey,

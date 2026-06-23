@@ -55,6 +55,7 @@ let cache = new Map<
   { expiresAt: number; value: EarnTransactionsRouteResponse }
 >();
 let inflight = new Map<string, Promise<EarnTransactionsRouteResponse>>();
+let cacheEpoch = 0;
 
 function getEarnTransactionsCacheKey(args: CacheKeyArgs) {
   return `${args.solanaEnv}:${args.settingsPda}:${args.walletAddress}`;
@@ -74,8 +75,9 @@ export async function fetchEarnTransactions(
   if (existing) {
     return existing;
   }
+  const requestCacheEpoch = cacheEpoch;
 
-  const request = (async () => {
+  const request: Promise<EarnTransactionsRouteResponse> = (async () => {
     const response = await fetch("/api/smart-accounts/earn-transactions", {
       credentials: "include",
     });
@@ -95,13 +97,17 @@ export async function fetchEarnTransactions(
     }
 
     const value = (await response.json()) as EarnTransactionsRouteResponse;
-    cache.set(key, {
-      expiresAt: Date.now() + EARN_TRANSACTIONS_TTL_MS,
-      value,
-    });
+    if (requestCacheEpoch === cacheEpoch) {
+      cache.set(key, {
+        expiresAt: Date.now() + EARN_TRANSACTIONS_TTL_MS,
+        value,
+      });
+    }
     return value;
   })().finally(() => {
-    inflight.delete(key);
+    if (inflight.get(key) === request) {
+      inflight.delete(key);
+    }
   });
 
   inflight.set(key, request);
@@ -109,6 +115,8 @@ export async function fetchEarnTransactions(
 }
 
 export function invalidateEarnTransactionsCache(args?: Partial<CacheKeyArgs>) {
+  cacheEpoch += 1;
+
   if (!args?.settingsPda && !args?.solanaEnv && !args?.walletAddress) {
     cache.clear();
     inflight.clear();
@@ -139,4 +147,5 @@ export function invalidateEarnTransactionsCache(args?: Partial<CacheKeyArgs>) {
 export function resetEarnTransactionsCacheForTests() {
   cache = new Map();
   inflight = new Map();
+  cacheEpoch = 0;
 }
