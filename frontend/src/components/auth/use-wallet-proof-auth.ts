@@ -17,6 +17,23 @@ import {
 import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 
+const WALLET_SELECTION_SETTLE_MS = 2500;
+
+function isRejectedWalletRequest(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+
+  return (
+    message.includes("rejected") ||
+    message.includes("declined") ||
+    message.includes("cancelled") ||
+    message.includes("canceled") ||
+    message.includes("user denied")
+  );
+}
+
 function mapWalletProofError(error: unknown): {
   status: "rejected" | "unsupported" | "error";
   message: string;
@@ -34,6 +51,14 @@ function mapWalletProofError(error: unknown): {
     return {
       status: "unsupported",
       message: error.message,
+      details: [],
+    };
+  }
+
+  if (isRejectedWalletRequest(error)) {
+    return {
+      status: "rejected",
+      message: "You cancelled the wallet request.",
       details: [],
     };
   }
@@ -90,8 +115,7 @@ export function useWalletProofAuth({
   onTurnstileConsumedRef.current = onTurnstileConsumed;
 
   const installedWallets = useMemo(
-    () =>
-      wallets.filter((candidate) => candidate.readyState === "Installed"),
+    () => wallets.filter((candidate) => candidate.readyState === "Installed"),
     [wallets]
   );
 
@@ -202,6 +226,34 @@ export function useWalletProofAuth({
     wallet,
   ]);
 
+  useEffect(() => {
+    if (state.status !== "connecting") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      const selectedWalletName = selectedWalletNameRef.current;
+      if (!selectedWalletName || connected || connecting) {
+        return;
+      }
+
+      if (
+        wallet?.adapter.name === selectedWalletName &&
+        !connectAttemptedRef.current
+      ) {
+        return;
+      }
+
+      handleFailure(
+        new Error(
+          `Could not start ${selectedWalletName}. Unlock the extension, refresh detected wallets, or choose another wallet.`
+        )
+      );
+    }, WALLET_SELECTION_SETTLE_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [connected, connecting, handleFailure, state.status, wallet]);
+
   const connectWallet = useCallback(
     (walletName: WalletName) => {
       connectAttemptedRef.current = false;
@@ -247,9 +299,11 @@ export function useWalletProofAuth({
 
   const retry = useCallback(() => {
     connectAttemptedRef.current = false;
+    selectedWalletNameRef.current = null;
     verifyAttemptedForAddressRef.current = null;
+    select(null);
     dispatch({ type: "reset" });
-  }, []);
+  }, [select]);
 
   const startConnectedWalletVerification = useCallback(() => {
     onFlowStart?.();

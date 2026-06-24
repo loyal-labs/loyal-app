@@ -11,13 +11,17 @@ const MOBILE_WALLETS = [
     name: "Phantom",
     icon: "https://phantom.app/favicon.ico",
     browseUrl: (url: string) =>
-      `https://phantom.app/ul/browse/${encodeURIComponent(url)}?ref=${encodeURIComponent(url)}`,
+      `https://phantom.app/ul/browse/${encodeURIComponent(
+        url
+      )}?ref=${encodeURIComponent(url)}`,
   },
   {
     name: "Solflare",
     icon: "https://solflare.com/favicon.ico",
     browseUrl: (url: string) =>
-      `https://solflare.com/ul/v1/browse/${encodeURIComponent(url)}?ref=${encodeURIComponent(url)}`,
+      `https://solflare.com/ul/v1/browse/${encodeURIComponent(
+        url
+      )}?ref=${encodeURIComponent(url)}`,
   },
 ] as const;
 
@@ -85,12 +89,7 @@ export function WalletTab({
   const isMobile = useIsMobile();
 
   useEffect(() => {
-    if (
-      connected &&
-      publicKey &&
-      isVerified &&
-      state.status === "idle"
-    ) {
+    if (connected && publicKey && isVerified && state.status === "idle") {
       startConnectedWalletVerification();
     }
   }, [
@@ -121,18 +120,28 @@ export function WalletTab({
     state.status === "awaiting_signature" ||
     state.status === "verifying"
   ) {
+    const statusMessage =
+      state.status === "connecting"
+        ? "Connecting your wallet..."
+        : state.status === "awaiting_signature"
+        ? "Approve the message signature in your wallet..."
+        : "Verifying your wallet and preparing your smart account...";
+
     return (
       <div className="flex flex-col items-center gap-4 rounded-[28px] bg-[#f5f5f5] px-5 py-8 text-center">
         <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white">
           <LoaderCircle className="h-6 w-6 animate-spin text-neutral-950" />
         </span>
         <p className="max-w-[320px] text-neutral-500 text-sm">
-          {state.status === "connecting"
-            ? "Connecting your wallet..."
-            : state.status === "awaiting_signature"
-              ? "Approve the message signature in your wallet..."
-              : "Verifying your wallet and preparing your smart account..."}
+          {statusMessage}
         </p>
+        <button
+          className="rounded-full px-4 py-2 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
+          onClick={retry}
+          type="button"
+        >
+          Choose another wallet
+        </button>
       </div>
     );
   }
@@ -162,7 +171,7 @@ export function WalletTab({
           onClick={retry}
           type="button"
         >
-          Try again
+          Choose another wallet
         </button>
       </div>
     );
@@ -202,9 +211,7 @@ export function WalletTab({
               <ArrowUpRight className="h-4 w-4 text-neutral-400" />
             </button>
           ))}
-          {installedWallets.length === 0 && isMobile && (
-            <MobileWalletList />
-          )}
+          {installedWallets.length === 0 && isMobile && <MobileWalletList />}
           {installedWallets.length === 0 && !isMobile && (
             <p className="py-4 text-center text-neutral-500 text-sm">
               No wallet extensions detected. Install a Solana wallet extension
