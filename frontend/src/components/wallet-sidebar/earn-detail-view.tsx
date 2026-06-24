@@ -67,10 +67,6 @@ const EARN_CHART_TOP = 8;
 const MIN_DEPOSIT_USDC = 0.5;
 const EARN_BALANCE_DECIMALS = 6;
 const EARN_BALANCE_SAMPLE_MS = 250;
-const EARN_BALANCE_SPIN_MS = 900;
-const EARN_BALANCE_CATCH_UP_SPIN_MS = 1_800;
-const EARN_LAST_SEEN_BALANCE_STORAGE_PREFIX = "earn-detail:last-seen-balance";
-const EARN_LAST_SEEN_BALANCE_WRITE_MS = 1_000;
 const USDC_RAW_SCALE = BigInt(1_000_000);
 const USDC_DISPLAY_DUST_TOLERANCE = 1.5 / Number(USDC_RAW_SCALE);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
@@ -82,38 +78,6 @@ const FALLBACK_EARN_APY = {
   rangeHighBps: FALLBACK_EARN_FORECAST.rangeHighBps,
   rangeLowBps: FALLBACK_EARN_FORECAST.rangeLowBps,
 } as const satisfies EarnForecastApy;
-
-function parseCurrentSupplyApyBps(value: string | null | undefined) {
-  if (value == null) {
-    return null;
-  }
-
-  if (value.trim().length === 0) {
-    return null;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : null;
-}
-
-function resolveActiveEarnForecastApy({
-  currentSupplyApyBps,
-  fallback,
-}: {
-  currentSupplyApyBps?: string | null;
-  fallback: EarnForecastApy;
-}): EarnForecastApy {
-  const apyBps = parseCurrentSupplyApyBps(currentSupplyApyBps);
-  if (apyBps === null) {
-    return fallback;
-  }
-
-  return {
-    apyBps,
-    rangeHighBps: apyBps,
-    rangeLowBps: apyBps,
-  };
-}
 
 export type EarnDepositSourceOption = {
   addressLabel: string;
@@ -888,156 +852,14 @@ function DepositButton({
   );
 }
 
-type EarnLastSeenBalance = {
-  principal: number;
-  value: number;
-};
-
-function getEarnLastSeenBalanceStorageKey(storageScope: string) {
-  return `${EARN_LAST_SEEN_BALANCE_STORAGE_PREFIX}:${storageScope}`;
-}
-
-function readEarnLastSeenBalance(
-  storageScope: string | null
-): EarnLastSeenBalance | null {
-  if (!storageScope || typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const raw = window.localStorage.getItem(
-      getEarnLastSeenBalanceStorageKey(storageScope)
-    );
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as Partial<EarnLastSeenBalance>;
-    if (
-      typeof parsed.principal !== "number" ||
-      typeof parsed.value !== "number" ||
-      !Number.isFinite(parsed.principal) ||
-      !Number.isFinite(parsed.value)
-    ) {
-      return null;
-    }
-    return { principal: parsed.principal, value: parsed.value };
-  } catch {
-    return null;
-  }
-}
-
-function writeEarnLastSeenBalance(
-  storageScope: string | null,
-  snapshot: EarnLastSeenBalance
-) {
-  if (!storageScope || typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(
-      getEarnLastSeenBalanceStorageKey(storageScope),
-      JSON.stringify(snapshot)
-    );
-  } catch {
-    // Persistence only powers the catch-up reveal; quota/privacy-mode
-    // failures must never break the balance display.
-  }
-}
-
 function EarnGrowingBalance({
   baseAmount,
-  isBalanceReady = true,
   isHidden = false,
-  principalAmount,
-  storageScope = null,
 }: {
   baseAmount: number;
-  isBalanceReady?: boolean;
   isHidden?: boolean;
-  principalAmount: number;
-  storageScope?: string | null;
 }) {
-  // Catch-up reveal: resume from the last balance the user saw (persisted per
-  // env+wallet) and spin up to the live amount, so growth that accrued while
-  // the pane was closed plays out instead of appearing pre-applied. Skipped
-  // when the principal changed (deposits/withdrawals are not yield) and while
-  // the balance is hidden.
-  const [catchUpStartValue] = useState<number | null>(() => {
-    if (isHidden) {
-      return null;
-    }
-    const stored = readEarnLastSeenBalance(storageScope);
-    if (!stored || stored.principal !== principalAmount || stored.value <= 0) {
-      return null;
-    }
-    // Once the live balance is ready, a stored value at/above it has nothing
-    // to replay.
-    if (isBalanceReady && stored.value >= baseAmount) {
-      return null;
-    }
-    return stored.value;
-  });
-  const [isCatchingUp, setIsCatchingUp] = useState(catchUpStartValue !== null);
-  const [value, setValue] = useState(catchUpStartValue ?? baseAmount);
-  const latestBaseAmountRef = useRef(baseAmount);
-  const lastSeenRef = useRef<EarnLastSeenBalance | null>(null);
-  const lastPersistedAtRef = useRef(0);
-  latestBaseAmountRef.current = baseAmount;
-
-  useEffect(() => {
-    if (!(isCatchingUp && isBalanceReady)) {
-      return;
-    }
-    // Hold the last-seen value for one painted frame, then run a single long
-    // spin to the live amount; regular ticking starts once it lands.
-    const frame = window.requestAnimationFrame(() =>
-      setValue(latestBaseAmountRef.current)
-    );
-    const timeout = window.setTimeout(
-      () => setIsCatchingUp(false),
-      EARN_BALANCE_CATCH_UP_SPIN_MS
-    );
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(timeout);
-    };
-  }, [isBalanceReady, isCatchingUp]);
-
-  useEffect(() => {
-    if (isCatchingUp) {
-      return;
-    }
-    setValue(baseAmount);
-    lastSeenRef.current = { principal: principalAmount, value: baseAmount };
-  }, [baseAmount, isCatchingUp, principalAmount]);
-
-  useEffect(() => {
-    if (isCatchingUp) {
-      return;
-    }
-
-    lastSeenRef.current = { principal: principalAmount, value };
-    const now = Date.now();
-    if (now - lastPersistedAtRef.current >= EARN_LAST_SEEN_BALANCE_WRITE_MS) {
-      lastPersistedAtRef.current = now;
-      writeEarnLastSeenBalance(storageScope, lastSeenRef.current);
-    }
-  }, [isCatchingUp, principalAmount, storageScope, value]);
-
-  // Persist the final value on unmount (pane switch) and on pagehide (tab or
-  // app close) so the next visit resumes from it.
-  useEffect(() => {
-    const persist = () => {
-      if (lastSeenRef.current) {
-        writeEarnLastSeenBalance(storageScope, lastSeenRef.current);
-      }
-    };
-    window.addEventListener("pagehide", persist);
-    return () => {
-      window.removeEventListener("pagehide", persist);
-      persist();
-    };
-  }, [storageScope]);
-  const displayValue = snapDollarDisplayDust(value);
+  const displayValue = snapDollarDisplayDust(baseAmount);
 
   return (
     <>
@@ -1056,6 +878,12 @@ function EarnGrowingBalance({
         :global(.earn-growing-balance-flow::part(fraction)) {
           color: ${isHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)"};
         }
+        @media (max-width: 760px) {
+          :global(.earn-growing-balance-flow) {
+            font-size: clamp(30px, 9.5vw, 40px);
+            line-height: 1.08;
+          }
+        }
       `}</style>
       <NumberFlow
         className="earn-growing-balance-flow"
@@ -1064,21 +892,11 @@ function EarnGrowingBalance({
           minimumFractionDigits: EARN_BALANCE_DECIMALS,
           useGrouping: true,
         }}
-        opacityTiming={{ duration: 280, easing: "ease-out" }}
+        opacityTiming={{ duration: 0, easing: "linear" }}
         plugins={EARN_NUMBER_FLOW_PLUGINS}
         prefix="$"
-        spinTiming={{
-          duration: isCatchingUp
-            ? EARN_BALANCE_CATCH_UP_SPIN_MS
-            : EARN_BALANCE_SPIN_MS,
-          easing: "cubic-bezier(0.2, 0, 0, 1)",
-        }}
-        transformTiming={{
-          duration: isCatchingUp
-            ? EARN_BALANCE_CATCH_UP_SPIN_MS
-            : EARN_BALANCE_SPIN_MS,
-          easing: "cubic-bezier(0.2, 0, 0, 1)",
-        }}
+        spinTiming={{ duration: 0, easing: "linear" }}
+        transformTiming={{ duration: 0, easing: "linear" }}
         trend={1}
         value={displayValue}
       />
@@ -1218,8 +1036,34 @@ function deriveLiveEarnedUsd({
   return getEarningsRatePerSecond(apyBps, principalAmount) * elapsedSeconds;
 }
 
+function normalizeDisplayedEarnedUsd(value: number) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  return Number(value.toFixed(EARN_BALANCE_DECIMALS));
+}
+
+function deriveLiveBalanceEarnedUsd({
+  currentBalanceAmount,
+  principalAmount,
+}: {
+  currentBalanceAmount: number;
+  principalAmount: number;
+}) {
+  if (
+    !Number.isFinite(currentBalanceAmount) ||
+    !Number.isFinite(principalAmount)
+  ) {
+    return 0;
+  }
+
+  return normalizeDisplayedEarnedUsd(currentBalanceAmount - principalAmount);
+}
+
 export function deriveEstimatedEarnedSummaryAmount({
   apyBps,
+  currentEarnedUsd,
   earningsData,
   earningsError,
   generatedAt,
@@ -1227,32 +1071,33 @@ export function deriveEstimatedEarnedSummaryAmount({
   principalAmount,
 }: {
   apyBps: number;
+  currentEarnedUsd: number;
   earningsData: EarnEarningsResponse | null;
   earningsError: string | null;
   generatedAt: string | null;
   nowMs?: number;
   principalAmount: number;
 }) {
+  const liveBalanceEarnedUsd = normalizeDisplayedEarnedUsd(currentEarnedUsd);
+
   if (earningsError || !earningsData) {
-    return 0;
+    return liveBalanceEarnedUsd;
   }
 
-  const sinceLastDepositEarnedUsd = Number.isFinite(
-    earningsData.sinceLastDepositEarnedUsd
-  )
-    ? earningsData.sinceLastDepositEarnedUsd
+  const lifetimeEarnedUsd = Number.isFinite(earningsData.lifetimeEarnedUsd)
+    ? earningsData.lifetimeEarnedUsd
     : 0;
+  const estimatedLifetimeEarnedUsd =
+    lifetimeEarnedUsd +
+    deriveLiveEarnedUsd({
+      apyBps,
+      generatedAt,
+      nowMs,
+      principalAmount,
+    });
 
-  return Number(
-    (
-      sinceLastDepositEarnedUsd +
-      deriveLiveEarnedUsd({
-        apyBps,
-        generatedAt,
-        nowMs,
-        principalAmount,
-      })
-    ).toFixed(EARN_BALANCE_DECIMALS)
+  return normalizeDisplayedEarnedUsd(
+    Math.max(liveBalanceEarnedUsd, estimatedLifetimeEarnedUsd)
   );
 }
 
@@ -1380,13 +1225,30 @@ function EarningsBlock({
   // Each bar carries the total earned as of the end of that day, anchored to
   // the live estimate so hovering "today" matches the resting header value.
   const dailyBars = useMemo(() => {
-    const cumulative = new Array<number>(bars.length).fill(0);
+    const safeEstimatedEarnedUsd = Math.max(0, estimatedEarnedUsd);
+    const nonCurrentRecordedEarnedUsd = bars.reduce(
+      (sum, bar) => (bar.isCurrent ? sum : sum + Math.max(0, bar.earnedUsd)),
+      0
+    );
+    const currentResidualEarnedUsd = Math.max(
+      0,
+      safeEstimatedEarnedUsd - nonCurrentRecordedEarnedUsd
+    );
+    const reconciledBars = bars.map((bar) =>
+      bar.isCurrent
+        ? {
+            ...bar,
+            earnedUsd: Math.max(0, bar.earnedUsd, currentResidualEarnedUsd),
+          }
+        : bar
+    );
+    const cumulative = new Array<number>(reconciledBars.length).fill(0);
     let earnedAfter = 0;
-    for (let i = bars.length - 1; i >= 0; i -= 1) {
-      cumulative[i] = Math.max(0, estimatedEarnedUsd - earnedAfter);
-      earnedAfter += Math.max(0, bars[i].earnedUsd);
+    for (let i = reconciledBars.length - 1; i >= 0; i -= 1) {
+      cumulative[i] = Math.max(0, safeEstimatedEarnedUsd - earnedAfter);
+      earnedAfter += Math.max(0, reconciledBars[i].earnedUsd);
     }
-    return bars.map((bar, index) => ({
+    return reconciledBars.map((bar, index) => ({
       ...bar,
       cumulativeUsd: hasRealBars || bar.isCurrent ? cumulative[index] : 0,
     }));
@@ -1431,6 +1293,7 @@ function EarningsBlock({
 
   return (
     <section
+      className="earnings-block"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -1475,6 +1338,26 @@ function EarningsBlock({
             transform 0.34s cubic-bezier(0.2, 0, 0, 1),
             filter 0.34s cubic-bezier(0.2, 0, 0, 1);
         }
+        @media (max-width: 760px) {
+          .earnings-block {
+            padding: 4px 8px 8px !important;
+          }
+
+          .earnings-tabs-row {
+            padding: 0 0 8px !important;
+          }
+
+          .earnings-tabs {
+            gap: 4px !important;
+          }
+
+          .earnings-tab-button {
+            flex: 1 1 0;
+            min-width: 0;
+            padding: 6px 8px !important;
+            text-align: center;
+          }
+        }
         @media (prefers-reduced-motion: reduce) {
           .earnings-bar-fill {
             animation: none;
@@ -1486,6 +1369,7 @@ function EarningsBlock({
       `}</style>
 
       <div
+        className="earnings-tabs-row"
         style={{
           alignItems: "center",
           display: "flex",
@@ -1496,6 +1380,7 @@ function EarningsBlock({
         }}
       >
         <div
+          className="earnings-tabs"
           style={{
             display: "flex",
             flex: 1,
@@ -1507,6 +1392,7 @@ function EarningsBlock({
             const isActive = activeTab === tab.id;
             return (
               <button
+                className="earnings-tab-button"
                 key={tab.id}
                 onClick={() => handleTabChange(tab.id)}
                 style={{
@@ -2371,7 +2257,6 @@ export function EarnDetailView({
   currentPositionHoldings,
   currentPositionMarketName = "Main Kamino",
   currentPositionTokenSymbol = "USDC",
-  currentSupplyApyBps,
   earningsCacheKey,
   earningsCacheScope,
   hasCurrentPosition = false,
@@ -2416,14 +2301,6 @@ export function EarnDetailView({
   principalAmount?: number;
 }) {
   const earnForecastApy = useEarnForecastApy();
-  const activeEarnForecastApy = useMemo(
-    () =>
-      resolveActiveEarnForecastApy({
-        currentSupplyApyBps,
-        fallback: earnForecastApy,
-      }),
-    [currentSupplyApyBps, earnForecastApy]
-  );
   const hasPositiveCurrentBalance =
     hasCurrentPosition && currentBalanceAmount > 0;
   const { data: earningsRangeSet, error: earningsError } = useEarnEarnings({
@@ -2483,30 +2360,31 @@ export function EarnDetailView({
             secondary: currentPositionTokenSymbol,
           },
         ];
-  const displayBalanceAmount = currentBalanceAmount;
+  const displayBalanceAmount = snapDollarDisplayDust(currentBalanceAmount);
   const forecastPrincipalAmount =
     hasCurrentPosition && currentBalanceAmount > 0
       ? currentBalanceAmount
       : principalAmount;
+  const currentEarnedUsd = deriveLiveBalanceEarnedUsd({
+    currentBalanceAmount: displayBalanceAmount,
+    principalAmount,
+  });
   const estimatedEarnedUsd = deriveEstimatedEarnedSummaryAmount({
     apyBps: estimatedEarnedAmountApyBps,
+    currentEarnedUsd,
     earningsData,
     earningsError,
     generatedAt: earningsRangeSet?.generatedAt ?? null,
     nowMs: earnLiveNowMs,
     principalAmount,
   });
-  const earnedSummaryLabel = formatEarnedSummaryLabel(estimatedEarnedUsd);
-  const balanceStorageScope =
-    earningsCacheScope?.solanaEnv && earningsCacheScope?.walletAddress
-      ? `${earningsCacheScope.solanaEnv}:${earningsCacheScope.walletAddress}`
-      : null;
+  const earnedSummaryLabel = formatEarnedSummaryLabel(currentEarnedUsd);
   const depositButtonTone =
     !hasCurrentPosition || isAutodepositConfigured ? "red" : "black";
 
   return (
     <div
-      className="scrollbar-hide"
+      className="earn-detail-view scrollbar-hide"
       style={{
         background: "#fff",
         display: "flex",
@@ -2548,6 +2426,7 @@ export function EarnDetailView({
       </svg>
 
       <div
+        className="earn-detail-header"
         style={{
           alignItems: "center",
           display: "flex",
@@ -2557,6 +2436,7 @@ export function EarnDetailView({
         }}
       >
         <h2
+          className="earn-detail-title"
           style={{
             color: "#000",
             flex: 1,
@@ -2574,31 +2454,39 @@ export function EarnDetailView({
         >
           Earn
         </h2>
-        {hasCurrentPosition ? (
-          <div style={{ display: "flex", gap: "8px" }}>
-            <PositionHeaderButton
-              icon="withdraw"
-              iconColor="#85868A"
-              label="Withdraw"
-              onClick={onWithdraw}
-            />
-            <PositionHeaderButton
-              icon="deposit"
-              label="Deposit"
+        <div
+          className={`earn-detail-actions${
+            hasCurrentPosition ? "" : " earn-detail-actions-single"
+          }`}
+          style={{ display: "flex", gap: "8px" }}
+        >
+          {hasCurrentPosition ? (
+            <>
+              <PositionHeaderButton
+                icon="withdraw"
+                iconColor="#85868A"
+                label="Withdraw"
+                onClick={onWithdraw}
+              />
+              <PositionHeaderButton
+                icon="deposit"
+                label="Deposit"
+                onClick={onDeposit}
+                tone={depositButtonTone}
+              />
+            </>
+          ) : (
+            <DepositButton
               onClick={onDeposit}
               tone={depositButtonTone}
+              withIcon
             />
-          </div>
-        ) : (
-          <DepositButton
-            onClick={onDeposit}
-            tone={depositButtonTone}
-            withIcon
-          />
-        )}
+          )}
+        </div>
       </div>
 
       <div
+        className="earn-detail-balance-row"
         style={{
           alignItems: "center",
           borderRadius: "20px",
@@ -2637,6 +2525,7 @@ export function EarnDetailView({
             </span>
           )}
           <span
+            className="earn-detail-balance-amount"
             style={{
               color: isBalanceHidden ? "#BBBBC0" : "#000",
               filter: isBalanceHidden ? "url(#rs-pixelate-lg)" : "none",
@@ -2652,10 +2541,7 @@ export function EarnDetailView({
             {hasCurrentPosition ? (
               <EarnGrowingBalance
                 baseAmount={displayBalanceAmount}
-                isBalanceReady
                 isHidden={isBalanceHidden}
-                principalAmount={principalAmount}
-                storageScope={balanceStorageScope}
               />
             ) : (
               <>
@@ -2674,6 +2560,7 @@ export function EarnDetailView({
           </span>
           {hasCurrentPosition ? (
             <span
+              className="earn-detail-earned-label"
               style={{
                 color: isBalanceHidden ? "#BBBBC0" : "#34C759",
                 filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
@@ -2692,16 +2579,88 @@ export function EarnDetailView({
         </div>
       </div>
 
+      <style jsx>{`
+        @media (max-width: 760px) {
+          .earn-detail-view {
+            padding-bottom: calc(84px + env(safe-area-inset-bottom));
+          }
+
+          .earn-detail-header {
+            align-items: stretch !important;
+            background:
+              linear-gradient(
+                to bottom,
+                rgba(255, 255, 255, 0),
+                #fff 28%
+              );
+            bottom: 0;
+            gap: 8px !important;
+            left: 0;
+            padding: 14px 16px calc(18px + env(safe-area-inset-bottom)) !important;
+            position: fixed;
+            right: 0;
+            z-index: 45;
+          }
+
+          .earn-detail-title {
+            display: none;
+          }
+
+          .earn-detail-actions {
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+          }
+
+          .earn-detail-actions-single {
+            grid-template-columns: minmax(0, 1fr);
+          }
+
+          :global(.earn-detail-actions .earn-detail-deposit),
+          :global(.earn-detail-actions .earn-position-action) {
+            justify-content: center !important;
+            padding: 6px 12px !important;
+            width: 100%;
+          }
+
+          :global(
+              .earn-detail-actions .earn-position-action[data-earn-action="deposit"]
+            ) {
+            background: #f9363c !important;
+            color: #fff !important;
+          }
+
+          :global(
+              .earn-detail-actions
+                .earn-position-action[data-earn-action="deposit"]:hover
+            ) {
+            background: #e72f34 !important;
+          }
+
+          .earn-detail-balance-row {
+            border-radius: 0 !important;
+            gap: 10px !important;
+            padding: 8px 16px 2px !important;
+          }
+
+          .earn-detail-balance-amount {
+            font-size: clamp(30px, 9.5vw, 40px) !important;
+            line-height: 1.08 !important;
+            min-width: 0;
+          }
+        }
+      `}</style>
+
       {hasCurrentPosition ? <div style={{ height: "9px" }} /> : null}
 
       {hasCurrentPosition ? (
         <EarningsBlock
-          apy={activeEarnForecastApy}
+          apy={earnForecastApy}
           earningsData={earningsDailyData}
           estimatedEarnedUsd={estimatedEarnedUsd}
           forecastPrincipalAmount={forecastPrincipalAmount}
           isBalanceHidden={isBalanceHidden}
-          key={`${forecastPrincipalAmount}:${activeEarnForecastApy.apyBps}`}
+          key={`${forecastPrincipalAmount}:${earnForecastApy.apyBps}`}
           principalAmount={principalAmount}
         />
       ) : null}
@@ -2868,6 +2827,7 @@ function PositionHeaderButton({
       `}</style>
       <button
         className="earn-position-action"
+        data-earn-action={icon}
         onClick={onClick}
         style={{
           alignItems: "center",
@@ -3343,6 +3303,11 @@ export function EarnWithdrawView({
           .earn-cleanup-submit:not(:disabled):hover {
             background: rgba(249, 54, 60, 0.2) !important;
           }
+          @media (max-width: 760px) {
+            .earn-withdraw-header {
+              display: none !important;
+            }
+          }
           .earn-cleanup-mascot-note {
             align-items: flex-end;
             display: flex;
@@ -3477,6 +3442,7 @@ export function EarnWithdrawView({
           }
         `}</style>
         <div
+          className="earn-withdraw-header"
           style={{
             alignItems: "center",
             display: "flex",
@@ -3653,8 +3619,14 @@ export function EarnWithdrawView({
         .earn-withdraw-submit:not(:disabled):hover {
           background: rgba(249, 54, 60, 0.2) !important;
         }
+        @media (max-width: 760px) {
+          .earn-withdraw-header {
+            display: none !important;
+          }
+        }
       `}</style>
       <div
+        className="earn-withdraw-header"
         style={{
           alignItems: "center",
           display: "flex",
@@ -5015,9 +4987,39 @@ function ForecastChart({
             animation: none;
           }
         }
+        @media (max-width: 760px) {
+          .forecast-chart-summary {
+            display: grid !important;
+            gap: 8px !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            padding-bottom: 6px !important;
+          }
+
+          .forecast-chart-summary-item {
+            min-width: 0;
+          }
+
+          .forecast-chart-summary-value {
+            font-size: 16px !important;
+            line-height: 20px !important;
+            min-width: 0;
+            overflow: hidden;
+          }
+
+          .forecast-chart-summary-value[data-primary="true"] {
+            font-size: 24px !important;
+            line-height: 28px !important;
+          }
+
+          .forecast-chart-summary-label {
+            font-size: 12px !important;
+            min-width: 0;
+          }
+        }
       `}</style>
 
       <div
+        className="forecast-chart-summary"
         style={{
           alignItems: "flex-end",
           display: "flex",
@@ -5030,6 +5032,7 @@ function ForecastChart({
           const isPrimary = series.key === "loyal";
           return (
             <div
+              className="forecast-chart-summary-item"
               key={series.key}
               style={{
                 display: "flex",
@@ -5040,6 +5043,8 @@ function ForecastChart({
               }}
             >
               <p
+                className="forecast-chart-summary-value"
+                data-primary={isPrimary ? "true" : undefined}
                 style={{
                   color: isBalanceHidden
                     ? "#BBBBC0"
@@ -5080,6 +5085,7 @@ function ForecastChart({
                   }}
                 />
                 <span
+                  className="forecast-chart-summary-label"
                   style={{
                     color: isPrimary ? "#000" : secondary,
                     fontFamily: font,
@@ -5816,6 +5822,33 @@ function EarnDepositChartsSection({
         .earn-forecast-chip:hover:not(.earn-forecast-chip-active) {
           background: rgba(0, 0, 0, 0.04);
         }
+        @media (max-width: 760px) {
+          .earn-deposit-chart-header {
+            gap: 6px !important;
+            padding: 0 4px 8px !important;
+          }
+
+          .earn-deposit-chart-tabs {
+            flex: 0 0 auto !important;
+            gap: 4px !important;
+          }
+
+          .earn-forecast-chips {
+            flex: 1 1 auto !important;
+            justify-content: flex-end;
+            min-width: 0;
+          }
+
+          .earn-forecast-chip {
+            padding: 4px 8px !important;
+          }
+
+          .earn-forecast-chip[data-mobile-option="extra"]:not(
+              .earn-forecast-chip-active
+            ) {
+            display: none;
+          }
+        }
         @media (prefers-reduced-motion: reduce) {
           .earn-deposit-chart-panel {
             transition: none;
@@ -5823,6 +5856,7 @@ function EarnDepositChartsSection({
         }
       `}</style>
       <div
+        className="earn-deposit-chart-header"
         style={{
           alignItems: "center",
           display: "flex",
@@ -5833,6 +5867,7 @@ function EarnDepositChartsSection({
         }}
       >
         <div
+          className="earn-deposit-chart-tabs"
           style={{
             display: "flex",
             flex: 1,
@@ -5868,6 +5903,7 @@ function EarnDepositChartsSection({
         </div>
         {activeTab === "Forecast" ? (
           <div
+            className="earn-forecast-chips"
             style={{
               display: "flex",
               flexShrink: 0,
@@ -5876,11 +5912,18 @@ function EarnDepositChartsSection({
           >
             {forecastAmountOptions.map((option) => {
               const isActive = option.selection === forecastSelection;
+              const isMobilePrimaryOption =
+                option.selection === USER_FORECAST_SELECTION ||
+                option.selection === 100 ||
+                option.selection === 1000;
               return (
                 <button
                   className={`earn-forecast-chip ${
                     isActive ? "earn-forecast-chip-active" : ""
                   }`}
+                  data-mobile-option={
+                    isMobilePrimaryOption ? "primary" : "extra"
+                  }
                   key={option.id}
                   onClick={() => onForecastSelectionChange(option.selection)}
                   style={{
@@ -6131,6 +6174,11 @@ export function EarnDepositView({
         .earn-deposit-submit:not(:disabled):hover {
           background: #222 !important;
         }
+        @media (max-width: 760px) {
+          .earn-deposit-header {
+            display: none !important;
+          }
+        }
         .earn-source-sheet {
           animation: earn-source-sheet-open 0.18s ease forwards;
           transform-origin: top center;
@@ -6161,6 +6209,7 @@ export function EarnDepositView({
         }
       `}</style>
       <div
+        className="earn-deposit-header"
         style={{
           alignItems: "center",
           display: "flex",
@@ -6660,9 +6709,19 @@ export function AutodepositSetupView({
         .autodeposit-submit:not(:disabled):hover {
           background: #222 !important;
         }
+        @media (max-width: 760px) {
+          .autodeposit-header {
+            display: none !important;
+          }
+
+          .autodeposit-primary-section {
+            padding-top: 12px !important;
+          }
+        }
       `}</style>
 
       <div
+        className="autodeposit-header"
         style={{
           alignItems: "center",
           display: "flex",
@@ -6747,6 +6806,7 @@ export function AutodepositSetupView({
         }}
       >
         <section
+          className="autodeposit-primary-section"
           style={{
             display: "flex",
             flexDirection: "column",

@@ -4,6 +4,7 @@ import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  ChevronLeft,
   Copy,
   Eye,
   EyeOff,
@@ -12,6 +13,7 @@ import {
   LayoutTemplate,
   LogOut,
   Plus,
+  ReceiptText,
   RefreshCw,
   Repeat2,
   Shield as ShieldIcon,
@@ -52,7 +54,6 @@ import {
   type SetStateAction,
 } from "react";
 
-import { DogWithMood } from "@/components/chat-input";
 import { PrivateClientPreloader } from "@/components/solana/private-client-preloader";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
 import {
@@ -118,6 +119,7 @@ import type {
 import { invalidateEarnEarningsCache } from "@/hooks/use-earn-earnings";
 import { invalidateEarnTransactionsCache } from "@/lib/yield-optimization/earn-transactions.client";
 import {
+  isActiveEarnPosition,
   useActiveEarnPosition,
   type ActiveEarnPosition,
   type ActiveEarnPositionHolding,
@@ -198,6 +200,7 @@ import {
 
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
 type WorkspaceSection = "policies" | "settings" | "wallet";
+type MobilePane = "accounts" | "activity" | "detail";
 type DetailTab = "activity" | "tokens";
 type DetailPaneTransition = "back" | "close" | "forward" | "open" | "switch";
 type DetailSelection =
@@ -263,7 +266,6 @@ const REVIEW_PANE_MAX_WIDTH = 520;
 const REVIEW_PANE_DEFAULT_WIDTH = 400;
 const ENABLE_MOCK_BACKUP_SIGNER_FLOW = true;
 const EXPERIMENTAL_MODE_SESSION_KEY = "loyal.wallet.experimentalMode";
-const EXPERIMENTAL_MODE_CLICK_THRESHOLD = 5;
 
 // Named variants so the exit propagates to descendants (the floating mascot
 // fades itself out on "exit"); "afterChildren" holds the slide-out until that
@@ -984,209 +986,70 @@ function buildVaultSendContext(args: {
   };
 }
 
-function RailNavButton({
-  icon,
-  isActive = false,
-  label,
-  isPlaceholder = false,
-  onClick,
-  tooltip,
+function WalletWorkspaceLogout({
+  isSignedIn,
+  mobilePane,
+  onDisconnect,
 }: {
-  icon: React.ReactNode;
-  isActive?: boolean;
-  label: string;
-  isPlaceholder?: boolean;
-  onClick?: () => void;
-  tooltip?: string;
+  isSignedIn: boolean;
+  mobilePane: MobilePane;
+  onDisconnect: () => void;
 }) {
   return (
     <button
-      aria-current={isActive ? "page" : undefined}
-      aria-disabled={isPlaceholder}
-      aria-label={label}
-      className="wallet-workspace-rail-nav-button"
-      data-active={isActive}
-      data-placeholder={isPlaceholder}
-      data-tooltip={tooltip}
-      onClick={(event) => {
-        if (isPlaceholder) {
-          event.preventDefault();
-          return;
-        }
-
-        onClick?.();
-      }}
-      title={tooltip ? undefined : label}
+      aria-disabled={!isSignedIn}
+      aria-label="Disconnect wallet"
+      className="wallet-workspace-logout"
+      data-disabled={!isSignedIn}
+      data-mobile-pane={mobilePane}
+      disabled={!isSignedIn}
+      onClick={onDisconnect}
+      title={isSignedIn ? "Disconnect wallet" : "Connect a wallet first"}
       type="button"
     >
-      {icon}
+      <LogOut size={20} strokeWidth={1.8} />
     </button>
   );
 }
 
-const MASCOT_BUBBLE_PHRASES = [
-  {
-    id: "shield-usdc",
-    ariaLabel: "Shield USDC to get passive income.",
-    linkText: "Shield USDC",
-    restText: " to get passive income.",
-  },
-  {
-    id: "monday-features",
-    ariaLabel: "New features are coming on Monday",
-    text: "New features are coming on Monday",
-  },
-  {
-    id: "loyal-x",
-    ariaLabel: "Follow me on X. I don't bite.",
-    href: "https://x.com/loyal_hq",
-    linkText: "Follow",
-    restText: " me on X. I don't bite.",
-  },
-] as const;
-
-function WalletRail({
-  activeSection,
-  dogCry,
-  dogNice,
-  isBalanceHidden,
-  isSignedIn,
-  isWalletLoading,
-  onDisconnect,
-  onExperimentalModeClick,
-  onShieldUsdc,
-  onSectionChange,
+function MobileWorkspaceHeader({
+  canOpenActivity,
+  onBack,
+  onOpenActivity,
+  pane,
+  title,
 }: {
-  activeSection: WorkspaceSection;
-  dogCry: boolean;
-  dogNice: boolean;
-  isBalanceHidden: boolean;
-  isSignedIn: boolean;
-  isWalletLoading: boolean;
-  onDisconnect: () => void;
-  onExperimentalModeClick: () => void;
-  onShieldUsdc: () => void;
-  onSectionChange: (section: WorkspaceSection) => void;
+  canOpenActivity: boolean;
+  onBack: () => void;
+  onOpenActivity: () => void;
+  pane: Exclude<MobilePane, "accounts">;
+  title: string;
 }) {
-  const [bubblePhraseIndex, setBubblePhraseIndex] = useState(0);
-  const bubblePhrase =
-    MASCOT_BUBBLE_PHRASES[bubblePhraseIndex] ?? MASCOT_BUBBLE_PHRASES[0];
-  const showMascotBubble = isSignedIn && !isWalletLoading;
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      setBubblePhraseIndex(
-        (current) => (current + 1) % MASCOT_BUBBLE_PHRASES.length
-      );
-    }, 15_000);
-
-    return () => window.clearInterval(intervalId);
-  }, []);
-
   return (
-    <aside className="wallet-workspace-rail" aria-label="Workspace navigation">
-      <div className="wallet-workspace-rail-top">
-        <div className="wallet-workspace-mascot">
-          <button
-            aria-label="Loyal"
-            className="wallet-workspace-mascot-button"
-            onClick={onExperimentalModeClick}
-            type="button"
-          >
-            <DogWithMood cry={dogCry} nice={dogNice} squint={isBalanceHidden} />
-          </button>
-          <span
-            className="wallet-workspace-mascot-spinner"
-            data-visible={isWalletLoading}
-          />
-          {showMascotBubble ? (
-            <span
-              aria-label={bubblePhrase.ariaLabel}
-              className="wallet-workspace-mascot-bubble"
-              key={bubblePhrase.id}
-            >
-              <span className="wallet-workspace-mascot-bubble-content">
-                {"href" in bubblePhrase ? (
-                  <>
-                    <a
-                      className="wallet-workspace-mascot-bubble-link"
-                      href={bubblePhrase.href}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      {bubblePhrase.linkText}
-                    </a>
-                    <span>&nbsp;{bubblePhrase.restText.trimStart()}</span>
-                  </>
-                ) : "linkText" in bubblePhrase ? (
-                  <>
-                    <button
-                      className="wallet-workspace-mascot-bubble-link"
-                      onClick={onShieldUsdc}
-                      type="button"
-                    >
-                      {bubblePhrase.linkText}
-                    </button>
-                    <span>&nbsp;{bubblePhrase.restText.trimStart()}</span>
-                  </>
-                ) : (
-                  bubblePhrase.text
-                )}
-              </span>
-            </span>
-          ) : null}
-        </div>
-
-        <nav className="wallet-workspace-rail-nav">
-          <RailNavButton
-            icon={
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                alt=""
-                src="/agents/StashLink.svg"
-                style={{ width: 24, height: 24 }}
-              />
-            }
-            isActive={activeSection === "wallet"}
-            label="Wallet"
-            onClick={() => onSectionChange("wallet")}
-          />
-          {/* <RailNavButton
-            icon={<Layers2 size={24} strokeWidth={1.8} />}
-            isActive={activeSection === "policies"}
-            label="Policies"
-            onClick={() => onSectionChange("policies")}
-          />
-          <RailNavButton
-            icon={<ChartNoAxesColumn size={24} strokeWidth={1.8} />}
-            isPlaceholder
-            label="Charts"
-            tooltip="Charts will live here"
-          />
-          <RailNavButton
-            icon={<Settings size={24} strokeWidth={1.8} />}
-            isActive={activeSection === "settings"}
-            label="Settings"
-            onClick={() => onSectionChange("settings")}
-          /> */}
-        </nav>
-      </div>
-
-      <div className="wallet-workspace-rail-bottom">
+    <div className="wallet-workspace-mobile-header">
+      <button
+        aria-label={pane === "activity" ? "Back to detail" : "Back to accounts"}
+        className="wallet-workspace-mobile-icon-button"
+        onClick={onBack}
+        type="button"
+      >
+        <ChevronLeft size={24} strokeWidth={1.9} />
+      </button>
+      <div className="wallet-workspace-mobile-title">{title}</div>
+      {canOpenActivity ? (
         <button
-          aria-disabled={!isSignedIn}
-          aria-label="Disconnect wallet"
-          className="wallet-workspace-logout"
-          data-disabled={!isSignedIn}
-          disabled={!isSignedIn}
-          onClick={onDisconnect}
-          title={isSignedIn ? "Disconnect wallet" : "Connect a wallet first"}
+          aria-label="Open transactions"
+          className="wallet-workspace-mobile-action-button"
+          onClick={onOpenActivity}
           type="button"
         >
-          <LogOut size={20} strokeWidth={1.8} />
+          <ReceiptText size={17} strokeWidth={1.9} />
+          <span>Transactions</span>
         </button>
-      </div>
-    </aside>
+      ) : (
+        <span aria-hidden="true" className="wallet-workspace-mobile-spacer" />
+      )}
+    </div>
   );
 }
 
@@ -1844,6 +1707,7 @@ export function AppWalletWorkspace({
     onAfterTx: refreshMainAccountBalances,
   });
   const {
+    hasResolved: hasActiveEarnPositionResolved,
     position: activeEarnPosition,
     refresh: refreshActiveEarnPosition,
     setPosition: setActiveEarnPosition,
@@ -1874,7 +1738,6 @@ export function AppWalletWorkspace({
     personalWalletAddress,
   ]);
   const signInOpenedForConnectRef = useRef(false);
-  const experimentalModeClickCountRef = useRef(0);
   const [isExperimentalMode, setIsExperimentalMode] = useState(false);
   const [shouldLoadPopularTokens, setShouldLoadPopularTokens] = useState(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
@@ -1889,29 +1752,13 @@ export function AppWalletWorkspace({
   const [activeSection, setActiveSection] =
     useState<WorkspaceSection>(routeSection);
   const isMockBackupSignerFlowEnabled =
-    ENABLE_MOCK_BACKUP_SIGNER_FLOW && !isExperimentalMode;
+    ENABLE_MOCK_BACKUP_SIGNER_FLOW && isExperimentalMode;
 
   useEffect(() => {
     setIsExperimentalMode(
       window.sessionStorage.getItem(EXPERIMENTAL_MODE_SESSION_KEY) === "1"
     );
   }, []);
-
-  const handleExperimentalModeClick = useCallback(() => {
-    experimentalModeClickCountRef.current += 1;
-    if (
-      experimentalModeClickCountRef.current >= EXPERIMENTAL_MODE_CLICK_THRESHOLD
-    ) {
-      const nextExperimentalMode = !isExperimentalMode;
-      experimentalModeClickCountRef.current = 0;
-      if (nextExperimentalMode) {
-        window.sessionStorage.setItem(EXPERIMENTAL_MODE_SESSION_KEY, "1");
-      } else {
-        window.sessionStorage.removeItem(EXPERIMENTAL_MODE_SESSION_KEY);
-      }
-      setIsExperimentalMode(nextExperimentalMode);
-    }
-  }, [isExperimentalMode]);
 
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
@@ -1926,6 +1773,7 @@ export function AppWalletWorkspace({
   };
   const [selectedDetail, setSelectedDetail] =
     useState<string>("Wallet overview");
+  const [mobilePane, setMobilePane] = useState<MobilePane>("accounts");
   const hasRestoredSelectionRef = useRef(false);
   const hasLocalDetailSelectionRef = useRef(false);
   // Gates the detail pane: stays false until the persisted workspace selection
@@ -2009,8 +1857,6 @@ export function AppWalletWorkspace({
   const [reviewPaneWidth, setReviewPaneWidth] = useState(
     REVIEW_PANE_DEFAULT_WIDTH
   );
-  const [dogCry, setDogCry] = useState(false);
-  const [dogNice, setDogNice] = useState(false);
   const [connectAgentAddress, setConnectAgentAddress] = useState<string | null>(
     null
   );
@@ -2025,7 +1871,7 @@ export function AppWalletWorkspace({
     []
   );
   useEffect(() => {
-    if (!isExperimentalMode) {
+    if (isMockBackupSignerFlowEnabled) {
       return;
     }
 
@@ -2036,7 +1882,7 @@ export function AppWalletWorkspace({
       setDetailSelectionState("wallet");
       setSelectedDetail("My Wallet");
     }
-  }, [isExperimentalMode, selectedSignerId]);
+  }, [isMockBackupSignerFlowEnabled, selectedSignerId]);
   const [draftProposal, setDraftProposal] = useState<DraftProposalView | null>(
     null
   );
@@ -2213,24 +2059,9 @@ export function AppWalletWorkspace({
     target: ResizeTarget;
   } | null>(null);
 
-  const handleSectionChange = useCallback(
-    (section: WorkspaceSection) => {
-      setActiveSection(section);
-      const targetPath =
-        section === "policies"
-          ? "/app/policies"
-          : section === "settings"
-          ? "/app/settings"
-          : "/app";
-      router.push(targetPath);
-    },
-    [router]
-  );
-
   useEffect(() => {
     setActiveSection(routeSection);
   }, [routeSection]);
-  const wasWalletLoadingRef = useRef(walletDesktopData.isLoading);
   const prevHadTokensRef = useRef(false);
   const selectedVault = smartAccountData.selectedVault;
   const activeDetailSelection =
@@ -2634,16 +2465,24 @@ export function AppWalletWorkspace({
       earnDepositSources,
       isEarnAutodepositSetupConfirming,
     ]);
-  const liveEarnTransactionScheduledSweeps =
-    smartAccountData.earnAutodeposit?.scheduledSweeps ?? [];
-  const localEarnTransactionScheduledSweeps =
-    autodepositConfig?.scheduledSweeps ?? [];
-  const rawEarnTransactionScheduledSweeps =
-    liveEarnTransactionScheduledSweeps.length > 0
-      ? liveEarnTransactionScheduledSweeps
-      : smartAccountData.isEarnStateLoading
-      ? localEarnTransactionScheduledSweeps
-      : [];
+  const rawEarnTransactionScheduledSweeps = useMemo(
+    () => {
+      const liveScheduledSweeps =
+        smartAccountData.earnAutodeposit?.scheduledSweeps ?? [];
+      const localScheduledSweeps = autodepositConfig?.scheduledSweeps ?? [];
+
+      return liveScheduledSweeps.length > 0
+        ? liveScheduledSweeps
+        : smartAccountData.isEarnStateLoading
+        ? localScheduledSweeps
+        : [];
+    },
+    [
+      autodepositConfig?.scheduledSweeps,
+      smartAccountData.earnAutodeposit?.scheduledSweeps,
+      smartAccountData.isEarnStateLoading,
+    ]
+  );
   const visibleAutodepositScheduledSweeps = useMemo(
     () =>
       getVisibleEarnAutodepositScheduledSweeps({
@@ -2685,14 +2524,17 @@ export function AppWalletWorkspace({
       : null;
   }, [smartAccountData.overview?.vaults]);
   const hasEarnPolicy = Boolean(smartAccountData.earnPolicy);
-  const hasEarnPosition =
-    hasEarnPolicy &&
-    activeEarnPosition?.status === "active" &&
-    BigInt(activeEarnPosition.currentTotalAmountRaw) > BigInt(0);
+  const hasEarnPosition = isActiveEarnPosition(activeEarnPosition);
   const hasEarnAccess = hasEarnPolicy || hasEarnPosition;
+  const isEarnAccessResolving =
+    canLoadPersonalAccount &&
+    detailSelection === "earn" &&
+    !hasEarnAccess &&
+    (!smartAccountData.hasEarnStateResolved ||
+      !hasActiveEarnPositionResolved);
   const isEarnDepositDetailActive =
     detailSelection === "earnDeposit" ||
-    (detailSelection === "earn" && !hasEarnAccess);
+    (detailSelection === "earn" && !hasEarnAccess && !isEarnAccessResolving);
   const earnDepositReviewItem = useMemo(
     () =>
       pendingEarnDepositDraft && isEarnDepositDetailActive
@@ -2851,7 +2693,6 @@ export function AppWalletWorkspace({
   const earnPrincipalAmount = hasEarnPosition && activeEarnPosition
     ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
     : 0;
-  const earnWithdrawMaxAmount = earnCurrentBalanceAmount;
   const getEarnWithdrawDraftAmountRaw = useCallback(
     (draft: EarnWithdrawDraft): bigint =>
       draft.mode === "full"
@@ -2872,11 +2713,21 @@ export function AppWalletWorkspace({
     hasEarnPosition && activeEarnPosition
       ? activeEarnPosition.principalAmountRaw
       : "0";
+  const earnEarningsHistoryCursor =
+    hasEarnPosition && activeEarnPosition
+      ? [
+          activeEarnPosition.currentHolding.provenance.lastHoldingEventId ??
+            "no-holding-event",
+          activeEarnPosition.currentHolding.provenance
+            .lastRebalanceDecisionId ?? "no-rebalance-decision",
+        ].join(".")
+      : "no-position";
   const earnEarningsCacheKey = [
     publicEnv.solanaEnv,
     personalWalletAddress ?? "anonymous",
     smartAccountData.overview?.settingsPda ?? "no-settings",
     earnEarningsPrincipalAmountRaw,
+    earnEarningsHistoryCursor,
   ].join(":");
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
@@ -3034,18 +2885,6 @@ export function AppWalletWorkspace({
       document.body.style.userSelect = "";
     };
   }, []);
-
-  useEffect(() => {
-    const justFinished =
-      wasWalletLoadingRef.current && !walletDesktopData.isLoading;
-    wasWalletLoadingRef.current = walletDesktopData.isLoading;
-
-    if (justFinished && walletDesktopData.isConnected) {
-      setDogNice(true);
-      const timeout = setTimeout(() => setDogNice(false), 3000);
-      return () => clearTimeout(timeout);
-    }
-  }, [walletDesktopData.isConnected, walletDesktopData.isLoading]);
 
   useEffect(() => {
     if (!connectAgentAddress) return;
@@ -3333,6 +3172,7 @@ export function AppWalletWorkspace({
       setViewStack([view]);
       setDetailSelection("action");
       setSelectedDetail(title);
+      setMobilePane("detail");
     },
     [
       actionReturnSelection,
@@ -3600,8 +3440,6 @@ export function AppWalletWorkspace({
   );
 
   const handleDisconnect = useCallback(async () => {
-    setDogCry(true);
-    setTimeout(() => setDogCry(false), 3000);
     await Promise.allSettled([logout(), disconnect()]);
   }, [disconnect, logout]);
 
@@ -3672,8 +3510,6 @@ export function AppWalletWorkspace({
     if (!personalWalletAddress) return;
 
     void navigator.clipboard?.writeText(personalWalletAddress);
-    setDogNice(true);
-    setTimeout(() => setDogNice(false), 1600);
   }, [personalWalletAddress]);
 
   const handleCommandReceiveOrTopUp = useCallback(() => {
@@ -3764,6 +3600,7 @@ export function AppWalletWorkspace({
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
+    setMobilePane("detail");
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleOpenEarnDeposit = useCallback(() => {
@@ -3782,6 +3619,7 @@ export function AppWalletWorkspace({
     setSelectedSignerId(null);
     setDetailSelection("earnDeposit");
     setSelectedDetail("Deposit");
+    setMobilePane("detail");
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleOpenEarnWithdraw = useCallback(() => {
@@ -3800,6 +3638,7 @@ export function AppWalletWorkspace({
     setSelectedSignerId(null);
     setDetailSelection("earnWithdraw");
     setSelectedDetail("Withdraw");
+    setMobilePane("detail");
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleBackFromEarnWithdraw = useCallback(() => {
@@ -3813,6 +3652,7 @@ export function AppWalletWorkspace({
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
+    setMobilePane("detail");
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleOpenAutodeposit = useCallback(() => {
@@ -3822,6 +3662,7 @@ export function AppWalletWorkspace({
     setSelectedSignerId(null);
     setDetailSelection("earnAutodeposit");
     setSelectedDetail("Autodeposit");
+    setMobilePane("detail");
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleBackFromAutodeposit = useCallback(() => {
@@ -3836,6 +3677,7 @@ export function AppWalletWorkspace({
     setSelectedSignerId(null);
     setDetailSelection("earn");
     setSelectedDetail("Earn");
+    setMobilePane("detail");
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleCloseConnectRequest = useCallback(() => {
@@ -5274,6 +5116,7 @@ export function AppWalletWorkspace({
       setDetailSelection("vault");
       setSelectedSignerId(null);
       setSelectedDetail(`Stash ${accountIndex}`);
+      setMobilePane("detail");
     },
     [markDetailPaneTransition, setDetailSelection, smartAccountData]
   );
@@ -5290,11 +5133,13 @@ export function AppWalletWorkspace({
       ) {
         setDetailSelection("wallet");
         setSelectedDetail(`${agent.label} · ${agent.shortAddress}`);
+        setMobilePane("detail");
         return;
       }
 
       setDetailSelection("agent");
       setSelectedDetail(`${agent.label} · ${agent.shortAddress}`);
+      setMobilePane("detail");
     },
     [
       markDetailPaneTransition,
@@ -5314,6 +5159,7 @@ export function AppWalletWorkspace({
       setSelectedSignerId(signer.id);
       setDetailSelection("wallet");
       setSelectedDetail(`${signer.label} · ${signer.shortAddress}`);
+      setMobilePane("detail");
     },
     [
       isMockBackupSignerFlowEnabled,
@@ -5388,6 +5234,7 @@ export function AppWalletWorkspace({
       setSelectedSignerId(null);
       smartAccountData.setSelectedVaultIndex(accountIndex);
       setSelectedDetail("Add backup");
+      setMobilePane("detail");
     },
     [
       hasBackupAccount,
@@ -5429,6 +5276,7 @@ export function AppWalletWorkspace({
     (approval: SmartAccountApprovalItem) => {
       setSelectedApprovalId(approval.id);
       setProposalActionError(null);
+      setMobilePane("activity");
     },
     []
   );
@@ -5958,6 +5806,30 @@ export function AppWalletWorkspace({
     isReviewApprovalFocused,
   ]);
 
+  const handleOpenMobileActivity = useCallback(() => {
+    setMobilePane("activity");
+  }, []);
+
+  const handleMobilePaneBack = useCallback(() => {
+    if (mobilePane === "activity") {
+      setMobilePane("detail");
+      return;
+    }
+
+    if (mobilePane === "detail" && handleTransientDetailBack()) {
+      return;
+    }
+
+    setMobilePane("accounts");
+  }, [handleTransientDetailBack, mobilePane]);
+
+  const mobileHeaderTitle =
+    mobilePane === "activity" ? "Transactions" : selectedDetail || "Details";
+  const canOpenMobileActivity =
+    mobilePane === "detail" &&
+    activeSection === "wallet" &&
+    detailSelection === "earn";
+
   const renderDetailPane = () => {
     if (activeSection === "settings") {
       return <div className="wallet-workspace-detail-empty" />;
@@ -6063,6 +5935,10 @@ export function AppWalletWorkspace({
           onDone={handleCloseConnectRequest}
         />
       );
+    }
+
+    if (isEarnAccessResolving) {
+      return <WorkspaceDetailSkeleton />;
     }
 
     if (isEarnDepositDetailActive) {
@@ -7058,6 +6934,7 @@ export function AppWalletWorkspace({
       className="wallet-workspace"
       data-policy-view={activeSection === "policies" ? policyView : undefined}
       data-app-mode={appAccessMode}
+      data-mobile-pane={mobilePane}
       data-rate-limited={isSmartAccountRateLimited}
       data-review-focused={isReviewApprovalFocused || isEarnReviewExiting}
       data-signed-in={showAccountShell}
@@ -7073,17 +6950,10 @@ export function AppWalletWorkspace({
         enabled={canLoadPersonalAccount && hasUnlockedShieldedBalances}
       />
 
-      <WalletRail
-        activeSection={activeSection}
-        dogCry={dogCry}
-        dogNice={dogNice}
-        isBalanceHidden={isBalanceHidden}
+      <WalletWorkspaceLogout
         isSignedIn={isSignedIn}
-        isWalletLoading={isWorkspaceLoading}
+        mobilePane={mobilePane}
         onDisconnect={handleDisconnect}
-        onExperimentalModeClick={handleExperimentalModeClick}
-        onShieldUsdc={() => runOnWallet(handleCommandShieldUsdc)}
-        onSectionChange={handleSectionChange}
       />
 
       <WalletCommandMenu
@@ -7091,6 +6961,16 @@ export function AppWalletWorkspace({
         onOpenChange={setIsCommandMenuOpen}
         open={isCommandMenuOpen}
       />
+
+      {showAccountShell && mobilePane !== "accounts" ? (
+        <MobileWorkspaceHeader
+          canOpenActivity={canOpenMobileActivity}
+          onBack={handleMobilePaneBack}
+          onOpenActivity={handleOpenMobileActivity}
+          pane={mobilePane === "activity" ? "activity" : "detail"}
+          title={mobileHeaderTitle}
+        />
+      ) : null}
 
       <AnimatePresence initial={false}>
         {isReviewApprovalFocused ? (
@@ -7134,6 +7014,7 @@ export function AppWalletWorkspace({
                 balanceWhole={totalBalance.balanceWhole}
                 earnDepositLabel={canMutateAccount ? "Deposit" : "Connect"}
                 earnBalance={earnCurrentBalanceAmount}
+                hasEarnPolicy={hasEarnPolicy}
                 hasEarnPosition={hasEarnAccess}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
@@ -7154,7 +7035,6 @@ export function AppWalletWorkspace({
                     ? handleOpenMockRootSigner
                     : undefined
                 }
-                onOpenCommandMenu={() => setIsCommandMenuOpen(true)}
                 onOpenReceive={() => handleRailAction("receive")}
                 onOpenSend={() => handleRailAction("send")}
                 onOpenShield={() => handleRailAction("shield")}
@@ -7186,6 +7066,7 @@ export function AppWalletWorkspace({
                   markDetailPaneTransition("switch");
                   setDetailSelection("approval");
                   setSelectedDetail("Approvals");
+                  setMobilePane("detail");
                 }}
                 selectedSignerId={selectedSignerId}
                 selectedVaultIndex={smartAccountData.selectedVaultIndex}
@@ -7408,7 +7289,7 @@ export function AppWalletWorkspace({
         .wallet-workspace {
           display: grid;
           grid-template-columns:
-            60px 32px
+            32px
             minmax(360px, var(--wallet-account-pane-width))
             8px
             minmax(420px, 1fr)
@@ -7425,279 +7306,25 @@ export function AppWalletWorkspace({
         }
 
         .wallet-workspace[data-signed-in="false"] {
-          grid-template-columns: 60px 32px minmax(0, 1fr);
+          grid-template-columns: 32px minmax(0, 1fr);
         }
 
         .wallet-workspace[data-rate-limited="true"] {
-          grid-template-columns: 60px 32px minmax(420px, 1fr);
+          grid-template-columns: 32px minmax(420px, 1fr);
         }
 
         .wallet-workspace[data-workspace-section="policies"] {
           grid-template-columns:
-            60px 32px minmax(360px, var(--wallet-account-pane-width)) 8px
+            32px minmax(360px, var(--wallet-account-pane-width)) 8px
             minmax(420px, 1fr) 8px
             minmax(320px, var(--wallet-review-pane-width));
         }
 
-        .wallet-workspace-rail {
-          display: flex;
-          width: 60px;
-          height: 100%;
-          min-height: 0;
-          flex-direction: column;
-          justify-content: space-between;
-          padding: 16px 0 16px 16px;
-        }
-
-        .wallet-workspace-rail-top {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          width: 44px;
-        }
-
-        .wallet-workspace-mascot {
-          position: relative;
-          width: 44px;
-          height: 44px;
-          display: flex;
-          align-items: flex-start;
-          justify-content: center;
-          overflow: visible;
-        }
-
-        .wallet-workspace-mascot-button {
-          display: flex;
-          align-items: flex-start;
-          justify-content: center;
-          width: 44px;
-          height: 44px;
-          padding: 0;
-          border: 0;
-          background: transparent;
-          cursor: pointer;
-        }
-
-        .wallet-workspace-mascot-button:focus-visible {
-          outline: 2px solid rgba(249, 54, 60, 0.45);
-          outline-offset: 2px;
-          border-radius: 8px;
-        }
-
-        .wallet-workspace-mascot svg {
-          width: 44px;
-          height: 35px;
-          flex: 0 0 auto;
-        }
-
-        .wallet-workspace-mascot-spinner {
-          position: absolute;
-          top: 11px;
-          right: 1px;
-          width: 10px;
-          height: 10px;
-          border-radius: 999px;
-          border: 2px solid rgba(0, 0, 0, 0.14);
-          border-top-color: rgba(0, 0, 0, 0.62);
-          opacity: 0;
-          transform: scale(0.5);
-          transition: opacity 0.2s ease, transform 0.2s ease;
-        }
-
-        .wallet-workspace-mascot-spinner[data-visible="true"] {
-          opacity: 1;
-          transform: scale(1);
-          animation: wallet-workspace-spin 0.8s linear infinite;
-        }
-
-        .wallet-workspace-mascot-bubble {
-          position: absolute;
-          top: 2px;
-          left: 42px;
-          z-index: 35;
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: max-content;
-          min-width: max-content;
-          max-width: none;
-          height: 30px;
-          padding: 0 14px;
-          border: 1px solid rgba(0, 0, 0, 0.08);
-          border-radius: 9999px;
-          background: #fff;
-          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
-            0 2px 6px rgba(0, 0, 0, 0.04);
-          color: rgba(0, 0, 0, 0.86);
-          font-family: var(--font-geist-sans), sans-serif;
-          font-size: 13px;
-          font-weight: 500;
-          line-height: 16px;
-          white-space: nowrap;
-          pointer-events: auto;
-          transform-origin: 0 50%;
-          animation: wallet-workspace-mascot-bubble-unravel 0.62s
-            cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .wallet-workspace-mascot-bubble-content {
-          position: relative;
-          z-index: 2;
-          display: inline-flex;
-          align-items: center;
-          flex: 0 0 auto;
-          width: max-content;
-          max-width: none;
-          overflow: hidden;
-          white-space: nowrap;
-          animation: wallet-workspace-mascot-bubble-content 0.62s
-            cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .wallet-workspace-mascot-bubble-content > * {
-          flex: 0 0 auto;
-          white-space: nowrap;
-        }
-
-        .wallet-workspace-mascot-bubble-link {
-          display: inline-flex;
-          border: 0;
-          background: transparent;
-          color: #f9363c;
-          cursor: pointer;
-          font: inherit;
-          padding: 0;
-          text-decoration: none;
-        }
-
-        .wallet-workspace-mascot-bubble-link:hover {
-          text-decoration: underline;
-          text-underline-offset: 2px;
-        }
-
-        .wallet-workspace-mascot-bubble::before {
-          content: "";
-          position: absolute;
-          z-index: 1;
-          left: -5px;
-          top: 11px;
-          width: 10px;
-          height: 10px;
-          border-left: 1px solid rgba(0, 0, 0, 0.08);
-          border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-          background: #fff;
-          transform: rotate(45deg);
-          animation: wallet-workspace-mascot-bubble-tail 0.62s
-            cubic-bezier(0.16, 1, 0.3, 1) both;
-        }
-
-        .wallet-workspace-rail-nav {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          padding: 12px 0;
-        }
-
-        .wallet-workspace-rail-nav-button {
-          position: relative;
-          width: 44px;
-          height: 44px;
-          border: 0;
-          border-radius: 9999px;
-          background: transparent;
-          color: rgba(60, 60, 67, 0.58);
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          cursor: pointer;
-          transition: background 0.15s ease, color 0.15s ease,
-            transform 0.15s ease;
-        }
-
-        .wallet-workspace-rail-nav-button[data-active="true"] {
-          background: rgba(249, 54, 60, 0.14);
-          color: #f9363c;
-        }
-
-        .wallet-workspace-rail-nav-button[data-placeholder="true"] {
-          color: rgba(60, 60, 67, 0.35);
-          cursor: default;
-        }
-
-        .wallet-workspace-rail-nav-button[data-tooltip]::before {
-          position: absolute;
-          top: 50%;
-          left: calc(100% + 8px);
-          width: 8px;
-          height: 8px;
-          border-radius: 2px;
-          background: rgba(18, 18, 18, 0.94);
-          content: "";
-          opacity: 0;
-          pointer-events: none;
-          transform: translate3d(-4px, -50%, 0) rotate(45deg) scale(0.94);
-          transition: opacity 0.16s ease, transform 0.16s ease;
-          z-index: 20;
-        }
-
-        .wallet-workspace-rail-nav-button[data-tooltip]::after {
-          position: absolute;
-          top: 50%;
-          left: calc(100% + 12px);
-          min-width: max-content;
-          max-width: 220px;
-          border-radius: 12px;
-          background: rgba(18, 18, 18, 0.94);
-          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16);
-          color: #fff;
-          content: attr(data-tooltip);
-          font-family: inherit;
-          font-size: 13px;
-          font-weight: 500;
-          line-height: 16px;
-          opacity: 0;
-          padding: 8px 10px;
-          pointer-events: none;
-          transform: translate3d(-4px, -50%, 0) scale(0.98);
-          transform-origin: left center;
-          transition: opacity 0.16s ease, transform 0.16s ease;
-          white-space: nowrap;
-          z-index: 21;
-        }
-
-        .wallet-workspace-rail-nav-button[data-tooltip]:hover::before,
-        .wallet-workspace-rail-nav-button[data-tooltip]:hover::after,
-        .wallet-workspace-rail-nav-button[data-tooltip]:focus-visible::before,
-        .wallet-workspace-rail-nav-button[data-tooltip]:focus-visible::after {
-          opacity: 1;
-          transform: translate3d(0, -50%, 0) scale(1);
-        }
-
-        .wallet-workspace-rail-nav-button[data-tooltip]:hover::before,
-        .wallet-workspace-rail-nav-button[data-tooltip]:focus-visible::before {
-          transform: translate3d(0, -50%, 0) rotate(45deg) scale(1);
-        }
-
-        .wallet-workspace-rail-nav-button:hover {
-          background: rgba(0, 0, 0, 0.06);
-          transform: translateY(-1px);
-        }
-
-        .wallet-workspace-rail-nav-button[data-active="true"]:hover {
-          background: rgba(249, 54, 60, 0.2);
-        }
-
-        .wallet-workspace-rail-nav-button[data-placeholder="true"]:hover {
-          background: transparent;
-          transform: none;
-        }
-
-        .wallet-workspace-rail-nav-button:focus-visible {
-          outline: 2px solid rgba(249, 54, 60, 0.55);
-          outline-offset: 2px;
-        }
-
         .wallet-workspace-logout {
+          position: fixed;
+          left: 16px;
+          bottom: 16px;
+          z-index: 30;
           width: 44px;
           height: 44px;
           border-radius: 9999px;
@@ -7734,13 +7361,78 @@ export function AppWalletWorkspace({
           transform: none;
         }
 
-        .wallet-workspace-rail-bottom {
-          position: relative;
-          z-index: 30;
-          display: flex;
+        .wallet-workspace-mobile-header {
+          display: none;
+        }
+
+        .wallet-workspace-mobile-icon-button {
+          display: inline-flex;
+          width: 40px;
+          height: 40px;
           align-items: center;
-          gap: 8px;
-          width: max-content;
+          justify-content: center;
+          border: 0;
+          border-radius: 9999px;
+          background: rgba(0, 0, 0, 0.04);
+          color: #3c3c43;
+          cursor: pointer;
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+
+        .wallet-workspace-mobile-icon-button:hover {
+          background: rgba(0, 0, 0, 0.08);
+          transform: translateY(-1px);
+        }
+
+        .wallet-workspace-mobile-icon-button:active {
+          transform: translateY(0);
+        }
+
+        .wallet-workspace-mobile-action-button {
+          display: inline-flex;
+          min-width: 0;
+          height: 40px;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          border: 0;
+          border-radius: 9999px;
+          background: rgba(0, 0, 0, 0.04);
+          color: #000;
+          cursor: pointer;
+          font-family: var(--font-geist-sans), sans-serif;
+          font-size: 13px;
+          font-weight: 600;
+          line-height: 18px;
+          padding: 0 12px;
+          white-space: nowrap;
+          transition: background 0.15s ease, transform 0.15s ease;
+        }
+
+        .wallet-workspace-mobile-action-button:hover {
+          background: rgba(0, 0, 0, 0.08);
+          transform: translateY(-1px);
+        }
+
+        .wallet-workspace-mobile-action-button:active {
+          transform: translateY(0);
+        }
+
+        .wallet-workspace-mobile-title {
+          min-width: 0;
+          overflow: hidden;
+          color: #000;
+          font-family: var(--font-geist-sans), sans-serif;
+          font-size: 17px;
+          font-weight: 600;
+          line-height: 22px;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .wallet-workspace-mobile-spacer {
+          width: 40px;
+          height: 40px;
         }
 
         .wallet-workspace-pane {
@@ -7752,7 +7444,7 @@ export function AppWalletWorkspace({
         }
 
         .wallet-workspace-account-pane {
-          grid-column: 3;
+          grid-column: 2;
           display: flex;
           box-sizing: border-box;
           min-height: 0;
@@ -7772,7 +7464,7 @@ export function AppWalletWorkspace({
         }
 
         .wallet-workspace-detail-pane {
-          grid-column: 5;
+          grid-column: 4;
           display: flex;
           flex-direction: column;
           min-height: 0;
@@ -7798,18 +7490,18 @@ export function AppWalletWorkspace({
 
         .wallet-workspace[data-workspace-section="policies"]
           .wallet-workspace-detail-pane {
-          grid-column: 5 !important;
+          grid-column: 4 !important;
         }
 
         .wallet-workspace[data-signed-in="false"]
           .wallet-workspace-detail-pane {
-          grid-column: 3;
+          grid-column: 2;
           border-right: 0;
         }
 
         .wallet-workspace[data-rate-limited="true"]
           .wallet-workspace-detail-pane {
-          grid-column: 3;
+          grid-column: 2;
           border-right: 0;
         }
 
@@ -7937,7 +7629,7 @@ export function AppWalletWorkspace({
         }
 
         .wallet-workspace-review-pane {
-          grid-column: 7;
+          grid-column: 6;
           padding: 8px 8px 8px 0;
           /* Anchors the sliding Earn review overlay. */
           position: relative;
@@ -7989,11 +7681,11 @@ export function AppWalletWorkspace({
         }
 
         .wallet-workspace-account-resize {
-          grid-column: 4;
+          grid-column: 3;
         }
 
         .wallet-workspace-review-resize {
-          grid-column: 6;
+          grid-column: 5;
         }
 
         @keyframes wallet-workspace-skeleton {
@@ -8547,43 +8239,6 @@ export function AppWalletWorkspace({
           max-width: 360px;
         }
 
-        @keyframes wallet-workspace-spin {
-          to {
-            transform: rotate(360deg);
-          }
-        }
-
-        @keyframes wallet-workspace-mascot-bubble-unravel {
-          from {
-            opacity: 0;
-            transform: translateX(-4px) scaleX(0.08);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0) scaleX(1);
-          }
-        }
-
-        @keyframes wallet-workspace-mascot-bubble-content {
-          from {
-            clip-path: inset(0 100% 0 0);
-          }
-          to {
-            clip-path: inset(0 0 0 0);
-          }
-        }
-
-        @keyframes wallet-workspace-mascot-bubble-tail {
-          from {
-            opacity: 0;
-            transform: translateX(-4px) rotate(45deg) scale(0.3);
-          }
-          to {
-            opacity: 1;
-            transform: translateX(0) rotate(45deg) scale(1);
-          }
-        }
-
         @keyframes wallet-workspace-pane-forward {
           from {
             opacity: 0;
@@ -8648,7 +8303,7 @@ export function AppWalletWorkspace({
         @media (max-width: 1024px) {
           .wallet-workspace {
             grid-template-columns:
-              60px 32px
+              32px
               minmax(320px, min(var(--wallet-account-pane-width), 400px))
               8px
               minmax(320px, 1fr);
@@ -8686,36 +8341,99 @@ export function AppWalletWorkspace({
           }
 
           .wallet-workspace[data-signed-in="false"] {
-            grid-template-columns: 60px 32px minmax(0, 1fr);
+            grid-template-columns: 32px minmax(0, 1fr);
           }
 
           .wallet-workspace[data-signed-in="false"]
             .wallet-workspace-detail-pane {
-            grid-column: 3;
+            grid-column: 2;
           }
 
           .wallet-workspace[data-rate-limited="true"] {
-            grid-template-columns: 60px 32px minmax(320px, 1fr);
+            grid-template-columns: 32px minmax(320px, 1fr);
           }
 
           .wallet-workspace[data-rate-limited="true"]
             .wallet-workspace-detail-pane {
-            grid-column: 3;
+            grid-column: 2;
             border-right: 0;
           }
         }
 
         @media (max-width: 760px) {
+          :global(.header-wallet) {
+            display: none !important;
+          }
+
+          .wallet-workspace-logout:not([data-mobile-pane="accounts"]) {
+            display: none;
+          }
+
           .wallet-workspace {
-            grid-template-columns: 60px 16px minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr);
+            grid-template-rows: minmax(0, 1fr);
             overflow: hidden;
           }
 
+          .wallet-workspace[data-mobile-pane="detail"],
+          .wallet-workspace[data-mobile-pane="activity"] {
+            grid-template-rows: auto minmax(0, 1fr);
+          }
+
+          .wallet-workspace-mobile-header {
+            grid-column: 1;
+            grid-row: 1;
+            display: grid;
+            grid-template-columns: 40px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            padding: 12px 16px 8px;
+            background: #fff;
+          }
+
           .wallet-workspace-account-resize,
-          .wallet-workspace-review-resize,
+          .wallet-workspace-review-resize {
+            display: none;
+          }
+
+          .wallet-workspace-account-pane,
           .wallet-workspace-detail-pane,
           .wallet-workspace-review-pane {
             display: none;
+            grid-column: 1;
+            grid-row: 2;
+            border-right: 0;
+          }
+
+          .wallet-workspace-account-pane {
+            padding-top: 8px;
+          }
+
+          .wallet-workspace-detail-pane,
+          .wallet-workspace-review-pane {
+            padding: 0;
+          }
+
+          .wallet-workspace[data-mobile-pane="accounts"]
+            .wallet-workspace-account-pane {
+            grid-row: 1 / -1;
+            display: flex;
+          }
+
+          .wallet-workspace[data-mobile-pane="detail"]
+            .wallet-workspace-detail-pane {
+            display: flex;
+          }
+
+          .wallet-workspace[data-mobile-pane="activity"]
+            .wallet-workspace-review-pane {
+            display: flex;
+          }
+
+          .wallet-workspace[data-mobile-pane="activity"]
+            .wallet-workspace-earn-review-overlay {
+            padding: 0;
           }
 
           .wallet-workspace[data-review-focused="true"]
@@ -8730,13 +8448,15 @@ export function AppWalletWorkspace({
           .wallet-workspace[data-rate-limited="true"]
             .wallet-workspace-detail-pane {
             display: flex;
-            grid-column: 3;
+            grid-column: 1;
+            grid-row: 1 / -1;
           }
 
           .wallet-workspace[data-signed-in="false"]
             .wallet-workspace-detail-pane {
             display: flex;
-            grid-column: 3;
+            grid-column: 1;
+            grid-row: 1 / -1;
           }
 
           .wallet-workspace-auth-detail {

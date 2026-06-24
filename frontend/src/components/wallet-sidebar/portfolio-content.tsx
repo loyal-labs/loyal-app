@@ -15,7 +15,6 @@ import {
 import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
 
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import type {
   SmartAccountApprovalItem,
   SmartAccountSignerEntry,
@@ -178,6 +177,7 @@ export function EarnYieldIcon({ size = 48 }: { size?: number }) {
 function EarnPortfolioRow({
   balance = 0,
   depositLabel = "Deposit",
+  hasEarnPolicy = false,
   hasPosition = false,
   isAutodepositConfigured = false,
   isBalanceHidden = false,
@@ -187,6 +187,7 @@ function EarnPortfolioRow({
 }: {
   balance?: number;
   depositLabel?: string;
+  hasEarnPolicy?: boolean;
   hasPosition?: boolean;
   isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
@@ -218,6 +219,7 @@ function EarnPortfolioRow({
   const isDepositRed = !hasPosition || isAutodepositConfigured;
   const depositBackground = isDepositRed ? "#F9363C" : "#000";
   const depositHoverBackground = isDepositRed ? "#e72f34" : "#222";
+  const shouldShowDepositButton = !hasEarnPolicy;
 
   return (
     <>
@@ -342,28 +344,30 @@ function EarnPortfolioRow({
             </span>
           </div>
         </div>
-        <button
-          className="portfolio-earn-deposit-btn"
-          onClick={handleDepositClick}
-          style={{
-            background: depositBackground,
-            border: "none",
-            borderRadius: "9999px",
-            color: "#fff",
-            cursor: "pointer",
-            flexShrink: 0,
-            fontFamily: font,
-            fontSize: "14px",
-            fontWeight: 500,
-            lineHeight: "20px",
-            marginLeft: "12px",
-            padding: "6px 16px",
-            whiteSpace: "nowrap",
-          }}
-          type="button"
-        >
-          {depositLabel}
-        </button>
+        {shouldShowDepositButton ? (
+          <button
+            className="portfolio-earn-deposit-btn"
+            onClick={handleDepositClick}
+            style={{
+              background: depositBackground,
+              border: "none",
+              borderRadius: "9999px",
+              color: "#fff",
+              cursor: "pointer",
+              flexShrink: 0,
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              lineHeight: "20px",
+              marginLeft: "12px",
+              padding: "6px 16px",
+              whiteSpace: "nowrap",
+            }}
+            type="button"
+          >
+            {depositLabel}
+          </button>
+        ) : null}
       </div>
     </>
   );
@@ -1153,7 +1157,6 @@ export function PortfolioContent({
   onOpenEarn,
   onOpenAutodeposit,
   onOpenCreateAccount,
-  onOpenCommandMenu,
   onOpenVault,
   onOpenAgent,
   onOpenAddSigner,
@@ -1167,6 +1170,7 @@ export function PortfolioContent({
   earnBalance = 0,
   enableMockBackupSignerFlow = true,
   hasEarnStateLoadError = false,
+  hasEarnPolicy = false,
   hasEarnStateResolved = false,
   hasEarnPosition = false,
   isAutodepositConfigured = false,
@@ -1204,7 +1208,6 @@ export function PortfolioContent({
   onOpenAutodeposit?: () => void;
   onOpenCreateAccount?: () => void;
   isAutodepositConfigured?: boolean;
-  onOpenCommandMenu?: () => void;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
   onOpenAddSigner?: (accountIndex: number) => void;
@@ -1218,6 +1221,7 @@ export function PortfolioContent({
   earnBalance?: number;
   enableMockBackupSignerFlow?: boolean;
   hasEarnStateLoadError?: boolean;
+  hasEarnPolicy?: boolean;
   hasEarnStateResolved?: boolean;
   hasEarnPosition?: boolean;
   selectedSignerId?: string | null;
@@ -1243,6 +1247,8 @@ export function PortfolioContent({
     !hasEarnStateLoadError &&
     !isAutodepositConfigured;
   const shouldShowAutodepositAsBalance = Boolean(onOpenAutodeposit);
+  const shouldShowAccountsTitle =
+    !showHeaderControls && shouldShowAutodepositAsBalance;
   const sortedVaultEntries = useMemo(
     () =>
       [...vaultEntries].sort(
@@ -1283,9 +1289,27 @@ export function PortfolioContent({
             flexDirection: "column",
             height: "100%",
             minHeight: 0,
-            padding: `${topInset}px 8px 8px`,
+            padding: shouldShowAccountsTitle
+              ? "0 8px 8px"
+              : `${topInset}px 8px 8px`,
           }}
         >
+          {shouldShowAccountsTitle ? (
+            <h2
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "24px",
+                fontWeight: 600,
+                letterSpacing: 0,
+                lineHeight: "28px",
+                margin: 0,
+                padding: "20px 12px 14px",
+              }}
+            >
+              Accounts
+            </h2>
+          ) : null}
           <div style={{ padding: "12px 12px 18px" }}>
             <div style={skeletonBar("148px", "24px")} />
             <div style={{ height: "8px" }} />
@@ -1386,7 +1410,7 @@ export function PortfolioContent({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        paddingTop: topInset,
+        paddingTop: shouldShowAccountsTitle ? 0 : topInset,
       }}
     >
       <style jsx>{`
@@ -1454,6 +1478,23 @@ export function PortfolioContent({
           </filter>
         </defs>
       </svg>
+
+      {shouldShowAccountsTitle ? (
+        <h2
+          style={{
+            color: "#000",
+            fontFamily: font,
+            fontSize: "24px",
+            fontWeight: 600,
+            letterSpacing: 0,
+            lineHeight: "28px",
+            margin: 0,
+            padding: "20px 20px 14px",
+          }}
+        >
+          Accounts
+        </h2>
+      ) : null}
 
       {showHeaderControls || !shouldShowAutodepositAsBalance ? (
         <div
@@ -1892,6 +1933,7 @@ export function PortfolioContent({
             <EarnPortfolioRow
               balance={earnBalance}
               depositLabel={earnDepositLabel}
+              hasEarnPolicy={hasEarnPolicy}
               hasPosition={hasEarnPosition}
               isAutodepositConfigured={isAutodepositConfigured}
               isBalanceHidden={isBalanceHidden}

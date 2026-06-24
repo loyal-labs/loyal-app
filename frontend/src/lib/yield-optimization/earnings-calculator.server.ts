@@ -14,8 +14,19 @@ export type YieldPositionEvent = {
   type: "deposit" | "withdrawal";
 };
 
+export type YieldPositionPathEvent = {
+  amountRaw: bigint;
+  confirmedAt: Date;
+  liquidityMint: string;
+  market: string | null;
+  principalAmountRaw: bigint;
+  reserve: string;
+  type: "deposit" | "reconciliation" | "rebalance" | "withdrawal";
+};
+
 export type ReserveApySample = {
   observedAt: Date;
+  reserve?: string | null;
   supplyApy: number;
 };
 
@@ -250,34 +261,63 @@ function rawToUsd(raw: bigint): number {
   return Number(raw) / USDC_DECIMALS_FACTOR;
 }
 
-function getPrincipalAt(
-  events: readonly YieldPositionEvent[],
-  at: Date
-): bigint {
+function legacyEventsToPathEvents(
+  events: readonly YieldPositionEvent[]
+): YieldPositionPathEvent[] {
   let principal = BigInt(0);
-  const atMs = at.getTime();
 
-  for (const event of events) {
-    if (event.confirmedAt.getTime() > atMs) {
-      break;
-    }
+  return events.map((event) => {
     principal += event.type === "deposit" ? event.amountRaw : -event.amountRaw;
     if (principal < BigInt(0)) {
       principal = BigInt(0);
     }
+
+    return {
+      amountRaw: principal,
+      confirmedAt: event.confirmedAt,
+      liquidityMint: "",
+      market: null,
+      principalAmountRaw: principal,
+      reserve: "",
+      type: event.type,
+    };
+  });
+}
+
+function getPathStateAt(
+  pathEvents: readonly YieldPositionPathEvent[],
+  at: Date
+): YieldPositionPathEvent | null {
+  let current: YieldPositionPathEvent | null = null;
+  const atMs = at.getTime();
+
+  for (const event of pathEvents) {
+    if (event.confirmedAt.getTime() > atMs) {
+      break;
+    }
+    current = event;
   }
 
-  return principal;
+  return current;
 }
 
 function getApyAt(
   samples: readonly ReserveApySample[],
+  reserve: string | null,
   at: Date
 ): number | null {
   let apy: number | null = null;
   const atMs = at.getTime();
 
   for (const sample of samples) {
+    if (
+      reserve &&
+      sample.reserve !== undefined &&
+      sample.reserve !== null &&
+      sample.reserve !== reserve
+    ) {
+      continue;
+    }
     if (sample.observedAt.getTime() > atMs) {
       break;
     }
@@ -290,10 +330,10 @@ function getApyAt(
 function calculateWindow(args: {
   apySamples: readonly ReserveApySample[];
   endAt: Date;
-  events: readonly YieldPositionEvent[];
+  pathEvents: readonly YieldPositionPathEvent[];
   startAt: Date;
 }) {
-  const { apySamples, endAt, events, startAt } = args;
+  const { apySamples, endAt, pathEvents, startAt } = args;
   const startMs = startAt.getTime();
   const endMs = endAt.getTime();
 
@@ -301,12 +341,13 @@ function calculateWindow(args: {
     return {
       avgPrincipalUsd: 0,
       earnedUsd: 0,
-      principalAmountRaw: getPrincipalAt(events, endAt),
+      principalAmountRaw:
+        getPathStateAt(pathEvents, endAt)?.principalAmountRaw ?? BigInt(0),
     };
   }
 
   const changeTimes = new Set<number>([startMs, endMs]);
-  for (const event of events) {
+  for (const event of pathEvents) {
     const time = event.confirmedAt.getTime();
     if (time > startMs && time < endMs) {
       changeTimes.add(time);
@@ -328,8 +369,9 @@ function calculateWindow(args: {
     const segmentEnd = new Date(sortedTimes[index + 1]);
     const segmentSeconds =
       (segmentEnd.getTime() - segmentStart.getTime()) / 1000;
-    const principalUsd = rawToUsd(getPrincipalAt(events, segmentStart));
-    const apy = getApyAt(apySamples, segmentStart);
+    const pathState = getPathStateAt(pathEvents, segmentStart);
+    const principalUsd = pathState ? rawToUsd(pathState.principalAmountRaw) : 0;
+    const apy = getApyAt(apySamples, pathState?.reserve ?? null, segmentStart);
 
     principalSeconds += principalUsd * segmentSeconds;
     if (apy !== null && principalUsd > 0 && segmentSeconds > 0) {
@@ -342,7 +384,8 @@ function calculateWindow(args: {
   return {
     avgPrincipalUsd: bucketSeconds > 0 ? principalSeconds / bucketSeconds : 0,
     earnedUsd,
-    principalAmountRaw: getPrincipalAt(events, endAt),
+    principalAmountRaw:
+      getPathStateAt(pathEvents, endAt)?.principalAmountRaw ?? BigInt(0),
   };
 }
 
@@ -366,19 +409,23 @@ export function calculateEarnEarnings(args: {
   apySamples: readonly ReserveApySample[];
   events: readonly YieldPositionEvent[];
   now: Date;
+  pathEvents?: readonly YieldPositionPathEvent[];
   range: EarningsRangeId;
   timezone: string;
 }): EarnEarningsResponse {
   const events = [...args.events].sort(
     (a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime()
   );
+  const pathEvents = [
+    ...(args.pathEvents ?? legacyEventsToPathEvents(events)),
+  ].sort((a, b) => a.confirmedAt.getTime() - b.confirmedAt.getTime());
   const apySamples = [...args.apySamples].sort(
     (a, b) => a.observedAt.getTime() - b.observedAt.getTime()
   );
   const firstDepositAt =
-    events.find((event) => event.type === "deposit")?.confirmedAt ?? null;
+    pathEvents.find((event) => event.type === "deposit")?.confirmedAt ?? null;
   const lastDepositAt =
-    [...events].reverse().find((event) => event.type === "deposit")
+    [...pathEvents].reverse().find((event) => event.type === "deposit")
       ?.confirmedAt ?? null;
   const buckets = createEarningsBuckets({
     firstDepositAt,
@@ -390,7 +437,7 @@ export function calculateEarnEarnings(args: {
     const result = calculateWindow({
       apySamples,
       endAt: bucket.endAt,
-      events,
+      pathEvents,
       startAt: bucket.startAt,
     });
     const bucketSeconds =
@@ -416,23 +463,26 @@ export function calculateEarnEarnings(args: {
   const lifetime = calculateWindow({
     apySamples,
     endAt: args.now,
-    events,
+    pathEvents,
     startAt: lifetimeStart,
   });
   const sinceLastDeposit = calculateWindow({
     apySamples,
     endAt: args.now,
-    events,
+    pathEvents,
     startAt: lastDepositAt ?? args.now,
   });
   const today = calculateWindow({
     apySamples,
     endAt: args.now,
-    events,
+    pathEvents,
     startAt: startOfLocalDay(args.now, args.timezone),
   });
-  const principalAmountRaw = getPrincipalAt(events, args.now);
-  const currentApy = getApyAt(apySamples, args.now);
+  const currentPathState = getPathStateAt(pathEvents, args.now);
+  const principalAmountRaw = currentPathState?.principalAmountRaw ?? BigInt(0);
+  const currentApy = currentPathState
+    ? getApyAt(apySamples, currentPathState.reserve, args.now)
+    : null;
 
   return {
     bars,

@@ -3550,21 +3550,36 @@ async function findYieldPositionHistoryEventsForPosition(
   const withdrawalIds = chronologicalEvents
     .map((event) => event.sourceWithdrawalId)
     .filter((id): id is bigint => id !== null);
-  const withdrawalAmounts =
+  const depositIds = chronologicalEvents
+    .map((event) => event.sourceDepositId)
+    .filter((id): id is bigint => id !== null);
+  const depositAmounts =
+    depositIds.length > 0
+      ? await dependencies.client.db
+          .select({
+            id: userYieldPositionDeposits.id,
+            principalAmountRaw: userYieldPositionDeposits.principalAmountRaw,
+          })
+          .from(userYieldPositionDeposits)
+          .where(inArray(userYieldPositionDeposits.id, depositIds))
+      : [];
+  const withdrawals =
     withdrawalIds.length > 0
       ? await dependencies.client.db
           .select({
             id: userYieldPositionWithdrawals.id,
+            mode: userYieldPositionWithdrawals.mode,
+            sourceType: userYieldPositionWithdrawals.sourceType,
             withdrawnAmountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
           })
           .from(userYieldPositionWithdrawals)
           .where(inArray(userYieldPositionWithdrawals.id, withdrawalIds))
       : [];
-  const withdrawnAmountById = new Map(
-    withdrawalAmounts.map((withdrawal) => [
-      withdrawal.id,
-      withdrawal.withdrawnAmountRaw,
-    ])
+  const depositAmountById = new Map(
+    depositAmounts.map((deposit) => [deposit.id, deposit.principalAmountRaw])
+  );
+  const withdrawalById = new Map(
+    withdrawals.map((withdrawal) => [withdrawal.id, withdrawal])
   );
 
   const history = chronologicalEvents.map((event) => {
@@ -3588,7 +3603,38 @@ async function findYieldPositionHistoryEventsForPosition(
       type === "rebalance" || type === "reconciliation"
         ? previousLiquidityMint
         : null;
-    principalAmountRaw += event.principalDeltaRaw ?? BigInt(0);
+    if (type === "deposit") {
+      const principalDeltaRaw =
+        event.sourceDepositId === null
+          ? event.principalDeltaRaw
+          : depositAmountById.get(event.sourceDepositId) ??
+            event.principalDeltaRaw;
+      if (principalDeltaRaw && principalDeltaRaw > BigInt(0)) {
+        principalAmountRaw += principalDeltaRaw;
+      }
+    } else if (type === "withdrawal") {
+      const withdrawal =
+        event.sourceWithdrawalId === null
+          ? null
+          : withdrawalById.get(event.sourceWithdrawalId) ?? null;
+      if (withdrawal?.sourceType === "idle") {
+        // Closing leftover idle dust does not reduce invested principal.
+      } else if (
+        withdrawal?.mode === "full" ||
+        event.eventType === "withdrawal_full"
+      ) {
+        principalAmountRaw = BigInt(0);
+      } else {
+        const principalDeltaRaw = event.principalDeltaRaw ?? BigInt(0);
+        const withdrawnPrincipalRaw =
+          withdrawal?.withdrawnAmountRaw ??
+          (principalDeltaRaw < BigInt(0) ? -principalDeltaRaw : BigInt(0));
+        principalAmountRaw =
+          principalAmountRaw > withdrawnPrincipalRaw
+            ? principalAmountRaw - withdrawnPrincipalRaw
+            : BigInt(0);
+      }
+    }
     previousReserve = event.reserve;
     previousMarket = event.market;
     previousLiquidityMint = event.liquidityMint;
@@ -3632,7 +3678,8 @@ async function findYieldPositionHistoryEventsForPosition(
       withdrawnAmountRaw:
         event.sourceWithdrawalId === null
           ? null
-          : withdrawnAmountById.get(event.sourceWithdrawalId) ?? null,
+          : withdrawalById.get(event.sourceWithdrawalId)?.withdrawnAmountRaw ??
+            null,
     };
   });
 

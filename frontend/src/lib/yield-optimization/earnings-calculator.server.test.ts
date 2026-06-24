@@ -4,6 +4,7 @@ import {
   calculateEarnEarnings,
   type ReserveApySample,
   type YieldPositionEvent,
+  type YieldPositionPathEvent,
 } from "./earnings-calculator.server";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -29,6 +30,20 @@ function calculate(events: YieldPositionEvent[]) {
     apySamples: APY_SAMPLES,
     events,
     now: NOW,
+    range: "30D",
+    timezone: "UTC",
+  });
+}
+
+function calculatePath(args: {
+  apySamples: ReserveApySample[];
+  pathEvents: YieldPositionPathEvent[];
+}) {
+  return calculateEarnEarnings({
+    apySamples: args.apySamples,
+    events: [],
+    now: NOW,
+    pathEvents: args.pathEvents,
     range: "30D",
     timezone: "UTC",
   });
@@ -102,5 +117,47 @@ describe("calculateEarnEarnings since latest deposit", () => {
     expect(result.sinceLastDepositEarnedUsd).toBe(0);
     expect(result.lifetimeEarnedUsd).toBe(0);
     expect(result.principalUsd).toBe(0);
+  });
+});
+
+describe("calculateEarnEarnings money path", () => {
+  test("uses the reserve APY active for each path interval", () => {
+    const result = calculatePath({
+      apySamples: [
+        {
+          observedAt: daysAgo(30),
+          reserve: "reserve-a",
+          supplyApy: 0.365,
+        },
+        {
+          observedAt: daysAgo(30),
+          reserve: "reserve-b",
+          supplyApy: 0.73,
+        },
+      ],
+      pathEvents: [
+        {
+          amountRaw: rawUsdc(100),
+          confirmedAt: daysAgo(10),
+          liquidityMint: "USDC",
+          market: "market-a",
+          principalAmountRaw: rawUsdc(100),
+          reserve: "reserve-a",
+          type: "deposit",
+        },
+        {
+          amountRaw: rawUsdc(100),
+          confirmedAt: daysAgo(5),
+          liquidityMint: "USDC",
+          market: "market-b",
+          principalAmountRaw: rawUsdc(100),
+          reserve: "reserve-b",
+          type: "rebalance",
+        },
+      ],
+    });
+
+    expect(result.lifetimeEarnedUsd).toBeCloseTo(1.5, 12);
+    expect(result.currentApyBps).toBe(7300);
   });
 });

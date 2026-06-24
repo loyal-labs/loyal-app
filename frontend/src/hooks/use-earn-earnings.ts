@@ -10,7 +10,8 @@ import type { EarnEarningsRangeSetResponse } from "@/lib/yield-optimization/earn
 
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_CACHE_KEY = "default";
-const EARN_EARNINGS_CACHE_VERSION = 2;
+const EARNINGS_EPSILON = 0.000000001;
+const EARN_EARNINGS_CACHE_VERSION = 4;
 
 type EarnEarningsCacheEntry = {
   expiresAt: number;
@@ -67,18 +68,34 @@ function responseMatchesExpectedPrincipal(
 }
 
 function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
+  earnedBarCount: number;
   lifetimeEarnedUsd: number;
+  nonCurrentEarnedBarCount: number;
+  nonCurrentEarnedUsd: number;
   principalAmountRaws: string[];
   rangeEarnedUsd: number;
   todayEarnedUsd: number;
 } {
   const ranges = Object.values(payload.ranges);
+  const bars = ranges.flatMap((range) =>
+    Array.isArray(range.bars) ? range.bars : []
+  );
+  const earnedBars = bars.filter(
+    (bar) => Number.isFinite(bar.earnedUsd) && bar.earnedUsd > EARNINGS_EPSILON
+  );
+  const nonCurrentEarnedBars = earnedBars.filter((bar) => !bar.isCurrent);
   return {
+    earnedBarCount: earnedBars.length,
     lifetimeEarnedUsd: Math.max(
       0,
       ...ranges.map((range) =>
         Number.isFinite(range.lifetimeEarnedUsd) ? range.lifetimeEarnedUsd : 0
       )
+    ),
+    nonCurrentEarnedBarCount: nonCurrentEarnedBars.length,
+    nonCurrentEarnedUsd: nonCurrentEarnedBars.reduce(
+      (sum, bar) => sum + Math.max(0, bar.earnedUsd),
+      0
     ),
     principalAmountRaws: Array.from(
       new Set(ranges.map((range) => range.principalAmountRaw))
@@ -98,6 +115,19 @@ function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
   };
 }
 
+function hasRicherHistoricalEarningsBars(args: {
+  fresh: ReturnType<typeof summarizeEarningsPayload>;
+  stale: ReturnType<typeof summarizeEarningsPayload>;
+}): boolean {
+  return (
+    args.fresh.nonCurrentEarnedUsd >
+      args.stale.nonCurrentEarnedUsd + EARNINGS_EPSILON ||
+    args.fresh.nonCurrentEarnedBarCount > args.stale.nonCurrentEarnedBarCount ||
+    (args.fresh.earnedBarCount > args.stale.earnedBarCount &&
+      args.fresh.nonCurrentEarnedBarCount > 0)
+  );
+}
+
 function isRegressiveEarningsPayload(args: {
   fresh: EarnEarningsRangeSetResponse;
   stale: EarnEarningsRangeSetResponse | null;
@@ -108,12 +138,15 @@ function isRegressiveEarningsPayload(args: {
 
   const stale = summarizeEarningsPayload(args.stale);
   const fresh = summarizeEarningsPayload(args.fresh);
-  const epsilon = 0.000000001;
+
+  if (hasRicherHistoricalEarningsBars({ fresh, stale })) {
+    return false;
+  }
 
   return (
-    fresh.lifetimeEarnedUsd + epsilon < stale.lifetimeEarnedUsd ||
-    fresh.rangeEarnedUsd + epsilon < stale.rangeEarnedUsd ||
-    fresh.todayEarnedUsd + epsilon < stale.todayEarnedUsd
+    fresh.lifetimeEarnedUsd + EARNINGS_EPSILON < stale.lifetimeEarnedUsd ||
+    fresh.rangeEarnedUsd + EARNINGS_EPSILON < stale.rangeEarnedUsd ||
+    fresh.todayEarnedUsd + EARNINGS_EPSILON < stale.todayEarnedUsd
   );
 }
 
@@ -129,7 +162,6 @@ function isEqualRecordedEarningsWithNewerTimestamp(args: {
   const fresh = summarizeEarningsPayload(args.fresh);
   const staleGeneratedAt = Date.parse(args.stale.generatedAt);
   const freshGeneratedAt = Date.parse(args.fresh.generatedAt);
-  const epsilon = 0.000000001;
 
   if (
     !Number.isFinite(staleGeneratedAt) ||
@@ -139,10 +171,14 @@ function isEqualRecordedEarningsWithNewerTimestamp(args: {
     return false;
   }
 
+  if (hasRicherHistoricalEarningsBars({ fresh, stale })) {
+    return false;
+  }
+
   return (
-    fresh.lifetimeEarnedUsd <= stale.lifetimeEarnedUsd + epsilon &&
-    fresh.rangeEarnedUsd <= stale.rangeEarnedUsd + epsilon &&
-    fresh.todayEarnedUsd <= stale.todayEarnedUsd + epsilon
+    fresh.lifetimeEarnedUsd <= stale.lifetimeEarnedUsd + EARNINGS_EPSILON &&
+    fresh.rangeEarnedUsd <= stale.rangeEarnedUsd + EARNINGS_EPSILON &&
+    fresh.todayEarnedUsd <= stale.todayEarnedUsd + EARNINGS_EPSILON
   );
 }
 

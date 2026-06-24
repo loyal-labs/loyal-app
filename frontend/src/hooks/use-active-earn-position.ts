@@ -20,7 +20,7 @@ import {
   type EarnRpcWatchedAccount,
 } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 
-const EARN_POSITION_CACHE_VERSION = 5;
+const EARN_POSITION_CACHE_VERSION = 6;
 const EARN_POSITION_REFRESH_DEBOUNCE_MS = 350;
 
 export type ActiveEarnPositionHolding = {
@@ -88,6 +88,10 @@ type EarnPositionConnection = Pick<
 type RpcPositionRead = {
   position: ActiveEarnPosition | null;
   watchedAccounts: EarnRpcWatchedAccount[];
+};
+
+type ConfirmedEarnPositionResponse = {
+  position: ActiveEarnPosition | null;
 };
 
 export function isActiveEarnPosition(
@@ -217,6 +221,47 @@ export function writeEarnPositionCache(args: {
   writeLastEarnPositionCache(args);
 }
 
+function isConfirmedEarnPositionResponse(
+  data: unknown
+): data is ConfirmedEarnPositionResponse {
+  if (typeof data !== "object" || data === null || !("position" in data)) {
+    return false;
+  }
+
+  const position = (data as { position: unknown }).position;
+  if (position === null) {
+    return true;
+  }
+
+  return (
+    typeof position === "object" &&
+    position !== null &&
+    "currentTotalAmountRaw" in position &&
+    "principalAmountRaw" in position &&
+    "status" in position
+  );
+}
+
+async function fetchConfirmedEarnPosition(): Promise<ActiveEarnPosition | null> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/position",
+    {
+      cache: "no-store",
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to load confirmed Earn position.");
+  }
+
+  const data: unknown = await response.json();
+  if (!isConfirmedEarnPositionResponse(data)) {
+    throw new Error("Invalid confirmed Earn position response.");
+  }
+
+  return data.position;
+}
+
 export function useActiveEarnPosition({
   connection,
   earnPolicy,
@@ -237,6 +282,8 @@ export function useActiveEarnPosition({
   const [position, setPositionState] = useState<ActiveEarnPosition | null>(
     null
   );
+  const [hasResolved, setHasResolved] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [watchedAccounts, setWatchedAccounts] = useState<
     EarnRpcWatchedAccount[]
   >([]);
@@ -252,6 +299,8 @@ export function useActiveEarnPosition({
         | null
         | ((current: ActiveEarnPosition | null) => ActiveEarnPosition | null)
     ) => {
+      setHasResolved(true);
+      setIsLoading(false);
       setPositionState((current) => {
         const resolved = typeof next === "function" ? next(current) : next;
         positionRef.current = resolved;
@@ -306,19 +355,46 @@ export function useActiveEarnPosition({
       positionRef.current = next.position;
       setWatchedAccounts(next.watchedAccounts);
       setPositionState(next.position);
+      setHasResolved(true);
+      setIsLoading(false);
+    },
+    [settingsPda, solanaEnv, walletAddress]
+  );
+
+  const commitConfirmedPosition = useCallback(
+    (nextPosition: ActiveEarnPosition | null) => {
+      if (walletAddress && settingsPda) {
+        writeEarnPositionCache({
+          solanaEnv,
+          walletAddress,
+          settingsPda,
+          position: nextPosition,
+        });
+      }
+      positionRef.current = nextPosition;
+      setWatchedAccounts([]);
+      setPositionState(nextPosition);
+      setHasResolved(true);
+      setIsLoading(false);
     },
     [settingsPda, solanaEnv, walletAddress]
   );
 
   const refresh = useCallback(async () => {
     const currentPosition = positionRef.current;
-    const next = await readRpcPosition(currentPosition);
-    if (!next) {
-      return currentPosition;
-    }
+    setIsLoading(true);
+    try {
+      const next = await readRpcPosition(currentPosition);
+      if (!next) {
+        setHasResolved(true);
+        return currentPosition;
+      }
 
-    commitRpcPosition(next);
-    return next.position;
+      commitRpcPosition(next);
+      return next.position;
+    } finally {
+      setIsLoading(false);
+    }
   }, [commitRpcPosition, readRpcPosition]);
 
   const suppressSubscriptionRefreshThroughSlot = useCallback(
@@ -351,16 +427,22 @@ export function useActiveEarnPosition({
         if (fallback?.position) {
           positionRef.current = fallback.position;
           setPositionState(fallback.position);
+          setHasResolved(true);
+          setIsLoading(false);
           return;
         }
       }
 
       if (enabled && walletAddress) {
+        setHasResolved(false);
+        setIsLoading(true);
         return;
       }
 
       positionRef.current = null;
       setPositionState(null);
+      setHasResolved(true);
+      setIsLoading(false);
       return;
     }
 
@@ -372,20 +454,47 @@ export function useActiveEarnPosition({
     if (cached) {
       positionRef.current = cached;
       setPositionState(cached);
+      setHasResolved(true);
     } else {
       positionRef.current = null;
       setPositionState(null);
+      setHasResolved(false);
     }
+    setIsLoading(true);
 
     let cancelled = false;
     const loadLivePosition = async () => {
-      const next = await readRpcPosition(cached ?? null);
+      let confirmedPosition: ActiveEarnPosition | null | undefined;
+      try {
+        confirmedPosition = await fetchConfirmedEarnPosition();
+      } catch (error) {
+        console.warn(
+          "[earn-position] failed to load confirmed active position",
+          error
+        );
+      }
+      if (cancelled) {
+        return;
+      }
+
+      const basePosition =
+        confirmedPosition !== undefined ? confirmedPosition : cached ?? null;
+      const next = await readRpcPosition(basePosition);
       if (cancelled) {
         return;
       }
       if (next) {
         commitRpcPosition(next);
+        return;
       }
+
+      if (confirmedPosition !== undefined) {
+        commitConfirmedPosition(confirmedPosition);
+        return;
+      }
+
+      setHasResolved(true);
+      setIsLoading(false);
     };
 
     loadLivePosition().catch((error) => {
@@ -393,6 +502,8 @@ export function useActiveEarnPosition({
         return;
       }
       console.warn("[earn-position] failed to load live active position", error);
+      setHasResolved(true);
+      setIsLoading(false);
     });
 
     return () => {
@@ -400,6 +511,7 @@ export function useActiveEarnPosition({
     };
   }, [
     canUseCache,
+    commitConfirmedPosition,
     commitRpcPosition,
     enabled,
     readRpcPosition,
@@ -506,6 +618,8 @@ export function useActiveEarnPosition({
   }, [connection, enabled, refresh, watchAccountKey]);
 
   return {
+    hasResolved,
+    isLoading,
     position,
     refresh,
     setPosition,

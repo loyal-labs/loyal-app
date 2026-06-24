@@ -12,11 +12,13 @@ import {
   calculateEarnEarnings,
   isEarningsRangeId,
   type EarningsRangeId,
+  type ReserveApySample,
+  type YieldPositionPathEvent,
 } from "@/lib/yield-optimization/earnings-calculator.server";
 import type { EarnEarningsRangeSetResponse } from "@/lib/yield-optimization/earnings.shared";
 import {
-  findReconciledActiveYieldPositionForVault,
-  findYieldPositionEvents,
+  findYieldPositionHistoryEventsForVault,
+  type UserYieldPositionHistoryEventRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_VAULT_INDEX = 1;
@@ -48,16 +50,56 @@ function getRangeFromRequest(request: Request): EarningsRangeId | null {
 }
 
 function getFirstDepositAt(
-  events: Awaited<ReturnType<typeof findYieldPositionEvents>>
+  events: readonly YieldPositionPathEvent[]
 ): Date | null {
-  return events.find((event) => event.type === "deposit")?.confirmedAt ?? null;
+  let firstDepositAt: Date | null = null;
+
+  for (const event of events) {
+    if (event.type !== "deposit") {
+      continue;
+    }
+    if (
+      firstDepositAt === null ||
+      event.confirmedAt.getTime() < firstDepositAt.getTime()
+    ) {
+      firstDepositAt = event.confirmedAt;
+    }
+  }
+
+  return firstDepositAt;
 }
 
-async function loadReserveApySamples(args: {
+function toYieldPositionPathEvent(
+  event: UserYieldPositionHistoryEventRecord
+): YieldPositionPathEvent {
+  return {
+    amountRaw: event.amountRaw,
+    confirmedAt: event.confirmedAt,
+    liquidityMint: event.liquidityMint,
+    market: event.market,
+    principalAmountRaw: event.principalAmountRaw,
+    reserve: event.reserve,
+    type: event.type,
+  };
+}
+
+async function loadReserveApySamplesForPath(args: {
   end: Date;
-  reserve: string;
+  pathEvents: readonly YieldPositionPathEvent[];
   start: Date;
-}) {
+}): Promise<ReserveApySample[]> {
+  const reserves = new Set<string>();
+  for (const event of args.pathEvents) {
+    if (!event.reserve) {
+      continue;
+    }
+    reserves.add(event.reserve);
+  }
+
+  if (reserves.size === 0) {
+    return [];
+  }
+
   const databaseUrl = getTimescaleReserveDatabaseUrl();
   if (!databaseUrl) {
     throw new MissingTimescaleDatabaseUrlError();
@@ -65,7 +107,21 @@ async function loadReserveApySamples(args: {
 
   const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
   try {
-    return await client.getReserveApyHistorySamples(args);
+    const samples: ReserveApySample[] = [];
+    for (const reserve of reserves) {
+      const reserveSamples = await client.getReserveApyHistorySamples({
+        end: args.end,
+        reserve,
+        start: args.start,
+      });
+      samples.push(
+        ...reserveSamples.map((sample) => ({
+          ...sample,
+          reserve,
+        }))
+      );
+    }
+    return samples;
   } finally {
     await client.close().catch((error) => {
       console.warn("[earnings] failed to close Timescale client", error);
@@ -108,29 +164,21 @@ export async function GET(request: Request) {
   const cluster = resolveConfiguredCluster();
 
   try {
-    const position = await findReconciledActiveYieldPositionForVault({
-      cluster,
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      walletAddress: principal.walletAddress,
-    });
-    const events = position
-      ? await findYieldPositionEvents({
-          cluster,
-          initialReserve: position.initialReserve,
-          settings: principal.settingsPda,
-          vaultIndex: EARN_VAULT_INDEX,
-          vaultPubkey: position.vaultPubkey,
-          walletAddress: principal.walletAddress,
-        })
-      : [];
-    const firstDepositAt = getFirstDepositAt(events);
+    const pathEvents = (
+      await findYieldPositionHistoryEventsForVault({
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      })
+    ).map(toYieldPositionPathEvent);
+    const firstDepositAt = getFirstDepositAt(pathEvents);
     const apySamples =
-      firstDepositAt === null || !position
+      firstDepositAt === null
         ? []
-        : await loadReserveApySamples({
+        : await loadReserveApySamplesForPath({
             end: now,
-            reserve: position.currentReserve,
+            pathEvents,
             start: firstDepositAt,
           });
 
@@ -138,8 +186,9 @@ export async function GET(request: Request) {
       return NextResponse.json(
         calculateEarnEarnings({
           apySamples,
-          events,
+          events: [],
           now,
+          pathEvents,
           range,
           timezone,
         })
@@ -151,8 +200,9 @@ export async function GET(request: Request) {
         rangeId,
         calculateEarnEarnings({
           apySamples,
-          events,
+          events: [],
           now,
+          pathEvents,
           range: rangeId,
           timezone,
         }),
