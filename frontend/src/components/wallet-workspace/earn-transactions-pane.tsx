@@ -62,7 +62,7 @@ type EarnMascotPhrase = {
   text: string;
 };
 
-const EARN_MASCOT_IDLE_PHRASES = [
+const EARN_MASCOT_IDLE_PHRASES: readonly EarnMascotPhrase[] = [
   {
     href: TELEGRAM_COMMUNITY_URL,
     id: "join-telegram",
@@ -78,9 +78,9 @@ const EARN_MASCOT_IDLE_PHRASES = [
     id: TURN_ON_EARN_MASCOT_PHRASE_ID,
     text: "Turn on Earn. Idle USDC is a waste of a good dog's time.",
   },
-] as const satisfies readonly EarnMascotPhrase[];
+] as const;
 
-const EARN_MASCOT_BUSY_PHRASES = [
+const EARN_MASCOT_BUSY_PHRASES: readonly EarnMascotPhrase[] = [
   { id: "sniffing", text: "Sniffing…" },
   { id: "fetching", text: "Fetching…" },
   { id: "snuffling", text: "Snuffling…" },
@@ -100,7 +100,7 @@ const EARN_MASCOT_BUSY_PHRASES = [
   { id: "counting-bones", text: "Counting bones…" },
   { id: "marking-territory", text: "Marking territory…" },
   { id: "heeling", text: "Heeling…" },
-] as const satisfies readonly EarnMascotPhrase[];
+] as const;
 
 export type PendingScheduledSweepPreview = {
   amountRaw: string;

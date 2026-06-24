@@ -4530,7 +4530,7 @@ export async function verifyUserYieldPositions(
         failures.push(
           buildVerificationFailure({
             expectedPrincipalAmountRaw,
-            latestEvent,
+            currentEvent,
             position,
             reason: "rebalance_decision_not_confirmed",
           })
