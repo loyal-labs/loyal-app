@@ -6172,7 +6172,7 @@ export function EarnDepositView({
     >
       <style jsx>{`
         .earn-deposit-submit:not(:disabled):hover {
-          background: #222 !important;
+          background: ${isConnectCta ? "#e72f34" : "#222"} !important;
         }
         @media (max-width: 760px) {
           .earn-deposit-header {
@@ -6387,6 +6387,8 @@ export function EarnDepositView({
               ? "rgba(249, 54, 60, 0.14)"
               : isDepositButtonDisabled
               ? "rgba(0, 0, 0, 0.04)"
+              : isConnectCta
+              ? "#F9363C"
               : "#000",
             border: "none",
             borderRadius: "78px",

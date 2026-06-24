@@ -266,6 +266,12 @@ const REVIEW_PANE_MAX_WIDTH = 520;
 const REVIEW_PANE_DEFAULT_WIDTH = 400;
 const ENABLE_MOCK_BACKUP_SIGNER_FLOW = true;
 const EXPERIMENTAL_MODE_SESSION_KEY = "loyal.wallet.experimentalMode";
+const MOBILE_WORKSPACE_MEDIA_QUERY = "(max-width: 760px)";
+const MOBILE_PANE_HISTORY_KEY = "__loyalMobilePaneBack";
+
+type MobilePaneHistoryState = Record<string, unknown> & {
+  [MOBILE_PANE_HISTORY_KEY]?: true;
+};
 
 // Named variants so the exit propagates to descendants (the floating mascot
 // fades itself out on "exit"); "afterChildren" holds the slide-out until that
@@ -296,6 +302,19 @@ function getWalletIcon(): string {
 
 function getMockRootSignerIcon(index: number): string {
   return `/agents/Agent-${String(index + 2).padStart(2, "0")}.svg`;
+}
+
+function createMobilePaneHistoryState(): MobilePaneHistoryState {
+  const currentState = window.history.state;
+
+  if (currentState && typeof currentState === "object") {
+    return {
+      ...(currentState as Record<string, unknown>),
+      [MOBILE_PANE_HISTORY_KEY]: true,
+    };
+  }
+
+  return { [MOBILE_PANE_HISTORY_KEY]: true };
 }
 
 function formatAddressForEarnSource(
@@ -1774,6 +1793,9 @@ export function AppWalletWorkspace({
   const [selectedDetail, setSelectedDetail] =
     useState<string>("Wallet overview");
   const [mobilePane, setMobilePane] = useState<MobilePane>("accounts");
+  const [isMobileWorkspaceViewport, setIsMobileWorkspaceViewport] =
+    useState(false);
+  const mobilePaneHistoryArmedRef = useRef(false);
   const hasRestoredSelectionRef = useRef(false);
   const hasLocalDetailSelectionRef = useRef(false);
   // Gates the detail pane: stays false until the persisted workspace selection
@@ -1792,6 +1814,25 @@ export function AppWalletWorkspace({
     },
     []
   );
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      setIsMobileWorkspaceViewport(false);
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_WORKSPACE_MEDIA_QUERY);
+    const syncMobileWorkspaceViewport = () => {
+      setIsMobileWorkspaceViewport(mediaQuery.matches);
+    };
+
+    syncMobileWorkspaceViewport();
+    mediaQuery.addEventListener("change", syncMobileWorkspaceViewport);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncMobileWorkspaceViewport);
+    };
+  }, []);
+
   const [detailInitialTab, setDetailInitialTab] = useState<DetailTab>("tokens");
   const [detailPaneTransition, setDetailPaneTransition] =
     useState<DetailPaneTransition>("switch");
@@ -2525,16 +2566,17 @@ export function AppWalletWorkspace({
   }, [smartAccountData.overview?.vaults]);
   const hasEarnPolicy = Boolean(smartAccountData.earnPolicy);
   const hasEarnPosition = isActiveEarnPosition(activeEarnPosition);
-  const hasEarnAccess = hasEarnPolicy || hasEarnPosition;
   const isEarnAccessResolving =
     canLoadPersonalAccount &&
     detailSelection === "earn" &&
-    !hasEarnAccess &&
+    !hasEarnPosition &&
     (!smartAccountData.hasEarnStateResolved ||
       !hasActiveEarnPositionResolved);
   const isEarnDepositDetailActive =
     detailSelection === "earnDeposit" ||
-    (detailSelection === "earn" && !hasEarnAccess && !isEarnAccessResolving);
+    (detailSelection === "earn" && !hasEarnPosition && !isEarnAccessResolving);
+  const isEarnDepositSubViewActive =
+    detailSelection === "earnDeposit" && hasEarnPosition;
   const earnDepositReviewItem = useMemo(
     () =>
       pendingEarnDepositDraft && isEarnDepositDetailActive
@@ -5733,7 +5775,7 @@ export function AppWalletWorkspace({
       return true;
     }
 
-    if (isEarnDepositDetailActive) {
+    if (isEarnDepositSubViewActive) {
       handleOpenEarn();
       return true;
     }
@@ -5767,7 +5809,7 @@ export function AppWalletWorkspace({
     handleBackFromEarnWithdraw,
     handleCloseConnectRequest,
     handleOpenEarn,
-    isEarnDepositDetailActive,
+    isEarnDepositSubViewActive,
     viewStack.length,
   ]);
 
@@ -5823,12 +5865,56 @@ export function AppWalletWorkspace({
     setMobilePane("accounts");
   }, [handleTransientDetailBack, mobilePane]);
 
+  const hasMobilePaneBackTarget =
+    isMobileWorkspaceViewport && showAccountShell && mobilePane !== "accounts";
+
+  const handleMobileBackIntent = useCallback(() => {
+    if (hasMobilePaneBackTarget && mobilePaneHistoryArmedRef.current) {
+      window.history.back();
+      return;
+    }
+
+    handleMobilePaneBack();
+  }, [handleMobilePaneBack, hasMobilePaneBackTarget]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (!mobilePaneHistoryArmedRef.current) return;
+
+      mobilePaneHistoryArmedRef.current = false;
+      handleMobilePaneBack();
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [handleMobilePaneBack]);
+
+  useEffect(() => {
+    if (!hasMobilePaneBackTarget) {
+      mobilePaneHistoryArmedRef.current = false;
+      return;
+    }
+
+    if (mobilePaneHistoryArmedRef.current) return;
+
+    window.history.pushState(
+      createMobilePaneHistoryState(),
+      "",
+      window.location.href
+    );
+    mobilePaneHistoryArmedRef.current = true;
+  }, [hasMobilePaneBackTarget]);
+
   const mobileHeaderTitle =
     mobilePane === "activity" ? "Transactions" : selectedDetail || "Details";
   const canOpenMobileActivity =
     mobilePane === "detail" &&
     activeSection === "wallet" &&
-    detailSelection === "earn";
+    (detailSelection === "earn" ||
+      (isEarnDepositDetailActive && !hasEarnPosition));
 
   const renderDetailPane = () => {
     if (activeSection === "settings") {
@@ -5952,7 +6038,7 @@ export function AppWalletWorkspace({
           onClose={handleOpenEarn}
           onDraftSubmit={handleSubmitEarnDepositDraft}
           showFundingControls={canMutateAccount}
-          showCloseButton={hasEarnAccess}
+          showCloseButton={hasEarnPosition}
           sources={earnDepositSources}
           submitCtaLabel={canMutateAccount ? null : "Connect"}
           submitError={earnDepositPrepareError}
@@ -5982,7 +6068,7 @@ export function AppWalletWorkspace({
             solanaEnv: publicEnv.solanaEnv,
             walletAddress: personalWalletAddress,
           }}
-          hasCurrentPosition={hasEarnAccess}
+          hasCurrentPosition={hasEarnPosition}
           isAutodepositConfigured={Boolean(autodepositConfig)}
           isBalanceHidden={isBalanceHidden}
           onDeposit={handleOpenEarnDeposit}
@@ -6015,7 +6101,7 @@ export function AppWalletWorkspace({
       return (
         <EarnWithdrawView
           currentPositionHoldings={activeEarnPosition?.holdings}
-          cleanupOnly={hasEarnAccess && !hasEarnPosition}
+          cleanupOnly={hasEarnPolicy && !hasEarnPosition}
           destinations={earnWithdrawDestinations}
           isSubmitting={
             smartAccountData.isActionPending || isEarnWithdrawPreparePending
@@ -6965,7 +7051,7 @@ export function AppWalletWorkspace({
       {showAccountShell && mobilePane !== "accounts" ? (
         <MobileWorkspaceHeader
           canOpenActivity={canOpenMobileActivity}
-          onBack={handleMobilePaneBack}
+          onBack={handleMobileBackIntent}
           onOpenActivity={handleOpenMobileActivity}
           pane={mobilePane === "activity" ? "activity" : "detail"}
           title={mobileHeaderTitle}
@@ -7015,7 +7101,7 @@ export function AppWalletWorkspace({
                 earnDepositLabel={canMutateAccount ? "Deposit" : "Connect"}
                 earnBalance={earnCurrentBalanceAmount}
                 hasEarnPolicy={hasEarnPolicy}
-                hasEarnPosition={hasEarnAccess}
+                hasEarnPosition={hasEarnPosition}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
                 isLoading={isWorkspaceLoading || isSmartAccountShellLoading}
@@ -7043,7 +7129,7 @@ export function AppWalletWorkspace({
                   canMutateAccount ? handleOpenEarnDeposit : openSignIn
                 }
                 onOpenEarn={
-                  hasEarnAccess ? handleOpenEarn : handleOpenEarnDeposit
+                  hasEarnPosition ? handleOpenEarn : handleOpenEarnDeposit
                 }
                 onOpenAutodeposit={handleOpenAutodeposit}
                 onOpenCreateAccount={

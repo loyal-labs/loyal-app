@@ -219,7 +219,7 @@ function EarnPortfolioRow({
   const isDepositRed = !hasPosition || isAutodepositConfigured;
   const depositBackground = isDepositRed ? "#F9363C" : "#000";
   const depositHoverBackground = isDepositRed ? "#e72f34" : "#222";
-  const shouldShowDepositButton = !hasEarnPolicy;
+  const shouldShowDepositButton = !hasEarnPolicy && depositLabel !== "Connect";
 
   return (
     <>
@@ -913,6 +913,55 @@ function AddSignerTreeRow({
         {label}
       </span>
     </button>
+  );
+}
+
+function ConnectAccountActionRow({ onOpen }: { onOpen: () => void }) {
+  return (
+    <>
+      <style jsx>{`
+        .portfolio-connect-account-btn:hover {
+          background: #e72f34 !important;
+        }
+        .portfolio-connect-account-btn:active {
+          background: #d82b30 !important;
+        }
+      `}</style>
+      <div
+        style={{
+          display: "flex",
+          marginTop: "12px",
+          padding: "0 12px",
+          width: "100%",
+        }}
+      >
+        <button
+          className="portfolio-connect-account-btn"
+          onClick={onOpen}
+          style={{
+            alignItems: "center",
+            background: "#F9363C",
+            border: "none",
+            borderRadius: "9999px",
+            color: "#fff",
+            cursor: "pointer",
+            display: "flex",
+            fontFamily: font,
+            fontSize: "17px",
+            fontWeight: 500,
+            height: "50px",
+            justifyContent: "center",
+            lineHeight: "22px",
+            padding: "14px 18px",
+            transition: "background 0.15s ease",
+            width: "100%",
+          }}
+          type="button"
+        >
+          Connect
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -2242,10 +2291,7 @@ export function PortfolioContent({
               })}
             </>
           ) : onOpenCreateAccount ? (
-            <AddSignerTreeRow
-              label="Create account"
-              onOpen={onOpenCreateAccount}
-            />
+            <ConnectAccountActionRow onOpen={onOpenCreateAccount} />
           ) : (
             <div
               style={{
