@@ -1,7 +1,14 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowDown, ArrowUp } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, RefreshControl } from "react-native";
+import {
+  type ComponentRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { ActivityIndicator, RefreshControl, View as MeasureView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
@@ -24,7 +31,10 @@ import {
   buildStablecoinsHref,
 } from "@/features/wallet-categories/routes";
 import { ActionBarButton } from "@/features/wallet-categories/ui/ActionBarButton";
-import { MoreActionsSheet } from "@/features/wallet-categories/ui/MoreActionsSheet";
+import {
+  type MoreActionsAnchor,
+  MoreActionsSheet,
+} from "@/features/wallet-categories/ui/MoreActionsSheet";
 import { WalletCategoryGrid } from "@/features/wallet-categories/ui/WalletCategoryGrid";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
@@ -212,6 +222,8 @@ export default function WalletScreen() {
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isShieldOpen, setIsShieldOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
+  const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
   const [shieldDirection, setShieldDirection] =
     useState<ShieldDirection>("shield");
   const [isBgPickerOpen, setIsBgPickerOpen] = useState(false);
@@ -416,11 +428,20 @@ export default function WalletScreen() {
                 setIsReceiveOpen(true);
               }}
             />
-            <ActionBarButton
-              variant="secondary"
-              icon={<EllipsisIcon width={28} height={28} />}
-              onPress={() => setIsMoreOpen(true)}
-            />
+            <MeasureView ref={moreButtonRef} collapsable={false}>
+              <ActionBarButton
+                variant="secondary"
+                icon={<EllipsisIcon width={28} height={28} />}
+                onPress={() => {
+                  moreButtonRef.current?.measureInWindow(
+                    (x, y, width, height) => {
+                      setMoreAnchor({ x, y, width, height });
+                      setIsMoreOpen(true);
+                    },
+                  );
+                }}
+              />
+            </MeasureView>
           </View>
         </View>
       </ScrollView>
@@ -464,6 +485,15 @@ export default function WalletScreen() {
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
+        anchor={moreAnchor}
+        onSend={() => {
+          track(PORTFOLIO_EVENTS.openSend);
+          openSend(false);
+        }}
+        onReceive={() => {
+          track(PORTFOLIO_EVENTS.openReceive);
+          setIsReceiveOpen(true);
+        }}
         onSwap={() => {
           track(PORTFOLIO_EVENTS.openSwap);
           setIsSwapOpen(true);

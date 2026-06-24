@@ -1,8 +1,14 @@
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowDown, ArrowLeft, ArrowUp, ScanLine } from "lucide-react-native";
-import { useCallback, useMemo, useState } from "react";
-import { StyleSheet } from "react-native";
+import {
+  type ComponentRef,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { StyleSheet, View as MeasureView } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedScrollHandler,
@@ -45,7 +51,7 @@ import { ActionBarButton } from "./ActionBarButton";
 import { CardExpandTransition } from "./CardExpandTransition";
 import { CategoryAssetRow } from "./CategoryAssetRow";
 import { CryptoGlyph, StablecoinsGlyph } from "./CategoryGlyphs";
-import { MoreActionsSheet } from "./MoreActionsSheet";
+import { type MoreActionsAnchor, MoreActionsSheet } from "./MoreActionsSheet";
 
 import EllipsisIcon from "../../../../assets/images/icons/ellipsis.svg";
 
@@ -132,6 +138,8 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
   const [isSwapOpen, setIsSwapOpen] = useState(false);
   const [isShieldOpen, setIsShieldOpen] = useState(false);
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [moreAnchor, setMoreAnchor] = useState<MoreActionsAnchor | null>(null);
+  const moreButtonRef = useRef<ComponentRef<typeof MeasureView>>(null);
   const [shieldDirection, setShieldDirection] =
     useState<ShieldDirection>("shield");
 
@@ -329,14 +337,20 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
                   setIsReceiveOpen(true);
                 }}
               />
-              <ActionBarButton
-                variant="secondary"
-                icon={<EllipsisIcon width={24} height={24} />}
-                onPress={() => {
-                  void Haptics.selectionAsync();
-                  setIsMoreOpen(true);
-                }}
-              />
+              <MeasureView ref={moreButtonRef} collapsable={false}>
+                <ActionBarButton
+                  variant="secondary"
+                  icon={<EllipsisIcon width={24} height={24} />}
+                  onPress={() => {
+                    moreButtonRef.current?.measureInWindow(
+                      (x, y, width, height) => {
+                        setMoreAnchor({ x, y, width, height });
+                        setIsMoreOpen(true);
+                      },
+                    );
+                  }}
+                />
+              </MeasureView>
             </View>
           </>
         )}
@@ -384,6 +398,12 @@ export function CategoryScreen({ category }: { category: WalletCategory }) {
       <MoreActionsSheet
         open={isMoreOpen}
         onClose={() => setIsMoreOpen(false)}
+        anchor={moreAnchor}
+        onSend={() => {
+          setScanOnOpen(false);
+          setIsSendOpen(true);
+        }}
+        onReceive={() => setIsReceiveOpen(true)}
         onSwap={() => setIsSwapOpen(true)}
         onShield={() => handleOpenShield("shield")}
         onUnshield={() => handleOpenShield("unshield")}
