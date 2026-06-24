@@ -2669,7 +2669,6 @@ export function EarnDetailView({
           estimatedEarnedUsd={estimatedEarnedUsd}
           forecastPrincipalAmount={forecastPrincipalAmount}
           isBalanceHidden={isBalanceHidden}
-          key={`${forecastPrincipalAmount}:${earnForecastApy.apyBps}`}
           principalAmount={principalAmount}
         />
       ) : null}
