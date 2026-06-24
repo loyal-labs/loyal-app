@@ -13,6 +13,11 @@ export const metadata: Metadata = {
   title: "Loyal — Solana Wallet with Agent Guardrails",
   description:
     "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
+  // Landing CTAs now open the app at askloyal.com/app (same origin) for the
+  // preloaded transition, but the canonical app URL stays the subdomain.
+  alternates: {
+    canonical: "https://app.askloyal.com",
+  },
   openGraph: {
     title: "Loyal — Solana Wallet with Agent Guardrails",
     description:

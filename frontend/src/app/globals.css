@@ -1555,3 +1555,69 @@
     grid-row: 1 / -1;
   }
 }
+
+/* Landing -> app reveal (View Transitions API). AppTransitionBridge holds a
+   white cover (with the pulsing logo) while `/app` loads behind it, then removes
+   the cover inside a view transition: the white fades off the top to expose the
+   loaded app, while the logo flies toward the viewer and dissolves — old = white
+   + logo, new = the loaded app. Reduced-motion users never reach this; the
+   bridge navigates directly without a transition. */
+::view-transition-group(root) {
+  animation-duration: 440ms;
+}
+
+/* App sits underneath, static; revealed as the white fades off the top. */
+::view-transition-new(root) {
+  animation: none;
+  z-index: 0;
+}
+
+::view-transition-old(root) {
+  animation: loyal-cover-out 420ms ease both;
+  z-index: 1;
+}
+
+@keyframes loyal-cover-out {
+  to {
+    opacity: 0;
+  }
+}
+
+/* Centered logo on the white cover. It zooms in steadily while the app loads,
+   then flies toward the viewer and fades on reveal — its own view-transition
+   group, painted above the cover and the app. */
+.loyal-splash-logo {
+  view-transition-name: loyal-splash-logo;
+  animation: loyal-logo-zoom 4s ease-out forwards;
+  will-change: transform;
+}
+
+@keyframes loyal-logo-zoom {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.25);
+  }
+}
+
+::view-transition-old(loyal-splash-logo) {
+  animation: loyal-logo-fly 380ms ease-in both;
+  /* Grow from the logo's own center so it doesn't drift toward a corner. */
+  transform-origin: center;
+  z-index: 2;
+}
+
+@keyframes loyal-logo-fly {
+  from {
+    transform: scale(1);
+    opacity: 1;
+  }
+  40% {
+    opacity: 0;
+  }
+  to {
+    transform: scale(26);
+    opacity: 0;
+  }
+}
