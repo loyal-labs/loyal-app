@@ -149,13 +149,6 @@ export function LandingHero() {
             data-hero-reveal-delay="3"
           >
             <div className="flex flex-col items-center justify-center gap-6">
-              <HeroButton
-                href="#get-started-extension"
-                iconSrc="/landing/figma/extension-icon.svg"
-                tone="muted"
-              >
-                Get extension
-              </HeroButton>
               <HeroButton href={loyalAppUrl} tone="solid">
                 Open web app
               </HeroButton>
@@ -164,7 +157,7 @@ export function LandingHero() {
                 iconSrc="/landing/figma/mobile-icon.svg"
                 tone="muted"
               >
-                Get mobile app
+                Get Seeker app
               </HeroButton>
             </div>
           </div>
