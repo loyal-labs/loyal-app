@@ -5,6 +5,7 @@ import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 
 import { XPixelBootstrap } from "@/components/analytics/x-pixel-bootstrap";
+import { AppTransitionBridge } from "@/components/app-transition/app-transition-bridge";
 import { PublicEnvProvider } from "@/contexts/public-env-context";
 import { createPublicEnv } from "@/lib/core/config/public";
 
@@ -140,6 +141,7 @@ export default async function RootLayout({
         />
         <PublicEnvProvider value={publicEnv}>
           <XPixelBootstrap />
+          <AppTransitionBridge />
           {children}
         </PublicEnvProvider>
       </body>
