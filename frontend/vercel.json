@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/earn-forecast-snapshot",
       "schedule": "17 8 * * *"
+    },
+    {
+      "path": "/api/cron/solana-week-quest-completions",
+      "schedule": "0 * * * *"
     }
   ],
   "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ] || ! git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA\" 2>/dev/null; then exit 1; fi; git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ../packages ../sdk",

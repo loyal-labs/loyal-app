@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ne, sql } from "drizzle-orm";
 
 import type {
   ConfirmedEarnAutodepositCloseInput,
@@ -1685,4 +1685,27 @@ export async function recordBalanceSweepExecution(
   }
 
   return existing;
+}
+
+// Distinct wallet addresses with a balance-sweep execution recorded since
+// `since` (DB insert time). Used by the Solana Week attribution cron to report
+// "first Earn deposit via autodeposit" quest completions. The completion API is
+// idempotent per (wallet, quest), so a generous lookback window is safe.
+export async function findWalletAddressesWithBalanceSweepsSince(
+  since: Date,
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<string[]> {
+  const rows = await dependencies.client.db
+    .selectDistinct({ wallet: balanceSweepTargets.wallet })
+    .from(balanceSweepExecutions)
+    .innerJoin(
+      balanceSweepTargets,
+      eq(balanceSweepExecutions.targetId, balanceSweepTargets.id)
+    )
+    .where(gte(balanceSweepExecutions.insertedAt, since));
+
+  return rows.map((row) => row.wallet);
 }
