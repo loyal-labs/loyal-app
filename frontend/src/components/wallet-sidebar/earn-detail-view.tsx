@@ -30,6 +30,7 @@ import {
   type EarnForecastApyHistoryResponse,
 } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
 import type {
   EarnEarningsBar,
   EarnEarningsResponse,
@@ -149,6 +150,7 @@ export type EarnWithdrawSourceOption = {
   amountRaw: string;
   balance: number;
   id: string;
+  icon: string;
   label: string;
   liquidityMint: string;
   market: string | null;
@@ -1827,6 +1829,7 @@ function createWithdrawSourceOptions(
       amountRaw: holding.amountRaw,
       balance: Number(BigInt(holding.amountRaw)) / 1_000_000,
       id: `${holding.kind}:${sourceId}`,
+      icon: resolveEarnTransactionMarketIcon({ market: holding.market }),
       label:
         holding.kind === "idle"
           ? "Idle vault USDC"
@@ -2354,6 +2357,7 @@ export function EarnDetailView({
     visibleCurrentPositionHoldings.length > 0
       ? visibleCurrentPositionHoldings.map((holding) => ({
           amount: formatRawUsdcAmount(holding.amountRaw),
+          icon: resolveEarnTransactionMarketIcon({ market: holding.market }),
           key: `${holding.kind}:${holding.reserve ?? holding.liquidityMint}`,
           primary: holding.kind === "idle" ? holding.label : holding.marketName,
           secondary:
@@ -2364,6 +2368,7 @@ export function EarnDetailView({
       : [
           {
             amount: formatForecastMoney(currentBalanceAmount, true),
+            icon: TOP_EARN_VAULT.logo,
             key: "current-position",
             primary: currentPositionMarketName,
             secondary: currentPositionTokenSymbol,
@@ -2723,7 +2728,7 @@ export function EarnDetailView({
                 }}
               >
                 <div style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-                  <VaultIcon logo={TOP_EARN_VAULT.logo} />
+                  <VaultIcon logo={row.icon} />
                 </div>
                 <div
                   style={{
@@ -3740,7 +3745,7 @@ export function EarnWithdrawView({
               maximumFractionDigits: 2,
               minimumFractionDigits: 2,
             })}
-            icon={TOP_EARN_VAULT.logo}
+            icon={selectedSource?.icon ?? TOP_EARN_VAULT.logo}
             isDropdown={sourceOptions.length > 1}
             isOpen={isSourceDropdownOpen}
             isPosition
@@ -3766,7 +3771,7 @@ export function EarnWithdrawView({
                     maximumFractionDigits: 2,
                     minimumFractionDigits: 2,
                   })}
-                  icon={TOP_EARN_VAULT.logo}
+                  icon={source.icon}
                   isPosition
                   key={source.id}
                   onClick={() => {

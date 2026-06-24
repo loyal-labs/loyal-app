@@ -209,7 +209,12 @@ function createVerificationDependencies(args: {
   deposits: Array<{ amountRaw: bigint }>;
   holdingEvents: Record<string, unknown>[];
   positions: Record<string, unknown>[];
-  withdrawals?: Array<{ amountRaw: bigint }>;
+  withdrawals?: Array<{
+    id: bigint;
+    mode: string;
+    sourceType: string | null;
+    withdrawnAmountRaw: bigint;
+  }>;
 }) {
   let selectIndex = 0;
   const queryResults = new Map<number, unknown[]>([[0, args.positions]]);
@@ -251,7 +256,7 @@ describe("yield deposit repository idempotency", () => {
     const position = createPosition();
     const dependencies = createDependencies({
       deposit: createPersistedDeposit(),
-      event: { positionId: position.id },
+      event: createHoldingEvent({ positionId: position.id }),
       position,
     });
 
@@ -437,6 +442,99 @@ describe("yield position verification", () => {
         }),
       ],
       positions: [position],
+    });
+
+    await expect(
+      verifyUserYieldPositions(dependencies as never)
+    ).resolves.toEqual([]);
+  });
+
+  test("verifies current holding from last holding pointer, not latest projected history", async () => {
+    const currentObservedAt = new Date("2026-06-01T00:01:00.000Z");
+    const projectedObservedAt = new Date("2026-06-01T00:02:00.000Z");
+    const position = createPosition();
+    Object.assign(position, {
+      currentAmountRaw: BigInt(500),
+      currentMarket: "safe-market",
+      currentObservedAt,
+      currentObservedSlot: BigInt(400),
+      currentReserve: "safe-reserve",
+      lastHoldingEventId: BigInt(34),
+      principalAmountRaw: BigInt(1500),
+    });
+    const dependencies = createVerificationDependencies({
+      deposits: [{ amountRaw: BigInt(1000) }, { amountRaw: BigInt(500) }],
+      holdingEvents: [
+        createHoldingEvent(),
+        createHoldingEvent({
+          amountRaw: BigInt(500),
+          eventType: "deposit_top_up",
+          holdingDeltaRaw: BigInt(500),
+          id: BigInt(34),
+          market: "safe-market",
+          observedAt: currentObservedAt,
+          observedSlot: BigInt(400),
+          principalDeltaRaw: BigInt(500),
+          reserve: "safe-reserve",
+          sourceDepositId: BigInt(12),
+        }),
+        createHoldingEvent({
+          amountRaw: BigInt(490),
+          eventType: "snapshot_reconciled",
+          holdingDeltaRaw: null,
+          id: BigInt(35),
+          market: "projected-market",
+          observedAt: projectedObservedAt,
+          observedSlot: BigInt(410),
+          principalDeltaRaw: -BigInt(999),
+          reserve: "projected-reserve",
+          sourceDepositId: null,
+          sourceSnapshotId: BigInt(88),
+        }),
+      ],
+      positions: [position],
+    });
+
+    await expect(
+      verifyUserYieldPositions(dependencies as never)
+    ).resolves.toEqual([]);
+  });
+
+  test("treats linked full withdrawals as principal reset even with partial event type", async () => {
+    const fullWithdrawalAt = new Date("2026-06-01T00:01:00.000Z");
+    const position = createPosition();
+    Object.assign(position, {
+      currentAmountRaw: BigInt(0),
+      currentObservedAt: fullWithdrawalAt,
+      currentObservedSlot: BigInt(400),
+      lastHoldingEventId: BigInt(34),
+      principalAmountRaw: BigInt(0),
+    });
+    const dependencies = createVerificationDependencies({
+      deposits: [{ amountRaw: BigInt(1000) }],
+      holdingEvents: [
+        createHoldingEvent(),
+        createHoldingEvent({
+          amountRaw: BigInt(0),
+          eventType: "withdrawal_partial",
+          holdingDeltaRaw: -BigInt(1000),
+          id: BigInt(34),
+          observedAt: fullWithdrawalAt,
+          observedSlot: BigInt(400),
+          principalDeltaRaw: -BigInt(1000),
+          sourceDepositId: null,
+          sourceWithdrawalId: BigInt(12),
+        }),
+      ],
+      positions: [position],
+      withdrawals: [
+        {
+          id: BigInt(12),
+          mode: "full",
+          sourceType: "reserve",
+          withdrawnAmountRaw: BigInt(1000),
+        },
+      ],
     });
 
     await expect(

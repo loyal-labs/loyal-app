@@ -6,6 +6,7 @@ import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { ReceiptText } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
@@ -13,6 +14,7 @@ import {
   useState,
 } from "react";
 
+import { DogWithMood } from "@/components/chat-input";
 import type {
   ActivityRow,
   TransactionDetail,
@@ -47,6 +49,58 @@ const USDC_RAW_SCALE = BigInt(1_000_000);
 const EARN_TRANSACTIONS_POLL_INTERVAL_MS = 15_000;
 const EARN_TRANSACTIONS_FAST_POLL_INTERVAL_MS = 2_000;
 const EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS = 90_000;
+const EARN_MASCOT_STREAM_DELAY_MS = 240;
+const EARN_MASCOT_STREAM_INTERVAL_MS = 30;
+const EARN_MASCOT_EXPERIMENTAL_TOGGLE_CLICK_COUNT = 5;
+const EARN_MASCOT_EXPERIMENTAL_TOGGLE_RESET_MS = 1_800;
+const TELEGRAM_COMMUNITY_URL = "https://t.me/loyal_tgchat";
+const TURN_ON_EARN_MASCOT_PHRASE_ID = "turn-on-earn";
+
+type EarnMascotPhrase = {
+  href?: string;
+  id: string;
+  text: string;
+};
+
+const EARN_MASCOT_IDLE_PHRASES = [
+  {
+    href: TELEGRAM_COMMUNITY_URL,
+    id: "join-telegram",
+    text: "Join the pack on Telegram",
+  },
+  {
+    id: "guard-funds",
+    text: "I sit here and guard your funds. Best job I've ever had",
+  },
+  { id: "still-loyal", text: "Still here. Still Loyal." },
+  { id: "herding-usdc", text: "I'm herding your USDC" },
+  {
+    id: TURN_ON_EARN_MASCOT_PHRASE_ID,
+    text: "Turn on Earn. Idle USDC is a waste of a good dog's time.",
+  },
+] as const satisfies readonly EarnMascotPhrase[];
+
+const EARN_MASCOT_BUSY_PHRASES = [
+  { id: "sniffing", text: "Sniffing…" },
+  { id: "fetching", text: "Fetching…" },
+  { id: "snuffling", text: "Snuffling…" },
+  { id: "borking", text: "Borking…" },
+  { id: "floofing", text: "Floofing…" },
+  { id: "splooting", text: "Splooting…" },
+  { id: "mlemming", text: "Mlemming…" },
+  { id: "zoomies", text: "Zoomies…" },
+  { id: "wagging", text: "Wagging…" },
+  { id: "trotting", text: "Trotting…" },
+  { id: "booping", text: "Booping…" },
+  { id: "scritching", text: "Scritching…" },
+  { id: "pawing-through", text: "Pawing through…" },
+  { id: "digging", text: "Digging…" },
+  { id: "good-boying", text: "Good-boying…" },
+  { id: "staying-loyal", text: "Staying Loyal…" },
+  { id: "counting-bones", text: "Counting bones…" },
+  { id: "marking-territory", text: "Marking territory…" },
+  { id: "heeling", text: "Heeling…" },
+] as const satisfies readonly EarnMascotPhrase[];
 
 export type PendingScheduledSweepPreview = {
   amountRaw: string;
@@ -166,6 +220,12 @@ export function buildEarnTransactionDetail(
     formatEarnTransactionTimestamp(confirmedAt, timeZone) ?? item.timestamp;
   const dateGroup =
     formatEarnTransactionDateGroup(confirmedAt, timeZone) ?? item.dateGroup;
+  const activityIcon =
+    (isMovement
+      ? item.destination.icon ?? item.source.icon
+      : isDeposit
+      ? item.destination.icon ?? item.source.icon
+      : item.source.icon ?? item.destination.icon) ?? KAMINO_ICON;
   const activity: ActivityRow = {
     id: item.signature,
     type: isDeposit ? "received" : "sent",
@@ -181,7 +241,7 @@ export function buildEarnTransactionDetail(
     amount: item.amount,
     timestamp,
     date: dateGroup,
-    icon: KAMINO_ICON,
+    icon: activityIcon,
   };
   return {
     activity,
@@ -490,6 +550,10 @@ function EarnTransactionRow({
   const label = getEarnTransactionRowLabel(item);
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
+  const compoundBackIcon =
+    isMovement || item.kind === "withdraw" ? item.source.icon : null;
+  const compoundFrontIcon =
+    isMovement || item.kind === "deposit" ? item.destination.icon : null;
   const timestamp =
     formatEarnTransactionTimestamp(
       getEarnTransactionConfirmedAt(item),
@@ -533,8 +597,8 @@ function EarnTransactionRow({
           </span>
         ) : (
           <CompoundIcon
-            backSrc={isMovement ? item.source.icon : null}
-            frontSrc={isMovement ? item.destination.icon : null}
+            backSrc={compoundBackIcon}
+            frontSrc={compoundFrontIcon}
             isWithdraw={item.kind === "withdraw"}
           />
         )}
@@ -1164,6 +1228,312 @@ function EarnTransactionsEmptyState() {
   );
 }
 
+function getEarnMascotIdlePhrases(hasCurrentPosition: boolean) {
+  return hasCurrentPosition
+    ? EARN_MASCOT_IDLE_PHRASES.filter(
+        (phrase) => phrase.id !== TURN_ON_EARN_MASCOT_PHRASE_ID
+      )
+    : EARN_MASCOT_IDLE_PHRASES;
+}
+
+function chooseEarnMascotPhraseIndex(phraseCount: number) {
+  if (phraseCount < 2) {
+    return 0;
+  }
+
+  if (typeof window === "undefined") {
+    return 0;
+  }
+
+  return Math.floor(Math.random() * phraseCount);
+}
+
+function EarnMascotPanel({
+  hasCurrentPosition = false,
+  isBusy = false,
+  onExperimentalModeToggle,
+}: {
+  hasCurrentPosition?: boolean;
+  isBusy?: boolean;
+  onExperimentalModeToggle?: () => void;
+}) {
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [visibleLength, setVisibleLength] = useState(0);
+  const experimentalToggleClickCountRef = useRef(0);
+  const experimentalToggleResetTimeoutRef = useRef<number | null>(null);
+  const idlePhrases = getEarnMascotIdlePhrases(hasCurrentPosition);
+  const activePhrases = isBusy ? EARN_MASCOT_BUSY_PHRASES : idlePhrases;
+  const activePhraseCount = activePhrases.length;
+  const activePhrase =
+    activePhrases[phraseIndex % activePhraseCount] ??
+    EARN_MASCOT_IDLE_PHRASES[0];
+  const visibleText = activePhrase.text.slice(0, visibleLength);
+  const isTextComplete = visibleLength >= activePhrase.text.length;
+
+  useEffect(() => {
+    setPhraseIndex(chooseEarnMascotPhraseIndex(activePhraseCount));
+  }, [activePhraseCount, hasCurrentPosition, isBusy]);
+
+  const resetExperimentalToggleClicks = useCallback(() => {
+    experimentalToggleClickCountRef.current = 0;
+    if (experimentalToggleResetTimeoutRef.current !== null) {
+      window.clearTimeout(experimentalToggleResetTimeoutRef.current);
+      experimentalToggleResetTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleMascotClick = useCallback(() => {
+    if (!onExperimentalModeToggle) {
+      return;
+    }
+
+    experimentalToggleClickCountRef.current += 1;
+
+    if (
+      experimentalToggleClickCountRef.current >=
+      EARN_MASCOT_EXPERIMENTAL_TOGGLE_CLICK_COUNT
+    ) {
+      resetExperimentalToggleClicks();
+      onExperimentalModeToggle();
+      return;
+    }
+
+    if (experimentalToggleResetTimeoutRef.current !== null) {
+      window.clearTimeout(experimentalToggleResetTimeoutRef.current);
+    }
+    experimentalToggleResetTimeoutRef.current = window.setTimeout(
+      resetExperimentalToggleClicks,
+      EARN_MASCOT_EXPERIMENTAL_TOGGLE_RESET_MS
+    );
+  }, [onExperimentalModeToggle, resetExperimentalToggleClicks]);
+
+  useEffect(
+    () => resetExperimentalToggleClicks,
+    [resetExperimentalToggleClicks]
+  );
+
+  useEffect(() => {
+    const prefersReducedMotion =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
+      setVisibleLength(activePhrase.text.length);
+      return;
+    }
+
+    setVisibleLength(0);
+
+    let index = 0;
+    let intervalId: number | null = null;
+    const startTimeoutId = window.setTimeout(() => {
+      intervalId = window.setInterval(() => {
+        index = Math.min(activePhrase.text.length, index + 1);
+        setVisibleLength(index);
+
+        if (index >= activePhrase.text.length && intervalId !== null) {
+          window.clearInterval(intervalId);
+        }
+      }, EARN_MASCOT_STREAM_INTERVAL_MS);
+    }, EARN_MASCOT_STREAM_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(startTimeoutId);
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [activePhrase.id, activePhrase.text]);
+
+  return (
+    <section aria-label="Loyal mascot" className="earn-mascot-panel">
+      <style jsx>{`
+        .earn-mascot-panel {
+          align-items: center;
+          background: #fff;
+          border-top: 1px solid rgba(0, 0, 0, 0.06);
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          min-height: 0;
+          overflow: hidden;
+          padding: 18px 22px 24px;
+          position: relative;
+        }
+        .earn-mascot-stage {
+          flex: 0 0 auto;
+          height: clamp(220px, 82%, 278px);
+          max-width: 360px;
+          position: relative;
+          width: 100%;
+        }
+        .earn-mascot-bubble {
+          background: #fff;
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          border-radius: 18px;
+          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
+            0 2px 6px rgba(0, 0, 0, 0.04);
+          box-sizing: border-box;
+          color: rgba(0, 0, 0, 0.86);
+          font-family: var(--font-geist-sans), sans-serif;
+          font-size: 15px;
+          font-weight: 500;
+          line-height: 21px;
+          max-width: 100%;
+          padding: 12px 16px;
+          position: absolute;
+          right: 0;
+          top: 0;
+          text-align: center;
+          width: 100%;
+          z-index: 2;
+        }
+        .earn-mascot-bubble::before {
+          background: #fff;
+          border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+          border-right: 1px solid rgba(0, 0, 0, 0.08);
+          bottom: -6px;
+          content: "";
+          height: 11px;
+          position: absolute;
+          right: 88px;
+          transform: rotate(45deg);
+          width: 11px;
+        }
+        .earn-mascot-bubble-content {
+          display: block;
+          position: relative;
+        }
+        .earn-mascot-bubble-measure {
+          display: block;
+          visibility: hidden;
+        }
+        .earn-mascot-bubble-stream {
+          display: block;
+          inset: 0;
+          position: absolute;
+          white-space: normal;
+        }
+        .earn-mascot-bubble-cursor {
+          animation: earn-mascot-stream-cursor 0.8s step-end infinite;
+          background: currentColor;
+          border-radius: 9999px;
+          display: inline-block;
+          height: 1em;
+          margin-left: 2px;
+          transform: translateY(2px);
+          width: 2px;
+        }
+        .earn-mascot-bubble-cursor[data-complete="true"] {
+          animation: none;
+          opacity: 0;
+        }
+        .earn-mascot-bubble-link {
+          color: inherit;
+          display: block;
+          text-decoration: none;
+        }
+        .earn-mascot-bubble-link:hover {
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+        .earn-mascot-dog {
+          align-items: center;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          justify-content: center;
+          padding: 0;
+          position: absolute;
+          right: 28px;
+          top: 108px;
+          width: clamp(128px, 40%, 148px);
+        }
+        .earn-mascot-dog :global(svg) {
+          display: block;
+          width: 100%;
+          height: auto;
+        }
+        @keyframes earn-mascot-stream-cursor {
+          0%,
+          48% {
+            opacity: 1;
+          }
+          49%,
+          100% {
+            opacity: 0;
+          }
+        }
+        @media (max-width: 760px) {
+          .earn-mascot-panel {
+            display: none;
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .earn-mascot-bubble-cursor {
+            animation: none;
+          }
+        }
+      `}</style>
+      <div className="earn-mascot-stage">
+        <div
+          aria-label={activePhrase.text}
+          className="earn-mascot-bubble"
+          key={activePhrase.id}
+        >
+          {activePhrase.href ? (
+            <a
+              aria-label={activePhrase.text}
+              className="earn-mascot-bubble-link"
+              href={activePhrase.href}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <span className="earn-mascot-bubble-content">
+                <span aria-hidden="true" className="earn-mascot-bubble-measure">
+                  {activePhrase.text}
+                </span>
+                <span aria-hidden="true" className="earn-mascot-bubble-stream">
+                  {visibleText}
+                  <span
+                    className="earn-mascot-bubble-cursor"
+                    data-complete={isTextComplete}
+                  />
+                </span>
+              </span>
+            </a>
+          ) : (
+            <span
+              aria-label={activePhrase.text}
+              className="earn-mascot-bubble-content"
+            >
+              <span aria-hidden="true" className="earn-mascot-bubble-measure">
+                {activePhrase.text}
+              </span>
+              <span aria-hidden="true" className="earn-mascot-bubble-stream">
+                {visibleText}
+                <span
+                  className="earn-mascot-bubble-cursor"
+                  data-complete={isTextComplete}
+                />
+              </span>
+            </span>
+          )}
+        </div>
+        <button
+          aria-label="Loyal mascot"
+          className="earn-mascot-dog"
+          onClick={handleMascotClick}
+          type="button"
+        >
+          <DogWithMood disableClickMood disableIdleMood />
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // Mount-time reveal for rows that arrive after the initial load: the slot
 // expands first (pushing the rest of the list down), then the content fades
 // in. Rows present at mount render statically (`initial: false`).
@@ -1213,9 +1583,12 @@ export function groupEarnTransactions(
 }
 
 export function EarnTransactionsPane({
+  hasCurrentPosition = false,
   isAutodepositConfigured = false,
   isBalanceHidden = false,
   isExecutingScheduledSweep = false,
+  mascotPaneHeight = "38%",
+  onExperimentalModeToggle,
   onExecuteScheduledSweep,
   onRefreshScheduledSweeps,
   onSelectTransaction,
@@ -1229,9 +1602,12 @@ export function EarnTransactionsPane({
   topInset = 0,
   walletAddress,
 }: {
+  hasCurrentPosition?: boolean;
   isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
   isExecutingScheduledSweep?: boolean;
+  mascotPaneHeight?: string;
+  onExperimentalModeToggle?: () => void;
   onExecuteScheduledSweep?: () => void;
   onRefreshScheduledSweeps?: () => Promise<void> | void;
   onSelectTransaction: (detail: TransactionDetail) => void;
@@ -1266,10 +1642,8 @@ export function EarnTransactionsPane({
     scheduledSweepExecutionRequestedAtMs,
     setScheduledSweepExecutionRequestedAtMs,
   ] = useState<number | null>(null);
-  const [
-    earnActionRefreshRequestedAtMs,
-    setEarnActionRefreshRequestedAtMs,
-  ] = useState<number | null>(null);
+  const [earnActionRefreshRequestedAtMs, setEarnActionRefreshRequestedAtMs] =
+    useState<number | null>(null);
   const lastRefreshKeyRef = useRef<number | null>(null);
   const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
     EarnPolicyRefundScanPolicy[] | null
@@ -1634,6 +2008,14 @@ export function EarnTransactionsPane({
   const hasPinnedContent = showPolicyRefunds || showScheduledSweeps;
   const isPolicyScanDisabled =
     isScanningPolicies || !isAuthenticated || !settingsPda || !walletAddress;
+  const isMascotBusy =
+    isLoading ||
+    isScanningPolicies ||
+    refundingPolicyAccount !== null ||
+    isExecutingScheduledSweep ||
+    isAwaitingScheduledSweepExecution ||
+    scheduledSweepExecutionRequestedAtMs !== null ||
+    earnActionRefreshRequestedAtMs !== null;
 
   const handleSelect = (item: EarnTransactionItem) => {
     onSelectTransaction(buildEarnTransactionDetail(item, displayTimeZone));
@@ -1725,19 +2107,42 @@ export function EarnTransactionsPane({
     }
   };
 
+  const railStyle = {
+    "--earn-mascot-pane-height": mascotPaneHeight,
+    paddingTop: topInset,
+  } as CSSProperties & { "--earn-mascot-pane-height": string };
+
   return (
-    <div
-      style={{
-        background: "#fff",
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        overflow: "hidden",
-        paddingTop: topInset,
-        width: "100%",
-      }}
-    >
+    <div className="earn-activity-rail" style={railStyle}>
       <style jsx>{`
+        .earn-activity-rail {
+          background: #fff;
+          display: grid;
+          grid-template-rows:
+            minmax(300px, 1fr)
+            clamp(250px, var(--earn-mascot-pane-height), 380px);
+          height: 100%;
+          min-height: 0;
+          overflow: hidden;
+          width: 100%;
+        }
+        .earn-transactions-region {
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          overflow: hidden;
+          width: 100%;
+        }
+        .earn-transactions-feed {
+          display: flex;
+          flex: 1;
+          flex-direction: column;
+          min-height: 0;
+          overflow-y: auto;
+          padding: 8px;
+          scrollbar-width: none;
+          width: 100%;
+        }
         .earn-tx-row:hover {
           background: rgba(0, 0, 0, 0.04) !important;
         }
@@ -1763,6 +2168,15 @@ export function EarnTransactionsPane({
             transform: rotate(360deg);
           }
         }
+        @media (max-width: 760px) {
+          .earn-activity-rail {
+            display: flex;
+            flex-direction: column;
+          }
+          .earn-transactions-region {
+            flex: 1;
+          }
+        }
       `}</style>
       {/* SVG pixelation filters */}
       <svg
@@ -1786,224 +2200,220 @@ export function EarnTransactionsPane({
           </filter>
         </defs>
       </svg>
-      <div
-        style={{
-          alignItems: "center",
-          display: "flex",
-          justifyContent: "space-between",
-          padding: "12px 20px 8px",
-          width: "100%",
-        }}
-      >
-        <h2
+      <section className="earn-transactions-region">
+        <div
           style={{
-            color: "#000",
-            flex: 1,
-            fontFamily: font,
-            fontSize: "20px",
-            fontWeight: 600,
-            lineHeight: "28px",
-            margin: 0,
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
+            alignItems: "center",
+            display: "flex",
+            justifyContent: "space-between",
+            padding: "12px 20px 8px",
+            width: "100%",
           }}
         >
-          Transactions
-        </h2>
-        {showPolicyRefundScan ? (
-          <button
-            disabled={isPolicyScanDisabled}
-            onClick={() => void handleScanPolicies()}
+          <h2
             style={{
-              background: isPolicyScanDisabled
-                ? "#F97B80"
-                : LOYAL_EARN_BRAND_COLOR,
-              border: "none",
-              borderRadius: "9999px",
-              color: "#fff",
-              cursor: isPolicyScanDisabled ? "default" : "pointer",
+              color: "#000",
+              flex: 1,
               fontFamily: font,
-              fontSize: "13px",
-              fontWeight: 500,
-              lineHeight: "18px",
-              padding: "6px 12px",
+              fontSize: "20px",
+              fontWeight: 600,
+              lineHeight: "28px",
+              margin: 0,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
-            type="button"
           >
-            {isScanningPolicies ? "Scanning..." : "Scan policies"}
-          </button>
-        ) : null}
-      </div>
+            Transactions
+          </h2>
+          {showPolicyRefundScan ? (
+            <button
+              disabled={isPolicyScanDisabled}
+              onClick={() => void handleScanPolicies()}
+              style={{
+                background: isPolicyScanDisabled
+                  ? "#F97B80"
+                  : LOYAL_EARN_BRAND_COLOR,
+                border: "none",
+                borderRadius: "9999px",
+                color: "#fff",
+                cursor: isPolicyScanDisabled ? "default" : "pointer",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 500,
+                lineHeight: "18px",
+                padding: "6px 12px",
+                whiteSpace: "nowrap",
+              }}
+              type="button"
+            >
+              {isScanningPolicies ? "Scanning..." : "Scan policies"}
+            </button>
+          ) : null}
+        </div>
 
-      <div
-        style={{
-          display: "flex",
-          flex: 1,
-          flexDirection: "column",
-          minHeight: 0,
-          overflowY: "auto",
-          padding: "8px",
-          scrollbarWidth: "none",
-          width: "100%",
-        }}
-      >
-        {isLoading && !hasPinnedContent ? (
-          <EarnTransactionsLoadingState />
-        ) : errorMessage && !hasPinnedContent ? (
-          <EarnTransactionsErrorState message={errorMessage} />
-        ) : transactions.length === 0 &&
-          !showScheduledSweeps &&
-          !showPolicyRefunds ? (
-          <EarnTransactionsEmptyState />
-        ) : (
-          <>
-            {showPolicyRefunds ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  width: "100%",
-                }}
-              >
-                <TransactionsSectionHeader label="Policies" />
-                {policyRefundPolicies.length === 0 ? (
-                  <p
-                    style={{
-                      color: secondary,
-                      fontFamily: font,
-                      fontSize: "13px",
-                      lineHeight: "16px",
-                      margin: "0",
-                      padding: "0 12px 12px",
-                    }}
-                  >
-                    No open policies found.
-                  </p>
-                ) : (
-                  policyRefundPolicies.map((policy) => (
-                    <PolicyRefundRow
-                      isRefunding={refundingPolicyAccount === policy.account}
-                      key={policy.account}
-                      onRefund={
-                        policy.canRefund
-                          ? () => void handleRefundPolicy(policy)
-                          : undefined
-                      }
-                      policy={policy}
-                    />
-                  ))
-                )}
-                {policyRefundError ? (
-                  <p
-                    style={{
-                      color: LOYAL_EARN_BRAND_COLOR,
-                      fontFamily: font,
-                      fontSize: "13px",
-                      lineHeight: "16px",
-                      margin: "0",
-                      padding: "0 12px 10px 56px",
-                    }}
-                  >
-                    {policyRefundError}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            {showScheduledSweeps ? (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  width: "100%",
-                }}
-              >
-                <TransactionsSectionHeader label="Scheduled" />
-                {visiblePendingScheduledSweep ? (
-                  <ScheduledTransactionRow
-                    displayTimeZone={displayTimeZone}
-                    isBalanceHidden={isBalanceHidden}
-                    isPending
-                    sweep={visiblePendingScheduledSweep}
-                  />
-                ) : null}
-                {renderedScheduledSweeps.map((sweep) => (
-                  <ScheduledTransactionRow
-                    displayTimeZone={displayTimeZone}
-                    isBalanceHidden={isBalanceHidden}
-                    isAwaitingExecution={
-                      isAwaitingScheduledSweepExecution &&
-                      !isExecutingScheduledSweep
-                    }
-                    isExecuting={
-                      isExecutingScheduledSweep ||
-                      isAwaitingScheduledSweepExecution
-                    }
-                    key={sweep.id}
-                    onExecuteNow={handleExecuteScheduledSweep}
-                    sweep={sweep}
-                  />
-                ))}
-                {scheduledSweepExecuteError ? (
-                  <p
-                    style={{
-                      color: LOYAL_EARN_BRAND_COLOR,
-                      fontFamily: font,
-                      fontSize: "13px",
-                      lineHeight: "16px",
-                      margin: "0",
-                      padding: "0 12px 10px 56px",
-                    }}
-                  >
-                    {scheduledSweepExecuteError}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            {isLoading ? (
-              <EarnTransactionsLoadingState />
-            ) : errorMessage ? (
-              <EarnTransactionsErrorState message={errorMessage} />
-            ) : (
-              groups.map((group) => (
+        <div className="earn-transactions-feed">
+          {isLoading && !hasPinnedContent ? (
+            <EarnTransactionsLoadingState />
+          ) : errorMessage && !hasPinnedContent ? (
+            <EarnTransactionsErrorState message={errorMessage} />
+          ) : transactions.length === 0 &&
+            !showScheduledSweeps &&
+            !showPolicyRefunds ? (
+            <EarnTransactionsEmptyState />
+          ) : (
+            <>
+              {showPolicyRefunds ? (
                 <div
-                  key={group.date}
                   style={{
                     display: "flex",
                     flexDirection: "column",
                     width: "100%",
                   }}
                 >
-                  <EnterReveal
-                    isEntering={group.items.every((item) =>
-                      enteringIds.has(item.id)
-                    )}
-                  >
-                    <TransactionsSectionHeader label={group.date} />
-                  </EnterReveal>
-                  <AnimatePresence initial={false}>
-                    {group.items.map((item) => (
-                      <EnterReveal
-                        isEntering={enteringIds.has(item.id)}
-                        key={item.id}
-                      >
-                        <EarnTransactionRow
-                          displayTimeZone={displayTimeZone}
-                          isBalanceHidden={isBalanceHidden}
-                          item={item}
-                          onSelect={handleSelect}
-                        />
-                      </EnterReveal>
-                    ))}
-                  </AnimatePresence>
+                  <TransactionsSectionHeader label="Policies" />
+                  {policyRefundPolicies.length === 0 ? (
+                    <p
+                      style={{
+                        color: secondary,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        lineHeight: "16px",
+                        margin: "0",
+                        padding: "0 12px 12px",
+                      }}
+                    >
+                      No open policies found.
+                    </p>
+                  ) : (
+                    policyRefundPolicies.map((policy) => (
+                      <PolicyRefundRow
+                        isRefunding={refundingPolicyAccount === policy.account}
+                        key={policy.account}
+                        onRefund={
+                          policy.canRefund
+                            ? () => void handleRefundPolicy(policy)
+                            : undefined
+                        }
+                        policy={policy}
+                      />
+                    ))
+                  )}
+                  {policyRefundError ? (
+                    <p
+                      style={{
+                        color: LOYAL_EARN_BRAND_COLOR,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        lineHeight: "16px",
+                        margin: "0",
+                        padding: "0 12px 10px 56px",
+                      }}
+                    >
+                      {policyRefundError}
+                    </p>
+                  ) : null}
                 </div>
-              ))
-            )}
-          </>
-        )}
-      </div>
+              ) : null}
+              {showScheduledSweeps ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    width: "100%",
+                  }}
+                >
+                  <TransactionsSectionHeader label="Scheduled" />
+                  {visiblePendingScheduledSweep ? (
+                    <ScheduledTransactionRow
+                      displayTimeZone={displayTimeZone}
+                      isBalanceHidden={isBalanceHidden}
+                      isPending
+                      sweep={visiblePendingScheduledSweep}
+                    />
+                  ) : null}
+                  {renderedScheduledSweeps.map((sweep) => (
+                    <ScheduledTransactionRow
+                      displayTimeZone={displayTimeZone}
+                      isBalanceHidden={isBalanceHidden}
+                      isAwaitingExecution={
+                        isAwaitingScheduledSweepExecution &&
+                        !isExecutingScheduledSweep
+                      }
+                      isExecuting={
+                        isExecutingScheduledSweep ||
+                        isAwaitingScheduledSweepExecution
+                      }
+                      key={sweep.id}
+                      onExecuteNow={handleExecuteScheduledSweep}
+                      sweep={sweep}
+                    />
+                  ))}
+                  {scheduledSweepExecuteError ? (
+                    <p
+                      style={{
+                        color: LOYAL_EARN_BRAND_COLOR,
+                        fontFamily: font,
+                        fontSize: "13px",
+                        lineHeight: "16px",
+                        margin: "0",
+                        padding: "0 12px 10px 56px",
+                      }}
+                    >
+                      {scheduledSweepExecuteError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {isLoading ? (
+                <EarnTransactionsLoadingState />
+              ) : errorMessage ? (
+                <EarnTransactionsErrorState message={errorMessage} />
+              ) : (
+                groups.map((group) => (
+                  <div
+                    key={group.date}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      width: "100%",
+                    }}
+                  >
+                    <EnterReveal
+                      isEntering={group.items.every((item) =>
+                        enteringIds.has(item.id)
+                      )}
+                    >
+                      <TransactionsSectionHeader label={group.date} />
+                    </EnterReveal>
+                    <AnimatePresence initial={false}>
+                      {group.items.map((item) => (
+                        <EnterReveal
+                          isEntering={enteringIds.has(item.id)}
+                          key={item.id}
+                        >
+                          <EarnTransactionRow
+                            displayTimeZone={displayTimeZone}
+                            isBalanceHidden={isBalanceHidden}
+                            item={item}
+                            onSelect={handleSelect}
+                          />
+                        </EnterReveal>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                ))
+              )}
+            </>
+          )}
+        </div>
+      </section>
+      <EarnMascotPanel
+        hasCurrentPosition={hasCurrentPosition}
+        isBusy={isMascotBusy}
+        onExperimentalModeToggle={onExperimentalModeToggle}
+      />
     </div>
   );
 }

@@ -131,6 +131,11 @@ type ReconciledActiveYieldPositionForVaultLookupInput =
     skipCurrentRowsObservedAtOrAfterSlot?: bigint;
   };
 
+export type SyncConfirmedRebalanceHoldingEventsResult = {
+  insertedCount: number;
+  updatedPositionCount: number;
+};
+
 export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
   vaultPubkey?: string;
 };
@@ -422,6 +427,36 @@ function createDependencies(): YieldDepositRepositoryDependencies {
     client: getYieldOptimizationClient(),
     now: () => new Date(),
   };
+}
+
+function getExecuteRows(result: unknown): Record<string, unknown>[] {
+  if (
+    result &&
+    typeof result === "object" &&
+    "rows" in result &&
+    Array.isArray((result as { rows: unknown }).rows)
+  ) {
+    return (result as { rows: Record<string, unknown>[] }).rows;
+  }
+
+  if (Array.isArray(result)) {
+    return result as Record<string, unknown>[];
+  }
+
+  return [];
+}
+
+function readExecuteCount(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value === "string") {
+    return Number.parseInt(value, 10);
+  }
+  return 0;
 }
 
 function currentPositionMatchesHoldingEvent(
@@ -2320,6 +2355,65 @@ async function insertHoldingEvent(args: {
   return event;
 }
 
+async function insertIdempotentRebalanceHoldingEvent(args: {
+  amountRaw: bigint;
+  client: YieldOptimizationClient;
+  createdAt: Date;
+  liquidityMint: string;
+  market: string | null;
+  observedAt: Date;
+  observedSlot: bigint;
+  positionId: bigint;
+  reserve: string;
+  sourceRebalanceDecisionId: bigint;
+  sourceSignature: string;
+  sourceSnapshotId: bigint;
+}): Promise<UserYieldPositionHoldingEventRecord> {
+  const [event] = await args.client.db
+    .insert(userYieldPositionHoldingEvents)
+    .values({
+      amountRaw: args.amountRaw,
+      createdAt: args.createdAt,
+      eventType: "rebalance_confirmed",
+      holdingDeltaRaw: null,
+      liquidityMint: args.liquidityMint,
+      market: args.market,
+      observedAt: args.observedAt,
+      observedSlot: args.observedSlot,
+      positionId: args.positionId,
+      principalDeltaRaw: null,
+      reserve: args.reserve,
+      sourceDepositId: null,
+      sourceRebalanceDecisionId: args.sourceRebalanceDecisionId,
+      sourceSignature: args.sourceSignature,
+      sourceSnapshotId: args.sourceSnapshotId,
+      sourceWithdrawalId: null,
+    })
+    .onConflictDoNothing()
+    .returning();
+
+  if (event) {
+    return event as UserYieldPositionHoldingEventRecord;
+  }
+
+  const [existingEvent] = await args.client.db
+    .select()
+    .from(userYieldPositionHoldingEvents)
+    .where(
+      eq(
+        userYieldPositionHoldingEvents.sourceRebalanceDecisionId,
+        args.sourceRebalanceDecisionId
+      )
+    )
+    .limit(1);
+
+  if (!existingEvent) {
+    throw new Error("Failed to record idempotent yield rebalance event.");
+  }
+
+  return existingEvent as UserYieldPositionHoldingEventRecord;
+}
+
 async function applyHoldingEventToPosition(args: {
   client: YieldOptimizationClient;
   event: UserYieldPositionHoldingEventRecord;
@@ -2368,6 +2462,63 @@ async function applyHoldingEventToPosition(args: {
   }
 
   return position;
+}
+
+function holdingEventIsAtOrAfterCurrentPosition(
+  position: UserYieldPositionRecord,
+  event: UserYieldPositionHoldingEventRecord
+): boolean {
+  if (event.observedSlot !== position.currentObservedSlot) {
+    return event.observedSlot > position.currentObservedSlot;
+  }
+
+  return event.observedAt.getTime() >= position.currentObservedAt.getTime();
+}
+
+async function applyRebalanceHoldingEventToPosition(args: {
+  client: YieldOptimizationClient;
+  event: UserYieldPositionHoldingEventRecord;
+  lastRebalanceDecisionId: bigint;
+  now: Date;
+}): Promise<UserYieldPositionRecord> {
+  const [position] = await args.client.db
+    .select()
+    .from(userYieldPositions)
+    .where(eq(userYieldPositions.id, args.event.positionId))
+    .limit(1);
+
+  if (!position) {
+    throw new Error("Failed to find yield position for rebalance event.");
+  }
+
+  if (
+    holdingEventIsAtOrAfterCurrentPosition(
+      position as UserYieldPositionRecord,
+      args.event
+    )
+  ) {
+    return applyHoldingEventToPosition({
+      client: args.client,
+      event: args.event,
+      lastRebalanceDecisionId: args.lastRebalanceDecisionId,
+      now: args.now,
+    });
+  }
+
+  const [updatedPosition] = await args.client.db
+    .update(userYieldPositions)
+    .set({
+      lastRebalanceDecisionId: sql`GREATEST(COALESCE(${userYieldPositions.lastRebalanceDecisionId}, 0::bigint), ${args.lastRebalanceDecisionId})`,
+      updatedAt: args.now,
+    })
+    .where(eq(userYieldPositions.id, args.event.positionId))
+    .returning();
+
+  if (!updatedPosition) {
+    throw new Error("Failed to apply yield rebalance decision.");
+  }
+
+  return updatedPosition as UserYieldPositionRecord;
 }
 
 export async function recordConfirmedYieldDeposit(
@@ -3902,30 +4053,168 @@ export async function recordConfirmedYieldRebalance(
 ): Promise<UserYieldPositionRecord> {
   const now = dependencies.now();
   const observedAt = input.observedAt ?? now;
-  const event = await insertHoldingEvent({
+  const event = await insertIdempotentRebalanceHoldingEvent({
     amountRaw: input.amountRaw,
     client: dependencies.client,
     createdAt: now,
-    eventType: "rebalance_confirmed",
-    holdingDeltaRaw: null,
     liquidityMint: input.liquidityMint,
     market: input.market,
     observedAt,
     observedSlot: input.observedSlot,
     positionId: input.positionId,
-    principalDeltaRaw: null,
     reserve: input.reserve,
     sourceRebalanceDecisionId: input.sourceRebalanceDecisionId,
     sourceSignature: input.sourceSignature,
     sourceSnapshotId: input.sourceSnapshotId,
   });
 
-  return applyHoldingEventToPosition({
+  return applyRebalanceHoldingEventToPosition({
     client: dependencies.client,
     event,
     lastRebalanceDecisionId: input.sourceRebalanceDecisionId,
     now,
   });
+}
+
+export async function syncConfirmedRebalanceHoldingEventsForVault(
+  input: ActiveYieldPositionForVaultLookupInput,
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> &
+    Partial<Pick<YieldDepositRepositoryDependencies, "now">> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<SyncConfirmedRebalanceHoldingEventsResult> {
+  const now = dependencies.now?.() ?? new Date();
+  const queryResult = await dependencies.client.db.execute(sql`
+    WITH candidate_events AS (
+      SELECT DISTINCT ON (decision.id)
+        position.id AS position_id,
+        decision.id AS decision_id,
+        decision.signature AS source_signature,
+        decision.post_snapshot_id AS source_snapshot_id,
+        snapshot.observed_slot,
+        snapshot.observed_at,
+        snapshot_position.reserve,
+        snapshot_position.market,
+        snapshot_position.liquidity_mint,
+        snapshot_position.amount_raw
+      FROM loyal_yield.rebalance_decisions decision
+      INNER JOIN loyal_yield.managed_vaults vault
+        ON vault.id = decision.vault_id
+       AND vault.active = TRUE
+      INNER JOIN loyal_yield.route_policies policy
+        ON policy.id = vault.active_policy_id
+       AND policy.active = TRUE
+       AND policy.settings = vault.settings
+       AND policy.vault_index = vault.vault_index
+       AND policy.vault_pubkey = vault.vault_pubkey
+      INNER JOIN loyal_yield.user_yield_positions position
+        ON position.settings = policy.settings
+       AND position.wallet_address = policy.authority
+       AND position.vault_index = policy.vault_index
+       AND position.vault_pubkey = policy.vault_pubkey
+       AND position.status = 'active'::loyal_yield.yield_position_status
+      INNER JOIN loyal_yield.vault_position_snapshots snapshot
+        ON snapshot.id = decision.post_snapshot_id
+       AND snapshot.vault_id = decision.vault_id
+      INNER JOIN loyal_yield.vault_position_snapshot_positions snapshot_position
+        ON snapshot_position.snapshot_id = snapshot.id
+       AND snapshot_position.reserve = decision.target_reserve
+       AND snapshot_position.amount_raw > 0
+      WHERE decision.status = 'confirmed'::loyal_yield.decision_status
+        AND decision.signature IS NOT NULL
+        AND decision.post_snapshot_id IS NOT NULL
+        AND vault.settings = ${input.settings}
+        AND vault.vault_index = ${input.vaultIndex}
+        AND policy.authority = ${input.walletAddress}
+      ORDER BY
+        decision.id,
+        position.updated_at DESC,
+        position.id DESC,
+        snapshot_position.amount_raw DESC,
+        snapshot_position.id DESC
+    ),
+    inserted_events AS (
+      INSERT INTO loyal_yield.user_yield_position_holding_events (
+        position_id,
+        event_type,
+        reserve,
+        market,
+        liquidity_mint,
+        amount_raw,
+        principal_delta_raw,
+        holding_delta_raw,
+        observed_slot,
+        observed_at,
+        source_signature,
+        source_deposit_id,
+        source_withdrawal_id,
+        source_rebalance_decision_id,
+        source_snapshot_id,
+        created_at
+      )
+      SELECT
+        candidate.position_id,
+        'rebalance_confirmed'::loyal_yield.user_yield_holding_event_type,
+        candidate.reserve,
+        candidate.market,
+        candidate.liquidity_mint,
+        candidate.amount_raw,
+        NULL,
+        NULL,
+        candidate.observed_slot,
+        candidate.observed_at,
+        candidate.source_signature,
+        NULL,
+        NULL,
+        candidate.decision_id,
+        candidate.source_snapshot_id,
+        ${now}
+      FROM candidate_events candidate
+      ON CONFLICT (source_rebalance_decision_id)
+        WHERE source_rebalance_decision_id IS NOT NULL
+      DO NOTHING
+      RETURNING position_id, source_rebalance_decision_id
+    ),
+    latest_projected_rebalance AS (
+      SELECT DISTINCT ON (event.position_id)
+        event.position_id,
+        event.source_rebalance_decision_id
+      FROM loyal_yield.user_yield_position_holding_events event
+      INNER JOIN candidate_events candidate
+        ON candidate.position_id = event.position_id
+       AND candidate.decision_id = event.source_rebalance_decision_id
+      WHERE event.source_rebalance_decision_id IS NOT NULL
+      ORDER BY event.position_id, event.source_rebalance_decision_id DESC
+    ),
+    updated_positions AS (
+      UPDATE loyal_yield.user_yield_positions position
+      SET
+        last_rebalance_decision_id =
+          latest_projected_rebalance.source_rebalance_decision_id,
+        updated_at = ${now}
+      FROM latest_projected_rebalance
+      WHERE position.id = latest_projected_rebalance.position_id
+        AND (
+          position.last_rebalance_decision_id IS NULL
+          OR position.last_rebalance_decision_id <
+            latest_projected_rebalance.source_rebalance_decision_id
+        )
+      RETURNING position.id
+    )
+    SELECT
+      (SELECT COUNT(*)::int FROM inserted_events) AS "insertedCount",
+      (SELECT COUNT(*)::int FROM updated_positions) AS "updatedPositionCount"
+  `);
+  const [row] = getExecuteRows(queryResult);
+
+  return {
+    insertedCount: readExecuteCount(
+      row?.insertedCount ?? row?.inserted_count
+    ),
+    updatedPositionCount: readExecuteCount(
+      row?.updatedPositionCount ?? row?.updated_position_count
+    ),
+  };
 }
 
 export async function recordSnapshotReconciledYieldHolding(
@@ -3998,17 +4287,17 @@ function buildVerificationFailure(args: {
   position: UserYieldPositionRecord;
   reason: YieldPositionVerificationFailureReason;
   expectedPrincipalAmountRaw: bigint;
-  latestEvent: UserYieldPositionHoldingEventRecord | null;
+  currentEvent: UserYieldPositionHoldingEventRecord | null;
 }): YieldPositionVerificationFailure {
   return {
     expectedCurrentHolding: {
-      amountRaw: args.latestEvent?.amountRaw ?? null,
-      lastHoldingEventId: args.latestEvent?.id ?? null,
-      liquidityMint: args.latestEvent?.liquidityMint ?? null,
-      market: args.latestEvent?.market ?? null,
-      observedAt: args.latestEvent?.observedAt ?? null,
-      observedSlot: args.latestEvent?.observedSlot ?? null,
-      reserve: args.latestEvent?.reserve ?? null,
+      amountRaw: args.currentEvent?.amountRaw ?? null,
+      lastHoldingEventId: args.currentEvent?.id ?? null,
+      liquidityMint: args.currentEvent?.liquidityMint ?? null,
+      market: args.currentEvent?.market ?? null,
+      observedAt: args.currentEvent?.observedAt ?? null,
+      observedSlot: args.currentEvent?.observedSlot ?? null,
+      reserve: args.currentEvent?.reserve ?? null,
     },
     expectedPrincipalAmountRaw: args.expectedPrincipalAmountRaw,
     positionId: args.position.id,
@@ -4026,6 +4315,39 @@ function buildVerificationFailure(args: {
     storedPrincipalAmountRaw: args.position.principalAmountRaw,
     walletAddress: args.position.walletAddress,
   };
+}
+
+function applyPrincipalEventForVerification(
+  principal: bigint,
+  event: UserYieldPositionHoldingEventRecord,
+  withdrawalById: Map<
+    bigint,
+    Pick<UserYieldPositionWithdrawalRecord, "mode" | "sourceType">
+  >
+): bigint {
+  switch (event.eventType) {
+    case "deposit_initialized":
+    case "deposit_top_up":
+      return principal + (event.principalDeltaRaw ?? BigInt(0));
+    case "withdrawal_partial": {
+      const withdrawal =
+        event.sourceWithdrawalId === null
+          ? null
+          : withdrawalById.get(event.sourceWithdrawalId) ?? null;
+      if (withdrawal?.sourceType === "idle") {
+        return principal;
+      }
+      if (withdrawal?.mode === "full") {
+        return BigInt(0);
+      }
+      return principal + (event.principalDeltaRaw ?? BigInt(0));
+    }
+    case "withdrawal_full":
+      return BigInt(0);
+    case "rebalance_confirmed":
+    case "snapshot_reconciled":
+      return principal;
+  }
 }
 
 export async function verifyUserYieldPositions(
@@ -4058,7 +4380,10 @@ export async function verifyUserYieldPositions(
           ),
         dependencies.client.db
           .select({
-            amountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
+            id: userYieldPositionWithdrawals.id,
+            mode: userYieldPositionWithdrawals.mode,
+            sourceType: userYieldPositionWithdrawals.sourceType,
+            withdrawnAmountRaw: userYieldPositionWithdrawals.withdrawnAmountRaw,
           })
           .from(userYieldPositionWithdrawals)
           .where(
@@ -4083,20 +4408,32 @@ export async function verifyUserYieldPositions(
     );
     const latestEvent =
       sortedHoldingEvents[sortedHoldingEvents.length - 1] ?? null;
+    const currentEvent =
+      position.lastHoldingEventId === null
+        ? latestEvent
+        : sortedHoldingEvents.find(
+            (event) => event.id === position.lastHoldingEventId
+          ) ?? null;
+    const withdrawalById = new Map(
+      withdrawals.map((withdrawal) => [withdrawal.id, withdrawal])
+    );
     const expectedPrincipalAmountRaw =
       sortedHoldingEvents.length > 0
-        ? sortedHoldingEvents.reduce((principal, event) => {
-            if (event.eventType === "withdrawal_full") {
-              return BigInt(0);
-            }
-            return principal + (event.principalDeltaRaw ?? BigInt(0));
-          }, BigInt(0))
+        ? sortedHoldingEvents.reduce(
+            (principal, event) =>
+              applyPrincipalEventForVerification(
+                principal,
+                event,
+                withdrawalById
+              ),
+            BigInt(0)
+          )
         : deposits.reduce(
             (total, deposit) => total + deposit.amountRaw,
             BigInt(0)
           ) -
           withdrawals.reduce(
-            (total, withdrawal) => total + withdrawal.amountRaw,
+            (total, withdrawal) => total + withdrawal.withdrawnAmountRaw,
             BigInt(0)
           );
 
@@ -4104,7 +4441,7 @@ export async function verifyUserYieldPositions(
       failures.push(
         buildVerificationFailure({
           expectedPrincipalAmountRaw,
-          latestEvent,
+          currentEvent,
           position,
           reason: "negative_principal",
         })
@@ -4114,7 +4451,7 @@ export async function verifyUserYieldPositions(
       failures.push(
         buildVerificationFailure({
           expectedPrincipalAmountRaw,
-          latestEvent,
+          currentEvent,
           position,
           reason: "negative_holding",
         })
@@ -4124,7 +4461,7 @@ export async function verifyUserYieldPositions(
       failures.push(
         buildVerificationFailure({
           expectedPrincipalAmountRaw,
-          latestEvent,
+          currentEvent,
           position,
           reason: "missing_holding_events",
         })
@@ -4137,7 +4474,7 @@ export async function verifyUserYieldPositions(
       failures.push(
         buildVerificationFailure({
           expectedPrincipalAmountRaw,
-          latestEvent,
+          currentEvent,
           position,
           reason: "missing_provenance",
         })
@@ -4147,34 +4484,38 @@ export async function verifyUserYieldPositions(
       failures.push(
         buildVerificationFailure({
           expectedPrincipalAmountRaw,
-          latestEvent,
+          currentEvent,
           position,
           reason: "principal_mismatch",
         })
       );
     }
     if (
-      position.currentReserve !== latestEvent.reserve ||
-      position.currentMarket !== latestEvent.market ||
-      position.currentLiquidityMint !== latestEvent.liquidityMint ||
-      position.currentAmountRaw !== latestEvent.amountRaw ||
-      position.currentObservedSlot !== latestEvent.observedSlot ||
-      position.currentObservedAt.getTime() !== latestEvent.observedAt.getTime()
+      currentEvent === null ||
+      position.currentReserve !== currentEvent.reserve ||
+      position.currentMarket !== currentEvent.market ||
+      position.currentLiquidityMint !== currentEvent.liquidityMint ||
+      position.currentAmountRaw !== currentEvent.amountRaw ||
+      position.currentObservedSlot !== currentEvent.observedSlot ||
+      position.currentObservedAt.getTime() !== currentEvent.observedAt.getTime()
     ) {
       failures.push(
         buildVerificationFailure({
           expectedPrincipalAmountRaw,
-          latestEvent,
+          currentEvent,
           position,
           reason: "current_projection_mismatch",
         })
       );
     }
-    if (position.lastHoldingEventId !== latestEvent.id) {
+    if (
+      position.lastHoldingEventId === null ||
+      currentEvent?.id !== position.lastHoldingEventId
+    ) {
       failures.push(
         buildVerificationFailure({
           expectedPrincipalAmountRaw,
-          latestEvent,
+          currentEvent,
           position,
           reason: "stale_last_holding_event",
         })

@@ -7,22 +7,22 @@ import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-sign
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
-import { findYieldPositionHistoryEventsForVault } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import {
+  findYieldPositionHistoryEventsForVault,
+  syncConfirmedRebalanceHoldingEventsForVault,
+} from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
   collapseDuplicateEarnRebalanceTransactions,
   serializeEarnTransactionEvent,
   type SerializedEarnTransaction,
 } from "@/app/api/smart-accounts/earn-transactions/formatter";
 
-// Read-only mobile twin of the session `earn-transactions` route. The native
-// Activity > Earn tab lists Earn vault history passively, with no signer held (a
-// wallet signature would force a Seed Vault biometric prompt on every view), so
-// this lookup is keyed by a supplied wallet address rather than a signed
-// request — the same pattern as `mobile/earn/state` and `…/earnings`. It is safe
-// because it never writes or provisions a smart account and returns only
-// public, on-chain-derived history for a wallet the caller already knows. If the
-// wallet has no app user / smart account yet, it returns an empty list instead
-// of creating anything.
+// Mobile twin of the session `earn-transactions` route. The native Activity >
+// Earn tab lists Earn vault history passively, with no signer held (a wallet
+// signature would force a Seed Vault biometric prompt on every view), so this
+// lookup is keyed by a supplied wallet address rather than a signed request.
+// The only write here is an idempotent server-side projection from confirmed
+// optimizer decisions into history rows; it never provisions a smart account.
 const EARN_VAULT_INDEX = 1;
 
 function jsonError(status: number, code: string, message: string): NextResponse {
@@ -93,6 +93,13 @@ export async function GET(request: Request) {
     }
 
     const cluster = resolveConfiguredCluster();
+    await syncConfirmedRebalanceHoldingEventsForVault({
+      cluster,
+      settings: account.settingsPda,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress,
+    });
+
     const [positionEvents, autodepositEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({
         cluster,

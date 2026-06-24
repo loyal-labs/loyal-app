@@ -4,7 +4,10 @@ import { LoyalCluster } from "@loyal-labs/actions";
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
-import { findYieldPositionHistoryEventsForVault } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import {
+  findYieldPositionHistoryEventsForVault,
+  syncConfirmedRebalanceHoldingEventsForVault,
+} from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
   collapseDuplicateEarnRebalanceTransactions,
   serializeEarnTransactionEvent,
@@ -58,6 +61,13 @@ export async function GET(request: Request) {
   const cluster = resolveConfiguredCluster();
 
   try {
+    await syncConfirmedRebalanceHoldingEventsForVault({
+      cluster,
+      settings: principal.settingsPda,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress: principal.walletAddress,
+    });
+
     const [positionEvents, autodepositEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({
         cluster,

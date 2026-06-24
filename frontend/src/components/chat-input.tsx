@@ -186,10 +186,14 @@ export function DogWithMood({
   squint,
   cry,
   nice,
+  disableIdleMood = false,
+  disableClickMood = false,
 }: {
   squint?: boolean;
   cry?: boolean;
   nice?: boolean;
+  disableIdleMood?: boolean;
+  disableClickMood?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [mood, setMood] = useState<DogMood>("main");
@@ -241,10 +245,17 @@ export function DogWithMood({
   // Idle timer
   const resetIdleTimer = useCallback(() => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (disableIdleMood) return;
     idleTimerRef.current = setTimeout(() => {
       setMood((prev) => (prev === "main" ? "upset" : prev));
     }, IDLE_TIMEOUT);
-  }, []);
+  }, [disableIdleMood]);
+
+  useEffect(() => {
+    if (disableIdleMood && mood === "upset") {
+      setMood("main");
+    }
+  }, [disableIdleMood, mood]);
 
   const returnToMain = useCallback(() => {
     setMood("main");
@@ -325,6 +336,7 @@ export function DogWithMood({
   }, []);
 
   const handleDogClick = useCallback(() => {
+    if (disableClickMood) return;
     if (mood === "cry") return; // Don't interrupt cry
     if (reactionTimerRef.current) clearTimeout(reactionTimerRef.current);
 
@@ -342,7 +354,7 @@ export function DogWithMood({
       scaredClicksRef.current = 1;
       reactionTimerRef.current = setTimeout(returnToMain, REACTION_DURATION);
     }
-  }, [mood, returnToMain]);
+  }, [disableClickMood, mood, returnToMain]);
 
   const isMain = mood === "main";
   const showSweat = mood === "scared";
@@ -358,7 +370,7 @@ export function DogWithMood({
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       onClick={handleDogClick}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: disableClickMood ? "default" : "pointer" }}
     >
       {/* Shared body */}
       <path d={DOG_BODY} fill="#F9363C" />

@@ -235,17 +235,20 @@ export function serializeEarnTransactionEvent(
     : kind === "deposit"
     ? EARN_VAULT_LABEL
     : MAIN_USDC_LABEL;
+  const positionMarketIcon = resolveEarnTransactionMarketIcon({
+    market: event.market,
+  });
   // Rebalances move funds between two Kamino markets, so each side carries its
-  // own market logo. Deposits/withdrawals keep the Main USDC ↔ Earn vault art.
+  // own market logo. Deposits/withdrawals use the actual Earn-side market too.
   const sourceIcon = isMovement
     ? resolveEarnTransactionMarketIcon({ market: event.sourceMarket })
     : kind === "deposit"
     ? MAIN_USDC_ICON
-    : EARN_VAULT_ICON;
+    : positionMarketIcon;
   const destinationIcon = isMovement
     ? resolveEarnTransactionMarketIcon({ market: event.destinationMarket })
     : kind === "deposit"
-    ? EARN_VAULT_ICON
+    ? positionMarketIcon
     : MAIN_USDC_ICON;
 
   return {

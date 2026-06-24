@@ -299,7 +299,12 @@ export const userYieldPositionHoldingEvents = loyalYieldSchema.table(
     }),
     sourceSnapshotId: bigint("source_snapshot_id", { mode: "bigint" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
-  }
+  },
+  (table) => [
+    uniqueIndex("user_yield_position_holding_events_rebalance_decision_uidx")
+      .on(table.sourceRebalanceDecisionId)
+      .where(sql`${table.sourceRebalanceDecisionId} IS NOT NULL`),
+  ]
 );
 
 export const userYieldPositionDeposits = loyalYieldSchema.table(

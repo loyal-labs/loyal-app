@@ -1779,6 +1779,25 @@ export function AppWalletWorkspace({
     );
   }, []);
 
+  const toggleExperimentalMode = useCallback(() => {
+    setIsExperimentalMode((current) => {
+      const next = !current;
+      try {
+        if (next) {
+          window.sessionStorage.setItem(EXPERIMENTAL_MODE_SESSION_KEY, "1");
+        } else {
+          window.sessionStorage.removeItem(EXPERIMENTAL_MODE_SESSION_KEY);
+        }
+      } catch (error) {
+        console.warn(
+          "[wallet-workspace] failed to persist experimental mode",
+          error
+        );
+      }
+      return next;
+    });
+  }, []);
+
   const [isBalanceHidden, setIsBalanceHidden] = useState(false);
   const [isCommandMenuOpen, setIsCommandMenuOpen] = useState(false);
   const [selectedPolicyId, setSelectedPolicyIdState] =
@@ -7246,11 +7265,13 @@ export function AppWalletWorkspace({
               </AnimatePresence>
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
+                hasCurrentPosition={hasEarnPosition}
                 isAutodepositConfigured={Boolean(
                   smartAccountData.earnAutodeposit || autodepositConfig
                 )}
                 isBalanceHidden={isBalanceHidden}
                 isExecutingScheduledSweep={isExecutingScheduledSweep}
+                onExperimentalModeToggle={toggleExperimentalMode}
                 onExecuteScheduledSweep={handleExecuteScheduledAutodepositSweep}
                 onRefreshScheduledSweeps={smartAccountData.refresh}
                 onSelectTransaction={(detail) => {
