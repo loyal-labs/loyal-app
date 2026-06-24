@@ -71,6 +71,7 @@ const USDC_RAW_SCALE = BigInt(1_000_000);
 const USDC_DISPLAY_DUST_TOLERANCE = 1.5 / Number(USDC_RAW_SCALE);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const EARN_NUMBER_FLOW_PLUGINS = [continuous];
+const MOBILE_EARN_FORM_MEDIA_QUERY = "(max-width: 760px)";
 const EARN_CLEANUP_MASCOT_TEXT =
   "You've already withdrawn the USDC. I can close the remaining Earn accounts and refund rent where possible.";
 const FALLBACK_EARN_APY = {
@@ -78,6 +79,14 @@ const FALLBACK_EARN_APY = {
   rangeHighBps: FALLBACK_EARN_FORECAST.rangeHighBps,
   rangeLowBps: FALLBACK_EARN_FORECAST.rangeLowBps,
 } as const satisfies EarnForecastApy;
+
+function shouldAutoFocusEarnFormInput() {
+  if (typeof window.matchMedia !== "function") {
+    return true;
+  }
+
+  return !window.matchMedia(MOBILE_EARN_FORM_MEDIA_QUERY).matches;
+}
 
 export type EarnDepositSourceOption = {
   addressLabel: string;
@@ -6153,6 +6162,10 @@ export function EarnDepositView({
   }, [selectedSourceId, sourceOptions]);
 
   useEffect(() => {
+    if (!shouldAutoFocusEarnFormInput()) {
+      return;
+    }
+
     const frame = window.requestAnimationFrame(() => {
       amountInputRef.current?.focus();
     });
@@ -6686,6 +6699,10 @@ export function AutodepositSetupView({
   };
 
   useEffect(() => {
+    if (!shouldAutoFocusEarnFormInput()) {
+      return;
+    }
+
     const frame = window.requestAnimationFrame(focusKeepAmount);
     return () => window.cancelAnimationFrame(frame);
   }, []);
