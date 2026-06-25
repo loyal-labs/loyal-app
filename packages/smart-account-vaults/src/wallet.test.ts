@@ -1,12 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
-import {
-  generated,
-  pda,
-  type PreparedLoyalSmartAccountsOperation,
-} from "@loyal-labs/loyal-smart-accounts-core";
+import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts-core";
 import type { Connection, VersionedTransaction } from "@solana/web3.js";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import BN from "bn.js";
 
 import type { WalletAdapterLike } from "./types";
 import { sendPreparedBatchWithWallet, sendPreparedWithWallet } from "./wallet";
@@ -24,7 +19,8 @@ function createPrepared(
       lamports: 1,
       toPubkey: recipient,
     }),
-  ]
+  ],
+  simulationDiagnostics?: PreparedLoyalSmartAccountsOperation<string>["simulationDiagnostics"]
 ): PreparedLoyalSmartAccountsOperation<string> {
   return {
     instructions,
@@ -33,6 +29,7 @@ function createPrepared(
     payer: feePayer,
     programId,
     requiresConfirmation: true,
+    ...(simulationDiagnostics ? { simulationDiagnostics } : {}),
   };
 }
 
@@ -43,32 +40,6 @@ function createRejectingWallet(error = new Error("wallet rejected")) {
       throw error;
     }),
   } as unknown as WalletAdapterLike;
-}
-
-function createSettingsAccount(policySeed: BN | null) {
-  const [data] = generated.Settings.fromArgs({
-    accountUtilization: 0,
-    archivalAuthority: null,
-    archivableAfter: new BN(0),
-    bump: 255,
-    policySeed,
-    reserved2: 0,
-    seed: new BN(0),
-    settingsAuthority: feePayer,
-    signers: [],
-    staleTransactionIndex: new BN(0),
-    threshold: 1,
-    timeLock: 0,
-    transactionIndex: new BN(0),
-  }).serialize();
-
-  return {
-    data,
-    executable: false,
-    lamports: 1,
-    owner: programId,
-    rentEpoch: 0,
-  };
 }
 
 function createConnection(args: {
@@ -98,76 +69,6 @@ function createConnection(args: {
   } as unknown as Connection & {
     simulateTransaction: typeof simulateTransaction;
   };
-}
-
-function createProgramInteractionPolicyPayload(
-  instructionConstraintCount: number
-): generated.PolicyCreationPayload {
-  return {
-    __kind: "ProgramInteraction",
-    fields: [
-      {
-        accountIndex: 1,
-        instructionsConstraints: Array.from(
-          { length: instructionConstraintCount },
-          () => ({
-            accountConstraints: [],
-            dataConstraints: [],
-            programId: SystemProgram.programId,
-          })
-        ),
-        postHook: null,
-        preHook: null,
-        spendingLimits: [],
-      },
-    ],
-  };
-}
-
-function createPolicyCreateInstruction(args: {
-  actionSeed: number;
-  includedPolicySeed: number;
-  instructionConstraintCount?: number;
-}) {
-  const includedPolicyPda = pda.getPolicyPda({
-    policySeed: args.includedPolicySeed,
-    programId,
-    settingsPda,
-  })[0];
-  const instruction = generated.createExecuteSettingsTransactionSyncInstruction(
-    {
-      consensusAccount: settingsPda,
-      program: programId,
-      rentPayer: feePayer,
-      systemProgram: SystemProgram.programId,
-    },
-    {
-      args: {
-        actions: [
-          {
-            __kind: "PolicyCreate",
-            expirationArgs: null,
-            policyCreationPayload: createProgramInteractionPolicyPayload(
-              args.instructionConstraintCount ?? 1
-            ),
-            seed: new BN(args.actionSeed),
-            signers: [],
-            startTimestamp: null,
-            threshold: 1,
-            timeLock: 0,
-          },
-        ],
-        memo: null,
-        numSigners: 1,
-      },
-    },
-    programId
-  );
-  instruction.keys.push(
-    { isSigner: true, isWritable: false, pubkey: feePayer },
-    { isSigner: false, isWritable: true, pubkey: includedPolicyPda }
-  );
-  return instruction;
 }
 
 describe("wallet prepared sends", () => {
@@ -300,17 +201,8 @@ describe("wallet prepared sends", () => {
     ).rejects.toThrow("Top up at least 0.00000015 SOL");
   });
 
-  test("identifies the missing policy PDA for Squads MissingAccount", async () => {
-    const expectedPolicyPda = pda.getPolicyPda({
-      policySeed: 2,
-      programId,
-      settingsPda,
-    })[0];
-    const includedPolicyPda = pda.getPolicyPda({
-      policySeed: 3,
-      programId,
-      settingsPda,
-    })[0];
+  test("uses prepared diagnostics for Squads MissingAccount", async () => {
+    const missingPolicyAccount = recipient.toBase58();
     const simulateTransaction = mock(async () => ({
       context: { slot: 1 },
       value: {
@@ -320,35 +212,26 @@ describe("wallet prepared sends", () => {
         ],
       },
     }));
-    const getAccountInfo = mock(async () => createSettingsAccount(new BN(1)));
     const connection = createConnection({
-      getAccountInfo,
       simulateTransaction,
     });
 
-    let thrown: unknown;
-    try {
-      await sendPreparedWithWallet({
+    await expect(
+      sendPreparedWithWallet({
         connection,
         wallet: createRejectingWallet(),
-        prepared: createPrepared([
-          createPolicyCreateInstruction({
-            actionSeed: 3,
-            includedPolicySeed: 3,
-          }),
-        ]),
-      });
-    } catch (error) {
-      thrown = error;
-    }
-
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toContain(
-      `Missing policy account ${expectedPolicyPda.toBase58()} for expected next policy seed 2`
+        prepared: createPrepared(undefined, {
+          includedPolicyAccounts: [],
+          kind: "earnPolicyCreateMissingAccount",
+          policyAccount: missingPolicyAccount,
+          policySeed: "3",
+          policyStage: "setup",
+          programId: programId.toBase58(),
+          settingsPda: settingsPda.toBase58(),
+        }),
+      })
+    ).rejects.toThrow(
+      `Missing policy account ${missingPolicyAccount} for prepared setup policy seed 3`
     );
-    expect((thrown as Error).message).toContain(
-      `includes policy account(s): ${includedPolicyPda.toBase58()}`
-    );
-    expect(getAccountInfo).toHaveBeenCalledWith(settingsPda, "confirmed");
   });
 });

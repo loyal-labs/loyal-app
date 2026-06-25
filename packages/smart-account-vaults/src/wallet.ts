@@ -1,42 +1,23 @@
 import {
   compilePreparedOperation,
-  generated,
-  pda,
-  toBigInt,
   translateAndThrowAnchorError,
 } from "@loyal-labs/loyal-smart-accounts-core";
-import { VersionedTransaction } from "@solana/web3.js";
+import type { VersionedTransaction } from "@solana/web3.js";
+import {
+  getPreparedSimulationDiagnosticError,
+  simulationIndicatesMissingAccount,
+} from "./simulation-diagnostics";
 import type {
   SendPreparedBatchWithWalletArgs,
   SendPreparedWithWalletArgs,
   WalletAdapterLike,
 } from "./types";
 
-const SQUADS_MISSING_ACCOUNT_ERROR_CODE = 0x1788;
-const SQUADS_MISSING_ACCOUNT_ERROR_DECIMAL = SQUADS_MISSING_ACCOUNT_ERROR_CODE;
-
 type PreparedOperation = SendPreparedWithWalletArgs["prepared"];
 type PreparedConnection = SendPreparedWithWalletArgs["connection"];
 type SimulatedTransactionValue = Awaited<
   ReturnType<PreparedConnection["simulateTransaction"]>
 >["value"];
-
-function createErrorWithCause(args: {
-  cause: unknown;
-  logs?: string[];
-  message: string;
-  name?: string;
-}): Error {
-  const error = new Error(args.message);
-  if (args.name) {
-    error.name = args.name;
-  }
-  (error as Error & { cause?: unknown; logs?: string[] }).cause = args.cause;
-  if (args.logs) {
-    (error as Error & { cause?: unknown; logs?: string[] }).logs = args.logs;
-  }
-  return error;
-}
 
 function attachCause(error: Error, cause: unknown, logs?: string[]): Error {
   (error as Error & { cause?: unknown; logs?: string[] }).cause ??= cause;
@@ -58,207 +39,6 @@ function translateSimulationLogs(logs: string[]): Error | null {
   } catch (error) {
     return error instanceof Error ? error : null;
   }
-}
-
-function simulationIndicatesMissingAccount(
-  simulation: SimulatedTransactionValue,
-  logs: string[],
-  translatedError: Error | null
-): boolean {
-  if (translatedError?.name === "MissingAccount") {
-    return true;
-  }
-
-  const haystack = [
-    translatedError?.name,
-    translatedError?.message,
-    JSON.stringify(simulation.err),
-    logs.join("\n"),
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  return (
-    /\bMissingAccount\b/i.test(haystack) ||
-    /custom program error:\s*0x1788/i.test(haystack) ||
-    new RegExp(`"Custom"\\s*:\\s*${SQUADS_MISSING_ACCOUNT_ERROR_DECIMAL}`).test(
-      haystack
-    )
-  );
-}
-
-function isExecuteSettingsTransactionSyncInstruction(
-  instruction: PreparedOperation["instructions"][number]
-): boolean {
-  if (
-    instruction.data.length <
-    generated.executeSettingsTransactionSyncInstructionDiscriminator.length
-  ) {
-    return false;
-  }
-
-  return generated.executeSettingsTransactionSyncInstructionDiscriminator.every(
-    (byte, index) => instruction.data[index] === byte
-  );
-}
-
-function formatPubkeys(pubkeys: readonly string[]): string {
-  return pubkeys.length > 0 ? pubkeys.join(", ") : "none";
-}
-
-function describePolicyCreate(
-  action: generated.SettingsAction & { __kind: "PolicyCreate" }
-): string {
-  if (action.policyCreationPayload.__kind !== "ProgramInteraction") {
-    return "policy";
-  }
-
-  const [payload] = action.policyCreationPayload.fields;
-  const constraintCount = payload.instructionsConstraints.length;
-  if (constraintCount === 1) {
-    return "setup policy";
-  }
-  if (constraintCount > 1) {
-    return "route policy";
-  }
-  return "policy";
-}
-
-function policyPdaForSeed(args: {
-  policySeed: bigint;
-  programId: Parameters<typeof pda.getPolicyPda>[0]["programId"];
-  settingsPda: Parameters<typeof pda.getPolicyPda>[0]["settingsPda"];
-}): string | null {
-  if (args.policySeed > BigInt(Number.MAX_SAFE_INTEGER)) {
-    return null;
-  }
-
-  return pda
-    .getPolicyPda({
-      programId: args.programId,
-      settingsPda: args.settingsPda,
-      policySeed: Number(args.policySeed),
-    })[0]
-    .toBase58();
-}
-
-async function fetchNextPolicySeed(args: {
-  connection: PreparedConnection;
-  settingsPda: Parameters<typeof pda.getPolicyPda>[0]["settingsPda"];
-}): Promise<bigint | null> {
-  if (typeof args.connection.getAccountInfo !== "function") {
-    return null;
-  }
-
-  const account = await args.connection.getAccountInfo(
-    args.settingsPda,
-    "confirmed"
-  );
-  if (!account) {
-    return null;
-  }
-
-  const [settings] = generated.Settings.fromAccountInfo({
-    ...account,
-    data: Buffer.from(account.data),
-  });
-  const currentPolicySeed =
-    settings.policySeed == null ? BigInt(0) : toBigInt(settings.policySeed);
-  return currentPolicySeed + BigInt(1);
-}
-
-async function getPolicyCreateMissingAccountDiagnostic(args: {
-  connection: PreparedConnection;
-  prepared: PreparedOperation;
-}): Promise<string | null> {
-  for (const instruction of args.prepared.instructions) {
-    if (!isExecuteSettingsTransactionSyncInstruction(instruction)) {
-      continue;
-    }
-
-    let decoded: generated.ExecuteSettingsTransactionSyncInstructionArgs & {
-      instructionDiscriminator: number[];
-    };
-    try {
-      [decoded] = generated.executeSettingsTransactionSyncStruct.deserialize(
-        Buffer.from(instruction.data)
-      );
-    } catch {
-      continue;
-    }
-
-    const settingsPda = instruction.keys[0]?.pubkey;
-    if (!settingsPda) {
-      continue;
-    }
-
-    const remainingPolicyAccounts = instruction.keys
-      .slice(4 + decoded.args.numSigners)
-      .map((meta) => meta.pubkey.toBase58());
-    const allInstructionAccounts = new Set(
-      instruction.keys.map((meta) => meta.pubkey.toBase58())
-    );
-    const nextPolicySeed = await fetchNextPolicySeed({
-      connection: args.connection,
-      settingsPda,
-    }).catch(() => null);
-
-    for (const action of decoded.args.actions) {
-      if (action.__kind !== "PolicyCreate") {
-        continue;
-      }
-
-      const actionSeed = toBigInt(action.seed);
-      const actionPolicyPda = policyPdaForSeed({
-        policySeed: actionSeed,
-        programId: instruction.programId,
-        settingsPda,
-      });
-      const policyDescription = describePolicyCreate(action);
-
-      if (nextPolicySeed != null) {
-        const expectedPolicyPda = policyPdaForSeed({
-          policySeed: nextPolicySeed,
-          programId: instruction.programId,
-          settingsPda,
-        });
-        if (
-          expectedPolicyPda &&
-          !allInstructionAccounts.has(expectedPolicyPda)
-        ) {
-          return (
-            `Squads could not find the policy account required by PolicyCreate. ` +
-            `Missing policy account ${expectedPolicyPda} for expected next policy seed ${nextPolicySeed.toString()}. ` +
-            `The prepared Earn ${policyDescription} action uses seed ${actionSeed.toString()} ` +
-            `and includes policy account(s): ${formatPubkeys(
-              remainingPolicyAccounts
-            )}. ` +
-            `This usually means the route/setup policy stage is stale or a resumed onboarding flow is sending the setup-policy transaction before the route policy exists on chain.`
-          );
-        }
-      }
-
-      if (actionPolicyPda && !allInstructionAccounts.has(actionPolicyPda)) {
-        return (
-          `Squads could not find the policy account required by PolicyCreate. ` +
-          `Missing policy account ${actionPolicyPda} for prepared ${policyDescription} seed ${actionSeed.toString()}. ` +
-          `The transaction includes policy account(s): ${formatPubkeys(
-            remainingPolicyAccounts
-          )}.`
-        );
-      }
-
-      if (actionPolicyPda) {
-        return (
-          `Squads reported MissingAccount while creating the prepared Earn ${policyDescription}. ` +
-          `The transaction includes the action-derived policy PDA ${actionPolicyPda} for seed ${actionSeed.toString()}, ` +
-          `so the most likely missing account is the current next policy PDA from on-chain settings. Refresh the Earn policy state and retry.`
-        );
-      }
-    }
-  }
-
-  return null;
 }
 
 async function getSimulationDiagnosticError(args: {
@@ -300,26 +80,32 @@ async function getSimulationDiagnosticError(args: {
   const translatedError = translateSimulationLogs(logs);
   if (
     translatedError &&
-    !simulationIndicatesMissingAccount(simulation, logs, translatedError)
+    !simulationIndicatesMissingAccount({
+      logs,
+      simulationErr: simulation.err,
+      translatedError,
+    })
   ) {
     return attachCause(translatedError, args.error, logs);
   }
 
-  if (simulationIndicatesMissingAccount(simulation, logs, translatedError)) {
-    const diagnostic = await getPolicyCreateMissingAccountDiagnostic({
-      connection: args.connection,
-      prepared: args.prepared,
-    });
-    if (!diagnostic) {
-      return null;
-    }
-
-    return createErrorWithCause({
-      cause: args.error,
+  if (
+    simulationIndicatesMissingAccount({
       logs,
-      message: diagnostic,
-      name: "SquadsMissingAccountSimulationError",
+      simulationErr: simulation.err,
+      translatedError,
+    })
+  ) {
+    const diagnostic = await getPreparedSimulationDiagnosticError({
+      connection: args.connection,
+      logs,
+      originalError: args.error,
+      prepared: args.prepared,
+      simulationErr: simulation.err,
+      transaction: args.transaction,
+      translatedError,
     });
+    return diagnostic;
   }
 
   if (translatedError) {
@@ -337,6 +123,24 @@ async function throwWithSimulationDiagnostic(args: {
 }): Promise<never> {
   const diagnostic = await getSimulationDiagnosticError(args);
   throw diagnostic ?? args.error;
+}
+
+async function withSimulationDiagnostic<T>(
+  fn: () => Promise<T>,
+  args: {
+    connection: PreparedConnection;
+    prepared: PreparedOperation;
+    transaction: VersionedTransaction;
+  }
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    return throwWithSimulationDiagnostic({
+      ...args,
+      error,
+    });
+  }
 }
 
 async function sendVersionedTransaction(args: {
@@ -372,49 +176,50 @@ export async function sendPreparedWithWallet({
     prepared,
     blockhash: latestBlockhash.blockhash,
   });
-  let signature: string;
-  try {
-    signature = await sendVersionedTransaction({
-      wallet,
+  const signature = await withSimulationDiagnostic(
+    () =>
+      sendVersionedTransaction({
+        wallet,
+        connection,
+        transaction,
+        sendOptions,
+      }),
+    {
       connection,
-      transaction,
-      sendOptions,
-    });
-  } catch (error) {
-    return throwWithSimulationDiagnostic({
-      connection,
-      error,
       prepared,
       transaction,
-    });
-  }
+    }
+  );
 
   const shouldConfirm =
     confirm === true || (confirm !== false && prepared.requiresConfirmation);
 
   if (shouldConfirm) {
-    const confirmation = await connection.confirmTransaction(
-      {
-        signature,
-        blockhash: latestBlockhash.blockhash,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-      },
-      "confirmed"
-    );
+    await withSimulationDiagnostic(
+      async () => {
+        const confirmation = await connection.confirmTransaction(
+          {
+            signature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          },
+          "confirmed"
+        );
 
-    if (confirmation.value.err) {
-      const error = new Error(
-        `Transaction ${signature} failed to confirm: ${JSON.stringify(
-          confirmation.value.err
-        )}`
-      );
-      return throwWithSimulationDiagnostic({
+        if (confirmation.value.err) {
+          throw new Error(
+            `Transaction ${signature} failed to confirm: ${JSON.stringify(
+              confirmation.value.err
+            )}`
+          );
+        }
+      },
+      {
         connection,
-        error,
         prepared,
         transaction,
-      });
-    }
+      }
+    );
   }
 
   return signature;
@@ -477,20 +282,18 @@ export async function sendPreparedBatchWithWallet({
       );
     }
 
-    let signature: string;
-    try {
-      signature = await connection.sendRawTransaction(
-        signedTransaction.serialize(),
-        sendOptions
-      );
-    } catch (error) {
-      return throwWithSimulationDiagnostic({
+    const signature = await withSimulationDiagnostic(
+      () =>
+        connection.sendRawTransaction(
+          signedTransaction.serialize(),
+          sendOptions
+        ),
+      {
         connection,
-        error,
         prepared: operation,
         transaction: signedTransaction,
-      });
-    }
+      }
+    );
     signatures.push(signature);
     await onTransactionSent?.({
       index,
@@ -502,28 +305,31 @@ export async function sendPreparedBatchWithWallet({
       confirm === true || (confirm !== false && operation.requiresConfirmation);
 
     if (shouldConfirm) {
-      const confirmation = await connection.confirmTransaction(
-        {
-          signature,
-          blockhash: latestBlockhash.blockhash,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-        },
-        "confirmed"
-      );
+      await withSimulationDiagnostic(
+        async () => {
+          const confirmation = await connection.confirmTransaction(
+            {
+              signature,
+              blockhash: latestBlockhash.blockhash,
+              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            },
+            "confirmed"
+          );
 
-      if (confirmation.value.err) {
-        const error = new Error(
-          `Transaction ${signature} failed to confirm: ${JSON.stringify(
-            confirmation.value.err
-          )}`
-        );
-        return throwWithSimulationDiagnostic({
+          if (confirmation.value.err) {
+            throw new Error(
+              `Transaction ${signature} failed to confirm: ${JSON.stringify(
+                confirmation.value.err
+              )}`
+            );
+          }
+        },
+        {
           connection,
-          error,
           prepared: operation,
           transaction: signedTransaction,
-        });
-      }
+        }
+      );
     }
 
     await onTransactionConfirmed?.({
