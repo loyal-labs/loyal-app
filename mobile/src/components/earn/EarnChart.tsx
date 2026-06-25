@@ -44,7 +44,7 @@ const BAR_GAP = 3; // ~30 daily bars pack tightly
 // Flat zero baseline for ~zero bars so a just-funded position still reads as a
 // dashed baseline (Figma 74-19824 "new") rather than nothing.
 const MIN_BAR_RATIO = 4 / 336;
-// The tallest cumulative bar stops short of the top, leaving headroom under the
+// The tallest daily bar stops short of the top, leaving headroom under the
 // axis-max label.
 const AXIS_HEADROOM = 1.12;
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
@@ -99,10 +99,9 @@ function formatShortDate(iso: string): string {
   return `${SHORT_MONTHS[date.getMonth()]} ${date.getDate()}`;
 }
 
-// Axis ceiling: a round amount just above the tallest cumulative bar so it stops
-// short of the top (Figma: ~$120 cumulative → "$140" label). Scales to the data
-// at any magnitude — no fixed floor — so sub-cent earnings (e.g. $0.0002) aren't
-// crushed against a $0.01 axis.
+// Axis ceiling: a round amount just above the tallest daily bar so it stops
+// short of the top. Scales to the data at any magnitude — no fixed floor — so
+// sub-cent earnings (e.g. $0.0002) aren't crushed against a $0.01 axis.
 function niceAxisMax(maxValue: number): number {
   if (!Number.isFinite(maxValue) || maxValue <= 0) {
     return 0;
@@ -268,7 +267,7 @@ function RollingOdometer({ value }: { value: SharedValue<number> }) {
 // The headline earnings value. While `live` (the current/today bar is selected)
 // it rolls up in real time from `baseValue` at `ratePerSecond` (seeded with the
 // time elapsed since the data was fetched); otherwise it shows the scrubbed
-// bar's static cumulative value. A single shared value, advanced each frame on
+// bar's static per-day value. A single shared value, advanced each frame on
 // the UI thread, drives the odometer — so the per-frame scroll never re-renders
 // the bars.
 function EarningsValue({
@@ -313,7 +312,9 @@ function EarningsValue({
     return <RollingOdometer value={value} />;
   }
 
-  const { whole, cents } = splitDollars(staticValue, 2);
+  // Per-day earnings are often sub-cent, so match the live odometer's 5-decimal
+  // precision rather than rounding a real value to "$0.00".
+  const { whole, cents } = splitDollars(staticValue, 5);
   return (
     <Text style={styles.valueLine} numberOfLines={1}>
       <Text style={styles.valueWhole}>{whole}</Text>
@@ -322,16 +323,22 @@ function EarningsValue({
   );
 }
 
-// Cumulative earned per bar, walked backward from the live total so the last
-// (today) bar equals the headline — mirrors the web Earnings chart.
-function buildCumulative(bars: EarnEarningsBar[], total: number): number[] {
-  const out = new Array<number>(bars.length).fill(0);
-  let earnedAfter = 0;
-  for (let i = bars.length - 1; i >= 0; i -= 1) {
-    out[i] = Math.max(0, total - earnedAfter);
-    earnedAfter += Math.max(0, bars[i].earnedUsd);
-  }
-  return out;
+// Per-bar daily earned (NOT cumulative): each bar is the amount earned within
+// that day. The current (in-progress) bar is reconciled against the live total
+// so it reflects earnings beyond the prior recorded days, without turning the
+// earlier bars into a running total — mirrors the web Earnings chart.
+function buildDailyValues(bars: EarnEarningsBar[], liveTotal: number): number[] {
+  const safeTotal = Math.max(0, liveTotal);
+  const nonCurrentRecorded = bars.reduce(
+    (sum, bar) => (bar.isCurrent ? sum : sum + Math.max(0, bar.earnedUsd)),
+    0,
+  );
+  const currentResidual = Math.max(0, safeTotal - nonCurrentRecorded);
+  return bars.map((bar) =>
+    bar.isCurrent
+      ? Math.max(0, bar.earnedUsd, currentResidual)
+      : Math.max(0, bar.earnedUsd),
+  );
 }
 
 export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
@@ -348,12 +355,19 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
   const baseEarned = earnings?.sinceLastDepositEarnedUsd ?? 0;
   const rangeEarned = earnings?.rangeEarnedUsd ?? 0;
 
-  // Bars anchor to the fetch-time total (static per load); the headline odometer
-  // ticks live above it. Cumulative + axis are recomputed only when data lands.
-  const { cumulative, axisMax } = useMemo(() => {
-    const cum = buildCumulative(bars, baseEarned);
-    const max = cum.length > 0 ? Math.max(...cum) : 0;
-    return { cumulative: cum, axisMax: niceAxisMax(max) };
+  // Bars show per-day earnings (static per load); the headline odometer ticks
+  // live above. The axis ceiling tracks the tallest *historical* daily bar —
+  // excluding the in-progress current bar, which can spike — recomputed only
+  // when data lands.
+  const { daily, axisMax } = useMemo(() => {
+    const values = buildDailyValues(bars, baseEarned);
+    let max = 0;
+    for (let i = 0; i < bars.length; i += 1) {
+      if (!bars[i].isCurrent) {
+        max = Math.max(max, values[i]);
+      }
+    }
+    return { daily: values, axisMax: niceAxisMax(max) };
   }, [bars, baseEarned]);
 
   // Default selection is the current (today) bar; scrubbing moves it. `scrubbing`
@@ -473,7 +487,9 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
     setActiveIdx(lastIndex);
   }, [lastIndex]);
 
-  const live = hasData && activeIdx === lastIndex;
+  // Resting on the latest bar shows the live cumulative odometer; scrubbing any
+  // bar (today included) shows that bar's static per-day value.
+  const live = hasData && !scrubbing && activeIdx === lastIndex;
   const selectedBar = bars[activeIdx];
   const cursorCenterX =
     barCount > 0 ? ((activeIdx + 0.5) / barCount) * chartWidth : 0;
@@ -487,7 +503,7 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
         baseValue={baseEarned}
         ratePerSecond={ratePerSecond}
         anchorMs={fetchedAtMs}
-        staticValue={cumulative[activeIdx] ?? 0}
+        staticValue={daily[activeIdx] ?? 0}
       />
 
       <View style={styles.subtitleRow}>
@@ -521,10 +537,12 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
         onResponderRelease={handleReleaseBar}
         onResponderTerminate={handleReleaseBar}
       >
-        {cumulative.map((value, i) => {
+        {daily.map((value, i) => {
+          // Clamp the top so the in-progress current bar (excluded from axisMax)
+          // can't overflow past the chart height.
           const ratio =
             axisMax > 0
-              ? Math.max(MIN_BAR_RATIO, value / axisMax)
+              ? Math.min(1, Math.max(MIN_BAR_RATIO, value / axisMax))
               : MIN_BAR_RATIO;
           // While scrubbing, bars up to the cursor read as earned (red); beyond
           // it, dim white. At rest the whole series is a calm dim white.
