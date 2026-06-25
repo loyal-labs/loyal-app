@@ -117,7 +117,8 @@ export default function EarnScreen() {
   // real USDC balance. Passing a signer here would trigger a Seed Vault
   // hardware prompt on Seeker — balance display must stay passive.
   const walletAddress = isWalletUnlocked(state) ? publicKey : null;
-  const { tokenHoldings } = useTokenHoldings(walletAddress);
+  const { tokenHoldings, refreshTokenHoldings } =
+    useTokenHoldings(walletAddress);
   const usdcAvailable = useMemo(() => {
     const holding = tokenHoldings.find(
       (h) =>
@@ -417,15 +418,21 @@ export default function EarnScreen() {
 
   const handleAutodepositSetup = useCallback(() => {
     void Haptics.selectionAsync();
+    // Pull the live wallet USDC + Earn position so both flow balances are
+    // current, not cached from before the latest deposit/sweep (like withdraw).
+    refreshTokenHoldings(true);
+    refreshEarnPosition();
     setAutodepositSetupMode("create");
     setAutodepositSetupOpen(true);
-  }, []);
+  }, [refreshTokenHoldings, refreshEarnPosition]);
 
   const handleAutodepositEdit = useCallback(() => {
     void Haptics.selectionAsync();
+    refreshTokenHoldings(true);
+    refreshEarnPosition();
     setAutodepositSetupMode("edit");
     setAutodepositSetupOpen(true);
-  }, []);
+  }, [refreshTokenHoldings, refreshEarnPosition]);
 
   const handleAutodepositHelp = useCallback(() => {
     void Haptics.selectionAsync();
@@ -434,10 +441,12 @@ export default function EarnScreen() {
 
   // Help sheet "Set up autodeposit" → close help, open the create flow.
   const handleAutodepositHelpSetUp = useCallback(() => {
+    refreshTokenHoldings(true);
+    refreshEarnPosition();
     setAutodepositHelpOpen(false);
     setAutodepositSetupMode("create");
     setAutodepositSetupOpen(true);
-  }, []);
+  }, [refreshTokenHoldings, refreshEarnPosition]);
 
   const handleAutodepositToggle = useCallback(async () => {
     if (
@@ -797,6 +806,7 @@ export default function EarnScreen() {
         mode={autodepositSetupMode}
         initialThresholdUsd={autodepositThresholdUsd}
         availableUsdc={usdcAvailable}
+        earnBalanceUsd={depositedUsd}
         walletAddress={walletAddress}
       />
     </View>

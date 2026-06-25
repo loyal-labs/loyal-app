@@ -105,6 +105,7 @@ export function AutodepositSetupSheet({
   mode,
   initialThresholdUsd,
   availableUsdc,
+  earnBalanceUsd,
   walletAddress,
 }: {
   open: boolean;
@@ -115,6 +116,7 @@ export function AutodepositSetupSheet({
   mode: "create" | "edit";
   initialThresholdUsd: number | null;
   availableUsdc: number | null;
+  earnBalanceUsd: number | null;
   walletAddress: string | null;
 }) {
   const sheetRef = useRef<BottomSheetModal>(null);
@@ -127,8 +129,14 @@ export function AutodepositSetupSheet({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const snapPoints = useMemo(() => ["94%"], []);
+  // The two flow cells show the CURRENT balances of the two accounts (wallet
+  // USDC → Earn), so they reflect reality and don't move as you type a
+  // threshold. The threshold only governs the future sweep, not these numbers.
   const balance = Number.isFinite(availableUsdc ?? NaN)
     ? (availableUsdc as number)
+    : 0;
+  const earnBalance = Number.isFinite(earnBalanceUsd ?? NaN)
+    ? (earnBalanceUsd as number)
     : 0;
 
   useEffect(() => {
@@ -241,9 +249,8 @@ export function AutodepositSetupSheet({
   );
 
   const displayValue = formatAmountDisplay(amount);
-  const toEarn = Math.max(0, balance - thresholdUsd);
   const fromParts = splitDollars(balance);
-  const toParts = splitDollars(toEarn);
+  const toParts = splitDollars(earnBalance);
   const ctaLabel = mode === "edit" ? "Confirm" : "Create Autodeposit";
 
   const amountFontSize = useMemo(() => {
