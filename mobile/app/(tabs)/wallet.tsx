@@ -28,6 +28,7 @@ import {
 import {
   buildCryptoHref,
   buildEarnHref,
+  buildQuestsHref,
   buildStablecoinsHref,
 } from "@/features/wallet-categories/routes";
 import { ActionBarButton } from "@/features/wallet-categories/ui/ActionBarButton";
@@ -506,6 +507,7 @@ export default function WalletScreen() {
           track(PORTFOLIO_EVENTS.openUnshield);
           handleOpenShield("unshield");
         }}
+        onQuests={() => router.navigate(buildQuestsHref())}
       />
 
       <BalanceBackgroundPicker

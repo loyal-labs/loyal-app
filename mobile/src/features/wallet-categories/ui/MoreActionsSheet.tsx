@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Shield,
   ShieldOff,
+  Trophy,
   X,
 } from "lucide-react-native";
 import {
@@ -116,6 +117,7 @@ export function MoreActionsSheet({
   onSwap,
   onShield,
   onUnshield,
+  onQuests,
 }: {
   open: boolean;
   onClose: () => void;
@@ -125,6 +127,7 @@ export function MoreActionsSheet({
   onSwap?: () => void;
   onShield?: () => void;
   onUnshield?: () => void;
+  onQuests?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: screenW, height: screenH } = useWindowDimensions();
@@ -183,6 +186,14 @@ export function MoreActionsSheet({
 
   // Design order, top -> bottom. Only render the actions the screen supplies.
   const actions: QuestAction[] = [];
+  if (onQuests) {
+    actions.push({
+      key: "quests",
+      label: "Quests",
+      icon: <Trophy size={28} color="#000" strokeWidth={2} opacity={ICON_OPACITY} />,
+      run: onQuests,
+    });
+  }
   if (onUnshield) {
     actions.push({
       key: "unshield",
