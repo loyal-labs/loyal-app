@@ -36,6 +36,7 @@ import {
 } from "@/lib/solana/earn/autodeposit";
 import {
   toWithdrawPrepareSource,
+  type EarnHoldingItem,
   type EarnWithdrawSourceInfo,
 } from "@/lib/solana/earn/earn-api";
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
@@ -87,6 +88,24 @@ const LINES_START_MS = 200;
 const BADGE_START_MS = 2050;
 const BADGE_MS = 500;
 
+// Maps a live on-chain holding to the source shape the positions sheet renders
+// (display-only: it reads market/liquidityMint/amountRaw and `id` as the row
+// key). The withdraw flow continues to use the real `withdrawSources`.
+function earnHoldingToDisplaySource(
+  holding: EarnHoldingItem,
+): EarnWithdrawSourceInfo {
+  return {
+    type: holding.kind === "idle" ? "idle" : "reserve",
+    id: holding.reserve ?? holding.market ?? holding.liquidityMint,
+    label: holding.label,
+    amountRaw: holding.amountRaw,
+    liquidityMint: holding.liquidityMint,
+    market: holding.market,
+    reserve: holding.reserve,
+    tokenAccount: null,
+  };
+}
+
 export default function EarnScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -108,11 +127,24 @@ export default function EarnScreen() {
   // Real on-chain Earn position (read-only, no signing). Drives the funded
   // state + balance once it loads; the optimistic just-deposited value below
   // bridges the gap until the read-model catches up.
-  const { position, refreshEarnPosition } = useEarnPosition(walletAddress);
+  const { position, holdings, refreshEarnPosition } =
+    useEarnPosition(walletAddress);
   // Withdrawal sources (reserves + idle vault USDC) — fetched lazily when the
   // user opens withdraw; drives the source picker.
   const { sources: withdrawSources, refreshSources: refreshWithdrawSources } =
     useEarnWithdrawSources(walletAddress);
+  // Per-position breakdown for the positions sheet, derived from the live
+  // on-chain holdings (the same read that drives the headline) so it matches the
+  // web instead of the stale DB withdraw-sources read. Display-only — the
+  // withdraw picker still uses `withdrawSources`. Sub-cent dust is dropped so a
+  // negligible idle balance doesn't render as a "$0.00" row.
+  const livePositions = useMemo<EarnWithdrawSourceInfo[]>(
+    () =>
+      holdings
+        .filter((holding) => Number(holding.amountRaw) >= 5000)
+        .map((holding) => earnHoldingToDisplaySource(holding)),
+    [holdings],
+  );
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [positionsOpen, setPositionsOpen] = useState(false);
@@ -742,7 +774,7 @@ export default function EarnScreen() {
         onClose={() => setPositionsOpen(false)}
         balanceWhole={balanceParts.whole}
         balanceCents={balanceParts.cents}
-        sources={withdrawSources}
+        sources={livePositions}
         onDeposit={handlePositionsDeposit}
         onWithdraw={handlePositionsWithdraw}
       />

@@ -424,12 +424,52 @@ export async function fetchEarnState(
   return (await res.json()) as EarnStateResponse;
 }
 
+// Live on-chain Earn holdings snapshot — the same read the web does for its
+// headline balance (the vault's Kamino obligations + idle USDC, summed live via
+// RPC). Used to override `fetchEarnState`'s `currentAmountRaw`, which reads a DB
+// read-model that lags the chain and omits non-idle venue holdings (so the
+// native balance showed stale/low values). All amounts are USDC base units
+// (6 decimals) as strings. Wallet-keyed, read-only, no signature — like `state`.
+export type EarnHoldingItem = {
+  kind: "kamino" | "idle";
+  label: string;
+  amountRaw: string;
+  liquidityMint: string;
+  market: string | null;
+  marketName: string | null;
+  reserve: string | null;
+};
+
+export type EarnHoldingsResponse = {
+  currentTotalAmountRaw: string;
+  holdings: EarnHoldingItem[];
+  observedAt: string | null;
+  observedSlot: string | null;
+  settingsPda: string | null;
+  smartAccountAddress: string | null;
+};
+
+export async function fetchEarnHoldings(
+  walletAddress: string,
+): Promise<EarnHoldingsResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/holdings?walletAddress=${encodeURIComponent(
+      walletAddress,
+    )}`,
+    { method: "GET", headers: earnHeaders() },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to load Earn holdings.");
+  }
+  return (await res.json()) as EarnHoldingsResponse;
+}
+
 // Per-user Earn earnings for the Earnings chart (read-only, keyed by wallet
 // address — no signature, like `state`). Mirrors the web's single-range
 // `/yield-optimization/earnings` response; the mobile route always returns the
 // 30-day daily range. `bars` are per-day earned amounts; the chart plots them
-// cumulatively. The single-range response has no `generatedAt`, so the live
-// odometer anchors to the client fetch time.
+// per-day (each bar = that day's earnings). The single-range response has no
+// `generatedAt`, so the live odometer anchors to the client fetch time.
 export type EarnEarningsBar = {
   apyBps: number | null;
   avgPrincipalUsd: number;
@@ -596,4 +636,43 @@ export async function confirmEarnDeposit(
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Earn deposit.");
   }
+}
+
+// Solana Week quest progress (read-only, keyed by wallet — same `frontend`
+// backend and no-signature pattern as `fetchEarnState`). Powers the in-app
+// quest test page; Solana stays authoritative for the actual badge/claim state.
+export type SolanaWeekQuestKind = "earn_deposit" | "first_autodeposit_sweep";
+
+export type SolanaWeekQuestStatus =
+  | "reported"
+  | "pending"
+  | "failed"
+  | "not_started";
+
+export type SolanaWeekQuestProgressItem = {
+  kind: SolanaWeekQuestKind;
+  status: SolanaWeekQuestStatus;
+  solanaStatus: string | null;
+  reportedAt: string | null;
+  attempts: number;
+};
+
+export type SolanaWeekQuestProgressResponse = {
+  walletAddress: string;
+  quests: SolanaWeekQuestProgressItem[];
+};
+
+export async function fetchSolanaWeekQuestProgress(
+  walletAddress: string,
+): Promise<SolanaWeekQuestProgressResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/solana-week/progress?walletAddress=${encodeURIComponent(
+      walletAddress,
+    )}`,
+    { method: "GET", headers: earnHeaders() },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to load quest progress.");
+  }
+  return (await res.json()) as SolanaWeekQuestProgressResponse;
 }
