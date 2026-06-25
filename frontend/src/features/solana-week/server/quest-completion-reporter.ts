@@ -141,7 +141,27 @@ function buildHeaders(
   return headers;
 }
 
-async function postCompletion(
+// Total POST attempts (1 initial + retries) per completion report. Solana
+// classifies 500s as "retry with backoff", so we retry transient failures
+// (network errors and 5xx) inline — real-time reporting (Quest 1 at deposit
+// confirm) clears a brief blip without waiting on the reconcile cron. Bounded
+// and short because the deposit-confirm response awaits this call.
+const MAX_COMPLETION_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 250;
+
+// Exponential backoff between retries: 250ms, then 500ms.
+function retryDelayMs(retryIndex: number): number {
+  return RETRY_BASE_DELAY_MS * 2 ** retryIndex;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+// A single POST + classification. `postCompletion` wraps this with retries.
+async function attemptCompletion(
   config: ReporterConfig,
   questId: string,
   walletId: string,
@@ -194,6 +214,34 @@ async function postCompletion(
     error: payload?.error ?? "unknown_error",
     message: payload?.message ?? response.statusText,
   };
+}
+
+// Reports a completion with bounded exponential backoff on transient failures.
+// Returns immediately on success (2xx) or a permanent 4xx; once attempts are
+// exhausted it returns the last transient result, leaving the row pending for
+// the reconcile cron to retry later.
+async function postCompletion(
+  config: ReporterConfig,
+  questId: string,
+  walletId: string,
+  metadata: QuestCompletionMetadata | undefined
+): Promise<QuestCompletionResult> {
+  let lastResult: QuestCompletionResult = {
+    status: "retryable_error",
+    error: "no_attempt_made",
+  };
+
+  for (let attempt = 0; attempt < MAX_COMPLETION_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await sleep(retryDelayMs(attempt - 1));
+    }
+    lastResult = await attemptCompletion(config, questId, walletId, metadata);
+    if (lastResult.status !== "retryable_error") {
+      return lastResult;
+    }
+  }
+
+  return lastResult;
 }
 
 /**
