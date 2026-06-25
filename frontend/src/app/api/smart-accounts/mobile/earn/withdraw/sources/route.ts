@@ -153,26 +153,38 @@ export async function GET(request: Request) {
         tokenAccount: row.tokenAccount,
       }));
 
-    let sources: WithdrawSource[] = [...reserveSources, ...idleSources];
-    if (
-      sources.length === 0 &&
+    // When no user-facing RESERVE rows surfaced, fall back to the reconciled
+    // position's reserve holding. Keyed off `reserveSources.length === 0` (NOT
+    // total sources) and merged alongside idle — mirroring `withdraw/prepare`'s
+    // own fallback. The old `sources.length === 0` guard meant a dust idle
+    // balance suppressed this fallback, dropping the (filtered-out) reserve
+    // position entirely and leaving the sheet showing only idle dust. The
+    // reserve row gets filtered out when the snapshot stores the Kamino position
+    // under collateral semantics (`kamino_obligation_collateral_deposited_amount`)
+    // instead of `kamino_redeemable_liquidity`.
+    const positionFallbackSources: WithdrawSource[] =
+      reserveSources.length === 0 &&
       position &&
       position.currentAmountRaw > BigInt(0) &&
       position.currentMarket
-    ) {
-      sources = [
-        {
-          type: "reserve",
-          id: position.currentReserve,
-          label: "USDC reserve",
-          amountRaw: position.currentAmountRaw.toString(),
-          liquidityMint: position.currentLiquidityMint,
-          market: position.currentMarket,
-          reserve: position.currentReserve,
-          tokenAccount: null,
-        },
-      ];
-    }
+        ? [
+            {
+              type: "reserve",
+              id: position.currentReserve,
+              label: "USDC reserve",
+              amountRaw: position.currentAmountRaw.toString(),
+              liquidityMint: position.currentLiquidityMint,
+              market: position.currentMarket,
+              reserve: position.currentReserve,
+              tokenAccount: null,
+            },
+          ]
+        : [];
+    const sources: WithdrawSource[] = [
+      ...reserveSources,
+      ...positionFallbackSources,
+      ...idleSources,
+    ];
 
     return NextResponse.json({
       sources,
