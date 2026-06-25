@@ -157,6 +157,17 @@ export async function GET(request: Request) {
       stack: error instanceof Error ? error.stack : undefined,
       walletAddress,
     });
-    return jsonError(502, "earn_holdings_failed", "Failed to load Earn holdings.");
+    return NextResponse.json(
+      {
+        error: {
+          code: "earn_holdings_failed",
+          message: "Failed to load Earn holdings.",
+          debugName: error instanceof Error ? error.name : typeof error,
+          debugMessage:
+            error instanceof Error ? error.message : "Unknown read error.",
+        },
+      },
+      { status: 502 }
+    );
   }
 }
