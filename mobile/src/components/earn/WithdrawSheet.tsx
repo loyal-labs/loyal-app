@@ -140,11 +140,17 @@ export function WithdrawSheet({
   const isDropdown = sourceList.length > 1;
   const selectedSource =
     sourceList.find((source) => source.id === selectedSourceId) ?? null;
-  const available = selectedSource
-    ? sourceBalanceUsd(selectedSource)
-    : Number.isFinite(availableUsdc ?? NaN)
-      ? (availableUsdc as number)
-      : 0;
+  const liveTotal = Number.isFinite(availableUsdc ?? NaN)
+    ? (availableUsdc as number)
+    : null;
+  // For a single-source position the live wallet total is authoritative — the
+  // per-source DB amount lags the chain right after a deposit and reads low.
+  // Multi-source keeps the picked source's amount (you withdraw one at a time);
+  // fall back across them when one is absent.
+  const available =
+    sourceList.length > 1 && selectedSource
+      ? sourceBalanceUsd(selectedSource)
+      : (liveTotal ?? (selectedSource ? sourceBalanceUsd(selectedSource) : 0));
 
   useEffect(() => {
     if (open) {
