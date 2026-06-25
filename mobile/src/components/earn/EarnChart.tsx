@@ -79,10 +79,14 @@ const DECIMAL_FACTORS = [10_000, 1000, 100, 10, 1]; // .1 → .00001
 const TICK_MS = 240;
 const TICK_EASING = Easing.out(Easing.cubic);
 
-function formatMoney(value: number): string {
+// The "past month" gain. Shown to full precision (up to 6 dp, the Earn balance
+// decimals) so sub-cent monthly earnings read as e.g. "+$0.013521" instead of
+// collapsing to "+$0.01" — matching the web. minimumFractionDigits 2 keeps
+// normal amounts at cents (e.g. "+$1.50").
+function formatGain(value: number): string {
   return `$${value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 6,
   })}`;
 }
 
@@ -494,13 +498,11 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
   const cursorCenterX =
     barCount > 0 ? ((activeIdx + 0.5) / barCount) * chartWidth : 0;
 
-  const showTinyGain = rangeEarned > 0 && rangeEarned < 0.01;
-
   return (
     <Animated.View style={[styles.root, rootAnimatedStyle]}>
       <EarningsValue
         live={live}
-        baseValue={baseEarned}
+        baseValue={daily[lastIndex] ?? 0}
         ratePerSecond={ratePerSecond}
         anchorMs={fetchedAtMs}
         staticValue={daily[activeIdx] ?? 0}
@@ -513,9 +515,7 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
           </Text>
         ) : (
           <Text style={styles.subtitleGain}>
-            {showTinyGain
-              ? "<$0.01 past month"
-              : `+${formatMoney(rangeEarned)} past month`}
+            {`+${formatGain(rangeEarned)} past month`}
           </Text>
         )}
         <Text style={styles.axisMax}>{formatAxisLabel(axisMax)}</Text>
