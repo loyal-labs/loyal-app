@@ -1,10 +1,106 @@
-import { compilePreparedOperation } from "@loyal-labs/loyal-smart-accounts-core";
+import {
+  SolanaTransactionLogError,
+  compilePreparedOperation,
+  translateAndThrowAnchorError,
+} from "@loyal-labs/loyal-smart-accounts-core";
 import { VersionedTransaction } from "@solana/web3.js";
 import type {
   SendPreparedBatchWithWalletArgs,
   SendPreparedWithWalletArgs,
   WalletAdapterLike,
 } from "./types";
+
+function isInsufficientSolTopUpError(
+  error: unknown
+): error is SolanaTransactionLogError {
+  return (
+    error instanceof SolanaTransactionLogError &&
+    error.message.includes("Top up at least")
+  );
+}
+
+function translateSimulationLogs(
+  logs: readonly string[] | null | undefined
+): SolanaTransactionLogError | null {
+  if (!logs?.length) {
+    return null;
+  }
+
+  try {
+    translateAndThrowAnchorError(
+      Object.assign(new Error("Transaction simulation failed."), {
+        logs: [...logs],
+      })
+    );
+  } catch (error) {
+    return isInsufficientSolTopUpError(error) ? error : null;
+  }
+
+  return null;
+}
+
+async function getPostFailureSimulationError(args: {
+  connection: SendPreparedWithWalletArgs["connection"];
+  transaction: VersionedTransaction;
+}): Promise<SolanaTransactionLogError | null> {
+  try {
+    const simulation = await args.connection.simulateTransaction(
+      args.transaction,
+      {
+        commitment: "confirmed",
+        replaceRecentBlockhash: true,
+        sigVerify: false,
+      }
+    );
+
+    return translateSimulationLogs(simulation.value.logs);
+  } catch {
+    return null;
+  }
+}
+
+async function getFirstPostFailureSimulationError(args: {
+  connection: SendPreparedWithWalletArgs["connection"];
+  transactions: readonly VersionedTransaction[];
+}): Promise<SolanaTransactionLogError | null> {
+  for (const transaction of args.transactions) {
+    const simulationError = await getPostFailureSimulationError({
+      connection: args.connection,
+      transaction,
+    });
+    if (simulationError) {
+      return simulationError;
+    }
+  }
+
+  return null;
+}
+
+async function throwPostFailureSimulationErrorOrOriginal(args: {
+  connection: SendPreparedWithWalletArgs["connection"];
+  originalError: unknown;
+  transaction: VersionedTransaction;
+}): Promise<never> {
+  const simulationError = await getPostFailureSimulationError({
+    connection: args.connection,
+    transaction: args.transaction,
+  });
+
+  throw simulationError ?? args.originalError;
+}
+
+async function throwFirstPostFailureSimulationErrorOrOriginal(args: {
+  connection: SendPreparedWithWalletArgs["connection"];
+  originalError: unknown;
+  transactions: readonly VersionedTransaction[];
+}): Promise<never> {
+  const simulationError = await getFirstPostFailureSimulationError({
+    connection: args.connection,
+    transactions: args.transactions,
+  });
+
+  throw simulationError ?? args.originalError;
+}
 
 async function sendVersionedTransaction(args: {
   wallet: WalletAdapterLike;
@@ -44,7 +140,13 @@ export async function sendPreparedWithWallet({
     connection,
     transaction,
     sendOptions,
-  });
+  }).catch((error) =>
+    throwPostFailureSimulationErrorOrOriginal({
+      connection,
+      originalError: error,
+      transaction,
+    })
+  );
   const shouldConfirm =
     confirm === true || (confirm !== false && prepared.requiresConfirmation);
 
@@ -59,11 +161,16 @@ export async function sendPreparedWithWallet({
     );
 
     if (confirmation.value.err) {
-      throw new Error(
+      const error = new Error(
         `Transaction ${signature} failed to confirm: ${JSON.stringify(
           confirmation.value.err
         )}`
       );
+      await throwPostFailureSimulationErrorOrOriginal({
+        connection,
+        originalError: error,
+        transaction,
+      });
     }
   }
 
@@ -93,7 +200,15 @@ export async function sendPreparedBatchWithWallet({
       blockhash: latestBlockhash.blockhash,
     })
   );
-  const signedTransactions = await wallet.signAllTransactions(transactions);
+  const signedTransactions = await wallet
+    .signAllTransactions(transactions)
+    .catch((error) =>
+      throwFirstPostFailureSimulationErrorOrOriginal({
+        connection,
+        originalError: error,
+        transactions,
+      })
+    );
   if (signedTransactions.length !== prepared.length) {
     throw new Error("Signed transaction count does not match prepared count.");
   }
@@ -105,10 +220,15 @@ export async function sendPreparedBatchWithWallet({
       throw new Error("Signed transaction count does not match prepared count.");
     }
 
-    const signature = await connection.sendRawTransaction(
-      signedTransaction.serialize(),
-      sendOptions
-    );
+    const signature = await connection
+      .sendRawTransaction(signedTransaction.serialize(), sendOptions)
+      .catch((error) =>
+        throwPostFailureSimulationErrorOrOriginal({
+          connection,
+          originalError: error,
+          transaction: signedTransaction,
+        })
+      );
     signatures.push(signature);
     await onTransactionSent?.({
       index,
@@ -131,11 +251,16 @@ export async function sendPreparedBatchWithWallet({
       );
 
       if (confirmation.value.err) {
-        throw new Error(
+        const error = new Error(
           `Transaction ${signature} failed to confirm: ${JSON.stringify(
             confirmation.value.err
           )}`
         );
+        await throwPostFailureSimulationErrorOrOriginal({
+          connection,
+          originalError: error,
+          transaction: signedTransaction,
+        });
       }
     }
 
