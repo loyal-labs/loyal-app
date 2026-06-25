@@ -4721,7 +4721,7 @@ export function AppWalletWorkspace({
         haystack.includes("insufficient lamports") ||
         haystack.includes("would result in account being unable to pay rent");
       setProposalActionError(
-        isRentError
+        isRentError && !haystack.includes("top up")
           ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
           : raw
       );
