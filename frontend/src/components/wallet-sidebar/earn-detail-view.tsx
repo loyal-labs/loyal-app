@@ -1233,8 +1233,9 @@ function EarningsBlock({
   const realBars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
   const hasRealBars = realBars.length > 0;
   const bars = hasRealBars ? realBars : placeholderBars;
-  // Each bar carries the total earned as of the end of that day, anchored to
-  // the live estimate so hovering "today" matches the resting header value.
+  // Each bar carries the amount earned within that day. Reconcile the current
+  // in-progress bar against the live estimate without turning prior bars into
+  // cumulative values.
   const dailyBars = useMemo(() => {
     const safeEstimatedEarnedUsd = Math.max(0, estimatedEarnedUsd);
     const nonCurrentRecordedEarnedUsd = bars.reduce(
@@ -1253,17 +1254,8 @@ function EarningsBlock({
           }
         : bar
     );
-    const cumulative = new Array<number>(reconciledBars.length).fill(0);
-    let earnedAfter = 0;
-    for (let i = reconciledBars.length - 1; i >= 0; i -= 1) {
-      cumulative[i] = Math.max(0, safeEstimatedEarnedUsd - earnedAfter);
-      earnedAfter += Math.max(0, reconciledBars[i].earnedUsd);
-    }
-    return reconciledBars.map((bar, index) => ({
-      ...bar,
-      cumulativeUsd: hasRealBars || bar.isCurrent ? cumulative[index] : 0,
-    }));
-  }, [bars, estimatedEarnedUsd, hasRealBars]);
+    return reconciledBars;
+  }, [bars, estimatedEarnedUsd]);
   const maxDailyEarnedUsd = useMemo(
     () =>
       dailyBars.reduce(
@@ -1285,7 +1277,9 @@ function EarningsBlock({
       : hoveredBarEntry.label
     : "";
   const headerValue = splitEarningsHeaderValue(
-    hoveredBarEntry ? hoveredBarEntry.cumulativeUsd : estimatedEarnedUsd
+    hoveredBarEntry
+      ? Math.max(0, hoveredBarEntry.earnedUsd)
+      : estimatedEarnedUsd
   );
   let headerSubtitle: ReactNode;
   if (!hoveredBarEntry) {
