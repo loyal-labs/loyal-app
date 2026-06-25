@@ -12,8 +12,6 @@ import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/serv
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getCurrentReserveUpdatesByReserve } from "@/lib/kamino/timescale-reserve-client.server";
 import {
-  findCurrentNonzeroYieldVaultReservePositions,
-  findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -67,49 +65,6 @@ function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
     return mainnetEarnTarget.reserve.toBase58();
   }
   return position.currentReserve;
-}
-
-// The position record's stored `currentAmountRaw` can lag the latest vault
-// snapshot (it's refreshed by a separate reconcile pass), which made the native
-// Earn balance read stale vs the web. The headline balance is therefore the
-// freshly-summed on-chain total — Kamino reserve positions + idle vault token
-// balances — identical to the session `earn-state` route's `currentTotalAmountRaw`.
-// Falls back to the position amount if no fresh snapshot rows exist.
-async function loadCurrentTotalAmountRaw(args: {
-  cluster: ReturnType<typeof resolveConfiguredCluster>;
-  position: UserYieldPositionRecord;
-  settings: string;
-  walletAddress: string;
-}): Promise<bigint> {
-  try {
-    const [reserveRows, idleRows] = await Promise.all([
-      findCurrentNonzeroYieldVaultReservePositions({
-        cluster: args.cluster,
-        settings: args.settings,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: args.position.vaultPubkey,
-        walletAddress: args.walletAddress,
-      }),
-      findCurrentYieldVaultIdleTokenBalances({
-        cluster: args.cluster,
-        settings: args.settings,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: args.position.vaultPubkey,
-        walletAddress: args.walletAddress,
-      }),
-    ]);
-    const total = [...reserveRows, ...idleRows].reduce(
-      (sum, row) => sum + row.amountRaw,
-      BigInt(0)
-    );
-    return total > BigInt(0) ? total : args.position.currentAmountRaw;
-  } catch (error) {
-    console.warn(
-      "[mobile-earn-state] failed to load current holdings total",
-      error
-    );
-    return args.position.currentAmountRaw;
-  }
 }
 
 // Best-effort: the funded balance is the headline number; APY is supplementary,
@@ -183,19 +138,11 @@ export async function GET(request: Request) {
       });
     }
 
-    const [currentSupplyApyBps, currentTotalAmountRaw] = await Promise.all([
-      loadCurrentSupplyApyBps(position),
-      loadCurrentTotalAmountRaw({
-        cluster,
-        position,
-        settings: account.settingsPda,
-        walletAddress,
-      }),
-    ]);
+    const currentSupplyApyBps = await loadCurrentSupplyApyBps(position);
 
     return NextResponse.json({
       position: {
-        currentAmountRaw: currentTotalAmountRaw.toString(),
+        currentAmountRaw: position.currentAmountRaw.toString(),
         currentSupplyApyBps,
         principalAmountRaw: position.principalAmountRaw.toString(),
         status: position.status,
