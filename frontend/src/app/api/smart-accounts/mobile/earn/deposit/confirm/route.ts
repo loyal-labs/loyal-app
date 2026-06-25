@@ -8,6 +8,7 @@ import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
+import { reportEarnDepositQuestCompletion } from "@/features/solana-week/server/quest-completion-service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
@@ -226,6 +227,14 @@ export async function POST(request: Request) {
       principal: { walletAddress, smartAccountAddress, settingsPda },
       input,
     });
+
+    // Best-effort Solana Week attribution: Quest 1 ("connect wallet and deposit
+    // in Earn"). Idempotent on Solana's side; never blocks the deposit confirm.
+    await reportEarnDepositQuestCompletion(walletAddress, {
+      source: "mobile-earn-deposit-confirm",
+      solanaEnv,
+    });
+
     return NextResponse.json({ position });
   } catch (error) {
     if (error instanceof EarnDepositConfirmError) {

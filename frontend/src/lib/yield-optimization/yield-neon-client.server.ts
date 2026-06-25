@@ -867,6 +867,46 @@ export const rebalanceDecisions = loyalYieldSchema.table(
   }
 );
 
+// Solana Week (dApp Store quests) attribution: our local mirror of the quest
+// completions we report to Solana. Idempotent per (wallet, quest_kind); also the
+// data source for in-app quest progress without hitting Solana's read API.
+export const solanaWeekQuestCompletions = loyalYieldSchema.table(
+  "solana_week_quest_completions",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    walletAddress: text("wallet_address").notNull(),
+    // Internal quest identifier: 'earn_deposit' | 'first_autodeposit_sweep'.
+    questKind: text("quest_kind").notNull(),
+    // The Solana quest_id we reported (recorded once known/configured).
+    questId: text("quest_id"),
+    // Our reporting state: 'pending' | 'reported' | 'failed'.
+    status: text("status").notNull(),
+    // Solana's success kind, when reported: 'completed' | 'already_completed'.
+    solanaStatus: text("solana_status"),
+    attempts: integer("attempts").notNull().default(0),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("solana_week_quest_completion_wallet_kind_uidx").on(
+      table.walletAddress,
+      table.questKind
+    ),
+    // Lets the reconciler cheaply find rows still needing a (re)report.
+    index("solana_week_quest_completion_unreported_idx")
+      .on(table.updatedAt)
+      .where(sql`${table.status} <> 'reported'`),
+  ]
+);
+
 export const yieldOptimizationSchema = {
   balanceSweepExecutions,
   balanceSweepLotClaimItems,
@@ -882,6 +922,7 @@ export const yieldOptimizationSchema = {
   managedVaults,
   rebalanceDecisions,
   routePolicies,
+  solanaWeekQuestCompletions,
   userYieldPositionDeposits,
   userYieldPositionHoldingEvents,
   userYieldPositionWithdrawals,
@@ -914,6 +955,7 @@ export type YieldOptimizationClientTables = {
   managedVaults: typeof managedVaults;
   rebalanceDecisions: typeof rebalanceDecisions;
   routePolicies: typeof routePolicies;
+  solanaWeekQuestCompletions: typeof solanaWeekQuestCompletions;
   userYieldPositionDeposits: typeof userYieldPositionDeposits;
   userYieldPositionHoldingEvents: typeof userYieldPositionHoldingEvents;
   userYieldPositionWithdrawals: typeof userYieldPositionWithdrawals;
@@ -940,6 +982,7 @@ export class YieldOptimizationClient {
     managedVaults,
     rebalanceDecisions,
     routePolicies,
+    solanaWeekQuestCompletions,
     userYieldPositionDeposits,
     userYieldPositionHoldingEvents,
     userYieldPositionWithdrawals,
