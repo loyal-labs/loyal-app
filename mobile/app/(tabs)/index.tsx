@@ -19,6 +19,7 @@ import { AutodepositSetupSheet } from "@/components/earn/AutodepositSetupSheet";
 import { DepositSheet } from "@/components/earn/DepositSheet";
 import { EarnChartTabs } from "@/components/earn/EarnChartTabs";
 import { EarnDog } from "@/components/earn/EarnDog";
+import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { PositionsSheet } from "@/components/earn/PositionsSheet";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
@@ -42,6 +43,7 @@ import {
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
+import { useEarnForecast } from "@/hooks/wallet/useEarnForecast";
 import { useEarnWithdrawSources } from "@/hooks/wallet/useEarnWithdrawSources";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
@@ -129,6 +131,10 @@ export default function EarnScreen() {
   // bridges the gap until the read-model catches up.
   const { position, holdings, refreshEarnPosition } =
     useEarnPosition(walletAddress);
+  // Global "loyal" APY forecast — the same source the APY chart (and the web)
+  // show as the headline rate, so the badge below matches them instead of the
+  // position's raw reserve supply APY.
+  const forecastSummary = useEarnForecast();
   // Withdrawal sources (reserves + idle vault USDC) — fetched lazily when the
   // user opens withdraw; drives the source picker.
   const { sources: withdrawSources, refreshSources: refreshWithdrawSources } =
@@ -499,18 +505,16 @@ export default function EarnScreen() {
     refreshAutodeposit();
   }, [signer, state, autodeposit, refreshAutodeposit]);
 
-  // Live position APY for the funded header badge; falls back to the marketing
-  // rate while the read-model is loading or Timescale has no APY data.
+  // Loyal APY for the funded header badge — same source as the APY chart and the
+  // web (forecast/loyal rate), not the position's raw reserve supply APY (which
+  // reads lower). getLoyalApyBps falls back to its marketing rate while loading.
   const apyLabel = useMemo(() => {
-    const bps = position?.currentSupplyApyBps;
-    if (bps != null) {
-      const pct = Number(bps) / 100;
-      if (Number.isFinite(pct) && pct > 0) {
-        return `${pct.toFixed(2)}% APY`;
-      }
+    const pct = getLoyalApyBps(forecastSummary) / 100;
+    if (Number.isFinite(pct) && pct > 0) {
+      return `${pct.toFixed(2)}% APY`;
     }
     return APY_LABEL;
-  }, [position]);
+  }, [forecastSummary]);
 
   // Autodeposit threshold subtitle, shown once it's been set up (Figma 74:20722).
   const isAutodepositSetUp = autodepositThresholdUsd != null;

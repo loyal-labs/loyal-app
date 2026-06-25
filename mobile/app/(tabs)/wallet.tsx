@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { DepositSheet } from "@/components/earn/DepositSheet";
+import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
 import { BannerCard } from "@/components/wallet/BannerCard";
@@ -37,6 +38,7 @@ import {
   MoreActionsSheet,
 } from "@/features/wallet-categories/ui/MoreActionsSheet";
 import { WalletCategoryGrid } from "@/features/wallet-categories/ui/WalletCategoryGrid";
+import { useEarnForecast } from "@/hooks/wallet/useEarnForecast";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useKaminoEarnings } from "@/hooks/wallet/useKaminoEarnings";
 import { useSolPrice } from "@/hooks/wallet/useSolPrice";
@@ -86,6 +88,9 @@ export default function WalletScreen() {
     useKaminoEarnings();
   const { position: earnPosition, refreshEarnPosition } =
     useEarnPosition(walletAddress);
+  // Loyal APY forecast — the Earn card shows the same headline rate as the Earn
+  // screen / APY chart / web, not the position's raw reserve supply APY.
+  const forecastSummary = useEarnForecast();
   const { signer, state } = useWallet();
 
   const doFullRefresh = useCallback(
@@ -203,9 +208,14 @@ export default function WalletScreen() {
     return Number.isFinite(raw) ? raw / 1e6 : 0;
   }, [earnPosition]);
   const earnApyBps = useMemo(() => {
-    const bps = Number(earnPosition?.currentSupplyApyBps);
+    // Show the loyal forecast rate (matching the Earn screen + APY chart) when
+    // funded; no badge when there's no Earn position.
+    if (!earnPosition) {
+      return null;
+    }
+    const bps = getLoyalApyBps(forecastSummary);
     return Number.isFinite(bps) && bps > 0 ? bps : null;
-  }, [earnPosition]);
+  }, [earnPosition, forecastSummary]);
 
   // Wallet USDC balance feeds the Deposit sheet's available/insufficient state.
   const usdcAvailable = useMemo(() => {
