@@ -300,3 +300,72 @@ export async function reconcileQuestCompletions(args: {
 
   return summary;
 }
+
+const QUEST_KINDS: QuestKind[] = ["earn_deposit", "first_autodeposit_sweep"];
+
+export type QuestProgressStatus =
+  | "reported"
+  | "pending"
+  | "failed"
+  | "not_started";
+
+export type QuestProgressItem = {
+  kind: QuestKind;
+  status: QuestProgressStatus;
+  solanaStatus: string | null;
+  reportedAt: string | null;
+  attempts: number;
+};
+
+// Persisted rows are only ever pending/reported/failed (see applyReportResult);
+// anything unexpected collapses to "pending" so the UI never shows a raw value.
+function normalizeRowStatus(status: string): QuestProgressStatus {
+  return status === "reported" || status === "failed" ? status : "pending";
+}
+
+/**
+ * Read-only quest progress for one wallet, for the in-app quest page. Returns
+ * one item per quest kind ("not_started" when no row exists yet). Solana stays
+ * authoritative for badge earned/locked and claim state; this only mirrors "the
+ * wallet did the action + our local reporting status".
+ */
+export async function getQuestProgress(
+  walletId: string
+): Promise<QuestProgressItem[]> {
+  const wallet = walletId.trim();
+  const rowByKind = new Map<QuestKind, CompletionRow>();
+  if (wallet) {
+    const rows = await db()
+      .select()
+      .from(solanaWeekQuestCompletions)
+      .where(eq(solanaWeekQuestCompletions.walletAddress, wallet));
+    for (const row of rows) {
+      if (
+        row.questKind === "earn_deposit" ||
+        row.questKind === "first_autodeposit_sweep"
+      ) {
+        rowByKind.set(row.questKind, row);
+      }
+    }
+  }
+
+  return QUEST_KINDS.map((kind) => {
+    const row = rowByKind.get(kind);
+    if (!row) {
+      return {
+        kind,
+        status: "not_started" as const,
+        solanaStatus: null,
+        reportedAt: null,
+        attempts: 0,
+      };
+    }
+    return {
+      kind,
+      status: normalizeRowStatus(row.status),
+      solanaStatus: row.solanaStatus,
+      reportedAt: row.reportedAt ? row.reportedAt.toISOString() : null,
+      attempts: row.attempts,
+    };
+  });
+}
