@@ -11,6 +11,11 @@ import type {
 import { PROGRAM_ID } from "../generated/index.js";
 import { translateAndThrowAnchorError } from "../errors/index.js";
 
+export type PreparedOperationSimulationDiagnosticsMetadata = Readonly<{
+  kind: string;
+  [key: string]: unknown;
+}>;
+
 export type PreparedLoyalSmartAccountsOperation<Name extends string = string> =
   Readonly<{
     operation: Name;
@@ -19,6 +24,7 @@ export type PreparedLoyalSmartAccountsOperation<Name extends string = string> =
     requiresConfirmation: boolean;
     instructions: readonly TransactionInstruction[];
     lookupTableAccounts: readonly AddressLookupTableAccount[];
+    simulationDiagnostics?: PreparedOperationSimulationDiagnosticsMetadata;
   }>;
 
 export type LoyalSmartAccountsConfirmationContext = {

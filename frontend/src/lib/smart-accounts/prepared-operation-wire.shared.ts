@@ -1,4 +1,5 @@
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts";
+import type { PreparedOperationSimulationDiagnosticsMetadata } from "@loyal-labs/loyal-smart-accounts-core";
 import {
   AddressLookupTableAccount,
   PublicKey,
@@ -34,6 +35,7 @@ export type WirePreparedLoyalSmartAccountsOperation = {
   payer: string;
   programId: string;
   requiresConfirmation: boolean;
+  simulationDiagnostics?: PreparedOperationSimulationDiagnosticsMetadata;
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -85,6 +87,9 @@ export function serializePreparedOperation(
     payer: prepared.payer.toBase58(),
     programId: prepared.programId.toBase58(),
     requiresConfirmation: prepared.requiresConfirmation,
+    ...(prepared.simulationDiagnostics
+      ? { simulationDiagnostics: prepared.simulationDiagnostics }
+      : {}),
   };
 }
 
@@ -126,5 +131,8 @@ export function hydratePreparedOperation(
     payer: new PublicKey(wire.payer),
     programId: new PublicKey(wire.programId),
     requiresConfirmation: wire.requiresConfirmation,
+    ...(wire.simulationDiagnostics
+      ? { simulationDiagnostics: wire.simulationDiagnostics }
+      : {}),
   };
 }

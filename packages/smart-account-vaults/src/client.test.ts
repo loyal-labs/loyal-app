@@ -871,6 +871,24 @@ describe("prepareEarnUsdcDeposit", () => {
       result.setupPolicy!.account,
       { isSigner: false, isWritable: true }
     );
+    expect(result.policySetupPrepared?.simulationDiagnostics).toEqual({
+      includedPolicyAccounts: [result.policy.account.toBase58()],
+      kind: "earnPolicyCreateMissingAccount",
+      policyAccount: result.policy.account.toBase58(),
+      policySeed: "7",
+      policyStage: "route",
+      programId: programId.toBase58(),
+      settingsPda: settingsPda.toBase58(),
+    });
+    expect(result.policyFinalizePrepared?.simulationDiagnostics).toEqual({
+      includedPolicyAccounts: [result.setupPolicy!.account.toBase58()],
+      kind: "earnPolicyCreateMissingAccount",
+      policyAccount: result.setupPolicy!.account.toBase58(),
+      policySeed: "8",
+      policyStage: "setup",
+      programId: programId.toBase58(),
+      settingsPda: settingsPda.toBase58(),
+    });
     expect(result.prepared.instructions).toHaveLength(4);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
@@ -1104,6 +1122,24 @@ describe("prepareEarnUsdcDeposit", () => {
     expectEarnPolicyInitializationUsesSafeUniverse({
       finalizePrepared: result.finalizePrepared,
       setupPrepared: result.prepared,
+    });
+    expect(result.prepared.simulationDiagnostics).toEqual({
+      includedPolicyAccounts: [result.policy.account.toBase58()],
+      kind: "earnPolicyCreateMissingAccount",
+      policyAccount: result.policy.account.toBase58(),
+      policySeed: "7",
+      policyStage: "route",
+      programId: programId.toBase58(),
+      settingsPda: settingsPda.toBase58(),
+    });
+    expect(result.finalizePrepared?.simulationDiagnostics).toEqual({
+      includedPolicyAccounts: [result.setupPolicy.account.toBase58()],
+      kind: "earnPolicyCreateMissingAccount",
+      policyAccount: result.setupPolicy.account.toBase58(),
+      policySeed: "8",
+      policyStage: "setup",
+      programId: programId.toBase58(),
+      settingsPda: settingsPda.toBase58(),
     });
     expect(result.policy.seed).toBe(BigInt(7));
     expect(result.vault).toMatchObject({

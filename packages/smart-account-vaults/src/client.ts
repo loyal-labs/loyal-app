@@ -154,6 +154,7 @@ import {
   tokenAmountToNumber,
   type SmartAccountSpendingLimitPeriod,
 } from "./spending-limits";
+import type { EarnPolicyCreateSimulationDiagnosticsMetadata } from "./simulation-diagnostics";
 
 const SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET = BigInt(64);
 
@@ -1490,6 +1491,39 @@ function mergePreparedOperations(args: {
         (operation) => operation.lookupTableAccounts ?? []
       )
     ),
+  });
+}
+
+function withEarnPolicyCreateSimulationDiagnostics(
+  operation: PreparedLoyalSmartAccountsOperation<string>,
+  args: {
+    policyAccount: PublicKey;
+    policySeed: bigint;
+    policyStage: EarnPolicyCreateSimulationDiagnosticsMetadata["policyStage"];
+    programId: PublicKey;
+    settingsPda: PublicKey;
+  }
+): PreparedLoyalSmartAccountsOperation<string> {
+  const policyAccount = args.policyAccount.toBase58();
+  const instructionAccounts = new Set(
+    operation.instructions.flatMap((instruction) =>
+      instruction.keys.map((meta) => meta.pubkey.toBase58())
+    )
+  );
+
+  return freezePreparedOperation({
+    ...operation,
+    simulationDiagnostics: {
+      includedPolicyAccounts: instructionAccounts.has(policyAccount)
+        ? [policyAccount]
+        : [],
+      kind: "earnPolicyCreateMissingAccount",
+      policyAccount,
+      policySeed: args.policySeed.toString(),
+      policyStage: args.policyStage,
+      programId: args.programId.toBase58(),
+      settingsPda: args.settingsPda.toBase58(),
+    },
   });
 }
 
@@ -4828,41 +4862,53 @@ export function createSmartAccountVaultsClient(
     })[0];
     const earnTarget = resolveKaminoEarnTarget(args.cluster);
     const earnUniverse = earnPolicyUniverseFromPlan(plan);
-    const createPolicyOperation = (policyArgs: {
+    const createPolicyOperation = async (policyArgs: {
       policyAccount: PublicKey;
       policySeed: bigint;
+      policyStage: EarnPolicyCreateSimulationDiagnosticsMetadata["policyStage"];
       payload: generated.PolicyCreationPayload;
-    }) =>
-      smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
-        {
-          feePayer: args.feePayer,
-          settingsPda: args.settingsPda,
-          signers: [args.signer],
-          actions: [
-            {
-              __kind: "PolicyCreate",
-              seed: toBn(policyArgs.policySeed),
-              policyCreationPayload: policyArgs.payload,
-              signers: [createPolicySigner(args.policySigner)],
-              threshold: 1,
-              timeLock: 0,
-              startTimestamp: null,
-              expirationArgs: null,
-            },
-          ],
-          remainingAccounts: [
-            {
-              pubkey: policyArgs.policyAccount,
-              isWritable: true,
-              isSigner: false,
-            },
-          ],
-        } as never
-      );
+    }) => {
+      const operation =
+        await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+          {
+            feePayer: args.feePayer,
+            settingsPda: args.settingsPda,
+            signers: [args.signer],
+            actions: [
+              {
+                __kind: "PolicyCreate",
+                seed: toBn(policyArgs.policySeed),
+                policyCreationPayload: policyArgs.payload,
+                signers: [createPolicySigner(args.policySigner)],
+                threshold: 1,
+                timeLock: 0,
+                startTimestamp: null,
+                expirationArgs: null,
+              },
+            ],
+            remainingAccounts: [
+              {
+                pubkey: policyArgs.policyAccount,
+                isWritable: true,
+                isSigner: false,
+              },
+            ],
+          } as never
+        );
+
+      return withEarnPolicyCreateSimulationDiagnostics(operation, {
+        policyAccount: policyArgs.policyAccount,
+        policySeed: policyArgs.policySeed,
+        policyStage: policyArgs.policyStage,
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+      });
+    };
 
     const operation = await createPolicyOperation({
       policyAccount,
       policySeed: args.policySeed,
+      policyStage: "route",
       payload: createEarnProgramInteractionPolicyCreationPayload({
         target: earnTarget,
         universe: earnUniverse,
@@ -4882,6 +4928,7 @@ export function createSmartAccountVaultsClient(
     const setupOperation = await createPolicyOperation({
       policyAccount: setupPolicyAccount,
       policySeed: setupPolicySeed,
+      policyStage: "setup",
       payload: createEarnInitObligationPolicyCreationPayload({
         target: earnTarget,
         universe: earnUniverse,
