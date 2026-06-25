@@ -13,10 +13,12 @@ import {
 import {
   calculateEarnEarnings,
   type EarningsRangeId,
+  type ReserveApySample,
+  type YieldPositionPathEvent,
 } from "@/lib/yield-optimization/earnings-calculator.server";
 import {
-  findReconciledActiveYieldPositionForVault,
-  findYieldPositionEvents,
+  findYieldPositionHistoryEventsForVault,
+  type UserYieldPositionHistoryEventRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Read-only mobile twin of the session `yield-optimization/earnings` route. Like
@@ -24,9 +26,16 @@ import {
 // so the lookup is keyed by a supplied wallet address rather than a signed
 // request (returning only public, on-chain-derived earnings data). The mobile
 // Earnings chart only renders the 30-day daily view, so this always computes the
-// "30D" range — keep the computation below in sync with the session route. If
-// the wallet has no app user / smart account / position yet, it returns the
-// empty earnings result (zero bars) rather than creating anything.
+// "30D" range.
+//
+// It MUST feed the calculator the same inputs as the session route — the full
+// position PATH (every reserve the vault moved through) plus per-reserve APY
+// samples — so daily earnings match the web exactly. Passing the legacy
+// single-reserve `events` instead makes the calculator fall back to
+// `legacyEventsToPathEvents` with one reserve's APY, which diverges (wrong
+// per-day earned + principal). If the wallet has no app user / smart account
+// yet, it returns the empty earnings result (zero bars) rather than creating
+// anything.
 const EARN_VAULT_INDEX = 1;
 const EARNINGS_RANGE: EarningsRangeId = "30D";
 
@@ -50,17 +59,55 @@ function resolveConfiguredCluster() {
   return resolveLoyalClusterForSolanaEnv(solanaEnv);
 }
 
-function getFirstDepositAt(
-  events: Awaited<ReturnType<typeof findYieldPositionEvents>>
-): Date | null {
-  return events.find((event) => event.type === "deposit")?.confirmedAt ?? null;
+function toYieldPositionPathEvent(
+  event: UserYieldPositionHistoryEventRecord
+): YieldPositionPathEvent {
+  return {
+    amountRaw: event.amountRaw,
+    confirmedAt: event.confirmedAt,
+    liquidityMint: event.liquidityMint,
+    market: event.market,
+    principalAmountRaw: event.principalAmountRaw,
+    reserve: event.reserve,
+    type: event.type,
+  };
 }
 
-async function loadReserveApySamples(args: {
+function getFirstDepositAt(
+  events: readonly YieldPositionPathEvent[]
+): Date | null {
+  let firstDepositAt: Date | null = null;
+  for (const event of events) {
+    if (event.type !== "deposit") {
+      continue;
+    }
+    if (
+      firstDepositAt === null ||
+      event.confirmedAt.getTime() < firstDepositAt.getTime()
+    ) {
+      firstDepositAt = event.confirmedAt;
+    }
+  }
+  return firstDepositAt;
+}
+
+async function loadReserveApySamplesForPath(args: {
   end: Date;
-  reserve: string;
+  pathEvents: readonly YieldPositionPathEvent[];
   start: Date;
-}) {
+}): Promise<ReserveApySample[]> {
+  const reserves = new Set<string>();
+  for (const event of args.pathEvents) {
+    if (!event.reserve) {
+      continue;
+    }
+    reserves.add(event.reserve);
+  }
+
+  if (reserves.size === 0) {
+    return [];
+  }
+
   const databaseUrl = getTimescaleReserveDatabaseUrl();
   if (!databaseUrl) {
     throw new MissingTimescaleDatabaseUrlError();
@@ -68,10 +115,24 @@ async function loadReserveApySamples(args: {
 
   const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
   try {
-    return await client.getReserveApyHistorySamples(args);
+    const samples: ReserveApySample[] = [];
+    for (const reserve of reserves) {
+      const reserveSamples = await client.getReserveApyHistorySamples({
+        end: args.end,
+        reserve,
+        start: args.start,
+      });
+      samples.push(
+        ...reserveSamples.map((sample) => ({ ...sample, reserve }))
+      );
+    }
+    return samples;
   } finally {
     await client.close().catch((error) => {
-      console.warn("[mobile-earn-earnings] failed to close Timescale client", error);
+      console.warn(
+        "[mobile-earn-earnings] failed to close Timescale client",
+        error
+      );
     });
   }
 }
@@ -106,40 +167,32 @@ export async function GET(request: Request) {
     const account = user
       ? await findReadyCurrentUserSmartAccount({ userId: user.id })
       : null;
-    const position = account
-      ? await findReconciledActiveYieldPositionForVault({
-          cluster,
-          settings: account.settingsPda,
-          vaultIndex: EARN_VAULT_INDEX,
-          walletAddress,
-        })
-      : null;
-    const events =
-      position && account
-        ? await findYieldPositionEvents({
+    const pathEvents = account
+      ? (
+          await findYieldPositionHistoryEventsForVault({
             cluster,
-            initialReserve: position.initialReserve,
             settings: account.settingsPda,
             vaultIndex: EARN_VAULT_INDEX,
-            vaultPubkey: position.vaultPubkey,
             walletAddress,
           })
-        : [];
-    const firstDepositAt = getFirstDepositAt(events);
+        ).map(toYieldPositionPathEvent)
+      : [];
+    const firstDepositAt = getFirstDepositAt(pathEvents);
     const apySamples =
-      firstDepositAt === null || !position
+      firstDepositAt === null
         ? []
-        : await loadReserveApySamples({
+        : await loadReserveApySamplesForPath({
             end: now,
-            reserve: position.currentReserve,
+            pathEvents,
             start: firstDepositAt,
           });
 
     return NextResponse.json(
       calculateEarnEarnings({
         apySamples,
-        events,
+        events: [],
         now,
+        pathEvents,
         range: EARNINGS_RANGE,
         timezone,
       })
