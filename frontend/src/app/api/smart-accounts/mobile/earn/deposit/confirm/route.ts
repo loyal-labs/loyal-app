@@ -229,11 +229,17 @@ export async function POST(request: Request) {
     });
 
     // Best-effort Solana Week attribution: Quest 1 ("connect wallet and deposit
-    // in Earn"). Idempotent on Solana's side; never blocks the deposit confirm.
-    await reportEarnDepositQuestCompletion(walletAddress, {
-      source: "mobile-earn-deposit-confirm",
-      solanaEnv,
-    });
+    // $10+ in Earn"). Deposits under the threshold are a no-op. Idempotent on
+    // Solana's side; never blocks the deposit confirm.
+    await reportEarnDepositQuestCompletion(
+      walletAddress,
+      input.principalAmountRaw,
+      {
+        source: "mobile-earn-deposit-confirm",
+        solanaEnv,
+        depositUsdcRaw: input.principalAmountRaw.toString(),
+      }
+    );
 
     return NextResponse.json({ position });
   } catch (error) {
