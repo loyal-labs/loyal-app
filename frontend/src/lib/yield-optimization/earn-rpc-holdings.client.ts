@@ -1,4 +1,10 @@
-"use client";
+// NOTE: intentionally NOT a "use client" module despite the .client.ts name.
+// `fetchEarnRpcHoldingsSnapshot` is a pure RPC computation (no React/browser
+// APIs) that must also be callable from server routes — e.g. the mobile
+// `/api/.../mobile/earn/holdings` twin. A "use client" directive makes Next.js
+// treat these exports as client references and throws "Attempted to call
+// fetchEarnRpcHoldingsSnapshot() from the server" at runtime (tsc can't catch
+// it). The client hook imports it just the same.
 
 import {
   KAMINO_VANILLA_OBLIGATION_ID,
