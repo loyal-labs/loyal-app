@@ -22,6 +22,7 @@ import {
   findCurrentEarnAutodepositState,
   reconcileMissingOnChainEarnAutodepositPolicy,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
@@ -328,6 +329,19 @@ export async function POST(request: Request) {
       programId,
       settingsPda: settingsPdaKey,
     });
+    const connection = getConnection(solanaEnv);
+    // Reconcile the DB position against the live on-chain Kamino obligation
+    // before deriving the withdrawal target — otherwise a stale snapshot points
+    // the withdraw at a reserve/market whose vanilla obligation doesn't exist
+    // (KLEND_OBLIGATION_NOT_FOUND). Mirrors the web `withdrawals/prepare` route.
+    await reconcileEarnVaultPosition({
+      authority: walletAddress,
+      cluster,
+      connection,
+      force: true,
+      settings: settingsPda,
+      vaultPubkey: earnVaultPda.toBase58(),
+    });
     const [policyResult, position, currentReserveRows, currentIdleRows] =
       await Promise.all([
         findActiveYieldRoutePolicyPair({
@@ -415,7 +429,6 @@ export async function POST(request: Request) {
     const isFinalExit = remainingSourceAmountRaw <= BigInt(0);
 
     const policySigner = getDeploymentPolicySignerPublicKey();
-    const connection = getConnection(solanaEnv);
     const client = createSmartAccountVaultsClient({
       connection,
       programId,
