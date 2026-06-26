@@ -1,5 +1,6 @@
 import type {
   SmartAccountEarnUsdcDepositMetadata,
+  SmartAccountNativeSolRequirement,
   SmartAccountPreparedEarnUsdcDeposit,
 } from "@loyal-labs/smart-account-vaults";
 import { PublicKey } from "@solana/web3.js";
@@ -18,6 +19,7 @@ export type WireSmartAccountPreparedEarnUsdcDeposit = {
   kaminoSetupAccountCount: number;
   kaminoSetupRentLamports: string;
   kaminoSetupRequired: boolean;
+  nativeSolRequirement: SmartAccountNativeSolRequirement;
   persistence: SmartAccountEarnUsdcDepositMetadata;
   policyFinalizePrepared?: WirePreparedLoyalSmartAccountsOperation | null;
   policy: {
@@ -96,6 +98,7 @@ export function serializePreparedEarnUsdcDeposit(
     kaminoSetupAccountCount: preparedDeposit.kaminoSetupAccountCount,
     kaminoSetupRentLamports: preparedDeposit.kaminoSetupRentLamports,
     kaminoSetupRequired: preparedDeposit.kaminoSetupRequired,
+    nativeSolRequirement: preparedDeposit.nativeSolRequirement,
     persistence: preparedDeposit.persistence,
     policyFinalizePrepared: preparedDeposit.policyFinalizePrepared
       ? serializePreparedOperation(preparedDeposit.policyFinalizePrepared)
@@ -147,6 +150,7 @@ export function hydratePreparedEarnUsdcDeposit(
     kaminoSetupAccountCount: wire.kaminoSetupAccountCount,
     kaminoSetupRentLamports: wire.kaminoSetupRentLamports,
     kaminoSetupRequired: wire.kaminoSetupRequired,
+    nativeSolRequirement: wire.nativeSolRequirement,
     persistence: wire.persistence,
     policyFinalizePrepared: wire.policyFinalizePrepared
       ? hydratePreparedOperation(wire.policyFinalizePrepared)

@@ -524,10 +524,36 @@ export type SmartAccountEarnUsdcDepositMetadata = {
   universePreset: string;
 };
 
+export type SmartAccountNativeSolRequirementItemKind =
+  | "transaction_fee"
+  | "policy_rent"
+  | "token_account_rent"
+  | "kamino_setup_top_up"
+  | "subscription_authority_rent"
+  | "recurring_delegation_rent";
+
+export type SmartAccountNativeSolRequirementItem = {
+  account?: string;
+  kind: SmartAccountNativeSolRequirementItemKind;
+  label: string;
+  lamports: string;
+  stage: string;
+};
+
+export type SmartAccountNativeSolRequirement = {
+  balanceLamports: string;
+  canProceed: boolean;
+  deficitLamports: string;
+  items: SmartAccountNativeSolRequirementItem[];
+  payer: string;
+  requiredLamports: string;
+};
+
 export type SmartAccountPreparedEarnUsdcDeposit = {
   kaminoSetupAccountCount: number;
   kaminoSetupRentLamports: string;
   kaminoSetupRequired: boolean;
+  nativeSolRequirement: SmartAccountNativeSolRequirement;
   policyFinalizePrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
   policySetupPrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
@@ -824,6 +850,7 @@ export type SmartAccountEarnUsdcAutodepositSetupMetadata = {
 
 export type SmartAccountPreparedEarnUsdcAutodepositSetup = {
   prepared: PreparedLoyalSmartAccountsOperation<string>;
+  nativeSolRequirement: SmartAccountNativeSolRequirement;
   stage:
     | "initialize_subscription_authority"
     | "create_policy"

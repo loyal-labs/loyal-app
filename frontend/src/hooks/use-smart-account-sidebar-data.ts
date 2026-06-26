@@ -5,10 +5,12 @@ import {
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
 import {
+  combineSmartAccountNativeSolRequirements,
   createSmartAccountVaultsClient,
   sendPreparedBatchWithWallet,
   sendPreparedWithWallet,
   SOL_SPENDING_LIMIT_MINT,
+  type SmartAccountNativeSolRequirement,
   type SmartAccountOverview,
   type SmartAccountOverviewBase,
   type SmartAccountPreparedEarnUsdcAutodepositClose,
@@ -1908,6 +1910,29 @@ function formatSolAmount(lamports: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 6,
   });
+}
+
+function formatSolLamportsString(lamports: string): string {
+  return formatSolAmount(Number(BigInt(lamports)));
+}
+
+function getNativeSolRequirementError(
+  requirement: SmartAccountNativeSolRequirement | null | undefined
+): string | null {
+  if (!requirement || requirement.canProceed) {
+    return null;
+  }
+
+  const deficitLamports = BigInt(requirement.deficitLamports);
+  if (deficitLamports <= BigInt(0)) {
+    return null;
+  }
+
+  return `Add at least ${formatSolLamportsString(
+    requirement.deficitLamports
+  )} SOL to the connected wallet before signing. This Earn setup requires ${formatSolLamportsString(
+    requirement.requiredLamports
+  )} SOL for account rent and network fees.`;
 }
 
 function lamportsToUsd(lamports: number, solPriceUsd: number): number {
@@ -4905,6 +4930,12 @@ export function useSmartAccountSidebarData(
               : "Prepared Earn policy finalization is missing. Review the deposit again before signing.",
         };
       }
+      const nativeSolError = getNativeSolRequirementError(
+        request.preparedDeposit.nativeSolRequirement
+      );
+      if (nativeSolError) {
+        return { success: false, error: nativeSolError };
+      }
 
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
 
@@ -5058,6 +5089,12 @@ export function useSmartAccountSidebarData(
       });
       if (clusterError) {
         return { success: false, error: clusterError };
+      }
+      const nativeSolError = getNativeSolRequirementError(
+        request.preparedDeposit.nativeSolRequirement
+      );
+      if (nativeSolError) {
+        return { success: false, error: nativeSolError };
       }
 
       setIsActionPending(true);
@@ -5367,6 +5404,12 @@ export function useSmartAccountSidebarData(
             error:
               "Prepared Earn deposit amount changed. Review the deposit again before signing.",
           };
+        }
+        const nativeSolError = getNativeSolRequirementError(
+          preparedDeposit.nativeSolRequirement
+        );
+        if (nativeSolError) {
+          return { success: false, error: nativeSolError };
         }
         console.log(
           "[executeEarnDeposit] prepared deposit; sending to wallet",
@@ -6023,6 +6066,14 @@ export function useSmartAccountSidebarData(
             if (clusterError) {
               return { success: false, error: clusterError };
             }
+            const nativeSolError = getNativeSolRequirementError(
+              combineSmartAccountNativeSolRequirements(
+                batchPreparedSetups.map((setup) => setup.nativeSolRequirement)
+              )
+            );
+            if (nativeSolError) {
+              return { success: false, error: nativeSolError };
+            }
 
             const confirmationRecordFailureRef: {
               current: {
@@ -6184,6 +6235,13 @@ export function useSmartAccountSidebarData(
               scheduledSweeps,
             };
           }
+        }
+
+        const nativeSolError = getNativeSolRequirementError(
+          preparedSetup.nativeSolRequirement
+        );
+        if (nativeSolError) {
+          return { success: false, error: nativeSolError };
         }
 
         const setupSend = await sendPreparedEarnWithClusterPreflight({

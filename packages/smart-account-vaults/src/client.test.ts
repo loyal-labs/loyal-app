@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
+  deriveSubscriptionAuthority,
   getRiskBasketMarketsForCluster,
   getStablecoinMintsForCluster,
   KAMINO_VANILLA_OBLIGATION_ID,
@@ -40,6 +41,7 @@ import {
   parseKaminoObligationDepositedCollateralAmountRaw,
   parseKaminoObligationDeposits,
 } from "./client";
+import { combineSmartAccountNativeSolRequirements } from "./native-sol-requirement";
 
 const programId = new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
 const settingsPda = new PublicKey("11111111111111111111111111111112");
@@ -83,7 +85,14 @@ const kaminoObligationDiscriminator = Buffer.from([
 ]);
 const kaminoReserveOffsetBase = 8;
 const kaminoReserveOffsets = {
+  collateralMintPubkey: kaminoReserveOffsetBase + 2552,
+  collateralSupplyVault: kaminoReserveOffsetBase + 2592,
+  farmCollateral: kaminoReserveOffsetBase + 56,
+  farmDebt: kaminoReserveOffsetBase + 88,
+  lendingMarket: kaminoReserveOffsetBase + 24,
   liquidityAvailableAmount: kaminoReserveOffsetBase + 216,
+  liquidityMintPubkey: kaminoReserveOffsetBase + 120,
+  liquiditySupplyVault: kaminoReserveOffsetBase + 152,
   collateralMintTotalSupply: kaminoReserveOffsetBase + 2584,
 } as const;
 const kaminoObligationOffsets = {
@@ -395,8 +404,23 @@ function createSerializedKaminoReserveAccount(args: {
   collateralSupplyRaw: bigint;
   liquidityAvailableAmountRaw: bigint;
 }) {
-  const data = Buffer.alloc(kaminoReserveOffsets.collateralMintTotalSupply + 8);
+  const data = Buffer.alloc(kaminoReserveOffsets.collateralSupplyVault + 32);
   kaminoReserveDiscriminator.copy(data, 0);
+  kaminoMarket.toBuffer().copy(data, kaminoReserveOffsets.lendingMarket);
+  PublicKey.default.toBuffer().copy(data, kaminoReserveOffsets.farmCollateral);
+  PublicKey.default.toBuffer().copy(data, kaminoReserveOffsets.farmDebt);
+  STABLECOIN_MINTS[Stablecoin.USDC]
+    .toBuffer()
+    .copy(data, kaminoReserveOffsets.liquidityMintPubkey);
+  kaminoReserveLiquiditySupply
+    .toBuffer()
+    .copy(data, kaminoReserveOffsets.liquiditySupplyVault);
+  kaminoReserveCollateralMint
+    .toBuffer()
+    .copy(data, kaminoReserveOffsets.collateralMintPubkey);
+  PublicKey.default
+    .toBuffer()
+    .copy(data, kaminoReserveOffsets.collateralSupplyVault);
   data.writeBigUInt64LE(
     args.liquidityAvailableAmountRaw,
     kaminoReserveOffsets.liquidityAvailableAmount
@@ -425,8 +449,7 @@ function createSerializedKaminoObligationData(args: {
   owner?: PublicKey;
 }): Buffer {
   const data = Buffer.alloc(
-    kaminoObligationOffsets.deposits +
-      kaminoObligationOffsets.slotSize * 8
+    kaminoObligationOffsets.deposits + kaminoObligationOffsets.slotSize * 8
   );
   kaminoObligationDiscriminator.copy(data, 0);
   (args.lendingMarket ?? kaminoMarket)
@@ -723,9 +746,7 @@ function expectEarnPolicyInitializationUsesSafeUniverse(args: {
 
 describe("Kamino account parsers", () => {
   test("enumerates positive obligation deposits with the current Klend slot stride", () => {
-    const secondReserve = new PublicKey(
-      "1111111111111111111111111111111C"
-    );
+    const secondReserve = new PublicKey("1111111111111111111111111111111C");
     const data = createSerializedKaminoObligationData({
       deposits: [
         {
@@ -961,6 +982,56 @@ describe("prepareEarnUsdcDeposit", () => {
     });
   });
 
+  test("reports cold deposit native SOL required for missing setup accounts", async () => {
+    mockKaminoDepositInstruction();
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount(new BN(6));
+      }
+      if (address.equals(kaminoReserve)) {
+        return createSerializedKaminoReserveAccount({
+          collateralSupplyRaw: BigInt(1_000_000),
+          liquidityAvailableAmountRaw: BigInt(1_000_000),
+        });
+      }
+      return null;
+    });
+    const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
+      addresses.map(() => null)
+    );
+    const getMinimumBalanceForRentExemption = mock(
+      async (space: number) => space + 1_000
+    );
+    const getBalance = mock(async () => 0);
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getBalance,
+        getMinimumBalanceForRentExemption,
+        getMultipleAccountsInfo,
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcDeposit({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+    });
+
+    const kinds = result.nativeSolRequirement.items.map((item) => item.kind);
+    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(kinds.filter((kind) => kind === "policy_rent")).toHaveLength(2);
+    expect(kinds).toContain("token_account_rent");
+    expect(kinds).toContain("kamino_setup_top_up");
+    expect(kinds).toContain("transaction_fee");
+    expect(BigInt(result.nativeSolRequirement.deficitLamports)).toBe(
+      BigInt(result.nativeSolRequirement.requiredLamports)
+    );
+  });
+
   test("builds a top-up earn deposit without recreating the routing policy", async () => {
     mockKaminoDepositInstruction();
     const client = createSmartAccountVaultsClient({
@@ -1005,6 +1076,11 @@ describe("prepareEarnUsdcDeposit", () => {
       principalAmountRaw: "500000",
       setupPolicySeed: "8",
     });
+    expect(
+      result.nativeSolRequirement.items.some(
+        (item) => item.kind === "policy_rent"
+      )
+    ).toBe(false);
   });
 
   test("uses a provided earn routing policy for top-up without scanning policies", async () => {
@@ -1075,27 +1151,46 @@ describe("prepareEarnUsdcDeposit", () => {
     expectIncludesKaminoSetupAccount(result.prepared.instructions[4]);
   });
 
-  test("rejects Kamino setup when the fee payer cannot fund rent", async () => {
+  test("returns a native SOL deficit when the payer cannot fund Kamino setup rent", async () => {
     mockKaminoDepositInstruction();
     const client = createSmartAccountVaultsClient({
-      connection: { getBalance: mock(async () => 0) } as never,
+      connection: {
+        getAccountInfo: mock(async (address: PublicKey) =>
+          address.equals(kaminoReserve)
+            ? createSerializedKaminoReserveAccount({
+                collateralSupplyRaw: BigInt(1_000_000),
+                liquidityAvailableAmountRaw: BigInt(1_000_000),
+              })
+            : null
+        ),
+        getBalance: mock(async () => 0),
+      } as never,
       programId,
     });
 
-    await expect(
-      client.prepareEarnUsdcDeposit({
-        settingsPda,
-        walletAddress,
-        feePayer,
-        policySigner: backendSigner,
-        amountRaw: BigInt(500_000),
-        initializeYieldRoutingPolicy: false,
-        yieldRoutingPolicy: {
-          account: new PublicKey("11111111111111111111111111111117"),
-          seed: BigInt(7),
-        },
+    const result = await client.prepareEarnUsdcDeposit({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(500_000),
+      initializeYieldRoutingPolicy: false,
+      yieldRoutingPolicy: {
+        account: new PublicKey("11111111111111111111111111111117"),
+        seed: BigInt(7),
+      },
+    });
+
+    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(result.nativeSolRequirement.items).toContainEqual(
+      expect.objectContaining({
+        kind: "kamino_setup_top_up",
+        lamports: "39532800",
       })
-    ).rejects.toThrow("Earn setup requires 0.039532800 SOL");
+    );
+    expect(
+      BigInt(result.nativeSolRequirement.deficitLamports) > BigInt(39_532_800)
+    ).toBe(true);
   });
 
   test("builds standalone earn routing policy setup metadata", async () => {
@@ -1961,8 +2056,15 @@ describe("prepareEarnUsdcAutodeposit", () => {
       }
       return null;
     });
+    const getMinimumBalanceForRentExemption = mock(
+      async (space: number) => space + 1_000
+    );
     const client = createSmartAccountVaultsClient({
-      connection: { getAccountInfo } as never,
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption,
+      } as never,
       programId,
     });
 
@@ -1995,6 +2097,13 @@ describe("prepareEarnUsdcAutodeposit", () => {
       subscriptionAuthorityInitialization: "required",
       walletAddress: walletAddress.toBase58(),
     });
+    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(result.nativeSolRequirement.items).toContainEqual(
+      expect.objectContaining({
+        kind: "subscription_authority_rent",
+        lamports: "1106",
+      })
+    );
   });
 
   test("warm follow-up creates the policy in a separate transaction", async () => {
@@ -2010,7 +2119,13 @@ describe("prepareEarnUsdcAutodeposit", () => {
       return null;
     });
     const client = createSmartAccountVaultsClient({
-      connection: { getAccountInfo } as never,
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+      } as never,
       programId,
     });
 
@@ -2041,6 +2156,65 @@ describe("prepareEarnUsdcAutodeposit", () => {
       policySeed: "1",
       subscriptionAuthorityInitialization: "exists",
     });
+    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(result.nativeSolRequirement.items).toContainEqual(
+      expect.objectContaining({
+        kind: "policy_rent",
+        stage: "create_policy",
+      })
+    );
+  });
+
+  test("batch setup aggregates policy and recurring delegation requirements", async () => {
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      walletAddress,
+      STABLECOIN_MINTS[Stablecoin.USDC]
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      if (address.equals(subscriptionAuthority)) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 1_500),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+      } as never,
+      programId,
+    });
+
+    const setups = await client.prepareEarnUsdcAutodepositSetupBatch({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      nonce: BigInt(42),
+    });
+
+    expect(setups.map((setup) => setup.stage)).toEqual([
+      "create_policy",
+      "create_recurring_delegation",
+    ]);
+    const combined = combineSmartAccountNativeSolRequirements(
+      setups.map((setup) => setup.nativeSolRequirement)
+    );
+    expect(combined?.canProceed).toBe(false);
+    expect(
+      BigInt(combined?.requiredLamports ?? "0") >
+        BigInt(setups[0]!.nativeSolRequirement.requiredLamports)
+    ).toBe(true);
+    expect(combined?.items.map((item) => item.kind)).toContain(
+      "recurring_delegation_rent"
+    );
   });
 
   test("existing policy with missing delegation creates the recurring delegation", async () => {
@@ -2059,7 +2233,13 @@ describe("prepareEarnUsdcAutodeposit", () => {
       return null;
     });
     const client = createSmartAccountVaultsClient({
-      connection: { getAccountInfo } as never,
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+      } as never,
       programId,
     });
 
@@ -2087,6 +2267,19 @@ describe("prepareEarnUsdcAutodeposit", () => {
         blockhash: "11111111111111111111111111111111",
       }).serialize()
     ).not.toThrow();
+    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(result.nativeSolRequirement.items).toContainEqual(
+      expect.objectContaining({
+        kind: "recurring_delegation_rent",
+        lamports: "1211",
+      })
+    );
+    expect(result.nativeSolRequirement.items).toContainEqual(
+      expect.objectContaining({
+        kind: "token_account_rent",
+        lamports: `${AccountLayout.span + 1_000}`,
+      })
+    );
   });
 
   test("rejects setup when policy and recurring delegation already exist", async () => {

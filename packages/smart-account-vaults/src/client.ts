@@ -13,8 +13,10 @@ import {
   Stablecoin,
   SUBSCRIPTIONS_PROGRAM_ID,
   SUBSCRIPTIONS_TRANSFER_RECURRING,
+  SUBSCRIPTION_AUTHORITY_DATA_LEN,
   SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET,
   SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET,
+  SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN,
   SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET,
   SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET,
   SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR,
@@ -113,6 +115,8 @@ import type {
   SmartAccountEarnUsdcDepositInput,
   SmartAccountEarnUsdcReserveTargetInput,
   SmartAccountEarnUsdcYieldRoutingPolicyInput,
+  SmartAccountNativeSolRequirement,
+  SmartAccountNativeSolRequirementItem,
   SmartAccountEarnUsdcWithdrawInput,
   SmartAccountPolicyOverview,
   SmartAccountPolicySnapshot,
@@ -427,6 +431,287 @@ function preparedPacketLength(
   }
 }
 
+const FALLBACK_LAMPORTS_PER_SIGNATURE = 5_000;
+
+type NativeSolRentCandidate = {
+  account: PublicKey;
+  exists?: boolean;
+  kind: SmartAccountNativeSolRequirementItem["kind"];
+  label: string;
+  space: number;
+  stage: string;
+};
+
+type NativeSolFixedItem = Omit<
+  SmartAccountNativeSolRequirementItem,
+  "lamports"
+> & {
+  lamports: bigint | number | string;
+};
+
+type PolicyByteSizeArgs = Parameters<typeof Policy.byteSize>[0];
+
+function toLamportsBigInt(lamports: bigint | number | string): bigint {
+  if (typeof lamports === "bigint") {
+    return lamports;
+  }
+
+  if (typeof lamports === "number") {
+    return BigInt(Math.max(0, Math.trunc(lamports)));
+  }
+
+  return BigInt(lamports);
+}
+
+function policyCreationPayloadToState(
+  payload: generated.PolicyCreationPayload
+): PolicyByteSizeArgs["policyState"] {
+  return payload as unknown as PolicyByteSizeArgs["policyState"];
+}
+
+function policyRentSpace(args: {
+  feePayer: PublicKey;
+  policyPayload: generated.PolicyCreationPayload;
+  policySeed: bigint;
+  policySigner: PublicKey;
+  programId: PublicKey;
+  settingsPda: PublicKey;
+}): number {
+  const [, bump] = pda.getPolicyPda({
+    programId: args.programId,
+    settingsPda: args.settingsPda,
+    policySeed: Number(args.policySeed),
+  });
+
+  return Policy.byteSize({
+    bump,
+    expiration: null,
+    policyState: policyCreationPayloadToState(args.policyPayload),
+    rentCollector: args.feePayer,
+    seed: toBn(args.policySeed),
+    settings: args.settingsPda,
+    signers: [createPolicySigner(args.policySigner)],
+    staleTransactionIndex: toBn(BigInt(0)),
+    start: toBn(BigInt(0)),
+    threshold: 1,
+    timeLock: 0,
+    transactionIndex: toBn(BigInt(0)),
+  });
+}
+
+function getPreparedRequiredSignatureCount(
+  prepared: PreparedLoyalSmartAccountsOperation<string>
+): number {
+  try {
+    const transaction = compilePreparedOperation({
+      blockhash: "11111111111111111111111111111111",
+      prepared,
+    });
+
+    return Math.max(1, transaction.message.header.numRequiredSignatures);
+  } catch {
+    return 1;
+  }
+}
+
+async function estimatePreparedFeeLamports(args: {
+  connection: Connection;
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+}): Promise<bigint> {
+  const fallback =
+    BigInt(getPreparedRequiredSignatureCount(args.prepared)) *
+    BigInt(FALLBACK_LAMPORTS_PER_SIGNATURE);
+  const connectionWithFees = args.connection as Connection & {
+    getFeeForMessage?: (
+      message: ReturnType<typeof compilePreparedOperation>["message"],
+      commitment?: "confirmed"
+    ) => Promise<{ value: number | null } | number | null>;
+    getLatestBlockhash?: (
+      commitment?: "confirmed"
+    ) => Promise<{ blockhash: string }>;
+  };
+
+  if (typeof connectionWithFees.getFeeForMessage !== "function") {
+    return fallback;
+  }
+
+  try {
+    const latestBlockhash =
+      typeof connectionWithFees.getLatestBlockhash === "function"
+        ? await connectionWithFees.getLatestBlockhash("confirmed")
+        : { blockhash: "11111111111111111111111111111111" };
+    const transaction = compilePreparedOperation({
+      blockhash: latestBlockhash.blockhash,
+      prepared: args.prepared,
+    });
+    const feeResponse = await connectionWithFees.getFeeForMessage(
+      transaction.message,
+      "confirmed"
+    );
+    const fee =
+      typeof feeResponse === "number" ? feeResponse : feeResponse?.value;
+
+    return typeof fee === "number" && fee >= 0 ? BigInt(fee) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function getExistingAccountSet(args: {
+  accounts: readonly PublicKey[];
+  connection: Connection;
+}): Promise<Set<string>> {
+  const accounts = dedupePublicKeys(args.accounts);
+  const existing = new Set<string>();
+
+  if (accounts.length === 0) {
+    return existing;
+  }
+
+  const connectionWithBatch = args.connection as Connection & {
+    getMultipleAccountsInfo?: (
+      publicKeys: PublicKey[],
+      commitment?: "confirmed"
+    ) => Promise<Array<AccountInfo<Buffer> | null>>;
+  };
+
+  if (typeof connectionWithBatch.getMultipleAccountsInfo === "function") {
+    try {
+      const infos = await connectionWithBatch.getMultipleAccountsInfo(
+        accounts,
+        "confirmed"
+      );
+      infos.forEach((info, index) => {
+        if (info) {
+          existing.add(accounts[index]!.toBase58());
+        }
+      });
+      return existing;
+    } catch {
+      // Fall back to single-account reads below.
+    }
+  }
+
+  if (typeof args.connection.getAccountInfo !== "function") {
+    return existing;
+  }
+
+  for (const account of accounts) {
+    try {
+      const info = await args.connection.getAccountInfo(account, "confirmed");
+      if (info) {
+        existing.add(account.toBase58());
+      }
+    } catch {
+      // Missing account probes are best effort; unknown accounts are treated as missing.
+    }
+  }
+
+  return existing;
+}
+
+async function estimateNativeSolRequirement(args: {
+  connection: Connection;
+  fixedItems?: readonly NativeSolFixedItem[];
+  payer: PublicKey;
+  prepared: readonly PreparedLoyalSmartAccountsOperation<string>[];
+  rentCandidates?: readonly NativeSolRentCandidate[];
+}): Promise<SmartAccountNativeSolRequirement> {
+  const fixedItems = args.fixedItems ?? [];
+  const rentCandidates = args.rentCandidates ?? [];
+  const unknownRentCandidates = rentCandidates.filter(
+    (candidate) => candidate.exists === undefined
+  );
+  const existingAccounts = await getExistingAccountSet({
+    accounts: unknownRentCandidates.map((candidate) => candidate.account),
+    connection: args.connection,
+  });
+  const items: SmartAccountNativeSolRequirementItem[] = [];
+
+  for (const item of fixedItems) {
+    const lamports = toLamportsBigInt(item.lamports);
+    if (lamports <= BigInt(0)) {
+      continue;
+    }
+
+    items.push({
+      ...item,
+      lamports: lamports.toString(),
+    });
+  }
+
+  for (const candidate of rentCandidates) {
+    const accountKey = candidate.account.toBase58();
+    const exists =
+      candidate.exists === undefined
+        ? existingAccounts.has(accountKey)
+        : candidate.exists;
+    if (exists) {
+      continue;
+    }
+    if (
+      typeof args.connection.getMinimumBalanceForRentExemption !== "function"
+    ) {
+      continue;
+    }
+
+    const lamports = await args.connection.getMinimumBalanceForRentExemption(
+      candidate.space,
+      "confirmed"
+    );
+    if (lamports <= 0) {
+      continue;
+    }
+
+    items.push({
+      account: accountKey,
+      kind: candidate.kind,
+      label: candidate.label,
+      lamports: lamports.toString(),
+      stage: candidate.stage,
+    });
+  }
+
+  for (const [index, prepared] of args.prepared.entries()) {
+    const lamports = await estimatePreparedFeeLamports({
+      connection: args.connection,
+      prepared,
+    });
+    if (lamports <= BigInt(0)) {
+      continue;
+    }
+
+    items.push({
+      kind: "transaction_fee",
+      label: "Estimated transaction fee",
+      lamports: lamports.toString(),
+      stage: prepared.operation || `transaction_${index + 1}`,
+    });
+  }
+
+  const requiredLamports = items.reduce(
+    (total, item) => total + BigInt(item.lamports),
+    BigInt(0)
+  );
+  const balanceLamports =
+    typeof args.connection.getBalance === "function"
+      ? BigInt(await args.connection.getBalance(args.payer, "confirmed"))
+      : requiredLamports;
+  const deficitLamports =
+    requiredLamports > balanceLamports
+      ? requiredLamports - balanceLamports
+      : BigInt(0);
+
+  return {
+    balanceLamports: balanceLamports.toString(),
+    canProceed: deficitLamports === BigInt(0),
+    deficitLamports: deficitLamports.toString(),
+    items,
+    payer: args.payer.toBase58(),
+    requiredLamports: requiredLamports.toString(),
+  };
+}
+
 function getLendingMarketAuthority(args: {
   market: PublicKey;
   lendProgramId: PublicKey;
@@ -583,7 +868,10 @@ export function parseKaminoObligationAccount(
       normalizedData,
       KAMINO_OBLIGATION_LAYOUT_OFFSETS.lendingMarket
     ),
-    owner: readPublicKey(normalizedData, KAMINO_OBLIGATION_LAYOUT_OFFSETS.owner),
+    owner: readPublicKey(
+      normalizedData,
+      KAMINO_OBLIGATION_LAYOUT_OFFSETS.owner
+    ),
   };
 }
 
@@ -2221,10 +2509,12 @@ async function resolveEarnPartialWithdrawAmounts(args: {
       liquidityAmountRaw: args.requestedWithdrawAmountRaw,
       snapshot,
     });
-  const expectedRedeemedAmountRaw = calculateKaminoRedeemableLiquidityAmountRaw({
-    collateralAmountRaw: kaminoWithdrawAmountRaw,
-    snapshot,
-  });
+  const expectedRedeemedAmountRaw = calculateKaminoRedeemableLiquidityAmountRaw(
+    {
+      collateralAmountRaw: kaminoWithdrawAmountRaw,
+      snapshot,
+    }
+  );
 
   return {
     expectedRedeemedAmountRaw:
@@ -2263,10 +2553,12 @@ function calculateRedeemableAmountOrFallback(args: {
     return args.fallbackAmountRaw;
   }
 
-  const expectedRedeemedAmountRaw = calculateKaminoRedeemableLiquidityAmountRaw({
-    collateralAmountRaw: args.kaminoWithdrawAmountRaw,
-    snapshot: args.snapshot,
-  });
+  const expectedRedeemedAmountRaw = calculateKaminoRedeemableLiquidityAmountRaw(
+    {
+      collateralAmountRaw: args.kaminoWithdrawAmountRaw,
+      snapshot: args.snapshot,
+    }
+  );
 
   return expectedRedeemedAmountRaw > BigInt(0)
     ? expectedRedeemedAmountRaw
@@ -4791,6 +5083,7 @@ export function createSmartAccountVaultsClient(
     finalizeOperation?: PreparedLoyalSmartAccountsOperation<string>;
     operation?: PreparedLoyalSmartAccountsOperation<string>;
     persistence?: ReturnType<typeof createYieldRoutePolicyPlan>["persistence"];
+    nativeSolRentCandidates?: NativeSolRentCandidate[];
     seed: bigint;
     setupAccount?: PublicKey;
     setupOperation?: PreparedLoyalSmartAccountsOperation<string>;
@@ -4818,6 +5111,7 @@ export function createSmartAccountVaultsClient(
     >["persistence"];
     setupPolicyAccount: PublicKey;
     setupPolicySeed: bigint;
+    nativeSolRentCandidates: NativeSolRentCandidate[];
   }> {
     const vault = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
@@ -4862,6 +5156,17 @@ export function createSmartAccountVaultsClient(
     })[0];
     const earnTarget = resolveKaminoEarnTarget(args.cluster);
     const earnUniverse = earnPolicyUniverseFromPlan(plan);
+    const routePolicyPayload =
+      createEarnProgramInteractionPolicyCreationPayload({
+        target: earnTarget,
+        universe: earnUniverse,
+        vaultPda: vault,
+      });
+    const setupPolicyPayload = createEarnInitObligationPolicyCreationPayload({
+      target: earnTarget,
+      universe: earnUniverse,
+      vaultPda: vault,
+    });
     const createPolicyOperation = async (policyArgs: {
       policyAccount: PublicKey;
       policySeed: bigint;
@@ -4909,11 +5214,7 @@ export function createSmartAccountVaultsClient(
       policyAccount,
       policySeed: args.policySeed,
       policyStage: "route",
-      payload: createEarnProgramInteractionPolicyCreationPayload({
-        target: earnTarget,
-        universe: earnUniverse,
-        vaultPda: vault,
-      }),
+      payload: routePolicyPayload,
     });
     const operationLength = preparedPacketLength(operation);
     if (
@@ -4929,11 +5230,7 @@ export function createSmartAccountVaultsClient(
       policyAccount: setupPolicyAccount,
       policySeed: setupPolicySeed,
       policyStage: "setup",
-      payload: createEarnInitObligationPolicyCreationPayload({
-        target: earnTarget,
-        universe: earnUniverse,
-        vaultPda: vault,
-      }),
+      payload: setupPolicyPayload,
     });
     const setupOperationLength = preparedPacketLength(setupOperation);
     if (
@@ -4954,6 +5251,38 @@ export function createSmartAccountVaultsClient(
       setupPersistence: setupPlan.persistence,
       setupPolicyAccount,
       setupPolicySeed,
+      nativeSolRentCandidates: [
+        {
+          account: policyAccount,
+          exists: false,
+          kind: "policy_rent",
+          label: "Earn route policy account rent",
+          space: policyRentSpace({
+            feePayer: args.feePayer,
+            policyPayload: routePolicyPayload,
+            policySeed: args.policySeed,
+            policySigner: args.policySigner,
+            programId: smartAccountsClient.programId,
+            settingsPda: args.settingsPda,
+          }),
+          stage: "policy",
+        },
+        {
+          account: setupPolicyAccount,
+          exists: false,
+          kind: "policy_rent",
+          label: "Earn setup policy account rent",
+          space: policyRentSpace({
+            feePayer: args.feePayer,
+            policyPayload: setupPolicyPayload,
+            policySeed: setupPolicySeed,
+            policySigner: args.policySigner,
+            programId: smartAccountsClient.programId,
+            settingsPda: args.settingsPda,
+          }),
+          stage: "policy-finalize",
+        },
+      ],
     };
   }
 
@@ -4979,6 +5308,7 @@ export function createSmartAccountVaultsClient(
       operation,
       persistence,
       policyAccount,
+      nativeSolRentCandidates,
       setupOperation,
       setupPersistence,
       setupPolicyAccount,
@@ -4997,6 +5327,7 @@ export function createSmartAccountVaultsClient(
       finalizeOperation,
       operation,
       persistence,
+      nativeSolRentCandidates,
       seed: nextPolicySeed.bigint,
       setupAccount: setupPolicyAccount,
       setupOperation,
@@ -5018,6 +5349,7 @@ export function createSmartAccountVaultsClient(
       setupPersistence,
       setupPolicyAccount,
       setupPolicySeed,
+      nativeSolRentCandidates,
     } = await createEarnYieldRoutingPolicyOperation({
       cluster: args.cluster,
       feePayer: args.feePayer,
@@ -5034,6 +5366,9 @@ export function createSmartAccountVaultsClient(
         policySeed: Number(args.policySeed),
       })[0],
       finalizeOperation: setupOperation,
+      nativeSolRentCandidates: nativeSolRentCandidates.filter((candidate) =>
+        candidate.account.equals(setupPolicyAccount)
+      ),
       seed: args.policySeed,
       setupAccount: setupPolicyAccount,
       setupOperation,
@@ -5850,24 +6185,6 @@ export function createSmartAccountVaultsClient(
     const setupRentTopUpLamports = requiresKaminoSetupRent
       ? Math.max(0, KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS - vaultLamports)
       : 0;
-    if (
-      setupRentTopUpLamports > 0 &&
-      typeof config.connection.getBalance === "function"
-    ) {
-      const feePayerLamports = await config.connection.getBalance(
-        args.feePayer,
-        "confirmed"
-      );
-      if (feePayerLamports < setupRentTopUpLamports) {
-        throw new Error(
-          `Earn setup requires ${(
-            setupRentTopUpLamports / 1_000_000_000
-          ).toFixed(
-            9
-          )} SOL for Kamino account rent. Add SOL to this wallet and try again.`
-        );
-      }
-    }
     const policyInitializationOperation = earnPolicy.operation ?? null;
     const policyFinalizeOperation = earnPolicy.finalizeOperation ?? null;
     const depositExecution =
@@ -5945,11 +6262,56 @@ export function createSmartAccountVaultsClient(
         "Earn deposit transaction is too large to fit in a Solana packet. Split Kamino setup from the deposit and try again."
       );
     }
+    const nativeSolRequirement = await estimateNativeSolRequirement({
+      connection: config.connection,
+      fixedItems:
+        setupRentTopUpLamports > 0
+          ? [
+              {
+                account: vaultPda.toBase58(),
+                kind: "kamino_setup_top_up",
+                label: "Kamino setup account rent top-up",
+                lamports: setupRentTopUpLamports,
+                stage: "deposit",
+              },
+            ]
+          : [],
+      payer: args.feePayer,
+      prepared: [
+        ...(policyInitializationOperation
+          ? [policyInitializationOperation]
+          : []),
+        ...(policyFinalizeOperation ? [policyFinalizeOperation] : []),
+        prepared,
+      ],
+      rentCandidates: [
+        ...(earnPolicy.nativeSolRentCandidates ?? []),
+        {
+          account: vaultUsdcAta,
+          kind: "token_account_rent",
+          label: "Earn vault USDC token account rent",
+          space: AccountLayout.span,
+          stage: "deposit",
+        },
+        ...(inferredVaultCollateralAccounts
+          ? [
+              {
+                account: inferredVaultCollateralAccounts.vaultCollateralAta,
+                kind: "token_account_rent" as const,
+                label: "Earn vault collateral token account rent",
+                space: AccountLayout.span,
+                stage: "deposit",
+              },
+            ]
+          : []),
+      ],
+    });
 
     return {
       kaminoSetupAccountCount: kaminoSetupInstructionCount,
       kaminoSetupRentLamports: setupRentTopUpLamports.toString(),
       kaminoSetupRequired: requiresKaminoSetupRent,
+      nativeSolRequirement,
       policyFinalizePrepared: policyFinalizeOperation,
       policySetupPrepared: policyInitializationOperation,
       prepared,
@@ -6898,11 +7260,10 @@ export function createSmartAccountVaultsClient(
           }),
           tokenAccount: vaultUsdcAta,
         });
-      const simulatedRedeemedOnlyAmountRaw =
-        resolveSimulatedRedeemedAmountRaw({
-          currentVaultUsdcAmountRaw,
-          simulatedVaultUsdcAmountRaw,
-        });
+      const simulatedRedeemedOnlyAmountRaw = resolveSimulatedRedeemedAmountRaw({
+        currentVaultUsdcAmountRaw,
+        simulatedVaultUsdcAmountRaw,
+      });
       const redeemedTransferAmountRaw =
         simulatedRedeemedOnlyAmountRaw > BigInt(0)
           ? simulatedRedeemedOnlyAmountRaw
@@ -7532,9 +7893,25 @@ export function createSmartAccountVaultsClient(
         ],
         lookupTableAccounts: [],
       });
+      const nativeSolRequirement = await estimateNativeSolRequirement({
+        connection: config.connection,
+        payer: args.feePayer,
+        prepared: [prepared],
+        rentCandidates: [
+          {
+            account: subscriptionAuthority,
+            exists: false,
+            kind: "subscription_authority_rent",
+            label: "Autodeposit subscription authority rent",
+            space: SUBSCRIPTION_AUTHORITY_DATA_LEN,
+            stage: "initialize_subscription_authority",
+          },
+        ],
+      });
 
       return {
         prepared,
+        nativeSolRequirement,
         stage: "initialize_subscription_authority",
         authorityInitializationRequired: true,
         policy: {
@@ -7610,6 +7987,16 @@ export function createSmartAccountVaultsClient(
         startTimestamp,
         subscriptionAuthority,
       });
+    const autodepositPolicyPayload =
+      createSubscriptionSweepProgramInteractionPolicyCreationPayload({
+        delegator: args.walletAddress,
+        maxAmountPerPeriodRaw: amountPerPeriodRaw,
+        minimumDelegatorBalanceRaw,
+        mint: usdcMint,
+        vaultPda,
+        vaultUsdcAta,
+        walletUsdcAta,
+      });
     const policyCreation = policyExistsForPlanning
       ? null
       : await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
@@ -7621,18 +8008,7 @@ export function createSmartAccountVaultsClient(
               {
                 __kind: "PolicyCreate",
                 seed: toBn(policySeed),
-                policyCreationPayload:
-                  createSubscriptionSweepProgramInteractionPolicyCreationPayload(
-                    {
-                      delegator: args.walletAddress,
-                      maxAmountPerPeriodRaw: amountPerPeriodRaw,
-                      minimumDelegatorBalanceRaw,
-                      mint: usdcMint,
-                      vaultPda,
-                      vaultUsdcAta,
-                      walletUsdcAta,
-                    }
-                  ),
+                policyCreationPayload: autodepositPolicyPayload,
                 signers: [createPolicySigner(args.policySigner)],
                 threshold: 1,
                 timeLock: 0,
@@ -7657,9 +8033,32 @@ export function createSmartAccountVaultsClient(
           policyCreation.lookupTableAccounts ?? []
         ),
       });
+      const nativeSolRequirement = await estimateNativeSolRequirement({
+        connection: config.connection,
+        payer: args.feePayer,
+        prepared: [prepared],
+        rentCandidates: [
+          {
+            account: policyAccount,
+            exists: false,
+            kind: "policy_rent",
+            label: "Autodeposit policy account rent",
+            space: policyRentSpace({
+              feePayer: args.feePayer,
+              policyPayload: autodepositPolicyPayload,
+              policySeed,
+              policySigner: args.policySigner,
+              programId: smartAccountsClient.programId,
+              settingsPda: args.settingsPda,
+            }),
+            stage: "create_policy",
+          },
+        ],
+      });
 
       return {
         prepared,
+        nativeSolRequirement,
         stage: "create_policy",
         authorityInitializationRequired: false,
         policy: {
@@ -7708,9 +8107,32 @@ export function createSmartAccountVaultsClient(
       ],
       lookupTableAccounts: [],
     });
+    const nativeSolRequirement = await estimateNativeSolRequirement({
+      connection: config.connection,
+      payer: args.feePayer,
+      prepared: [prepared],
+      rentCandidates: [
+        {
+          account: recurringDelegation,
+          exists: false,
+          kind: "recurring_delegation_rent",
+          label: "Autodeposit recurring delegation rent",
+          space: SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN,
+          stage: "create_recurring_delegation",
+        },
+        {
+          account: vaultUsdcAta,
+          kind: "token_account_rent",
+          label: "Earn vault USDC token account rent",
+          space: AccountLayout.span,
+          stage: "create_recurring_delegation",
+        },
+      ],
+    });
 
     return {
       prepared,
+      nativeSolRequirement,
       stage: "create_recurring_delegation",
       authorityInitializationRequired: false,
       policy: {
@@ -7756,20 +8178,19 @@ export function createSmartAccountVaultsClient(
       return [firstSetup];
     }
 
-    const recurringDelegationSetup =
-      await prepareEarnUsdcAutodepositSetupStage(
-        {
-          ...args,
-          expiryTimestamp: firstSetup.subscription.expiryTimestamp,
-          nonce: firstSetup.subscription.nonce,
-          periodLengthSeconds: firstSetup.subscription.periodLengthSeconds,
-          policySeed: firstSetup.policy.seed ?? args.policySeed,
-          startTimestamp: firstSetup.subscription.startTimestamp,
-        },
-        {
-          assumePolicyExists: true,
-        }
-      );
+    const recurringDelegationSetup = await prepareEarnUsdcAutodepositSetupStage(
+      {
+        ...args,
+        expiryTimestamp: firstSetup.subscription.expiryTimestamp,
+        nonce: firstSetup.subscription.nonce,
+        periodLengthSeconds: firstSetup.subscription.periodLengthSeconds,
+        policySeed: firstSetup.policy.seed ?? args.policySeed,
+        startTimestamp: firstSetup.subscription.startTimestamp,
+      },
+      {
+        assumePolicyExists: true,
+      }
+    );
     if (recurringDelegationSetup.stage !== "create_recurring_delegation") {
       return [firstSetup];
     }

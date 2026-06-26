@@ -1,6 +1,7 @@
 import type {
   SmartAccountEarnUsdcAutodepositCloseMetadata,
   SmartAccountEarnUsdcAutodepositSetupMetadata,
+  SmartAccountNativeSolRequirement,
   SmartAccountPreparedEarnUsdcAutodepositClose,
   SmartAccountPreparedEarnUsdcAutodepositSetup,
 } from "@loyal-labs/smart-account-vaults";
@@ -131,6 +132,7 @@ export type EarnAutodepositCloseConfirmRequestBody = {
 
 export type WireSmartAccountPreparedEarnUsdcAutodepositSetup = {
   authorityInitializationRequired: boolean;
+  nativeSolRequirement: SmartAccountNativeSolRequirement;
   persistence: SmartAccountEarnUsdcAutodepositSetupMetadata;
   policy: {
     account: string | null;
@@ -560,6 +562,7 @@ export function serializePreparedEarnUsdcAutodepositSetup(
   return {
     authorityInitializationRequired:
       preparedSetup.authorityInitializationRequired,
+    nativeSolRequirement: preparedSetup.nativeSolRequirement,
     persistence: preparedSetup.persistence,
     policy: {
       account: preparedSetup.policy.account?.toBase58() ?? null,
@@ -593,6 +596,7 @@ export function hydratePreparedEarnUsdcAutodepositSetup(
 ): SmartAccountPreparedEarnUsdcAutodepositSetup {
   return {
     authorityInitializationRequired: wire.authorityInitializationRequired,
+    nativeSolRequirement: wire.nativeSolRequirement,
     persistence: wire.persistence,
     policy: {
       account: wire.policy.account ? new PublicKey(wire.policy.account) : null,
