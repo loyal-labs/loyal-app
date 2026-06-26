@@ -1055,26 +1055,8 @@ function normalizeDisplayedEarnedUsd(value: number) {
   return Number(value.toFixed(EARN_BALANCE_DECIMALS));
 }
 
-function deriveLiveBalanceEarnedUsd({
-  currentBalanceAmount,
-  principalAmount,
-}: {
-  currentBalanceAmount: number;
-  principalAmount: number;
-}) {
-  if (
-    !Number.isFinite(currentBalanceAmount) ||
-    !Number.isFinite(principalAmount)
-  ) {
-    return 0;
-  }
-
-  return normalizeDisplayedEarnedUsd(currentBalanceAmount - principalAmount);
-}
-
 export function deriveEstimatedEarnedSummaryAmount({
   apyBps,
-  currentEarnedUsd,
   earningsData,
   earningsError,
   generatedAt,
@@ -1082,17 +1064,14 @@ export function deriveEstimatedEarnedSummaryAmount({
   principalAmount,
 }: {
   apyBps: number;
-  currentEarnedUsd: number;
   earningsData: EarnEarningsResponse | null;
   earningsError: string | null;
   generatedAt: string | null;
   nowMs?: number;
   principalAmount: number;
 }) {
-  const liveBalanceEarnedUsd = normalizeDisplayedEarnedUsd(currentEarnedUsd);
-
   if (earningsError || !earningsData) {
-    return liveBalanceEarnedUsd;
+    return 0;
   }
 
   const lifetimeEarnedUsd = Number.isFinite(earningsData.lifetimeEarnedUsd)
@@ -1107,9 +1086,11 @@ export function deriveEstimatedEarnedSummaryAmount({
       principalAmount,
     });
 
-  return normalizeDisplayedEarnedUsd(
-    Math.max(liveBalanceEarnedUsd, estimatedLifetimeEarnedUsd)
-  );
+  // A fresh RPC balance can include an Autodeposit sweep before the confirmed
+  // principal history catches up. Treating balance - principal as earned in
+  // that window turns new deposits into yield, so use the APY/history path as
+  // the display authority.
+  return normalizeDisplayedEarnedUsd(estimatedLifetimeEarnedUsd);
 }
 
 export function formatEarnedSummaryLabel(value: number) {
@@ -2373,20 +2354,15 @@ export function EarnDetailView({
     hasCurrentPosition && currentBalanceAmount > 0
       ? currentBalanceAmount
       : principalAmount;
-  const currentEarnedUsd = deriveLiveBalanceEarnedUsd({
-    currentBalanceAmount: displayBalanceAmount,
-    principalAmount,
-  });
   const estimatedEarnedUsd = deriveEstimatedEarnedSummaryAmount({
     apyBps: estimatedEarnedAmountApyBps,
-    currentEarnedUsd,
     earningsData,
     earningsError,
     generatedAt: earningsRangeSet?.generatedAt ?? null,
     nowMs: earnLiveNowMs,
     principalAmount,
   });
-  const earnedSummaryLabel = formatEarnedSummaryLabel(currentEarnedUsd);
+  const earnedSummaryLabel = formatEarnedSummaryLabel(estimatedEarnedUsd);
   const depositButtonTone =
     !hasCurrentPosition || isAutodepositConfigured ? "red" : "black";
 
