@@ -408,6 +408,20 @@ Optional:
 - `DEPLOYMENT_PK` - Gasless transaction keypair (base58)
 - `NEXT_PUBLIC_GAS_PUBLIC_KEY` - Gasless payer public key
 
+### Loyal web frontend Solana Week quest reporting (`/frontend`)
+
+Source of truth: `frontend/.env.example`, `frontend/src/features/solana-week/server/quest-completion-reporter.ts`, `frontend/src/app/api/solana-week/sweep-notify/route.ts`, and `frontend/src/app/api/cron/solana-week-quest-completions/route.ts`.
+
+Backend-only (never `NEXT_PUBLIC_`):
+
+- `SOLANA_WEEK_QUESTS_COMPLETION_ENDPOINT` - Challenge Quest Completion API endpoint; if unset, reporting no-ops
+- `SOLANA_WEEK_QUESTS_API_KEY` - Server-only API key for quest completion reporting
+- `SOLANA_WEEK_QUESTS_SIGNING_KEY` - Optional base58/base64 Ed25519 signing key for `x-signature`
+- `SOLANA_WEEK_QUEST_ID_EARN_DEPOSIT` - Quest ID for the manual Earn deposit completion
+- `SOLANA_WEEK_QUEST_ID_FIRST_AUTODEPOSIT` - Quest ID for the first autodeposit sweep completion
+- `SOLANA_WEEK_SWEEP_LOOKBACK_HOURS` - Optional reconciliation cron lookback window in hours; defaults to `168`
+- `SOLANA_WEEK_NOTIFY_SECRET` - Bearer secret for the autodeposit sweep worker to call `/api/solana-week/sweep-notify`
+
 ### Cloudflare R2/CDN (feature-specific)
 
 Core clients live in `/app/src/lib/core`:
