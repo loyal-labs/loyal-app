@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import {
+  buildWalletAuthTransactionMemo,
   createAuthSessionTokenClaims,
   WALLET_AUTH_SIWS_STATEMENT,
   type AuthSessionTokenClaimsData,
@@ -11,6 +12,8 @@ import {
   walletChallengeRequestSchema,
   walletCompleteRequestSchema,
 } from "@loyal-labs/auth-core";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { Connection } from "@solana/web3.js";
 
 import type { AppUser } from "@/features/chat/server/app-user";
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
@@ -33,6 +36,7 @@ import {
   findReadyCurrentUserSmartAccount,
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 
 import { trackWalletOnboardingEvent } from "./wallet-onboarding-analytics";
 import { WalletAuthError } from "./wallet-auth-errors";
@@ -45,6 +49,10 @@ import {
   decodeWalletAddress,
   verifyWalletSignature,
 } from "./wallet-auth-signature";
+import {
+  createWalletAuthTransactionChallenge,
+  verifyWalletAuthTransactionProof,
+} from "./wallet-auth-transaction";
 import {
   issueWalletChallengeToken,
   verifyWalletChallengeToken,
@@ -61,6 +69,7 @@ type WalletOnboardingDependencies = {
   now: () => Date;
   randomUUID: () => string;
   wait: (ms: number) => Promise<void>;
+  getLatestBlockhash: (solanaEnv: SolanaEnv) => Promise<string>;
   getOrCreateUser: (principal: {
     provider: "solana";
     authMethod: "wallet";
@@ -99,6 +108,14 @@ const defaultDependencies: WalletOnboardingDependencies = {
   randomUUID: () => crypto.randomUUID(),
   wait: async (ms) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  },
+  getLatestBlockhash: async (solanaEnv) => {
+    const { rpcEndpoint } = getServerSolanaEndpoints(solanaEnv);
+    const connection = new Connection(rpcEndpoint, {
+      commitment: "confirmed",
+    });
+    const { blockhash } = await connection.getLatestBlockhash("confirmed");
+    return blockhash;
   },
   getOrCreateUser: (principal) => getOrCreateCurrentUser(principal),
   ensureSmartAccount: ensureWalletUserSmartAccount,
@@ -319,6 +336,54 @@ export async function createWalletAuthChallenge(
     };
   }
 
+  if (payload.kind === "transaction") {
+    const walletAddress = payload.walletAddress;
+    decodeWalletAddress(walletAddress);
+
+    const memo = buildWalletAuthTransactionMemo({
+      appName: config.authAppName,
+      origin: args.requestOrigin,
+      walletAddress,
+      nonce: createSiwsNonce(dependencies.randomUUID()),
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    });
+    const transactionChallenge = createWalletAuthTransactionChallenge({
+      blockhash: await dependencies.getLatestBlockhash(config.solanaEnv),
+      memo,
+      walletAddress,
+    });
+    const challengeToken = await issueWalletChallengeToken(
+      {
+        tokenType: "wallet_challenge",
+        version: 1,
+        proofKind: "transaction",
+        origin: args.requestOrigin,
+        walletAddress,
+        memo: transactionChallenge.memo,
+        transaction: transactionChallenge.transaction,
+      },
+      secret,
+      {
+        issuedAt,
+        expiresAt,
+      }
+    );
+
+    dependencies.trackEvent("challenge_created", {
+      origin: args.requestOrigin,
+      walletAddress,
+      solanaEnv: config.solanaEnv,
+    });
+
+    return {
+      kind: "transaction",
+      challengeToken,
+      transaction: transactionChallenge.transaction,
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
   const walletAddress = payload.walletAddress;
   decodeWalletAddress(walletAddress);
 
@@ -407,8 +472,21 @@ export async function completeWalletOnboarding(
       input: claims.signInInput,
       output: payload.output,
     });
+  } else if (claims.proofKind === "transaction") {
+    if (payload.kind !== "transaction") {
+      throw new WalletAuthError("Wallet transaction payload is invalid.", {
+        code: "invalid_wallet_transaction_payload",
+        status: 400,
+      });
+    }
+
+    walletAddress = verifyWalletAuthTransactionProof({
+      memo: claims.memo,
+      signedTransaction: payload.signedTransaction,
+      walletAddress: claims.walletAddress,
+    });
   } else {
-    if (payload.kind === "siws") {
+    if (payload.kind === "siws" || payload.kind === "transaction") {
       throw new WalletAuthError("Wallet signature payload is invalid.", {
         code: "invalid_wallet_signature_payload",
         status: 400,

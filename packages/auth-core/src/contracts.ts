@@ -37,7 +37,7 @@ export const getAuthSessionResponseSchema = z.object({
   user: authSessionUserSchema,
 });
 
-export const walletAuthKindSchema = z.enum(["message", "siws"]);
+export const walletAuthKindSchema = z.enum(["message", "siws", "transaction"]);
 
 export const solanaSignInInputSchema = z.object({
   domain: z.string().min(1).optional(),
@@ -54,9 +54,7 @@ export const solanaSignInInputSchema = z.object({
   resources: z.array(z.string().min(1)).optional(),
 });
 
-export const walletByteArraySchema = z.array(
-  z.number().int().min(0).max(255)
-);
+export const walletByteArraySchema = z.array(z.number().int().min(0).max(255));
 
 export const serializedWalletAccountSchema = z.object({
   address: z.string().min(1),
@@ -83,9 +81,15 @@ export const walletSiwsChallengeRequestSchema = z.object({
   kind: z.literal("siws"),
 });
 
+export const walletTransactionChallengeRequestSchema = z.object({
+  kind: z.literal("transaction"),
+  walletAddress: z.string().min(1),
+});
+
 export const walletChallengeRequestSchema = z.union([
   walletMessageChallengeRequestSchema,
   walletSiwsChallengeRequestSchema,
+  walletTransactionChallengeRequestSchema,
 ]);
 
 export const walletMessageChallengeResponseSchema = z.object({
@@ -102,9 +106,17 @@ export const walletSiwsChallengeResponseSchema = z.object({
   expiresAt: z.string().datetime(),
 });
 
+export const walletTransactionChallengeResponseSchema = z.object({
+  kind: z.literal("transaction"),
+  challengeToken: z.string().min(1),
+  transaction: z.string().min(1),
+  expiresAt: z.string().datetime(),
+});
+
 export const walletChallengeResponseSchema = z.union([
   walletMessageChallengeResponseSchema,
   walletSiwsChallengeResponseSchema,
+  walletTransactionChallengeResponseSchema,
 ]);
 
 export const walletMessageCompleteRequestSchema = z.object({
@@ -119,9 +131,16 @@ export const walletSiwsCompleteRequestSchema = z.object({
   output: serializedSolanaSignInOutputSchema,
 });
 
+export const walletTransactionCompleteRequestSchema = z.object({
+  kind: z.literal("transaction"),
+  challengeToken: z.string().min(1),
+  signedTransaction: z.string().min(1),
+});
+
 export const walletCompleteRequestSchema = z.union([
   walletMessageCompleteRequestSchema,
   walletSiwsCompleteRequestSchema,
+  walletTransactionCompleteRequestSchema,
 ]);
 
 export const walletCompleteResponseSchema = z.object({
@@ -172,11 +191,17 @@ export type WalletMessageChallengeRequest = z.infer<
 export type WalletSiwsChallengeRequest = z.infer<
   typeof walletSiwsChallengeRequestSchema
 >;
+export type WalletTransactionChallengeRequest = z.infer<
+  typeof walletTransactionChallengeRequestSchema
+>;
 export type WalletMessageChallengeResponse = z.infer<
   typeof walletMessageChallengeResponseSchema
 >;
 export type WalletSiwsChallengeResponse = z.infer<
   typeof walletSiwsChallengeResponseSchema
+>;
+export type WalletTransactionChallengeResponse = z.infer<
+  typeof walletTransactionChallengeResponseSchema
 >;
 export type WalletCompleteRequest = z.infer<typeof walletCompleteRequestSchema>;
 export type WalletCompleteResponse = z.infer<
@@ -187,4 +212,7 @@ export type WalletMessageCompleteRequest = z.infer<
 >;
 export type WalletSiwsCompleteRequest = z.infer<
   typeof walletSiwsCompleteRequestSchema
+>;
+export type WalletTransactionCompleteRequest = z.infer<
+  typeof walletTransactionCompleteRequestSchema
 >;

@@ -6,8 +6,10 @@ import type { AuthApiClient } from "@/lib/auth/client";
 import {
   type WalletProofSignIn,
   type WalletProofSignMessage,
+  type WalletProofSignTransaction,
   signWalletProofSignIn,
   signWalletProofMessage,
+  signWalletProofTransaction,
 } from "@/lib/auth/wallet-proof-signer";
 
 type WalletProofStatus = "awaiting_signature" | "verifying";
@@ -41,7 +43,7 @@ export async function runWalletMessageProofFlow({
       turnstileToken,
     });
 
-    if (challenge.kind === "siws") {
+    if (challenge.kind === "siws" || challenge.kind === "transaction") {
       throw new Error("The auth server returned an invalid message challenge.");
     }
 
@@ -65,6 +67,64 @@ export async function runWalletMessageProofFlow({
   } finally {
     if (inFlightProofs.get(walletAddress) === proof) {
       inFlightProofs.delete(walletAddress);
+    }
+  }
+}
+
+export async function runWalletTransactionProofFlow({
+  authApiClient,
+  onStatusChange,
+  signTransaction,
+  turnstileToken,
+  walletAddress,
+}: {
+  authApiClient: AuthApiClient;
+  onStatusChange?: (status: WalletProofStatus) => void;
+  signTransaction: WalletProofSignTransaction;
+  turnstileToken?: string;
+  walletAddress: string;
+}): Promise<AuthSessionUser> {
+  const inFlightKey = `transaction:${walletAddress}`;
+  const existingProof = inFlightProofs.get(inFlightKey);
+  if (existingProof) {
+    onStatusChange?.("awaiting_signature");
+    return existingProof;
+  }
+
+  const proof = (async () => {
+    const challenge = await authApiClient.challengeWalletAuth({
+      kind: "transaction",
+      turnstileToken,
+      walletAddress,
+    });
+
+    if (challenge.kind !== "transaction") {
+      throw new Error(
+        "The auth server returned an invalid transaction challenge."
+      );
+    }
+
+    onStatusChange?.("awaiting_signature");
+    const signedTransaction = await signWalletProofTransaction({
+      signTransaction,
+      transaction: challenge.transaction,
+    });
+
+    onStatusChange?.("verifying");
+    return authApiClient.completeWalletAuth({
+      kind: "transaction",
+      challengeToken: challenge.challengeToken,
+      signedTransaction,
+    });
+  })();
+
+  inFlightProofs.set(inFlightKey, proof);
+
+  try {
+    return await proof;
+  } finally {
+    if (inFlightProofs.get(inFlightKey) === proof) {
+      inFlightProofs.delete(inFlightKey);
     }
   }
 }

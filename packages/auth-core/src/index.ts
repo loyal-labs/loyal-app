@@ -28,16 +28,22 @@ export {
   walletSiwsChallengeRequestSchema,
   walletSiwsChallengeResponseSchema,
   walletSiwsCompleteRequestSchema,
+  walletTransactionChallengeRequestSchema,
+  walletTransactionChallengeResponseSchema,
+  walletTransactionCompleteRequestSchema,
 } from "./contracts";
 export {
   buildWalletAuthMessage,
+  buildWalletAuthTransactionMemo,
   legacyWalletChallengeTokenClaimsSchema,
   WALLET_AUTH_CHALLENGE_TOKEN_TYPE,
   WALLET_AUTH_MESSAGE_VERSION,
   WALLET_AUTH_SIWS_STATEMENT,
+  WALLET_AUTH_TRANSACTION_STATEMENT,
   walletChallengeTokenClaimsSchema,
   walletMessageChallengeTokenClaimsSchema,
   walletSiwsChallengeTokenClaimsSchema,
+  walletTransactionChallengeTokenClaimsSchema,
 } from "./wallet";
 export { extractApiErrorMessage, parseApiErrorDetails } from "./errors";
 export type {
@@ -62,10 +68,14 @@ export type {
   WalletSiwsChallengeRequest,
   WalletSiwsChallengeResponse,
   WalletSiwsCompleteRequest,
+  WalletTransactionChallengeRequest,
+  WalletTransactionChallengeResponse,
+  WalletTransactionCompleteRequest,
 } from "./contracts";
 export type { AuthSessionTokenClaimsData } from "./session";
 export type {
   WalletAuthMessageInput,
+  WalletAuthTransactionMemoInput,
   WalletChallengeTokenClaimsData,
 } from "./wallet";
 export type {

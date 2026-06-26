@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, ArrowUpRight, LoaderCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import { useWalletProofAuth } from "./use-wallet-proof-auth";
@@ -61,6 +61,37 @@ function MobileWalletList() {
   );
 }
 
+function LedgerModeToggle({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-3 rounded-2xl bg-[#f5f5f5] px-4 py-3 text-left text-neutral-900 text-sm">
+      <input
+        checked={checked}
+        className="mt-1 h-4 w-4 accent-neutral-950"
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        type="checkbox"
+      />
+      <span className="min-w-0">
+        <span className="block font-medium">
+          I use Ledger or hardware wallet
+        </span>
+        <span className="mt-0.5 block text-neutral-500 text-xs">
+          Approves a login verification transaction. Loyal will not broadcast
+          it.
+        </span>
+      </span>
+    </label>
+  );
+}
+
 export function WalletTab({
   onFlowStart,
   onTurnstileConsumed,
@@ -70,6 +101,8 @@ export function WalletTab({
   onTurnstileConsumed?: () => void;
   turnstileToken?: string | null;
 }) {
+  const [useLedgerProof, setUseLedgerProof] = useState(false);
+  const [showWalletSelection, setShowWalletSelection] = useState(false);
   const {
     connected,
     publicKey,
@@ -82,23 +115,25 @@ export function WalletTab({
     onFlowStart,
     onTurnstileConsumed,
     turnstileToken: turnstileToken ?? undefined,
+    useLedgerProof,
   });
 
   const isVerified = Boolean(turnstileToken);
 
   const isMobile = useIsMobile();
 
-  useEffect(() => {
-    if (connected && publicKey && isVerified && state.status === "idle") {
-      startConnectedWalletVerification();
-    }
-  }, [
-    connected,
-    isVerified,
-    publicKey,
-    startConnectedWalletVerification,
-    state.status,
-  ]);
+  const handleChooseAnotherWallet = useCallback(() => {
+    retry();
+    setShowWalletSelection(true);
+  }, [retry]);
+
+  const handleConnectWallet = useCallback(
+    (walletName: Parameters<typeof connectWallet>[0]) => {
+      setShowWalletSelection(false);
+      connectWallet(walletName);
+    },
+    [connectWallet]
+  );
 
   // Delay showing errors so transient failures during connection don't flash
   const isErrorState =
@@ -124,7 +159,9 @@ export function WalletTab({
       state.status === "connecting"
         ? "Connecting your wallet..."
         : state.status === "awaiting_signature"
-        ? "Approve sign-in in your wallet..."
+        ? useLedgerProof
+          ? "Approve the Ledger verification transaction..."
+          : "Approve sign-in in your wallet..."
         : "Verifying your wallet and preparing your smart account...";
 
     return (
@@ -137,7 +174,7 @@ export function WalletTab({
         </p>
         <button
           className="rounded-full px-4 py-2 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
-          onClick={retry}
+          onClick={handleChooseAnotherWallet}
           type="button"
         >
           Choose another wallet
@@ -168,7 +205,7 @@ export function WalletTab({
         </div>
         <button
           className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
-          onClick={retry}
+          onClick={handleChooseAnotherWallet}
           type="button"
         >
           Choose another wallet
@@ -179,23 +216,44 @@ export function WalletTab({
 
   return (
     <div className="flex flex-col gap-4">
-      {connected && publicKey ? (
-        <button
-          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={!isVerified}
-          onClick={startConnectedWalletVerification}
-          type="button"
-        >
-          Verify Connected Wallet
-        </button>
+      {connected && publicKey && !showWalletSelection ? (
+        <div className="flex flex-col gap-2">
+          <LedgerModeToggle
+            checked={useLedgerProof}
+            disabled={!isVerified}
+            onChange={setUseLedgerProof}
+          />
+          <button
+            className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={!isVerified}
+            onClick={startConnectedWalletVerification}
+            type="button"
+          >
+            {useLedgerProof
+              ? "Verify Ledger Wallet"
+              : "Verify Connected Wallet"}
+          </button>
+          <button
+            className="h-12 rounded-full px-4 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
+            onClick={handleChooseAnotherWallet}
+            type="button"
+          >
+            Choose another wallet
+          </button>
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
+          <LedgerModeToggle
+            checked={useLedgerProof}
+            disabled={!isVerified}
+            onChange={setUseLedgerProof}
+          />
           {installedWallets.map((installedWallet) => (
             <button
               className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!isVerified}
               key={installedWallet.adapter.name}
-              onClick={() => connectWallet(installedWallet.adapter.name)}
+              onClick={() => handleConnectWallet(installedWallet.adapter.name)}
               type="button"
             >
               {installedWallet.adapter.icon && (
