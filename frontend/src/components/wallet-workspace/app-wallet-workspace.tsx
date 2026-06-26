@@ -7700,8 +7700,8 @@ export function AppWalletWorkspace({
           .wallet-workspace-review-pane {
           position: relative;
           z-index: 50;
-          /* Lets the approval mascot float outside the pane's left edge. */
-          overflow: visible;
+          /* Keep the staged review as an opaque drawer over the Earn rail. */
+          overflow: hidden;
         }
 
         .wallet-workspace-detail-transition {
@@ -7759,7 +7759,7 @@ export function AppWalletWorkspace({
         .wallet-workspace-earn-review-overlay {
           position: absolute;
           inset: 0;
-          z-index: 1;
+          z-index: 10;
           display: flex;
           flex-direction: column;
           box-sizing: border-box;
