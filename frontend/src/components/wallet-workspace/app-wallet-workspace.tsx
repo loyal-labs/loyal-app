@@ -582,6 +582,34 @@ function getEarnAutodepositConfigCacheKey(args: {
   return `${EARN_AUTODEPOSIT_CONFIG_CACHE_PREFIX}:${args.solanaEnv}:${args.settingsPda}:${args.walletAddress}`;
 }
 
+function getEarnPolicyStableKey(
+  policy: SmartAccountSidebarData["earnPolicy"]
+): string {
+  if (!policy) {
+    return "no-earn-policy";
+  }
+
+  const listKey = (values: string[] | undefined) =>
+    [...(values ?? [])].sort().join(",");
+
+  return [
+    policy.account,
+    policy.seed,
+    String(policy.vaultIndex),
+    policy.vaultPubkey,
+    policy.riskProfile ?? "",
+    policy.universePreset ?? "",
+    listKey(policy.delegatedSigners),
+    listKey(policy.stableMints),
+    listKey(policy.kaminoLiquidityMints),
+    listKey(policy.kaminoMarkets),
+    listKey(policy.routeModes),
+    policy.setupPolicy?.account ?? "",
+    policy.setupPolicy?.seed ?? "",
+    listKey(policy.setupPolicy?.delegatedSigners),
+  ].join("|");
+}
+
 function toCachedEarnAutodepositConfig(
   config: EarnAutodepositConfig | null
 ): LoadedEarnAutodepositConfig | null {
@@ -1725,6 +1753,20 @@ export function AppWalletWorkspace({
     authenticatedUserTotalUsd: mainAccountDisplayUsd,
     onAfterTx: refreshMainAccountBalances,
   });
+  const activeEarnPolicyRef = useRef<{
+    key: string;
+    policy: SmartAccountSidebarData["earnPolicy"];
+  }>({ key: "uninitialized", policy: null });
+  const activeEarnPolicyKey = getEarnPolicyStableKey(
+    smartAccountData.earnPolicy
+  );
+  if (activeEarnPolicyRef.current.key !== activeEarnPolicyKey) {
+    activeEarnPolicyRef.current = {
+      key: activeEarnPolicyKey,
+      policy: smartAccountData.earnPolicy,
+    };
+  }
+  const activeEarnPolicy = activeEarnPolicyRef.current.policy;
   const {
     hasResolved: hasActiveEarnPositionResolved,
     isLoading: isActiveEarnPositionLoading,
@@ -1735,7 +1777,7 @@ export function AppWalletWorkspace({
       suppressEarnSubscriptionRefreshThroughSlot,
   } = useActiveEarnPosition({
     connection,
-    earnPolicy: smartAccountData.earnPolicy,
+    earnPolicy: activeEarnPolicy,
     enabled: isAuthHydrated && canLoadPersonalAccount,
     programId: smartAccountData.overview?.programId,
     settingsPda: smartAccountData.overview?.settingsPda,
@@ -2586,12 +2628,15 @@ export function AppWalletWorkspace({
   }, [smartAccountData.overview?.vaults]);
   const hasEarnPolicy = Boolean(smartAccountData.earnPolicy);
   const hasEarnPosition = isActiveEarnPosition(activeEarnPosition);
-  const isEarnPositionDisplayResolving =
-    canLoadPersonalAccount && isActiveEarnPositionLoading;
+  const isEarnPositionInitialLoading =
+    canLoadPersonalAccount &&
+    isActiveEarnPositionLoading &&
+    !hasActiveEarnPositionResolved &&
+    !hasEarnPosition;
   const isEarnAccessResolving =
     canLoadPersonalAccount &&
     detailSelection === "earn" &&
-    (isEarnPositionDisplayResolving ||
+    (isEarnPositionInitialLoading ||
       (!hasEarnPosition &&
         (!smartAccountData.hasEarnStateResolved ||
           !hasActiveEarnPositionResolved)));
@@ -7127,7 +7172,7 @@ export function AppWalletWorkspace({
                 hasEarnPosition={hasEarnPosition}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
-                isEarnPositionLoading={isEarnPositionDisplayResolving}
+                isEarnPositionLoading={isEarnPositionInitialLoading}
                 isLoading={isWorkspaceLoading || isSmartAccountShellLoading}
                 enableMockBackupSignerFlow={isMockBackupSignerFlowEnabled}
                 mockRootSigners={activeMockRootSigners}
@@ -7153,7 +7198,7 @@ export function AppWalletWorkspace({
                   canMutateAccount ? handleOpenEarnDeposit : openSignIn
                 }
                 onOpenEarn={
-                  hasEarnPosition || isEarnPositionDisplayResolving
+                  hasEarnPosition || isEarnPositionInitialLoading
                     ? handleOpenEarn
                     : handleOpenEarnDeposit
                 }
