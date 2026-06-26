@@ -486,8 +486,11 @@ export type EarnCleanupResult = {
 
 export type EarnAutodepositSetupRequest = {
   amountRaw: bigint;
+  expiryTimestamp?: bigint;
   nonce: bigint;
+  periodLengthSeconds?: bigint;
   policySeed?: bigint;
+  startTimestamp?: bigint;
   walletBalanceFloorRaw: bigint;
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
 };
@@ -682,14 +685,22 @@ function isMatchingEarnAutodepositSetupBatch(args: {
       args.amountRaw.toString() &&
     nextPreparedSetup.persistence.amountPerPeriodRaw ===
       args.amountRaw.toString() &&
-    nextPreparedSetup.persistence.cluster === preparedSetup.persistence.cluster &&
+    nextPreparedSetup.persistence.cluster ===
+      preparedSetup.persistence.cluster &&
     nextPreparedSetup.persistence.policyAccount ===
       preparedSetup.persistence.policyAccount &&
     nextPreparedSetup.persistence.policySeed ===
       preparedSetup.persistence.policySeed &&
     nextPreparedSetup.persistence.recurringDelegation ===
       preparedSetup.persistence.recurringDelegation &&
-    nextPreparedSetup.persistence.settings === preparedSetup.persistence.settings &&
+    nextPreparedSetup.persistence.expiryTimestamp ===
+      preparedSetup.persistence.expiryTimestamp &&
+    nextPreparedSetup.persistence.periodLengthSeconds ===
+      preparedSetup.persistence.periodLengthSeconds &&
+    nextPreparedSetup.persistence.settings ===
+      preparedSetup.persistence.settings &&
+    nextPreparedSetup.persistence.startTimestamp ===
+      preparedSetup.persistence.startTimestamp &&
     nextPreparedSetup.persistence.vaultPubkey ===
       preparedSetup.persistence.vaultPubkey &&
     nextPreparedSetup.persistence.walletAddress ===
@@ -702,6 +713,12 @@ function isMatchingEarnAutodepositSetupBatch(args: {
     nextPreparedSetup.subscription.nonce === preparedSetup.subscription.nonce &&
     nextPreparedSetup.subscription.recurringDelegation.toBase58() ===
       preparedSetup.subscription.recurringDelegation.toBase58() &&
+    nextPreparedSetup.subscription.expiryTimestamp ===
+      preparedSetup.subscription.expiryTimestamp &&
+    nextPreparedSetup.subscription.periodLengthSeconds ===
+      preparedSetup.subscription.periodLengthSeconds &&
+    nextPreparedSetup.subscription.startTimestamp ===
+      preparedSetup.subscription.startTimestamp &&
     nextPreparedSetup.vault.pubkey.toBase58() ===
       preparedSetup.vault.pubkey.toBase58()
   );
@@ -1518,8 +1535,11 @@ export async function prepareEarnCleanupOnServer(
 
 export async function prepareEarnAutodepositSetupOnServer(args: {
   amountRaw: bigint;
+  expiryTimestamp?: bigint;
   nonce?: bigint;
+  periodLengthSeconds?: bigint;
   policySeed?: bigint;
+  startTimestamp?: bigint;
   walletBalanceFloorRaw?: bigint;
 }): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup> {
   const response = await fetch(
@@ -1527,9 +1547,18 @@ export async function prepareEarnAutodepositSetupOnServer(args: {
     {
       body: JSON.stringify({
         amountRaw: args.amountRaw.toString(),
+        ...(args.expiryTimestamp !== undefined
+          ? { expiryTimestamp: args.expiryTimestamp.toString() }
+          : {}),
         ...(args.nonce !== undefined ? { nonce: args.nonce.toString() } : {}),
+        ...(args.periodLengthSeconds !== undefined
+          ? { periodLengthSeconds: args.periodLengthSeconds.toString() }
+          : {}),
         ...(args.policySeed !== undefined
           ? { policySeed: args.policySeed.toString() }
+          : {}),
+        ...(args.startTimestamp !== undefined
+          ? { startTimestamp: args.startTimestamp.toString() }
           : {}),
         ...(args.walletBalanceFloorRaw !== undefined
           ? { walletBalanceFloorRaw: args.walletBalanceFloorRaw.toString() }
@@ -1557,8 +1586,11 @@ export async function prepareEarnAutodepositSetupOnServer(args: {
 
 async function prepareEarnAutodepositSetupBatchOnServer(args: {
   amountRaw: bigint;
+  expiryTimestamp?: bigint;
   nonce?: bigint;
+  periodLengthSeconds?: bigint;
   policySeed?: bigint;
+  startTimestamp?: bigint;
   walletBalanceFloorRaw?: bigint;
 }): Promise<{
   nextPreparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
@@ -1569,10 +1601,19 @@ async function prepareEarnAutodepositSetupBatchOnServer(args: {
     {
       body: JSON.stringify({
         amountRaw: args.amountRaw.toString(),
+        ...(args.expiryTimestamp !== undefined
+          ? { expiryTimestamp: args.expiryTimestamp.toString() }
+          : {}),
         includeBatch: true,
         ...(args.nonce !== undefined ? { nonce: args.nonce.toString() } : {}),
+        ...(args.periodLengthSeconds !== undefined
+          ? { periodLengthSeconds: args.periodLengthSeconds.toString() }
+          : {}),
         ...(args.policySeed !== undefined
           ? { policySeed: args.policySeed.toString() }
+          : {}),
+        ...(args.startTimestamp !== undefined
+          ? { startTimestamp: args.startTimestamp.toString() }
           : {}),
         ...(args.walletBalanceFloorRaw !== undefined
           ? { walletBalanceFloorRaw: args.walletBalanceFloorRaw.toString() }
@@ -2700,9 +2741,7 @@ export function useSmartAccountSidebarData(
   const { connection } = useConnection();
   const wallet = useWallet();
   const walletDataClient = useSolanaWalletDataClient();
-  const activeSettingsPdaRef = useRef<string | null>(
-    user?.settingsPda ?? null
-  );
+  const activeSettingsPdaRef = useRef<string | null>(user?.settingsPda ?? null);
   const refreshRunIdRef = useRef(0);
   activeSettingsPdaRef.current = user?.settingsPda ?? null;
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
@@ -4927,7 +4966,9 @@ export function useSmartAccountSidebarData(
   );
 
   const executeEarnDepositBatch = useCallback(
-    async (request: EarnDepositBatchRequest): Promise<EarnDepositBatchResult> => {
+    async (
+      request: EarnDepositBatchRequest
+    ): Promise<EarnDepositBatchResult> => {
       if (!wallet.publicKey) {
         return {
           success: false,
@@ -5902,8 +5943,11 @@ export function useSmartAccountSidebarData(
           request.preparedSetup ??
           (await prepareEarnAutodepositSetupOnServer({
             amountRaw: request.amountRaw,
+            expiryTimestamp: request.expiryTimestamp,
             nonce: request.nonce,
+            periodLengthSeconds: request.periodLengthSeconds,
             policySeed: request.policySeed,
+            startTimestamp: request.startTimestamp,
             walletBalanceFloorRaw: request.walletBalanceFloorRaw,
           }));
 
@@ -5922,16 +5966,23 @@ export function useSmartAccountSidebarData(
           preparedSetup.stage === "create_policy" &&
           walletBridge.signAllTransactions
         ) {
-          let batchPrepare:
-            | Awaited<
-                ReturnType<typeof prepareEarnAutodepositSetupBatchOnServer>
-              >
-            | null = null;
+          let batchPrepare: Awaited<
+            ReturnType<typeof prepareEarnAutodepositSetupBatchOnServer>
+          > | null = null;
           try {
             batchPrepare = await prepareEarnAutodepositSetupBatchOnServer({
               amountRaw: request.amountRaw,
+              expiryTimestamp:
+                request.expiryTimestamp ??
+                preparedSetup.subscription.expiryTimestamp,
               nonce: preparedSetup.subscription.nonce,
+              periodLengthSeconds:
+                request.periodLengthSeconds ??
+                preparedSetup.subscription.periodLengthSeconds,
               policySeed: preparedSetup.policy.seed ?? undefined,
+              startTimestamp:
+                request.startTimestamp ??
+                preparedSetup.subscription.startTimestamp,
               walletBalanceFloorRaw: request.walletBalanceFloorRaw,
             });
           } catch (error) {
@@ -5959,10 +6010,7 @@ export function useSmartAccountSidebarData(
               };
             }
             const batchPreparedSetups: readonly SmartAccountPreparedEarnUsdcAutodepositSetup[] =
-              [
-                batchPreparedSetup,
-                batchNextPreparedSetup,
-              ];
+              [batchPreparedSetup, batchNextPreparedSetup];
             const clusterError = batchPreparedSetups
               .map((setup) =>
                 validatePreparedEarnPersistenceCluster({
@@ -6026,14 +6074,12 @@ export function useSmartAccountSidebarData(
                   }
 
                   try {
-                    const response =
-                      await postConfirmedEarnAutodepositSetup({
-                        preparedSetup: confirmedSetup,
-                        signature,
-                        confirmedSlot,
-                        walletBalanceFloorRaw:
-                          request.walletBalanceFloorRaw,
-                      });
+                    const response = await postConfirmedEarnAutodepositSetup({
+                      preparedSetup: confirmedSetup,
+                      signature,
+                      confirmedSlot,
+                      walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+                    });
                     if (
                       confirmedSetup.stage === "create_recurring_delegation"
                     ) {
@@ -6112,10 +6158,9 @@ export function useSmartAccountSidebarData(
             if (nextEarnState) {
               setEarnState(nextEarnState);
             }
-            const scheduledSweeps =
-              confirmResponse.bootstrapSweep?.sweep
-                ? [confirmResponse.bootstrapSweep.sweep]
-                : nextEarnState?.autodeposit?.scheduledSweeps ?? [];
+            const scheduledSweeps = confirmResponse.bootstrapSweep?.sweep
+              ? [confirmResponse.bootstrapSweep.sweep]
+              : nextEarnState?.autodeposit?.scheduledSweeps ?? [];
 
             void refreshAfterTx({
               accountIndex: batchNextPreparedSetup.vault.accountIndex,
@@ -6191,8 +6236,17 @@ export function useSmartAccountSidebarData(
             ? null
             : await prepareEarnAutodepositSetupOnServer({
                 amountRaw: request.amountRaw,
+                expiryTimestamp:
+                  request.expiryTimestamp ??
+                  preparedSetup.subscription.expiryTimestamp,
                 nonce: preparedSetup.subscription.nonce,
+                periodLengthSeconds:
+                  request.periodLengthSeconds ??
+                  preparedSetup.subscription.periodLengthSeconds,
                 policySeed: preparedSetup.policy.seed ?? undefined,
+                startTimestamp:
+                  request.startTimestamp ??
+                  preparedSetup.subscription.startTimestamp,
                 walletBalanceFloorRaw: request.walletBalanceFloorRaw,
               });
 

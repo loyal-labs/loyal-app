@@ -1,16 +1,25 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { PublicKey } from "@solana/web3.js";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { Connection, PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { probeEarnAutodepositArtifacts } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
+import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   findCurrentEarnAutodepositState,
   findPendingEarnAutodepositScheduledSweeps,
+  markAutodepositTargetActiveFromArtifacts,
+  markAutodepositTargetPendingDelegation,
+  scheduleBootstrapEarnAutodepositSweep,
   sumEarnAutodepositCurrentPeriodDeposits,
+  type CurrentEarnAutodepositState,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   serializeEarnDepositOnboardingState,
@@ -29,10 +38,78 @@ import {
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_VAULT_INDEX = 1;
+const RECONCILE_BOOTSTRAP_BALANCE_SOURCE = "app_autodeposit_artifact_reconcile";
+const RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT = "confirmed";
+const connectionCache = new Map<SolanaEnv, Connection>();
 
-function resolveConfiguredCluster() {
-  const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
+function resolveConfiguredSolanaEnv(): SolanaEnv {
+  return resolveLoyalWebSolanaEnvFromEnv(process.env);
+}
+
+function resolveConfiguredCluster(solanaEnv = resolveConfiguredSolanaEnv()) {
   return resolveLoyalClusterForSolanaEnv(solanaEnv);
+}
+
+function getConnection(cluster: SolanaEnv): Connection {
+  const cached = connectionCache.get(cluster);
+  if (cached) {
+    return cached;
+  }
+
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
+  const connection = new Connection(rpcEndpoint, {
+    commitment: "confirmed",
+    disableRetryOnRateLimit: true,
+    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+    wsEndpoint: websocketEndpoint,
+  });
+  connectionCache.set(cluster, connection);
+  return connection;
+}
+
+async function reconcileAutodepositArtifacts(args: {
+  connection: Connection;
+  settings: string;
+  smartAccountsProgramId: PublicKey;
+  state: CurrentEarnAutodepositState;
+  walletAddress: string;
+}): Promise<CurrentEarnAutodepositState> {
+  const recurringDelegation = args.state.target.recurringDelegation;
+  if (!recurringDelegation) {
+    return args.state;
+  }
+
+  const probe = await probeEarnAutodepositArtifacts({
+    connection: args.connection,
+    policyAccount: args.state.target.policyAccount,
+    recurringDelegation,
+    smartAccountsProgramId: args.smartAccountsProgramId,
+  });
+  const policyReady = probe.policy.exists && !probe.policy.invalidOwner;
+  const delegationReady =
+    probe.recurringDelegation.exists && !probe.recurringDelegation.invalidOwner;
+
+  if (args.state.status !== "pending" && (!policyReady || !delegationReady)) {
+    const target = await markAutodepositTargetPendingDelegation({
+      policyAccount: args.state.target.policyAccount,
+      settings: args.settings,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress: args.walletAddress,
+    });
+    return { ...args.state, status: "pending", target };
+  }
+
+  if (args.state.status === "pending" && policyReady && delegationReady) {
+    const target = await markAutodepositTargetActiveFromArtifacts({
+      policyAccount: args.state.target.policyAccount,
+      settings: args.settings,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress: args.walletAddress,
+    });
+    return { ...args.state, status: "active", target };
+  }
+
+  return args.state;
 }
 
 function serializePosition(
@@ -128,7 +205,9 @@ export async function GET(request: Request) {
   }
 
   const serverEnv = getServerEnv();
-  const cluster = resolveConfiguredCluster();
+  const solanaEnv = resolveConfiguredSolanaEnv();
+  const cluster = resolveConfiguredCluster(solanaEnv);
+  const connection = getConnection(solanaEnv);
   const settingsPda = new PublicKey(principal.settingsPda);
   const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
   const [earnVaultPda] = pda.getSmartAccountPda({
@@ -179,13 +258,60 @@ export async function GET(request: Request) {
           if (!state) {
             return null;
           }
+          const reconciledState = await reconcileAutodepositArtifacts({
+            connection,
+            settings: principal.settingsPda,
+            smartAccountsProgramId: programId,
+            state,
+            walletAddress: principal.walletAddress,
+          });
+          const activatedFromPending =
+            state.status === "pending" && reconciledState.status === "active";
+          if (activatedFromPending) {
+            try {
+              const snapshotResult =
+                await readEarnAutodepositBootstrapWalletBalanceSnapshot({
+                  connection,
+                  source: RECONCILE_BOOTSTRAP_BALANCE_SOURCE,
+                  sourceCommitment:
+                    RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
+                  target: reconciledState.target,
+                });
+              if (snapshotResult.status === "ok") {
+                await scheduleBootstrapEarnAutodepositSweep({
+                  snapshot: snapshotResult.snapshot,
+                  target: reconciledState.target,
+                });
+              }
+            } catch (error) {
+              console.warn(
+                "[earn-state] autodeposit bootstrap reconcile failed",
+                {
+                  errorMessage:
+                    error instanceof Error
+                      ? error.message
+                      : "Unknown bootstrap reconcile error.",
+                  policyAccount: reconciledState.target.policyAccount,
+                  walletAddress: principal.walletAddress,
+                }
+              );
+            }
+          }
 
           const [depositedThisPeriodRaw, scheduledSweeps] = await Promise.all([
-            sumEarnAutodepositCurrentPeriodDeposits(state.target),
-            findPendingEarnAutodepositScheduledSweeps(state.target),
+            sumEarnAutodepositCurrentPeriodDeposits(reconciledState.target),
+            reconciledState.status === "pending"
+              ? []
+              : findPendingEarnAutodepositScheduledSweeps(
+                  reconciledState.target
+                ),
           ]);
 
-          return { ...state, depositedThisPeriodRaw, scheduledSweeps };
+          return {
+            ...reconciledState,
+            depositedThisPeriodRaw,
+            scheduledSweeps,
+          };
         }
       ),
     ]);

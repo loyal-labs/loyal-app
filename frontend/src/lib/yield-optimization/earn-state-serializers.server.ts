@@ -43,15 +43,26 @@ export function serializeAutodepositState(
     balanceSweepPolicyId:
       autodeposit.target.balanceSweepPolicyId?.toString() ??
       autodeposit.policy.id.toString(),
+    cluster: autodeposit.target.cluster,
     delegatedSigner,
     depositedThisPeriodRaw: autodeposit.depositedThisPeriodRaw.toString(),
+    expiryTimestamp:
+      autodeposit.target.recurringDelegationExpiryTimestamp?.toString() ?? null,
     lastSeenSignature: autodeposit.target.lastSeenSignature,
     lastSeenSlot: autodeposit.target.lastSeenSlot.toString(),
+    nonce: autodeposit.target.recurringDelegationNonce?.toString() ?? null,
     periodLengthSeconds:
       autodeposit.target.periodLengthSeconds?.toString() ?? null,
     policyAccount: autodeposit.policy.policyAccount,
+    policyConfirmedSlot:
+      autodeposit.target.policyConfirmedSlot?.toString() ?? null,
     policySeed: autodeposit.policy.policySeed.toString(),
+    policySignature: autodeposit.target.policySignature,
     recurringDelegation: autodeposit.target.recurringDelegation,
+    recurringDelegationConfirmedSlot:
+      autodeposit.target.recurringDelegationConfirmedSlot?.toString() ?? null,
+    recurringDelegationSignature:
+      autodeposit.target.recurringDelegationSignature,
     scheduledSweeps: (autodeposit.scheduledSweeps ?? []).map(
       serializeScheduledSweep
     ),

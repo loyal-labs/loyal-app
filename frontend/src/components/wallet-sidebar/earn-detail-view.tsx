@@ -167,12 +167,15 @@ export type EarnAutodepositDraft = {
   amountChanged?: boolean;
   existingPolicySeed?: string;
   existingRecurringDelegation?: string;
+  expiryTimestamp?: bigint;
   keepAmount: number;
   keepAmountChanged?: boolean;
   keepAmountLabel: string;
   nonce: bigint;
+  periodLengthSeconds?: bigint;
   requiresSignature?: boolean;
   source: EarnDepositSourceOption;
+  startTimestamp?: bigint;
   symbol: "USDC";
   tokenDecimals: number;
 };
@@ -1861,6 +1864,7 @@ function AutodepositCard({
   hasCurrentPosition = false,
   isBalanceHidden = false,
   isConfigured = false,
+  isPendingSetup = false,
   scheduledSweeps = [],
   state = "idle",
   onDisable,
@@ -1871,6 +1875,7 @@ function AutodepositCard({
   hasCurrentPosition?: boolean;
   isBalanceHidden?: boolean;
   isConfigured?: boolean;
+  isPendingSetup?: boolean;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   state?:
     | "closing"
@@ -1905,10 +1910,26 @@ function AutodepositCard({
   // not blur.
   const statusLabelHasAmount = !isBusy && !isToggling && state !== "paused";
 
-  if (isConfigured) {
+  if (isConfigured || isPendingSetup) {
+    const cardStatusLabel = isPendingSetup
+      ? "Finish setup to approve the recurring allowance"
+      : statusLabel;
+    const cardTitle = isPendingSetup
+      ? "Finish Autodeposit setup"
+      : "Autodeposit";
     return (
       <>
         <style jsx>{`
+          .earn-autodeposit-btn {
+            transition: background 0.15s ease, transform 0.15s ease;
+          }
+          .earn-autodeposit-btn:hover {
+            background: #e72f34 !important;
+            transform: translateY(-1px);
+          }
+          .earn-autodeposit-btn:active {
+            transform: translateY(0);
+          }
           .earn-autodeposit-settings {
             transition: background 0.15s ease;
           }
@@ -1970,7 +1991,7 @@ function AutodepositCard({
                   lineHeight: "20px",
                 }}
               >
-                Autodeposit
+                {cardTitle}
               </span>
               <span
                 style={{
@@ -1991,45 +2012,71 @@ function AutodepositCard({
                     isBalanceHidden && statusLabelHasAmount ? "none" : "auto",
                 }}
               >
-                {statusLabel}
+                {cardStatusLabel}
               </span>
             </div>
-            <button
-              aria-label="Edit Autodeposit"
-              className="earn-autodeposit-settings"
-              onClick={onSetUp}
-              style={{
-                alignItems: "center",
-                background: "transparent",
-                border: "none",
-                borderRadius: "9999px",
-                color: "#3C3C43",
-                cursor: "pointer",
-                display: "inline-flex",
-                flexShrink: 0,
-                height: "32px",
-                justifyContent: "center",
-                padding: "4px",
-                width: "32px",
-              }}
-              type="button"
-            >
-              <SlidersHorizontal size={20} strokeWidth={2} />
-            </button>
-            <AutodepositToggle
-              disabled={isBusy || isToggling}
-              // While toggling, the knob optimistically shows the target
-              // position; on failure the workspace reverts the state.
-              isOn={
-                isToggling
-                  ? state === "resuming"
-                  : !isBusy && state !== "paused"
-              }
-              isPending={isToggling}
-              onToggle={onDisable}
-            />
+            {isPendingSetup ? (
+              <button
+                className="earn-autodeposit-btn"
+                onClick={onSetUp}
+                style={{
+                  background: "#F9363C",
+                  border: "none",
+                  borderRadius: "9999px",
+                  color: "#fff",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  fontFamily: font,
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  lineHeight: "20px",
+                  padding: "6px 16px",
+                  whiteSpace: "nowrap",
+                }}
+                type="button"
+              >
+                Finish
+              </button>
+            ) : (
+              <>
+                <button
+                  aria-label="Edit Autodeposit"
+                  className="earn-autodeposit-settings"
+                  onClick={onSetUp}
+                  style={{
+                    alignItems: "center",
+                    background: "transparent",
+                    border: "none",
+                    borderRadius: "9999px",
+                    color: "#3C3C43",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    flexShrink: 0,
+                    height: "32px",
+                    justifyContent: "center",
+                    padding: "4px",
+                    width: "32px",
+                  }}
+                  type="button"
+                >
+                  <SlidersHorizontal size={20} strokeWidth={2} />
+                </button>
+                <AutodepositToggle
+                  disabled={isBusy || isToggling}
+                  // While toggling, the knob optimistically shows the target
+                  // position; on failure the workspace reverts the state.
+                  isOn={
+                    isToggling
+                      ? state === "resuming"
+                      : !isBusy && state !== "paused"
+                  }
+                  isPending={isToggling}
+                  onToggle={onDisable}
+                />
+              </>
+            )}
           </div>
-          {visibleScheduledSweeps.length > 0 ? (
+          {!isPendingSetup && visibleScheduledSweeps.length > 0 ? (
             <div
               style={{
                 display: "flex",
@@ -2248,6 +2295,7 @@ export function EarnDetailView({
   earningsCacheScope,
   hasCurrentPosition = false,
   isAutodepositConfigured = false,
+  isAutodepositPending = false,
   isBalanceHidden = false,
   onDeposit,
   onDisableAutodeposit,
@@ -2280,6 +2328,7 @@ export function EarnDetailView({
   };
   hasCurrentPosition?: boolean;
   isAutodepositConfigured?: boolean;
+  isAutodepositPending?: boolean;
   isBalanceHidden?: boolean;
   onDeposit?: () => void;
   onDisableAutodeposit?: () => void;
@@ -2571,12 +2620,11 @@ export function EarnDetailView({
 
           .earn-detail-header {
             align-items: stretch !important;
-            background:
-              linear-gradient(
-                to bottom,
-                rgba(255, 255, 255, 0),
-                #fff 28%
-              );
+            background: linear-gradient(
+              to bottom,
+              rgba(255, 255, 255, 0),
+              #fff 28%
+            );
             bottom: 0;
             gap: 8px !important;
             left: 0;
@@ -2608,7 +2656,8 @@ export function EarnDetailView({
           }
 
           :global(
-              .earn-detail-actions .earn-position-action[data-earn-action="deposit"]
+              .earn-detail-actions
+                .earn-position-action[data-earn-action="deposit"]
             ) {
             background: #f9363c !important;
             color: #fff !important;
@@ -2654,6 +2703,7 @@ export function EarnDetailView({
         hasCurrentPosition={hasCurrentPosition}
         isBalanceHidden={isBalanceHidden}
         isConfigured={isAutodepositConfigured}
+        isPendingSetup={isAutodepositPending}
         scheduledSweeps={autodepositScheduledSweeps}
         state={autodepositState}
         onDisable={onDisableAutodeposit}
@@ -3153,14 +3203,13 @@ export function EarnWithdrawView({
           amount: effectiveWithdrawAmount,
           maxWithdrawAmount: selectedSourceMaxAmount,
         });
-  const withdrawAmountError =
-    !selectedSource
-      ? "No withdrawable Earn source"
-      : !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
-      ? "Enter an amount"
-      : hasWithdrawAmount && numericWithdrawAmount > selectedSourceMaxAmount
-      ? "Insufficient balance"
-      : null;
+  const withdrawAmountError = !selectedSource
+    ? "No withdrawable Earn source"
+    : !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
+    ? "Enter an amount"
+    : hasWithdrawAmount && numericWithdrawAmount > selectedSourceMaxAmount
+    ? "Insufficient balance"
+    : null;
   const isWithdrawButtonDisabled = isSubmitting || withdrawAmountError !== null;
   const withdrawButtonLabel = isSubmitting
     ? "Withdrawing..."
@@ -3248,10 +3297,7 @@ export function EarnWithdrawView({
         index = Math.min(EARN_CLEANUP_MASCOT_TEXT.length, index + 1);
         setCleanupMascotVisibleLength(index);
 
-        if (
-          index >= EARN_CLEANUP_MASCOT_TEXT.length &&
-          intervalId !== null
-        ) {
+        if (index >= EARN_CLEANUP_MASCOT_TEXT.length && intervalId !== null) {
           window.clearInterval(intervalId);
         }
       }, 30);
@@ -3267,9 +3313,7 @@ export function EarnWithdrawView({
 
   if (cleanupOnly) {
     const isCleanupButtonDisabled = isSubmitting || !onCleanupSubmit;
-    const cleanupButtonLabel = isSubmitting
-      ? "Preparing..."
-      : "Close policies";
+    const cleanupButtonLabel = isSubmitting ? "Preparing..." : "Close policies";
 
     return (
       <div
@@ -3306,8 +3350,7 @@ export function EarnWithdrawView({
             border: 1px solid rgba(0, 0, 0, 0.08);
             border-radius: 18px;
             box-sizing: border-box;
-            box-shadow:
-              0 10px 24px rgba(0, 0, 0, 0.08),
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
               0 2px 6px rgba(0, 0, 0, 0.04);
             color: rgba(0, 0, 0, 0.86);
             font-family: ${font};
@@ -3674,9 +3717,7 @@ export function EarnWithdrawView({
                 if (sanitizedValue === null) {
                   return;
                 }
-                const numericValue = Number(
-                  sanitizedValue.replace(/,/g, "")
-                );
+                const numericValue = Number(sanitizedValue.replace(/,/g, ""));
                 setWithdrawAmount(
                   numericValue > selectedSourceMaxAmount
                     ? formatBucksAmount(selectedSourceMaxAmount)
@@ -6370,20 +6411,22 @@ export function EarnDepositView({
           onClick={() => void onDraftSubmit?.(buildCurrentDraft())}
           style={{
             alignItems: "center",
-            background: amountError && !isConnectCta
-              ? "rgba(249, 54, 60, 0.14)"
-              : isDepositButtonDisabled
-              ? "rgba(0, 0, 0, 0.04)"
-              : isConnectCta
-              ? "#F9363C"
-              : "#000",
+            background:
+              amountError && !isConnectCta
+                ? "rgba(249, 54, 60, 0.14)"
+                : isDepositButtonDisabled
+                ? "rgba(0, 0, 0, 0.04)"
+                : isConnectCta
+                ? "#F9363C"
+                : "#000",
             border: "none",
             borderRadius: "78px",
-            color: amountError && !isConnectCta
-              ? "#F9363C"
-              : isDepositButtonDisabled
-              ? secondary
-              : "#fff",
+            color:
+              amountError && !isConnectCta
+                ? "#F9363C"
+                : isDepositButtonDisabled
+                ? secondary
+                : "#fff",
             cursor: isDepositButtonDisabled ? "default" : "pointer",
             display: "flex",
             fontFamily: font,
@@ -6636,6 +6679,7 @@ export function AutodepositSetupView({
   earnVaultAddressLabel,
   initialKeepAmount = "500",
   isEditing = false,
+  isPendingSetup = false,
   mainSource,
   onBack,
   onDelete,
@@ -6645,6 +6689,7 @@ export function AutodepositSetupView({
   earnVaultAddressLabel?: string | null;
   initialKeepAmount?: string;
   isEditing?: boolean;
+  isPendingSetup?: boolean;
   mainSource?: EarnDepositSourceOption | null;
   onBack?: () => void;
   onDelete?: () => void;
@@ -6665,6 +6710,8 @@ export function AutodepositSetupView({
     ? !hasChanges
       ? "No changes yet"
       : "Update minimum balance"
+    : isPendingSetup
+    ? "Finish setup"
     : "Create Autodeposit";
 
   const focusKeepAmount = () => {
@@ -6758,7 +6805,7 @@ export function AutodepositSetupView({
         >
           Autodeposit
         </h2>
-        {isEditing && onDelete ? (
+        {isEditing && !isPendingSetup && onDelete ? (
           <button
             className="autodeposit-delete"
             onClick={onDelete}

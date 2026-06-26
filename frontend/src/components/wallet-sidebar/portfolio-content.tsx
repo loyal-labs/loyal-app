@@ -391,6 +391,7 @@ function AutodepositStatusCard({
   hasEarnPosition = false,
   isBalanceHidden = false,
   isConfigured = false,
+  isPendingSetup = false,
   isError = false,
   isLoading = false,
   marginBottom = 16,
@@ -402,13 +403,14 @@ function AutodepositStatusCard({
   hasEarnPosition?: boolean;
   isBalanceHidden?: boolean;
   isConfigured?: boolean;
+  isPendingSetup?: boolean;
   isError?: boolean;
   isLoading?: boolean;
   marginBottom?: number;
   onRetry?: () => void;
   onSetUp?: () => void;
 }) {
-  if (isConfigured && !isError && !isLoading) {
+  if ((isConfigured || isPendingSetup) && !isError && !isLoading) {
     const [depositedWhole, depositedFraction] = (
       depositedLabel ?? "$0.00"
     ).split(".");
@@ -431,7 +433,9 @@ function AutodepositStatusCard({
           }
         `}</style>
         <div
-          aria-label="Edit Autodeposit"
+          aria-label={
+            isPendingSetup ? "Finish Autodeposit setup" : "Edit Autodeposit"
+          }
           className="autodeposit-status-card"
           onClick={onSetUp}
           onKeyDown={handleKeyDown}
@@ -489,7 +493,9 @@ function AutodepositStatusCard({
                   whiteSpace: "nowrap",
                 }}
               >
-                Autodeposited this month
+                {isPendingSetup
+                  ? "Finish Autodeposit setup"
+                  : "Autodeposited this month"}
               </span>
               <span
                 style={{
@@ -505,16 +511,18 @@ function AutodepositStatusCard({
                   whiteSpace: "nowrap",
                 }}
               >
-                {depositedWhole}
-                <span
-                  style={{
-                    color: isBalanceHidden
-                      ? "#BBBBC0"
-                      : "rgba(60, 60, 67, 0.4)",
-                  }}
-                >
-                  .{depositedFraction ?? "00"}
-                </span>
+                {isPendingSetup ? "Pending" : depositedWhole}
+                {isPendingSetup ? null : (
+                  <span
+                    style={{
+                      color: isBalanceHidden
+                        ? "#BBBBC0"
+                        : "rgba(60, 60, 67, 0.4)",
+                    }}
+                  >
+                    .{depositedFraction ?? "00"}
+                  </span>
+                )}
               </span>
               <span
                 style={{
@@ -528,7 +536,9 @@ function AutodepositStatusCard({
                   whiteSpace: "nowrap",
                 }}
               >
-                Keeps at least {floorLabel ?? "$0.00"} in your wallet
+                {isPendingSetup
+                  ? "Recurring allowance still needs approval"
+                  : `Keeps at least ${floorLabel ?? "$0.00"} in your wallet`}
               </span>
             </div>
           </div>
@@ -1236,6 +1246,7 @@ export function PortfolioContent({
   hasEarnPosition = false,
   isEarnPositionLoading = false,
   isAutodepositConfigured = false,
+  isAutodepositPending = false,
   isEarnStateLoading = false,
   selectedSignerId = null,
   selectedVaultIndex = null,
@@ -1270,6 +1281,7 @@ export function PortfolioContent({
   onOpenAutodeposit?: () => void;
   onOpenCreateAccount?: () => void;
   isAutodepositConfigured?: boolean;
+  isAutodepositPending?: boolean;
   onOpenVault: (accountIndex: number) => void;
   onOpenAgent: (agent: SmartAccountSignerEntry) => void;
   onOpenAddSigner?: (accountIndex: number) => void;
@@ -1308,7 +1320,8 @@ export function PortfolioContent({
     isEarnStateLoading &&
     !hasEarnStateResolved &&
     !hasEarnStateLoadError &&
-    !isAutodepositConfigured;
+    !isAutodepositConfigured &&
+    !isAutodepositPending;
   const shouldShowAutodepositAsBalance = Boolean(onOpenAutodeposit);
   const shouldShowAccountsTitle =
     !showHeaderControls && shouldShowAutodepositAsBalance;
@@ -1695,6 +1708,7 @@ export function PortfolioContent({
             hasEarnPosition={hasEarnPosition}
             isBalanceHidden={isBalanceHidden}
             isConfigured={isAutodepositConfigured}
+            isPendingSetup={isAutodepositPending}
             isError={hasEarnStateLoadError}
             isLoading={shouldShowAutodepositSkeleton}
             marginBottom={0}

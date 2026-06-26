@@ -18,10 +18,12 @@ import {
 import { Connection, PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
+import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
+import { assertEarnAutodepositArtifactsExist } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import {
   parseEarnAutodepositSetupConfirmRequestBody,
   type EarnAutodepositSetupConfirmResponse,
@@ -218,8 +220,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -412,6 +413,8 @@ export async function POST(request: Request) {
   }
 
   const solanaEnv = getConfiguredSolanaEnv();
+  const connection = getConnection(solanaEnv);
+  const serverEnv = getServerEnv();
   const configuredCluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   if (input.cluster !== configuredCluster) {
     return jsonError(
@@ -445,6 +448,32 @@ export async function POST(request: Request) {
     );
   }
 
+  if (
+    input.setupStage === "create_policy" ||
+    input.setupStage === "create_recurring_delegation"
+  ) {
+    try {
+      await assertEarnAutodepositArtifactsExist({
+        connection,
+        policyAccount: input.policyAccount,
+        recurringDelegation: input.recurringDelegation,
+        requireRecurringDelegation:
+          input.setupStage === "create_recurring_delegation",
+        smartAccountsProgramId: new PublicKey(
+          serverEnv.loyalSmartAccounts.programId
+        ),
+      });
+    } catch (error) {
+      return jsonError(
+        409,
+        "artifact_missing",
+        error instanceof Error
+          ? error.message
+          : "Confirmed Autodeposit setup artifacts are missing."
+      );
+    }
+  }
+
   const target =
     input.setupStage === "create_recurring_delegation"
       ? await recordConfirmedAutodepositDelegation(input)
@@ -453,7 +482,7 @@ export async function POST(request: Request) {
   if (input.setupStage === "create_recurring_delegation") {
     try {
       const snapshotResult = await readBootstrapWalletBalanceSnapshot({
-        connection: getConnection(solanaEnv),
+        connection,
         input,
       });
       if (snapshotResult.status === "skipped") {

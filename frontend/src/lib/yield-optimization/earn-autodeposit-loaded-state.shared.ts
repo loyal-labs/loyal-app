@@ -11,11 +11,18 @@ export type LoadedEarnAutodepositScheduledSweep = {
 
 export type LoadedEarnAutodepositState = {
   amountPerPeriodRaw: string;
+  cluster?: string | null;
   depositedThisPeriodRaw?: string | null;
+  expiryTimestamp?: string | null;
+  nonce?: string | null;
   policyAccount: string;
+  policyConfirmedSlot?: string | null;
   policySeed: string;
+  policySignature?: string | null;
   periodLengthSeconds: string | null;
   recurringDelegation: string | null;
+  recurringDelegationConfirmedSlot?: string | null;
+  recurringDelegationSignature?: string | null;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   startTimestamp: string | null;
   status: "active" | "paused" | "pending";
@@ -27,10 +34,15 @@ export type LoadedEarnAutodepositConfig = {
   depositedAmount: string;
   keepAmount: string;
   nextPeriodLabel: string | null;
+  expiryTimestamp: string | null;
+  periodLengthSeconds: string | null;
   policyAccount: string;
+  policySeed: string;
   recurringDelegation: string;
+  setupNonce: string | null;
   nonce: string;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
+  startTimestamp: string | null;
   state: "created" | "creating" | "paused";
 };
 
@@ -64,9 +76,17 @@ export function isLoadedEarnAutodepositConfig(
     typeof value.keepAmount === "string" &&
     (typeof value.nextPeriodLabel === "string" ||
       value.nextPeriodLabel === null) &&
+    (typeof value.expiryTimestamp === "string" ||
+      value.expiryTimestamp === null) &&
+    (typeof value.periodLengthSeconds === "string" ||
+      value.periodLengthSeconds === null) &&
     typeof value.policyAccount === "string" &&
+    typeof value.policySeed === "string" &&
     typeof value.recurringDelegation === "string" &&
+    (typeof value.setupNonce === "string" || value.setupNonce === null) &&
     typeof value.nonce === "string" &&
+    (typeof value.startTimestamp === "string" ||
+      value.startTimestamp === null) &&
     (value.state === "created" ||
       value.state === "creating" ||
       value.state === "paused") &&
@@ -143,10 +163,15 @@ export function earnAutodepositConfigFromLoadedState(
       autodeposit.startTimestamp,
       autodeposit.periodLengthSeconds
     ),
+    expiryTimestamp: autodeposit.expiryTimestamp ?? null,
     nonce: autodeposit.policySeed,
+    periodLengthSeconds: autodeposit.periodLengthSeconds,
     policyAccount: autodeposit.policyAccount,
+    policySeed: autodeposit.policySeed,
     recurringDelegation: autodeposit.recurringDelegation ?? "",
     scheduledSweeps: autodeposit.scheduledSweeps ?? [],
+    setupNonce: autodeposit.nonce ?? null,
+    startTimestamp: autodeposit.startTimestamp,
     state:
       autodeposit.status === "active"
         ? "created"

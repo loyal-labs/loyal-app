@@ -628,6 +628,22 @@ function toCachedEarnAutodepositConfig(
   return null;
 }
 
+function formatAutodepositUsdLabel(value: string | null | undefined): string {
+  const numeric = Number((value ?? "0").replace(/,/g, ""));
+  const amount = Number.isFinite(numeric) ? numeric : 0;
+
+  return `$${amount.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
+
+function parseOptionalUnsignedBigInt(
+  value: string | null | undefined
+): bigint | undefined {
+  return value && /^\d+$/.test(value) ? BigInt(value) : undefined;
+}
+
 function readCachedEarnAutodepositConfig(args: {
   settingsPda: string;
   solanaEnv: string;
@@ -1210,8 +1226,8 @@ function getShieldedBalancesUnlockErrorMessage(error: unknown): string {
     error instanceof Error
       ? error.message
       : typeof error === "string"
-        ? error
-        : "";
+      ? error
+      : "";
   const lowerMessage = rawMessage.toLowerCase();
 
   if (
@@ -1638,10 +1654,8 @@ export function AppWalletWorkspace({
   const connectedWalletAddress = wallet.publicKey?.toBase58() ?? null;
   const [shouldLoadMainAccountPortfolio, setShouldLoadMainAccountPortfolio] =
     useState(false);
-  const [
-    shieldedBalancesUnlockedForKey,
-    setShieldedBalancesUnlockedForKey,
-  ] = useState<string | null>(null);
+  const [shieldedBalancesUnlockedForKey, setShieldedBalancesUnlockedForKey] =
+    useState<string | null>(null);
   const shieldedBalancesUnlockKey = connectedWalletAddress
     ? `${connectedWalletAddress}:${publicEnv.solanaEnv}`
     : null;
@@ -1909,14 +1923,10 @@ export function AppWalletWorkspace({
     useState<FormButtonProps | null>(null);
   const [shieldButtonProps, setShieldButtonProps] =
     useState<FormButtonProps | null>(null);
-  const [
-    isShieldedBalancesUnlocking,
-    setIsShieldedBalancesUnlocking,
-  ] = useState(false);
-  const [
-    shieldedBalancesUnlockError,
-    setShieldedBalancesUnlockError,
-  ] = useState<string | null>(null);
+  const [isShieldedBalancesUnlocking, setIsShieldedBalancesUnlocking] =
+    useState(false);
+  const [shieldedBalancesUnlockError, setShieldedBalancesUnlockError] =
+    useState<string | null>(null);
   const [
     isShieldedBalancesUnlockReviewOpen,
     setIsShieldedBalancesUnlockReviewOpen,
@@ -2088,6 +2098,9 @@ export function AppWalletWorkspace({
     );
     setAutodepositConfig((current) => {
       if (current?.state === "creating" && loadedConfig?.state !== "created") {
+        if (loadedConfig?.policyAccount && !current.policyAccount) {
+          return loadedConfig;
+        }
         return current;
       }
       if (
@@ -2139,17 +2152,21 @@ export function AppWalletWorkspace({
     smartAccountData.earnStateLoadErrors.autodeposit,
     smartAccountData.isEarnStateLoading,
   ]);
+  const isAutodepositReady =
+    autodepositConfig?.state === "created" ||
+    autodepositConfig?.state === "paused" ||
+    autodepositConfig?.state === "pausing" ||
+    autodepositConfig?.state === "resuming" ||
+    autodepositConfig?.state === "closing";
+  const isAutodepositPendingSetup = autodepositConfig?.state === "creating";
   const autodepositAmountLabel = autodepositConfig
-    ? `$${Number(autodepositConfig.amount || 0).toLocaleString("en-US")}.00`
+    ? formatAutodepositUsdLabel(autodepositConfig.amount)
     : undefined;
   const autodepositFloorLabel = autodepositConfig
-    ? `$${Number(autodepositConfig.keepAmount || 0).toLocaleString("en-US")}.00`
+    ? formatAutodepositUsdLabel(autodepositConfig.keepAmount)
     : undefined;
   const autodepositDepositedLabel = autodepositConfig
-    ? `$${Number(autodepositConfig.depositedAmount || 0).toLocaleString(
-        "en-US",
-        { maximumFractionDigits: 2, minimumFractionDigits: 2 }
-      )}`
+    ? formatAutodepositUsdLabel(autodepositConfig.depositedAmount)
     : undefined;
   const [isSpendingLimitDraftSubmitting, setIsSpendingLimitDraftSubmitting] =
     useState(false);
@@ -2195,6 +2212,11 @@ export function AppWalletWorkspace({
     canLoadPersonalAccount &&
     isRateLimitedSmartAccountError(smartAccountData.error);
   const showAccountShell = isAuthHydrated;
+  const isAnonymousMobilePreview =
+    isMobileWorkspaceViewport &&
+    appAccessMode === "anonymous" &&
+    activeSection === "wallet" &&
+    !connectAgentAddress;
   const selectedAgent =
     selectedVault?.entry.signers.find(
       (signer) => signer.id === selectedSignerId
@@ -2238,11 +2260,7 @@ export function AppWalletWorkspace({
         name: walletDesktopData.walletLabel ?? "You",
       },
     ];
-  }, [
-    selectedVault,
-    personalWalletAddress,
-    walletDesktopData.walletLabel,
-  ]);
+  }, [selectedVault, personalWalletAddress, walletDesktopData.walletLabel]);
   const selectedApproval = useMemo(
     () =>
       smartAccountData.approvals.find(
@@ -2457,8 +2475,7 @@ export function AppWalletWorkspace({
     [derivedTokens, securedTokens]
   );
   const mainAccountUsdcPosition = useMemo(
-    () =>
-      findEarnUsdcPosition(personalWalletPositions, trackedKaminoUsdcMint),
+    () => findEarnUsdcPosition(personalWalletPositions, trackedKaminoUsdcMint),
     [personalWalletPositions, trackedKaminoUsdcMint]
   );
   const mainAccountVisibleUsdcBalanceRaw = useMemo(
@@ -2522,6 +2539,7 @@ export function AppWalletWorkspace({
     useMemo<PendingScheduledSweepPreview | null>(() => {
       if (
         !autodepositConfig ||
+        !isAutodepositReady ||
         !isEarnAutodepositSetupConfirming ||
         (autodepositConfig.scheduledSweeps?.length ?? 0) > 0
       ) {
@@ -2566,36 +2584,43 @@ export function AppWalletWorkspace({
     }, [
       autodepositConfig,
       earnDepositSources,
+      isAutodepositReady,
       isEarnAutodepositSetupConfirming,
     ]);
-  const rawEarnTransactionScheduledSweeps = useMemo(
-    () => {
-      const liveScheduledSweeps =
-        smartAccountData.earnAutodeposit?.scheduledSweeps ?? [];
-      const localScheduledSweeps = autodepositConfig?.scheduledSweeps ?? [];
-
-      return liveScheduledSweeps.length > 0
-        ? liveScheduledSweeps
-        : smartAccountData.isEarnStateLoading
-        ? localScheduledSweeps
+  const rawEarnTransactionScheduledSweeps = useMemo(() => {
+    const liveScheduledSweeps =
+      smartAccountData.earnAutodeposit?.status === "active"
+        ? smartAccountData.earnAutodeposit.scheduledSweeps ?? []
         : [];
-    },
-    [
-      autodepositConfig?.scheduledSweeps,
-      smartAccountData.earnAutodeposit?.scheduledSweeps,
-      smartAccountData.isEarnStateLoading,
-    ]
-  );
+    const localScheduledSweeps = isAutodepositReady
+      ? autodepositConfig?.scheduledSweeps ?? []
+      : [];
+
+    return liveScheduledSweeps.length > 0
+      ? liveScheduledSweeps
+      : smartAccountData.isEarnStateLoading
+      ? localScheduledSweeps
+      : [];
+  }, [
+    autodepositConfig?.scheduledSweeps,
+    isAutodepositReady,
+    smartAccountData.earnAutodeposit?.scheduledSweeps,
+    smartAccountData.earnAutodeposit?.status,
+    smartAccountData.isEarnStateLoading,
+  ]);
   const visibleAutodepositScheduledSweeps = useMemo(
     () =>
       getVisibleEarnAutodepositScheduledSweeps({
-        scheduledSweeps: autodepositConfig?.scheduledSweeps ?? [],
+        scheduledSweeps: isAutodepositReady
+          ? autodepositConfig?.scheduledSweeps ?? []
+          : [],
         walletBalanceFloorRaw: autodepositWalletBalanceFloorRaw,
         walletBalanceRaw: mainAccountVisibleUsdcBalanceRaw,
       }),
     [
       autodepositConfig?.scheduledSweeps,
       autodepositWalletBalanceFloorRaw,
+      isAutodepositReady,
       mainAccountVisibleUsdcBalanceRaw,
     ]
   );
@@ -2797,12 +2822,14 @@ export function AppWalletWorkspace({
       setIsEarnReviewExiting(true);
     }
   }
-  const earnCurrentBalanceAmount = hasEarnPosition && activeEarnPosition
-    ? rawTokenAmountToNumber(activeEarnPosition.currentTotalAmountRaw, 6)
-    : 0;
-  const earnPrincipalAmount = hasEarnPosition && activeEarnPosition
-    ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
-    : 0;
+  const earnCurrentBalanceAmount =
+    hasEarnPosition && activeEarnPosition
+      ? rawTokenAmountToNumber(activeEarnPosition.currentTotalAmountRaw, 6)
+      : 0;
+  const earnPrincipalAmount =
+    hasEarnPosition && activeEarnPosition
+      ? rawTokenAmountToNumber(activeEarnPosition.principalAmountRaw, 6)
+      : 0;
   const getEarnWithdrawDraftAmountRaw = useCallback(
     (draft: EarnWithdrawDraft): bigint =>
       draft.mode === "full"
@@ -3050,6 +3077,14 @@ export function AppWalletWorkspace({
       }
     }
   }, [appAccessMode, connectAgentAddress, isAuthHydrated]);
+
+  useEffect(() => {
+    if (!isAnonymousMobilePreview) {
+      return;
+    }
+
+    setMobilePane((current) => (current === "accounts" ? "detail" : current));
+  }, [isAnonymousMobilePreview]);
 
   // Lazy-load the agent's own wallet portfolio when an agent (non-Main Account
   // signer) is selected. Skips the Main Account row — that wallet is already
@@ -3847,7 +3882,19 @@ export function AppWalletWorkspace({
       const keepAmountChanged =
         currentKeepAmountRaw === null || keepAmountRaw !== currentKeepAmountRaw;
 
-      if (autodepositConfig && !amountChanged && !keepAmountChanged) {
+      const autodepositCanUseFloorUpdate =
+        autodepositConfig?.state === "created" ||
+        autodepositConfig?.state === "paused";
+      const autodepositIsPendingSetup =
+        autodepositConfig?.state === "creating" &&
+        Boolean(autodepositConfig.policyAccount);
+
+      if (
+        autodepositConfig &&
+        !autodepositIsPendingSetup &&
+        !amountChanged &&
+        !keepAmountChanged
+      ) {
         setProposalActionError("No Autodeposit changes to save.");
         return;
       }
@@ -3858,7 +3905,12 @@ export function AppWalletWorkspace({
       setEarnAutodepositSetupReviewStage("policy");
       setIsEarnAutodepositCloseReview(false);
 
-      if (autodepositConfig && !amountChanged && keepAmountChanged) {
+      if (
+        autodepositCanUseFloorUpdate &&
+        autodepositConfig &&
+        !amountChanged &&
+        keepAmountChanged
+      ) {
         if (
           !autodepositConfig.policyAccount ||
           !autodepositConfig.recurringDelegation
@@ -3902,14 +3954,29 @@ export function AppWalletWorkspace({
         amount: normalizedAmount,
         amountChanged,
         amountLabel: amount,
-        existingPolicySeed: autodepositConfig?.nonce,
+        existingPolicySeed:
+          autodepositConfig?.policySeed ?? autodepositConfig?.nonce,
         existingRecurringDelegation: autodepositConfig?.recurringDelegation,
+        expiryTimestamp: parseOptionalUnsignedBigInt(
+          autodepositConfig?.expiryTimestamp
+        ),
         keepAmount: normalizedKeepAmount,
         keepAmountChanged,
         keepAmountLabel: keepAmount,
-        nonce: BigInt(Date.now()),
-        requiresSignature: !autodepositConfig || amountChanged,
+        nonce:
+          parseOptionalUnsignedBigInt(autodepositConfig?.setupNonce) ??
+          BigInt(Date.now()),
+        periodLengthSeconds: parseOptionalUnsignedBigInt(
+          autodepositConfig?.periodLengthSeconds
+        ),
+        requiresSignature:
+          !autodepositCanUseFloorUpdate ||
+          autodepositIsPendingSetup ||
+          amountChanged,
         source,
+        startTimestamp: parseOptionalUnsignedBigInt(
+          autodepositConfig?.startTimestamp
+        ),
         symbol: "USDC",
         tokenDecimals: source.decimals,
       });
@@ -3934,7 +4001,7 @@ export function AppWalletWorkspace({
     setAutodepositConfig((current) =>
       current?.state === "closing"
         ? { ...current, state: "created" }
-        : current?.state === "creating"
+        : current?.state === "creating" && !current.policyAccount
         ? null
         : current
     );
@@ -3943,7 +4010,11 @@ export function AppWalletWorkspace({
   }, []);
 
   const handleOpenAutodepositCloseReview = useCallback(() => {
-    if (!autodepositConfig) {
+    if (
+      !autodepositConfig ||
+      (autodepositConfig.state !== "created" &&
+        autodepositConfig.state !== "paused")
+    ) {
       return;
     }
     setAutodepositConfig({ ...autodepositConfig, state: "closing" });
@@ -3962,8 +4033,8 @@ export function AppWalletWorkspace({
       return;
     }
     if (
-      autodepositConfig.state === "pausing" ||
-      autodepositConfig.state === "resuming"
+      autodepositConfig.state !== "created" &&
+      autodepositConfig.state !== "paused"
     ) {
       return;
     }
@@ -4121,7 +4192,8 @@ export function AppWalletWorkspace({
         onboarding.setupPolicy.lastSeenSlot
           ? onboarding.setupPolicy
           : null);
-      const shouldPrepareSetupPolicy = Boolean(routePolicy) && !routeSetupPolicy;
+      const shouldPrepareSetupPolicy =
+        Boolean(routePolicy) && !routeSetupPolicy;
       const yieldRoutingPolicy: EarnDepositYieldRoutingPolicy | undefined =
         routePolicy
           ? {
@@ -4671,9 +4743,7 @@ export function AppWalletWorkspace({
             });
           });
           debitMainAccountUsdcBalance(amountRaw);
-          suppressEarnSubscriptionRefreshThroughSlot(
-            batchResult.confirmedSlot
-          );
+          suppressEarnSubscriptionRefreshThroughSlot(batchResult.confirmedSlot);
           setSelectedSignerId(null);
           setDetailSelection("earn");
           setSelectedDetail("Earn");
@@ -5001,12 +5071,21 @@ export function AppWalletWorkspace({
         : {
             amount: pendingEarnAutodepositDraft.amountLabel,
             depositedAmount: "0",
+            expiryTimestamp:
+              pendingEarnAutodepositDraft.expiryTimestamp?.toString() ?? null,
             keepAmount: pendingEarnAutodepositDraft.keepAmountLabel,
             nextPeriodLabel: null,
             nonce: pendingEarnAutodepositDraft.nonce.toString(),
+            periodLengthSeconds:
+              pendingEarnAutodepositDraft.periodLengthSeconds?.toString() ??
+              null,
             policyAccount: "",
+            policySeed: "",
             recurringDelegation: "",
             scheduledSweeps: [],
+            setupNonce: pendingEarnAutodepositDraft.nonce.toString(),
+            startTimestamp:
+              pendingEarnAutodepositDraft.startTimestamp?.toString() ?? null,
             state: "creating",
           }
     );
@@ -5070,10 +5149,14 @@ export function AppWalletWorkspace({
         if (!preparedSetup) {
           preparedSetup = await prepareEarnAutodepositSetupOnServer({
             amountRaw,
+            expiryTimestamp: pendingEarnAutodepositDraft.expiryTimestamp,
             nonce: pendingEarnAutodepositDraft.nonce,
+            periodLengthSeconds:
+              pendingEarnAutodepositDraft.periodLengthSeconds,
             policySeed: pendingEarnAutodepositDraft.existingPolicySeed
               ? BigInt(pendingEarnAutodepositDraft.existingPolicySeed)
               : undefined,
+            startTimestamp: pendingEarnAutodepositDraft.startTimestamp,
             walletBalanceFloorRaw,
           });
           setPendingEarnAutodepositSetupPrepared(preparedSetup);
@@ -5083,11 +5166,14 @@ export function AppWalletWorkspace({
         );
         const result = await smartAccountData.executeEarnAutodepositSetup({
           amountRaw,
+          expiryTimestamp: pendingEarnAutodepositDraft.expiryTimestamp,
           nonce: pendingEarnAutodepositDraft.nonce,
+          periodLengthSeconds: pendingEarnAutodepositDraft.periodLengthSeconds,
           policySeed: pendingEarnAutodepositDraft.existingPolicySeed
             ? BigInt(pendingEarnAutodepositDraft.existingPolicySeed)
             : undefined,
           preparedSetup,
+          startTimestamp: pendingEarnAutodepositDraft.startTimestamp,
           walletBalanceFloorRaw,
         });
 
@@ -5119,15 +5205,23 @@ export function AppWalletWorkspace({
         setAutodepositConfig({
           amount: pendingEarnAutodepositDraft.amountLabel,
           depositedAmount: autodepositConfig?.depositedAmount ?? "0",
+          expiryTimestamp: result.preparedSetup.persistence.expiryTimestamp,
           keepAmount: pendingEarnAutodepositDraft.keepAmountLabel,
           nextPeriodLabel: null,
           nonce:
             result.preparedSetup.persistence.policySeed ??
             result.preparedSetup.persistence.nonce,
+          periodLengthSeconds:
+            result.preparedSetup.persistence.periodLengthSeconds,
           policyAccount,
+          policySeed:
+            result.preparedSetup.persistence.policySeed ??
+            result.preparedSetup.persistence.nonce,
           recurringDelegation:
             result.preparedSetup.persistence.recurringDelegation,
           scheduledSweeps: result.scheduledSweeps ?? [],
+          setupNonce: result.preparedSetup.persistence.nonce,
+          startTimestamp: result.preparedSetup.persistence.startTimestamp,
           state: "created",
         });
         setPendingEarnAutodepositDraft(null);
@@ -5143,7 +5237,7 @@ export function AppWalletWorkspace({
       }
     } catch (error) {
       setAutodepositConfig((current) =>
-        current?.state === "creating" ? null : current
+        current?.state === "creating" && !current.policyAccount ? null : current
       );
       setProposalActionError(
         error instanceof Error
@@ -5237,10 +5331,7 @@ export function AppWalletWorkspace({
       setDetailInitialTab("tokens");
       setSelectedSignerId(agent.id);
 
-      if (
-        personalWalletAddress &&
-        agent.address === personalWalletAddress
-      ) {
+      if (personalWalletAddress && agent.address === personalWalletAddress) {
         setDetailSelection("wallet");
         setSelectedDetail(`${agent.label} · ${agent.shortAddress}`);
         setMobilePane("detail");
@@ -5251,11 +5342,7 @@ export function AppWalletWorkspace({
       setSelectedDetail(`${agent.label} · ${agent.shortAddress}`);
       setMobilePane("detail");
     },
-    [
-      markDetailPaneTransition,
-      personalWalletAddress,
-      setDetailSelection,
-    ]
+    [markDetailPaneTransition, personalWalletAddress, setDetailSelection]
   );
 
   const handleOpenMockRootSigner = useCallback(
@@ -5934,7 +6021,10 @@ export function AppWalletWorkspace({
   }, [handleTransientDetailBack, mobilePane]);
 
   const hasMobilePaneBackTarget =
-    isMobileWorkspaceViewport && showAccountShell && mobilePane !== "accounts";
+    isMobileWorkspaceViewport &&
+    showAccountShell &&
+    mobilePane !== "accounts" &&
+    !isAnonymousMobilePreview;
 
   const handleMobileBackIntent = useCallback(() => {
     if (hasMobilePaneBackTarget && mobilePaneHistoryArmedRef.current) {
@@ -5979,6 +6069,7 @@ export function AppWalletWorkspace({
   const mobileHeaderTitle =
     mobilePane === "activity" ? "Transactions" : selectedDetail || "Details";
   const canOpenMobileActivity =
+    !isAnonymousMobilePreview &&
     mobilePane === "detail" &&
     activeSection === "wallet" &&
     (detailSelection === "earn" ||
@@ -6137,7 +6228,8 @@ export function AppWalletWorkspace({
             walletAddress: personalWalletAddress,
           }}
           hasCurrentPosition={hasEarnPosition}
-          isAutodepositConfigured={Boolean(autodepositConfig)}
+          isAutodepositConfigured={isAutodepositReady}
+          isAutodepositPending={isAutodepositPendingSetup}
           isBalanceHidden={isBalanceHidden}
           onDeposit={handleOpenEarnDeposit}
           onDisableAutodeposit={handleDisableAutodeposit}
@@ -6154,7 +6246,8 @@ export function AppWalletWorkspace({
           earnBalance={earnCurrentBalanceAmount}
           earnVaultAddressLabel={earnVaultAddressLabel}
           initialKeepAmount={autodepositConfig?.keepAmount ?? "500"}
-          isEditing={Boolean(autodepositConfig)}
+          isEditing={isAutodepositReady}
+          isPendingSetup={isAutodepositPendingSetup}
           mainSource={
             earnDepositSources.find((source) => source.id === "main") ?? null
           }
@@ -7088,6 +7181,9 @@ export function AppWalletWorkspace({
       className="wallet-workspace"
       data-policy-view={activeSection === "policies" ? policyView : undefined}
       data-app-mode={appAccessMode}
+      data-anonymous-mobile-preview={
+        isAnonymousMobilePreview ? "true" : undefined
+      }
       data-mobile-pane={mobilePane}
       data-rate-limited={isSmartAccountRateLimited}
       data-review-focused={isReviewApprovalFocused || isEarnReviewExiting}
@@ -7116,7 +7212,9 @@ export function AppWalletWorkspace({
         open={isCommandMenuOpen}
       />
 
-      {showAccountShell && mobilePane !== "accounts" ? (
+      {showAccountShell &&
+      mobilePane !== "accounts" &&
+      !isAnonymousMobilePreview ? (
         <MobileWorkspaceHeader
           canOpenActivity={canOpenMobileActivity}
           onBack={handleMobileBackIntent}
@@ -7147,6 +7245,7 @@ export function AppWalletWorkspace({
       </AnimatePresence>
 
       {showAccountShell &&
+      !isAnonymousMobilePreview &&
       (!isSmartAccountRateLimited ||
         activeSection === "policies" ||
         activeSection === "settings") ? (
@@ -7203,12 +7302,11 @@ export function AppWalletWorkspace({
                     : handleOpenEarnDeposit
                 }
                 onOpenAutodeposit={handleOpenAutodeposit}
-                onOpenCreateAccount={
-                  canMutateAccount ? undefined : openSignIn
-                }
+                onOpenCreateAccount={canMutateAccount ? undefined : openSignIn}
                 autodepositDepositedLabel={autodepositDepositedLabel}
                 autodepositFloorLabel={autodepositFloorLabel}
-                isAutodepositConfigured={Boolean(autodepositConfig)}
+                isAutodepositConfigured={isAutodepositReady}
+                isAutodepositPending={isAutodepositPendingSetup}
                 hasEarnStateLoadError={Boolean(
                   smartAccountData.earnStateLoadErrors.autodeposit
                 )}
@@ -7252,7 +7350,9 @@ export function AppWalletWorkspace({
                     : null
                 }
                 earningsSummary={
-                  canLoadPersonalAccount ? walletDesktopData.earningsSummary : null
+                  canLoadPersonalAccount
+                    ? walletDesktopData.earningsSummary
+                    : null
                 }
               />
             )}
@@ -7278,6 +7378,7 @@ export function AppWalletWorkspace({
       </section>
 
       {showAccountShell &&
+      !isAnonymousMobilePreview &&
       (!isSmartAccountRateLimited || activeSection === "policies") ? (
         <>
           <button
@@ -7318,9 +7419,7 @@ export function AppWalletWorkspace({
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
                 hasCurrentPosition={hasEarnPosition}
-                isAutodepositConfigured={Boolean(
-                  smartAccountData.earnAutodeposit || autodepositConfig
-                )}
+                isAutodepositConfigured={isAutodepositReady}
                 isBalanceHidden={isBalanceHidden}
                 isExecutingScheduledSweep={isExecutingScheduledSweep}
                 onExperimentalModeToggle={toggleExperimentalMode}
@@ -8539,6 +8638,10 @@ export function AppWalletWorkspace({
             grid-template-rows: auto minmax(0, 1fr);
           }
 
+          .wallet-workspace[data-anonymous-mobile-preview="true"][data-mobile-pane="detail"] {
+            grid-template-rows: minmax(0, 1fr);
+          }
+
           .wallet-workspace-mobile-header {
             grid-column: 1;
             grid-row: 1;
@@ -8583,6 +8686,11 @@ export function AppWalletWorkspace({
           .wallet-workspace[data-mobile-pane="detail"]
             .wallet-workspace-detail-pane {
             display: flex;
+          }
+
+          .wallet-workspace[data-anonymous-mobile-preview="true"][data-mobile-pane="detail"]
+            .wallet-workspace-detail-pane {
+            grid-row: 1 / -1;
           }
 
           .wallet-workspace[data-mobile-pane="activity"]

@@ -76,7 +76,20 @@ export type EarnAutodepositBootstrapWalletBalanceSnapshot = {
   sourceCommitment: string;
 };
 
-export type BalanceSweepTargetRecord = typeof balanceSweepTargets.$inferSelect;
+type BalanceSweepTargetRow = typeof balanceSweepTargets.$inferSelect;
+type BalanceSweepTargetResumeMetadataKey =
+  | "cluster"
+  | "policyConfirmedSlot"
+  | "policySignature"
+  | "recurringDelegationConfirmedSlot"
+  | "recurringDelegationExpiryTimestamp"
+  | "recurringDelegationNonce"
+  | "recurringDelegationSignature";
+export type BalanceSweepTargetRecord = Omit<
+  BalanceSweepTargetRow,
+  BalanceSweepTargetResumeMetadataKey
+> &
+  Partial<Pick<BalanceSweepTargetRow, BalanceSweepTargetResumeMetadataKey>>;
 export type BalanceSweepPolicyRecord = typeof balanceSweepPolicies.$inferSelect;
 export type BalanceSweepWalletBalanceCurrentRecord =
   typeof balanceSweepWalletBalancesCurrent.$inferSelect;
@@ -817,6 +830,7 @@ function targetValuesFromSetup(
     closeSignature: null,
     closeSlot: null,
     closedAt: null,
+    cluster: input.cluster,
     delegatedSigners: [input.delegatedSigner],
     firstSeenAt: now,
     lastSeenAt: now,
@@ -825,9 +839,23 @@ function targetValuesFromSetup(
     lifecycleStatus,
     maxAmountPerPeriod: input.amountPerPeriodRaw,
     periodLengthSeconds: input.periodLengthSeconds,
+    policyConfirmedSlot:
+      input.setupStage === "create_policy" ? input.confirmedSlot : null,
     policyAccount: input.policyAccount,
     policySeed: input.policySeed,
+    policySignature:
+      input.setupStage === "create_policy" ? input.setupSignature : null,
     recurringDelegation: input.recurringDelegation,
+    recurringDelegationConfirmedSlot:
+      input.setupStage === "create_recurring_delegation"
+        ? input.confirmedSlot
+        : null,
+    recurringDelegationExpiryTimestamp: input.expiryTimestamp,
+    recurringDelegationNonce: input.nonce,
+    recurringDelegationSignature:
+      input.setupStage === "create_recurring_delegation"
+        ? input.setupSignature
+        : null,
     settings: input.settings,
     startTimestamp: input.startTimestamp,
     subscriptionAuthority: input.subscriptionAuthority,
@@ -1000,6 +1028,7 @@ export async function recordPendingAutodepositSetup(
       set: {
         active: false,
         balanceSweepPolicyId: policy.id,
+        cluster: input.cluster,
         delegatedSigners: sql`excluded.delegated_signers`,
         lastSeenAt: now,
         lastSeenSignature: input.setupSignature,
@@ -1007,7 +1036,19 @@ export async function recordPendingAutodepositSetup(
         lifecycleStatus: "pending_delegation",
         maxAmountPerPeriod: input.amountPerPeriodRaw,
         periodLengthSeconds: input.periodLengthSeconds,
+        policyConfirmedSlot:
+          input.setupStage === "create_policy"
+            ? input.confirmedSlot
+            : sql`COALESCE(${balanceSweepTargets.policyConfirmedSlot}, excluded.policy_confirmed_slot)`,
+        policySignature:
+          input.setupStage === "create_policy"
+            ? input.setupSignature
+            : sql`COALESCE(${balanceSweepTargets.policySignature}, excluded.policy_signature)`,
         recurringDelegation: input.recurringDelegation,
+        recurringDelegationConfirmedSlot: null,
+        recurringDelegationExpiryTimestamp: input.expiryTimestamp,
+        recurringDelegationNonce: input.nonce,
+        recurringDelegationSignature: null,
         startTimestamp: input.startTimestamp,
         subscriptionAuthority: input.subscriptionAuthority,
         tokenMint: input.liquidityMint,
@@ -1065,6 +1106,7 @@ export async function recordConfirmedAutodepositDelegation(
       set: {
         active: true,
         balanceSweepPolicyId: policy.id,
+        cluster: input.cluster,
         closeSignature: null,
         closeSlot: null,
         closedAt: null,
@@ -1075,7 +1117,13 @@ export async function recordConfirmedAutodepositDelegation(
         lifecycleStatus: "active",
         maxAmountPerPeriod: input.amountPerPeriodRaw,
         periodLengthSeconds: input.periodLengthSeconds,
+        policyConfirmedSlot: sql`COALESCE(${balanceSweepTargets.policyConfirmedSlot}, excluded.policy_confirmed_slot)`,
+        policySignature: sql`COALESCE(${balanceSweepTargets.policySignature}, excluded.policy_signature)`,
         recurringDelegation: input.recurringDelegation,
+        recurringDelegationConfirmedSlot: input.confirmedSlot,
+        recurringDelegationExpiryTimestamp: input.expiryTimestamp,
+        recurringDelegationNonce: input.nonce,
+        recurringDelegationSignature: input.setupSignature,
         startTimestamp: input.startTimestamp,
         subscriptionAuthority: input.subscriptionAuthority,
         tokenMint: input.liquidityMint,
@@ -1290,8 +1338,11 @@ export async function updateAutodepositWalletBalanceFloor(
   if (existing.lifecycleStatus === "closed") {
     throw new Error("Closed autodeposit targets cannot be updated.");
   }
+  if (!existing.active || existing.lifecycleStatus !== "active") {
+    throw new Error("Pending autodeposit targets cannot be updated.");
+  }
   if (
-    existing.recurringDelegation &&
+    !existing.recurringDelegation ||
     existing.recurringDelegation !== input.recurringDelegation
   ) {
     throw new Error("Autodeposit recurring delegation does not match target.");
@@ -1306,13 +1357,11 @@ export async function updateAutodepositWalletBalanceFloor(
         AND ${balanceSweepTargets.settings} = ${input.settings}
         AND ${balanceSweepTargets.wallet} = ${input.walletAddress}
         AND ${balanceSweepTargets.vaultIndex} = ${input.vaultIndex}
-        AND ${balanceSweepTargets.lifecycleStatus} <> 'closed'
-        AND (
-          ${balanceSweepTargets.recurringDelegation} IS NULL
-          OR ${balanceSweepTargets.recurringDelegation} = ${
+        AND ${balanceSweepTargets.active} = true
+        AND ${balanceSweepTargets.lifecycleStatus} = 'active'
+        AND ${balanceSweepTargets.recurringDelegation} = ${
     input.recurringDelegation
   }
-        )
       FOR UPDATE
     ),
     updated_target AS (
@@ -1556,6 +1605,107 @@ export async function updateAutodepositTargetActive(
 
   if (!target) {
     throw new Error("Failed to update autodeposit target active state.");
+  }
+
+  return target;
+}
+
+export async function markAutodepositTargetPendingDelegation(
+  input: {
+    policyAccount: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client" | "now"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (existing.lifecycleStatus === "closed") {
+    return existing;
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: false,
+      lastSeenAt: dependencies.now(),
+      lifecycleStatus: "pending_delegation",
+    })
+    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to mark autodeposit target pending.");
+  }
+
+  return target;
+}
+
+export async function markAutodepositTargetActiveFromArtifacts(
+  input: {
+    policyAccount: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client" | "now"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (existing.lifecycleStatus === "closed") {
+    return existing;
+  }
+  if (!existing.recurringDelegation) {
+    throw new Error("Autodeposit recurring delegation is missing.");
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: true,
+      lastSeenAt: dependencies.now(),
+      lifecycleStatus: "active",
+    })
+    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to mark autodeposit target active.");
   }
 
   return target;

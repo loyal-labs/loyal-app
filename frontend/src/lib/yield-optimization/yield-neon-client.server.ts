@@ -588,6 +588,7 @@ export const balanceSweepTargets = loyalYieldSchema.table(
     vaultTokenAta: text("vault_token_ata").notNull(),
     delegatedSigners: text("delegated_signers").array().notNull(),
     threshold: integer("threshold").notNull(),
+    cluster: text("cluster"),
     maxAmountPerPeriod: bigint("max_amount_per_period", {
       mode: "bigint",
     }).notNull(),
@@ -598,11 +599,25 @@ export const balanceSweepTargets = loyalYieldSchema.table(
     lastSeenSignature: text("last_seen_signature").notNull(),
     subscriptionAuthority: text("subscription_authority"),
     recurringDelegation: text("recurring_delegation"),
+    recurringDelegationNonce: bigint("recurring_delegation_nonce", {
+      mode: "bigint",
+    }),
+    recurringDelegationExpiryTimestamp: bigint(
+      "recurring_delegation_expiry_timestamp",
+      { mode: "bigint" }
+    ),
     periodLengthSeconds: bigint("period_length_seconds", { mode: "bigint" }),
     startTimestamp: bigint("start_timestamp", { mode: "bigint" }),
     walletBalanceFloorRaw: bigint("wallet_balance_floor_raw", {
       mode: "bigint",
     }),
+    policySignature: text("policy_signature"),
+    policyConfirmedSlot: bigint("policy_confirmed_slot", { mode: "bigint" }),
+    recurringDelegationSignature: text("recurring_delegation_signature"),
+    recurringDelegationConfirmedSlot: bigint(
+      "recurring_delegation_confirmed_slot",
+      { mode: "bigint" }
+    ),
     lifecycleStatus: text("lifecycle_status").default("active").notNull(),
     closeSignature: text("close_signature"),
     closeSlot: bigint("close_slot", { mode: "bigint" }),

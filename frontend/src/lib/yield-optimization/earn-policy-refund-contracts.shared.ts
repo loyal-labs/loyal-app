@@ -6,6 +6,32 @@ import {
   type WirePreparedLoyalSmartAccountsOperation,
 } from "@/lib/smart-accounts/prepared-operation-wire.shared";
 
+export type EarnPolicyRefundRecurringDelegationStatus =
+  | "active"
+  | "expired"
+  | "invalid"
+  | "missing"
+  | "paused"
+  | "pending";
+
+export type EarnPolicyRefundRecurringDelegation = {
+  account: string;
+  active: boolean;
+  amountPerPeriodRaw: string | null;
+  amountPulledRaw: string | null;
+  authority: string | null;
+  delegatee: string | null;
+  delegator: string | null;
+  exists: boolean;
+  expiryTimestamp: string | null;
+  lamports: number | null;
+  lifecycleStatus: string;
+  mint: string | null;
+  source: "chain" | "metadata";
+  status: EarnPolicyRefundRecurringDelegationStatus;
+  targetActive: boolean;
+};
+
 export type EarnPolicyRefundScanPolicy = {
   account: string;
   accountIndex: number | null;
@@ -15,6 +41,7 @@ export type EarnPolicyRefundScanPolicy = {
   canRefund: boolean;
   dbPresent: boolean;
   lamports: number | null;
+  recurringDelegations: EarnPolicyRefundRecurringDelegation[];
   referencedByActivePosition: boolean;
   seed: string;
   state: string;

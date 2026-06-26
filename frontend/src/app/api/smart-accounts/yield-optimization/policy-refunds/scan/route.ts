@@ -3,25 +3,17 @@ import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { and, eq, inArray, ne } from "drizzle-orm";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { findEarnPolicyRefundDbState } from "@/lib/yield-optimization/earn-policy-refund-state.server";
 import type {
   EarnPolicyRefundScanPolicy,
   EarnPolicyRefundScanResponse,
 } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
-import {
-  balanceSweepPolicies,
-  balanceSweepTargets,
-  getYieldOptimizationClient,
-  managedVaults,
-  routePolicies,
-  userYieldPositions,
-} from "@/lib/yield-optimization/yield-neon-client.server";
 
 const EARN_VAULT_INDEX = 1;
 
@@ -41,8 +33,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -51,109 +42,6 @@ function getConnection(cluster: SolanaEnv): Connection {
   });
   connectionCache.set(cluster, connection);
   return connection;
-}
-
-async function findDbPolicyState(args: {
-  policyAccounts: string[];
-  settings: string;
-}): Promise<{
-  activeAutodepositAccounts: Set<string>;
-  activeManagedVaultAccounts: Set<string>;
-  activePositionAccounts: Set<string>;
-  routePolicyAccounts: Set<string>;
-}> {
-  if (args.policyAccounts.length === 0) {
-    return {
-      activeAutodepositAccounts: new Set(),
-      activeManagedVaultAccounts: new Set(),
-      activePositionAccounts: new Set(),
-      routePolicyAccounts: new Set(),
-    };
-  }
-
-  const client = getYieldOptimizationClient();
-  const [policyRows, activeVaultRows, activePositionRows, autodepositRows] =
-    await Promise.all([
-      client.db.query.routePolicies.findMany({
-        where: and(
-          eq(routePolicies.settings, args.settings),
-          eq(routePolicies.vaultIndex, EARN_VAULT_INDEX),
-          inArray(routePolicies.policyAccount, args.policyAccounts)
-        ),
-      }),
-      client.db.query.managedVaults.findMany({
-        where: and(
-          eq(managedVaults.active, true),
-          eq(managedVaults.settings, args.settings),
-          eq(managedVaults.vaultIndex, EARN_VAULT_INDEX)
-        ),
-      }),
-      client.db.query.userYieldPositions.findMany({
-        columns: { policyAccount: true },
-        where: and(
-          eq(userYieldPositions.settings, args.settings),
-          eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX),
-          eq(userYieldPositions.status, "active"),
-          inArray(userYieldPositions.policyAccount, args.policyAccounts)
-        ),
-      }),
-      client.db
-        .select({
-          policyAccount: balanceSweepPolicies.policyAccount,
-        })
-        .from(balanceSweepPolicies)
-        .innerJoin(
-          balanceSweepTargets,
-          eq(balanceSweepTargets.balanceSweepPolicyId, balanceSweepPolicies.id)
-        )
-        .where(
-          and(
-            eq(balanceSweepPolicies.active, true),
-            eq(balanceSweepPolicies.settings, args.settings),
-            eq(balanceSweepPolicies.policyType, "subscription_sweep"),
-            eq(balanceSweepPolicies.vaultIndex, EARN_VAULT_INDEX),
-            inArray(balanceSweepPolicies.policyAccount, args.policyAccounts),
-            inArray(balanceSweepTargets.policyAccount, args.policyAccounts),
-            eq(balanceSweepTargets.settings, args.settings),
-            eq(balanceSweepTargets.vaultIndex, EARN_VAULT_INDEX),
-            ne(balanceSweepTargets.lifecycleStatus, "closed")
-          )
-        ),
-    ]);
-
-  const routePolicyAccounts = new Set(
-    policyRows.map((row) => row.policyAccount)
-  );
-  const policyAccountById = new Map(
-    policyRows.map((row) => [row.id.toString(), row.policyAccount])
-  );
-  const activeManagedVaultAccounts = new Set<string>();
-  for (const vault of activeVaultRows) {
-    const activePolicyAccount = policyAccountById.get(
-      vault.activePolicyId.toString()
-    );
-    const setupPolicyAccount =
-      typeof vault.setupPolicyId === "bigint"
-        ? policyAccountById.get(vault.setupPolicyId.toString())
-        : null;
-    if (activePolicyAccount) {
-      activeManagedVaultAccounts.add(activePolicyAccount);
-    }
-    if (setupPolicyAccount) {
-      activeManagedVaultAccounts.add(setupPolicyAccount);
-    }
-  }
-
-  return {
-    activeAutodepositAccounts: new Set(
-      autodepositRows.map((row) => row.policyAccount)
-    ),
-    activeManagedVaultAccounts,
-    activePositionAccounts: new Set(
-      activePositionRows.map((row) => row.policyAccount)
-    ),
-    routePolicyAccounts,
-  };
 }
 
 function getBlockedReason(args: {
@@ -165,7 +53,7 @@ function getBlockedReason(args: {
     return "Active Earn position";
   }
   if (args.activeAutodeposit) {
-    return "Active Autodeposit policy";
+    return "Active recurring delegation";
   }
   if (args.activeManagedVault) {
     return "Active Earn vault policy";
@@ -205,7 +93,8 @@ export async function POST(request: Request) {
             policyAddresses.map((address) => new PublicKey(address)),
             "confirmed"
           ),
-      findDbPolicyState({
+      findEarnPolicyRefundDbState({
+        connection,
         policyAccounts: policyAddresses,
         settings: principal.settingsPda,
       }),
@@ -219,6 +108,8 @@ export async function POST(request: Request) {
         const activeAutodeposit = dbState.activeAutodepositAccounts.has(
           policy.address
         );
+        const recurringDelegations =
+          dbState.recurringDelegationsByPolicyAccount.get(policy.address) ?? [];
         const referencedByActivePosition = dbState.activePositionAccounts.has(
           policy.address
         );
@@ -237,6 +128,7 @@ export async function POST(request: Request) {
           canRefund: blockedReason === null,
           dbPresent: dbState.routePolicyAccounts.has(policy.address),
           lamports: accounts[index]?.lamports ?? null,
+          recurringDelegations,
           referencedByActivePosition,
           seed: policy.seed,
           state: policy.state,

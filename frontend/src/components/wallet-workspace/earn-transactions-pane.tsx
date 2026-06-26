@@ -1011,6 +1011,29 @@ function formatPolicyRefundLamports(lamports: number | null): string {
   return `${(lamports / LAMPORTS_PER_SOL).toFixed(6)} SOL`;
 }
 
+function formatPolicyRefundAddress(address: string): string {
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+function formatRecurringDelegationStatus(
+  status: EarnPolicyRefundScanPolicy["recurringDelegations"][number]["status"]
+): string {
+  switch (status) {
+    case "active":
+      return "Active";
+    case "expired":
+      return "Expired";
+    case "invalid":
+      return "Invalid";
+    case "missing":
+      return "Missing";
+    case "paused":
+      return "Paused";
+    case "pending":
+      return "Pending";
+  }
+}
+
 function PolicyRefundRow({
   isRefunding = false,
   onRefund,
@@ -1022,6 +1045,7 @@ function PolicyRefundRow({
 }) {
   const isButtonDisabled = isRefunding || !policy.canRefund || !onRefund;
   const subtitle = policy.blockedReason ?? `Policy #${policy.seed}`;
+  const recurringDelegations = policy.recurringDelegations ?? [];
 
   return (
     <div
@@ -1086,6 +1110,24 @@ function PolicyRefundRow({
             >
               {subtitle}
             </span>
+            {recurringDelegations.map((delegation, index) => (
+              <span
+                key={`${delegation.account}:${index}`}
+                style={{
+                  color: delegation.active ? LOYAL_EARN_BRAND_COLOR : secondary,
+                  fontFamily: font,
+                  fontSize: "12px",
+                  lineHeight: "15px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+                title={delegation.account}
+              >
+                Delegation {formatPolicyRefundAddress(delegation.account)} -{" "}
+                {formatRecurringDelegationStatus(delegation.status)}
+              </span>
+            ))}
           </span>
           <span
             style={{

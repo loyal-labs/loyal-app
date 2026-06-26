@@ -14,9 +14,12 @@ import {
 
 export type EarnAutodepositSetupPrepareRequestBody = {
   amountRaw: string;
+  expiryTimestamp?: string;
   includeBatch?: boolean;
   nonce?: string;
+  periodLengthSeconds?: string;
   policySeed?: string;
+  startTimestamp?: string;
   walletBalanceFloorRaw?: string;
 };
 
@@ -332,16 +335,31 @@ function requirePreparedMetadataValue(
 
 export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
+  expiryTimestamp?: bigint;
   includeBatch: boolean;
   nonce?: bigint;
+  periodLengthSeconds?: bigint;
   policySeed?: bigint;
+  startTimestamp?: bigint;
   walletBalanceFloorRaw?: bigint;
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
+  const expiryTimestamp = readOptionalUnsignedIntegerString(
+    record,
+    "expiryTimestamp"
+  );
   const includeBatchValue = record.includeBatch;
   const nonce = readOptionalUnsignedIntegerString(record, "nonce");
+  const periodLengthSeconds = readOptionalUnsignedIntegerString(
+    record,
+    "periodLengthSeconds"
+  );
   const policySeed = readOptionalUnsignedIntegerString(record, "policySeed");
+  const startTimestamp = readOptionalUnsignedIntegerString(
+    record,
+    "startTimestamp"
+  );
   const walletBalanceFloorRaw = readOptionalUnsignedIntegerString(
     record,
     "walletBalanceFloorRaw"
@@ -360,12 +378,17 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
 
   return {
     amountRaw,
+    ...(expiryTimestamp ? { expiryTimestamp: BigInt(expiryTimestamp) } : {}),
     includeBatch:
       includeBatchValue === undefined || includeBatchValue === null
         ? false
         : includeBatchValue === true,
     ...(nonce ? { nonce: BigInt(nonce) } : {}),
+    ...(periodLengthSeconds
+      ? { periodLengthSeconds: BigInt(periodLengthSeconds) }
+      : {}),
     ...(policySeed ? { policySeed: BigInt(policySeed) } : {}),
+    ...(startTimestamp ? { startTimestamp: BigInt(startTimestamp) } : {}),
     ...(walletBalanceFloorRaw
       ? { walletBalanceFloorRaw: BigInt(walletBalanceFloorRaw) }
       : {}),

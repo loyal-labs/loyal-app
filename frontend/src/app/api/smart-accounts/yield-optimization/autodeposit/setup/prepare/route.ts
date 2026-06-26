@@ -35,8 +35,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -78,12 +77,16 @@ export async function POST(request: Request) {
     const prepareArgs = {
       amountRaw: parsed.amountRaw,
       cluster,
+      expiryTimestamp: parsed.expiryTimestamp,
       feePayer: new PublicKey(principal.walletAddress),
+      minimumDelegatorBalanceRaw: parsed.walletBalanceFloorRaw,
       nonce: parsed.nonce,
+      periodLengthSeconds: parsed.periodLengthSeconds,
       policySigner,
       policySeed: parsed.policySeed,
       settingsPda: new PublicKey(principal.settingsPda),
       signer: new PublicKey(principal.walletAddress),
+      startTimestamp: parsed.startTimestamp,
       walletAddress: new PublicKey(principal.walletAddress),
     };
     const preparedSetups = parsed.includeBatch
