@@ -25,4 +25,4 @@ The Neocypherpunks are actively engaged in making the networks safer for privacy
 
 Onward.
 
-Christopher Cherniakov <chris@askloyal.com>
+Christopher Cherniakov [chris@askloyal.com](mailto:chris@askloyal.com)
