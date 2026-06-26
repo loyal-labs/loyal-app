@@ -17,6 +17,8 @@ export type BlogPost = {
   title: string;
   /** ISO date string (YYYY-MM-DD) of publication (required). */
   date: string;
+  /** ISO date (YYYY-MM-DD) of last meaningful update (optional; falls back to `date`). */
+  updated?: string;
   /** Resolved hero image URL — used on the post page and the listing card. */
   hero: string;
   /** Short summary shown under the title on the post page (optional). */
