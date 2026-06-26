@@ -18,7 +18,7 @@ const navLinks: NavItem[] = [
   { kind: "dropdown", label: "Features" },
   { kind: "anchor", href: "/#developers", label: "Developers" },
   { kind: "anchor", href: "/#roadmap", label: "Roadmap" },
-  { kind: "anchor", href: "/#blog", label: "Blog" },
+  { kind: "anchor", href: "/blog", label: "Blog" },
   { kind: "anchor", href: "/#footer", label: "Links" },
 ];
 
