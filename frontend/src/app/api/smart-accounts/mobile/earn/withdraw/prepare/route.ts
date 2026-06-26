@@ -29,6 +29,7 @@ import {
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
+  type CurrentYieldVaultIdleTokenBalanceRecord,
   type CurrentYieldVaultReservePositionRecord,
   type RoutePolicyRecord,
   type UserYieldPositionRecord,
@@ -79,14 +80,21 @@ type EarnWithdrawSourceRequest = ReturnType<
 >["source"];
 
 type SelectedEarnWithdrawSource =
-  {
-    amountRaw: bigint;
-    id: string;
-    liquidityMint: string;
-    market: string;
-    reserve: string;
-    type: "reserve";
-  };
+  | {
+      amountRaw: bigint;
+      id: string;
+      liquidityMint: string;
+      market: string;
+      reserve: string;
+      type: "reserve";
+    }
+  | {
+      amountRaw: bigint;
+      id: string;
+      mint: string;
+      tokenAccount: string;
+      type: "idle";
+    };
 
 function publicKeyFromMetadata(
   metadata: Record<string, unknown> | null | undefined,
@@ -133,7 +141,7 @@ function sourceMatchesDirectIdentifier(
     return true;
   }
 
-  return identifiers.includes(source.reserve);
+  return source.type === "reserve" && identifiers.includes(source.reserve);
 }
 
 function sourceMatchesStableMint(
@@ -150,7 +158,9 @@ function sourceMatchesStableMint(
     request.mint,
   ].filter(isNonEmptyString);
 
-  return identifiers.includes(source.liquidityMint);
+  return source.type === "reserve"
+    ? identifiers.includes(source.liquidityMint)
+    : identifiers.includes(source.mint);
 }
 
 function selectRequestedEarnWithdrawSource(
@@ -186,6 +196,7 @@ function selectRequestedEarnWithdrawSource(
 
 function selectEarnWithdrawSource(args: {
   amountRaw: bigint;
+  idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
   mode: "partial" | "full";
   position: UserYieldPositionRecord;
   request: EarnWithdrawSourceRequest;
@@ -206,8 +217,18 @@ function selectEarnWithdrawSource(args: {
         type: "reserve" as const,
       };
     });
+  const idleSources = args.idleRows
+    .filter((row) => row.amountRaw > BigInt(0))
+    .map((row) => ({
+      amountRaw: row.amountRaw,
+      id: row.tokenAccount,
+      mint: row.mint,
+      tokenAccount: row.tokenAccount,
+      type: "idle" as const,
+    }));
   const positionFallbackSources =
     reserveSources.length === 0 &&
+    idleSources.length === 0 &&
     isNonEmptyString(args.position.currentMarket) &&
     args.position.currentAmountRaw > BigInt(0)
       ? [
@@ -221,7 +242,11 @@ function selectEarnWithdrawSource(args: {
           },
         ]
       : [];
-  const sources = [...reserveSources, ...positionFallbackSources];
+  const sources = [
+    ...reserveSources,
+    ...idleSources,
+    ...positionFallbackSources,
+  ];
 
   if (sources.length === 0) {
     throw new Error("No active Earn withdrawal source was found.");
@@ -406,6 +431,7 @@ export async function POST(request: Request) {
 
     const selectedSource = selectEarnWithdrawSource({
       amountRaw,
+      idleRows: currentIdleRows,
       mode,
       position,
       request: selectedSourceRequest,
@@ -418,12 +444,21 @@ export async function POST(request: Request) {
           total +
           (selectedSource.type === "reserve" &&
           row.reserve === selectedSource.reserve
-            ? row.amountRaw - effectiveAmountRaw!
+            ? row.amountRaw > effectiveAmountRaw!
+              ? row.amountRaw - effectiveAmountRaw!
+              : BigInt(0)
             : row.amountRaw),
         BigInt(0)
       ) +
       currentIdleRows.reduce(
-        (total, row) => total + row.amountRaw,
+        (total, row) =>
+          total +
+          (selectedSource.type === "idle" &&
+          row.tokenAccount === selectedSource.tokenAccount
+            ? row.amountRaw > effectiveAmountRaw!
+              ? row.amountRaw - effectiveAmountRaw!
+              : BigInt(0)
+            : row.amountRaw),
         BigInt(0)
       );
     const isFinalExit = remainingSourceAmountRaw <= BigInt(0);
@@ -585,14 +620,23 @@ export async function POST(request: Request) {
           }
         : {}),
       closePoliciesOnFullWithdrawal: isFinalExit,
-      source: {
-        amountRaw: selectedSource.amountRaw,
-        id: selectedSource.id,
-        liquidityMint: new PublicKey(selectedSource.liquidityMint),
-        market: new PublicKey(selectedSource.market),
-        reserve: new PublicKey(selectedSource.reserve),
-        type: "reserve" as const,
-      },
+      source:
+        selectedSource.type === "idle"
+          ? {
+              amountRaw: selectedSource.amountRaw,
+              id: selectedSource.id,
+              mint: new PublicKey(selectedSource.mint),
+              tokenAccount: new PublicKey(selectedSource.tokenAccount),
+              type: "idle" as const,
+            }
+          : {
+              amountRaw: selectedSource.amountRaw,
+              id: selectedSource.id,
+              liquidityMint: new PublicKey(selectedSource.liquidityMint),
+              market: new PublicKey(selectedSource.market),
+              reserve: new PublicKey(selectedSource.reserve),
+              type: "reserve" as const,
+            },
       walletAddress: new PublicKey(walletAddress),
       yieldRoutingPolicy,
     };
