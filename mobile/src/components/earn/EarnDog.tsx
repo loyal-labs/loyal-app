@@ -271,3 +271,13 @@ export function EarnDog({
     </Svg>
   );
 }
+
+// The dog's static black nose, in the full 400×506 space. Overlays redraw it on
+// top of the snout so the snout can lap over a panel without hiding the nose.
+export function DogNose({ width, height }: { width: number; height: number }) {
+  return (
+    <Svg width={width} height={height} viewBox={VIEW_BOX} fill="none">
+      <Path d={NOSE} fill="black" />
+    </Svg>
+  );
+}
