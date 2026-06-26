@@ -3,19 +3,137 @@ import {
   BottomSheetModal,
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
-import { Image as ImageIcon, X } from "lucide-react-native";
+import { X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { Dimensions, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Dimensions,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import HelpCoin from "../../../assets/images/earn/help-coin.svg";
+import HelpDog from "../../../assets/images/earn/help-dog.svg";
 
-// Autodeposit "?" help sheet (Figma 80-34341). Explains what autodeposit does
-// and offers a "Set up autodeposit" CTA. The hero image is a placeholder for now.
+// Autodeposit "?" help sheet (Figma 137-6178). Red dog mascot peeking up with
+// three gold coins floating above its head; each coin hovers independently.
 const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 
+// Hero artboard is 400×500 in Figma; everything below is expressed in that base
+// space and scaled by `s = heroWidth / 400` so the layout stays pixel-faithful.
+const HERO_BASE_WIDTH = 400;
+const HERO_ASPECT = 500 / 400;
+const COIN_BASE_WIDTH = 90.6403;
+const COIN_BASE_HEIGHT = 149.556;
+
 const COLOR_CHIP_BG = "#F2F2F7";
 const COLOR_BODY_DIM = "rgba(60, 60, 67, 0.6)";
-const COLOR_PLACEHOLDER = "#C7C7CC";
+
+// Coin box (top-left + rotation) in 400×500 base space, plus an independent
+// bob/wobble cadence per coin so they never float in sync.
+const COINS = [
+  {
+    left: 258.79,
+    top: 92.95,
+    rotate: 53.81,
+    bob: 13,
+    bobDuration: 2200,
+    wobble: 3,
+    wobbleDuration: 3000,
+    delay: 0,
+  },
+  {
+    left: 49.91,
+    top: 118.74,
+    rotate: 108.31,
+    bob: 16,
+    bobDuration: 2600,
+    wobble: 4,
+    wobbleDuration: 2700,
+    delay: 350,
+  },
+  {
+    left: 156.08,
+    top: 15.88,
+    rotate: 14.31,
+    bob: 11,
+    bobDuration: 2400,
+    wobble: 2.5,
+    wobbleDuration: 3200,
+    delay: 700,
+  },
+] as const;
+
+type CoinSpec = (typeof COINS)[number];
+
+function FloatingCoin({ spec, scale }: { spec: CoinSpec; scale: number }) {
+  const bob = useSharedValue(0);
+  const wobble = useSharedValue(0);
+
+  useEffect(() => {
+    bob.value = withDelay(
+      spec.delay,
+      withRepeat(
+        withTiming(1, {
+          duration: spec.bobDuration,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        -1,
+        true,
+      ),
+    );
+    wobble.value = withDelay(
+      spec.delay,
+      withRepeat(
+        withTiming(1, {
+          duration: spec.wobbleDuration,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        -1,
+        true,
+      ),
+    );
+  }, [bob, wobble, spec]);
+
+  const coinWidth = COIN_BASE_WIDTH * scale;
+  const coinHeight = COIN_BASE_HEIGHT * scale;
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [
+      { translateY: spec.bob * scale * (1 - 2 * bob.value) },
+      { rotate: `${spec.rotate + spec.wobble * (1 - 2 * wobble.value)}deg` },
+    ],
+  }));
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          position: "absolute",
+          left: spec.left * scale,
+          top: spec.top * scale,
+          width: coinWidth,
+          height: coinHeight,
+        },
+        animatedStyle,
+      ]}
+    >
+      <HelpCoin width={coinWidth} height={coinHeight} />
+    </Animated.View>
+  );
+}
 
 export function AutodepositHelpSheet({
   open,
@@ -28,7 +146,12 @@ export function AutodepositHelpSheet({
 }) {
   const sheetRef = useRef<BottomSheetModal>(null);
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
   const snapPoints = useMemo(() => ["94%"], []);
+
+  const heroWidth = windowWidth;
+  const heroHeight = heroWidth * HERO_ASPECT;
+  const heroScale = heroWidth / HERO_BASE_WIDTH;
 
   useEffect(() => {
     if (open) {
@@ -71,6 +194,34 @@ export function AutodepositHelpSheet({
       backgroundStyle={styles.sheetBackground}
     >
       <BottomSheetView style={styles.container}>
+        <View style={[styles.hero, { width: heroWidth, height: heroHeight }]}>
+          <HelpDog width={heroWidth} height={heroHeight} />
+          {COINS.map((spec) => (
+            <FloatingCoin key={spec.rotate} spec={spec} scale={heroScale} />
+          ))}
+        </View>
+
+        <View style={styles.textLayout}>
+          <Text style={styles.heading}>Earn more without manual deposits</Text>
+          <Text style={styles.body}>
+            Set the balance you want to keep in your wallet. Any stablecoins
+            above that amount are automatically deposited into Earn.
+          </Text>
+        </View>
+
+        <View style={styles.spacer} />
+
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
+          <Pressable
+            onPress={handleSetUp}
+            accessibilityRole="button"
+            accessibilityLabel="Set up autodeposit"
+            style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          >
+            <Text style={styles.ctaLabel}>Set up Autodeposit</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.toolbar}>
           <Pressable
             onPress={handleClose}
@@ -83,30 +234,6 @@ export function AutodepositHelpSheet({
             hitSlop={12}
           >
             <X size={24} color="#1C1C1E" strokeWidth={2} />
-          </Pressable>
-        </View>
-
-        <View style={styles.content}>
-          <View style={styles.imagePlaceholder}>
-            <ImageIcon size={64} color={COLOR_PLACEHOLDER} strokeWidth={1.5} />
-          </View>
-          <View style={styles.textLayout}>
-            <Text style={styles.heading}>Earn more without manual deposits</Text>
-            <Text style={styles.body}>
-              Set the balance you want to keep in your wallet. Any stablecoins
-              above that amount are automatically deposited into Earn.
-            </Text>
-          </View>
-        </View>
-
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
-          <Pressable
-            onPress={handleSetUp}
-            accessibilityRole="button"
-            accessibilityLabel="Set up autodeposit"
-            style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-          >
-            <Text style={styles.ctaLabel}>Set up autodeposit</Text>
           </Pressable>
         </View>
       </BottomSheetView>
@@ -127,11 +254,13 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 38,
     overflow: "hidden",
   },
+  hero: {
+    alignSelf: "center",
+  },
   toolbar: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    position: "absolute",
+    top: 16,
+    left: 16,
   },
   iconButton: {
     width: 44,
@@ -141,22 +270,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  content: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 32,
-    paddingHorizontal: 16,
-  },
-  imagePlaceholder: {
-    width: "100%",
-    aspectRatio: 1,
-    maxHeight: 400,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   textLayout: {
-    width: "100%",
+    paddingHorizontal: 22,
+    paddingTop: 32,
     gap: 12,
   },
   heading: {
@@ -171,6 +287,9 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     color: COLOR_BODY_DIM,
+  },
+  spacer: {
+    flex: 1,
   },
   footer: {
     paddingHorizontal: 20,

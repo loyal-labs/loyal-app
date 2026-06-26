@@ -1,0 +1,25 @@
+<svg width="400" height="500" viewBox="0 0 400 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M96 254L0 90V596H399.998V90L304 254H96Z" fill="#F9363C"/>
+  <path d="M73 388H329L293.634 596H119.333L73 388Z" fill="url(#chinGrad)" fill-opacity="0.14"/>
+  <mask id="eyeMaskL" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="25" y="328" width="140" height="60">
+    <path d="M95 328C133.66 328 165 354.863 165 388H25C25 354.863 56.3401 328 95 328Z" fill="white"/>
+  </mask>
+  <g mask="url(#eyeMaskL)">
+    <rect x="25" y="328" width="140" height="60" fill="white"/>
+    <circle cx="95" cy="343" r="32" fill="black"/>
+  </g>
+  <mask id="eyeMaskR" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="235" y="328" width="140" height="60">
+    <path d="M305 328C343.66 328 375 354.863 375 388H235C235 354.863 266.34 328 305 328Z" fill="white"/>
+  </mask>
+  <g mask="url(#eyeMaskR)">
+    <rect x="235" y="328" width="140" height="60" fill="white"/>
+    <circle cx="305" cy="343" r="32" fill="black"/>
+  </g>
+  <path d="M248 472H215V505L185 506V472H156L133 431L267 428L248 472Z" fill="black"/>
+  <defs>
+    <linearGradient id="chinGrad" x1="201" y1="388" x2="201" y2="596" gradientUnits="userSpaceOnUse">
+      <stop stop-color="black" stop-opacity="0"/>
+      <stop offset="0.36295" stop-color="black"/>
+    </linearGradient>
+  </defs>
+</svg>
