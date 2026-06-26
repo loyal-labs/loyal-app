@@ -14,10 +14,12 @@ import { probeEarnAutodepositArtifacts } from "@/lib/yield-optimization/earn-aut
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
 import {
   findCurrentEarnAutodepositState,
+  findPendingEarnAutodepositScheduledSweeps,
   markAutodepositTargetActiveFromArtifacts,
   markAutodepositTargetPendingDelegation,
   scheduleBootstrapEarnAutodepositSweep,
   type CurrentEarnAutodepositState,
+  type PendingEarnAutodepositScheduledSweepRecord,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 
 // Read-only mobile autodeposit state, keyed by wallet address (no signature, no
@@ -36,6 +38,23 @@ function jsonError(
   message: string
 ): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
+}
+
+// Mirror the web `serializeScheduledSweep` shape (bigint -> string, Date -> ISO)
+// so the native Scheduled row reads the same fields the web pane does.
+function serializeScheduledSweep(
+  sweep: PendingEarnAutodepositScheduledSweepRecord
+) {
+  return {
+    classification: sweep.classification,
+    confidence: sweep.confidence,
+    eligibleAfter: sweep.eligibleAfter.toISOString(),
+    id: sweep.id.toString(),
+    originalAmountRaw: sweep.originalAmountRaw.toString(),
+    reason: sweep.reason,
+    remainingAmountRaw: sweep.remainingAmountRaw.toString(),
+    status: sweep.status,
+  };
 }
 
 function getConfiguredSolanaEnv(): SolanaEnv {
@@ -196,6 +215,10 @@ export async function GET(request: Request) {
       }
     }
 
+    const scheduledSweeps = await findPendingEarnAutodepositScheduledSweeps(
+      reconciledState.target
+    );
+
     return NextResponse.json({
       autodeposit: {
         active: reconciledState.target.active,
@@ -206,6 +229,7 @@ export async function GET(request: Request) {
           reconciledState.target.walletBalanceFloorRaw?.toString() ?? null,
         lifecycleStatus: reconciledState.target.lifecycleStatus,
         vaultIndex: EARN_VAULT_INDEX,
+        scheduledSweeps: scheduledSweeps.map(serializeScheduledSweep),
       },
       settingsPda: account.settingsPda,
       smartAccountAddress: account.smartAccountAddress,

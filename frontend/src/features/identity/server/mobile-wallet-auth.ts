@@ -31,7 +31,8 @@ export type MobileWalletAuthPurpose =
   | "earn-autodeposit-floor-confirm"
   | "earn-autodeposit-toggle-confirm"
   | "earn-autodeposit-close-prepare"
-  | "earn-autodeposit-close-confirm";
+  | "earn-autodeposit-close-confirm"
+  | "earn-autodeposit-sweep-execute";
 
 export type MobileWalletAuthFields = {
   walletAddress: string;
