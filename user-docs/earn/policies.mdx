@@ -1,0 +1,46 @@
+---
+title: "Smart Transactions And Policies"
+description: "How Earn limits automated transactions to approved programs and account paths."
+---
+
+A smart transaction is a transaction your Smart Account checks before it executes. A policy is the rule set used for that check.
+
+This is the core safety idea behind Earn: automation receives only the route the policy describes.
+
+## What A Policy Checks
+
+Earn policies are program-interaction policies. That means they restrict which program can be called, which accounts must appear, and which instruction data is allowed.
+
+For Earn, those checks include:
+
+- The action must target the Earn vault
+- The token mint must be USDC
+- The route must use approved Kamino lending markets
+- The instruction shape must match the allowed Kamino deposit, withdraw, or setup action
+- The delegated signer must be one of the approved policy signers
+
+<Info>
+The current route policy is bounded by Kamino market and USDC liquidity mint. It should not be described as a perfect per-reserve whitelist.
+</Info>
+
+## The Policies Earn Uses
+
+| Policy | What it allows | What it does not allow |
+| --- | --- | --- |
+| Earn route policy | Same-mint Kamino withdraw and deposit actions from the Earn vault | Arbitrary token transfers, arbitrary programs, or cross-mint swaps |
+| Earn setup policy | Account setup needed for approved Kamino markets | Moving user funds outside the approved Earn path |
+| Autodeposit policy | Moving eligible USDC surplus from your wallet token account into the Earn vault | Moving below your floor, changing the mint, or sending funds elsewhere |
+
+## What This Protects
+
+The policy signer can submit an approved Earn action, but the Squads Smart Account program enforces the policy on-chain. If the transaction does not match the rule set, it fails.
+
+That protects against the most important failure mode: an automation key cannot become a general wallet key just because it is useful for Earn.
+
+## What Still Requires You
+
+You still approve setup, manual deposits, manual withdrawals, and revocation or cleanup actions. Policies reduce the need for you to sign every optimization, but they do not remove your ownership of the account.
+
+<Warning>
+Policies restrict what can be executed. They do not guarantee future yield or remove market, protocol, or USDC risk.
+</Warning>

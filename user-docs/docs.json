@@ -61,6 +61,33 @@
         ]
       },
       {
+        "tab": "Earn",
+        "groups": [
+          {
+            "group": "Start Here",
+            "pages": [
+              "earn/overview",
+              "earn/smart-account"
+            ]
+          },
+          {
+            "group": "Automation",
+            "pages": [
+              "earn/policies",
+              "earn/same-mint-optimization",
+              "earn/orchestrator",
+              "earn/autodeposit"
+            ]
+          },
+          {
+            "group": "Safety",
+            "pages": [
+              "earn/safety-and-faq"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Learn",
         "groups": [
           {
