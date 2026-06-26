@@ -143,14 +143,23 @@ export function WithdrawSheet({
   const liveTotal = Number.isFinite(availableUsdc ?? NaN)
     ? (availableUsdc as number)
     : null;
-  // For a single-source position the live wallet total is authoritative — the
-  // per-source DB amount lags the chain right after a deposit and reads low.
-  // Multi-source keeps the picked source's amount (you withdraw one at a time);
-  // fall back across them when one is absent.
+  const selectedBalanceUsd = selectedSource
+    ? sourceBalanceUsd(selectedSource)
+    : 0;
+  // The live on-chain total is authoritative; the per-source DB amounts lag the
+  // chain and can read 0 right after a move. Keep the picked source's amount for
+  // a genuine multi-source split (you withdraw one at a time) — but only when
+  // those amounts reconcile with the live total. Otherwise the split is stale,
+  // so cap at the live total like a single source, instead of letting a real
+  // balance show 0 available.
+  const sourcesReconcileWithLiveTotal =
+    liveTotal != null &&
+    sourceList.reduce((sum, source) => sum + sourceBalanceUsd(source), 0) >=
+      liveTotal - 0.01;
   const available =
-    sourceList.length > 1 && selectedSource
-      ? sourceBalanceUsd(selectedSource)
-      : (liveTotal ?? (selectedSource ? sourceBalanceUsd(selectedSource) : 0));
+    sourceList.length > 1 && selectedSource && sourcesReconcileWithLiveTotal
+      ? selectedBalanceUsd
+      : (liveTotal ?? selectedBalanceUsd);
 
   useEffect(() => {
     if (open) {
