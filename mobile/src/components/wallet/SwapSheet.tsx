@@ -3,20 +3,37 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
   BottomSheetTextInput,
+  BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { VersionedTransaction } from "@solana/web3.js";
 import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import {
-  AlertCircle,
-  ArrowDownUp,
   ArrowLeft,
-  CheckCircle2,
-  ChevronDown,
+  ArrowUpDown,
+  ChevronRight,
   Search,
+  X,
 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Keyboard } from "react-native";
+import {
+  ActivityIndicator,
+  Dimensions,
+  Keyboard,
+  Linking,
+  TextInput,
+} from "react-native";
+import Animated, {
+  cancelAnimation,
+  Easing,
+  useAnimatedKeyboard,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { PopularToken } from "@/hooks/wallet/usePopularTokens";
 import { usePopularTokens } from "@/hooks/wallet/usePopularTokens";
@@ -38,11 +55,21 @@ import { DEFAULT_TOKEN_ICON } from "@/lib/solana/token-holdings/constants";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
-import { useSignApproval, withConfirmation } from "@/lib/wallet/sign-approval";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
+import SwapCurrencyIcon from "../../../assets/images/icons/swap_currency_28.svg";
+import SendErrorDog from "../../../assets/images/wallet/send_error_dog.svg";
+import SendSpinnerIcon from "../../../assets/images/wallet/send_spinner_80.svg";
+import SendSuccessDog from "../../../assets/images/wallet/send_success_dog.svg";
+
 const shieldBadge = require("../../../assets/images/shield-badge.png");
+
+// Fixed-height sheet (mirrors SendSheet). A fixed height is what lets each
+// step's `flex-1` regions size + center correctly and keeps the footer pinned.
+const SCREEN_HEIGHT = Dimensions.get("screen").height;
+const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
+const SWAP_SNAP_POINTS = ["94%"];
 
 type SwapStep = "form" | "confirm" | "result";
 
@@ -86,6 +113,63 @@ function getFriendlyError(raw: string): string {
     return "The transaction timed out. Please try again.";
   if (raw.length > 120) return "Something went wrong. Please try again.";
   return raw;
+}
+
+// Number formatting + amount-field helpers, mirrored from SendSheet so the Swap
+// amount field behaves identically (thousands separators, mid-typing dot, etc.).
+function formatWithCommas(value: number, minFrac: number, maxFrac: number): string {
+  const safe = Number.isFinite(value) ? value : 0;
+  const [intPart, fracPartRaw = ""] = safe.toFixed(maxFrac).split(".");
+  let fracPart = fracPartRaw;
+  while (fracPart.length > minFrac && fracPart.endsWith("0")) {
+    fracPart = fracPart.slice(0, -1);
+  }
+  const withCommas = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return fracPart ? `${withCommas}.${fracPart}` : withCommas;
+}
+
+function formatTokenAmount(value: number, minFrac = 2): string {
+  return formatWithCommas(value, minFrac, 4);
+}
+
+function formatUsdAmount(value: number): string {
+  return `$${formatWithCommas(value, 2, 2)}`;
+}
+
+function formatSolAmount(value: number): string {
+  return formatWithCommas(value, 0, 6);
+}
+
+// Unit price for the picker's right column. Prices ≥ $1 show 2 decimals with
+// thousands separators ($63.83, $62,705.07); sub-dollar prices keep up to 5
+// decimals so stablecoins/low-cap tokens read precisely ($0.99866, $0.31201).
+function formatUnitPrice(price: number | null | undefined): string {
+  if (price == null || !Number.isFinite(price) || price <= 0) return "$0";
+  return price >= 1
+    ? `$${formatWithCommas(price, 2, 2)}`
+    : `$${formatWithCommas(price, 2, 5)}`;
+}
+
+function stripAmountInput(input: string): string {
+  let cleaned = input.replace(/[^0-9.]/g, "");
+  const parts = cleaned.split(".");
+  if (parts.length > 2) {
+    cleaned = `${parts[0]}.${parts.slice(1).join("")}`;
+  }
+  const [intPart, decPart] = cleaned.split(".");
+  const normalizedInt = intPart ? intPart.replace(/^0+(?=\d)/, "") : intPart;
+  return decPart !== undefined
+    ? `${normalizedInt || "0"}.${decPart}`
+    : normalizedInt;
+}
+
+function formatAmountInputDisplay(raw: string): string {
+  if (!raw) return "";
+  const trailingDot = raw.endsWith(".") && !raw.slice(0, -1).includes(".");
+  const [intPart, decPart] = raw.split(".");
+  const intText = formatWithCommas(Number(intPart || "0"), 0, 0);
+  if (trailingDot) return `${intText}.`;
+  return decPart !== undefined ? `${intText}.${decPart}` : intText;
 }
 
 function resolveInitialSwapMints(params: {
@@ -144,8 +228,9 @@ export function SwapSheet({
   initialToMint,
 }: SwapSheetProps) {
   const { signer } = useWallet();
-  const signApproval = useSignApproval();
   const bottomSheetRef = useRef<BottomSheetModal>(null);
+  const sheetSettledRef = useRef(false);
+  const swapInputRef = useRef<TextInput | null>(null);
   const [step, setStep] = useState<SwapStep>("form");
   const [fromMint, setFromMint] = useState(NATIVE_SOL_MINT);
   const [toMint, setToMint] = useState(getDefaultUsdcMint);
@@ -157,6 +242,7 @@ export function SwapSheet({
     null,
   );
   const [amountStr, setAmountStr] = useState("");
+  const [currencyMode, setCurrencyMode] = useState<"TOKEN" | "USD">("TOKEN");
   const [quote, setQuote] = useState<JupiterQuoteResponse | null>(null);
   const [isFetchingQuote, setIsFetchingQuote] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
@@ -203,7 +289,16 @@ export function SwapSheet({
     toPickerTokens.find((t) => t.mint === toMint) ??
     (selectedToToken?.mint === toMint ? selectedToToken : null);
 
-  const amountNum = parseFloat(amountStr) || 0;
+  const fromPrice = fromHolding?.priceUsd ?? null;
+  // `amountStr` is the value as typed in the active denomination; the quote and
+  // every downstream check operate on the token amount, so derive it here.
+  const amountInput = parseFloat(amountStr) || 0;
+  const amountNum =
+    currencyMode === "USD"
+      ? fromPrice && fromPrice > 0
+        ? amountInput / fromPrice
+        : 0
+      : amountInput;
   const fromBalance = fromHolding?.balance ?? 0;
   const isValidAmount = amountNum > 0 && amountNum <= fromBalance;
   const isFormValid = isValidAmount && !!quote && fromMint !== toMint;
@@ -227,6 +322,7 @@ export function SwapSheet({
       setFromIsSecured(false);
       setSwapStage("idle");
       setAmountStr("");
+      setCurrencyMode("TOKEN");
       setQuote(null);
       setSwapError(null);
       setTxSignature(null);
@@ -277,6 +373,32 @@ export function SwapSheet({
     };
   }, [amountNum, fromMint, toMint, fromHolding]);
 
+  // Focus the amount input once the sheet has settled at its snap point.
+  // Focusing during the present animation pushes the keyboard above the sheet.
+  const focusActiveInput = useCallback(() => {
+    if (step === "form" && !showFromPicker && !showToPicker) {
+      swapInputRef.current?.focus();
+    }
+  }, [step, showFromPicker, showToPicker]);
+
+  const handleSheetChange = useCallback(
+    (index: number) => {
+      sheetSettledRef.current = index >= 0;
+      if (index >= 0) {
+        setTimeout(focusActiveInput, 120);
+      }
+    },
+    [focusActiveInput],
+  );
+
+  // Re-focus the right input on step / picker transitions (the sheet is
+  // already settled, so `onChange` won't fire again).
+  useEffect(() => {
+    if (!sheetSettledRef.current) return;
+    const id = setTimeout(focusActiveInput, 80);
+    return () => clearTimeout(id);
+  }, [focusActiveInput]);
+
   const outAmount = useMemo(() => {
     if (!quote || !toHolding) return null;
     const decimals = toHolding.decimals ?? 9;
@@ -314,26 +436,41 @@ export function SwapSheet({
     // sit on the From side, never the To side.
     setFromIsSecured(false);
     setAmountStr("");
+    setCurrencyMode("TOKEN");
     setQuote(null);
   }, [fromMint, toMint]);
 
-  const handlePercentage = useCallback(
-    (pct: number) => {
-      if (!fromHolding) return;
-      let val = pct === 100 ? fromBalance : fromBalance * (pct / 100);
-      // Reserve fee when sending SOL
-      if (fromHolding.symbol.toUpperCase() === "SOL" && fromBalance - val < 0.00005) {
-        val = Math.max(0, fromBalance - 0.00005);
-      }
-      // Truncate (never round) so floating-point rounding can't push the
-      // amount past the balance minus the fee reserve.
-      const displayScale = 1e6;
-      const truncated = Math.floor(val * displayScale) / displayScale;
-      setAmountStr(truncated > 0 ? String(truncated) : "");
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    },
-    [fromHolding, fromBalance],
-  );
+  const toggleCurrency = useCallback(() => {
+    if (!fromPrice) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (currencyMode === "TOKEN") {
+      const usd = amountNum * fromPrice;
+      setCurrencyMode("USD");
+      setAmountStr(usd > 0 ? usd.toFixed(2) : "");
+    } else {
+      setCurrencyMode("TOKEN");
+      setAmountStr(amountNum > 0 ? String(Number(amountNum.toFixed(6))) : "");
+    }
+  }, [currencyMode, amountNum, fromPrice]);
+
+  const handleMax = useCallback(() => {
+    if (!fromHolding) return;
+    let val = fromBalance;
+    // Reserve the network fee when maxing out SOL.
+    if (fromHolding.symbol.toUpperCase() === "SOL" && fromBalance - val < 0.00005) {
+      val = Math.max(0, fromBalance - 0.00005);
+    }
+    // Truncate (never round) so float rounding can't push past the balance.
+    const truncated = Math.floor(val * 1e6) / 1e6;
+    if (truncated <= 0) {
+      setAmountStr("");
+    } else if (currencyMode === "USD" && fromPrice && fromPrice > 0) {
+      setAmountStr((truncated * fromPrice).toFixed(2));
+    } else {
+      setAmountStr(String(truncated));
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [fromHolding, fromBalance, currencyMode, fromPrice]);
 
   const handleSwap = useCallback(async () => {
     if (!isFormValid || isSwapping || !walletAddress || !quote || !fromHolding)
@@ -371,11 +508,10 @@ export function SwapSheet({
       const txBuf = Buffer.from(swapTxResponse.swapTransaction, "base64");
       const transaction = VersionedTransaction.deserialize(txBuf);
       if (!signer) throw new Error("Wallet signer is not available");
-      const confirmingSigner = withConfirmation(signer, signApproval, {
-        title: `Swap ${fromHolding.symbol} → ${toHolding?.symbol ?? "token"}`,
-        subtitle: `${amountNum} ${fromHolding.symbol}`,
-      });
-      await confirmingSigner.signTransaction(transaction);
+      // The dedicated review step already confirms the swap, so sign directly
+      // — no extra decoded-transaction approval modal. (Seed Vault wallets
+      // still get their own native biometric prompt.)
+      await signer.signTransaction(transaction);
 
       const connection = getConnection();
       const sig = await connection.sendRawTransaction(transaction.serialize(), {
@@ -419,9 +555,7 @@ export function SwapSheet({
     executeUnshield,
     onSwapComplete,
     swapStage,
-    toHolding?.symbol,
     signer,
-    signApproval,
   ]);
 
   const handleClose = useCallback(() => {
@@ -468,152 +602,140 @@ export function SwapSheet({
     [fromMint, toMint],
   );
 
+  const showForm = step === "form" && !showFromPicker && !showToPicker;
+
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      snapPoints={["92%"]}
+      snapPoints={SWAP_SNAP_POINTS}
+      enableDynamicSizing={false}
       enablePanDownToClose={step !== "result" || !isSwapping}
       backdropComponent={renderBackdrop}
       onDismiss={onClose}
-      handleIndicatorStyle={{ backgroundColor: "rgba(0,0,0,0.15)", width: 36 }}
-      backgroundStyle={{ borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
+      onChange={handleSheetChange}
+      handleComponent={null}
+      backgroundStyle={{ borderTopLeftRadius: 38, borderTopRightRadius: 38 }}
       keyboardBehavior="extend"
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
     >
-      <BottomSheetScrollView keyboardShouldPersistTaps="handled">
-        <View className="px-6 pb-12 pt-2">
-          {/* Header */}
-          <View className="mb-4 flex-row items-center justify-center">
-            {(step === "confirm" || showFromPicker || showToPicker) && (
-              <Pressable
-                className="absolute left-0"
-                onPress={() => {
-                  if (showFromPicker) {
-                    setShowFromPicker(false);
-                    return;
-                  }
-                  if (showToPicker) {
-                    setShowToPicker(false);
-                    return;
-                  }
-                  setStep("form");
-                }}
-              >
-                <ArrowLeft size={24} color="#000" />
-              </Pressable>
+      <BottomSheetView
+        style={{
+          height: SHEET_HEIGHT,
+          backgroundColor: "#fff",
+          borderTopLeftRadius: 38,
+          borderTopRightRadius: 38,
+          overflow: "hidden",
+        }}
+      >
+        {showForm && (
+          <FormStep
+            onClose={handleClose}
+            fromHolding={fromHolding}
+            toHolding={toHolding}
+            tokenDetailsByMint={tokenDetailsByMint}
+            amountStr={amountStr}
+            onAmountChange={setAmountStr}
+            currencyMode={currencyMode}
+            onToggleCurrency={toggleCurrency}
+            fromPrice={fromPrice}
+            amountNum={amountNum}
+            onMax={handleMax}
+            onFlip={handleFlip}
+            onFromPress={() => {
+              Keyboard.dismiss();
+              setShowFromPicker(true);
+            }}
+            onToPress={() => {
+              Keyboard.dismiss();
+              setShowToPicker(true);
+            }}
+            fromBalance={fromBalance}
+            outAmount={outAmount}
+            outUsd={outUsd}
+            isFetchingQuote={isFetchingQuote}
+            isFormValid={isFormValid}
+            onReview={() => {
+              Keyboard.dismiss();
+              setStep("confirm");
+            }}
+            swapInputRef={swapInputRef}
+          />
+        )}
+
+        {step === "form" && (showFromPicker || showToPicker) && (
+          <BottomSheetScrollView
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {showFromPicker ? (
+              <TokenPicker
+                mode="from"
+                title="You swap"
+                tokenHoldings={fromHoldings}
+                tokenDetailsByMint={tokenDetailsByMint}
+                onSelect={(token) =>
+                  selectFromToken(token.mint, Boolean(token.isSecured))
+                }
+                onBack={() => setShowFromPicker(false)}
+              />
+            ) : (
+              <TokenPicker
+                mode="to"
+                title="You receive"
+                tokenHoldings={toPickerTokens}
+                tokenDetailsByMint={tokenDetailsByMint}
+                searchTokens={searchTokens}
+                onSelect={(token) => selectToToken(token)}
+                onBack={() => setShowToPicker(false)}
+              />
             )}
-            <Text
-              className="text-[17px] font-semibold text-black"
-              style={{ lineHeight: 22 }}
-            >
-              {showFromPicker
-                ? "Select From"
-                : showToPicker
-                  ? "Select To"
-                  : step === "form"
-                    ? "Swap"
-                    : step === "confirm"
-                      ? "Confirm Swap"
-                      : ""}
-            </Text>
-          </View>
+          </BottomSheetScrollView>
+        )}
 
-          {step === "form" && (
-            <>
-              {showFromPicker ? (
-                <TokenPicker
-                  mode="from"
-                  tokenHoldings={fromHoldings}
-                  tokenDetailsByMint={tokenDetailsByMint}
-                  onSelect={(token) =>
-                    selectFromToken(token.mint, Boolean(token.isSecured))
-                  }
-                  onCancel={() => setShowFromPicker(false)}
-                />
-              ) : showToPicker ? (
-                <TokenPicker
-                  mode="to"
-                  tokenHoldings={toPickerTokens}
-                  tokenDetailsByMint={tokenDetailsByMint}
-                  searchTokens={searchTokens}
-                  onSelect={(token) => selectToToken(token)}
-                  onCancel={() => setShowToPicker(false)}
-                />
-              ) : (
-                <FormStep
-                  fromHolding={fromHolding}
-                  toHolding={toHolding}
-                  tokenDetailsByMint={tokenDetailsByMint}
-                  amountStr={amountStr}
-                  onAmountChange={setAmountStr}
-                  onPercentage={handlePercentage}
-                  onFlip={handleFlip}
-                  onFromPress={() => setShowFromPicker(true)}
-                  onToPress={() => setShowToPicker(true)}
-                  isValidAmount={amountStr.length > 0 ? isValidAmount : true}
-                  fromBalance={fromBalance}
-                  quote={quote}
-                  outAmount={outAmount}
-                  outUsd={outUsd}
-                  isFetchingQuote={isFetchingQuote}
-                  isFormValid={isFormValid}
-                  onNext={() => {
-                    Keyboard.dismiss();
-                    setStep("confirm");
-                  }}
-                />
-              )}
-            </>
-          )}
+        {step === "confirm" && (
+          <ConfirmStep
+            fromHolding={fromHolding}
+            toHolding={toHolding}
+            tokenDetailsByMint={tokenDetailsByMint}
+            amountNum={amountNum}
+            outAmount={outAmount}
+            outUsd={outUsd}
+            quote={quote}
+            isSwapping={isSwapping}
+            onConfirm={handleSwap}
+            onBack={() => setStep("form")}
+          />
+        )}
 
-          {step === "confirm" && (
-            <ConfirmStep
-              fromHolding={fromHolding}
-              toHolding={toHolding}
-              amountNum={amountNum}
-              outAmount={outAmount}
-              outUsd={outUsd}
-              quote={quote}
-              isSwapping={isSwapping}
-              onConfirm={handleSwap}
-            />
-          )}
-
-          {step === "result" && (
-            <ResultStep
-              isSwapping={isSwapping}
-              swapError={swapError}
-              swapStage={swapStage}
-              txSignature={txSignature}
-              fromHolding={fromHolding}
-              toHolding={toHolding}
-              amountNum={amountNum}
-              outAmount={outAmount}
-              outUsd={outUsd}
-              onDone={handleClose}
-            />
-          )}
-        </View>
-      </BottomSheetScrollView>
+        {step === "result" && (
+          <ResultStep
+            isSwapping={isSwapping}
+            swapError={swapError}
+            swapStage={swapStage}
+            txSignature={txSignature}
+            toHolding={toHolding}
+            outAmount={outAmount}
+            onDone={handleClose}
+          />
+        )}
+      </BottomSheetView>
     </BottomSheetModal>
   );
 }
 
-// --- Token Selector Button ---
-function TokenSelectorButton({
+// --- Swap token pill (You swap / You receive selector) ---
+function SwapTokenPill({
   holding,
-  label,
   detailLogoUrl,
   onPress,
 }: {
   holding: TokenHolding | null;
-  label: string;
   detailLogoUrl?: string | null;
   onPress: () => void;
 }) {
   const icon = holding ? getTokenIcon(holding, detailLogoUrl) : DEFAULT_TOKEN_ICON;
-  const symbol = holding?.symbol ?? label;
+  const symbol = holding?.symbol ?? "Select";
   const isSecured = Boolean(holding?.isSecured);
 
   return (
@@ -624,52 +746,54 @@ function TokenSelectorButton({
       style={{
         flexDirection: "row",
         alignItems: "center",
-        gap: 6,
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 9999,
-        backgroundColor: "#fff",
-        borderWidth: 1,
-        borderColor: "rgba(0,0,0,0.08)",
+        backgroundColor: "rgba(0,0,0,0.04)",
+        borderRadius: 54,
+        paddingHorizontal: 4,
       }}
     >
-      <View style={{ position: "relative" }}>
-        <Image
-          source={{ uri: icon }}
-          style={{ width: 20, height: 20, borderRadius: 10 }}
-        />
-        {isSecured ? (
+      <View style={{ paddingRight: 6 }}>
+        <View style={{ position: "relative" }}>
           <Image
-            source={shieldBadge}
-            style={{
-              position: "absolute",
-              bottom: -3,
-              right: -3,
-              width: 12,
-              height: 12,
-            }}
+            source={{ uri: icon }}
+            style={{ width: 28, height: 28, borderRadius: 14 }}
           />
-        ) : null}
+          {isSecured ? (
+            <Image
+              source={shieldBadge}
+              style={{
+                position: "absolute",
+                bottom: -2,
+                right: -2,
+                width: 14,
+                height: 14,
+              }}
+            />
+          ) : null}
+        </View>
       </View>
-      <Text className="text-[14px] font-semibold text-black">{symbol}</Text>
-      <ChevronDown size={14} color="#666" />
+      <View style={{ paddingVertical: 7 }}>
+        <Text
+          className="text-[17px] font-medium text-black"
+          style={{ lineHeight: 22 }}
+        >
+          {symbol}
+        </Text>
+      </View>
+      <View
+        style={{
+          height: 36,
+          alignItems: "center",
+          justifyContent: "center",
+          paddingLeft: 4,
+        }}
+      >
+        <ChevronRight size={16} color="rgba(60,60,67,0.3)" strokeWidth={2.5} />
+      </View>
     </Pressable>
   );
 }
 
 // --- Helpers ---
-function formatPriceImpactPct(raw: string | number): string {
-  const n =
-    typeof raw === "string" ? Number.parseFloat(raw) : Number.isFinite(raw) ? raw : NaN;
-  if (!Number.isFinite(n) || n === 0) return "0%";
-  const abs = Math.abs(n);
-  if (abs < 0.0001) return `${n < 0 ? "-" : "<"}0.0001%`;
-  const decimals = abs >= 1 ? 2 : 4;
-  // Strip trailing zeros: 0.5000 → 0.5, 0.5010 → 0.501
-  const trimmed = Number.parseFloat(n.toFixed(decimals)).toString();
-  return `${trimmed}%`;
-}
-
 function popularToHolding(p: PopularToken): TokenHolding {
   return {
     mint: p.mint,
@@ -686,18 +810,20 @@ function popularToHolding(p: PopularToken): TokenHolding {
 // --- Token Picker ---
 function TokenPicker({
   mode,
+  title,
   tokenHoldings,
   tokenDetailsByMint,
   searchTokens,
   onSelect,
-  onCancel,
+  onBack,
 }: {
   mode: "from" | "to";
+  title: string;
   tokenHoldings: TokenHolding[];
   tokenDetailsByMint?: TokenDetailsByMint;
   searchTokens?: (query: string) => Promise<PopularToken[]>;
   onSelect: (token: TokenHolding) => void;
-  onCancel: () => void;
+  onBack: () => void;
 }) {
   const [search, setSearch] = useState("");
   const [jupiterResults, setJupiterResults] = useState<TokenHolding[]>([]);
@@ -757,25 +883,71 @@ function TokenPicker({
   }, [mode, localFiltered, jupiterResults]);
 
   return (
-    <>
+    <View className="w-full">
+      {/* Toolbar: circular back + centered title */}
+      <View className="w-full" style={{ paddingVertical: 16 }}>
+        <View className="flex-row items-center justify-between px-4">
+          <Pressable
+            className="h-11 w-11 items-center justify-center rounded-full bg-[#f2f2f7]"
+            hitSlop={6}
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <ArrowLeft size={24} color="rgba(60,60,67,0.6)" strokeWidth={2} />
+          </Pressable>
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
+              {title}
+            </Text>
+          </View>
+          <View className="h-11 w-11" style={{ opacity: 0 }} />
+        </View>
+      </View>
+
       {/* Search */}
-      <View className="mb-3 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50 px-3">
-        <Search size={16} color="#999" />
-        <BottomSheetTextInput
+      <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+        <View
+          className="flex-row items-center"
           style={{
-            flex: 1,
-            marginLeft: 8,
-            paddingVertical: 12,
-            fontSize: 16,
-            color: "#000",
+            backgroundColor: "#f2f2f7",
+            borderRadius: 47,
+            paddingHorizontal: 16,
           }}
-          placeholder="Search tokens"
-          placeholderTextColor="#999"
-          value={search}
-          onChangeText={setSearch}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        >
+          <View style={{ paddingRight: 12, paddingVertical: 14 }}>
+            <Search size={24} color="rgba(60,60,67,0.6)" strokeWidth={2} />
+          </View>
+          <BottomSheetTextInput
+            style={{
+              flex: 1,
+              paddingVertical: 15,
+              fontFamily: "Geist_400Regular",
+              fontSize: 17,
+              color: "#000",
+            }}
+            placeholder="Search"
+            placeholderTextColor="rgba(60,60,67,0.6)"
+            value={search}
+            onChangeText={setSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
       </View>
 
       {/* Token list */}
@@ -785,328 +957,729 @@ function TokenPicker({
           tokenDetailsByMint?.[token.mint]?.token.logoUrl,
         );
         const isSecured = Boolean(token.isSecured);
+        // "To" picker chooses what to receive → show the unit price. "From"
+        // picker chooses from holdings → show held balance + its USD value.
+        const subLabel =
+          mode === "to"
+            ? token.symbol
+            : `${formatTokenAmount(token.balance)} ${token.symbol}`;
+        const rightValue =
+          mode === "to"
+            ? formatUnitPrice(token.priceUsd)
+            : formatUsdAmount(token.balance * (token.priceUsd ?? 0));
         return (
           <Pressable
             key={`${token.mint}:${isSecured ? "shielded" : "public"}`}
-            className="flex-row items-center rounded-xl px-2 py-3 active:bg-neutral-100"
+            className="w-full flex-row items-center"
+            style={{ paddingHorizontal: 16 }}
             onPress={() => onSelect(token)}
+            accessibilityRole="button"
+            accessibilityLabel={`Select ${token.name}`}
           >
-            <View style={{ position: "relative" }}>
-              <Image
-                source={{ uri: icon }}
-                style={{ width: 32, height: 32, borderRadius: 16 }}
-              />
-              {isSecured ? (
+            <View style={{ paddingRight: 12, paddingVertical: 6 }}>
+              <View style={{ position: "relative" }}>
                 <Image
-                  source={shieldBadge}
+                  source={{ uri: icon }}
                   style={{
-                    position: "absolute",
-                    bottom: -2,
-                    right: -2,
-                    width: 16,
-                    height: 16,
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    borderWidth: 0.5,
+                    borderColor: "rgba(0,0,0,0.08)",
                   }}
                 />
-              ) : null}
+                {isSecured ? (
+                  <Image
+                    source={shieldBadge}
+                    style={{
+                      position: "absolute",
+                      bottom: -2,
+                      right: -2,
+                      width: 16,
+                      height: 16,
+                    }}
+                  />
+                ) : null}
+              </View>
             </View>
-            <View className="ml-3 flex-1">
-              <Text className="text-[14px] font-medium text-black">
-                {token.symbol}
-                {isSecured ? " · Shielded" : ""}
-              </Text>
-              <Text className="text-[12px] text-neutral-500" numberOfLines={1}>
+            <View className="flex-1" style={{ paddingVertical: 8, gap: 2 }}>
+              <Text
+                className="text-[17px] font-medium text-black"
+                style={{ lineHeight: 22, letterSpacing: -0.187 }}
+                numberOfLines={1}
+              >
                 {token.name}
               </Text>
-            </View>
-            {mode === "from" || token.balance > 0 ? (
-              <Text className="text-[14px] text-neutral-600">
-                {token.balance.toFixed(
-                  token.decimals > 4 ? 4 : token.decimals,
-                )}
+              <Text
+                className="text-[15px] font-normal"
+                style={{ color: "rgba(60,60,67,0.6)", lineHeight: 20 }}
+                numberOfLines={1}
+              >
+                {subLabel}
               </Text>
-            ) : null}
+            </View>
+            <View style={{ paddingLeft: 12 }}>
+              <Text
+                className="text-[17px] font-medium text-black"
+                style={{ lineHeight: 22 }}
+              >
+                {rightValue}
+              </Text>
+            </View>
           </Pressable>
         );
       })}
 
       {/* Searching indicator */}
-      {isSearching && (
-        <View className="flex-row items-center justify-center py-4">
-          <ActivityIndicator size="small" color="#999" />
-          <Text className="ml-2 text-[14px] text-neutral-400">
-            Searching...
+      {isSearching ? (
+        <View
+          className="flex-row items-center justify-center"
+          style={{ paddingVertical: 16 }}
+        >
+          <ActivityIndicator size="small" color="rgba(60,60,67,0.6)" />
+          <Text
+            className="text-[15px]"
+            style={{ marginLeft: 8, color: "rgba(60,60,67,0.6)" }}
+          >
+            Searching…
           </Text>
         </View>
-      )}
+      ) : null}
 
-      {displayTokens.length === 0 && !isSearching && (
-        <Text className="py-8 text-center text-[14px] text-neutral-400">
+      {displayTokens.length === 0 && !isSearching ? (
+        <Text
+          className="text-[15px] font-normal"
+          style={{
+            color: "rgba(60,60,67,0.6)",
+            textAlign: "center",
+            paddingVertical: 32,
+          }}
+        >
           No tokens found
         </Text>
-      )}
-
-      {/* Cancel */}
-      <Pressable
-        className="mt-2 items-center rounded-2xl bg-neutral-100 py-3"
-        onPress={onCancel}
-      >
-        <Text className="text-[14px] font-medium text-neutral-600">Cancel</Text>
-      </Pressable>
-    </>
+      ) : null}
+    </View>
   );
 }
 
 // --- Form Step ---
 function FormStep({
+  onClose,
   fromHolding,
   toHolding,
   tokenDetailsByMint,
   amountStr,
   onAmountChange,
-  onPercentage,
+  currencyMode,
+  onToggleCurrency,
+  fromPrice,
+  amountNum,
+  onMax,
   onFlip,
   onFromPress,
   onToPress,
-  isValidAmount,
   fromBalance,
-  quote,
   outAmount,
   outUsd,
   isFetchingQuote,
   isFormValid,
-  onNext,
+  onReview,
+  swapInputRef,
 }: {
+  onClose: () => void;
   fromHolding: TokenHolding | null;
   toHolding: TokenHolding | null;
   tokenDetailsByMint?: TokenDetailsByMint;
   amountStr: string;
   onAmountChange: (v: string) => void;
-  onPercentage: (pct: number) => void;
+  currencyMode: "TOKEN" | "USD";
+  onToggleCurrency: () => void;
+  fromPrice: number | null;
+  amountNum: number;
+  onMax: () => void;
   onFlip: () => void;
   onFromPress: () => void;
   onToPress: () => void;
-  isValidAmount: boolean;
   fromBalance: number;
-  quote: JupiterQuoteResponse | null;
   outAmount: number | null;
   outUsd: number | null;
   isFetchingQuote: boolean;
   isFormValid: boolean;
-  onNext: () => void;
+  onReview: () => void;
+  swapInputRef: React.RefObject<TextInput | null>;
 }) {
+  const insets = useSafeAreaInsets();
+  const keyboard = useAnimatedKeyboard();
+  const footerStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboard.height.value }],
+  }));
+  const fromSymbol = fromHolding?.symbol ?? "";
+  const toBalance = toHolding?.balance ?? 0;
+
+  // Custom blinking caret — the real input's caret is hidden (it's a
+  // transparent overlay over the formatted amount). Mirrors SendSheet.
+  const [isFocused, setIsFocused] = useState(false);
+  const [caretOn, setCaretOn] = useState(true);
+  useEffect(() => {
+    if (!isFocused) {
+      setCaretOn(true);
+      return;
+    }
+    const id = setInterval(() => setCaretOn((v) => !v), 530);
+    return () => clearInterval(id);
+  }, [isFocused]);
+
+  const swapDisplay = formatAmountInputDisplay(amountStr) || "0";
+  const swapBig = currencyMode === "USD" ? `$${swapDisplay}` : swapDisplay;
+  const swapSub =
+    currencyMode === "USD"
+      ? `${formatTokenAmount(amountNum)} ${fromSymbol}`
+      : formatUsdAmount(fromPrice ? amountNum * fromPrice : 0);
+
+  const receiveBig = outAmount != null ? formatWithCommas(outAmount, 0, 6) : "0";
+  const receiveSub = outUsd != null ? `≈${formatUsdAmount(outUsd)}` : "$0";
+
+  const labelStyle = { color: "rgba(60,60,67,0.6)", lineHeight: 20 } as const;
+
+  // CTA state. No amount → dim "Enter amount" (translucent-black fill so the
+  // label stays crisp white); over balance → light-red "Insufficient balance";
+  // valid + quote ready → solid-black "Review".
+  const hasAmount = amountNum > 0;
+  const overBalance = hasAmount && amountNum > fromBalance;
+  let ctaLabel = "Enter amount";
+  let ctaBg = "rgba(0,0,0,0.24)";
+  let ctaTextColor = "#fff";
+  let ctaDisabled = true;
+  if (overBalance) {
+    ctaLabel = "Insufficient balance";
+    ctaBg = "rgba(249,54,60,0.14)";
+    ctaTextColor = "#f9363c";
+  } else if (hasAmount && isFormValid) {
+    ctaLabel = "Review";
+    ctaBg = "#000";
+    ctaDisabled = false;
+  } else if (hasAmount) {
+    ctaLabel = "Review";
+  }
+
   return (
-    <>
-      {/* From section */}
-      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">From</Text>
-      <View
-        className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50"
-        style={{ paddingRight: 6 }}
-      >
-        <BottomSheetTextInput
-          style={{
-            flex: 1,
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            fontSize: 16,
-            color: "#000",
-          }}
-          placeholder="0.00"
-          placeholderTextColor="#999"
-          value={amountStr}
-          onChangeText={onAmountChange}
-          keyboardType="decimal-pad"
-        />
-        <TokenSelectorButton
-          holding={fromHolding}
-          label="Select"
-          detailLogoUrl={
-            fromHolding
-              ? tokenDetailsByMint?.[fromHolding.mint]?.token.logoUrl
-              : undefined
-          }
-          onPress={onFromPress}
-        />
-      </View>
-      {!isValidAmount && amountStr.length > 0 && (
-        <Text className="mt-1 text-[12px] text-red-500">
-          {parseFloat(amountStr) > fromBalance
-            ? "Insufficient balance"
-            : "Enter a valid amount"}
-        </Text>
-      )}
-      <View className="mt-2 flex-row items-center justify-between">
-        <Text className="text-[12px] text-neutral-500">
-          Balance: {fromBalance.toFixed(4)} {fromHolding?.symbol ?? ""}
-          {fromHolding?.priceUsd != null
-            ? ` (~$${(fromBalance * (fromHolding.priceUsd ?? 0)).toFixed(2)})`
-            : ""}
-        </Text>
-        <Pressable
-          className="rounded-lg bg-neutral-200 px-2.5 py-1"
-          onPress={() => onPercentage(100)}
-        >
-          <Text className="text-[12px] font-semibold text-neutral-700">MAX</Text>
-        </Pressable>
-      </View>
-
-      {/* Flip button */}
-      <View className="my-3 items-center">
-        <Pressable
-          className="rounded-full bg-neutral-100 p-2"
-          onPress={onFlip}
-        >
-          <ArrowDownUp size={20} color="#000" />
-        </Pressable>
-      </View>
-
-      {/* To section */}
-      <Text className="mb-1.5 text-[14px] font-medium text-neutral-700">To</Text>
-      <View
-        className="mb-1 flex-row items-center rounded-xl border border-neutral-200 bg-neutral-50"
-        style={{ paddingRight: 6 }}
-      >
-        <View
-          className="flex-1"
-          style={{ paddingHorizontal: 16, paddingVertical: 12 }}
-        >
-          {isFetchingQuote ? (
-            <ActivityIndicator size="small" color="#999" />
-          ) : outAmount != null ? (
-            <Text className="text-[16px] text-black">
-              {outAmount.toFixed(
-                toHolding && toHolding.decimals > 4 ? 4 : (toHolding?.decimals ?? 4),
-              )}
+    <View style={{ flex: 1 }}>
+      {/* Header */}
+      <View style={{ paddingVertical: 16 }}>
+        <View className="flex-row items-center justify-between px-4">
+          <Pressable
+            className="h-11 w-11 items-center justify-center rounded-full bg-[#f2f2f7]"
+            hitSlop={6}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          >
+            <X size={24} color="rgba(60,60,67,0.6)" strokeWidth={2} />
+          </Pressable>
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
+              Swap
             </Text>
-          ) : (
-            <Text className="text-[16px] text-neutral-300">0.00</Text>
-          )}
+          </View>
+          <View className="h-11 w-11" style={{ opacity: 0 }} />
         </View>
-        <TokenSelectorButton
-          holding={toHolding}
-          label="Select"
-          detailLogoUrl={
-            toHolding
-              ? tokenDetailsByMint?.[toHolding.mint]?.token.logoUrl
-              : undefined
-          }
-          onPress={onToPress}
-        />
       </View>
-      {outUsd !== null && (
-        <Text className="mt-1 text-[12px] text-neutral-500">
-          ≈ ${outUsd.toFixed(2)}
-        </Text>
-      )}
 
-      {/* Quote info */}
-      {quote && outAmount != null && (
-        <Text className="mb-1 text-[12px] text-neutral-400">
-          Price impact: {formatPriceImpactPct(quote.priceImpactPct)} | Slippage:{" "}
-          {(quote.slippageBps / 100).toFixed(2)}%
-        </Text>
-      )}
+      {/* Body */}
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
+        {/* You swap */}
+        <View style={{ paddingVertical: 10 }}>
+          <Text className="text-[15px] font-normal" style={labelStyle}>
+            You swap
+          </Text>
+          <View className="flex-row items-center" style={{ height: 48, gap: 4 }}>
+            <Pressable
+              style={{ flex: 1, position: "relative", justifyContent: "center" }}
+              onPress={() => swapInputRef.current?.focus()}
+            >
+              <View
+                className="flex-row items-center"
+                style={{ maxWidth: "100%" }}
+                pointerEvents="none"
+              >
+                <Text
+                  className="font-semibold text-black"
+                  style={{ fontSize: 32, lineHeight: 36, flexShrink: 1 }}
+                  numberOfLines={1}
+                >
+                  {swapBig}
+                </Text>
+                <View
+                  style={{
+                    width: 2,
+                    height: 30,
+                    marginLeft: 2,
+                    borderRadius: 1,
+                    backgroundColor: "#000",
+                    opacity: isFocused && caretOn ? 1 : 0,
+                  }}
+                />
+              </View>
+              <BottomSheetTextInput
+                ref={swapInputRef as unknown as React.Ref<never>}
+                value={amountStr}
+                onChangeText={(t) => onAmountChange(stripAmountInput(t))}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                keyboardType="decimal-pad"
+                inputMode="decimal"
+                maxLength={15}
+                caretHidden
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  opacity: 0,
+                  padding: 0,
+                  fontSize: 32,
+                }}
+                accessibilityLabel="Swap amount"
+              />
+            </Pressable>
+            <SwapTokenPill
+              holding={fromHolding}
+              detailLogoUrl={
+                fromHolding
+                  ? tokenDetailsByMint?.[fromHolding.mint]?.token.logoUrl
+                  : undefined
+              }
+              onPress={onFromPress}
+            />
+          </View>
+          <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center" style={{ gap: 4 }}>
+              <Text className="text-[15px] font-normal" style={labelStyle}>
+                {swapSub}
+              </Text>
+              {fromPrice ? (
+                <Pressable
+                  onPress={onToggleCurrency}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Switch between token and USD"
+                >
+                  <SwapCurrencyIcon width={16} height={16} />
+                </Pressable>
+              ) : null}
+            </View>
+            <Pressable
+              className="flex-row items-center"
+              style={{ gap: 4 }}
+              onPress={onMax}
+              accessibilityRole="button"
+              accessibilityLabel="Use max balance"
+            >
+              <Text
+                className="text-[15px] font-normal text-black"
+                style={{ lineHeight: 20 }}
+              >
+                MAX
+              </Text>
+              <Text className="text-[15px] font-normal" style={labelStyle}>
+                {formatTokenAmount(fromBalance)}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
 
-      <View className="mb-4" />
+        {/* Divider + flip */}
+        <View
+          style={{ height: 28, alignItems: "center", justifyContent: "center" }}
+        >
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 14,
+              height: 1,
+              backgroundColor: "rgba(60,60,67,0.12)",
+            }}
+          />
+          <Pressable
+            onPress={onFlip}
+            accessibilityRole="button"
+            accessibilityLabel="Swap direction"
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              backgroundColor: "#f5f5f5",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <ArrowUpDown size={20} color="#8A8A8E" strokeWidth={1.5} />
+          </Pressable>
+        </View>
 
-      {/* Review button */}
-      <Pressable
-        className={`items-center rounded-2xl py-4 ${!isFormValid ? "opacity-40" : ""}`}
-        style={{ backgroundColor: "#f9363c" }}
-        onPress={onNext}
-        disabled={!isFormValid}
+        {/* You receive */}
+        <View style={{ paddingVertical: 12 }}>
+          <Text className="text-[15px] font-normal" style={labelStyle}>
+            You receive
+          </Text>
+          <View className="flex-row items-center" style={{ height: 48, gap: 4 }}>
+            <View style={{ flex: 1, justifyContent: "center" }}>
+              {isFetchingQuote && outAmount == null ? (
+                <ActivityIndicator
+                  size="small"
+                  color="rgba(60,60,67,0.6)"
+                  style={{ alignSelf: "flex-start" }}
+                />
+              ) : (
+                <Text
+                  className="font-semibold text-black"
+                  style={{ fontSize: 32, lineHeight: 36 }}
+                  numberOfLines={1}
+                >
+                  {receiveBig}
+                </Text>
+              )}
+            </View>
+            <SwapTokenPill
+              holding={toHolding}
+              detailLogoUrl={
+                toHolding
+                  ? tokenDetailsByMint?.[toHolding.mint]?.token.logoUrl
+                  : undefined
+              }
+              onPress={onToPress}
+            />
+          </View>
+          <View className="flex-row items-center justify-between">
+            <Text className="text-[15px] font-normal" style={labelStyle}>
+              {receiveSub}
+            </Text>
+            <Text className="text-[15px] font-normal" style={labelStyle}>
+              Balance: {formatTokenAmount(toBalance)}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* CTA — pinned to the sheet bottom and rides up with the keyboard. */}
+      <Animated.View
+        style={[
+          {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "#fff",
+            paddingTop: 16,
+            paddingBottom: insets.bottom + 12,
+            paddingHorizontal: 20,
+          },
+          footerStyle,
+        ]}
       >
-        <Text className="text-[16px] font-semibold text-white">
-          Review
-        </Text>
-      </Pressable>
-    </>
+        <Pressable
+          className="items-center justify-center"
+          style={{ height: 50, borderRadius: 78, backgroundColor: ctaBg }}
+          onPress={ctaDisabled ? undefined : onReview}
+          disabled={ctaDisabled}
+          accessibilityRole="button"
+          accessibilityLabel={ctaLabel}
+        >
+          <Text
+            className="text-[16px] font-medium"
+            style={{ lineHeight: 20, color: ctaTextColor }}
+          >
+            {ctaLabel}
+          </Text>
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
 
 // --- Confirm Step ---
+// Approximate Solana network fee surfaced on the swap review row.
+const NETWORK_FEE_SOL = 0.00005;
+
 function ConfirmStep({
   fromHolding,
   toHolding,
+  tokenDetailsByMint,
   amountNum,
   outAmount,
   outUsd,
   quote,
   isSwapping,
   onConfirm,
+  onBack,
 }: {
   fromHolding: TokenHolding | null;
   toHolding: TokenHolding | null;
+  tokenDetailsByMint?: TokenDetailsByMint;
   amountNum: number;
   outAmount: number | null;
   outUsd: number | null;
   quote: JupiterQuoteResponse | null;
   isSwapping: boolean;
   onConfirm: () => void;
+  onBack: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const fromSymbol = fromHolding?.symbol ?? "";
+  const toSymbol = toHolding?.symbol ?? "";
+  const fromIcon = fromHolding
+    ? getTokenIcon(fromHolding, tokenDetailsByMint?.[fromHolding.mint]?.token.logoUrl)
+    : DEFAULT_TOKEN_ICON;
+  const toIcon = toHolding
+    ? getTokenIcon(toHolding, tokenDetailsByMint?.[toHolding.mint]?.token.logoUrl)
+    : DEFAULT_TOKEN_ICON;
+  const rate = outAmount && outAmount > 0 ? amountNum / outAmount : null;
+  const slippagePct = quote ? Number((quote.slippageBps / 100).toFixed(2)) : null;
+  const dim = { color: "rgba(60,60,67,0.6)" } as const;
+
   return (
-    <>
-      <View className="mb-6 rounded-2xl bg-neutral-50 p-4">
-        <Row
-          label="From"
-          value={`${amountNum} ${fromHolding?.symbol ?? ""}`}
-        />
-        <Row
-          label="To"
-          value={`${outAmount?.toFixed(4) ?? "—"} ${toHolding?.symbol ?? ""}`}
-        />
-        <Row
-          label="Est. Value"
-          value={outUsd !== null ? `$${outUsd.toFixed(2)}` : "—"}
-          isSubtle
-        />
-        {quote && (
-          <>
-            <Row label="Price impact" value={formatPriceImpactPct(quote.priceImpactPct)} />
-            <Row
-              label="Slippage tolerance"
-              value={`${(quote.slippageBps / 100).toFixed(2)}%`}
-            />
-          </>
-        )}
+    <View style={{ flex: 1 }}>
+      {/* Header */}
+      <View style={{ paddingVertical: 16 }}>
+        <View className="flex-row items-center justify-between px-4">
+          <Pressable
+            className="h-11 w-11 items-center justify-center rounded-full bg-[#f2f2f7]"
+            hitSlop={6}
+            onPress={onBack}
+            accessibilityRole="button"
+            accessibilityLabel="Back"
+          >
+            <ArrowLeft size={24} color="rgba(60,60,67,0.6)" strokeWidth={2} />
+          </Pressable>
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
+              Swap
+            </Text>
+          </View>
+          <View className="h-11 w-11" style={{ opacity: 0 }} />
+        </View>
       </View>
 
-      <Pressable
-        className={`items-center rounded-2xl py-4 ${isSwapping ? "opacity-40" : ""}`}
-        style={{ backgroundColor: "#f9363c" }}
-        onPress={onConfirm}
-        disabled={isSwapping}
+      {/* Token pair */}
+      <View
+        className="flex-row"
+        style={{ paddingHorizontal: 16, paddingVertical: 8 }}
       >
-        {isSwapping ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <Text className="text-[16px] font-semibold text-white">
-            Confirm Swap
+        <Image
+          source={{ uri: fromIcon }}
+          style={{ width: 64, height: 64, borderRadius: 32 }}
+        />
+        <Image
+          source={{ uri: toIcon }}
+          style={{
+            width: 64,
+            height: 64,
+            borderRadius: 32,
+            marginLeft: -16,
+            borderWidth: 2,
+            borderColor: "#fff",
+          }}
+        />
+      </View>
+
+      {/* Amounts */}
+      <View style={{ paddingHorizontal: 24, paddingBottom: 20, gap: 4 }}>
+        <View className="flex-row items-baseline" style={{ gap: 8 }}>
+          <Text
+            className="font-semibold text-black"
+            style={{ fontSize: 40, lineHeight: 48 }}
+          >
+            −{formatTokenAmount(amountNum, 0)}
           </Text>
-        )}
-      </Pressable>
-    </>
+          <Text
+            className="font-semibold"
+            style={{ fontSize: 28, color: "rgba(60,60,67,0.4)" }}
+          >
+            {fromSymbol}
+          </Text>
+        </View>
+        <View className="flex-row items-baseline" style={{ gap: 8 }}>
+          <Text
+            className="font-semibold"
+            style={{ fontSize: 40, lineHeight: 48, color: "#34c759" }}
+          >
+            +{outAmount != null ? formatWithCommas(outAmount, 0, 6) : "0"}
+          </Text>
+          <Text
+            className="font-semibold"
+            style={{ fontSize: 28, color: "rgba(60,60,67,0.4)" }}
+          >
+            {toSymbol}
+          </Text>
+        </View>
+        {outUsd != null ? (
+          <Text
+            className="text-[17px] font-normal"
+            style={{ ...dim, lineHeight: 22 }}
+          >
+            ≈{formatUsdAmount(outUsd)}
+          </Text>
+        ) : null}
+      </View>
+
+      {/* Rate / slippage / fee */}
+      <View style={{ paddingHorizontal: 16 }}>
+        <View
+          style={{ backgroundColor: "#f2f2f7", borderRadius: 20, paddingVertical: 4 }}
+        >
+          <ConfirmRow label="Rate">
+            <Text className="text-[17px] text-black" style={{ lineHeight: 22 }}>
+              1 {toSymbol}
+            </Text>
+            <Text className="text-[17px]" style={{ ...dim, lineHeight: 22 }}>
+              {` ≈ ${rate != null ? formatTokenAmount(rate, 0) : "—"} ${fromSymbol}`}
+            </Text>
+          </ConfirmRow>
+          <ConfirmRow label="Slippage">
+            <Text className="text-[17px] text-black" style={{ lineHeight: 22 }}>
+              {slippagePct != null ? `${slippagePct}%` : "—"}
+            </Text>
+          </ConfirmRow>
+          <ConfirmRow label="Network Fee">
+            <Text className="text-[17px] text-black" style={{ lineHeight: 22 }}>
+              {formatSolAmount(NETWORK_FEE_SOL)} SOL
+            </Text>
+            <Text className="text-[17px]" style={{ ...dim, lineHeight: 22 }}>
+              {"  <$0.01"}
+            </Text>
+          </ConfirmRow>
+        </View>
+      </View>
+
+      <View style={{ flex: 1 }} />
+
+      {/* Footer */}
+      <View
+        style={{
+          paddingHorizontal: 20,
+          paddingTop: 16,
+          paddingBottom: insets.bottom + 12,
+        }}
+      >
+        <Pressable
+          className="items-center justify-center"
+          style={{
+            height: 50,
+            borderRadius: 78,
+            backgroundColor: "#000",
+            opacity: isSwapping ? 0.4 : 1,
+          }}
+          onPress={onConfirm}
+          disabled={isSwapping}
+          accessibilityRole="button"
+          accessibilityLabel="Confirm swap"
+        >
+          <Text
+            className="text-[16px] font-medium text-white"
+            style={{ lineHeight: 20 }}
+          >
+            Confirm
+          </Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
-function Row({
+function ConfirmRow({
   label,
-  value,
-  isSubtle = false,
+  children,
 }: {
   label: string;
-  value: string;
-  isSubtle?: boolean;
+  children: React.ReactNode;
 }) {
   return (
-    <View className="flex-row justify-between py-1.5">
-      <Text className="text-[14px] text-neutral-500">{label}</Text>
-      <Text
-        className={`text-[14px] ${isSubtle ? "text-neutral-400" : "font-medium text-black"}`}
-      >
-        {value}
-      </Text>
+    <View style={{ paddingHorizontal: 16 }}>
+      <View style={{ paddingVertical: 10 }}>
+        <Text
+          className="text-[14px] font-normal"
+          style={{ color: "rgba(60,60,67,0.6)", lineHeight: 18 }}
+        >
+          {label}
+        </Text>
+        <View className="flex-row items-center">{children}</View>
+      </View>
     </View>
   );
+}
+
+// Continuously rotating red spinner arc, shown while the swap is in flight.
+function SwappingSpinner() {
+  const rotation = useSharedValue(0);
+  useEffect(() => {
+    rotation.value = withRepeat(
+      withTiming(360, { duration: 900, easing: Easing.linear }),
+      -1,
+      false,
+    );
+    return () => cancelAnimation(rotation);
+  }, [rotation]);
+  const style = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${rotation.value}deg` }],
+  }));
+  return (
+    <Animated.View style={[{ width: 80, height: 80 }, style]}>
+      <SendSpinnerIcon width={80} height={80} />
+    </Animated.View>
+  );
+}
+
+// Mascot entrance: rapid zoom-in with a spring overshoot (bounce) + fade-in.
+function MascotReveal({ children }: { children: React.ReactNode }) {
+  const scale = useSharedValue(0.3);
+  const opacity = useSharedValue(0);
+  useEffect(() => {
+    opacity.value = withTiming(1, {
+      duration: 160,
+      easing: Easing.out(Easing.quad),
+    });
+    scale.value = withSpring(1, { damping: 8, stiffness: 220, mass: 0.6 });
+    return () => {
+      cancelAnimation(scale);
+      cancelAnimation(opacity);
+    };
+  }, [scale, opacity]);
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+  return <Animated.View style={style}>{children}</Animated.View>;
 }
 
 // --- Result Step ---
@@ -1115,86 +1688,172 @@ function ResultStep({
   swapError,
   swapStage,
   txSignature,
-  fromHolding,
   toHolding,
-  amountNum,
   outAmount,
-  outUsd,
   onDone,
 }: {
   isSwapping: boolean;
   swapError: string | null;
   swapStage: "idle" | "unshielding" | "swapping";
   txSignature: string | null;
-  fromHolding: TokenHolding | null;
   toHolding: TokenHolding | null;
-  amountNum: number;
   outAmount: number | null;
-  outUsd: number | null;
   onDone: () => void;
 }) {
-  if (isSwapping) {
-    const primaryLabel =
-      swapStage === "unshielding" ? "Unshielding funds…" : "Swapping tokens…";
-    return (
-      <View className="items-center py-12">
-        <ActivityIndicator size="large" color="#000" />
-        <Text className="mt-4 text-[16px] text-neutral-600">{primaryLabel}</Text>
-        {swapStage === "unshielding" ? (
-          <Text className="mt-2 text-[12px] text-neutral-400">
-            Preparing public balance for the swap…
-          </Text>
-        ) : null}
-      </View>
-    );
-  }
+  const insets = useSafeAreaInsets();
+  const status = isSwapping ? "swapping" : swapError ? "error" : "success";
+  const toSymbol = toHolding?.symbol ?? "";
 
-  if (swapError) {
-    return (
-      <View className="items-center py-8">
-        <AlertCircle size={48} color="#ef4444" />
-        <Text className="mt-4 text-center text-[16px] font-medium text-red-600">
-          Swap Failed
-        </Text>
-        <Text className="mt-2 text-center text-[14px] text-neutral-500">
-          {swapError}
-        </Text>
-        <Pressable
-          className="mt-6 w-full items-center rounded-2xl py-4"
-          style={{ backgroundColor: "#f9363c" }}
-          onPress={onDone}
-        >
-          <Text className="text-[16px] font-semibold text-white">Done</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const explorerUrl = txSignature
+    ? `https://solscan.io/tx/${txSignature}${
+        getSolanaEnv() === "mainnet" ? "" : `?cluster=${getSolanaEnv()}`
+      }`
+    : null;
+
+  const title =
+    status === "swapping"
+      ? swapStage === "unshielding"
+        ? "Unshielding…"
+        : "Swapping…"
+      : status === "success"
+        ? "Swapped"
+        : "Transaction failed";
 
   return (
-    <View className="items-center py-8">
-      <CheckCircle2 size={48} color="#22c55e" />
-      <Text className="mt-4 text-[16px] font-medium text-black">
-        {amountNum} {fromHolding?.symbol ?? ""} swapped
-      </Text>
-      <Text className="mt-1 text-[14px] text-neutral-500">
-        for {outAmount?.toFixed(4) ?? "—"} {toHolding?.symbol ?? ""}
-      </Text>
-      {outUsd !== null && (
-        <Text className="mt-1 text-[13px] text-neutral-400">
-          ≈ ${outUsd.toFixed(2)}
-        </Text>
-      )}
-      {txSignature && (
-        <Text className="mt-2 text-[12px] text-neutral-400" numberOfLines={1}>
-          Tx: {txSignature.slice(0, 12)}...
-        </Text>
-      )}
-      <Pressable
-        className="mt-6 w-full items-center rounded-2xl bg-black py-4"
-        onPress={onDone}
+    <View className="w-full" style={{ flex: 1 }}>
+      {/* Toolbar */}
+      <View className="w-full" style={{ paddingVertical: 16 }}>
+        <View className="flex-row items-center justify-between px-4">
+          <Pressable
+            className="h-11 w-11 items-center justify-center rounded-full bg-[#f2f2f7]"
+            hitSlop={6}
+            onPress={onDone}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+          >
+            <X size={24} color="rgba(60,60,67,0.6)" strokeWidth={2} />
+          </Pressable>
+          <View
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              top: 0,
+              bottom: 0,
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+            }}
+          >
+            <Text
+              className="text-[17px] font-semibold text-black"
+              style={{ lineHeight: 22 }}
+            >
+              Swap
+            </Text>
+          </View>
+          <View className="h-11 w-11" style={{ opacity: 0 }} />
+        </View>
+      </View>
+
+      {/* Centered status: mascot/spinner + copy */}
+      <View
+        className="flex-1 items-center justify-center"
+        style={{ paddingHorizontal: 32, paddingVertical: 24 }}
       >
-        <Text className="text-[16px] font-semibold text-white">Done</Text>
-      </Pressable>
+        <View className="w-full items-center" style={{ gap: 20 }}>
+          {status === "swapping" ? (
+            <SwappingSpinner />
+          ) : status === "success" ? (
+            <MascotReveal>
+              <SendSuccessDog width={100} height={80} />
+            </MascotReveal>
+          ) : (
+            <MascotReveal>
+              <SendErrorDog width={100} height={80} />
+            </MascotReveal>
+          )}
+
+          <View className="w-full items-center" style={{ gap: 4 }}>
+            <Text
+              className="text-[22px] font-semibold text-black"
+              style={{ lineHeight: 28, textAlign: "center" }}
+            >
+              {title}
+            </Text>
+            {status === "success" ? (
+              <Text
+                className="text-[17px] font-normal"
+                style={{ lineHeight: 22, textAlign: "center", maxWidth: 300 }}
+              >
+                <Text className="text-black">
+                  {outAmount != null ? formatWithCommas(outAmount, 0, 6) : "—"}{" "}
+                  {toSymbol}
+                </Text>
+                <Text style={{ color: "rgba(60,60,67,0.6)" }}>
+                  {" has been deposited to your wallet"}
+                </Text>
+              </Text>
+            ) : (
+              <Text
+                className="text-[17px] font-normal"
+                style={{
+                  color: "rgba(60,60,67,0.6)",
+                  lineHeight: 22,
+                  textAlign: "center",
+                  maxWidth: 300,
+                }}
+              >
+                {status === "swapping"
+                  ? "You can close this screen and continue using the app"
+                  : (swapError ?? "Something went wrong. Please try again.")}
+              </Text>
+            )}
+          </View>
+        </View>
+      </View>
+
+      {/* Footer: Done + (when available) View transaction */}
+      <View
+        style={{
+          backgroundColor: "#fff",
+          paddingTop: 16,
+          paddingBottom: insets.bottom + 12,
+          paddingHorizontal: 20,
+          gap: 10,
+        }}
+      >
+        <Pressable
+          className="items-center justify-center"
+          style={{ height: 50, borderRadius: 78, backgroundColor: "#000" }}
+          onPress={onDone}
+          accessibilityRole="button"
+          accessibilityLabel="Done"
+        >
+          <Text
+            className="text-[16px] font-medium text-white"
+            style={{ lineHeight: 20 }}
+          >
+            Done
+          </Text>
+        </Pressable>
+        {explorerUrl ? (
+          <Pressable
+            className="items-center justify-center"
+            style={{ height: 50, borderRadius: 78, backgroundColor: "#f5f5f5" }}
+            onPress={() => Linking.openURL(explorerUrl)}
+            accessibilityRole="button"
+            accessibilityLabel="View transaction"
+          >
+            <Text
+              className="text-[17px] font-medium text-black"
+              style={{ lineHeight: 22 }}
+            >
+              View transaction
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
