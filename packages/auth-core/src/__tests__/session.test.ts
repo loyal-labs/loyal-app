@@ -31,6 +31,7 @@ describe("wallet primitives", () => {
     const parsed = walletChallengeTokenClaimsSchema.safeParse({
       tokenType: "wallet_challenge",
       version: 1,
+      proofKind: "message",
       origin: "https://app.askloyal.com",
       walletAddress: "wallet-1",
       message: "Sign in to askloyal",

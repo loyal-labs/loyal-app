@@ -3,19 +3,32 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
+import {
+  useAuthApiClient,
+  useAuthSession,
+} from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
-import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
+import {
+  runWalletMessageProofFlow,
+  runWalletSiwsProofFlow,
+} from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 
-type ReauthStatus = "idle" | "awaiting_signature" | "verifying" | "done" | "dismissed" | "rejected";
+type ReauthStatus =
+  | "idle"
+  | "awaiting_signature"
+  | "verifying"
+  | "done"
+  | "dismissed"
+  | "rejected";
 
 export function WalletAutoReauth() {
   const { isHydrated, isAuthenticated, refreshSession } = useAuthSession();
   const authApiClient = useAuthApiClient();
   const { isOpen: isSignInModalOpen } = useSignInModal();
-  const { connected, publicKey, signMessage, disconnect } = useWallet();
+  const { connected, publicKey, signIn, signMessage, disconnect, wallet } =
+    useWallet();
   const { turnstile } = usePublicEnv();
 
   // Silent re-auth has no captcha UI, so resolve a Turnstile token for the
@@ -49,7 +62,7 @@ export function WalletAutoReauth() {
       return;
     }
 
-    if (!connected || !publicKey || !signMessage) {
+    if (!connected || !publicKey || ((!signIn || !wallet) && !signMessage)) {
       return;
     }
 
@@ -67,13 +80,24 @@ export function WalletAutoReauth() {
 
     async function reauthenticate() {
       try {
-        await runWalletProofFlow({
-          authApiClient,
-          messageSigner: signMessage,
-          onStatusChange: setStatus,
-          turnstileToken: silentTurnstileToken ?? undefined,
-          walletAddress,
-        });
+        if (signIn && wallet) {
+          setStatus("awaiting_signature");
+          await runWalletSiwsProofFlow({
+            authApiClient,
+            onStatusChange: setStatus,
+            signIn,
+            turnstileToken: silentTurnstileToken ?? undefined,
+            walletName: wallet.adapter.name,
+          });
+        } else {
+          await runWalletMessageProofFlow({
+            authApiClient,
+            messageSigner: signMessage,
+            onStatusChange: setStatus,
+            turnstileToken: silentTurnstileToken ?? undefined,
+            walletAddress,
+          });
+        }
         await refreshSession();
         setStatus("done");
       } catch (error) {
@@ -104,9 +128,11 @@ export function WalletAutoReauth() {
     isSignInModalOpen,
     publicKey,
     refreshSession,
+    signIn,
     signMessage,
     silentTurnstileToken,
     retryCount,
+    wallet,
   ]);
 
   // Auto-dismiss "done" banner after delay
@@ -167,9 +193,9 @@ export function WalletAutoReauth() {
 
   const statusText =
     status === "awaiting_signature"
-      ? "Please approve the signature request in your wallet"
+      ? "Please approve sign-in in your wallet"
       : status === "verifying"
-        ? "Verifying signature\u2026"
+        ? "Verifying wallet\u2026"
         : status === "done"
           ? "All good"
           : "Signature rejected";

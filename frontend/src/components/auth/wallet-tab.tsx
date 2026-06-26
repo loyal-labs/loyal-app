@@ -124,7 +124,7 @@ export function WalletTab({
       state.status === "connecting"
         ? "Connecting your wallet..."
         : state.status === "awaiting_signature"
-        ? "Approve the message signature in your wallet..."
+        ? "Approve sign-in in your wallet..."
         : "Verifying your wallet and preparing your smart account...";
 
     return (

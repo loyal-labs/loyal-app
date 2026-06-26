@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { solanaSignInInputSchema } from "./contracts";
+
 export type WalletAuthMessageInput = {
   appName: string;
   origin: string;
@@ -11,8 +13,34 @@ export type WalletAuthMessageInput = {
 
 export const WALLET_AUTH_CHALLENGE_TOKEN_TYPE = "wallet_challenge";
 export const WALLET_AUTH_MESSAGE_VERSION = 1;
+export const WALLET_AUTH_SIWS_STATEMENT =
+  "Clicking Sign or Approve only proves you control this wallet. This request will not trigger any blockchain transaction or cost any gas fee.";
 
-export const walletChallengeTokenClaimsSchema = z.object({
+const walletChallengeTokenBaseClaimsSchema = z.object({
+  tokenType: z.literal(WALLET_AUTH_CHALLENGE_TOKEN_TYPE),
+  version: z.literal(1),
+  origin: z.string().min(1),
+});
+
+export const walletMessageChallengeTokenClaimsSchema =
+  walletChallengeTokenBaseClaimsSchema.extend({
+    proofKind: z.literal("message"),
+    walletAddress: z.string().min(1),
+    message: z.string().min(1),
+  });
+
+export const walletSiwsChallengeTokenClaimsSchema =
+  walletChallengeTokenBaseClaimsSchema.extend({
+    proofKind: z.literal("siws"),
+    signInInput: solanaSignInInputSchema,
+  });
+
+export const walletChallengeTokenClaimsSchema = z.discriminatedUnion(
+  "proofKind",
+  [walletMessageChallengeTokenClaimsSchema, walletSiwsChallengeTokenClaimsSchema]
+);
+
+export const legacyWalletChallengeTokenClaimsSchema = z.object({
   tokenType: z.literal(WALLET_AUTH_CHALLENGE_TOKEN_TYPE),
   version: z.literal(1),
   origin: z.string().min(1),

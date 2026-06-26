@@ -4,7 +4,9 @@ import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import type { AuthApiClient } from "@/lib/auth/client";
 import {
+  type WalletProofSignIn,
   type WalletProofSignMessage,
+  signWalletProofSignIn,
   signWalletProofMessage,
 } from "@/lib/auth/wallet-proof-signer";
 
@@ -20,7 +22,7 @@ type WalletProofFlowArgs = {
 
 const inFlightProofs = new Map<string, Promise<AuthSessionUser>>();
 
-export async function runWalletProofFlow({
+export async function runWalletMessageProofFlow({
   authApiClient,
   messageSigner,
   onStatusChange,
@@ -38,6 +40,10 @@ export async function runWalletProofFlow({
       walletAddress,
       turnstileToken,
     });
+
+    if (challenge.kind === "siws") {
+      throw new Error("The auth server returned an invalid message challenge.");
+    }
 
     onStatusChange?.("awaiting_signature");
     const signature = await signWalletProofMessage({
@@ -59,6 +65,61 @@ export async function runWalletProofFlow({
   } finally {
     if (inFlightProofs.get(walletAddress) === proof) {
       inFlightProofs.delete(walletAddress);
+    }
+  }
+}
+
+export async function runWalletSiwsProofFlow({
+  authApiClient,
+  onStatusChange,
+  signIn,
+  turnstileToken,
+  walletName,
+}: {
+  authApiClient: AuthApiClient;
+  onStatusChange?: (status: WalletProofStatus) => void;
+  signIn: WalletProofSignIn;
+  turnstileToken?: string;
+  walletName: string;
+}): Promise<AuthSessionUser> {
+  const inFlightKey = `siws:${walletName}`;
+  const existingProof = inFlightProofs.get(inFlightKey);
+  if (existingProof) {
+    onStatusChange?.("awaiting_signature");
+    return existingProof;
+  }
+
+  const proof = (async () => {
+    const challenge = await authApiClient.challengeWalletAuth({
+      kind: "siws",
+      turnstileToken,
+    });
+
+    if (challenge.kind !== "siws") {
+      throw new Error("The auth server returned an invalid SIWS challenge.");
+    }
+
+    onStatusChange?.("awaiting_signature");
+    const output = await signWalletProofSignIn({
+      signIn,
+      signInInput: challenge.signInInput,
+    });
+
+    onStatusChange?.("verifying");
+    return authApiClient.completeWalletAuth({
+      kind: "siws",
+      challengeToken: challenge.challengeToken,
+      output,
+    });
+  })();
+
+  inFlightProofs.set(inFlightKey, proof);
+
+  try {
+    return await proof;
+  } finally {
+    if (inFlightProofs.get(inFlightKey) === proof) {
+      inFlightProofs.delete(inFlightKey);
     }
   }
 }
