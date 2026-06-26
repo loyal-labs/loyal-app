@@ -181,6 +181,7 @@ function EarnPortfolioRow({
   hasPosition = false,
   isAutodepositConfigured = false,
   isBalanceHidden = false,
+  isBalanceLoading = false,
   isSelected,
   onDeposit,
   onOpen,
@@ -191,6 +192,7 @@ function EarnPortfolioRow({
   hasPosition?: boolean;
   isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
+  isBalanceLoading?: boolean;
   isSelected?: boolean;
   onDeposit?: () => void;
   onOpen?: () => void;
@@ -274,29 +276,39 @@ function EarnPortfolioRow({
             padding: "9px 0",
           }}
         >
-          <span
-            style={{
-              color: isBalanceHidden ? "#BBBBC0" : "#000",
-              display: "block",
-              filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-              fontFamily: font,
-              fontSize: "20px",
-              fontWeight: 600,
-              lineHeight: "24px",
-              transition: "filter 0.15s ease, color 0.15s ease",
-              userSelect: isBalanceHidden ? "none" : "auto",
-              whiteSpace: "nowrap",
-            }}
-          >
-            ${balanceWhole}
+          {isBalanceLoading ? (
+            <span
+              aria-hidden="true"
+              style={{
+                ...skeletonBar("112px", "24px"),
+                display: "block",
+              }}
+            />
+          ) : (
             <span
               style={{
-                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                color: isBalanceHidden ? "#BBBBC0" : "#000",
+                display: "block",
+                filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                fontFamily: font,
+                fontSize: "20px",
+                fontWeight: 600,
+                lineHeight: "24px",
+                transition: "filter 0.15s ease, color 0.15s ease",
+                userSelect: isBalanceHidden ? "none" : "auto",
+                whiteSpace: "nowrap",
               }}
             >
-              .{balanceFraction ?? "00"}
+              ${balanceWhole}
+              <span
+                style={{
+                  color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                }}
+              >
+                .{balanceFraction ?? "00"}
+              </span>
             </span>
-          </span>
+          )}
           <div
             style={{
               alignItems: "center",
@@ -1222,6 +1234,7 @@ export function PortfolioContent({
   hasEarnPolicy = false,
   hasEarnStateResolved = false,
   hasEarnPosition = false,
+  isEarnPositionLoading = false,
   isAutodepositConfigured = false,
   isEarnStateLoading = false,
   selectedSignerId = null,
@@ -1273,6 +1286,7 @@ export function PortfolioContent({
   hasEarnPolicy?: boolean;
   hasEarnStateResolved?: boolean;
   hasEarnPosition?: boolean;
+  isEarnPositionLoading?: boolean;
   selectedSignerId?: string | null;
   selectedVaultIndex?: number | null;
   isEarnStateLoading?: boolean;
@@ -1986,6 +2000,7 @@ export function PortfolioContent({
               hasPosition={hasEarnPosition}
               isAutodepositConfigured={isAutodepositConfigured}
               isBalanceHidden={isBalanceHidden}
+              isBalanceLoading={isEarnPositionLoading}
               isSelected={isEarnSelected}
               onDeposit={onOpenEarnDeposit}
               onOpen={onOpenEarn}

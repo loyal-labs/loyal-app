@@ -1727,6 +1727,7 @@ export function AppWalletWorkspace({
   });
   const {
     hasResolved: hasActiveEarnPositionResolved,
+    isLoading: isActiveEarnPositionLoading,
     position: activeEarnPosition,
     refresh: refreshActiveEarnPosition,
     setPosition: setActiveEarnPosition,
@@ -2585,12 +2586,15 @@ export function AppWalletWorkspace({
   }, [smartAccountData.overview?.vaults]);
   const hasEarnPolicy = Boolean(smartAccountData.earnPolicy);
   const hasEarnPosition = isActiveEarnPosition(activeEarnPosition);
+  const isEarnPositionDisplayResolving =
+    canLoadPersonalAccount && isActiveEarnPositionLoading;
   const isEarnAccessResolving =
     canLoadPersonalAccount &&
     detailSelection === "earn" &&
-    !hasEarnPosition &&
-    (!smartAccountData.hasEarnStateResolved ||
-      !hasActiveEarnPositionResolved);
+    (isEarnPositionDisplayResolving ||
+      (!hasEarnPosition &&
+        (!smartAccountData.hasEarnStateResolved ||
+          !hasActiveEarnPositionResolved)));
   const isEarnDepositDetailActive =
     detailSelection === "earnDeposit" ||
     (detailSelection === "earn" && !hasEarnPosition && !isEarnAccessResolving);
@@ -7123,6 +7127,7 @@ export function AppWalletWorkspace({
                 hasEarnPosition={hasEarnPosition}
                 hasVaultAccount={smartAccountData.vaultEntries.length > 0}
                 isBalanceHidden={isBalanceHidden}
+                isEarnPositionLoading={isEarnPositionDisplayResolving}
                 isLoading={isWorkspaceLoading || isSmartAccountShellLoading}
                 enableMockBackupSignerFlow={isMockBackupSignerFlowEnabled}
                 mockRootSigners={activeMockRootSigners}
@@ -7148,7 +7153,9 @@ export function AppWalletWorkspace({
                   canMutateAccount ? handleOpenEarnDeposit : openSignIn
                 }
                 onOpenEarn={
-                  hasEarnPosition ? handleOpenEarn : handleOpenEarnDeposit
+                  hasEarnPosition || isEarnPositionDisplayResolving
+                    ? handleOpenEarn
+                    : handleOpenEarnDeposit
                 }
                 onOpenAutodeposit={handleOpenAutodeposit}
                 onOpenCreateAccount={

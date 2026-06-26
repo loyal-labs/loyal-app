@@ -22,6 +22,9 @@ import {
 
 const EARN_POSITION_CACHE_VERSION = 6;
 const EARN_POSITION_REFRESH_DEBOUNCE_MS = 350;
+const EARN_POSITION_RECONCILE_MIN_DELTA_RAW = BigInt(10_000);
+const EARN_POSITION_RECONCILE_ENDPOINT =
+  "/api/smart-accounts/yield-optimization/position/reconcile";
 
 export type ActiveEarnPositionHolding = {
   amountRaw: string;
@@ -105,6 +108,143 @@ export function isActiveEarnPosition(
     return BigInt(position.currentTotalAmountRaw) > BigInt(0);
   } catch {
     return false;
+  }
+}
+
+function parseEarnRawAmount(amountRaw: string | null | undefined): bigint | null {
+  if (!amountRaw || !/^\d+$/.test(amountRaw)) {
+    return null;
+  }
+
+  try {
+    return BigInt(amountRaw);
+  } catch {
+    return null;
+  }
+}
+
+function parseEarnObservedSlot(
+  position: ActiveEarnPosition | null | undefined
+): bigint | null {
+  const observedSlot = position?.currentHolding.observedSlot;
+  if (!observedSlot || !/^\d+$/.test(observedSlot)) {
+    return null;
+  }
+
+  try {
+    return BigInt(observedSlot);
+  } catch {
+    return null;
+  }
+}
+
+function shouldKeepCurrentPositionOverConfirmed(args: {
+  current: ActiveEarnPosition | null;
+  confirmed: ActiveEarnPosition | null;
+}): boolean {
+  if (!args.current || !args.confirmed) {
+    return false;
+  }
+
+  const currentSlot = parseEarnObservedSlot(args.current);
+  const confirmedSlot = parseEarnObservedSlot(args.confirmed);
+  if (
+    currentSlot !== null &&
+    confirmedSlot !== null &&
+    currentSlot > confirmedSlot
+  ) {
+    return true;
+  }
+
+  const currentAmountRaw = parseEarnRawAmount(args.current.currentTotalAmountRaw);
+  const confirmedAmountRaw = parseEarnRawAmount(
+    args.confirmed.currentTotalAmountRaw
+  );
+  return (
+    currentSlot !== null &&
+    confirmedSlot === null &&
+    currentAmountRaw !== null &&
+    confirmedAmountRaw !== null &&
+    currentAmountRaw > confirmedAmountRaw
+  );
+}
+
+function getEarnPositionSourceSignature(
+  position: ActiveEarnPosition | null | undefined
+): string | null {
+  if (!position) {
+    return null;
+  }
+
+  const holdings =
+    position.holdings && position.holdings.length > 0
+      ? position.holdings
+      : [
+          {
+            kind: "kamino" as const,
+            liquidityMint: position.currentHolding.liquidityMint,
+            market: position.currentHolding.market,
+            reserve: position.currentHolding.reserve,
+          },
+        ];
+
+  return holdings
+    .map(
+      (holding) =>
+        [
+          holding.kind,
+          holding.liquidityMint,
+          holding.market ?? "",
+          holding.reserve ?? "",
+        ].join(":")
+    )
+    .sort()
+    .join("|");
+}
+
+function shouldRequestPositionReconciliation(args: {
+  base: ActiveEarnPosition | null;
+  rpc: ActiveEarnPosition | null;
+}): boolean {
+  if (!args.base || !args.rpc) {
+    return false;
+  }
+
+  const baseAmountRaw = parseEarnRawAmount(args.base.currentTotalAmountRaw);
+  const rpcAmountRaw = parseEarnRawAmount(args.rpc.currentTotalAmountRaw);
+  if (baseAmountRaw !== null && rpcAmountRaw !== null) {
+    const delta =
+      baseAmountRaw > rpcAmountRaw
+        ? baseAmountRaw - rpcAmountRaw
+        : rpcAmountRaw - baseAmountRaw;
+    if (delta >= EARN_POSITION_RECONCILE_MIN_DELTA_RAW) {
+      return true;
+    }
+  }
+
+  return (
+    getEarnPositionSourceSignature(args.base) !==
+    getEarnPositionSourceSignature(args.rpc)
+  );
+}
+
+async function requestEarnPositionReconciliation() {
+  const response = await fetch(EARN_POSITION_RECONCILE_ENDPOINT, {
+    body: JSON.stringify({ force: true }),
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to reconcile Earn position."
+    );
   }
 }
 
@@ -288,6 +428,7 @@ export function useActiveEarnPosition({
     EarnRpcWatchedAccount[]
   >([]);
   const positionRef = useRef<ActiveEarnPosition | null>(null);
+  const reconcileRequestKeyRef = useRef<string | null>(null);
   const suppressSubscriptionRefreshThroughSlotRef = useRef<bigint | null>(null);
 
   const canUseCache = Boolean(enabled && walletAddress && settingsPda);
@@ -363,6 +504,17 @@ export function useActiveEarnPosition({
 
   const commitConfirmedPosition = useCallback(
     (nextPosition: ActiveEarnPosition | null) => {
+      if (
+        shouldKeepCurrentPositionOverConfirmed({
+          current: positionRef.current,
+          confirmed: nextPosition,
+        })
+      ) {
+        setHasResolved(true);
+        setIsLoading(false);
+        return;
+      }
+
       if (walletAddress && settingsPda) {
         writeEarnPositionCache({
           solanaEnv,
@@ -485,6 +637,28 @@ export function useActiveEarnPosition({
       }
       if (next) {
         commitRpcPosition(next);
+        if (
+          shouldRequestPositionReconciliation({
+            base: basePosition,
+            rpc: next.position,
+          })
+        ) {
+          const reconcileRequestKey = [
+            basePosition?.currentTotalAmountRaw ?? "none",
+            next.position?.currentTotalAmountRaw ?? "none",
+            getEarnPositionSourceSignature(basePosition) ?? "none",
+            getEarnPositionSourceSignature(next.position) ?? "none",
+          ].join("|");
+          if (reconcileRequestKeyRef.current !== reconcileRequestKey) {
+            reconcileRequestKeyRef.current = reconcileRequestKey;
+            requestEarnPositionReconciliation().catch((error) => {
+              console.warn(
+                "[earn-position] failed to reconcile stale confirmed position",
+                error
+              );
+            });
+          }
+        }
         return;
       }
 
