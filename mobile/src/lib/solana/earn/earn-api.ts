@@ -226,6 +226,22 @@ export type WirePreparedEarnAutodepositClose = {
   prepared: WirePreparedOperation;
 };
 
+// A pending Autodeposit "bootstrap" sweep — the surplus the backend scheduled to
+// move into Earn ~1h after setup (or after a threshold edit). Mirrors the web
+// `LoadedEarnAutodepositScheduledSweep`: `status: "open"` with
+// `remainingAmountRaw > 0` means it's still pending; `eligibleAfter` is the ISO
+// time the sweep worker becomes free to run it.
+export type EarnAutodepositScheduledSweep = {
+  classification: string;
+  confidence: string;
+  eligibleAfter: string;
+  id: string;
+  originalAmountRaw: string;
+  reason: string;
+  remainingAmountRaw: string;
+  status: string;
+};
+
 export type EarnAutodepositState = {
   active: boolean;
   status: string;
@@ -234,6 +250,7 @@ export type EarnAutodepositState = {
   walletBalanceFloorRaw: string | null;
   lifecycleStatus: string;
   vaultIndex: number;
+  scheduledSweeps?: EarnAutodepositScheduledSweep[];
 };
 
 export type EarnAutodepositStateResponse = {
@@ -389,6 +406,46 @@ export async function confirmEarnAutodepositClose(args: {
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Autodeposit removal.");
   }
+}
+
+export type EarnAutodepositSweepExecuteResponse = {
+  status: string;
+  sweepRequest: {
+    acceleratedAmountRaw: string;
+    acceleratedLotCount: number;
+    eligibleAfter: string;
+    targetId: string;
+  };
+  target: {
+    active: boolean;
+    balanceSweepPolicyId: string | null;
+    id: string;
+    lifecycleStatus: string;
+    policyAccount: string;
+    recurringDelegation: string | null;
+    walletBalanceFloorRaw: string | null;
+  };
+};
+
+// Ask the sweep worker to run the pending scheduled Autodeposit sweep now
+// instead of waiting out its ~1h window. The target is resolved from the
+// wallet's active policy (no body params beyond the signed auth). Mirrors the
+// web `yield-optimization/autodeposit/sweeps/execute` route.
+export async function requestEarnAutodepositSweepExecute(args: {
+  auth: EarnAuthFields;
+}): Promise<EarnAutodepositSweepExecuteResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({ ...args.auth }),
+    },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to execute Autodeposit sweep now.");
+  }
+  return (await res.json()) as EarnAutodepositSweepExecuteResponse;
 }
 
 // Current on-chain Earn position read-model (balance + live APY). All amounts

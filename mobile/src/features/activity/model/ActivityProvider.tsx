@@ -9,10 +9,16 @@ import {
 } from "react";
 
 import { useEarnActivity } from "@/hooks/wallet/useEarnActivity";
+import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
-import type { EarnTransactionItem } from "@/lib/solana/earn/earn-api";
+import { executeEarnAutodepositScheduledSweep } from "@/lib/solana/earn/autodeposit";
+import type {
+  EarnAutodepositScheduledSweep,
+  EarnTransactionItem,
+} from "@/lib/solana/earn/earn-api";
+import { getVisibleEarnScheduledSweeps } from "@/lib/solana/earn/earn-scheduled-sweep";
 import { earnTransactionTimestampMs } from "@/lib/solana/earn/earn-tx-display";
-import { useWallet } from "@/lib/wallet/wallet-provider";
+import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import type { Transaction } from "@/types/wallet";
 
 import {
@@ -29,6 +35,12 @@ type ActivityContextValue = {
   earnTransactions: EarnTransactionItem[];
   isFetchingEarn: boolean;
   refreshEarnTransactions: () => Promise<void>;
+  /** Pending Autodeposit "bootstrap" sweeps awaiting their execution window. */
+  earnScheduledSweeps: EarnAutodepositScheduledSweep[];
+  /** True while an "Execute now" request is in flight. */
+  isExecutingSweep: boolean;
+  /** Ask the worker to run the pending scheduled sweep now. */
+  executeScheduledSweep: () => Promise<void>;
   /** New wallet activity since the Wallet section was last viewed. */
   walletUnread: boolean;
   /** New Earn activity since the Earn section was last viewed. */
@@ -45,7 +57,7 @@ const ActivityContext = createContext<ActivityContextValue | null>(null);
 // live even before the Activity screen is first opened, and so the screen and
 // the nav share a single fetch. Mounted once around the tab navigator.
 export function ActivityProvider({ children }: { children: ReactNode }) {
-  const { publicKey } = useWallet();
+  const { publicKey, signer, state } = useWallet();
   const { walletTransactions, isFetchingTransactions, loadWalletTransactions } =
     useWalletTransactions(publicKey);
   const {
@@ -53,6 +65,39 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     isLoading: isFetchingEarn,
     refresh: refreshEarnTransactions,
   } = useEarnActivity(publicKey);
+  const { autodeposit, refreshAutodeposit } = useEarnAutodeposit(publicKey);
+
+  const earnScheduledSweeps = useMemo(
+    () => getVisibleEarnScheduledSweeps(autodeposit?.scheduledSweeps),
+    [autodeposit],
+  );
+
+  const [isExecutingSweep, setIsExecutingSweep] = useState(false);
+
+  // Trigger the pending sweep now. The endpoint only advances the sweep's
+  // eligibility (the worker still runs it), so we refresh the autodeposit state
+  // — the row flips to "Executing…" — and the earn feed, where it lands as a
+  // confirmed deposit once the worker completes.
+  const executeScheduledSweep = useCallback(async () => {
+    if (!signer || !isWalletUnlocked(state) || isExecutingSweep) {
+      return;
+    }
+    setIsExecutingSweep(true);
+    try {
+      await executeEarnAutodepositScheduledSweep({ signer });
+      await Promise.all([refreshAutodeposit(), refreshEarnTransactions()]);
+    } catch (error) {
+      console.warn("[autodeposit] execute scheduled sweep failed", error);
+    } finally {
+      setIsExecutingSweep(false);
+    }
+  }, [
+    signer,
+    state,
+    isExecutingSweep,
+    refreshAutodeposit,
+    refreshEarnTransactions,
+  ]);
 
   const newestWalletTs = useMemo(() => {
     let newest = 0;
@@ -120,6 +165,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnTransactions,
       isFetchingEarn,
       refreshEarnTransactions,
+      earnScheduledSweeps,
+      isExecutingSweep,
+      executeScheduledSweep,
       walletUnread,
       earnUnread,
       anyUnread: walletUnread || earnUnread,
@@ -133,6 +181,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnTransactions,
       isFetchingEarn,
       refreshEarnTransactions,
+      earnScheduledSweeps,
+      isExecutingSweep,
+      executeScheduledSweep,
       walletUnread,
       earnUnread,
       markSeen,

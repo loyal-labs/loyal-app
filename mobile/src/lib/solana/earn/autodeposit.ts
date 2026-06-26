@@ -6,6 +6,7 @@ import {
   confirmEarnAutodepositSetup,
   prepareEarnAutodepositClose,
   prepareEarnAutodepositSetup,
+  requestEarnAutodepositSweepExecute,
   toggleEarnAutodeposit,
   updateEarnAutodepositFloor,
 } from "./earn-api";
@@ -171,4 +172,17 @@ export async function executeEarnAutodepositClose(args: {
     closeSignature: sent.signature,
     confirmedSlot: sent.confirmedSlot,
   });
+}
+
+// Trigger the pending scheduled Autodeposit sweep to run now instead of waiting
+// out its ~1h window. DB-only on the backend (it advances `eligibleAfter` so the
+// sweep worker picks it up); no on-chain signing beyond the auth signature.
+export async function executeEarnAutodepositScheduledSweep(args: {
+  signer: Signer;
+}): Promise<void> {
+  const auth = await signEarnAuth(
+    args.signer,
+    "earn-autodeposit-sweep-execute",
+  );
+  await requestEarnAutodepositSweepExecute({ auth });
 }

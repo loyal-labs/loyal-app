@@ -15,25 +15,28 @@ export function useEarnAutodeposit(walletAddress: string | null) {
   const [isLoading, setIsLoading] = useState(false);
   const fetchIdRef = useRef(0);
 
-  const refreshAutodeposit = useCallback(async () => {
-    if (!walletAddress) {
-      return;
-    }
-    const fetchId = ++fetchIdRef.current;
-    setIsLoading(true);
-    try {
-      const state = await fetchEarnAutodepositState(walletAddress);
-      if (fetchId === fetchIdRef.current) {
-        setAutodeposit(state.autodeposit);
+  const refreshAutodeposit =
+    useCallback(async (): Promise<EarnAutodepositState | null> => {
+      if (!walletAddress) {
+        return null;
       }
-    } catch (error) {
-      console.error("Failed to fetch Autodeposit state", error);
-    } finally {
-      if (fetchId === fetchIdRef.current) {
-        setIsLoading(false);
+      const fetchId = ++fetchIdRef.current;
+      setIsLoading(true);
+      try {
+        const state = await fetchEarnAutodepositState(walletAddress);
+        if (fetchId === fetchIdRef.current) {
+          setAutodeposit(state.autodeposit);
+        }
+        return state.autodeposit;
+      } catch (error) {
+        console.error("Failed to fetch Autodeposit state", error);
+        return null;
+      } finally {
+        if (fetchId === fetchIdRef.current) {
+          setIsLoading(false);
+        }
       }
-    }
-  }, [walletAddress]);
+    }, [walletAddress]);
 
   useEffect(() => {
     if (walletAddress) {

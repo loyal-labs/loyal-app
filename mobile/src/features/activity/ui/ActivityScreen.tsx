@@ -1,5 +1,5 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, StyleSheet } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
@@ -13,7 +13,11 @@ import { WalletActivityList } from "./WalletActivityList";
 
 const TAB_BAR_HEIGHT = 90;
 
-export function ActivityScreen() {
+export function ActivityScreen({
+  initialSection,
+}: {
+  initialSection?: ActivitySection;
+}) {
   const {
     walletUnread,
     earnUnread,
@@ -21,8 +25,19 @@ export function ActivityScreen() {
     refreshEarnTransactions,
     markSeen,
   } = useActivity();
-  const [section, setSection] = useState<ActivitySection>("wallet");
+  const [section, setSection] = useState<ActivitySection>(
+    initialSection ?? "wallet",
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Deep links (e.g. landing here right after setting up an Autodeposit) select
+  // a section via route param; honor it when it changes without fighting manual
+  // taps afterwards.
+  useEffect(() => {
+    if (initialSection) {
+      setSection(initialSection);
+    }
+  }, [initialSection]);
 
   // Viewing a section clears its dot. Re-runs when the active section changes
   // or new items arrive while the screen is focused, so it stays cleared.

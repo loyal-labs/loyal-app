@@ -1,6 +1,14 @@
-import { Image, StyleSheet } from "react-native";
+import { Image, Pressable, StyleSheet } from "react-native";
 
-import type { EarnTransactionItem } from "@/lib/solana/earn/earn-api";
+import type {
+  EarnAutodepositScheduledSweep,
+  EarnTransactionItem,
+} from "@/lib/solana/earn/earn-api";
+import {
+  formatScheduledSweepAmount,
+  formatScheduledSweepTime,
+  isScheduledSweepAwaitingExecution,
+} from "@/lib/solana/earn/earn-scheduled-sweep";
 import {
   getEarnTransactionAmountColor,
   getEarnTransactionRowLabel,
@@ -11,6 +19,7 @@ import { Text, View } from "@/tw";
 import { useActivity } from "../model/ActivityProvider";
 
 const SECONDARY = "rgba(60, 60, 67, 0.6)";
+const BRAND_RED = "#F9363C";
 
 const USDC_ICON = require("../../../../assets/images/earn/usdc.png");
 const KAMINO_ICON = require("../../../../assets/images/earn/venues/earn-kamino.png");
@@ -64,10 +73,71 @@ function EarnTransactionRow({ item }: { item: EarnTransactionItem }) {
   );
 }
 
-export function EarnActivityList() {
-  const { earnTransactions, isFetchingEarn } = useActivity();
+// A pending Autodeposit "bootstrap" sweep (Figma 74:18455): wallet surplus the
+// backend will move into Earn after its window, with an "Execute now" shortcut
+// to run it immediately. Funds flow Main -> Earn, so it shows the deposit icon.
+function EarnScheduledRow({
+  sweep,
+  isExecuting,
+  onExecute,
+}: {
+  sweep: EarnAutodepositScheduledSweep;
+  isExecuting: boolean;
+  onExecute: () => void;
+}) {
+  const awaiting = isScheduledSweepAwaitingExecution(sweep);
+  const disabled = isExecuting || awaiting;
+  const buttonLabel = isExecuting
+    ? "Requesting…"
+    : awaiting
+      ? "Executing…"
+      : "Execute now";
 
-  if (isFetchingEarn && earnTransactions.length === 0) {
+  return (
+    <View className="flex-row items-start px-4 py-2.5">
+      <EarnTxIcon kind="deposit" />
+      <View className="ml-3 flex-1">
+        <Text className="text-[17px] font-medium text-black">Autodeposit</Text>
+        <Text className="text-[15px]" style={{ color: SECONDARY }}>
+          {formatScheduledSweepTime(sweep.eligibleAfter)}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={disabled}
+          onPress={onExecute}
+          style={({ pressed }) => [
+            styles.executeButton,
+            (pressed || disabled) && styles.executeButtonMuted,
+          ]}
+        >
+          <Text className="text-[14px] font-medium text-white">
+            {buttonLabel}
+          </Text>
+        </Pressable>
+      </View>
+      <View className="ml-3 items-end">
+        <Text className="text-[17px] text-black">
+          {formatScheduledSweepAmount(sweep.remainingAmountRaw)}
+        </Text>
+        <Text className="text-[13px]" style={{ color: SECONDARY }}>
+          Main → Earn
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+export function EarnActivityList() {
+  const {
+    earnTransactions,
+    isFetchingEarn,
+    earnScheduledSweeps,
+    isExecutingSweep,
+    executeScheduledSweep,
+  } = useActivity();
+  const hasScheduled = earnScheduledSweeps.length > 0;
+
+  if (isFetchingEarn && earnTransactions.length === 0 && !hasScheduled) {
     return (
       <View className="px-4">
         {[1, 2, 3].map((i) => (
@@ -102,7 +172,7 @@ export function EarnActivityList() {
     );
   }
 
-  if (earnTransactions.length === 0) {
+  if (earnTransactions.length === 0 && !hasScheduled) {
     return (
       <View className="items-center px-4 py-12">
         <Text className="text-[17px] font-medium text-black">
@@ -122,6 +192,24 @@ export function EarnActivityList() {
 
   return (
     <View>
+      {hasScheduled ? (
+        <View>
+          <Text
+            className="px-4 pb-2 pt-3 text-[17px]"
+            style={{ color: SECONDARY, letterSpacing: -0.187 }}
+          >
+            Scheduled
+          </Text>
+          {earnScheduledSweeps.map((sweep) => (
+            <EarnScheduledRow
+              key={sweep.id}
+              sweep={sweep}
+              isExecuting={isExecutingSweep}
+              onExecute={executeScheduledSweep}
+            />
+          ))}
+        </View>
+      ) : null}
       {groups.map((group) => (
         <View key={group.date}>
           <Text
@@ -170,5 +258,16 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
+  },
+  executeButton: {
+    alignSelf: "flex-start",
+    marginTop: 8,
+    backgroundColor: BRAND_RED,
+    borderRadius: 9999,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+  },
+  executeButtonMuted: {
+    opacity: 0.6,
   },
 });

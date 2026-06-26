@@ -40,6 +40,7 @@ import {
   type EarnHoldingItem,
   type EarnWithdrawSourceInfo,
 } from "@/lib/solana/earn/earn-api";
+import { getVisibleEarnScheduledSweeps } from "@/lib/solana/earn/earn-scheduled-sweep";
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
@@ -509,9 +510,18 @@ export default function EarnScreen() {
       } else {
         await executeEarnAutodepositSetup({ signer, thresholdUsd });
       }
-      refreshAutodeposit();
+      const fresh = await refreshAutodeposit();
+      // Criteria met for immediate execution → the backend scheduled a bootstrap
+      // sweep. Take the user straight to Activity so the pending transaction (and
+      // its "Execute now" shortcut) is visible, instead of leaving them guessing.
+      if (getVisibleEarnScheduledSweeps(fresh?.scheduledSweeps).length > 0) {
+        router.navigate({
+          pathname: "/(tabs)/activity",
+          params: { section: "earn" },
+        });
+      }
     },
-    [signer, state, autodepositSetupMode, autodeposit, refreshAutodeposit],
+    [signer, state, autodepositSetupMode, autodeposit, refreshAutodeposit, router],
   );
 
   const handleAutodepositDelete = useCallback(async () => {
