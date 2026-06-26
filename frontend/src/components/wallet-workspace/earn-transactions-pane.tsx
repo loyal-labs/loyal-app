@@ -23,7 +23,9 @@ import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
+  hydratePreparedEarnRecurringDelegationRefund,
   hydratePreparedEarnPolicyRefund,
+  type EarnPolicyRefundRecurringDelegation,
   type EarnPolicyRefundPrepareResponse,
   type EarnPolicyRefundScanPolicy,
   type EarnPolicyRefundScanResponse,
@@ -1015,22 +1017,20 @@ function formatPolicyRefundAddress(address: string): string {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
-function formatRecurringDelegationStatus(
-  status: EarnPolicyRefundScanPolicy["recurringDelegations"][number]["status"]
+function formatRecurringDelegationUsage(
+  delegation: EarnPolicyRefundRecurringDelegation
 ): string {
-  switch (status) {
-    case "active":
-      return "Active";
-    case "expired":
-      return "Expired";
-    case "invalid":
-      return "Invalid";
-    case "missing":
-      return "Missing";
+  switch (delegation.usage) {
+    case "current":
+      return "Current delegation";
     case "paused":
-      return "Paused";
+      return "Paused delegation";
     case "pending":
-      return "Pending";
+      return "Pending delegation";
+    case "scheduled":
+      return "Scheduled delegation";
+    case "unused":
+      return "Unused delegation";
   }
 }
 
@@ -1045,7 +1045,6 @@ function PolicyRefundRow({
 }) {
   const isButtonDisabled = isRefunding || !policy.canRefund || !onRefund;
   const subtitle = policy.blockedReason ?? `Policy #${policy.seed}`;
-  const recurringDelegations = policy.recurringDelegations ?? [];
 
   return (
     <div
@@ -1110,24 +1109,6 @@ function PolicyRefundRow({
             >
               {subtitle}
             </span>
-            {recurringDelegations.map((delegation, index) => (
-              <span
-                key={`${delegation.account}:${index}`}
-                style={{
-                  color: delegation.active ? LOYAL_EARN_BRAND_COLOR : secondary,
-                  fontFamily: font,
-                  fontSize: "12px",
-                  lineHeight: "15px",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-                title={delegation.account}
-              >
-                Delegation {formatPolicyRefundAddress(delegation.account)} -{" "}
-                {formatRecurringDelegationStatus(delegation.status)}
-              </span>
-            ))}
           </span>
           <span
             style={{
@@ -1174,6 +1155,169 @@ function PolicyRefundRow({
               alignItems: "center",
               background:
                 isRefunding || !policy.canRefund
+                  ? "#F97B80"
+                  : LOYAL_EARN_BRAND_COLOR,
+              border: "none",
+              borderRadius: "9999px",
+              color: "#fff",
+              cursor: isButtonDisabled ? "default" : "pointer",
+              display: "inline-flex",
+              gap: "6px",
+              fontFamily: font,
+              fontSize: "14px",
+              fontWeight: 500,
+              justifyContent: "center",
+              lineHeight: "20px",
+              padding: "6px 16px",
+            }}
+            type="button"
+          >
+            {isRefunding ? (
+              <span
+                aria-hidden="true"
+                className="earn-scheduled-spinner"
+                style={{
+                  border: "2px solid rgba(255, 255, 255, 0.45)",
+                  borderRadius: "9999px",
+                  borderTopColor: "#fff",
+                  display: "inline-block",
+                  height: "12px",
+                  width: "12px",
+                }}
+              />
+            ) : null}
+            {isRefunding ? "Refunding..." : "Refund"}
+          </button>
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function RecurringDelegationRefundRow({
+  delegation,
+  isRefunding = false,
+  onRefund,
+}: {
+  delegation: EarnPolicyRefundRecurringDelegation;
+  isRefunding?: boolean;
+  onRefund?: () => void;
+}) {
+  const isButtonDisabled = isRefunding || !delegation.canRefund || !onRefund;
+  const subtitle =
+    delegation.blockedReason ?? formatRecurringDelegationUsage(delegation);
+
+  return (
+    <div
+      style={{
+        alignItems: "flex-start",
+        display: "flex",
+        padding: "0 12px",
+        width: "100%",
+      }}
+    >
+      <span style={{ display: "flex", padding: "6px 12px 6px 0" }}>
+        <CompoundIcon />
+      </span>
+      <span
+        style={{
+          display: "flex",
+          flex: 1,
+          flexDirection: "column",
+          minWidth: 0,
+        }}
+      >
+        <span
+          style={{
+            alignItems: "center",
+            display: "flex",
+            width: "100%",
+          }}
+        >
+          <span
+            style={{
+              display: "flex",
+              flex: 1,
+              flexDirection: "column",
+              gap: "2px",
+              minWidth: 0,
+              padding: "10px 0",
+            }}
+          >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                fontWeight: 500,
+                letterSpacing: "-0.176px",
+                lineHeight: "20px",
+              }}
+            >
+              Delegation rent
+            </span>
+            <span
+              style={{
+                color: delegation.canRefund
+                  ? secondary
+                  : LOYAL_EARN_BRAND_COLOR,
+                fontFamily: font,
+                fontSize: "13px",
+                lineHeight: "16px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={delegation.account}
+            >
+              {formatPolicyRefundAddress(delegation.account)} - {subtitle}
+            </span>
+          </span>
+          <span
+            style={{
+              alignItems: "flex-end",
+              display: "flex",
+              flexDirection: "column",
+              gap: "2px",
+              paddingBottom: "10px",
+              paddingLeft: "12px",
+              paddingTop: "10px",
+            }}
+          >
+            <span
+              style={{
+                color: "#000",
+                fontFamily: font,
+                fontSize: "16px",
+                lineHeight: "20px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {formatPolicyRefundLamports(delegation.lamports)}
+            </span>
+            <span
+              style={{
+                color: secondary,
+                fontFamily: font,
+                fontSize: "13px",
+                lineHeight: "16px",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Subscriptions
+            </span>
+          </span>
+        </span>
+        <span style={{ display: "flex", gap: "8px", paddingBottom: "11px" }}>
+          <button
+            aria-busy={isRefunding}
+            className="earn-scheduled-execute-btn"
+            disabled={isButtonDisabled}
+            onClick={onRefund}
+            style={{
+              alignItems: "center",
+              background:
+                isRefunding || !delegation.canRefund
                   ? "#F97B80"
                   : LOYAL_EARN_BRAND_COLOR,
               border: "none",
@@ -1690,10 +1834,18 @@ export function EarnTransactionsPane({
   const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
     EarnPolicyRefundScanPolicy[] | null
   >(null);
+  const [
+    policyRefundRecurringDelegations,
+    setPolicyRefundRecurringDelegations,
+  ] = useState<EarnPolicyRefundRecurringDelegation[] | null>(null);
   const [isScanningPolicies, setIsScanningPolicies] = useState(false);
   const [refundingPolicyAccount, setRefundingPolicyAccount] = useState<
     string | null
   >(null);
+  const [
+    refundingRecurringDelegationAccount,
+    setRefundingRecurringDelegationAccount,
+  ] = useState<string | null>(null);
   const [policyRefundError, setPolicyRefundError] = useState<string | null>(
     null
   );
@@ -1800,6 +1952,7 @@ export function EarnTransactionsPane({
       setEnteringIds(new Set());
       setErrorMessage(null);
       setPolicyRefundPolicies(null);
+      setPolicyRefundRecurringDelegations(null);
       setPolicyRefundError(null);
       feedKeyRef.current = null;
       knownTransactionIdsRef.current = null;
@@ -2046,7 +2199,9 @@ export function EarnTransactionsPane({
     visiblePendingScheduledSweep
   );
   const showPolicyRefunds =
-    showPolicyRefundScan && policyRefundPolicies !== null;
+    showPolicyRefundScan &&
+    (policyRefundPolicies !== null ||
+      policyRefundRecurringDelegations !== null);
   const hasPinnedContent = showPolicyRefunds || showScheduledSweeps;
   const isPolicyScanDisabled =
     isScanningPolicies || !isAuthenticated || !settingsPda || !walletAddress;
@@ -2054,6 +2209,7 @@ export function EarnTransactionsPane({
     isLoading ||
     isScanningPolicies ||
     refundingPolicyAccount !== null ||
+    refundingRecurringDelegationAccount !== null ||
     isExecutingScheduledSweep ||
     isAwaitingScheduledSweepExecution ||
     scheduledSweepExecutionRequestedAtMs !== null ||
@@ -2091,9 +2247,11 @@ export function EarnTransactionsPane({
       }
       const payload = (await response.json()) as EarnPolicyRefundScanResponse;
       setPolicyRefundPolicies(payload.policies);
+      setPolicyRefundRecurringDelegations(payload.recurringDelegations);
     } catch (error) {
       console.warn("[earn-policy-refunds] scan failed", error);
       setPolicyRefundPolicies([]);
+      setPolicyRefundRecurringDelegations([]);
       setPolicyRefundError(
         error instanceof Error ? error.message : "Failed to scan policies."
       );
@@ -2126,6 +2284,9 @@ export function EarnTransactionsPane({
       }
       const payload =
         (await response.json()) as EarnPolicyRefundPrepareResponse;
+      if (!payload.preparedRefund) {
+        throw new Error("Policy refund preparation returned no transaction.");
+      }
       const preparedRefund = hydratePreparedEarnPolicyRefund(
         payload.preparedRefund
       );
@@ -2146,6 +2307,67 @@ export function EarnTransactionsPane({
       );
     } finally {
       setRefundingPolicyAccount(null);
+    }
+  };
+
+  const handleRefundRecurringDelegation = async (
+    delegation: EarnPolicyRefundRecurringDelegation
+  ) => {
+    if (!wallet.publicKey || !wallet.signTransaction) {
+      setPolicyRefundError(
+        "Connect a wallet before refunding delegation rent."
+      );
+      return;
+    }
+
+    setRefundingRecurringDelegationAccount(delegation.account);
+    setPolicyRefundError(null);
+    try {
+      const response = await fetch(
+        "/api/smart-accounts/yield-optimization/policy-refunds/prepare",
+        {
+          body: JSON.stringify({
+            kind: "recurring_delegation",
+            recurringDelegation: delegation.account,
+          }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        }
+      );
+      if (!response.ok) {
+        throw new Error(
+          await readApiError(response, "Failed to prepare delegation refund.")
+        );
+      }
+      const payload =
+        (await response.json()) as EarnPolicyRefundPrepareResponse;
+      if (!payload.preparedRecurringDelegationRefund) {
+        throw new Error(
+          "Delegation refund preparation returned no transaction."
+        );
+      }
+      const preparedRefund = hydratePreparedEarnRecurringDelegationRefund(
+        payload.preparedRecurringDelegationRefund
+      );
+      await sendPreparedWithWallet({
+        confirm: true,
+        connection,
+        prepared: preparedRefund.prepared,
+        wallet: {
+          publicKey: wallet.publicKey,
+          signTransaction: wallet.signTransaction,
+        },
+      });
+      await handleScanPolicies();
+    } catch (error) {
+      console.warn("[earn-policy-refunds] delegation refund failed", error);
+      setPolicyRefundError(
+        error instanceof Error
+          ? error.message
+          : "Failed to refund delegation rent."
+      );
+    } finally {
+      setRefundingRecurringDelegationAccount(null);
     }
   };
 
@@ -2315,7 +2537,8 @@ export function EarnTransactionsPane({
                   }}
                 >
                   <TransactionsSectionHeader label="Policies" />
-                  {policyRefundPolicies.length === 0 ? (
+                  {(policyRefundPolicies ?? []).length === 0 &&
+                  (policyRefundRecurringDelegations ?? []).length === 0 ? (
                     <p
                       style={{
                         color: secondary,
@@ -2329,7 +2552,7 @@ export function EarnTransactionsPane({
                       No open policies found.
                     </p>
                   ) : (
-                    policyRefundPolicies.map((policy) => (
+                    (policyRefundPolicies ?? []).map((policy) => (
                       <PolicyRefundRow
                         isRefunding={refundingPolicyAccount === policy.account}
                         key={policy.account}
@@ -2342,6 +2565,31 @@ export function EarnTransactionsPane({
                       />
                     ))
                   )}
+                  {(policyRefundRecurringDelegations ?? []).length > 0 ? (
+                    <>
+                      <TransactionsSectionHeader label="Delegations" />
+                      {(policyRefundRecurringDelegations ?? []).map(
+                        (delegation) => (
+                          <RecurringDelegationRefundRow
+                            delegation={delegation}
+                            isRefunding={
+                              refundingRecurringDelegationAccount ===
+                              delegation.account
+                            }
+                            key={delegation.account}
+                            onRefund={
+                              delegation.canRefund
+                                ? () =>
+                                    void handleRefundRecurringDelegation(
+                                      delegation
+                                    )
+                                : undefined
+                            }
+                          />
+                        )
+                      )}
+                    </>
+                  ) : null}
                   {policyRefundError ? (
                     <p
                       style={{

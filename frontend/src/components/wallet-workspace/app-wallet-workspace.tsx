@@ -54,6 +54,7 @@ import {
   type SetStateAction,
 } from "react";
 
+import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { PrivateClientPreloader } from "@/components/solana/private-client-preloader";
 import { AgentPageView } from "@/components/wallet-sidebar/agent-page-view";
 import {
@@ -1874,6 +1875,7 @@ export function AppWalletWorkspace({
   const mobilePaneHistoryArmedRef = useRef(false);
   const hasRestoredSelectionRef = useRef(false);
   const hasLocalDetailSelectionRef = useRef(false);
+  const skipNextWorkspaceSelectionPersistRef = useRef(false);
   // Gates the detail pane: stays false until the persisted workspace selection
   // has been restored, so the pane never paints the default selection before
   // the user's actual pane on load (avoids an Earn/Stash flash on refresh).
@@ -2215,6 +2217,11 @@ export function AppWalletWorkspace({
   const isAnonymousMobilePreview =
     isMobileWorkspaceViewport &&
     appAccessMode === "anonymous" &&
+    activeSection === "wallet" &&
+    !connectAgentAddress;
+  const shouldDefaultLoggedInMobileToEarn =
+    isMobileWorkspaceViewport &&
+    canLoadPersonalAccount &&
     activeSection === "wallet" &&
     !connectAgentAddress;
   const selectedAgent =
@@ -3069,6 +3076,7 @@ export function AppWalletWorkspace({
     if (appAccessMode === "anonymous") {
       hasRestoredSelectionRef.current = false;
       hasLocalDetailSelectionRef.current = false;
+      skipNextWorkspaceSelectionPersistRef.current = false;
       setIsSelectionRestored(false);
       if (!connectAgentAddress) {
         setSelectedSignerId(null);
@@ -3085,6 +3093,17 @@ export function AppWalletWorkspace({
 
     setMobilePane((current) => (current === "accounts" ? "detail" : current));
   }, [isAnonymousMobilePreview]);
+
+  useEffect(() => {
+    if (!shouldDefaultLoggedInMobileToEarn) {
+      return;
+    }
+
+    if (!hasLocalDetailSelectionRef.current) {
+      setSelectedDetail("Earn");
+    }
+    setMobilePane((current) => (current === "accounts" ? "detail" : current));
+  }, [shouldDefaultLoggedInMobileToEarn]);
 
   // Lazy-load the agent's own wallet portfolio when an agent (non-Main Account
   // signer) is selected. Skips the Main Account row — that wallet is already
@@ -3119,6 +3138,16 @@ export function AppWalletWorkspace({
     setIsSelectionRestored(true);
 
     if (hasLocalDetailSelectionRef.current) {
+      hasRestoredSelectionRef.current = true;
+      return;
+    }
+
+    if (shouldDefaultLoggedInMobileToEarn) {
+      setDetailSelectionState("earn");
+      setSelectedSignerId(null);
+      setSelectedDetail("Earn");
+      setMobilePane("detail");
+      skipNextWorkspaceSelectionPersistRef.current = true;
       hasRestoredSelectionRef.current = true;
       return;
     }
@@ -3199,11 +3228,17 @@ export function AppWalletWorkspace({
     setDetailSelection,
     smartAccountData.isBaseLoading,
     smartAccountData.vaultEntries,
+    shouldDefaultLoggedInMobileToEarn,
     walletDesktopData.isLoading,
   ]);
 
   useEffect(() => {
     if (!hasRestoredSelectionRef.current || !canLoadPersonalAccount) return;
+
+    if (skipNextWorkspaceSelectionPersistRef.current) {
+      skipNextWorkspaceSelectionPersistRef.current = false;
+      return;
+    }
 
     const stableSelection =
       detailSelection === "action" ? actionReturnSelection : detailSelection;
@@ -3829,6 +3864,44 @@ export function AppWalletWorkspace({
     markDetailPaneTransition("close");
     setDetailSelection("vault");
   }, [markDetailPaneTransition, setDetailSelection]);
+
+  const [proposalActionError, setProposalActionError] = useState<string | null>(
+    null
+  );
+  const [isReconnectToSignOpen, setIsReconnectToSignOpen] = useState(false);
+  const authenticatedWalletAddress = user?.walletAddress ?? null;
+  const canSignAccountActions =
+    Boolean(authenticatedWalletAddress) &&
+    connectedWalletAddress === authenticatedWalletAddress;
+
+  const requestReconnectToSign = useCallback(() => {
+    if (!authenticatedWalletAddress) {
+      openSignIn();
+      return;
+    }
+
+    setProposalActionError(null);
+    setIsReconnectToSignOpen(true);
+  }, [authenticatedWalletAddress, openSignIn]);
+
+  const ensureCanSignAccountAction = useCallback(() => {
+    if (!authenticatedWalletAddress) {
+      openSignIn();
+      return false;
+    }
+
+    if (!canSignAccountActions) {
+      requestReconnectToSign();
+      return false;
+    }
+
+    return true;
+  }, [
+    authenticatedWalletAddress,
+    canSignAccountActions,
+    openSignIn,
+    requestReconnectToSign,
+  ]);
 
   const handleSaveAutodeposit = useCallback(
     async (keepAmount: string) => {
@@ -4482,6 +4555,10 @@ export function AppWalletWorkspace({
           !preparedDeposit.policyFinalizePrepared;
 
         if (shouldBypassTopUpPreview) {
+          if (!ensureCanSignAccountAction()) {
+            return;
+          }
+
           setIsEarnAutoSigning(true);
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
@@ -4540,6 +4617,7 @@ export function AppWalletWorkspace({
     [
       debitMainAccountUsdcBalance,
       canMutateAccount,
+      ensureCanSignAccountAction,
       hasEarnPosition,
       invalidateEarnClientCaches,
       markDetailPaneTransition,
@@ -4569,6 +4647,10 @@ export function AppWalletWorkspace({
           !preparedWithdraw.autodepositClosePrepared;
 
         if (shouldBypassWithdrawPreview) {
+          if (!ensureCanSignAccountAction()) {
+            return;
+          }
+
           setIsEarnAutoSigning(true);
           const stepCount = Math.max(1, preparedWithdraw.withdrawSteps.length);
           let latestConfirmedSlot: string | undefined;
@@ -4631,6 +4713,7 @@ export function AppWalletWorkspace({
     },
     [
       creditMainAccountUsdcBalance,
+      ensureCanSignAccountAction,
       getEarnWithdrawDraftAmountRaw,
       invalidateEarnClientCaches,
       markDetailPaneTransition,
@@ -4669,6 +4752,10 @@ export function AppWalletWorkspace({
   const handleContinueEarnDepositReview = useCallback(async () => {
     if (!pendingEarnDepositDraft) {
       setProposalActionError("Enter a deposit amount before continuing.");
+      return;
+    }
+
+    if (!ensureCanSignAccountAction()) {
       return;
     }
 
@@ -4851,6 +4938,7 @@ export function AppWalletWorkspace({
   }, [
     earnDepositPolicyStageSignatures,
     earnDepositReviewStage,
+    ensureCanSignAccountAction,
     isEarnDepositPolicySetupFlow,
     debitMainAccountUsdcBalance,
     markDetailPaneTransition,
@@ -4866,6 +4954,10 @@ export function AppWalletWorkspace({
   const handleContinueEarnWithdrawReview = useCallback(async () => {
     if (!pendingEarnWithdrawDraft) {
       setProposalActionError("Enter a withdrawal amount before continuing.");
+      return;
+    }
+
+    if (!ensureCanSignAccountAction()) {
       return;
     }
 
@@ -4993,6 +5085,7 @@ export function AppWalletWorkspace({
     }
   }, [
     earnWithdrawReviewStage,
+    ensureCanSignAccountAction,
     getEarnWithdrawDraftAmountRaw,
     invalidateEarnClientCaches,
     markDetailPaneTransition,
@@ -5010,6 +5103,10 @@ export function AppWalletWorkspace({
   const handleCompleteEarnCleanup = useCallback(async () => {
     if (!pendingEarnCleanupPrepared) {
       setProposalActionError("Prepare Earn cleanup before signing.");
+      return;
+    }
+
+    if (!ensureCanSignAccountAction()) {
       return;
     }
 
@@ -5048,6 +5145,7 @@ export function AppWalletWorkspace({
       setIsEarnAutoSigning(false);
     }
   }, [
+    ensureCanSignAccountAction,
     invalidateEarnClientCaches,
     markDetailPaneTransition,
     pendingEarnCleanupPrepared,
@@ -5059,6 +5157,13 @@ export function AppWalletWorkspace({
   const handleCompleteEarnAutodepositSetup = useCallback(async () => {
     if (!pendingEarnAutodepositDraft) {
       setProposalActionError("Enter an Autodeposit amount before continuing.");
+      return;
+    }
+
+    if (
+      pendingEarnAutodepositDraft.requiresSignature !== false &&
+      !ensureCanSignAccountAction()
+    ) {
       return;
     }
 
@@ -5250,6 +5355,7 @@ export function AppWalletWorkspace({
     }
   }, [
     autodepositConfig,
+    ensureCanSignAccountAction,
     markDetailPaneTransition,
     invalidateEarnClientCaches,
     pendingEarnAutodepositDraft,
@@ -5269,6 +5375,10 @@ export function AppWalletWorkspace({
       autodepositConfig.recurringDelegation.length === 0
     ) {
       setProposalActionError("Autodeposit account metadata is missing.");
+      return;
+    }
+
+    if (!ensureCanSignAccountAction()) {
       return;
     }
 
@@ -5305,6 +5415,7 @@ export function AppWalletWorkspace({
     }
   }, [
     autodepositConfig,
+    ensureCanSignAccountAction,
     invalidateEarnClientCaches,
     markDetailPaneTransition,
     pendingEarnAutodepositClosePrepared,
@@ -5465,10 +5576,6 @@ export function AppWalletWorkspace({
     handleOpenAgent(newSigner);
   }, [handleOpenAgent, pendingOpenSignerAddress, selectedVault]);
 
-  const [proposalActionError, setProposalActionError] = useState<string | null>(
-    null
-  );
-
   const handleReviewApproval = useCallback(
     (approval: SmartAccountApprovalItem) => {
       setSelectedApprovalId(approval.id);
@@ -5517,6 +5624,8 @@ export function AppWalletWorkspace({
 
   const handleSubmitDraftProposal = useCallback(async () => {
     if (!draftProposal) return;
+    if (!ensureCanSignAccountAction()) return;
+
     setIsDraftSubmitting(true);
     setDraftError(null);
     try {
@@ -5536,7 +5645,7 @@ export function AppWalletWorkspace({
     } finally {
       setIsDraftSubmitting(false);
     }
-  }, [draftProposal, smartAccountData]);
+  }, [draftProposal, ensureCanSignAccountAction, smartAccountData]);
 
   const handleCreatePermissionDraft = useCallback(
     (input: Omit<PermissionChangeDraft, "id">) => {
@@ -5556,6 +5665,8 @@ export function AppWalletWorkspace({
 
   const handleSubmitPermissionDraft = useCallback(async () => {
     if (!permissionDraft) return;
+    if (!ensureCanSignAccountAction()) return;
+
     setIsPermissionDraftSubmitting(true);
     setPermissionDraftError(null);
     try {
@@ -5575,7 +5686,7 @@ export function AppWalletWorkspace({
     } finally {
       setIsPermissionDraftSubmitting(false);
     }
-  }, [permissionDraft, smartAccountData]);
+  }, [ensureCanSignAccountAction, permissionDraft, smartAccountData]);
 
   const handleCreateSpendingLimitDraft = useCallback(
     (
@@ -5603,6 +5714,8 @@ export function AppWalletWorkspace({
 
   const handleSubmitSpendingLimitDraft = useCallback(async () => {
     if (!spendingLimitDraft) return;
+    if (!ensureCanSignAccountAction()) return;
+
     setIsSpendingLimitDraftSubmitting(true);
     setSpendingLimitDraftError(null);
     try {
@@ -5643,9 +5756,13 @@ export function AppWalletWorkspace({
     } finally {
       setIsSpendingLimitDraftSubmitting(false);
     }
-  }, [spendingLimitDraft, smartAccountData]);
+  }, [ensureCanSignAccountAction, spendingLimitDraft, smartAccountData]);
 
   const runProposalAction = useCallback(async (action: () => Promise<void>) => {
+    if (!ensureCanSignAccountAction()) {
+      return;
+    }
+
     setProposalActionError(null);
     try {
       await action();
@@ -5665,7 +5782,7 @@ export function AppWalletWorkspace({
           : raw
       );
     }
-  }, []);
+  }, [ensureCanSignAccountAction]);
 
   const commandGroups = useMemo<WalletCommandGroup[]>(() => {
     const isWalletActive = activeDetailSelection === "wallet";
@@ -6171,6 +6288,10 @@ export function AppWalletWorkspace({
         <ConnectRequestContent
           agentAddress={connectAgentAddress}
           onApprove={async () => {
+            if (!ensureCanSignAccountAction()) {
+              return;
+            }
+
             await smartAccountData.addInitiateSigner({
               signerAddress: connectAgentAddress,
             });
@@ -6803,7 +6924,16 @@ export function AppWalletWorkspace({
             accountIndex: selectedVaultAccountIndex,
             evaluateCapability:
               smartAccountData.evaluateVaultTransferCapability,
-            executeTransfer: smartAccountData.executeVaultTransfer,
+            executeTransfer: async (request) => {
+              if (!ensureCanSignAccountAction()) {
+                return {
+                  success: false,
+                  error: "Reconnect wallet to sign this action.",
+                };
+              }
+
+              return smartAccountData.executeVaultTransfer(request);
+            },
             tokenMint: effectiveSendToken.mint,
             tokenDecimals: lookupVaultMintDecimals(
               smartAccountData.overview,
@@ -7210,6 +7340,13 @@ export function AppWalletWorkspace({
         groups={commandGroups}
         onOpenChange={setIsCommandMenuOpen}
         open={isCommandMenuOpen}
+      />
+
+      <WalletReconnectPrompt
+        expectedWalletAddress={authenticatedWalletAddress}
+        onClose={() => setIsReconnectToSignOpen(false)}
+        onReady={() => setIsReconnectToSignOpen(false)}
+        open={isReconnectToSignOpen}
       />
 
       {showAccountShell &&

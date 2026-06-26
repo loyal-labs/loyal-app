@@ -53,7 +53,7 @@ function getBlockedReason(args: {
     return "Active Earn position";
   }
   if (args.activeAutodeposit) {
-    return "Active recurring delegation";
+    return "Protected recurring delegation";
   }
   if (args.activeManagedVault) {
     return "Active Earn vault policy";
@@ -97,6 +97,8 @@ export async function POST(request: Request) {
         connection,
         policyAccounts: policyAddresses,
         settings: principal.settingsPda,
+        vaultPubkey: vaultPubkey.toBase58(),
+        walletAddress: principal.walletAddress,
       }),
     ]);
 
@@ -138,6 +140,7 @@ export async function POST(request: Request) {
 
     const response: EarnPolicyRefundScanResponse = {
       policies,
+      recurringDelegations: dbState.recurringDelegations,
       settingsPda: principal.settingsPda,
       vaultIndex: EARN_VAULT_INDEX,
       vaultPubkey: vaultPubkey.toBase58(),

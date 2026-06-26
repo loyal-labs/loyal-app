@@ -12,12 +12,13 @@ import {
 } from "@loyal-labs/actions";
 import { PublicKey, type AccountInfo, type Connection } from "@solana/web3.js";
 import bs58 from "bs58";
-import { and, eq, ne, sql } from "drizzle-orm";
-import { inArray } from "drizzle-orm/sql/expressions/conditions";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
 import type { EarnPolicyRefundRecurringDelegation } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 import {
+  balanceSweepLotClaims,
   balanceSweepPolicies,
+  balanceSweepSurplusLots,
   balanceSweepTargets,
   getYieldOptimizationClient,
   managedVaults,
@@ -28,10 +29,12 @@ import {
 const EARN_VAULT_INDEX = 1;
 
 type AutodepositPolicyRow = {
-  policyAccount: string;
+  policyAccount: string | null;
   recurringDelegation: string | null;
   recurringDelegationExpiryTimestamp: bigint | null;
-  source: "metadata";
+  scheduledSweepCount: number;
+  source: "chain" | "metadata";
+  targetId: bigint | null;
   targetActive: boolean;
   targetLifecycleStatus: string;
 };
@@ -44,6 +47,7 @@ export type EarnPolicyRefundDbState = {
     string,
     EarnPolicyRefundRecurringDelegation[]
   >;
+  recurringDelegations: EarnPolicyRefundRecurringDelegation[];
   routePolicyAccounts: Set<string>;
 };
 
@@ -53,6 +57,7 @@ function emptyPolicyRefundDbState(): EarnPolicyRefundDbState {
     activeManagedVaultAccounts: new Set(),
     activePositionAccounts: new Set(),
     recurringDelegationsByPolicyAccount: new Map(),
+    recurringDelegations: [],
     routePolicyAccounts: new Set(),
   };
 }
@@ -91,43 +96,143 @@ function isExpired(
   );
 }
 
+function getExecuteRows(result: unknown): Record<string, unknown>[] {
+  if (
+    result &&
+    typeof result === "object" &&
+    "rows" in result &&
+    Array.isArray((result as { rows: unknown }).rows)
+  ) {
+    return (result as { rows: Record<string, unknown>[] }).rows;
+  }
+
+  if (Array.isArray(result)) {
+    return result as Record<string, unknown>[];
+  }
+
+  return [];
+}
+
+function resolveRecurringDelegationUsage(
+  row: AutodepositPolicyRow
+): Pick<
+  EarnPolicyRefundRecurringDelegation,
+  "blockedReason" | "protected" | "usage"
+> {
+  if (row.targetLifecycleStatus === "pending_delegation") {
+    return {
+      blockedReason: "Pending Autodeposit setup",
+      protected: true,
+      usage: "pending",
+    };
+  }
+
+  if (row.scheduledSweepCount > 0) {
+    return {
+      blockedReason: "Scheduled Autodeposit sweep",
+      protected: true,
+      usage: "scheduled",
+    };
+  }
+
+  if (row.targetId !== null && row.targetActive) {
+    return {
+      blockedReason: "Current Autodeposit delegation",
+      protected: true,
+      usage: "current",
+    };
+  }
+
+  if (row.targetId !== null) {
+    return {
+      blockedReason: "Paused Autodeposit delegation",
+      protected: true,
+      usage: "paused",
+    };
+  }
+
+  return {
+    blockedReason: null,
+    protected: false,
+    usage: "unused",
+  };
+}
+
+function canRefundRecurringDelegation(args: {
+  exists: boolean;
+  protected: boolean;
+  status: EarnPolicyRefundRecurringDelegation["status"];
+}): boolean {
+  return (
+    args.exists &&
+    !args.protected &&
+    (args.status === "active" || args.status === "expired")
+  );
+}
+
+function finalizeRecurringDelegation(args: {
+  base: Omit<
+    EarnPolicyRefundRecurringDelegation,
+    "active" | "canRefund" | "exists" | "status"
+  >;
+  exists: boolean;
+  status: EarnPolicyRefundRecurringDelegation["status"];
+}): EarnPolicyRefundRecurringDelegation {
+  return {
+    ...args.base,
+    active: args.status === "active",
+    canRefund: canRefundRecurringDelegation({
+      exists: args.exists,
+      protected: args.base.protected,
+      status: args.status,
+    }),
+    exists: args.exists,
+    status: args.status,
+  };
+}
+
 function inspectRecurringDelegationAccount(args: {
   account: AccountInfo<Buffer> | null;
   row: AutodepositPolicyRow;
   nowSeconds: bigint;
 }): EarnPolicyRefundRecurringDelegation {
   const expiryTimestamp = args.row.recurringDelegationExpiryTimestamp;
+  const usage = resolveRecurringDelegationUsage(args.row);
   const base = {
     account: args.row.recurringDelegation ?? "",
     amountPerPeriodRaw: null,
     amountPulledRaw: null,
     authority: null,
+    blockedReason: usage.blockedReason,
     delegatee: null,
     delegator: null,
     expiryTimestamp: stringifyBigint(expiryTimestamp),
     lamports: null,
     lifecycleStatus: args.row.targetLifecycleStatus,
     mint: null,
+    policyAccount: args.row.policyAccount,
+    protected: usage.protected,
+    scheduledSweepCount: args.row.scheduledSweepCount,
     source: args.row.source,
     targetActive: args.row.targetActive,
+    targetId: stringifyBigint(args.row.targetId),
+    usage: usage.usage,
   };
 
   if (!args.row.recurringDelegation) {
-    return {
-      ...base,
-      active: false,
+    return finalizeRecurringDelegation({
+      base,
       exists: false,
       status: "missing",
-    };
+    });
   }
 
   if (!args.account) {
-    return {
-      ...base,
-      active: false,
+    return finalizeRecurringDelegation({
+      base,
       exists: false,
       status: "missing",
-    };
+    });
   }
 
   const amountPerPeriodRaw = readU64Le(
@@ -162,50 +267,53 @@ function inspectRecurringDelegationAccount(args: {
     ] === SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR;
 
   if (!validAccount) {
-    return {
-      ...base,
-      active: false,
-      amountPerPeriodRaw: stringifyBigint(amountPerPeriodRaw),
-      amountPulledRaw: stringifyBigint(amountPulledRaw),
-      authority,
-      delegatee,
-      delegator,
+    return finalizeRecurringDelegation({
+      base: {
+        ...base,
+        amountPerPeriodRaw: stringifyBigint(amountPerPeriodRaw),
+        amountPulledRaw: stringifyBigint(amountPulledRaw),
+        authority,
+        delegatee,
+        delegator,
+        lamports: args.account.lamports,
+        mint,
+      },
       exists: true,
-      lamports: args.account.lamports,
-      mint,
       status: "invalid",
-    };
+    });
   }
 
   if (isExpired(expiryTimestamp, args.nowSeconds)) {
-    return {
+    return finalizeRecurringDelegation({
+      base: {
+        ...base,
+        amountPerPeriodRaw: stringifyBigint(amountPerPeriodRaw),
+        amountPulledRaw: stringifyBigint(amountPulledRaw),
+        authority,
+        delegatee,
+        delegator,
+        lamports: args.account.lamports,
+        mint,
+      },
+      exists: true,
+      status: "expired",
+    });
+  }
+
+  return finalizeRecurringDelegation({
+    base: {
       ...base,
-      active: false,
       amountPerPeriodRaw: stringifyBigint(amountPerPeriodRaw),
       amountPulledRaw: stringifyBigint(amountPulledRaw),
       authority,
       delegatee,
       delegator,
-      exists: true,
       lamports: args.account.lamports,
       mint,
-      status: "expired",
-    };
-  }
-
-  return {
-    ...base,
-    active: true,
-    amountPerPeriodRaw: stringifyBigint(amountPerPeriodRaw),
-    amountPulledRaw: stringifyBigint(amountPulledRaw),
-    authority,
-    delegatee,
-    delegator,
+    },
     exists: true,
-    lamports: args.account.lamports,
-    mint,
     status: "active",
-  };
+  });
 }
 
 async function findOpenWalletToEarnVaultRecurringDelegations(args: {
@@ -249,12 +357,14 @@ async function findOpenWalletToEarnVaultRecurringDelegations(args: {
         account,
         nowSeconds,
         row: {
-          policyAccount: "",
+          policyAccount: null,
           recurringDelegation: pubkey.toBase58(),
           recurringDelegationExpiryTimestamp: null,
+          scheduledSweepCount: 0,
           source: "chain",
-          targetActive: true,
-          targetLifecycleStatus: "active",
+          targetActive: false,
+          targetId: null,
+          targetLifecycleStatus: "chain_open",
         },
       })
     )
@@ -310,6 +420,9 @@ async function inspectRecurringDelegations(args: {
       nowSeconds,
       row,
     });
+    if (!row.policyAccount) {
+      continue;
+    }
     const existing = byPolicy.get(row.policyAccount) ?? [];
     existing.push(delegation);
     byPolicy.set(row.policyAccount, existing);
@@ -318,70 +431,204 @@ async function inspectRecurringDelegations(args: {
   return byPolicy;
 }
 
+function mergeRecurringDelegations(
+  metadataDelegations: EarnPolicyRefundRecurringDelegation[],
+  chainDelegations: EarnPolicyRefundRecurringDelegation[]
+): EarnPolicyRefundRecurringDelegation[] {
+  const mergedByAccount = new Map<
+    string,
+    EarnPolicyRefundRecurringDelegation
+  >();
+
+  for (const delegation of metadataDelegations) {
+    mergedByAccount.set(delegation.account, delegation);
+  }
+  for (const delegation of chainDelegations) {
+    const metadataDelegation = mergedByAccount.get(delegation.account);
+    mergedByAccount.set(
+      delegation.account,
+      metadataDelegation
+        ? {
+            ...delegation,
+            blockedReason: metadataDelegation.blockedReason,
+            canRefund: canRefundRecurringDelegation({
+              exists: delegation.exists,
+              protected: metadataDelegation.protected,
+              status: delegation.status,
+            }),
+            lifecycleStatus: metadataDelegation.lifecycleStatus,
+            policyAccount: metadataDelegation.policyAccount,
+            protected: metadataDelegation.protected,
+            scheduledSweepCount: metadataDelegation.scheduledSweepCount,
+            targetActive: metadataDelegation.targetActive,
+            targetId: metadataDelegation.targetId,
+            usage: metadataDelegation.usage,
+          }
+        : delegation
+    );
+  }
+
+  return [...mergedByAccount.values()].sort((left, right) =>
+    left.account.localeCompare(right.account)
+  );
+}
+
+function collectRecurringDelegations(
+  delegationsByPolicyAccount: Map<
+    string,
+    EarnPolicyRefundRecurringDelegation[]
+  >,
+  chainDelegations: EarnPolicyRefundRecurringDelegation[]
+): EarnPolicyRefundRecurringDelegation[] {
+  const byAccount = new Map<string, EarnPolicyRefundRecurringDelegation>();
+  for (const delegation of chainDelegations) {
+    byAccount.set(delegation.account, delegation);
+  }
+  for (const delegations of delegationsByPolicyAccount.values()) {
+    for (const delegation of delegations) {
+      byAccount.set(delegation.account, delegation);
+    }
+  }
+  return [...byAccount.values()].sort((left, right) =>
+    left.account.localeCompare(right.account)
+  );
+}
+
+async function findScheduledSweepCounts(args: {
+  client: ReturnType<typeof getYieldOptimizationClient>;
+  targetIds: bigint[];
+}): Promise<Map<string, number>> {
+  if (args.targetIds.length === 0) {
+    return new Map();
+  }
+
+  const targetIds = sql.join(
+    args.targetIds.map((targetId) => sql`${targetId}`),
+    sql`, `
+  );
+  const result = await args.client.db.execute(sql`
+    SELECT pending.target_id::text AS "targetId", COUNT(*)::integer AS "count"
+    FROM (
+      SELECT ${balanceSweepSurplusLots.targetId} AS target_id
+      FROM ${balanceSweepSurplusLots}
+      WHERE ${balanceSweepSurplusLots.targetId} IN (${targetIds})
+        AND ${balanceSweepSurplusLots.status} IN ('open', 'selected')
+        AND ${balanceSweepSurplusLots.remainingAmountRaw} > 0
+      UNION ALL
+      SELECT ${balanceSweepLotClaims.targetId} AS target_id
+      FROM ${balanceSweepLotClaims}
+      WHERE ${balanceSweepLotClaims.targetId} IN (${targetIds})
+        AND ${balanceSweepLotClaims.status} = 'selected'
+    ) pending
+    GROUP BY pending.target_id
+  `);
+
+  return new Map(
+    getExecuteRows(result).map((row) => [
+      String(row.targetId),
+      Number(row.count ?? 0),
+    ])
+  );
+}
+
 export async function findEarnPolicyRefundDbState(args: {
   connection: Connection;
   policyAccounts: string[];
   settings: string;
+  vaultPubkey: string;
+  walletAddress: string;
 }): Promise<EarnPolicyRefundDbState> {
   if (args.policyAccounts.length === 0) {
-    return emptyPolicyRefundDbState();
+    const openRecurringDelegations =
+      await findOpenWalletToEarnVaultRecurringDelegations({
+        connection: args.connection,
+        vaultPubkey: args.vaultPubkey,
+        walletAddress: args.walletAddress,
+      });
+
+    return {
+      ...emptyPolicyRefundDbState(),
+      recurringDelegations: openRecurringDelegations,
+    };
   }
 
   const client = getYieldOptimizationClient();
-  const [policyRows, activeVaultRows, activePositionRows, autodepositRows] =
-    await Promise.all([
-      client.db.query.routePolicies.findMany({
-        where: and(
-          eq(routePolicies.settings, args.settings),
-          eq(routePolicies.vaultIndex, EARN_VAULT_INDEX),
-          inArray(routePolicies.policyAccount, args.policyAccounts)
-        ),
-      }),
-      client.db.query.managedVaults.findMany({
-        where: and(
-          eq(managedVaults.active, true),
-          eq(managedVaults.settings, args.settings),
-          eq(managedVaults.vaultIndex, EARN_VAULT_INDEX)
-        ),
-      }),
-      client.db.query.userYieldPositions.findMany({
-        columns: { policyAccount: true },
-        where: and(
-          eq(userYieldPositions.settings, args.settings),
-          eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX),
-          eq(userYieldPositions.status, "active"),
-          inArray(userYieldPositions.policyAccount, args.policyAccounts)
-        ),
-      }),
-      client.db
-        .select({
-          policyAccount: balanceSweepPolicies.policyAccount,
-          recurringDelegation: balanceSweepTargets.recurringDelegation,
-          recurringDelegationExpiryTimestamp:
-            balanceSweepTargets.recurringDelegationExpiryTimestamp,
-          source: sql<"metadata">`'metadata'`,
-          targetActive: balanceSweepTargets.active,
-          targetLifecycleStatus: balanceSweepTargets.lifecycleStatus,
-        })
-        .from(balanceSweepPolicies)
-        .innerJoin(
-          balanceSweepTargets,
-          eq(balanceSweepTargets.balanceSweepPolicyId, balanceSweepPolicies.id)
+  const [
+    policyRows,
+    activeVaultRows,
+    activePositionRows,
+    autodepositRows,
+    openRecurringDelegations,
+  ] = await Promise.all([
+    client.db.query.routePolicies.findMany({
+      where: and(
+        eq(routePolicies.settings, args.settings),
+        eq(routePolicies.vaultIndex, EARN_VAULT_INDEX),
+        inArray(routePolicies.policyAccount, args.policyAccounts)
+      ),
+    }),
+    client.db.query.managedVaults.findMany({
+      where: and(
+        eq(managedVaults.active, true),
+        eq(managedVaults.settings, args.settings),
+        eq(managedVaults.vaultIndex, EARN_VAULT_INDEX)
+      ),
+    }),
+    client.db.query.userYieldPositions.findMany({
+      columns: { policyAccount: true },
+      where: and(
+        eq(userYieldPositions.settings, args.settings),
+        eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX),
+        eq(userYieldPositions.status, "active"),
+        inArray(userYieldPositions.policyAccount, args.policyAccounts)
+      ),
+    }),
+    client.db
+      .select({
+        id: balanceSweepTargets.id,
+        policyAccount: balanceSweepPolicies.policyAccount,
+        recurringDelegation: balanceSweepTargets.recurringDelegation,
+        recurringDelegationExpiryTimestamp:
+          balanceSweepTargets.recurringDelegationExpiryTimestamp,
+        source: sql<"metadata">`'metadata'`,
+        targetActive: balanceSweepTargets.active,
+        targetLifecycleStatus: balanceSweepTargets.lifecycleStatus,
+      })
+      .from(balanceSweepPolicies)
+      .innerJoin(
+        balanceSweepTargets,
+        eq(balanceSweepTargets.balanceSweepPolicyId, balanceSweepPolicies.id)
+      )
+      .where(
+        and(
+          eq(balanceSweepPolicies.active, true),
+          eq(balanceSweepPolicies.settings, args.settings),
+          eq(balanceSweepPolicies.policyType, "subscription_sweep"),
+          eq(balanceSweepPolicies.vaultIndex, EARN_VAULT_INDEX),
+          inArray(balanceSweepPolicies.policyAccount, args.policyAccounts),
+          inArray(balanceSweepTargets.policyAccount, args.policyAccounts),
+          eq(balanceSweepTargets.settings, args.settings),
+          eq(balanceSweepTargets.vaultIndex, EARN_VAULT_INDEX),
+          ne(balanceSweepTargets.lifecycleStatus, "closed")
         )
-        .where(
-          and(
-            eq(balanceSweepPolicies.active, true),
-            eq(balanceSweepPolicies.settings, args.settings),
-            eq(balanceSweepPolicies.policyType, "subscription_sweep"),
-            eq(balanceSweepPolicies.vaultIndex, EARN_VAULT_INDEX),
-            inArray(balanceSweepPolicies.policyAccount, args.policyAccounts),
-            inArray(balanceSweepTargets.policyAccount, args.policyAccounts),
-            eq(balanceSweepTargets.settings, args.settings),
-            eq(balanceSweepTargets.vaultIndex, EARN_VAULT_INDEX),
-            ne(balanceSweepTargets.lifecycleStatus, "closed")
-          )
-        ),
-    ]);
+      ),
+    findOpenWalletToEarnVaultRecurringDelegations({
+      connection: args.connection,
+      vaultPubkey: args.vaultPubkey,
+      walletAddress: args.walletAddress,
+    }),
+  ]);
+  const scheduledSweepCountByTargetId = await findScheduledSweepCounts({
+    client,
+    targetIds: autodepositRows.map((row) => row.id),
+  });
+  const autodepositRowsWithScheduleCounts: AutodepositPolicyRow[] =
+    autodepositRows.map((row) => ({
+      ...row,
+      scheduledSweepCount:
+        scheduledSweepCountByTargetId.get(row.id.toString()) ?? 0,
+      targetId: row.id,
+    }));
 
   const routePolicyAccounts = new Set(
     policyRows.map((row) => row.policyAccount)
@@ -409,18 +656,42 @@ export async function findEarnPolicyRefundDbState(args: {
   const recurringDelegationsByPolicyAccount = await inspectRecurringDelegations(
     {
       connection: args.connection,
-      rows: autodepositRows,
+      rows: autodepositRowsWithScheduleCounts,
     }
   );
+  const autodepositPolicyAccounts = new Set(
+    autodepositRowsWithScheduleCounts.map((row) => row.policyAccount)
+  );
+  for (const policyAccount of autodepositPolicyAccounts) {
+    if (!policyAccount) {
+      continue;
+    }
+    recurringDelegationsByPolicyAccount.set(
+      policyAccount,
+      mergeRecurringDelegations(
+        recurringDelegationsByPolicyAccount.get(policyAccount) ?? [],
+        openRecurringDelegations
+      )
+    );
+  }
+
   const activeAutodepositAccounts = new Set<string>();
   for (const [
     policyAccount,
     delegations,
   ] of recurringDelegationsByPolicyAccount) {
-    if (delegations.some((delegation) => delegation.active)) {
+    if (
+      delegations.some(
+        (delegation) => delegation.exists && delegation.protected
+      )
+    ) {
       activeAutodepositAccounts.add(policyAccount);
     }
   }
+  const recurringDelegations = collectRecurringDelegations(
+    recurringDelegationsByPolicyAccount,
+    openRecurringDelegations
+  );
 
   return {
     activeAutodepositAccounts,
@@ -429,6 +700,7 @@ export async function findEarnPolicyRefundDbState(args: {
       activePositionRows.map((row) => row.policyAccount)
     ),
     recurringDelegationsByPolicyAccount,
+    recurringDelegations,
     routePolicyAccounts,
   };
 }
@@ -437,6 +709,8 @@ export async function findSingleEarnPolicyRefundDbState(args: {
   connection: Connection;
   policyAccount: string;
   settings: string;
+  vaultPubkey: string;
+  walletAddress: string;
 }): Promise<{
   activeAutodeposit: boolean;
   activeManagedVault: boolean;
@@ -448,6 +722,8 @@ export async function findSingleEarnPolicyRefundDbState(args: {
     connection: args.connection,
     policyAccounts: [args.policyAccount],
     settings: args.settings,
+    vaultPubkey: args.vaultPubkey,
+    walletAddress: args.walletAddress,
   });
 
   return {

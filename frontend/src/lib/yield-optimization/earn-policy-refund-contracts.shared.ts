@@ -14,12 +14,21 @@ export type EarnPolicyRefundRecurringDelegationStatus =
   | "paused"
   | "pending";
 
+export type EarnPolicyRefundRecurringDelegationUsage =
+  | "current"
+  | "paused"
+  | "pending"
+  | "scheduled"
+  | "unused";
+
 export type EarnPolicyRefundRecurringDelegation = {
   account: string;
   active: boolean;
   amountPerPeriodRaw: string | null;
   amountPulledRaw: string | null;
   authority: string | null;
+  blockedReason: string | null;
+  canRefund: boolean;
   delegatee: string | null;
   delegator: string | null;
   exists: boolean;
@@ -27,9 +36,14 @@ export type EarnPolicyRefundRecurringDelegation = {
   lamports: number | null;
   lifecycleStatus: string;
   mint: string | null;
+  policyAccount: string | null;
+  protected: boolean;
+  scheduledSweepCount: number;
   source: "chain" | "metadata";
   status: EarnPolicyRefundRecurringDelegationStatus;
   targetActive: boolean;
+  targetId: string | null;
+  usage: EarnPolicyRefundRecurringDelegationUsage;
 };
 
 export type EarnPolicyRefundScanPolicy = {
@@ -49,14 +63,21 @@ export type EarnPolicyRefundScanPolicy = {
 
 export type EarnPolicyRefundScanResponse = {
   policies: EarnPolicyRefundScanPolicy[];
+  recurringDelegations: EarnPolicyRefundRecurringDelegation[];
   settingsPda: string;
   vaultIndex: 1;
   vaultPubkey: string;
 };
 
-export type EarnPolicyRefundPrepareRequestBody = {
-  policyAccount: string;
-};
+export type EarnPolicyRefundPrepareRequestBody =
+  | {
+      kind?: "policy";
+      policyAccount: string;
+    }
+  | {
+      kind: "recurring_delegation";
+      recurringDelegation: string;
+    };
 
 export type WireSmartAccountPreparedEarnPolicyRefund = {
   estimatedRefundLamports: number | null;
@@ -66,8 +87,17 @@ export type WireSmartAccountPreparedEarnPolicyRefund = {
   vaultIndex: 1;
 };
 
+export type WireSmartAccountPreparedEarnRecurringDelegationRefund = {
+  estimatedRefundLamports: number | null;
+  prepared: WirePreparedLoyalSmartAccountsOperation;
+  recurringDelegation: EarnPolicyRefundRecurringDelegation;
+  settingsPda: string;
+  vaultIndex: 1;
+};
+
 export type EarnPolicyRefundPrepareResponse = {
-  preparedRefund: WireSmartAccountPreparedEarnPolicyRefund;
+  preparedRecurringDelegationRefund?: WireSmartAccountPreparedEarnRecurringDelegationRefund;
+  preparedRefund?: WireSmartAccountPreparedEarnPolicyRefund;
 };
 
 function assertRecord(body: unknown): Record<string, unknown> {
@@ -82,6 +112,27 @@ export function parseEarnPolicyRefundPrepareRequestBody(
   body: unknown
 ): EarnPolicyRefundPrepareRequestBody {
   const record = assertRecord(body);
+  const kind = record.kind;
+
+  if (kind === "recurring_delegation") {
+    const recurringDelegation = record.recurringDelegation;
+    if (
+      typeof recurringDelegation !== "string" ||
+      recurringDelegation.trim().length === 0
+    ) {
+      throw new Error("recurringDelegation must be a non-empty string.");
+    }
+
+    return {
+      kind: "recurring_delegation",
+      recurringDelegation: recurringDelegation.trim(),
+    };
+  }
+
+  if (kind !== undefined && kind !== "policy") {
+    throw new Error("kind must be either policy or recurring_delegation.");
+  }
+
   const policyAccount = record.policyAccount;
 
   if (typeof policyAccount !== "string" || policyAccount.trim().length === 0) {
@@ -107,6 +158,22 @@ export function serializePreparedEarnPolicyRefund(args: {
   };
 }
 
+export function serializePreparedEarnRecurringDelegationRefund(args: {
+  estimatedRefundLamports: number | null;
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  recurringDelegation: EarnPolicyRefundRecurringDelegation;
+  settingsPda: string;
+  vaultIndex: 1;
+}): WireSmartAccountPreparedEarnRecurringDelegationRefund {
+  return {
+    estimatedRefundLamports: args.estimatedRefundLamports,
+    prepared: serializePreparedOperation(args.prepared),
+    recurringDelegation: args.recurringDelegation,
+    settingsPda: args.settingsPda,
+    vaultIndex: args.vaultIndex,
+  };
+}
+
 export function hydratePreparedEarnPolicyRefund(
   wire: WireSmartAccountPreparedEarnPolicyRefund
 ): {
@@ -120,6 +187,24 @@ export function hydratePreparedEarnPolicyRefund(
     estimatedRefundLamports: wire.estimatedRefundLamports,
     policy: wire.policy,
     prepared: hydratePreparedOperation(wire.prepared),
+    settingsPda: wire.settingsPda,
+    vaultIndex: wire.vaultIndex,
+  };
+}
+
+export function hydratePreparedEarnRecurringDelegationRefund(
+  wire: WireSmartAccountPreparedEarnRecurringDelegationRefund
+): {
+  estimatedRefundLamports: number | null;
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  recurringDelegation: EarnPolicyRefundRecurringDelegation;
+  settingsPda: string;
+  vaultIndex: 1;
+} {
+  return {
+    estimatedRefundLamports: wire.estimatedRefundLamports,
+    prepared: hydratePreparedOperation(wire.prepared),
+    recurringDelegation: wire.recurringDelegation,
     settingsPda: wire.settingsPda,
     vaultIndex: wire.vaultIndex,
   };
