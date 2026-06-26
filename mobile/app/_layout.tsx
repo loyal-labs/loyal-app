@@ -127,10 +127,6 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
-                  name="wallet/quests"
-                  options={{ headerShown: false }}
-                />
-                <Stack.Screen
                   name="browser/site"
                   options={{ headerShown: false }}
                 />

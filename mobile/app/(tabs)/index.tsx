@@ -1,5 +1,5 @@
 import * as Haptics from "expo-haptics";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowUp, Plus, SlidersHorizontal } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
@@ -179,6 +179,21 @@ export default function EarnScreen() {
   const [isFocused, setIsFocused] = useState(false);
   // Bumped to (re)play the reveal each time the tab becomes visible.
   const [runId, setRunId] = useState(0);
+
+  // Quests deep-links here to open a sheet (?open=deposit | autodeposit).
+  const router = useRouter();
+  const openParam = useLocalSearchParams<{ open?: string }>();
+  useEffect(() => {
+    const open = openParam.open;
+    if (!open) return;
+    if (open === "deposit") {
+      setDepositOpen(true);
+    } else if (open === "autodeposit") {
+      setAutodepositSetupMode(autodepositEnabled ? "edit" : "create");
+      setAutodepositSetupOpen(true);
+    }
+    router.setParams({ open: "" });
+  }, [openParam.open, autodepositEnabled, router]);
 
   const dogHeight = width * DOG_NATURAL_RATIO;
 

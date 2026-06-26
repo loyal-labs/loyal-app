@@ -1,6 +1,6 @@
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { ScanLine, Settings } from "lucide-react-native";
+import { BookOpen, ScanLine, Settings } from "lucide-react-native";
 import type { ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,11 +48,23 @@ type LogoHeaderProps = {
   onScanPress?: () => void;
   /** Override the settings button. Defaults to the Settings (profile) tab. */
   onSettingsPress?: () => void;
+  /** Override the library button. Defaults to the Library tab. */
+  onLibraryPress?: () => void;
+  /** Hide the library button (e.g. on the Library screen itself). */
+  showLibrary?: boolean;
+  /** Hide the settings button (e.g. on the Settings screen itself). */
+  showSettings?: boolean;
 };
 
-// Shared top toolbar: the `loyal` wordmark on the left, scan + settings on the
-// right (Figma 141:5844). Present on Wallet, Library, and Settings.
-export function LogoHeader({ onScanPress, onSettingsPress }: LogoHeaderProps) {
+// Shared top toolbar: the `loyal` wordmark on the left, library + scan +
+// settings on the right. Present on Wallet, Library, Quests, and Settings.
+export function LogoHeader({
+  onScanPress,
+  onSettingsPress,
+  onLibraryPress,
+  showLibrary = true,
+  showSettings = true,
+}: LogoHeaderProps) {
   const { top } = useSafeAreaInsets();
   const router = useRouter();
 
@@ -77,16 +89,32 @@ export function LogoHeader({ onScanPress, onSettingsPress }: LogoHeaderProps) {
     router.navigate("/(tabs)/profile");
   };
 
+  const handleLibrary = () => {
+    triggerHaptic();
+    if (onLibraryPress) {
+      onLibraryPress();
+      return;
+    }
+    router.navigate("/(tabs)/library");
+  };
+
   return (
     <View style={[styles.container, { paddingTop: top + 12 }]}>
       <Wordmark width={66} height={28} />
       <View style={styles.actions}>
+        {showLibrary ? (
+          <IconButton onPress={handleLibrary} label="Library">
+            <BookOpen size={28} color={ICON_COLOR} strokeWidth={1.8} opacity={0.6} />
+          </IconButton>
+        ) : null}
         <IconButton onPress={handleScan} label="Scan QR code">
           <ScanLine size={28} color={ICON_COLOR} strokeWidth={1.8} opacity={0.6} />
         </IconButton>
-        <IconButton onPress={handleSettings} label="Settings">
-          <Settings size={28} color={ICON_COLOR} strokeWidth={1.8} opacity={0.6} />
-        </IconButton>
+        {showSettings ? (
+          <IconButton onPress={handleSettings} label="Settings">
+            <Settings size={28} color={ICON_COLOR} strokeWidth={1.8} opacity={0.6} />
+          </IconButton>
+        ) : null}
       </View>
     </View>
   );

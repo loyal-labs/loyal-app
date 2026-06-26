@@ -46,6 +46,13 @@ const LOOK_UP_DY = -46;
 const LOOK_LEFT_DX = -21.38;
 const LOOK_LEFT_DY = 9;
 
+// White catch-light inside each pupil (Figma 219:78050/57 — the notification
+// dog's eyes): a ~17px dot in the upper-right of each pupil. Offsets are from
+// the pupil centre; it tracks the gaze so it reads as a glint.
+const GLINT_R = 8.8;
+const GLINT_DX = 18;
+const GLINT_DY = -24;
+
 // Eyelid covers each 140×60 dome from the top when blinking.
 const DOME_TOP_Y = 238;
 const DOME_HEIGHT = 60;
@@ -75,6 +82,8 @@ export function EarnDog({
   startDelay = 0,
   width,
   height,
+  eyeGlint = false,
+  blinkOnly = false,
 }: {
   // Bumping runId replays the look-up entrance, then the idle loops resume.
   runId: number;
@@ -83,6 +92,11 @@ export function EarnDog({
   startDelay?: number;
   width: number;
   height: number;
+  // Show the white catch-light in each pupil (used on the Quests header).
+  eyeGlint?: boolean;
+  // Keep the gaze fixed straight ahead and only blink — no look-up entrance or
+  // idle look-around (used on the completion notification).
+  blinkOnly?: boolean;
 }) {
   const lookUp = useSharedValue(0);
   const lookLeft = useSharedValue(0);
@@ -101,40 +115,46 @@ export function EarnDog({
     lookLeft.value = 0;
     blink.value = 0;
 
-    // Gaze up during the reveal, hold, then settle back to straight.
-    lookUp.value = withDelay(
-      startDelay,
-      withSequence(
-        withTiming(1, { duration: EYE_UP_MS, easing: ENTER_EASING }),
-        withDelay(
-          EYE_UP_HOLD_MS,
-          withTiming(0, { duration: EYE_SETTLE_MS, easing: ENTER_EASING }),
-        ),
-      ),
-    );
-
-    // Idle look-around: dwell straight, glance left, return — forever.
-    lookLeft.value = withDelay(
-      startDelay + ENTRANCE_END_MS + 200,
-      withRepeat(
+    if (!blinkOnly) {
+      // Gaze up during the reveal, hold, then settle back to straight.
+      lookUp.value = withDelay(
+        startDelay,
         withSequence(
+          withTiming(1, { duration: EYE_UP_MS, easing: ENTER_EASING }),
           withDelay(
-            LOOK_STRAIGHT_HOLD_MS,
-            withTiming(1, { duration: LOOK_LEFT_MS, easing: ENTER_EASING }),
-          ),
-          withDelay(
-            LOOK_LEFT_HOLD_MS,
-            withTiming(0, { duration: LOOK_BACK_MS, easing: ENTER_EASING }),
+            EYE_UP_HOLD_MS,
+            withTiming(0, { duration: EYE_SETTLE_MS, easing: ENTER_EASING }),
           ),
         ),
-        -1,
-        false,
-      ),
-    );
+      );
 
-    // Blink loop, offset from the look loop so they rarely coincide.
+      // Idle look-around: dwell straight, glance left, return — forever.
+      lookLeft.value = withDelay(
+        startDelay + ENTRANCE_END_MS + 200,
+        withRepeat(
+          withSequence(
+            withDelay(
+              LOOK_STRAIGHT_HOLD_MS,
+              withTiming(1, { duration: LOOK_LEFT_MS, easing: ENTER_EASING }),
+            ),
+            withDelay(
+              LOOK_LEFT_HOLD_MS,
+              withTiming(0, { duration: LOOK_BACK_MS, easing: ENTER_EASING }),
+            ),
+          ),
+          -1,
+          false,
+        ),
+      );
+    }
+
+    // Blink loop. With blinkOnly the gaze never moves, so start the blink
+    // sooner — there's no look-up entrance to wait out.
+    const blinkStartDelay = blinkOnly
+      ? startDelay + 1200
+      : startDelay + BLINK_START_DELAY_MS;
     blink.value = withDelay(
-      startDelay + BLINK_START_DELAY_MS,
+      blinkStartDelay,
       withRepeat(
         withSequence(
           withDelay(
@@ -159,7 +179,7 @@ export function EarnDog({
       cancelAnimation(lookLeft);
       cancelAnimation(blink);
     };
-  }, [runId, startDelay, lookUp, lookLeft, blink]);
+  }, [runId, startDelay, blinkOnly, lookUp, lookLeft, blink]);
 
   const leftPupilProps = useAnimatedProps(() => ({
     cx: PUPIL_LEFT_X + lookLeft.value * LOOK_LEFT_DX,
@@ -170,6 +190,22 @@ export function EarnDog({
     cy: PUPIL_BASE_Y + lookUp.value * LOOK_UP_DY + lookLeft.value * LOOK_LEFT_DY,
   }));
   const lidProps = useAnimatedProps(() => ({ height: DOME_HEIGHT * blink.value }));
+  const leftGlintProps = useAnimatedProps(() => ({
+    cx: PUPIL_LEFT_X + lookLeft.value * LOOK_LEFT_DX + GLINT_DX,
+    cy:
+      PUPIL_BASE_Y +
+      lookUp.value * LOOK_UP_DY +
+      lookLeft.value * LOOK_LEFT_DY +
+      GLINT_DY,
+  }));
+  const rightGlintProps = useAnimatedProps(() => ({
+    cx: PUPIL_RIGHT_X + lookLeft.value * LOOK_LEFT_DX + GLINT_DX,
+    cy:
+      PUPIL_BASE_Y +
+      lookUp.value * LOOK_UP_DY +
+      lookLeft.value * LOOK_LEFT_DY +
+      GLINT_DY,
+  }));
 
   return (
     <Svg width={width} height={height} viewBox={VIEW_BOX} fill="none">
@@ -201,6 +237,20 @@ export function EarnDog({
           r={PUPIL_R}
           fill="black"
         />
+        {eyeGlint ? (
+          <>
+            <AnimatedCircle
+              animatedProps={leftGlintProps}
+              r={GLINT_R}
+              fill="white"
+            />
+            <AnimatedCircle
+              animatedProps={rightGlintProps}
+              r={GLINT_R}
+              fill="white"
+            />
+          </>
+        ) : null}
         {/* Head-coloured eyelids sweep down from the dome top to blink. */}
         <AnimatedRect
           animatedProps={lidProps}

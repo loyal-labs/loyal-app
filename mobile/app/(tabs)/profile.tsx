@@ -9,12 +9,12 @@ import {
   ChevronRight,
   CircleHelp,
   Fingerprint,
+  FlaskConical,
   Globe,
   Heart,
   Key,
   Lightbulb,
   MessageSquare,
-  Network,
   RotateCcw,
   Trash2,
 } from "lucide-react-native";
@@ -22,13 +22,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, StyleSheet, Switch } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
+import { emitQuestCompleteTest } from "@/components/quests/questCompletionTestBus";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { getShowTips, setShowTips } from "@/lib/settings";
-import {
-  getSolanaEnv,
-  setSolanaEnvOverride,
-} from "@/lib/solana/rpc/connection";
-import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import { mmkv } from "@/lib/storage";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
@@ -162,7 +158,6 @@ export default function ProfileScreen() {
     () => mmkv.getBoolean(ANALYTICS_OPT_IN_KEY) ?? true,
   );
   const [showTips, setShowTipsState] = useState(getShowTips);
-  const [isMainnet, setIsMainnet] = useState(() => getSolanaEnv() === "mainnet");
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
@@ -221,28 +216,6 @@ export default function ProfileScreen() {
     }
     setShowTipsState(value);
     setShowTips(value);
-  }, []);
-
-  const handleNetworkToggle = useCallback((value: boolean) => {
-    const nextEnv = value ? "mainnet" : "devnet";
-    Alert.alert(
-      `Switch to ${nextEnv}?`,
-      "The wallet will reload balances for the selected network.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Switch",
-          onPress: () => {
-            if (process.env.EXPO_OS !== "web") {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            }
-            setSolanaEnvOverride(nextEnv);
-            clearHoldingsCache();
-            setIsMainnet(value);
-          },
-        },
-      ],
-    );
   }, []);
 
   const handleBiometricToggle = useCallback(
@@ -336,7 +309,7 @@ export default function ProfileScreen() {
 
   return (
     <View className="flex-1 bg-white">
-      <LogoHeader />
+      <LogoHeader showSettings={false} />
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
@@ -356,15 +329,6 @@ export default function ProfileScreen() {
             toggle={{
               value: pushNotifications,
               onValueChange: handleNotificationToggle,
-            }}
-          />
-          <ProfileCell
-            icon={<Network size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
-            title="Mainnet"
-            subtitle={isMainnet ? "Using mainnet" : "Using devnet"}
-            toggle={{
-              value: isMainnet,
-              onValueChange: handleNetworkToggle,
             }}
           />
         </SettingsSection>
@@ -406,6 +370,29 @@ export default function ProfileScreen() {
             subtitle="View intro slides again"
             showChevron
             onPress={handleReplayOnboarding}
+          />
+        </SettingsSection>
+
+        {/* TEMPORARY — preview the quest-completion notification without
+            completing real quests. Remove with questCompletionTestBus. */}
+        <SettingsSection>
+          <ProfileCell
+            icon={
+              <FlaskConical size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
+            }
+            title="Test: Task complete"
+            subtitle="Preview the single-task notification"
+            showChevron
+            onPress={() => emitQuestCompleteTest("single")}
+          />
+          <ProfileCell
+            icon={
+              <FlaskConical size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
+            }
+            title="Test: Quest complete"
+            subtitle="Preview the all-tasks notification"
+            showChevron
+            onPress={() => emitQuestCompleteTest("all")}
           />
         </SettingsSection>
 

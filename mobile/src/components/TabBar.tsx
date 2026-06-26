@@ -2,7 +2,7 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
-import { Clock, Compass, GraduationCap, Wallet } from "lucide-react-native";
+import { Bone, Clock, Compass, Wallet } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type LayoutChangeEvent, StyleSheet } from "react-native";
 import Animated, {
@@ -25,9 +25,9 @@ const EARN_ROUTE_NAME = "index";
 
 const TAB_ORDER = [
   "wallet",
-  "activity",
+  "quests",
   EARN_ROUTE_NAME,
-  "library",
+  "activity",
   "browser",
 ] as const;
 
@@ -35,8 +35,8 @@ type TabName = (typeof TAB_ORDER)[number];
 
 const LUCIDE_ICONS = {
   wallet: Wallet,
+  quests: Bone,
   activity: Clock,
-  library: GraduationCap,
   browser: Compass,
 } as const;
 

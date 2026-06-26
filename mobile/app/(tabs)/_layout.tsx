@@ -1,3 +1,4 @@
+import { QuestCompletionWatcher } from "@/components/quests/QuestCompletionWatcher";
 import { TabBar } from "@/components/TabBar";
 import { ActivityProvider } from "@/features/activity/model/ActivityProvider";
 import { router, Tabs } from "expo-router";
@@ -49,8 +50,11 @@ export default function TabsLayout() {
             cold start (URL "/") lands here without any extra config. */}
         <Tabs.Screen name="index" />
         <Tabs.Screen name="wallet" />
+        <Tabs.Screen name="quests" />
         <Tabs.Screen name="activity" />
         <Tabs.Screen name="browser" />
+        {/* Library dropped from the bottom nav (reachable from the header book
+            icon), but kept registered so direct navigation still works. */}
         <Tabs.Screen name="library" />
         {/* Profile/Settings dropped from the bottom nav (reachable from the
             header gear), but kept registered so direct navigation still works. */}
@@ -58,6 +62,9 @@ export default function TabsLayout() {
         {/* Summaries tab hidden — keep code for potential reinstatement */}
         <Tabs.Screen name="summaries" options={{ href: null }} />
       </Tabs>
+      {/* App-wide watcher: pops the quest-completion notification once per task
+          as progress is reported, over whichever tab is active. */}
+      <QuestCompletionWatcher />
     </ActivityProvider>
   );
 }

@@ -36,8 +36,3 @@ export function buildCryptoHref(rect?: CardSourceRect): Href {
 export function buildEarnHref(): Href {
   return "/(tabs)" as Href;
 }
-
-// Solana Week quest tracking (test page), reachable from the wallet "..." menu.
-export function buildQuestsHref(): Href {
-  return "/wallet/quests" as Href;
-}
