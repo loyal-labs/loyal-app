@@ -44,19 +44,28 @@ export function WalletReconnectPrompt({
   );
   const selectedWalletNameRef = useRef<WalletName | null>(null);
   const connectAttemptedRef = useRef(false);
+  const staleAdapterRecoveryAttemptedRef = useRef(false);
+  const [walletNameToReselect, setWalletNameToReselect] =
+    useState<WalletName | null>(null);
   const [isConnectingSelected, setIsConnectingSelected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const connectedAddress = publicKey?.toBase58() ?? null;
   const isMatchingWallet =
-    Boolean(expectedWalletAddress) && connectedAddress === expectedWalletAddress;
+    connected &&
+    Boolean(expectedWalletAddress) &&
+    connectedAddress === expectedWalletAddress;
   const isWrongWallet =
-    Boolean(expectedWalletAddress && connectedAddress) && !isMatchingWallet;
+    connected &&
+    Boolean(expectedWalletAddress && connectedAddress) &&
+    !isMatchingWallet;
 
   useEffect(() => {
     if (!open) {
       selectedWalletNameRef.current = null;
       connectAttemptedRef.current = false;
+      staleAdapterRecoveryAttemptedRef.current = false;
+      setWalletNameToReselect(null);
       setError(null);
       setIsConnectingSelected(false);
       return;
@@ -69,6 +78,19 @@ export function WalletReconnectPrompt({
   }, [isMatchingWallet, open]);
 
   useEffect(() => {
+    if (!open || !walletNameToReselect) {
+      return;
+    }
+
+    if (wallet?.adapter.name === walletNameToReselect) {
+      return;
+    }
+
+    select(walletNameToReselect);
+    setWalletNameToReselect(null);
+  }, [open, select, wallet, walletNameToReselect]);
+
+  useEffect(() => {
     if (!open || !isConnectingSelected) {
       return;
     }
@@ -79,6 +101,7 @@ export function WalletReconnectPrompt({
     }
 
     if (
+      walletNameToReselect ||
       !wallet ||
       wallet.adapter.name !== selectedWalletNameRef.current ||
       connecting ||
@@ -101,6 +124,7 @@ export function WalletReconnectPrompt({
     open,
     publicKey,
     wallet,
+    walletNameToReselect,
   ]);
 
   useEffect(() => {
@@ -113,23 +137,16 @@ export function WalletReconnectPrompt({
         return;
       }
 
-      const selectedWalletName = selectedWalletNameRef.current;
-      if (
-        selectedWalletName &&
-        wallet?.adapter.name === selectedWalletName &&
-        !connectAttemptedRef.current
-      ) {
-        return;
-      }
-
       setIsConnectingSelected(false);
       setError(
-        "Could not start wallet connection. Unlock your wallet and try again."
+        staleAdapterRecoveryAttemptedRef.current
+          ? "Wallet connection did not refresh. Unlock your wallet, disconnect it in the extension, and try again."
+          : "Could not start wallet connection. Unlock your wallet and try again."
       );
     }, WALLET_SELECTION_SETTLE_MS);
 
     return () => window.clearTimeout(timeout);
-  }, [connected, connecting, isConnectingSelected, open, wallet]);
+  }, [connected, connecting, isConnectingSelected, open]);
 
   const connectWallet = useCallback(
     (walletName: WalletName) => {
@@ -137,8 +154,22 @@ export function WalletReconnectPrompt({
       setIsConnectingSelected(true);
       selectedWalletNameRef.current = walletName;
       connectAttemptedRef.current = false;
+      staleAdapterRecoveryAttemptedRef.current = false;
+      setWalletNameToReselect(null);
+
+      if (connected && publicKey && connectedAddress !== expectedWalletAddress) {
+        setIsConnectingSelected(false);
+        return;
+      }
 
       if (wallet?.adapter.name === walletName) {
+        if (wallet.adapter.connected && (!connected || !publicKey)) {
+          staleAdapterRecoveryAttemptedRef.current = true;
+          setWalletNameToReselect(walletName);
+          select(null);
+          return;
+        }
+
         connectAttemptedRef.current = true;
         void connect().catch((nextError) => {
           connectAttemptedRef.current = false;
@@ -150,7 +181,15 @@ export function WalletReconnectPrompt({
 
       select(walletName);
     },
-    [connect, select, wallet]
+    [
+      connect,
+      connected,
+      connectedAddress,
+      expectedWalletAddress,
+      publicKey,
+      select,
+      wallet,
+    ]
   );
 
   const disconnectWrongWallet = useCallback(async () => {
@@ -158,6 +197,8 @@ export function WalletReconnectPrompt({
     setIsConnectingSelected(false);
     selectedWalletNameRef.current = null;
     connectAttemptedRef.current = false;
+    staleAdapterRecoveryAttemptedRef.current = false;
+    setWalletNameToReselect(null);
     await disconnect();
   }, [disconnect]);
 

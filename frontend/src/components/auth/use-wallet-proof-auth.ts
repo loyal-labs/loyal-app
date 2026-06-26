@@ -2,7 +2,14 @@
 
 import type { WalletName } from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 import {
   useAuthApiClient,
@@ -16,8 +23,10 @@ import {
 } from "@/lib/auth/wallet-proof-state";
 import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
+import { useExplicitWalletConnectIntent } from "@/components/solana/wallet-provider";
 
-const WALLET_SELECTION_SETTLE_MS = 2500;
+const WALLET_CONNECTION_SETTLE_MS = 2500;
+const WALLET_SELECTION_SETTLE_MS = 7000;
 
 function isRejectedWalletRequest(error: unknown): boolean {
   const message =
@@ -101,14 +110,19 @@ export function useWalletProofAuth({
     wallet,
     wallets,
   } = useWallet();
+  const { beginExplicitWalletConnect, endExplicitWalletConnect } =
+    useExplicitWalletConnectIntent();
 
   const [state, dispatch] = useReducer(
     walletProofReducer,
     initialWalletProofState
   );
   const connectAttemptedRef = useRef(false);
+  const staleAdapterRecoveryAttemptedRef = useRef(false);
   const selectedWalletNameRef = useRef<WalletName | null>(null);
   const verifyAttemptedForAddressRef = useRef<string | null>(null);
+  const [walletNameToReselect, setWalletNameToReselect] =
+    useState<WalletName | null>(null);
   const turnstileTokenRef = useRef(turnstileToken);
   turnstileTokenRef.current = turnstileToken;
   const onTurnstileConsumedRef = useRef(onTurnstileConsumed);
@@ -120,6 +134,7 @@ export function useWalletProofAuth({
   );
 
   const handleFailure = useCallback((error: unknown) => {
+    endExplicitWalletConnect(selectedWalletNameRef.current);
     const nextError = mapWalletProofError(error);
     dispatch({
       type: "failed",
@@ -127,10 +142,21 @@ export function useWalletProofAuth({
       message: nextError.message,
       details: nextError.details,
     });
-  }, []);
+  }, [endExplicitWalletConnect]);
+
+  const recoverStaleSelectedWallet = useCallback(
+    (walletName: WalletName) => {
+      staleAdapterRecoveryAttemptedRef.current = true;
+      connectAttemptedRef.current = false;
+      verifyAttemptedForAddressRef.current = null;
+      setWalletNameToReselect(walletName);
+      select(null);
+    },
+    [select]
+  );
 
   const verifyConnectedWallet = useCallback(async () => {
-    if (!publicKey) {
+    if (!connected || !publicKey) {
       handleFailure(new Error("Wallet is not connected."));
       return;
     }
@@ -163,6 +189,7 @@ export function useWalletProofAuth({
       verifyAttemptedForAddressRef.current = null;
       handleFailure(error);
     } finally {
+      endExplicitWalletConnect(selectedWalletNameRef.current);
       // The Turnstile token is single-use once the challenge consumes it, so
       // ask the modal to issue a fresh one before any subsequent attempt.
       onTurnstileConsumedRef.current?.();
@@ -170,6 +197,8 @@ export function useWalletProofAuth({
   }, [
     authApiClient,
     close,
+    connected,
+    endExplicitWalletConnect,
     handleFailure,
     publicKey,
     refreshSession,
@@ -177,11 +206,30 @@ export function useWalletProofAuth({
   ]);
 
   useEffect(() => {
+    if (state.status !== "connecting" || !walletNameToReselect) {
+      return;
+    }
+
+    if (wallet?.adapter.name === walletNameToReselect) {
+      return;
+    }
+
+    select(walletNameToReselect);
+    setWalletNameToReselect(null);
+  }, [select, state.status, wallet, walletNameToReselect]);
+
+  useEffect(() => {
     if (state.status !== "connecting") {
       return;
     }
 
+    const selectedWalletName = selectedWalletNameRef.current;
+
     if (connected && publicKey) {
+      if (selectedWalletName && wallet?.adapter.name !== selectedWalletName) {
+        return;
+      }
+
       if (!signMessage) {
         handleFailure(
           new WalletProofSignerError(
@@ -201,11 +249,26 @@ export function useWalletProofAuth({
     }
 
     if (
+      walletNameToReselect ||
       !wallet ||
-      wallet.adapter.name !== selectedWalletNameRef.current ||
+      wallet.adapter.name !== selectedWalletName ||
       connecting ||
       connectAttemptedRef.current
     ) {
+      return;
+    }
+
+    if (wallet.adapter.connected && selectedWalletName) {
+      if (!staleAdapterRecoveryAttemptedRef.current) {
+        recoverStaleSelectedWallet(selectedWalletName);
+        return;
+      }
+
+      handleFailure(
+        new Error(
+          `Could not refresh ${selectedWalletName}. Disconnect it in the extension, then try again.`
+        )
+      );
       return;
     }
 
@@ -220,44 +283,91 @@ export function useWalletProofAuth({
     connecting,
     handleFailure,
     publicKey,
+    recoverStaleSelectedWallet,
     signMessage,
     state.status,
     verifyConnectedWallet,
     wallet,
+    walletNameToReselect,
   ]);
+
+  useEffect(() => {
+    return () => {
+      endExplicitWalletConnect(selectedWalletNameRef.current);
+    };
+  }, [endExplicitWalletConnect]);
 
   useEffect(() => {
     if (state.status !== "connecting") {
       return;
     }
 
+    const selectedWalletName = selectedWalletNameRef.current;
+    const isWaitingForSelection =
+      !connectAttemptedRef.current &&
+      (!selectedWalletName || wallet?.adapter.name !== selectedWalletName);
+    const settleDelay = isWaitingForSelection
+      ? WALLET_SELECTION_SETTLE_MS
+      : WALLET_CONNECTION_SETTLE_MS;
+
     const timeout = window.setTimeout(() => {
       const selectedWalletName = selectedWalletNameRef.current;
-      if (!selectedWalletName || connected || connecting) {
+      if (
+        !selectedWalletName ||
+        connected ||
+        connecting ||
+        walletNameToReselect
+      ) {
+        return;
+      }
+
+      if (
+        !connectAttemptedRef.current &&
+        wallet?.adapter.name !== selectedWalletName
+      ) {
+        handleFailure(
+          new Error(
+            `Could not select ${selectedWalletName}. Refresh detected wallets, or choose another wallet.`
+          )
+        );
         return;
       }
 
       if (
         wallet?.adapter.name === selectedWalletName &&
-        !connectAttemptedRef.current
+        wallet.adapter.connected &&
+        !staleAdapterRecoveryAttemptedRef.current
       ) {
+        recoverStaleSelectedWallet(selectedWalletName);
         return;
       }
 
       handleFailure(
         new Error(
-          `Could not start ${selectedWalletName}. Unlock the extension, refresh detected wallets, or choose another wallet.`
+          staleAdapterRecoveryAttemptedRef.current
+            ? `Could not refresh ${selectedWalletName}. Disconnect it in the extension, then try again.`
+            : `Could not start ${selectedWalletName}. Unlock the extension, refresh detected wallets, or choose another wallet.`
         )
       );
-    }, WALLET_SELECTION_SETTLE_MS);
+    }, settleDelay);
 
     return () => window.clearTimeout(timeout);
-  }, [connected, connecting, handleFailure, state.status, wallet]);
+  }, [
+    connected,
+    connecting,
+    handleFailure,
+    recoverStaleSelectedWallet,
+    state.status,
+    wallet,
+    walletNameToReselect,
+  ]);
 
   const connectWallet = useCallback(
     (walletName: WalletName) => {
       connectAttemptedRef.current = false;
+      staleAdapterRecoveryAttemptedRef.current = false;
       verifyAttemptedForAddressRef.current = null;
+      setWalletNameToReselect(null);
       selectedWalletNameRef.current = walletName;
       onFlowStart?.();
 
@@ -271,9 +381,15 @@ export function useWalletProofAuth({
         return;
       }
 
+      beginExplicitWalletConnect(walletName);
       dispatch({ type: "connecting" });
 
       if (wallet?.adapter.name === walletName) {
+        if (wallet.adapter.connected && (!connected || !publicKey)) {
+          recoverStaleSelectedWallet(walletName);
+          return;
+        }
+
         connectAttemptedRef.current = true;
         void connect().catch((error) => {
           connectAttemptedRef.current = false;
@@ -285,11 +401,13 @@ export function useWalletProofAuth({
       select(walletName);
     },
     [
+      beginExplicitWalletConnect,
       connected,
       connect,
       handleFailure,
       onFlowStart,
       publicKey,
+      recoverStaleSelectedWallet,
       select,
       signMessage,
       verifyConnectedWallet,
@@ -298,12 +416,16 @@ export function useWalletProofAuth({
   );
 
   const retry = useCallback(() => {
+    const selectedWalletName = selectedWalletNameRef.current;
+    endExplicitWalletConnect(selectedWalletName);
     connectAttemptedRef.current = false;
+    staleAdapterRecoveryAttemptedRef.current = false;
     selectedWalletNameRef.current = null;
     verifyAttemptedForAddressRef.current = null;
+    setWalletNameToReselect(null);
     select(null);
     dispatch({ type: "reset" });
-  }, [select]);
+  }, [endExplicitWalletConnect, select]);
 
   const startConnectedWalletVerification = useCallback(() => {
     onFlowStart?.();
