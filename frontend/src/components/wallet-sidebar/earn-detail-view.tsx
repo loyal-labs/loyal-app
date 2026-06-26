@@ -924,11 +924,11 @@ const EARNINGS_BAR_MAX_FRACTION = 295 / 300;
 const EARNINGS_BAR_MIN_HEIGHT_PX = 4;
 const EARNINGS_MONTHLY_RANGE_ID = "1Y" satisfies EarningsRangeId;
 const EARNINGS_DAILY_RANGE_ID = "30D" satisfies EarningsRangeId;
-const EARNINGS_BAR_COLOR = "rgba(0, 0, 0, 0.08)";
-const EARNINGS_BAR_HOVER_COLOR = "rgba(249, 54, 60, 0.6)";
+const EARNINGS_BAR_COLOR = "rgba(52, 199, 89, 0.6)";
+const EARNINGS_BAR_HOVER_COLOR = "rgba(52, 199, 89, 0.16)";
 const EARNINGS_TODAY_BAR_BORDER_COLOR = "rgba(0, 0, 0, 0.24)";
 const EARNINGS_TODAY_BAR_HOVER_FILL =
-  "linear-gradient(180deg, rgba(249, 54, 60, 0.6) 0%, rgba(249, 54, 60, 0) 100%)";
+  "linear-gradient(180deg, rgba(52, 199, 89, 0.6) 0%, rgba(52, 199, 89, 0) 100%)";
 
 const EMPTY_EARNINGS_BARS: EarnEarningsBar[] = [];
 
@@ -1174,12 +1174,70 @@ const EARN_CHART_TABS: readonly {
   { id: "Earnings", label: "Earned" },
 ];
 
+// Indeterminate ring spinner that echoes the landing -> app splash loader (faint
+// track + accent arc), minus the dog logo. Shown while the Earned chart is still
+// fetching its bars.
+function EarningsChartLoader() {
+  const SIZE = 56;
+  const STROKE = 5;
+  const radius = (SIZE - STROKE) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const arc = circumference * 0.25;
+  return (
+    <div
+      aria-label="Loading earnings"
+      role="status"
+      style={{
+        alignItems: "center",
+        alignSelf: "stretch",
+        display: "flex",
+        flex: 1,
+        justifyContent: "center",
+        minHeight: 0,
+        width: "100%",
+      }}
+    >
+      <span
+        className="animate-spin"
+        style={{ display: "inline-flex", height: SIZE, width: SIZE }}
+      >
+        <svg
+          aria-hidden="true"
+          height={SIZE}
+          viewBox={`0 0 ${SIZE} ${SIZE}`}
+          width={SIZE}
+        >
+          <circle
+            cx={SIZE / 2}
+            cy={SIZE / 2}
+            fill="none"
+            r={radius}
+            stroke="rgba(18, 18, 18, 0.08)"
+            strokeWidth={STROKE}
+          />
+          <circle
+            cx={SIZE / 2}
+            cy={SIZE / 2}
+            fill="none"
+            r={radius}
+            stroke={LOYAL_EARN_BRAND_COLOR}
+            strokeDasharray={`${arc} ${circumference - arc}`}
+            strokeLinecap="round"
+            strokeWidth={STROKE}
+          />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
 function EarningsBlock({
   apy,
   earningsData,
   estimatedEarnedUsd,
   forecastPrincipalAmount,
   isBalanceHidden = false,
+  isEarningsLoading = false,
   principalAmount,
 }: {
   apy: EarnForecastApy;
@@ -1187,6 +1245,7 @@ function EarningsBlock({
   estimatedEarnedUsd: number;
   forecastPrincipalAmount: number;
   isBalanceHidden?: boolean;
+  isEarningsLoading?: boolean;
   principalAmount: number;
 }) {
   const [activeTab, setActiveTab] = useState<EarnChartTab>("Forecast");
@@ -1216,6 +1275,9 @@ function EarningsBlock({
   );
   const realBars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
   const hasRealBars = realBars.length > 0;
+  // Show the loader only while we have nothing real to paint yet; cached/persisted
+  // bars revalidating in the background keep rendering instead of flashing a spinner.
+  const showEarningsLoader = isEarningsLoading && !hasRealBars;
   const bars = hasRealBars ? realBars : placeholderBars;
   // Each bar carries the amount earned within that day. Reconcile the current
   // in-progress bar against the live estimate without turning prior bars into
@@ -1578,58 +1640,62 @@ function EarningsBlock({
                 width: "100%",
               }}
             >
-              {dailyBars.map((bar, i) => {
-                const isActive = hoveredBar === i;
-                const fillPercent =
-                  maxDailyEarnedUsd > 0
-                    ? (Math.max(0, bar.earnedUsd) / maxDailyEarnedUsd) *
-                      EARNINGS_BAR_MAX_FRACTION *
-                      100
-                    : 0;
-                return (
-                  <button
-                    aria-label={`${
-                      bar.label
-                    } earned ${formatSignedEarningsAmount(
-                      Math.max(0, bar.earnedUsd)
-                    )}`}
-                    className="earnings-bar"
-                    key={`${bar.startAt}:${bar.endAt}`}
-                    onMouseEnter={() => setHoveredBar(i)}
-                    style={{
-                      ["--bar-index" as never]: i,
-                    }}
-                    type="button"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="earnings-bar-fill"
-                      style={
-                        bar.isCurrent
-                          ? {
-                              background: isActive
-                                ? EARNINGS_TODAY_BAR_HOVER_FILL
-                                : "transparent",
-                              border: `1px dashed ${
-                                isActive
+              {showEarningsLoader ? (
+                <EarningsChartLoader />
+              ) : (
+                dailyBars.map((bar, i) => {
+                  const isActive = hoveredBar === i;
+                  const fillPercent =
+                    maxDailyEarnedUsd > 0
+                      ? (Math.max(0, bar.earnedUsd) / maxDailyEarnedUsd) *
+                        EARNINGS_BAR_MAX_FRACTION *
+                        100
+                      : 0;
+                  return (
+                    <button
+                      aria-label={`${
+                        bar.label
+                      } earned ${formatSignedEarningsAmount(
+                        Math.max(0, bar.earnedUsd)
+                      )}`}
+                      className="earnings-bar"
+                      key={`${bar.startAt}:${bar.endAt}`}
+                      onMouseEnter={() => setHoveredBar(i)}
+                      style={{
+                        ["--bar-index" as never]: i,
+                      }}
+                      type="button"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="earnings-bar-fill"
+                        style={
+                          bar.isCurrent
+                            ? {
+                                background: isActive
+                                  ? EARNINGS_TODAY_BAR_HOVER_FILL
+                                  : "transparent",
+                                border: `1px dashed ${
+                                  isActive
+                                    ? EARNINGS_BAR_COLOR
+                                    : EARNINGS_TODAY_BAR_BORDER_COLOR
+                                }`,
+                                height: "100%",
+                              }
+                            : {
+                                background: isActive
                                   ? EARNINGS_BAR_HOVER_COLOR
-                                  : EARNINGS_TODAY_BAR_BORDER_COLOR
-                              }`,
-                              height: "100%",
-                            }
-                          : {
-                              background: isActive
-                                ? EARNINGS_BAR_HOVER_COLOR
-                                : EARNINGS_BAR_COLOR,
-                              height: `${fillPercent.toFixed(2)}%`,
-                              minHeight: `${EARNINGS_BAR_MIN_HEIGHT_PX}px`,
-                            }
-                      }
-                    />
-                  </button>
-                );
-              })}
-              {dailyBars.length === 0 ? (
+                                  : EARNINGS_BAR_COLOR,
+                                height: `${fillPercent.toFixed(2)}%`,
+                                minHeight: `${EARNINGS_BAR_MIN_HEIGHT_PX}px`,
+                              }
+                        }
+                      />
+                    </button>
+                  );
+                })
+              )}
+              {dailyBars.length === 0 && !showEarningsLoader ? (
                 <div
                   style={{
                     alignItems: "center",
@@ -2339,7 +2405,11 @@ export function EarnDetailView({
   const earnForecastApy = useEarnForecastApy();
   const hasPositiveCurrentBalance =
     hasCurrentPosition && currentBalanceAmount > 0;
-  const { data: earningsRangeSet, error: earningsError } = useEarnEarnings({
+  const {
+    data: earningsRangeSet,
+    error: earningsError,
+    isLoading: isEarningsLoading,
+  } = useEarnEarnings({
     cacheKey: earningsCacheKey,
     enabled: hasPositiveCurrentBalance,
     expectedPrincipalAmountRaw: earningsCacheScope?.expectedPrincipalAmountRaw,
@@ -2693,6 +2763,7 @@ export function EarnDetailView({
           estimatedEarnedUsd={estimatedEarnedUsd}
           forecastPrincipalAmount={forecastPrincipalAmount}
           isBalanceHidden={isBalanceHidden}
+          isEarningsLoading={isEarningsLoading}
           principalAmount={principalAmount}
         />
       ) : null}
