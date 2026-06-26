@@ -16,7 +16,7 @@ import { DepositSheet } from "@/components/earn/DepositSheet";
 import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
-import { BannerCard } from "@/components/wallet/BannerCard";
+// import { BannerCard } from "@/components/wallet/BannerCard";
 import { ReceiveSheet } from "@/components/wallet/ReceiveSheet";
 import { SendSheet } from "@/components/wallet/SendSheet";
 import { ShieldSheet } from "@/components/wallet/ShieldSheet";
@@ -118,6 +118,10 @@ export default function WalletScreen() {
   const [networkKey, setNetworkKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [tokenMarketRefreshKey, setTokenMarketRefreshKey] = useState(0);
+  // Replays the Earn card chart grow-in on pull-to-refresh. (Focus replay is
+  // handled inside the chart via useIsFocused so it doesn't re-render the whole
+  // wallet screen mid tab-transition.)
+  const [chartReplayKey, setChartReplayKey] = useState(0);
 
   // Shared cache of /api/mobile/tokens/:mint for the mints the send/swap/shield
   // pickers can surface — the held tokens plus the SOL/LOYAL/USDC prefills so
@@ -263,6 +267,7 @@ export default function WalletScreen() {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     setTokenMarketRefreshKey((k) => k + 1);
+    setChartReplayKey((k) => k + 1);
 
     // Wall-clock deadline so even a socket-level hang (fetch without
     // AbortController, stuck websocket) can't trap the spinner. Work
@@ -383,22 +388,25 @@ export default function WalletScreen() {
             onOpenBgPicker={() => setIsBgPickerOpen(true)}
           />
 
-          {/* Portfolio overview — Earn / Stablecoins / Crypto + promo banner.
-              Cells flex to fill the screen height between balance and actions. */}
+          {/* Portfolio overview — Earn / Stablecoins / Crypto. The promo banner
+              is commented out for now. Cells flex to fill the screen height
+              between balance and actions. */}
           <View style={{ flex: 1, marginTop: 16 }}>
             <WalletCategoryGrid
               earnUsd={earnUsd}
               earnApyBps={earnApyBps}
+              apySummary={forecastSummary}
+              chartReplayKey={chartReplayKey}
               stablecoinsUsd={stablecoinsUsd}
               cryptoUsd={cryptoUsd}
-              banner={
-                <BannerCard
-                  onShield={() => {
-                    track(PORTFOLIO_EVENTS.openShield, { source: "banner" });
-                    handleOpenShield("shield");
-                  }}
-                />
-              }
+              // banner={
+              //   <BannerCard
+              //     onShield={() => {
+              //       track(PORTFOLIO_EVENTS.openShield, { source: "banner" });
+              //       handleOpenShield("shield");
+              //     }}
+              //   />
+              // }
               onPressEarn={() => router.navigate(buildEarnHref())}
               onPressDeposit={() => setIsDepositOpen(true)}
               onPressStablecoins={(rect) =>
