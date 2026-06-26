@@ -33,11 +33,11 @@ const COLOR_DIM_WHITE_40 = "rgba(255, 255, 255, 0.4)";
 const COLOR_DIM_WHITE_60 = "rgba(255, 255, 255, 0.6)";
 
 // Bar opacities, relative to the scrub cursor (Figma 74-20800). Default (not
-// scrubbing) every bar is a calm dim white; while scrubbing, bars up to the
-// cursor read as the earned-so-far (brighter), bars beyond it stay dim.
+// scrubbing) every bar is a calm dim white; while scrubbing, only the selected
+// bar reads as earned (brighter), every other bar stays dim.
 const OPACITY_DEFAULT = 0.32;
-const OPACITY_EARNED = 0.85; // bars at/left of the cursor while scrubbing (red)
-const OPACITY_BEYOND = 0.2; // bars right of the cursor while scrubbing (white)
+const OPACITY_EARNED = 0.85; // the selected bar while scrubbing (red)
+const OPACITY_BEYOND = 0.2; // every non-selected bar while scrubbing (white)
 
 const BAR_RADIUS = 6;
 const BAR_GAP = 3; // ~30 daily bars pack tightly
@@ -544,9 +544,9 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
             axisMax > 0
               ? Math.min(1, Math.max(MIN_BAR_RATIO, value / axisMax))
               : MIN_BAR_RATIO;
-          // While scrubbing, bars up to the cursor read as earned (red); beyond
-          // it, dim white. At rest the whole series is a calm dim white.
-          const earned = scrubbing && i <= activeIdx;
+          // While scrubbing, only the selected bar reads as earned (red); the
+          // rest stay a calm dim white. At rest the whole series is dim white.
+          const earned = scrubbing && i === activeIdx;
           const color = earned ? COLOR_RED : COLOR_WHITE;
           const opacity = scrubbing
             ? earned
