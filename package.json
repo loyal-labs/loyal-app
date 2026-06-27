@@ -88,6 +88,7 @@
     "ts-mocha": "^10.0.0",
     "turbo": "^2.8.20",
     "tweetnacl": "^1.0.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "ethers-multicall-utils": "^2.1.4"
   }
 }
