@@ -11,6 +11,7 @@ mock.module("server-only", () => ({}));
 
 const {
   WALLET_AUTH_MEMO_PROGRAM_ID,
+  WALLET_AUTH_NON_BROADCASTABLE_BLOCKHASH,
   createWalletAuthTransactionChallenge,
   verifyWalletAuthTransactionProof,
 } = await import("./wallet-auth-transaction");
@@ -38,7 +39,6 @@ function fromBase64(value: string): Buffer {
 
 function createSignedProof(keypair: Keypair) {
   const challenge = createWalletAuthTransactionChallenge({
-    blockhash: Keypair.generate().publicKey.toBase58(),
     memo: MEMO,
     walletAddress: keypair.publicKey.toBase58(),
   });
@@ -65,10 +65,9 @@ describe("wallet transaction auth verification", () => {
     expect(walletAddress).toBe(keypair.publicKey.toBase58());
   });
 
-  test("accepts wallet-refreshed blockhash with the same memo proof", () => {
+  test("rejects wallet-refreshed blockhashes", () => {
     const keypair = Keypair.generate();
     const challenge = createWalletAuthTransactionChallenge({
-      blockhash: Keypair.generate().publicKey.toBase58(),
       memo: MEMO,
       walletAddress: keypair.publicKey.toBase58(),
     });
@@ -76,19 +75,18 @@ describe("wallet transaction auth verification", () => {
     transaction.recentBlockhash = Keypair.generate().publicKey.toBase58();
     transaction.sign(keypair);
 
-    const walletAddress = verifyWalletAuthTransactionProof({
-      memo: challenge.memo,
-      signedTransaction: toBase64(transaction.serialize()),
-      walletAddress: keypair.publicKey.toBase58(),
-    });
-
-    expect(walletAddress).toBe(keypair.publicKey.toBase58());
+    expect(() =>
+      verifyWalletAuthTransactionProof({
+        memo: challenge.memo,
+        signedTransaction: toBase64(transaction.serialize()),
+        walletAddress: keypair.publicKey.toBase58(),
+      })
+    ).toThrow("Wallet transaction blockhash is invalid.");
   });
 
   test("accepts wallet-added compute budget instructions", () => {
     const keypair = Keypair.generate();
     const challenge = createWalletAuthTransactionChallenge({
-      blockhash: Keypair.generate().publicKey.toBase58(),
       memo: MEMO,
       walletAddress: keypair.publicKey.toBase58(),
     });
@@ -100,6 +98,29 @@ describe("wallet transaction auth verification", () => {
 
     const walletAddress = verifyWalletAuthTransactionProof({
       memo: challenge.memo,
+      signedTransaction: toBase64(transaction.serialize()),
+      walletAddress: keypair.publicKey.toBase58(),
+    });
+
+    expect(walletAddress).toBe(keypair.publicKey.toBase58());
+  });
+
+  test("accepts legacy memo proofs with no instruction accounts", () => {
+    const keypair = Keypair.generate();
+    const transaction = new Transaction({
+      feePayer: keypair.publicKey,
+      recentBlockhash: WALLET_AUTH_NON_BROADCASTABLE_BLOCKHASH,
+    }).add(
+      new TransactionInstruction({
+        keys: [],
+        programId: WALLET_AUTH_MEMO_PROGRAM_ID,
+        data: Buffer.from(MEMO, "utf8"),
+      })
+    );
+    transaction.sign(keypair);
+
+    const walletAddress = verifyWalletAuthTransactionProof({
+      memo: MEMO,
       signedTransaction: toBase64(transaction.serialize()),
       walletAddress: keypair.publicKey.toBase58(),
     });
@@ -134,10 +155,9 @@ describe("wallet transaction auth verification", () => {
     ).toThrow("Wallet transaction fee payer is invalid.");
   });
 
-  test("rejects an extra instruction", () => {
+  test("accepts wallet-added non-memo instructions", () => {
     const keypair = Keypair.generate();
     const challenge = createWalletAuthTransactionChallenge({
-      blockhash: Keypair.generate().publicKey.toBase58(),
       memo: MEMO,
       walletAddress: keypair.publicKey.toBase58(),
     });
@@ -151,19 +171,18 @@ describe("wallet transaction auth verification", () => {
     );
     transaction.sign(keypair);
 
-    expect(() =>
-      verifyWalletAuthTransactionProof({
-        memo: challenge.memo,
-        signedTransaction: toBase64(transaction.serialize()),
-        walletAddress: keypair.publicKey.toBase58(),
-      })
-    ).toThrow("Wallet transaction instructions are invalid.");
+    const walletAddress = verifyWalletAuthTransactionProof({
+      memo: challenge.memo,
+      signedTransaction: toBase64(transaction.serialize()),
+      walletAddress: keypair.publicKey.toBase58(),
+    });
+
+    expect(walletAddress).toBe(keypair.publicKey.toBase58());
   });
 
-  test("rejects compute budget instructions with accounts", () => {
+  test("accepts wallet-added compute budget instructions with accounts", () => {
     const keypair = Keypair.generate();
     const challenge = createWalletAuthTransactionChallenge({
-      blockhash: Keypair.generate().publicKey.toBase58(),
       memo: MEMO,
       walletAddress: keypair.publicKey.toBase58(),
     });
@@ -183,13 +202,43 @@ describe("wallet transaction auth verification", () => {
     );
     transaction.sign(keypair);
 
+    const walletAddress = verifyWalletAuthTransactionProof({
+      memo: challenge.memo,
+      signedTransaction: toBase64(transaction.serialize()),
+      walletAddress: keypair.publicKey.toBase58(),
+    });
+
+    expect(walletAddress).toBe(keypair.publicKey.toBase58());
+  });
+
+  test("rejects memo instruction accounts that are not the wallet signer", () => {
+    const keypair = Keypair.generate();
+    const otherKeypair = Keypair.generate();
+    const transaction = new Transaction({
+      feePayer: keypair.publicKey,
+      recentBlockhash: WALLET_AUTH_NON_BROADCASTABLE_BLOCKHASH,
+    }).add(
+      new TransactionInstruction({
+        keys: [
+          {
+            isSigner: false,
+            isWritable: false,
+            pubkey: otherKeypair.publicKey,
+          },
+        ],
+        programId: WALLET_AUTH_MEMO_PROGRAM_ID,
+        data: Buffer.from(MEMO, "utf8"),
+      })
+    );
+    transaction.sign(keypair);
+
     expect(() =>
       verifyWalletAuthTransactionProof({
-        memo: challenge.memo,
+        memo: MEMO,
         signedTransaction: toBase64(transaction.serialize()),
         walletAddress: keypair.publicKey.toBase58(),
       })
-    ).toThrow("Wallet transaction instructions are invalid.");
+    ).toThrow("Wallet transaction accounts are invalid.");
   });
 
   test("rejects an invalid fee-payer signature", () => {
@@ -211,7 +260,7 @@ describe("wallet transaction auth verification", () => {
     const keypair = Keypair.generate();
     const transaction = new Transaction({
       feePayer: keypair.publicKey,
-      recentBlockhash: Keypair.generate().publicKey.toBase58(),
+      recentBlockhash: WALLET_AUTH_NON_BROADCASTABLE_BLOCKHASH,
     }).add(
       new TransactionInstruction({
         keys: [],

@@ -349,7 +349,6 @@ export async function createWalletAuthChallenge(
       expiresAt: expiresAt.toISOString(),
     });
     const transactionChallenge = createWalletAuthTransactionChallenge({
-      blockhash: await dependencies.getLatestBlockhash(config.solanaEnv),
       memo,
       walletAddress,
     });

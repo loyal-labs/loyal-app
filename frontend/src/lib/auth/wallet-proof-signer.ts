@@ -8,7 +8,7 @@ import type {
   SolanaSignInInput,
   SolanaSignInOutput,
 } from "@solana/wallet-standard-features";
-import { Transaction } from "@solana/web3.js";
+import { Transaction, type PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 
 export type WalletProofSignMessage =
@@ -20,6 +20,9 @@ export type WalletProofSignIn =
 export type WalletProofSignTransaction =
   | ((transaction: Transaction) => Promise<Transaction>)
   | undefined;
+
+const ENABLE_WALLET_AUTH_TRANSACTION_DEBUG_LOGS =
+  process.env.NODE_ENV === "development";
 
 export class WalletProofSignerError extends Error {
   readonly code: "wallet_signature_rejected" | "wallet_signing_unsupported";
@@ -117,6 +120,62 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function summarizePublicKey(publicKey: PublicKey): string {
+  const address = publicKey.toBase58();
+  return `${address.slice(0, 6)}...${address.slice(-6)}`;
+}
+
+function logSignedWalletAuthTransaction(transaction: Transaction) {
+  if (!ENABLE_WALLET_AUTH_TRANSACTION_DEBUG_LOGS) {
+    return;
+  }
+
+  console.info("[wallet-proof-signer] wallet returned proof transaction", {
+    feePayer: transaction.feePayer
+      ? summarizePublicKey(transaction.feePayer)
+      : null,
+    instructionCount: transaction.instructions.length,
+    instructions: transaction.instructions.map((instruction, index) => ({
+      dataLength: instruction.data.length,
+      index,
+      keyCount: instruction.keys.length,
+      keys: instruction.keys.map((key) => ({
+        isSigner: key.isSigner,
+        isWritable: key.isWritable,
+        pubkey: summarizePublicKey(key.pubkey),
+      })),
+      programId: instruction.programId.toBase58(),
+    })),
+    signatures: transaction.signatures.map((signature) => ({
+      hasSignature: Boolean(signature.signature),
+      pubkey: summarizePublicKey(signature.publicKey),
+    })),
+  });
+}
+
+function assertTransactionWasSigned(transaction: Transaction) {
+  const feePayer = transaction.feePayer?.toBase58();
+  const feePayerSignature = feePayer
+    ? transaction.signatures.find(
+        (signature) => signature.publicKey.toBase58() === feePayer
+      )
+    : undefined;
+
+  if (!feePayer || !feePayerSignature?.signature) {
+    throw new WalletProofSignerError(
+      "Your wallet did not sign the Ledger verification transaction.",
+      "wallet_signing_unsupported"
+    );
+  }
+
+  if (!transaction.verifySignatures(true)) {
+    throw new WalletProofSignerError(
+      "Your wallet returned an invalid Ledger verification signature.",
+      "wallet_signing_unsupported"
+    );
+  }
+}
+
 export async function signWalletProofSignIn(args: {
   signIn: WalletProofSignIn;
   signInInput: SolanaSignInInputJson;
@@ -157,6 +216,8 @@ export async function signWalletProofTransaction(args: {
   try {
     const transaction = Transaction.from(base64ToBytes(args.transaction));
     const signedTransaction = await args.signTransaction(transaction);
+    logSignedWalletAuthTransaction(signedTransaction);
+    assertTransactionWasSigned(signedTransaction);
     return bytesToBase64(
       signedTransaction.serialize({
         requireAllSignatures: false,

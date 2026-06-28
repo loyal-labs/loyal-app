@@ -101,20 +101,19 @@ export function WalletAutoReauth() {
         await refreshSession();
         setStatus("done");
       } catch (error) {
-        // Only show "rejected" banner for actual signature rejections.
-        // Network/CORS/API errors (e.g. auth server unreachable from this domain)
-        // are silently ignored so they don't block wallet usage.
         const isSignatureRejection =
           error instanceof WalletProofSignerError &&
           error.code === "wallet_signature_rejected";
         if (isSignatureRejection) {
           failedRef.current = true;
-          setStatus("rejected");
-        } else {
-          // Reset so user can retry later if needed
-          attemptedAddressRef.current = null;
           setStatus("idle");
+          return;
         }
+
+        // Reset so user can retry later if needed. Network/CORS/API errors
+        // are silently ignored so they don't block wallet usage.
+        attemptedAddressRef.current = null;
+        setStatus("idle");
         console.warn("[wallet-auto-reauth] re-auth failed:", error);
       }
     }
