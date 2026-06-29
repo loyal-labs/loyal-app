@@ -1,4 +1,4 @@
-import { Image, Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
 
 import type {
   EarnAutodepositScheduledSweep,
@@ -10,6 +10,7 @@ import {
   isScheduledSweepAwaitingExecution,
 } from "@/lib/solana/earn/earn-scheduled-sweep";
 import {
+  formatEarnRowTime,
   getEarnTransactionAmountColor,
   getEarnTransactionRowLabel,
   groupEarnTransactions,
@@ -17,36 +18,10 @@ import {
 import { Text, View } from "@/tw";
 
 import { useActivity } from "../model/ActivityProvider";
+import { EarnTxAccountIcon, EarnTxCompoundIcon } from "./EarnTxIcon";
 
 const SECONDARY = "rgba(60, 60, 67, 0.6)";
 const BRAND_RED = "#F9363C";
-
-const USDC_ICON = require("../../../../assets/images/earn/usdc.png");
-const KAMINO_ICON = require("../../../../assets/images/earn/venues/earn-kamino.png");
-
-// Reads source (back, top-left) -> destination (front, bottom-right): deposits
-// flow USDC -> Kamino, withdrawals flow Kamino -> USDC. Mirrors the web pane's
-// CompoundIcon; allowance actions move no funds, so they show a single coin.
-function EarnTxIcon({ kind }: { kind: EarnTransactionItem["kind"] }) {
-  if (kind === "autodeposit_action") {
-    return (
-      <View style={styles.iconWrap}>
-        <Image source={KAMINO_ICON} style={styles.iconSingle} />
-      </View>
-    );
-  }
-
-  const isWithdraw = kind === "withdraw";
-  const back = isWithdraw ? KAMINO_ICON : USDC_ICON;
-  const front = isWithdraw ? USDC_ICON : KAMINO_ICON;
-
-  return (
-    <View style={styles.iconWrap}>
-      <Image source={back} style={styles.iconBack} />
-      <Image source={front} style={styles.iconFront} />
-    </View>
-  );
-}
 
 function EarnTransactionRow({ item }: { item: EarnTransactionItem }) {
   const label = getEarnTransactionRowLabel(item);
@@ -54,19 +29,37 @@ function EarnTransactionRow({ item }: { item: EarnTransactionItem }) {
 
   return (
     <View className="flex-row items-center px-4 py-2.5">
-      <EarnTxIcon kind={item.kind} />
+      <EarnTxCompoundIcon item={item} />
       <View className="ml-3 flex-1">
         <Text className="text-[17px] font-medium text-black">{label}</Text>
-        <Text className="text-[13px]" style={{ color: SECONDARY }}>
-          {item.source.label} → {item.destination.label}
-        </Text>
+        <View className="mt-0.5 flex-row items-center gap-1">
+          <EarnTxAccountIcon account={item.source} />
+          <Text
+            className="text-[13px]"
+            style={{ color: SECONDARY }}
+            numberOfLines={1}
+          >
+            {item.source.label}
+          </Text>
+          <Text className="text-[13px]" style={{ color: SECONDARY }}>
+            →
+          </Text>
+          <EarnTxAccountIcon account={item.destination} />
+          <Text
+            className="text-[13px]"
+            style={{ color: SECONDARY }}
+            numberOfLines={1}
+          >
+            {item.destination.label}
+          </Text>
+        </View>
       </View>
       <View className="items-end">
         <Text className="text-[17px]" style={{ color: amountColor }}>
           {item.amount}
         </Text>
         <Text className="text-[13px]" style={{ color: SECONDARY }}>
-          {item.timestamp}
+          {formatEarnRowTime(item)}
         </Text>
       </View>
     </View>
@@ -95,7 +88,7 @@ function EarnScheduledRow({
 
   return (
     <View className="flex-row items-start px-4 py-2.5">
-      <EarnTxIcon kind="deposit" />
+      <EarnTxCompoundIcon item={{ kind: "balance_sweep" }} />
       <View className="ml-3 flex-1">
         <Text className="text-[17px] font-medium text-black">Autodeposit</Text>
         <Text className="text-[15px]" style={{ color: SECONDARY }}>
@@ -228,37 +221,6 @@ export function EarnActivityList() {
 }
 
 const styles = StyleSheet.create({
-  iconWrap: {
-    width: 48,
-    height: 48,
-    position: "relative",
-  },
-  iconSingle: {
-    position: "absolute",
-    top: 8,
-    left: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
-  iconBack: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 2.286,
-    borderColor: "#ffffff",
-  },
-  iconFront: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-  },
   executeButton: {
     alignSelf: "flex-start",
     marginTop: 8,
