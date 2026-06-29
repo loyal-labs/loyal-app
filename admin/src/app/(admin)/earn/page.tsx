@@ -95,6 +95,16 @@ function StatCard({
   );
 }
 
+function getTopPositionWarningCount(
+  position: Awaited<ReturnType<typeof getEarnData>>["topPositions"][number]
+) {
+  return (
+    position.missingManagedVaultRows +
+    position.missingRedeemableMetadataRows +
+    position.unknownReserveSemanticsRows
+  );
+}
+
 function FlowTable({ points }: { points: EarnFlowPoint[] }) {
   return (
     <Table>
@@ -134,6 +144,10 @@ function FlowTable({ points }: { points: EarnFlowPoint[] }) {
 export default async function EarnPage() {
   const data = await getEarnData();
   const netFlow30dRaw = data.totalDeposited30dRaw - data.totalWithdrawn30dRaw;
+  const activeHoldingWarningCount =
+    data.activeMissingManagedVaultRows +
+    data.activeMissingRedeemableMetadataRows +
+    data.activeUnknownReserveSemanticsRows;
 
   return (
     <PageContainer>
@@ -146,7 +160,7 @@ export default async function EarnPage() {
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <StatCard
-            description="Current Earn AUM"
+            description="Current Earn AUM (normalized)"
             title={formatCompactUsdcRaw(data.activeAumRaw)}
           />
           <StatCard
@@ -165,6 +179,100 @@ export default async function EarnPage() {
             description="Active Autodeposit"
             title={formatNumber(data.activeAutodepositPolicies)}
           />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-bold">AUM breakdown</CardTitle>
+              <CardDescription>
+                Normalized active reserve value plus idle vault USDC
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-sm text-muted-foreground">
+                    Reserve redeemable
+                  </div>
+                  <div className="mt-1 font-semibold tabular-nums">
+                    {formatCompactUsdcRaw(data.activeReserveRaw)}
+                  </div>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-sm text-muted-foreground">
+                    Idle vault USDC
+                  </div>
+                  <div className="mt-1 font-semibold tabular-nums">
+                    {formatCompactUsdcRaw(data.activeIdleRaw)}
+                  </div>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-sm text-muted-foreground">
+                    Stored current pointer
+                  </div>
+                  <div className="mt-1 font-semibold tabular-nums">
+                    {formatCompactUsdcRaw(data.activeStoredCurrentPointerRaw)}
+                  </div>
+                </div>
+                <div className="rounded-md border px-3 py-2">
+                  <div className="text-sm text-muted-foreground">
+                    Pointer delta
+                  </div>
+                  <div className="mt-1 font-semibold tabular-nums">
+                    {formatCompactUsdcRaw(data.activeCurrentPointerDeltaRaw)}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="font-bold">Holding data quality</CardTitle>
+              <CardDescription>
+                Reserve semantics accepted, converted, or excluded from AUM
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-muted-foreground">
+                  Redeemable reserve rows
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatNumber(data.activeRedeemableReserveRows)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-muted-foreground">
+                  Collateral rows converted
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatNumber(data.activeCollateralReserveRows)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-muted-foreground">
+                  Warning rows
+                </span>
+                <Badge
+                  variant={
+                    activeHoldingWarningCount > 0 ? "destructive" : "outline"
+                  }
+                >
+                  {formatNumber(activeHoldingWarningCount)}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm text-muted-foreground">
+                  Excluded reserve raw
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatCompactUsdcRaw(data.activeExcludedReserveRaw)}
+                </span>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-3">
@@ -337,7 +445,7 @@ export default async function EarnPage() {
               Largest active positions
             </CardTitle>
             <CardDescription>
-              Active user yield positions ordered by current amount
+              Active positions ordered by normalized reserve plus idle USDC
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -347,15 +455,21 @@ export default async function EarnPage() {
                   <TableHead>Wallet</TableHead>
                   <TableHead>Settings</TableHead>
                   <TableHead>Reserve</TableHead>
-                  <TableHead className="text-right">Current</TableHead>
+                  <TableHead className="text-right">
+                    Normalized current
+                  </TableHead>
+                  <TableHead className="text-right">Reserve value</TableHead>
+                  <TableHead className="text-right">Idle USDC</TableHead>
                   <TableHead className="text-right">Principal</TableHead>
+                  <TableHead className="text-right">Pointer delta</TableHead>
+                  <TableHead className="text-right">Warnings</TableHead>
                   <TableHead className="text-right">Observed</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.topPositions.length === 0 ? (
                   <TableRow>
-                    <TableCell className="text-muted-foreground" colSpan={6}>
+                    <TableCell className="text-muted-foreground" colSpan={10}>
                       No active Earn positions found.
                     </TableCell>
                   </TableRow>
@@ -383,10 +497,30 @@ export default async function EarnPage() {
                         />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatCompactUsdcRaw(position.currentAmountRaw)}
+                        {formatCompactUsdcRaw(position.normalizedAumRaw)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCompactUsdcRaw(position.normalizedReserveRaw)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCompactUsdcRaw(position.idleAmountRaw)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCompactUsdcRaw(position.principalAmountRaw)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCompactUsdcRaw(position.currentPointerDeltaRaw)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <Badge
+                          variant={
+                            getTopPositionWarningCount(position) > 0
+                              ? "destructive"
+                              : "outline"
+                          }
+                        >
+                          {formatNumber(getTopPositionWarningCount(position))}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatDateTime(position.currentObservedAt)}

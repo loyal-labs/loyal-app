@@ -6,7 +6,12 @@ import {
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  type ParsedTransactionWithMeta,
+  type TokenBalance,
+} from "@solana/web3.js";
 
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
@@ -30,6 +35,10 @@ import {
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 const connectionCache = new Map<SolanaEnv, Connection>();
+
+type ConfirmedDepositTransactionProof = {
+  principalAmountRaw: bigint;
+};
 
 // Carries an HTTP status + stable error code so each route can map failures to
 // the same response it returned before this logic was extracted.
@@ -75,6 +84,54 @@ function toSafePolicySeed(policySeed: bigint): number {
   }
 
   return Number(policySeed);
+}
+
+function readTokenBalanceAmountRaw(balance: TokenBalance | undefined): bigint {
+  const amount = balance?.uiTokenAmount.amount;
+  return typeof amount === "string" && /^\d+$/.test(amount)
+    ? BigInt(amount)
+    : BigInt(0);
+}
+
+function getParsedTokenBalanceDeltasByOwner(args: {
+  mint: string;
+  transaction: ParsedTransactionWithMeta;
+}): Map<string, bigint> {
+  const preBalances = args.transaction.meta?.preTokenBalances ?? [];
+  const postBalances = args.transaction.meta?.postTokenBalances ?? [];
+  const indexes = new Set<number>();
+
+  for (const balance of [...preBalances, ...postBalances]) {
+    if (balance.mint === args.mint) {
+      indexes.add(balance.accountIndex);
+    }
+  }
+
+  const deltasByOwner = new Map<string, bigint>();
+  for (const accountIndex of indexes) {
+    const pre = preBalances.find(
+      (balance) =>
+        balance.accountIndex === accountIndex && balance.mint === args.mint
+    );
+    const post = postBalances.find(
+      (balance) =>
+        balance.accountIndex === accountIndex && balance.mint === args.mint
+    );
+    const owner = post?.owner ?? pre?.owner ?? null;
+
+    if (!owner) {
+      continue;
+    }
+
+    deltasByOwner.set(
+      owner,
+      (deltasByOwner.get(owner) ?? BigInt(0)) +
+        readTokenBalanceAmountRaw(post) -
+        readTokenBalanceAmountRaw(pre)
+    );
+  }
+
+  return deltasByOwner;
 }
 
 function createCanonicalDepositInput(
@@ -301,6 +358,55 @@ async function resolveConfirmedSignatureSlot(args: {
   return BigInt(status.slot);
 }
 
+async function resolveConfirmedDepositTransactionProof(args: {
+  cluster: SolanaEnv;
+  input: ConfirmedYieldDepositInput;
+}): Promise<ConfirmedDepositTransactionProof> {
+  const transaction = await getConnection(args.cluster).getParsedTransaction(
+    args.input.depositSignature,
+    {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    }
+  );
+
+  if (!transaction || !transaction.meta) {
+    throw new Error("Confirmed deposit transaction details are unavailable.");
+  }
+  if (transaction.meta.err) {
+    throw new Error("Deposit transaction proof has an execution error.");
+  }
+  if (BigInt(transaction.slot) !== args.input.confirmedSlot) {
+    throw new Error(
+      "Confirmed deposit transaction slot does not match the recorded slot."
+    );
+  }
+
+  const deltasByOwner = getParsedTokenBalanceDeltasByOwner({
+    mint: args.input.depositMint,
+    transaction,
+  });
+  const fundingOwners = [
+    ...new Set([
+      args.input.walletAddress,
+      args.input.smartAccountAddress,
+      args.input.vaultPubkey,
+    ]),
+  ];
+  const principalAmountRaw = fundingOwners.reduce((total, owner) => {
+    const deltaRaw = deltasByOwner.get(owner) ?? BigInt(0);
+    return deltaRaw < BigInt(0) ? total - deltaRaw : total;
+  }, BigInt(0));
+
+  if (principalAmountRaw <= BigInt(0)) {
+    throw new Error(
+      "Confirmed deposit transaction does not debit USDC from the wallet or Earn vault."
+    );
+  }
+
+  return { principalAmountRaw };
+}
+
 function serializePosition(position: UserYieldPositionRecord) {
   return {
     currentHolding: {
@@ -400,6 +506,27 @@ export async function recordConfirmedEarnDeposit(args: {
         "Confirmed yield deposit slot does not match the transaction status.",
     });
   }
+
+  let depositProof: ConfirmedDepositTransactionProof;
+  try {
+    depositProof = await resolveConfirmedDepositTransactionProof({
+      cluster: solanaEnv,
+      input,
+    });
+  } catch (error) {
+    throw new EarnDepositConfirmError({
+      status: 400,
+      code: "invalid_deposit_proof",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Deposit transaction amount proof is invalid.",
+    });
+  }
+  input = {
+    ...input,
+    principalAmountRaw: depositProof.principalAmountRaw,
+  };
 
   if (input.policyInitialization === "create") {
     let policyConfirmedSlot: bigint;
