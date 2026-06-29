@@ -215,6 +215,123 @@ async function findTargetByPolicy(args: {
   return target ?? null;
 }
 
+async function findTargetByRecurringDelegation(args: {
+  client: YieldOptimizationClient;
+  recurringDelegation: string;
+}): Promise<BalanceSweepTargetRecord | null> {
+  const [target] = await args.client.db
+    .select()
+    .from(balanceSweepTargets)
+    .where(
+      eq(balanceSweepTargets.recurringDelegation, args.recurringDelegation)
+    )
+    .limit(1);
+
+  return target ?? null;
+}
+
+async function findTargetForAutodepositSetup(args: {
+  client: YieldOptimizationClient;
+  policyAccount: string;
+  recurringDelegation: string;
+}): Promise<BalanceSweepTargetRecord | null> {
+  const byPolicy = await findTargetByPolicy({
+    client: args.client,
+    policyAccount: args.policyAccount,
+  });
+  if (byPolicy) {
+    return byPolicy;
+  }
+
+  return findTargetByRecurringDelegation({
+    client: args.client,
+    recurringDelegation: args.recurringDelegation,
+  });
+}
+
+function assertTargetCanResumeAutodepositSetup(
+  existing: BalanceSweepTargetRecord,
+  input: ConfirmedEarnAutodepositSetupInput
+) {
+  const mismatches: string[] = [];
+
+  if (existing.settings !== input.settings) {
+    mismatches.push("settings");
+  }
+  if (existing.wallet !== input.walletAddress) {
+    mismatches.push("wallet");
+  }
+  if (existing.vaultIndex !== input.vaultIndex) {
+    mismatches.push("vaultIndex");
+  }
+  if (existing.vaultPubkey !== input.vaultPubkey) {
+    mismatches.push("vaultPubkey");
+  }
+  if (existing.walletUsdcAta !== input.walletUsdcAta) {
+    mismatches.push("walletUsdcAta");
+  }
+  if (existing.vaultUsdcAta !== input.vaultUsdcAta) {
+    mismatches.push("vaultUsdcAta");
+  }
+  if (existing.tokenMint !== input.liquidityMint) {
+    mismatches.push("tokenMint");
+  }
+  if (existing.walletTokenAta !== input.walletUsdcAta) {
+    mismatches.push("walletTokenAta");
+  }
+  if (existing.vaultTokenAta !== input.vaultUsdcAta) {
+    mismatches.push("vaultTokenAta");
+  }
+  if (
+    existing.subscriptionAuthority !== null &&
+    existing.subscriptionAuthority !== input.subscriptionAuthority
+  ) {
+    mismatches.push("subscriptionAuthority");
+  }
+  if (
+    existing.recurringDelegation !== null &&
+    existing.recurringDelegation !== input.recurringDelegation
+  ) {
+    mismatches.push("recurringDelegation");
+  }
+  if (
+    existing.recurringDelegationNonce !== undefined &&
+    existing.recurringDelegationNonce !== null &&
+    existing.recurringDelegationNonce !== input.nonce
+  ) {
+    mismatches.push("recurringDelegationNonce");
+  }
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Existing autodeposit setup target does not match confirmed setup metadata: ${mismatches.join(
+        ", "
+      )}.`
+    );
+  }
+}
+
+async function markSupersededAutodepositPolicyInactive(args: {
+  client: YieldOptimizationClient;
+  existing: BalanceSweepTargetRecord;
+  input: ConfirmedEarnAutodepositSetupInput;
+  now: Date;
+}) {
+  if (args.existing.policyAccount === args.input.policyAccount) {
+    return;
+  }
+
+  await args.client.db
+    .update(balanceSweepPolicies)
+    .set({
+      active: false,
+      lastSeenAt: args.now,
+      lastSeenSignature: args.input.setupSignature,
+      lastSeenSlot: args.input.confirmedSlot,
+    })
+    .where(eq(balanceSweepPolicies.policyAccount, args.existing.policyAccount));
+}
+
 function createBootstrapWalletBalanceEventId(targetId: bigint): bigint {
   return -targetId;
 }
@@ -1211,10 +1328,14 @@ export async function recordPendingAutodepositSetup(
 
   const { client } = dependencies;
   const now = dependencies.now();
-  const existing = await findTargetByPolicy({
+  const existing = await findTargetForAutodepositSetup({
     client,
     policyAccount: input.policyAccount,
+    recurringDelegation: input.recurringDelegation,
   });
+  if (existing) {
+    assertTargetCanResumeAutodepositSetup(existing, input);
+  }
   const closedTarget = assertClosedTargetCanReceiveSetup(
     existing,
     input.confirmedSlot
@@ -1244,6 +1365,65 @@ export async function recordPendingAutodepositSetup(
     false,
     "pending_delegation"
   );
+  if (existing) {
+    const [target] = await client.db
+      .update(balanceSweepTargets)
+      .set({
+        active: false,
+        balanceSweepPolicyId: policy.id,
+        cluster: input.cluster,
+        closeSignature: null,
+        closeSlot: null,
+        closedAt: null,
+        delegatedSigners: [input.delegatedSigner],
+        lastSeenAt: now,
+        lastSeenSignature: input.setupSignature,
+        lastSeenSlot: input.confirmedSlot,
+        lifecycleStatus: "pending_delegation",
+        maxAmountPerPeriod: input.amountPerPeriodRaw,
+        periodLengthSeconds: input.periodLengthSeconds,
+        policyAccount: input.policyAccount,
+        policyConfirmedSlot:
+          input.setupStage === "create_policy"
+            ? input.confirmedSlot
+            : existing.policyConfirmedSlot ?? null,
+        policySeed: input.policySeed,
+        policySignature:
+          input.setupStage === "create_policy"
+            ? input.setupSignature
+            : existing.policySignature ?? null,
+        recurringDelegation: input.recurringDelegation,
+        recurringDelegationConfirmedSlot: null,
+        recurringDelegationExpiryTimestamp: input.expiryTimestamp,
+        recurringDelegationNonce: input.nonce,
+        recurringDelegationSignature: null,
+        startTimestamp: input.startTimestamp,
+        subscriptionAuthority: input.subscriptionAuthority,
+        tokenMint: input.liquidityMint,
+        vaultPubkey: input.vaultPubkey,
+        vaultTokenAta: input.vaultUsdcAta,
+        vaultUsdcAta: input.vaultUsdcAta,
+        walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+        walletTokenAta: input.walletUsdcAta,
+        walletUsdcAta: input.walletUsdcAta,
+      })
+      .where(eq(balanceSweepTargets.id, existing.id))
+      .returning();
+
+    if (!target) {
+      throw new Error("Failed to update pending autodeposit setup.");
+    }
+
+    await markSupersededAutodepositPolicyInactive({
+      client,
+      existing,
+      input,
+      now,
+    });
+
+    return target;
+  }
+
   const [target] = await client.db
     .insert(balanceSweepTargets)
     .values(values)
@@ -1304,10 +1484,14 @@ export async function recordConfirmedAutodepositDelegation(
 
   const { client } = dependencies;
   const now = dependencies.now();
-  const existing = await findTargetByPolicy({
+  const existing = await findTargetForAutodepositSetup({
     client,
     policyAccount: input.policyAccount,
+    recurringDelegation: input.recurringDelegation,
   });
+  if (existing) {
+    assertTargetCanResumeAutodepositSetup(existing, input);
+  }
   const closedTarget = assertClosedTargetCanReceiveSetup(
     existing,
     input.confirmedSlot
@@ -1322,6 +1506,59 @@ export async function recordConfirmedAutodepositDelegation(
   });
 
   const values = targetValuesFromSetup(input, policy.id, now, true, "active");
+  if (existing) {
+    const [target] = await client.db
+      .update(balanceSweepTargets)
+      .set({
+        active: true,
+        balanceSweepPolicyId: policy.id,
+        cluster: input.cluster,
+        closeSignature: null,
+        closeSlot: null,
+        closedAt: null,
+        delegatedSigners: [input.delegatedSigner],
+        lastSeenAt: now,
+        lastSeenSignature: input.setupSignature,
+        lastSeenSlot: input.confirmedSlot,
+        lifecycleStatus: "active",
+        maxAmountPerPeriod: input.amountPerPeriodRaw,
+        periodLengthSeconds: input.periodLengthSeconds,
+        policyAccount: input.policyAccount,
+        policyConfirmedSlot: existing.policyConfirmedSlot ?? null,
+        policySeed: input.policySeed,
+        policySignature: existing.policySignature ?? null,
+        recurringDelegation: input.recurringDelegation,
+        recurringDelegationConfirmedSlot: input.confirmedSlot,
+        recurringDelegationExpiryTimestamp: input.expiryTimestamp,
+        recurringDelegationNonce: input.nonce,
+        recurringDelegationSignature: input.setupSignature,
+        startTimestamp: input.startTimestamp,
+        subscriptionAuthority: input.subscriptionAuthority,
+        tokenMint: input.liquidityMint,
+        vaultPubkey: input.vaultPubkey,
+        vaultTokenAta: input.vaultUsdcAta,
+        vaultUsdcAta: input.vaultUsdcAta,
+        walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+        walletTokenAta: input.walletUsdcAta,
+        walletUsdcAta: input.walletUsdcAta,
+      })
+      .where(eq(balanceSweepTargets.id, existing.id))
+      .returning();
+
+    if (!target) {
+      throw new Error("Failed to update confirmed autodeposit delegation.");
+    }
+
+    await markSupersededAutodepositPolicyInactive({
+      client,
+      existing,
+      input,
+      now,
+    });
+
+    return target;
+  }
+
   const [target] = await client.db
     .insert(balanceSweepTargets)
     .values(values)

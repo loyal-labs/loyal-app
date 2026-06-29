@@ -3262,6 +3262,22 @@ function createSubscriptionCreateRecurringDelegationInstruction(args: {
   });
 }
 
+function resolveEarnAutodepositStartTimestamp(args: {
+  expiryTimestamp: bigint;
+  startTimestamp?: bigint;
+}): bigint {
+  const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+  if (
+    args.startTimestamp === undefined ||
+    (args.startTimestamp !== BigInt(0) && args.startTimestamp <= nowSeconds) ||
+    (args.startTimestamp === BigInt(0) && args.expiryTimestamp === BigInt(0))
+  ) {
+    return nowSeconds;
+  }
+
+  return args.startTimestamp;
+}
+
 function createSubscriptionRevokeDelegationInstruction(args: {
   authority: PublicKey;
   delegation: PublicKey;
@@ -7802,9 +7818,11 @@ export function createSmartAccountVaultsClient(
       args.nonce ?? BigInt(Math.floor(Date.now() / 1000)),
       "nonce"
     );
-    const startTimestamp =
-      args.startTimestamp ?? BigInt(Math.floor(Date.now() / 1000));
     const expiryTimestamp = args.expiryTimestamp ?? BigInt(0);
+    const startTimestamp = resolveEarnAutodepositStartTimestamp({
+      expiryTimestamp,
+      startTimestamp: args.startTimestamp,
+    });
     const vaultPda = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
       settingsPda: args.settingsPda,
@@ -7861,21 +7879,44 @@ export function createSmartAccountVaultsClient(
       await smartAccountsClient.smartAccounts.queries.fetchSettings(
         args.settingsPda
       );
-    const policySeed =
+    const nextPolicySeed = resolveNextPolicySeed(settings).bigint;
+    const requestedPolicySeed =
       args.policySeed !== undefined
         ? normalizeAutodepositU64(args.policySeed, "policySeed")
-        : resolveNextPolicySeed(settings).bigint;
-    const policySeedNumber = Number(policySeed);
-    if (!Number.isSafeInteger(policySeedNumber)) {
-      throw new Error(
-        "Autodeposit policy seed exceeds JavaScript safe integer range."
+        : undefined;
+    let policySeed = requestedPolicySeed ?? nextPolicySeed;
+    const resolvePolicyAccount = (seed: bigint) => {
+      const seedNumber = Number(seed);
+      if (!Number.isSafeInteger(seedNumber)) {
+        throw new Error(
+          "Autodeposit policy seed exceeds JavaScript safe integer range."
+        );
+      }
+
+      return pda.getPolicyPda({
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+        policySeed: seedNumber,
+      })[0];
+    };
+    let policyAccount = resolvePolicyAccount(policySeed);
+    let policyAccountInfo = await config.connection.getAccountInfo(
+      policyAccount,
+      "confirmed"
+    );
+    if (
+      !options.assumePolicyExists &&
+      requestedPolicySeed !== undefined &&
+      !policyAccountInfo &&
+      requestedPolicySeed !== nextPolicySeed
+    ) {
+      policySeed = nextPolicySeed;
+      policyAccount = resolvePolicyAccount(policySeed);
+      policyAccountInfo = await config.connection.getAccountInfo(
+        policyAccount,
+        "confirmed"
       );
     }
-    const policyAccount = pda.getPolicyPda({
-      programId: smartAccountsClient.programId,
-      settingsPda: args.settingsPda,
-      policySeed: policySeedNumber,
-    })[0];
 
     if (!authorityAccount) {
       const prepared = freezePreparedOperation({
@@ -7951,10 +7992,6 @@ export function createSmartAccountVaultsClient(
 
     const expectedSubscriptionAuthorityInitId =
       readSubscriptionAuthorityInitId(authorityAccount);
-    const policyAccountInfo = await config.connection.getAccountInfo(
-      policyAccount,
-      "confirmed"
-    );
     const policyExistsForPlanning =
       options.assumePolicyExists || Boolean(policyAccountInfo);
     const delegationAccount = await config.connection.getAccountInfo(
@@ -7991,7 +8028,9 @@ export function createSmartAccountVaultsClient(
       createSubscriptionSweepProgramInteractionPolicyCreationPayload({
         delegator: args.walletAddress,
         maxAmountPerPeriodRaw: amountPerPeriodRaw,
-        minimumDelegatorBalanceRaw,
+        // The keep-in-wallet floor is mutable app/orchestrator config. Do not
+        // bake it into the immutable policy; post-setup floor edits are DB-only.
+        minimumDelegatorBalanceRaw: undefined,
         mint: usdcMint,
         vaultPda,
         vaultUsdcAta,
@@ -8023,16 +8062,34 @@ export function createSmartAccountVaultsClient(
           } as never
         );
     if (policyCreation) {
-      const prepared = freezePreparedOperation({
-        operation: "earnUsdcAutodepositCreatePolicy",
-        payer: args.feePayer,
-        programId: smartAccountsClient.programId,
-        requiresConfirmation: true,
-        instructions: [...policyCreation.instructions],
-        lookupTableAccounts: dedupeLookupTableAccounts(
-          policyCreation.lookupTableAccounts ?? []
-        ),
-      });
+      const prepared = withEarnPolicyCreateSimulationDiagnostics(
+        freezePreparedOperation({
+          operation: "earnUsdcAutodepositCreatePolicy",
+          payer: args.feePayer,
+          programId: smartAccountsClient.programId,
+          requiresConfirmation: true,
+          instructions: [...policyCreation.instructions],
+          lookupTableAccounts: dedupeLookupTableAccounts(
+            policyCreation.lookupTableAccounts ?? []
+          ),
+        }),
+        {
+          policyAccount,
+          policySeed,
+          policyStage: "autodeposit",
+          programId: smartAccountsClient.programId,
+          settingsPda: args.settingsPda,
+        }
+      );
+      const preparedLength = preparedPacketLength(prepared);
+      if (
+        preparedLength === null ||
+        preparedLength > EARN_POLICY_PACKET_DATA_SIZE
+      ) {
+        throw new Error(
+          "Earn Autodeposit policy setup exceeds the Solana transaction size limit."
+        );
+      }
       const nativeSolRequirement = await estimateNativeSolRequirement({
         connection: config.connection,
         payer: args.feePayer,

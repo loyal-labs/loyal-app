@@ -78,6 +78,19 @@ async function getSimulationDiagnosticError(args: {
 
   const logs = simulation.logs ?? [];
   const translatedError = translateSimulationLogs(logs);
+  const preparedDiagnostic = await getPreparedSimulationDiagnosticError({
+    connection: args.connection,
+    logs,
+    originalError: args.error,
+    prepared: args.prepared,
+    simulationErr: simulation.err,
+    transaction: args.transaction,
+    translatedError,
+  });
+  if (preparedDiagnostic) {
+    return preparedDiagnostic;
+  }
+
   if (
     translatedError &&
     !simulationIndicatesMissingAccount({

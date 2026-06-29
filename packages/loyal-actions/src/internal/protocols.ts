@@ -330,6 +330,14 @@ function delegatorTokenBalanceConstraints(
     return [];
   }
 
+  const minimumBalance = normalizeU64(
+    minimumBalanceRaw,
+    "minimumDelegatorBalanceRaw"
+  );
+  if (minimumBalance === BigInt(0)) {
+    return [];
+  }
+
   return [
     {
       accountIndex: 2,
@@ -338,7 +346,7 @@ function delegatorTokenBalanceConstraints(
         dataConstraints: [
           dataU64LeGreaterThanOrEqualTo(
             SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET,
-            normalizeU64(minimumBalanceRaw, "minimumDelegatorBalanceRaw")
+            minimumBalance
           ),
         ],
       },

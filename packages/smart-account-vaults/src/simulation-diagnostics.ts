@@ -8,6 +8,9 @@ import { PublicKey } from "@solana/web3.js";
 import type { Connection, VersionedTransaction } from "@solana/web3.js";
 
 const SQUADS_MISSING_ACCOUNT_ERROR_CODE = 0x1788;
+const SUBSCRIPTIONS_RECURRING_DELEGATION_START_TIME_IN_PAST_ERROR_CODE = 0x194;
+const EARN_AUTODEPOSIT_CREATE_RECURRING_DELEGATION_OPERATION =
+  "earnUsdcAutodepositCreateRecurringDelegation";
 
 type SimulationDiagnosticContext = {
   connection: Connection;
@@ -24,7 +27,7 @@ export type EarnPolicyCreateSimulationDiagnosticsMetadata = Readonly<{
   kind: "earnPolicyCreateMissingAccount";
   policyAccount: string;
   policySeed: string;
-  policyStage: "route" | "setup";
+  policyStage: "autodeposit" | "route" | "setup";
   programId: string;
   settingsPda: string;
 }>;
@@ -60,7 +63,9 @@ function isEarnPolicyCreateMetadata(
     typeof metadata.policySeed === "string" &&
     typeof metadata.programId === "string" &&
     typeof metadata.settingsPda === "string" &&
-    (metadata.policyStage === "route" || metadata.policyStage === "setup") &&
+    (metadata.policyStage === "autodeposit" ||
+      metadata.policyStage === "route" ||
+      metadata.policyStage === "setup") &&
     Array.isArray(metadata.includedPolicyAccounts) &&
     metadata.includedPolicyAccounts.every(
       (account) => typeof account === "string"
@@ -92,6 +97,38 @@ export function simulationIndicatesMissingAccount(args: {
     new RegExp(`"Custom"\\s*:\\s*${SQUADS_MISSING_ACCOUNT_ERROR_CODE}`).test(
       haystack
     )
+  );
+}
+
+function simulationIndicatesAutodepositStartTimeInPast(args: {
+  logs: readonly string[];
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  simulationErr: unknown;
+  translatedError: Error | null;
+}): boolean {
+  if (
+    args.prepared.operation !==
+    EARN_AUTODEPOSIT_CREATE_RECURRING_DELEGATION_OPERATION
+  ) {
+    return false;
+  }
+
+  const haystack = [
+    args.translatedError?.name,
+    args.translatedError?.message,
+    JSON.stringify(args.simulationErr),
+    args.logs.join("\n"),
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return (
+    /recurringDelegationStartTimeInPast/i.test(haystack) ||
+    /Past start time specified/i.test(haystack) ||
+    /custom program error:\s*0x194/i.test(haystack) ||
+    new RegExp(
+      `"Custom"\\s*:\\s*${SUBSCRIPTIONS_RECURRING_DELEGATION_START_TIME_IN_PAST_ERROR_CODE}`
+    ).test(haystack)
   );
 }
 
@@ -146,7 +183,11 @@ async function getEarnPolicyCreateMissingAccountMessage(args: {
   const programId = new PublicKey(args.metadata.programId);
   const policySeed = BigInt(args.metadata.policySeed);
   const policyDescription =
-    args.metadata.policyStage === "setup" ? "setup policy" : "route policy";
+    args.metadata.policyStage === "autodeposit"
+      ? "autodeposit policy"
+      : args.metadata.policyStage === "setup"
+      ? "setup policy"
+      : "route policy";
   const includedAccounts = args.metadata.includedPolicyAccounts;
   const includedAccountSet = new Set(includedAccounts);
   const nextPolicySeed = await fetchNextPolicySeed({
@@ -166,7 +207,7 @@ async function getEarnPolicyCreateMissingAccountMessage(args: {
         `Missing policy account ${expectedPolicyPda} for expected next policy seed ${nextPolicySeed.toString()}. ` +
         `The prepared Earn ${policyDescription} action uses seed ${policySeed.toString()} ` +
         `and includes policy account(s): ${formatPubkeys(includedAccounts)}. ` +
-        `This usually means the route/setup policy stage is stale or a resumed onboarding flow is sending the setup-policy transaction before the route policy exists on chain.`
+        `This usually means the prepared policy stage is stale or a resumed onboarding flow is sending a policy transaction after another policy already changed the smart-account settings.`
       );
     }
   }
@@ -195,6 +236,23 @@ async function getEarnPolicyCreateMissingAccountMessage(args: {
 export async function getPreparedSimulationDiagnosticError(
   context: SimulationDiagnosticContext
 ): Promise<Error | null> {
+  if (
+    simulationIndicatesAutodepositStartTimeInPast({
+      logs: context.logs,
+      prepared: context.prepared,
+      simulationErr: context.simulationErr,
+      translatedError: context.translatedError,
+    })
+  ) {
+    return createErrorWithCause({
+      cause: context.originalError,
+      logs: context.logs,
+      message:
+        "The Autodeposit approval expired before the wallet could send it. Refresh the Autodeposit setup and try again.",
+      name: "EarnAutodepositStartTimeExpiredSimulationError",
+    });
+  }
+
   if (
     !simulationIndicatesMissingAccount({
       logs: context.logs,

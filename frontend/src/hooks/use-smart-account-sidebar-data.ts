@@ -726,6 +726,26 @@ function isMatchingEarnAutodepositSetupBatch(args: {
   );
 }
 
+function getRequestedEarnAutodepositStartTimestamp(args: {
+  expiryTimestamp?: bigint;
+  startTimestamp?: bigint;
+}): bigint | undefined {
+  if (args.startTimestamp === undefined) {
+    return undefined;
+  }
+
+  if (
+    args.startTimestamp === BigInt(0) &&
+    args.expiryTimestamp !== undefined &&
+    args.expiryTimestamp > BigInt(0)
+  ) {
+    return args.startTimestamp;
+  }
+
+  const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+  return args.startTimestamp > nowSeconds ? args.startTimestamp : undefined;
+}
+
 export type VaultTransferCapability =
   | { kind: "blocked"; reason: string }
   | {
@@ -5979,10 +5999,16 @@ export function useSmartAccountSidebarData(
       }
 
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
+      const requestedStartTimestamp = getRequestedEarnAutodepositStartTimestamp(
+        {
+          expiryTimestamp: request.expiryTimestamp,
+          startTimestamp: request.startTimestamp,
+        }
+      );
 
       setIsActionPending(true);
       try {
-        const preparedSetup =
+        let preparedSetup =
           request.preparedSetup ??
           (await prepareEarnAutodepositSetupOnServer({
             amountRaw: request.amountRaw,
@@ -5990,9 +6016,43 @@ export function useSmartAccountSidebarData(
             nonce: request.nonce,
             periodLengthSeconds: request.periodLengthSeconds,
             policySeed: request.policySeed,
-            startTimestamp: request.startTimestamp,
+            startTimestamp: requestedStartTimestamp,
             walletBalanceFloorRaw: request.walletBalanceFloorRaw,
           }));
+
+        if (preparedSetup.stage === "create_policy") {
+          const refreshedPreparedSetup =
+            await prepareEarnAutodepositSetupOnServer({
+              amountRaw: request.amountRaw,
+              expiryTimestamp:
+                request.expiryTimestamp ??
+                preparedSetup.subscription.expiryTimestamp,
+              nonce: preparedSetup.subscription.nonce,
+              periodLengthSeconds:
+                request.periodLengthSeconds ??
+                preparedSetup.subscription.periodLengthSeconds,
+              policySeed: request.policySeed,
+              startTimestamp: requestedStartTimestamp,
+              walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+            });
+          preparedSetup = refreshedPreparedSetup;
+        }
+
+        if (preparedSetup.stage === "create_recurring_delegation") {
+          preparedSetup = await prepareEarnAutodepositSetupOnServer({
+            amountRaw: request.amountRaw,
+            expiryTimestamp:
+              request.expiryTimestamp ??
+              preparedSetup.subscription.expiryTimestamp,
+            nonce: preparedSetup.subscription.nonce,
+            periodLengthSeconds:
+              request.periodLengthSeconds ??
+              preparedSetup.subscription.periodLengthSeconds,
+            policySeed: preparedSetup.policy.seed ?? request.policySeed,
+            startTimestamp: requestedStartTimestamp,
+            walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+          });
+        }
 
         if (
           preparedSetup.persistence.amountPerPeriodRaw !==
@@ -6024,7 +6084,7 @@ export function useSmartAccountSidebarData(
                 preparedSetup.subscription.periodLengthSeconds,
               policySeed: preparedSetup.policy.seed ?? undefined,
               startTimestamp:
-                request.startTimestamp ??
+                requestedStartTimestamp ??
                 preparedSetup.subscription.startTimestamp,
               walletBalanceFloorRaw: request.walletBalanceFloorRaw,
             });
@@ -6275,11 +6335,10 @@ export function useSmartAccountSidebarData(
           return {
             success: false,
             signature: setupSend.signature,
-            ...(preparedSetup.stage === "initialize_subscription_authority"
-              ? { authorityInitializationSignature: setupSend.signature }
-              : preparedSetup.stage === "create_policy"
-              ? { policySignature: setupSend.signature }
-              : { recurringDelegationSignature: setupSend.signature }),
+            ...getEarnAutodepositSetupSignatureFields(
+              preparedSetup,
+              setupSend.signature
+            ),
             confirmedSlot,
             status: "confirmation_record_failed",
             preparedSetup,
@@ -6302,9 +6361,7 @@ export function useSmartAccountSidebarData(
                   request.periodLengthSeconds ??
                   preparedSetup.subscription.periodLengthSeconds,
                 policySeed: preparedSetup.policy.seed ?? undefined,
-                startTimestamp:
-                  request.startTimestamp ??
-                  preparedSetup.subscription.startTimestamp,
+                startTimestamp: requestedStartTimestamp,
                 walletBalanceFloorRaw: request.walletBalanceFloorRaw,
               });
 
@@ -6333,11 +6390,10 @@ export function useSmartAccountSidebarData(
         return {
           success: true,
           signature: setupSend.signature,
-          ...(preparedSetup.stage === "initialize_subscription_authority"
-            ? { authorityInitializationSignature: setupSend.signature }
-            : preparedSetup.stage === "create_policy"
-            ? { policySignature: setupSend.signature }
-            : { recurringDelegationSignature: setupSend.signature }),
+          ...getEarnAutodepositSetupSignatureFields(
+            preparedSetup,
+            setupSend.signature
+          ),
           confirmedSlot,
           status: "executed",
           preparedSetup,
