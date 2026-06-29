@@ -110,6 +110,20 @@ export function isScheduledSweepAwaitingExecution(
   return sweep.status === "requested" || sweep.status === "selected";
 }
 
+// The sweep's execution window has arrived (`eligibleAfter` passed) — true the
+// moment "Execute now" is tapped, since the backend advances `eligibleAfter` to
+// now. Drives how long the Activity feed keeps polling for the row to resolve:
+// after an execute the worker may sweep (backend drops the slot) or bounce it
+// back to "scheduled" with no surplus (the fresh-balance surplus cap then hides
+// it) — both land outside the "Executing…" status, so a status-based poll would
+// stop too early. Distinct from the status-based "Executing…" label.
+export function isScheduledSweepDue(
+  sweep: EarnAutodepositScheduledSweep,
+): boolean {
+  const eligibleAt = new Date(sweep.eligibleAfter).getTime();
+  return !Number.isNaN(eligibleAt) && eligibleAt <= Date.now();
+}
+
 function relativeDayLabel(date: Date): string {
   const startOfDay = (d: Date) =>
     new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();

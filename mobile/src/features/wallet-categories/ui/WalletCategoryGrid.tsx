@@ -8,6 +8,7 @@ import {
 } from "react-native";
 
 import { EarnSparkline } from "@/components/earn/EarnSparkline";
+import { Skeleton } from "@/components/Skeleton";
 import type { EarnForecastSummary } from "@/lib/solana/earn/earn-api";
 import { Pressable, Text, View } from "@/tw";
 
@@ -68,6 +69,7 @@ function UsdValue({ value }: { value: number }) {
 function EarnCard({
   width,
   usd,
+  loading,
   apyBps,
   summary,
   chartReplayKey,
@@ -76,6 +78,7 @@ function EarnCard({
 }: {
   width: number;
   usd: number;
+  loading?: boolean;
   apyBps: number | null;
   summary: EarnForecastSummary | null;
   chartReplayKey: number;
@@ -116,7 +119,11 @@ function EarnCard({
               </View>
             ) : null}
           </View>
-          <UsdValue value={usd} />
+          {loading ? (
+            <Skeleton style={styles.valueSkeleton} />
+          ) : (
+            <UsdValue value={usd} />
+          )}
         </View>
         <DepositButton onPress={onPressDeposit} />
       </View>
@@ -178,6 +185,7 @@ function Cell({
 
 export function WalletCategoryGrid({
   earnUsd,
+  earnLoading,
   earnApyBps,
   apySummary,
   chartReplayKey,
@@ -190,6 +198,8 @@ export function WalletCategoryGrid({
   onPressCrypto,
 }: {
   earnUsd: number;
+  /** Skeleton the balance figure while the Earn read-model is loading. */
+  earnLoading?: boolean;
   earnApyBps: number | null;
   /** Global Loyal APY forecast + history that feeds the Earn card sparkline. */
   apySummary: EarnForecastSummary | null;
@@ -214,6 +224,7 @@ export function WalletCategoryGrid({
         <EarnCard
           width={contentWidth}
           usd={earnUsd}
+          loading={earnLoading}
           apyBps={earnApyBps}
           summary={apySummary}
           chartReplayKey={chartReplayKey}
@@ -331,6 +342,14 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     letterSpacing: -0.22,
     color: "#000000",
+  },
+  // Stand-in for the balance figure while it loads. Sized to the 24px value
+  // line (20 + 2 + 2) so the real number drops in without nudging the row.
+  valueSkeleton: {
+    height: 20,
+    width: 96,
+    marginVertical: 2,
+    borderRadius: 6,
   },
   valueCents: {
     fontFamily: "Geist_600SemiBold",

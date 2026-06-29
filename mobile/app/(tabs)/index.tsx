@@ -7,6 +7,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
   Easing,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -22,6 +23,7 @@ import { EarnDog } from "@/components/earn/EarnDog";
 import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { PositionsSheet } from "@/components/earn/PositionsSheet";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
+import { Skeleton } from "@/components/Skeleton";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useAppReady } from "@/lib/app-ready";
@@ -91,6 +93,12 @@ const LINES_START_MS = 200;
 const BADGE_START_MS = 2050;
 const BADGE_MS = 500;
 
+// Cross-fade between the promo hero (shown to everyone while the balance loads)
+// and the funded Earn layout, so the swap when the balance arrives reads as a
+// dissolve rather than a hard cut. Also drives the bottom card's corner radius.
+const STATE_FADE_MS = 480;
+const FUNDED_CARD_RADIUS = 26;
+
 // Maps a live on-chain holding to the source shape the positions sheet renders
 // (display-only: it reads market/liquidityMint/amountRaw and `id` as the row
 // key). The withdraw flow continues to use the real `withdrawSources`.
@@ -131,8 +139,19 @@ export default function EarnScreen() {
   // Real on-chain Earn position (read-only, no signing). Drives the funded
   // state + balance once it loads; the optimistic just-deposited value below
   // bridges the gap until the read-model catches up.
-  const { position, holdings, refreshEarnPosition } =
-    useEarnPosition(walletAddress);
+  const {
+    position,
+    holdings,
+    isLoading: isEarnPositionLoading,
+    hasLoaded: earnPositionLoaded,
+    refreshEarnPosition,
+  } = useEarnPosition(walletAddress);
+  // The Earn balance read lags (live holdings + read-model), so never show a
+  // stale/zero figure: skeleton the number until the first read settles, and
+  // again on every refocus refetch, until the fresh value lands. Only while a
+  // wallet is connected — a locked wallet has no balance to load.
+  const balanceLoading =
+    walletAddress != null && (isEarnPositionLoading || !earnPositionLoaded);
   // Global "loyal" APY forecast — the same source the APY chart (and the web)
   // show as the headline rate, so the badge below matches them instead of the
   // position's raw reserve supply APY.
@@ -198,6 +217,14 @@ export default function EarnScreen() {
 
   const dogHeight = width * DOG_NATURAL_RATIO;
 
+  // Cross-fade drivers between the promo hero and the funded layout. heroFade
+  // starts opaque (promo shows first); fundedFade starts hidden and also drives
+  // the bottom card's corner radius (0 → 26). `showHero` keeps the promo mounted
+  // through its fade-out, then drops it.
+  const heroFade = useSharedValue(1);
+  const fundedFade = useSharedValue(0);
+  const [showHero, setShowHero] = useState(true);
+
   // Reveal drivers. riseY starts sunk so the first paint already shows just the
   // ears; the line/badge progress values run 0 → 1.
   const riseY = useSharedValue(width * DOG_SINK_RATIO);
@@ -247,6 +274,37 @@ export default function EarnScreen() {
       setHasDeposit(true);
     }
   }, [position]);
+
+  // Cross-fade the promo hero ↔ funded layout whenever the funded state flips.
+  // Forward (balance loaded) is the common path: funded fades in while the promo
+  // fades out and then unmounts. Reverse (a full withdraw) fades the promo back.
+  useEffect(() => {
+    if (hasDeposit) {
+      fundedFade.value = withTiming(1, {
+        duration: STATE_FADE_MS,
+        easing: ENTER_EASING,
+      });
+      heroFade.value = withTiming(
+        0,
+        { duration: STATE_FADE_MS, easing: ENTER_EASING },
+        (finished) => {
+          if (finished) {
+            runOnJS(setShowHero)(false);
+          }
+        },
+      );
+    } else {
+      setShowHero(true);
+      heroFade.value = withTiming(1, {
+        duration: STATE_FADE_MS,
+        easing: ENTER_EASING,
+      });
+      fundedFade.value = withTiming(0, {
+        duration: STATE_FADE_MS,
+        easing: ENTER_EASING,
+      });
+    }
+  }, [hasDeposit, heroFade, fundedFade]);
 
   // Only (re)play once the tab is focused AND visible (splash/lock cleared), so
   // the reveal never runs hidden during boot.
@@ -321,6 +379,12 @@ export default function EarnScreen() {
   const badgeStyle = useAnimatedStyle(() => ({
     opacity: badge.value,
     transform: [{ scale: 0.7 + badge.value * 0.3 }],
+  }));
+  const heroLayerStyle = useAnimatedStyle(() => ({ opacity: heroFade.value }));
+  const fundedLayerStyle = useAnimatedStyle(() => ({ opacity: fundedFade.value }));
+  const bottomCardRadiusStyle = useAnimatedStyle(() => ({
+    borderTopLeftRadius: fundedFade.value * FUNDED_CARD_RADIUS,
+    borderTopRightRadius: fundedFade.value * FUNDED_CARD_RADIUS,
   }));
 
   const handleOpenDeposit = useCallback(() => {
@@ -577,7 +641,7 @@ export default function EarnScreen() {
     <View style={styles.root}>
       <View style={[styles.topArea, { paddingTop: insets.top + 8 }]}>
         {hasDeposit ? (
-          <>
+          <Animated.View style={[styles.fundedLayer, fundedLayerStyle]}>
             <View style={styles.header}>
               <Text style={styles.title}>Earn</Text>
               <View style={styles.badge}>
@@ -667,9 +731,17 @@ export default function EarnScreen() {
                 </View>
               </View>
             </View>
-          </>
-        ) : (
-          <>
+          </Animated.View>
+        ) : null}
+        {showHero ? (
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              { paddingTop: insets.top + 8 },
+              heroLayerStyle,
+            ]}
+          >
             {/* Behind the copy so the headline + badge always sit on top. */}
             <Animated.View
               pointerEvents="none"
@@ -713,14 +785,14 @@ export default function EarnScreen() {
                 </View>
               </Animated.View>
             </View>
-          </>
-        )}
+          </Animated.View>
+        ) : null}
       </View>
 
-      <View
+      <Animated.View
         style={[
           styles.bottomCard,
-          hasDeposit ? styles.bottomCardRounded : null,
+          bottomCardRadiusStyle,
           { paddingBottom: TAB_BAR_RESERVED_HEIGHT + insets.bottom },
         ]}
       >
@@ -740,12 +812,18 @@ export default function EarnScreen() {
 
             <View style={styles.balanceRow}>
               <Text style={styles.balanceLabel}>Earn Balance</Text>
-              <Text style={styles.balanceValue}>
-                <Text style={styles.balanceValueStrong}>
-                  {balanceParts.whole}
+              {balanceLoading ? (
+                <Skeleton style={styles.balanceSkeleton} />
+              ) : (
+                <Text style={styles.balanceValue}>
+                  <Text style={styles.balanceValueStrong}>
+                    {balanceParts.whole}
+                  </Text>
+                  <Text style={styles.balanceValueDim}>
+                    {balanceParts.cents}
+                  </Text>
                 </Text>
-                <Text style={styles.balanceValueDim}>{balanceParts.cents}</Text>
-              </Text>
+              )}
             </View>
 
             <View style={styles.actionRow}>
@@ -790,7 +868,7 @@ export default function EarnScreen() {
             </View>
           </Animated.View>
         </GestureDetector>
-      </View>
+      </Animated.View>
 
       <DepositSheet
         open={depositOpen}
@@ -847,6 +925,12 @@ const styles = StyleSheet.create({
     flex: 1,
     position: "relative",
     overflow: "hidden",
+  },
+  // Funded layout, cross-faded in over the promo hero. flex:1 so it fills the
+  // top area the same way the bare funded children used to (EarnChartTabs pins
+  // the autodeposit row to the bottom).
+  fundedLayer: {
+    flex: 1,
   },
   // Pre-deposit hero (Figma 3883:18252).
   hero: {
@@ -1023,12 +1107,6 @@ const styles = StyleSheet.create({
   footerInner: {
     gap: 8,
   },
-  // Rounded top only in the deposited state; the empty hero meets the dog with
-  // a flush, square edge (Figma 3883:18287).
-  bottomCardRounded: {
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-  },
   // Top drag handle on the funded footer — taps open the positions sheet
   // (Figma 74:20241 / 75:33852).
   handleHit: {
@@ -1072,6 +1150,15 @@ const styles = StyleSheet.create({
     fontSize: 36,
     lineHeight: 48,
     color: COLOR_BALANCE_DIM,
+  },
+  // Stand-in for the balance number while it loads. Sized to the 48px line box
+  // (36 + 6 + 6) so swapping in the real figure doesn't shift the layout. Tint
+  // comes from Skeleton's light-surface default (this card is white).
+  balanceSkeleton: {
+    height: 36,
+    width: 150,
+    marginVertical: 6,
+    borderRadius: 10,
   },
   actionRow: {
     flexDirection: "row",

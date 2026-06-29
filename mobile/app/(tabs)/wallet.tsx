@@ -85,8 +85,17 @@ export default function WalletScreen() {
     useTokenHoldings(walletAddress);
   const { earnings: kaminoEarnings, refresh: refreshKaminoEarnings } =
     useKaminoEarnings();
-  const { position: earnPosition, refreshEarnPosition } =
-    useEarnPosition(walletAddress);
+  const {
+    position: earnPosition,
+    isLoading: isEarnLoading,
+    hasLoaded: earnLoaded,
+    refreshEarnPosition,
+  } = useEarnPosition(walletAddress);
+  // The Earn balance reads from a lagging read-model, so skeleton the card's
+  // figure until a read settles (and again while one is in flight) instead of
+  // flashing $0. Only while a wallet is connected.
+  const earnLoading =
+    walletAddress != null && (isEarnLoading || !earnLoaded);
   // Loyal APY forecast — the Earn card shows the same headline rate as the Earn
   // screen / APY chart / web, not the position's raw reserve supply APY.
   const forecastSummary = useEarnForecast();
@@ -394,6 +403,7 @@ export default function WalletScreen() {
           <View style={{ flex: 1, marginTop: 16 }}>
             <WalletCategoryGrid
               earnUsd={earnUsd}
+              earnLoading={earnLoading}
               earnApyBps={earnApyBps}
               apySummary={forecastSummary}
               chartReplayKey={chartReplayKey}

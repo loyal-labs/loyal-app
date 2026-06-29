@@ -15,6 +15,9 @@ export function useEarnEarnings(walletAddress: string | null) {
   const [earnings, setEarnings] = useState<EarnEarningsResponse | null>(null);
   const [fetchedAtMs, setFetchedAtMs] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // Flips true once a fetch settles (success OR error) so a failed read shows
+  // the empty chart rather than a forever-pulsing skeleton.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
 
   const refreshEarnings = useCallback(async () => {
@@ -34,6 +37,7 @@ export function useEarnEarnings(walletAddress: string | null) {
     } finally {
       if (fetchId === fetchIdRef.current) {
         setIsLoading(false);
+        setHasLoaded(true);
       }
     }
   }, [walletAddress]);
@@ -44,8 +48,9 @@ export function useEarnEarnings(walletAddress: string | null) {
     } else {
       setEarnings(null);
       setFetchedAtMs(null);
+      setHasLoaded(false);
     }
   }, [walletAddress, refreshEarnings]);
 
-  return { earnings, fetchedAtMs, isLoading, refreshEarnings };
+  return { earnings, fetchedAtMs, isLoading, hasLoaded, refreshEarnings };
 }

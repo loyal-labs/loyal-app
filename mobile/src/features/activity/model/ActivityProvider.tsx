@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import {
   createContext,
   type ReactNode,
@@ -5,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -24,7 +26,7 @@ import type {
 import {
   EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
   getVisibleEarnScheduledSweeps,
-  isScheduledSweepAwaitingExecution,
+  isScheduledSweepDue,
 } from "@/lib/solana/earn/earn-scheduled-sweep";
 import { earnTransactionTimestampMs } from "@/lib/solana/earn/earn-tx-display";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
@@ -64,6 +66,14 @@ type ActivityContextValue = {
 
 const ActivityContext = createContext<ActivityContextValue | null>(null);
 
+// Cadence + bound for polling a due scheduled sweep to resolution. Short ticks so
+// the row clears promptly after an execute — the server-side reconcile drops it on
+// the next read once the worker has reverted/failed the slot. Capped (~40s) so a
+// backend-stuck slot can't poll forever (a manual pull works after that). The
+// floor on perceived latency is the worker's async revert, not this interval.
+const DUE_SWEEP_POLL_MS = 2000;
+const MAX_DUE_SWEEP_POLLS = 20;
+
 // Owns the wallet + Earn activity feeds app-wide so the bottom-nav dot stays
 // live even before the Activity screen is first opened, and so the screen and
 // the nav share a single fetch. Mounted once around the tab navigator.
@@ -76,7 +86,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     isLoading: isFetchingEarn,
     refresh: refreshEarnTransactions,
   } = useEarnActivity(publicKey);
-  const { autodeposit, refreshAutodeposit } = useEarnAutodeposit(publicKey);
+  const { autodeposit, refreshAutodeposit: refreshAutodepositState } =
+    useEarnAutodeposit(publicKey);
 
   // The visibility cap needs the live wallet USDC balance (see
   // getVisibleEarnScheduledSweeps) so a scheduled slot whose surplus was already
@@ -96,7 +107,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         /^\d+$/.test(sweep.remainingAmountRaw) &&
         BigInt(sweep.remainingAmountRaw) >= EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
     );
-  const { tokenHoldings } = useTokenHoldings(
+  const { tokenHoldings, refreshTokenHoldings } = useTokenHoldings(
     hasScheduledSweepCandidate ? publicKey : null,
   );
   const walletUsdcRaw = useMemo<bigint | null>(() => {
@@ -123,25 +134,44 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     [autodeposit, walletUsdcRaw, scheduledSweepFloorRaw],
   );
 
-  // While a sweep is mid-execution the backend drops it from the response once
-  // the worker finishes (or flips it to a retryable status) — but only a refetch
-  // surfaces that. Without this the "Executing…" row would sit forever until the
-  // user leaves the screen. Poll the Autodeposit state while anything is
-  // executing; the interval tears down the moment nothing is.
-  const hasExecutingSweep = earnScheduledSweeps.some(
-    isScheduledSweepAwaitingExecution,
-  );
+  // Re-read Autodeposit state AND the wallet balance the surplus cap depends on.
+  // The force holdings refresh is the point: after an execute the scheduled slot
+  // can linger server-side, so only a fresh balance (now back at the floor) lets
+  // the cap drop the row — a stale cached balance keeps showing it. No-op when
+  // there's no candidate sweep (the holdings hook is idle with a null address).
+  const refreshAutodeposit = useCallback(async () => {
+    await Promise.all([refreshAutodepositState(), refreshTokenHoldings(true)]);
+  }, [refreshAutodepositState, refreshTokenHoldings]);
+
+  // After an execute the row should resolve itself: the worker either runs the
+  // sweep (backend drops the slot) or bounces it back with no surplus (the
+  // fresh-balance surplus cap hides it). Both land outside the "Executing…"
+  // status, so we poll while a sweep is DUE (its window has passed) rather than
+  // only while executing — otherwise polling stops at the revert and the stale
+  // row lingers until a manual pull. `refreshAutodeposit` also force-refreshes
+  // the wallet balance, so each tick re-evaluates the cap. Bounded so a
+  // backend-stuck slot can't poll forever; a manual pull still works after that.
+  const hasDueScheduledSweep = earnScheduledSweeps.some(isScheduledSweepDue);
   useEffect(() => {
-    if (!hasExecutingSweep) {
+    if (!hasDueScheduledSweep) {
       return;
     }
+    let polls = 0;
     const intervalId = setInterval(() => {
       void refreshAutodeposit();
-    }, 8000);
+      polls += 1;
+      if (polls >= MAX_DUE_SWEEP_POLLS) {
+        clearInterval(intervalId);
+      }
+    }, DUE_SWEEP_POLL_MS);
     return () => clearInterval(intervalId);
-  }, [hasExecutingSweep, refreshAutodeposit]);
+  }, [hasDueScheduledSweep, refreshAutodeposit]);
 
   const [isExecutingSweep, setIsExecutingSweep] = useState(false);
+  // Ids of sweeps the user kicked off via "Execute now". Once one drops out of
+  // the pending list it has landed in Earn, so we send the user to the Earn
+  // screen (see effect below). A ref, not state — it must not re-render.
+  const executedSweepIdsRef = useRef<Set<string>>(new Set());
 
   // Trigger the pending sweep now. The endpoint only advances the sweep's
   // eligibility (the worker still runs it), so we refresh the autodeposit state
@@ -151,9 +181,15 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     if (!signer || !isWalletUnlocked(state) || isExecutingSweep) {
       return;
     }
+    // Snapshot which sweeps this execute targets so the navigation effect can
+    // watch them resolve (the endpoint runs whatever's pending for the wallet).
+    const targetIds = earnScheduledSweeps.map((sweep) => sweep.id);
     setIsExecutingSweep(true);
     try {
       await executeEarnAutodepositScheduledSweep({ signer });
+      for (const id of targetIds) {
+        executedSweepIdsRef.current.add(id);
+      }
       await Promise.all([refreshAutodeposit(), refreshEarnTransactions()]);
     } catch (error) {
       console.warn("[autodeposit] execute scheduled sweep failed", error);
@@ -164,9 +200,33 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     signer,
     state,
     isExecutingSweep,
+    earnScheduledSweeps,
     refreshAutodeposit,
     refreshEarnTransactions,
   ]);
+
+  // When an executed sweep drops out of the pending list, the worker has moved
+  // it into Earn — take the user to the Earn screen to see the topped-up
+  // balance. Only fires for sweeps the user ran (tracked above), and only once
+  // all of them resolve, so a still-pending/failed sibling doesn't redirect
+  // early.
+  useEffect(() => {
+    const tracked = executedSweepIdsRef.current;
+    if (tracked.size === 0) {
+      return;
+    }
+    const visibleIds = new Set(earnScheduledSweeps.map((sweep) => sweep.id));
+    let resolvedAny = false;
+    for (const id of tracked) {
+      if (!visibleIds.has(id)) {
+        tracked.delete(id);
+        resolvedAny = true;
+      }
+    }
+    if (resolvedAny && tracked.size === 0) {
+      router.navigate("/(tabs)");
+    }
+  }, [earnScheduledSweeps]);
 
   const newestWalletTs = useMemo(() => {
     let newest = 0;

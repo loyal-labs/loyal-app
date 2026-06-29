@@ -35,6 +35,10 @@ export function useEarnPosition(walletAddress: string | null) {
   // withdraw-sources read.
   const [holdings, setHoldings] = useState<EarnHoldingItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // Flips true once a fetch settles for the current wallet. Lets the UI tell
+  // "not loaded yet" (skeleton) apart from "loaded, genuinely empty" ($0) — the
+  // position read can legitimately resolve to null for a wallet with no Earn.
+  const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
 
   const refreshEarnPosition = useCallback(async () => {
@@ -69,6 +73,7 @@ export function useEarnPosition(walletAddress: string | null) {
     } finally {
       if (fetchId === fetchIdRef.current) {
         setIsLoading(false);
+        setHasLoaded(true);
       }
     }
   }, [walletAddress]);
@@ -79,8 +84,9 @@ export function useEarnPosition(walletAddress: string | null) {
     } else {
       setPosition(null);
       setHoldings([]);
+      setHasLoaded(false);
     }
   }, [walletAddress, refreshEarnPosition]);
 
-  return { position, holdings, isLoading, refreshEarnPosition };
+  return { position, holdings, isLoading, hasLoaded, refreshEarnPosition };
 }

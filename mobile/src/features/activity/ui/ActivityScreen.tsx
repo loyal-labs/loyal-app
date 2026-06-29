@@ -1,5 +1,5 @@
 import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { RefreshControl, StyleSheet } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
@@ -7,6 +7,7 @@ import { ScrollView, Text, View } from "@/tw";
 
 import type { ActivitySection } from "../model/activity-unread";
 import { useActivity } from "../model/ActivityProvider";
+import { ActivityListSkeleton } from "./ActivityListSkeleton";
 import { ActivitySegmentedControl } from "./ActivitySegmentedControl";
 import { EarnActivityList } from "./EarnActivityList";
 import { WalletActivityList } from "./WalletActivityList";
@@ -29,6 +30,12 @@ export function ActivityScreen({
   const [section, setSection] = useState<ActivitySection>(
     initialSection ?? "wallet",
   );
+  // The segmented control reacts to `section` immediately (snappy pill), but the
+  // heavy, non-virtualized feed renders off a deferred copy so the tap never
+  // blocks. While they differ we're mid-switch — show a skeleton instead of the
+  // outgoing feed so it reads as loading, not frozen.
+  const deferredSection = useDeferredValue(section);
+  const isSwitching = deferredSection !== section;
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Deep links (e.g. landing here right after setting up an Autodeposit) select
@@ -91,7 +98,13 @@ export function ActivityScreen({
           />
         </View>
 
-        {section === "wallet" ? <WalletActivityList /> : <EarnActivityList />}
+        {isSwitching ? (
+          <ActivityListSkeleton />
+        ) : deferredSection === "wallet" ? (
+          <WalletActivityList />
+        ) : (
+          <EarnActivityList />
+        )}
       </ScrollView>
     </View>
   );

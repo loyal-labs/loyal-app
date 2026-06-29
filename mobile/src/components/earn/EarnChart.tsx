@@ -22,6 +22,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { Skeleton } from "@/components/Skeleton";
 import { useEarnEarnings } from "@/hooks/wallet/useEarnEarnings";
 import type { EarnEarningsBar } from "@/lib/solana/earn/earn-api";
 import { getShowTips } from "@/lib/settings";
@@ -345,12 +346,53 @@ function buildDailyValues(bars: EarnEarningsBar[], liveTotal: number): number[] 
   );
 }
 
+// Dark-surface skeleton tint — the chart lives on the black Earn hero, so the
+// light-surface default would glare.
+const SKELETON_TINT = "rgba(255, 255, 255, 0.12)";
+const SKELETON_BAR_COUNT = 30;
+// A static, believable bar silhouette so the placeholder reads as the earnings
+// chart. Deterministic wave (no random) so it never reflows between renders.
+const SKELETON_BAR_RATIOS = Array.from({ length: SKELETON_BAR_COUNT }, (_, i) =>
+  Math.max(0.18, Math.min(1, 0.55 + 0.4 * Math.sin(i * 0.7) * Math.cos(i * 0.27))),
+);
+
+// Loading placeholder mirroring the chart's anatomy — headline value, subtitle +
+// axis label, the bar field, and the date axis — each pulsing. Same paddings as
+// the real chart so the swap-in doesn't shift anything.
+function ChartSkeleton() {
+  return (
+    <View style={styles.root}>
+      <Skeleton style={styles.skeletonValue} />
+      <View style={styles.subtitleRow}>
+        <Skeleton style={styles.skeletonSubtitle} />
+        <Skeleton style={styles.skeletonAxis} />
+      </View>
+      <Skeleton style={[styles.barsRow, { gap: BAR_GAP }]}>
+        {SKELETON_BAR_RATIOS.map((ratio, i) => (
+          <View
+            key={i}
+            style={[styles.skeletonBar, { height: `${Math.round(ratio * 100)}%` }]}
+          />
+        ))}
+      </Skeleton>
+      <View style={styles.dateAxis}>
+        <Skeleton style={[styles.skeletonDate, styles.dateStart]} />
+        <Skeleton style={[styles.skeletonDate, styles.dateEnd]} />
+      </View>
+    </View>
+  );
+}
+
 export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
-  const { earnings, fetchedAtMs } = useEarnEarnings(walletAddress);
+  const { earnings, fetchedAtMs, hasLoaded } = useEarnEarnings(walletAddress);
   const bars = useMemo(() => earnings?.bars ?? [], [earnings]);
   const barCount = bars.length;
   const lastIndex = Math.max(0, barCount - 1);
   const hasData = barCount > 0;
+  // Show the skeleton only until the first read settles. Once it has (with bars,
+  // or empty/errored), we never fall back to it — so a quiet refresh of an
+  // already-drawn chart doesn't blink, and a failed read shows the empty chart.
+  const showSkeleton = !hasData && !hasLoaded;
 
   // Live odometer inputs.
   const principalUsd = earnings?.principalUsd ?? 0;
@@ -497,6 +539,11 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
   const selectedBar = bars[activeIdx];
   const cursorCenterX =
     barCount > 0 ? ((activeIdx + 0.5) / barCount) * chartWidth : 0;
+
+  // Placed after all hooks so the hook order stays stable across the swap.
+  if (showSkeleton) {
+    return <ChartSkeleton />;
+  }
 
   return (
     <Animated.View style={[styles.root, rootAnimatedStyle]}>
@@ -741,5 +788,38 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 0,
     top: 0,
+  },
+  // Loading skeleton — sized to the 48px value line box (36 + 6 + 6) and the
+  // surrounding rows so the real chart drops in without a layout jump.
+  skeletonValue: {
+    height: 36,
+    width: 170,
+    marginVertical: 6,
+    borderRadius: 10,
+    backgroundColor: SKELETON_TINT,
+  },
+  skeletonSubtitle: {
+    height: 14,
+    width: 130,
+    borderRadius: 7,
+    backgroundColor: SKELETON_TINT,
+  },
+  skeletonAxis: {
+    height: 14,
+    width: 48,
+    borderRadius: 7,
+    backgroundColor: SKELETON_TINT,
+  },
+  skeletonBar: {
+    flex: 1,
+    minWidth: 1,
+    borderRadius: BAR_RADIUS,
+    backgroundColor: SKELETON_TINT,
+  },
+  skeletonDate: {
+    height: 12,
+    width: 36,
+    borderRadius: 6,
+    backgroundColor: SKELETON_TINT,
   },
 });
