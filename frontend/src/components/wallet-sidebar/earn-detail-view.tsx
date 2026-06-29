@@ -5971,6 +5971,7 @@ function EarnDepositChartsSection({
 }
 
 export function EarnDepositView({
+  existingPrincipalAmount = 0,
   isSubmitting = false,
   onClose,
   onDraftChange,
@@ -5982,6 +5983,7 @@ export function EarnDepositView({
   submitCtaLabel = null,
   submitError = null,
 }: {
+  existingPrincipalAmount?: number;
   isSubmitting?: boolean;
   onClose?: () => void;
   defaultChartTab?: EarnDepositChartTab;
@@ -6024,7 +6026,11 @@ export function EarnDepositView({
   const effectiveDepositAmountLabel = isMaximumDepositMode
     ? formatDepositAmount(selectedSourceBalance)
     : depositAmount;
-  const forecastAmount = effectiveDepositAmount;
+  const forecastBaseAmount =
+    Number.isFinite(existingPrincipalAmount) && existingPrincipalAmount > 0
+      ? existingPrincipalAmount
+      : 0;
+  const forecastAmount = forecastBaseAmount + effectiveDepositAmount;
   const forecastAmountLabel = `$${formatEarnActionCtaAmount(forecastAmount)}`;
   const amountError =
     effectiveDepositAmount < MIN_DEPOSIT_USDC

@@ -6311,6 +6311,9 @@ export function AppWalletWorkspace({
       return (
         <EarnDepositView
           defaultChartTab={canMutateAccount ? "Forecast" : "Historical"}
+          existingPrincipalAmount={
+            isEarnDepositSubViewActive ? earnPrincipalAmount : 0
+          }
           isSubmitting={
             smartAccountData.isActionPending || isEarnDepositPreparePending
           }
