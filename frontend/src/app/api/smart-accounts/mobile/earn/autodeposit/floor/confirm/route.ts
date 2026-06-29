@@ -48,9 +48,11 @@ function serializeScheduledSweep(
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
     id: sweep.id.toString(),
+    lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
     reason: sweep.reason,
     remainingAmountRaw: sweep.remainingAmountRaw.toString(),
+    slotId: sweep.slotId.toString(),
     status: sweep.status,
   };
 }

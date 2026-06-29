@@ -16,9 +16,8 @@ import {
 // instead of waiting out its ~1h window. The web route trusts the session
 // principal; mobile authenticates with a purpose-scoped wallet signature, then
 // self-resolves the smart account before the shared repository call. Like the
-// session route, the sweep is identified from the wallet's active policy (no
-// body params) and execution is delegated to the worker by advancing
-// `eligibleAfter`. Keep in sync with the session route.
+// session route, execution is delegated to the worker by advancing the chosen
+// scheduled slot. Keep in sync with the session route.
 const EARN_VAULT_INDEX = 1 as const;
 
 function jsonError(
@@ -48,8 +47,26 @@ function serializeRequestResult(
     acceleratedAmountRaw: result.acceleratedAmountRaw.toString(),
     acceleratedLotCount: result.acceleratedLotCount,
     eligibleAfter: result.eligibleAfter.toISOString(),
+    slotId: result.slotId.toString(),
+    status: result.status,
     targetId: result.targetId.toString(),
   };
+}
+
+function parseOptionalSlotId(body: unknown): bigint | null {
+  if (!body || typeof body !== "object" || !("slotId" in body)) {
+    return null;
+  }
+
+  const { slotId } = body as { slotId?: unknown };
+  if (slotId === null || slotId === undefined || slotId === "") {
+    return null;
+  }
+  if (typeof slotId !== "string" || !/^\d+$/.test(slotId)) {
+    throw new Error("Invalid Autodeposit scheduled slot.");
+  }
+
+  return BigInt(slotId);
 }
 
 export async function POST(request: Request) {
@@ -58,6 +75,19 @@ export async function POST(request: Request) {
     body = await request.json();
   } catch {
     return jsonError(400, "invalid_request", "Invalid request body.");
+  }
+
+  let slotId: bigint | null = null;
+  try {
+    slotId = parseOptionalSlotId(body);
+  } catch (error) {
+    return jsonError(
+      400,
+      "invalid_request",
+      error instanceof Error
+        ? error.message
+        : "Invalid Autodeposit scheduled slot."
+    );
   }
 
   let walletAddress: string;
@@ -131,7 +161,9 @@ export async function POST(request: Request) {
     }
 
     const requestResult =
-      await requestImmediateEarnAutodepositScheduledSweep(autodeposit);
+      await requestImmediateEarnAutodepositScheduledSweep(autodeposit, {
+        slotId,
+      });
 
     if (!requestResult) {
       return jsonError(

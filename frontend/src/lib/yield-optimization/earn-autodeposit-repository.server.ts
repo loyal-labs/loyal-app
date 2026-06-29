@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
 
 import type {
   ConfirmedEarnAutodepositCloseInput,
@@ -12,6 +12,7 @@ import {
   balanceSweepLotClaimItems,
   balanceSweepLotClaims,
   balanceSweepPolicies,
+  balanceSweepScheduledSlots,
   balanceSweepSurplusLots,
   balanceSweepTargets,
   balanceSweepWalletBalanceEvents,
@@ -95,22 +96,25 @@ export type BalanceSweepWalletBalanceCurrentRecord =
   typeof balanceSweepWalletBalancesCurrent.$inferSelect;
 export type BalanceSweepExecutionRecord =
   typeof balanceSweepExecutions.$inferSelect;
-export type PendingEarnAutodepositScheduledSweepRecord = Pick<
-  typeof balanceSweepSurplusLots.$inferSelect,
-  | "classification"
-  | "confidence"
-  | "eligibleAfter"
-  | "id"
-  | "originalAmountRaw"
-  | "reason"
-  | "remainingAmountRaw"
-  | "status"
->;
+export type PendingEarnAutodepositScheduledSweepRecord = {
+  classification: string;
+  confidence: string;
+  eligibleAfter: Date;
+  id: bigint;
+  lotCount: number;
+  originalAmountRaw: bigint;
+  reason: string;
+  remainingAmountRaw: bigint;
+  slotId: bigint;
+  status: string;
+};
 
 export type ImmediateEarnAutodepositScheduledSweepRequestResult = {
   acceleratedAmountRaw: bigint;
   acceleratedLotCount: number;
   eligibleAfter: Date;
+  slotId: bigint;
+  status: string;
   targetId: bigint;
 };
 
@@ -164,6 +168,10 @@ export type EarnAutodepositHistoryEventRecord = {
 type EarnAutodepositRepositoryDependencies = {
   client: YieldOptimizationClient;
   now: () => Date;
+};
+
+type ImmediateEarnAutodepositScheduledSweepRequestOptions = {
+  slotId?: bigint | null;
 };
 
 function createDependencies(): EarnAutodepositRepositoryDependencies {
@@ -255,7 +263,80 @@ function getExecuteRows(result: unknown): Record<string, unknown>[] {
 function isOpenScheduledSweep(
   sweep: PendingEarnAutodepositScheduledSweepRecord
 ): boolean {
-  return sweep.status === "open" && sweep.remainingAmountRaw > BigInt(0);
+  return sweep.status === "scheduled" && sweep.remainingAmountRaw > BigInt(0);
+}
+
+async function ensureScheduledAutodepositSlot(
+  input: {
+    eligibleAfter: Date;
+    mint: string;
+    targetId: bigint;
+  },
+  dependencies: Pick<EarnAutodepositRepositoryDependencies, "client" | "now">
+): Promise<bigint> {
+  const now = dependencies.now();
+  const queryResult = await dependencies.client.db.execute(sql`
+    WITH existing_slot AS (
+      SELECT slot.id
+      FROM ${balanceSweepScheduledSlots} AS slot
+      WHERE slot.target_id = ${input.targetId}
+        AND slot.token_mint = ${input.mint}
+        AND slot.status = 'scheduled'
+      ORDER BY slot.eligible_after ASC, slot.id ASC
+      LIMIT 1
+    ),
+    updated_slot AS (
+      UPDATE ${balanceSweepScheduledSlots} AS slot
+      SET eligible_after = GREATEST(slot.eligible_after, ${input.eligibleAfter}),
+          updated_at = ${now}
+      WHERE slot.id IN (SELECT id FROM existing_slot)
+      RETURNING slot.id
+    ),
+    inserted_slot AS (
+      INSERT INTO ${balanceSweepScheduledSlots} (
+        target_id,
+        token_mint,
+        eligible_after,
+        status,
+        created_at,
+        updated_at
+      )
+      SELECT
+        ${input.targetId},
+        ${input.mint},
+        ${input.eligibleAfter},
+        'scheduled',
+        ${now},
+        ${now}
+      WHERE NOT EXISTS (SELECT 1 FROM updated_slot)
+      RETURNING id
+    )
+    SELECT id FROM updated_slot
+    UNION ALL
+    SELECT id FROM inserted_slot
+    LIMIT 1
+  `);
+  const [row] = getExecuteRows(queryResult);
+
+  if (!row) {
+    throw new Error("Failed to create Autodeposit scheduled slot.");
+  }
+
+  return toBigIntValue(row.id);
+}
+
+async function findScheduledAutodepositSweepBySlotId(
+  input: {
+    slotId: bigint;
+    targetId: bigint;
+  },
+  dependencies: Pick<EarnAutodepositRepositoryDependencies, "client">
+): Promise<PendingEarnAutodepositScheduledSweepRecord | null> {
+  const sweeps = await findPendingEarnAutodepositScheduledSweeps(
+    { id: input.targetId },
+    dependencies
+  );
+  return sweeps.find((sweep) => sweep.slotId === input.slotId) ?? null;
 }
 
 export async function cancelScheduledAutodepositTransactionsForClose(args: {
@@ -475,34 +556,79 @@ export async function findPendingEarnAutodepositScheduledSweeps(
     "client"
   > = createDependencies()
 ): Promise<PendingEarnAutodepositScheduledSweepRecord[]> {
-  return dependencies.client.db
-    .select({
-      classification: balanceSweepSurplusLots.classification,
-      confidence: balanceSweepSurplusLots.confidence,
-      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
-      id: balanceSweepSurplusLots.id,
-      originalAmountRaw: balanceSweepSurplusLots.originalAmountRaw,
-      reason: balanceSweepSurplusLots.reason,
-      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
-      status: balanceSweepSurplusLots.status,
-    })
-    .from(balanceSweepSurplusLots)
-    .where(
-      and(
-        eq(balanceSweepSurplusLots.targetId, target.id),
-        eq(balanceSweepSurplusLots.status, "open"),
-        sql`${balanceSweepSurplusLots.remainingAmountRaw} > 0`
-      )
+  const queryResult = await dependencies.client.db.execute(sql`
+    WITH slot_lots AS (
+      SELECT
+        slot.id AS slot_id,
+        slot.eligible_after,
+        slot.status::text AS slot_status,
+        lot.classification::text AS classification,
+        lot.confidence,
+        lot.reason,
+        lot.original_amount_raw,
+        lot.remaining_amount_raw,
+        lot.status::text AS lot_status,
+        lot.created_at,
+        claim.amount_raw AS claim_amount_raw
+      FROM ${balanceSweepScheduledSlots} AS slot
+      LEFT JOIN ${balanceSweepSurplusLots} AS lot
+        ON lot.scheduled_slot_id = slot.id
+      LEFT JOIN ${balanceSweepLotClaims} AS claim
+        ON claim.claim_token = slot.claim_token
+       AND claim.status = 'selected'
+      WHERE slot.target_id = ${target.id}
+        AND slot.status IN ('scheduled', 'requested', 'selected', 'failed', 'released')
+    ),
+    aggregated AS (
+      SELECT
+        slot_id,
+        MIN(eligible_after) AS eligible_after,
+        MIN(classification) FILTER (WHERE lot_status = 'open') AS classification,
+        MIN(confidence) FILTER (WHERE lot_status = 'open') AS confidence,
+        MIN(reason) FILTER (WHERE lot_status = 'open') AS reason,
+        SUM(original_amount_raw) FILTER (WHERE lot_status = 'open') AS original_amount_raw,
+        SUM(remaining_amount_raw) FILTER (WHERE lot_status = 'open') AS remaining_amount_raw,
+        MAX(claim_amount_raw) AS claim_amount_raw,
+        COUNT(*) FILTER (WHERE lot_status = 'open' AND remaining_amount_raw > 0) AS lot_count,
+        MIN(created_at) FILTER (WHERE lot_status = 'open') AS first_lot_created_at,
+        MIN(slot_status) AS status
+      FROM slot_lots
+      GROUP BY slot_id
     )
-    .orderBy(
-      asc(balanceSweepSurplusLots.eligibleAfter),
-      asc(balanceSweepSurplusLots.createdAt),
-      asc(balanceSweepSurplusLots.id)
-    );
+    SELECT
+      aggregated.slot_id AS "slotId",
+      aggregated.slot_id AS id,
+      COALESCE(aggregated.classification, 'unknown') AS classification,
+      COALESCE(aggregated.confidence, 'unknown') AS confidence,
+      aggregated.eligible_after AS "eligibleAfter",
+      COALESCE(aggregated.lot_count, 0)::bigint AS "lotCount",
+      COALESCE(aggregated.original_amount_raw, aggregated.claim_amount_raw, 0)::bigint AS "originalAmountRaw",
+      COALESCE(aggregated.reason, 'Autodeposit scheduled sweep') AS reason,
+      COALESCE(aggregated.remaining_amount_raw, aggregated.claim_amount_raw, 0)::bigint AS "remainingAmountRaw",
+      aggregated.status AS status
+    FROM aggregated
+    WHERE COALESCE(aggregated.remaining_amount_raw, aggregated.claim_amount_raw, 0) > 0
+       OR aggregated.status IN ('requested', 'selected', 'failed', 'released')
+    ORDER BY aggregated.eligible_after ASC, aggregated.first_lot_created_at ASC NULLS LAST, aggregated.slot_id ASC
+  `);
+
+  return getExecuteRows(queryResult).map((row) => ({
+    classification: String(row.classification),
+    confidence: String(row.confidence),
+    eligibleAfter: toDateValue(row.eligibleAfter),
+    id: toBigIntValue(row.id),
+    lotCount: Number(toBigIntValue(row.lotCount)),
+    originalAmountRaw: toBigIntValue(row.originalAmountRaw),
+    reason: String(row.reason),
+    remainingAmountRaw: toBigIntValue(row.remainingAmountRaw),
+    slotId: toBigIntValue(row.slotId),
+    status: String(row.status),
+  }));
 }
 
 export async function requestImmediateEarnAutodepositScheduledSweep(
   state: CurrentEarnAutodepositState,
+  options: ImmediateEarnAutodepositScheduledSweepRequestOptions = {},
   dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
 ): Promise<ImmediateEarnAutodepositScheduledSweepRequestResult | null> {
   if (state.status !== "active") {
@@ -510,47 +636,74 @@ export async function requestImmediateEarnAutodepositScheduledSweep(
   }
 
   const now = dependencies.now();
-  const updatedLots = await dependencies.client.db
-    .update(balanceSweepSurplusLots)
-    .set({
-      confidence: "user_requested",
-      eligibleAfter: sql`LEAST(${balanceSweepSurplusLots.eligibleAfter}, ${now})`,
-      reason: sql`CASE
-        WHEN ${balanceSweepSurplusLots.reason} LIKE 'user requested immediate autodeposit sweep;%'
-          THEN ${balanceSweepSurplusLots.reason}
-        ELSE concat('user requested immediate autodeposit sweep; ', ${balanceSweepSurplusLots.reason})
-      END`,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(balanceSweepSurplusLots.targetId, state.target.id),
-        eq(balanceSweepSurplusLots.status, "open"),
-        sql`${balanceSweepSurplusLots.remainingAmountRaw} > 0`
-      )
+  const queryResult = await dependencies.client.db.execute(sql`
+    WITH selected_slot AS (
+      SELECT slot.id
+      FROM ${balanceSweepScheduledSlots} AS slot
+      WHERE slot.target_id = ${state.target.id}
+        AND (${options.slotId ?? null}::bigint IS NULL OR slot.id = ${
+    options.slotId ?? null
+  })
+        AND slot.status IN ('scheduled', 'failed', 'released')
+        AND EXISTS (
+          SELECT 1
+          FROM ${balanceSweepSurplusLots} AS lot
+          WHERE lot.scheduled_slot_id = slot.id
+            AND lot.status = 'open'
+            AND lot.remaining_amount_raw > 0
+        )
+      ORDER BY slot.eligible_after ASC, slot.id ASC
+      LIMIT 1
+      FOR UPDATE
+    ),
+    updated_slot AS (
+      UPDATE ${balanceSweepScheduledSlots} AS slot
+      SET status = 'requested',
+          request_source = 'web_execute_now',
+          requested_at = ${now},
+          eligible_after = LEAST(slot.eligible_after, ${now}),
+          last_error = NULL,
+          updated_at = ${now}
+      WHERE slot.id IN (SELECT id FROM selected_slot)
+      RETURNING slot.id, slot.eligible_after, slot.status::text AS status
+    ),
+    updated_lots AS (
+      UPDATE ${balanceSweepSurplusLots} AS lot
+      SET confidence = 'user_requested',
+          eligible_after = LEAST(lot.eligible_after, ${now}),
+          reason = CASE
+            WHEN lot.reason LIKE 'user requested immediate autodeposit sweep;%'
+              THEN lot.reason
+            ELSE concat('user requested immediate autodeposit sweep; ', lot.reason)
+          END,
+          updated_at = ${now}
+      WHERE lot.scheduled_slot_id IN (SELECT id FROM updated_slot)
+        AND lot.status = 'open'
+        AND lot.remaining_amount_raw > 0
+      RETURNING lot.remaining_amount_raw
     )
-    .returning({
-      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
-      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
-    });
+    SELECT
+      updated_slot.id AS "slotId",
+      updated_slot.eligible_after AS "eligibleAfter",
+      updated_slot.status AS status,
+      COALESCE(SUM(updated_lots.remaining_amount_raw), 0)::bigint AS "acceleratedAmountRaw",
+      COUNT(updated_lots.remaining_amount_raw)::bigint AS "acceleratedLotCount"
+    FROM updated_slot
+    LEFT JOIN updated_lots ON true
+    GROUP BY updated_slot.id, updated_slot.eligible_after, updated_slot.status
+  `);
+  const [row] = getExecuteRows(queryResult);
 
-  if (updatedLots.length === 0) {
+  if (!row) {
     return null;
   }
 
-  let acceleratedAmountRaw = BigInt(0);
-  let eligibleAfter = updatedLots[0]?.eligibleAfter ?? now;
-  for (const lot of updatedLots) {
-    acceleratedAmountRaw += lot.remainingAmountRaw;
-    if (lot.eligibleAfter < eligibleAfter) {
-      eligibleAfter = lot.eligibleAfter;
-    }
-  }
-
   return {
-    acceleratedAmountRaw,
-    acceleratedLotCount: updatedLots.length,
-    eligibleAfter,
+    acceleratedAmountRaw: toBigIntValue(row.acceleratedAmountRaw),
+    acceleratedLotCount: Number(toBigIntValue(row.acceleratedLotCount)),
+    eligibleAfter: toDateValue(row.eligibleAfter),
+    slotId: toBigIntValue(row.slotId),
+    status: String(row.status),
     targetId: state.target.id,
   };
 }
@@ -639,16 +792,76 @@ export async function scheduleBootstrapEarnAutodepositSweep(
       target: [balanceSweepWalletBalanceEvents.eventId],
     });
 
+  const [existingLot] = await client.db
+    .select({
+      id: balanceSweepSurplusLots.id,
+      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
+      scheduledSlotId: balanceSweepSurplusLots.scheduledSlotId,
+      status: balanceSweepSurplusLots.status,
+    })
+    .from(balanceSweepSurplusLots)
+    .where(eq(balanceSweepSurplusLots.sourceEventId, sourceEventId))
+    .limit(1);
+
+  if (existingLot && existingLot.status === "open") {
+    let slotId = existingLot.scheduledSlotId;
+    if (!slotId) {
+      slotId = await ensureScheduledAutodepositSlot(
+        {
+          eligibleAfter: addOneHour(snapshot.observedAt),
+          mint: snapshot.mint,
+          targetId: target.id,
+        },
+        dependencies
+      );
+      await client.db
+        .update(balanceSweepSurplusLots)
+        .set({
+          scheduledSlotId: slotId,
+          updatedAt: now,
+        })
+        .where(eq(balanceSweepSurplusLots.id, existingLot.id));
+    }
+
+    const sweep = await findScheduledAutodepositSweepBySlotId(
+      { slotId, targetId: target.id },
+      dependencies
+    );
+    if (sweep && isOpenScheduledSweep(sweep)) {
+      return {
+        status: "already_exists",
+        sweep,
+      };
+    }
+  }
+  if (existingLot) {
+    return {
+      reason: "bootstrap_sweep_already_closed",
+      status: "skipped",
+    };
+  }
+
+  const eligibleAfter = addOneHour(snapshot.observedAt);
+  const slotId = await ensureScheduledAutodepositSlot(
+    {
+      eligibleAfter,
+      mint: snapshot.mint,
+      targetId: target.id,
+    },
+    dependencies
+  );
+
   const insertedLots = await client.db
     .insert(balanceSweepSurplusLots)
     .values({
       classification: "initial_surplus",
       confidence: "confirmed_snapshot",
       createdAt: now,
-      eligibleAfter: addOneHour(snapshot.observedAt),
+      eligibleAfter,
       originalAmountRaw: surplusRaw,
       reason: "initial Autodeposit surplus detected at setup confirmation",
       remainingAmountRaw: surplusRaw,
+      scheduledSlotId: slotId,
       sourceEventId,
       sourceSignature: null,
       status: "open",
@@ -659,43 +872,54 @@ export async function scheduleBootstrapEarnAutodepositSweep(
       target: [balanceSweepSurplusLots.sourceEventId],
     })
     .returning({
-      classification: balanceSweepSurplusLots.classification,
-      confidence: balanceSweepSurplusLots.confidence,
-      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
       id: balanceSweepSurplusLots.id,
-      originalAmountRaw: balanceSweepSurplusLots.originalAmountRaw,
-      reason: balanceSweepSurplusLots.reason,
-      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
-      status: balanceSweepSurplusLots.status,
+      scheduledSlotId: balanceSweepSurplusLots.scheduledSlotId,
     });
 
   if (insertedLots[0]) {
-    return {
-      status: "scheduled",
-      sweep: insertedLots[0],
-    };
+    const sweep = await findScheduledAutodepositSweepBySlotId(
+      { slotId, targetId: target.id },
+      dependencies
+    );
+    if (sweep) {
+      return {
+        status: "scheduled",
+        sweep,
+      };
+    }
   }
 
-  const [existingLot] = await client.db
+  const [raceWinnerLot] = await client.db
     .select({
-      classification: balanceSweepSurplusLots.classification,
-      confidence: balanceSweepSurplusLots.confidence,
-      eligibleAfter: balanceSweepSurplusLots.eligibleAfter,
       id: balanceSweepSurplusLots.id,
-      originalAmountRaw: balanceSweepSurplusLots.originalAmountRaw,
-      reason: balanceSweepSurplusLots.reason,
-      remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
+      scheduledSlotId: balanceSweepSurplusLots.scheduledSlotId,
       status: balanceSweepSurplusLots.status,
     })
     .from(balanceSweepSurplusLots)
     .where(eq(balanceSweepSurplusLots.sourceEventId, sourceEventId))
     .limit(1);
 
-  if (existingLot && isOpenScheduledSweep(existingLot)) {
-    return {
-      status: "already_exists",
-      sweep: existingLot,
-    };
+  if (raceWinnerLot?.status === "open") {
+    const raceWinnerSlotId = raceWinnerLot.scheduledSlotId ?? slotId;
+    if (!raceWinnerLot.scheduledSlotId) {
+      await client.db
+        .update(balanceSweepSurplusLots)
+        .set({
+          scheduledSlotId: raceWinnerSlotId,
+          updatedAt: now,
+        })
+        .where(eq(balanceSweepSurplusLots.id, raceWinnerLot.id));
+    }
+    const sweep = await findScheduledAutodepositSweepBySlotId(
+      { slotId: raceWinnerSlotId, targetId: target.id },
+      dependencies
+    );
+    if (sweep && isOpenScheduledSweep(sweep)) {
+      return {
+        status: "already_exists",
+        sweep,
+      };
+    }
   }
 
   return {
@@ -1443,9 +1667,61 @@ export async function updateAutodepositWalletBalanceFloor(
       WHERE projection.amount_raw > ${input.walletBalanceFloorRaw}
       RETURNING event_id
     ),
+    candidate_slot AS (
+      SELECT slot.id
+      FROM ${balanceSweepScheduledSlots} AS slot
+      INNER JOIN projection
+        ON projection.target_id = slot.target_id
+      CROSS JOIN inserted_event
+      WHERE slot.token_mint = projection.mint
+        AND slot.status = 'scheduled'
+      ORDER BY slot.eligible_after ASC, slot.id ASC
+      LIMIT 1
+    ),
+    updated_slot AS (
+      UPDATE ${balanceSweepScheduledSlots} AS slot
+      SET eligible_after = GREATEST(slot.eligible_after, ${addOneHour(now)}),
+          updated_at = ${now}
+      WHERE slot.id IN (SELECT id FROM candidate_slot)
+      RETURNING
+        slot.id,
+        slot.eligible_after,
+        slot.status::text AS status
+    ),
+    inserted_slot AS (
+      INSERT INTO ${balanceSweepScheduledSlots} (
+        target_id,
+        token_mint,
+        eligible_after,
+        status,
+        created_at,
+        updated_at
+      )
+      SELECT
+        projection.target_id,
+        projection.mint,
+        ${addOneHour(now)},
+        'scheduled',
+        ${now},
+        ${now}
+      FROM projection
+      CROSS JOIN inserted_event
+      WHERE NOT EXISTS (SELECT 1 FROM updated_slot)
+      RETURNING
+        id,
+        eligible_after,
+        status::text AS status
+    ),
+    scheduled_slot AS (
+      SELECT id, eligible_after, status FROM updated_slot
+      UNION ALL
+      SELECT id, eligible_after, status FROM inserted_slot
+      LIMIT 1
+    ),
     inserted_lot AS (
       INSERT INTO ${balanceSweepSurplusLots} (
         target_id,
+        scheduled_slot_id,
         source_event_id,
         source_signature,
         original_amount_raw,
@@ -1460,6 +1736,7 @@ export async function updateAutodepositWalletBalanceFloor(
       )
       SELECT
         projection.target_id,
+        scheduled_slot.id,
         inserted_event.event_id,
         NULL,
         projection.amount_raw - ${input.walletBalanceFloorRaw},
@@ -1473,15 +1750,17 @@ export async function updateAutodepositWalletBalanceFloor(
         ${now}
       FROM projection
       CROSS JOIN inserted_event
+      CROSS JOIN scheduled_slot
       RETURNING
         classification::text AS "lotClassification",
         confidence AS "lotConfidence",
         eligible_after AS "lotEligibleAfter",
         id AS "lotId",
+        scheduled_slot_id AS "lotSlotId",
         original_amount_raw AS "lotOriginalAmountRaw",
         reason AS "lotReason",
         remaining_amount_raw AS "lotRemainingAmountRaw",
-        status::text AS "lotStatus"
+        (SELECT status FROM scheduled_slot) AS "lotStatus"
     )
     SELECT
       projection.amount_raw AS "projectionAmountRaw",
@@ -1489,6 +1768,7 @@ export async function updateAutodepositWalletBalanceFloor(
       inserted_lot."lotConfidence",
       inserted_lot."lotEligibleAfter",
       inserted_lot."lotId",
+      inserted_lot."lotSlotId",
       inserted_lot."lotOriginalAmountRaw",
       inserted_lot."lotReason",
       inserted_lot."lotRemainingAmountRaw",
@@ -1525,10 +1805,12 @@ export async function updateAutodepositWalletBalanceFloor(
           ) as PendingEarnAutodepositScheduledSweepRecord["classification"],
           confidence: String(row.lotConfidence),
           eligibleAfter: toDateValue(row.lotEligibleAfter),
-          id: toBigIntValue(row.lotId),
+          id: toBigIntValue(row.lotSlotId),
+          lotCount: 1,
           originalAmountRaw: toBigIntValue(row.lotOriginalAmountRaw),
           reason: String(row.lotReason),
           remainingAmountRaw: toBigIntValue(row.lotRemainingAmountRaw),
+          slotId: toBigIntValue(row.lotSlotId),
           status: String(
             row.lotStatus
           ) as PendingEarnAutodepositScheduledSweepRecord["status"],

@@ -23,11 +23,15 @@ const requestImmediateEarnAutodepositScheduledSweep = mock(
     acceleratedAmountRaw: bigint;
     acceleratedLotCount: number;
     eligibleAfter: Date;
+    slotId: bigint;
+    status: string;
     targetId: bigint;
   } | null> => ({
     acceleratedAmountRaw: BigInt(334_480_000),
     acceleratedLotCount: 2,
     eligibleAfter: new Date("2026-06-15T18:06:00.000Z"),
+    slotId: BigInt(42),
+    status: "requested",
     targetId: BigInt(11),
   })
 );
@@ -64,10 +68,15 @@ function createState(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function createRequest() {
-  return new Request("https://loyal.local/sweeps/execute", {
+function createRequest(body?: unknown) {
+  const init: RequestInit = {
     method: "POST",
-  });
+  };
+  if (body !== undefined) {
+    init.body = JSON.stringify(body);
+    init.headers = { "content-type": "application/json" };
+  }
+  return new Request("https://loyal.local/sweeps/execute", init);
 }
 
 const { POST } = await import("./route");
@@ -88,6 +97,8 @@ describe("Earn autodeposit sweeps execute route", () => {
         acceleratedAmountRaw: BigInt(334_480_000),
         acceleratedLotCount: 2,
         eligibleAfter: new Date("2026-06-15T18:06:00.000Z"),
+        slotId: BigInt(42),
+        status: "requested",
         targetId: BigInt(11),
       })
     );
@@ -154,12 +165,17 @@ describe("Earn autodeposit sweeps execute route", () => {
     const response = await POST(createRequest());
 
     expect(response.status).toBe(200);
-    expect(requestImmediateEarnAutodepositScheduledSweep).toHaveBeenCalled();
+    expect(requestImmediateEarnAutodepositScheduledSweep).toHaveBeenCalledWith(
+      expect.objectContaining({ target: expect.objectContaining({ id: BigInt(11) }) }),
+      { slotId: null }
+    );
     await expect(response.json()).resolves.toMatchObject({
       status: "requested",
       sweepRequest: {
         acceleratedAmountRaw: "334480000",
         acceleratedLotCount: 2,
+        slotId: "42",
+        status: "requested",
         targetId: "11",
       },
       target: {
@@ -168,5 +184,15 @@ describe("Earn autodeposit sweeps execute route", () => {
         lifecycleStatus: "active",
       },
     });
+  });
+
+  test("requests a specific scheduled slot without preparing a transaction", async () => {
+    const response = await POST(createRequest({ slotId: "42" }));
+
+    expect(response.status).toBe(200);
+    expect(requestImmediateEarnAutodepositScheduledSweep).toHaveBeenCalledWith(
+      expect.objectContaining({ target: expect.objectContaining({ id: BigInt(11) }) }),
+      { slotId: BigInt(42) }
+    );
   });
 });

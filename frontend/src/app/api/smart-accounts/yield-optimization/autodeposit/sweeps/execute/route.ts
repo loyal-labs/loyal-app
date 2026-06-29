@@ -37,8 +37,26 @@ function serializeRequestResult(
     acceleratedAmountRaw: result.acceleratedAmountRaw.toString(),
     acceleratedLotCount: result.acceleratedLotCount,
     eligibleAfter: result.eligibleAfter.toISOString(),
+    slotId: result.slotId.toString(),
+    status: result.status,
     targetId: result.targetId.toString(),
   };
+}
+
+function parseOptionalSlotId(body: unknown): bigint | null {
+  if (!body || typeof body !== "object" || !("slotId" in body)) {
+    return null;
+  }
+
+  const { slotId } = body as { slotId?: unknown };
+  if (slotId === null || slotId === undefined || slotId === "") {
+    return null;
+  }
+  if (typeof slotId !== "string" || !/^\d+$/.test(slotId)) {
+    throw new Error("Invalid Autodeposit scheduled slot.");
+  }
+
+  return BigInt(slotId);
 }
 
 export async function POST(request: Request) {
@@ -49,6 +67,22 @@ export async function POST(request: Request) {
   }
 
   try {
+    let slotId: bigint | null = null;
+    const contentType = request.headers.get("content-type") ?? "";
+    if (contentType.toLowerCase().includes("application/json")) {
+      try {
+        slotId = parseOptionalSlotId(await request.json());
+      } catch (error) {
+        return jsonError(
+          400,
+          "invalid_request",
+          error instanceof Error
+            ? error.message
+            : "Invalid Autodeposit scheduled slot."
+        );
+      }
+    }
+
     const autodeposit = await findCurrentEarnAutodepositState({
       settings: principal.settingsPda,
       vaultIndex: EARN_AUTODEPOSIT_VAULT_INDEX,
@@ -72,7 +106,8 @@ export async function POST(request: Request) {
     }
 
     const requestResult = await requestImmediateEarnAutodepositScheduledSweep(
-      autodeposit
+      autodeposit,
+      { slotId }
     );
 
     if (!requestResult) {

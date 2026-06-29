@@ -298,9 +298,11 @@ function serializeScheduledSweep(
   confidence: string;
   eligibleAfter: string;
   id: string;
+  lotCount?: number;
   originalAmountRaw: string;
   reason: string;
   remainingAmountRaw: string;
+  slotId?: string;
   status: string;
 } {
   return {
@@ -308,9 +310,11 @@ function serializeScheduledSweep(
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
     id: sweep.id.toString(),
+    lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
     reason: sweep.reason,
     remainingAmountRaw: sweep.remainingAmountRaw.toString(),
+    slotId: sweep.slotId.toString(),
     status: sweep.status,
   };
 }

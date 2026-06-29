@@ -4149,39 +4149,48 @@ export function AppWalletWorkspace({
     });
   }, [autodepositConfig, smartAccountData]);
 
-  const handleExecuteScheduledAutodepositSweep = useCallback(async () => {
-    if (isExecutingScheduledSweep) {
-      return;
-    }
-
-    setIsExecutingScheduledSweep(true);
-    setScheduledSweepExecuteError(null);
-
-    try {
-      const response = await fetch(
-        "/api/smart-accounts/yield-optimization/autodeposit/sweeps/execute",
-        {
-          credentials: "include",
-          method: "POST",
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(await parseEarnAutodepositExecuteError(response));
+  const handleExecuteScheduledAutodepositSweep = useCallback(
+    async (sweep?: LoadedEarnAutodepositScheduledSweep) => {
+      if (isExecutingScheduledSweep) {
+        return;
       }
 
-      invalidateEarnClientCaches();
-      await smartAccountData.refresh();
-    } catch (error) {
-      setScheduledSweepExecuteError(
-        error instanceof Error
-          ? error.message.replaceAll("autodeposit", "Autodeposit")
-          : "Failed to request immediate Autodeposit execution."
-      );
-    } finally {
-      setIsExecutingScheduledSweep(false);
-    }
-  }, [invalidateEarnClientCaches, isExecutingScheduledSweep, smartAccountData]);
+      setIsExecutingScheduledSweep(true);
+      setScheduledSweepExecuteError(null);
+
+      try {
+        const response = await fetch(
+          "/api/smart-accounts/yield-optimization/autodeposit/sweeps/execute",
+          {
+            body: JSON.stringify({
+              slotId: sweep?.slotId ?? sweep?.id ?? null,
+            }),
+            credentials: "include",
+            headers: {
+              "content-type": "application/json",
+            },
+            method: "POST",
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(await parseEarnAutodepositExecuteError(response));
+        }
+
+        invalidateEarnClientCaches();
+        await smartAccountData.refresh();
+      } catch (error) {
+        setScheduledSweepExecuteError(
+          error instanceof Error
+            ? error.message.replaceAll("autodeposit", "Autodeposit")
+            : "Failed to request immediate Autodeposit execution."
+        );
+      } finally {
+        setIsExecutingScheduledSweep(false);
+      }
+    },
+    [invalidateEarnClientCaches, isExecutingScheduledSweep, smartAccountData]
+  );
 
   const handleDeleteAutodeposit = useCallback(() => {
     handleOpenAutodepositCloseReview();

@@ -3,9 +3,11 @@ export type LoadedEarnAutodepositScheduledSweep = {
   confidence: string;
   eligibleAfter: string;
   id: string;
+  lotCount?: number;
   originalAmountRaw: string;
   reason: string;
   remainingAmountRaw: string;
+  slotId?: string;
   status: string;
 };
 

@@ -196,19 +196,34 @@ function createFloorUpdateClient({
 }
 
 function createBootstrapClient({
+  existingLot = null,
   existingProjection = [],
   insertedLot,
+  scheduledSweep,
 }: {
+  existingLot?: unknown | null;
   existingProjection?: unknown[];
   insertedLot?: unknown;
+  scheduledSweep?: Record<string, unknown> | null;
 }) {
+  const dialect = new PgDialect();
+  const executeSql: string[] = [];
   const insertValues: Record<string, unknown>[] = [];
+  const slotId = BigInt(42);
+  let selectCallCount = 0;
   const selectQuery = {
     from() {
       return selectQuery;
     },
     limit() {
-      return existingProjection;
+      selectCallCount += 1;
+      if (selectCallCount === 1) {
+        return existingProjection;
+      }
+      if (selectCallCount === 2) {
+        return existingLot ? [existingLot] : [];
+      }
+      return [];
     },
     where() {
       return selectQuery;
@@ -239,6 +254,13 @@ function createBootstrapClient({
   return {
     client: {
       db: {
+        execute(query: SQL) {
+          executeSql.push(dialect.sqlToQuery(query).sql);
+          if (executeSql.length === 1) {
+            return { rows: [{ id: slotId }] };
+          }
+          return { rows: scheduledSweep ? [scheduledSweep] : [] };
+        },
         insert() {
           return insertQuery;
         },
@@ -247,6 +269,7 @@ function createBootstrapClient({
         },
       },
     },
+    getExecuteSql: () => executeSql,
     getInsertValues: () => insertValues,
   };
 }
@@ -289,7 +312,8 @@ function createFloorRebaselineRow(overrides: Record<string, unknown> = {}) {
     lotOriginalAmountRaw: BigInt(600_000_000),
     lotReason: "Autodeposit floor update rebaseline",
     lotRemainingAmountRaw: BigInt(600_000_000),
-    lotStatus: "open",
+    lotSlotId: BigInt(52),
+    lotStatus: "scheduled",
     projectionAmountRaw: BigInt(1_000_000_000),
     skippedReason: null,
     ...overrides,
@@ -974,6 +998,18 @@ describe("Earn autodeposit load state", () => {
       remainingAmountRaw: BigInt(500_000_000),
       status: "open" as const,
     };
+    const scheduledSweep = {
+      classification: lot.classification,
+      confidence: lot.confidence,
+      eligibleAfter: lot.eligibleAfter,
+      id: BigInt(42),
+      lotCount: BigInt(1),
+      originalAmountRaw: lot.originalAmountRaw,
+      reason: lot.reason,
+      remainingAmountRaw: lot.remainingAmountRaw,
+      slotId: BigInt(42),
+      status: "scheduled",
+    };
     const { client, getInsertValues } = createBootstrapClient({
       existingProjection: [
         {
@@ -981,6 +1017,7 @@ describe("Earn autodeposit load state", () => {
         },
       ],
       insertedLot: lot,
+      scheduledSweep,
     });
 
     const result = await scheduleBootstrapEarnAutodepositSweep(
@@ -1030,6 +1067,7 @@ describe("Earn autodeposit load state", () => {
       eligibleAfter: new Date("2026-06-16T01:00:00.000Z"),
       originalAmountRaw: BigInt(500_000_000),
       remainingAmountRaw: BigInt(500_000_000),
+      scheduledSlotId: BigInt(42),
       sourceEventId: BigInt(-11),
       status: "open",
       targetId: BigInt(11),

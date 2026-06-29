@@ -72,6 +72,19 @@ export const balanceSweepLotClaimStatus = loyalYieldSchema.enum(
   ["selected", "executed", "released", "failed"]
 );
 
+export const balanceSweepScheduledSlotStatus = loyalYieldSchema.enum(
+  "balance_sweep_scheduled_slot_status",
+  [
+    "scheduled",
+    "requested",
+    "selected",
+    "executed",
+    "failed",
+    "released",
+    "canceled",
+  ]
+);
+
 export type YieldSwapLane = Record<string, unknown>;
 export type YieldSnapshotContext = Record<string, unknown>;
 export type YieldPlanningMetadata = Record<string, unknown>;
@@ -695,6 +708,7 @@ export const balanceSweepSurplusLots = loyalYieldSchema.table(
   {
     id: bigserial("id", { mode: "bigint" }).primaryKey(),
     targetId: bigint("target_id", { mode: "bigint" }).notNull(),
+    scheduledSlotId: bigint("scheduled_slot_id", { mode: "bigint" }),
     sourceEventId: bigint("source_event_id", { mode: "bigint" }).notNull(),
     sourceSignature: text("source_signature"),
     originalAmountRaw: bigint("original_amount_raw", {
@@ -727,6 +741,43 @@ export const balanceSweepSurplusLots = loyalYieldSchema.table(
     index("balance_sweep_surplus_lots_source_signature_idx")
       .on(table.sourceSignature)
       .where(sql`${table.sourceSignature} IS NOT NULL`),
+    index("balance_sweep_surplus_lots_scheduled_slot_idx")
+      .on(table.scheduledSlotId, table.status, table.eligibleAfter, table.id)
+      .where(sql`${table.scheduledSlotId} IS NOT NULL`),
+  ]
+);
+
+export const balanceSweepScheduledSlots = loyalYieldSchema.table(
+  "balance_sweep_scheduled_slots",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    targetId: bigint("target_id", { mode: "bigint" }).notNull(),
+    tokenMint: text("token_mint").notNull(),
+    eligibleAfter: timestamp("eligible_after", {
+      withTimezone: true,
+    }).notNull(),
+    status: balanceSweepScheduledSlotStatus("status")
+      .default("scheduled")
+      .notNull(),
+    requestSource: text("request_source"),
+    requestedAt: timestamp("requested_at", { withTimezone: true }),
+    claimToken: text("claim_token"),
+    executionId: bigint("execution_id", { mode: "bigint" }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("balance_sweep_scheduled_slots_target_status_idx").on(
+      table.targetId,
+      table.tokenMint,
+      table.status,
+      table.eligibleAfter,
+      table.id
+    ),
+    index("balance_sweep_scheduled_slots_claim_token_idx")
+      .on(table.claimToken)
+      .where(sql`${table.claimToken} IS NOT NULL`),
   ]
 );
 
