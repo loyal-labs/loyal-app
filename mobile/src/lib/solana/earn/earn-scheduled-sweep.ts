@@ -10,26 +10,66 @@ function parseUnsignedRaw(value: string): bigint | null {
   return /^\d+$/.test(value) ? BigInt(value) : null;
 }
 
-// An "open" sweep with a still-meaningful remaining amount is pending. Mirrors
-// the web `getVisibleEarnAutodepositScheduledSweeps` minimum-amount fallback
-// (the surplus-capping branch needs a live wallet balance the Activity feed
-// doesn't carry, so we use the same display-threshold filter the web falls back
-// to when balances are unavailable).
+// Which scheduled sweeps to surface in the Activity feed. Mirrors the web
+// `getVisibleEarnAutodepositScheduledSweeps` exactly:
+//   1. Keep sweeps whose remaining amount clears the display threshold.
+//   2. If a live wallet balance + floor are known, cap visibility by the actual
+//      surplus above the floor. A scheduled slot whose surplus has already been
+//      swept into Earn (balance back at the floor) has nothing left to back it,
+//      so the web hides it — without this, a stale/unreconciled slot lingers as
+//      a phantom "Execute now" row on mobile while the web shows nothing.
+//   3. Without a balance (e.g. before holdings load), fall back to (1) alone.
+// We deliberately do NOT gate on `sweep.status`: the backend's pending-sweep
+// query already returns only live scheduled slots, and since the slot-aggregation
+// rework that status is the slot status (scheduled/requested/selected/failed/
+// released), never "open" — it drives the row's button state, not visibility.
 export function getVisibleEarnScheduledSweeps(
   sweeps: readonly EarnAutodepositScheduledSweep[] | undefined,
+  walletBalanceRaw?: bigint | null,
+  walletBalanceFloorRaw?: bigint | null,
 ): EarnAutodepositScheduledSweep[] {
   if (!sweeps) {
     return [];
   }
-  return sweeps.filter((sweep) => {
-    if (sweep.status !== "open") {
-      return false;
-    }
+  const sweepsAboveDisplayThreshold = sweeps.filter((sweep) => {
     const remaining = parseUnsignedRaw(sweep.remainingAmountRaw);
     return (
       remaining !== null && remaining >= EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW
     );
   });
+
+  if (walletBalanceRaw == null || walletBalanceFloorRaw == null) {
+    return sweepsAboveDisplayThreshold;
+  }
+
+  let remainingSurplusRaw = walletBalanceRaw - walletBalanceFloorRaw;
+  if (remainingSurplusRaw < EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW) {
+    return [];
+  }
+
+  const visibleSweeps: EarnAutodepositScheduledSweep[] = [];
+  for (const sweep of sweepsAboveDisplayThreshold) {
+    const remaining = parseUnsignedRaw(sweep.remainingAmountRaw);
+    if (remaining === null) {
+      continue;
+    }
+    const displayAmountRaw =
+      remaining < remainingSurplusRaw ? remaining : remainingSurplusRaw;
+    remainingSurplusRaw -= displayAmountRaw;
+    if (displayAmountRaw < EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW) {
+      break;
+    }
+    visibleSweeps.push(
+      displayAmountRaw === remaining
+        ? sweep
+        : { ...sweep, remainingAmountRaw: displayAmountRaw.toString() },
+    );
+    if (remainingSurplusRaw < EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW) {
+      break;
+    }
+  }
+
+  return visibleSweeps;
 }
 
 // "334.48 USDC" — mirrors the web `formatScheduledSweepAmount`.
@@ -57,13 +97,17 @@ export function formatScheduledSweepTime(eligibleAfter: string): string {
   return `${relativeDayLabel(date)} at ${hh}:${mm}`;
 }
 
-// The sweep has reached its execution window (or was accelerated via "Execute
-// now") and is waiting on the sweep worker to run it.
+// The sweep is in the worker's execution pipeline — accelerated via "Execute
+// now" or already picked up. Mirrors the web `isPersistedScheduledSweepExecuting`
+// (slot status), which is authoritative now that the backend returns the slot
+// status. Time alone can't be used: executing advances `eligibleAfter` into the
+// past permanently, so a time check would stick on "Executing…" forever and
+// couldn't tell a live execution from a `failed`/`released` one the user should
+// be able to retry (those keep enabled, exactly like the web).
 export function isScheduledSweepAwaitingExecution(
   sweep: EarnAutodepositScheduledSweep,
 ): boolean {
-  const eligibleAt = new Date(sweep.eligibleAfter).getTime();
-  return !Number.isNaN(eligibleAt) && eligibleAt <= Date.now();
+  return sweep.status === "requested" || sweep.status === "selected";
 }
 
 function relativeDayLabel(date: Date): string {

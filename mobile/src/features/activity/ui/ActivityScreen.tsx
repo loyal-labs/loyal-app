@@ -23,6 +23,7 @@ export function ActivityScreen({
     earnUnread,
     loadWalletTransactions,
     refreshEarnTransactions,
+    refreshAutodeposit,
     markSeen,
   } = useActivity();
   const [section, setSection] = useState<ActivitySection>(
@@ -44,19 +45,31 @@ export function ActivityScreen({
   useFocusEffect(
     useCallback(() => {
       markSeen(section);
-    }, [section, markSeen]),
+      // The provider fetches Autodeposit state once at mount, so a sweep
+      // scheduled afterwards (e.g. landing here right after setup) wouldn't show
+      // until something refetches it. Re-read it whenever the Earn section is
+      // focused so the "Scheduled" row appears without a manual pull.
+      if (section === "earn") {
+        void refreshAutodeposit();
+      }
+    }, [section, markSeen, refreshAutodeposit]),
   );
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
       await (section === "earn"
-        ? refreshEarnTransactions()
+        ? Promise.all([refreshEarnTransactions(), refreshAutodeposit()])
         : loadWalletTransactions({ force: true }));
     } finally {
       setIsRefreshing(false);
     }
-  }, [section, loadWalletTransactions, refreshEarnTransactions]);
+  }, [
+    section,
+    loadWalletTransactions,
+    refreshEarnTransactions,
+    refreshAutodeposit,
+  ]);
 
   return (
     <View className="flex-1 bg-white">

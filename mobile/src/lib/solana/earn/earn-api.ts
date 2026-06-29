@@ -228,9 +228,11 @@ export type WirePreparedEarnAutodepositClose = {
 
 // A pending Autodeposit "bootstrap" sweep — the surplus the backend scheduled to
 // move into Earn ~1h after setup (or after a threshold edit). Mirrors the web
-// `LoadedEarnAutodepositScheduledSweep`: `status: "open"` with
-// `remainingAmountRaw > 0` means it's still pending; `eligibleAfter` is the ISO
-// time the sweep worker becomes free to run it.
+// `LoadedEarnAutodepositScheduledSweep`. `remainingAmountRaw > 0` means it's
+// still pending; `eligibleAfter` is the ISO time the sweep worker becomes free
+// to run it. `status` is the aggregated slot status
+// (scheduled/requested/selected/failed/released) — the backend only returns live
+// pending slots, so it's used for button state, not visibility.
 export type EarnAutodepositScheduledSweep = {
   classification: string;
   confidence: string;

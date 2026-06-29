@@ -10,13 +10,22 @@ import {
 
 import { useEarnActivity } from "@/hooks/wallet/useEarnActivity";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
+import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
+import {
+  SOLANA_USDC_MINT_DEVNET,
+  SOLANA_USDC_MINT_MAINNET,
+} from "@/lib/solana/constants";
 import { executeEarnAutodepositScheduledSweep } from "@/lib/solana/earn/autodeposit";
 import type {
   EarnAutodepositScheduledSweep,
   EarnTransactionItem,
 } from "@/lib/solana/earn/earn-api";
-import { getVisibleEarnScheduledSweeps } from "@/lib/solana/earn/earn-scheduled-sweep";
+import {
+  EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
+  getVisibleEarnScheduledSweeps,
+  isScheduledSweepAwaitingExecution,
+} from "@/lib/solana/earn/earn-scheduled-sweep";
 import { earnTransactionTimestampMs } from "@/lib/solana/earn/earn-tx-display";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import type { Transaction } from "@/types/wallet";
@@ -35,6 +44,8 @@ type ActivityContextValue = {
   earnTransactions: EarnTransactionItem[];
   isFetchingEarn: boolean;
   refreshEarnTransactions: () => Promise<void>;
+  /** Re-read the wallet's Autodeposit state (incl. its scheduled sweeps). */
+  refreshAutodeposit: () => Promise<unknown>;
   /** Pending Autodeposit "bootstrap" sweeps awaiting their execution window. */
   earnScheduledSweeps: EarnAutodepositScheduledSweep[];
   /** True while an "Execute now" request is in flight. */
@@ -67,10 +78,68 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   } = useEarnActivity(publicKey);
   const { autodeposit, refreshAutodeposit } = useEarnAutodeposit(publicKey);
 
-  const earnScheduledSweeps = useMemo(
-    () => getVisibleEarnScheduledSweeps(autodeposit?.scheduledSweeps),
-    [autodeposit],
+  // The visibility cap needs the live wallet USDC balance (see
+  // getVisibleEarnScheduledSweeps) so a scheduled slot whose surplus was already
+  // swept into Earn hides instead of lingering as a phantom row. Only read
+  // holdings when there's actually a candidate sweep to evaluate, so passive
+  // Activity views don't pay for it. Read-only (no signer) — never prompts Seed
+  // Vault.
+  const scheduledSweepFloorRaw =
+    autodeposit?.walletBalanceFloorRaw != null &&
+    /^\d+$/.test(autodeposit.walletBalanceFloorRaw)
+      ? BigInt(autodeposit.walletBalanceFloorRaw)
+      : null;
+  const hasScheduledSweepCandidate =
+    scheduledSweepFloorRaw != null &&
+    (autodeposit?.scheduledSweeps ?? []).some(
+      (sweep) =>
+        /^\d+$/.test(sweep.remainingAmountRaw) &&
+        BigInt(sweep.remainingAmountRaw) >= EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
+    );
+  const { tokenHoldings } = useTokenHoldings(
+    hasScheduledSweepCandidate ? publicKey : null,
   );
+  const walletUsdcRaw = useMemo<bigint | null>(() => {
+    const holding = tokenHoldings.find(
+      (h) =>
+        h.mint === SOLANA_USDC_MINT_MAINNET ||
+        h.mint === SOLANA_USDC_MINT_DEVNET,
+    );
+    if (!holding || !Number.isFinite(holding.balance)) {
+      return null;
+    }
+    // ponytail: float UI balance -> raw; sub-cent rounding error sits far below
+    // the 0.01 USDC visibility threshold, so it can't flip the surplus gate.
+    return BigInt(Math.round(holding.balance * 10 ** holding.decimals));
+  }, [tokenHoldings]);
+
+  const earnScheduledSweeps = useMemo(
+    () =>
+      getVisibleEarnScheduledSweeps(
+        autodeposit?.scheduledSweeps,
+        walletUsdcRaw,
+        scheduledSweepFloorRaw,
+      ),
+    [autodeposit, walletUsdcRaw, scheduledSweepFloorRaw],
+  );
+
+  // While a sweep is mid-execution the backend drops it from the response once
+  // the worker finishes (or flips it to a retryable status) — but only a refetch
+  // surfaces that. Without this the "Executing…" row would sit forever until the
+  // user leaves the screen. Poll the Autodeposit state while anything is
+  // executing; the interval tears down the moment nothing is.
+  const hasExecutingSweep = earnScheduledSweeps.some(
+    isScheduledSweepAwaitingExecution,
+  );
+  useEffect(() => {
+    if (!hasExecutingSweep) {
+      return;
+    }
+    const intervalId = setInterval(() => {
+      void refreshAutodeposit();
+    }, 8000);
+    return () => clearInterval(intervalId);
+  }, [hasExecutingSweep, refreshAutodeposit]);
 
   const [isExecutingSweep, setIsExecutingSweep] = useState(false);
 
@@ -165,6 +234,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnTransactions,
       isFetchingEarn,
       refreshEarnTransactions,
+      refreshAutodeposit,
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
@@ -181,6 +251,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnTransactions,
       isFetchingEarn,
       refreshEarnTransactions,
+      refreshAutodeposit,
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
