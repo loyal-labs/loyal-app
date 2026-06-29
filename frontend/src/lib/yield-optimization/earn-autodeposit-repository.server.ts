@@ -554,6 +554,68 @@ export async function cancelScheduledAutodepositTransactionsForClose(args: {
   `);
 }
 
+// A scheduled sweep only makes sense while the wallet holds surplus above the
+// floor to move into Earn. The bootstrap "initial surplus" sweep is snapshotted
+// at setup, but that surplus is frequently swept by the recurring delegation (or
+// spent) without the scheduled slot ever being reconciled — leaving a stale
+// "Execute now" row the worker can never satisfy. Both the web and mobile state
+// reads call this to clear those rows server-side once the on-chain surplus is
+// gone, matching the clients' display-side surplus cap. Mirror of the 0.01 USDC
+// visibility threshold the clients use.
+const EARN_AUTODEPOSIT_RECONCILE_MIN_SURPLUS_RAW = BigInt(10_000);
+
+export async function reconcileStaleEarnAutodepositScheduledSweeps(
+  args: {
+    target: Pick<BalanceSweepTargetRecord, "id" | "walletBalanceFloorRaw">;
+    walletTokenBalanceRaw: bigint;
+  },
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<{ canceledSlotCount: number; suppressedLotCount: number }> {
+  const floorRaw = args.target.walletBalanceFloorRaw ?? BigInt(0);
+  // Real surplus still backs the sweeps — leave them for the worker.
+  if (
+    args.walletTokenBalanceRaw - floorRaw >=
+    EARN_AUTODEPOSIT_RECONCILE_MIN_SURPLUS_RAW
+  ) {
+    return { canceledSlotCount: 0, suppressedLotCount: 0 };
+  }
+  const { client } = dependencies;
+  const now = dependencies.now();
+
+  // Suppress unclaimed surplus lots ('open') — nothing above the floor to sweep,
+  // so the scheduled slots they back empty out (remaining → 0) and the sweep
+  // worker, which scans open lots, skips them. 'selected'/claimed lots belong to
+  // an in-flight execution and are left untouched.
+  const suppressed = await client.db.execute(sql`
+    UPDATE ${balanceSweepSurplusLots}
+    SET status = 'suppressed', updated_at = ${now}
+    WHERE ${balanceSweepSurplusLots.targetId} = ${args.target.id}
+      AND ${balanceSweepSurplusLots.status} = 'open'
+      AND ${balanceSweepSurplusLots.remainingAmountRaw} > 0
+    RETURNING ${balanceSweepSurplusLots.id}
+  `);
+
+  // Cancel slots the worker is already done with ('failed'/'released'): the
+  // pending query returns those by status regardless of remaining amount, so
+  // suppressing lots alone won't hide them. 'requested'/'selected' are mid-
+  // execution and never touched; 'scheduled' slots drop on their own once their
+  // lots are suppressed (and stay reusable for the next real surplus).
+  const canceled = await client.db.execute(sql`
+    UPDATE ${balanceSweepScheduledSlots}
+    SET status = 'canceled',
+        last_error = 'reconciled: wallet at or below floor, no surplus to sweep',
+        updated_at = ${now}
+    WHERE ${balanceSweepScheduledSlots.targetId} = ${args.target.id}
+      AND ${balanceSweepScheduledSlots.status} IN ('failed', 'released')
+    RETURNING ${balanceSweepScheduledSlots.id}
+  `);
+
+  return {
+    canceledSlotCount: getExecuteRows(canceled).length,
+    suppressedLotCount: getExecuteRows(suppressed).length,
+  };
+}
+
 export async function findCurrentEarnAutodepositState(
   input: {
     settings: string;

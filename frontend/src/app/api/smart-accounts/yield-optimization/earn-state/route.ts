@@ -17,6 +17,7 @@ import {
   findPendingEarnAutodepositScheduledSweeps,
   markAutodepositTargetActiveFromArtifacts,
   markAutodepositTargetPendingDelegation,
+  reconcileStaleEarnAutodepositScheduledSweeps,
   scheduleBootstrapEarnAutodepositSweep,
   sumEarnAutodepositCurrentPeriodDeposits,
   type CurrentEarnAutodepositState,
@@ -298,14 +299,56 @@ export async function GET(request: Request) {
             }
           }
 
-          const [depositedThisPeriodRaw, scheduledSweeps] = await Promise.all([
-            sumEarnAutodepositCurrentPeriodDeposits(reconciledState.target),
-            reconciledState.status === "pending"
-              ? []
-              : findPendingEarnAutodepositScheduledSweeps(
-                  reconciledState.target
-                ),
-          ]);
+          const [depositedThisPeriodRaw, initialScheduledSweeps] =
+            await Promise.all([
+              sumEarnAutodepositCurrentPeriodDeposits(reconciledState.target),
+              reconciledState.status === "pending"
+                ? []
+                : findPendingEarnAutodepositScheduledSweeps(
+                    reconciledState.target
+                  ),
+            ]);
+          let scheduledSweeps = initialScheduledSweeps;
+          // Clear stale scheduled sweeps the wallet can no longer back (surplus
+          // already swept or spent) so the row disappears instead of lingering
+          // as a phantom "Execute now". Only runs when there's a sweep to check.
+          if (scheduledSweeps.length > 0) {
+            try {
+              const balanceSnapshot =
+                await readEarnAutodepositBootstrapWalletBalanceSnapshot({
+                  connection,
+                  source: RECONCILE_BOOTSTRAP_BALANCE_SOURCE,
+                  sourceCommitment:
+                    RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
+                  target: reconciledState.target,
+                });
+              if (balanceSnapshot.status === "ok") {
+                const reconcile =
+                  await reconcileStaleEarnAutodepositScheduledSweeps({
+                    target: reconciledState.target,
+                    walletTokenBalanceRaw: balanceSnapshot.snapshot.amountRaw,
+                  });
+                if (
+                  reconcile.canceledSlotCount > 0 ||
+                  reconcile.suppressedLotCount > 0
+                ) {
+                  scheduledSweeps =
+                    await findPendingEarnAutodepositScheduledSweeps(
+                      reconciledState.target
+                    );
+                }
+              }
+            } catch (error) {
+              console.warn("[earn-state] stale sweep reconcile failed", {
+                errorMessage:
+                  error instanceof Error
+                    ? error.message
+                    : "Unknown reconcile error.",
+                policyAccount: reconciledState.target.policyAccount,
+                walletAddress: principal.walletAddress,
+              });
+            }
+          }
 
           return {
             ...reconciledState,

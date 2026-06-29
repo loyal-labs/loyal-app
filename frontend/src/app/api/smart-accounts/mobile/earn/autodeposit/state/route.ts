@@ -17,6 +17,7 @@ import {
   findPendingEarnAutodepositScheduledSweeps,
   markAutodepositTargetActiveFromArtifacts,
   markAutodepositTargetPendingDelegation,
+  reconcileStaleEarnAutodepositScheduledSweeps,
   scheduleBootstrapEarnAutodepositSweep,
   type CurrentEarnAutodepositState,
   type PendingEarnAutodepositScheduledSweepRecord,
@@ -217,9 +218,49 @@ export async function GET(request: Request) {
       }
     }
 
-    const scheduledSweeps = await findPendingEarnAutodepositScheduledSweeps(
+    let scheduledSweeps = await findPendingEarnAutodepositScheduledSweeps(
       reconciledState.target
     );
+    // Clear stale scheduled sweeps the wallet can no longer back (surplus already
+    // swept or spent) so the Activity row disappears instead of lingering as a
+    // phantom "Execute now". Only runs when there's a sweep to evaluate.
+    if (scheduledSweeps.length > 0) {
+      try {
+        const balanceSnapshot =
+          await readEarnAutodepositBootstrapWalletBalanceSnapshot({
+            connection,
+            source: RECONCILE_BOOTSTRAP_BALANCE_SOURCE,
+            sourceCommitment: RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
+            target: reconciledState.target,
+          });
+        if (balanceSnapshot.status === "ok") {
+          const reconcile = await reconcileStaleEarnAutodepositScheduledSweeps({
+            target: reconciledState.target,
+            walletTokenBalanceRaw: balanceSnapshot.snapshot.amountRaw,
+          });
+          if (
+            reconcile.canceledSlotCount > 0 ||
+            reconcile.suppressedLotCount > 0
+          ) {
+            scheduledSweeps = await findPendingEarnAutodepositScheduledSweeps(
+              reconciledState.target
+            );
+          }
+        }
+      } catch (error) {
+        console.warn(
+          "[mobile-earn-autodeposit-state] stale sweep reconcile failed",
+          {
+            errorMessage:
+              error instanceof Error
+                ? error.message
+                : "Unknown reconcile error.",
+            policyAccount: reconciledState.target.policyAccount,
+            walletAddress,
+          }
+        );
+      }
+    }
 
     return NextResponse.json({
       autodeposit: {
