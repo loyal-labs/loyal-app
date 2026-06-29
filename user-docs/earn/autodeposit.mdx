@@ -30,9 +30,11 @@ You approve this setup from your Main Account. Loyal does not receive a general 
 
 ## How Wallet Watching Works
 
-Loyal uses Solana account subscriptions to notice changes to watched USDC token accounts. When your wallet balance rises above the floor, the system can schedule the eligible surplus for a sweep, usually with a delay before execution.
+Loyal uses Solana account subscriptions to notice changes to watched USDC token accounts. When your wallet balance rises above the floor, the system can schedule one or more eligible surplus lots for later sweeps, usually with a delay before execution.
 
-That schedule gives the executor time to verify the current wallet balance, the policy/delegation state, and the Earn route before moving funds.
+The app can surface those pending scheduled sweeps before funds move. If a sweep is already queued, you can ask Earn to run that pending lot immediately instead of waiting for the full delay.
+
+That schedule still gives the executor time to verify the current wallet balance, the policy/delegation state, and the Earn route before moving funds.
 
 ## Execution
 
@@ -41,7 +43,7 @@ That schedule gives the executor time to verify the current wallet balance, the 
     The balance watcher sees that the wallet has USDC above the saved floor.
   </Step>
   <Step title="Schedule a sweep">
-    Loyal records the eligible amount and waits until it is ready to execute.
+    Loyal records each eligible lot as a pending scheduled sweep and waits until it is ready to execute.
   </Step>
   <Step title="Pull to Earn">
     The executor uses the Autodeposit policy to move only allowed USDC from the wallet token account into the Earn vault.
@@ -56,5 +58,5 @@ That schedule gives the executor time to verify the current wallet balance, the 
 Pausing stops new sweeps from being executed. Updating the floor changes how much USDC must stay in the wallet. Closing Autodeposit revokes the recurring delegation and closes the Autodeposit policy, which requires a signed cleanup flow.
 
 <Warning>
-Autodeposit is worker-driven. Execution can take time because the worker verifies state before moving funds.
+Autodeposit is worker-driven. Even when you ask Earn to run a pending scheduled sweep immediately, the worker still verifies state before moving funds.
 </Warning>
