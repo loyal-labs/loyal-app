@@ -231,17 +231,6 @@ export function formatEarnActionCtaAmount(value: number) {
   });
 }
 
-function formatForecastAmountLabel(value: number) {
-  if (!Number.isFinite(value)) {
-    return "$0";
-  }
-
-  return `$${value.toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 0,
-  })}`;
-}
-
 function floorToBucks(value: number) {
   if (!Number.isFinite(value) || value <= 0) {
     return 0;
@@ -339,95 +328,6 @@ const FORECAST_DATES = [
   "Apr 2027",
   "May 2027",
 ];
-
-const FORECAST_AMOUNT_PRESETS = [
-  { label: "$100", value: 100 },
-  { label: "$500", value: 500 },
-  { label: "$1,000", value: 1000 },
-  { label: "$5,000", value: 5000 },
-] as const;
-const DEFAULT_FORECAST_AMOUNT = FORECAST_AMOUNT_PRESETS[2].value;
-const USER_FORECAST_SELECTION = "you";
-
-type ForecastAmountSelection = typeof USER_FORECAST_SELECTION | number;
-
-type ForecastAmountOption = {
-  id: string;
-  label: string;
-  selection: ForecastAmountSelection;
-  value: number;
-};
-
-function hasUserForecastAmount(balance: number) {
-  return Number.isFinite(balance) && balance > 0 ? balance : null;
-}
-
-function getCurrentForecastAmount(
-  balance: number,
-  currentAmount: number | null
-) {
-  if (hasUserForecastAmount(balance) === null) {
-    return null;
-  }
-
-  return currentAmount !== null && Number.isFinite(currentAmount)
-    ? currentAmount
-    : balance;
-}
-
-export function getDefaultForecastSelection(
-  balance: number
-): ForecastAmountSelection {
-  return hasUserForecastAmount(balance) === null
-    ? DEFAULT_FORECAST_AMOUNT
-    : USER_FORECAST_SELECTION;
-}
-
-export function getForecastAmountForSelection(
-  selection: ForecastAmountSelection,
-  balance: number,
-  currentAmount: number | null
-) {
-  if (selection === USER_FORECAST_SELECTION) {
-    return (
-      getCurrentForecastAmount(balance, currentAmount) ??
-      DEFAULT_FORECAST_AMOUNT
-    );
-  }
-
-  return selection;
-}
-
-export function buildForecastAmountOptions(
-  balance: number,
-  currentAmount: number | null
-): ForecastAmountOption[] {
-  const currentForecastAmount = getCurrentForecastAmount(
-    balance,
-    currentAmount
-  );
-  const options: ForecastAmountOption[] = [];
-
-  if (currentForecastAmount !== null) {
-    options.push({
-      id: USER_FORECAST_SELECTION,
-      label: formatForecastAmountLabel(currentForecastAmount),
-      selection: USER_FORECAST_SELECTION,
-      value: currentForecastAmount,
-    });
-  }
-
-  for (const preset of FORECAST_AMOUNT_PRESETS) {
-    options.push({
-      id: `preset:${preset.value}`,
-      label: preset.label,
-      selection: preset.value,
-      value: preset.value,
-    });
-  }
-
-  return options;
-}
 
 export function buildEarnChartPoints(
   principal: number,
@@ -5866,18 +5766,14 @@ function EarnDepositChartsSection({
   apy,
   defaultActiveTab = "Forecast",
   forecastAmount,
-  forecastAmountOptions,
-  forecastSelection,
+  forecastAmountLabel,
   mainUsdcReserveApyBps,
-  onForecastSelectionChange,
 }: {
   apy: EarnForecastApy;
   defaultActiveTab?: EarnDepositChartTab;
   forecastAmount: number;
-  forecastAmountOptions: ForecastAmountOption[];
-  forecastSelection: ForecastAmountSelection;
+  forecastAmountLabel: string;
   mainUsdcReserveApyBps: number;
-  onForecastSelectionChange: (selection: ForecastAmountSelection) => void;
 }) {
   const [activeTab, setActiveTab] =
     useState<EarnDepositChartTab>(defaultActiveTab);
@@ -5911,12 +5807,6 @@ function EarnDepositChartsSection({
             transform 0.34s cubic-bezier(0.2, 0, 0, 1),
             filter 0.34s cubic-bezier(0.2, 0, 0, 1);
         }
-        .earn-forecast-chip {
-          transition: background 0.15s ease, color 0.15s ease;
-        }
-        .earn-forecast-chip:hover:not(.earn-forecast-chip-active) {
-          background: rgba(0, 0, 0, 0.04);
-        }
         @media (max-width: 760px) {
           .earn-deposit-chart-header {
             gap: 6px !important;
@@ -5932,16 +5822,6 @@ function EarnDepositChartsSection({
             flex: 1 1 auto !important;
             justify-content: flex-end;
             min-width: 0;
-          }
-
-          .earn-forecast-chip {
-            padding: 4px 8px !important;
-          }
-
-          .earn-forecast-chip[data-mobile-option="extra"]:not(
-              .earn-forecast-chip-active
-            ) {
-            display: none;
           }
         }
         @media (prefers-reduced-motion: reduce) {
@@ -6005,40 +5885,25 @@ function EarnDepositChartsSection({
               gap: "4px",
             }}
           >
-            {forecastAmountOptions.map((option) => {
-              const isActive = option.selection === forecastSelection;
-              const isMobilePrimaryOption =
-                option.selection === USER_FORECAST_SELECTION ||
-                option.selection === 100 ||
-                option.selection === 1000;
-              return (
-                <button
-                  className={`earn-forecast-chip ${
-                    isActive ? "earn-forecast-chip-active" : ""
-                  }`}
-                  data-mobile-option={
-                    isMobilePrimaryOption ? "primary" : "extra"
-                  }
-                  key={option.id}
-                  onClick={() => onForecastSelectionChange(option.selection)}
-                  style={{
-                    background: isActive ? "#000" : "transparent",
-                    border: "none",
-                    borderRadius: "9999px",
-                    color: isActive ? "#fff" : secondary,
-                    cursor: "pointer",
-                    fontFamily: font,
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    lineHeight: "16px",
-                    padding: "4px 10px",
-                  }}
-                  type="button"
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+            <span
+              style={{
+                background: "#000",
+                borderRadius: "9999px",
+                color: "#fff",
+                display: "inline-flex",
+                fontFamily: font,
+                fontSize: "13px",
+                fontWeight: 500,
+                lineHeight: "16px",
+                maxWidth: "160px",
+                overflow: "hidden",
+                padding: "4px 10px",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {forecastAmountLabel}
+            </span>
           </div>
         ) : null}
       </div>
@@ -6149,25 +6014,8 @@ export function EarnDepositView({
     formatBucksAmount(selectedSourceBalance)
   );
   const depositAmountTouchedRef = useRef(false);
-  const [forecastSelection, setForecastSelection] =
-    useState<ForecastAmountSelection>(() =>
-      getDefaultForecastSelection(selectedSourceBalance)
-    );
-  const forecastSelectionTouchedRef = useRef(false);
   const numericDepositAmount =
     Number.parseFloat(depositAmount.replace(/,/g, "")) || 0;
-  const forecastInputAmount =
-    depositAmount.length > 0 ? numericDepositAmount : null;
-  const forecastAmountOptions = useMemo(
-    () =>
-      buildForecastAmountOptions(selectedSourceBalance, forecastInputAmount),
-    [forecastInputAmount, selectedSourceBalance]
-  );
-  const forecastAmount = getForecastAmountForSelection(
-    forecastSelection,
-    selectedSourceBalance,
-    forecastInputAmount
-  );
   const hasDepositAmount = depositAmount.length > 0;
   const isMaximumDepositMode = depositAmount.length === 0;
   const effectiveDepositAmount = isMaximumDepositMode
@@ -6176,6 +6024,8 @@ export function EarnDepositView({
   const effectiveDepositAmountLabel = isMaximumDepositMode
     ? formatDepositAmount(selectedSourceBalance)
     : depositAmount;
+  const forecastAmount = effectiveDepositAmount;
+  const forecastAmountLabel = `$${formatEarnActionCtaAmount(forecastAmount)}`;
   const amountError =
     effectiveDepositAmount < MIN_DEPOSIT_USDC
       ? `Minimum deposit is ${MIN_DEPOSIT_USDC} USDC`
@@ -6190,18 +6040,6 @@ export function EarnDepositView({
     : submitCtaLabel ??
       amountError ??
       `Deposit $${formatEarnActionCtaAmount(effectiveDepositAmount)}`;
-  const updateForecastFromInput = () => {
-    forecastSelectionTouchedRef.current = true;
-    setForecastSelection(
-      hasUserForecastAmount(selectedSourceBalance) === null
-        ? DEFAULT_FORECAST_AMOUNT
-        : USER_FORECAST_SELECTION
-    );
-  };
-  const handleChipClick = (selection: ForecastAmountSelection) => {
-    forecastSelectionTouchedRef.current = true;
-    setForecastSelection(selection);
-  };
   const buildCurrentDraft = (): EarnDepositDraft => ({
     amount: effectiveDepositAmount,
     amountLabel: effectiveDepositAmountLabel,
@@ -6223,21 +6061,6 @@ export function EarnDepositView({
       setDepositAmount(formatBucksAmount(selectedSourceBalance));
     }
   }, [selectedSourceBalance]);
-
-  useEffect(() => {
-    const defaultSelection = getDefaultForecastSelection(selectedSourceBalance);
-    if (!forecastSelectionTouchedRef.current) {
-      setForecastSelection(defaultSelection);
-      return;
-    }
-
-    if (
-      forecastSelection === USER_FORECAST_SELECTION &&
-      defaultSelection !== USER_FORECAST_SELECTION
-    ) {
-      setForecastSelection(defaultSelection);
-    }
-  }, [forecastSelection, selectedSourceBalance]);
 
   useEffect(() => {
     if (!sourceOptions.some((source) => source.id === selectedSourceId)) {
@@ -6355,16 +6178,6 @@ export function EarnDepositView({
           <DepositVaultRow apyLabel={earnApyLabel} vault={TOP_DEPOSIT_VAULT} />
         </section>
 
-        <EarnDepositChartsSection
-          apy={earnForecastApy}
-          defaultActiveTab={defaultChartTab}
-          forecastAmount={forecastAmount}
-          forecastAmountOptions={forecastAmountOptions}
-          forecastSelection={forecastSelection}
-          mainUsdcReserveApyBps={mainUsdcReserveApyBps}
-          onForecastSelectionChange={handleChipClick}
-        />
-
         {showFundingControls ? (
           <>
             <section
@@ -6407,7 +6220,6 @@ export function EarnDepositView({
                       if (sanitizedValue !== null) {
                         depositAmountTouchedRef.current = true;
                         setDepositAmount(sanitizedValue);
-                        updateForecastFromInput();
                       }
                     }}
                     value={depositAmount}
@@ -6453,6 +6265,14 @@ export function EarnDepositView({
             </section>
           </>
         ) : null}
+
+        <EarnDepositChartsSection
+          apy={earnForecastApy}
+          defaultActiveTab={defaultChartTab}
+          forecastAmount={forecastAmount}
+          forecastAmountLabel={forecastAmountLabel}
+          mainUsdcReserveApyBps={mainUsdcReserveApyBps}
+        />
       </div>
 
       <div
