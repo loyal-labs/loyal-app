@@ -139,19 +139,29 @@ export function AutodepositSetupSheet({
     ? (earnBalanceUsd as number)
     : 0;
 
+  // Present/dismiss follows `open` ALONE. Deleting an autodeposit refreshes
+  // state so `initialThresholdUsd` drops to null mid-close; if that re-ran this
+  // effect while `open` were still true, it would re-present a sheet the user
+  // just closed (the delete dismisses imperatively before onClose propagates).
   useEffect(() => {
     if (open) {
-      setAmount(
-        mode === "edit" && initialThresholdUsd != null && initialThresholdUsd > 0
-          ? String(initialThresholdUsd)
-          : "",
-      );
-      setSubmitError(null);
-      setSubmitting(false);
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
     }
+  }, [open]);
+
+  // Seed the form when the sheet opens (or its target threshold changes while
+  // open) — separate from present/dismiss so it can't reopen a closing sheet.
+  useEffect(() => {
+    if (!open) return;
+    setAmount(
+      mode === "edit" && initialThresholdUsd != null && initialThresholdUsd > 0
+        ? String(initialThresholdUsd)
+        : "",
+    );
+    setSubmitError(null);
+    setSubmitting(false);
   }, [open, mode, initialThresholdUsd]);
 
   useEffect(() => {
