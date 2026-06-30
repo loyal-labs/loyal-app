@@ -48,6 +48,10 @@ import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
 import { useEarnForecast } from "@/hooks/wallet/useEarnForecast";
 import { useEarnWithdrawSources } from "@/hooks/wallet/useEarnWithdrawSources";
+import {
+  useWalletAutoRefresh,
+  type WalletRefreshReason,
+} from "@/hooks/wallet/useWalletAutoRefresh";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, Text, View } from "@/tw";
 
@@ -56,6 +60,10 @@ import EarnFlash from "../../assets/images/earn/flash.svg";
 import EarnQuestionmark from "../../assets/images/earn/questionmark.svg";
 
 const APY_LABEL = "8.46% APY";
+
+// Earn is a money-sensitive view and the user expects the balance to track the
+// chain promptly, so poll faster than the wallet's 60s safety-net interval.
+const EARN_REFRESH_INTERVAL_MS = 15_000;
 
 const COLOR_BADGE_GREEN = "#32B67C";
 const COLOR_AUTODEPOSIT_RED = "#F9363C";
@@ -142,16 +150,17 @@ export default function EarnScreen() {
   const {
     position,
     holdings,
-    isLoading: isEarnPositionLoading,
     hasLoaded: earnPositionLoaded,
     refreshEarnPosition,
+    markEarnMutation,
   } = useEarnPosition(walletAddress);
-  // The Earn balance read lags (live holdings + read-model), so never show a
-  // stale/zero figure: skeleton the number until the first read settles, and
-  // again on every refocus refetch, until the fresh value lands. Only while a
-  // wallet is connected — a locked wallet has no balance to load.
-  const balanceLoading =
-    walletAddress != null && (isEarnPositionLoading || !earnPositionLoaded);
+  // Skeleton the number only until the FIRST read settles. The post-mutation
+  // reconciliation lives in useEarnPosition (it trusts the freshly-written
+  // read-model right after a deposit/withdraw), so the headline is already
+  // correct on the next read — no settling skeleton needed. Routine background
+  // refreshes (focus/interval/push) keep the last value on screen and update it
+  // in place. Only while a wallet is connected — a locked wallet has no balance.
+  const balanceLoading = walletAddress != null && !earnPositionLoaded;
   // Global "loyal" APY forecast — the same source the APY chart (and the web)
   // show as the headline rate, so the badge below matches them instead of the
   // position's raw reserve supply APY.
@@ -233,14 +242,29 @@ export default function EarnScreen() {
   const line2 = useSharedValue(0);
   const badge = useSharedValue(0);
 
+  // Keep the Earn position + autodeposit in sync with the chain via the shared
+  // refresh coordinator (focus, app-foreground, push-on-transfer, interval). This
+  // is what makes the balance update the moment it changes — including a withdraw
+  // done on another client (web) while this tab sits open — instead of only on
+  // focus. `requestRefresh("mutation")` is reused below for local deposit/withdraw.
+  const refreshEarnData = useCallback(
+    async (_reason: WalletRefreshReason) => {
+      await Promise.allSettled([refreshEarnPosition(), refreshAutodeposit()]);
+    },
+    [refreshEarnPosition, refreshAutodeposit],
+  );
+  const { requestRefresh } = useWalletAutoRefresh({
+    walletAddress,
+    refresh: refreshEarnData,
+    intervalMs: EARN_REFRESH_INTERVAL_MS,
+  });
+
   // Track focus; reset to the pre-deposit, pre-reveal state on leave so the tab
-  // always reopens on a clean pitch.
+  // always reopens on a clean pitch. (The coordinator above handles the on-focus
+  // data refresh.)
   useFocusEffect(
     useCallback(() => {
       setIsFocused(true);
-      // Pull the real read-models whenever the tab gains focus.
-      refreshEarnPosition();
-      refreshAutodeposit();
       return () => {
         setIsFocused(false);
         riseY.value = width * DOG_SINK_RATIO;
@@ -249,31 +273,30 @@ export default function EarnScreen() {
         line2.value = 0;
         badge.value = 0;
       };
-    }, [
-      width,
-      riseY,
-      line0,
-      line1,
-      line2,
-      badge,
-      refreshEarnPosition,
-      refreshAutodeposit,
-    ]),
+    }, [width, riseY, line0, line1, line2, badge]),
   );
 
-  // Real read-model is the source of truth: once a position with a balance
-  // loads, it sets the funded Earn Balance (overriding the optimistic value).
+  // The reconciled position drives the funded Earn Balance: a non-zero read sets
+  // it (overriding the optimistic just-deposited value), an empty read clears it
+  // — so a full withdraw, even one done on another client (web), drops the funded
+  // state instead of stranding the last balance. useEarnPosition has already
+  // chosen the right source (read-model right after a mutation, else live), so we
+  // render its value directly — no per-read guessing here.
   useEffect(() => {
-    if (!position) {
+    // Wait for the first real fetch so we don't clear during initial load.
+    if (!earnPositionLoaded) {
       return;
     }
-    const raw = Number(position.currentAmountRaw);
-    const usd = Number.isFinite(raw) ? raw / 1e6 : 0;
+    const raw = position ? Number(position.currentAmountRaw) : 0;
+    const usd = position && Number.isFinite(raw) ? raw / 1e6 : 0;
     if (usd > 0) {
       setDepositedUsd(usd);
       setHasDeposit(true);
+    } else {
+      setDepositedUsd(null);
+      setHasDeposit(false);
     }
-  }, [position]);
+  }, [position, earnPositionLoaded]);
 
   // Cross-fade the promo hero ↔ funded layout whenever the funded state flips.
   // Forward (balance loaded) is the common path: funded fades in while the promo
@@ -389,8 +412,12 @@ export default function EarnScreen() {
 
   const handleOpenDeposit = useCallback(() => {
     void Haptics.selectionAsync();
+    // Pull the live wallet USDC so the sheet's available balance is current, not
+    // cached from before the latest deposit/sweep (matches the autodeposit/
+    // withdraw open handlers).
+    refreshTokenHoldings(true);
     setDepositOpen(true);
-  }, []);
+  }, [refreshTokenHoldings]);
 
   const handleCloseDeposit = useCallback(() => {
     setDepositOpen(false);
@@ -404,13 +431,29 @@ export default function EarnScreen() {
         throw new Error("Unlock your wallet to deposit.");
       }
       await executeEarnDeposit({ signer, amountUsd });
-      // Show the funded state immediately; the read-model reconciles the exact
-      // balance on the next refresh.
-      setDepositedUsd(amountUsd);
+      // Trust the read-model for the next reads — confirmEarnDeposit (inside
+      // executeEarnDeposit, just awaited) wrote it with the deposited total, so
+      // the next `/state` read is correct immediately while live `/holdings` lags.
+      markEarnMutation();
+      // Reveal the funded layout immediately. The optimistic total (prior balance
+      // + deposit; correct for top-ups too) bridges the network round-trip until
+      // the refresh lands the reconciled read-model value (= the same total).
+      const expectedUsd = (depositedUsd ?? 0) + amountUsd;
+      setDepositedUsd(expectedUsd);
       setHasDeposit(true);
-      refreshEarnPosition();
+      void requestRefresh("mutation");
+      // The deposit spent wallet USDC — refresh holdings so the sheet's available
+      // balance is correct if it's reopened (it doesn't auto-update otherwise).
+      refreshTokenHoldings(true);
     },
-    [signer, state, refreshEarnPosition],
+    [
+      signer,
+      state,
+      depositedUsd,
+      markEarnMutation,
+      requestRefresh,
+      refreshTokenHoldings,
+    ],
   );
 
   const handleOpenWithdraw = useCallback(() => {
@@ -477,13 +520,17 @@ export default function EarnScreen() {
         mode,
         source: source ? toWithdrawPrepareSource(source) : null,
       });
+      // confirmEarnWithdraw wrote the reduced read-model — trust it over the live
+      // read, which lags HIGH right after a withdraw (funds still in the obligation
+      // mid-redeem). This keeps the balance from briefly bouncing back up.
+      markEarnMutation();
       // Optimistic clear only when this empties the whole position (single
       // source); for multi-source the read-model refresh reconciles the rest.
       if (mode === "full" && withdrawSources.length <= 1) {
         setHasDeposit(false);
         setDepositedUsd(null);
       }
-      refreshEarnPosition();
+      void requestRefresh("mutation");
       refreshWithdrawSources();
     },
     [
@@ -491,7 +538,8 @@ export default function EarnScreen() {
       state,
       depositedUsd,
       withdrawSources,
-      refreshEarnPosition,
+      markEarnMutation,
+      requestRefresh,
       refreshWithdrawSources,
     ],
   );

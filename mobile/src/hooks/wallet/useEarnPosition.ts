@@ -7,17 +7,28 @@ import {
   type EarnPosition,
 } from "@/lib/solana/earn/earn-api";
 
-// Merges the live on-chain holdings total into the read-model position. The
-// `/state` read-model (`currentAmountRaw`) lags the chain and omits non-idle
-// venue holdings, so the web reads holdings live for its headline balance — we
-// mirror that here, keeping the read-model's APY/principal/status but taking the
-// balance from the live total. When the live read is unavailable (null), we keep
-// the read-model value rather than zeroing a real balance.
-function mergeLiveBalance(
+// After a local deposit/withdraw, the backend read-model (`/state`
+// `currentAmountRaw`) is written synchronously by the confirm call, so it's the
+// correct intended balance immediately. The live `/holdings` read, by contrast,
+// LAGS the chain mid-sweep — it dips below the deposit right after a deposit
+// (funds still moving idle→Kamino) and reads high right after a withdraw. So for
+// a short window after a mutation we trust the read-model; outside it we trust
+// the live holdings total, which tracks market drift the read-model misses (the
+// reason the live override exists at all). This mirrors the web showing the
+// correct value the moment a deposit lands instead of a transient dip.
+const MUTATION_TRUST_MS = 20_000;
+
+// Picks the balance the headline shows. `preferReadModel` (set briefly after a
+// local mutation) keeps the confirm-written read-model; otherwise the live total
+// overrides it. APY/principal/status always come from the read-model. When the
+// live read is unavailable (null) we keep the read-model rather than zeroing a
+// real balance.
+function reconcileBalance(
   position: EarnPosition | null,
   liveTotalRaw: string | null,
+  preferReadModel: boolean,
 ): EarnPosition | null {
-  if (liveTotalRaw === null || position === null) {
+  if (position === null || liveTotalRaw === null || preferReadModel) {
     return position;
   }
   return { ...position, currentAmountRaw: liveTotalRaw };
@@ -40,6 +51,16 @@ export function useEarnPosition(walletAddress: string | null) {
   // position read can legitimately resolve to null for a wallet with no Earn.
   const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
+  // Timestamp of the last local deposit/withdraw. Within MUTATION_TRUST_MS of it
+  // we trust the read-model over the lagging live read (see reconcileBalance).
+  const mutatedAtRef = useRef(0);
+
+  // Called by the Earn screen right before/after a deposit or withdraw so the
+  // next reads prefer the freshly-written read-model instead of the mid-sweep
+  // live total.
+  const markEarnMutation = useCallback(() => {
+    mutatedAtRef.current = Date.now();
+  }, []);
 
   const refreshEarnPosition = useCallback(async () => {
     if (!walletAddress) {
@@ -48,9 +69,9 @@ export function useEarnPosition(walletAddress: string | null) {
     const fetchId = ++fetchIdRef.current;
     setIsLoading(true);
     try {
-      // Fetch both concurrently: `state` for APY/principal/status, `holdings`
-      // for the authoritative live balance. A holdings failure must not drop the
-      // position, so each settles independently.
+      // Fetch both concurrently: `state` for APY/principal/status (+ the
+      // post-mutation balance), `holdings` for the live balance once settled. A
+      // holdings failure must not drop the position, so each settles independently.
       const [stateResult, holdingsResult] = await Promise.allSettled([
         fetchEarnState(walletAddress),
         fetchEarnHoldings(walletAddress),
@@ -69,7 +90,15 @@ export function useEarnPosition(walletAddress: string | null) {
       } else {
         console.error("Failed to fetch Earn holdings", holdingsResult.reason);
       }
-      setPosition(mergeLiveBalance(stateResult.value.position, liveTotalRaw));
+      const preferReadModel =
+        Date.now() - mutatedAtRef.current < MUTATION_TRUST_MS;
+      setPosition(
+        reconcileBalance(
+          stateResult.value.position,
+          liveTotalRaw,
+          preferReadModel,
+        ),
+      );
     } finally {
       if (fetchId === fetchIdRef.current) {
         setIsLoading(false);
@@ -88,5 +117,12 @@ export function useEarnPosition(walletAddress: string | null) {
     }
   }, [walletAddress, refreshEarnPosition]);
 
-  return { position, holdings, isLoading, hasLoaded, refreshEarnPosition };
+  return {
+    position,
+    holdings,
+    isLoading,
+    hasLoaded,
+    refreshEarnPosition,
+    markEarnMutation,
+  };
 }
