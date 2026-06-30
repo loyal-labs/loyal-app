@@ -429,31 +429,56 @@ async function loadEarnData(): Promise<EarnData> {
             interval '1 day'
           )::date AS day
         ),
-        deposits AS (
+        confirmed_flow_events AS (
           SELECT
-            (confirmed_at AT TIME ZONE 'UTC')::date AS day,
-            SUM(principal_amount_raw) AS amount_raw
-          FROM loyal_yield.user_yield_position_deposits
-          WHERE confirmed_at >= (SELECT start_day FROM bounds)
-            AND confirmed_at < (SELECT end_day FROM bounds)
-          GROUP BY 1
+            (deposit.confirmed_at AT TIME ZONE 'UTC')::date AS day,
+            'deposit'::text AS direction,
+            'earn_deposit'::text AS source,
+            deposit.deposit_signature AS signature,
+            deposit.principal_amount_raw AS amount_raw
+          FROM loyal_yield.user_yield_position_deposits AS deposit
+          WHERE deposit.confirmed_at >= (SELECT start_day FROM bounds)
+            AND deposit.confirmed_at < (SELECT end_day FROM bounds)
+          UNION ALL
+          SELECT
+            (execution.received_at AT TIME ZONE 'UTC')::date AS day,
+            'deposit'::text AS direction,
+            'autodeposit_sweep'::text AS source,
+            execution.signature,
+            execution.amount_raw
+          FROM loyal_yield.balance_sweep_executions AS execution
+          WHERE execution.received_at >= (SELECT start_day FROM bounds)
+            AND execution.received_at < (SELECT end_day FROM bounds)
+            AND NOT EXISTS (
+              SELECT 1
+              FROM loyal_yield.user_yield_position_deposits AS deposit
+              WHERE deposit.deposit_signature = execution.signature
+            )
+          UNION ALL
+          SELECT
+            (withdrawal.confirmed_at AT TIME ZONE 'UTC')::date AS day,
+            'withdrawal'::text AS direction,
+            'earn_withdrawal'::text AS source,
+            withdrawal.withdrawal_signature AS signature,
+            withdrawal.withdrawn_amount_raw AS amount_raw
+          FROM loyal_yield.user_yield_position_withdrawals AS withdrawal
+          WHERE withdrawal.confirmed_at >= (SELECT start_day FROM bounds)
+            AND withdrawal.confirmed_at < (SELECT end_day FROM bounds)
         ),
-        withdrawals AS (
+        flow_by_day AS (
           SELECT
-            (confirmed_at AT TIME ZONE 'UTC')::date AS day,
-            SUM(withdrawn_amount_raw) AS amount_raw
-          FROM loyal_yield.user_yield_position_withdrawals
-          WHERE confirmed_at >= (SELECT start_day FROM bounds)
-            AND confirmed_at < (SELECT end_day FROM bounds)
+            day,
+            SUM(amount_raw) FILTER (WHERE direction = 'deposit') AS deposited_raw,
+            SUM(amount_raw) FILTER (WHERE direction = 'withdrawal') AS withdrawn_raw
+          FROM confirmed_flow_events
           GROUP BY 1
         )
         SELECT
           to_char(days.day, 'YYYY-MM-DD') AS day,
-          COALESCE(deposits.amount_raw, 0)::text AS deposited_raw,
-          COALESCE(withdrawals.amount_raw, 0)::text AS withdrawn_raw
+          COALESCE(flow_by_day.deposited_raw, 0)::text AS deposited_raw,
+          COALESCE(flow_by_day.withdrawn_raw, 0)::text AS withdrawn_raw
         FROM days
-        LEFT JOIN deposits ON deposits.day = days.day
-        LEFT JOIN withdrawals ON withdrawals.day = days.day
+        LEFT JOIN flow_by_day ON flow_by_day.day = days.day
         ORDER BY days.day ASC
       `
     ),

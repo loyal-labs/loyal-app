@@ -307,7 +307,7 @@ export default async function EarnPage() {
             <CardHeader>
               <CardTitle className="font-bold">Confirmed flow</CardTitle>
               <CardDescription>
-                Daily deposits and withdrawals from confirmed Earn event tables
+                Daily confirmed deposits, Autodeposit sweeps, and withdrawals
               </CardDescription>
             </CardHeader>
             <CardContent>
