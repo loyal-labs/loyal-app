@@ -9,7 +9,6 @@ import {
   ChevronRight,
   CircleHelp,
   Fingerprint,
-  FlaskConical,
   Globe,
   Heart,
   Key,
@@ -22,7 +21,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, StyleSheet, Switch } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
-import { emitQuestCompleteTest } from "@/components/quests/questCompletionTestBus";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { getShowTips, setShowTips } from "@/lib/settings";
 import { mmkv } from "@/lib/storage";
@@ -370,29 +368,6 @@ export default function ProfileScreen() {
             subtitle="View intro slides again"
             showChevron
             onPress={handleReplayOnboarding}
-          />
-        </SettingsSection>
-
-        {/* TEMPORARY — preview the quest-completion notification without
-            completing real quests. Remove with questCompletionTestBus. */}
-        <SettingsSection>
-          <ProfileCell
-            icon={
-              <FlaskConical size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
-            }
-            title="Test: Task complete"
-            subtitle="Preview the single-task notification"
-            showChevron
-            onPress={() => emitQuestCompleteTest("single")}
-          />
-          <ProfileCell
-            icon={
-              <FlaskConical size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
-            }
-            title="Test: Quest complete"
-            subtitle="Preview the all-tasks notification"
-            showChevron
-            onPress={() => emitQuestCompleteTest("all")}
           />
         </SettingsSection>
 

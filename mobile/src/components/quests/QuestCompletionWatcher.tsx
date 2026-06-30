@@ -13,7 +13,6 @@ import {
   QuestCompleteNotification,
   type QuestCompleteVariant,
 } from "./QuestCompleteNotification";
-import { subscribeQuestCompleteTest } from "./questCompletionTestBus";
 
 // All quest kinds that make up the Seeker Season set; "all complete" means
 // every one of these is reported.
@@ -66,16 +65,6 @@ export function QuestCompletionWatcher() {
       }
       setVisible(true);
     },
-    [],
-  );
-
-  // TEMPORARY: lets the Settings "Test: …" rows preview the notification.
-  useEffect(
-    () =>
-      subscribeQuestCompleteTest((v) => {
-        setVariant(v);
-        setVisible(true);
-      }),
     [],
   );
 
