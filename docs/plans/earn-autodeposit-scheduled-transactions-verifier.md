@@ -4,8 +4,8 @@
 
 The Earn transactions pane must show real scheduled Autodeposit sweeps from
 `earn-state` and let a signed-in user request immediate execution through the
-existing worker-bound endpoint. The UI must not include placeholder scheduled
-rows, and the frontend must not submit sweep transactions.
+existing worker-bound endpoint. The UI must not include placeholder or stale
+scheduled rows, and the frontend must not submit sweep transactions.
 
 ## Fixed PASS Checks
 
@@ -22,6 +22,12 @@ as rendered data.
 
 Pass requires no `Scheduled` section when `scheduledSweeps` is empty. Scheduled
 rows must still render when confirmed Earn transaction history is empty.
+
+Pass requires stale scheduled rows to disappear once the watched wallet is back
+at or below its floor. `earn-state` must reconcile stale sweeps before
+serializing `scheduledSweeps` so a phantom `Execute now` row does not linger
+after the surplus was already swept or spent. In-flight `requested` and
+`selected` executions stay untouched.
 
 Pass requires `Execute now` to post to
 `/api/smart-accounts/yield-optimization/autodeposit/sweeps/execute` with the
@@ -47,8 +53,8 @@ writing tests around the old placeholder behavior.
 Record the exact command or inspection used for each item:
 
 For code inspection, record where `earn-state` includes `scheduledSweeps` from
-open surplus lots and where `AppWalletWorkspace` passes those sweeps into the
-transactions pane.
+open surplus lots, where it reconciles stale sweeps before returning them, and
+where `AppWalletWorkspace` passes those sweeps into the transactions pane.
 
 For tests, record focused output for the scheduled amount/time/section helpers,
 loaded autodeposit config preserving non-empty `scheduledSweeps`, and the
@@ -70,7 +76,7 @@ Use this format when reporting completion:
 Verdict: PASS | FAIL
 
 Evidence
-earn-state scheduledSweeps: <file/command/result>
+earn-state scheduledSweeps + stale reconcile: <file/command/result>
 transactions pane wiring: <file/command/result>
 scheduled helper tests: <command/result>
 loaded config test: <command/result>
