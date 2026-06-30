@@ -23,6 +23,25 @@ import { getOptionalEnv } from "@/lib/core/config/shared";
  */
 
 // Server-only secrets/config. Never expose any of these with NEXT_PUBLIC_.
+// Master kill-switch for ALL Solana-side reporting. Fail-safe OFF: a completion
+// is sent to Solana only when SOLANA_WEEK_QUESTS_ENABLED is exactly "true" OR
+// the wallet is in the tester allowlist (TESTER_WALLETS_ENV below). Quests are
+// hidden for the Solana dApp Store launch until the official reveal; flip this
+// env var (no code change) to go live — see mobile/docs/quests-launch-toggle.md.
+// Every send path (Quest 1 deposit-confirm, Quest 2 sweep-notify, the reconcile
+// cron) funnels through reportQuestCompletion below, so this one gate covers
+// them all. The external sweep worker keeps calling /sweep-notify regardless;
+// while disabled those reports just no-op here ("disabled"), leaving the local
+// row pending.
+const ENABLED_ENV = "SOLANA_WEEK_QUESTS_ENABLED";
+// Carve-out so internal preview-build testers can exercise quests end-to-end
+// against the real backend before the public reveal: while ENABLED_ENV is off,
+// completions are still sent for these wallets (comma-separated base58). The
+// wallet is the only discriminator available on every send path — Quest 2 is
+// reported by the external sweep worker, which knows only the wallet. Unset =
+// no carve-out.
+const TESTER_WALLETS_ENV = "SOLANA_WEEK_QUESTS_TESTER_WALLETS";
+
 const ENDPOINT_ENV = "SOLANA_WEEK_QUESTS_COMPLETION_ENDPOINT";
 const API_KEY_ENV = "SOLANA_WEEK_QUESTS_API_KEY";
 // Optional Ed25519 secret key, base58 or base64. Only some credentials require
@@ -244,6 +263,19 @@ async function postCompletion(
   return lastResult;
 }
 
+// True when `walletId` is in the comma-separated
+// SOLANA_WEEK_QUESTS_TESTER_WALLETS allowlist — the tester carve-out applied
+// while global reporting is off.
+function isTesterWallet(env: NodeJS.ProcessEnv, walletId: string): boolean {
+  const raw = getOptionalEnv(env, TESTER_WALLETS_ENV);
+  if (!raw) {
+    return false;
+  }
+  return raw
+    .split(",")
+    .some((entry) => entry.trim().length > 0 && entry.trim() === walletId);
+}
+
 /**
  * Reports a single quest completion. Returns a discriminated result instead of
  * throwing; callers decide whether to retry (see `retryable_error`). For
@@ -255,6 +287,19 @@ export async function reportQuestCompletion(args: {
   metadata?: QuestCompletionMetadata;
   env?: NodeJS.ProcessEnv;
 }): Promise<QuestCompletionResult> {
+  // Master kill-switch (fail-safe OFF) with a tester carve-out. Gating here
+  // covers every send path at once. While skipped, the local completion row
+  // stays pending, so the reconcile cron backfills it once
+  // SOLANA_WEEK_QUESTS_ENABLED flips to "true".
+  const env = args.env ?? process.env;
+  const globallyEnabled = getOptionalEnv(env, ENABLED_ENV) === "true";
+  if (!globallyEnabled && !isTesterWallet(env, args.walletId.trim())) {
+    return {
+      status: "disabled",
+      reason: `${ENABLED_ENV} not "true" and wallet not allowlisted — quests hidden until reveal`,
+    };
+  }
+
   const config = loadReporterConfig(args.env);
   if (!config) {
     return {
