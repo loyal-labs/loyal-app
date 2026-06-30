@@ -108,6 +108,10 @@ const config: ExpoConfig = {
     eas: {
       projectId: "7ecfef22-fa74-4fc9-b2f1-bf80acb81401",
     },
+    // Surfaced to the runtime so the client can hide quests in the public dApp
+    // Store build only (preview/development/Play Store keep them visible). Read
+    // via QUESTS_ENABLED in src/lib/feature-flags.ts.
+    isDappStoreBuild: IS_DAPP_STORE,
   },
   owner: "loyal-labs",
 };

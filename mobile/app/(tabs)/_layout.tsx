@@ -1,6 +1,7 @@
 import { QuestCompletionWatcher } from "@/components/quests/QuestCompletionWatcher";
 import { TabBar } from "@/components/TabBar";
 import { ActivityProvider } from "@/features/activity/model/ActivityProvider";
+import { QUESTS_ENABLED } from "@/lib/feature-flags";
 import { router, Tabs } from "expo-router";
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
@@ -63,8 +64,9 @@ export default function TabsLayout() {
         <Tabs.Screen name="summaries" options={{ href: null }} />
       </Tabs>
       {/* App-wide watcher: pops the quest-completion notification once per task
-          as progress is reported, over whichever tab is active. */}
-      <QuestCompletionWatcher />
+          as progress is reported, over whichever tab is active. Hidden until
+          the Seeker Season reveal — see docs/quests-launch-toggle.md. */}
+      {QUESTS_ENABLED && <QuestCompletionWatcher />}
     </ActivityProvider>
   );
 }

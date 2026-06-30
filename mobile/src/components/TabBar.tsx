@@ -13,6 +13,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useActivity } from "@/features/activity/model/ActivityProvider";
+import { QUESTS_ENABLED } from "@/lib/feature-flags";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, View } from "@/tw";
 
@@ -130,6 +131,10 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 
   const handlePress = useCallback(
     (routeName: string, originalIndex: number) => {
+      // Quests is deactivated until the Seeker Season reveal — the icon stays
+      // in the bar, but tapping it is a no-op. See docs/quests-launch-toggle.md.
+      if (!QUESTS_ENABLED && routeName === "quests") return;
+
       const event = navigation.emit({
         type: "tabPress",
         target: state.routes[originalIndex].key,

@@ -1,4 +1,4 @@
-import { useFocusEffect, useRouter } from "expo-router";
+import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { ChevronRight, Lock } from "lucide-react-native";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useWindowDimensions } from "react-native";
@@ -13,6 +13,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { EarnDog } from "@/components/earn/EarnDog";
+import { QUESTS_ENABLED } from "@/lib/feature-flags";
 import {
   fetchSolanaWeekQuestProgress,
   type SolanaWeekQuestKind,
@@ -152,6 +153,16 @@ function TaskCard({
 }
 
 export default function QuestsScreen() {
+  // Hidden until the Seeker Season reveal. The tab is also deactivated in
+  // TabBar; this guard catches any deep-link / programmatic navigation.
+  // See docs/quests-launch-toggle.md.
+  if (!QUESTS_ENABLED) {
+    return <Redirect href="/(tabs)" />;
+  }
+  return <QuestsScreenContent />;
+}
+
+function QuestsScreenContent() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { width } = useWindowDimensions();
