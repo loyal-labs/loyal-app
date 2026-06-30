@@ -47,8 +47,11 @@ import {
 } from "@/lib/solana/constants";
 import {
   getJupiterQuote,
+  getJupiterSwapInstructions,
   getJupiterSwapTransaction,
+  estimateSwapTransactionFee,
   type JupiterQuoteResponse,
+  type SwapFeeEstimate,
 } from "@/lib/solana/jupiter";
 import { getConnection, getSolanaEnv } from "@/lib/solana/rpc/connection";
 import { DEFAULT_TOKEN_ICON } from "@/lib/solana/token-holdings/constants";
@@ -70,8 +73,15 @@ const shieldBadge = require("../../../assets/images/shield-badge.png");
 const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 const SWAP_SNAP_POINTS = ["94%"];
+const DEFAULT_SOL_MAX_FEE_RESERVE_LAMPORTS = 50_000;
 
 type SwapStep = "form" | "confirm" | "result";
+
+type SwapFeeEstimateState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; estimate: SwapFeeEstimate }
+  | { status: "error"; error: string };
 
 type SwapSheetProps = {
   open: boolean;
@@ -91,7 +101,7 @@ const getDefaultUsdcMint = (): string => {
 
 const getTokenIcon = (
   holding: TokenHolding,
-  detailLogoUrl?: string | null,
+  detailLogoUrl?: string | null
 ): string =>
   resolveTokenIcon({
     mint: holding.mint,
@@ -101,13 +111,19 @@ const getTokenIcon = (
 
 function getFriendlyError(raw: string): string {
   const lower = raw.toLowerCase();
-  if (lower.includes("insufficient lamports") || lower.includes("not enough sol"))
+  if (
+    lower.includes("insufficient lamports") ||
+    lower.includes("not enough sol")
+  )
     return "You don't have enough SOL to complete this swap.";
   if (lower.includes("insufficient funds"))
     return "Insufficient funds for this swap.";
   if (lower.includes("slippage") || lower.includes("exceeds"))
     return "Price moved too much. Try increasing slippage or retry.";
-  if (lower.includes("blockhash not found") || lower.includes("block height exceeded"))
+  if (
+    lower.includes("blockhash not found") ||
+    lower.includes("block height exceeded")
+  )
     return "The transaction expired. Please try again.";
   if (lower.includes("timeout") || lower.includes("timed out"))
     return "The transaction timed out. Please try again.";
@@ -117,7 +133,11 @@ function getFriendlyError(raw: string): string {
 
 // Number formatting + amount-field helpers, mirrored from SendSheet so the Swap
 // amount field behaves identically (thousands separators, mid-typing dot, etc.).
-function formatWithCommas(value: number, minFrac: number, maxFrac: number): string {
+function formatWithCommas(
+  value: number,
+  minFrac: number,
+  maxFrac: number
+): string {
   const safe = Number.isFinite(value) ? value : 0;
   const [intPart, fracPartRaw = ""] = safe.toFixed(maxFrac).split(".");
   let fracPart = fracPartRaw;
@@ -138,6 +158,10 @@ function formatUsdAmount(value: number): string {
 
 function formatSolAmount(value: number): string {
   return formatWithCommas(value, 0, 6);
+}
+
+function formatLamportsAsSol(lamports: number): string {
+  return formatSolAmount(lamports / 1_000_000_000);
 }
 
 // Unit price for the picker's right column. Prices ≥ $1 show 2 decimals with
@@ -180,12 +204,12 @@ function resolveInitialSwapMints(params: {
 }) {
   const defaultToMint = getDefaultUsdcMint();
   const requestedFromMint = params.publicHoldings.some(
-    (holding) => holding.mint === params.initialFromMint,
+    (holding) => holding.mint === params.initialFromMint
   )
     ? (params.initialFromMint as string)
     : null;
   const requestedToMint = params.toPickerTokens.some(
-    (holding) => holding.mint === params.initialToMint,
+    (holding) => holding.mint === params.initialToMint
   )
     ? (params.initialToMint as string)
     : null;
@@ -195,12 +219,16 @@ function resolveInitialSwapMints(params: {
 
   if (fromMint === toMint) {
     if (requestedFromMint) {
-      const nextTo = params.toPickerTokens.find((holding) => holding.mint !== fromMint);
+      const nextTo = params.toPickerTokens.find(
+        (holding) => holding.mint !== fromMint
+      );
       if (nextTo) {
         toMint = nextTo.mint;
       }
     } else {
-      const nextFrom = params.publicHoldings.find((holding) => holding.mint !== toMint);
+      const nextFrom = params.publicHoldings.find(
+        (holding) => holding.mint !== toMint
+      );
       if (nextFrom) {
         fromMint = nextFrom.mint;
       }
@@ -208,7 +236,9 @@ function resolveInitialSwapMints(params: {
   }
 
   if (fromMint === toMint) {
-    const nextTo = params.toPickerTokens.find((holding) => holding.mint !== fromMint);
+    const nextTo = params.toPickerTokens.find(
+      (holding) => holding.mint !== fromMint
+    );
     if (nextTo) {
       toMint = nextTo.mint;
     }
@@ -239,11 +269,13 @@ export function SwapSheet({
   // can still display it. Without this, picking a searched token leaves
   // toHolding null and the selector falls back to the "Select" placeholder.
   const [selectedToToken, setSelectedToToken] = useState<TokenHolding | null>(
-    null,
+    null
   );
   const [amountStr, setAmountStr] = useState("");
   const [currencyMode, setCurrencyMode] = useState<"TOKEN" | "USD">("TOKEN");
   const [quote, setQuote] = useState<JupiterQuoteResponse | null>(null);
+  const [feeEstimateState, setFeeEstimateState] =
+    useState<SwapFeeEstimateState>({ status: "idle" });
   const [isFetchingQuote, setIsFetchingQuote] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
@@ -264,11 +296,11 @@ export function SwapSheet({
   // — Jupiter routes deposit into the user's public token account.
   const publicHoldings = useMemo(
     () => tokenHoldings.filter((t) => !t.isSecured),
-    [tokenHoldings],
+    [tokenHoldings]
   );
   const fromHoldings = useMemo(
     () => tokenHoldings.filter((t) => t.balance > 0),
-    [tokenHoldings],
+    [tokenHoldings]
   );
   const toPickerTokens = useMemo(() => {
     const heldMints = new Set(publicHoldings.map((t) => t.mint));
@@ -280,7 +312,7 @@ export function SwapSheet({
 
   const fromHolding =
     tokenHoldings.find(
-      (t) => t.mint === fromMint && Boolean(t.isSecured) === fromIsSecured,
+      (t) => t.mint === fromMint && Boolean(t.isSecured) === fromIsSecured
     ) ??
     tokenHoldings.find((t) => t.mint === fromMint) ??
     null;
@@ -324,6 +356,7 @@ export function SwapSheet({
       setAmountStr("");
       setCurrencyMode("TOKEN");
       setQuote(null);
+      setFeeEstimateState({ status: "idle" });
       setSwapError(null);
       setTxSignature(null);
       setIsSwapping(false);
@@ -339,6 +372,7 @@ export function SwapSheet({
   useEffect(() => {
     if (amountNum <= 0 || fromMint === toMint || !fromHolding) {
       setQuote(null);
+      setFeeEstimateState({ status: "idle" });
       return;
     }
 
@@ -373,6 +407,59 @@ export function SwapSheet({
     };
   }, [amountNum, fromMint, toMint, fromHolding]);
 
+  useEffect(() => {
+    if (!quote || !walletAddress) {
+      setFeeEstimateState({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    setFeeEstimateState({ status: "loading" });
+
+    void (async () => {
+      try {
+        const [swapTxResponse, swapInstructions] = await Promise.all([
+          getJupiterSwapTransaction({
+            quoteResponse: quote,
+            userPublicKey: walletAddress,
+          }),
+          getJupiterSwapInstructions({
+            quoteResponse: quote,
+            userPublicKey: walletAddress,
+          }).catch(() => undefined),
+        ]);
+
+        const estimate = await estimateSwapTransactionFee({
+          connection: getConnection(),
+          swapResponse: swapTxResponse,
+          swapInstructions,
+          userPublicKey: walletAddress,
+        });
+
+        if (cancelled) return;
+        if (estimate.simulation.status === "passed") {
+          setFeeEstimateState({ status: "success", estimate });
+        } else {
+          setFeeEstimateState({
+            status: "error",
+            error: "Swap fee simulation failed",
+          });
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setFeeEstimateState({
+          status: "error",
+          error:
+            error instanceof Error ? error.message : "Swap fee unavailable",
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [quote, walletAddress]);
+
   // Focus the amount input once the sheet has settled at its snap point.
   // Focusing during the present animation pushes the keyboard above the sheet.
   const focusActiveInput = useCallback(() => {
@@ -388,7 +475,7 @@ export function SwapSheet({
         setTimeout(focusActiveInput, 120);
       }
     },
-    [focusActiveInput],
+    [focusActiveInput]
   );
 
   // Re-focus the right input on step / picker transitions (the sheet is
@@ -438,6 +525,7 @@ export function SwapSheet({
     setAmountStr("");
     setCurrencyMode("TOKEN");
     setQuote(null);
+    setFeeEstimateState({ status: "idle" });
   }, [fromMint, toMint]);
 
   const toggleCurrency = useCallback(() => {
@@ -457,8 +545,15 @@ export function SwapSheet({
     if (!fromHolding) return;
     let val = fromBalance;
     // Reserve the network fee when maxing out SOL.
-    if (fromHolding.symbol.toUpperCase() === "SOL" && fromBalance - val < 0.00005) {
-      val = Math.max(0, fromBalance - 0.00005);
+    const feeReserveSol =
+      feeEstimateState.status === "success"
+        ? feeEstimateState.estimate.totalLamports / 1_000_000_000
+        : DEFAULT_SOL_MAX_FEE_RESERVE_LAMPORTS / 1_000_000_000;
+    if (
+      fromHolding.symbol.toUpperCase() === "SOL" &&
+      fromBalance - val < feeReserveSol
+    ) {
+      val = Math.max(0, fromBalance - feeReserveSol);
     }
     // Truncate (never round) so float rounding can't push past the balance.
     const truncated = Math.floor(val * 1e6) / 1e6;
@@ -470,7 +565,7 @@ export function SwapSheet({
       setAmountStr(String(truncated));
     }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [fromHolding, fromBalance, currencyMode, fromPrice]);
+  }, [fromHolding, fromBalance, feeEstimateState, currencyMode, fromPrice]);
 
   const handleSwap = useCallback(async () => {
     if (!isFormValid || isSwapping || !walletAddress || !quote || !fromHolding)
@@ -527,8 +622,7 @@ export function SwapSheet({
       });
       onSwapComplete?.();
     } catch (error) {
-      const msg =
-        error instanceof Error ? error.message : "Swap failed";
+      const msg = error instanceof Error ? error.message : "Swap failed";
       const friendly = getFriendlyError(msg);
       const stageAtFailure = swapStage;
       const recovery =
@@ -572,7 +666,7 @@ export function SwapSheet({
         opacity={0.3}
       />
     ),
-    [],
+    []
   );
 
   const selectFromToken = useCallback(
@@ -581,11 +675,12 @@ export function SwapSheet({
       setFromIsSecured(isSecured);
       setShowFromPicker(false);
       setQuote(null);
+      setFeeEstimateState({ status: "idle" });
       if (mint === toMint) {
         setToMint(fromMint);
       }
     },
-    [toMint, fromMint],
+    [toMint, fromMint]
   );
 
   const selectToToken = useCallback(
@@ -594,12 +689,13 @@ export function SwapSheet({
       setSelectedToToken(token);
       setShowToPicker(false);
       setQuote(null);
+      setFeeEstimateState({ status: "idle" });
       if (token.mint === fromMint) {
         setFromMint(toMint);
         setFromIsSecured(false);
       }
     },
-    [fromMint, toMint],
+    [fromMint, toMint]
   );
 
   const showForm = step === "form" && !showFromPicker && !showToPicker;
@@ -702,6 +798,7 @@ export function SwapSheet({
             outAmount={outAmount}
             outUsd={outUsd}
             quote={quote}
+            feeEstimateState={feeEstimateState}
             isSwapping={isSwapping}
             onConfirm={handleSwap}
             onBack={() => setStep("form")}
@@ -734,7 +831,9 @@ function SwapTokenPill({
   detailLogoUrl?: string | null;
   onPress: () => void;
 }) {
-  const icon = holding ? getTokenIcon(holding, detailLogoUrl) : DEFAULT_TOKEN_ICON;
+  const icon = holding
+    ? getTokenIcon(holding, detailLogoUrl)
+    : DEFAULT_TOKEN_ICON;
   const symbol = holding?.symbol ?? "Select";
   const isSecured = Boolean(holding?.isSecured);
 
@@ -839,7 +938,7 @@ function TokenPicker({
       (t) =>
         t.symbol.toLowerCase().includes(lower) ||
         t.name.toLowerCase().includes(lower) ||
-        t.mint.toLowerCase().includes(lower),
+        t.mint.toLowerCase().includes(lower)
     );
   }, [tokenHoldings, search]);
 
@@ -954,7 +1053,7 @@ function TokenPicker({
       {displayTokens.map((token) => {
         const icon = getTokenIcon(
           token,
-          tokenDetailsByMint?.[token.mint]?.token.logoUrl,
+          tokenDetailsByMint?.[token.mint]?.token.logoUrl
         );
         const isSecured = Boolean(token.isSecured);
         // "To" picker chooses what to receive → show the unit price. "From"
@@ -1136,7 +1235,8 @@ function FormStep({
       ? `${formatTokenAmount(amountNum)} ${fromSymbol}`
       : formatUsdAmount(fromPrice ? amountNum * fromPrice : 0);
 
-  const receiveBig = outAmount != null ? formatWithCommas(outAmount, 0, 6) : "0";
+  const receiveBig =
+    outAmount != null ? formatWithCommas(outAmount, 0, 6) : "0";
   const receiveSub = outUsd != null ? `≈${formatUsdAmount(outUsd)}` : "$0";
 
   const labelStyle = { color: "rgba(60,60,67,0.6)", lineHeight: 20 } as const;
@@ -1206,9 +1306,16 @@ function FormStep({
           <Text className="text-[15px] font-normal" style={labelStyle}>
             You swap
           </Text>
-          <View className="flex-row items-center" style={{ height: 48, gap: 4 }}>
+          <View
+            className="flex-row items-center"
+            style={{ height: 48, gap: 4 }}
+          >
             <Pressable
-              style={{ flex: 1, position: "relative", justifyContent: "center" }}
+              style={{
+                flex: 1,
+                position: "relative",
+                justifyContent: "center",
+              }}
               onPress={() => swapInputRef.current?.focus()}
             >
               <View
@@ -1339,7 +1446,10 @@ function FormStep({
           <Text className="text-[15px] font-normal" style={labelStyle}>
             You receive
           </Text>
-          <View className="flex-row items-center" style={{ height: 48, gap: 4 }}>
+          <View
+            className="flex-row items-center"
+            style={{ height: 48, gap: 4 }}
+          >
             <View style={{ flex: 1, justifyContent: "center" }}>
               {isFetchingQuote && outAmount == null ? (
                 <ActivityIndicator
@@ -1414,10 +1524,6 @@ function FormStep({
   );
 }
 
-// --- Confirm Step ---
-// Approximate Solana network fee surfaced on the swap review row.
-const NETWORK_FEE_SOL = 0.00005;
-
 function ConfirmStep({
   fromHolding,
   toHolding,
@@ -1426,6 +1532,7 @@ function ConfirmStep({
   outAmount,
   outUsd,
   quote,
+  feeEstimateState,
   isSwapping,
   onConfirm,
   onBack,
@@ -1437,6 +1544,7 @@ function ConfirmStep({
   outAmount: number | null;
   outUsd: number | null;
   quote: JupiterQuoteResponse | null;
+  feeEstimateState: SwapFeeEstimateState;
   isSwapping: boolean;
   onConfirm: () => void;
   onBack: () => void;
@@ -1445,13 +1553,21 @@ function ConfirmStep({
   const fromSymbol = fromHolding?.symbol ?? "";
   const toSymbol = toHolding?.symbol ?? "";
   const fromIcon = fromHolding
-    ? getTokenIcon(fromHolding, tokenDetailsByMint?.[fromHolding.mint]?.token.logoUrl)
+    ? getTokenIcon(
+        fromHolding,
+        tokenDetailsByMint?.[fromHolding.mint]?.token.logoUrl
+      )
     : DEFAULT_TOKEN_ICON;
   const toIcon = toHolding
-    ? getTokenIcon(toHolding, tokenDetailsByMint?.[toHolding.mint]?.token.logoUrl)
+    ? getTokenIcon(
+        toHolding,
+        tokenDetailsByMint?.[toHolding.mint]?.token.logoUrl
+      )
     : DEFAULT_TOKEN_ICON;
   const rate = outAmount && outAmount > 0 ? amountNum / outAmount : null;
-  const slippagePct = quote ? Number((quote.slippageBps / 100).toFixed(2)) : null;
+  const slippagePct = quote
+    ? Number((quote.slippageBps / 100).toFixed(2))
+    : null;
   const dim = { color: "rgba(60,60,67,0.6)" } as const;
 
   return (
@@ -1556,14 +1672,20 @@ function ConfirmStep({
       {/* Rate / slippage / fee */}
       <View style={{ paddingHorizontal: 16 }}>
         <View
-          style={{ backgroundColor: "#f2f2f7", borderRadius: 20, paddingVertical: 4 }}
+          style={{
+            backgroundColor: "#f2f2f7",
+            borderRadius: 20,
+            paddingVertical: 4,
+          }}
         >
           <ConfirmRow label="Rate">
             <Text className="text-[17px] text-black" style={{ lineHeight: 22 }}>
               1 {toSymbol}
             </Text>
             <Text className="text-[17px]" style={{ ...dim, lineHeight: 22 }}>
-              {` ≈ ${rate != null ? formatTokenAmount(rate, 0) : "—"} ${fromSymbol}`}
+              {` ≈ ${
+                rate != null ? formatTokenAmount(rate, 0) : "—"
+              } ${fromSymbol}`}
             </Text>
           </ConfirmRow>
           <ConfirmRow label="Slippage">
@@ -1571,14 +1693,7 @@ function ConfirmStep({
               {slippagePct != null ? `${slippagePct}%` : "—"}
             </Text>
           </ConfirmRow>
-          <ConfirmRow label="Network Fee">
-            <Text className="text-[17px] text-black" style={{ lineHeight: 22 }}>
-              {formatSolAmount(NETWORK_FEE_SOL)} SOL
-            </Text>
-            <Text className="text-[17px]" style={{ ...dim, lineHeight: 22 }}>
-              {"  <$0.01"}
-            </Text>
-          </ConfirmRow>
+          <FeeBreakdownRows feeEstimateState={feeEstimateState} />
         </View>
       </View>
 
@@ -1617,6 +1732,85 @@ function ConfirmStep({
   );
 }
 
+function FeeValue({
+  lamports,
+  muted = false,
+}: {
+  lamports: number;
+  muted?: boolean;
+}) {
+  return (
+    <Text
+      className="text-[17px] text-black"
+      style={{
+        lineHeight: 22,
+        color: muted ? "rgba(60,60,67,0.6)" : "#000",
+      }}
+    >
+      {formatLamportsAsSol(lamports)} SOL
+    </Text>
+  );
+}
+
+function FeeSkeleton() {
+  return (
+    <View
+      style={{
+        width: 92,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: "rgba(60,60,67,0.14)",
+      }}
+    />
+  );
+}
+
+function FeeBreakdownRows({
+  feeEstimateState,
+}: {
+  feeEstimateState: SwapFeeEstimateState;
+}) {
+  if (feeEstimateState.status === "success") {
+    const { estimate } = feeEstimateState;
+    if (estimate.rentLamports > 0) {
+      return (
+        <>
+          <ConfirmRow label="Network">
+            <FeeValue lamports={estimate.transactionFeeLamports} />
+          </ConfirmRow>
+          <ConfirmRow label="ATA rent">
+            <FeeValue lamports={estimate.rentLamports} />
+          </ConfirmRow>
+          <ConfirmRow label="Total fee">
+            <FeeValue lamports={estimate.totalLamports} />
+          </ConfirmRow>
+        </>
+      );
+    }
+    return (
+      <ConfirmRow label="Network Fee">
+        <FeeValue lamports={estimate.totalLamports} />
+      </ConfirmRow>
+    );
+  }
+
+  if (feeEstimateState.status === "error") {
+    return (
+      <ConfirmRow label="Network Fee">
+        <Text className="text-[17px] text-black" style={{ lineHeight: 22 }}>
+          -
+        </Text>
+      </ConfirmRow>
+    );
+  }
+
+  return (
+    <ConfirmRow label="Network Fee">
+      <FeeSkeleton />
+    </ConfirmRow>
+  );
+}
+
 function ConfirmRow({
   label,
   children,
@@ -1646,7 +1840,7 @@ function SwappingSpinner() {
     rotation.value = withRepeat(
       withTiming(360, { duration: 900, easing: Easing.linear }),
       -1,
-      false,
+      false
     );
     return () => cancelAnimation(rotation);
   }, [rotation]);
@@ -1716,8 +1910,8 @@ function ResultStep({
         ? "Unshielding…"
         : "Swapping…"
       : status === "success"
-        ? "Swapped"
-        : "Transaction failed";
+      ? "Swapped"
+      : "Transaction failed";
 
   return (
     <View className="w-full" style={{ flex: 1 }}>
@@ -1806,7 +2000,7 @@ function ResultStep({
               >
                 {status === "swapping"
                   ? "You can close this screen and continue using the app"
-                  : (swapError ?? "Something went wrong. Please try again.")}
+                  : swapError ?? "Something went wrong. Please try again."}
               </Text>
             )}
           </View>

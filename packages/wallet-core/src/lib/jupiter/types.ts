@@ -32,6 +32,33 @@ export type JupiterSwapResponse = {
 	swapTransaction: string;
 	lastValidBlockHeight: number;
 	prioritizationFeeLamports: number;
+	computeUnitLimit?: number;
+	prioritizationType?: unknown;
+	dynamicSlippageReport?: unknown;
+	simulationError?: unknown;
+};
+
+export type JupiterInstructionAccount = {
+	pubkey: string;
+	isSigner: boolean;
+	isWritable: boolean;
+};
+
+export type JupiterInstruction = {
+	programId: string;
+	accounts: JupiterInstructionAccount[];
+	data: string;
+};
+
+export type JupiterSwapInstructionsResponse = {
+	tokenLedgerInstruction?: JupiterInstruction | null;
+	computeBudgetInstructions?: JupiterInstruction[];
+	setupInstructions?: JupiterInstruction[];
+	swapInstruction: JupiterInstruction;
+	cleanupInstruction?: JupiterInstruction | null;
+	otherInstructions?: JupiterInstruction[];
+	addressLookupTableAddresses?: string[];
+	error?: string;
 };
 
 export type SwapQuote = {
@@ -47,4 +74,33 @@ export type SwapResult = {
 	signature?: string;
 	success: boolean;
 	error?: string;
+};
+
+export type SwapCreatedAtaRentEntry = {
+	address: string;
+	payer: string;
+	owner: string;
+	mint: string;
+	tokenProgramId: string;
+	rentLamports: number;
+	alreadyExisted: boolean;
+	paidByUser: boolean;
+	instructionSource: "swap-instructions" | "transaction";
+};
+
+export type SwapFeeSimulationResult = {
+	status: "passed" | "failed";
+	error: unknown | null;
+	unitsConsumed: number | null;
+	logs: string[] | null;
+};
+
+export type SwapFeeEstimate = {
+	totalLamports: number;
+	transactionFeeLamports: number;
+	prioritizationFeeLamports: number | null;
+	prioritizationFeeIncludedInTransactionFee: boolean;
+	rentLamports: number;
+	createdAtaAccounts: SwapCreatedAtaRentEntry[];
+	simulation: SwapFeeSimulationResult;
 };

@@ -1,4 +1,11 @@
 import { TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
+import {
+  DEFAULT_JUPITER_SWAP_API_BASE_URL,
+  deserializeJupiterSwapTransaction,
+  getJupiterQuote,
+  getJupiterSwapTransaction,
+  type JupiterQuoteResponse,
+} from "@loyal-labs/wallet-core/lib";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
@@ -55,9 +62,8 @@ export type SwapExecutionContext = {
   userPublicKey: PublicKey | string | null;
 };
 
-// Use Jupiter Swap v1 API with paid tier endpoint
-const JUPITER_QUOTE_API_URL = "https://api.jup.ag/swap/v1/quote";
-const JUPITER_SWAP_API_URL = "https://api.jup.ag/swap/v1/swap";
+// Use Jupiter Swap v1 API with paid tier endpoint when frontend config allows it.
+export const FRONTEND_JUPITER_SWAP_API_BASE_URL = "https://api.jup.ag/swap/v1";
 
 /**
  * Convert token symbol to mint address
@@ -69,47 +75,18 @@ const getTokenMint = (symbol: string): string | undefined => {
   return TOKEN_MINTS[normalizedSymbol];
 };
 
-type JupiterQuoteResponse = {
-  inputMint: string;
-  inAmount: string;
-  outputMint: string;
-  outAmount: string;
-  otherAmountThreshold: string;
-  swapMode: string;
-  slippageBps: number;
-  platformFee: null | {
-    amount: string;
-    feeBps: number;
-  };
-  priceImpactPct: string;
-  routePlan: Array<{
-    swapInfo: {
-      ammKey: string;
-      label: string;
-      inputMint: string;
-      outputMint: string;
-      inAmount: string;
-      outAmount: string;
-      feeAmount: string;
-      feeMint: string;
-    };
-    percent: number;
-  }>;
-  contextSlot?: number;
-  timeTaken?: number;
-};
-
-type JupiterSwapResponse = {
-  swapTransaction: string;
-  lastValidBlockHeight: number;
-  prioritizationFeeLamports: number;
-};
-
 export function useSwap() {
   const { connection } = useConnection();
   const { publicKey, connected: isConnected, sendTransaction } = useWallet();
   const publicEnv = usePublicEnv();
   const { swap: swapConfig } = publicEnv;
+  const isSwapEnabled = swapConfig.mode === "enabled";
+  const swapApiKey = isSwapEnabled ? swapConfig.apiKey : undefined;
+  const swapUnavailableReason =
+    swapConfig.mode === "disabled" ? swapConfig.reason : null;
+  const swapApiBaseUrl = isSwapEnabled
+    ? FRONTEND_JUPITER_SWAP_API_BASE_URL
+    : DEFAULT_JUPITER_SWAP_API_BASE_URL;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [quote, setQuote] = useState<SwapQuote | null>(null);
@@ -149,8 +126,8 @@ export function useSwap() {
       try {
         setError(null);
 
-        if (swapConfig.mode === "disabled") {
-          throw new Error(swapConfig.reason);
+        if (!isSwapEnabled) {
+          throw new Error(swapUnavailableReason ?? "Swap unavailable");
         }
 
         // Convert token symbols to mint addresses
@@ -190,23 +167,14 @@ export function useSwap() {
           decimals: inputDecimals,
         });
 
-        // Build Jupiter Quote API URL
-        const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=50`;
-        logger.debug("Fetching quote from Jupiter API:", url);
-
-        const response = await fetch(url, {
-          headers: {
-            "x-api-key": swapConfig.apiKey,
-          },
+        const data = await getJupiterQuote({
+          inputMint,
+          outputMint,
+          amount: amountInSmallestUnit,
+          slippageBps: 50,
+          apiKey: swapApiKey,
+          baseUrl: swapApiBaseUrl,
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          logger.debug("Quote API error:", errorText);
-          throw new Error(`Failed to get quote: ${response.statusText}`);
-        }
-
-        const data: JupiterQuoteResponse = await response.json();
         logger.debug("Jupiter Quote response:", data);
 
         // Store the full quote response for later use in executeSwap
@@ -243,7 +211,13 @@ export function useSwap() {
         return null;
       }
     },
-    [getTokenDecimals, swapConfig]
+    [
+      getTokenDecimals,
+      isSwapEnabled,
+      swapApiBaseUrl,
+      swapApiKey,
+      swapUnavailableReason,
+    ]
   );
 
   const executeSwap = useCallback(
@@ -251,9 +225,10 @@ export function useSwap() {
       successTrackingProperties?: AnalyticsProperties,
       executionContext?: SwapExecutionContext
     ): Promise<SwapResult> => {
-      if (swapConfig.mode === "disabled") {
-        setError(swapConfig.reason);
-        return { success: false, error: swapConfig.reason };
+      if (!isSwapEnabled) {
+        const errorMsg = swapUnavailableReason ?? "Swap unavailable";
+        setError(errorMsg);
+        return { success: false, error: errorMsg };
       }
 
       const swapUserPublicKey = executionContext?.userPublicKey
@@ -280,39 +255,12 @@ export function useSwap() {
       try {
         logger.debug("Executing swap with quote:", quoteResponse);
 
-        // Step 1: Call Jupiter Swap API to get transaction
-        logger.debug("Calling Jupiter Swap API...");
-
-        const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": swapConfig.apiKey,
-          },
-          body: JSON.stringify({
-            userPublicKey: swapUserPublicKey.toBase58(),
-            quoteResponse,
-            wrapAndUnwrapSol: true,
-            dynamicComputeUnitLimit: true,
-            prioritizationFeeLamports: {
-              priorityLevelWithMaxLamports: {
-                priorityLevel: "veryHigh",
-                maxLamports: 50_000_000, // 0.05 SOL max for priority
-                global: true, // Use global fee market
-              },
-            },
-          }),
+        const swapData = await getJupiterSwapTransaction({
+          userPublicKey: swapUserPublicKey.toBase58(),
+          quoteResponse,
+          apiKey: swapApiKey,
+          baseUrl: swapApiBaseUrl,
         });
-
-        if (!swapResponse.ok) {
-          const errorText = await swapResponse.text();
-          logger.debug("Jupiter Swap API error:", errorText);
-          throw new Error(
-            `Jupiter Swap API failed: ${swapResponse.statusText}`
-          );
-        }
-
-        const swapData: JupiterSwapResponse = await swapResponse.json();
         logger.debug("Jupiter Swap transaction response:", swapData);
 
         const { swapTransaction: serializedTx } = swapData;
@@ -320,11 +268,8 @@ export function useSwap() {
           throw new Error("No transaction returned from Jupiter Swap API");
         }
 
-        // Step 2: Deserialize transaction
-        const txBuffer = Buffer.from(serializedTx, "base64");
-        const transaction = VersionedTransaction.deserialize(txBuffer);
+        const transaction = deserializeJupiterSwapTransaction(serializedTx);
 
-        // Step 3: Sign and send transaction using wallet-adapter
         logger.debug("Signing and sending transaction...");
         const executionResult = executionContext
           ? await executionContext.executeTransaction(transaction)
@@ -407,11 +352,14 @@ export function useSwap() {
     [
       connection,
       isConnected,
+      isSwapEnabled,
       publicEnv,
       publicKey,
       quoteResponse,
       sendTransaction,
-      swapConfig,
+      swapApiBaseUrl,
+      swapApiKey,
+      swapUnavailableReason,
     ]
   );
 
@@ -426,10 +374,13 @@ export function useSwap() {
     executeSwap,
     resetQuote,
     quote,
+    quoteResponse,
     loading,
     error,
-    isAvailable: swapConfig.mode === "enabled",
-    unavailableReason:
-      swapConfig.mode === "disabled" ? swapConfig.reason : null,
+    userPublicKey: publicKey,
+    swapApiBaseUrl,
+    swapApiKey,
+    isAvailable: isSwapEnabled,
+    unavailableReason: swapUnavailableReason,
   };
 }
