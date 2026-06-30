@@ -120,6 +120,34 @@ function formatLamportsAsSol(lamports: number): string {
   });
 }
 
+function getFeeSolPriceUsd(
+  fromToken: SwapToken,
+  toToken: SwapToken
+): number | null {
+  const solToken = [fromToken, toToken].find(
+    (token) =>
+      token.symbol.toUpperCase() === "SOL" ||
+      token.mint === "So11111111111111111111111111111111111111112"
+  );
+  return solToken && Number.isFinite(solToken.price) && solToken.price > 0
+    ? solToken.price
+    : null;
+}
+
+function formatFeeUsdEstimate(
+  lamports: number,
+  solPriceUsd?: number | null
+): string | null {
+  if (!solPriceUsd || !Number.isFinite(solPriceUsd) || solPriceUsd <= 0) {
+    return null;
+  }
+  const usd = (lamports / 1_000_000_000) * solPriceUsd;
+  return `≈ $${usd.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
+
 function SwapStatusHeader({
   fromToken,
   toToken,
@@ -540,18 +568,32 @@ function FeeSkeleton() {
   );
 }
 
-function FeeValue({ lamports }: { lamports: number }) {
+function FeeValue({
+  lamports,
+  solPriceUsd,
+}: {
+  lamports: number;
+  solPriceUsd?: number | null;
+}) {
+  const usdEstimate = formatFeeUsdEstimate(lamports, solPriceUsd);
   return (
-    <span style={{ color: "#000" }}>{formatLamportsAsSol(lamports)} SOL</span>
+    <>
+      <span style={{ color: "#000" }}>{formatLamportsAsSol(lamports)} SOL</span>
+      {usdEstimate ? (
+        <span style={{ color: secondary }}>{usdEstimate}</span>
+      ) : null}
+    </>
   );
 }
 
 function SwapFeeRows({
   feeEstimateState,
   compact = false,
+  solPriceUsd,
 }: {
   feeEstimateState: SwapFeeEstimateState;
   compact?: boolean;
+  solPriceUsd?: number | null;
 }) {
   const rowPadding = compact ? "9px 12px" : "10px 12px";
   const labelStyle = {
@@ -586,20 +628,32 @@ function SwapFeeRows({
       return (
         <>
           {renderRow(
-            "Network",
-            <FeeValue lamports={estimate.transactionFeeLamports} />
+            "Network Fee",
+            <FeeValue
+              lamports={estimate.transactionFeeLamports}
+              solPriceUsd={solPriceUsd}
+            />
           )}
-          {renderRow("ATA rent", <FeeValue lamports={estimate.rentLamports} />)}
           {renderRow(
-            "Total fee",
-            <FeeValue lamports={estimate.totalLamports} />
+            "Rent Fee",
+            <FeeValue
+              lamports={estimate.rentLamports}
+              solPriceUsd={solPriceUsd}
+            />
+          )}
+          {renderRow(
+            "Total Fee",
+            <FeeValue
+              lamports={estimate.totalLamports}
+              solPriceUsd={solPriceUsd}
+            />
           )}
         </>
       );
     }
     return renderRow(
       "Network Fee",
-      <FeeValue lamports={estimate.totalLamports} />
+      <FeeValue lamports={estimate.totalLamports} solPriceUsd={solPriceUsd} />
     );
   }
 
@@ -629,6 +683,7 @@ function SwapTransactionDetail({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const feeSolPriceUsd = getFeeSolPriceUsd(fromToken, toToken);
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     month: "short",
@@ -783,7 +838,11 @@ function SwapTransactionDetail({
                 Completed
               </span>
             </div>
-            <SwapFeeRows compact feeEstimateState={feeEstimateState} />
+            <SwapFeeRows
+              compact
+              feeEstimateState={feeEstimateState}
+              solPriceUsd={feeSolPriceUsd}
+            />
           </div>
         </div>
 
@@ -1003,6 +1062,10 @@ export function SwapContent({
     const val = toAmount * toToken.price;
     return Number.isFinite(val) ? val.toFixed(2) : "0.00";
   }, [toAmount, toToken.price]);
+  const feeSolPriceUsd = useMemo(
+    () => getFeeSolPriceUsd(fromToken, toToken),
+    [fromToken, toToken]
+  );
   const hasAmount = numericFrom > 0;
   const insufficientFunds = numericFrom > fromToken.balance;
   const feeUserPublicKey = signer?.publicKey.toBase58() ?? null;
@@ -1666,7 +1729,10 @@ export function SwapContent({
                   1%
                 </span>
               </div>
-              <SwapFeeRows feeEstimateState={feeEstimateState} />
+              <SwapFeeRows
+                feeEstimateState={feeEstimateState}
+                solPriceUsd={feeSolPriceUsd}
+              />
             </div>
           )}
         </div>

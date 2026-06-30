@@ -42,6 +42,7 @@ import { track } from "@/lib/analytics/analytics";
 import { SWAP_EVENTS } from "@/lib/analytics/swap-events";
 import {
   NATIVE_SOL_MINT,
+  SOL_PRICE_USD,
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
@@ -155,6 +156,38 @@ function formatSolAmount(value: number): string {
 
 function formatLamportsAsSol(lamports: number): string {
   return formatSolAmount(lamports / 1_000_000_000);
+}
+
+function getFeeSolPriceUsd(
+  fromHolding: TokenHolding | null,
+  toHolding: TokenHolding | null
+): number | null {
+  const solHolding = [fromHolding, toHolding].find(
+    (holding) =>
+      holding &&
+      (holding.symbol.toUpperCase() === "SOL" ||
+        holding.mint === NATIVE_SOL_MINT)
+  );
+  if (
+    typeof solHolding?.priceUsd === "number" &&
+    Number.isFinite(solHolding.priceUsd) &&
+    solHolding.priceUsd > 0
+  ) {
+    return solHolding.priceUsd;
+  }
+  return Number.isFinite(SOL_PRICE_USD) && SOL_PRICE_USD > 0
+    ? SOL_PRICE_USD
+    : null;
+}
+
+function formatFeeUsdEstimate(
+  lamports: number,
+  solPriceUsd?: number | null
+): string | null {
+  if (!solPriceUsd || !Number.isFinite(solPriceUsd) || solPriceUsd <= 0) {
+    return null;
+  }
+  return `≈ ${formatUsdAmount((lamports / 1_000_000_000) * solPriceUsd)}`;
 }
 
 // Unit price for the picker's right column. Prices ≥ $1 show 2 decimals with
@@ -1532,6 +1565,7 @@ function ConfirmStep({
     ? Number((quote.slippageBps / 100).toFixed(2))
     : null;
   const dim = { color: "rgba(60,60,67,0.6)" } as const;
+  const feeSolPriceUsd = getFeeSolPriceUsd(fromHolding, toHolding);
 
   return (
     <View style={{ flex: 1 }}>
@@ -1656,7 +1690,10 @@ function ConfirmStep({
               {slippagePct != null ? `${slippagePct}%` : "—"}
             </Text>
           </ConfirmRow>
-          <FeeBreakdownRows feeEstimateState={feeEstimateState} />
+          <FeeBreakdownRows
+            feeEstimateState={feeEstimateState}
+            solPriceUsd={feeSolPriceUsd}
+          />
         </View>
       </View>
 
@@ -1698,20 +1735,30 @@ function ConfirmStep({
 function FeeValue({
   lamports,
   muted = false,
+  solPriceUsd,
 }: {
   lamports: number;
   muted?: boolean;
+  solPriceUsd?: number | null;
 }) {
+  const usdEstimate = formatFeeUsdEstimate(lamports, solPriceUsd);
   return (
-    <Text
-      className="text-[17px] text-black"
-      style={{
-        lineHeight: 22,
-        color: muted ? "rgba(60,60,67,0.6)" : "#000",
-      }}
-    >
-      {formatLamportsAsSol(lamports)} SOL
-    </Text>
+    <>
+      <Text
+        className="text-[17px] text-black"
+        style={{
+          lineHeight: 22,
+          color: muted ? "rgba(60,60,67,0.6)" : "#000",
+        }}
+      >
+        {formatLamportsAsSol(lamports)} SOL
+      </Text>
+      {usdEstimate ? (
+        <Text className="text-[17px]" style={{ color: "rgba(60,60,67,0.6)" }}>
+          {` ${usdEstimate}`}
+        </Text>
+      ) : null}
+    </>
   );
 }
 
@@ -1730,29 +1777,40 @@ function FeeSkeleton() {
 
 function FeeBreakdownRows({
   feeEstimateState,
+  solPriceUsd,
 }: {
   feeEstimateState: SwapFeeEstimateState;
+  solPriceUsd?: number | null;
 }) {
   if (feeEstimateState.status === "success") {
     const { estimate } = feeEstimateState;
     if (estimate.rentLamports > 0) {
       return (
         <>
-          <ConfirmRow label="Network">
-            <FeeValue lamports={estimate.transactionFeeLamports} />
+          <ConfirmRow label="Network Fee">
+            <FeeValue
+              lamports={estimate.transactionFeeLamports}
+              solPriceUsd={solPriceUsd}
+            />
           </ConfirmRow>
-          <ConfirmRow label="ATA rent">
-            <FeeValue lamports={estimate.rentLamports} />
+          <ConfirmRow label="Rent Fee">
+            <FeeValue
+              lamports={estimate.rentLamports}
+              solPriceUsd={solPriceUsd}
+            />
           </ConfirmRow>
-          <ConfirmRow label="Total fee">
-            <FeeValue lamports={estimate.totalLamports} />
+          <ConfirmRow label="Total Fee">
+            <FeeValue
+              lamports={estimate.totalLamports}
+              solPriceUsd={solPriceUsd}
+            />
           </ConfirmRow>
         </>
       );
     }
     return (
       <ConfirmRow label="Network Fee">
-        <FeeValue lamports={estimate.totalLamports} />
+        <FeeValue lamports={estimate.totalLamports} solPriceUsd={solPriceUsd} />
       </ConfirmRow>
     );
   }
