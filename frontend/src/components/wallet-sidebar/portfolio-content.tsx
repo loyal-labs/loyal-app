@@ -4,6 +4,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Check,
+  CircleHelp,
   Copy,
   Eye,
   EyeOff,
@@ -27,6 +28,7 @@ import type {
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import type { EarnHelpTopic } from "./earn-detail-view";
 import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -184,6 +186,7 @@ function EarnPortfolioRow({
   isBalanceLoading = false,
   isSelected,
   onDeposit,
+  onHelp,
   onOpen,
 }: {
   balance?: number;
@@ -195,6 +198,7 @@ function EarnPortfolioRow({
   isBalanceLoading?: boolean;
   isSelected?: boolean;
   onDeposit?: () => void;
+  onHelp?: () => void;
   onOpen?: () => void;
 }) {
   const earnForecastApy = useEarnForecastApy();
@@ -329,6 +333,10 @@ function EarnPortfolioRow({
             >
               Earn
             </span>
+            <AccountHelpTrigger
+              ariaLabel="Ask Milo about Earn"
+              onOpen={onHelp}
+            />
             <span
               style={{
                 alignItems: "center",
@@ -395,6 +403,7 @@ function AutodepositStatusCard({
   isError = false,
   isLoading = false,
   marginBottom = 16,
+  onHelp,
   onRetry,
   onSetUp,
 }: {
@@ -407,9 +416,20 @@ function AutodepositStatusCard({
   isError?: boolean;
   isLoading?: boolean;
   marginBottom?: number;
+  onHelp?: (topic: EarnHelpTopic) => void;
   onRetry?: () => void;
   onSetUp?: () => void;
 }) {
+  const helpTopic: EarnHelpTopic = isLoading
+    ? "autodepositLoading"
+    : isError
+    ? "autodepositLoadError"
+    : isPendingSetup
+    ? "autodepositPending"
+    : isConfigured
+    ? "autodeposit"
+    : "autodepositSetup";
+
   if ((isConfigured || isPendingSetup) && !isError && !isLoading) {
     const [depositedWhole, depositedFraction] = (
       depositedLabel ?? "$0.00"
@@ -481,22 +501,37 @@ function AutodepositStatusCard({
                 padding: "4px 0",
               }}
             >
-              <span
+              <div
                 style={{
+                  alignItems: "center",
                   color: secondary,
+                  display: "flex",
                   fontFamily: font,
                   fontSize: "13px",
                   fontWeight: 400,
+                  gap: "5px",
                   lineHeight: "16px",
+                  minWidth: 0,
                   overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
                 }}
               >
-                {isPendingSetup
-                  ? "Finish Autodeposit setup"
-                  : "Autodeposited this month"}
-              </span>
+                <span
+                  style={{
+                    minWidth: 0,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {isPendingSetup
+                    ? "Finish Autodeposit setup"
+                    : "Autodeposited this month"}
+                </span>
+                <AccountHelpTrigger
+                  ariaLabel="Ask Milo about Autodeposit"
+                  onOpen={onHelp ? () => onHelp(helpTopic) : undefined}
+                />
+              </div>
               <span
                 style={{
                   color: isBalanceHidden ? "#BBBBC0" : "#000",
@@ -612,23 +647,38 @@ function AutodepositStatusCard({
         >
           {isLoading ? (
             <>
-              <span style={skeletonBar("76px", "16px")} />
+              <div
+                style={{ alignItems: "center", display: "flex", gap: "6px" }}
+              >
+                <span style={skeletonBar("76px", "16px")} />
+                <AccountHelpTrigger
+                  ariaLabel="Ask Milo about Autodeposit"
+                  onOpen={onHelp ? () => onHelp(helpTopic) : undefined}
+                />
+              </div>
               <span style={skeletonBar("190px", "14px")} />
             </>
           ) : (
             <>
-              <span
+              <div
                 style={{
+                  alignItems: "center",
                   color: "#000",
+                  display: "flex",
                   fontFamily: font,
                   fontSize: "16px",
                   fontWeight: 600,
+                  gap: "6px",
                   letterSpacing: "-0.176px",
                   lineHeight: "20px",
                 }}
               >
-                Autodeposit
-              </span>
+                <span>Autodeposit</span>
+                <AccountHelpTrigger
+                  ariaLabel="Ask Milo about Autodeposit"
+                  onOpen={onHelp ? () => onHelp(helpTopic) : undefined}
+                />
+              </div>
               <span
                 style={{
                   color: "rgba(60, 60, 67, 0.6)",
@@ -671,6 +721,68 @@ function AutodepositStatusCard({
         ) : null}
       </div>
     </>
+  );
+}
+
+function AccountHelpTrigger({
+  ariaLabel,
+  onOpen,
+}: {
+  ariaLabel: string;
+  onOpen?: () => void;
+}) {
+  const [isHighlighted, setIsHighlighted] = useState(false);
+
+  if (!onOpen) {
+    return null;
+  }
+
+  const handleOpen = (event: React.MouseEvent | React.KeyboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onOpen();
+  };
+
+  return (
+    <span
+      aria-label={ariaLabel}
+      onBlur={() => setIsHighlighted(false)}
+      onClick={handleOpen}
+      onFocus={() => setIsHighlighted(true)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          handleOpen(event);
+        }
+      }}
+      onMouseEnter={() => setIsHighlighted(true)}
+      onMouseLeave={() => setIsHighlighted(false)}
+      role="button"
+      style={{
+        alignItems: "center",
+        background: isHighlighted ? "rgba(249, 54, 60, 0.16)" : "#fff",
+        border: "1px solid rgba(249, 54, 60, 0.32)",
+        borderRadius: "9999px",
+        boxShadow: isHighlighted
+          ? "0 3px 8px rgba(249, 54, 60, 0.14)"
+          : "0 1px 2px rgba(0, 0, 0, 0.08)",
+        color: "#F9363C",
+        cursor: "pointer",
+        display: "inline-flex",
+        flex: "0 0 auto",
+        height: "18px",
+        justifyContent: "center",
+        marginLeft: "1px",
+        padding: 0,
+        transform: isHighlighted ? "translateY(-1px)" : "translateY(0)",
+        transition:
+          "background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease",
+        width: "18px",
+      }}
+      tabIndex={0}
+      title={ariaLabel}
+    >
+      <CircleHelp aria-hidden="true" size={13} strokeWidth={2.4} />
+    </span>
   );
 }
 
@@ -1100,11 +1212,13 @@ function MockRootSignerRow({
 function MainAccountRow({
   isBalanceHidden,
   isSelected,
+  onHelp,
   onOpen,
   signer,
 }: {
   isBalanceHidden: boolean;
   isSelected: boolean;
+  onHelp?: () => void;
   onOpen: () => void;
   signer: SmartAccountSignerEntry;
 }) {
@@ -1191,13 +1305,30 @@ function MainAccountRow({
               fontWeight: 400,
               lineHeight: "16px",
               color: secondary,
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {signer.label}
+          </span>
+          <AccountHelpTrigger
+            ariaLabel="Ask Milo about Main Account"
+            onOpen={onHelp}
+          />
+          <span
+            style={{
+              fontFamily: font,
+              fontSize: "13px",
+              fontWeight: 400,
+              lineHeight: "16px",
+              color: secondary,
               minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
             }}
           >
-            {signer.label} · {signer.shortAddress}
+            · {signer.shortAddress}
           </span>
           <RowCopyAddress address={signer.address} />
         </div>
@@ -1226,6 +1357,7 @@ export function PortfolioContent({
   onOpenShield,
   onOpenEarnDeposit,
   onOpenEarn,
+  onOpenEarnHelp,
   onOpenAutodeposit,
   onOpenCreateAccount,
   onOpenVault,
@@ -1278,6 +1410,7 @@ export function PortfolioContent({
   onOpenShield: () => void;
   onOpenEarnDeposit?: () => void;
   onOpenEarn?: () => void;
+  onOpenEarnHelp?: (topic: EarnHelpTopic) => void;
   onOpenAutodeposit?: () => void;
   onOpenCreateAccount?: () => void;
   isAutodepositConfigured?: boolean;
@@ -1712,6 +1845,7 @@ export function PortfolioContent({
             isError={hasEarnStateLoadError}
             isLoading={shouldShowAutodepositSkeleton}
             marginBottom={0}
+            onHelp={onOpenEarnHelp}
             onRetry={onSmartAccountRetry}
             onSetUp={onOpenAutodeposit}
           />
@@ -2017,6 +2151,7 @@ export function PortfolioContent({
               isBalanceLoading={isEarnPositionLoading}
               isSelected={isEarnSelected}
               onDeposit={onOpenEarnDeposit}
+              onHelp={onOpenEarnHelp ? () => onOpenEarnHelp("earn") : undefined}
               onOpen={onOpenEarn}
             />
           ) : null}
@@ -2055,6 +2190,11 @@ export function PortfolioContent({
                       <MainAccountRow
                         isBalanceHidden={isBalanceHidden}
                         isSelected={selectedSignerId === mainSigner.id}
+                        onHelp={
+                          onOpenEarnHelp
+                            ? () => onOpenEarnHelp("mainAccount")
+                            : undefined
+                        }
                         onOpen={() => onOpenAgent(mainSigner)}
                         signer={mainSigner}
                       />

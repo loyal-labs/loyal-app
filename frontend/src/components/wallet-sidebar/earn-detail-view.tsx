@@ -7,6 +7,7 @@ import {
   Check,
   ChevronsDownUp,
   ChevronsUpDown,
+  CircleHelp,
   SlidersHorizontal,
   X,
 } from "lucide-react";
@@ -88,6 +89,20 @@ function shouldAutoFocusEarnFormInput() {
 
   return !window.matchMedia(MOBILE_EARN_FORM_MEDIA_QUERY).matches;
 }
+
+export type EarnHelpTopic =
+  | "autodeposit"
+  | "autodepositDelete"
+  | "autodepositDestination"
+  | "autodepositLoadError"
+  | "autodepositLoading"
+  | "autodepositPending"
+  | "autodepositSetup"
+  | "autodepositSource"
+  | "autodepositThreshold"
+  | "currentPositions"
+  | "earn"
+  | "mainAccount";
 
 export type EarnDepositSourceOption = {
   addressLabel: string;
@@ -1834,6 +1849,7 @@ function AutodepositCard({
   scheduledSweeps = [],
   state = "idle",
   onDisable,
+  onHelp,
   onSetUp,
 }: {
   floorAccountLabel?: string;
@@ -1852,6 +1868,7 @@ function AutodepositCard({
     | "pausing"
     | "resuming";
   onDisable?: () => void;
+  onHelp?: () => void;
   onSetUp?: () => void;
 }) {
   const isBusy = state === "creating" || state === "closing";
@@ -1875,6 +1892,94 @@ function AutodepositCard({
   // creating/closing/pausing/resuming/paused statuses are plain text and must
   // not blur.
   const statusLabelHasAmount = !isBusy && !isToggling && state !== "paused";
+  const [isHelpTriggerHighlighted, setIsHelpTriggerHighlighted] =
+    useState(false);
+  const [shouldShowHelpTrigger, setShouldShowHelpTrigger] = useState(false);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      setShouldShowHelpTrigger(true);
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_EARN_FORM_MEDIA_QUERY);
+    const updateHelpTriggerVisibility = () => {
+      setShouldShowHelpTrigger(!mediaQuery.matches);
+    };
+
+    updateHelpTriggerVisibility();
+    mediaQuery.addEventListener("change", updateHelpTriggerVisibility);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updateHelpTriggerVisibility);
+    };
+  }, []);
+  const renderTitleWithHelp = (title: string) => (
+    <span
+      className="earn-autodeposit-title-line"
+      style={{
+        alignItems: "center",
+        display: "inline-flex",
+        gap: "8px",
+        maxWidth: "100%",
+        minWidth: 0,
+      }}
+    >
+      <span
+        style={{
+          color: "#000",
+          fontFamily: font,
+          fontSize: "16px",
+          fontWeight: 500,
+          letterSpacing: "-0.176px",
+          lineHeight: "20px",
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {title}
+      </span>
+      {shouldShowHelpTrigger ? (
+        <>
+          <button
+            aria-label="Ask Milo about Autodeposit"
+            className="earn-autodeposit-help-trigger"
+            onBlur={() => setIsHelpTriggerHighlighted(false)}
+            onClick={onHelp}
+            onFocus={() => setIsHelpTriggerHighlighted(true)}
+            onMouseEnter={() => setIsHelpTriggerHighlighted(true)}
+            onMouseLeave={() => setIsHelpTriggerHighlighted(false)}
+            style={{
+              alignItems: "center",
+              background: isHelpTriggerHighlighted
+                ? "rgba(249, 54, 60, 0.1)"
+                : "#fff",
+              border: "1px solid rgba(249, 54, 60, 0.34)",
+              borderRadius: "9999px",
+              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.08)",
+              color: LOYAL_EARN_BRAND_COLOR,
+              cursor: "pointer",
+              display: "inline-flex",
+              flex: "0 0 auto",
+              height: "26px",
+              justifyContent: "center",
+              padding: 0,
+              transform: isHelpTriggerHighlighted
+                ? "translateY(-1px)"
+                : "translateY(0)",
+              transition:
+                "background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease",
+              width: "26px",
+            }}
+            type="button"
+          >
+            <CircleHelp aria-hidden="true" size={17} strokeWidth={2.25} />
+          </button>
+        </>
+      ) : null}
+    </span>
+  );
 
   if (isConfigured || isPendingSetup) {
     const cardStatusLabel = isPendingSetup
@@ -1901,6 +2006,43 @@ function AutodepositCard({
           }
           .earn-autodeposit-settings:hover {
             background: rgba(0, 0, 0, 0.06) !important;
+          }
+          .earn-autodeposit-title-line {
+            align-items: center;
+            display: inline-flex;
+            gap: 6px;
+            min-width: 0;
+            max-width: 100%;
+          }
+          .earn-autodeposit-help-trigger {
+            align-items: center;
+            background: rgba(0, 0, 0, 0.04);
+            border: none;
+            border-radius: 9999px;
+            color: rgba(60, 60, 67, 0.58);
+            cursor: pointer;
+            display: inline-flex;
+            flex: 0 0 auto;
+            height: 22px;
+            justify-content: center;
+            padding: 0;
+            transition: background 0.15s ease, color 0.15s ease,
+              transform 0.15s ease;
+            width: 22px;
+          }
+          .earn-autodeposit-help-trigger:hover,
+          .earn-autodeposit-help-trigger:focus-visible {
+            background: rgba(0, 0, 0, 0.08);
+            color: rgba(0, 0, 0, 0.82);
+            transform: translateY(-1px);
+          }
+          .earn-autodeposit-help-trigger:active {
+            transform: translateY(0);
+          }
+          @media (max-width: 760px) {
+            .earn-autodeposit-help-trigger {
+              display: none;
+            }
           }
         `}</style>
         <section
@@ -1947,18 +2089,7 @@ function AutodepositCard({
                 padding: "10px 0",
               }}
             >
-              <span
-                style={{
-                  color: "#000",
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  letterSpacing: "-0.176px",
-                  lineHeight: "20px",
-                }}
-              >
-                {cardTitle}
-              </span>
+              {renderTitleWithHelp(cardTitle)}
               <span
                 style={{
                   color:
@@ -2140,6 +2271,43 @@ function AutodepositCard({
         .earn-autodeposit-btn:active {
           transform: translateY(0);
         }
+        .earn-autodeposit-title-line {
+          align-items: center;
+          display: inline-flex;
+          gap: 6px;
+          min-width: 0;
+          max-width: 100%;
+        }
+        .earn-autodeposit-help-trigger {
+          align-items: center;
+          background: rgba(0, 0, 0, 0.04);
+          border: none;
+          border-radius: 9999px;
+          color: rgba(60, 60, 67, 0.58);
+          cursor: pointer;
+          display: inline-flex;
+          flex: 0 0 auto;
+          height: 22px;
+          justify-content: center;
+          padding: 0;
+          transition: background 0.15s ease, color 0.15s ease,
+            transform 0.15s ease;
+          width: 22px;
+        }
+        .earn-autodeposit-help-trigger:hover,
+        .earn-autodeposit-help-trigger:focus-visible {
+          background: rgba(0, 0, 0, 0.08);
+          color: rgba(0, 0, 0, 0.82);
+          transform: translateY(-1px);
+        }
+        .earn-autodeposit-help-trigger:active {
+          transform: translateY(0);
+        }
+        @media (max-width: 760px) {
+          .earn-autodeposit-help-trigger {
+            display: none;
+          }
+        }
       `}</style>
       <section
         style={{
@@ -2184,18 +2352,7 @@ function AutodepositCard({
               padding: "10px 0",
             }}
           >
-            <span
-              style={{
-                color: "#000",
-                fontFamily: font,
-                fontSize: "16px",
-                fontWeight: 500,
-                letterSpacing: "-0.176px",
-                lineHeight: "20px",
-              }}
-            >
-              Autodeposit
-            </span>
+            {renderTitleWithHelp("Autodeposit")}
             <span
               style={{
                 color: "rgba(60, 60, 67, 0.6)",
@@ -2248,6 +2405,66 @@ function AutodepositCard({
   );
 }
 
+function EarnSectionHelpTrigger({
+  ariaLabel,
+  onOpen,
+}: {
+  ariaLabel: string;
+  onOpen?: () => void;
+}) {
+  const [isHighlighted, setIsHighlighted] = useState(false);
+
+  if (!onOpen) {
+    return null;
+  }
+
+  return (
+    <>
+      <style jsx>{`
+        .earn-section-help-trigger {
+          transition: background 0.15s ease, box-shadow 0.15s ease,
+            transform 0.15s ease;
+        }
+        @media (max-width: 760px) {
+          .earn-section-help-trigger {
+            display: none !important;
+          }
+        }
+      `}</style>
+      <button
+        aria-label={ariaLabel}
+        className="earn-section-help-trigger"
+        onBlur={() => setIsHighlighted(false)}
+        onClick={onOpen}
+        onFocus={() => setIsHighlighted(true)}
+        onMouseEnter={() => setIsHighlighted(true)}
+        onMouseLeave={() => setIsHighlighted(false)}
+        style={{
+          alignItems: "center",
+          background: isHighlighted ? "rgba(249, 54, 60, 0.16)" : "#fff",
+          border: "1px solid rgba(249, 54, 60, 0.32)",
+          borderRadius: "9999px",
+          boxShadow: isHighlighted
+            ? "0 3px 8px rgba(249, 54, 60, 0.14)"
+            : "0 1px 2px rgba(0, 0, 0, 0.08)",
+          color: LOYAL_EARN_BRAND_COLOR,
+          cursor: "pointer",
+          display: "inline-flex",
+          flex: "0 0 auto",
+          height: "20px",
+          justifyContent: "center",
+          padding: 0,
+          transform: isHighlighted ? "translateY(-1px)" : "translateY(0)",
+          width: "20px",
+        }}
+        type="button"
+      >
+        <CircleHelp aria-hidden="true" size={14} strokeWidth={2.35} />
+      </button>
+    </>
+  );
+}
+
 export function EarnDetailView({
   autodepositFloorAccountLabel,
   autodepositFloorLabel,
@@ -2266,6 +2483,7 @@ export function EarnDetailView({
   onDeposit,
   onDisableAutodeposit,
   onOpenAutodeposit,
+  onOpenEarnHelp,
   onWithdraw,
   principalAmount = 0,
 }: {
@@ -2299,6 +2517,7 @@ export function EarnDetailView({
   onDeposit?: () => void;
   onDisableAutodeposit?: () => void;
   onOpenAutodeposit?: () => void;
+  onOpenEarnHelp?: (topic: EarnHelpTopic) => void;
   onWithdraw?: () => void;
   principalAmount?: number;
 }) {
@@ -2678,6 +2897,7 @@ export function EarnDetailView({
         scheduledSweeps={autodepositScheduledSweeps}
         state={autodepositState}
         onDisable={onDisableAutodeposit}
+        onHelp={() => onOpenEarnHelp?.("autodeposit")}
         onSetUp={onOpenAutodeposit}
       />
 
@@ -2693,16 +2913,27 @@ export function EarnDetailView({
           <div style={{ padding: "3px 12px 1px" }}>
             <h3
               style={{
+                alignItems: "center",
                 color: "#000",
+                display: "inline-flex",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 600,
+                gap: "8px",
                 lineHeight: "20px",
                 margin: 0,
                 padding: "12px 0 8px",
               }}
             >
-              Current positions
+              <span>Current positions</span>
+              <EarnSectionHelpTrigger
+                ariaLabel="Ask Milo about current positions"
+                onOpen={
+                  onOpenEarnHelp
+                    ? () => onOpenEarnHelp("currentPositions")
+                    : undefined
+                }
+              />
             </h3>
           </div>
           <div style={{ display: "flex", flexDirection: "column" }}>
@@ -3633,11 +3864,14 @@ export function EarnWithdrawView({
       >
         <h2
           style={{
+            alignItems: "center",
             color: "#000",
+            display: "inline-flex",
             flex: 1,
             fontFamily: font,
             fontSize: "20px",
             fontWeight: 600,
+            gap: "8px",
             lineHeight: "28px",
             margin: 0,
             minWidth: 0,
@@ -6580,6 +6814,7 @@ export function AutodepositSetupView({
   mainSource,
   onBack,
   onDelete,
+  onOpenEarnHelp,
   onSubmit,
 }: {
   earnBalance?: number;
@@ -6590,6 +6825,7 @@ export function AutodepositSetupView({
   mainSource?: EarnDepositSourceOption | null;
   onBack?: () => void;
   onDelete?: () => void;
+  onOpenEarnHelp?: (topic: EarnHelpTopic) => void;
   onSubmit?: (keepAmount: string) => void;
 }) {
   const keepAmountInputRef = useRef<HTMLInputElement | null>(null);
@@ -6700,34 +6936,50 @@ export function AutodepositSetupView({
             minWidth: 0,
           }}
         >
-          Autodeposit
+          <span>Autodeposit</span>
+          <EarnSectionHelpTrigger
+            ariaLabel="Ask Milo about Autodeposit"
+            onOpen={
+              onOpenEarnHelp ? () => onOpenEarnHelp("autodeposit") : undefined
+            }
+          />
         </h2>
         {isEditing && !isPendingSetup && onDelete ? (
-          <button
-            className="autodeposit-delete"
-            onClick={onDelete}
-            style={{
-              alignItems: "center",
-              background: "rgba(249, 54, 60, 0.14)",
-              border: "none",
-              borderRadius: "9999px",
-              color: LOYAL_EARN_BRAND_COLOR,
-              cursor: "pointer",
-              display: "inline-flex",
-              flexShrink: 0,
-              fontFamily: font,
-              fontSize: "14px",
-              fontWeight: 500,
-              justifyContent: "center",
-              lineHeight: "20px",
-              padding: "6px 16px",
-              transition: "background 0.15s ease",
-              whiteSpace: "nowrap",
-            }}
-            type="button"
-          >
-            Delete
-          </button>
+          <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
+            <EarnSectionHelpTrigger
+              ariaLabel="Ask Milo about deleting Autodeposit"
+              onOpen={
+                onOpenEarnHelp
+                  ? () => onOpenEarnHelp("autodepositDelete")
+                  : undefined
+              }
+            />
+            <button
+              className="autodeposit-delete"
+              onClick={onDelete}
+              style={{
+                alignItems: "center",
+                background: "rgba(249, 54, 60, 0.14)",
+                border: "none",
+                borderRadius: "9999px",
+                color: LOYAL_EARN_BRAND_COLOR,
+                cursor: "pointer",
+                display: "inline-flex",
+                flexShrink: 0,
+                fontFamily: font,
+                fontSize: "14px",
+                fontWeight: 500,
+                justifyContent: "center",
+                lineHeight: "20px",
+                padding: "6px 16px",
+                transition: "background 0.15s ease",
+                whiteSpace: "nowrap",
+              }}
+              type="button"
+            >
+              Delete
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -6752,19 +7004,30 @@ export function AutodepositSetupView({
           }}
         >
           <div style={{ padding: "3px 12px 1px" }}>
-            <p
+            <div
               style={{
+                alignItems: "center",
                 color: secondary,
+                display: "inline-flex",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 400,
+                gap: "8px",
                 lineHeight: "20px",
                 margin: 0,
                 padding: "12px 0 4px",
               }}
             >
-              Only deposit anything above this amount
-            </p>
+              <span>Only deposit anything above this amount</span>
+              <EarnSectionHelpTrigger
+                ariaLabel="Ask Milo about the Autodeposit minimum"
+                onOpen={
+                  onOpenEarnHelp
+                    ? () => onOpenEarnHelp("autodepositThreshold")
+                    : undefined
+                }
+              />
+            </div>
             <AutodepositAmountInputRow
               inputRef={keepAmountInputRef}
               onValueChange={setKeepAmount}
@@ -6788,19 +7051,30 @@ export function AutodepositSetupView({
           }}
         >
           <div style={{ padding: "3px 12px 1px" }}>
-            <p
+            <div
               style={{
+                alignItems: "center",
                 color: secondary,
+                display: "inline-flex",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 400,
+                gap: "8px",
                 lineHeight: "20px",
                 margin: 0,
                 padding: "12px 0 4px",
               }}
             >
-              From
-            </p>
+              <span>From</span>
+              <EarnSectionHelpTrigger
+                ariaLabel="Ask Milo about the Autodeposit source"
+                onOpen={
+                  onOpenEarnHelp
+                    ? () => onOpenEarnHelp("autodepositSource")
+                    : undefined
+                }
+              />
+            </div>
           </div>
           <AutodepositSummaryRow
             fraction={mainSource?.balanceFraction ?? "00"}
@@ -6819,19 +7093,30 @@ export function AutodepositSetupView({
             whole={mainSource?.balanceWhole ?? "0"}
           />
           <div style={{ padding: "3px 12px 1px" }}>
-            <p
+            <div
               style={{
+                alignItems: "center",
                 color: secondary,
+                display: "inline-flex",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 400,
+                gap: "8px",
                 lineHeight: "20px",
                 margin: 0,
                 padding: "12px 0 4px",
               }}
             >
-              To
-            </p>
+              <span>To</span>
+              <EarnSectionHelpTrigger
+                ariaLabel="Ask Milo about the Autodeposit destination"
+                onOpen={
+                  onOpenEarnHelp
+                    ? () => onOpenEarnHelp("autodepositDestination")
+                    : undefined
+                }
+              />
+            </div>
           </div>
           <AutodepositSummaryRow
             fraction={earnFraction}

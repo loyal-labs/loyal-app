@@ -55,54 +55,12 @@ const EARN_MASCOT_STREAM_DELAY_MS = 240;
 const EARN_MASCOT_STREAM_INTERVAL_MS = 30;
 const EARN_MASCOT_EXPERIMENTAL_TOGGLE_CLICK_COUNT = 5;
 const EARN_MASCOT_EXPERIMENTAL_TOGGLE_RESET_MS = 1_800;
-const TELEGRAM_COMMUNITY_URL = "https://t.me/loyal_tgchat";
-const TURN_ON_EARN_MASCOT_PHRASE_ID = "turn-on-earn";
 
-type EarnMascotPhrase = {
+export type EarnMascotHelpPhrase = {
   href?: string;
   id: string;
   text: string;
 };
-
-const EARN_MASCOT_IDLE_PHRASES: readonly EarnMascotPhrase[] = [
-  {
-    href: TELEGRAM_COMMUNITY_URL,
-    id: "join-telegram",
-    text: "Join the pack on Telegram",
-  },
-  {
-    id: "guard-funds",
-    text: "I sit here and guard your funds. Best job I've ever had",
-  },
-  { id: "still-loyal", text: "Still here. Still Loyal." },
-  { id: "herding-usdc", text: "I'm herding your USDC" },
-  {
-    id: TURN_ON_EARN_MASCOT_PHRASE_ID,
-    text: "Turn on Earn. Idle USDC is a waste of a good dog's time.",
-  },
-] as const;
-
-const EARN_MASCOT_BUSY_PHRASES: readonly EarnMascotPhrase[] = [
-  { id: "sniffing", text: "Sniffing…" },
-  { id: "fetching", text: "Fetching…" },
-  { id: "snuffling", text: "Snuffling…" },
-  { id: "borking", text: "Borking…" },
-  { id: "floofing", text: "Floofing…" },
-  { id: "splooting", text: "Splooting…" },
-  { id: "mlemming", text: "Mlemming…" },
-  { id: "zoomies", text: "Zoomies…" },
-  { id: "wagging", text: "Wagging…" },
-  { id: "trotting", text: "Trotting…" },
-  { id: "booping", text: "Booping…" },
-  { id: "scritching", text: "Scritching…" },
-  { id: "pawing-through", text: "Pawing through…" },
-  { id: "digging", text: "Digging…" },
-  { id: "good-boying", text: "Good-boying…" },
-  { id: "staying-loyal", text: "Staying Loyal…" },
-  { id: "counting-bones", text: "Counting bones…" },
-  { id: "marking-territory", text: "Marking territory…" },
-  { id: "heeling", text: "Heeling…" },
-] as const;
 
 export type PendingScheduledSweepPreview = {
   amountRaw: string;
@@ -830,12 +788,11 @@ function ScheduledTransactionRow({
   const amountLabel = formatScheduledSweepAmount(
     "remainingAmountRaw" in sweep ? sweep.remainingAmountRaw : sweep.amountRaw
   );
-  const timeLabel =
-    isRetryable
-      ? "Retry needed"
-      : "eligibleAfter" in sweep
-      ? formatScheduledSweepTime(sweep.eligibleAfter, displayTimeZone)
-      : "Scheduling...";
+  const timeLabel = isRetryable
+    ? "Retry needed"
+    : "eligibleAfter" in sweep
+    ? formatScheduledSweepTime(sweep.eligibleAfter, displayTimeZone)
+    : "Scheduling...";
   const isButtonDisabled = isPending || isExecuting || !onExecuteNow;
 
   return (
@@ -1432,51 +1389,19 @@ function EarnTransactionsEmptyState() {
   );
 }
 
-function getEarnMascotIdlePhrases(hasCurrentPosition: boolean) {
-  return hasCurrentPosition
-    ? EARN_MASCOT_IDLE_PHRASES.filter(
-        (phrase) => phrase.id !== TURN_ON_EARN_MASCOT_PHRASE_ID
-      )
-    : EARN_MASCOT_IDLE_PHRASES;
-}
-
-function chooseEarnMascotPhraseIndex(phraseCount: number) {
-  if (phraseCount < 2) {
-    return 0;
-  }
-
-  if (typeof window === "undefined") {
-    return 0;
-  }
-
-  return Math.floor(Math.random() * phraseCount);
-}
-
 function EarnMascotPanel({
-  hasCurrentPosition = false,
-  isBusy = false,
+  helpPhrase = null,
   onExperimentalModeToggle,
 }: {
-  hasCurrentPosition?: boolean;
-  isBusy?: boolean;
+  helpPhrase?: EarnMascotHelpPhrase | null;
   onExperimentalModeToggle?: () => void;
 }) {
-  const [phraseIndex, setPhraseIndex] = useState(0);
   const [visibleLength, setVisibleLength] = useState(0);
   const experimentalToggleClickCountRef = useRef(0);
   const experimentalToggleResetTimeoutRef = useRef<number | null>(null);
-  const idlePhrases = getEarnMascotIdlePhrases(hasCurrentPosition);
-  const activePhrases = isBusy ? EARN_MASCOT_BUSY_PHRASES : idlePhrases;
-  const activePhraseCount = activePhrases.length;
-  const activePhrase =
-    activePhrases[phraseIndex % activePhraseCount] ??
-    EARN_MASCOT_IDLE_PHRASES[0];
-  const visibleText = activePhrase.text.slice(0, visibleLength);
-  const isTextComplete = visibleLength >= activePhrase.text.length;
-
-  useEffect(() => {
-    setPhraseIndex(chooseEarnMascotPhraseIndex(activePhraseCount));
-  }, [activePhraseCount, hasCurrentPosition, isBusy]);
+  const helpPhraseText = helpPhrase?.text ?? "";
+  const visibleText = helpPhraseText.slice(0, visibleLength);
+  const isTextComplete = visibleLength >= helpPhraseText.length;
 
   const resetExperimentalToggleClicks = useCallback(() => {
     experimentalToggleClickCountRef.current = 0;
@@ -1517,12 +1442,17 @@ function EarnMascotPanel({
   );
 
   useEffect(() => {
+    if (!helpPhraseText) {
+      setVisibleLength(0);
+      return;
+    }
+
     const prefersReducedMotion =
       typeof window.matchMedia === "function" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     if (prefersReducedMotion) {
-      setVisibleLength(activePhrase.text.length);
+      setVisibleLength(helpPhraseText.length);
       return;
     }
 
@@ -1532,10 +1462,10 @@ function EarnMascotPanel({
     let intervalId: number | null = null;
     const startTimeoutId = window.setTimeout(() => {
       intervalId = window.setInterval(() => {
-        index = Math.min(activePhrase.text.length, index + 1);
+        index = Math.min(helpPhraseText.length, index + 1);
         setVisibleLength(index);
 
-        if (index >= activePhrase.text.length && intervalId !== null) {
+        if (index >= helpPhraseText.length && intervalId !== null) {
           window.clearInterval(intervalId);
         }
       }, EARN_MASCOT_STREAM_INTERVAL_MS);
@@ -1547,7 +1477,7 @@ function EarnMascotPanel({
         window.clearInterval(intervalId);
       }
     };
-  }, [activePhrase.id, activePhrase.text]);
+  }, [helpPhrase?.id, helpPhraseText]);
 
   return (
     <section aria-label="Loyal mascot" className="earn-mascot-panel">
@@ -1681,22 +1611,46 @@ function EarnMascotPanel({
         }
       `}</style>
       <div className="earn-mascot-stage">
-        <div
-          aria-label={activePhrase.text}
-          className="earn-mascot-bubble"
-          key={activePhrase.id}
-        >
-          {activePhrase.href ? (
-            <a
-              aria-label={activePhrase.text}
-              className="earn-mascot-bubble-link"
-              href={activePhrase.href}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <span className="earn-mascot-bubble-content">
+        {helpPhrase ? (
+          <div
+            aria-label={helpPhrase.text}
+            className="earn-mascot-bubble"
+            key={helpPhrase.id}
+          >
+            {helpPhrase.href ? (
+              <a
+                aria-label={helpPhrase.text}
+                className="earn-mascot-bubble-link"
+                href={helpPhrase.href}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="earn-mascot-bubble-content">
+                  <span
+                    aria-hidden="true"
+                    className="earn-mascot-bubble-measure"
+                  >
+                    {helpPhrase.text}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="earn-mascot-bubble-stream"
+                  >
+                    {visibleText}
+                    <span
+                      className="earn-mascot-bubble-cursor"
+                      data-complete={isTextComplete}
+                    />
+                  </span>
+                </span>
+              </a>
+            ) : (
+              <span
+                aria-label={helpPhrase.text}
+                className="earn-mascot-bubble-content"
+              >
                 <span aria-hidden="true" className="earn-mascot-bubble-measure">
-                  {activePhrase.text}
+                  {helpPhrase.text}
                 </span>
                 <span aria-hidden="true" className="earn-mascot-bubble-stream">
                   {visibleText}
@@ -1706,25 +1660,9 @@ function EarnMascotPanel({
                   />
                 </span>
               </span>
-            </a>
-          ) : (
-            <span
-              aria-label={activePhrase.text}
-              className="earn-mascot-bubble-content"
-            >
-              <span aria-hidden="true" className="earn-mascot-bubble-measure">
-                {activePhrase.text}
-              </span>
-              <span aria-hidden="true" className="earn-mascot-bubble-stream">
-                {visibleText}
-                <span
-                  className="earn-mascot-bubble-cursor"
-                  data-complete={isTextComplete}
-                />
-              </span>
-            </span>
-          )}
-        </div>
+            )}
+          </div>
+        ) : null}
         <button
           aria-label="Loyal mascot"
           className="earn-mascot-dog"
@@ -1787,10 +1725,10 @@ export function groupEarnTransactions(
 }
 
 export function EarnTransactionsPane({
-  hasCurrentPosition = false,
   isAutodepositConfigured = false,
   isBalanceHidden = false,
   isExecutingScheduledSweep = false,
+  mascotHelpPhrase = null,
   mascotPaneHeight = "38%",
   onExperimentalModeToggle,
   onExecuteScheduledSweep,
@@ -1806,10 +1744,10 @@ export function EarnTransactionsPane({
   topInset = 0,
   walletAddress,
 }: {
-  hasCurrentPosition?: boolean;
   isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
   isExecutingScheduledSweep?: boolean;
+  mascotHelpPhrase?: EarnMascotHelpPhrase | null;
   mascotPaneHeight?: string;
   onExperimentalModeToggle?: () => void;
   onExecuteScheduledSweep?: (
@@ -2240,15 +2178,6 @@ export function EarnTransactionsPane({
   const hasPinnedContent = showPolicyRefunds || showScheduledSweeps;
   const isPolicyScanDisabled =
     isScanningPolicies || !isAuthenticated || !settingsPda || !walletAddress;
-  const isMascotBusy =
-    isLoading ||
-    isScanningPolicies ||
-    refundingPolicyAccount !== null ||
-    refundingRecurringDelegationAccount !== null ||
-    isExecutingScheduledSweep ||
-    isAwaitingScheduledSweepExecution ||
-    scheduledSweepExecutionRequestedAtMs !== null ||
-    earnActionRefreshRequestedAtMs !== null;
 
   const handleSelect = (item: EarnTransactionItem) => {
     onSelectTransaction(buildEarnTransactionDetail(item, displayTimeZone));
@@ -2750,8 +2679,7 @@ export function EarnTransactionsPane({
         </div>
       </section>
       <EarnMascotPanel
-        hasCurrentPosition={hasCurrentPosition}
-        isBusy={isMascotBusy}
+        helpPhrase={mascotHelpPhrase}
         onExperimentalModeToggle={onExperimentalModeToggle}
       />
     </div>
