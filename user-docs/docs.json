@@ -32,6 +32,7 @@
           {
             "group": "Safety",
             "pages": [
+              "earn/trust-model",
               "earn/safety-and-faq"
             ]
           }
@@ -91,9 +92,9 @@
           "icon": "house"
         },
         {
-          "anchor": "MetaDAO Launch",
-          "href": "https://metadao.fi",
-          "icon": "rocket"
+          "anchor": "Dashboard",
+          "href": "https://app.askloyal.com",
+          "icon": "gauge"
         }
       ]
     }
