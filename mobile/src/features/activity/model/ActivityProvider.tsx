@@ -13,6 +13,7 @@ import {
 import { useEarnActivity } from "@/hooks/wallet/useEarnActivity";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
+import { useWalletAutoRefresh } from "@/hooks/wallet/useWalletAutoRefresh";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
 import {
   SOLANA_USDC_MINT_DEVNET,
@@ -45,6 +46,8 @@ type ActivityContextValue = {
   loadWalletTransactions: (options?: { force?: boolean }) => Promise<void>;
   earnTransactions: EarnTransactionItem[];
   isFetchingEarn: boolean;
+  /** True once the first Earn-activity fetch has settled (cold load done). */
+  hasLoadedEarn: boolean;
   refreshEarnTransactions: () => Promise<void>;
   /** Re-read the wallet's Autodeposit state (incl. its scheduled sweeps). */
   refreshAutodeposit: () => Promise<unknown>;
@@ -84,10 +87,22 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const {
     earnTransactions,
     isLoading: isFetchingEarn,
+    hasLoaded: hasLoadedEarn,
     refresh: refreshEarnTransactions,
   } = useEarnActivity(publicKey);
   const { autodeposit, refreshAutodeposit: refreshAutodepositState } =
     useEarnAutodeposit(publicKey);
+
+  // Keep the Earn feed warm app-wide: the hook prefetches once on mount (so the
+  // data is usually ready before the user opens the Earn activity tab), and this
+  // coordinator refreshes it in the background — every 15s plus on
+  // focus/foreground/push — like the rest of the wallet data. The backend can be
+  // slow here, so prefetching + polling avoids a long skeleton on tab open.
+  useWalletAutoRefresh({
+    walletAddress: publicKey,
+    refresh: refreshEarnTransactions,
+    intervalMs: 15_000,
+  });
 
   // The visibility cap needs the live wallet USDC balance (see
   // getVisibleEarnScheduledSweeps) so a scheduled slot whose surplus was already
@@ -293,6 +308,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       loadWalletTransactions,
       earnTransactions,
       isFetchingEarn,
+      hasLoadedEarn,
       refreshEarnTransactions,
       refreshAutodeposit,
       earnScheduledSweeps,
@@ -310,6 +326,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       loadWalletTransactions,
       earnTransactions,
       isFetchingEarn,
+      hasLoadedEarn,
       refreshEarnTransactions,
       refreshAutodeposit,
       earnScheduledSweeps,

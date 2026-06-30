@@ -120,17 +120,19 @@ function EarnScheduledRow({
   );
 }
 
-export function EarnActivityList() {
+export function EarnActivityList({ limit }: { limit: number }) {
   const {
     earnTransactions,
-    isFetchingEarn,
+    hasLoadedEarn,
     earnScheduledSweeps,
     isExecutingSweep,
     executeScheduledSweep,
   } = useActivity();
   const hasScheduled = earnScheduledSweeps.length > 0;
 
-  if (isFetchingEarn && earnTransactions.length === 0 && !hasScheduled) {
+  // Skeleton only on the cold load (before the first fetch settles). Background
+  // 15s polls keep the feed fresh without flashing the skeleton on each tick.
+  if (!hasLoadedEarn && earnTransactions.length === 0 && !hasScheduled) {
     return (
       <View className="px-4">
         {[1, 2, 3].map((i) => (
@@ -181,7 +183,9 @@ export function EarnActivityList() {
     );
   }
 
-  const groups = groupEarnTransactions(earnTransactions);
+  // Only render up to `limit` rows — the parent grows this on scroll. Rendering
+  // the full history at once blocks the tab switch (non-virtualized ScrollView).
+  const groups = groupEarnTransactions(earnTransactions.slice(0, limit));
 
   return (
     <View>
