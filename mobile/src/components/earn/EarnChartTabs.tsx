@@ -9,12 +9,12 @@ import { EarnChart } from "./EarnChart";
 import { ForecastChart } from "./ForecastChart";
 
 // Segmented control above the Earn chart (Figma 74-19216 / 74-19520): switches
-// the chart between Earnings (the bar/odometer chart), APY (multi-series line
+// the chart between Earned (the bar/odometer chart), APY (multi-series line
 // chart), and Forecast (projection lines).
 type ChartTab = "earnings" | "apy" | "forecast";
 
 const TABS: { key: ChartTab; label: string; enabled: boolean }[] = [
-  { key: "earnings", label: "Earnings", enabled: true },
+  { key: "earnings", label: "Earned", enabled: true },
   { key: "apy", label: "APY", enabled: true },
   { key: "forecast", label: "Forecast", enabled: true },
 ];
@@ -26,7 +26,7 @@ export function EarnChartTabs({
   principalUsd: number | null;
   walletAddress: string | null;
 }) {
-  const [tab, setTab] = useState<ChartTab>("earnings");
+  const [tab, setTab] = useState<ChartTab>("forecast");
   // Global APY forecast + history feeds the APY and Forecast charts.
   const summary = useEarnForecast();
 
