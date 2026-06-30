@@ -46,12 +46,11 @@ import {
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
 import {
+  estimateJupiterSwapFeeState,
   getJupiterQuote,
-  getJupiterSwapInstructions,
   getJupiterSwapTransaction,
-  estimateSwapTransactionFee,
   type JupiterQuoteResponse,
-  type SwapFeeEstimate,
+  type SwapFeeEstimateState,
 } from "@/lib/solana/jupiter";
 import { getConnection, getSolanaEnv } from "@/lib/solana/rpc/connection";
 import { DEFAULT_TOKEN_ICON } from "@/lib/solana/token-holdings/constants";
@@ -76,12 +75,6 @@ const SWAP_SNAP_POINTS = ["94%"];
 const DEFAULT_SOL_MAX_FEE_RESERVE_LAMPORTS = 50_000;
 
 type SwapStep = "form" | "confirm" | "result";
-
-type SwapFeeEstimateState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "success"; estimate: SwapFeeEstimate }
-  | { status: "error"; error: string };
 
 type SwapSheetProps = {
   open: boolean;
@@ -417,42 +410,12 @@ export function SwapSheet({
     setFeeEstimateState({ status: "loading" });
 
     void (async () => {
-      try {
-        const [swapTxResponse, swapInstructions] = await Promise.all([
-          getJupiterSwapTransaction({
-            quoteResponse: quote,
-            userPublicKey: walletAddress,
-          }),
-          getJupiterSwapInstructions({
-            quoteResponse: quote,
-            userPublicKey: walletAddress,
-          }).catch(() => undefined),
-        ]);
-
-        const estimate = await estimateSwapTransactionFee({
-          connection: getConnection(),
-          swapResponse: swapTxResponse,
-          swapInstructions,
-          userPublicKey: walletAddress,
-        });
-
-        if (cancelled) return;
-        if (estimate.simulation.status === "passed") {
-          setFeeEstimateState({ status: "success", estimate });
-        } else {
-          setFeeEstimateState({
-            status: "error",
-            error: "Swap fee simulation failed",
-          });
-        }
-      } catch (error) {
-        if (cancelled) return;
-        setFeeEstimateState({
-          status: "error",
-          error:
-            error instanceof Error ? error.message : "Swap fee unavailable",
-        });
-      }
+      const nextState = await estimateJupiterSwapFeeState({
+        connection: getConnection(),
+        quoteResponse: quote,
+        userPublicKey: walletAddress,
+      });
+      if (!cancelled) setFeeEstimateState(nextState);
     })();
 
     return () => {

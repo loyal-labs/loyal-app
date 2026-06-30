@@ -104,3 +104,9 @@ export type SwapFeeEstimate = {
 	createdAtaAccounts: SwapCreatedAtaRentEntry[];
 	simulation: SwapFeeSimulationResult;
 };
+
+export type SwapFeeEstimateState =
+	| { status: "idle" }
+	| { status: "loading" }
+	| { status: "success"; estimate: SwapFeeEstimate }
+	| { status: "error"; error: string };

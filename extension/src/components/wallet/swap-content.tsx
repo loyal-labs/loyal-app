@@ -11,10 +11,8 @@ import {
 import { useSwap } from "@loyal-labs/wallet-core/hooks";
 import type { SwapConfig } from "@loyal-labs/wallet-core/hooks";
 import {
-  estimateSwapTransactionFee,
-  getJupiterSwapInstructions,
-  getJupiterSwapTransaction,
-  type SwapFeeEstimate,
+  estimateJupiterSwapFeeState,
+  type SwapFeeEstimateState,
 } from "@loyal-labs/wallet-core/lib";
 
 import { SwapShieldTabs } from "~/src/components/wallet/shield-content";
@@ -112,12 +110,6 @@ function TokenPill({
 }
 
 type SwapPhase = "form" | "processing" | "success" | "error" | "details";
-
-type SwapFeeEstimateState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "success"; estimate: SwapFeeEstimate }
-  | { status: "error"; error: string };
 
 const DEFAULT_SOL_MAX_FEE_RESERVE_LAMPORTS = 50_000;
 
@@ -1063,49 +1055,16 @@ export function SwapContent({
     setFeeEstimateState({ status: "loading" });
 
     void (async () => {
-      try {
-        const [swapTxResponse, swapInstructions] = await Promise.all([
-          getJupiterSwapTransaction({
-            quoteResponse,
-            userPublicKey: feeUserPublicKey,
-            apiKey:
-              swapConfig.mode === "enabled" ? swapConfig.apiKey : undefined,
-            baseUrl:
-              swapConfig.mode === "enabled" ? swapConfig.baseUrl : undefined,
-          }),
-          getJupiterSwapInstructions({
-            quoteResponse,
-            userPublicKey: feeUserPublicKey,
-            apiKey:
-              swapConfig.mode === "enabled" ? swapConfig.apiKey : undefined,
-            baseUrl:
-              swapConfig.mode === "enabled" ? swapConfig.baseUrl : undefined,
-          }).catch(() => undefined),
-        ]);
-        const estimate = await estimateSwapTransactionFee({
-          connection,
-          swapResponse: swapTxResponse,
-          swapInstructions,
-          userPublicKey: feeUserPublicKey,
-        });
-
-        if (cancelled) return;
-        if (estimate.simulation.status === "passed") {
-          setFeeEstimateState({ status: "success", estimate });
-        } else {
-          setFeeEstimateState({
-            status: "error",
-            error: "Swap fee simulation failed",
-          });
-        }
-      } catch (error) {
-        if (cancelled) return;
-        setFeeEstimateState({
-          status: "error",
-          error:
-            error instanceof Error ? error.message : "Swap fee unavailable",
-        });
-      }
+      const nextState = await estimateJupiterSwapFeeState({
+        connection,
+        quoteResponse,
+        userPublicKey: feeUserPublicKey,
+        apiKey:
+          swapConfig.mode === "enabled" ? swapConfig.apiKey : undefined,
+        baseUrl:
+          swapConfig.mode === "enabled" ? swapConfig.baseUrl : undefined,
+      });
+      if (!cancelled) setFeeEstimateState(nextState);
     })();
 
     return () => {

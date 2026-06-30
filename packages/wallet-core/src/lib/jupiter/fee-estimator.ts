@@ -7,17 +7,23 @@ import {
 } from "@solana/web3.js";
 import { Buffer } from "buffer";
 
-import { deserializeJupiterSwapTransaction } from "./client";
+import {
+	deserializeJupiterSwapTransaction,
+	getJupiterSwapInstructions,
+	getJupiterSwapTransaction,
+} from "./client";
 import type {
 	JupiterInstruction,
+	JupiterQuoteResponse,
 	JupiterSwapInstructionsResponse,
 	JupiterSwapResponse,
 	SwapCreatedAtaRentEntry,
 	SwapFeeEstimate,
+	SwapFeeEstimateState,
 	SwapFeeSimulationResult,
 } from "./types";
 
-type FeeEstimateConnection = Pick<
+export type SwapFeeEstimateConnection = Pick<
 	Connection,
 	| "getFeeForMessage"
 	| "getMinimumBalanceForRentExemption"
@@ -26,7 +32,7 @@ type FeeEstimateConnection = Pick<
 >;
 
 type EstimateSwapTransactionFeeParams = {
-	connection: FeeEstimateConnection;
+	connection: SwapFeeEstimateConnection;
 	transaction?: VersionedTransaction | string;
 	swapResponse?: Pick<
 		JupiterSwapResponse,
@@ -34,6 +40,16 @@ type EstimateSwapTransactionFeeParams = {
 	>;
 	swapInstructions?: Pick<JupiterSwapInstructionsResponse, "setupInstructions">;
 	userPublicKey?: PublicKey | string | { toBase58(): string };
+	commitment?: "processed" | "confirmed" | "finalized";
+};
+
+type EstimateJupiterSwapFeeStateParams = {
+	connection: SwapFeeEstimateConnection;
+	quoteResponse: JupiterQuoteResponse;
+	userPublicKey: PublicKey | string | { toBase58(): string };
+	apiKey?: string;
+	baseUrl?: string;
+	fetchFn?: typeof fetch;
 	commitment?: "processed" | "confirmed" | "finalized";
 };
 
@@ -201,7 +217,7 @@ const dedupeCreatedAtas = (entries: ParsedAtaCreate[]): ParsedAtaCreate[] => {
 };
 
 const getRentEntries = async (params: {
-	connection: FeeEstimateConnection;
+	connection: SwapFeeEstimateConnection;
 	transaction: VersionedTransaction;
 	swapInstructions?: Pick<JupiterSwapInstructionsResponse, "setupInstructions">;
 	userPublicKey: string | null;
@@ -287,7 +303,7 @@ const estimatePrioritizationFeeFromMessage = (
 };
 
 const simulateSwapTransaction = async (params: {
-	connection: FeeEstimateConnection;
+	connection: SwapFeeEstimateConnection;
 	transaction: VersionedTransaction;
 	commitment: "processed" | "confirmed" | "finalized";
 }): Promise<SwapFeeSimulationResult> => {
@@ -315,6 +331,26 @@ const simulateSwapTransaction = async (params: {
 		};
 	}
 };
+
+export const getSwapFeeEstimateState = (
+	estimate: SwapFeeEstimate
+): SwapFeeEstimateState => {
+	if (estimate.simulation.status === "passed") {
+		return { status: "success", estimate };
+	}
+
+	return {
+		status: "error",
+		error: "Swap fee simulation failed",
+	};
+};
+
+export const getSwapFeeEstimateErrorState = (
+	error: unknown
+): SwapFeeEstimateState => ({
+	status: "error",
+	error: error instanceof Error ? error.message : "Swap fee unavailable",
+});
 
 export async function estimateSwapTransactionFee(
 	params: EstimateSwapTransactionFeeParams
@@ -351,4 +387,43 @@ export async function estimateSwapTransactionFee(
 		createdAtaAccounts: rent.createdAtaAccounts,
 		simulation,
 	};
+}
+
+export async function estimateJupiterSwapFeeState(
+	params: EstimateJupiterSwapFeeStateParams
+): Promise<SwapFeeEstimateState> {
+	try {
+		const userPublicKey = getPublicKeyString(params.userPublicKey);
+		if (!userPublicKey) {
+			throw new Error("User public key is required for swap fee estimation");
+		}
+
+		const [swapResponse, swapInstructions] = await Promise.all([
+			getJupiterSwapTransaction({
+				quoteResponse: params.quoteResponse,
+				userPublicKey,
+				apiKey: params.apiKey,
+				baseUrl: params.baseUrl,
+				fetchFn: params.fetchFn,
+			}),
+			getJupiterSwapInstructions({
+				quoteResponse: params.quoteResponse,
+				userPublicKey,
+				apiKey: params.apiKey,
+				baseUrl: params.baseUrl,
+				fetchFn: params.fetchFn,
+			}).catch(() => undefined),
+		]);
+		const estimate = await estimateSwapTransactionFee({
+			connection: params.connection,
+			swapResponse,
+			swapInstructions,
+			userPublicKey,
+			commitment: params.commitment,
+		});
+
+		return getSwapFeeEstimateState(estimate);
+	} catch (error) {
+		return getSwapFeeEstimateErrorState(error);
+	}
 }

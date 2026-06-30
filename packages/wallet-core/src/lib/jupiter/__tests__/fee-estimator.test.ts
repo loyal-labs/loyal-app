@@ -13,7 +13,11 @@ import {
 } from "@solana/web3.js";
 import { describe, expect, test } from "bun:test";
 
-import { estimateSwapTransactionFee } from "../fee-estimator";
+import {
+	estimateSwapTransactionFee,
+	getSwapFeeEstimateErrorState,
+	getSwapFeeEstimateState,
+} from "../fee-estimator";
 import type { JupiterInstruction } from "../types";
 
 const RENT_EXEMPT_TOKEN_ACCOUNT_LAMPORTS = 2_039_280;
@@ -195,5 +199,56 @@ describe("estimateSwapTransactionFee", () => {
 		expect(estimate.createdAtaAccounts).toHaveLength(0);
 		expect(estimate.rentLamports).toBe(0);
 		expect(estimate.totalLamports).toBe(MESSAGE_FEE_LAMPORTS);
+	});
+});
+
+describe("swap fee estimate state helpers", () => {
+	const baseEstimate = {
+		totalLamports: 5_000,
+		transactionFeeLamports: 5_000,
+		prioritizationFeeLamports: null,
+		prioritizationFeeIncludedInTransactionFee: false,
+		rentLamports: 0,
+		createdAtaAccounts: [],
+		simulation: {
+			status: "passed" as const,
+			error: null,
+			unitsConsumed: 10_000,
+			logs: [],
+		},
+	};
+
+	test("maps a passing simulation to a success state", () => {
+		expect(getSwapFeeEstimateState(baseEstimate)).toEqual({
+			status: "success",
+			estimate: baseEstimate,
+		});
+	});
+
+	test("maps a failed simulation to an error state", () => {
+		expect(
+			getSwapFeeEstimateState({
+				...baseEstimate,
+				simulation: {
+					...baseEstimate.simulation,
+					status: "failed",
+					error: { InstructionError: [0, "Custom"] },
+				},
+			})
+		).toEqual({
+			status: "error",
+			error: "Swap fee simulation failed",
+		});
+	});
+
+	test("normalizes thrown errors for fee-estimate state", () => {
+		expect(getSwapFeeEstimateErrorState(new Error("quote expired"))).toEqual({
+			status: "error",
+			error: "quote expired",
+		});
+		expect(getSwapFeeEstimateErrorState("nope")).toEqual({
+			status: "error",
+			error: "Swap fee unavailable",
+		});
 	});
 });
