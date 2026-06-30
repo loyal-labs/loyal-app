@@ -125,8 +125,16 @@ function formatLamportsAsSol(lamports: number): string {
 
 function getFeeSolPriceUsd(
   fromToken: SwapToken,
-  toToken: SwapToken
+  toToken: SwapToken,
+  fallbackSolPriceUsd?: number | null
 ): number | null {
+  if (
+    typeof fallbackSolPriceUsd === "number" &&
+    Number.isFinite(fallbackSolPriceUsd) &&
+    fallbackSolPriceUsd > 0
+  ) {
+    return fallbackSolPriceUsd;
+  }
   const solToken = [fromToken, toToken].find(
     (token) =>
       token.symbol.toUpperCase() === "SOL" ||
@@ -712,6 +720,7 @@ function SwapTransactionDetail({
   onClose,
   onDone,
   onBack,
+  feeSolPriceUsd: feeSolPriceUsdProp,
 }: {
   fromToken: SwapToken;
   toToken: SwapToken;
@@ -722,9 +731,14 @@ function SwapTransactionDetail({
   onClose: () => void;
   onDone: () => void;
   onBack?: () => void;
+  feeSolPriceUsd?: number | null;
 }) {
   const publicEnv = usePublicEnv();
-  const feeSolPriceUsd = getFeeSolPriceUsd(fromToken, toToken);
+  const feeSolPriceUsd = getFeeSolPriceUsd(
+    fromToken,
+    toToken,
+    feeSolPriceUsdProp
+  );
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     month: "short",
@@ -1042,6 +1056,7 @@ export function SwapContent({
   onFormActiveChange,
   onFormButtonChange,
   executionContext,
+  feeSolPriceUsd: feeSolPriceUsdProp,
 }: {
   onClose: () => void;
   onDone: () => void;
@@ -1057,6 +1072,7 @@ export function SwapContent({
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
   executionContext?: SwapExecutionContext;
+  feeSolPriceUsd?: number | null;
 }) {
   const { connection } = useConnection();
   const publicEnv = usePublicEnv();
@@ -1107,8 +1123,8 @@ export function SwapContent({
     return Number.isFinite(val) ? val.toFixed(2) : "0.00";
   }, [toAmount, toToken.price]);
   const feeSolPriceUsd = useMemo(
-    () => getFeeSolPriceUsd(fromToken, toToken),
-    [fromToken, toToken]
+    () => getFeeSolPriceUsd(fromToken, toToken, feeSolPriceUsdProp),
+    [fromToken, toToken, feeSolPriceUsdProp]
   );
   const hasAmount = numericFrom > 0;
   const insufficientFunds = numericFrom > fromToken.balance;
@@ -1391,6 +1407,7 @@ export function SwapContent({
           signature={resultSignature}
           toToken={toToken}
           usdValue={resultUsd}
+          feeSolPriceUsd={feeSolPriceUsd}
         />
       );
     }

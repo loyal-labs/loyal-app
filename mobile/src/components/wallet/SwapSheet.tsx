@@ -159,10 +159,9 @@ function formatLamportsAsSol(lamports: number): string {
 }
 
 function getFeeSolPriceUsd(
-  fromHolding: TokenHolding | null,
-  toHolding: TokenHolding | null
+  holdings: (TokenHolding | null | undefined)[]
 ): number | null {
-  const solHolding = [fromHolding, toHolding].find(
+  const solHolding = holdings.find(
     (holding) =>
       holding &&
       (holding.symbol.toUpperCase() === "SOL" ||
@@ -508,6 +507,17 @@ export function SwapSheet({
     }
     return null;
   }, [outAmount, toHolding, amountNum, fromHolding]);
+  const feeSolPriceUsd = useMemo(
+    () =>
+      getFeeSolPriceUsd([
+        fromHolding,
+        toHolding,
+        selectedToToken,
+        ...tokenHoldings,
+        ...toPickerTokens,
+      ]),
+    [fromHolding, selectedToToken, toHolding, tokenHoldings, toPickerTokens]
+  );
 
   const handleFlip = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -795,6 +805,7 @@ export function SwapSheet({
             outUsd={outUsd}
             quote={quote}
             feeEstimateState={feeEstimateState}
+            feeSolPriceUsd={feeSolPriceUsd}
             isSwapping={isSwapping}
             onConfirm={handleSwap}
             onBack={() => setStep("form")}
@@ -1529,6 +1540,7 @@ function ConfirmStep({
   outUsd,
   quote,
   feeEstimateState,
+  feeSolPriceUsd,
   isSwapping,
   onConfirm,
   onBack,
@@ -1541,6 +1553,7 @@ function ConfirmStep({
   outUsd: number | null;
   quote: JupiterQuoteResponse | null;
   feeEstimateState: SwapFeeEstimateState;
+  feeSolPriceUsd: number | null;
   isSwapping: boolean;
   onConfirm: () => void;
   onBack: () => void;
@@ -1565,7 +1578,6 @@ function ConfirmStep({
     ? Number((quote.slippageBps / 100).toFixed(2))
     : null;
   const dim = { color: "rgba(60,60,67,0.6)" } as const;
-  const feeSolPriceUsd = getFeeSolPriceUsd(fromHolding, toHolding);
 
   return (
     <View style={{ flex: 1 }}>
