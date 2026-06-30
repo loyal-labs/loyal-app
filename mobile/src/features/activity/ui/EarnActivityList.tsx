@@ -1,4 +1,12 @@
+import { useEffect, useState } from "react";
 import { Pressable, StyleSheet } from "react-native";
+import Animated, {
+  LinearTransition,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 import type {
   EarnAutodepositScheduledSweep,
@@ -17,7 +25,7 @@ import {
 } from "@/lib/solana/earn/earn-tx-display";
 import { Text, View } from "@/tw";
 
-import { useActivity } from "../model/ActivityProvider";
+import { type SweepMorph, useActivity } from "../model/ActivityProvider";
 import { EarnTxAccountIcon, EarnTxCompoundIcon } from "./EarnTxIcon";
 
 const SECONDARY = "rgba(60, 60, 67, 0.6)";
@@ -73,12 +81,17 @@ function EarnScheduledRow({
   sweep,
   isExecuting,
   onExecute,
+  forceExecuting = false,
 }: {
   sweep: EarnAutodepositScheduledSweep;
   isExecuting: boolean;
   onExecute: () => void;
+  // True once the sweep has been kicked off and we're waiting on its result tx,
+  // even after it drops out of the live pending list — keeps the row showing
+  // "Executing…" (disabled) instead of falling back to "Execute now".
+  forceExecuting?: boolean;
 }) {
-  const awaiting = isScheduledSweepAwaitingExecution(sweep);
+  const awaiting = forceExecuting || isScheduledSweepAwaitingExecution(sweep);
   const disabled = isExecuting || awaiting;
   const buttonLabel = isExecuting
     ? "Requesting…"
@@ -120,6 +133,71 @@ function EarnScheduledRow({
   );
 }
 
+const noop = () => {};
+
+// Renders an executed sweep morphing in place into its result tx. Holds the
+// "executing" face (Scheduled header + executing row) until the worker's
+// `balance_sweep` tx lands, then cross-dissolves to that tx row: fade out → swap
+// content while invisible (so the height change between the tall executing row
+// and the short tx row doesn't jump) → fade back in.
+function SweepMorphSection({
+  morph,
+  isRequesting,
+}: {
+  morph: SweepMorph;
+  isRequesting: boolean;
+}) {
+  const opacity = useSharedValue(1);
+  const [showResult, setShowResult] = useState(false);
+
+  useEffect(() => {
+    if (morph.resultTx && !showResult) {
+      opacity.value = withTiming(0, { duration: 220 }, (finished) => {
+        if (finished) {
+          runOnJS(setShowResult)(true);
+        }
+      });
+    }
+  }, [morph.resultTx, showResult, opacity]);
+
+  useEffect(() => {
+    if (showResult) {
+      opacity.value = withTiming(1, { duration: 260 });
+    }
+  }, [showResult, opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+  return (
+    // `layout` animates the height collapse when the tall executing row swaps for
+    // the short result row, so the feed below glides up instead of snapping.
+    <Animated.View style={animatedStyle} layout={LinearTransition.duration(260)}>
+
+      {showResult && morph.resultTx ? (
+        <EarnTransactionRow item={morph.resultTx} />
+      ) : (
+        <View>
+          <Text
+            className="px-4 pb-2 pt-3 text-[17px]"
+            style={{ color: SECONDARY, letterSpacing: -0.187 }}
+          >
+            Scheduled
+          </Text>
+          {morph.sweeps.map((sweep) => (
+            <EarnScheduledRow
+              key={sweep.id}
+              sweep={sweep}
+              isExecuting={isRequesting}
+              onExecute={noop}
+              forceExecuting
+            />
+          ))}
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
 export function EarnActivityList({ limit }: { limit: number }) {
   const {
     earnTransactions,
@@ -127,12 +205,20 @@ export function EarnActivityList({ limit }: { limit: number }) {
     earnScheduledSweeps,
     isExecutingSweep,
     executeScheduledSweep,
+    sweepMorph,
   } = useActivity();
-  const hasScheduled = earnScheduledSweeps.length > 0;
+  // While a morph is in progress it owns the top slot (the executed sweeps), so
+  // suppress the live "Scheduled" section to avoid rendering the same row twice.
+  const hasScheduled = !sweepMorph && earnScheduledSweeps.length > 0;
 
   // Skeleton only on the cold load (before the first fetch settles). Background
   // 15s polls keep the feed fresh without flashing the skeleton on each tick.
-  if (!hasLoadedEarn && earnTransactions.length === 0 && !hasScheduled) {
+  if (
+    !hasLoadedEarn &&
+    earnTransactions.length === 0 &&
+    !hasScheduled &&
+    !sweepMorph
+  ) {
     return (
       <View className="px-4">
         {[1, 2, 3].map((i) => (
@@ -167,7 +253,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     );
   }
 
-  if (earnTransactions.length === 0 && !hasScheduled) {
+  if (earnTransactions.length === 0 && !hasScheduled && !sweepMorph) {
     return (
       <View className="items-center px-4 py-12">
         <Text className="text-[17px] font-medium text-black">
@@ -183,13 +269,26 @@ export function EarnActivityList({ limit }: { limit: number }) {
     );
   }
 
+  // The morph renders the result tx itself (pinned at the top), so drop it from
+  // the date groups to avoid showing it twice. Filter before slicing so it
+  // doesn't consume a render-window slot.
+  const morphResultId = sweepMorph?.resultTx?.id;
+  const groupedTxns = morphResultId
+    ? earnTransactions.filter((tx) => tx.id !== morphResultId)
+    : earnTransactions;
   // Only render up to `limit` rows — the parent grows this on scroll. Rendering
   // the full history at once blocks the tab switch (non-virtualized ScrollView).
-  const groups = groupEarnTransactions(earnTransactions.slice(0, limit));
+  const groups = groupEarnTransactions(groupedTxns.slice(0, limit));
 
   return (
     <View>
-      {hasScheduled ? (
+      {sweepMorph ? (
+        <SweepMorphSection
+          key={sweepMorph.startedAtMs}
+          morph={sweepMorph}
+          isRequesting={isExecutingSweep}
+        />
+      ) : hasScheduled ? (
         <View>
           <Text
             className="px-4 pb-2 pt-3 text-[17px]"

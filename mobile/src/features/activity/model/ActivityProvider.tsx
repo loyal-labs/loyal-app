@@ -1,4 +1,3 @@
-import { router } from "expo-router";
 import {
   createContext,
   type ReactNode,
@@ -6,7 +5,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 
@@ -57,6 +55,13 @@ type ActivityContextValue = {
   isExecutingSweep: boolean;
   /** Ask the worker to run the pending scheduled sweep now. */
   executeScheduledSweep: () => Promise<void>;
+  /**
+   * An executed scheduled sweep morphing in place into its result `balance_sweep`
+   * tx (or null when none is in progress). Drives the cross-fade in the Earn feed.
+   */
+  sweepMorph: SweepMorph | null;
+  /** Drop the in-place sweep morph (called when the Activity screen blurs). */
+  clearSweepMorph: () => void;
   /** New wallet activity since the Wallet section was last viewed. */
   walletUnread: boolean;
   /** New Earn activity since the Earn section was last viewed. */
@@ -67,7 +72,23 @@ type ActivityContextValue = {
   markSeen: (section: ActivitySection) => void;
 };
 
+// An "Execute now" in progress, morphing in place into its result. While
+// `resultTx` is null the Activity feed keeps showing the executing scheduled
+// row(s) (`sweeps`, snapshotted at press time so they survive dropping out of
+// the live pending list); once the worker's `balance_sweep` tx lands it's set
+// here and the UI cross-fades the row to it. `baselineTxIds`/`startedAtMs` are
+// how we recognise that landing tx as new.
+export type SweepMorph = {
+  sweeps: EarnAutodepositScheduledSweep[];
+  resultTx: EarnTransactionItem | null;
+  baselineTxIds: ReadonlySet<string>;
+  startedAtMs: number;
+};
+
 const ActivityContext = createContext<ActivityContextValue | null>(null);
+
+const isBalanceSweepTx = (tx: EarnTransactionItem): boolean =>
+  tx.kind === "balance_sweep" || tx.eventType === "balance_sweep";
 
 // Cadence + bound for polling a due scheduled sweep to resolution. Short ticks so
 // the row clears promptly after an execute — the server-side reconcile drops it on
@@ -76,6 +97,17 @@ const ActivityContext = createContext<ActivityContextValue | null>(null);
 // floor on perceived latency is the worker's async revert, not this interval.
 const DUE_SWEEP_POLL_MS = 2000;
 const MAX_DUE_SWEEP_POLLS = 20;
+
+// After "Execute now", the worker's resulting `balance_sweep` tx can lag behind
+// the slot clearing. Poll the Earn feed for it on a short cadence so the morph
+// can swap to it promptly, bounded (~60s) so a stuck/no-op execution can't poll
+// forever — the executing row just lingers until a manual pull / blur.
+const SWEEP_RESULT_POLL_MS = 2500;
+const MAX_SWEEP_RESULT_POLLS = 24;
+// Hard cap on how long a morph stays pinned (incl. after it resolves) so it
+// can't hold a row out of its normal date group indefinitely if the user never
+// leaves the screen.
+const SWEEP_MORPH_MAX_MS = 120_000;
 
 // Owns the wallet + Earn activity feeds app-wide so the bottom-nav dot stays
 // live even before the Activity screen is first opened, and so the screen and
@@ -183,27 +215,39 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   }, [hasDueScheduledSweep, refreshAutodeposit]);
 
   const [isExecutingSweep, setIsExecutingSweep] = useState(false);
-  // Ids of sweeps the user kicked off via "Execute now". Once one drops out of
-  // the pending list it has landed in Earn, so we send the user to the Earn
-  // screen (see effect below). A ref, not state — it must not re-render.
-  const executedSweepIdsRef = useRef<Set<string>>(new Set());
+  // The in-place morph of an executed scheduled sweep into its result tx. Set
+  // when "Execute now" succeeds; resolved (cross-faded) when the worker's
+  // `balance_sweep` tx lands; cleared on blur / wallet change / safety timeout.
+  const [sweepMorph, setSweepMorph] = useState<SweepMorph | null>(null);
+  const clearSweepMorph = useCallback(() => setSweepMorph(null), []);
 
   // Trigger the pending sweep now. The endpoint only advances the sweep's
   // eligibility (the worker still runs it), so we refresh the autodeposit state
-  // — the row flips to "Executing…" — and the earn feed, where it lands as a
-  // confirmed deposit once the worker completes.
+  // — the row flips to "Executing…" — and the earn feed, where the result lands
+  // as a `balance_sweep` tx. Instead of navigating away, we start a morph: the
+  // executing row stays put and cross-fades into that result tx once it appears.
   const executeScheduledSweep = useCallback(async () => {
     if (!signer || !isWalletUnlocked(state) || isExecutingSweep) {
       return;
     }
-    // Snapshot which sweeps this execute targets so the navigation effect can
-    // watch them resolve (the endpoint runs whatever's pending for the wallet).
-    const targetIds = earnScheduledSweeps.map((sweep) => sweep.id);
+    // Snapshot the targeted sweeps and the balance_sweep txs that already exist,
+    // both captured before the round-trip: the snapshot keeps the executing row
+    // rendered after the slot drops out, and the baseline lets us recognise the
+    // worker's new result tx.
+    const sweeps = earnScheduledSweeps;
+    const baselineTxIds = new Set(
+      earnTransactions.filter(isBalanceSweepTx).map((tx) => tx.id),
+    );
     setIsExecutingSweep(true);
     try {
       await executeEarnAutodepositScheduledSweep({ signer });
-      for (const id of targetIds) {
-        executedSweepIdsRef.current.add(id);
+      if (sweeps.length > 0) {
+        setSweepMorph({
+          sweeps,
+          resultTx: null,
+          baselineTxIds,
+          startedAtMs: Date.now(),
+        });
       }
       await Promise.all([refreshAutodeposit(), refreshEarnTransactions()]);
     } catch (error) {
@@ -216,32 +260,64 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     state,
     isExecutingSweep,
     earnScheduledSweeps,
+    earnTransactions,
     refreshAutodeposit,
     refreshEarnTransactions,
   ]);
 
-  // When an executed sweep drops out of the pending list, the worker has moved
-  // it into Earn — take the user to the Earn screen to see the topped-up
-  // balance. Only fires for sweeps the user ran (tracked above), and only once
-  // all of them resolve, so a still-pending/failed sibling doesn't redirect
-  // early.
+  // Watch the Earn feed for the worker's result tx: the newest `balance_sweep`
+  // that wasn't there when we executed. Once seen, attach it to the morph so the
+  // UI cross-fades the executing row into it.
   useEffect(() => {
-    const tracked = executedSweepIdsRef.current;
-    if (tracked.size === 0) {
+    if (!sweepMorph || sweepMorph.resultTx) {
       return;
     }
-    const visibleIds = new Set(earnScheduledSweeps.map((sweep) => sweep.id));
-    let resolvedAny = false;
-    for (const id of tracked) {
-      if (!visibleIds.has(id)) {
-        tracked.delete(id);
-        resolvedAny = true;
+    const fresh = earnTransactions.find(
+      (tx) => isBalanceSweepTx(tx) && !sweepMorph.baselineTxIds.has(tx.id),
+    );
+    if (fresh) {
+      setSweepMorph((m) => (m && !m.resultTx ? { ...m, resultTx: fresh } : m));
+    }
+  }, [earnTransactions, sweepMorph]);
+
+  // While the morph is unresolved, poll the Earn feed so the result tx is picked
+  // up without waiting for the 15s background tick. Bounded. Deliberately only
+  // the feed (a backend read) — NOT `refreshAutodeposit`, which force-refreshes
+  // token holdings over the Solana RPC: the morph resolves purely off the feed,
+  // and adding holdings reads here (on top of the due-sweep poll) was pressuring
+  // the rate-limited RPC into 429s.
+  useEffect(() => {
+    if (!sweepMorph || sweepMorph.resultTx) {
+      return;
+    }
+    let polls = 0;
+    const intervalId = setInterval(() => {
+      void refreshEarnTransactions();
+      polls += 1;
+      if (polls >= MAX_SWEEP_RESULT_POLLS) {
+        clearInterval(intervalId);
       }
+    }, SWEEP_RESULT_POLL_MS);
+    return () => clearInterval(intervalId);
+  }, [sweepMorph, refreshEarnTransactions]);
+
+  // Safety net: never pin a morph forever (it holds its result tx out of the
+  // normal date groups). The Activity screen also clears it on blur.
+  useEffect(() => {
+    if (!sweepMorph) {
+      return;
     }
-    if (resolvedAny && tracked.size === 0) {
-      router.navigate("/(tabs)");
-    }
-  }, [earnScheduledSweeps]);
+    const timeoutId = setTimeout(
+      () => setSweepMorph(null),
+      SWEEP_MORPH_MAX_MS,
+    );
+    return () => clearTimeout(timeoutId);
+  }, [sweepMorph]);
+
+  // A morph belongs to one wallet's execution — drop it if the wallet changes.
+  useEffect(() => {
+    setSweepMorph(null);
+  }, [publicKey]);
 
   const newestWalletTs = useMemo(() => {
     let newest = 0;
@@ -314,6 +390,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
+      sweepMorph,
+      clearSweepMorph,
       walletUnread,
       earnUnread,
       anyUnread: walletUnread || earnUnread,
@@ -332,6 +410,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
+      sweepMorph,
+      clearSweepMorph,
       walletUnread,
       earnUnread,
       markSeen,

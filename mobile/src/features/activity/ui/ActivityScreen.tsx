@@ -41,6 +41,7 @@ export function ActivityScreen({
     refreshEarnTransactions,
     refreshAutodeposit,
     markSeen,
+    clearSweepMorph,
   } = useActivity();
   const [section, setSection] = useState<ActivitySection>(
     initialSection ?? "wallet",
@@ -78,6 +79,15 @@ export function ActivityScreen({
         void refreshAutodeposit();
       }
     }, [section, markSeen, refreshAutodeposit]),
+  );
+
+  // Once the user leaves the Activity screen, retire any sweep-execution morph so
+  // its result tx settles back into its normal date group on the next visit.
+  // Separate from the section effect above so toggling segments doesn't drop it.
+  useFocusEffect(
+    useCallback(() => {
+      return () => clearSweepMorph();
+    }, [clearSweepMorph]),
   );
 
   // Each time the Earn section becomes active, start from the first page so the
