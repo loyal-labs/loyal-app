@@ -17,11 +17,43 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getEarnData, USDC_DECIMALS, type EarnFlowPoint } from "./earn-data";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import Link from "next/link";
+import {
+  getEarnData,
+  USDC_DECIMALS,
+  type EarnFlowPoint,
+  type EarnPositionRow,
+} from "./earn-data";
 
 export const dynamic = "force-dynamic";
 
 const SOLANA_ENV = "mainnet";
+const POSITION_SORT_LABELS = {
+  idle: "Idle USDC",
+  normalized: "Normalized current",
+  observed: "Observed",
+  pointerDelta: "Pointer delta",
+  principal: "Principal",
+  reserve: "Reserve value",
+  warnings: "Warnings",
+} as const;
+
+type PositionSortKey = keyof typeof POSITION_SORT_LABELS;
+type PositionSortDirection = "asc" | "desc";
+type PositionSortState = {
+  direction: PositionSortDirection;
+  key: PositionSortKey;
+};
+type EarnPageSearchParams = {
+  positionDirection?: string | string[];
+  positionSort?: string | string[];
+};
+
+const DEFAULT_POSITION_SORT: PositionSortState = {
+  direction: "desc",
+  key: "normalized",
+};
 
 function formatUsdcRaw(raw: bigint) {
   const zero = BigInt(0);
@@ -74,6 +106,81 @@ function formatDate(value: string) {
 
 function formatNumber(value: number) {
   return value.toLocaleString("en-US");
+}
+
+function getSearchParamValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function parsePositionSort(
+  searchParams: EarnPageSearchParams | undefined
+): PositionSortState {
+  const sort = getSearchParamValue(searchParams?.positionSort);
+  const direction = getSearchParamValue(searchParams?.positionDirection);
+  const key = sort && sort in POSITION_SORT_LABELS ? sort : null;
+
+  return {
+    direction: direction === "asc" ? "asc" : DEFAULT_POSITION_SORT.direction,
+    key: (key ?? DEFAULT_POSITION_SORT.key) as PositionSortKey,
+  };
+}
+
+function compareBigInt(left: bigint, right: bigint) {
+  if (left === right) {
+    return 0;
+  }
+
+  return left > right ? 1 : -1;
+}
+
+function comparePositionValues(
+  left: EarnPositionRow,
+  right: EarnPositionRow,
+  key: PositionSortKey
+) {
+  switch (key) {
+    case "idle":
+      return compareBigInt(left.idleAmountRaw, right.idleAmountRaw);
+    case "observed":
+      return (
+        new Date(left.currentObservedAt).getTime() -
+        new Date(right.currentObservedAt).getTime()
+      );
+    case "pointerDelta":
+      return compareBigInt(
+        left.currentPointerDeltaRaw,
+        right.currentPointerDeltaRaw
+      );
+    case "principal":
+      return compareBigInt(left.principalAmountRaw, right.principalAmountRaw);
+    case "reserve":
+      return compareBigInt(
+        left.normalizedReserveRaw,
+        right.normalizedReserveRaw
+      );
+    case "warnings":
+      return getTopPositionWarningCount(left) - getTopPositionWarningCount(right);
+    case "normalized":
+    default:
+      return compareBigInt(left.normalizedAumRaw, right.normalizedAumRaw);
+  }
+}
+
+function sortTopPositions(
+  positions: EarnPositionRow[],
+  sort: PositionSortState
+) {
+  const multiplier = sort.direction === "asc" ? 1 : -1;
+
+  return positions.slice().sort((left, right) => {
+    const primary = comparePositionValues(left, right, sort.key);
+
+    if (primary !== 0) {
+      return primary * multiplier;
+    }
+
+    return compareBigInt(right.normalizedAumRaw, left.normalizedAumRaw);
+  });
 }
 
 function StatCard({
@@ -141,8 +248,49 @@ function FlowTable({ points }: { points: EarnFlowPoint[] }) {
   );
 }
 
-export default async function EarnPage() {
+function PositionSortHead({
+  align = "right",
+  currentSort,
+  sortKey,
+}: {
+  align?: "left" | "right";
+  currentSort: PositionSortState;
+  sortKey: PositionSortKey;
+}) {
+  const active = currentSort.key === sortKey;
+  const nextDirection =
+    active && currentSort.direction === "desc" ? "asc" : "desc";
+  const Icon = active
+    ? currentSort.direction === "desc"
+      ? ArrowDown
+      : ArrowUp
+    : ArrowUpDown;
+  const label = POSITION_SORT_LABELS[sortKey];
+
+  return (
+    <TableHead className={align === "right" ? "text-right" : undefined}>
+      <Link
+        className={`inline-flex items-center gap-1 whitespace-nowrap ${
+          align === "right" ? "justify-end" : ""
+        }`}
+        href={`?positionSort=${sortKey}&positionDirection=${nextDirection}`}
+      >
+        <span>{label}</span>
+        <Icon aria-hidden="true" className="size-3.5" />
+      </Link>
+    </TableHead>
+  );
+}
+
+export default async function EarnPage({
+  searchParams,
+}: {
+  searchParams?: Promise<EarnPageSearchParams>;
+}) {
   const data = await getEarnData();
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const positionSort = parsePositionSort(resolvedSearchParams);
+  const sortedTopPositions = sortTopPositions(data.topPositions, positionSort);
   const netFlow30dRaw = data.totalDeposited30dRaw - data.totalWithdrawn30dRaw;
   const activeHoldingWarningCount =
     data.activeMissingManagedVaultRows +
@@ -445,7 +593,9 @@ export default async function EarnPage() {
               Largest active positions
             </CardTitle>
             <CardDescription>
-              Active positions ordered by normalized reserve plus idle USDC
+              Active positions ordered by{" "}
+              {POSITION_SORT_LABELS[positionSort.key].toLowerCase()},
+              {positionSort.direction === "asc" ? " low to high" : " high to low"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -455,26 +605,42 @@ export default async function EarnPage() {
                   <TableHead>Wallet</TableHead>
                   <TableHead>Settings</TableHead>
                   <TableHead>Reserve</TableHead>
-                  <TableHead className="text-right">
-                    Normalized current
-                  </TableHead>
-                  <TableHead className="text-right">Reserve value</TableHead>
-                  <TableHead className="text-right">Idle USDC</TableHead>
-                  <TableHead className="text-right">Principal</TableHead>
-                  <TableHead className="text-right">Pointer delta</TableHead>
-                  <TableHead className="text-right">Warnings</TableHead>
-                  <TableHead className="text-right">Observed</TableHead>
+                  <PositionSortHead
+                    currentSort={positionSort}
+                    sortKey="normalized"
+                  />
+                  <PositionSortHead
+                    currentSort={positionSort}
+                    sortKey="reserve"
+                  />
+                  <PositionSortHead currentSort={positionSort} sortKey="idle" />
+                  <PositionSortHead
+                    currentSort={positionSort}
+                    sortKey="principal"
+                  />
+                  <PositionSortHead
+                    currentSort={positionSort}
+                    sortKey="pointerDelta"
+                  />
+                  <PositionSortHead
+                    currentSort={positionSort}
+                    sortKey="warnings"
+                  />
+                  <PositionSortHead
+                    currentSort={positionSort}
+                    sortKey="observed"
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.topPositions.length === 0 ? (
+                {sortedTopPositions.length === 0 ? (
                   <TableRow>
                     <TableCell className="text-muted-foreground" colSpan={10}>
                       No active Earn positions found.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  data.topPositions.map((position) => (
+                  sortedTopPositions.map((position) => (
                     <TableRow
                       key={`${position.settings}-${position.currentReserve}`}
                     >
