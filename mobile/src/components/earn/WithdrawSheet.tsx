@@ -24,8 +24,63 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { EarnWithdrawSourceInfo } from "@/lib/solana/earn/earn-api";
+import { resolveEarnPositionDisplay } from "@/lib/solana/earn/earn-position-display";
+import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
+
+import { VenueBadge } from "./venueBadge";
 
 const usdcLogo = require("../../../assets/images/earn/usdc.png");
+
+// Per-market display for a withdrawal source, matching the web withdraw picker
+// ("OnRe Market reserve" / "Idle vault USDC") and the Positions sheet — the
+// backend only sends the generic "USDC reserve"/"Idle USDC" label plus the
+// market pubkey, so the market name + venue badge are resolved on the client.
+function sourceLabel(source: EarnWithdrawSourceInfo): string {
+  if (source.type === "idle") {
+    return "Idle vault USDC";
+  }
+  const { marketName } = resolveEarnPositionDisplay({
+    market: source.market,
+    liquidityMint: source.liquidityMint,
+  });
+  return `${marketName} reserve`;
+}
+
+// Token coin with the market's venue badge overlaid (same stack as the Positions
+// sheet). `tokenSize` sets the coin diameter; the box grows to fit the badge.
+function SourceIcon({
+  source,
+  tokenSize = 32,
+}: {
+  source: EarnWithdrawSourceInfo;
+  tokenSize?: number;
+}) {
+  const { venue } = resolveEarnPositionDisplay({
+    market: source.market,
+    liquidityMint: source.liquidityMint,
+  });
+  const tokenIcon = resolveTokenIcon({ mint: source.liquidityMint });
+  const box = tokenSize * 1.5;
+  return (
+    <View style={{ width: box, height: box }}>
+      <Image
+        source={{ uri: tokenIcon }}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: tokenSize,
+          height: tokenSize,
+          borderRadius: tokenSize / 2,
+        }}
+        accessibilityLabel="USDC"
+      />
+      <View style={{ position: "absolute", bottom: 0, right: 0 }}>
+        <VenueBadge venue={venue} size={tokenSize} />
+      </View>
+    </View>
+  );
+}
 
 // Withdraw shares Deposit's visual language (toolbar, "$" amount input with a
 // custom caret, balance/source cell + MAX, keyboard-riding CTA). When the Earn
@@ -390,11 +445,15 @@ export function WithdrawSheet({
                   ]}
                   hitSlop={8}
                 >
-                  <Image
-                    source={usdcLogo}
-                    style={styles.tokenLogo}
-                    accessibilityLabel="USDC"
-                  />
+                  {selectedSource ? (
+                    <SourceIcon source={selectedSource} tokenSize={28} />
+                  ) : (
+                    <Image
+                      source={usdcLogo}
+                      style={styles.tokenLogo}
+                      accessibilityLabel="USDC"
+                    />
+                  )}
                   {isDropdown ? (
                     <ChevronDown
                       size={16}
@@ -417,7 +476,7 @@ export function WithdrawSheet({
                   {BALANCE_FORMATTER.format(available)}
                 </Text>
                 <Text style={styles.balanceAvailable} numberOfLines={1}>
-                  {selectedSource ? selectedSource.label : "Available"}
+                  {selectedSource ? sourceLabel(selectedSource) : "Available"}
                 </Text>
               </View>
               <Pressable
@@ -483,25 +542,22 @@ export function WithdrawSheet({
           <Text style={styles.sourceListTitle}>Withdraw from</Text>
           {sourceList.map((source) => {
             const isSelected = source.id === selectedSourceId;
+            const label = sourceLabel(source);
             return (
               <Pressable
                 key={source.id}
                 onPress={() => selectSource(source.id)}
                 accessibilityRole="button"
-                accessibilityLabel={source.label}
+                accessibilityLabel={label}
                 style={({ pressed }) => [
                   styles.sourceRow,
                   { backgroundColor: pressed ? COLOR_CHIP_BG : "transparent" },
                 ]}
               >
-                <Image
-                  source={usdcLogo}
-                  style={styles.sourceRowLogo}
-                  accessibilityLabel="USDC"
-                />
+                <SourceIcon source={source} />
                 <View style={styles.sourceRowMiddle}>
                   <Text style={styles.sourceRowLabel} numberOfLines={1}>
-                    {source.label}
+                    {label}
                   </Text>
                   <Text style={styles.sourceRowBalance}>
                     {BALANCE_FORMATTER.format(sourceBalanceUsd(source))}
@@ -724,11 +780,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 10,
     borderRadius: 16,
-  },
-  sourceRowLogo: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
   },
   sourceRowMiddle: {
     flex: 1,

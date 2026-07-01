@@ -17,13 +17,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { EarnWithdrawSourceInfo } from "@/lib/solana/earn/earn-api";
-import {
-  type EarnVenueKey,
-  resolveEarnPositionDisplay,
-} from "@/lib/solana/earn/earn-position-display";
+import { resolveEarnPositionDisplay } from "@/lib/solana/earn/earn-position-display";
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 
-import MapleVenue from "../../../assets/images/earn/venues/earn-maple.svg";
+import { VenueBadge } from "./venueBadge";
 
 // Reveals the wallet's current Earn positions (Figma 74-21132). Opens from the
 // drag handle on the Earn balance footer with the same mechanics as the
@@ -38,25 +35,6 @@ const COLOR_WITHDRAW_BG = "#F5F5F5";
 
 const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.92);
-
-const VENUE_PNG: Record<Exclude<EarnVenueKey, "maple">, number> = {
-  kamino: require("../../../assets/images/earn/venues/earn-kamino.png"),
-  prime: require("../../../assets/images/earn/venues/earn-prime.png"),
-  onre: require("../../../assets/images/earn/venues/earn-onre.png"),
-  ethena: require("../../../assets/images/earn/venues/earn-ethena.png"),
-};
-
-function VenueBadge({ venue }: { venue: EarnVenueKey }) {
-  return (
-    <View style={styles.venueBadge}>
-      {venue === "maple" ? (
-        <MapleVenue width={27} height={27} />
-      ) : (
-        <Image source={VENUE_PNG[venue]} style={styles.venueImage} />
-      )}
-    </View>
-  );
-}
 
 function splitUsd(value: number): { whole: string; cents: string } {
   const safe = Number.isFinite(value) ? value : 0;
@@ -367,21 +345,6 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: 0,
     right: 0,
-  },
-  venueBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    borderWidth: 2.29,
-    borderColor: "#FFF",
-    backgroundColor: "#0A1A2F",
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  venueImage: {
-    width: "100%",
-    height: "100%",
   },
   positionMiddle: {
     flex: 1,
