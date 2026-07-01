@@ -23,7 +23,15 @@ import {
   reconcileMissingOnChainEarnAutodepositPolicy,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
-import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
+import {
+  earnReserveTargetFromActivePosition,
+  type EarnUsdcReserveTarget,
+} from "@/lib/yield-optimization/earn-reserve-target.server";
+import {
+  fetchEarnRpcHoldingsSnapshot,
+  type EarnRpcHolding,
+} from "@/lib/yield-optimization/earn-rpc-holdings.client";
+import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
   findActiveYieldRoutePolicyPair,
   findCurrentNonzeroYieldVaultReservePositions,
@@ -192,6 +200,81 @@ function selectRequestedEarnWithdrawSource(
   return amountMatchedStableMintMatches.length === 1
     ? amountMatchedStableMintMatches[0] ?? null
     : null;
+}
+
+// Build withdraw sources from the LIVE on-chain holdings snapshot (partial
+// withdrawals). The DB read-model + reconcile can't follow a cross-market
+// rebalance; this scans the policy's markets and reflects reality. Drops entries
+// missing the identifiers a withdrawal needs to match/build.
+function buildSnapshotWithdrawSources(
+  holdings: EarnRpcHolding[]
+): SelectedEarnWithdrawSource[] {
+  const sources: SelectedEarnWithdrawSource[] = [];
+  for (const holding of holdings) {
+    let amountRaw: bigint;
+    try {
+      amountRaw = BigInt(holding.amountRaw);
+    } catch {
+      continue;
+    }
+    if (amountRaw <= BigInt(0)) {
+      continue;
+    }
+    if (holding.kind === "idle") {
+      const tokenAccount = holding.provenance.tokenAccount;
+      if (!tokenAccount) {
+        continue;
+      }
+      sources.push({
+        amountRaw,
+        id: tokenAccount,
+        mint: holding.liquidityMint,
+        tokenAccount,
+        type: "idle",
+      });
+      continue;
+    }
+    if (!holding.reserve || !holding.market) {
+      continue;
+    }
+    sources.push({
+      amountRaw,
+      id: holding.reserve,
+      liquidityMint: holding.liquidityMint,
+      market: holding.market,
+      reserve: holding.reserve,
+      type: "reserve",
+    });
+  }
+  return sources;
+}
+
+// The deployed Kamino reserve target for a snapshot-sourced withdrawal — used
+// when withdrawing idle USDC (a reserve withdrawal targets its own reserve).
+// Null when the vault holds no Kamino reserve (fully idle).
+function snapshotReserveTarget(
+  holdings: EarnRpcHolding[]
+): EarnUsdcReserveTarget | null {
+  const kamino = holdings.find(
+    (holding) => holding.kind === "kamino" && holding.reserve && holding.market
+  );
+  if (!kamino || !kamino.reserve || !kamino.market) {
+    return null;
+  }
+  let supplyApyBps: bigint | null = null;
+  if (kamino.supplyApyBps) {
+    try {
+      supplyApyBps = BigInt(kamino.supplyApyBps);
+    } catch {
+      supplyApyBps = null;
+    }
+  }
+  return {
+    liquidityMint: new PublicKey(kamino.liquidityMint),
+    market: new PublicKey(kamino.market),
+    reserve: new PublicKey(kamino.reserve),
+    supplyApyBps,
+  };
 }
 
 function selectEarnWithdrawSource(args: {
@@ -429,39 +512,95 @@ export async function POST(request: Request) {
       );
     }
 
-    const selectedSource = selectEarnWithdrawSource({
-      amountRaw,
-      idleRows: currentIdleRows,
-      mode,
-      position,
-      request: selectedSourceRequest,
-      reserveRows: currentReserveRows,
-    });
-    effectiveAmountRaw = mode === "full" ? selectedSource.amountRaw : amountRaw;
-    const remainingSourceAmountRaw =
-      currentReserveRows.reduce(
-        (total, row) =>
-          total +
-          (selectedSource.type === "reserve" &&
-          row.reserve === selectedSource.reserve
-            ? row.amountRaw > effectiveAmountRaw!
-              ? row.amountRaw - effectiveAmountRaw!
-              : BigInt(0)
-            : row.amountRaw),
-        BigInt(0)
-      ) +
-      currentIdleRows.reduce(
-        (total, row) =>
-          total +
-          (selectedSource.type === "idle" &&
-          row.tokenAccount === selectedSource.tokenAccount
-            ? row.amountRaw > effectiveAmountRaw!
-              ? row.amountRaw - effectiveAmountRaw!
-              : BigInt(0)
-            : row.amountRaw),
+    // Partial withdrawals source from the LIVE on-chain holdings snapshot — the
+    // same read `/holdings`, the withdraw picker, and the positions sheet use.
+    // The DB read-model + reconcile can't follow a cross-market rebalance, so it
+    // reports a stale reserve that the picker showed and this route would reject
+    // ("Select an Earn source"). Full exits keep the DB path (its reconciled
+    // rows carry the collateral metadata the full-withdrawal instruction needs).
+    let selectedSource: SelectedEarnWithdrawSource;
+    let isFinalExit: boolean;
+    let withdrawTarget: EarnUsdcReserveTarget;
+    if (mode === "partial") {
+      const snapshot = await fetchEarnRpcHoldingsSnapshot({
+        cluster,
+        connection,
+        policy: policyResult
+          ? serializeRoutePolicyState(
+              policyResult.routePolicy,
+              policyResult.setupPolicy ?? null
+            )
+          : null,
+        programId,
+        settingsPda: settingsPdaKey,
+      });
+      const snapshotSources = buildSnapshotWithdrawSources(snapshot.holdings);
+      if (snapshotSources.length === 0) {
+        throw new Error("No active Earn withdrawal source was found.");
+      }
+      const selected = selectRequestedEarnWithdrawSource(
+        snapshotSources,
+        selectedSourceRequest
+      );
+      if (!selected) {
+        throw new Error("Select an Earn source before withdrawing.");
+      }
+      if (amountRaw > selected.amountRaw) {
+        throw new Error("Withdrawal exceeds the selected Earn source amount.");
+      }
+      selectedSource = selected;
+      effectiveAmountRaw = amountRaw;
+      const snapshotTotal = snapshotSources.reduce(
+        (total, source) => total + source.amountRaw,
         BigInt(0)
       );
-    const isFinalExit = remainingSourceAmountRaw <= BigInt(0);
+      isFinalExit = snapshotTotal - effectiveAmountRaw <= BigInt(0);
+      withdrawTarget =
+        selected.type === "reserve"
+          ? {
+              liquidityMint: new PublicKey(selected.liquidityMint),
+              market: new PublicKey(selected.market),
+              reserve: new PublicKey(selected.reserve),
+              supplyApyBps: null,
+            }
+          : (snapshotReserveTarget(snapshot.holdings) ??
+            earnReserveTargetFromActivePosition(position));
+    } else {
+      selectedSource = selectEarnWithdrawSource({
+        amountRaw,
+        idleRows: currentIdleRows,
+        mode,
+        position,
+        request: selectedSourceRequest,
+        reserveRows: currentReserveRows,
+      });
+      effectiveAmountRaw = selectedSource.amountRaw;
+      const remainingSourceAmountRaw =
+        currentReserveRows.reduce(
+          (total, row) =>
+            total +
+            (selectedSource.type === "reserve" &&
+            row.reserve === selectedSource.reserve
+              ? row.amountRaw > effectiveAmountRaw!
+                ? row.amountRaw - effectiveAmountRaw!
+                : BigInt(0)
+              : row.amountRaw),
+          BigInt(0)
+        ) +
+        currentIdleRows.reduce(
+          (total, row) =>
+            total +
+            (selectedSource.type === "idle" &&
+            row.tokenAccount === selectedSource.tokenAccount
+              ? row.amountRaw > effectiveAmountRaw!
+                ? row.amountRaw - effectiveAmountRaw!
+                : BigInt(0)
+              : row.amountRaw),
+          BigInt(0)
+        );
+      isFinalExit = remainingSourceAmountRaw <= BigInt(0);
+      withdrawTarget = earnReserveTargetFromActivePosition(position);
+    }
 
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
@@ -567,7 +706,7 @@ export async function POST(request: Request) {
       feePayer: new PublicKey(walletAddress),
       policySigner,
       settingsPda: settingsPdaKey,
-      target: earnReserveTargetFromActivePosition(position),
+      target: withdrawTarget,
       ...(mode === "full" && selectedSource.type === "reserve"
         ? {
             fullWithdrawalTargets: currentReserveRows
