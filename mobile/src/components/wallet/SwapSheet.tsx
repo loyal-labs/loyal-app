@@ -48,10 +48,13 @@ import {
 } from "@/lib/solana/constants";
 import {
   estimateJupiterSwapFeeState,
+  getJupiterSwapFeeEstimateFlowKey,
   getJupiterSwapFeeEstimateKey,
+  getSwapFeeEstimateDebounceMs,
+  getSwapFeeEstimateDisplayState,
   getJupiterQuote,
   getJupiterSwapTransaction,
-  SWAP_FEE_ESTIMATE_DEBOUNCE_MS,
+  isNonEmptySwapFeeEstimateState,
   type JupiterQuoteResponse,
   type SwapFeeEstimateState,
 } from "@/lib/solana/jupiter";
@@ -304,6 +307,9 @@ export function SwapSheet({
   const [feeEstimateState, setFeeEstimateState] =
     useState<SwapFeeEstimateState>({ status: "idle" });
   const feeEstimateConnection = useMemo(() => getConnection(), []);
+  const lastSuccessfulFeeEstimateStateRef =
+    useRef<SwapFeeEstimateState | null>(null);
+  const feeEstimateFlowKeyRef = useRef<string | null>(null);
   const feeEstimateRequestRef = useRef<{
     key: string;
     quoteResponse: JupiterQuoteResponse;
@@ -388,6 +394,9 @@ export function SwapSheet({
       setSwapStage("idle");
       setAmountStr("");
       setCurrencyMode("TOKEN");
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = null;
+      feeEstimateRequestRef.current = null;
       setQuote(null);
       setFeeEstimateState({ status: "idle" });
       setSwapError(null);
@@ -401,9 +410,26 @@ export function SwapSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const feeEstimateFlowKey = useMemo(
+    () =>
+      getJupiterSwapFeeEstimateFlowKey({
+        inputMint: fromMint,
+        outputMint: toMint,
+        userPublicKey: walletAddress,
+      }),
+    [fromMint, toMint, walletAddress]
+  );
+  const displayFeeEstimateState = getSwapFeeEstimateDisplayState(
+    feeEstimateState,
+    lastSuccessfulFeeEstimateStateRef.current
+  );
+
   // Fetch quote when amount/tokens change
   useEffect(() => {
     if (amountNum <= 0 || fromMint === toMint || !fromHolding) {
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = null;
+      feeEstimateRequestRef.current = null;
       setQuote(null);
       setFeeEstimateState({ status: "idle" });
       return;
@@ -415,8 +441,12 @@ export function SwapSheet({
 
     let cancelled = false;
     feeEstimateRequestRef.current = null;
+    if (feeEstimateFlowKeyRef.current !== feeEstimateFlowKey) {
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+    }
     setQuote(null);
-    setFeeEstimateState({ status: "idle" });
+    setFeeEstimateState({ status: "loading" });
     setIsFetchingQuote(true);
 
     const timer = setTimeout(() => {
@@ -441,7 +471,7 @@ export function SwapSheet({
       clearTimeout(timer);
       setIsFetchingQuote(false);
     };
-  }, [amountNum, fromMint, toMint, fromHolding]);
+  }, [amountNum, feeEstimateFlowKey, fromMint, toMint, fromHolding]);
 
   const feeEstimateRequest = useMemo(() => {
     if (!quote || !walletAddress) return null;
@@ -481,17 +511,21 @@ export function SwapSheet({
           signal: abortController.signal,
         });
         if (!cancelled && !abortController.signal.aborted) {
+          if (isNonEmptySwapFeeEstimateState(nextState)) {
+            lastSuccessfulFeeEstimateStateRef.current = nextState;
+            feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+          }
           setFeeEstimateState(nextState);
         }
       })();
-    }, SWAP_FEE_ESTIMATE_DEBOUNCE_MS);
+    }, getSwapFeeEstimateDebounceMs(lastSuccessfulFeeEstimateStateRef.current));
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
       abortController.abort();
     };
-  }, [feeEstimateConnection, feeEstimateKey]);
+  }, [feeEstimateConnection, feeEstimateFlowKey, feeEstimateKey]);
 
   // Focus the amount input once the sheet has settled at its snap point.
   // Focusing during the present animation pushes the keyboard above the sheet.
@@ -568,6 +602,9 @@ export function SwapSheet({
     setFromIsSecured(false);
     setAmountStr("");
     setCurrencyMode("TOKEN");
+    lastSuccessfulFeeEstimateStateRef.current = null;
+    feeEstimateFlowKeyRef.current = null;
+    feeEstimateRequestRef.current = null;
     setQuote(null);
     setFeeEstimateState({ status: "idle" });
   }, [fromMint, toMint]);
@@ -718,6 +755,9 @@ export function SwapSheet({
       setFromMint(mint);
       setFromIsSecured(isSecured);
       setShowFromPicker(false);
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = null;
+      feeEstimateRequestRef.current = null;
       setQuote(null);
       setFeeEstimateState({ status: "idle" });
       if (mint === toMint) {
@@ -732,6 +772,9 @@ export function SwapSheet({
       setToMint(token.mint);
       setSelectedToToken(token);
       setShowToPicker(false);
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = null;
+      feeEstimateRequestRef.current = null;
       setQuote(null);
       setFeeEstimateState({ status: "idle" });
       if (token.mint === fromMint) {
@@ -842,7 +885,7 @@ export function SwapSheet({
             outAmount={outAmount}
             outUsd={outUsd}
             quote={quote}
-            feeEstimateState={feeEstimateState}
+            feeEstimateState={displayFeeEstimateState}
             feeSolPriceUsd={feeSolPriceUsd}
             isSwapping={isSwapping}
             onConfirm={handleSwap}

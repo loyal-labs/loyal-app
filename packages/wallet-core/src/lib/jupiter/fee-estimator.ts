@@ -57,6 +57,7 @@ type EstimateJupiterSwapFeeStateParams = {
 const SOLANA_SIGNATURE_FEE_LAMPORTS = 5_000;
 const MICRO_LAMPORTS_PER_LAMPORT = 1_000_000n;
 export const SWAP_FEE_ESTIMATE_DEBOUNCE_MS = 700;
+export const SWAP_FEE_ESTIMATE_RECOMPUTE_DEBOUNCE_MS = 10_000;
 const SWAP_FEE_ESTIMATE_SUCCESS_CACHE_MS = 20_000;
 const SWAP_FEE_ESTIMATE_ERROR_CACHE_MS = 3_000;
 
@@ -127,6 +128,24 @@ export const getJupiterSwapFeeEstimateKey = (params: {
 			priceImpactPct: quoteResponse.priceImpactPct,
 			routePlan,
 		},
+	});
+};
+
+export const getJupiterSwapFeeEstimateFlowKey = (params: {
+	inputMint?: string | null;
+	outputMint?: string | null;
+	userPublicKey: PublicKey | string | { toBase58(): string } | null;
+	baseUrl?: string;
+	slippageBps?: number;
+}): string | null => {
+	const userPublicKey = getPublicKeyString(params.userPublicKey ?? undefined);
+	if (!(params.inputMint && params.outputMint && userPublicKey)) return null;
+	return JSON.stringify({
+		baseUrl: params.baseUrl ?? null,
+		inputMint: params.inputMint,
+		outputMint: params.outputMint,
+		slippageBps: params.slippageBps ?? 50,
+		userPublicKey,
 	});
 };
 
@@ -417,6 +436,28 @@ export const getSwapFeeEstimateErrorState = (
 	status: "error",
 	error: error instanceof Error ? error.message : "Swap fee unavailable",
 });
+
+export const isNonEmptySwapFeeEstimateState = (
+	state: SwapFeeEstimateState | null | undefined
+): state is Extract<SwapFeeEstimateState, { status: "success" }> =>
+	state?.status === "success" && state.estimate.totalLamports > 0;
+
+export const getSwapFeeEstimateDebounceMs = (
+	lastSuccessfulState?: SwapFeeEstimateState | null
+): number =>
+	isNonEmptySwapFeeEstimateState(lastSuccessfulState)
+		? SWAP_FEE_ESTIMATE_RECOMPUTE_DEBOUNCE_MS
+		: SWAP_FEE_ESTIMATE_DEBOUNCE_MS;
+
+export const getSwapFeeEstimateDisplayState = (
+	state: SwapFeeEstimateState,
+	lastSuccessfulState?: SwapFeeEstimateState | null
+): SwapFeeEstimateState =>
+	state.status === "success"
+		? state
+		: isNonEmptySwapFeeEstimateState(lastSuccessfulState)
+			? lastSuccessfulState
+			: state;
 
 const getCachedFeeEstimateState = (
 	key: string,

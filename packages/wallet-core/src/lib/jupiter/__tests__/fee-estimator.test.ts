@@ -16,8 +16,15 @@ import { describe, expect, test } from "bun:test";
 import {
 	estimateJupiterSwapFeeState,
 	estimateSwapTransactionFee,
+	getJupiterSwapFeeEstimateFlowKey,
 	getJupiterSwapFeeEstimateKey,
+	getSwapFeeEstimateDebounceMs,
+	getSwapFeeEstimateDisplayState,
+	isNonEmptySwapFeeEstimateState,
+	SWAP_FEE_ESTIMATE_DEBOUNCE_MS,
+	SWAP_FEE_ESTIMATE_RECOMPUTE_DEBOUNCE_MS,
 } from "../fee-estimator";
+import type { SwapFeeEstimateState } from "../types";
 import type { JupiterInstruction } from "../types";
 
 const RENT_EXEMPT_TOKEN_ACCOUNT_LAMPORTS = 2_039_280;
@@ -133,6 +140,26 @@ const jsonResponse = (body: unknown) =>
 		headers: { "Content-Type": "application/json" },
 		status: 200,
 	});
+
+const createFeeEstimateState = (
+	totalLamports: number
+): Extract<SwapFeeEstimateState, { status: "success" }> => ({
+	status: "success",
+	estimate: {
+		totalLamports,
+		transactionFeeLamports: totalLamports,
+		prioritizationFeeLamports: null,
+		prioritizationFeeIncludedInTransactionFee: false,
+		rentLamports: 0,
+		createdAtaAccounts: [],
+		simulation: {
+			status: "passed",
+			error: null,
+			unitsConsumed: 1,
+			logs: [],
+		},
+	},
+});
 
 describe("estimateSwapTransactionFee", () => {
 	test("adds missing user-paid ATA rent to the simulated network fee", async () => {
@@ -362,5 +389,71 @@ describe("estimateJupiterSwapFeeState", () => {
 
 		expect(state).toEqual({ status: "idle" });
 		expect(fetchCalls).toBe(0);
+	});
+});
+
+describe("swap fee estimate display policy", () => {
+	test("uses the longer recompute debounce after a non-empty fee estimate", () => {
+		expect(getSwapFeeEstimateDebounceMs()).toBe(
+			SWAP_FEE_ESTIMATE_DEBOUNCE_MS
+		);
+		expect(getSwapFeeEstimateDebounceMs(createFeeEstimateState(0))).toBe(
+			SWAP_FEE_ESTIMATE_DEBOUNCE_MS
+		);
+		expect(getSwapFeeEstimateDebounceMs(createFeeEstimateState(5_000))).toBe(
+			SWAP_FEE_ESTIMATE_RECOMPUTE_DEBOUNCE_MS
+		);
+	});
+
+	test("retains the last non-empty fee while recomputing or after errors", () => {
+		const lastSuccessfulState = createFeeEstimateState(5_000);
+
+		expect(isNonEmptySwapFeeEstimateState(lastSuccessfulState)).toBe(true);
+		expect(
+			getSwapFeeEstimateDisplayState(
+				{ status: "loading" },
+				lastSuccessfulState
+			)
+		).toBe(lastSuccessfulState);
+		expect(
+			getSwapFeeEstimateDisplayState(
+				{ status: "error", error: "rate limited" },
+				lastSuccessfulState
+			)
+		).toBe(lastSuccessfulState);
+		expect(
+			getSwapFeeEstimateDisplayState({ status: "idle" }, lastSuccessfulState)
+		).toBe(lastSuccessfulState);
+		expect(
+			getSwapFeeEstimateDisplayState({ status: "loading" }, null)
+		).toEqual({ status: "loading" });
+	});
+
+	test("keys retained display state by token pair and user, not amount", () => {
+		const userPublicKey = Keypair.generate().publicKey;
+		const inputMint = Keypair.generate().publicKey.toBase58();
+		const outputMint = Keypair.generate().publicKey.toBase58();
+		const baseParams = {
+			inputMint,
+			outputMint,
+			userPublicKey,
+			baseUrl: "https://api.jup.ag/swap/v1",
+		};
+
+		expect(getJupiterSwapFeeEstimateFlowKey(baseParams)).toBe(
+			getJupiterSwapFeeEstimateFlowKey(baseParams)
+		);
+		expect(getJupiterSwapFeeEstimateFlowKey(baseParams)).not.toBe(
+			getJupiterSwapFeeEstimateFlowKey({
+				...baseParams,
+				outputMint: Keypair.generate().publicKey.toBase58(),
+			})
+		);
+		expect(
+			getJupiterSwapFeeEstimateFlowKey({
+				...baseParams,
+				userPublicKey: null,
+			})
+		).toBeNull();
 	});
 });

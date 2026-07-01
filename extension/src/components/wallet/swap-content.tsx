@@ -12,8 +12,11 @@ import { useSwap } from "@loyal-labs/wallet-core/hooks";
 import type { SwapConfig } from "@loyal-labs/wallet-core/hooks";
 import {
   estimateJupiterSwapFeeState,
+  getJupiterSwapFeeEstimateFlowKey,
   getJupiterSwapFeeEstimateKey,
-  SWAP_FEE_ESTIMATE_DEBOUNCE_MS,
+  getSwapFeeEstimateDebounceMs,
+  getSwapFeeEstimateDisplayState,
+  isNonEmptySwapFeeEstimateState,
   type SwapFeeEstimateState,
 } from "@loyal-labs/wallet-core/lib";
 
@@ -1058,12 +1061,15 @@ export function SwapContent({
   const [feeEstimateState, setFeeEstimateState] =
     useState<SwapFeeEstimateState>({ status: "idle" });
   const quoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSuccessfulFeeEstimateStateRef =
+    useRef<SwapFeeEstimateState | null>(null);
+  const feeEstimateFlowKeyRef = useRef<string | null>(null);
   const feeEstimateRequestRef = useRef<{
     key: string;
     quoteResponse: NonNullable<typeof quoteResponse>;
     userPublicKey: string;
-    apiKey?: string;
-    baseUrl?: string;
+    apiKey: string | undefined;
+    baseUrl: string | undefined;
   } | null>(null);
 
   useEffect(() => {
@@ -1115,19 +1121,40 @@ export function SwapContent({
   }, [connection, feeUserPublicKey, quoteResponse, swapConfig]);
   feeEstimateRequestRef.current = feeEstimateRequest;
   const feeEstimateKey = feeEstimateRequest?.key ?? null;
+  const feeEstimateFlowKey = useMemo(() => {
+    const baseUrl =
+      swapConfig.mode === "enabled" ? swapConfig.baseUrl : undefined;
+    return getJupiterSwapFeeEstimateFlowKey({
+      inputMint: fromToken.mint,
+      outputMint: toToken.mint,
+      userPublicKey: feeUserPublicKey,
+      baseUrl,
+    });
+  }, [feeUserPublicKey, fromToken.mint, swapConfig, toToken.mint]);
+  const displayFeeEstimateState = getSwapFeeEstimateDisplayState(
+    feeEstimateState,
+    lastSuccessfulFeeEstimateStateRef.current
+  );
 
   // Debounced quote fetching
   useEffect(() => {
     if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
     if (!hasAmount || insufficientFunds || isSameMint || phase !== "form") {
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = null;
+      feeEstimateRequestRef.current = null;
       resetQuote();
       setIsQuoting(false);
       setFeeEstimateState({ status: "idle" });
       return;
     }
     feeEstimateRequestRef.current = null;
+    if (feeEstimateFlowKeyRef.current !== feeEstimateFlowKey) {
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+    }
     resetQuote();
-    setFeeEstimateState({ status: "idle" });
+    setFeeEstimateState({ status: "loading" });
     setIsQuoting(true);
     quoteTimerRef.current = setTimeout(() => {
       void getQuote(
@@ -1152,6 +1179,7 @@ export function SwapContent({
     hasAmount,
     insufficientFunds,
     isSameMint,
+    feeEstimateFlowKey,
     phase,
     getQuote,
     resetQuote,
@@ -1183,17 +1211,21 @@ export function SwapContent({
           signal: abortController.signal,
         });
         if (!cancelled && !abortController.signal.aborted) {
+          if (isNonEmptySwapFeeEstimateState(nextState)) {
+            lastSuccessfulFeeEstimateStateRef.current = nextState;
+            feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+          }
           setFeeEstimateState(nextState);
         }
       })();
-    }, SWAP_FEE_ESTIMATE_DEBOUNCE_MS);
+    }, getSwapFeeEstimateDebounceMs(lastSuccessfulFeeEstimateStateRef.current));
 
     return () => {
       cancelled = true;
       clearTimeout(timer);
       abortController.abort();
     };
-  }, [connection, feeEstimateKey, phase]);
+  }, [connection, feeEstimateFlowKey, feeEstimateKey, phase]);
 
   const buttonLabel = !isAvailable
     ? unavailableReason ?? "Swap unavailable"
@@ -1239,8 +1271,8 @@ export function SwapContent({
     );
     setResultSignature(undefined);
     setResultFeeEstimateState(
-      feeEstimateState.status === "success"
-        ? feeEstimateState
+      displayFeeEstimateState.status === "success"
+        ? displayFeeEstimateState
         : { status: "error", error: "Swap fee unavailable" }
     );
     setErrorMessage(undefined);
@@ -1276,7 +1308,7 @@ export function SwapContent({
     fromToken.symbol,
     numericFrom,
     quote,
-    feeEstimateState,
+    displayFeeEstimateState,
     executeSwap,
     resetQuote,
   ]);
@@ -1791,7 +1823,7 @@ export function SwapContent({
                 </span>
               </div>
               <SwapFeeRows
-                feeEstimateState={feeEstimateState}
+                feeEstimateState={displayFeeEstimateState}
                 solPriceUsd={feeSolPriceUsd}
               />
             </div>

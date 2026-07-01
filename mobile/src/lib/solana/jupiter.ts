@@ -1,9 +1,13 @@
 import {
   estimateJupiterSwapFeeState as estimateCoreJupiterSwapFeeState,
+  getJupiterSwapFeeEstimateFlowKey as getCoreJupiterSwapFeeEstimateFlowKey,
   getJupiterSwapFeeEstimateKey as getCoreJupiterSwapFeeEstimateKey,
+  getSwapFeeEstimateDebounceMs,
+  getSwapFeeEstimateDisplayState,
   getJupiterQuote as getCoreJupiterQuote,
   getJupiterSwapInstructions as getCoreJupiterSwapInstructions,
   getJupiterSwapTransaction as getCoreJupiterSwapTransaction,
+  isNonEmptySwapFeeEstimateState,
   type JupiterQuoteResponse,
   type JupiterSwapInstructionsResponse,
   type JupiterSwapResponse,
@@ -23,7 +27,12 @@ export type {
   SwapFeeEstimateConnection,
   SwapFeeEstimateState,
 };
-export { SWAP_FEE_ESTIMATE_DEBOUNCE_MS };
+export {
+  getSwapFeeEstimateDebounceMs,
+  getSwapFeeEstimateDisplayState,
+  isNonEmptySwapFeeEstimateState,
+  SWAP_FEE_ESTIMATE_DEBOUNCE_MS,
+};
 
 export async function getJupiterQuote(params: {
   inputMint: string;
@@ -75,6 +84,17 @@ export function getJupiterSwapFeeEstimateKey(params: {
   userPublicKey: string;
 }): string {
   return getCoreJupiterSwapFeeEstimateKey({
+    ...params,
+    baseUrl: JUPITER_SWAP_API_BASE_URL,
+  });
+}
+
+export function getJupiterSwapFeeEstimateFlowKey(params: {
+  inputMint: string;
+  outputMint: string;
+  userPublicKey: string | null;
+}): string | null {
+  return getCoreJupiterSwapFeeEstimateFlowKey({
     ...params,
     baseUrl: JUPITER_SWAP_API_BASE_URL,
   });
