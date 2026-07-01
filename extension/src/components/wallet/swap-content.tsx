@@ -1148,6 +1148,7 @@ export function SwapContent({
       setFeeEstimateState({ status: "idle" });
       return;
     }
+    let cancelled = false;
     feeEstimateRequestRef.current = null;
     if (feeEstimateFlowKeyRef.current !== feeEstimateFlowKey) {
       lastSuccessfulFeeEstimateStateRef.current = null;
@@ -1165,9 +1166,21 @@ export function SwapContent({
         undefined,
         undefined,
         toToken.mint
-      ).finally(() => setIsQuoting(false));
+      )
+        .then((nextQuote) => {
+          if (cancelled) return;
+          if (nextQuote) return;
+          lastSuccessfulFeeEstimateStateRef.current = null;
+          feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+          feeEstimateRequestRef.current = null;
+          setFeeEstimateState({ status: "idle" });
+        })
+        .finally(() => {
+          if (!cancelled) setIsQuoting(false);
+        });
     }, 500);
     return () => {
+      cancelled = true;
       if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
     };
   }, [

@@ -456,10 +456,21 @@ export function SwapSheet({
         amount: rawAmount,
       })
         .then((q) => {
-          if (!cancelled) setQuote(q);
+          if (cancelled) return;
+          setQuote(q);
+          if (q) return;
+          lastSuccessfulFeeEstimateStateRef.current = null;
+          feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+          feeEstimateRequestRef.current = null;
+          setFeeEstimateState({ status: "idle" });
         })
         .catch(() => {
-          if (!cancelled) setQuote(null);
+          if (cancelled) return;
+          lastSuccessfulFeeEstimateStateRef.current = null;
+          feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+          feeEstimateRequestRef.current = null;
+          setQuote(null);
+          setFeeEstimateState({ status: "idle" });
         })
         .finally(() => {
           if (!cancelled) setIsFetchingQuote(false);
