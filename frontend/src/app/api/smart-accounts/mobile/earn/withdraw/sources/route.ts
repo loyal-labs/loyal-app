@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
-import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { PublicKey } from "@solana/web3.js";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
-import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   findCurrentNonzeroYieldVaultReservePositions,
@@ -92,35 +89,39 @@ export async function GET(request: Request) {
 
     const solanaEnv = getConfiguredSolanaEnv();
     const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-    const programId = new PublicKey(getServerEnv().loyalSmartAccounts.programId);
-    const [earnVaultPda] = pda.getSmartAccountPda({
-      accountIndex: EARN_VAULT_INDEX,
-      programId,
-      settingsPda: new PublicKey(account.settingsPda),
+
+    // Resolve the reconciled position FIRST so the reserve/idle snapshot lookups
+    // key off the position's ACTUAL vault pubkey — matching the web `position`
+    // route. Deriving the vault pubkey locally (getSmartAccountPda) can resolve
+    // to a different managedVaults record than the one the reserve rows are
+    // stored under, which returns zero reserve rows and forces the stale
+    // `currentAmountRaw` fallback below — reporting the wrong reserve/market and
+    // amount (the source of the mobile↔web withdraw discrepancy).
+    const position = await findReconciledActiveYieldPositionForVault({
+      cluster,
+      settings: account.settingsPda,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress,
     });
 
-    const [reserveRows, idleRows, position] = await Promise.all([
-      findCurrentNonzeroYieldVaultReservePositions({
-        cluster,
-        settings: account.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: earnVaultPda.toBase58(),
-        walletAddress,
-      }),
-      findCurrentYieldVaultIdleTokenBalances({
-        cluster,
-        settings: account.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: earnVaultPda.toBase58(),
-        walletAddress,
-      }),
-      findReconciledActiveYieldPositionForVault({
-        cluster,
-        settings: account.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
-        walletAddress,
-      }),
-    ]);
+    const [reserveRows, idleRows] = position
+      ? await Promise.all([
+          findCurrentNonzeroYieldVaultReservePositions({
+            cluster,
+            settings: account.settingsPda,
+            vaultIndex: EARN_VAULT_INDEX,
+            vaultPubkey: position.vaultPubkey,
+            walletAddress,
+          }),
+          findCurrentYieldVaultIdleTokenBalances({
+            cluster,
+            settings: account.settingsPda,
+            vaultIndex: EARN_VAULT_INDEX,
+            vaultPubkey: position.vaultPubkey,
+            walletAddress,
+          }),
+        ])
+      : [[], []];
 
     const reserveRowsWithBalance = reserveRows.filter(
       (row) => row.amountRaw > BigInt(0) && row.market
