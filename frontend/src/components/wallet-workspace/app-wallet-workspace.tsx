@@ -85,7 +85,6 @@ import {
   type EarnDepositDraft,
   type EarnAutodepositDraft,
   type EarnDepositSourceOption,
-  type EarnHelpTopic,
   type EarnWithdrawDraft,
   type EarnWithdrawSourceOption,
 } from "@/components/wallet-sidebar/earn-detail-view";
@@ -151,7 +150,7 @@ import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position"
 import { getTokenIconUrl } from "@/lib/token-icon";
 import {
   getStablecoinMintSetForSolanaEnv,
-  sumPublicStablecoinUsd,
+  sumPublicStablecoinParValueUsd,
 } from "@/lib/wallet/stablecoin-classification";
 import {
   getFrontendPrivateClient,
@@ -160,6 +159,7 @@ import {
 } from "@/lib/solana/private-client-cache";
 import {
   earnAutodepositConfigFromLoadedState,
+  getDisplayableEarnAutodepositScheduledSweeps,
   isLoadedEarnAutodepositConfig,
   type LoadedEarnAutodepositConfig,
   type LoadedEarnAutodepositScheduledSweep,
@@ -184,7 +184,6 @@ import {
 } from "./earn-deposit-review";
 import {
   EarnTransactionsPane,
-  type EarnMascotHelpPhrase,
   type PendingScheduledSweepPreview,
 } from "./earn-transactions-pane";
 import {
@@ -271,9 +270,6 @@ const ENABLE_MOCK_BACKUP_SIGNER_FLOW = true;
 const EXPERIMENTAL_MODE_SESSION_KEY = "loyal.wallet.experimentalMode";
 const MOBILE_WORKSPACE_MEDIA_QUERY = "(max-width: 760px)";
 const MOBILE_PANE_HISTORY_KEY = "__loyalMobilePaneBack";
-const EARN_MASCOT_HELP_STREAM_DELAY_MS = 240;
-const EARN_MASCOT_HELP_STREAM_INTERVAL_MS = 30;
-const EARN_MASCOT_HELP_READ_DELAY_MS = 4_500;
 
 type MobilePaneHistoryState = Record<string, unknown> & {
   [MOBILE_PANE_HISTORY_KEY]?: true;
@@ -361,28 +357,6 @@ function findEarnUsdcPosition(
   return positions.find(
     (position) => position.asset.symbol.toUpperCase() === "USDC"
   );
-}
-
-function getPublicPositionUsd(position: PortfolioPosition | undefined): number {
-  if (!position) {
-    return 0;
-  }
-
-  if (
-    typeof position.publicValueUsd === "number" &&
-    Number.isFinite(position.publicValueUsd)
-  ) {
-    return position.publicValueUsd;
-  }
-
-  if (
-    typeof position.priceUsd === "number" &&
-    Number.isFinite(position.priceUsd)
-  ) {
-    return position.publicBalance * position.priceUsd;
-  }
-
-  return 0;
 }
 
 function findTrackedUsdcToken(
@@ -628,10 +602,23 @@ function toCachedEarnAutodepositConfig(
     config.state === "creating" ||
     config.state === "paused"
   ) {
-    return { ...config, state: config.state };
+    return {
+      ...config,
+      scheduledSweeps: [],
+      state: config.state,
+    };
   }
 
   return null;
+}
+
+function normalizeCachedEarnAutodepositConfig(
+  config: LoadedEarnAutodepositConfig
+): LoadedEarnAutodepositConfig {
+  return {
+    ...config,
+    scheduledSweeps: [],
+  };
 }
 
 function formatAutodepositUsdLabel(value: string | null | undefined): string {
@@ -655,7 +642,7 @@ function readCachedEarnAutodepositConfig(args: {
   solanaEnv: string;
   walletAddress: string;
 }): LoadedEarnAutodepositConfig | null {
-  return readClientCache<LoadedEarnAutodepositConfig>({
+  const config = readClientCache<LoadedEarnAutodepositConfig>({
     key: getEarnAutodepositConfigCacheKey(args),
     version: EARN_AUTODEPOSIT_CONFIG_CACHE_VERSION,
     solanaEnv: args.solanaEnv,
@@ -663,6 +650,8 @@ function readCachedEarnAutodepositConfig(args: {
     settingsPda: args.settingsPda,
     validate: isLoadedEarnAutodepositConfig,
   });
+
+  return config ? normalizeCachedEarnAutodepositConfig(config) : null;
 }
 
 function writeCachedEarnAutodepositConfig(args: {
@@ -1726,34 +1715,29 @@ export function AppWalletWorkspace({
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
   );
-  const mainAccountStablecoinUsd = useMemo(() => {
-    const portfolioStablecoinUsd = sumPublicStablecoinUsd(
+  const mainAccountStablecoinParValueUsd = useMemo(() => {
+    const portfolioStablecoinParValueUsd = sumPublicStablecoinParValueUsd(
       personalWalletPositions,
       stablecoinMints
     );
 
     if (mainAccountUsdcBalance.amount === null) {
-      return portfolioStablecoinUsd;
+      return portfolioStablecoinParValueUsd;
     }
 
     const trackedUsdcPosition = findEarnUsdcPosition(
       personalWalletPositions,
       trackedKaminoUsdcMint
     );
-    const trackedUsdcPriceUsd =
-      typeof trackedUsdcPosition?.priceUsd === "number" &&
-      Number.isFinite(trackedUsdcPosition.priceUsd)
-        ? trackedUsdcPosition.priceUsd
-        : 1;
-    const trackedUsdcPortfolioUsd =
+    const trackedUsdcPortfolioParValueUsd =
       trackedUsdcPosition && stablecoinMints.has(trackedUsdcPosition.asset.mint)
-        ? getPublicPositionUsd(trackedUsdcPosition)
+        ? trackedUsdcPosition.publicBalance
         : 0;
 
     return (
-      portfolioStablecoinUsd -
-      trackedUsdcPortfolioUsd +
-      mainAccountUsdcBalance.amount * trackedUsdcPriceUsd
+      portfolioStablecoinParValueUsd -
+      trackedUsdcPortfolioParValueUsd +
+      mainAccountUsdcBalance.amount
     );
   }, [
     mainAccountUsdcBalance.amount,
@@ -1762,7 +1746,7 @@ export function AppWalletWorkspace({
     trackedKaminoUsdcMint,
   ]);
   const mainAccountDisplayUsd = canLoadPersonalAccount
-    ? mainAccountStablecoinUsd
+    ? mainAccountStablecoinParValueUsd
     : 0;
   const mainAccountDisplayBalance = useMemo(
     () => splitUsdBalance(mainAccountDisplayUsd),
@@ -2060,10 +2044,6 @@ export function AppWalletWorkspace({
     useState(false);
   const [autodepositConfig, setAutodepositConfig] =
     useState<EarnAutodepositConfig | null>(null);
-  const [earnMascotHelpPhrase, setEarnMascotHelpPhrase] =
-    useState<EarnMascotHelpPhrase | null>(null);
-  const earnMascotHelpSequenceRef = useRef(0);
-  const earnMascotHelpDismissTimeoutRef = useRef<number | null>(null);
   const [
     isEarnAutodepositSetupConfirming,
     setIsEarnAutodepositSetupConfirming,
@@ -2074,14 +2054,6 @@ export function AppWalletWorkspace({
   const [scheduledSweepExecuteError, setScheduledSweepExecuteError] = useState<
     string | null
   >(null);
-  useEffect(
-    () => () => {
-      if (earnMascotHelpDismissTimeoutRef.current !== null) {
-        window.clearTimeout(earnMascotHelpDismissTimeoutRef.current);
-      }
-    },
-    []
-  );
   const autodepositCacheScope = useMemo(() => {
     const settingsPda = smartAccountData.overview?.settingsPda;
     const walletAddress = personalWalletAddress;
@@ -2616,9 +2588,10 @@ export function AppWalletWorkspace({
       smartAccountData.earnAutodeposit?.status === "active"
         ? smartAccountData.earnAutodeposit.scheduledSweeps ?? []
         : [];
-    const localScheduledSweeps = isAutodepositReady
-      ? autodepositConfig?.scheduledSweeps ?? []
-      : [];
+    const localScheduledSweeps = getDisplayableEarnAutodepositScheduledSweeps(
+      autodepositConfig?.state ?? "creating",
+      autodepositConfig?.scheduledSweeps
+    );
 
     return liveScheduledSweeps.length > 0
       ? liveScheduledSweeps
@@ -2627,7 +2600,7 @@ export function AppWalletWorkspace({
       : [];
   }, [
     autodepositConfig?.scheduledSweeps,
-    isAutodepositReady,
+    autodepositConfig?.state,
     smartAccountData.earnAutodeposit?.scheduledSweeps,
     smartAccountData.earnAutodeposit?.status,
     smartAccountData.isEarnStateLoading,
@@ -2635,16 +2608,17 @@ export function AppWalletWorkspace({
   const visibleAutodepositScheduledSweeps = useMemo(
     () =>
       getVisibleEarnAutodepositScheduledSweeps({
-        scheduledSweeps: isAutodepositReady
-          ? autodepositConfig?.scheduledSweeps ?? []
-          : [],
+        scheduledSweeps: getDisplayableEarnAutodepositScheduledSweeps(
+          autodepositConfig?.state ?? "creating",
+          autodepositConfig?.scheduledSweeps
+        ),
         walletBalanceFloorRaw: autodepositWalletBalanceFloorRaw,
         walletBalanceRaw: mainAccountVisibleUsdcBalanceRaw,
       }),
     [
       autodepositConfig?.scheduledSweeps,
+      autodepositConfig?.state,
       autodepositWalletBalanceFloorRaw,
-      isAutodepositReady,
       mainAccountVisibleUsdcBalanceRaw,
     ]
   );
@@ -2677,85 +2651,6 @@ export function AppWalletWorkspace({
   }, [smartAccountData.overview?.vaults]);
   const hasEarnPolicy = Boolean(smartAccountData.earnPolicy);
   const hasEarnPosition = isActiveEarnPosition(activeEarnPosition);
-  const handleOpenEarnHelp = useCallback(
-    (topic: EarnHelpTopic) => {
-      const mainAccountLabel =
-        earnDepositSources.find((source) => source.id === "main")
-          ?.addressLabel ?? "your Main Account";
-      let text: string;
-
-      if (topic === "autodeposit") {
-        text = hasEarnPosition
-          ? `Autodeposit keeps ${
-              autodepositFloorLabel ?? "your chosen minimum"
-            } in ${mainAccountLabel}. When extra USDC arrives, it moves the surplus into Earn so it does not sit idle.`
-          : `Autodeposit turns on after your first Earn deposit. It keeps your chosen minimum in ${mainAccountLabel}, then moves extra USDC into Earn when it arrives.`;
-      } else if (topic === "autodepositPending") {
-        text =
-          "Autodeposit is almost ready. Finish the recurring allowance approval so future surplus USDC can move into Earn automatically.";
-      } else if (topic === "autodepositSetup") {
-        text = hasEarnPosition
-          ? `Set up Autodeposit to watch ${mainAccountLabel}. It will keep your chosen minimum there and move extra USDC into Earn.`
-          : "Autodeposit becomes available after your first Earn deposit. Then it can keep a minimum in Main Account and move future surplus into Earn.";
-      } else if (topic === "autodepositLoading") {
-        text =
-          "Loyal is checking your Autodeposit settings and allowance status. This card updates when the latest state loads.";
-      } else if (topic === "autodepositLoadError") {
-        text =
-          "Loyal could not load Autodeposit settings. Retry refreshes the status without moving funds or changing your setup.";
-      } else if (topic === "autodepositThreshold") {
-        text = `This is the minimum USDC Autodeposit leaves in ${mainAccountLabel}. Only the balance above this amount is moved into Earn.`;
-      } else if (topic === "autodepositSource") {
-        text = `From is the account Autodeposit watches. New USDC arrives in ${mainAccountLabel}, and Autodeposit leaves your minimum there.`;
-      } else if (topic === "autodepositDestination") {
-        text =
-          "To is your Earn account. Surplus USDC from Main Account moves here so Loyal can route it into the current Earn target.";
-      } else if (topic === "autodepositDelete") {
-        text =
-          "Delete turns off future Autodeposit sweeps. It does not withdraw USDC already in Earn.";
-      } else if (topic === "earn") {
-        text =
-          "Earn is your USDC earning position. Loyal routes deposited USDC into the current Earn target and shows the live balance plus APY here.";
-      } else if (topic === "mainAccount") {
-        text = isAutodepositReady
-          ? `Main Account is USDC you keep available in your wallet. Autodeposit leaves ${
-              autodepositFloorLabel ?? "your minimum"
-            } here, then moves extra USDC into Earn.`
-          : "Main Account is USDC you keep available in your wallet for deposits and spending. When Autodeposit is on, this is the account it protects first.";
-      } else {
-        text =
-          "Current positions shows where your Earn USDC is sitting right now. Market rows are deployed for yield; Idle Balance is USDC not currently deployed into a market.";
-      }
-
-      if (earnMascotHelpDismissTimeoutRef.current !== null) {
-        window.clearTimeout(earnMascotHelpDismissTimeoutRef.current);
-      }
-
-      earnMascotHelpSequenceRef.current += 1;
-      const phrase: EarnMascotHelpPhrase = {
-        id: `${topic}-${earnMascotHelpSequenceRef.current}`,
-        text,
-      };
-      setEarnMascotHelpPhrase(phrase);
-
-      const dismissDelayMs =
-        EARN_MASCOT_HELP_STREAM_DELAY_MS +
-        text.length * EARN_MASCOT_HELP_STREAM_INTERVAL_MS +
-        EARN_MASCOT_HELP_READ_DELAY_MS;
-      earnMascotHelpDismissTimeoutRef.current = window.setTimeout(() => {
-        setEarnMascotHelpPhrase((current) =>
-          current?.id === phrase.id ? null : current
-        );
-        earnMascotHelpDismissTimeoutRef.current = null;
-      }, dismissDelayMs);
-    },
-    [
-      autodepositFloorLabel,
-      earnDepositSources,
-      hasEarnPosition,
-      isAutodepositReady,
-    ]
-  );
   const isEarnPositionInitialLoading =
     canLoadPersonalAccount &&
     isActiveEarnPositionLoading &&
@@ -4219,9 +4114,10 @@ export function AppWalletWorkspace({
     const nextActive = previousState === "paused";
     setProposalActionError(null);
     // Optimistic transient state: the switch flips and spins right away
-    // while the on-chain toggle confirms; revert on failure.
+    // while the DB-only toggle persists; revert on failure.
     setAutodepositConfig({
       ...autodepositConfig,
+      scheduledSweeps: [],
       state: nextActive ? "resuming" : "pausing",
     });
 
@@ -4241,9 +4137,11 @@ export function AppWalletWorkspace({
 
     setAutodepositConfig({
       ...autodepositConfig,
+      scheduledSweeps: nextActive ? result.scheduledSweeps ?? [] : [],
       state: nextActive ? "created" : "paused",
     });
-  }, [autodepositConfig, smartAccountData]);
+    invalidateEarnClientCaches();
+  }, [autodepositConfig, invalidateEarnClientCaches, smartAccountData]);
 
   const handleExecuteScheduledAutodepositSweep = useCallback(
     async (sweep?: LoadedEarnAutodepositScheduledSweep) => {
@@ -5863,31 +5761,34 @@ export function AppWalletWorkspace({
     }
   }, [ensureCanSignAccountAction, spendingLimitDraft, smartAccountData]);
 
-  const runProposalAction = useCallback(async (action: () => Promise<void>) => {
-    if (!ensureCanSignAccountAction()) {
-      return;
-    }
+  const runProposalAction = useCallback(
+    async (action: () => Promise<void>) => {
+      if (!ensureCanSignAccountAction()) {
+        return;
+      }
 
-    setProposalActionError(null);
-    try {
-      await action();
-    } catch (error) {
-      const raw =
-        error instanceof Error
-          ? error.message
-          : "Failed to submit smart-account action.";
-      const haystack = raw.toLowerCase();
-      const isRentError =
-        haystack.includes("insufficient funds for rent") ||
-        haystack.includes("insufficient lamports") ||
-        haystack.includes("would result in account being unable to pay rent");
-      setProposalActionError(
-        isRentError
-          ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
-          : raw
-      );
-    }
-  }, [ensureCanSignAccountAction]);
+      setProposalActionError(null);
+      try {
+        await action();
+      } catch (error) {
+        const raw =
+          error instanceof Error
+            ? error.message
+            : "Failed to submit smart-account action.";
+        const haystack = raw.toLowerCase();
+        const isRentError =
+          haystack.includes("insufficient funds for rent") ||
+          haystack.includes("insufficient lamports") ||
+          haystack.includes("would result in account being unable to pay rent");
+        setProposalActionError(
+          isRentError
+            ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
+            : raw
+        );
+      }
+    },
+    [ensureCanSignAccountAction]
+  );
 
   const commandGroups = useMemo<WalletCommandGroup[]>(() => {
     const isWalletActive = activeDetailSelection === "wallet";
@@ -6463,7 +6364,6 @@ export function AppWalletWorkspace({
           onDeposit={handleOpenEarnDeposit}
           onDisableAutodeposit={handleDisableAutodeposit}
           onOpenAutodeposit={handleOpenAutodeposit}
-          onOpenEarnHelp={handleOpenEarnHelp}
           onWithdraw={handleOpenEarnWithdraw}
           principalAmount={earnPrincipalAmount}
         />
@@ -6483,7 +6383,6 @@ export function AppWalletWorkspace({
           }
           onBack={handleBackFromAutodeposit}
           onDelete={handleDeleteAutodeposit}
-          onOpenEarnHelp={handleOpenEarnHelp}
           onSubmit={handleSaveAutodeposit}
         />
       );
@@ -7548,7 +7447,6 @@ export function AppWalletWorkspace({
                     ? handleOpenEarn
                     : handleOpenEarnDeposit
                 }
-                onOpenEarnHelp={handleOpenEarnHelp}
                 onOpenAutodeposit={handleOpenAutodeposit}
                 onOpenCreateAccount={canMutateAccount ? undefined : openSignIn}
                 autodepositDepositedLabel={autodepositDepositedLabel}
@@ -7669,7 +7567,6 @@ export function AppWalletWorkspace({
                 isAutodepositConfigured={isAutodepositReady}
                 isBalanceHidden={isBalanceHidden}
                 isExecutingScheduledSweep={isExecutingScheduledSweep}
-                mascotHelpPhrase={earnMascotHelpPhrase}
                 onExperimentalModeToggle={toggleExperimentalMode}
                 onExecuteScheduledSweep={handleExecuteScheduledAutodepositSweep}
                 onRefreshScheduledSweeps={smartAccountData.refresh}

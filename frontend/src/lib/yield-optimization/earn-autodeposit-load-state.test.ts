@@ -320,6 +320,38 @@ function createFloorRebaselineRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function createScheduledSweepRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    classification: "initial_surplus",
+    confidence: "confirmed_projection",
+    eligibleAfter: new Date("2026-06-16T01:00:00.000Z"),
+    id: BigInt(51),
+    lotCount: 1,
+    originalAmountRaw: BigInt(600_000_000),
+    reason: "Autodeposit scheduled sweep",
+    remainingAmountRaw: BigInt(600_000_000),
+    slotId: BigInt(52),
+    status: "scheduled",
+    ...overrides,
+  };
+}
+
+function createLoadedScheduledSweep(overrides: Record<string, unknown> = {}) {
+  return {
+    classification: "initial_surplus",
+    confidence: "confirmed_projection",
+    eligibleAfter: "2026-06-16T01:00:00.000Z",
+    id: "51",
+    lotCount: 1,
+    originalAmountRaw: "600000000",
+    reason: "Autodeposit scheduled sweep",
+    remainingAmountRaw: "600000000",
+    slotId: "52",
+    status: "scheduled",
+    ...overrides,
+  };
+}
+
 describe("Earn autodeposit load state", () => {
   test("active policy and active target load as active", async () => {
     const { findCurrentEarnAutodepositState } = await import(
@@ -398,6 +430,67 @@ describe("Earn autodeposit load state", () => {
     expect(state?.target.active).toBe(false);
     expect(state?.target.lifecycleStatus).toBe("active");
     expect(state?.target.recurringDelegation).toBe("recurring");
+  });
+
+  test("loaded autodeposit config only keeps scheduled sweeps while active", async () => {
+    const { earnAutodepositConfigFromLoadedState } = await import(
+      "./earn-autodeposit-loaded-state.shared"
+    );
+    const scheduledSweep = createLoadedScheduledSweep();
+    const loaded = {
+      amountPerPeriodRaw: "100000000",
+      depositedThisPeriodRaw: "0",
+      policyAccount: "policy",
+      policySeed: "1",
+      periodLengthSeconds: "2592000",
+      recurringDelegation: "recurring",
+      scheduledSweeps: [scheduledSweep],
+      startTimestamp: "1780185600",
+      walletBalanceFloorRaw: "500000000",
+    };
+
+    expect(
+      earnAutodepositConfigFromLoadedState({
+        ...loaded,
+        status: "active",
+      })?.scheduledSweeps
+    ).toEqual([scheduledSweep]);
+    expect(
+      earnAutodepositConfigFromLoadedState({
+        ...loaded,
+        status: "paused",
+      })?.scheduledSweeps
+    ).toEqual([]);
+    expect(
+      earnAutodepositConfigFromLoadedState({
+        ...loaded,
+        status: "pending",
+      })?.scheduledSweeps
+    ).toEqual([]);
+  });
+
+  test("serialized autodeposit state hides scheduled sweeps while paused", async () => {
+    const { serializeAutodepositState } = await import(
+      "./earn-state-serializers.server"
+    );
+    const policy = createRecord({ id: BigInt(7) });
+    const target = createRecord({
+      active: false,
+      balanceSweepPolicyId: BigInt(7),
+      lifecycleStatus: "active",
+      recurringDelegation: "recurring",
+    });
+
+    const serialized = serializeAutodepositState({
+      depositedThisPeriodRaw: BigInt(0),
+      policy,
+      scheduledSweeps: [createScheduledSweepRecord()],
+      status: "paused",
+      target,
+    } as never);
+
+    expect(serialized.status).toBe("paused");
+    expect(serialized.scheduledSweeps).toEqual([]);
   });
 
   test("closed policy and target are not loaded", async () => {
@@ -839,9 +932,7 @@ describe("Earn autodeposit load state", () => {
       lifecycleStatus: "closed",
       policyAccount: "policy",
     });
-    expect(getExecuteSql()[0]).toContain(
-      "WITH scheduled_slots AS"
-    );
+    expect(getExecuteSql()[0]).toContain("WITH scheduled_slots AS");
     expect(getUpdateSets()[0]).toMatchObject({
       active: false,
       closeSignature: "reconciled_missing_policy:policy",

@@ -12,6 +12,7 @@ import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { probeEarnAutodepositArtifacts } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
+import { getDisplayableEarnAutodepositScheduledSweeps } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
   findCurrentEarnAutodepositState,
   findPendingEarnAutodepositScheduledSweeps,
@@ -218,9 +219,12 @@ export async function GET(request: Request) {
       }
     }
 
-    let scheduledSweeps = await findPendingEarnAutodepositScheduledSweeps(
-      reconciledState.target
-    );
+    let scheduledSweeps =
+      reconciledState.status === "active"
+        ? await findPendingEarnAutodepositScheduledSweeps(
+            reconciledState.target
+          )
+        : [];
     // Clear stale scheduled sweeps the wallet can no longer back (surplus already
     // swept or spent) so the Activity row disappears instead of lingering as a
     // phantom "Execute now". Only runs when there's a sweep to evaluate.
@@ -272,7 +276,10 @@ export async function GET(request: Request) {
           reconciledState.target.walletBalanceFloorRaw?.toString() ?? null,
         lifecycleStatus: reconciledState.target.lifecycleStatus,
         vaultIndex: EARN_VAULT_INDEX,
-        scheduledSweeps: scheduledSweeps.map(serializeScheduledSweep),
+        scheduledSweeps: getDisplayableEarnAutodepositScheduledSweeps(
+          reconciledState.status,
+          scheduledSweeps
+        ).map(serializeScheduledSweep),
       },
       settingsPda: account.settingsPda,
       smartAccountAddress: account.smartAccountAddress,

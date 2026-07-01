@@ -302,7 +302,7 @@ export async function GET(request: Request) {
           const [depositedThisPeriodRaw, initialScheduledSweeps] =
             await Promise.all([
               sumEarnAutodepositCurrentPeriodDeposits(reconciledState.target),
-              reconciledState.status === "pending"
+              reconciledState.status !== "active"
                 ? []
                 : findPendingEarnAutodepositScheduledSweeps(
                     reconciledState.target

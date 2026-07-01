@@ -48,6 +48,22 @@ export type LoadedEarnAutodepositConfig = {
   state: "created" | "creating" | "paused";
 };
 
+type EarnAutodepositDisplayStatus =
+  | LoadedEarnAutodepositConfig["state"]
+  | LoadedEarnAutodepositState["status"]
+  | "closing"
+  | "pausing"
+  | "resuming";
+
+export function getDisplayableEarnAutodepositScheduledSweeps<T>(
+  status: EarnAutodepositDisplayStatus,
+  scheduledSweeps: readonly T[] | null | undefined
+): T[] {
+  return status === "active" || status === "created"
+    ? [...(scheduledSweeps ?? [])]
+    : [];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -156,6 +172,12 @@ export function earnAutodepositConfigFromLoadedState(
   if (!autodeposit) {
     return null;
   }
+  const state =
+    autodeposit.status === "active"
+      ? "created"
+      : autodeposit.status === "paused"
+      ? "paused"
+      : "creating";
 
   return {
     amount: rawTokenAmountToLabel(autodeposit.amountPerPeriodRaw),
@@ -171,14 +193,12 @@ export function earnAutodepositConfigFromLoadedState(
     policyAccount: autodeposit.policyAccount,
     policySeed: autodeposit.policySeed,
     recurringDelegation: autodeposit.recurringDelegation ?? "",
-    scheduledSweeps: autodeposit.scheduledSweeps ?? [],
+    scheduledSweeps: getDisplayableEarnAutodepositScheduledSweeps(
+      state,
+      autodeposit.scheduledSweeps
+    ),
     setupNonce: autodeposit.nonce ?? null,
     startTimestamp: autodeposit.startTimestamp,
-    state:
-      autodeposit.status === "active"
-        ? "created"
-        : autodeposit.status === "paused"
-        ? "paused"
-        : "creating",
+    state,
   };
 }

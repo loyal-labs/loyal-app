@@ -51,16 +51,8 @@ const USDC_RAW_SCALE = BigInt(1_000_000);
 const EARN_TRANSACTIONS_POLL_INTERVAL_MS = 15_000;
 const EARN_TRANSACTIONS_FAST_POLL_INTERVAL_MS = 2_000;
 const EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS = 90_000;
-const EARN_MASCOT_STREAM_DELAY_MS = 240;
-const EARN_MASCOT_STREAM_INTERVAL_MS = 30;
 const EARN_MASCOT_EXPERIMENTAL_TOGGLE_CLICK_COUNT = 5;
 const EARN_MASCOT_EXPERIMENTAL_TOGGLE_RESET_MS = 1_800;
-
-export type EarnMascotHelpPhrase = {
-  href?: string;
-  id: string;
-  text: string;
-};
 
 export type PendingScheduledSweepPreview = {
   amountRaw: string;
@@ -1390,18 +1382,12 @@ function EarnTransactionsEmptyState() {
 }
 
 function EarnMascotPanel({
-  helpPhrase = null,
   onExperimentalModeToggle,
 }: {
-  helpPhrase?: EarnMascotHelpPhrase | null;
   onExperimentalModeToggle?: () => void;
 }) {
-  const [visibleLength, setVisibleLength] = useState(0);
   const experimentalToggleClickCountRef = useRef(0);
   const experimentalToggleResetTimeoutRef = useRef<number | null>(null);
-  const helpPhraseText = helpPhrase?.text ?? "";
-  const visibleText = helpPhraseText.slice(0, visibleLength);
-  const isTextComplete = visibleLength >= helpPhraseText.length;
 
   const resetExperimentalToggleClicks = useCallback(() => {
     experimentalToggleClickCountRef.current = 0;
@@ -1441,44 +1427,6 @@ function EarnMascotPanel({
     [resetExperimentalToggleClicks]
   );
 
-  useEffect(() => {
-    if (!helpPhraseText) {
-      setVisibleLength(0);
-      return;
-    }
-
-    const prefersReducedMotion =
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    if (prefersReducedMotion) {
-      setVisibleLength(helpPhraseText.length);
-      return;
-    }
-
-    setVisibleLength(0);
-
-    let index = 0;
-    let intervalId: number | null = null;
-    const startTimeoutId = window.setTimeout(() => {
-      intervalId = window.setInterval(() => {
-        index = Math.min(helpPhraseText.length, index + 1);
-        setVisibleLength(index);
-
-        if (index >= helpPhraseText.length && intervalId !== null) {
-          window.clearInterval(intervalId);
-        }
-      }, EARN_MASCOT_STREAM_INTERVAL_MS);
-    }, EARN_MASCOT_STREAM_DELAY_MS);
-
-    return () => {
-      window.clearTimeout(startTimeoutId);
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-      }
-    };
-  }, [helpPhrase?.id, helpPhraseText]);
-
   return (
     <section aria-label="Loyal mascot" className="earn-mascot-panel">
       <style jsx>{`
@@ -1495,81 +1443,14 @@ function EarnMascotPanel({
           position: relative;
         }
         .earn-mascot-stage {
+          align-items: center;
+          display: flex;
           flex: 0 0 auto;
-          height: clamp(220px, 82%, 278px);
+          height: clamp(180px, 82%, 252px);
+          justify-content: center;
           max-width: 360px;
           position: relative;
           width: 100%;
-        }
-        .earn-mascot-bubble {
-          background: #fff;
-          border: 1px solid rgba(0, 0, 0, 0.08);
-          border-radius: 18px;
-          box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08),
-            0 2px 6px rgba(0, 0, 0, 0.04);
-          box-sizing: border-box;
-          color: rgba(0, 0, 0, 0.86);
-          font-family: var(--font-geist-sans), sans-serif;
-          font-size: 15px;
-          font-weight: 500;
-          line-height: 21px;
-          max-width: 100%;
-          padding: 12px 16px;
-          position: absolute;
-          right: 0;
-          top: 0;
-          text-align: center;
-          width: 100%;
-          z-index: 2;
-        }
-        .earn-mascot-bubble::before {
-          background: #fff;
-          border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-          border-right: 1px solid rgba(0, 0, 0, 0.08);
-          bottom: -6px;
-          content: "";
-          height: 11px;
-          position: absolute;
-          right: 88px;
-          transform: rotate(45deg);
-          width: 11px;
-        }
-        .earn-mascot-bubble-content {
-          display: block;
-          position: relative;
-        }
-        .earn-mascot-bubble-measure {
-          display: block;
-          visibility: hidden;
-        }
-        .earn-mascot-bubble-stream {
-          display: block;
-          inset: 0;
-          position: absolute;
-          white-space: normal;
-        }
-        .earn-mascot-bubble-cursor {
-          animation: earn-mascot-stream-cursor 0.8s step-end infinite;
-          background: currentColor;
-          border-radius: 9999px;
-          display: inline-block;
-          height: 1em;
-          margin-left: 2px;
-          transform: translateY(2px);
-          width: 2px;
-        }
-        .earn-mascot-bubble-cursor[data-complete="true"] {
-          animation: none;
-          opacity: 0;
-        }
-        .earn-mascot-bubble-link {
-          color: inherit;
-          display: block;
-          text-decoration: none;
-        }
-        .earn-mascot-bubble-link:hover {
-          text-decoration: underline;
-          text-underline-offset: 2px;
         }
         .earn-mascot-dog {
           align-items: center;
@@ -1579,90 +1460,20 @@ function EarnMascotPanel({
           display: flex;
           justify-content: center;
           padding: 0;
-          position: absolute;
-          right: 28px;
-          top: 108px;
-          width: clamp(128px, 40%, 148px);
+          width: clamp(136px, 42%, 156px);
         }
         .earn-mascot-dog :global(svg) {
           display: block;
           width: 100%;
           height: auto;
         }
-        @keyframes earn-mascot-stream-cursor {
-          0%,
-          48% {
-            opacity: 1;
-          }
-          49%,
-          100% {
-            opacity: 0;
-          }
-        }
         @media (max-width: 760px) {
           .earn-mascot-panel {
             display: none;
           }
         }
-        @media (prefers-reduced-motion: reduce) {
-          .earn-mascot-bubble-cursor {
-            animation: none;
-          }
-        }
       `}</style>
       <div className="earn-mascot-stage">
-        {helpPhrase ? (
-          <div
-            aria-label={helpPhrase.text}
-            className="earn-mascot-bubble"
-            key={helpPhrase.id}
-          >
-            {helpPhrase.href ? (
-              <a
-                aria-label={helpPhrase.text}
-                className="earn-mascot-bubble-link"
-                href={helpPhrase.href}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <span className="earn-mascot-bubble-content">
-                  <span
-                    aria-hidden="true"
-                    className="earn-mascot-bubble-measure"
-                  >
-                    {helpPhrase.text}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="earn-mascot-bubble-stream"
-                  >
-                    {visibleText}
-                    <span
-                      className="earn-mascot-bubble-cursor"
-                      data-complete={isTextComplete}
-                    />
-                  </span>
-                </span>
-              </a>
-            ) : (
-              <span
-                aria-label={helpPhrase.text}
-                className="earn-mascot-bubble-content"
-              >
-                <span aria-hidden="true" className="earn-mascot-bubble-measure">
-                  {helpPhrase.text}
-                </span>
-                <span aria-hidden="true" className="earn-mascot-bubble-stream">
-                  {visibleText}
-                  <span
-                    className="earn-mascot-bubble-cursor"
-                    data-complete={isTextComplete}
-                  />
-                </span>
-              </span>
-            )}
-          </div>
-        ) : null}
         <button
           aria-label="Loyal mascot"
           className="earn-mascot-dog"
@@ -1728,7 +1539,6 @@ export function EarnTransactionsPane({
   isAutodepositConfigured = false,
   isBalanceHidden = false,
   isExecutingScheduledSweep = false,
-  mascotHelpPhrase = null,
   mascotPaneHeight = "38%",
   onExperimentalModeToggle,
   onExecuteScheduledSweep,
@@ -1747,7 +1557,6 @@ export function EarnTransactionsPane({
   isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
   isExecutingScheduledSweep?: boolean;
-  mascotHelpPhrase?: EarnMascotHelpPhrase | null;
   mascotPaneHeight?: string;
   onExperimentalModeToggle?: () => void;
   onExecuteScheduledSweep?: (
@@ -2679,7 +2488,6 @@ export function EarnTransactionsPane({
         </div>
       </section>
       <EarnMascotPanel
-        helpPhrase={mascotHelpPhrase}
         onExperimentalModeToggle={onExperimentalModeToggle}
       />
     </div>

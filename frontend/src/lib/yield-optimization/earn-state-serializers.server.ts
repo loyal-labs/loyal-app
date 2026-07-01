@@ -2,6 +2,7 @@ import type {
   CurrentEarnAutodepositState,
   PendingEarnAutodepositScheduledSweepRecord,
 } from "./earn-autodeposit-repository.server";
+import { getDisplayableEarnAutodepositScheduledSweeps } from "./earn-autodeposit-loaded-state.shared";
 import type {
   EarnDepositOnboardingAttemptRecord,
   EarnDepositOnboardingNextStep,
@@ -38,6 +39,10 @@ export function serializeAutodepositState(
     autodeposit.target.delegatedSigners[0] ??
     autodeposit.policy.delegatedSigners[0] ??
     null;
+  const scheduledSweeps = getDisplayableEarnAutodepositScheduledSweeps(
+    autodeposit.status,
+    autodeposit.scheduledSweeps
+  );
 
   return {
     active: autodeposit.target.active,
@@ -65,9 +70,7 @@ export function serializeAutodepositState(
       autodeposit.target.recurringDelegationConfirmedSlot?.toString() ?? null,
     recurringDelegationSignature:
       autodeposit.target.recurringDelegationSignature,
-    scheduledSweeps: (autodeposit.scheduledSweeps ?? []).map(
-      serializeScheduledSweep
-    ),
+    scheduledSweeps: scheduledSweeps.map(serializeScheduledSweep),
     startTimestamp:
       autodeposit.target.startTimestamp?.toString() ??
       Math.floor(autodeposit.target.firstSeenAt.getTime() / 1000).toString(),

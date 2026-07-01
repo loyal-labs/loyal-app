@@ -548,6 +548,7 @@ export type EarnAutodepositToggleRequest = {
 
 export type EarnAutodepositToggleResult = {
   success: boolean;
+  scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   target?: EarnAutodepositSetupConfirmResponse["target"];
   error?: string;
 };
@@ -6468,8 +6469,12 @@ export function useSmartAccountSidebarData(
         if (nextEarnState) {
           setEarnState(nextEarnState);
         }
+        const scheduledSweeps =
+          request.active && nextEarnState?.autodeposit?.status === "active"
+            ? nextEarnState.autodeposit.scheduledSweeps ?? []
+            : [];
 
-        return { success: true, target: response.target };
+        return { success: true, scheduledSweeps, target: response.target };
       } catch (err) {
         const error =
           err instanceof Error

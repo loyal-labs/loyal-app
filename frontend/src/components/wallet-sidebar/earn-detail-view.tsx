@@ -23,6 +23,11 @@ import {
 
 import { DogWithMood } from "@/components/chat-input";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   FALLBACK_EARN_FORECAST,
   formatEarnApyLabel,
   formatEarnApyPercent,
@@ -45,6 +50,7 @@ import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
+const decimalGray = "rgba(60, 60, 67, 0.4)";
 const POSITIVE_AMOUNT_COLOR = "#34C759";
 const LOYAL_EARN_BRAND_COLOR = "#F9363C";
 // USDC mark badged onto the Main Account icon when a row reflects only the
@@ -101,8 +107,70 @@ export type EarnHelpTopic =
   | "autodepositSource"
   | "autodepositThreshold"
   | "currentPositions"
-  | "earn"
-  | "mainAccount";
+  | "earn";
+
+type EarnHelpTooltipContext = {
+  autodepositFloorLabel?: string;
+  hasEarnPosition?: boolean;
+  mainAccountLabel?: string;
+};
+
+function getEarnHelpTooltip(
+  topic: EarnHelpTopic,
+  {
+    autodepositFloorLabel,
+    hasEarnPosition = false,
+    mainAccountLabel = "your Main Account",
+  }: EarnHelpTooltipContext
+): string {
+  if (topic === "autodeposit") {
+    return hasEarnPosition
+      ? `Autodeposit keeps ${
+          autodepositFloorLabel ?? "your chosen minimum"
+        } in ${mainAccountLabel}. When extra USDC arrives, it moves the surplus into Earn so it does not sit idle.`
+      : `Autodeposit turns on after your first Earn deposit. It keeps your chosen minimum in ${mainAccountLabel}, then moves extra USDC into Earn when it arrives.`;
+  }
+
+  if (topic === "autodepositPending") {
+    return "Autodeposit is almost ready. Finish the recurring allowance approval so future surplus USDC can move into Earn automatically.";
+  }
+
+  if (topic === "autodepositSetup") {
+    return hasEarnPosition
+      ? `Set up Autodeposit to watch ${mainAccountLabel}. It will keep your chosen minimum there and move extra USDC into Earn.`
+      : "Autodeposit becomes available after your first Earn deposit. Then it can keep a minimum in Main Account and move future surplus into Earn.";
+  }
+
+  if (topic === "autodepositLoading") {
+    return "Loyal is checking your Autodeposit settings and allowance status. This card updates when the latest state loads.";
+  }
+
+  if (topic === "autodepositLoadError") {
+    return "Loyal could not load Autodeposit settings. Retry refreshes the status without moving funds or changing your setup.";
+  }
+
+  if (topic === "autodepositThreshold") {
+    return `This is the minimum USDC Autodeposit leaves in ${mainAccountLabel}. Only the balance above this amount is moved into Earn.`;
+  }
+
+  if (topic === "autodepositSource") {
+    return `From is the account Autodeposit watches. New USDC arrives in ${mainAccountLabel}, and Autodeposit leaves your minimum there.`;
+  }
+
+  if (topic === "autodepositDestination") {
+    return "To is your Earn account. Surplus USDC from Main Account moves here so Loyal can route it into the current Earn target.";
+  }
+
+  if (topic === "autodepositDelete") {
+    return "Delete turns off future Autodeposit sweeps. It does not withdraw USDC already in Earn.";
+  }
+
+  if (topic === "earn") {
+    return "Earn is your USDC earning position. Loyal routes deposited USDC into the current Earn target and shows the live balance plus APY here.";
+  }
+
+  return "Current positions shows where your Earn USDC is sitting right now. Market rows are deployed for yield; Idle Balance is USDC not currently deployed into a market.";
+}
 
 export type EarnDepositSourceOption = {
   addressLabel: string;
@@ -1483,29 +1551,40 @@ function EarningsBlock({
                 width: "100%",
               }}
             >
-              <p
+              <div
                 style={{
-                  color: isBalanceHidden ? "#BBBBC0" : "#000",
-                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
-                  fontFamily: font,
-                  fontSize: "28px",
-                  fontWeight: 600,
-                  lineHeight: "32px",
-                  margin: 0,
-                  whiteSpace: "nowrap",
+                  alignItems: "center",
+                  display: "flex",
+                  gap: "6px",
+                  minWidth: 0,
                 }}
               >
-                {`$${headerValue.whole}`}
-                <span
+                <p
                   style={{
-                    color: isBalanceHidden
-                      ? "#BBBBC0"
-                      : "rgba(60, 60, 67, 0.4)",
+                    color: isBalanceHidden ? "#BBBBC0" : "#000",
+                    filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                    fontFamily: font,
+                    fontSize: "28px",
+                    fontWeight: 600,
+                    lineHeight: "32px",
+                    margin: 0,
+                    whiteSpace: "nowrap",
                   }}
                 >
-                  {`.${headerValue.fraction}`}
-                </span>
-              </p>
+                  {`$${headerValue.whole}`}
+                  <span
+                    style={{
+                      color: isBalanceHidden ? "#BBBBC0" : decimalGray,
+                    }}
+                  >
+                    {`.${headerValue.fraction}`}
+                  </span>
+                </p>
+                <EarnSectionHelpTrigger
+                  ariaLabel="About earned amount"
+                  tooltip="Total amount earned in the last 30 days."
+                />
+              </div>
               <span
                 style={{
                   color: secondary,
@@ -1849,7 +1928,7 @@ function AutodepositCard({
   scheduledSweeps = [],
   state = "idle",
   onDisable,
-  onHelp,
+  helpTooltip,
   onSetUp,
 }: {
   floorAccountLabel?: string;
@@ -1868,7 +1947,7 @@ function AutodepositCard({
     | "pausing"
     | "resuming";
   onDisable?: () => void;
-  onHelp?: () => void;
+  helpTooltip?: string;
   onSetUp?: () => void;
 }) {
   const isBusy = state === "creating" || state === "closing";
@@ -1892,27 +1971,6 @@ function AutodepositCard({
   // creating/closing/pausing/resuming/paused statuses are plain text and must
   // not blur.
   const statusLabelHasAmount = !isBusy && !isToggling && state !== "paused";
-  const [isHelpTriggerHighlighted, setIsHelpTriggerHighlighted] =
-    useState(false);
-  const [shouldShowHelpTrigger, setShouldShowHelpTrigger] = useState(false);
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
-      setShouldShowHelpTrigger(true);
-      return;
-    }
-
-    const mediaQuery = window.matchMedia(MOBILE_EARN_FORM_MEDIA_QUERY);
-    const updateHelpTriggerVisibility = () => {
-      setShouldShowHelpTrigger(!mediaQuery.matches);
-    };
-
-    updateHelpTriggerVisibility();
-    mediaQuery.addEventListener("change", updateHelpTriggerVisibility);
-
-    return () => {
-      mediaQuery.removeEventListener("change", updateHelpTriggerVisibility);
-    };
-  }, []);
   const renderTitleWithHelp = (title: string) => (
     <span
       className="earn-autodeposit-title-line"
@@ -1940,44 +1998,10 @@ function AutodepositCard({
       >
         {title}
       </span>
-      {shouldShowHelpTrigger ? (
-        <>
-          <button
-            aria-label="Ask Milo about Autodeposit"
-            className="earn-autodeposit-help-trigger"
-            onBlur={() => setIsHelpTriggerHighlighted(false)}
-            onClick={onHelp}
-            onFocus={() => setIsHelpTriggerHighlighted(true)}
-            onMouseEnter={() => setIsHelpTriggerHighlighted(true)}
-            onMouseLeave={() => setIsHelpTriggerHighlighted(false)}
-            style={{
-              alignItems: "center",
-              background: isHelpTriggerHighlighted
-                ? "rgba(249, 54, 60, 0.1)"
-                : "#fff",
-              border: "1px solid rgba(249, 54, 60, 0.34)",
-              borderRadius: "9999px",
-              boxShadow: "0 1px 2px rgba(0, 0, 0, 0.08)",
-              color: LOYAL_EARN_BRAND_COLOR,
-              cursor: "pointer",
-              display: "inline-flex",
-              flex: "0 0 auto",
-              height: "26px",
-              justifyContent: "center",
-              padding: 0,
-              transform: isHelpTriggerHighlighted
-                ? "translateY(-1px)"
-                : "translateY(0)",
-              transition:
-                "background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease",
-              width: "26px",
-            }}
-            type="button"
-          >
-            <CircleHelp aria-hidden="true" size={17} strokeWidth={2.25} />
-          </button>
-        </>
-      ) : null}
+      <EarnSectionHelpTrigger
+        ariaLabel="About Autodeposit"
+        tooltip={helpTooltip}
+      />
     </span>
   );
 
@@ -2013,36 +2037,6 @@ function AutodepositCard({
             gap: 6px;
             min-width: 0;
             max-width: 100%;
-          }
-          .earn-autodeposit-help-trigger {
-            align-items: center;
-            background: rgba(0, 0, 0, 0.04);
-            border: none;
-            border-radius: 9999px;
-            color: rgba(60, 60, 67, 0.58);
-            cursor: pointer;
-            display: inline-flex;
-            flex: 0 0 auto;
-            height: 22px;
-            justify-content: center;
-            padding: 0;
-            transition: background 0.15s ease, color 0.15s ease,
-              transform 0.15s ease;
-            width: 22px;
-          }
-          .earn-autodeposit-help-trigger:hover,
-          .earn-autodeposit-help-trigger:focus-visible {
-            background: rgba(0, 0, 0, 0.08);
-            color: rgba(0, 0, 0, 0.82);
-            transform: translateY(-1px);
-          }
-          .earn-autodeposit-help-trigger:active {
-            transform: translateY(0);
-          }
-          @media (max-width: 760px) {
-            .earn-autodeposit-help-trigger {
-              display: none;
-            }
           }
         `}</style>
         <section
@@ -2278,36 +2272,6 @@ function AutodepositCard({
           min-width: 0;
           max-width: 100%;
         }
-        .earn-autodeposit-help-trigger {
-          align-items: center;
-          background: rgba(0, 0, 0, 0.04);
-          border: none;
-          border-radius: 9999px;
-          color: rgba(60, 60, 67, 0.58);
-          cursor: pointer;
-          display: inline-flex;
-          flex: 0 0 auto;
-          height: 22px;
-          justify-content: center;
-          padding: 0;
-          transition: background 0.15s ease, color 0.15s ease,
-            transform 0.15s ease;
-          width: 22px;
-        }
-        .earn-autodeposit-help-trigger:hover,
-        .earn-autodeposit-help-trigger:focus-visible {
-          background: rgba(0, 0, 0, 0.08);
-          color: rgba(0, 0, 0, 0.82);
-          transform: translateY(-1px);
-        }
-        .earn-autodeposit-help-trigger:active {
-          transform: translateY(0);
-        }
-        @media (max-width: 760px) {
-          .earn-autodeposit-help-trigger {
-            display: none;
-          }
-        }
       `}</style>
       <section
         style={{
@@ -2407,23 +2371,27 @@ function AutodepositCard({
 
 function EarnSectionHelpTrigger({
   ariaLabel,
-  onOpen,
+  tooltip,
 }: {
   ariaLabel: string;
-  onOpen?: () => void;
+  tooltip?: string;
 }) {
   const [isHighlighted, setIsHighlighted] = useState(false);
+  const [isTooltipOpen, setIsTooltipOpen] = useState(false);
 
-  if (!onOpen) {
+  if (!tooltip) {
     return null;
   }
 
   return (
-    <>
+    <Tooltip open={isTooltipOpen}>
       <style jsx>{`
         .earn-section-help-trigger {
-          transition: background 0.15s ease, box-shadow 0.15s ease,
-            transform 0.15s ease;
+          transition: color 0.15s ease, transform 0.15s ease;
+        }
+        .earn-section-help-trigger:hover,
+        .earn-section-help-trigger:focus-visible {
+          color: ${secondary} !important;
         }
         @media (max-width: 760px) {
           .earn-section-help-trigger {
@@ -2431,37 +2399,67 @@ function EarnSectionHelpTrigger({
           }
         }
       `}</style>
-      <button
-        aria-label={ariaLabel}
-        className="earn-section-help-trigger"
-        onBlur={() => setIsHighlighted(false)}
-        onClick={onOpen}
-        onFocus={() => setIsHighlighted(true)}
-        onMouseEnter={() => setIsHighlighted(true)}
-        onMouseLeave={() => setIsHighlighted(false)}
+      <TooltipTrigger asChild>
+        <button
+          aria-label={ariaLabel}
+          className="earn-section-help-trigger"
+          onBlur={() => {
+            setIsHighlighted(false);
+            setIsTooltipOpen(false);
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onFocus={() => {
+            setIsHighlighted(true);
+            setIsTooltipOpen(true);
+          }}
+          onMouseEnter={() => {
+            setIsHighlighted(true);
+            setIsTooltipOpen(true);
+          }}
+          onMouseLeave={() => {
+            setIsHighlighted(false);
+            setIsTooltipOpen(false);
+          }}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setIsTooltipOpen(true);
+          }}
+          style={{
+            alignItems: "center",
+            background: "transparent",
+            border: "none",
+            color: isHighlighted ? secondary : decimalGray,
+            cursor: "help",
+            display: "inline-flex",
+            flex: "0 0 auto",
+            height: "20px",
+            justifyContent: "center",
+            padding: 0,
+            transform: isHighlighted ? "translateY(-1px)" : "translateY(0)",
+            width: "20px",
+          }}
+          type="button"
+        >
+          <CircleHelp aria-hidden="true" size={18} strokeWidth={2.1} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="top"
+        sideOffset={8}
         style={{
-          alignItems: "center",
-          background: isHighlighted ? "rgba(249, 54, 60, 0.16)" : "#fff",
-          border: "1px solid rgba(249, 54, 60, 0.32)",
-          borderRadius: "9999px",
-          boxShadow: isHighlighted
-            ? "0 3px 8px rgba(249, 54, 60, 0.14)"
-            : "0 1px 2px rgba(0, 0, 0, 0.08)",
-          color: LOYAL_EARN_BRAND_COLOR,
-          cursor: "pointer",
-          display: "inline-flex",
-          flex: "0 0 auto",
-          height: "20px",
-          justifyContent: "center",
-          padding: 0,
-          transform: isHighlighted ? "translateY(-1px)" : "translateY(0)",
-          width: "20px",
+          fontFamily: font,
+          lineHeight: "18px",
+          maxWidth: "280px",
+          textAlign: "left",
         }}
-        type="button"
       >
-        <CircleHelp aria-hidden="true" size={14} strokeWidth={2.35} />
-      </button>
-    </>
+        {tooltip}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -2483,7 +2481,6 @@ export function EarnDetailView({
   onDeposit,
   onDisableAutodeposit,
   onOpenAutodeposit,
-  onOpenEarnHelp,
   onWithdraw,
   principalAmount = 0,
 }: {
@@ -2517,7 +2514,6 @@ export function EarnDetailView({
   onDeposit?: () => void;
   onDisableAutodeposit?: () => void;
   onOpenAutodeposit?: () => void;
-  onOpenEarnHelp?: (topic: EarnHelpTopic) => void;
   onWithdraw?: () => void;
   principalAmount?: number;
 }) {
@@ -2553,6 +2549,14 @@ export function EarnDetailView({
     earningsRangeSet?.ranges[EARNINGS_MONTHLY_RANGE_ID] ?? null;
   const earningsDailyData =
     earningsRangeSet?.ranges[EARNINGS_DAILY_RANGE_ID] ?? null;
+  const mainAccountHelpLabel =
+    autodepositFloorAccountLabel ?? "your Main Account";
+  const helpTooltip = (topic: EarnHelpTopic) =>
+    getEarnHelpTooltip(topic, {
+      autodepositFloorLabel,
+      hasEarnPosition: hasCurrentPosition,
+      mainAccountLabel: mainAccountHelpLabel,
+    });
   const estimatedEarnedAmountApyBps = deriveEstimatedEarnedAmountApyBps({
     earningsData,
     earningsError,
@@ -2660,11 +2664,14 @@ export function EarnDetailView({
         <h2
           className="earn-detail-title"
           style={{
+            alignItems: "center",
             color: "#000",
+            display: "flex",
             flex: 1,
             fontFamily: font,
             fontSize: "20px",
             fontWeight: 600,
+            gap: "8px",
             lineHeight: "28px",
             margin: 0,
             minWidth: 0,
@@ -2674,7 +2681,19 @@ export function EarnDetailView({
             whiteSpace: "nowrap",
           }}
         >
-          Earn
+          <span
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            Earn
+          </span>
+          <EarnSectionHelpTrigger
+            ariaLabel="About Earn"
+            tooltip={helpTooltip("earn")}
+          />
         </h2>
         <div
           className={`earn-detail-actions${
@@ -2896,8 +2915,8 @@ export function EarnDetailView({
         isPendingSetup={isAutodepositPending}
         scheduledSweeps={autodepositScheduledSweeps}
         state={autodepositState}
+        helpTooltip={helpTooltip("autodeposit")}
         onDisable={onDisableAutodeposit}
-        onHelp={() => onOpenEarnHelp?.("autodeposit")}
         onSetUp={onOpenAutodeposit}
       />
 
@@ -2927,12 +2946,8 @@ export function EarnDetailView({
             >
               <span>Current positions</span>
               <EarnSectionHelpTrigger
-                ariaLabel="Ask Milo about current positions"
-                onOpen={
-                  onOpenEarnHelp
-                    ? () => onOpenEarnHelp("currentPositions")
-                    : undefined
-                }
+                ariaLabel="About current positions"
+                tooltip={helpTooltip("currentPositions")}
               />
             </h3>
           </div>
@@ -6814,7 +6829,6 @@ export function AutodepositSetupView({
   mainSource,
   onBack,
   onDelete,
-  onOpenEarnHelp,
   onSubmit,
 }: {
   earnBalance?: number;
@@ -6825,7 +6839,6 @@ export function AutodepositSetupView({
   mainSource?: EarnDepositSourceOption | null;
   onBack?: () => void;
   onDelete?: () => void;
-  onOpenEarnHelp?: (topic: EarnHelpTopic) => void;
   onSubmit?: (keepAmount: string) => void;
 }) {
   const keepAmountInputRef = useRef<HTMLInputElement | null>(null);
@@ -6846,6 +6859,15 @@ export function AutodepositSetupView({
     : isPendingSetup
     ? "Finish setup"
     : "Create Autodeposit";
+  const mainAccountHelpLabel = mainSource?.addressLabel ?? "your Main Account";
+  const helpTooltip = (topic: EarnHelpTopic) =>
+    getEarnHelpTooltip(topic, {
+      autodepositFloorLabel: `$${formatMoney(
+        normalizeAutodepositAmount(keepAmount)
+      )}`,
+      hasEarnPosition: earnBalance > 0,
+      mainAccountLabel: mainAccountHelpLabel,
+    });
 
   const focusKeepAmount = () => {
     keepAmountInputRef.current?.focus();
@@ -6926,33 +6948,39 @@ export function AutodepositSetupView({
         </button>
         <h2
           style={{
+            alignItems: "center",
             color: "#000",
+            display: "flex",
             flex: 1,
             fontFamily: font,
             fontSize: "20px",
             fontWeight: 600,
+            gap: "8px",
             lineHeight: "28px",
             margin: 0,
             minWidth: 0,
           }}
         >
-          <span>Autodeposit</span>
+          <span
+            style={{
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Autodeposit
+          </span>
           <EarnSectionHelpTrigger
-            ariaLabel="Ask Milo about Autodeposit"
-            onOpen={
-              onOpenEarnHelp ? () => onOpenEarnHelp("autodeposit") : undefined
-            }
+            ariaLabel="About Autodeposit"
+            tooltip={helpTooltip("autodeposit")}
           />
         </h2>
         {isEditing && !isPendingSetup && onDelete ? (
           <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
             <EarnSectionHelpTrigger
-              ariaLabel="Ask Milo about deleting Autodeposit"
-              onOpen={
-                onOpenEarnHelp
-                  ? () => onOpenEarnHelp("autodepositDelete")
-                  : undefined
-              }
+              ariaLabel="About deleting Autodeposit"
+              tooltip={helpTooltip("autodepositDelete")}
             />
             <button
               className="autodeposit-delete"
@@ -7020,12 +7048,8 @@ export function AutodepositSetupView({
             >
               <span>Only deposit anything above this amount</span>
               <EarnSectionHelpTrigger
-                ariaLabel="Ask Milo about the Autodeposit minimum"
-                onOpen={
-                  onOpenEarnHelp
-                    ? () => onOpenEarnHelp("autodepositThreshold")
-                    : undefined
-                }
+                ariaLabel="About the Autodeposit minimum"
+                tooltip={helpTooltip("autodepositThreshold")}
               />
             </div>
             <AutodepositAmountInputRow
@@ -7067,12 +7091,8 @@ export function AutodepositSetupView({
             >
               <span>From</span>
               <EarnSectionHelpTrigger
-                ariaLabel="Ask Milo about the Autodeposit source"
-                onOpen={
-                  onOpenEarnHelp
-                    ? () => onOpenEarnHelp("autodepositSource")
-                    : undefined
-                }
+                ariaLabel="About the Autodeposit source"
+                tooltip={helpTooltip("autodepositSource")}
               />
             </div>
           </div>
@@ -7109,12 +7129,8 @@ export function AutodepositSetupView({
             >
               <span>To</span>
               <EarnSectionHelpTrigger
-                ariaLabel="Ask Milo about the Autodeposit destination"
-                onOpen={
-                  onOpenEarnHelp
-                    ? () => onOpenEarnHelp("autodepositDestination")
-                    : undefined
-                }
+                ariaLabel="About the Autodeposit destination"
+                tooltip={helpTooltip("autodepositDestination")}
               />
             </div>
           </div>

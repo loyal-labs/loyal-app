@@ -25,7 +25,7 @@ export function isStablecoinMint(
   return typeof mint === "string" && stablecoinMints.has(mint);
 }
 
-export function sumPublicStablecoinUsd(
+export function sumPublicStablecoinParValueUsd(
   positions: readonly PortfolioPosition[],
   stablecoinMints: ReadonlySet<string>
 ): number {
@@ -34,9 +34,9 @@ export function sumPublicStablecoinUsd(
       return sum;
     }
 
-    const valueUsd = position.publicValueUsd;
-    return typeof valueUsd === "number" && Number.isFinite(valueUsd)
-      ? sum + valueUsd
+    const balance = position.publicBalance;
+    return typeof balance === "number" && Number.isFinite(balance)
+      ? sum + balance
       : sum;
   }, 0);
 }
