@@ -69,22 +69,32 @@ export default async function DashboardHome() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-7xl px-6 py-10 lg:px-10">
-        <div className="grid gap-x-10 gap-y-12 xl:grid-cols-2">
+      <section className="mx-auto w-full max-w-[1840px] px-6 py-12 lg:px-10">
+        <div className="grid gap-x-14 gap-y-14 xl:grid-cols-2">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-normal">
-              Weekly Cumulative Earn AUM
-            </h2>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-xl font-semibold tracking-normal">
+                Earn AUM by Week
+              </h2>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Weekly snapshot. Current AUM is shown above.
+              </p>
+            </div>
             <EarnAumBarChart
-              ariaLabel="Weekly cumulative Earn AUM bar chart from Jun 15 through the latest data"
+              ariaLabel="Earn AUM weekly snapshot bar chart from Jun 15 through the latest data"
               metricLabel="Earn AUM"
               points={snapshot.earnAumSeries}
             />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold tracking-normal">
-              Weekly Optimization Volume
-            </h2>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-xl font-semibold tracking-normal">
+                Weekly Optimization Volume
+              </h2>
+              <p className="text-sm leading-6 text-muted-foreground">
+                Bars show weekly moved volume. Total above is cumulative.
+              </p>
+            </div>
             <EarnAumBarChart
               ariaLabel="Weekly optimization volume bar chart from Jun 15 through the latest data"
               metricLabel="optimization volume"

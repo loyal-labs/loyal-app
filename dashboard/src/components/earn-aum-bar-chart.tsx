@@ -20,12 +20,12 @@ type ChartPoint = WeeklyChartPoint & {
 };
 
 const chartWidth = 1120;
-const chartHeight = 460;
+const chartHeight = 560;
 const chartPadding = {
-  top: 32,
-  right: 34,
-  bottom: 76,
-  left: 102,
+  top: 58,
+  right: 42,
+  bottom: 86,
+  left: 108,
 };
 const tooltipWidth = 238;
 const tooltipHeight = 94;
@@ -50,6 +50,19 @@ function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-US", {
     currency: "USD",
     maximumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
+function formatCompactCurrency(value: number) {
+  if (value === 0) {
+    return "$0";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: value >= 1_000_000 ? 2 : 1,
+    notation: "compact",
     style: "currency",
   }).format(value);
 }
@@ -88,7 +101,7 @@ function getChartPoints(points: WeeklyChartPoint[], maxValue: number) {
   const plotHeight = chartHeight - chartPadding.top - chartPadding.bottom;
   const baseline = chartPadding.top + plotHeight;
   const slotWidth = plotWidth / Math.max(points.length, 1);
-  const barWidth = Math.min(70, Math.max(24, slotWidth * 0.58));
+  const barWidth = Math.min(92, Math.max(32, slotWidth * 0.64));
 
   return points.map((point, index) => {
     const rawHeight = (Math.min(point.value, maxValue) / maxValue) * plotHeight;
@@ -198,11 +211,23 @@ export function EarnAumBarChart({
               <rect
                 fill={active ? "#f9363c" : "#0b0d0f"}
                 height={point.barHeight}
-                rx="5"
+                rx="7"
                 x={point.x}
                 y={point.y}
                 width={point.barWidth}
               />
+              {point.value > 0 ? (
+                <text
+                  fill={active ? "#f9363c" : "#101418"}
+                  fontSize="18"
+                  fontWeight="650"
+                  textAnchor="middle"
+                  x={point.centerX}
+                  y={Math.max(chartPadding.top - 18, point.y - 14)}
+                >
+                  {formatCompactCurrency(point.value)}
+                </text>
+              ) : null}
               <rect
                 aria-label={`${point.periodLabel}: ${formatCurrency(point.value)} ${metricLabel}`}
                 fill="transparent"
