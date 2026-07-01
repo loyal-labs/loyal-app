@@ -1101,6 +1101,49 @@
   background: rgba(0, 0, 0, 0.04);
 }
 
+.wallet-workspace-bug-report-link,
+.wallet-workspace-docs-link {
+  position: fixed;
+  left: 16px;
+  z-index: 30;
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(60, 60, 67, 0.58);
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.wallet-workspace-bug-report-link {
+  bottom: 128px;
+}
+
+.wallet-workspace-docs-link {
+  bottom: 72px;
+}
+
+.wallet-workspace-bug-report-link:hover,
+.wallet-workspace-docs-link:hover {
+  background: rgba(249, 54, 60, 0.12);
+  color: #f9363c;
+  transform: translateY(-1px);
+}
+
+.wallet-workspace-bug-report-link:focus-visible,
+.wallet-workspace-docs-link:focus-visible {
+  outline: 2px solid rgba(249, 54, 60, 0.55);
+  outline-offset: 2px;
+}
+
 .wallet-workspace-logout[data-disabled="true"] {
   cursor: default;
   opacity: 0.35;
@@ -1480,6 +1523,8 @@
 }
 
 @media (max-width: 760px) {
+  .wallet-workspace-bug-report-link:not([data-mobile-pane="accounts"]),
+  .wallet-workspace-docs-link:not([data-mobile-pane="accounts"]),
   .wallet-workspace-logout:not([data-mobile-pane="accounts"]) {
     display: none;
   }

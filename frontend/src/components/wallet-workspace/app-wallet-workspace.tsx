@@ -4,6 +4,8 @@ import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  BookOpen,
+  Bug,
   ChevronLeft,
   Copy,
   Eye,
@@ -1067,6 +1069,42 @@ function WalletWorkspaceLogout({
     >
       <LogOut size={20} strokeWidth={1.8} />
     </button>
+  );
+}
+
+function WalletWorkspaceDocsLink({ mobilePane }: { mobilePane: MobilePane }) {
+  return (
+    <a
+      aria-label="Open documentation"
+      className="wallet-workspace-docs-link"
+      data-mobile-pane={mobilePane}
+      href="https://docs.askloyal.com"
+      rel="noopener noreferrer"
+      target="_blank"
+      title="Open documentation"
+    >
+      <BookOpen size={20} strokeWidth={1.8} />
+    </a>
+  );
+}
+
+function WalletWorkspaceBugReportLink({
+  mobilePane,
+}: {
+  mobilePane: MobilePane;
+}) {
+  return (
+    <a
+      aria-label="Report an issue"
+      className="wallet-workspace-bug-report-link"
+      data-mobile-pane={mobilePane}
+      href="https://tally.so/r/ZjRpev"
+      rel="noopener noreferrer"
+      target="_blank"
+      title="Report an issue"
+    >
+      <Bug size={20} strokeWidth={1.8} />
+    </a>
   );
 }
 
@@ -7339,6 +7377,10 @@ export function AppWalletWorkspace({
         enabled={canLoadPersonalAccount && hasUnlockedShieldedBalances}
       />
 
+      <WalletWorkspaceBugReportLink mobilePane={mobilePane} />
+
+      <WalletWorkspaceDocsLink mobilePane={mobilePane} />
+
       <WalletWorkspaceLogout
         isSignedIn={isSignedIn}
         mobilePane={mobilePane}
@@ -7740,6 +7782,47 @@ export function AppWalletWorkspace({
           cursor: pointer;
           transition: background 0.15s ease, color 0.15s ease,
             transform 0.15s ease;
+        }
+
+        .wallet-workspace-bug-report-link,
+        .wallet-workspace-docs-link {
+          position: fixed;
+          left: 16px;
+          z-index: 30;
+          width: 44px;
+          height: 44px;
+          border-radius: 9999px;
+          border: 0;
+          background: rgba(0, 0, 0, 0.04);
+          color: rgba(60, 60, 67, 0.58);
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          text-decoration: none;
+          cursor: pointer;
+          transition: background 0.15s ease, color 0.15s ease,
+            transform 0.15s ease;
+        }
+
+        .wallet-workspace-bug-report-link {
+          bottom: 128px;
+        }
+
+        .wallet-workspace-docs-link {
+          bottom: 72px;
+        }
+
+        .wallet-workspace-bug-report-link:hover,
+        .wallet-workspace-docs-link:hover {
+          background: rgba(249, 54, 60, 0.12);
+          color: #f9363c;
+          transform: translateY(-1px);
+        }
+
+        .wallet-workspace-bug-report-link:focus-visible,
+        .wallet-workspace-docs-link:focus-visible {
+          outline: 2px solid rgba(249, 54, 60, 0.55);
+          outline-offset: 2px;
         }
 
         .wallet-workspace-logout:hover {
@@ -8768,6 +8851,8 @@ export function AppWalletWorkspace({
             display: none !important;
           }
 
+          .wallet-workspace-bug-report-link:not([data-mobile-pane="accounts"]),
+          .wallet-workspace-docs-link:not([data-mobile-pane="accounts"]),
           .wallet-workspace-logout:not([data-mobile-pane="accounts"]) {
             display: none;
           }
