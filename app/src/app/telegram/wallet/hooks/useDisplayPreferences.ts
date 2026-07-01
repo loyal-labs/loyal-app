@@ -76,5 +76,11 @@ export function useDisplayPreferences(): {
     })();
   }, []);
 
-  return { displayCurrency, setDisplayCurrency, balanceBg, bgLoaded, handleBgSelect };
+  return {
+    displayCurrency,
+    setDisplayCurrency,
+    balanceBg,
+    bgLoaded,
+    handleBgSelect,
+  };
 }

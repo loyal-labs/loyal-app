@@ -3,6 +3,7 @@
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "strict": true,
     "noEmit": true,
@@ -20,10 +21,18 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
+      "@loyal-labs/actions": ["../packages/loyal-actions/src/index.ts"],
+      "@loyal-labs/actions/constants": [
+        "../packages/loyal-actions/src/constants.ts"
+      ],
+      "@loyal-labs/actions/types": ["../packages/loyal-actions/src/types.ts"],
       "@loyal-labs/shared": ["../packages/shared/src/index.ts"],
       "@loyal-labs/shared/analytics": ["../packages/shared/src/analytics.ts"],
       "@loyal-labs/shared/analytics-server": [
         "../packages/shared/src/analytics-server.ts"
+      ],
+      "@loyal-labs/smart-account-vaults": [
+        "../packages/smart-account-vaults/src/index.ts"
       ],
       "@loyal-labs/solana-instruction-decoder": [
         "../packages/solana-instruction-decoder/src/index.ts"

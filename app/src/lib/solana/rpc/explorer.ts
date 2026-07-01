@@ -13,8 +13,7 @@ const clusterParam = (env: SolanaEnv): string => {
 };
 
 export const getExplorerTxUrl = (signature: string): string => {
-  const suffix = clusterParam(getSolanaEnv());
-  return `https://explorer.solana.com/tx/${signature}${suffix}`;
+  return `https://orbmarkets.io/tx/${signature}`;
 };
 
 export const getSolscanAccountUrl = (address: string): string => {

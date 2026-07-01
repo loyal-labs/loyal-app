@@ -53,7 +53,6 @@ export interface BuildShieldFlowTransactionPlanParams {
   amount: number | bigint;
   payer?: PublicKey;
   validator?: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram?: PublicKey;
   magicContext?: PublicKey;
 }
@@ -96,7 +95,6 @@ export interface ShieldTokensClientParams {
   amount: number | bigint;
   payer?: PublicKey;
   validator?: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram?: PublicKey;
   magicContext?: PublicKey;
   rpcOptions?: RpcOptions;
@@ -108,7 +106,6 @@ export interface UnshieldTokensClientParams {
   amount: number | bigint;
   payer?: PublicKey;
   validator?: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram?: PublicKey;
   magicContext?: PublicKey;
   rpcOptions?: RpcOptions;
@@ -430,7 +427,6 @@ export interface UndelegateDepositParams {
   user: PublicKey;
   tokenMint: PublicKey;
   payer: PublicKey;
-  sessionToken?: PublicKey | null;
   magicProgram: PublicKey;
   magicContext: PublicKey;
   rpcOptions?: RpcOptions;
@@ -464,7 +460,6 @@ export interface TransferDepositParams {
   destinationUser: PublicKey;
   amount: number | bigint;
   payer: PublicKey;
-  sessionToken?: PublicKey | null;
   rpcOptions?: RpcOptions;
 }
 
@@ -477,7 +472,6 @@ export interface TransferToUsernameDepositParams {
   amount: number | bigint;
   user: PublicKey;
   payer: PublicKey;
-  sessionToken?: PublicKey | null;
   rpcOptions?: RpcOptions;
 }
 

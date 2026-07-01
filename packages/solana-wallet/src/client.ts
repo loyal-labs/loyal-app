@@ -58,10 +58,7 @@ function parsePublicKey(value: AddressInput): PublicKey {
   }
 }
 
-function isCacheValid(
-  fetchedAt: number,
-  ttlMs: number
-): boolean {
+function isCacheValid(fetchedAt: number, ttlMs: number): boolean {
   return Date.now() - fetchedAt < ttlMs;
 }
 
@@ -164,7 +161,10 @@ export function createSolanaWalletDataClient(
     });
 
   const portfolioCache = new Map<string, CachedPortfolio>();
-  const inflightPortfolioRequests = new Map<string, Promise<PortfolioSnapshot>>();
+  const inflightPortfolioRequests = new Map<
+    string,
+    Promise<PortfolioSnapshot>
+  >();
   const activityCache = new Map<string, CachedActivity>();
   const inflightActivityRequests = new Map<string, Promise<ActivityPage>>();
 
@@ -230,17 +230,19 @@ export function createSolanaWalletDataClient(
     const loader = (async () => {
       const assetSnapshot = await assetProvider.getAssetSnapshot(owner);
       const secureBalances: SecureBalanceMap = config.secureBalanceProvider
-        ? await config.secureBalanceProvider({
-            owner,
-            env,
-            tokenMints: assetSnapshot.assets.map(
-              (assetBalance) => new PublicKey(assetBalance.asset.mint)
-            ),
-            assetBalances: assetSnapshot.assets,
-          }).catch((error) => {
-            logger.warn?.("Failed to fetch secure balances", error);
-            return new Map<string, bigint>();
-          })
+        ? await config
+            .secureBalanceProvider({
+              owner,
+              env,
+              tokenMints: assetSnapshot.assets.map(
+                (assetBalance) => new PublicKey(assetBalance.asset.mint)
+              ),
+              assetBalances: assetSnapshot.assets,
+            })
+            .catch((error) => {
+              logger.warn?.("Failed to fetch secure balances", error);
+              return new Map<string, bigint>();
+            })
         : new Map<string, bigint>();
 
       const shieldedOnly = await resolveShieldedOnlyAssets({

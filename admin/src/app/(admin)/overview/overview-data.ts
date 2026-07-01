@@ -5,7 +5,12 @@ import { and, count, gte, lt, sql } from "drizzle-orm";
 
 import { getDatabase } from "@/lib/core/database";
 import { CACHE_TAGS, DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
-import { communities, messages, summaries, users } from "@loyal-labs/db-core/schema";
+import {
+  communities,
+  messages,
+  summaries,
+  users,
+} from "@loyal-labs/db-core/schema";
 
 export type OverviewChartPoint = {
   date: string;
@@ -37,7 +42,7 @@ export type OverviewData = {
 function getWindowBoundsUtc() {
   const now = new Date();
   const endExclusive = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1),
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
   );
   const startInclusive = new Date(endExclusive);
   startInclusive.setUTCDate(startInclusive.getUTCDate() - 30);
@@ -75,72 +80,74 @@ async function loadOverviewData(): Promise<OverviewData> {
     to_char((date_trunc('day', ${users.createdAt} AT TIME ZONE 'UTC'))::date, 'YYYY-MM-DD')
   `;
 
-  const [summaryRows, messageRows, communityRows, userRows] = await Promise.all([
-    db
-      .select({
-        day: summariesDayExpression,
-        count: count(),
-      })
-      .from(summaries)
-      .where(
-        and(
-          gte(summaries.createdAt, startInclusive),
-          lt(summaries.createdAt, endExclusive),
-        ),
-      )
-      .groupBy(summariesDayExpression),
-    db
-      .select({
-        day: messagesDayExpression,
-        count: count(),
-      })
-      .from(messages)
-      .where(
-        and(
-          gte(messages.createdAt, startInclusive),
-          lt(messages.createdAt, endExclusive),
-        ),
-      )
-      .groupBy(messagesDayExpression),
-    db
-      .select({
-        day: communitiesDayExpression,
-        count: count(),
-      })
-      .from(communities)
-      .where(
-        and(
-          gte(communities.updatedAt, startInclusive),
-          lt(communities.updatedAt, endExclusive),
-        ),
-      )
-      .groupBy(communitiesDayExpression),
-    db
-      .select({
-        day: usersDayExpression,
-        count: count(),
-      })
-      .from(users)
-      .where(
-        and(
-          gte(users.createdAt, startInclusive),
-          lt(users.createdAt, endExclusive),
-        ),
-      )
-      .groupBy(usersDayExpression),
-  ]);
+  const [summaryRows, messageRows, communityRows, userRows] = await Promise.all(
+    [
+      db
+        .select({
+          day: summariesDayExpression,
+          count: count(),
+        })
+        .from(summaries)
+        .where(
+          and(
+            gte(summaries.createdAt, startInclusive),
+            lt(summaries.createdAt, endExclusive)
+          )
+        )
+        .groupBy(summariesDayExpression),
+      db
+        .select({
+          day: messagesDayExpression,
+          count: count(),
+        })
+        .from(messages)
+        .where(
+          and(
+            gte(messages.createdAt, startInclusive),
+            lt(messages.createdAt, endExclusive)
+          )
+        )
+        .groupBy(messagesDayExpression),
+      db
+        .select({
+          day: communitiesDayExpression,
+          count: count(),
+        })
+        .from(communities)
+        .where(
+          and(
+            gte(communities.updatedAt, startInclusive),
+            lt(communities.updatedAt, endExclusive)
+          )
+        )
+        .groupBy(communitiesDayExpression),
+      db
+        .select({
+          day: usersDayExpression,
+          count: count(),
+        })
+        .from(users)
+        .where(
+          and(
+            gte(users.createdAt, startInclusive),
+            lt(users.createdAt, endExclusive)
+          )
+        )
+        .groupBy(usersDayExpression),
+    ]
+  );
 
   const summariesByDay = new Map(
-    summaryRows.map((row) => [row.day, Number(row.count) || 0]),
+    summaryRows.map((row) => [row.day, Number(row.count) || 0])
   );
   const messagesByDay = new Map(
-    messageRows.map((row) => [row.day, Number(row.count) || 0]),
+    messageRows.map((row) => [row.day, Number(row.count) || 0])
   );
   const communitiesByDay = new Map(
-    communityRows.map((row) => [row.day, Number(row.count) || 0]),
+    communityRows.map((row) => [row.day, Number(row.count) || 0])
   );
   const usersByDay = new Map(
-    userRows.map((row) => [row.day, Number(row.count) || 0]),
+    userRows.map((row) => [row.day, Number(row.count) || 0])
   );
 
   let runningSummariesTotal = 0;
@@ -186,10 +193,14 @@ async function loadOverviewData(): Promise<OverviewData> {
   };
 }
 
-const getCachedOverviewData = unstable_cache(loadOverviewData, ["overview-data"], {
-  revalidate: DATA_CACHE_TTL_SECONDS,
-  tags: [CACHE_TAGS.overview],
-});
+const getCachedOverviewData = unstable_cache(
+  loadOverviewData,
+  ["overview-data"],
+  {
+    revalidate: DATA_CACHE_TTL_SECONDS,
+    tags: [CACHE_TAGS.overview],
+  }
+);
 
 export async function getOverviewData(): Promise<OverviewData> {
   return getCachedOverviewData();

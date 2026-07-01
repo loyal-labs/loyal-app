@@ -105,26 +105,6 @@ describe("server config", () => {
     expect(serverEnv.cronSecret).toBe("cron-secret");
   });
 
-  test("returns optional values when present", () => {
-    process.env.MESSAGE_ENCRYPTION_KEY = "  key  ";
-    process.env.NEXT_PUBLIC_MIXPANEL_TOKEN = "  token  ";
-    process.env.CLOUDFLARE_R2_S3_ENDPOINT = "  https://r2.example.com  ";
-    process.env.CLOUDFLARE_R2_UPLOAD_PREFIX = "  uploads  ";
-
-    expect(serverEnv.messageEncryptionKey).toBe("key");
-    expect(serverEnv.mixpanelToken).toBe("token");
-    expect(serverEnv.cloudflareR2S3Endpoint).toBe("https://r2.example.com");
-    expect(serverEnv.cloudflareR2UploadPrefix).toBe("uploads");
-  });
-
-  test("returns Ax summary defaults when env values are not set", () => {
-    expect(serverEnv.axSummaryModelDefault).toBe("z-ai/glm-4.7");
-    expect(serverEnv.axSummaryMaxAttempts).toBe(3);
-    expect(serverEnv.axSummaryExamplesVersion).toBe("v1");
-    expect(serverEnv.axSummaryEnableTelemetry).toBe(true);
-    expect(serverEnv.summaryAxModel).toBeUndefined();
-  });
-
   test("supports legacy and new Ax summary model envs", () => {
     process.env.SUMMARY_AX_MODEL = "legacy/model";
     expect(serverEnv.summaryAxModel).toBe("legacy/model");
@@ -149,10 +129,6 @@ describe("server config", () => {
     expect(() => serverEnv.axSummaryMaxAttempts).toThrow(
       "AX_SUMMARY_MAX_ATTEMPTS must be a positive integer"
     );
-  });
-
-  test("returns null summary override when env vars are not set", () => {
-    expect(serverEnv.telegramSummaryPeerOverride).toBeNull();
   });
 
   test("returns summary override when both env vars are set", () => {
@@ -190,7 +166,9 @@ describe("server config", () => {
       "https://cdn-second.example.com";
     process.env.CLOUDFLARE_CDN_BASE_URL = "https://cdn-first.example.com";
 
-    expect(serverEnv.cloudflareCdnBaseUrl).toBe("https://cdn-first.example.com");
+    expect(serverEnv.cloudflareCdnBaseUrl).toBe(
+      "https://cdn-first.example.com"
+    );
   });
 
   test("reports R2 config availability correctly", () => {

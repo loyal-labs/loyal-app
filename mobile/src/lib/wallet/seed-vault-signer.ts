@@ -23,7 +23,7 @@ export class SeedVaultSigner implements Signer {
   constructor(
     readonly authToken: number,
     readonly derivationPath: string,
-    publicKeyBase58: string,
+    publicKeyBase58: string
   ) {
     this.publicKey = new PublicKey(publicKeyBase58);
   }
@@ -37,7 +37,7 @@ export class SeedVaultSigner implements Signer {
   }
 
   async signTransaction<T extends Transaction | VersionedTransaction>(
-    tx: T,
+    tx: T
   ): Promise<T> {
     // The vault signs the message bytes, not the full serialized
     // transaction (which would include the empty signature slots).
@@ -57,16 +57,13 @@ export class SeedVaultSigner implements Signer {
       // payer is at index 0 — we only support single-signer vault wallets.
       tx.signatures[0] = signature;
     } else {
-      (tx as Transaction).addSignature(
-        this.publicKey,
-        Buffer.from(signature),
-      );
+      (tx as Transaction).addSignature(this.publicKey, Buffer.from(signature));
     }
     return tx;
   }
 
   async signAllTransactions<T extends Transaction | VersionedTransaction>(
-    txs: T[],
+    txs: T[]
   ): Promise<T[]> {
     for (const tx of txs) {
       await this.signTransaction(tx);

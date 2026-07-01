@@ -1,6 +1,4 @@
-import {
-  useWallet,
-} from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
@@ -31,14 +29,14 @@ export function useWalletBalances() {
     setError(null);
 
     try {
-      const tokenBalances = (await client.getPortfolio(publicKey)).positions.map(
-        (position) => ({
-          symbol: position.asset.symbol,
-          balance: position.totalBalance,
-          mint: position.asset.mint,
-          decimals: position.asset.decimals,
-        })
-      );
+      const tokenBalances = (
+        await client.getPortfolio(publicKey)
+      ).positions.map((position) => ({
+        symbol: position.asset.symbol,
+        balance: position.totalBalance,
+        mint: position.asset.mint,
+        decimals: position.asset.decimals,
+      }));
 
       setBalances(tokenBalances);
       setLoading(false);

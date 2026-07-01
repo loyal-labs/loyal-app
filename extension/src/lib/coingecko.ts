@@ -82,11 +82,11 @@ function stripSolanaPrefix(poolId: string): string {
 // ---------------------------------------------------------------------------
 
 export async function fetchTokenData(
-  mint: string,
+  mint: string
 ): Promise<CoinGeckoTokenData> {
   const res = await fetch(
     `${BASE_URL}/onchain/networks/solana/tokens/${mint}`,
-    { headers: getHeaders() },
+    { headers: getHeaders() }
   );
   if (res.status === 404) {
     throw new CoinGeckoNotFoundError(mint);
@@ -100,7 +100,7 @@ export async function fetchTokenData(
   const rels = json.data.relationships ?? {};
 
   const topPools: string[] = (rels.top_pools?.data ?? []).map(
-    (p: { id: string; type: string }) => stripSolanaPrefix(p.id),
+    (p: { id: string; type: string }) => stripSolanaPrefix(p.id)
   );
 
   return {
@@ -118,11 +118,11 @@ export async function fetchTokenData(
 }
 
 export async function fetchTokenInfo(
-  mint: string,
+  mint: string
 ): Promise<CoinGeckoTokenInfo> {
   const res = await fetch(
     `${BASE_URL}/onchain/networks/solana/tokens/${mint}/info`,
-    { headers: getHeaders() },
+    { headers: getHeaders() }
   );
   if (res.status === 404) {
     throw new CoinGeckoNotFoundError(mint);
@@ -161,21 +161,23 @@ interface ChartResult {
 }
 
 export async function fetchChart(
-  coingeckoCoinId: string,
+  coingeckoCoinId: string
 ): Promise<ChartResult> {
   const res = await fetch(
     `${BASE_URL}/coins/${coingeckoCoinId}/market_chart?vs_currency=usd&days=1`,
-    { headers: getHeaders() },
+    { headers: getHeaders() }
   );
   if (!res.ok) {
     throw new Error(`fetchChart failed: ${res.status} ${res.statusText}`);
   }
 
   const json = await res.json();
-  const points = (json.prices as [number, number][]).map(([timestamp, price]) => ({
-    timestamp,
-    price,
-  }));
+  const points = (json.prices as [number, number][]).map(
+    ([timestamp, price]) => ({
+      timestamp,
+      price,
+    })
+  );
 
   const volumes = json.total_volumes as [number, number][] | undefined;
   const volume24h = volumes?.length ? volumes[volumes.length - 1][1] : null;
@@ -184,11 +186,11 @@ export async function fetchChart(
 }
 
 export async function fetchPoolOhlcv(
-  poolId: string,
+  poolId: string
 ): Promise<CoinGeckoChartPoint[]> {
   const res = await fetch(
     `${BASE_URL}/onchain/networks/solana/pools/${poolId}/ohlcv/hour`,
-    { headers: getHeaders() },
+    { headers: getHeaders() }
   );
   if (!res.ok) {
     throw new Error(`fetchPoolOhlcv failed: ${res.status} ${res.statusText}`);
@@ -204,15 +206,20 @@ export async function fetchPoolOhlcv(
 }
 
 export async function fetchPriceChanges(
-  mints: string[],
+  mints: string[]
 ): Promise<Record<string, number>> {
   if (mints.length === 0) return {};
   const res = await fetch(
-    `${BASE_URL}/simple/token_price/solana?contract_addresses=${mints.join(",")}&vs_currencies=usd&include_24hr_change=true`,
-    { headers: getHeaders() },
+    `${BASE_URL}/simple/token_price/solana?contract_addresses=${mints.join(
+      ","
+    )}&vs_currencies=usd&include_24hr_change=true`,
+    { headers: getHeaders() }
   );
   if (!res.ok) return {};
-  const json = await res.json() as Record<string, { usd_24h_change?: number }>;
+  const json = (await res.json()) as Record<
+    string,
+    { usd_24h_change?: number }
+  >;
   const result: Record<string, number> = {};
   for (const [mint, data] of Object.entries(json)) {
     if (typeof data.usd_24h_change === "number") {
@@ -230,30 +237,30 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 const cache = new Map<string, { data: TokenDetailData; expiresAt: number }>();
 const inflight = new Map<string, Promise<TokenDetailData>>();
 
-export async function fetchTokenDetail(
-  mint: string,
-): Promise<TokenDetailData> {
+export async function fetchTokenDetail(mint: string): Promise<TokenDetailData> {
   const cached = cache.get(mint);
   if (cached && cached.expiresAt > Date.now()) return cached.data;
 
   const existing = inflight.get(mint);
   if (existing) return existing;
 
-  const promise = fetchTokenDetailUncached(mint).then((data) => {
-    cache.set(mint, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-    inflight.delete(mint);
-    return data;
-  }).catch((err) => {
-    inflight.delete(mint);
-    throw err;
-  });
+  const promise = fetchTokenDetailUncached(mint)
+    .then((data) => {
+      cache.set(mint, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+      inflight.delete(mint);
+      return data;
+    })
+    .catch((err) => {
+      inflight.delete(mint);
+      throw err;
+    });
 
   inflight.set(mint, promise);
   return promise;
 }
 
 async function fetchTokenDetailUncached(
-  mint: string,
+  mint: string
 ): Promise<TokenDetailData> {
   const [token, info] = await Promise.all([
     fetchTokenData(mint),

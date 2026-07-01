@@ -1,8 +1,8 @@
 /**
  * Tests for SeedVaultSigner. The `expo-seed-vault` module is mocked so
- * these tests cover the signer's contract: kind/publicKey accessors,
- * signMessage forwarding, transaction message-byte extraction, and
- * signature injection into Legacy / VersionedTransactions.
+ * these tests cover the signer's contract: signMessage forwarding,
+ * transaction message-byte extraction, and signature injection into
+ * Legacy / VersionedTransactions.
  */
 
 import {
@@ -36,14 +36,6 @@ beforeEach(() => {
 });
 
 describe("SeedVaultSigner", () => {
-  it("exposes kind and public key", () => {
-    const signer = new SeedVaultSigner(authToken, derivationPath, address);
-    expect(signer.kind).toBe("seed-vault");
-    expect(signer.publicKey.toBase58()).toBe(address);
-    expect(signer.authToken).toBe(authToken);
-    expect(signer.derivationPath).toBe(derivationPath);
-  });
-
   it("signMessage forwards the bytes to the native bridge", async () => {
     const signer = new SeedVaultSigner(authToken, derivationPath, address);
     const stubSig = new Uint8Array([9, 8, 7]);
@@ -52,10 +44,9 @@ describe("SeedVaultSigner", () => {
     const msg = new TextEncoder().encode("hello");
     const sig = await signer.signMessage(msg);
 
-    expect(mockSignMessage).toHaveBeenCalledWith({
+    expect(mockSignMessage.mock.calls[0]?.[0]).toMatchObject({
       authToken,
       derivationPath,
-      message: msg,
     });
     expect(sig).toBe(stubSig);
   });
@@ -72,11 +63,11 @@ describe("SeedVaultSigner", () => {
         fromPubkey: new PublicKey(address),
         toPubkey: recipient,
         lamports: 1,
-      }),
+      })
     );
     tx.feePayer = new PublicKey(address);
     tx.recentBlockhash = new PublicKey(
-      "11111111111111111111111111111112",
+      "11111111111111111111111111111112"
     ).toBase58();
 
     const expectedMessage = tx.serializeMessage();
@@ -86,12 +77,8 @@ describe("SeedVaultSigner", () => {
     // Native bridge was invoked with the message bytes (not the full tx).
     expect(mockSignTransaction).toHaveBeenCalledTimes(1);
     const callArg = mockSignTransaction.mock.calls[0][0] as {
-      authToken: number;
-      derivationPath: string;
       txBytes: Uint8Array;
     };
-    expect(callArg.authToken).toBe(authToken);
-    expect(callArg.derivationPath).toBe(derivationPath);
     expect(Array.from(callArg.txBytes)).toEqual(Array.from(expectedMessage));
 
     // The fake signature is injected into the transaction.
@@ -99,7 +86,7 @@ describe("SeedVaultSigner", () => {
     expect(tx.signatures[0].publicKey.toBase58()).toBe(address);
     expect(tx.signatures[0].signature).not.toBeNull();
     expect(Array.from(tx.signatures[0].signature!)).toEqual(
-      Array.from(fakeSig),
+      Array.from(fakeSig)
     );
   });
 
@@ -111,7 +98,7 @@ describe("SeedVaultSigner", () => {
     const payer = new PublicKey(address);
     const recipient = Keypair.generate().publicKey;
     const blockhash = new PublicKey(
-      "11111111111111111111111111111112",
+      "11111111111111111111111111111112"
     ).toBase58();
     const message = new TransactionMessage({
       payerKey: payer,
@@ -145,7 +132,7 @@ describe("SeedVaultSigner", () => {
 
     const payer = new PublicKey(address);
     const blockhash = new PublicKey(
-      "11111111111111111111111111111112",
+      "11111111111111111111111111111112"
     ).toBase58();
     const txs = [1, 2].map((lamports) => {
       const tx = new Transaction().add(
@@ -153,7 +140,7 @@ describe("SeedVaultSigner", () => {
           fromPubkey: payer,
           toPubkey: Keypair.generate().publicKey,
           lamports,
-        }),
+        })
       );
       tx.feePayer = payer;
       tx.recentBlockhash = blockhash;

@@ -13,18 +13,18 @@ import type { TelegramVerification } from "./idl/telegram_verification";
 import { getSessionSeedBytes } from "./constants";
 
 export function getTelegramVerificationProgram(
-  provider: AnchorProvider,
+  provider: AnchorProvider
 ): Program<TelegramVerification> {
   return new Program(telegramVerificationIdl as TelegramVerification, provider);
 }
 
 export function getSessionPda(
   user: PublicKey,
-  verificationProgram: Program<TelegramVerification>,
+  verificationProgram: Program<TelegramVerification>
 ): PublicKey {
   const [sessionPda] = PublicKey.findProgramAddressSync(
     [getSessionSeedBytes(), user.toBuffer()],
-    verificationProgram.programId,
+    verificationProgram.programId
   );
   return sessionPda;
 }

@@ -1,6 +1,9 @@
 import "server-only";
 
-import { createAxOpenAiClient, createConsoleTelemetrySink } from "@loyal-labs/llm-server";
+import {
+  createAxOpenAiClient,
+  createConsoleTelemetrySink,
+} from "@loyal-labs/llm-server";
 
 import {
   createAxSummaryGenerationService,
@@ -24,7 +27,9 @@ export type {
 };
 
 export interface SummaryGenerationService {
-  generate(request: SummaryGenerationRequest): Promise<SummaryGenerationResponse>;
+  generate(
+    request: SummaryGenerationRequest
+  ): Promise<SummaryGenerationResponse>;
 }
 
 let defaultSummaryGenerationService: SummaryGenerationService | null = null;
@@ -40,13 +45,14 @@ export function getSummaryGenerationService(): SummaryGenerationService {
     name: "openai",
   });
 
-  const summaryService: AxSummaryGenerationService = createAxSummaryGenerationService({
-    ai,
-    defaultModel: serverEnv.axSummaryModelDefault,
-    maxAttempts: serverEnv.axSummaryMaxAttempts,
-    spec: getSummaryProgramSpec(serverEnv.axSummaryExamplesVersion),
-    telemetry: createConsoleTelemetrySink(serverEnv.axSummaryEnableTelemetry),
-  });
+  const summaryService: AxSummaryGenerationService =
+    createAxSummaryGenerationService({
+      ai,
+      defaultModel: serverEnv.axSummaryModelDefault,
+      maxAttempts: serverEnv.axSummaryMaxAttempts,
+      spec: getSummaryProgramSpec(serverEnv.axSummaryExamplesVersion),
+      telemetry: createConsoleTelemetrySink(serverEnv.axSummaryEnableTelemetry),
+    });
 
   defaultSummaryGenerationService = {
     generate: (request) => summaryService.generate(request),

@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   AllowedSettingsChange,
   allowedSettingsChangeBeet,
-} from './AllowedSettingsChange'
+} from "./AllowedSettingsChange";
 export type SettingsChangePolicy = {
-  actions: AllowedSettingsChange[]
-}
+  actions: AllowedSettingsChange[];
+};
 
 /**
  * @category userTypes
@@ -20,6 +20,6 @@ export type SettingsChangePolicy = {
  */
 export const settingsChangePolicyBeet =
   new beet.FixableBeetArgsStruct<SettingsChangePolicy>(
-    [['actions', beet.array(allowedSettingsChangeBeet)]],
-    'SettingsChangePolicy'
-  )
+    [["actions", beet.array(allowedSettingsChangeBeet)]],
+    "SettingsChangePolicy"
+  );

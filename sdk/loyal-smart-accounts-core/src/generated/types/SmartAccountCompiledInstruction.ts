@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type SmartAccountCompiledInstruction = {
-  programIdIndex: number
-  accountIndexes: Uint8Array
-  data: Uint8Array
-}
+  programIdIndex: number;
+  accountIndexes: Uint8Array;
+  data: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -19,9 +19,9 @@ export type SmartAccountCompiledInstruction = {
 export const smartAccountCompiledInstructionBeet =
   new beet.FixableBeetArgsStruct<SmartAccountCompiledInstruction>(
     [
-      ['programIdIndex', beet.u8],
-      ['accountIndexes', beet.bytes],
-      ['data', beet.bytes],
+      ["programIdIndex", beet.u8],
+      ["accountIndexes", beet.bytes],
+      ["data", beet.bytes],
     ],
-    'SmartAccountCompiledInstruction'
-  )
+    "SmartAccountCompiledInstruction"
+  );

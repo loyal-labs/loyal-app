@@ -4,6 +4,7 @@ import { enumerateDepositsByUser } from "@loyal-labs/private-transactions";
 import { getPerEndpoints } from "@loyal-labs/solana-rpc";
 import {
   createSolanaWalletDataClient,
+  type CreateSolanaWalletDataClientConfig,
   type SolanaWalletDataClient,
 } from "@loyal-labs/solana-wallet";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -21,48 +22,23 @@ import {
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 
-export function useSolanaWalletDataClient(): SolanaWalletDataClient {
+type UseSolanaWalletDataClientOptions = {
+  includeSecureBalances?: boolean;
+};
+
+export function useSolanaWalletDataClient(
+  options: UseSolanaWalletDataClientOptions = {}
+): SolanaWalletDataClient {
   const publicEnv = usePublicEnv();
   const wallet = useWallet();
+  const includeSecureBalances = options.includeSecureBalances === true;
 
   return useMemo(() => {
     const { rpcEndpoint, websocketEndpoint } = getFrontendSolanaEndpoints(
       publicEnv.solanaEnv
     );
-    const { perRpcEndpoint } = getPerEndpoints(publicEnv.solanaEnv);
 
-    const baseConnection = new Connection(rpcEndpoint, {
-      commitment: "confirmed",
-      disableRetryOnRateLimit: true,
-      fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    });
-    const ephemeralConnection = new Connection(perRpcEndpoint, {
-      commitment: "confirmed",
-      disableRetryOnRateLimit: true,
-      fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    });
-    const getSignedClient = () => {
-      if (
-        !wallet.publicKey ||
-        !wallet.signTransaction ||
-        !wallet.signAllTransactions ||
-        !wallet.signMessage
-      ) {
-        return null;
-      }
-
-      return getFrontendPrivateClient({
-        signer: {
-          publicKey: wallet.publicKey,
-          signTransaction: wallet.signTransaction,
-          signAllTransactions: wallet.signAllTransactions,
-          signMessage: wallet.signMessage,
-        } as FrontendPrivateClientSigner,
-        solanaEnv: publicEnv.solanaEnv,
-      });
-    };
-
-    return createSolanaWalletDataClient({
+    const clientConfig: CreateSolanaWalletDataClientConfig = {
       assetProvider: createFrontendAssetProvider({
         commitment: "confirmed",
         fetchImpl: globalThis.fetch,
@@ -82,15 +58,60 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
           disableRetryOnRateLimit: true,
           fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
           wsEndpoint: websocketEndpoint,
-        }),
+      }),
       rpcEndpoint,
       websocketEndpoint,
-      secureBalanceProvider: async ({ owner }) => {
+    };
+
+    if (includeSecureBalances) {
+      let baseConnection: Connection | null = null;
+      let ephemeralConnection: Connection | null = null;
+      const getBaseConnection = () => {
+        baseConnection ??= new Connection(rpcEndpoint, {
+          commitment: "confirmed",
+          disableRetryOnRateLimit: true,
+          fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+        });
+        return baseConnection;
+      };
+      const getEphemeralConnection = () => {
+        if (!ephemeralConnection) {
+          const { perRpcEndpoint } = getPerEndpoints(publicEnv.solanaEnv);
+          ephemeralConnection = new Connection(perRpcEndpoint, {
+            commitment: "confirmed",
+            disableRetryOnRateLimit: true,
+            fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
+          });
+        }
+        return ephemeralConnection;
+      };
+      const getSignedClient = () => {
+        if (
+          !wallet.publicKey ||
+          !wallet.signTransaction ||
+          !wallet.signAllTransactions ||
+          !wallet.signMessage
+        ) {
+          return null;
+        }
+
+        return getFrontendPrivateClient({
+          signer: {
+            publicKey: wallet.publicKey,
+            signTransaction: wallet.signTransaction,
+            signAllTransactions: wallet.signAllTransactions,
+            signMessage: wallet.signMessage,
+          } as FrontendPrivateClientSigner,
+          solanaEnv: publicEnv.solanaEnv,
+        });
+      };
+
+      clientConfig.secureBalanceProvider = async ({ owner }) => {
         const enumerateDeposits = () =>
           enumerateDepositsByUser({
             user: owner,
-            baseConnection,
-            ephemeralConnection,
+            baseConnection: getBaseConnection(),
+            ephemeralConnection: getEphemeralConnection(),
           });
         const signedClient = wallet.publicKey?.equals(owner)
           ? getSignedClient()
@@ -126,9 +147,12 @@ export function useSolanaWalletDataClient(): SolanaWalletDataClient {
           secureBalances.set(deposit.tokenMint.toBase58(), deposit.amount);
         }
         return secureBalances;
-      },
-    });
+      };
+    }
+
+    return createSolanaWalletDataClient(clientConfig);
   }, [
+    includeSecureBalances,
     publicEnv.solanaEnv,
     wallet.publicKey,
     wallet.signAllTransactions,

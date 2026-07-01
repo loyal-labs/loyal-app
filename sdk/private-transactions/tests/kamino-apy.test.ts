@@ -74,8 +74,8 @@ describe("Kamino lending APY", () => {
         typeof input === "string"
           ? input
           : input instanceof URL
-            ? input.toString()
-            : input.url;
+          ? input.toString()
+          : input.url;
 
       return new Response(
         JSON.stringify([

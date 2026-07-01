@@ -18,7 +18,7 @@ function floorToDecimals(value: number, decimals: number): number {
 
 function getEffectiveSolPriceUsd(
   holdings: TokenHolding[],
-  fallbackSolPriceUsd: number | null,
+  fallbackSolPriceUsd: number | null
 ): number | null {
   const solHolding = holdings.find((h) => h.mint === NATIVE_SOL_MINT);
   const fromHoldings = solHolding?.priceUsd;
@@ -55,7 +55,7 @@ function holdingUsdValue(holding: TokenHolding): number | null {
 
 export function computePortfolioTotals(
   holdings: TokenHolding[],
-  fallbackSolPriceUsd: number | null,
+  fallbackSolPriceUsd: number | null
 ): PortfolioTotals {
   let totalUsd = 0;
   let pricedCount = 0;
@@ -75,7 +75,7 @@ export function computePortfolioTotals(
 
   const effectiveSolPriceUsd = getEffectiveSolPriceUsd(
     holdings,
-    fallbackSolPriceUsd,
+    fallbackSolPriceUsd
   );
   const totalSol =
     effectiveSolPriceUsd && effectiveSolPriceUsd > 0

@@ -3,8 +3,7 @@ import { CloudKeyInput } from "@/types/telegram";
 const normalizeKeys = (input: CloudKeyInput): string[] =>
   Array.isArray(input) ? input : [input];
 
-type TelegramCloudStorage =
-  (typeof import("@telegram-apps/sdk"))["cloudStorage"];
+type TelegramCloudStorage = typeof import("@telegram-apps/sdk")["cloudStorage"];
 type TelegramSdkModule = typeof import("@telegram-apps/sdk");
 
 const CLOUD_STORAGE_KEY_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -91,7 +90,7 @@ const validateKeys = (keys: string[]): boolean => {
 
 export async function setCloudValue(
   key: string,
-  value: string,
+  value: string
 ): Promise<boolean> {
   const cloudStorage = await getCloudStorage();
   if (!cloudStorage) return false;
@@ -111,7 +110,7 @@ export async function setCloudValue(
 }
 
 export async function getCloudValue(
-  keyOrKeys: CloudKeyInput,
+  keyOrKeys: CloudKeyInput
 ): Promise<string | Record<string, string> | null> {
   const cloudStorage = await getCloudStorage();
   if (!cloudStorage) return null;
@@ -134,7 +133,7 @@ export async function getCloudValue(
 }
 
 export async function deleteCloudValue(
-  keyOrKeys: CloudKeyInput,
+  keyOrKeys: CloudKeyInput
 ): Promise<boolean> {
   const cloudStorage = await getCloudStorage();
   if (!cloudStorage) return false;

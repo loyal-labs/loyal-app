@@ -2,10 +2,7 @@ import "server-only";
 
 import { fetchJson } from "../core/http";
 import { JUPITER_TOKENS_V2_BASE_URL, TOKEN_DATA_ERRORS } from "./constants";
-import type {
-  JupiterTokenMetrics,
-  JupiterTokenSearchResult,
-} from "./types";
+import type { JupiterTokenMetrics, JupiterTokenSearchResult } from "./types";
 
 function mapTokenMetrics(token: JupiterTokenSearchResult): JupiterTokenMetrics {
   return {

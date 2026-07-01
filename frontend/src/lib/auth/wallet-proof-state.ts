@@ -45,7 +45,11 @@ export function walletProofReducer(
     case "connecting":
       return { status: "connecting", errorMessage: "", errorDetails: [] };
     case "awaiting_signature":
-      return { status: "awaiting_signature", errorMessage: "", errorDetails: [] };
+      return {
+        status: "awaiting_signature",
+        errorMessage: "",
+        errorDetails: [],
+      };
     case "verifying":
       return { status: "verifying", errorMessage: "", errorDetails: [] };
     case "success":

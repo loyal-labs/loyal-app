@@ -10,13 +10,17 @@ import {
   type FrontendPrivateClientSigner,
 } from "@/lib/solana/private-client-cache";
 
-export function PrivateClientPreloader() {
+export function PrivateClientPreloader({ enabled }: { enabled: boolean }) {
   const publicEnv = usePublicEnv();
   const wallet = useWallet();
 
   useEffect(() => {
     if (!wallet.connected) {
       clearFrontendPrivateClientMemoryCache();
+      return;
+    }
+
+    if (!enabled) {
       return;
     }
 
@@ -50,6 +54,7 @@ export function PrivateClientPreloader() {
       cancelled = true;
     };
   }, [
+    enabled,
     publicEnv.solanaEnv,
     wallet.connected,
     wallet.publicKey,

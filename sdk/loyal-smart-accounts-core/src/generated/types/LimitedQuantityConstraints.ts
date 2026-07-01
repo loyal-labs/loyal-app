@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type LimitedQuantityConstraints = {
-  maxPerPeriod: beet.bignum
-}
+  maxPerPeriod: beet.bignum;
+};
 
 /**
  * @category userTypes
@@ -16,6 +16,6 @@ export type LimitedQuantityConstraints = {
  */
 export const limitedQuantityConstraintsBeet =
   new beet.BeetArgsStruct<LimitedQuantityConstraints>(
-    [['maxPerPeriod', beet.u64]],
-    'LimitedQuantityConstraints'
-  )
+    [["maxPerPeriod", beet.u64]],
+    "LimitedQuantityConstraints"
+  );

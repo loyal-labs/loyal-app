@@ -250,6 +250,28 @@ function isClientCacheEntryFresh(
   return isAuthTokenFresh(entry.authToken, solanaEnv);
 }
 
+export function hasReusableFrontendPrivateClientAuth(args: {
+  publicKey: string;
+  solanaEnv: SolanaEnv;
+}): boolean {
+  const { perRpcEndpoint } = getPerEndpoints(args.solanaEnv);
+
+  for (const [key, entry] of cachedPrivateClients) {
+    if (
+      key.startsWith(`${args.publicKey}|${args.solanaEnv}|`) &&
+      isClientCacheEntryFresh(entry, args.solanaEnv)
+    ) {
+      return true;
+    }
+  }
+
+  if (!perRpcEndpoint.includes("tee")) {
+    return true;
+  }
+
+  return getCachedAuthToken(args.publicKey, args.solanaEnv) !== null;
+}
+
 export function invalidateFrontendPrivateClient(args: {
   publicKey: string;
   solanaEnv: SolanaEnv;

@@ -21,6 +21,5 @@ export const QueryService = {
       O: QueryResponse,
       kind: MethodKind.Unary,
     },
-  }
+  },
 } as const;
-

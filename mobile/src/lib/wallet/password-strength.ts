@@ -15,7 +15,7 @@ export function getPasswordStrength(password: string): {
   }
 
   const types = [/[a-zA-Z]/, /\d/, /[^a-zA-Z0-9]/].filter((r) =>
-    r.test(password),
+    r.test(password)
   ).length;
 
   if (password.length >= 10 && types >= 2) {

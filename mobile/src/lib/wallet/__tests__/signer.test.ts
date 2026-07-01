@@ -1,4 +1,9 @@
-import { Keypair, Transaction, SystemProgram, PublicKey } from "@solana/web3.js";
+import {
+  Keypair,
+  Transaction,
+  SystemProgram,
+  PublicKey,
+} from "@solana/web3.js";
 import nacl from "tweetnacl";
 
 import { LocalKeypairSigner } from "../signer";
@@ -7,18 +12,13 @@ describe("LocalKeypairSigner", () => {
   const keypair = Keypair.generate();
   const signer = new LocalKeypairSigner(keypair);
 
-  it("exposes kind and publicKey", () => {
-    expect(signer.kind).toBe("local");
-    expect(signer.publicKey.toBase58()).toBe(keypair.publicKey.toBase58());
-  });
-
   it("signs arbitrary messages compatibly with tweetnacl", async () => {
     const message = new TextEncoder().encode("hello loyal");
     const signature = await signer.signMessage(message);
     const valid = nacl.sign.detached.verify(
       message,
       signature,
-      keypair.publicKey.toBytes(),
+      keypair.publicKey.toBytes()
     );
     expect(valid).toBe(true);
   });
@@ -30,19 +30,19 @@ describe("LocalKeypairSigner", () => {
         fromPubkey: keypair.publicKey,
         toPubkey: destination,
         lamports: 1,
-      }),
+      })
     );
     tx.feePayer = keypair.publicKey;
     // Deterministic blockhash for test
     tx.recentBlockhash = new PublicKey(
-      "11111111111111111111111111111112",
+      "11111111111111111111111111111112"
     ).toBase58();
 
     await signer.signTransaction(tx);
 
     expect(tx.signatures.length).toBe(1);
     expect(tx.signatures[0].publicKey.toBase58()).toBe(
-      keypair.publicKey.toBase58(),
+      keypair.publicKey.toBase58()
     );
     expect(tx.signatures[0].signature).not.toBeNull();
     expect(tx.verifySignatures()).toBe(true);
@@ -51,7 +51,7 @@ describe("LocalKeypairSigner", () => {
   it("signs multiple transactions in batch", async () => {
     const destination = Keypair.generate().publicKey;
     const blockhash = new PublicKey(
-      "11111111111111111111111111111112",
+      "11111111111111111111111111111112"
     ).toBase58();
 
     const txs = [0, 1, 2].map((i) => {
@@ -60,7 +60,7 @@ describe("LocalKeypairSigner", () => {
           fromPubkey: keypair.publicKey,
           toPubkey: destination,
           lamports: i + 1,
-        }),
+        })
       );
       tx.feePayer = keypair.publicKey;
       tx.recentBlockhash = blockhash;

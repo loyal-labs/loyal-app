@@ -168,7 +168,6 @@ start_workspace_pipeline() {
 start_workspace_pipeline "app" "app" "app"
 start_workspace_pipeline "admin" "admin" "admin"
 start_workspace_pipeline "frontend" "frontend" "frontend"
-start_workspace_pipeline "passkey" "passkey" "passkey"
 
 any_failed=0
 

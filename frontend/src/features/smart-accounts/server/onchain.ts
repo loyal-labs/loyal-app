@@ -12,7 +12,7 @@ import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 
 import { getServerEnv } from "@/lib/core/config/server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { recordSmartAccountSponsorshipTransactionBySignature } from "./sponsorship-analytics";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
@@ -25,7 +25,7 @@ function getSmartAccountsConnection(solanaEnv: SolanaEnv): Connection {
   }
 
   const { rpcEndpoint, websocketEndpoint } =
-    getFrontendSolanaEndpoints(solanaEnv);
+    getServerSolanaEndpoints(solanaEnv);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -96,6 +96,31 @@ export async function findSettingsSignerAddresses(args: {
     );
 
     return settings.signers.map((signer) => signer.key.toBase58());
+  } catch (error) {
+    if (isMissingAccountError(error, "Settings")) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+export async function fetchRootSettingsSigners(args: {
+  solanaEnv: SolanaEnv;
+  programId: string;
+  settingsPda: string;
+}): Promise<Array<{ address: string; permissionMask: number }> | null> {
+  const client = getSmartAccountsClient(args);
+
+  try {
+    const settings = await client.smartAccounts.queries.fetchSettings(
+      new PublicKey(args.settingsPda)
+    );
+
+    return settings.signers.map((signer) => ({
+      address: signer.key.toBase58(),
+      permissionMask: signer.permissions.mask,
+    }));
   } catch (error) {
     if (isMissingAccountError(error, "Settings")) {
       return null;

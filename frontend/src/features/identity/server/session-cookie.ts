@@ -59,7 +59,9 @@ function getPrimaryHeaderValue(headers: Headers, name: string): string | null {
   return primary && primary.length > 0 ? primary : null;
 }
 
-function parseCookieHeader(cookieHeader: string | null): Record<string, string> {
+function parseCookieHeader(
+  cookieHeader: string | null
+): Record<string, string> {
   if (!cookieHeader) {
     return {};
   }
@@ -96,7 +98,9 @@ function resolveCookieOptions(
   const protocol =
     getPrimaryHeaderValue(request.headers, "x-forwarded-proto") ??
     fallbackUrl.protocol.replace(/:$/, "");
-  const hostname = normalizeHostname(new URL(`${protocol}://${hostHeader}`).hostname);
+  const hostname = normalizeHostname(
+    new URL(`${protocol}://${hostHeader}`).hostname
+  );
 
   if (hostname === "localhost") {
     if (!config.authCookieAllowLocalhost) {

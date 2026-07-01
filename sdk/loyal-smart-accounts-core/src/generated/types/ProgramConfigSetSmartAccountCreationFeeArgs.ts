@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type ProgramConfigSetSmartAccountCreationFeeArgs = {
-  newSmartAccountCreationFee: beet.bignum
-}
+  newSmartAccountCreationFee: beet.bignum;
+};
 
 /**
  * @category userTypes
@@ -16,6 +16,6 @@ export type ProgramConfigSetSmartAccountCreationFeeArgs = {
  */
 export const programConfigSetSmartAccountCreationFeeArgsBeet =
   new beet.BeetArgsStruct<ProgramConfigSetSmartAccountCreationFeeArgs>(
-    [['newSmartAccountCreationFee', beet.u64]],
-    'ProgramConfigSetSmartAccountCreationFeeArgs'
-  )
+    [["newSmartAccountCreationFee", beet.u64]],
+    "ProgramConfigSetSmartAccountCreationFeeArgs"
+  );

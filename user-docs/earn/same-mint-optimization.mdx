@@ -1,0 +1,46 @@
+---
+title: "Same-Mint Optimization"
+description: "How Earn moves between approved USDC reserves without changing the asset you hold."
+---
+
+Same-mint optimization means the asset mint does not change. In Earn today, the source and destination are both USDC positions.
+
+That matters because the system can compare USDC reserves without adding swap routes, quote risk, or a different stablecoin exposure.
+
+## The Problem With A Static Farm
+
+Kamino reserves do not all pay the same rate forever. A reserve can raise its supply APY to attract liquidity, then cool down later. If your USDC stays parked in one reserve, it can miss those windows.
+
+Earn tries to capture more of the available market rate by moving only when the current route is allowed and useful.
+
+## How A Same-Mint Move Works
+
+<Steps>
+  <Step title="Read the current position">
+    The system reads the Earn vault and the current Kamino obligation from chain state.
+  </Step>
+  <Step title="Compare approved reserves">
+    It compares eligible Kamino USDC reserves using market data.
+  </Step>
+  <Step title="Require a positive edge">
+    A move is considered only if the target reserve is better enough to justify action.
+  </Step>
+  <Step title="Check the policy">
+    The selected route must match the active Earn policy before it can be submitted.
+  </Step>
+  <Step title="Withdraw and deposit">
+    The route withdraws from the source USDC reserve and deposits into the target USDC reserve.
+  </Step>
+</Steps>
+
+## What Earn Does Not Do Today
+
+- It does not swap your Earn USDC into another token
+- It does not borrow against the position
+- It does not enter liquidity-provider positions
+- It does not rebalance just because a rate changed by a tiny amount
+- It does not bypass policy checks to reach a better-looking market
+
+<Note>
+Skipping a move is normal. If the account state, policy, market data, or expected edge is not good enough, doing nothing is the safer result.
+</Note>

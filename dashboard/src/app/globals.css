@@ -1,0 +1,54 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme inline {
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  --font-mono:
+    "SFMono-Regular", "Menlo", "Monaco", "Consolas", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #101418;
+  --card: #ffffff;
+  --card-foreground: #101418;
+  --muted: #eef2f6;
+  --muted-foreground: #5b6673;
+  --border: #dde3ea;
+  --primary: #f9363c;
+  --primary-foreground: #ffffff;
+  --success: #0f8a5f;
+  --warning: #a05f00;
+  --info: #2563eb;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    background: var(--background);
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}

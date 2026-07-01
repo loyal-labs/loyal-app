@@ -19,10 +19,13 @@ export class FetchTimeoutError extends Error {
 
 export async function fetchWithTimeout(
   input: RequestInfo,
-  init: RequestInit & { timeoutMs?: number } = {},
+  init: RequestInit & { timeoutMs?: number } = {}
 ): Promise<Response> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: externalSignal, ...rest } =
-    init;
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal: externalSignal,
+    ...rest
+  } = init;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);

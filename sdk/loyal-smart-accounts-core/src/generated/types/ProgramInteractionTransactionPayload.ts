@@ -5,15 +5,15 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   TransactionPayload,
   transactionPayloadBeet,
-} from './TransactionPayload'
+} from "./TransactionPayload";
 import {
   SyncTransactionPayloadDetails,
   syncTransactionPayloadDetailsBeet,
-} from './SyncTransactionPayloadDetails'
+} from "./SyncTransactionPayloadDetails";
 /**
  * This type is used to derive the {@link ProgramInteractionTransactionPayload} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link ProgramInteractionTransactionPayload} type instead.
@@ -24,9 +24,9 @@ import {
  * @private
  */
 export type ProgramInteractionTransactionPayloadRecord = {
-  AsyncTransaction: { fields: [TransactionPayload] }
-  SyncTransaction: { fields: [SyncTransactionPayloadDetails] }
-}
+  AsyncTransaction: { fields: [TransactionPayload] };
+  SyncTransaction: { fields: [SyncTransactionPayloadDetails] };
+};
 
 /**
  * Union type respresenting the ProgramInteractionTransactionPayload data enum defined in Rust.
@@ -40,16 +40,16 @@ export type ProgramInteractionTransactionPayloadRecord = {
  * @category generated
  */
 export type ProgramInteractionTransactionPayload =
-  beet.DataEnumKeyAsKind<ProgramInteractionTransactionPayloadRecord>
+  beet.DataEnumKeyAsKind<ProgramInteractionTransactionPayloadRecord>;
 
 export const isProgramInteractionTransactionPayloadAsyncTransaction = (
   x: ProgramInteractionTransactionPayload
-): x is ProgramInteractionTransactionPayload & { __kind: 'AsyncTransaction' } =>
-  x.__kind === 'AsyncTransaction'
+): x is ProgramInteractionTransactionPayload & { __kind: "AsyncTransaction" } =>
+  x.__kind === "AsyncTransaction";
 export const isProgramInteractionTransactionPayloadSyncTransaction = (
   x: ProgramInteractionTransactionPayload
-): x is ProgramInteractionTransactionPayload & { __kind: 'SyncTransaction' } =>
-  x.__kind === 'SyncTransaction'
+): x is ProgramInteractionTransactionPayload & { __kind: "SyncTransaction" } =>
+  x.__kind === "SyncTransaction";
 
 /**
  * @category userTypes
@@ -58,24 +58,24 @@ export const isProgramInteractionTransactionPayloadSyncTransaction = (
 export const programInteractionTransactionPayloadBeet =
   beet.dataEnum<ProgramInteractionTransactionPayloadRecord>([
     [
-      'AsyncTransaction',
+      "AsyncTransaction",
       new beet.FixableBeetArgsStruct<
-        ProgramInteractionTransactionPayloadRecord['AsyncTransaction']
+        ProgramInteractionTransactionPayloadRecord["AsyncTransaction"]
       >(
-        [['fields', beet.tuple([transactionPayloadBeet])]],
+        [["fields", beet.tuple([transactionPayloadBeet])]],
         'ProgramInteractionTransactionPayloadRecord["AsyncTransaction"]'
       ),
     ],
     [
-      'SyncTransaction',
+      "SyncTransaction",
       new beet.FixableBeetArgsStruct<
-        ProgramInteractionTransactionPayloadRecord['SyncTransaction']
+        ProgramInteractionTransactionPayloadRecord["SyncTransaction"]
       >(
-        [['fields', beet.tuple([syncTransactionPayloadDetailsBeet])]],
+        [["fields", beet.tuple([syncTransactionPayloadDetailsBeet])]],
         'ProgramInteractionTransactionPayloadRecord["SyncTransaction"]'
       ),
     ],
   ]) as beet.FixableBeet<
     ProgramInteractionTransactionPayload,
     ProgramInteractionTransactionPayload
-  >
+  >;

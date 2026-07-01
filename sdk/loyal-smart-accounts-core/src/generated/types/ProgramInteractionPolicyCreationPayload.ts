@@ -5,23 +5,23 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   InstructionConstraint,
   instructionConstraintBeet,
-} from './InstructionConstraint'
-import { Hook, hookBeet } from './Hook'
+} from "./InstructionConstraint";
+import { Hook, hookBeet } from "./Hook";
 import {
   LimitedSpendingLimit,
   limitedSpendingLimitBeet,
-} from './LimitedSpendingLimit'
+} from "./LimitedSpendingLimit";
 export type ProgramInteractionPolicyCreationPayload = {
-  accountIndex: number
-  instructionsConstraints: InstructionConstraint[]
-  preHook: beet.COption<Hook>
-  postHook: beet.COption<Hook>
-  spendingLimits: LimitedSpendingLimit[]
-}
+  accountIndex: number;
+  instructionsConstraints: InstructionConstraint[];
+  preHook: beet.COption<Hook>;
+  postHook: beet.COption<Hook>;
+  spendingLimits: LimitedSpendingLimit[];
+};
 
 /**
  * @category userTypes
@@ -30,11 +30,11 @@ export type ProgramInteractionPolicyCreationPayload = {
 export const programInteractionPolicyCreationPayloadBeet =
   new beet.FixableBeetArgsStruct<ProgramInteractionPolicyCreationPayload>(
     [
-      ['accountIndex', beet.u8],
-      ['instructionsConstraints', beet.array(instructionConstraintBeet)],
-      ['preHook', beet.coption(hookBeet)],
-      ['postHook', beet.coption(hookBeet)],
-      ['spendingLimits', beet.array(limitedSpendingLimitBeet)],
+      ["accountIndex", beet.u8],
+      ["instructionsConstraints", beet.array(instructionConstraintBeet)],
+      ["preHook", beet.coption(hookBeet)],
+      ["postHook", beet.coption(hookBeet)],
+      ["spendingLimits", beet.array(limitedSpendingLimitBeet)],
     ],
-    'ProgramInteractionPolicyCreationPayload'
-  )
+    "ProgramInteractionPolicyCreationPayload"
+  );

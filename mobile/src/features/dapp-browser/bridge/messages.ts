@@ -31,4 +31,5 @@ export type BridgeResponse =
       error: string;
     };
 
-export const BRIDGE_RESPONSE_RESOLVER = "__loyalMobileWalletBridgeResolve" as const;
+export const BRIDGE_RESPONSE_RESOLVER =
+  "__loyalMobileWalletBridgeResolve" as const;

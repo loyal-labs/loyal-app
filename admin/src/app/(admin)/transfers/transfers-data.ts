@@ -15,7 +15,7 @@ import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 import { fetchTokenPricesByMints } from "@/lib/market/token-prices.server";
 
 const SOLANA_MAINNET_RPC_URL =
-  "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
+  "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
 const USDC_MINT_MAINNET = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const KAMINO_USDC_RESERVE = "9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu";
 const KAMINO_USDC_COLLATERAL_MINT =

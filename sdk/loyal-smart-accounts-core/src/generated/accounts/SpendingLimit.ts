@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { Period, periodBeet } from '../types/Period'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { Period, periodBeet } from "../types/Period";
 
 /**
  * Arguments used to create {@link SpendingLimit}
@@ -16,21 +16,23 @@ import { Period, periodBeet } from '../types/Period'
  * @category generated
  */
 export type SpendingLimitArgs = {
-  settings: web3.PublicKey
-  seed: web3.PublicKey
-  accountIndex: number
-  mint: web3.PublicKey
-  amount: beet.bignum
-  period: Period
-  remainingAmount: beet.bignum
-  lastReset: beet.bignum
-  bump: number
-  signers: web3.PublicKey[]
-  destinations: web3.PublicKey[]
-  expiration: beet.bignum
-}
+  settings: web3.PublicKey;
+  seed: web3.PublicKey;
+  accountIndex: number;
+  mint: web3.PublicKey;
+  amount: beet.bignum;
+  period: Period;
+  remainingAmount: beet.bignum;
+  lastReset: beet.bignum;
+  bump: number;
+  signers: web3.PublicKey[];
+  destinations: web3.PublicKey[];
+  expiration: beet.bignum;
+};
 
-export const spendingLimitDiscriminator = [10, 201, 27, 160, 218, 195, 222, 152]
+export const spendingLimitDiscriminator = [
+  10, 201, 27, 160, 218, 195, 222, 152,
+];
 /**
  * Holds the data for the {@link SpendingLimit} Account and provides de/serialization
  * functionality for that data
@@ -71,7 +73,7 @@ export class SpendingLimit implements SpendingLimitArgs {
       args.signers,
       args.destinations,
       args.expiration
-    )
+    );
   }
 
   /**
@@ -82,7 +84,7 @@ export class SpendingLimit implements SpendingLimitArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [SpendingLimit, number] {
-    return SpendingLimit.deserialize(accountInfo.data, offset)
+    return SpendingLimit.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -99,11 +101,11 @@ export class SpendingLimit implements SpendingLimitArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find SpendingLimit account at ${address}`)
+      throw new Error(`Unable to find SpendingLimit account at ${address}`);
     }
-    return SpendingLimit.fromAccountInfo(accountInfo, 0)[0]
+    return SpendingLimit.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -114,10 +116,10 @@ export class SpendingLimit implements SpendingLimitArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, spendingLimitBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, spendingLimitBeet);
   }
 
   /**
@@ -125,7 +127,7 @@ export class SpendingLimit implements SpendingLimitArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [SpendingLimit, number] {
-    return spendingLimitBeet.deserialize(buf, offset)
+    return spendingLimitBeet.deserialize(buf, offset);
   }
 
   /**
@@ -136,7 +138,7 @@ export class SpendingLimit implements SpendingLimitArgs {
     return spendingLimitBeet.serialize({
       accountDiscriminator: spendingLimitDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -147,11 +149,11 @@ export class SpendingLimit implements SpendingLimitArgs {
    * depends on them
    */
   static byteSize(args: SpendingLimitArgs) {
-    const instance = SpendingLimit.fromArgs(args)
+    const instance = SpendingLimit.fromArgs(args);
     return spendingLimitBeet.toFixedFromValue({
       accountDiscriminator: spendingLimitDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -170,7 +172,7 @@ export class SpendingLimit implements SpendingLimitArgs {
     return connection.getMinimumBalanceForRentExemption(
       SpendingLimit.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -184,54 +186,54 @@ export class SpendingLimit implements SpendingLimitArgs {
       accountIndex: this.accountIndex,
       mint: this.mint.toBase58(),
       amount: (() => {
-        const x = <{ toNumber: () => number }>this.amount
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.amount;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
-      period: 'Period.' + Period[this.period],
+      period: "Period." + Period[this.period],
       remainingAmount: (() => {
-        const x = <{ toNumber: () => number }>this.remainingAmount
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.remainingAmount;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       lastReset: (() => {
-        const x = <{ toNumber: () => number }>this.lastReset
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.lastReset;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       bump: this.bump,
       signers: this.signers,
       destinations: this.destinations,
       expiration: (() => {
-        const x = <{ toNumber: () => number }>this.expiration
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.expiration;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
-    }
+    };
   }
 }
 
@@ -242,24 +244,24 @@ export class SpendingLimit implements SpendingLimitArgs {
 export const spendingLimitBeet = new beet.FixableBeetStruct<
   SpendingLimit,
   SpendingLimitArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['settings', beetSolana.publicKey],
-    ['seed', beetSolana.publicKey],
-    ['accountIndex', beet.u8],
-    ['mint', beetSolana.publicKey],
-    ['amount', beet.u64],
-    ['period', periodBeet],
-    ['remainingAmount', beet.u64],
-    ['lastReset', beet.i64],
-    ['bump', beet.u8],
-    ['signers', beet.array(beetSolana.publicKey)],
-    ['destinations', beet.array(beetSolana.publicKey)],
-    ['expiration', beet.i64],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["settings", beetSolana.publicKey],
+    ["seed", beetSolana.publicKey],
+    ["accountIndex", beet.u8],
+    ["mint", beetSolana.publicKey],
+    ["amount", beet.u64],
+    ["period", periodBeet],
+    ["remainingAmount", beet.u64],
+    ["lastReset", beet.i64],
+    ["bump", beet.u8],
+    ["signers", beet.array(beetSolana.publicKey)],
+    ["destinations", beet.array(beetSolana.publicKey)],
+    ["expiration", beet.i64],
   ],
   SpendingLimit.fromArgs,
-  'SpendingLimit'
-)
+  "SpendingLimit"
+);

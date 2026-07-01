@@ -30,7 +30,7 @@ function buildOkResponse(request: BridgeRequest): BridgeResponse {
 
 function buildErrorResponse(
   request: BridgeRequest,
-  error: string,
+  error: string
 ): BridgeResponse {
   return {
     source: request.source,
@@ -42,7 +42,7 @@ function buildErrorResponse(
 
 function readPayloadString(
   request: BridgeRequest,
-  key: "message" | "transaction",
+  key: "message" | "transaction"
 ): string | null {
   const value = request.payload?.[key];
   return typeof value === "string" && value.length > 0 ? value : null;
@@ -51,7 +51,7 @@ function readPayloadString(
 function buildApproval(
   request: BridgeRequest,
   origin: string,
-  trustState: DappTrustState,
+  trustState: DappTrustState
 ): { approval: PendingApproval } | { error: string } {
   const base = { requestId: request.id, origin, trustState };
 
@@ -116,7 +116,10 @@ export function resolveDappRequest({
   ) {
     return {
       kind: "response",
-      response: buildErrorResponse(request, "Not connected. Call connect() first."),
+      response: buildErrorResponse(
+        request,
+        "Not connected. Call connect() first."
+      ),
     };
   }
 

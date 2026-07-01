@@ -131,10 +131,39 @@ export type AppWalletAuthCompletionState =
  */
 export type AppWalletAuthProvisioningOutcome =
   | "existing_ready"
+  | "delegated_root_signer"
   | "reconciled_ready"
   | "sponsored_existing_record"
   | "sponsored_new_record"
   | "retried_failed_record";
+
+/**
+ * Lifecycle state for smart-account settings signer changes requested by the app.
+ */
+export type AppSmartAccountSettingsChangeRequestStatus =
+  | "draft"
+  | "submitted"
+  | "confirmed"
+  | "failed"
+  | "canceled"
+  | "superseded";
+
+/**
+ * App-supported root Settings signer request actions.
+ */
+export type AppSmartAccountSettingsChangeAction =
+  | "add_root_signer"
+  | "remove_root_signer";
+
+/**
+ * Identity-relevant signer scope for app wallet onboarding.
+ */
+export type AppSmartAccountSignerScope = "root_settings";
+
+/**
+ * Read-model state for app smart-account signer membership.
+ */
+export type AppSmartAccountSignerState = "active" | "removed";
 
 /**
  * Stored app chat message roles.
@@ -927,6 +956,153 @@ export const appSmartAccountSponsorshipTransactions = pgTable(
 );
 
 /**
+ * Durable lifecycle rows for root Settings signer changes requested by the app.
+ * Chain Settings accounts remain the source of truth; these rows record request
+ * state, idempotency, and confirmed transaction metadata.
+ */
+export const appSmartAccountSettingsChangeRequests = pgTable(
+  "app_smart_account_settings_change_requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    solanaEnv: text("solana_env")
+      .$type<AppUserSmartAccountSolanaEnv>()
+      .notNull(),
+    smartAccountAddress: text("smart_account_address").notNull(),
+    settingsPda: text("settings_pda").notNull(),
+    signerAddress: text("signer_address").notNull(),
+    scope: text("scope").$type<AppSmartAccountSignerScope>().notNull(),
+    action: text("action")
+      .$type<AppSmartAccountSettingsChangeAction>()
+      .notNull(),
+    status: text("status")
+      .$type<AppSmartAccountSettingsChangeRequestStatus>()
+      .notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestedByUserId: uuid("requested_by_user_id").references(
+      () => appUsers.id,
+      {
+        onDelete: "set null",
+      }
+    ),
+    transactionIndex: numeric("transaction_index", {
+      precision: 30,
+      scale: 0,
+    }),
+    signature: text("signature"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    confirmedSlot: bigint("confirmed_slot", { mode: "bigint" }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("app_smart_account_settings_change_req_idem_uidx").on(
+      table.solanaEnv,
+      table.idempotencyKey
+    ),
+    index("app_smart_account_settings_change_req_settings_idx").on(
+      table.solanaEnv,
+      table.settingsPda
+    ),
+    index("app_smart_account_settings_change_req_signer_idx").on(
+      table.solanaEnv,
+      table.signerAddress
+    ),
+    index("app_smart_account_settings_change_req_status_idx").on(table.status),
+    index("app_smart_account_settings_change_req_user_idx").on(
+      table.requestedByUserId
+    ),
+    check(
+      "app_smart_account_settings_change_req_solana_env_check",
+      sql`${table.solanaEnv} IN ('mainnet', 'testnet', 'devnet', 'localnet')`
+    ),
+    check(
+      "app_smart_account_settings_change_req_scope_check",
+      sql`${table.scope} IN ('root_settings')`
+    ),
+    check(
+      "app_smart_account_settings_change_req_action_check",
+      sql`${table.action} IN ('add_root_signer', 'remove_root_signer')`
+    ),
+    check(
+      "app_smart_account_settings_change_req_status_check",
+      sql`${table.status} IN ('draft', 'submitted', 'confirmed', 'failed', 'canceled', 'superseded')`
+    ),
+  ]
+);
+
+/**
+ * Active/removed root Settings signer read model used by wallet onboarding.
+ * A signer row can be linked to an app user only after wallet auth proves
+ * ownership of signerAddress.
+ */
+export const appSmartAccountSigners = pgTable(
+  "app_smart_account_signers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    solanaEnv: text("solana_env")
+      .$type<AppUserSmartAccountSolanaEnv>()
+      .notNull(),
+    smartAccountAddress: text("smart_account_address").notNull(),
+    settingsPda: text("settings_pda").notNull(),
+    signerAddress: text("signer_address").notNull(),
+    scope: text("scope").$type<AppSmartAccountSignerScope>().notNull(),
+    state: text("state").$type<AppSmartAccountSignerState>().notNull(),
+    permissionMask: integer("permission_mask"),
+    sourceSignature: text("source_signature"),
+    sourceSlot: bigint("source_slot", { mode: "bigint" }),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    userId: uuid("user_id").references(() => appUsers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("app_smart_account_signers_env_settings_scope_signer_uidx").on(
+      table.solanaEnv,
+      table.settingsPda,
+      table.scope,
+      table.signerAddress
+    ),
+    index("app_smart_account_signers_env_signer_state_idx").on(
+      table.solanaEnv,
+      table.signerAddress,
+      table.state
+    ),
+    index("app_smart_account_signers_settings_idx").on(
+      table.solanaEnv,
+      table.settingsPda
+    ),
+    index("app_smart_account_signers_user_idx").on(table.userId),
+    check(
+      "app_smart_account_signers_solana_env_check",
+      sql`${table.solanaEnv} IN ('mainnet', 'testnet', 'devnet', 'localnet')`
+    ),
+    check(
+      "app_smart_account_signers_scope_check",
+      sql`${table.scope} IN ('root_settings')`
+    ),
+    check(
+      "app_smart_account_signers_state_check",
+      sql`${table.state} IN ('active', 'removed')`
+    ),
+  ]
+);
+
+/**
  * Idempotency and replay records for wallet auth completion.
  * One row per signed challenge token hash.
  */
@@ -948,6 +1124,7 @@ export const appWalletAuthCompletions = pgTable(
       onDelete: "set null",
     }),
     smartAccountAddress: text("smart_account_address"),
+    settingsPda: text("settings_pda"),
     provisioningOutcome: text(
       "provisioning_outcome"
     ).$type<AppWalletAuthProvisioningOutcome | null>(),
@@ -980,7 +1157,7 @@ export const appWalletAuthCompletions = pgTable(
     ),
     check(
       "app_wallet_auth_completions_provisioning_outcome_check",
-      sql`${table.provisioningOutcome} IS NULL OR ${table.provisioningOutcome} IN ('existing_ready', 'reconciled_ready', 'sponsored_existing_record', 'sponsored_new_record', 'retried_failed_record')`
+      sql`${table.provisioningOutcome} IS NULL OR ${table.provisioningOutcome} IN ('existing_ready', 'delegated_root_signer', 'reconciled_ready', 'sponsored_existing_record', 'sponsored_new_record', 'retried_failed_record')`
     ),
   ]
 );
@@ -1598,6 +1775,10 @@ export const botMessagesRelations = relations(botMessages, ({ one }) => ({
 export const appUsersRelations = relations(appUsers, ({ many }) => ({
   wallets: many(appUserWallets),
   smartAccounts: many(appUserSmartAccounts),
+  smartAccountSettingsChangeRequests: many(
+    appSmartAccountSettingsChangeRequests
+  ),
+  smartAccountSigners: many(appSmartAccountSigners),
   walletAuthCompletions: many(appWalletAuthCompletions),
   chats: many(appChats),
 }));
@@ -1614,6 +1795,26 @@ export const appUserSmartAccountsRelations = relations(
   ({ one }) => ({
     user: one(appUsers, {
       fields: [appUserSmartAccounts.userId],
+      references: [appUsers.id],
+    }),
+  })
+);
+
+export const appSmartAccountSettingsChangeRequestsRelations = relations(
+  appSmartAccountSettingsChangeRequests,
+  ({ one }) => ({
+    requestedByUser: one(appUsers, {
+      fields: [appSmartAccountSettingsChangeRequests.requestedByUserId],
+      references: [appUsers.id],
+    }),
+  })
+);
+
+export const appSmartAccountSignersRelations = relations(
+  appSmartAccountSigners,
+  ({ one }) => ({
+    user: one(appUsers, {
+      fields: [appSmartAccountSigners.userId],
       references: [appUsers.id],
     }),
   })
@@ -1791,6 +1992,15 @@ export type AppSmartAccountSponsorshipTransaction =
   typeof appSmartAccountSponsorshipTransactions.$inferSelect;
 export type InsertAppSmartAccountSponsorshipTransaction =
   typeof appSmartAccountSponsorshipTransactions.$inferInsert;
+
+export type AppSmartAccountSettingsChangeRequest =
+  typeof appSmartAccountSettingsChangeRequests.$inferSelect;
+export type InsertAppSmartAccountSettingsChangeRequest =
+  typeof appSmartAccountSettingsChangeRequests.$inferInsert;
+
+export type AppSmartAccountSigner = typeof appSmartAccountSigners.$inferSelect;
+export type InsertAppSmartAccountSigner =
+  typeof appSmartAccountSigners.$inferInsert;
 
 export type AppWalletAuthCompletion =
   typeof appWalletAuthCompletions.$inferSelect;

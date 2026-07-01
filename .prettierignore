@@ -1,7 +1,13 @@
 .anchor
 .DS_Store
+.next
+.turbo
+.vercel
 target
 node_modules
 dist
 build
 test-ledger
+admin/.next
+app/.next
+frontend/.next

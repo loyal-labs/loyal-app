@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   ProgramConfigSetSmartAccountCreationFeeArgs,
   programConfigSetSmartAccountCreationFeeArgsBeet,
-} from '../types/ProgramConfigSetSmartAccountCreationFeeArgs'
+} from "../types/ProgramConfigSetSmartAccountCreationFeeArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type SetProgramConfigSmartAccountCreationFeeInstructionArgs = {
-  args: ProgramConfigSetSmartAccountCreationFeeArgs
-}
+  args: ProgramConfigSetSmartAccountCreationFeeArgs;
+};
 /**
  * @category Instructions
  * @category SetProgramConfigSmartAccountCreationFee
@@ -28,15 +28,15 @@ export type SetProgramConfigSmartAccountCreationFeeInstructionArgs = {
 export const setProgramConfigSmartAccountCreationFeeStruct =
   new beet.BeetArgsStruct<
     SetProgramConfigSmartAccountCreationFeeInstructionArgs & {
-      instructionDiscriminator: number[] /* size: 8 */
+      instructionDiscriminator: number[] /* size: 8 */;
     }
   >(
     [
-      ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-      ['args', programConfigSetSmartAccountCreationFeeArgsBeet],
+      ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+      ["args", programConfigSetSmartAccountCreationFeeArgsBeet],
     ],
-    'SetProgramConfigSmartAccountCreationFeeInstructionArgs'
-  )
+    "SetProgramConfigSmartAccountCreationFeeInstructionArgs"
+  );
 /**
  * Accounts required by the _setProgramConfigSmartAccountCreationFee_ instruction
  *
@@ -47,14 +47,14 @@ export const setProgramConfigSmartAccountCreationFeeStruct =
  * @category generated
  */
 export type SetProgramConfigSmartAccountCreationFeeInstructionAccounts = {
-  programConfig: web3.PublicKey
-  authority: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  programConfig: web3.PublicKey;
+  authority: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const setProgramConfigSmartAccountCreationFeeInstructionDiscriminator = [
   222, 30, 134, 176, 131, 113, 195, 202,
-]
+];
 
 /**
  * Creates a _SetProgramConfigSmartAccountCreationFee_ instruction.
@@ -69,13 +69,13 @@ export const setProgramConfigSmartAccountCreationFeeInstructionDiscriminator = [
 export function createSetProgramConfigSmartAccountCreationFeeInstruction(
   accounts: SetProgramConfigSmartAccountCreationFeeInstructionAccounts,
   args: SetProgramConfigSmartAccountCreationFeeInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = setProgramConfigSmartAccountCreationFeeStruct.serialize({
     instructionDiscriminator:
       setProgramConfigSmartAccountCreationFeeInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.programConfig,
@@ -87,11 +87,11 @@ export function createSetProgramConfigSmartAccountCreationFeeInstruction(
       isWritable: false,
       isSigner: true,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -99,6 +99,6 @@ export function createSetProgramConfigSmartAccountCreationFeeInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

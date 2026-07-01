@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   RemoveSpendingLimitArgs,
   removeSpendingLimitArgsBeet,
-} from '../types/RemoveSpendingLimitArgs'
+} from "../types/RemoveSpendingLimitArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type RemoveSpendingLimitAsAuthorityInstructionArgs = {
-  args: RemoveSpendingLimitArgs
-}
+  args: RemoveSpendingLimitArgs;
+};
 /**
  * @category Instructions
  * @category RemoveSpendingLimitAsAuthority
@@ -28,15 +28,15 @@ export type RemoveSpendingLimitAsAuthorityInstructionArgs = {
 export const removeSpendingLimitAsAuthorityStruct =
   new beet.FixableBeetArgsStruct<
     RemoveSpendingLimitAsAuthorityInstructionArgs & {
-      instructionDiscriminator: number[] /* size: 8 */
+      instructionDiscriminator: number[] /* size: 8 */;
     }
   >(
     [
-      ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-      ['args', removeSpendingLimitArgsBeet],
+      ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+      ["args", removeSpendingLimitArgsBeet],
     ],
-    'RemoveSpendingLimitAsAuthorityInstructionArgs'
-  )
+    "RemoveSpendingLimitAsAuthorityInstructionArgs"
+  );
 /**
  * Accounts required by the _removeSpendingLimitAsAuthority_ instruction
  *
@@ -50,17 +50,17 @@ export const removeSpendingLimitAsAuthorityStruct =
  * @category generated
  */
 export type RemoveSpendingLimitAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  spendingLimit: web3.PublicKey
-  rentCollector: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  spendingLimit: web3.PublicKey;
+  rentCollector: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const removeSpendingLimitAsAuthorityInstructionDiscriminator = [
   94, 32, 68, 127, 251, 44, 145, 7,
-]
+];
 
 /**
  * Creates a _RemoveSpendingLimitAsAuthority_ instruction.
@@ -75,13 +75,13 @@ export const removeSpendingLimitAsAuthorityInstructionDiscriminator = [
 export function createRemoveSpendingLimitAsAuthorityInstruction(
   accounts: RemoveSpendingLimitAsAuthorityInstructionAccounts,
   args: RemoveSpendingLimitAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = removeSpendingLimitAsAuthorityStruct.serialize({
     instructionDiscriminator:
       removeSpendingLimitAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -108,11 +108,11 @@ export function createRemoveSpendingLimitAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -120,6 +120,6 @@ export function createRemoveSpendingLimitAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

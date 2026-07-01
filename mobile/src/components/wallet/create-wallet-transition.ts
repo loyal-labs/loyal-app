@@ -5,14 +5,14 @@ export type CreateWalletScreenStep = "pin" | "confirm";
 export type CreateWalletBackTarget = "chooser" | "pin";
 
 export function getCreateWalletBackTarget(
-  step: CreateWalletScreenStep,
+  step: CreateWalletScreenStep
 ): CreateWalletBackTarget {
   return step === "pin" ? "chooser" : "pin";
 }
 
 export function scheduleCreateWalletConfirmTransition(
   pin: string,
-  onTransition: (pin: string) => void,
+  onTransition: (pin: string) => void
 ): () => void {
   const timeoutId = setTimeout(() => {
     onTransition(pin);
@@ -22,7 +22,7 @@ export function scheduleCreateWalletConfirmTransition(
 }
 
 export function scheduleCreateWalletDeferredAction(
-  onDeferred: () => void,
+  onDeferred: () => void
 ): () => void {
   const timeoutId = setTimeout(() => {
     onDeferred();

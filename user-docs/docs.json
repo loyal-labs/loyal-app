@@ -11,51 +11,29 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "DeFi",
+        "tab": "Earn",
         "groups": [
           {
-            "group": "Home",
+            "group": "Start Here",
             "pages": [
-              "index"
+              "earn/overview",
+              "earn/smart-account"
             ]
           },
           {
-            "group": "Private Transactions",
+            "group": "Automation",
             "pages": [
-              "sdk/private-transactions/quick-start",
-              "sdk/private-transactions/how-it-works",
-              "sdk/private-transactions/reference",
-              "sdk/private-transactions/cli",
-              "sdk/private-transactions/errors"
+              "earn/policies",
+              "earn/same-mint-optimization",
+              "earn/orchestrator",
+              "earn/autodeposit"
             ]
           },
           {
-            "group": "FAQ & Support",
-            "pages": ["faq/index"]
-          },
-          {
-            "group": "Resources",
-            "pages": ["resources/links"]
-          }
-        ]
-      },
-      {
-        "tab": "Smart Accounts",
-        "groups": [
-          {
-            "group": "Overview",
+            "group": "Safety",
             "pages": [
-              "smart-accounts/overview",
-              "smart-accounts/concepts",
-              "smart-accounts/policies-and-execution",
-              "smart-accounts/frontend-and-vaults"
-            ]
-          },
-          {
-            "group": "SDKs",
-            "pages": [
-              "smart-accounts/typescript-sdk",
-              "smart-accounts/rust-sdk"
+              "earn/trust-model",
+              "earn/safety-and-faq"
             ]
           }
         ]
@@ -64,25 +42,27 @@
         "tab": "Learn",
         "groups": [
           {
-            "group": "About Loyal",
+            "group": "Smart Accounts",
             "pages": [
-              "surveillance-crisis",
-              "Introduction/solution",
-              "Introduction/howitworks",
-              "Introduction/usecases"
+              "smart-accounts/overview",
+              "smart-accounts/concepts",
+              "smart-accounts/policies-and-execution",
+              "smart-accounts/frontend-and-vaults",
+              "smart-accounts/typescript-sdk",
+              "smart-accounts/rust-sdk"
             ]
           },
           {
-            "group": "Architecture",
+            "group": "DeFi",
             "pages": [
-              "architecture/network",
-              "architecture/payments",
-              "architecture/privacy"
+              "sdk/private-transactions/quick-start",
+              "sdk/private-transactions/how-it-works",
+              "sdk/private-transactions/reference",
+              "sdk/private-transactions/cli",
+              "sdk/private-transactions/errors",
+              "faq/index",
+              "resources/links"
             ]
-          },
-          {
-            "group": "Launch",
-            "pages": ["launch/roadmap", "launch/token"]
           }
         ]
       },
@@ -96,6 +76,10 @@
           {
             "group": "Reports",
             "pages": ["transparency/q1-2026", "transparency/q4-2025"]
+          },
+          {
+            "group": "Launch",
+            "pages": ["launch/roadmap", "launch/token"]
           }
         ]
       }
@@ -108,14 +92,9 @@
           "icon": "house"
         },
         {
-          "anchor": "Litepaper",
-          "href": "https://drive.google.com/file/d/17htv03yh9Ugddkq4kyc14Ut6XesbtRYB/view?usp=sharing",
-          "icon": "scroll"
-        },
-        {
-          "anchor": "MetaDAO Launch",
-          "href": "https://metadao.fi",
-          "icon": "rocket"
+          "anchor": "Dashboard",
+          "href": "https://app.askloyal.com",
+          "icon": "gauge"
         }
       ]
     }

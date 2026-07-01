@@ -22,7 +22,10 @@ export async function GET(
 
     return NextResponse.json(detail, { headers: corsHeaders });
   } catch (error) {
-    console.error("[api/mobile/tokens/[mint]] Failed to fetch token detail", error);
+    console.error(
+      "[api/mobile/tokens/[mint]] Failed to fetch token detail",
+      error
+    );
 
     return NextResponse.json(
       { error: "Failed to fetch token detail" },

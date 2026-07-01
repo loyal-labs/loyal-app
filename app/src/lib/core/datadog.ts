@@ -73,7 +73,14 @@ function installEarlyErrorCatcher() {
       });
     }
     if (originalOnError) {
-      return originalOnError.call(window, message, source, lineno, colno, error);
+      return originalOnError.call(
+        window,
+        message,
+        source,
+        lineno,
+        colno,
+        error
+      );
     }
     return false;
   };
@@ -104,7 +111,10 @@ export function initDatadog() {
     defaultPrivacyLevel: "mask-user-input",
     plugins: [reactPlugin({ router: false })],
     beforeSend(event) {
-      if (event.type === "error" && isOpaqueScriptError(event as RumErrorEvent)) {
+      if (
+        event.type === "error" &&
+        isOpaqueScriptError(event as RumErrorEvent)
+      ) {
         return false;
       }
       return true;
@@ -118,7 +128,10 @@ export function initDatadog() {
     forwardConsoleLogs: ["warn", "error"],
     forwardReports: "all",
     beforeSend(event) {
-      if (event.message === "Script error." || event.message === "Script error") {
+      if (
+        event.message === "Script error." ||
+        event.message === "Script error"
+      ) {
         return false;
       }
       return true;

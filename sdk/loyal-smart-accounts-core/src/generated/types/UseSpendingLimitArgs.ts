@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type UseSpendingLimitArgs = {
-  amount: beet.bignum
-  decimals: number
-  memo: beet.COption<string>
-}
+  amount: beet.bignum;
+  decimals: number;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -19,9 +19,9 @@ export type UseSpendingLimitArgs = {
 export const useSpendingLimitArgsBeet =
   new beet.FixableBeetArgsStruct<UseSpendingLimitArgs>(
     [
-      ['amount', beet.u64],
-      ['decimals', beet.u8],
-      ['memo', beet.coption(beet.utf8String)],
+      ["amount", beet.u64],
+      ["decimals", beet.u8],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'UseSpendingLimitArgs'
-  )
+    "UseSpendingLimitArgs"
+  );

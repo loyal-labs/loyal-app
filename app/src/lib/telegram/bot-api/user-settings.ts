@@ -30,7 +30,10 @@ type UserSettingsCallbackData = {
   value: "off" | "on";
 };
 
-type UserSettingsState = Pick<UserSettings, "model" | "notifications" | "userId">;
+type UserSettingsState = Pick<
+  UserSettings,
+  "model" | "notifications" | "userId"
+>;
 
 export type UserSettingsUpdateValues = {
   notifications: boolean;
@@ -202,7 +205,10 @@ export async function sendUserSettingsMessage(
 ): Promise<void> {
   await ctx.reply(buildUserSettingsMessageText(settings.model), {
     parse_mode: "HTML",
-    reply_markup: buildUserSettingsKeyboard(settings.userId, settings.notifications),
+    reply_markup: buildUserSettingsKeyboard(
+      settings.userId,
+      settings.notifications
+    ),
   });
 }
 

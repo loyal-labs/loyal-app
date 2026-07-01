@@ -5,7 +5,10 @@ import {
   SettingsTransaction,
   Transaction,
 } from "@loyal-labs/loyal-smart-accounts-core";
-import { createAccountFetcher, createFeatureModule } from "../../feature-factory.js";
+import {
+  createAccountFetcher,
+  createFeatureModule,
+} from "../../feature-factory.js";
 import { getRuntimeOperationsForFeature } from "../../operation-registry.js";
 
 export const execution = createFeatureModule({
@@ -28,4 +31,5 @@ export const execution = createFeatureModule({
 });
 
 export type ExecutionFeature = typeof execution;
-export const createExecutionClient: ExecutionFeature["client"] = execution.client;
+export const createExecutionClient: ExecutionFeature["client"] =
+  execution.client;

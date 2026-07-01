@@ -1,0 +1,703 @@
+import "server-only";
+
+import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.server";
+
+const USDC_DECIMALS = 6;
+const ACTIVE_EARN_HOLDINGS_CTE = `
+  WITH active_positions AS (
+    SELECT
+      position.id AS position_id,
+      position.wallet_address,
+      position.settings,
+      position.vault_index,
+      position.vault_pubkey,
+      position.current_reserve,
+      position.current_amount_raw,
+      position.principal_amount_raw,
+      position.current_observed_at,
+      position.deposit_mint,
+      vault.id AS vault_id
+    FROM loyal_yield.user_yield_positions AS position
+    LEFT JOIN loyal_yield.managed_vaults AS vault
+      ON vault.settings = position.settings
+      AND vault.vault_index = position.vault_index
+      AND vault.vault_pubkey = position.vault_pubkey
+      AND vault.active = true
+    WHERE position.status = 'active'
+  ),
+  reserve_rows AS (
+    SELECT
+      active.position_id,
+      reserve.amount_raw,
+      COALESCE(
+        reserve.planning_metadata->>'amountSemantics',
+        reserve.planning_metadata->>'amount_semantics'
+      ) AS amount_semantics,
+      COALESCE(
+        reserve.planning_metadata->>'redeemable_liquidity_amount_raw',
+        reserve.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+      ) AS redeemable_amount_raw_text
+    FROM active_positions AS active
+    INNER JOIN loyal_yield.vault_reserve_positions_current AS reserve
+      ON reserve.vault_id = active.vault_id
+  ),
+  normalized_reserve_by_position AS (
+    SELECT
+      position_id,
+      COALESCE(SUM(
+        CASE
+          WHEN amount_semantics IN (
+            'kamino_redeemable_liquidity',
+            'redeemable_liquidity_amount'
+          )
+            THEN amount_raw
+          WHEN amount_semantics = 'kamino_obligation_collateral_deposited_amount'
+            AND redeemable_amount_raw_text ~ '^[0-9]+$'
+            THEN redeemable_amount_raw_text::bigint
+          ELSE 0::bigint
+        END
+      ), 0)::bigint AS normalized_reserve_raw,
+      COALESCE(SUM(
+        CASE
+          WHEN amount_semantics = 'kamino_obligation_collateral_deposited_amount'
+            THEN amount_raw
+          ELSE 0::bigint
+        END
+      ), 0)::bigint AS collateral_stored_amount_raw,
+      COALESCE(SUM(
+        CASE
+          WHEN amount_semantics = 'kamino_obligation_collateral_deposited_amount'
+            AND (
+              redeemable_amount_raw_text IS NULL
+              OR redeemable_amount_raw_text !~ '^[0-9]+$'
+            )
+            THEN amount_raw
+          WHEN amount_semantics IS NULL
+            OR amount_semantics NOT IN (
+              'kamino_redeemable_liquidity',
+              'redeemable_liquidity_amount',
+              'kamino_obligation_collateral_deposited_amount'
+            )
+            THEN amount_raw
+          ELSE 0::bigint
+        END
+      ), 0)::bigint AS excluded_reserve_raw,
+      COUNT(*) FILTER (
+        WHERE amount_semantics IN (
+          'kamino_redeemable_liquidity',
+          'redeemable_liquidity_amount'
+        )
+      )::bigint AS redeemable_reserve_rows,
+      COUNT(*) FILTER (
+        WHERE amount_semantics = 'kamino_obligation_collateral_deposited_amount'
+      )::bigint AS collateral_reserve_rows,
+      COUNT(*) FILTER (
+        WHERE amount_semantics = 'kamino_obligation_collateral_deposited_amount'
+          AND (
+            redeemable_amount_raw_text IS NULL
+            OR redeemable_amount_raw_text !~ '^[0-9]+$'
+          )
+      )::bigint AS missing_redeemable_metadata_rows,
+      COUNT(*) FILTER (
+        WHERE amount_semantics IS NULL
+          OR amount_semantics NOT IN (
+            'kamino_redeemable_liquidity',
+            'redeemable_liquidity_amount',
+            'kamino_obligation_collateral_deposited_amount'
+          )
+      )::bigint AS unknown_reserve_semantics_rows
+    FROM reserve_rows
+    GROUP BY position_id
+  ),
+  idle_by_position AS (
+    SELECT
+      active.position_id,
+      COALESCE(SUM(idle.amount_raw), 0)::bigint AS idle_raw
+    FROM active_positions AS active
+    INNER JOIN loyal_yield.vault_idle_token_balances_current AS idle
+      ON idle.vault_id = active.vault_id
+      AND idle.mint = active.deposit_mint
+    GROUP BY active.position_id
+  ),
+  normalized_active_positions AS (
+    SELECT
+      active.position_id,
+      active.wallet_address,
+      active.settings,
+      active.current_reserve,
+      active.current_amount_raw,
+      active.principal_amount_raw,
+      active.current_observed_at,
+      COALESCE(reserve.normalized_reserve_raw, 0::bigint)
+        AS normalized_reserve_raw,
+      COALESCE(idle.idle_raw, 0::bigint) AS idle_raw,
+      COALESCE(reserve.normalized_reserve_raw, 0::bigint)
+        + COALESCE(idle.idle_raw, 0::bigint) AS normalized_aum_raw,
+      COALESCE(reserve.collateral_stored_amount_raw, 0::bigint)
+        AS collateral_stored_amount_raw,
+      COALESCE(reserve.excluded_reserve_raw, 0::bigint)
+        AS excluded_reserve_raw,
+      COALESCE(reserve.redeemable_reserve_rows, 0::bigint)
+        AS redeemable_reserve_rows,
+      COALESCE(reserve.collateral_reserve_rows, 0::bigint)
+        AS collateral_reserve_rows,
+      COALESCE(reserve.missing_redeemable_metadata_rows, 0::bigint)
+        AS missing_redeemable_metadata_rows,
+      COALESCE(reserve.unknown_reserve_semantics_rows, 0::bigint)
+        AS unknown_reserve_semantics_rows,
+      CASE WHEN active.vault_id IS NULL THEN 1::bigint ELSE 0::bigint END
+        AS missing_managed_vault_rows,
+      COALESCE(reserve.normalized_reserve_raw, 0::bigint)
+        + COALESCE(idle.idle_raw, 0::bigint)
+        - active.current_amount_raw AS current_pointer_delta_raw
+    FROM active_positions AS active
+    LEFT JOIN normalized_reserve_by_position AS reserve
+      ON reserve.position_id = active.position_id
+    LEFT JOIN idle_by_position AS idle
+      ON idle.position_id = active.position_id
+  )
+`;
+
+export type EarnFlowPoint = {
+  date: string;
+  depositedRaw: bigint;
+  netRaw: bigint;
+  withdrawnRaw: bigint;
+};
+
+export type EarnPositionRow = {
+  collateralReserveRows: number;
+  collateralStoredAmountRaw: bigint;
+  currentObservedAt: string;
+  currentPointerDeltaRaw: bigint;
+  currentReserve: string;
+  excludedReserveRaw: bigint;
+  idleAmountRaw: bigint;
+  missingManagedVaultRows: number;
+  missingRedeemableMetadataRows: number;
+  normalizedAumRaw: bigint;
+  normalizedReserveRaw: bigint;
+  principalAmountRaw: bigint;
+  redeemableReserveRows: number;
+  settings: string;
+  storedCurrentPointerRaw: bigint;
+  unknownReserveSemanticsRows: number;
+  walletAddress: string;
+};
+
+export type EarnFreshnessMetric = {
+  label: string;
+  timestamp: string | null;
+};
+
+export type EarnData = {
+  activeAumRaw: bigint;
+  activeAutodepositPolicies: number;
+  activeCollateralStoredAmountRaw: bigint;
+  activeCurrentPointerDeltaRaw: bigint;
+  activeExcludedReserveRaw: bigint;
+  activeIdleRaw: bigint;
+  activeMissingManagedVaultRows: number;
+  activeMissingRedeemableMetadataRows: number;
+  activePrincipalRaw: bigint;
+  activeRedeemableReserveRows: number;
+  activeCollateralReserveRows: number;
+  activeReserveRaw: bigint;
+  activeStoredCurrentPointerRaw: bigint;
+  activeUnknownReserveSemanticsRows: number;
+  autodepositExecutionAmount30dRaw: bigint;
+  autodepositExecutionAmountRaw: bigint;
+  autodepositExecutionCount30d: number;
+  autodepositExecutionCount: number;
+  autodepositStatusCounts: {
+    active: number;
+    closed: number;
+    paused: number;
+    pending: number;
+  };
+  flow30d: EarnFlowPoint[];
+  freshness: EarnFreshnessMetric[];
+  scheduledEligibleAmountRaw: bigint;
+  scheduledEligibleLotCount: number;
+  scheduledOpenAmountRaw: bigint;
+  scheduledOpenLotCount: number;
+  topPositions: EarnPositionRow[];
+  totalDeposited30dRaw: bigint;
+  totalWithdrawn30dRaw: bigint;
+  uniqueEarnPolicies: number;
+  uniqueEarnUsers: number;
+};
+
+type HeadlineRow = {
+  active_aum_raw: string | number | bigint | null;
+  active_collateral_stored_amount_raw: string | number | bigint | null;
+  active_current_pointer_delta_raw: string | number | bigint | null;
+  active_excluded_reserve_raw: string | number | bigint | null;
+  active_idle_raw: string | number | bigint | null;
+  active_missing_managed_vault_rows: string | number | bigint | null;
+  active_missing_redeemable_metadata_rows: string | number | bigint | null;
+  active_principal_raw: string | number | bigint | null;
+  active_redeemable_reserve_rows: string | number | bigint | null;
+  active_collateral_reserve_rows: string | number | bigint | null;
+  active_reserve_raw: string | number | bigint | null;
+  active_stored_current_pointer_raw: string | number | bigint | null;
+  active_unknown_reserve_semantics_rows: string | number | bigint | null;
+  active_autodeposit_policies: string | number | bigint | null;
+  unique_earn_policies: string | number | bigint | null;
+  unique_earn_users: string | number | bigint | null;
+};
+
+type FlowRow = {
+  day: string;
+  deposited_raw: string | number | bigint | null;
+  withdrawn_raw: string | number | bigint | null;
+};
+
+type AutodepositStatusRow = {
+  status: string;
+  total: string | number | bigint | null;
+};
+
+type ScheduledRow = {
+  eligible_amount_raw: string | number | bigint | null;
+  eligible_lot_count: string | number | bigint | null;
+  open_amount_raw: string | number | bigint | null;
+  open_lot_count: string | number | bigint | null;
+};
+
+type ExecutionRow = {
+  amount_30d_raw: string | number | bigint | null;
+  amount_raw: string | number | bigint | null;
+  count_30d: string | number | bigint | null;
+  count: string | number | bigint | null;
+};
+
+type FreshnessRow = {
+  latest_position_observed_at: Date | string | null;
+  latest_target_seen_at: Date | string | null;
+  latest_wallet_balance_event_observed_at: Date | string | null;
+  latest_wallet_balance_observed_at: Date | string | null;
+  latest_wallet_balance_projected_at: Date | string | null;
+  latest_sweep_execution_received_at: Date | string | null;
+};
+
+type PositionRow = {
+  collateral_reserve_rows: string | number | bigint;
+  collateral_stored_amount_raw: string | number | bigint;
+  current_observed_at: Date | string;
+  current_pointer_delta_raw: string | number | bigint;
+  current_reserve: string;
+  excluded_reserve_raw: string | number | bigint;
+  idle_raw: string | number | bigint;
+  missing_managed_vault_rows: string | number | bigint;
+  missing_redeemable_metadata_rows: string | number | bigint;
+  normalized_aum_raw: string | number | bigint;
+  normalized_reserve_raw: string | number | bigint;
+  principal_amount_raw: string | number | bigint;
+  redeemable_reserve_rows: string | number | bigint;
+  settings: string;
+  stored_current_pointer_raw: string | number | bigint;
+  unknown_reserve_semantics_rows: string | number | bigint;
+  wallet_address: string;
+};
+
+function toBigInt(value: string | number | bigint | null | undefined): bigint {
+  if (typeof value === "bigint") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return BigInt(Math.trunc(value));
+  }
+
+  if (typeof value === "string" && value.length > 0) {
+    return BigInt(value);
+  }
+
+  return BigInt(0);
+}
+
+function toNumber(value: string | number | bigint | null | undefined): number {
+  return Number(toBigInt(value));
+}
+
+function toIsoString(value: Date | string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
+}
+
+function createFreshnessMetrics(
+  row: FreshnessRow | undefined
+): EarnFreshnessMetric[] {
+  return [
+    {
+      label: "Earn positions",
+      timestamp: toIsoString(row?.latest_position_observed_at),
+    },
+    {
+      label: "Autodeposit targets",
+      timestamp: toIsoString(row?.latest_target_seen_at),
+    },
+    {
+      label: "Sweep executions",
+      timestamp: toIsoString(row?.latest_sweep_execution_received_at),
+    },
+    {
+      label: "Wallet balances current",
+      timestamp: toIsoString(row?.latest_wallet_balance_observed_at),
+    },
+    {
+      label: "Wallet balance events",
+      timestamp: toIsoString(row?.latest_wallet_balance_event_observed_at),
+    },
+    {
+      label: "Wallet balance projections",
+      timestamp: toIsoString(row?.latest_wallet_balance_projected_at),
+    },
+  ];
+}
+
+async function loadEarnData(): Promise<EarnData> {
+  const sql = getYieldNeonSql();
+  const queryRows = <T>(query: string) =>
+    sql.query(query) as unknown as Promise<T[]>;
+
+  const [
+    headlineRows,
+    flowRows,
+    statusRows,
+    scheduledRows,
+    executionRows,
+    freshnessRows,
+    positionRows,
+  ] = await Promise.all([
+    queryRows<HeadlineRow>(
+      `
+        ${ACTIVE_EARN_HOLDINGS_CTE}
+        SELECT
+          COALESCE(SUM(normalized_aum_raw), 0)::text AS active_aum_raw,
+          COALESCE(SUM(normalized_reserve_raw), 0)::text AS active_reserve_raw,
+          COALESCE(SUM(idle_raw), 0)::text AS active_idle_raw,
+          COALESCE(SUM(current_amount_raw), 0)::text AS active_stored_current_pointer_raw,
+          COALESCE(SUM(current_pointer_delta_raw), 0)::text AS active_current_pointer_delta_raw,
+          COALESCE(SUM(principal_amount_raw), 0)::text AS active_principal_raw,
+          COALESCE(SUM(collateral_stored_amount_raw), 0)::text AS active_collateral_stored_amount_raw,
+          COALESCE(SUM(excluded_reserve_raw), 0)::text AS active_excluded_reserve_raw,
+          COALESCE(SUM(redeemable_reserve_rows), 0)::text AS active_redeemable_reserve_rows,
+          COALESCE(SUM(collateral_reserve_rows), 0)::text AS active_collateral_reserve_rows,
+          COALESCE(SUM(missing_redeemable_metadata_rows), 0)::text AS active_missing_redeemable_metadata_rows,
+          COALESCE(SUM(unknown_reserve_semantics_rows), 0)::text AS active_unknown_reserve_semantics_rows,
+          COALESCE(SUM(missing_managed_vault_rows), 0)::text AS active_missing_managed_vault_rows,
+          (
+            SELECT COUNT(DISTINCT COALESCE(NULLIF(wallet_address, ''), settings))::text
+            FROM loyal_yield.user_yield_positions
+            WHERE status = 'active'
+          ) AS unique_earn_users,
+          (
+            SELECT COUNT(DISTINCT policy_account)::text
+            FROM loyal_yield.route_policies
+            WHERE active = true
+          ) AS unique_earn_policies,
+          (
+            SELECT COUNT(DISTINCT policy.policy_account)::text
+            FROM loyal_yield.balance_sweep_policies AS policy
+            INNER JOIN loyal_yield.balance_sweep_targets AS target
+              ON target.balance_sweep_policy_id = policy.id
+            WHERE policy.active = true
+              AND target.active = true
+              AND target.lifecycle_status = 'active'
+          ) AS active_autodeposit_policies
+        FROM normalized_active_positions
+      `
+    ),
+    queryRows<FlowRow>(
+      `
+        WITH bounds AS (
+          SELECT
+            ((date_trunc('day', now() AT TIME ZONE 'UTC')::date + 1) - 30)::date AS start_day,
+            (date_trunc('day', now() AT TIME ZONE 'UTC')::date + 1)::date AS end_day
+        ),
+        days AS (
+          SELECT generate_series(
+            (SELECT start_day FROM bounds),
+            (SELECT end_day FROM bounds) - 1,
+            interval '1 day'
+          )::date AS day
+        ),
+        confirmed_flow_events AS (
+          SELECT
+            (deposit.confirmed_at AT TIME ZONE 'UTC')::date AS day,
+            'deposit'::text AS direction,
+            'earn_deposit'::text AS source,
+            deposit.deposit_signature AS signature,
+            deposit.principal_amount_raw AS amount_raw
+          FROM loyal_yield.user_yield_position_deposits AS deposit
+          WHERE deposit.confirmed_at >= (SELECT start_day FROM bounds)
+            AND deposit.confirmed_at < (SELECT end_day FROM bounds)
+          UNION ALL
+          SELECT
+            (execution.received_at AT TIME ZONE 'UTC')::date AS day,
+            'deposit'::text AS direction,
+            'autodeposit_sweep'::text AS source,
+            execution.signature,
+            execution.amount_raw
+          FROM loyal_yield.balance_sweep_executions AS execution
+          WHERE execution.received_at >= (SELECT start_day FROM bounds)
+            AND execution.received_at < (SELECT end_day FROM bounds)
+            AND NOT EXISTS (
+              SELECT 1
+              FROM loyal_yield.user_yield_position_deposits AS deposit
+              WHERE deposit.deposit_signature = execution.signature
+            )
+          UNION ALL
+          SELECT
+            (withdrawal.confirmed_at AT TIME ZONE 'UTC')::date AS day,
+            'withdrawal'::text AS direction,
+            'earn_withdrawal'::text AS source,
+            withdrawal.withdrawal_signature AS signature,
+            withdrawal.withdrawn_amount_raw AS amount_raw
+          FROM loyal_yield.user_yield_position_withdrawals AS withdrawal
+          WHERE withdrawal.confirmed_at >= (SELECT start_day FROM bounds)
+            AND withdrawal.confirmed_at < (SELECT end_day FROM bounds)
+        ),
+        flow_by_day AS (
+          SELECT
+            day,
+            SUM(amount_raw) FILTER (WHERE direction = 'deposit') AS deposited_raw,
+            SUM(amount_raw) FILTER (WHERE direction = 'withdrawal') AS withdrawn_raw
+          FROM confirmed_flow_events
+          GROUP BY 1
+        )
+        SELECT
+          to_char(days.day, 'YYYY-MM-DD') AS day,
+          COALESCE(flow_by_day.deposited_raw, 0)::text AS deposited_raw,
+          COALESCE(flow_by_day.withdrawn_raw, 0)::text AS withdrawn_raw
+        FROM days
+        LEFT JOIN flow_by_day ON flow_by_day.day = days.day
+        ORDER BY days.day ASC
+      `
+    ),
+    queryRows<AutodepositStatusRow>(
+      `
+        WITH classified AS (
+          SELECT
+            CASE
+              WHEN policy.active = true
+                AND target.active = true
+                AND target.lifecycle_status = 'active'
+                THEN 'active'
+              WHEN policy.active = true
+                AND target.active = false
+                AND target.lifecycle_status = 'active'
+                THEN 'paused'
+              WHEN target.lifecycle_status IN ('pending_delegation', 'closing')
+                THEN 'pending'
+              ELSE 'closed'
+            END AS status
+          FROM loyal_yield.balance_sweep_targets AS target
+          LEFT JOIN loyal_yield.balance_sweep_policies AS policy
+            ON policy.id = target.balance_sweep_policy_id
+        )
+        SELECT status, COUNT(*)::text AS total
+        FROM classified
+        GROUP BY status
+      `
+    ),
+    queryRows<ScheduledRow>(
+      `
+        SELECT
+          (COUNT(*) FILTER (WHERE lot.status = 'open' AND lot.remaining_amount_raw > 0))::text AS open_lot_count,
+          COALESCE(SUM(lot.remaining_amount_raw) FILTER (WHERE lot.status = 'open' AND lot.remaining_amount_raw > 0), 0)::text AS open_amount_raw,
+          (COUNT(*) FILTER (
+            WHERE lot.status = 'open'
+              AND lot.remaining_amount_raw > 0
+              AND lot.eligible_after <= now()
+          ))::text AS eligible_lot_count,
+          COALESCE(SUM(lot.remaining_amount_raw) FILTER (
+            WHERE lot.status = 'open'
+              AND lot.remaining_amount_raw > 0
+              AND lot.eligible_after <= now()
+          ), 0)::text AS eligible_amount_raw
+        FROM loyal_yield.balance_sweep_surplus_lots AS lot
+        INNER JOIN loyal_yield.balance_sweep_targets AS target
+          ON target.id = lot.target_id
+        LEFT JOIN loyal_yield.balance_sweep_policies AS policy
+          ON policy.id = target.balance_sweep_policy_id
+        WHERE policy.active = true
+          AND target.active = true
+          AND target.lifecycle_status = 'active'
+      `
+    ),
+    queryRows<ExecutionRow>(
+      `
+        SELECT
+          COUNT(*)::text AS count,
+          COALESCE(SUM(amount_raw), 0)::text AS amount_raw,
+          (COUNT(*) FILTER (WHERE received_at >= now() - interval '30 days'))::text AS count_30d,
+          COALESCE(SUM(amount_raw) FILTER (WHERE received_at >= now() - interval '30 days'), 0)::text AS amount_30d_raw
+        FROM loyal_yield.balance_sweep_executions
+      `
+    ),
+    queryRows<FreshnessRow>(
+      `
+        SELECT
+          (SELECT MAX(current_observed_at) FROM loyal_yield.user_yield_positions WHERE status = 'active') AS latest_position_observed_at,
+          (
+            SELECT MAX(target.last_seen_at)
+            FROM loyal_yield.balance_sweep_targets AS target
+            LEFT JOIN loyal_yield.balance_sweep_policies AS policy
+              ON policy.id = target.balance_sweep_policy_id
+            WHERE policy.active = true
+              AND target.active = true
+              AND target.lifecycle_status = 'active'
+          ) AS latest_target_seen_at,
+          (SELECT MAX(received_at) FROM loyal_yield.balance_sweep_executions) AS latest_sweep_execution_received_at,
+          (SELECT MAX(observed_at) FROM loyal_yield.balance_sweep_wallet_balances_current) AS latest_wallet_balance_observed_at,
+          (SELECT MAX(observed_at) FROM loyal_yield.balance_sweep_wallet_balance_events) AS latest_wallet_balance_event_observed_at,
+          (SELECT MAX(projected_at) FROM loyal_yield.balance_sweep_wallet_balance_events) AS latest_wallet_balance_projected_at
+      `
+    ),
+    queryRows<PositionRow>(
+      `
+        ${ACTIVE_EARN_HOLDINGS_CTE}
+        SELECT
+          wallet_address,
+          settings,
+          current_reserve,
+          normalized_aum_raw::text,
+          normalized_reserve_raw::text,
+          idle_raw::text,
+          current_amount_raw::text AS stored_current_pointer_raw,
+          current_pointer_delta_raw::text,
+          principal_amount_raw::text,
+          collateral_stored_amount_raw::text,
+          excluded_reserve_raw::text,
+          redeemable_reserve_rows::text,
+          collateral_reserve_rows::text,
+          missing_redeemable_metadata_rows::text,
+          unknown_reserve_semantics_rows::text,
+          missing_managed_vault_rows::text,
+          current_observed_at
+        FROM normalized_active_positions
+        ORDER BY normalized_aum_raw DESC, current_observed_at DESC
+        LIMIT 25
+      `
+    ),
+  ]);
+
+  const headline = headlineRows[0];
+  const scheduled = scheduledRows[0];
+  const executions = executionRows[0];
+  const autodepositStatusCounts = {
+    active: 0,
+    closed: 0,
+    paused: 0,
+    pending: 0,
+  };
+
+  for (const row of statusRows) {
+    if (row.status in autodepositStatusCounts) {
+      autodepositStatusCounts[
+        row.status as keyof typeof autodepositStatusCounts
+      ] = toNumber(row.total);
+    }
+  }
+
+  const flow30d = flowRows.map((row) => {
+    const depositedRaw = toBigInt(row.deposited_raw);
+    const withdrawnRaw = toBigInt(row.withdrawn_raw);
+
+    return {
+      date: row.day,
+      depositedRaw,
+      netRaw: depositedRaw - withdrawnRaw,
+      withdrawnRaw,
+    };
+  });
+
+  return {
+    activeAumRaw: toBigInt(headline?.active_aum_raw),
+    activeAutodepositPolicies: toNumber(headline?.active_autodeposit_policies),
+    activeCollateralStoredAmountRaw: toBigInt(
+      headline?.active_collateral_stored_amount_raw
+    ),
+    activeCurrentPointerDeltaRaw: toBigInt(
+      headline?.active_current_pointer_delta_raw
+    ),
+    activeExcludedReserveRaw: toBigInt(headline?.active_excluded_reserve_raw),
+    activeIdleRaw: toBigInt(headline?.active_idle_raw),
+    activeMissingManagedVaultRows: toNumber(
+      headline?.active_missing_managed_vault_rows
+    ),
+    activeMissingRedeemableMetadataRows: toNumber(
+      headline?.active_missing_redeemable_metadata_rows
+    ),
+    activePrincipalRaw: toBigInt(headline?.active_principal_raw),
+    activeRedeemableReserveRows: toNumber(
+      headline?.active_redeemable_reserve_rows
+    ),
+    activeCollateralReserveRows: toNumber(
+      headline?.active_collateral_reserve_rows
+    ),
+    activeReserveRaw: toBigInt(headline?.active_reserve_raw),
+    activeStoredCurrentPointerRaw: toBigInt(
+      headline?.active_stored_current_pointer_raw
+    ),
+    activeUnknownReserveSemanticsRows: toNumber(
+      headline?.active_unknown_reserve_semantics_rows
+    ),
+    autodepositExecutionAmount30dRaw: toBigInt(executions?.amount_30d_raw),
+    autodepositExecutionAmountRaw: toBigInt(executions?.amount_raw),
+    autodepositExecutionCount30d: toNumber(executions?.count_30d),
+    autodepositExecutionCount: toNumber(executions?.count),
+    autodepositStatusCounts,
+    flow30d,
+    freshness: createFreshnessMetrics(freshnessRows[0]),
+    scheduledEligibleAmountRaw: toBigInt(scheduled?.eligible_amount_raw),
+    scheduledEligibleLotCount: toNumber(scheduled?.eligible_lot_count),
+    scheduledOpenAmountRaw: toBigInt(scheduled?.open_amount_raw),
+    scheduledOpenLotCount: toNumber(scheduled?.open_lot_count),
+    topPositions: positionRows.map((row) => ({
+      collateralReserveRows: toNumber(row.collateral_reserve_rows),
+      collateralStoredAmountRaw: toBigInt(row.collateral_stored_amount_raw),
+      currentObservedAt: toIsoString(row.current_observed_at) ?? "",
+      currentPointerDeltaRaw: toBigInt(row.current_pointer_delta_raw),
+      currentReserve: row.current_reserve,
+      excludedReserveRaw: toBigInt(row.excluded_reserve_raw),
+      idleAmountRaw: toBigInt(row.idle_raw),
+      missingManagedVaultRows: toNumber(row.missing_managed_vault_rows),
+      missingRedeemableMetadataRows: toNumber(
+        row.missing_redeemable_metadata_rows
+      ),
+      normalizedAumRaw: toBigInt(row.normalized_aum_raw),
+      normalizedReserveRaw: toBigInt(row.normalized_reserve_raw),
+      principalAmountRaw: toBigInt(row.principal_amount_raw),
+      redeemableReserveRows: toNumber(row.redeemable_reserve_rows),
+      settings: row.settings,
+      storedCurrentPointerRaw: toBigInt(row.stored_current_pointer_raw),
+      unknownReserveSemanticsRows: toNumber(row.unknown_reserve_semantics_rows),
+      walletAddress: row.wallet_address,
+    })),
+    totalDeposited30dRaw: flow30d.reduce(
+      (total, point) => total + point.depositedRaw,
+      BigInt(0)
+    ),
+    totalWithdrawn30dRaw: flow30d.reduce(
+      (total, point) => total + point.withdrawnRaw,
+      BigInt(0)
+    ),
+    uniqueEarnPolicies: toNumber(headline?.unique_earn_policies),
+    uniqueEarnUsers: toNumber(headline?.unique_earn_users),
+  };
+}
+
+export async function getEarnData(): Promise<EarnData> {
+  return loadEarnData();
+}
+
+export { USDC_DECIMALS };

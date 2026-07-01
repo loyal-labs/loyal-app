@@ -42,7 +42,9 @@ export function trimOneliner(oneliner: string): string {
   return normalizeWhitespace(oneliner).slice(0, MAX_ONELINER_CHARS);
 }
 
-export function validateSummaryOneliner(oneliner: unknown): ValidationResult<string> {
+export function validateSummaryOneliner(
+  oneliner: unknown
+): ValidationResult<string> {
   if (typeof oneliner !== "string") {
     return validationFailure("oneliner must be a string");
   }
@@ -53,7 +55,9 @@ export function validateSummaryOneliner(oneliner: unknown): ValidationResult<str
   }
 
   if (normalized.length > MAX_ONELINER_CHARS) {
-    return validationFailure(`oneliner must be <= ${MAX_ONELINER_CHARS} characters`);
+    return validationFailure(
+      `oneliner must be <= ${MAX_ONELINER_CHARS} characters`
+    );
   }
 
   return validationSuccess(normalized);
@@ -68,7 +72,9 @@ export function validateSummaryTopics(
   }
 
   if (topics.length < MIN_TOPICS || topics.length > MAX_TOPICS) {
-    return validationFailure(`topics must contain ${MIN_TOPICS}-${MAX_TOPICS} items`);
+    return validationFailure(
+      `topics must contain ${MIN_TOPICS}-${MAX_TOPICS} items`
+    );
   }
 
   const participantSet = new Set(
@@ -85,9 +91,12 @@ export function validateSummaryTopics(
     }
 
     const record = topic as Record<string, unknown>;
-    const title = typeof record.title === "string" ? normalizeWhitespace(record.title) : "";
+    const title =
+      typeof record.title === "string" ? normalizeWhitespace(record.title) : "";
     const content =
-      typeof record.content === "string" ? normalizeWhitespace(record.content) : "";
+      typeof record.content === "string"
+        ? normalizeWhitespace(record.content)
+        : "";
 
     if (!title) {
       return validationFailure(`topic ${index + 1} title is required`);
@@ -99,7 +108,9 @@ export function validateSummaryTopics(
 
     const sourcesRaw = Array.isArray(record.sources) ? record.sources : [];
     if (sourcesRaw.length === 0) {
-      return validationFailure(`topic ${index + 1} requires at least one source`);
+      return validationFailure(
+        `topic ${index + 1} requires at least one source`
+      );
     }
 
     const sources = sourcesRaw
@@ -108,7 +119,9 @@ export function validateSummaryTopics(
       .filter((source) => source.length > 0);
 
     if (sources.length === 0) {
-      return validationFailure(`topic ${index + 1} requires non-empty source names`);
+      return validationFailure(
+        `topic ${index + 1} requires non-empty source names`
+      );
     }
 
     if (participantSet.size > 0) {

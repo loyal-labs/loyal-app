@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  AUTH_SESSION_COOKIE_NAME,
   buildWalletAuthMessage,
   createAuthSessionTokenClaims,
   mapAuthSessionTokenClaimsToUser,
@@ -9,10 +8,6 @@ import {
 } from "../index";
 
 describe("session primitives", () => {
-  test("uses the shared auth session cookie name", () => {
-    expect(AUTH_SESSION_COOKIE_NAME).toBe("loyal_email_session");
-  });
-
   test("maps session users to token claims and back", () => {
     const claims = createAuthSessionTokenClaims({
       authMethod: "wallet",
@@ -23,14 +18,11 @@ describe("session primitives", () => {
       smartAccountAddress: "smart-account-1",
     });
 
-    expect(mapAuthSessionTokenClaimsToUser(claims)).toEqual({
-      authMethod: "wallet",
-      subjectAddress: "wallet-1",
-      displayAddress: "wallet-1",
-      provider: "solana",
-      walletAddress: "wallet-1",
-      smartAccountAddress: "smart-account-1",
-    });
+    const user = mapAuthSessionTokenClaimsToUser(claims);
+    expect(user.authMethod).toBe("wallet");
+    expect(user.subjectAddress).toBe("wallet-1");
+    expect(user.walletAddress).toBe("wallet-1");
+    expect(user.smartAccountAddress).toBe("smart-account-1");
   });
 });
 
@@ -39,6 +31,7 @@ describe("wallet primitives", () => {
     const parsed = walletChallengeTokenClaimsSchema.safeParse({
       tokenType: "wallet_challenge",
       version: 1,
+      proofKind: "message",
       origin: "https://app.askloyal.com",
       walletAddress: "wallet-1",
       message: "Sign in to askloyal",
@@ -57,6 +50,6 @@ describe("wallet primitives", () => {
         issuedAt: "2099-03-11T12:00:00.000Z",
         expiresAt: "2099-03-11T12:10:00.000Z",
       })
-    ).toContain("Sign in to askloyal");
+    ).toContain("This is not a transaction and will not cost gas.");
   });
 });

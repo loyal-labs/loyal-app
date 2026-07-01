@@ -1,8 +1,5 @@
 import { ax, type AxAIService, type AxAssertion } from "@ax-llm/ax";
-import {
-  assertValidationResult,
-  type RetryPolicy,
-} from "@loyal-labs/llm-core";
+import { assertValidationResult, type RetryPolicy } from "@loyal-labs/llm-core";
 import {
   type AxProgramLike,
   type LlmTelemetrySink,
@@ -33,7 +30,10 @@ type CreateAxSummaryGenerationServiceParams = {
   spec: SummaryProgramSpec;
   telemetry?: LlmTelemetrySink;
   testPrograms?: {
-    onelinerProgram: AxProgramLike<OnelinerGenerationInput, OnelinerGenerationOutput>;
+    onelinerProgram: AxProgramLike<
+      OnelinerGenerationInput,
+      OnelinerGenerationOutput
+    >;
     topicProgram: AxProgramLike<TopicExtractionInput, TopicExtractionOutput>;
   };
 };
@@ -56,11 +56,9 @@ export function createAxSummaryGenerationService(
   };
 
   const topicProgram =
-    params.testPrograms?.topicProgram ??
-    createTopicProgram(params.spec);
+    params.testPrograms?.topicProgram ?? createTopicProgram(params.spec);
   const onelinerProgram =
-    params.testPrograms?.onelinerProgram ??
-    createOnelinerProgram(params.spec);
+    params.testPrograms?.onelinerProgram ?? createOnelinerProgram(params.spec);
 
   return {
     generate: async (request) => {
@@ -81,9 +79,12 @@ export function createAxSummaryGenerationService(
       const topicAsserts: AxAssertion[] = [
         {
           fn: (values) => {
-            const result = validateSummaryTopics((values as TopicExtractionOutput).topics, {
-              participants,
-            });
+            const result = validateSummaryTopics(
+              (values as TopicExtractionOutput).topics,
+              {
+                participants,
+              }
+            );
             return result.ok || result.reason;
           },
         },
@@ -149,7 +150,9 @@ export function createAxSummaryGenerationService(
       });
 
       const diagnostics: SummaryGenerationDiagnostics = {
-        attempts: topicResult.diagnostics.attempts + onelinerResult.diagnostics.attempts,
+        attempts:
+          topicResult.diagnostics.attempts +
+          onelinerResult.diagnostics.attempts,
         failureReasons: [
           ...topicResult.diagnostics.failureReasons,
           ...onelinerResult.diagnostics.failureReasons,
@@ -174,11 +177,15 @@ function validateRequest(request: SummaryGenerationRequest): void {
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(request.dayKeyUtc)) {
-    throw new Error("Summary generation request requires dayKeyUtc in YYYY-MM-DD format");
+    throw new Error(
+      "Summary generation request requires dayKeyUtc in YYYY-MM-DD format"
+    );
   }
 
   if (!request.transcript.trim()) {
-    throw new Error("Summary generation request requires a non-empty transcript");
+    throw new Error(
+      "Summary generation request requires a non-empty transcript"
+    );
   }
 }
 

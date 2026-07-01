@@ -5,7 +5,7 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 /**
  * This type is used to derive the {@link ProposalStatus} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link ProposalStatus} type instead.
@@ -16,14 +16,14 @@ import * as beet from '@metaplex-foundation/beet'
  * @private
  */
 export type ProposalStatusRecord = {
-  Draft: { timestamp: beet.bignum }
-  Active: { timestamp: beet.bignum }
-  Rejected: { timestamp: beet.bignum }
-  Approved: { timestamp: beet.bignum }
-  Executing: void /* scalar variant */
-  Executed: { timestamp: beet.bignum }
-  Cancelled: { timestamp: beet.bignum }
-}
+  Draft: { timestamp: beet.bignum };
+  Active: { timestamp: beet.bignum };
+  Rejected: { timestamp: beet.bignum };
+  Approved: { timestamp: beet.bignum };
+  Executing: void /* scalar variant */;
+  Executed: { timestamp: beet.bignum };
+  Cancelled: { timestamp: beet.bignum };
+};
 
 /**
  * Union type respresenting the ProposalStatus data enum defined in Rust.
@@ -36,29 +36,29 @@ export type ProposalStatusRecord = {
  * @category enums
  * @category generated
  */
-export type ProposalStatus = beet.DataEnumKeyAsKind<ProposalStatusRecord>
+export type ProposalStatus = beet.DataEnumKeyAsKind<ProposalStatusRecord>;
 
 export const isProposalStatusDraft = (
   x: ProposalStatus
-): x is ProposalStatus & { __kind: 'Draft' } => x.__kind === 'Draft'
+): x is ProposalStatus & { __kind: "Draft" } => x.__kind === "Draft";
 export const isProposalStatusActive = (
   x: ProposalStatus
-): x is ProposalStatus & { __kind: 'Active' } => x.__kind === 'Active'
+): x is ProposalStatus & { __kind: "Active" } => x.__kind === "Active";
 export const isProposalStatusRejected = (
   x: ProposalStatus
-): x is ProposalStatus & { __kind: 'Rejected' } => x.__kind === 'Rejected'
+): x is ProposalStatus & { __kind: "Rejected" } => x.__kind === "Rejected";
 export const isProposalStatusApproved = (
   x: ProposalStatus
-): x is ProposalStatus & { __kind: 'Approved' } => x.__kind === 'Approved'
+): x is ProposalStatus & { __kind: "Approved" } => x.__kind === "Approved";
 export const isProposalStatusExecuting = (
   x: ProposalStatus
-): x is ProposalStatus & { __kind: 'Executing' } => x.__kind === 'Executing'
+): x is ProposalStatus & { __kind: "Executing" } => x.__kind === "Executing";
 export const isProposalStatusExecuted = (
   x: ProposalStatus
-): x is ProposalStatus & { __kind: 'Executed' } => x.__kind === 'Executed'
+): x is ProposalStatus & { __kind: "Executed" } => x.__kind === "Executed";
 export const isProposalStatusCancelled = (
   x: ProposalStatus
-): x is ProposalStatus & { __kind: 'Cancelled' } => x.__kind === 'Cancelled'
+): x is ProposalStatus & { __kind: "Cancelled" } => x.__kind === "Cancelled";
 
 /**
  * @category userTypes
@@ -66,51 +66,51 @@ export const isProposalStatusCancelled = (
  */
 export const proposalStatusBeet = beet.dataEnum<ProposalStatusRecord>([
   [
-    'Draft',
-    new beet.BeetArgsStruct<ProposalStatusRecord['Draft']>(
-      [['timestamp', beet.i64]],
+    "Draft",
+    new beet.BeetArgsStruct<ProposalStatusRecord["Draft"]>(
+      [["timestamp", beet.i64]],
       'ProposalStatusRecord["Draft"]'
     ),
   ],
 
   [
-    'Active',
-    new beet.BeetArgsStruct<ProposalStatusRecord['Active']>(
-      [['timestamp', beet.i64]],
+    "Active",
+    new beet.BeetArgsStruct<ProposalStatusRecord["Active"]>(
+      [["timestamp", beet.i64]],
       'ProposalStatusRecord["Active"]'
     ),
   ],
 
   [
-    'Rejected',
-    new beet.BeetArgsStruct<ProposalStatusRecord['Rejected']>(
-      [['timestamp', beet.i64]],
+    "Rejected",
+    new beet.BeetArgsStruct<ProposalStatusRecord["Rejected"]>(
+      [["timestamp", beet.i64]],
       'ProposalStatusRecord["Rejected"]'
     ),
   ],
 
   [
-    'Approved',
-    new beet.BeetArgsStruct<ProposalStatusRecord['Approved']>(
-      [['timestamp', beet.i64]],
+    "Approved",
+    new beet.BeetArgsStruct<ProposalStatusRecord["Approved"]>(
+      [["timestamp", beet.i64]],
       'ProposalStatusRecord["Approved"]'
     ),
   ],
-  ['Executing', beet.unit],
+  ["Executing", beet.unit],
 
   [
-    'Executed',
-    new beet.BeetArgsStruct<ProposalStatusRecord['Executed']>(
-      [['timestamp', beet.i64]],
+    "Executed",
+    new beet.BeetArgsStruct<ProposalStatusRecord["Executed"]>(
+      [["timestamp", beet.i64]],
       'ProposalStatusRecord["Executed"]'
     ),
   ],
 
   [
-    'Cancelled',
-    new beet.BeetArgsStruct<ProposalStatusRecord['Cancelled']>(
-      [['timestamp', beet.i64]],
+    "Cancelled",
+    new beet.BeetArgsStruct<ProposalStatusRecord["Cancelled"]>(
+      [["timestamp", beet.i64]],
       'ProposalStatusRecord["Cancelled"]'
     ),
   ],
-]) as beet.FixableBeet<ProposalStatus, ProposalStatus>
+]) as beet.FixableBeet<ProposalStatus, ProposalStatus>;

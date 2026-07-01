@@ -18,8 +18,7 @@ export async function reconcileRecoverableSmartAccounts(args?: {
   limit?: number;
   staleBefore?: Date;
 }): Promise<SmartAccountReconcilerResult> {
-  const staleBefore =
-    args?.staleBefore ?? new Date(Date.now() - 5 * 60 * 1000);
+  const staleBefore = args?.staleBefore ?? new Date(Date.now() - 5 * 60 * 1000);
   const limit = args?.limit ?? 25;
   const records = await listRecoverableSmartAccountRecords({
     limit,
@@ -34,10 +33,13 @@ export async function reconcileRecoverableSmartAccounts(args?: {
     const user = await findAppUserById(record.userId);
     if (!user) {
       skipped += 1;
-      console.warn("[smart-accounts] skipping reconciliation for missing user", {
-        userId: record.userId,
-        smartAccountRecordId: record.id,
-      });
+      console.warn(
+        "[smart-accounts] skipping reconciliation for missing user",
+        {
+          userId: record.userId,
+          smartAccountRecordId: record.id,
+        }
+      );
       continue;
     }
 

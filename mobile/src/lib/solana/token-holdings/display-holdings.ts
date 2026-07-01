@@ -19,9 +19,7 @@ const DEFAULT_TOKEN_DECIMALS = 6;
 
 const resolveUsdcMint = (): string => {
   const env = process.env.EXPO_PUBLIC_SOLANA_ENV ?? "devnet";
-  return env === "mainnet"
-    ? SOLANA_USDC_MINT_MAINNET
-    : SOLANA_USDC_MINT_DEVNET;
+  return env === "mainnet" ? SOLANA_USDC_MINT_MAINNET : SOLANA_USDC_MINT_DEVNET;
 };
 
 const getPrefillTokens = (): PrefillToken[] => [
@@ -83,7 +81,7 @@ const groupPairsByMint = (holdings: TokenHolding[]): TokenHolding[] => {
 
 const toZeroHolding = (
   existingHolding: TokenHolding | undefined,
-  fallback: PrefillToken,
+  fallback: PrefillToken
 ): TokenHolding => ({
   mint: fallback.mint,
   symbol: fallback.symbol,
@@ -113,7 +111,9 @@ export function getPairPositions(holdings: TokenHolding[]): PairPosition[] {
   });
 }
 
-export function getDisplayTokenHoldings(holdings: TokenHolding[]): TokenHolding[] {
+export function getDisplayTokenHoldings(
+  holdings: TokenHolding[]
+): TokenHolding[] {
   const positiveHoldings = holdings
     .filter((holding) => holding.balance > 0)
     .sort(sortByUsdValueDesc);
@@ -123,9 +123,10 @@ export function getDisplayTokenHoldings(holdings: TokenHolding[]): TokenHolding[
   }
 
   return getPrefillTokens().map((token) => {
-    const existingHolding = holdings.find(
-      (holding) => holding.mint === token.mint && !holding.isSecured,
-    ) ?? holdings.find((holding) => holding.mint === token.mint);
+    const existingHolding =
+      holdings.find(
+        (holding) => holding.mint === token.mint && !holding.isSecured
+      ) ?? holdings.find((holding) => holding.mint === token.mint);
     return toZeroHolding(existingHolding, token);
   });
 }

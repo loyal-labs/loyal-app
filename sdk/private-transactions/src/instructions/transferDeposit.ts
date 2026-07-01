@@ -11,8 +11,7 @@ export async function transferDepositIx(
   program: Program<TelegramPrivateTransfer>,
   params: TransferDepositParams
 ): Promise<CheckedTransactionInstruction> {
-  const { user, tokenMint, destinationUser, amount, payer, sessionToken } =
-    params;
+  const { user, tokenMint, destinationUser, amount, payer } = params;
 
   const [sourceDepositPda] = findDepositPda(user, tokenMint);
   const [destinationDepositPda] = findDepositPda(destinationUser, tokenMint);
@@ -24,7 +23,6 @@ export async function transferDepositIx(
     destinationDeposit: destinationDepositPda,
     tokenMint,
     systemProgram: SystemProgram.programId,
-    sessionToken: sessionToken ?? null,
   };
 
   const ix = await program.methods

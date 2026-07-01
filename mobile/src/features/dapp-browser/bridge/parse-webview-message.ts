@@ -6,7 +6,10 @@ import {
 } from "./messages";
 
 function isBridgeRequestType(value: unknown): value is BridgeRequestType {
-  return typeof value === "string" && BRIDGE_REQUEST_TYPES.includes(value as BridgeRequestType);
+  return (
+    typeof value === "string" &&
+    BRIDGE_REQUEST_TYPES.includes(value as BridgeRequestType)
+  );
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

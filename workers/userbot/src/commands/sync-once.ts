@@ -8,7 +8,11 @@ import {
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { createUserbotClient, type UserbotClientBundle } from "../lib/client";
-import { createWorkerDatabase, loadDatabaseUrl, type UserbotDb } from "../lib/database";
+import {
+  createWorkerDatabase,
+  loadDatabaseUrl,
+  type UserbotDb,
+} from "../lib/database";
 import { loadUserbotConfig, type UserbotConfig } from "../lib/env";
 import {
   buildReauthGuidance,
@@ -150,7 +154,9 @@ function toUtcDayStart(date: Date): Date {
   );
 }
 
-function resolveSyncOptions(options: SyncOnceOptions = {}): ResolvedSyncOnceOptions {
+function resolveSyncOptions(
+  options: SyncOnceOptions = {}
+): ResolvedSyncOnceOptions {
   const parserTypes: CommunityParserType[] = options.parserTypes?.length
     ? [...new Set(options.parserTypes)]
     : ["userbot"];
@@ -159,12 +165,17 @@ function resolveSyncOptions(options: SyncOnceOptions = {}): ResolvedSyncOnceOpti
   );
   if (invalidParserTypes.length > 0) {
     throw new Error(
-      `Unsupported parser type(s): ${invalidParserTypes.join(", ")}. Supported values: ${SUPPORTED_PARSER_TYPES.join(", ")}`
+      `Unsupported parser type(s): ${invalidParserTypes.join(
+        ", "
+      )}. Supported values: ${SUPPORTED_PARSER_TYPES.join(", ")}`
     );
   }
 
   const lookbackDays = options.lookbackDays ?? null;
-  if (lookbackDays !== null && (!Number.isInteger(lookbackDays) || lookbackDays <= 0)) {
+  if (
+    lookbackDays !== null &&
+    (!Number.isInteger(lookbackDays) || lookbackDays <= 0)
+  ) {
     throw new Error("lookbackDays must be a positive integer");
   }
 
@@ -182,7 +193,8 @@ function resolveSyncOptions(options: SyncOnceOptions = {}): ResolvedSyncOnceOpti
   const now = options.now ?? new Date();
   const lookbackWindowEndExclusiveUtc = toUtcDayStart(now);
   const lookbackWindowStartUtc = new Date(
-    lookbackWindowEndExclusiveUtc.getTime() - lookbackDays * 24 * 60 * 60 * 1_000
+    lookbackWindowEndExclusiveUtc.getTime() -
+      lookbackDays * 24 * 60 * 60 * 1_000
   );
 
   return {
@@ -210,7 +222,9 @@ function parseParserTypes(value: string): CommunityParserType[] {
   );
   if (invalid.length > 0) {
     throw new Error(
-      `Unsupported parser type(s): ${invalid.join(", ")}. Supported values: ${SUPPORTED_PARSER_TYPES.join(", ")}`
+      `Unsupported parser type(s): ${invalid.join(
+        ", "
+      )}. Supported values: ${SUPPORTED_PARSER_TYPES.join(", ")}`
     );
   }
 
@@ -245,7 +259,9 @@ function parseSyncOnceCliOptions(argv: string[]): SyncOnceOptions {
     }
 
     if (arg.startsWith("--parser-types=")) {
-      options.parserTypes = parseParserTypes(arg.slice("--parser-types=".length));
+      options.parserTypes = parseParserTypes(
+        arg.slice("--parser-types=".length)
+      );
       continue;
     }
 
@@ -294,7 +310,8 @@ function createInitialStats(
     botEmptyBatches: 0,
     botStopAfterEmptyBatches: isBotAuthMode ? BOT_EMPTY_BATCH_STOP_COUNT : null,
     botUsedIdBatchFetch: isBotAuthMode,
-    botUsedLookbackFilter: isBotAuthMode && options.lookbackWindowStartUtc !== null,
+    botUsedLookbackFilter:
+      isBotAuthMode && options.lookbackWindowStartUtc !== null,
     chatIdFilterCount: options.chatIds?.length ?? null,
     communitiesFailed: 0,
     communitiesProcessed: 0,
@@ -321,14 +338,17 @@ function createInitialStats(
     lookbackDays: options.lookbackDays,
     lookbackWindowEndExclusiveUtc:
       options.lookbackWindowEndExclusiveUtc?.toISOString() ?? null,
-    lookbackWindowStartUtc: options.lookbackWindowStartUtc?.toISOString() ?? null,
+    lookbackWindowStartUtc:
+      options.lookbackWindowStartUtc?.toISOString() ?? null,
     selectedParserTypes: options.parserTypes,
   };
 }
 
 function isTransientError(error: unknown): boolean {
   const message =
-    error instanceof Error ? error.message.toUpperCase() : String(error).toUpperCase();
+    error instanceof Error
+      ? error.message.toUpperCase()
+      : String(error).toUpperCase();
   const code =
     error && typeof error === "object" && "code" in error
       ? String((error as { code?: unknown }).code)
@@ -359,7 +379,8 @@ async function runWithRetry<T>(
     try {
       return await task();
     } catch (error) {
-      const shouldRetry = isTransientError(error) && attempt < RETRY_MAX_ATTEMPTS;
+      const shouldRetry =
+        isTransientError(error) && attempt < RETRY_MAX_ATTEMPTS;
       if (!shouldRetry) {
         throw error;
       }
@@ -433,7 +454,9 @@ function readStartedAccountId(account: unknown): bigint | null {
   return toBigIntId(id);
 }
 
-function readDiscoveredCommunity(dialog: unknown): DiscoveredUserbotCommunity | null {
+function readDiscoveredCommunity(
+  dialog: unknown
+): DiscoveredUserbotCommunity | null {
   if (!dialog || typeof dialog !== "object") {
     return null;
   }
@@ -561,7 +584,10 @@ async function syncCommunityWithBotIdBatches(
   membershipCache: Set<string>
 ): Promise<void> {
   const chatPeerId = Number(community.chatId);
-  const latestStoredMessageId = await getLatestStoredMessageId(db, community.id);
+  const latestStoredMessageId = await getLatestStoredMessageId(
+    db,
+    community.id
+  );
 
   if (latestStoredMessageId === null) {
     stats.communitiesWithNoStoredMessages += 1;
@@ -699,7 +725,10 @@ async function syncCommunity(
     return;
   }
 
-  const latestStoredMessageId = await getLatestStoredMessageId(db, community.id);
+  const latestStoredMessageId = await getLatestStoredMessageId(
+    db,
+    community.id
+  );
 
   if (latestStoredMessageId === null) {
     stats.communitiesWithNoStoredMessages += 1;
@@ -795,7 +824,9 @@ export async function runSyncOnce(
   const stats = createInitialStats(0, resolvedOptions, config);
 
   try {
-    const account = await bundle.client.start(createNonInteractiveStartParams(config));
+    const account = await bundle.client.start(
+      createNonInteractiveStartParams(config)
+    );
 
     const databaseUrl = deps.loadDatabaseUrl(deps.env);
     const db = deps.createDb(databaseUrl);
@@ -832,7 +863,10 @@ export async function runSyncOnce(
         errors: [] as CommunitySyncError[],
         stats,
       };
-      deps.logger.info("[userbot] sync:once completed (dialog-sync-only)", result);
+      deps.logger.info(
+        "[userbot] sync:once completed (dialog-sync-only)",
+        result
+      );
       return result;
     }
 

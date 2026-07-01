@@ -7,17 +7,17 @@ import type { WalletSigner } from "@loyal-labs/wallet-core/types";
 // ---------------------------------------------------------------------------
 
 export interface SignTransactionRequest {
-	type: "SIGN_TRANSACTION";
-	id: string;
-	serializedTx: number[];
-	isVersioned: boolean;
+  type: "SIGN_TRANSACTION";
+  id: string;
+  serializedTx: number[];
+  isVersioned: boolean;
 }
 
 export interface SignTransactionResponse {
-	type: "SIGN_TRANSACTION_RESPONSE";
-	id: string;
-	serializedTx?: number[];
-	error?: string;
+  type: "SIGN_TRANSACTION_RESPONSE";
+  id: string;
+  serializedTx?: number[];
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -26,57 +26,57 @@ export interface SignTransactionResponse {
 // ---------------------------------------------------------------------------
 
 export function createExternalWalletSigner(
-	publicKeyBase58: string,
+  publicKeyBase58: string
 ): WalletSigner {
-	const pubkey = new PublicKey(publicKeyBase58);
+  const pubkey = new PublicKey(publicKeyBase58);
 
-	return {
-		publicKey: pubkey,
+  return {
+    publicKey: pubkey,
 
-		async signTransaction<T extends Transaction | VersionedTransaction>(
-			tx: T,
-		): Promise<T> {
-			const isVersioned = tx instanceof VersionedTransaction;
-			const serialized = isVersioned
-				? Array.from(tx.serialize())
-				: Array.from(
-						(tx as Transaction).serialize({
-							requireAllSignatures: false,
-						}),
-					);
+    async signTransaction<T extends Transaction | VersionedTransaction>(
+      tx: T
+    ): Promise<T> {
+      const isVersioned = tx instanceof VersionedTransaction;
+      const serialized = isVersioned
+        ? Array.from(tx.serialize())
+        : Array.from(
+            (tx as Transaction).serialize({
+              requireAllSignatures: false,
+            })
+          );
 
-			const id = crypto.randomUUID();
+      const id = crypto.randomUUID();
 
-			const response: SignTransactionResponse =
-				await browser.runtime.sendMessage({
-					type: "SIGN_TRANSACTION",
-					id,
-					serializedTx: serialized,
-					isVersioned,
-				} satisfies SignTransactionRequest);
+      const response: SignTransactionResponse =
+        await browser.runtime.sendMessage({
+          type: "SIGN_TRANSACTION",
+          id,
+          serializedTx: serialized,
+          isVersioned,
+        } satisfies SignTransactionRequest);
 
-			if (response.error) {
-				throw new Error(response.error);
-			}
-			if (!response.serializedTx) {
-				throw new Error("No signed transaction returned");
-			}
+      if (response.error) {
+        throw new Error(response.error);
+      }
+      if (!response.serializedTx) {
+        throw new Error("No signed transaction returned");
+      }
 
-			const signedBytes = new Uint8Array(response.serializedTx);
-			if (isVersioned) {
-				return VersionedTransaction.deserialize(signedBytes) as T;
-			}
-			return Transaction.from(signedBytes) as T;
-		},
+      const signedBytes = new Uint8Array(response.serializedTx);
+      if (isVersioned) {
+        return VersionedTransaction.deserialize(signedBytes) as T;
+      }
+      return Transaction.from(signedBytes) as T;
+    },
 
-		async signAllTransactions<T extends Transaction | VersionedTransaction>(
-			txs: T[],
-		): Promise<T[]> {
-			const results: T[] = [];
-			for (const tx of txs) {
-				results.push(await this.signTransaction(tx));
-			}
-			return results;
-		},
-	};
+    async signAllTransactions<T extends Transaction | VersionedTransaction>(
+      txs: T[]
+    ): Promise<T[]> {
+      const results: T[] = [];
+      for (const tx of txs) {
+        results.push(await this.signTransaction(tx));
+      }
+      return results;
+    },
+  };
 }

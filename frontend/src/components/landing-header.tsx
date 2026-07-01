@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
 import {
   MARKETING_PAGES,
   type MarketingPage,
@@ -17,7 +18,7 @@ const navLinks: NavItem[] = [
   { kind: "dropdown", label: "Features" },
   { kind: "anchor", href: "/#developers", label: "Developers" },
   { kind: "anchor", href: "/#roadmap", label: "Roadmap" },
-  { kind: "anchor", href: "/#blog", label: "Blog" },
+  { kind: "anchor", href: "/blog", label: "Blog" },
   { kind: "anchor", href: "/#footer", label: "Links" },
 ];
 
@@ -26,6 +27,7 @@ const randomBlinkDelay = () => 2600 + Math.random() * 5200;
 const stickyRevealOffset = 68;
 
 export function LandingHeader() {
+  const { loyalAppUrl } = usePublicEnv();
   const [eyeOffset, setEyeOffset] = useState(0);
   const [isIntroEyeOpen, setIsIntroEyeOpen] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
@@ -151,6 +153,7 @@ export function LandingHeader() {
           isEyeOpen={isIntroEyeOpen}
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
+          loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-static"
           menuId="landing-mobile-menu-static"
           onMenuOpenChange={setIsMenuOpen}
@@ -172,6 +175,7 @@ export function LandingHeader() {
           isEyeOpen
           isMenuOpen={isMenuOpen}
           isBlinking={isBlinking}
+          loyalAppUrl={loyalAppUrl}
           maskId="landing-header-eye-mask-sticky"
           menuId="landing-mobile-menu-sticky"
           onMenuOpenChange={setIsMenuOpen}
@@ -187,6 +191,7 @@ function HeaderContent({
   isEyeOpen,
   isMenuOpen,
   isBlinking,
+  loyalAppUrl,
   maskId,
   menuId,
   onMenuOpenChange,
@@ -197,6 +202,7 @@ function HeaderContent({
   isEyeOpen: boolean;
   isMenuOpen: boolean;
   isBlinking: boolean;
+  loyalAppUrl: string;
   maskId: string;
   menuId: string;
   onMenuOpenChange: (isOpen: boolean) => void;
@@ -311,7 +317,7 @@ function HeaderContent({
       <div className="hidden lg:block">
         <Link
           className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-          href="https://app.askloyal.com"
+          href={loyalAppUrl}
           rel="noopener noreferrer"
           tabIndex={linkTabIndex}
         >
@@ -322,11 +328,12 @@ function HeaderContent({
       <div className="flex shrink-0 items-center gap-2 lg:hidden">
         <Link
           className="flex h-11 shrink-0 items-center justify-center rounded-full bg-black px-4 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-          href="/#get-started-mobile"
+          href={loyalAppUrl}
           onClick={closeMenu}
+          rel="noopener noreferrer"
           tabIndex={linkTabIndex}
         >
-          Download now
+          Open
         </Link>
 
         <button

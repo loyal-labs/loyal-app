@@ -6,6 +6,9 @@ export const serverEnv = {
   get databaseUrl(): string {
     return getRequiredEnv("DATABASE_URL");
   },
+  get yieldNeonDatabaseUrl(): string {
+    return getRequiredEnv("NEON_DATABASE_URL");
+  },
   get libraryUploadToken(): string {
     return getRequiredEnv("LIBRARY_UPLOAD_TOKEN");
   },

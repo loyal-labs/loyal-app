@@ -5,17 +5,17 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { AccountConstraint, accountConstraintBeet } from './AccountConstraint'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { AccountConstraint, accountConstraintBeet } from "./AccountConstraint";
 export type Hook = {
-  numExtraAccounts: number
-  accountConstraints: AccountConstraint[]
-  instructionData: Uint8Array
-  programId: web3.PublicKey
-  passInnerInstructions: boolean
-}
+  numExtraAccounts: number;
+  accountConstraints: AccountConstraint[];
+  instructionData: Uint8Array;
+  programId: web3.PublicKey;
+  passInnerInstructions: boolean;
+};
 
 /**
  * @category userTypes
@@ -23,11 +23,11 @@ export type Hook = {
  */
 export const hookBeet = new beet.FixableBeetArgsStruct<Hook>(
   [
-    ['numExtraAccounts', beet.u8],
-    ['accountConstraints', beet.array(accountConstraintBeet)],
-    ['instructionData', beet.bytes],
-    ['programId', beetSolana.publicKey],
-    ['passInnerInstructions', beet.bool],
+    ["numExtraAccounts", beet.u8],
+    ["accountConstraints", beet.array(accountConstraintBeet)],
+    ["instructionData", beet.bytes],
+    ["programId", beetSolana.publicKey],
+    ["passInnerInstructions", beet.bool],
   ],
-  'Hook'
-)
+  "Hook"
+);

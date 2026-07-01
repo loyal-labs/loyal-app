@@ -17,7 +17,7 @@ function decodeDepositUser(data: Buffer): string | null {
   }
   const userBytes = data.subarray(
     DEPOSIT_USER_OFFSET,
-    DEPOSIT_USER_OFFSET + PUBKEY_BYTES,
+    DEPOSIT_USER_OFFSET + PUBKEY_BYTES
   );
   return new PublicKey(userBytes).toBase58();
 }
@@ -28,7 +28,7 @@ const GET_ACCOUNTS_BATCH_SIZE = 100;
 
 export async function resolveDepositUsers(
   connection: Connection,
-  depositAddresses: string[],
+  depositAddresses: string[]
 ): Promise<Map<string, string>> {
   const userByDepositAddress = new Map<string, string>();
   if (depositAddresses.length === 0) return userByDepositAddress;

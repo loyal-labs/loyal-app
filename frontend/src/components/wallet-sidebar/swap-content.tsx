@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap, type SwapExecutionContext } from "@/hooks/use-swap";
 import { openTrackedLink, trackWalletSwapPressed } from "@/lib/core/analytics";
+import { getExplorerTxUrl } from "@/lib/solana/explorer";
 
 import { SwapShieldTabs } from "./shield-content";
 import type { FormButtonProps, SubView, SwapMode, SwapToken } from "./types";
@@ -563,6 +564,7 @@ function SwapTransactionDetail({
   onBack?: () => void;
 }) {
   const publicEnv = usePublicEnv();
+  const transactionUrl = signature ? getExplorerTxUrl(signature) : null;
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     month: "short",
@@ -773,9 +775,9 @@ function SwapTransactionDetail({
             <button
               className="swap-tx-action-btn"
               onClick={() =>
-                signature &&
+                transactionUrl &&
                 openTrackedLink(publicEnv, {
-                  href: `https://explorer.solana.com/tx/${signature}`,
+                  href: transactionUrl,
                   linkText: "View in explorer",
                   source: "swap_transaction_detail",
                 })
@@ -822,10 +824,8 @@ function SwapTransactionDetail({
             <button
               className="swap-tx-action-btn"
               onClick={() =>
-                signature &&
-                void navigator.clipboard.writeText(
-                  `https://explorer.solana.com/tx/${signature}`
-                )
+                transactionUrl &&
+                void navigator.clipboard.writeText(transactionUrl)
               }
               style={{
                 width: "48px",
@@ -892,6 +892,7 @@ function SwapTransactionDetail({
 export function SwapContent({
   onClose,
   onDone,
+  onSuccess,
   onNavigate,
   onBack,
   fromToken: fromTokenProp,
@@ -907,6 +908,7 @@ export function SwapContent({
 }: {
   onClose: () => void;
   onDone: () => void;
+  onSuccess?: () => Promise<void> | void;
   onNavigate: (view: Exclude<SubView, null>) => void;
   onBack?: () => void;
   fromToken: SwapToken;
@@ -1079,6 +1081,11 @@ export function SwapContent({
       setPhase("success");
       setFromAmount("");
       resetQuote();
+      void Promise.resolve()
+        .then(() => onSuccess?.())
+        .catch((error) => {
+          console.warn("Failed to refresh balances after swap", error);
+        });
     } else {
       setErrorMessage(result.error);
       setPhase("error");
@@ -1090,6 +1097,7 @@ export function SwapContent({
     fromToken.mint,
     fromToken.symbol,
     hasAmount,
+    onSuccess,
     publicEnv,
     quote,
     resetQuote,

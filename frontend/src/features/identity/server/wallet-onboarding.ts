@@ -3,13 +3,17 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import {
+  buildWalletAuthTransactionMemo,
   createAuthSessionTokenClaims,
+  WALLET_AUTH_SIWS_STATEMENT,
   type AuthSessionTokenClaimsData,
   type AuthSessionUser,
   type WalletChallengeResponse,
   walletChallengeRequestSchema,
   walletCompleteRequestSchema,
 } from "@loyal-labs/auth-core";
+import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { Connection } from "@solana/web3.js";
 
 import type { AppUser } from "@/features/chat/server/app-user";
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
@@ -32,14 +36,23 @@ import {
   findReadyCurrentUserSmartAccount,
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
+import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 
 import { trackWalletOnboardingEvent } from "./wallet-onboarding-analytics";
 import { WalletAuthError } from "./wallet-auth-errors";
 import { buildWalletAuthMessage } from "./wallet-auth-message";
 import {
+  createWalletAuthSignInInput,
+  verifyWalletSignInOutput,
+} from "./wallet-auth-siws";
+import {
   decodeWalletAddress,
   verifyWalletSignature,
 } from "./wallet-auth-signature";
+import {
+  createWalletAuthTransactionChallenge,
+  verifyWalletAuthTransactionProof,
+} from "./wallet-auth-transaction";
 import {
   issueWalletChallengeToken,
   verifyWalletChallengeToken,
@@ -56,6 +69,7 @@ type WalletOnboardingDependencies = {
   now: () => Date;
   randomUUID: () => string;
   wait: (ms: number) => Promise<void>;
+  getLatestBlockhash: (solanaEnv: SolanaEnv) => Promise<string>;
   getOrCreateUser: (principal: {
     provider: "solana";
     authMethod: "wallet";
@@ -95,6 +109,14 @@ const defaultDependencies: WalletOnboardingDependencies = {
   wait: async (ms) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
   },
+  getLatestBlockhash: async (solanaEnv) => {
+    const { rpcEndpoint } = getServerSolanaEndpoints(solanaEnv);
+    const connection = new Connection(rpcEndpoint, {
+      commitment: "confirmed",
+    });
+    const { blockhash } = await connection.getLatestBlockhash("confirmed");
+    return blockhash;
+  },
   getOrCreateUser: (principal) => getOrCreateCurrentUser(principal),
   ensureSmartAccount: ensureWalletUserSmartAccount,
   findReadySmartAccount: findReadyCurrentUserSmartAccount,
@@ -115,6 +137,15 @@ function getWalletAuthSecret(config: ReturnType<typeof getServerEnv>): string {
 
 function hashChallengeToken(challengeToken: string): string {
   return createHash("sha256").update(challengeToken).digest("hex");
+}
+
+function createSiwsNonce(randomId: string): string {
+  const normalized = randomId.replace(/[^A-Za-z0-9]/g, "");
+  if (normalized.length >= 8) {
+    return normalized;
+  }
+
+  return createHash("sha256").update(randomId).digest("hex");
 }
 
 function buildWalletSessionUser(args: {
@@ -139,16 +170,26 @@ function toReplayFailure(record: WalletAuthCompletionRecord): WalletAuthError {
     {
       code: record.lastErrorCode ?? "wallet_onboarding_failed",
       status:
-        record.lastErrorCode === "smart_account_reservation_conflict" ? 409 : 502,
+        record.lastErrorCode === "smart_account_reservation_conflict"
+          ? 409
+          : 502,
     }
   );
 }
 
 function classifyProvisioningOutcome(
   provisioningOutcome: EnsureUserSmartAccountResult["provisioningOutcome"]
-): "existing_smart_account_reused" | "sponsorship_submitted" | "reconciliation_succeeded" {
+):
+  | "existing_smart_account_reused"
+  | "delegated_smart_account_reused"
+  | "sponsorship_submitted"
+  | "reconciliation_succeeded" {
   if (provisioningOutcome === "existing_ready") {
     return "existing_smart_account_reused";
+  }
+
+  if (provisioningOutcome === "delegated_root_signer") {
+    return "delegated_smart_account_reused";
   }
 
   if (provisioningOutcome === "reconciled_ready") {
@@ -166,11 +207,21 @@ async function replayCompletedOnboarding(args: {
     throw new Error("Wallet auth completion record is missing replay data");
   }
 
-  const smartAccount = await args.dependencies.findReadySmartAccount({
-    userId: args.record.userId,
-  });
+  const config = args.dependencies.getConfig();
+  const smartAccount = args.record.settingsPda
+    ? {
+        creationSignature: null,
+        programId: config.loyalSmartAccounts.programId,
+        settingsPda: args.record.settingsPda,
+        smartAccountAddress: args.record.smartAccountAddress,
+      }
+    : await args.dependencies.findReadySmartAccount({
+        userId: args.record.userId,
+      });
   if (!smartAccount) {
-    throw new Error("Wallet auth completion replay could not find a ready smart account");
+    throw new Error(
+      "Wallet auth completion replay could not find a ready smart account"
+    );
   }
 
   const user = buildWalletSessionUser({
@@ -243,17 +294,103 @@ export async function createWalletAuthChallenge(
   const config = dependencies.getConfig();
   const secret = getWalletAuthSecret(config);
 
-  decodeWalletAddress(payload.walletAddress);
-
   const issuedAt = dependencies.now();
   const expiresAt = new Date(
     issuedAt.getTime() + WALLET_CHALLENGE_TTL_SECONDS * 1000
   );
+  if (payload.kind === "siws") {
+    const signInInput = createWalletAuthSignInInput({
+      expiresAt,
+      issuedAt,
+      nonce: createSiwsNonce(dependencies.randomUUID()),
+      origin: args.requestOrigin,
+      solanaEnv: config.solanaEnv,
+      statement: WALLET_AUTH_SIWS_STATEMENT,
+    });
+    const challengeToken = await issueWalletChallengeToken(
+      {
+        tokenType: "wallet_challenge",
+        version: 1,
+        proofKind: "siws",
+        origin: args.requestOrigin,
+        signInInput,
+      },
+      secret,
+      {
+        issuedAt,
+        expiresAt,
+      }
+    );
+
+    dependencies.trackEvent("challenge_created", {
+      origin: args.requestOrigin,
+      walletAddress: "siws_pending",
+      solanaEnv: config.solanaEnv,
+    });
+
+    return {
+      kind: "siws",
+      challengeToken,
+      signInInput,
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
+  if (payload.kind === "transaction") {
+    const walletAddress = payload.walletAddress;
+    decodeWalletAddress(walletAddress);
+
+    const memo = buildWalletAuthTransactionMemo({
+      appName: config.authAppName,
+      origin: args.requestOrigin,
+      walletAddress,
+      nonce: createSiwsNonce(dependencies.randomUUID()),
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    });
+    const transactionChallenge = createWalletAuthTransactionChallenge({
+      memo,
+      walletAddress,
+    });
+    const challengeToken = await issueWalletChallengeToken(
+      {
+        tokenType: "wallet_challenge",
+        version: 1,
+        proofKind: "transaction",
+        origin: args.requestOrigin,
+        walletAddress,
+        memo: transactionChallenge.memo,
+        transaction: transactionChallenge.transaction,
+      },
+      secret,
+      {
+        issuedAt,
+        expiresAt,
+      }
+    );
+
+    dependencies.trackEvent("challenge_created", {
+      origin: args.requestOrigin,
+      walletAddress,
+      solanaEnv: config.solanaEnv,
+    });
+
+    return {
+      kind: "transaction",
+      challengeToken,
+      transaction: transactionChallenge.transaction,
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
+  const walletAddress = payload.walletAddress;
+  decodeWalletAddress(walletAddress);
+
   const nonce = dependencies.randomUUID();
   const message = buildWalletAuthMessage({
     appName: config.authAppName,
     origin: args.requestOrigin,
-    walletAddress: payload.walletAddress,
+    walletAddress,
     nonce,
     issuedAt: issuedAt.toISOString(),
     expiresAt: expiresAt.toISOString(),
@@ -262,8 +399,9 @@ export async function createWalletAuthChallenge(
     {
       tokenType: "wallet_challenge",
       version: 1,
+      proofKind: "message",
       origin: args.requestOrigin,
-      walletAddress: payload.walletAddress,
+      walletAddress,
       message,
     },
     secret,
@@ -275,11 +413,12 @@ export async function createWalletAuthChallenge(
 
   dependencies.trackEvent("challenge_created", {
     origin: args.requestOrigin,
-    walletAddress: payload.walletAddress,
+    walletAddress,
     solanaEnv: config.solanaEnv,
   });
 
   return {
+    kind: "message",
     challengeToken,
     message,
     expiresAt: expiresAt.toISOString(),
@@ -311,25 +450,70 @@ export async function completeWalletOnboarding(
     });
   }
 
-  const isValid = await verifyWalletSignature({
-    walletAddress: claims.walletAddress,
-    message: claims.message,
-    signature: payload.signature,
-  });
+  if ((payload.kind ?? "message") !== claims.proofKind) {
+    throw new WalletAuthError("Wallet challenge proof type is invalid.", {
+      code: "invalid_wallet_proof_kind",
+      status: 400,
+    });
+  }
 
-  if (!isValid) {
-    dependencies.trackEvent("invalid_signature", {
-      origin: args.requestOrigin,
+  let walletAddress: string;
+
+  if (claims.proofKind === "siws") {
+    if (payload.kind !== "siws") {
+      throw new WalletAuthError("Wallet sign-in payload is invalid.", {
+        code: "invalid_wallet_signin_payload",
+        status: 400,
+      });
+    }
+
+    walletAddress = verifyWalletSignInOutput({
+      input: claims.signInInput,
+      output: payload.output,
+    });
+  } else if (claims.proofKind === "transaction") {
+    if (payload.kind !== "transaction") {
+      throw new WalletAuthError("Wallet transaction payload is invalid.", {
+        code: "invalid_wallet_transaction_payload",
+        status: 400,
+      });
+    }
+
+    walletAddress = verifyWalletAuthTransactionProof({
+      memo: claims.memo,
+      signedTransaction: payload.signedTransaction,
       walletAddress: claims.walletAddress,
-      solanaEnv: config.solanaEnv,
     });
-    throw new WalletAuthError("Wallet signature could not be verified.", {
-      code: "invalid_wallet_signature",
-      status: 401,
-      details: {
+  } else {
+    if (payload.kind === "siws" || payload.kind === "transaction") {
+      throw new WalletAuthError("Wallet signature payload is invalid.", {
+        code: "invalid_wallet_signature_payload",
+        status: 400,
+      });
+    }
+
+    const isValid = await verifyWalletSignature({
+      walletAddress: claims.walletAddress,
+      message: claims.message,
+      signature: payload.signature,
+    });
+
+    if (!isValid) {
+      dependencies.trackEvent("invalid_signature", {
+        origin: args.requestOrigin,
         walletAddress: claims.walletAddress,
-      },
-    });
+        solanaEnv: config.solanaEnv,
+      });
+      throw new WalletAuthError("Wallet signature could not be verified.", {
+        code: "invalid_wallet_signature",
+        status: 401,
+        details: {
+          walletAddress: claims.walletAddress,
+        },
+      });
+    }
+
+    walletAddress = claims.walletAddress;
   }
 
   const challengeHash = hashChallengeToken(payload.challengeToken);
@@ -337,7 +521,7 @@ export async function completeWalletOnboarding(
   const lease = await dependencies.beginCompletion(
     {
       challengeHash,
-      walletAddress: claims.walletAddress,
+      walletAddress,
       solanaEnv: config.solanaEnv,
       processingToken,
       staleBefore: new Date(
@@ -349,6 +533,16 @@ export async function completeWalletOnboarding(
     }
   );
 
+  if (lease.record.walletAddress !== walletAddress) {
+    throw new WalletAuthError(
+      "Wallet challenge was completed by another wallet.",
+      {
+        code: "wallet_challenge_wallet_mismatch",
+        status: 409,
+      }
+    );
+  }
+
   if (lease.kind === "completed") {
     return replayCompletedOnboarding({
       record: lease.record,
@@ -359,7 +553,7 @@ export async function completeWalletOnboarding(
   if (lease.kind === "failed") {
     dependencies.trackEvent("reconciliation_failed", {
       origin: args.requestOrigin,
-      walletAddress: claims.walletAddress,
+      walletAddress,
       solanaEnv: config.solanaEnv,
       errorCode: lease.record.lastErrorCode ?? "wallet_onboarding_failed",
     });
@@ -383,9 +577,10 @@ export async function completeWalletOnboarding(
     if (observedLease.kind === "failed") {
       dependencies.trackEvent("reconciliation_failed", {
         origin: args.requestOrigin,
-        walletAddress: claims.walletAddress,
+        walletAddress,
         solanaEnv: config.solanaEnv,
-        errorCode: observedLease.record.lastErrorCode ?? "wallet_onboarding_failed",
+        errorCode:
+          observedLease.record.lastErrorCode ?? "wallet_onboarding_failed",
       });
       throw toReplayFailure(observedLease.record);
     }
@@ -402,8 +597,8 @@ export async function completeWalletOnboarding(
   const principal = {
     provider: "solana" as const,
     authMethod: "wallet" as const,
-    subjectAddress: claims.walletAddress,
-    walletAddress: claims.walletAddress,
+    subjectAddress: walletAddress,
+    walletAddress,
   };
 
   let userRecord: AppUser | null = null;
@@ -413,7 +608,7 @@ export async function completeWalletOnboarding(
     userRecord = await dependencies.getOrCreateUser(principal);
     const ensureResult = await dependencies.ensureSmartAccount({
       userId: userRecord.id,
-      walletAddress: claims.walletAddress,
+      walletAddress,
     });
 
     const completedRecord = await dependencies.markCompletionCompleted(
@@ -422,6 +617,7 @@ export async function completeWalletOnboarding(
         processingToken,
         userId: userRecord.id,
         smartAccountAddress: ensureResult.smartAccount.smartAccountAddress,
+        settingsPda: ensureResult.smartAccount.settingsPda,
         provisioningOutcome: ensureResult.provisioningOutcome,
       },
       {
@@ -431,30 +627,40 @@ export async function completeWalletOnboarding(
     completionCommitted = true;
 
     const user = buildWalletSessionUser({
-      walletAddress: claims.walletAddress,
+      walletAddress,
       smartAccountAddress: completedRecord.smartAccountAddress!,
       settingsPda: ensureResult.smartAccount.settingsPda,
     });
     const sessionClaims = createAuthSessionTokenClaims(user);
-    const eventType = classifyProvisioningOutcome(ensureResult.provisioningOutcome);
+    const eventType = classifyProvisioningOutcome(
+      ensureResult.provisioningOutcome
+    );
     if (eventType === "existing_smart_account_reused") {
       dependencies.trackEvent("existing_smart_account_reused", {
         origin: args.requestOrigin,
-        walletAddress: claims.walletAddress,
+        walletAddress,
         solanaEnv: config.solanaEnv,
         provisioningOutcome: ensureResult.provisioningOutcome,
+      });
+    } else if (eventType === "delegated_smart_account_reused") {
+      dependencies.trackEvent("existing_smart_account_reused", {
+        origin: args.requestOrigin,
+        walletAddress,
+        solanaEnv: config.solanaEnv,
+        provisioningOutcome: ensureResult.provisioningOutcome,
+        smartAccountAddress: ensureResult.smartAccount.smartAccountAddress,
       });
     } else if (eventType === "reconciliation_succeeded") {
       dependencies.trackEvent("reconciliation_succeeded", {
         origin: args.requestOrigin,
-        walletAddress: claims.walletAddress,
+        walletAddress,
         solanaEnv: config.solanaEnv,
         provisioningOutcome: ensureResult.provisioningOutcome,
       });
     } else {
       dependencies.trackEvent("sponsorship_submitted", {
         origin: args.requestOrigin,
-        walletAddress: claims.walletAddress,
+        walletAddress,
         solanaEnv: config.solanaEnv,
         provisioningOutcome: ensureResult.provisioningOutcome,
         smartAccountAddress: ensureResult.smartAccount.smartAccountAddress,
@@ -478,7 +684,7 @@ export async function completeWalletOnboarding(
           : "reconciliation_failed",
         {
           origin: args.requestOrigin,
-          walletAddress: claims.walletAddress,
+          walletAddress,
           solanaEnv: config.solanaEnv,
           errorCode: error.code,
         }
@@ -495,8 +701,8 @@ export async function completeWalletOnboarding(
               error instanceof WalletAuthError
                 ? error.code
                 : isSmartAccountProvisioningError(error)
-                  ? error.code
-                  : "wallet_onboarding_failed",
+                ? error.code
+                : "wallet_onboarding_failed",
             errorMessage:
               error instanceof Error
                 ? error.message
@@ -508,11 +714,14 @@ export async function completeWalletOnboarding(
           }
         );
       } catch (markFailedError) {
-        console.error("[wallet-onboarding] failed to persist completion failure", {
-          challengeHash,
-          walletAddress: claims.walletAddress,
-          error: markFailedError,
-        });
+        console.error(
+          "[wallet-onboarding] failed to persist completion failure",
+          {
+            challengeHash,
+            walletAddress,
+            error: markFailedError,
+          }
+        );
       }
     }
 

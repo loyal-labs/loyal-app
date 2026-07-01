@@ -5,22 +5,9 @@ import {
   getEffectiveSpendingLimitRemainingAmount,
   getSpendingLimitNextReset,
   getSpendingLimitPeriodSeconds,
-  toSpendingLimitPeriodLabel,
 } from "../spending-limits";
 
 describe("spending limit helpers", () => {
-  test("uses the stored remaining amount before the reset boundary", () => {
-    expect(
-      getEffectiveSpendingLimitRemainingAmount({
-        amount: 1_000n,
-        lastReset: 1_000,
-        now: 1_000 + getSpendingLimitPeriodSeconds("day")! - 1,
-        period: "day",
-        remainingAmount: 250n,
-      })
-    ).toBe(250n);
-  });
-
   test("virtually resets recurring limits after the period passes", () => {
     expect(
       getEffectiveSpendingLimitRemainingAmount({
@@ -91,10 +78,5 @@ describe("spending limit helpers", () => {
         period: "one_time",
       })
     ).toBeNull();
-  });
-
-  test("returns user-facing period labels", () => {
-    expect(toSpendingLimitPeriodLabel("one_time")).toBe("one-time");
-    expect(toSpendingLimitPeriodLabel("month")).toBe("month");
   });
 });

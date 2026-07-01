@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { AnalyticsBootstrap } from "@/components/analytics/AnalyticsBootstrap";
 import { SignInModal } from "@/components/auth/sign-in-modal";
 import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
-import { PrivateClientPreloader } from "@/components/solana/private-client-preloader";
 import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
 import { AuthSessionProvider } from "@/contexts/auth-session-context";
 import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
@@ -14,6 +13,11 @@ export const metadata: Metadata = {
   title: "Loyal: Solana Wallet That Earns Yield Automatically",
   description:
     "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
+  // Landing CTAs now open the app at askloyal.com/app (same origin) for the
+  // preloaded transition, but the canonical app URL stays the subdomain.
+  alternates: {
+    canonical: "https://app.askloyal.com",
+  },
   openGraph: {
     title: "Loyal: Solana Wallet That Earns Yield Automatically",
     description:
@@ -54,7 +58,6 @@ export default function AppLayout({
         <FeatureFlagsProvider>
           <SignInModalProvider>
             <WalletAutoReauth />
-            <PrivateClientPreloader />
             <AnalyticsBootstrap />
             {/* Header/main nav is hidden for the wallet workspace redesign. */}
             <AppWorkspaceShell />

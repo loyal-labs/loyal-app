@@ -1,4 +1,8 @@
-export type RuntimeApp = "telegram_miniapp" | "website" | "mobile" | "extension";
+export type RuntimeApp =
+  | "telegram_miniapp"
+  | "website"
+  | "mobile"
+  | "extension";
 
 export type RuntimeEnvironment = "development" | "preview" | "production";
 

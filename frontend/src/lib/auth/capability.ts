@@ -29,6 +29,10 @@ export function resolveAuthCapability(args: {
   return "anonymous";
 }
 
+export function resolveIsSignedIn(args: { hasAuthSession: boolean }): boolean {
+  return args.hasAuthSession;
+}
+
 export function useAuthCapability() {
   const { connected } = useWallet();
   const { isAuthenticated, isHydrated, user } = useAuthSession();
@@ -40,7 +44,7 @@ export function useAuthCapability() {
   return {
     capability,
     isHydrated,
-    isSignedIn: capability !== "anonymous",
+    isSignedIn: resolveIsSignedIn({ hasAuthSession: isAuthenticated }),
     hasAuthSession: isAuthenticated,
     hasWalletConnection: connected,
     hasWalletProofSession: user?.authMethod === "wallet",

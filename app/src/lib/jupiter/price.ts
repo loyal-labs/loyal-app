@@ -7,7 +7,7 @@ type JupiterTokenSearchResult = {
 };
 
 export async function fetchTokenPricesByMints(
-  mints: string[],
+  mints: string[]
 ): Promise<Map<string, number>> {
   if (mints.length === 0) return new Map();
 
@@ -19,7 +19,7 @@ export async function fetchTokenPricesByMints(
       });
       const match = tokens.find((t) => t.id === mint);
       return { mint, price: match?.usdPrice ?? null };
-    }),
+    })
   );
 
   const prices = new Map<string, number>();

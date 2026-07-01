@@ -3,18 +3,44 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useAuthApiClient, useAuthSession } from "@/contexts/auth-session-context";
+import {
+  useAuthApiClient,
+  useAuthSession,
+} from "@/contexts/auth-session-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
-import { runWalletProofFlow } from "@/lib/auth/wallet-proof-flow";
+import {
+  runWalletMessageProofFlow,
+  runWalletSiwsProofFlow,
+} from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 
-type ReauthStatus = "idle" | "awaiting_signature" | "verifying" | "done" | "dismissed" | "rejected";
+type ReauthStatus =
+  | "idle"
+  | "awaiting_signature"
+  | "verifying"
+  | "done"
+  | "dismissed"
+  | "rejected";
 
 export function WalletAutoReauth() {
   const { isHydrated, isAuthenticated, refreshSession } = useAuthSession();
   const authApiClient = useAuthApiClient();
   const { isOpen: isSignInModalOpen } = useSignInModal();
-  const { connected, publicKey, signMessage, disconnect } = useWallet();
+  const { connected, publicKey, signIn, signMessage, disconnect, wallet } =
+    useWallet();
+  const { turnstile } = usePublicEnv();
+
+  // Silent re-auth has no captcha UI, so resolve a Turnstile token for the
+  // gated challenge endpoint without one. Bypass (local) and misconfigured
+  // envs resolve immediately; in widget mode there is no token to obtain
+  // silently, so we defer to the interactive sign-in (which renders the widget).
+  const silentTurnstileToken =
+    turnstile.mode === "bypass"
+      ? turnstile.verificationToken
+      : turnstile.mode === "misconfigured"
+        ? "captcha-skipped"
+        : null;
 
   const attemptedAddressRef = useRef<string | null>(null);
   const failedRef = useRef(false);
@@ -32,11 +58,15 @@ export function WalletAutoReauth() {
   }, [connected, publicKey]);
 
   useEffect(() => {
-    if (!isHydrated || isAuthenticated) {
+    if (!isHydrated || isAuthenticated || isSignInModalOpen) {
       return;
     }
 
-    if (!connected || !publicKey || !signMessage) {
+    if (!connected || !publicKey || ((!signIn || !wallet) && !signMessage)) {
+      return;
+    }
+
+    if (!silentTurnstileToken) {
       return;
     }
 
@@ -50,36 +80,59 @@ export function WalletAutoReauth() {
 
     async function reauthenticate() {
       try {
-        await runWalletProofFlow({
-          authApiClient,
-          messageSigner: signMessage,
-          onStatusChange: setStatus,
-          walletAddress,
-        });
+        if (signIn && wallet) {
+          setStatus("awaiting_signature");
+          await runWalletSiwsProofFlow({
+            authApiClient,
+            onStatusChange: setStatus,
+            signIn,
+            turnstileToken: silentTurnstileToken ?? undefined,
+            walletName: wallet.adapter.name,
+          });
+        } else {
+          await runWalletMessageProofFlow({
+            authApiClient,
+            messageSigner: signMessage,
+            onStatusChange: setStatus,
+            turnstileToken: silentTurnstileToken ?? undefined,
+            walletAddress,
+          });
+        }
         await refreshSession();
         setStatus("done");
-        console.log("[wallet-auto-reauth] session restored for", walletAddress);
       } catch (error) {
-        // Only show "rejected" banner for actual signature rejections.
-        // Network/CORS/API errors (e.g. auth server unreachable from this domain)
-        // are silently ignored so they don't block wallet usage.
         const isSignatureRejection =
           error instanceof WalletProofSignerError &&
           error.code === "wallet_signature_rejected";
         if (isSignatureRejection) {
           failedRef.current = true;
-          setStatus("rejected");
-        } else {
-          // Reset so user can retry later if needed
-          attemptedAddressRef.current = null;
           setStatus("idle");
+          return;
         }
+
+        // Reset so user can retry later if needed. Network/CORS/API errors
+        // are silently ignored so they don't block wallet usage.
+        attemptedAddressRef.current = null;
+        setStatus("idle");
         console.warn("[wallet-auto-reauth] re-auth failed:", error);
       }
     }
 
     void reauthenticate();
-  }, [authApiClient, connected, isAuthenticated, isHydrated, publicKey, refreshSession, signMessage, retryCount]);
+  }, [
+    authApiClient,
+    connected,
+    isAuthenticated,
+    isHydrated,
+    isSignInModalOpen,
+    publicKey,
+    refreshSession,
+    signIn,
+    signMessage,
+    silentTurnstileToken,
+    retryCount,
+    wallet,
+  ]);
 
   // Auto-dismiss "done" banner after delay
   useEffect(() => {
@@ -139,9 +192,9 @@ export function WalletAutoReauth() {
 
   const statusText =
     status === "awaiting_signature"
-      ? "Please approve the signature request in your wallet"
+      ? "Please approve sign-in in your wallet"
       : status === "verifying"
-        ? "Verifying signature\u2026"
+        ? "Verifying wallet\u2026"
         : status === "done"
           ? "All good"
           : "Signature rejected";

@@ -6,9 +6,7 @@ import {
   WALLET_AUTH_SESSION_COOKIE_NAME,
 } from "@/features/identity/server/session-cookie";
 import { completeWalletAuth } from "@/features/identity/server/wallet-auth-service";
-import {
-  isSmartAccountProvisioningError,
-} from "@/features/smart-accounts/server/service";
+import { isSmartAccountProvisioningError } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 
 export async function POST(request: Request) {

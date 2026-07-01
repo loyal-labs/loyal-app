@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type LogEventArgs = {
-  accountSeeds: Uint8Array[]
-  bump: number
-  event: Uint8Array
-}
+  accountSeeds: Uint8Array[];
+  bump: number;
+  event: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -18,9 +18,9 @@ export type LogEventArgs = {
  */
 export const logEventArgsBeet = new beet.FixableBeetArgsStruct<LogEventArgs>(
   [
-    ['accountSeeds', beet.array(beet.bytes)],
-    ['bump', beet.u8],
-    ['event', beet.bytes],
+    ["accountSeeds", beet.array(beet.bytes)],
+    ["bump", beet.u8],
+    ["event", beet.bytes],
   ],
-  'LogEventArgs'
-)
+  "LogEventArgs"
+);

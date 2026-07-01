@@ -22,7 +22,13 @@ export function cancelProposal({
   });
 
   return createCancelProposalInstruction(
-    { consensusAccount: settingsPda, proposal: proposalPda, signer, systemProgram: SystemProgram.programId, program: programId },
+    {
+      consensusAccount: settingsPda,
+      proposal: proposalPda,
+      signer,
+      systemProgram: SystemProgram.programId,
+      program: programId,
+    },
     { args: { memo: memo ?? null } },
     programId
   );

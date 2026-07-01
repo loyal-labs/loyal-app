@@ -100,6 +100,56 @@ function getBaseTokenId(id?: string | null): string | null {
   return id ? id.replace(/-secured$/, "") : null;
 }
 
+function parseTokenRowNumber(value: string): number {
+  const parsed = Number.parseFloat(value.replace(/[$,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getSwapTokenFromRow(
+  token: TokenRow,
+  swapTokens: SwapToken[]
+): SwapToken {
+  const tokenMint = getBaseTokenId(token.id);
+  const match = swapTokens.find((swapToken) =>
+    tokenMint ? swapToken.mint === tokenMint : swapToken.symbol === token.symbol
+  );
+  const rowBalance = parseTokenRowNumber(token.amount);
+  const rowPrice = parseTokenRowNumber(token.price);
+
+  if (match) {
+    return {
+      ...match,
+      price: match.price || rowPrice,
+      balance: rowBalance,
+      isSecured: token.isSecured,
+    };
+  }
+
+  return {
+    mint: tokenMint ?? undefined,
+    symbol: token.symbol,
+    icon: token.icon,
+    price: rowPrice,
+    balance: rowBalance,
+    isSecured: token.isSecured,
+  };
+}
+
+function getDefaultSwapTarget(
+  sourceToken: SwapToken,
+  swapTokens: SwapToken[],
+  swapTargetTokens: SwapToken[]
+): SwapToken {
+  const loyalTarget =
+    swapTargetTokens.find((token) => token.mint === LOYL_TOKEN.mint) ??
+    LOYL_TOKEN;
+
+  return isSameSwapToken(loyalTarget, sourceToken)
+    ? swapTokens.find((token) => !isSameSwapToken(token, sourceToken)) ??
+        SOL_TOKEN
+    : loyalTarget;
+}
+
 // Identity comparison for swap tokens — prefer mint, fall back to symbol.
 function isSameSwapToken(a: SwapToken, b: SwapToken): boolean {
   return a.mint && b.mint ? a.mint === b.mint : a.symbol === b.symbol;
@@ -1429,6 +1479,18 @@ function WalletInterface() {
     }
   }, [positions.length]);
 
+  const openSwapFromToken = useCallback(
+    (sourceToken: SwapToken) => {
+      setFromToken(sourceToken);
+      setToToken(
+        getDefaultSwapTarget(sourceToken, swapTokens, swapTargetTokens)
+      );
+      setSwapMode("swap");
+      handleTabChange("swap");
+    },
+    [handleTabChange, swapTargetTokens, swapTokens]
+  );
+
   const getTokenActions = useCallback(
     (token: TokenRow): TokenRowActions | undefined => {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
@@ -1456,10 +1518,8 @@ function WalletInterface() {
 
       const actions: TokenRowActions = {
         onSend: () => handleTabChange("send"),
-        onSwap: () => {
-          setSwapMode("swap");
-          handleTabChange("swap");
-        },
+        onSwap: (row) =>
+          openSwapFromToken(getSwapTokenFromRow(row, swapTokens)),
         onShield: () => {
           pickShieldTokenVariant(false);
           setSwapMode("shield");
@@ -1479,7 +1539,7 @@ function WalletInterface() {
 
       return actions;
     },
-    [handleTabChange, setSwapMode, shieldTokens]
+    [handleTabChange, openSwapFromToken, setSwapMode, shieldTokens, swapTokens]
   );
 
   // Tab content with real components (uses displayTab for cross-fade)
@@ -1606,16 +1666,7 @@ function WalletInterface() {
     if (subView.type === "tokenDetail") {
       const t = subView.token;
       const actions = getTokenActions(t);
-      const asSwapToken: SwapToken = swapTokens.find(
-        (s) => s.mint === t.id
-      ) ?? {
-        mint: t.id,
-        symbol: t.symbol,
-        icon: t.icon,
-        price: parseFloat(t.price) || 0,
-        balance: parseFloat(t.amount) || 0,
-        isSecured: t.isSecured,
-      };
+      const asSwapToken = getSwapTokenFromRow(t, swapTokens);
       return (
         <TokenDetailView
           token={t}
@@ -1630,16 +1681,14 @@ function WalletInterface() {
             handleTabChange("receive");
             setSubView(null);
           }}
-          onSwap={() => {
-            // Don't land on a self-swap when swapping from the receive token.
-            if (isSameSwapToken(asSwapToken, toToken)) {
-              setToToken(fromToken);
-            }
-            setFromToken(asSwapToken);
-            setSwapMode("swap");
-            handleTabChange("swap");
-            setSubView(null);
-          }}
+          onSwap={
+            t.isSecured
+              ? undefined
+              : () => {
+                  openSwapFromToken(asSwapToken);
+                  setSubView(null);
+                }
+          }
           onShield={
             actions?.onShield || actions?.onUnshield
               ? () => {

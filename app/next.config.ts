@@ -25,7 +25,8 @@ function getGitInfo() {
 
 const { commitHash, branch } = getGitInfo();
 
-const mixpanelProxyPathRaw = process.env.NEXT_PUBLIC_MIXPANEL_PROXY_PATH?.trim();
+const mixpanelProxyPathRaw =
+  process.env.NEXT_PUBLIC_MIXPANEL_PROXY_PATH?.trim();
 const mixpanelProxyPath = mixpanelProxyPathRaw
   ? mixpanelProxyPathRaw.startsWith("/")
     ? mixpanelProxyPathRaw
@@ -33,6 +34,11 @@ const mixpanelProxyPath = mixpanelProxyPathRaw
   : "/ingest";
 
 const nextConfig: NextConfig = {
+  compiler: {
+    removeConsole: {
+      exclude: ["error"],
+    },
+  },
   turbopack: {
     root: path.resolve(__dirname, ".."),
   },

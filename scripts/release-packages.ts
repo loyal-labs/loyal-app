@@ -13,7 +13,6 @@ import path from "node:path";
 const publishablePackageDirs = [
   "packages/shared",
   "packages/flags",
-  "packages/grid-core",
   "packages/auth-core",
   "packages/db-core",
   "packages/db-adapter-neon",

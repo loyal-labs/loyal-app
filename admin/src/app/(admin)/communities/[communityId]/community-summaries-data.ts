@@ -55,7 +55,10 @@ function normalizeTopic(value: unknown): SummaryTopic | null {
     sources?: unknown;
   };
 
-  if (typeof candidate.title !== "string" || typeof candidate.content !== "string") {
+  if (
+    typeof candidate.title !== "string" ||
+    typeof candidate.content !== "string"
+  ) {
     return null;
   }
 
@@ -85,7 +88,7 @@ function normalizeTopics(value: unknown): SummaryTopic[] {
 
 async function loadCommunitySummariesPage(
   communityId: string,
-  requestedPage: number,
+  requestedPage: number
 ): Promise<CommunitySummariesPageData> {
   const db = getDatabase();
   const [totals] = await db
@@ -96,7 +99,8 @@ async function loadCommunitySummariesPage(
     .where(eq(summaries.communityId, communityId));
 
   const totalCount = Number(totals?.count) || 0;
-  const totalPages = totalCount > 0 ? Math.ceil(totalCount / SUMMARY_PAGE_SIZE) : 1;
+  const totalPages =
+    totalCount > 0 ? Math.ceil(totalCount / SUMMARY_PAGE_SIZE) : 1;
   const currentPage = Math.min(Math.max(requestedPage, 1), totalPages);
   const offset = (currentPage - 1) * SUMMARY_PAGE_SIZE;
 
@@ -135,7 +139,10 @@ async function loadCommunitySummariesPage(
     .where(inArray(summaryVotes.summaryId, summaryIds))
     .groupBy(summaryVotes.summaryId, summaryVotes.action);
 
-  const voteCountsBySummaryId = new Map<string, { likesCount: number; dislikesCount: number }>();
+  const voteCountsBySummaryId = new Map<
+    string,
+    { likesCount: number; dislikesCount: number }
+  >();
   voteRows.forEach((row) => {
     const current = voteCountsBySummaryId.get(row.summaryId) ?? {
       likesCount: 0,
@@ -154,7 +161,10 @@ async function loadCommunitySummariesPage(
   });
 
   const normalizedRows: CommunitySummaryRow[] = rows.map((row) => ({
-    ...(voteCountsBySummaryId.get(row.id) ?? { likesCount: 0, dislikesCount: 0 }),
+    ...(voteCountsBySummaryId.get(row.id) ?? {
+      likesCount: 0,
+      dislikesCount: 0,
+    }),
     id: row.id,
     createdAt: row.createdAt.toISOString(),
     oneliner: row.oneliner,
@@ -173,7 +183,7 @@ async function loadCommunitySummariesPage(
 
 export async function getCommunitySummariesPage(
   communityId: string,
-  requestedPage: number,
+  requestedPage: number
 ): Promise<CommunitySummariesPageData> {
   const getCachedCommunitySummariesPage = unstable_cache(
     async () => loadCommunitySummariesPage(communityId, requestedPage),
@@ -181,7 +191,7 @@ export async function getCommunitySummariesPage(
     {
       revalidate: DATA_CACHE_TTL_SECONDS,
       tags: [communityTag(communityId)],
-    },
+    }
   );
 
   return getCachedCommunitySummariesPage();

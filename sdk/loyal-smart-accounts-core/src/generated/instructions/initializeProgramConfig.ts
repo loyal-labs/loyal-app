@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   InitProgramConfigArgs,
   initProgramConfigArgsBeet,
-} from '../types/InitProgramConfigArgs'
+} from "../types/InitProgramConfigArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type InitializeProgramConfigInstructionArgs = {
-  args: InitProgramConfigArgs
-}
+  args: InitProgramConfigArgs;
+};
 /**
  * @category Instructions
  * @category InitializeProgramConfig
@@ -27,15 +27,15 @@ export type InitializeProgramConfigInstructionArgs = {
  */
 export const initializeProgramConfigStruct = new beet.BeetArgsStruct<
   InitializeProgramConfigInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', initProgramConfigArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", initProgramConfigArgsBeet],
   ],
-  'InitializeProgramConfigInstructionArgs'
-)
+  "InitializeProgramConfigInstructionArgs"
+);
 /**
  * Accounts required by the _initializeProgramConfig_ instruction
  *
@@ -46,15 +46,15 @@ export const initializeProgramConfigStruct = new beet.BeetArgsStruct<
  * @category generated
  */
 export type InitializeProgramConfigInstructionAccounts = {
-  programConfig: web3.PublicKey
-  initializer: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  programConfig: web3.PublicKey;
+  initializer: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const initializeProgramConfigInstructionDiscriminator = [
   6, 131, 61, 237, 40, 110, 83, 124,
-]
+];
 
 /**
  * Creates a _InitializeProgramConfig_ instruction.
@@ -69,12 +69,12 @@ export const initializeProgramConfigInstructionDiscriminator = [
 export function createInitializeProgramConfigInstruction(
   accounts: InitializeProgramConfigInstructionAccounts,
   args: InitializeProgramConfigInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = initializeProgramConfigStruct.serialize({
     instructionDiscriminator: initializeProgramConfigInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.programConfig,
@@ -91,11 +91,11 @@ export function createInitializeProgramConfigInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -103,6 +103,6 @@ export function createInitializeProgramConfigInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

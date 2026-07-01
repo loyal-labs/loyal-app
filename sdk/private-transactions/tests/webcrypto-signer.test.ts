@@ -11,7 +11,9 @@ function toBase64Url(bytes: Uint8Array): string {
 
 describe("createKeypairMessageSigner", () => {
   test("signs a message that verifies with WebCrypto", async () => {
-    const keypair = Keypair.fromSeed(Uint8Array.from({ length: 32 }, (_, i) => i + 1));
+    const keypair = Keypair.fromSeed(
+      Uint8Array.from({ length: 32 }, (_, i) => i + 1)
+    );
     const signMessage = createKeypairMessageSigner(keypair);
     const message = new TextEncoder().encode("loyal-private-transactions");
 

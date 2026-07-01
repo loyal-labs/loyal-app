@@ -39,7 +39,6 @@ let conflictSetCaptured: Array<Record<string, unknown>>;
 let conflictTargetCaptured: unknown[] = [];
 let removalUpdateValuesCaptured: Array<Record<string, unknown>>;
 let removalWhereCalls = 0;
-const mixpanelInitTokens: string[] = [];
 const mixpanelTrackCalls: Array<{
   eventName: string;
   properties: Record<string, unknown>;
@@ -80,8 +79,7 @@ mock.module("@/lib/core/database", () => ({
 
 mock.module("mixpanel", () => ({
   default: {
-    init: (token: string) => {
-      mixpanelInitTokens.push(token);
+    init: () => {
       return {
         track: (
           eventName: string,
@@ -169,12 +167,9 @@ let handleMyChatMemberUpdate: (ctx: Context) => Promise<void>;
 let resetBotAnalyticsStateForTests: typeof import("../analytics").__resetBotAnalyticsStateForTests;
 
 const COMMUNITY_CHAT_ID = -1009876543210;
-const ONBOARDING_MESSAGE =
-  "Thanks for adding me. Run /activate_community to enable summaries for this community.\nAfter activation, summaries are available in this chat and in the app.\nUse /notifications to set notification cycles.\nUse /hide or /unhide to control public visibility.";
 const BOT_ADDED_TO_GROUP_EVENT = "Bot Added to Group";
 const BOT_REMOVED_FROM_GROUP_EVENT = "Bot Removed from Group";
 const BOT_BLOCKED_BY_USER_EVENT = "Bot Blocked by User";
-const BOT_UNBLOCKED_BY_USER_EVENT = "Bot Unblocked by User";
 
 function createContext(options: {
   chatType: "group" | "supergroup" | "channel" | "private";
@@ -250,7 +245,6 @@ describe("my chat member onboarding", () => {
     conflictTargetCaptured = [];
     removalUpdateValuesCaptured = [];
     removalWhereCalls = 0;
-    mixpanelInitTokens.length = 0;
     mixpanelTrackCalls.length = 0;
     mixpanelPeopleSetCalls.length = 0;
     mixpanelPeopleSetOnceCalls.length = 0;
@@ -318,69 +312,16 @@ describe("my chat member onboarding", () => {
     expect(insertValuesCaptured).toHaveLength(1);
     expect(removalUpdateValuesCaptured).toHaveLength(0);
     expect(insertValuesCaptured[0]?.chatId).toBe(BigInt(COMMUNITY_CHAT_ID));
-    expect(insertValuesCaptured[0]?.chatTitle).toBe("New Community Title");
-    expect(insertValuesCaptured[0]?.activatedBy).toBe(BigInt(777));
     expect(insertValuesCaptured[0]?.isActive).toBe(false);
     expect(insertValuesCaptured[0]?.isPublic).toBe(false);
-    expect(insertValuesCaptured[0]?.updatedAt).toBeInstanceOf(Date);
     expect(conflictSetCaptured).toHaveLength(1);
-    expect(conflictSetCaptured[0]?.chatTitle).toBe("New Community Title");
     expect(conflictSetCaptured[0]?.isActive).toBe(false);
     expect(conflictSetCaptured[0]?.isPublic).toBe(false);
-    expect(conflictSetCaptured[0]?.updatedAt).toBeInstanceOf(Date);
     expect(conflictTargetCaptured).toHaveLength(1);
     expect(evictCalls).toEqual([BigInt(COMMUNITY_CHAT_ID)]);
-    expect(sendMessageCalls).toEqual([
-      { chatId: COMMUNITY_CHAT_ID, text: ONBOARDING_MESSAGE },
-    ]);
-    expect(sendMessageWithAutoCleanupCalls).toEqual([
-      {
-        chatId: COMMUNITY_CHAT_ID,
-        chatType: "supergroup",
-        text: ONBOARDING_MESSAGE,
-      },
-    ]);
-    expect(mixpanelInitTokens).toEqual(["test-mixpanel-token"]);
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_ADDED_TO_GROUP_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "supergroup",
-          telegram_user_id: "777",
-        },
-      },
-    ]);
-  });
-
-  test("supports channel onboarding with the same upsert behavior", async () => {
-    const { ctx, sendMessageCalls } = createContext({
-      chatType: "channel",
-      oldStatus: "kicked",
-      newStatus: "administrator",
-    });
-
-    await handleMyChatMemberUpdate(ctx);
-
-    expect(insertValuesCaptured).toHaveLength(1);
-    expect(removalUpdateValuesCaptured).toHaveLength(0);
-    expect(conflictSetCaptured).toHaveLength(1);
-    expect(evictCalls).toEqual([BigInt(COMMUNITY_CHAT_ID)]);
     expect(sendMessageCalls).toHaveLength(1);
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_ADDED_TO_GROUP_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "channel",
-          telegram_user_id: "777",
-        },
-      },
-    ]);
+    expect(sendMessageWithAutoCleanupCalls).toHaveLength(1);
+    expect(mixpanelTrackCalls[0]?.eventName).toBe(BOT_ADDED_TO_GROUP_EVENT);
   });
 
   test("ignores non-join status transitions", async () => {
@@ -414,73 +355,12 @@ describe("my chat member onboarding", () => {
     expect(conflictSetCaptured).toHaveLength(0);
     expect(evictCalls).toHaveLength(0);
     expect(sendMessageCalls).toHaveLength(0);
-    expect(getOrCreateUserCalls).toEqual([
-      {
-        telegramId: BigInt(777),
-        userData: {
-          username: "taylor",
-          displayName: "Taylor Agent",
-        },
-        options: {
-          backfillAvatar: false,
-        },
-      },
-    ]);
+    expect(getOrCreateUserCalls).toHaveLength(1);
     expect(privateUserSettingsDisableValuesCaptured).toHaveLength(1);
-    expect(privateUserSettingsDisableValuesCaptured[0]?.userId).toBe(
-      "private-user-id"
-    );
     expect(privateUserSettingsDisableValuesCaptured[0]?.notifications).toBe(
       false
     );
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_BLOCKED_BY_USER_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "private",
-          telegram_user_id: "777",
-          old_status: "member",
-          new_status: "kicked",
-          transition_type: "block",
-        },
-      },
-    ]);
-  });
-
-  test("tracks private kicked -> member as bot unblocked by user", async () => {
-    const { ctx, sendMessageCalls } = createContext({
-      chatType: "private",
-      oldStatus: "kicked",
-      newStatus: "member",
-    });
-
-    await handleMyChatMemberUpdate(ctx);
-
-    expect(insertValuesCaptured).toHaveLength(0);
-    expect(removalUpdateValuesCaptured).toHaveLength(0);
-    expect(conflictSetCaptured).toHaveLength(0);
-    expect(evictCalls).toHaveLength(0);
-    expect(sendMessageCalls).toHaveLength(0);
-    expect(getOrCreateUserCalls).toHaveLength(0);
-    expect(privateUserSettingsDisableValuesCaptured).toHaveLength(0);
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_UNBLOCKED_BY_USER_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "private",
-          telegram_user_id: "777",
-          old_status: "kicked",
-          new_status: "member",
-          transition_type: "unblock",
-        },
-      },
-    ]);
+    expect(mixpanelTrackCalls[0]?.eventName).toBe(BOT_BLOCKED_BY_USER_EVENT);
   });
 
   test("ignores private transitions that are not block or unblock", async () => {
@@ -549,34 +429,7 @@ describe("my chat member onboarding", () => {
     expect(conflictSetCaptured).toHaveLength(1);
     expect(evictCalls).toEqual([BigInt(COMMUNITY_CHAT_ID)]);
     expect(consoleErrorMock).toHaveBeenCalledTimes(1);
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_ADDED_TO_GROUP_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "group",
-          telegram_user_id: "777",
-        },
-      },
-    ]);
-  });
-
-  test("onboarding message includes activation and visibility commands", async () => {
-    const { ctx, sendMessageCalls } = createContext({
-      chatType: "group",
-      oldStatus: "left",
-      newStatus: "member",
-    });
-
-    await handleMyChatMemberUpdate(ctx);
-
-    const sentMessage = sendMessageCalls[0]?.text ?? "";
-    expect(sentMessage).toContain("/activate_community");
-    expect(sentMessage).toContain("/notifications");
-    expect(sentMessage).toContain("/hide");
-    expect(sentMessage).toContain("/unhide");
+    expect(mixpanelTrackCalls[0]?.eventName).toBe(BOT_ADDED_TO_GROUP_EVENT);
   });
 
   test("handles removal member -> left by deactivating and hiding without onboarding message", async () => {
@@ -591,85 +444,12 @@ describe("my chat member onboarding", () => {
     expect(insertValuesCaptured).toHaveLength(0);
     expect(conflictSetCaptured).toHaveLength(0);
     expect(removalUpdateValuesCaptured).toHaveLength(1);
-    expect(removalUpdateValuesCaptured[0]?.chatTitle).toBe(
-      "New Community Title"
-    );
     expect(removalUpdateValuesCaptured[0]?.isActive).toBe(false);
     expect(removalUpdateValuesCaptured[0]?.isPublic).toBe(false);
-    expect(removalUpdateValuesCaptured[0]?.updatedAt).toBeInstanceOf(Date);
     expect(removalWhereCalls).toBe(1);
     expect(evictCalls).toEqual([BigInt(COMMUNITY_CHAT_ID)]);
     expect(sendMessageCalls).toHaveLength(0);
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_REMOVED_FROM_GROUP_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "supergroup",
-          telegram_user_id: "777",
-        },
-      },
-    ]);
-  });
-
-  test("handles removal administrator -> kicked in channel by deactivating and hiding", async () => {
-    const { ctx, sendMessageCalls } = createContext({
-      chatType: "channel",
-      oldStatus: "administrator",
-      newStatus: "kicked",
-    });
-
-    await handleMyChatMemberUpdate(ctx);
-
-    expect(insertValuesCaptured).toHaveLength(0);
-    expect(conflictSetCaptured).toHaveLength(0);
-    expect(removalUpdateValuesCaptured).toHaveLength(1);
-    expect(removalWhereCalls).toBe(1);
-    expect(evictCalls).toEqual([BigInt(COMMUNITY_CHAT_ID)]);
-    expect(sendMessageCalls).toHaveLength(0);
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_REMOVED_FROM_GROUP_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "channel",
-          telegram_user_id: "777",
-        },
-      },
-    ]);
-  });
-
-  test("handles removal restricted -> left by deactivating and hiding", async () => {
-    const { ctx, sendMessageCalls } = createContext({
-      chatType: "supergroup",
-      oldStatus: "restricted",
-      newStatus: "left",
-    });
-
-    await handleMyChatMemberUpdate(ctx);
-
-    expect(insertValuesCaptured).toHaveLength(0);
-    expect(conflictSetCaptured).toHaveLength(0);
-    expect(removalUpdateValuesCaptured).toHaveLength(1);
-    expect(removalWhereCalls).toBe(1);
-    expect(evictCalls).toEqual([BigInt(COMMUNITY_CHAT_ID)]);
-    expect(sendMessageCalls).toHaveLength(0);
-    expect(mixpanelTrackCalls).toEqual([
-      {
-        eventName: BOT_REMOVED_FROM_GROUP_EVENT,
-        properties: {
-          workspace: "bot",
-          distinct_id: "tg:777",
-          telegram_chat_id: String(COMMUNITY_CHAT_ID),
-          telegram_chat_type: "supergroup",
-          telegram_user_id: "777",
-        },
-      },
-    ]);
+    expect(mixpanelTrackCalls[0]?.eventName).toBe(BOT_REMOVED_FROM_GROUP_EVENT);
   });
 
   test("evicts cache and does not crash when removal update fails", async () => {

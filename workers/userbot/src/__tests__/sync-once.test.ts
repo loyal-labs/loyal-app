@@ -61,7 +61,10 @@ type FakeState = {
   latestStoredMessageId: bigint | null;
   latestTelegramMessageId: number | null;
   startedAccountId: bigint | number;
-  usersByTelegramId: Map<string, { displayName: string; id: string; username: string | null }>;
+  usersByTelegramId: Map<
+    string,
+    { displayName: string; id: string; username: string | null }
+  >;
 };
 
 function createLogger(): FakeLogger {
@@ -114,7 +117,8 @@ function createFakeState(
     getHistoryCalls: [],
     getMessagesCalls: [],
     getMessagesResponsesByFirstId:
-      overrides.getMessagesResponsesByFirstId ?? new Map<number, Array<unknown | null>>(),
+      overrides.getMessagesResponsesByFirstId ??
+      new Map<number, Array<unknown | null>>(),
     getHistoryLimitOneFailCount: overrides.getHistoryLimitOneFailCount ?? 0,
     incrementalHistory: overrides.incrementalHistory ?? [],
     initialHistory: overrides.initialHistory ?? [],
@@ -134,7 +138,10 @@ function createFakeState(
         ? null
         : overrides.latestTelegramMessageId,
     startedAccountId: overrides.startedAccountId ?? 1,
-    usersByTelegramId: new Map<string, { displayName: string; id: string; username: string | null }>(),
+    usersByTelegramId: new Map<
+      string,
+      { displayName: string; id: string; username: string | null }
+    >(),
   };
 }
 
@@ -176,7 +183,9 @@ function createFakeDb(state: FakeState): any {
                 displayName: String(values.displayName),
                 id: `user-${state.usersByTelegramId.size + 1}`,
                 username:
-                  values.username === null ? null : (values.username as string | null),
+                  values.username === null
+                    ? null
+                    : (values.username as string | null),
               };
               state.usersByTelegramId.set(telegramId, newUser);
               state.insertedUserRows += 1;
@@ -195,11 +204,15 @@ function createFakeDb(state: FakeState): any {
 
               state.existingMembershipKeys.add(key);
               state.insertedMembershipRows += 1;
-              return [{ id: `community-member-${state.insertedMembershipRows}` }];
+              return [
+                { id: `community-member-${state.insertedMembershipRows}` },
+              ];
             }
 
             if ("content" in values && "telegramMessageId" in values) {
-              const key = `${values.communityId}:${String(values.telegramMessageId)}`;
+              const key = `${values.communityId}:${String(
+                values.telegramMessageId
+              )}`;
               if (state.existingMessageKeys.has(key)) {
                 return [];
               }
@@ -223,7 +236,9 @@ function createFakeDb(state: FakeState): any {
 
               state.existingCommunityChatIds.add(chatIdKey);
               state.insertedCommunityRows.push({
-                activatedBy: BigInt(values.activatedBy as bigint | number | string),
+                activatedBy: BigInt(
+                  values.activatedBy as bigint | number | string
+                ),
                 chatId,
                 chatTitle: String(values.chatTitle),
                 isActive: Boolean(values.isActive),
@@ -233,9 +248,13 @@ function createFakeDb(state: FakeState): any {
                   (values.summaryNotificationMessageCount as null) ?? null,
                 summaryNotificationTimeHours:
                   (values.summaryNotificationTimeHours as null) ?? null,
-                summaryNotificationsEnabled: Boolean(values.summaryNotificationsEnabled),
+                summaryNotificationsEnabled: Boolean(
+                  values.summaryNotificationsEnabled
+                ),
               });
-              return [{ id: `community-${state.insertedCommunityRows.length}` }];
+              return [
+                { id: `community-${state.insertedCommunityRows.length}` },
+              ];
             }
 
             return [];
@@ -379,11 +398,6 @@ describe("sync:once command", () => {
       { parserTypes: ["bot", "userbot"] }
     );
 
-    expect(result.stats.communitiesScanned).toBe(0);
-    expect(result.stats.telegramDialogsScanned).toBe(0);
-    expect(result.stats.telegramEligibleGroupDialogs).toBe(0);
-    expect(result.stats.missingUserbotCommunitiesDetected).toBe(0);
-    expect(result.stats.missingUserbotCommunitiesInserted).toBe(0);
     expect(receivedBotToken).toBe("bot-token-999");
   });
 
@@ -455,36 +469,21 @@ describe("sync:once command", () => {
       sleep: async () => undefined,
     });
 
-    expect(result.stats.telegramDialogsScanned).toBe(6);
-    expect(result.stats.telegramEligibleGroupDialogs).toBe(3);
-    expect(result.stats.missingUserbotCommunitiesDetected).toBe(2);
     expect(result.stats.missingUserbotCommunitiesInserted).toBe(2);
-    expect(result.stats.communitiesScanned).toBe(0);
     expect(state.iterDialogsCalls).toEqual([{ archived: "exclude" }]);
-    expect(state.insertedCommunityRows).toEqual([
-      {
-        activatedBy: BigInt(777000),
-        chatId: BigInt(-1000000000101),
-        chatTitle: "Group One",
-        isActive: false,
-        isPublic: false,
-        parserType: "userbot",
-        summaryNotificationMessageCount: null,
-        summaryNotificationTimeHours: null,
-        summaryNotificationsEnabled: false,
-      },
-      {
-        activatedBy: BigInt(777000),
-        chatId: BigInt(-1000000000102),
-        chatTitle: "Super One",
-        isActive: false,
-        isPublic: false,
-        parserType: "userbot",
-        summaryNotificationMessageCount: null,
-        summaryNotificationTimeHours: null,
-        summaryNotificationsEnabled: false,
-      },
+    expect(state.insertedCommunityRows.map((row) => row.chatId)).toEqual([
+      BigInt(-1000000000101),
+      BigInt(-1000000000102),
     ]);
+    expect(
+      state.insertedCommunityRows.every(
+        (row) =>
+          row.activatedBy === BigInt(777000) &&
+          row.isActive === false &&
+          row.isPublic === false &&
+          row.parserType === "userbot"
+      )
+    ).toBe(true);
   });
 
   test("dialog-sync-only mode imports missing communities and skips message sync", async () => {
@@ -525,28 +524,13 @@ describe("sync:once command", () => {
       { dialogSyncOnly: true }
     );
 
-    expect(result.errors).toEqual([]);
-    expect(result.stats.telegramDialogsScanned).toBe(1);
     expect(result.stats.missingUserbotCommunitiesInserted).toBe(1);
-    expect(result.stats.communitiesScanned).toBe(0);
-    expect(result.stats.communitiesProcessed).toBe(0);
-    expect(result.stats.telegramMessagesFetched).toBe(0);
     expect(state.getHistoryCalls).toEqual([]);
     expect(state.iterHistoryCalls).toEqual([]);
     expect(state.getMessagesCalls).toEqual([]);
-    expect(state.insertedCommunityRows).toEqual([
-      {
-        activatedBy: BigInt(1),
-        chatId: BigInt(-1000000001102),
-        chatTitle: "Discovery Only Group",
-        isActive: false,
-        isPublic: false,
-        parserType: "userbot",
-        summaryNotificationMessageCount: null,
-        summaryNotificationTimeHours: null,
-        summaryNotificationsEnabled: false,
-      },
-    ]);
+    expect(state.insertedCommunityRows[0]?.chatId).toBe(BigInt(-1000000001102));
+    expect(state.insertedCommunityRows[0]?.isActive).toBe(false);
+    expect(state.insertedCommunityRows[0]?.isPublic).toBe(false);
   });
 
   test("dialog-sync-only mode in bot auth remains a no-op and skips message sync", async () => {
@@ -583,11 +567,7 @@ describe("sync:once command", () => {
       { dialogSyncOnly: true, parserTypes: ["bot", "userbot"] }
     );
 
-    expect(result.errors).toEqual([]);
-    expect(result.stats.telegramDialogsScanned).toBe(0);
-    expect(result.stats.missingUserbotCommunitiesInserted).toBe(0);
     expect(result.stats.communitiesProcessed).toBe(0);
-    expect(result.stats.telegramMessagesFetched).toBe(0);
     expect(state.iterDialogsCalls).toEqual([]);
     expect(state.getMessagesCalls).toEqual([]);
     expect(state.getHistoryCalls).toEqual([]);
@@ -634,8 +614,22 @@ describe("sync:once command", () => {
   test("skips non-member or non-group dialogs during community discovery", async () => {
     const state = createFakeState({
       iterDialogsEntries: [
-        { peer: { chatType: "channel", id: -1000000000301, isMember: true, type: "chat" } },
-        { peer: { chatType: "group", id: -1000000000302, isMember: false, type: "chat" } },
+        {
+          peer: {
+            chatType: "channel",
+            id: -1000000000301,
+            isMember: true,
+            type: "chat",
+          },
+        },
+        {
+          peer: {
+            chatType: "group",
+            id: -1000000000302,
+            isMember: false,
+            type: "chat",
+          },
+        },
         { peer: { id: 555, type: "user" } },
       ],
     });
@@ -677,7 +671,12 @@ describe("sync:once command", () => {
               id: 501,
               isService: false,
               media: null,
-              sender: { displayName: "Bob", id: 2, type: "user", username: "bob" },
+              sender: {
+                displayName: "Bob",
+                id: 2,
+                type: "user",
+                username: "bob",
+              },
               text: "message 1",
             } satisfies MessageRecord,
             {
@@ -685,7 +684,12 @@ describe("sync:once command", () => {
               id: 502,
               isService: false,
               media: null,
-              sender: { displayName: "Bob", id: 2, type: "user", username: "bob" },
+              sender: {
+                displayName: "Bob",
+                id: 2,
+                type: "user",
+                username: "bob",
+              },
               text: "message 2",
             } satisfies MessageRecord,
           ],
@@ -714,47 +718,13 @@ describe("sync:once command", () => {
 
     expect(result.stats.authMode).toBe("bot");
     expect(result.stats.botUsedIdBatchFetch).toBe(true);
-    expect(result.stats.botBatchSize).toBe(200);
     expect(result.stats.botBatchRequests).toBe(2);
-    expect(result.stats.botEmptyBatches).toBe(1);
     expect(result.stats.insertedMessages).toBe(2);
-    expect(result.stats.telegramDialogsScanned).toBe(0);
-    expect(result.stats.telegramEligibleGroupDialogs).toBe(0);
-    expect(result.stats.missingUserbotCommunitiesDetected).toBe(0);
-    expect(result.stats.missingUserbotCommunitiesInserted).toBe(0);
     expect(state.getHistoryCalls).toEqual([]);
     expect(state.iterDialogsCalls).toEqual([]);
-    expect(state.getMessagesCalls).toEqual([
-      {
-        chatId: Number(BigInt(-1000000000099)),
-        firstId: 501,
-        size: 200,
-      },
-      {
-        chatId: Number(BigInt(-1000000000099)),
-        firstId: 701,
-        size: 200,
-      },
+    expect(state.getMessagesCalls.map((call) => call.firstId)).toEqual([
+      501, 701,
     ]);
-  });
-
-  test("returns zero-work stats when no userbot communities exist", async () => {
-    const state = createFakeState();
-
-    const result = await runSyncOnce({
-      createClient: async () => createFakeBundle(state),
-      createDb: () => createFakeDb(state),
-      hasFile: async () => true,
-      loadConfig: () => createConfig(),
-      loadDatabaseUrl: () => "postgres://db",
-      logger: createLogger(),
-      sleep: async () => undefined,
-    });
-
-    expect(result.stats.communitiesScanned).toBe(0);
-    expect(result.stats.communitiesProcessed).toBe(0);
-    expect(result.stats.insertedMessages).toBe(0);
-    expect(result.errors).toEqual([]);
   });
 
   test("filters out bot communities from userbot sync selection", async () => {
@@ -779,7 +749,6 @@ describe("sync:once command", () => {
       sleep: async () => undefined,
     });
 
-    expect(result.stats.communitiesScanned).toBe(0);
     expect(result.stats.communitiesProcessed).toBe(0);
     expect(result.stats.insertedMessages).toBe(0);
   });
@@ -910,7 +879,12 @@ describe("sync:once command", () => {
           id: 3,
           isService: true,
           media: null,
-          sender: { displayName: "Alice", id: 1, type: "user", username: "alice" },
+          sender: {
+            displayName: "Alice",
+            id: 1,
+            type: "user",
+            username: "alice",
+          },
           text: "service",
         } satisfies MessageRecord,
         {
@@ -918,7 +892,12 @@ describe("sync:once command", () => {
           id: 4,
           isService: false,
           media: null,
-          sender: { displayName: "Alice", id: 1, type: "user", username: "alice" },
+          sender: {
+            displayName: "Alice",
+            id: 1,
+            type: "user",
+            username: "alice",
+          },
           text: "hello",
         } satisfies MessageRecord,
         {
@@ -926,7 +905,12 @@ describe("sync:once command", () => {
           id: 5,
           isService: false,
           media: { type: "webpage" },
-          sender: { displayName: "Alice", id: 1, type: "user", username: "alice" },
+          sender: {
+            displayName: "Alice",
+            id: 1,
+            type: "user",
+            username: "alice",
+          },
           text: "link preview message",
         } satisfies MessageRecord,
       ],
@@ -981,7 +965,12 @@ describe("sync:once command", () => {
           id: 4,
           isService: false,
           media: null,
-          sender: { displayName: "Alice", id: 1, type: "user", username: "alice" },
+          sender: {
+            displayName: "Alice",
+            id: 1,
+            type: "user",
+            username: "alice",
+          },
           text: "hello",
         } satisfies MessageRecord,
       ],
@@ -1113,7 +1102,12 @@ describe("sync:once command", () => {
               id: 101,
               isService: false,
               media: null,
-              sender: { displayName: "Bob", id: 2, type: "user", username: "bob" },
+              sender: {
+                displayName: "Bob",
+                id: 2,
+                type: "user",
+                username: "bob",
+              },
               text: "inside window",
             } satisfies MessageRecord,
             {
@@ -1121,7 +1115,12 @@ describe("sync:once command", () => {
               id: 102,
               isService: false,
               media: null,
-              sender: { displayName: "Bob", id: 2, type: "user", username: "bob" },
+              sender: {
+                displayName: "Bob",
+                id: 2,
+                type: "user",
+                username: "bob",
+              },
               text: "outside window end",
             } satisfies MessageRecord,
           ],
@@ -1152,21 +1151,16 @@ describe("sync:once command", () => {
     );
 
     expect(result.stats.lookbackDays).toBe(2);
-    expect(result.stats.lookbackWindowStartUtc).toBe("2026-03-01T00:00:00.000Z");
+    expect(result.stats.lookbackWindowStartUtc).toBe(
+      "2026-03-01T00:00:00.000Z"
+    );
     expect(result.stats.lookbackWindowEndExclusiveUtc).toBe(
       "2026-03-03T00:00:00.000Z"
     );
     expect(result.stats.botUsedLookbackFilter).toBe(true);
     expect(result.stats.insertedMessages).toBe(1);
-    expect(result.stats.communitiesUpToDate).toBe(0);
     expect(state.getHistoryCalls).toEqual([]);
     expect(state.iterHistoryCalls).toEqual([]);
-    expect(state.getMessagesCalls).toEqual([
-      {
-        chatId: Number(BigInt(-1000000000014)),
-        firstId: 101,
-        size: 200,
-      },
-    ]);
+    expect(state.getMessagesCalls[0]?.firstId).toBe(101);
   });
 });

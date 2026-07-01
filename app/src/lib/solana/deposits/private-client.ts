@@ -27,11 +27,12 @@ type StoredPrivateAuthToken = {
 
 const getPrivateAuthTokenStorageKey = (
   publicKey: string,
-  solanaEnv: SolanaEnv,
-): string => `${PRIVATE_AUTH_TOKEN_STORAGE_KEY_PREFIX}_${publicKey}_${solanaEnv}`;
+  solanaEnv: SolanaEnv
+): string =>
+  `${PRIVATE_AUTH_TOKEN_STORAGE_KEY_PREFIX}_${publicKey}_${solanaEnv}`;
 
 const parseStoredPrivateAuthToken = (
-  value: string,
+  value: string
 ): StoredPrivateAuthToken | null => {
   try {
     const parsed = JSON.parse(value);
@@ -58,7 +59,7 @@ const parseStoredPrivateAuthToken = (
 
 const isAuthTokenFresh = (
   token: StoredPrivateAuthToken,
-  solanaEnv: SolanaEnv,
+  solanaEnv: SolanaEnv
 ): boolean => {
   const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
   return (
@@ -69,7 +70,7 @@ const isAuthTokenFresh = (
 
 const getCachedAuthToken = async (
   publicKey: string,
-  solanaEnv: SolanaEnv,
+  solanaEnv: SolanaEnv
 ): Promise<{ token: string; expiresAt: number } | null> => {
   const storageKey = getPrivateAuthTokenStorageKey(publicKey, solanaEnv);
   const cachedValue = await getCloudValue(storageKey);
@@ -90,52 +91,39 @@ const getCachedAuthToken = async (
 
 const verifyTeeIntegrityAsync = (solanaEnv: SolanaEnv): void => {
   const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
-  const t0 = performance.now();
-  verifyTeeIntegrity(perRpcEndpoint)
-    .then(() => {
-      console.log(
-        `[private-client] verifyTeeIntegrity: ${(
-          performance.now() - t0
-        ).toFixed(1)}ms`,
-      );
-    })
-    .catch((error) => {
-      console.error("TEE RPC integrity verification error", error);
-    });
+  verifyTeeIntegrity(perRpcEndpoint).catch((error) => {
+    console.error("TEE RPC integrity verification error", error);
+  });
 };
 
 const fetchAndCacheAuthToken = async (
   keypair: Keypair,
-  solanaEnv: SolanaEnv,
+  solanaEnv: SolanaEnv
 ): Promise<{ token: string; expiresAt: number } | null> => {
   try {
-    // Fire-and-forget TEE integrity check; logs result but does not block callers
+    // Fire-and-forget TEE integrity check; failures do not block callers.
     setTimeout(() => verifyTeeIntegrityAsync(solanaEnv), 10_000);
 
     const signMessage = (message: Uint8Array): Promise<Uint8Array> =>
       Promise.resolve(sign.detached(message, keypair.secretKey));
 
     const { perRpcEndpoint } = getPerEndpoints(solanaEnv);
-    const t1 = performance.now();
     const authToken = await getAuthToken(
       perRpcEndpoint,
       keypair.publicKey,
-      signMessage,
-    );
-    console.log(
-      `[private-client] getAuthToken: ${(performance.now() - t1).toFixed(1)}ms`,
+      signMessage
     );
 
     const storageKey = getPrivateAuthTokenStorageKey(
       keypair.publicKey.toBase58(),
-      solanaEnv,
+      solanaEnv
     );
     const persisted = await setCloudValue(
       storageKey,
       JSON.stringify({
         ...authToken,
         endpoint: perRpcEndpoint,
-      }),
+      })
     );
 
     if (!persisted) {
@@ -159,7 +147,7 @@ const cachedPrivateClientPromises = new Map<
 >();
 
 export const invalidatePrivateClient = async (
-  solanaEnv?: SolanaEnv,
+  solanaEnv?: SolanaEnv
 ): Promise<void> => {
   const envsToInvalidate: SolanaEnv[] = solanaEnv
     ? [solanaEnv]
@@ -179,8 +167,8 @@ export const invalidatePrivateClient = async (
     const uniqueEnvs = [...new Set(envsToInvalidate)];
     await Promise.all(
       uniqueEnvs.map((env) =>
-        deleteCloudValue(getPrivateAuthTokenStorageKey(pubKeyStr, env)),
-      ),
+        deleteCloudValue(getPrivateAuthTokenStorageKey(pubKeyStr, env))
+      )
     );
   } catch {
     // Best-effort: cloud storage clear may fail if wallet isn't available yet
@@ -212,10 +200,11 @@ export const getPrivateClient = async ({
 
     const cachedAuthToken = await getCachedAuthToken(
       keypair.publicKey.toBase58(),
-      selectedSolanaEnv,
+      selectedSolanaEnv
     );
     const authToken =
-      cachedAuthToken ?? (await fetchAndCacheAuthToken(keypair, selectedSolanaEnv));
+      cachedAuthToken ??
+      (await fetchAndCacheAuthToken(keypair, selectedSolanaEnv));
     const privateClient = await LoyalPrivateTransactionsClient.fromConfig({
       signer: keypair,
       baseRpcEndpoint: rpcEndpoint,
@@ -226,11 +215,11 @@ export const getPrivateClient = async ({
     });
     attachWsDebugLogging(
       privateClient.baseProgram.provider.connection,
-      "app:private-client:base",
+      "app:private-client:base"
     );
     attachWsDebugLogging(
       privateClient.ephemeralProgram.provider.connection,
-      "app:private-client:ephemeral",
+      "app:private-client:ephemeral"
     );
 
     // Invalidate the cached client when the ephemeral WebSocket encounters an
@@ -243,7 +232,7 @@ export const getPrivateClient = async ({
       _wsOnError?: (err: Error) => void;
     };
     const prevEphemeralOnError = ephemeralConn._wsOnError?.bind(
-      privateClient.ephemeralProgram.provider.connection,
+      privateClient.ephemeralProgram.provider.connection
     );
     // One-shot flag: prevents the stale handler on the old connection from
     // firing invalidatePrivateClient() a second time if @solana/web3.js

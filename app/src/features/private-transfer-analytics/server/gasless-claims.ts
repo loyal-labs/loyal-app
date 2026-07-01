@@ -55,8 +55,11 @@ function accountKeyToString(
   return key.toString();
 }
 
-function instructionProgramIdToString(instruction: SupportedInstruction): string {
-  const programId = (instruction as { programId?: PublicKey | string }).programId;
+function instructionProgramIdToString(
+  instruction: SupportedInstruction
+): string {
+  const programId = (instruction as { programId?: PublicKey | string })
+    .programId;
   if (programId instanceof PublicKey) {
     return programId.toBase58();
   }
@@ -109,7 +112,9 @@ function getDecodedVerificationInstructionNames(
     )
     .map((instruction) => {
       try {
-        return decodeTelegramVerificationInstruction(instruction.data)?.name ?? null;
+        return (
+          decodeTelegramVerificationInstruction(instruction.data)?.name ?? null
+        );
       } catch {
         return null;
       }
@@ -144,7 +149,10 @@ function getTopUpRecipientAddress(
   }
 
   const instruction = instructions[0];
-  if (!instruction || instructionProgramIdToString(instruction) !== SYSTEM_PROGRAM_ID) {
+  if (
+    !instruction ||
+    instructionProgramIdToString(instruction) !== SYSTEM_PROGRAM_ID
+  ) {
     return null;
   }
 
@@ -162,8 +170,8 @@ function getTopUpRecipientAddress(
     return null;
   }
 
-  const accountKeys = transaction.transaction.message.accountKeys.map((accountKey) =>
-    accountKeyToString(accountKey)
+  const accountKeys = transaction.transaction.message.accountKeys.map(
+    (accountKey) => accountKeyToString(accountKey)
   );
   const recipientIndex = accountKeys.indexOf(parsedInfo.destination);
   if (recipientIndex < 0) {
@@ -184,8 +192,8 @@ function calculateSpentLamports(
     return null;
   }
 
-  const accountKeys = transaction.transaction.message.accountKeys.map((accountKey) =>
-    accountKeyToString(accountKey)
+  const accountKeys = transaction.transaction.message.accountKeys.map(
+    (accountKey) => accountKeyToString(accountKey)
   );
   const payerIndex = accountKeys.indexOf(payerAddress);
   if (payerIndex < 0) {
@@ -214,7 +222,10 @@ export function classifyGaslessClaimTransaction(
     return { skipReason: "excludedBpfLoader" };
   }
 
-  const topUpRecipientAddress = getTopUpRecipientAddress(transaction, payerAddress);
+  const topUpRecipientAddress = getTopUpRecipientAddress(
+    transaction,
+    payerAddress
+  );
   if (topUpRecipientAddress) {
     return {
       recipientAddress: topUpRecipientAddress,
@@ -234,7 +245,8 @@ export function classifyGaslessClaimTransaction(
 
   const hasEd25519Instruction = getOuterInstructions(transaction).some(
     (instruction) =>
-      instructionProgramIdToString(instruction) === ED25519_PROGRAM_ID.toBase58()
+      instructionProgramIdToString(instruction) ===
+      ED25519_PROGRAM_ID.toBase58()
   );
   if (
     hasEd25519Instruction &&
@@ -257,7 +269,10 @@ export function buildGaslessClaimTransactionInput(args: {
   transaction: ParsedTransactionWithMeta;
   transactionType: GaslessClaimTransactionType;
 }): GaslessClaimTransactionInput | null {
-  const spentLamports = calculateSpentLamports(args.transaction, args.payerAddress);
+  const spentLamports = calculateSpentLamports(
+    args.transaction,
+    args.payerAddress
+  );
   if (!spentLamports || !args.transaction.blockTime) {
     return null;
   }
@@ -311,10 +326,13 @@ export async function fetchParsedTransactionWithRetry(
 ): Promise<ParsedTransactionWithMeta | null> {
   for (let attempt = 0; attempt < PARSED_TX_RETRIES; attempt += 1) {
     try {
-      const parsedTransaction = await connection.getParsedTransaction(signature, {
-        commitment: "confirmed",
-        maxSupportedTransactionVersion: 0,
-      });
+      const parsedTransaction = await connection.getParsedTransaction(
+        signature,
+        {
+          commitment: "confirmed",
+          maxSupportedTransactionVersion: 0,
+        }
+      );
       if (parsedTransaction) {
         return parsedTransaction;
       }
@@ -336,7 +354,11 @@ export async function fetchParsedTransactionsForSignatures(
 ): Promise<(ParsedTransactionWithMeta | null)[]> {
   const parsedTransactions: (ParsedTransactionWithMeta | null)[] = [];
 
-  for (let index = 0; index < signatures.length; index += PARSED_TX_BATCH_SIZE) {
+  for (
+    let index = 0;
+    index < signatures.length;
+    index += PARSED_TX_BATCH_SIZE
+  ) {
     const batch = signatures.slice(index, index + PARSED_TX_BATCH_SIZE);
     parsedTransactions.push(
       ...(await connection.getParsedTransactions(batch, {

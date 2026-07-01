@@ -4,7 +4,10 @@ import { asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
-import { featureAppStatuses, featureRegistry } from "@loyal-labs/db-core/schema";
+import {
+  featureAppStatuses,
+  featureRegistry,
+} from "@loyal-labs/db-core/schema";
 
 const FEATURE_APPS = [
   "telegram_miniapp",
@@ -75,7 +78,7 @@ export async function createFeature(formData: FormData): Promise<void> {
         app,
         status: "missing" as const,
         statusNote: null,
-      })),
+      }))
     );
   } catch {
     return;

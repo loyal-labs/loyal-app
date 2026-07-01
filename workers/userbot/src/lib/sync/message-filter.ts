@@ -18,7 +18,9 @@ function isValidDate(value: unknown): value is Date {
   return value instanceof Date && Number.isFinite(value.getTime());
 }
 
-function toTelegramMessageLike(rawMessage: unknown): TelegramMessageLike | null {
+function toTelegramMessageLike(
+  rawMessage: unknown
+): TelegramMessageLike | null {
   if (!rawMessage || typeof rawMessage !== "object") {
     return null;
   }
@@ -119,7 +121,8 @@ export function toIngestibleMessage(
   }
 
   const senderDisplayName =
-    typeof sender.displayName === "string" && sender.displayName.trim().length > 0
+    typeof sender.displayName === "string" &&
+    sender.displayName.trim().length > 0
       ? sender.displayName.trim()
       : `User ${sender.id}`;
 

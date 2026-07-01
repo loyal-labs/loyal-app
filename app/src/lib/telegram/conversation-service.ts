@@ -143,9 +143,12 @@ export async function handleDirectMessage(
 
     if (!userMsgId) {
       console.error("Failed to store user message");
-      await ctx.reply("Sorry, I couldn't process your message. Please try again.", {
-        message_thread_id: telegramThreadId,
-      });
+      await ctx.reply(
+        "Sorry, I couldn't process your message. Please try again.",
+        {
+          message_thread_id: telegramThreadId,
+        }
+      );
       return;
     }
 

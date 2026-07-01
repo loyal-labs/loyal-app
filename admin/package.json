@@ -5,6 +5,8 @@
   "scripts": {
     "predev": "bun run --cwd .. build:packages",
     "dev": "next dev --turbopack",
+    "dev:1pass": "bun run dev:1pass:main",
+    "dev:1pass:main": "op run --env-file=../.env.mainnet.1password --env-file=../../loyal-yield-routing/.env.1password -- sh -c 'ADMIN_USER=local ADMIN_PASSWORD=local bun dev'",
     "prebuild": "bun run --cwd .. build:packages",
     "build": "next build",
     "start": "next start",

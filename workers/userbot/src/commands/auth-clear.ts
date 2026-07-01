@@ -33,7 +33,10 @@ export async function runAuthClear(
 ): Promise<string[]> {
   const deps = resolveDeps(overrides);
   const config = deps.loadConfig(deps.env);
-  const sessionPath = resolveSessionSqlitePath(config.accountKey, config.storageDir);
+  const sessionPath = resolveSessionSqlitePath(
+    config.accountKey,
+    config.storageDir
+  );
 
   const candidates = [
     sessionPath,

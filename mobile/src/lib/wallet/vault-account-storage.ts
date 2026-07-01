@@ -27,7 +27,7 @@ function isStoredVaultAccount(value: unknown): value is StoredVaultAccount {
 }
 
 export async function storeVaultAccount(
-  account: StoredVaultAccount,
+  account: StoredVaultAccount
 ): Promise<void> {
   await SecureStore.setItemAsync(VAULT_ACCOUNT_KEY, JSON.stringify(account));
 }

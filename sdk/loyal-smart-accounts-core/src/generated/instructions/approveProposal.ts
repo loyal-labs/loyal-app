@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   VoteOnProposalArgs,
   voteOnProposalArgsBeet,
-} from '../types/VoteOnProposalArgs'
+} from "../types/VoteOnProposalArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type ApproveProposalInstructionArgs = {
-  args: VoteOnProposalArgs
-}
+  args: VoteOnProposalArgs;
+};
 /**
  * @category Instructions
  * @category ApproveProposal
@@ -27,15 +27,15 @@ export type ApproveProposalInstructionArgs = {
  */
 export const approveProposalStruct = new beet.FixableBeetArgsStruct<
   ApproveProposalInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', voteOnProposalArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", voteOnProposalArgsBeet],
   ],
-  'ApproveProposalInstructionArgs'
-)
+  "ApproveProposalInstructionArgs"
+);
 /**
  * Accounts required by the _approveProposal_ instruction
  *
@@ -48,17 +48,17 @@ export const approveProposalStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type ApproveProposalInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  signer: web3.PublicKey
-  proposal: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  signer: web3.PublicKey;
+  proposal: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const approveProposalInstructionDiscriminator = [
   136, 108, 102, 85, 98, 114, 7, 147,
-]
+];
 
 /**
  * Creates a _ApproveProposal_ instruction.
@@ -76,12 +76,12 @@ export const approveProposalInstructionDiscriminator = [
 export function createApproveProposalInstruction(
   accounts: ApproveProposalInstructionAccounts,
   args: ApproveProposalInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = approveProposalStruct.serialize({
     instructionDiscriminator: approveProposalInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -108,11 +108,11 @@ export function createApproveProposalInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -120,6 +120,6 @@ export function createApproveProposalInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

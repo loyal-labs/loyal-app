@@ -397,7 +397,7 @@ async function getDelegationStatus(
   const isMainnet = perRpcEndpoint.includes("mainnet-tee");
   const teeBaseUrl = isMainnet
     ? "https://mainnet-tee.magicblock.app/"
-    : "https://tee.magicblock.app/";
+    : "https://devnet-tee.magicblock.app/";
   try {
     const teeRes = await fetch(teeBaseUrl, options);
     const teeData = (await teeRes.json()) as DelegationStatusResponse;

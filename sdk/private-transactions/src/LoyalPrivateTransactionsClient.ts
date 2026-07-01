@@ -501,7 +501,6 @@ export class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions,
@@ -519,7 +518,6 @@ export class LoyalPrivateTransactionsClient {
       baseProgram: this.baseProgram,
       perProgram: this.ephemeralProgram,
       validator: params.validator,
-      sessionToken: params.sessionToken,
       magicProgram: params.magicProgram,
       magicContext: params.magicContext,
       rpcOptions: params.rpcOptions,
@@ -545,7 +543,6 @@ export class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext,
       });
@@ -581,7 +578,6 @@ export class LoyalPrivateTransactionsClient {
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
-        sessionToken: params.sessionToken,
         magicProgram,
         magicContext,
       });
@@ -673,7 +669,8 @@ export class LoyalPrivateTransactionsClient {
       totalFeeLamports: estimate.totalFeeLamports,
       totalRentLamports: estimate.totalRentLamports,
       totalNativeLamports: estimate.totalNativeLamports,
-      feeAndRentLamports: estimate.totalFeeLamports + estimate.totalRentLamports,
+      feeAndRentLamports:
+        estimate.totalFeeLamports + estimate.totalRentLamports,
       totalLamports:
         estimate.totalFeeLamports +
         estimate.totalRentLamports +
@@ -1170,8 +1167,15 @@ export class LoyalPrivateTransactionsClient {
    * Delegate a deposit account to the ephemeral rollup
    */
   async delegateDeposit(params: DelegateDepositParams): Promise<string> {
-    const { user, tokenMint } = params;
-    const { ix, ensure } = await delegateDepositIx(this.baseProgram, params);
+    const delegateParams = {
+      ...params,
+      validator: params.validator ?? this.getExpectedErValidator(),
+    };
+    const { user, tokenMint } = delegateParams;
+    const { ix, ensure } = await delegateDepositIx(
+      this.baseProgram,
+      delegateParams
+    );
 
     await processEnsureChecks(
       this.baseProgram.provider.connection,
@@ -1233,9 +1237,9 @@ export class LoyalPrivateTransactionsClient {
       tokenMint,
       // session,
       payer,
-      validator,
       rpcOptions,
     } = params;
+    const validator = params.validator ?? this.getExpectedErValidator();
 
     validateUsername(username);
 
@@ -1263,7 +1267,7 @@ export class LoyalPrivateTransactionsClient {
       systemProgram: SystemProgram.programId,
     };
 
-    accounts.validator = validator ?? null;
+    accounts.validator = validator;
 
     const delegationWatcher = waitForAccountOwnerChange(
       this.baseProgram.provider.connection,
@@ -1372,7 +1376,6 @@ export class LoyalPrivateTransactionsClient {
       destinationUser,
       amount,
       payer,
-      sessionToken,
       rpcOptions,
     } = params;
 
@@ -1396,7 +1399,6 @@ export class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram.programId,
     };
-    accounts.sessionToken = sessionToken ?? null;
 
     console.log("transferDeposit Accounts:");
     Object.entries(accounts).forEach(([key, value]) => {
@@ -1424,7 +1426,6 @@ export class LoyalPrivateTransactionsClient {
       amount,
       user,
       payer,
-      sessionToken,
       rpcOptions,
     } = params;
 
@@ -1453,7 +1454,6 @@ export class LoyalPrivateTransactionsClient {
       tokenMint,
       systemProgram: SystemProgram.programId,
     };
-    accounts.sessionToken = sessionToken ?? null;
 
     const signature = await this.ephemeralProgram.methods
       .transferToUsernameDeposit(new BN(amount.toString()))
@@ -1873,7 +1873,7 @@ export class LoyalPrivateTransactionsClient {
     const ephemeralUrl = this.ephemeralProgram.provider.connection.rpcEndpoint;
     const teeBaseUrl = ephemeralUrl.includes("mainnet-tee")
       ? "https://mainnet-tee.magicblock.app/"
-      : "https://tee.magicblock.app/";
+      : "https://devnet-tee.magicblock.app/";
     try {
       const teeRes = await fetch(teeBaseUrl, options);
       const teeData = (await teeRes.json()) as DelegationStatusResponse;

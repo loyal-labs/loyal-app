@@ -7,7 +7,10 @@ import {
 } from "@/services/api";
 import type { Transaction } from "@/types/wallet";
 
-import { buildTokenDetailViewModel, type TokenDetailViewModel } from "./view-model";
+import {
+  buildTokenDetailViewModel,
+  type TokenDetailViewModel,
+} from "./view-model";
 
 type UseTokenDetailInput = {
   mint: string;
@@ -44,7 +47,9 @@ export function useTokenDetail({
       }
     } catch (err) {
       if (fetchId === fetchIdRef.current) {
-        setError(err instanceof Error ? err.message : "Failed to fetch token detail");
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch token detail"
+        );
       }
     } finally {
       if (fetchId === fetchIdRef.current) {

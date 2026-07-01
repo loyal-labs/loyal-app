@@ -462,7 +462,7 @@ export function TokenDetailView({
   const isNativeSol = mint === NATIVE_SOL_MINT && token.symbol === "SOL";
   const displayName = isNativeSol
     ? "Solana"
-    : detail?.token.name ?? token.symbol;
+    : detail?.token.name ?? token.name ?? token.symbol;
   const displaySymbol = isNativeSol
     ? "SOL"
     : detail?.token.symbol ?? token.symbol;

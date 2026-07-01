@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 export type InternalFundTransferPolicy = {
-  sourceAccountMask: number[] /* size: 32 */
-  destinationAccountMask: number[] /* size: 32 */
-  allowedMints: web3.PublicKey[]
-}
+  sourceAccountMask: number[] /* size: 32 */;
+  destinationAccountMask: number[] /* size: 32 */;
+  allowedMints: web3.PublicKey[];
+};
 
 /**
  * @category userTypes
@@ -21,9 +21,9 @@ export type InternalFundTransferPolicy = {
 export const internalFundTransferPolicyBeet =
   new beet.FixableBeetArgsStruct<InternalFundTransferPolicy>(
     [
-      ['sourceAccountMask', beet.uniformFixedSizeArray(beet.u8, 32)],
-      ['destinationAccountMask', beet.uniformFixedSizeArray(beet.u8, 32)],
-      ['allowedMints', beet.array(beetSolana.publicKey)],
+      ["sourceAccountMask", beet.uniformFixedSizeArray(beet.u8, 32)],
+      ["destinationAccountMask", beet.uniformFixedSizeArray(beet.u8, 32)],
+      ["allowedMints", beet.array(beetSolana.publicKey)],
     ],
-    'InternalFundTransferPolicy'
-  )
+    "InternalFundTransferPolicy"
+  );

@@ -43,9 +43,12 @@ export async function middleware(request: NextRequest) {
           ? "/overview"
           : requestedNextPath
         : "/overview";
-    const destination = destinationCandidate === "/login" ? "/overview" : destinationCandidate;
+    const destination =
+      destinationCandidate === "/login" ? "/overview" : destinationCandidate;
 
-    return NextResponse.redirect(new URL(destination, request.url), { status: 302 });
+    return NextResponse.redirect(new URL(destination, request.url), {
+      status: 302,
+    });
   }
 
   if (PUBLIC_PATHS.has(pathname)) {
@@ -62,7 +65,8 @@ export async function middleware(request: NextRequest) {
     loginUrl.searchParams.set("next", nextPath);
   }
 
-  const status = request.method === "GET" || request.method === "HEAD" ? 302 : 303;
+  const status =
+    request.method === "GET" || request.method === "HEAD" ? 302 : 303;
   return NextResponse.redirect(loginUrl, { status });
 }
 

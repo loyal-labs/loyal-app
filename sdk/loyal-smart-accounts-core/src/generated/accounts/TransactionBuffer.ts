@@ -5,9 +5,9 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import * as beet from '@metaplex-foundation/beet'
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import * as beet from "@metaplex-foundation/beet";
 
 /**
  * Arguments used to create {@link TransactionBuffer}
@@ -15,18 +15,18 @@ import * as beet from '@metaplex-foundation/beet'
  * @category generated
  */
 export type TransactionBufferArgs = {
-  settings: web3.PublicKey
-  creator: web3.PublicKey
-  bufferIndex: number
-  accountIndex: number
-  finalBufferHash: number[] /* size: 32 */
-  finalBufferSize: number
-  buffer: Uint8Array
-}
+  settings: web3.PublicKey;
+  creator: web3.PublicKey;
+  bufferIndex: number;
+  accountIndex: number;
+  finalBufferHash: number[] /* size: 32 */;
+  finalBufferSize: number;
+  buffer: Uint8Array;
+};
 
 export const transactionBufferDiscriminator = [
   90, 36, 35, 219, 93, 225, 110, 96,
-]
+];
 /**
  * Holds the data for the {@link TransactionBuffer} Account and provides de/serialization
  * functionality for that data
@@ -57,7 +57,7 @@ export class TransactionBuffer implements TransactionBufferArgs {
       args.finalBufferHash,
       args.finalBufferSize,
       args.buffer
-    )
+    );
   }
 
   /**
@@ -68,7 +68,7 @@ export class TransactionBuffer implements TransactionBufferArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [TransactionBuffer, number] {
-    return TransactionBuffer.deserialize(accountInfo.data, offset)
+    return TransactionBuffer.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -85,11 +85,11 @@ export class TransactionBuffer implements TransactionBufferArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find TransactionBuffer account at ${address}`)
+      throw new Error(`Unable to find TransactionBuffer account at ${address}`);
     }
-    return TransactionBuffer.fromAccountInfo(accountInfo, 0)[0]
+    return TransactionBuffer.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -100,10 +100,10 @@ export class TransactionBuffer implements TransactionBufferArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, transactionBufferBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, transactionBufferBeet);
   }
 
   /**
@@ -111,7 +111,7 @@ export class TransactionBuffer implements TransactionBufferArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [TransactionBuffer, number] {
-    return transactionBufferBeet.deserialize(buf, offset)
+    return transactionBufferBeet.deserialize(buf, offset);
   }
 
   /**
@@ -122,7 +122,7 @@ export class TransactionBuffer implements TransactionBufferArgs {
     return transactionBufferBeet.serialize({
       accountDiscriminator: transactionBufferDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -133,11 +133,11 @@ export class TransactionBuffer implements TransactionBufferArgs {
    * depends on them
    */
   static byteSize(args: TransactionBufferArgs) {
-    const instance = TransactionBuffer.fromArgs(args)
+    const instance = TransactionBuffer.fromArgs(args);
     return transactionBufferBeet.toFixedFromValue({
       accountDiscriminator: transactionBufferDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -156,7 +156,7 @@ export class TransactionBuffer implements TransactionBufferArgs {
     return connection.getMinimumBalanceForRentExemption(
       TransactionBuffer.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -172,7 +172,7 @@ export class TransactionBuffer implements TransactionBufferArgs {
       finalBufferHash: this.finalBufferHash,
       finalBufferSize: this.finalBufferSize,
       buffer: this.buffer,
-    }
+    };
   }
 }
 
@@ -183,19 +183,19 @@ export class TransactionBuffer implements TransactionBufferArgs {
 export const transactionBufferBeet = new beet.FixableBeetStruct<
   TransactionBuffer,
   TransactionBufferArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['settings', beetSolana.publicKey],
-    ['creator', beetSolana.publicKey],
-    ['bufferIndex', beet.u8],
-    ['accountIndex', beet.u8],
-    ['finalBufferHash', beet.uniformFixedSizeArray(beet.u8, 32)],
-    ['finalBufferSize', beet.u16],
-    ['buffer', beet.bytes],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["settings", beetSolana.publicKey],
+    ["creator", beetSolana.publicKey],
+    ["bufferIndex", beet.u8],
+    ["accountIndex", beet.u8],
+    ["finalBufferHash", beet.uniformFixedSizeArray(beet.u8, 32)],
+    ["finalBufferSize", beet.u16],
+    ["buffer", beet.bytes],
   ],
   TransactionBuffer.fromArgs,
-  'TransactionBuffer'
-)
+  "TransactionBuffer"
+);

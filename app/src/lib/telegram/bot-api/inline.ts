@@ -1,4 +1,8 @@
-import { communities, summaries, type Summary } from "@loyal-labs/db-core/schema";
+import {
+  communities,
+  summaries,
+  type Summary,
+} from "@loyal-labs/db-core/schema";
 import { and, desc, eq } from "drizzle-orm";
 import type { Context, InlineQueryContext } from "grammy";
 import {

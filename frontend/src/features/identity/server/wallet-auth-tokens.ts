@@ -2,8 +2,14 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { errors as joseErrors, jwtVerify, SignJWT, type JWTPayload } from "jose";
 import {
+  errors as joseErrors,
+  jwtVerify,
+  SignJWT,
+  type JWTPayload,
+} from "jose";
+import {
+  legacyWalletChallengeTokenClaimsSchema,
   WALLET_AUTH_CHALLENGE_TOKEN_TYPE,
   walletChallengeTokenClaimsSchema,
   type WalletChallengeTokenClaimsData,
@@ -61,10 +67,21 @@ export async function verifyWalletChallengeToken(
 
   const parsed = walletChallengeTokenClaimsSchema.safeParse(payload);
   if (!parsed.success) {
-    throw new WalletAuthError("Wallet challenge token is invalid.", {
-      code: "invalid_wallet_challenge",
-      status: 401,
-    });
+    const legacyParsed = legacyWalletChallengeTokenClaimsSchema.safeParse(
+      payload
+    );
+    if (!legacyParsed.success) {
+      throw new WalletAuthError("Wallet challenge token is invalid.", {
+        code: "invalid_wallet_challenge",
+        status: 401,
+      });
+    }
+
+    return {
+      ...payload,
+      ...legacyParsed.data,
+      proofKind: "message",
+    };
   }
 
   if (parsed.data.tokenType !== WALLET_AUTH_CHALLENGE_TOKEN_TYPE) {
@@ -74,5 +91,8 @@ export async function verifyWalletChallengeToken(
     });
   }
 
-  return payload;
+  return {
+    ...payload,
+    ...parsed.data,
+  };
 }

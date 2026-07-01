@@ -43,6 +43,12 @@ import path from "node:path";
 import type { TelegramVerification } from "../../../target/types/telegram_verification";
 import { createKeypairMessageSigner } from "../src/webcrypto";
 
+const RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE =
+  process.env.RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE === "true";
+const describeIfEnabled = RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE
+  ? describe
+  : describe.skip;
+
 const AUTH_TOKEN_CACHE_PATH = path.join(
   import.meta.dir,
   ".auth-token-cache.json"
@@ -129,40 +135,34 @@ const TELEGRAM_ED25519_PUBKEY = Buffer.from(
   "hex"
 );
 
-const PER_RPC_ENDPOINT = "https://tee.magicblock.app";
-const PER_WS_ENDPOINT = "wss://tee.magicblock.app";
-
-// const PER_RPC_ENDPOINT = "https://devnet-as.magicblock.app";
-// const PER_WS_ENDPOINT = "wss://devnet-as.magicblock.app";
+const PER_RPC_ENDPOINT = "https://devnet-tee.magicblock.app";
+const PER_WS_ENDPOINT = "wss://devnet-tee.magicblock.app";
 
 export const SECURE_DEVNET_RPC_URL =
-  "https://aurora-o23cd4-fast-devnet.helius-rpc.com";
+  "https://karlotta-a6micy-fast-devnet.helius-rpc.com";
 export const SECURE_DEVNET_RPC_WS =
-  "wss://aurora-o23cd4-fast-devnet.helius-rpc.com";
+  "wss://karlotta-a6micy-fast-devnet.helius-rpc.com";
 
 const solanaConnection = new Connection(SECURE_DEVNET_RPC_URL, {
   wsEndpoint: SECURE_DEVNET_RPC_WS,
   commitment: "confirmed" as const,
 });
 
-// 4WRGdAZ8LHmbPC3CfdCR8sspKhBATs9EZ8H83RYJQ8RG
-const USER_KP = Keypair.fromSecretKey(
-  Uint8Array.from([
-    54, 229, 115, 67, 69, 71, 205, 239, 251, 81, 102, 40, 48, 237, 241, 66, 8,
-    22, 241, 216, 209, 140, 214, 111, 51, 58, 171, 169, 14, 90, 182, 255, 52,
-    28, 88, 128, 77, 91, 157, 211, 179, 122, 209, 150, 17, 24, 121, 242, 177,
-    212, 235, 216, 109, 5, 94, 31, 222, 100, 124, 166, 124, 52, 149, 131,
-  ])
-);
-// 3cd5zjx8DAPDUciSrJtbrtniuNpDWhGLSKtk7xxCMCpP
-const OTHER_USER_KP = Keypair.fromSecretKey(
-  Uint8Array.from([
-    112, 50, 255, 102, 148, 177, 8, 136, 48, 146, 49, 69, 16, 165, 113, 81, 123,
-    225, 207, 149, 216, 229, 105, 50, 249, 48, 232, 27, 165, 181, 239, 97, 38,
-    215, 129, 64, 75, 228, 54, 138, 179, 234, 24, 136, 233, 6, 252, 59, 233,
-    186, 135, 194, 87, 255, 97, 59, 189, 140, 157, 56, 221, 35, 43, 56,
-  ])
-);
+function loadSmokeKeypair(envName: string): Keypair {
+  const raw = process.env[envName];
+  if (!raw) {
+    throw new Error(`${envName} is required for the shield smoke test.`);
+  }
+  const secret = JSON.parse(raw) as number[];
+  return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
+const USER_KP = RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE
+  ? loadSmokeKeypair("PRIVATE_TRANSACTIONS_SHIELD_USER_KEYPAIR")
+  : Keypair.generate();
+const OTHER_USER_KP = RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE
+  ? loadSmokeKeypair("PRIVATE_TRANSACTIONS_SHIELD_OTHER_USER_KEYPAIR")
+  : Keypair.generate();
 
 const USER = USER_KP.publicKey;
 const OTHER_USER = OTHER_USER_KP.publicKey;
@@ -184,29 +184,34 @@ function prettyStringify(obj: unknown): string {
   });
 }
 
-const userAuthToken = await getOrCacheAuthToken(PER_RPC_ENDPOINT, USER_KP);
-const otherAuthToken = await getOrCacheAuthToken(
-  PER_RPC_ENDPOINT,
-  OTHER_USER_KP
-);
+const userAuthToken = RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE
+  ? await getOrCacheAuthToken(PER_RPC_ENDPOINT, USER_KP)
+  : "";
+const otherAuthToken = RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE
+  ? await getOrCacheAuthToken(PER_RPC_ENDPOINT, OTHER_USER_KP)
+  : "";
 
-const loyalClient = await LoyalPrivateTransactionsClient.fromConfig({
-  signer: USER_KP,
-  baseRpcEndpoint: SECURE_DEVNET_RPC_URL,
-  baseWsEndpoint: SECURE_DEVNET_RPC_WS,
-  ephemeralRpcEndpoint: PER_RPC_ENDPOINT,
-  ephemeralWsEndpoint: PER_WS_ENDPOINT,
-  authToken: userAuthToken,
-});
+const loyalClient = RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE
+  ? await LoyalPrivateTransactionsClient.fromConfig({
+      signer: USER_KP,
+      baseRpcEndpoint: SECURE_DEVNET_RPC_URL,
+      baseWsEndpoint: SECURE_DEVNET_RPC_WS,
+      ephemeralRpcEndpoint: PER_RPC_ENDPOINT,
+      ephemeralWsEndpoint: PER_WS_ENDPOINT,
+      authToken: userAuthToken,
+    })
+  : null;
 
-const otherLoyalClient = await LoyalPrivateTransactionsClient.fromConfig({
-  signer: OTHER_USER_KP,
-  baseRpcEndpoint: SECURE_DEVNET_RPC_URL,
-  baseWsEndpoint: SECURE_DEVNET_RPC_WS,
-  ephemeralRpcEndpoint: PER_RPC_ENDPOINT,
-  ephemeralWsEndpoint: PER_WS_ENDPOINT,
-  authToken: otherAuthToken,
-});
+const otherLoyalClient = RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE
+  ? await LoyalPrivateTransactionsClient.fromConfig({
+      signer: OTHER_USER_KP,
+      baseRpcEndpoint: SECURE_DEVNET_RPC_URL,
+      baseWsEndpoint: SECURE_DEVNET_RPC_WS,
+      ephemeralRpcEndpoint: PER_RPC_ENDPOINT,
+      ephemeralWsEndpoint: PER_WS_ENDPOINT,
+      authToken: otherAuthToken,
+    })
+  : null;
 
 export const COMMON_MINTS = {
   SOL: "So11111111111111111111111111111111111111112",
@@ -346,7 +351,10 @@ export async function claimTokens(params: {
   const client = await getOtherLoyalClient();
   const { tokenMint, amount, username, destination, session } = params;
 
-  const [usernameDepositPda] = await findUsernameDepositPda(username, tokenMint);
+  const [usernameDepositPda] = await findUsernameDepositPda(
+    username,
+    tokenMint
+  );
   const baseUsernameDepositAccountInfo =
     await client.baseProgram.provider.connection.getAccountInfo(
       usernameDepositPda
@@ -432,11 +440,17 @@ export async function transferTokensToUsername(params: {
       }
     );
     console.log("initializeUsernameDeposit sig", initializeUsernameDepositSig);
-    const [depositPda] = await findUsernameDepositPda(destinationUsername, tokenMint);
+    const [depositPda] = await findUsernameDepositPda(
+      destinationUsername,
+      tokenMint
+    );
     await waitForAccount(client, depositPda);
   }
 
-  const [depositPda] = await findUsernameDepositPda(destinationUsername, tokenMint);
+  const [depositPda] = await findUsernameDepositPda(
+    destinationUsername,
+    tokenMint
+  );
   const baseAccountInfo =
     await client.baseProgram.provider.connection.getAccountInfo(depositPda);
   const isDelegated = baseAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID);
@@ -749,7 +763,11 @@ export async function unshieldTokens(params: {
   return signature;
 }
 
-describe("private-transactions shield SDK (PER)", async () => {
+describeIfEnabled("private-transactions shield SDK (PER)", async () => {
+  if (!RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE) {
+    return;
+  }
+
   console.log("_____________");
   console.log("wallet", USER.toString());
 

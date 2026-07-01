@@ -14,7 +14,7 @@ type CommunityActionResult = { success: true } | { error: string };
 
 export async function setCommunityActiveStatus(
   communityId: string,
-  nextIsActive: boolean,
+  nextIsActive: boolean
 ): Promise<CommunityActionResult> {
   if (!UUID_PATTERN.test(communityId)) {
     return { error: "Invalid community ID" };

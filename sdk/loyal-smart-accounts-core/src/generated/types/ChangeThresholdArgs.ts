@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type ChangeThresholdArgs = {
-  newThreshold: number
-  memo: beet.COption<string>
-}
+  newThreshold: number;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -18,8 +18,8 @@ export type ChangeThresholdArgs = {
 export const changeThresholdArgsBeet =
   new beet.FixableBeetArgsStruct<ChangeThresholdArgs>(
     [
-      ['newThreshold', beet.u16],
-      ['memo', beet.coption(beet.utf8String)],
+      ["newThreshold", beet.u16],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'ChangeThresholdArgs'
-  )
+    "ChangeThresholdArgs"
+  );

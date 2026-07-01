@@ -163,7 +163,11 @@ function createChatPersistenceDependencies(): ChatPersistenceDependencies {
           createdAt: now,
         })
         .onConflictDoNothing({
-          target: [appChatMessages.chatId, appChatMessages.role, appChatMessages.turnId],
+          target: [
+            appChatMessages.chatId,
+            appChatMessages.role,
+            appChatMessages.turnId,
+          ],
           where: sql`${appChatMessages.turnId} IS NOT NULL`,
         })
         .returning({

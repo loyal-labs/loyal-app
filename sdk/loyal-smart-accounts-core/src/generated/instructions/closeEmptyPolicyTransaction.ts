@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const closeEmptyPolicyTransactionStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'CloseEmptyPolicyTransactionInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "CloseEmptyPolicyTransactionInstructionArgs"
+);
 /**
  * Accounts required by the _closeEmptyPolicyTransaction_ instruction
  *
@@ -34,20 +34,20 @@ export const closeEmptyPolicyTransactionStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type CloseEmptyPolicyTransactionInstructionAccounts = {
-  programConfig: web3.PublicKey
-  emptyPolicy: web3.PublicKey
-  proposal: web3.PublicKey
-  transaction: web3.PublicKey
-  proposalRentCollector: web3.PublicKey
-  transactionRentCollector: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  programConfig: web3.PublicKey;
+  emptyPolicy: web3.PublicKey;
+  proposal: web3.PublicKey;
+  transaction: web3.PublicKey;
+  proposalRentCollector: web3.PublicKey;
+  transactionRentCollector: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const closeEmptyPolicyTransactionInstructionDiscriminator = [
   183, 66, 199, 226, 42, 87, 146, 77,
-]
+];
 
 /**
  * Creates a _CloseEmptyPolicyTransaction_ instruction.
@@ -59,12 +59,12 @@ export const closeEmptyPolicyTransactionInstructionDiscriminator = [
  */
 export function createCloseEmptyPolicyTransactionInstruction(
   accounts: CloseEmptyPolicyTransactionInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = closeEmptyPolicyTransactionStruct.serialize({
     instructionDiscriminator:
       closeEmptyPolicyTransactionInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.programConfig,
@@ -106,11 +106,11 @@ export function createCloseEmptyPolicyTransactionInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -118,6 +118,6 @@ export function createCloseEmptyPolicyTransactionInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

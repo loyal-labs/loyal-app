@@ -11,7 +11,9 @@ export async function POST(request: Request) {
   const sessionCookieService = createAuthSessionCookieService({
     getConfig: () => getServerEnv(),
   });
-  const claims = await sessionCookieService.readSessionClaimsFromRequest(request);
+  const claims = await sessionCookieService.readSessionClaimsFromRequest(
+    request
+  );
 
   if (!claims) {
     return NextResponse.json(

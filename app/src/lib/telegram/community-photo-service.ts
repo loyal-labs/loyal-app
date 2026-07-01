@@ -1,4 +1,7 @@
-import { getCloudflareCdnBaseUrlFromEnv, getCloudflareCdnUrlClientFromEnv } from "@/lib/core/cdn-url";
+import {
+  getCloudflareCdnBaseUrlFromEnv,
+  getCloudflareCdnUrlClientFromEnv,
+} from "@/lib/core/cdn-url";
 import {
   getCloudflareR2UploadClientFromEnv,
   isCloudflareR2UploadConfigured,
@@ -29,7 +32,11 @@ async function withTimeout<T>(
 
   const timeout = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
-      reject(new Error(`Telegram community photo capture timed out after ${timeoutMs}ms`));
+      reject(
+        new Error(
+          `Telegram community photo capture timed out after ${timeoutMs}ms`
+        )
+      );
     }, timeoutMs);
   });
 
@@ -57,7 +64,10 @@ async function captureCommunityPhotoToCdnInternal(
   }
 
   const photoFile = await downloadTelegramFile(smallFileId);
-  const key = resolveCommunityPhotoObjectKeyFromPath(chatId, photoFile.contentType);
+  const key = resolveCommunityPhotoObjectKeyFromPath(
+    chatId,
+    photoFile.contentType
+  );
 
   await getCloudflareR2UploadClientFromEnv().uploadImage({
     key,

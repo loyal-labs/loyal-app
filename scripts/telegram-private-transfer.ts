@@ -38,34 +38,33 @@ const USERNAME_DEPOSIT_PDA_SEED = Buffer.from("username_deposit_v2");
 const VAULT_PDA_SEED = Buffer.from("vault");
 
 const VALIDATION_BYTES: Uint8Array = new Uint8Array([
-  56, 48, 54, 53, 49, 52, 48, 52, 57, 57, 58, 87, 101, 98, 65, 112, 112, 68,
-  97, 116, 97, 10, 97, 117, 116, 104, 95, 100, 97, 116, 101, 61, 49, 55, 54,
-  51, 53, 57, 56, 51, 55, 53, 10, 99, 104, 97, 116, 95, 105, 110, 115, 116,
-  97, 110, 99, 101, 61, 45, 52, 53, 57, 55, 56, 48, 55, 53, 56, 53, 54, 55,
-  51, 56, 52, 53, 53, 55, 49, 10, 99, 104, 97, 116, 95, 116, 121, 112, 101,
-  61, 115, 101, 110, 100, 101, 114, 10, 117, 115, 101, 114, 61, 123, 34,
-  105, 100, 34, 58, 56, 49, 51, 56, 55, 57, 55, 55, 54, 55, 44, 34, 102,
-  105, 114, 115, 116, 95, 110, 97, 109, 101, 34, 58, 34, 84, 114, 97, 118,
-  105, 115, 34, 44, 34, 108, 97, 115, 116, 95, 110, 97, 109, 101, 34, 58,
-  34, 34, 44, 34, 117, 115, 101, 114, 110, 97, 109, 101, 34, 58, 34, 100,
-  105, 103, 49, 51, 51, 55, 49, 51, 51, 51, 55, 34, 44, 34, 108, 97, 110,
-  103, 117, 97, 103, 101, 95, 99, 111, 100, 101, 34, 58, 34, 101, 110, 34,
-  44, 34, 97, 108, 108, 111, 119, 115, 95, 119, 114, 105, 116, 101, 95, 116,
-  111, 95, 112, 109, 34, 58, 116, 114, 117, 101, 44, 34, 112, 104, 111, 116,
-  111, 95, 117, 114, 108, 34, 58, 34, 104, 116, 116, 112, 115, 58, 92, 47,
-  92, 47, 116, 46, 109, 101, 92, 47, 105, 92, 47, 117, 115, 101, 114, 112,
-  105, 99, 92, 47, 51, 50, 48, 92, 47, 120, 99, 90, 85, 85, 85, 87, 51, 117,
-  74, 50, 99, 79, 80, 86, 73, 81, 85, 111, 99, 104, 105, 119, 72, 99, 56,
-  113, 118, 114, 56, 106, 114, 108, 66, 56, 74, 45, 72, 88, 120, 105, 112,
-  98, 83, 74, 76, 122, 122, 118, 120, 73, 99, 79, 106, 55, 103, 55, 70, 49,
-  69, 78, 116, 72, 71, 46, 115, 118, 103, 34, 125,
+  56, 48, 54, 53, 49, 52, 48, 52, 57, 57, 58, 87, 101, 98, 65, 112, 112, 68, 97,
+  116, 97, 10, 97, 117, 116, 104, 95, 100, 97, 116, 101, 61, 49, 55, 54, 51, 53,
+  57, 56, 51, 55, 53, 10, 99, 104, 97, 116, 95, 105, 110, 115, 116, 97, 110, 99,
+  101, 61, 45, 52, 53, 57, 55, 56, 48, 55, 53, 56, 53, 54, 55, 51, 56, 52, 53,
+  53, 55, 49, 10, 99, 104, 97, 116, 95, 116, 121, 112, 101, 61, 115, 101, 110,
+  100, 101, 114, 10, 117, 115, 101, 114, 61, 123, 34, 105, 100, 34, 58, 56, 49,
+  51, 56, 55, 57, 55, 55, 54, 55, 44, 34, 102, 105, 114, 115, 116, 95, 110, 97,
+  109, 101, 34, 58, 34, 84, 114, 97, 118, 105, 115, 34, 44, 34, 108, 97, 115,
+  116, 95, 110, 97, 109, 101, 34, 58, 34, 34, 44, 34, 117, 115, 101, 114, 110,
+  97, 109, 101, 34, 58, 34, 100, 105, 103, 49, 51, 51, 55, 49, 51, 51, 51, 55,
+  34, 44, 34, 108, 97, 110, 103, 117, 97, 103, 101, 95, 99, 111, 100, 101, 34,
+  58, 34, 101, 110, 34, 44, 34, 97, 108, 108, 111, 119, 115, 95, 119, 114, 105,
+  116, 101, 95, 116, 111, 95, 112, 109, 34, 58, 116, 114, 117, 101, 44, 34, 112,
+  104, 111, 116, 111, 95, 117, 114, 108, 34, 58, 34, 104, 116, 116, 112, 115,
+  58, 92, 47, 92, 47, 116, 46, 109, 101, 92, 47, 105, 92, 47, 117, 115, 101,
+  114, 112, 105, 99, 92, 47, 51, 50, 48, 92, 47, 120, 99, 90, 85, 85, 85, 87,
+  51, 117, 74, 50, 99, 79, 80, 86, 73, 81, 85, 111, 99, 104, 105, 119, 72, 99,
+  56, 113, 118, 114, 56, 106, 114, 108, 66, 56, 74, 45, 72, 88, 120, 105, 112,
+  98, 83, 74, 76, 122, 122, 118, 120, 73, 99, 79, 106, 55, 103, 55, 70, 49, 69,
+  78, 116, 72, 71, 46, 115, 118, 103, 34, 125,
 ]);
 
 const VALIDATION_SIGNATURE_BYTES: Uint8Array = new Uint8Array([
-  139, 171, 57, 233, 145, 1, 218, 227, 29, 106, 55, 30, 237, 207, 28, 229,
-  22, 234, 202, 160, 221, 31, 219, 251, 151, 181, 118, 207, 216, 254, 57, 79,
-  209, 9, 176, 4, 81, 224, 69, 253, 250, 110, 16, 143, 73, 60, 35, 61, 66,
-  177, 139, 178, 153, 248, 2, 121, 161, 49, 224, 103, 190, 108, 234, 4,
+  139, 171, 57, 233, 145, 1, 218, 227, 29, 106, 55, 30, 237, 207, 28, 229, 22,
+  234, 202, 160, 221, 31, 219, 251, 151, 181, 118, 207, 216, 254, 57, 79, 209,
+  9, 176, 4, 81, 224, 69, 253, 250, 110, 16, 143, 73, 60, 35, 61, 66, 177, 139,
+  178, 153, 248, 2, 121, 161, 49, 224, 103, 190, 108, 234, 4,
 ]);
 
 const VALIDATION_USERNAME = "dig133713337";
@@ -73,17 +72,19 @@ const TELEGRAM_ED25519_PUBKEY = Buffer.from(
   "e7bf03a2fa4602af4580703d88dda5bb59f32ed8b02a56c187fe7d34caed242d",
   "hex"
 );
-const ER_VALIDATOR = new PublicKey(
-  process.env.ER_VALIDATOR ??
-    process.env.MAGICBLOCK_VALIDATOR ??
-    "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev"
-);
+const TEE_VALIDATOR = "MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo";
+const LOCAL_ER_VALIDATOR = "mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev";
 
 const DEFAULT_DECIMALS = Number(process.env.DECIMALS ?? "6");
 const DEFAULT_AMOUNT = BigInt(process.env.DEFAULT_AMOUNT ?? "1000000");
 const STATE_PATH =
   process.env.STATE_PATH ??
-  path.join(process.cwd(), "scripts", ".state", "telegram-private-transfer.json");
+  path.join(
+    process.cwd(),
+    "scripts",
+    ".state",
+    "telegram-private-transfer.json"
+  );
 
 const usage = () => {
   console.log(`Usage: bun scripts/telegram-private-transfer.ts <delegate|send|subscribe|claim|undelegate>
@@ -94,7 +95,7 @@ Env:
   EPHEMERAL_PROVIDER_ENDPOINT              ER RPC endpoint (default http://127.0.0.1:7799)
   EPHEMERAL_WS_ENDPOINT                    ER WS endpoint (default ws://127.0.0.1:7800)
   EPHEMERAL_AUTH                           if true, fetch MagicBlock auth token
-  ER_VALIDATOR                             ER validator pubkey (default mAGicPQY...)
+  ER_VALIDATOR                             ER validator pubkey (default local validator on localhost, TEE validator otherwise)
   COMMITMENT                               processed|confirmed|finalized (default confirmed)
   SENDER_KEYPAIR                           sender keypair path (default ~/.config/solana/id.json)
   CLAIMER_KEYPAIR                          claimer keypair path (default ~/.config/solana/id.json)
@@ -185,6 +186,18 @@ const getEphemeralConnection = () => {
   };
 };
 
+const getDefaultErValidator = (rpcEndpoint: string) =>
+  rpcEndpoint.includes("127.0.0.1") || rpcEndpoint.includes("localhost")
+    ? LOCAL_ER_VALIDATOR
+    : TEE_VALIDATOR;
+
+const getErValidator = (rpcEndpoint: string) =>
+  new PublicKey(
+    process.env.ER_VALIDATOR ??
+      process.env.MAGICBLOCK_VALIDATOR ??
+      getDefaultErValidator(rpcEndpoint)
+  );
+
 const maybeAirdrop = async (connection: Connection, pubkey: PublicKey) => {
   const allowAirdrop =
     process.env.AIRDROP === "true" ||
@@ -215,7 +228,8 @@ const buildEphemeralProvider = async (
   keypair: Keypair
 ) => {
   const hasToken =
-    config.rpcEndpoint.includes("token=") || config.wsEndpoint.includes("token=");
+    config.rpcEndpoint.includes("token=") ||
+    config.wsEndpoint.includes("token=");
   const useAuth =
     process.env.EPHEMERAL_AUTH === "true" ||
     (!hasToken &&
@@ -237,7 +251,11 @@ const buildEphemeralProvider = async (
     wsEndpoint,
     commitment: config.commitment,
   });
-  return buildProvider(connection, new anchor.Wallet(keypair), config.commitment);
+  return buildProvider(
+    connection,
+    new anchor.Wallet(keypair),
+    config.commitment
+  );
 };
 
 const getPrograms = (provider: anchor.AnchorProvider) => {
@@ -344,11 +362,19 @@ const ensureTokenBalance = async (
 
 const getUsernameDepositPda = (programId: PublicKey, mint: PublicKey) =>
   PublicKey.findProgramAddressSync(
-    [USERNAME_DEPOSIT_PDA_SEED, Buffer.from(VALIDATION_USERNAME), mint.toBuffer()],
+    [
+      USERNAME_DEPOSIT_PDA_SEED,
+      Buffer.from(VALIDATION_USERNAME),
+      mint.toBuffer(),
+    ],
     programId
   )[0];
 
-const getDepositPda = (programId: PublicKey, user: PublicKey, mint: PublicKey) =>
+const getDepositPda = (
+  programId: PublicKey,
+  user: PublicKey,
+  mint: PublicKey
+) =>
   PublicKey.findProgramAddressSync(
     [DEPOSIT_PDA_SEED, user.toBuffer(), mint.toBuffer()],
     programId
@@ -371,7 +397,10 @@ const ensureVerifiedSession = async (
   verificationProgram: Program<TelegramVerification>,
   claimer: Keypair
 ) => {
-  const sessionPda = getSessionPda(verificationProgram.programId, claimer.publicKey);
+  const sessionPda = getSessionPda(
+    verificationProgram.programId,
+    claimer.publicKey
+  );
   try {
     const existing = await verificationProgram.account.telegramSession.fetch(
       sessionPda
@@ -434,6 +463,7 @@ const main = async () => {
   const state = readState();
   const base = getBaseConnection();
   const er = getEphemeralConnection();
+  const erValidator = getErValidator(er.rpcEndpoint);
 
   if (command === "delegate") {
     const sender = loadKeypair(
@@ -477,7 +507,13 @@ const main = async () => {
       "DEPOSIT_AMOUNT",
       BigInt(process.env.SEND_AMOUNT ?? DEFAULT_AMOUNT.toString())
     );
-    await ensureTokenBalance(base.connection, sender, mint, senderAta, depositRaw);
+    await ensureTokenBalance(
+      base.connection,
+      sender,
+      mint,
+      senderAta,
+      depositRaw
+    );
 
     const depositPda = getDepositPda(
       senderPrograms.privateTransfer.programId,
@@ -488,7 +524,10 @@ const main = async () => {
       senderPrograms.privateTransfer.programId,
       mint
     );
-    const vaultPda = getVaultPda(senderPrograms.privateTransfer.programId, mint);
+    const vaultPda = getVaultPda(
+      senderPrograms.privateTransfer.programId,
+      mint
+    );
     const vaultTokenAccount = getAssociatedTokenAddressSync(
       mint,
       vaultPda,
@@ -566,7 +605,7 @@ const main = async () => {
       .accountsPartial({
         payer: sender.publicKey,
         deposit: depositPda,
-        validator: ER_VALIDATOR,
+        validator: erValidator,
       })
       .signers([sender])
       .rpc({ skipPreflight: true });
@@ -595,7 +634,7 @@ const main = async () => {
       .accountsPartial({
         payer: claimer.publicKey,
         deposit: usernameDepositPda,
-        validator: ER_VALIDATOR,
+        validator: erValidator,
         session: sessionPda,
       })
       .signers([claimer])
@@ -636,7 +675,6 @@ const main = async () => {
         payer: sender.publicKey,
         sourceDeposit: depositPda,
         destinationDeposit: usernameDepositPda,
-        sessionToken: null,
         tokenMint: mint,
       })
       .signers([sender])
@@ -836,7 +874,6 @@ const main = async () => {
         user: sender.publicKey,
         payer: sender.publicKey,
         deposit: depositPda,
-        sessionToken: null,
         magicProgram: MAGIC_PROGRAM_ID,
         magicContext: MAGIC_CONTEXT_ID,
       })

@@ -46,7 +46,7 @@ async function getOrCreateSyncState(): Promise<SyncStateRow> {
   const existing = await db.query.privateTransferAnalyticsSyncState.findFirst({
     where: eq(
       privateTransferAnalyticsSyncState.syncKey,
-      PUSH_SHIELDED_TRANSFERS_SYNC_KEY,
+      PUSH_SHIELDED_TRANSFERS_SYNC_KEY
     ),
   });
   if (existing) return existing;
@@ -59,19 +59,17 @@ async function getOrCreateSyncState(): Promise<SyncStateRow> {
   const created = await db.query.privateTransferAnalyticsSyncState.findFirst({
     where: eq(
       privateTransferAnalyticsSyncState.syncKey,
-      PUSH_SHIELDED_TRANSFERS_SYNC_KEY,
+      PUSH_SHIELDED_TRANSFERS_SYNC_KEY
     ),
   });
   if (!created) {
-    throw new Error(
-      "Failed to initialize push_shielded_transfers sync state",
-    );
+    throw new Error("Failed to initialize push_shielded_transfers sync state");
   }
   return created;
 }
 
 async function updateSyncState(
-  values: Partial<typeof privateTransferAnalyticsSyncState.$inferInsert>,
+  values: Partial<typeof privateTransferAnalyticsSyncState.$inferInsert>
 ): Promise<void> {
   const db = getDatabase();
   await db
@@ -80,14 +78,14 @@ async function updateSyncState(
     .where(
       eq(
         privateTransferAnalyticsSyncState.syncKey,
-        PUSH_SHIELDED_TRANSFERS_SYNC_KEY,
-      ),
+        PUSH_SHIELDED_TRANSFERS_SYNC_KEY
+      )
     );
 }
 
 async function fetchHeadSignatures(
   state: SyncStateRow,
-  stats: PushShieldedTransfersStats,
+  stats: PushShieldedTransfersStats
 ): Promise<{ signatures: string[]; newestSignature: string | null }> {
   const connection = getPushShieldedTransfersConnection();
   const knownHead = state.latestSeenSignature ?? null;
@@ -103,7 +101,7 @@ async function fetchHeadSignatures(
         before,
         limit: HISTORY_PAGE_LIMIT,
         until: knownHead ?? undefined,
-      },
+      }
     );
     if (batch.length === 0) break;
 
@@ -122,7 +120,7 @@ async function fetchHeadSignatures(
 }
 
 async function fetchParsedTransactionsBatched(
-  signatures: string[],
+  signatures: string[]
 ): Promise<(ParsedTransactionWithMeta | null)[]> {
   const connection = getPushShieldedTransfersConnection();
   const parsed: (ParsedTransactionWithMeta | null)[] = [];
@@ -131,14 +129,14 @@ async function fetchParsedTransactionsBatched(
     parsed.push(
       ...(await connection.getParsedTransactions(slice, {
         maxSupportedTransactionVersion: 0,
-      })),
+      }))
     );
   }
   return parsed;
 }
 
 async function resolveMintMetadata(
-  mints: Iterable<string>,
+  mints: Iterable<string>
 ): Promise<Map<string, MintMetadata>> {
   const uniqueMints = Array.from(new Set(Array.from(mints).filter(Boolean)));
   if (uniqueMints.length === 0) return new Map();
@@ -193,7 +191,7 @@ export async function runPushShieldedTransfersCron(): Promise<PushShieldedTransf
   try {
     const { signatures, newestSignature } = await fetchHeadSignatures(
       state,
-      stats,
+      stats
     );
 
     // First run (no cursor yet): don't dispatch pushes for historical
@@ -216,8 +214,7 @@ export async function runPushShieldedTransfersCron(): Promise<PushShieldedTransf
       return stats;
     }
 
-    const parsedTransactions =
-      await fetchParsedTransactionsBatched(signatures);
+    const parsedTransactions = await fetchParsedTransactionsBatched(signatures);
 
     const events: TransferDepositEvent[] = [];
     for (let i = 0; i < parsedTransactions.length; i += 1) {
@@ -239,23 +236,23 @@ export async function runPushShieldedTransfersCron(): Promise<PushShieldedTransf
     const connection = getPushShieldedTransfersConnection();
     const depositUserByAddress = await resolveDepositUsers(
       connection,
-      events.map((event) => event.destinationDepositAddress),
+      events.map((event) => event.destinationDepositAddress)
     );
 
     const metadataByMint = await resolveMintMetadata(
-      events.map((event) => event.tokenMint),
+      events.map((event) => event.tokenMint)
     );
 
     for (const event of events) {
       const recipientWallet = depositUserByAddress.get(
-        event.destinationDepositAddress,
+        event.destinationDepositAddress
       );
       if (!recipientWallet) continue;
       stats.recipientsResolved += 1;
 
       const payload = formatShieldedTransferPush(
         event,
-        metadataByMint.get(event.tokenMint) ?? null,
+        metadataByMint.get(event.tokenMint) ?? null
       );
       try {
         const result = await sendPushToWallet(recipientWallet, payload);
@@ -264,7 +261,7 @@ export async function runPushShieldedTransfersCron(): Promise<PushShieldedTransf
         stats.errors += 1;
         console.error(
           `[push-shielded-transfers] dispatch failed for ${recipientWallet}`,
-          error instanceof Error ? error.message : String(error),
+          error instanceof Error ? error.message : String(error)
         );
       }
     }

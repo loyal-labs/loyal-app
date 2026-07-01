@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import * as beet from '@metaplex-foundation/beet'
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import * as beet from "@metaplex-foundation/beet";
 export type ProgramConfigSetTreasuryArgs = {
-  newTreasury: web3.PublicKey
-}
+  newTreasury: web3.PublicKey;
+};
 
 /**
  * @category userTypes
@@ -18,6 +18,6 @@ export type ProgramConfigSetTreasuryArgs = {
  */
 export const programConfigSetTreasuryArgsBeet =
   new beet.BeetArgsStruct<ProgramConfigSetTreasuryArgs>(
-    [['newTreasury', beetSolana.publicKey]],
-    'ProgramConfigSetTreasuryArgs'
-  )
+    [["newTreasury", beetSolana.publicKey]],
+    "ProgramConfigSetTreasuryArgs"
+  );

@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   AddTransactionToBatchArgs,
   addTransactionToBatchArgsBeet,
-} from '../types/AddTransactionToBatchArgs'
+} from "../types/AddTransactionToBatchArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type AddTransactionToBatchInstructionArgs = {
-  args: AddTransactionToBatchArgs
-}
+  args: AddTransactionToBatchArgs;
+};
 /**
  * @category Instructions
  * @category AddTransactionToBatch
@@ -27,15 +27,15 @@ export type AddTransactionToBatchInstructionArgs = {
  */
 export const addTransactionToBatchStruct = new beet.FixableBeetArgsStruct<
   AddTransactionToBatchInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', addTransactionToBatchArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", addTransactionToBatchArgsBeet],
   ],
-  'AddTransactionToBatchInstructionArgs'
-)
+  "AddTransactionToBatchInstructionArgs"
+);
 /**
  * Accounts required by the _addTransactionToBatch_ instruction
  *
@@ -50,19 +50,19 @@ export const addTransactionToBatchStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type AddTransactionToBatchInstructionAccounts = {
-  settings: web3.PublicKey
-  proposal: web3.PublicKey
-  batch: web3.PublicKey
-  transaction: web3.PublicKey
-  signer: web3.PublicKey
-  rentPayer: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  proposal: web3.PublicKey;
+  batch: web3.PublicKey;
+  transaction: web3.PublicKey;
+  signer: web3.PublicKey;
+  rentPayer: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const addTransactionToBatchInstructionDiscriminator = [
   147, 75, 197, 227, 20, 149, 150, 113,
-]
+];
 
 /**
  * Creates a _AddTransactionToBatch_ instruction.
@@ -77,12 +77,12 @@ export const addTransactionToBatchInstructionDiscriminator = [
 export function createAddTransactionToBatchInstruction(
   accounts: AddTransactionToBatchInstructionAccounts,
   args: AddTransactionToBatchInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = addTransactionToBatchStruct.serialize({
     instructionDiscriminator: addTransactionToBatchInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -119,11 +119,11 @@ export function createAddTransactionToBatchInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -131,6 +131,6 @@ export function createAddTransactionToBatchInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

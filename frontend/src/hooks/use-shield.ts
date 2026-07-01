@@ -6,6 +6,10 @@ import {
 } from "@loyal-labs/private-transactions";
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
+import {
+  computeUnshieldModifyAmount,
+  toRoundedTokenRawAmount,
+} from "@loyal-labs/wallet-core/lib";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useState } from "react";
@@ -121,7 +125,7 @@ export function useShield() {
         }
         const tokenMint = new PublicKey(resolvedMint);
         const decimals = TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
-        const rawAmount = Math.floor(params.amount * 10 ** decimals);
+        const rawAmount = toRoundedTokenRawAmount(params.amount, decimals);
         const user = wallet.publicKey;
         const trackedKaminoMint = resolveTrackedKaminoUsdcMint(
           publicEnv.solanaEnv
@@ -133,7 +137,7 @@ export function useShield() {
 
         const plan = await client.buildShieldTokensTransactionPlan({
           tokenMint,
-          amount: BigInt(rawAmount),
+          amount: rawAmount,
           user,
           payer: user,
         });
@@ -159,7 +163,7 @@ export function useShield() {
               recordKaminoUsdcShield({
                 publicKey: user.toBase58(),
                 solanaEnv: publicEnv.solanaEnv,
-                addedPrincipalLiquidityAmountRaw: BigInt(rawAmount),
+                addedPrincipalLiquidityAmountRaw: rawAmount,
                 addedCollateralSharesAmountRaw,
               });
             } catch (persistError) {
@@ -211,6 +215,7 @@ export function useShield() {
     async (params: {
       tokenSymbol: string;
       amount: number;
+      isMax?: boolean;
       tokenMint?: string;
     }): Promise<ShieldResult> => {
       if (!(wallet.connected && wallet.publicKey && wallet.signTransaction)) {
@@ -232,42 +237,36 @@ export function useShield() {
         }
         const tokenMint = new PublicKey(resolvedMint);
         const decimals = TOKEN_DECIMALS[params.tokenSymbol.toUpperCase()] ?? 6;
-        const rawAmount = Math.floor(params.amount * 10 ** decimals);
+        const rawAmount = toRoundedTokenRawAmount(params.amount, decimals);
         const user = wallet.publicKey;
-        // For tracked Kamino positions, the vault stores collateral shares and
-        // the SDK plan amount for unshield is denominated in shares. The user
-        // supplies a liquidity amount (USDC), so convert via the Kamino reserve
-        // exchange rate and clamp to the current shares balance.
+        // For tracked Kamino positions, the vault stores collateral shares.
+        // Partial unshields quote user-entered liquidity into shares; Max burns
+        // the live deposit shares directly so it can fully drain the account.
         const trackedKaminoMint = resolveTrackedKaminoUsdcMint(
           publicEnv.solanaEnv
         );
         const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
+        const wantsMax = params.isMax === true;
 
         const collateralSharesBefore = isTrackedKaminoToken
           ? await getDepositAmount({ client, tokenMint, user })
           : BigInt(0);
 
-        let planAmount: bigint = BigInt(rawAmount);
-        if (isTrackedKaminoToken) {
-          const quotedShares =
-            await client.getKaminoCollateralSharesForLiquidityAmount({
-              tokenMint,
-              liquidityAmountRaw: BigInt(rawAmount),
-            });
-          if (quotedShares === null) {
-            throw new Error(
-              "Could not quote the current USDC shielded exchange rate. Please retry."
-            );
-          }
-          planAmount = quotedShares;
-
-          if (
-            collateralSharesBefore > BigInt(0) &&
-            planAmount > collateralSharesBefore
-          ) {
-            planAmount = collateralSharesBefore;
-          }
-        }
+        const requestedRawAmount = rawAmount;
+        const quotedShares =
+          isTrackedKaminoToken && !wantsMax
+            ? await client.getKaminoCollateralSharesForLiquidityAmount({
+                tokenMint,
+                liquidityAmountRaw: requestedRawAmount,
+              })
+            : null;
+        const planAmount = computeUnshieldModifyAmount({
+          currentDepositRaw: collateralSharesBefore,
+          isMax: wantsMax,
+          isTrackedKaminoToken,
+          kaminoQuotedShares: quotedShares,
+          requestedRawAmount,
+        });
 
         const plan = await client.buildUnshieldTokensTransactionPlan({
           tokenMint,

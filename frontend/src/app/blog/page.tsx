@@ -84,12 +84,34 @@ export default async function BlogPage({
     page: parsePage(page),
   });
 
+  // Blog collection schema so AI engines can enumerate the posts on this page.
+  const blogJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Blog",
+    "@id": "https://askloyal.com/blog",
+    name: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    url: "https://askloyal.com/blog",
+    publisher: { "@id": "https://askloyal.com/#organization" },
+    blogPost: posts.map((post) => ({
+      "@type": "BlogPosting",
+      headline: post.title,
+      url: `https://askloyal.com/blog/${post.slug}`,
+      datePublished: post.date,
+      dateModified: post.updated ?? post.date,
+      image: `https://askloyal.com${post.hero}`,
+      ...(post.description ? { description: post.description } : {}),
+      ...(post.author ? { author: { "@type": "Person", name: post.author.name } } : {}),
+    })),
+  };
+
   return (
     <main className="min-h-screen overflow-x-clip bg-white text-black">
       {/* JSON-LD as script children (XSS-safe; React escapes <>&) — schema has no such chars */}
       <script type="application/ld+json">
         {JSON.stringify(breadcrumbJsonLd)}
       </script>
+      <script type="application/ld+json">{JSON.stringify(blogJsonLd)}</script>
 
       <LandingScrollAnimations />
       <LandingHeader />

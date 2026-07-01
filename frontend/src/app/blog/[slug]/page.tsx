@@ -83,9 +83,15 @@ export default async function BlogPostPage({
     headline: post.title,
     ...(post.description ? { description: post.description } : {}),
     datePublished: post.date,
+    dateModified: post.updated ?? post.date,
     image: `${SITE_ORIGIN}${post.hero}`,
     author: post.author
-      ? { "@type": "Person", name: post.author.name }
+      ? {
+          "@type": "Person",
+          name: post.author.name,
+          // No fabricated personal sameAs; tie the byline to the Loyal entity.
+          affiliation: { "@id": `${SITE_ORIGIN}/#organization` },
+        }
       : { "@id": `${SITE_ORIGIN}/#organization` },
     publisher: { "@id": `${SITE_ORIGIN}/#organization` },
     mainEntityOfPage: {

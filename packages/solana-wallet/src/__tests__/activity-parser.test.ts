@@ -19,12 +19,9 @@ describe("normalizeParsedTransaction", () => {
       walletAddress: WALLET_ADDRESS,
     });
 
-    expect(activity).toMatchObject({
-      type: "sol_transfer",
-      signature: "sol-signature",
-      direction: "out",
-      amountLamports: 500_000_000,
-    });
+    expect(activity?.type).toBe("sol_transfer");
+    expect(activity?.direction).toBe("out");
+    expect(activity?.amountLamports).toBe(500_000_000);
   });
 
   test("normalizes a token transfer", () => {
@@ -34,15 +31,12 @@ describe("normalizeParsedTransaction", () => {
       walletAddress: WALLET_ADDRESS,
     });
 
-    expect(activity).toMatchObject({
-      type: "token_transfer",
-      direction: "out",
-      token: {
-        mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        amount: "2",
-        decimals: 6,
-      },
-    });
+    expect(activity?.type).toBe("token_transfer");
+    expect(activity?.direction).toBe("out");
+    expect(activity?.token?.mint).toBe(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    );
+    expect(activity?.token?.amount).toBe("2");
   });
 
   test("normalizes a token swap", () => {
@@ -52,11 +46,13 @@ describe("normalizeParsedTransaction", () => {
       walletAddress: WALLET_ADDRESS,
     });
 
-    expect(activity).toMatchObject({
-      type: "swap",
-      fromToken: { mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
-      toToken: { mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6nBoP4R2B8vfG8fX" },
-    });
+    expect(activity?.type).toBe("swap");
+    expect(activity?.fromToken?.mint).toBe(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    );
+    expect(activity?.toToken?.mint).toBe(
+      "DezXAZ8z7PnrnRJjz3wXBoRgixCa6nBoP4R2B8vfG8fX"
+    );
   });
 
   test("normalizes native-to-token swaps", () => {
@@ -66,11 +62,13 @@ describe("normalizeParsedTransaction", () => {
       walletAddress: WALLET_ADDRESS,
     });
 
-    expect(activity).toMatchObject({
-      type: "swap",
-      fromToken: { mint: "So11111111111111111111111111111111111111112" },
-      toToken: { mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" },
-    });
+    expect(activity?.type).toBe("swap");
+    expect(activity?.fromToken?.mint).toBe(
+      "So11111111111111111111111111111111111111112"
+    );
+    expect(activity?.toToken?.mint).toBe(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    );
   });
 
   test("normalizes secure and unshield instructions", () => {
@@ -85,8 +83,10 @@ describe("normalizeParsedTransaction", () => {
       walletAddress: WALLET_ADDRESS,
     });
 
-    expect(secure).toMatchObject({ type: "secure", direction: "out" });
-    expect(unshield).toMatchObject({ type: "unshield", direction: "in" });
+    expect(secure?.type).toBe("secure");
+    expect(secure?.direction).toBe("out");
+    expect(unshield?.type).toBe("unshield");
+    expect(unshield?.direction).toBe("in");
   });
 
   test("normalizes program actions", () => {
@@ -96,9 +96,7 @@ describe("normalizeParsedTransaction", () => {
       walletAddress: WALLET_ADDRESS,
     });
 
-    expect(activity).toMatchObject({
-      type: "program_action",
-      action: "store",
-    });
+    expect(activity?.type).toBe("program_action");
+    expect(activity?.action).toBe("store");
   });
 });

@@ -42,7 +42,8 @@ export const OPERATION_BUILDERS = {
   removeSignerAsAuthority: internal.removeSignerAsAuthority,
   setTimeLockAsAuthority: internal.setTimeLockAsAuthority,
   changeThresholdAsAuthority: internal.changeThresholdAsAuthority,
-  setNewSettingsAuthorityAsAuthority: internal.setNewSettingsAuthorityAsAuthority,
+  setNewSettingsAuthorityAsAuthority:
+    internal.setNewSettingsAuthorityAsAuthority,
   setArchivalAuthorityAsAuthority: internal.setArchivalAuthorityAsAuthority,
   createSettingsTransaction: internal.createSettingsTransaction,
   closeSettingsTransaction: internal.closeSettingsTransaction,
@@ -83,9 +84,11 @@ export const OPERATION_BUILDERS = {
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 type OperationName = keyof typeof CORE_OPERATION_REGISTRY;
-type MetadataFor<K extends OperationName> = LoyalSmartAccountsOperationMetadata &
-  (typeof CORE_OPERATION_REGISTRY)[K];
-type BuilderArgs<K extends OperationName> = Parameters<(typeof OPERATION_BUILDERS)[K]>[0];
+type MetadataFor<K extends OperationName> =
+  LoyalSmartAccountsOperationMetadata & (typeof CORE_OPERATION_REGISTRY)[K];
+type BuilderArgs<K extends OperationName> = Parameters<
+  (typeof OPERATION_BUILDERS)[K]
+>[0];
 type BuilderReturn<K extends OperationName> = Awaited<
   ReturnType<(typeof OPERATION_BUILDERS)[K]>
 >;
@@ -94,19 +97,23 @@ type FeatureName = LoyalSmartAccountsFeature;
 type OperationNameForFeature<F extends FeatureName> = {
   [K in OperationName]: MetadataFor<K>["feature"] extends F ? K : never;
 }[OperationName];
-type BoundPrepareArgs<K extends OperationName> = MetadataFor<K>["requiresConnection"] extends true
-  ? Omit<BuilderArgs<K>, "connection">
-  : BuilderArgs<K>;
+type BoundPrepareArgs<K extends OperationName> =
+  MetadataFor<K>["requiresConnection"] extends true
+    ? Omit<BuilderArgs<K>, "connection">
+    : BuilderArgs<K>;
 type SignerAware<T> = T extends PublicKey
   ? PublicKey | Signer
   : T extends readonly (infer U)[]
-    ? Array<SignerAware<U>>
-    : T extends (infer U)[]
-      ? Array<SignerAware<U>>
-      : T;
+  ? Array<SignerAware<U>>
+  : T extends (infer U)[]
+  ? Array<SignerAware<U>>
+  : T;
 type ClientArgsFor<K extends OperationName> = Simplify<
   {
-    [P in keyof Omit<BuilderArgs<K>, "connection">]: P extends MetadataFor<K>["signerRoles"][number]
+    [P in keyof Omit<
+      BuilderArgs<K>,
+      "connection"
+    >]: P extends MetadataFor<K>["signerRoles"][number]
       ? SignerAware<Omit<BuilderArgs<K>, "connection">[P]>
       : Omit<BuilderArgs<K>, "connection">[P];
   } & {
@@ -147,8 +154,8 @@ function isSigner(value: unknown): value is Signer {
       typeof value === "object" &&
       "publicKey" in value &&
       value.publicKey &&
-      typeof (value as { publicKey?: { toBase58?: () => string } }).publicKey?.toBase58 ===
-        "function"
+      typeof (value as { publicKey?: { toBase58?: () => string } }).publicKey
+        ?.toBase58 === "function"
   );
 }
 
@@ -162,9 +169,7 @@ function isPublicKey(value: unknown): value is PublicKey {
   );
 }
 
-function normalizePreparedInstruction(
-  result: PreparedInstructionResult
-): {
+function normalizePreparedInstruction(result: PreparedInstructionResult): {
   instruction: TransactionInstruction;
   lookupTableAccounts: AddressLookupTableAccount[];
 } {
@@ -290,7 +295,10 @@ async function prepareOperation<K extends OperationName>(
   const builder = OPERATION_BUILDERS[operationName] as (
     args: BuilderArgs<K>
   ) => BuilderReturn<K>;
-  if (metadata.requiresConnection && !("connection" in args && args.connection)) {
+  if (
+    metadata.requiresConnection &&
+    !("connection" in args && args.connection)
+  ) {
     throw new MissingOperationConnectionError(metadata.exportName);
   }
 
@@ -305,7 +313,8 @@ async function prepareOperation<K extends OperationName>(
       (args as Record<string, unknown>)[metadata.payerRole]
     ),
     programId:
-      ((args as Record<string, unknown>).programId as PublicKey | undefined) ?? PROGRAM_ID,
+      ((args as Record<string, unknown>).programId as PublicKey | undefined) ??
+      PROGRAM_ID,
     requiresConfirmation: metadata.requiresConfirmation ?? false,
     instructions: [normalized.instruction],
     lookupTableAccounts: normalized.lookupTableAccounts,
@@ -322,8 +331,8 @@ function createRuntimeOperationDefinition<K extends OperationName>(
 
   const instruction =
     metadata.phase === "offline" && metadata.exposeInstruction !== false
-      ? ((args: BuilderArgs<K>) =>
-          normalizePreparedInstruction(builder(args)).instruction)
+      ? (args: BuilderArgs<K>) =>
+          normalizePreparedInstruction(builder(args)).instruction
       : undefined;
 
   return {
@@ -331,10 +340,15 @@ function createRuntimeOperationDefinition<K extends OperationName>(
     metadata,
     instruction: instruction as RuntimeOperationDefinition<K>["instruction"],
     prepare: (args: BuilderArgs<K>) => prepareOperation(operationName, args),
-    boundPrepare: (transport: LoyalSmartAccountsTransport, args: BoundPrepareArgs<K>) =>
+    boundPrepare: (
+      transport: LoyalSmartAccountsTransport,
+      args: BoundPrepareArgs<K>
+    ) =>
       prepareOperation(operationName, {
         ...(args as Record<string, unknown>),
-        ...(metadata.requiresConnection ? { connection: transport.connection } : {}),
+        ...(metadata.requiresConnection
+          ? { connection: transport.connection }
+          : {}),
       } as BuilderArgs<K>),
     client: async (
       transport: LoyalSmartAccountsTransport,
@@ -360,7 +374,9 @@ export function findRuntimeBindingIssues() {
   const coreOperationNames = new Set<string>(OPERATION_NAMES);
   const builderNames = new Set<string>(Object.keys(OPERATION_BUILDERS));
 
-  const missingBuilders = OPERATION_NAMES.filter((name) => !builderNames.has(name));
+  const missingBuilders = OPERATION_NAMES.filter(
+    (name) => !builderNames.has(name)
+  );
   const extraBuilders = Object.keys(OPERATION_BUILDERS).filter(
     (name) => !coreOperationNames.has(name)
   );
@@ -373,7 +389,10 @@ export function findRuntimeBindingIssues() {
 
 export function assertRuntimeBindingCoverage(): void {
   const issues = findRuntimeBindingIssues();
-  if (issues.missingBuilders.length === 0 && issues.extraBuilders.length === 0) {
+  if (
+    issues.missingBuilders.length === 0 &&
+    issues.extraBuilders.length === 0
+  ) {
     return;
   }
 
@@ -392,7 +411,10 @@ export function getRuntimeOperationsForFeature<F extends FeatureName>(
   return Object.fromEntries(
     getOperationsForFeature(feature).map((operationName) => {
       const metadata = CORE_OPERATION_REGISTRY[operationName];
-      return [metadata.exportName, createRuntimeOperationDefinition(operationName)];
+      return [
+        metadata.exportName,
+        createRuntimeOperationDefinition(operationName),
+      ];
     })
   ) as RuntimeOperationsForFeature<F>;
 }

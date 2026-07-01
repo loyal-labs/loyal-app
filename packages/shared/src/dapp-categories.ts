@@ -26,7 +26,7 @@ export const TRUSTED_DAPP_CATEGORIES = [
 export type TrustedDappCategory = (typeof TRUSTED_DAPP_CATEGORIES)[number];
 
 export function isTrustedDappCategory(
-  value: unknown,
+  value: unknown
 ): value is TrustedDappCategory {
   return (
     typeof value === "string" &&

@@ -1,0 +1,20 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect width="48" height="48" rx="12" fill="#F9363C"/>
+<g clip-path="url(#earn_coin_clip)">
+<g transform="translate(25.1175 43.6825) rotate(65.34) translate(-10 -16.5)">
+<path d="M13 0.0478516C13.165 0.015991 13.3318 0 13.5 0C17.0899 0 20 7.3873 20 16.5C20 25.6127 17.0899 33 13.5 33C13.3318 33 13.165 32.984 13 32.9521V33H7V0H13V0.0478516Z" fill="#FD9528"/>
+<ellipse cx="6.5" cy="16.5" rx="6.5" ry="16.5" fill="#FFD41B"/>
+</g>
+<g transform="translate(25.478 27.8855) rotate(47.01) translate(-10 -16.5)">
+<path d="M13 0.0478516C13.165 0.015991 13.3318 0 13.5 0C17.0899 0 20 7.3873 20 16.5C20 25.6127 17.0899 33 13.5 33C13.3318 33 13.165 32.984 13 32.9521V33H7V0H13V0.0478516Z" fill="#FD9528"/>
+<ellipse cx="6.5" cy="16.5" rx="6.5" ry="16.5" fill="#FFD41B"/>
+</g>
+<g transform="translate(21.623 9.2685) rotate(28.28) translate(-10 -16.5)">
+<path d="M13 0.0478516C13.165 0.015991 13.3318 0 13.5 0C17.0899 0 20 7.3873 20 16.5C20 25.6127 17.0899 33 13.5 33C13.3318 33 13.165 32.984 13 32.9521V33H7V0H13V0.0478516Z" fill="#FD9528"/>
+<ellipse cx="6.5" cy="16.5" rx="6.5" ry="16.5" fill="#FFD41B"/>
+</g>
+</g>
+<defs>
+<clipPath id="earn_coin_clip"><rect width="48" height="48" rx="12"/></clipPath>
+</defs>
+</svg>

@@ -1,9 +1,6 @@
 import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import { TOKEN_DECIMALS, TOKEN_MINTS } from "@loyal-labs/wallet-core/constants";
-import {
-  useConnection,
-  useWallet,
-} from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
   createAssociatedTokenAccountInstruction,
   createTransferInstruction,
@@ -37,7 +34,6 @@ export type SendResult = {
   error?: string;
 };
 
-
 /**
  * Convert token symbol to mint address
  * @param symbol - Token symbol (e.g., "SOL", "USDC")
@@ -50,7 +46,11 @@ const getTokenMint = (symbol: string): string | undefined => {
 
 export function useSend() {
   const { connection } = useConnection();
-  const { publicKey: walletPublicKey, connected: isConnected, sendTransaction } = useWallet();
+  const {
+    publicKey: walletPublicKey,
+    connected: isConnected,
+    sendTransaction,
+  } = useWallet();
   const publicEnv = usePublicEnv();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +81,7 @@ export function useSend() {
         let recipientPubkey: PublicKey;
         try {
           recipientPubkey = new PublicKey(recipientAddress);
-        } catch (err) {
+        } catch {
           throw new Error("Invalid recipient wallet address");
         }
 
@@ -94,13 +94,6 @@ export function useSend() {
           const amountInLamports = Math.floor(
             Number.parseFloat(amount) * LAMPORTS_PER_SOL
           );
-
-          console.log("Sending SOL:", {
-            amount,
-            amountInLamports,
-            from: publicKey.toBase58(),
-            to: recipientPubkey.toBase58(),
-          });
 
           const transferInstruction = SystemProgram.transfer({
             fromPubkey: publicKey,
@@ -117,13 +110,9 @@ export function useSend() {
 
           const transaction = new VersionedTransaction(messageV0);
 
-          console.log("Signing and sending transaction...");
           const signature = await sendTransaction(transaction, connection);
 
-          console.log("Transaction sent:", signature);
-
           // Confirm transaction
-          console.log("Confirming transaction...");
           const confirmation = await connection.confirmTransaction(
             {
               signature,
@@ -139,7 +128,6 @@ export function useSend() {
             );
           }
 
-          console.log("Transaction confirmed!");
           setLoading(false);
           if (successTrackingProperties) {
             trackWalletSendCompleted(publicEnv, {
@@ -170,14 +158,6 @@ export function useSend() {
           Number.parseFloat(amount) * 10 ** decimals
         );
 
-        console.log("Sending SPL token:", {
-          currency,
-          amount,
-          amountInSmallestUnit,
-          decimals,
-          mint: tokenMint,
-        });
-
         // Get associated token accounts.
         // Recipient may be a PDA (e.g. a smart-account vault), which is off
         // the ed25519 curve. Without allowOwnerOffCurve=true the SPL helper
@@ -193,22 +173,13 @@ export function useSend() {
           true
         );
 
-        console.log("Token accounts:", {
-          from: fromTokenAccount.toBase58(),
-          to: toTokenAccount.toBase58(),
-        });
-
         // Check if recipient's ATA exists, create it if not
         let needsATA = false;
 
         try {
           await getAccount(connection, toTokenAccount);
-          console.log("Recipient's token account exists");
-        } catch (error) {
+        } catch {
           // Account doesn't exist, will need to create it
-          console.log(
-            "Recipient's token account doesn't exist, will create it"
-          );
           needsATA = true;
         }
 
@@ -217,7 +188,6 @@ export function useSend() {
 
         // Add priority fee and compute budget if creating ATA
         if (needsATA) {
-          console.log("Adding ATA creation instructions...");
           // Increase compute budget for ATA creation + transfer
           instructions.push(
             ComputeBudgetProgram.setComputeUnitLimit({
@@ -261,13 +231,9 @@ export function useSend() {
 
         const transaction = new VersionedTransaction(messageV0);
 
-        console.log("Signing and sending transaction...");
         const signature = await sendTransaction(transaction, connection);
 
-        console.log("Transaction sent:", signature);
-
         // Confirm transaction
-        console.log("Confirming transaction...");
         const confirmation = await connection.confirmTransaction(
           {
             signature,
@@ -283,7 +249,6 @@ export function useSend() {
           );
         }
 
-        console.log("Transaction confirmed!");
         setLoading(false);
         if (successTrackingProperties) {
           trackWalletSendCompleted(publicEnv, {
@@ -319,13 +284,7 @@ export function useSend() {
         return { success: false, error: errorMessage };
       }
     },
-    [
-      isConnected,
-      walletPublicKey,
-      sendTransaction,
-      connection,
-      publicEnv,
-    ]
+    [isConnected, walletPublicKey, sendTransaction, connection, publicEnv]
   );
 
   return {

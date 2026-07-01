@@ -26,7 +26,7 @@ export function createOnboardingSlidePlaybackState(): OnboardingSlidePlaybackSta
 
 export function advanceOnboardingSlidePlayback(
   state: OnboardingSlidePlaybackState,
-  slideCount: number,
+  slideCount: number
 ): OnboardingSlidePlaybackState {
   if (!state.autoAdvanceEnabled || slideCount <= 1) {
     return state;
@@ -39,7 +39,7 @@ export function advanceOnboardingSlidePlayback(
 }
 
 export function disableOnboardingSlidePlayback(
-  state: OnboardingSlidePlaybackState,
+  state: OnboardingSlidePlaybackState
 ): OnboardingSlidePlaybackState {
   if (!state.autoAdvanceEnabled) {
     return state;
@@ -53,11 +53,7 @@ export function disableOnboardingSlidePlayback(
 
 export function syncOnboardingSlidePlaybackIndex(
   state: OnboardingSlidePlaybackState,
-  {
-    offsetX,
-    width,
-    slideCount,
-  }: SyncOnboardingSlidePlaybackIndexOptions,
+  { offsetX, width, slideCount }: SyncOnboardingSlidePlaybackIndexOptions
 ): OnboardingSlidePlaybackState {
   if (slideCount <= 0 || width <= 0) {
     return state;
@@ -65,7 +61,7 @@ export function syncOnboardingSlidePlaybackIndex(
 
   const nextIndex = Math.max(
     0,
-    Math.min(Math.round(offsetX / width), slideCount - 1),
+    Math.min(Math.round(offsetX / width), slideCount - 1)
   );
 
   if (nextIndex === state.currentIndex) {
@@ -81,7 +77,7 @@ export function syncOnboardingSlidePlaybackIndex(
 export function createOnboardingMomentumEndUpdater(
   event: OnboardingMomentumEndEvent,
   width: number,
-  slideCount: number,
+  slideCount: number
 ): (state: OnboardingSlidePlaybackState) => OnboardingSlidePlaybackState {
   const offsetX = event.nativeEvent.contentOffset.x;
 

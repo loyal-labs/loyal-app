@@ -1,8 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import {
-  createCloseTransactionInstruction,
-  PROGRAM_ID,
-} from "../generated";
+import { createCloseTransactionInstruction, PROGRAM_ID } from "../generated";
 import { getProposalPda, getTransactionPda } from "../pda";
 
 export function closeTransaction({

@@ -34,7 +34,7 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
   signer,
   baseRpcEndpoint: "https://api.devnet.solana.com",
   // Mainnet: https://mainnet-tee.magicblock.app
-  // Devnet: https://tee.magicblock.app
+  // Devnet: https://devnet-tee.magicblock.app
   ephemeralRpcEndpoint: "https://mainnet-tee.magicblock.app",
   ephemeralWsEndpoint: "wss://mainnet-tee.magicblock.app",
   commitment: "confirmed",
@@ -55,7 +55,6 @@ await client.transferToUsernameDeposit({
   amount: 100_000,
   user: signer.publicKey,
   payer: signer.publicKey,
-  sessionToken: null,
 });
 
 // Unshield: withdraw from private deposit in one base transaction
@@ -63,7 +62,6 @@ await client.unshieldTokens({
   tokenMint,
   user: signer.publicKey,
   amount: 1_000_000,
-  sessionToken: null,
   magicProgram: MAGIC_PROGRAM_ID,
   magicContext: MAGIC_CONTEXT_ID,
 });
@@ -71,7 +69,7 @@ await client.unshieldTokens({
 
 ## PER Authentication
 
-For hosted PER endpoints (`tee.magicblock.app`, `mainnet-tee.magicblock.app`), the SDK acquires auth tokens automatically during `fromConfig`.
+For hosted PER endpoints (`devnet-tee.magicblock.app`, `mainnet-tee.magicblock.app`), the SDK acquires auth tokens automatically during `fromConfig`.
 
 If you need explicit control, fetch the token externally and pass it through `authToken`:
 
@@ -91,6 +89,26 @@ const client = await LoyalPrivateTransactionsClient.fromConfig({
   ephemeralWsEndpoint: "wss://mainnet-tee.magicblock.app",
   authToken,
 });
+```
+
+## Manual Devnet Smoke Tests
+
+Live PER/devnet smoke tests are opt-in and are not part of default
+`bun test`. Provide funded throwaway keypairs through environment variables;
+do not commit key material.
+
+```bash
+RUN_PRIVATE_TRANSACTIONS_SHIELD_SMOKE=true \
+PRIVATE_TRANSACTIONS_SHIELD_USER_KEYPAIR='[1,2,...]' \
+PRIVATE_TRANSACTIONS_SHIELD_OTHER_USER_KEYPAIR='[1,2,...]' \
+bun test tests/private-transactions-shield.test.ts
+```
+
+```bash
+RUN_PRIVATE_TRANSACTIONS_DEVNET_SMOKE=true \
+PRIVATE_TRANSACTIONS_DEVNET_USER_KEYPAIR='[1,2,...]' \
+PRIVATE_TRANSACTIONS_DEVNET_OTHER_USER_KEYPAIR='[1,2,...]' \
+bun test tests/private-transactions-devnet.test.ts
 ```
 
 ## API Overview

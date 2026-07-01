@@ -1,0 +1,66 @@
+---
+title: "Earn Overview"
+description: "What Loyal Earn does, where the yield comes from, and what stays under your control."
+---
+
+Earn helps your USDC keep working without asking you to manually chase the best current lending reserve. It uses your Loyal Smart Account to deposit into approved Kamino USDC markets, then can move the position when another approved USDC reserve becomes better.
+
+Earn is not a fixed-rate product. The rate is the live market rate from Kamino lending reserves, and it changes with supply and demand.
+
+## Key Facts
+
+| Question | Short answer |
+| --- | --- |
+| What asset does Earn use today? | USDC |
+| Where does yield come from? | Approved Kamino single-asset lending reserves |
+| Where do funds sit? | In your Earn smart-account vault |
+| Who approves setup and exits? | You, through your connected wallet |
+| Who can optimize after setup? | A delegated signer that can only use approved policy paths |
+| What is the optimization style? | Same-mint USDC movement between approved reserves |
+
+## Why Earn Exists
+
+Leaving USDC in one reserve is simple, but rates move. One reserve can pay the best rate this morning and fall behind by the afternoon. Earn watches the approved USDC reserve set and can move your position when a better same-mint route is available.
+
+The important part is the boundary. Loyal is not asking for general wallet access. It uses a smart-account policy that limits what automation can submit.
+
+<Info>
+Same-mint means USDC stays USDC. The current Earn flow does not need to swap into another stablecoin to optimize.
+</Info>
+
+## What Happens At A High Level
+
+<Steps>
+  <Step title="You connect and approve">
+    You connect your Main Account and approve the Earn setup, deposit, withdrawal, or Autodeposit action.
+  </Step>
+  <Step title="Funds move into the Earn vault">
+    Your Earn vault is a smart-account-controlled address. It is separate from your Main Account.
+  </Step>
+  <Step title="Policies define the allowed actions">
+    Policies say which programs may be called. They also require the expected Earn vault, USDC mint, Kamino market, and instruction shape.
+  </Step>
+  <Step title="The orchestrator checks for better routes">
+    The worker reads chain state, market data, and policy state before any move.
+  </Step>
+  <Step title="Confirmed actions become history">
+    Live balances come from Solana RPC. Confirmed Earn activity is written into Loyal's history system after chain confirmation.
+  </Step>
+</Steps>
+
+## Start Here
+
+<CardGroup cols={2}>
+  <Card title="Your Earn Account" icon="vault" href="/earn/smart-account">
+    Learn the difference between your Main Account and the Earn vault.
+  </Card>
+  <Card title="Policies" icon="shield-halved" href="/earn/policies">
+    See what automation can and cannot do.
+  </Card>
+  <Card title="Same-Mint Optimization" icon="shuffle" href="/earn/same-mint-optimization">
+    Understand how Earn compares USDC reserves.
+  </Card>
+  <Card title="Autodeposit" icon="arrows-rotate" href="/earn/autodeposit">
+    Keep a floor in your wallet and move the surplus into Earn.
+  </Card>
+</CardGroup>

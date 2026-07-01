@@ -1,13 +1,14 @@
-import { getCloudflareCdnBaseUrlFromEnv, getCloudflareCdnUrlClientFromEnv } from "@/lib/core/cdn-url";
+import {
+  getCloudflareCdnBaseUrlFromEnv,
+  getCloudflareCdnUrlClientFromEnv,
+} from "@/lib/core/cdn-url";
 import {
   getCloudflareR2UploadClientFromEnv,
   isCloudflareR2UploadConfigured,
 } from "@/lib/core/r2-upload";
 import { getBot } from "@/lib/telegram/bot-api/bot";
 import { downloadTelegramFile } from "@/lib/telegram/bot-api/get-file";
-import {
-  resolveUserAvatarObjectKey,
-} from "@/lib/telegram/photo-path";
+import { resolveUserAvatarObjectKey } from "@/lib/telegram/photo-path";
 
 const PROFILE_CAPTURE_TIMEOUT_MS = 2500;
 
@@ -31,7 +32,11 @@ async function withTimeout<T>(
 
   const timeout = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
-      reject(new Error(`Telegram profile photo capture timed out after ${timeoutMs}ms`));
+      reject(
+        new Error(
+          `Telegram profile photo capture timed out after ${timeoutMs}ms`
+        )
+      );
     }, timeoutMs);
   });
 

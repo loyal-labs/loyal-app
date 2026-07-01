@@ -56,15 +56,13 @@ export async function replyWithAutoCleanup(
   await scheduleHelperMessageDeletion(ctx.chat.id, message.message_id);
 }
 
-export async function sendMessageWithAutoCleanup(
-  params: {
-    api: SendMessageApi;
-    chatId: number | string;
-    chatType: string;
-    options?: SendMessageOptions;
-    text: string;
-  }
-): Promise<void> {
+export async function sendMessageWithAutoCleanup(params: {
+  api: SendMessageApi;
+  chatId: number | string;
+  chatType: string;
+  options?: SendMessageOptions;
+  text: string;
+}): Promise<void> {
   const message = await params.api.sendMessage(
     params.chatId,
     params.text,

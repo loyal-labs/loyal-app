@@ -20,30 +20,26 @@ describe("wallet fee reserve helpers", () => {
   });
 
   test("maps secure native SOL shield flow to the highest fee reserve path", () => {
-    expect(
-      getSwapFlowFeeProfile({
-        activeTab: "secure",
-        secureDirection: "shield",
-        amountMint: NATIVE_SOL_MINT,
-      })
-    ).toEqual({
-      flow: "shield-native-sol",
-      amountAndFeeUseSameSolBalance: true,
+    const profile = getSwapFlowFeeProfile({
+      activeTab: "secure",
+      secureDirection: "shield",
+      amountMint: NATIVE_SOL_MINT,
     });
+
+    expect(profile.flow).toBe("shield-native-sol");
+    expect(profile.amountAndFeeUseSameSolBalance).toBe(true);
     expect(getSwapFeeReserveSol("shield-native-sol")).toBe(SOLANA_FEE_SOL * 6);
   });
 
   test("treats unshielded native SOL fees as coming from the regular wallet", () => {
-    expect(
-      getSwapFlowFeeProfile({
-        activeTab: "secure",
-        secureDirection: "unshield",
-        amountMint: NATIVE_SOL_MINT,
-      })
-    ).toEqual({
-      flow: "unshield-native-sol",
-      amountAndFeeUseSameSolBalance: false,
+    const profile = getSwapFlowFeeProfile({
+      activeTab: "secure",
+      secureDirection: "unshield",
+      amountMint: NATIVE_SOL_MINT,
     });
+
+    expect(profile.flow).toBe("unshield-native-sol");
+    expect(profile.amountAndFeeUseSameSolBalance).toBe(false);
     expect(getSwapFeeReserveSol("unshield-native-sol")).toBe(
       SOLANA_FEE_SOL * 5
     );

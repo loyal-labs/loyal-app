@@ -5,20 +5,20 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   InstructionConstraint,
   instructionConstraintBeet,
-} from './InstructionConstraint'
-import { Hook, hookBeet } from './Hook'
-import { SpendingLimitV2, spendingLimitV2Beet } from './SpendingLimitV2'
+} from "./InstructionConstraint";
+import { Hook, hookBeet } from "./Hook";
+import { SpendingLimitV2, spendingLimitV2Beet } from "./SpendingLimitV2";
 export type ProgramInteractionPolicy = {
-  accountIndex: number
-  instructionsConstraints: InstructionConstraint[]
-  preHook: beet.COption<Hook>
-  postHook: beet.COption<Hook>
-  spendingLimits: SpendingLimitV2[]
-}
+  accountIndex: number;
+  instructionsConstraints: InstructionConstraint[];
+  preHook: beet.COption<Hook>;
+  postHook: beet.COption<Hook>;
+  spendingLimits: SpendingLimitV2[];
+};
 
 /**
  * @category userTypes
@@ -27,11 +27,11 @@ export type ProgramInteractionPolicy = {
 export const programInteractionPolicyBeet =
   new beet.FixableBeetArgsStruct<ProgramInteractionPolicy>(
     [
-      ['accountIndex', beet.u8],
-      ['instructionsConstraints', beet.array(instructionConstraintBeet)],
-      ['preHook', beet.coption(hookBeet)],
-      ['postHook', beet.coption(hookBeet)],
-      ['spendingLimits', beet.array(spendingLimitV2Beet)],
+      ["accountIndex", beet.u8],
+      ["instructionsConstraints", beet.array(instructionConstraintBeet)],
+      ["preHook", beet.coption(hookBeet)],
+      ["postHook", beet.coption(hookBeet)],
+      ["spendingLimits", beet.array(spendingLimitV2Beet)],
     ],
-    'ProgramInteractionPolicy'
-  )
+    "ProgramInteractionPolicy"
+  );

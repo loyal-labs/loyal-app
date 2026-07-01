@@ -108,7 +108,7 @@ const VERIFY_START_PARAM_PREFIX = "vr_";
 const VERIFY_USER_ID_REGEX = /^\d+$/;
 
 export function parseVerifyStartParam(
-  raw: string | null | undefined,
+  raw: string | null | undefined
 ): string | null {
   if (!raw) return null;
   const trimmed = raw.trim();

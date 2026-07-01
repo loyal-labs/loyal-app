@@ -39,7 +39,9 @@ function generateAnonymousId(): string {
     return `$device:${cryptoObj.randomUUID()}`;
   }
   // Fallback: random base36 string
-  return `$device:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  return `$device:${Date.now().toString(36)}${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
 }
 
 function readStoredDistinctId(): string | null {

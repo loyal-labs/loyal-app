@@ -88,7 +88,9 @@ export async function runAuthStatus(
     return true;
   } catch (error) {
     deps.logger.error(
-      `[userbot] Session check failed for '${config.accountKey}'. ${buildReauthGuidance(config)}`,
+      `[userbot] Session check failed for '${
+        config.accountKey
+      }'. ${buildReauthGuidance(config)}`,
       error
     );
     return false;

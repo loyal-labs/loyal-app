@@ -5,41 +5,39 @@ import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 
-import { X_PIXEL_EVENTS, xPixelEvent } from "@/lib/core/x-pixel";
+import { usePublicEnv } from "@/contexts/public-env-context";
 
 type Segment = "Extension" | "Mobile" | "Web";
 
-const appUrl = "https://app.askloyal.com";
-const chromeWebStoreUrl =
-  "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack";
-const telegramMiniAppUrl =
-  "https://t.me/askloyal_tgbot/app?startapp=askloyalcom";
 const seekerDappStoreUrl = "solanadappstore://details?id=com.loyal.app";
 
-function fireInstallExtensionConversion(browser: string) {
-  xPixelEvent(X_PIXEL_EVENTS.installExtension, { browser });
-}
-
+// ASK-1588: today only Seeker (mobile) and the Web app are active surfaces.
+// The Telegram Mini App and every browser extension are marked "Coming soon"
+// until Earn ships in them. To re-enable once Earn lands there, drop the
+// `disabled`/`note` from the relevant cards below and restore their targets:
+//   - extensions  -> href "https://chromewebstore.google.com/detail/cdienfadefhlaknmedckgifkjdbioack"
+//                    + install-conversion tracking via X_PIXEL_EVENTS.installExtension
+//   - Telegram MA -> href "https://t.me/askloyal_tgbot/app?startapp=askloyalcom"
 const browserCards = [
   {
-    href: chromeWebStoreUrl,
+    disabled: true,
     icon: "/landing/figma/get-started-chrome.svg",
     label: "Chrome",
-    onClick: () => fireInstallExtensionConversion("Chrome"),
+    note: "Coming soon",
     shape: "rounded-[24px]",
   },
   {
-    href: chromeWebStoreUrl,
+    disabled: true,
     icon: "/landing/figma/get-started-brave.svg",
     label: "Brave",
-    onClick: () => fireInstallExtensionConversion("Brave"),
+    note: "Coming soon",
     shape: "rounded-[400px]",
   },
   {
-    href: chromeWebStoreUrl,
+    disabled: true,
     icon: "/landing/figma/get-started-edge.svg",
     label: "Edge",
-    onClick: () => fireInstallExtensionConversion("Edge"),
+    note: "Coming soon",
     shape: "rounded-[400px]",
   },
   {
@@ -58,9 +56,10 @@ const mobileCards = [
     shape: "rounded-[400px]",
   },
   {
-    href: telegramMiniAppUrl,
+    disabled: true,
     icon: "/landing/figma/get-started-telegram-mini-app.svg",
     label: "Telegram Mini App",
+    note: "Coming soon",
     shape: "rounded-[400px]",
   },
   {
@@ -72,7 +71,7 @@ const mobileCards = [
   },
 ];
 
-const segments: Segment[] = ["Extension", "Mobile", "Web"];
+const segments: Segment[] = ["Web", "Mobile", "Extension"];
 const segmentByHash: Record<string, Segment> = {
   "#get-started-extension": "Extension",
   "#get-started-mobile": "Mobile",
@@ -95,7 +94,8 @@ const previewBySegment: Record<Segment, { alt: string; src: string }> = {
 };
 
 export function LandingGetStarted() {
-  const [activeSegment, setActiveSegment] = useState<Segment>("Extension");
+  const { loyalAppUrl } = usePublicEnv();
+  const [activeSegment, setActiveSegment] = useState<Segment>("Web");
   const [showSeekerQr, setShowSeekerQr] = useState(false);
   const activePreview = previewBySegment[activeSegment];
 
@@ -219,6 +219,7 @@ export function LandingGetStarted() {
               <div className="grid min-h-0 grid-cols-2 gap-2 lg:gap-6">
                 {mobileCards.slice(1).map((platform, index) => (
                   <PlatformCard
+                    appUrl={loyalAppUrl}
                     className="h-full"
                     dataRevealDelay={index + 2}
                     iconClassName="h-16 w-16 lg:h-24 lg:w-24"
@@ -230,7 +231,11 @@ export function LandingGetStarted() {
               </div>
             </div>
           ) : activeSegment === "Web" ? (
-            <ActionCard dataRevealDelay={1} href={appUrl} label="Open web app" />
+            <ActionCard
+              dataRevealDelay={1}
+              href={loyalAppUrl}
+              label="Open web app"
+            />
           ) : (
             <div className="grid min-w-0 grid-cols-2 gap-2 overflow-hidden lg:h-[600px] lg:grid-rows-2 lg:gap-6">
               {browserCards.map((browser, index) => (
@@ -238,6 +243,7 @@ export function LandingGetStarted() {
                   iconClassName="h-16 w-16 lg:h-24 lg:w-24"
                   key={browser.label}
                   platform={browser}
+                  appUrl={loyalAppUrl}
                   dataRevealDelay={index + 1}
                 />
               ))}
@@ -415,12 +421,14 @@ function SeekerCard({
 }
 
 function PlatformCard({
+  appUrl,
   className = "",
   dataRevealDelay,
   iconClassName,
   platform,
   preserveAspect = true,
 }: {
+  appUrl: string;
   className?: string;
   dataRevealDelay: number;
   iconClassName: string;

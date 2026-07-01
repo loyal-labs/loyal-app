@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type CreateBatchArgs = {
-  accountIndex: number
-  memo: beet.COption<string>
-}
+  accountIndex: number;
+  memo: beet.COption<string>;
+};
 
 /**
  * @category userTypes
@@ -18,8 +18,8 @@ export type CreateBatchArgs = {
 export const createBatchArgsBeet =
   new beet.FixableBeetArgsStruct<CreateBatchArgs>(
     [
-      ['accountIndex', beet.u8],
-      ['memo', beet.coption(beet.utf8String)],
+      ["accountIndex", beet.u8],
+      ["memo", beet.coption(beet.utf8String)],
     ],
-    'CreateBatchArgs'
-  )
+    "CreateBatchArgs"
+  );

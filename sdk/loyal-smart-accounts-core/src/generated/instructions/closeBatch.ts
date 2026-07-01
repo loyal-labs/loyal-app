@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const closeBatchStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'CloseBatchInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "CloseBatchInstructionArgs"
+);
 /**
  * Accounts required by the _closeBatch_ instruction
  *
@@ -33,19 +33,19 @@ export const closeBatchStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type CloseBatchInstructionAccounts = {
-  settings: web3.PublicKey
-  proposal: web3.PublicKey
-  batch: web3.PublicKey
-  proposalRentCollector: web3.PublicKey
-  batchRentCollector: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  proposal: web3.PublicKey;
+  batch: web3.PublicKey;
+  proposalRentCollector: web3.PublicKey;
+  batchRentCollector: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const closeBatchInstructionDiscriminator = [
   166, 174, 35, 253, 209, 211, 181, 28,
-]
+];
 
 /**
  * Creates a _CloseBatch_ instruction.
@@ -57,11 +57,11 @@ export const closeBatchInstructionDiscriminator = [
  */
 export function createCloseBatchInstruction(
   accounts: CloseBatchInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = closeBatchStruct.serialize({
     instructionDiscriminator: closeBatchInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -98,11 +98,11 @@ export function createCloseBatchInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -110,6 +110,6 @@ export function createCloseBatchInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

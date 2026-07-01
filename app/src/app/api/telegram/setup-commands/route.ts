@@ -11,7 +11,10 @@ export async function POST(request: Request) {
     expectedToken = serverEnv.telegramSetupSecret;
   } catch {
     console.error("TELEGRAM_SETUP_SECRET environment variable is not set");
-    return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Server misconfigured" },
+      { status: 500 }
+    );
   }
 
   const authHeader = request.headers.get("authorization");

@@ -19,7 +19,7 @@ const UNKNOWN_DECIMALS = 0;
 
 export function formatShieldedTransferPush(
   event: TransferDepositEvent,
-  metadata: MintMetadata | null,
+  metadata: MintMetadata | null
 ): WalletPushPayload {
   const symbol = metadata?.symbol ?? truncateAddress(event.tokenMint);
   const decimals = metadata?.decimals ?? UNKNOWN_DECIMALS;

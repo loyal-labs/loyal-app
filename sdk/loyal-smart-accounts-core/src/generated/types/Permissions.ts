@@ -5,16 +5,16 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type Permissions = {
-  mask: number
-}
+  mask: number;
+};
 
 /**
  * @category userTypes
  * @category generated
  */
 export const permissionsBeet = new beet.BeetArgsStruct<Permissions>(
-  [['mask', beet.u8]],
-  'Permissions'
-)
+  [["mask", beet.u8]],
+  "Permissions"
+);

@@ -325,9 +325,7 @@ function getCachedTokenMarket(mint: string): TokenMarketResponse | null {
   return cached.value;
 }
 
-function setCachedTokenMarket(
-  value: TokenMarketResponse
-): TokenMarketResponse {
+function setCachedTokenMarket(value: TokenMarketResponse): TokenMarketResponse {
   tokenMarketCache.set(value.mint, {
     expiresAt: Date.now() + TOKEN_DETAIL_CACHE_TTL_MS,
     value,

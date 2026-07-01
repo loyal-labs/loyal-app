@@ -20,7 +20,10 @@ export type CloudflareCdnUrlClientConfig = {
 
 export type CloudflareCdnUrlClient = {
   resolveUrl: (input: ResolveCloudflareCdnUrlInput) => string;
-  resolveUrls: (keys: string[], options?: ResolveCloudflareCdnUrlOptions) => string[];
+  resolveUrls: (
+    keys: string[],
+    options?: ResolveCloudflareCdnUrlOptions
+  ) => string[];
 };
 
 let clientFromEnv: CloudflareCdnUrlClient | null = null;
@@ -30,10 +33,7 @@ function normalizeBaseUrl(baseUrl: string): URL {
   return new URL(normalizedBase);
 }
 
-function appendQuery(
-  url: URL,
-  query?: Record<string, CdnQueryValue>
-): void {
+function appendQuery(url: URL, query?: Record<string, CdnQueryValue>): void {
   if (!query) return;
 
   for (const [name, value] of Object.entries(query)) {

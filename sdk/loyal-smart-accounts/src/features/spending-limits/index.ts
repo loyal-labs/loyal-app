@@ -1,5 +1,8 @@
 import { SpendingLimit } from "@loyal-labs/loyal-smart-accounts-core";
-import { createAccountFetcher, createFeatureModule } from "../../feature-factory.js";
+import {
+  createAccountFetcher,
+  createFeatureModule,
+} from "../../feature-factory.js";
 import { getRuntimeOperationsForFeature } from "../../operation-registry.js";
 
 export const spendingLimits = createFeatureModule({

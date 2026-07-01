@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   CreateSmartAccountArgs,
   createSmartAccountArgsBeet,
-} from '../types/CreateSmartAccountArgs'
+} from "../types/CreateSmartAccountArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type CreateSmartAccountInstructionArgs = {
-  args: CreateSmartAccountArgs
-}
+  args: CreateSmartAccountArgs;
+};
 /**
  * @category Instructions
  * @category CreateSmartAccount
@@ -27,15 +27,15 @@ export type CreateSmartAccountInstructionArgs = {
  */
 export const createSmartAccountStruct = new beet.FixableBeetArgsStruct<
   CreateSmartAccountInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', createSmartAccountArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", createSmartAccountArgsBeet],
   ],
-  'CreateSmartAccountInstructionArgs'
-)
+  "CreateSmartAccountInstructionArgs"
+);
 /**
  * Accounts required by the _createSmartAccount_ instruction
  *
@@ -48,17 +48,17 @@ export const createSmartAccountStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type CreateSmartAccountInstructionAccounts = {
-  programConfig: web3.PublicKey
-  treasury: web3.PublicKey
-  creator: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  programConfig: web3.PublicKey;
+  treasury: web3.PublicKey;
+  creator: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const createSmartAccountInstructionDiscriminator = [
   197, 102, 253, 231, 77, 84, 50, 17,
-]
+];
 
 /**
  * Creates a _CreateSmartAccount_ instruction.
@@ -73,12 +73,12 @@ export const createSmartAccountInstructionDiscriminator = [
 export function createCreateSmartAccountInstruction(
   accounts: CreateSmartAccountInstructionAccounts,
   args: CreateSmartAccountInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = createSmartAccountStruct.serialize({
     instructionDiscriminator: createSmartAccountInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.programConfig,
@@ -105,11 +105,11 @@ export function createCreateSmartAccountInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -117,6 +117,6 @@ export function createCreateSmartAccountInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

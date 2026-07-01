@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type LegacySyncTransactionArgs = {
-  accountIndex: number
-  numSigners: number
-  instructions: Uint8Array
-}
+  accountIndex: number;
+  numSigners: number;
+  instructions: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -19,9 +19,9 @@ export type LegacySyncTransactionArgs = {
 export const legacySyncTransactionArgsBeet =
   new beet.FixableBeetArgsStruct<LegacySyncTransactionArgs>(
     [
-      ['accountIndex', beet.u8],
-      ['numSigners', beet.u8],
-      ['instructions', beet.bytes],
+      ["accountIndex", beet.u8],
+      ["numSigners", beet.u8],
+      ["instructions", beet.bytes],
     ],
-    'LegacySyncTransactionArgs'
-  )
+    "LegacySyncTransactionArgs"
+  );

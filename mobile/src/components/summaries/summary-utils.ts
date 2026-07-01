@@ -5,7 +5,7 @@ export function toDateKey(isoString: string): string {
 }
 
 export function groupSummariesByDate(
-  summaries: ChatSummary[],
+  summaries: ChatSummary[]
 ): Map<string, ChatSummary[]> {
   const map = new Map<string, ChatSummary[]>();
   for (const summary of summaries) {
@@ -30,7 +30,7 @@ export function getAvailableDates(summaries: ChatSummary[]): string[] {
 
 export function getMessageCountForDate(
   summariesByDate: Map<string, ChatSummary[]>,
-  date: string,
+  date: string
 ): number {
   const summaries = summariesByDate.get(date) ?? [];
   return summaries.reduce((sum, s) => sum + (s.messageCount ?? 0), 0);
@@ -38,7 +38,7 @@ export function getMessageCountForDate(
 
 export function getTopicsForDate(
   summariesByDate: Map<string, ChatSummary[]>,
-  date: string,
+  date: string
 ): Topic[] {
   const summaries = summariesByDate.get(date) ?? [];
   return summaries.flatMap((s) => s.topics);

@@ -1,0 +1,60 @@
+---
+title: "Autodeposit"
+description: "How Loyal can keep a wallet floor and sweep eligible surplus USDC."
+---
+
+Autodeposit is for users who want Earn to collect idle USDC automatically while leaving a chosen amount in their Main Account.
+
+The rule is easy to read: keep at least your floor in the wallet, and send only eligible surplus to Earn.
+
+## Key Facts
+
+| Question | Short answer |
+| --- | --- |
+| What does the user choose? | A wallet floor |
+| What does Loyal watch? | The wallet's USDC token account |
+| What can move? | USDC above the floor and within the approved delegation |
+| Where does it go first? | The Earn vault |
+| What happens after the pull? | The executor can top up the active Kamino Earn route |
+
+## Setup
+
+Autodeposit setup creates the on-chain pieces needed for a constrained pull:
+
+- A subscription authority for your wallet and USDC mint
+- A recurring delegation with an amount limit
+- An Autodeposit policy that targets the Earn vault
+- A rule that checks the wallet keeps at least the chosen floor
+
+You approve this setup from your Main Account. Loyal does not receive a general transfer authority.
+
+## How Wallet Watching Works
+
+Loyal uses Solana account subscriptions to notice changes to watched USDC token accounts. When your wallet balance rises above the floor, the system can schedule the eligible surplus for a sweep, usually with a delay before execution.
+
+That schedule gives the executor time to verify the current wallet balance, the policy/delegation state, and the Earn route before moving funds.
+
+## Execution
+
+<Steps>
+  <Step title="Detect surplus">
+    The balance watcher sees that the wallet has USDC above the saved floor.
+  </Step>
+  <Step title="Schedule a sweep">
+    Loyal records the eligible amount and waits until it is ready to execute.
+  </Step>
+  <Step title="Pull to Earn">
+    The executor uses the Autodeposit policy to move only allowed USDC from the wallet token account into the Earn vault.
+  </Step>
+  <Step title="Top up Earn">
+    After the pull, the executor can deposit the new vault USDC into the current Kamino Earn route.
+  </Step>
+</Steps>
+
+## Pause, Update, Close
+
+Pausing stops new sweeps from being executed. Updating the floor changes how much USDC must stay in the wallet. Closing Autodeposit revokes the recurring delegation and closes the Autodeposit policy, which requires a signed cleanup flow.
+
+<Warning>
+Autodeposit is worker-driven. Execution can take time because the worker verifies state before moving funds.
+</Warning>

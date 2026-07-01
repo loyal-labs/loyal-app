@@ -58,7 +58,7 @@ export default defineContentScript({
               error,
             },
           },
-          window.location.origin,
+          window.location.origin
         );
       };
 
@@ -89,8 +89,12 @@ export default defineContentScript({
         try {
           const response = await browser.runtime.sendMessage(payload);
           window.postMessage(
-            { target: "loyal-wallet-provider", id: requestId, payload: response },
-            window.location.origin,
+            {
+              target: "loyal-wallet-provider",
+              id: requestId,
+              payload: response,
+            },
+            window.location.origin
           );
         } catch (err) {
           window.postMessage(
@@ -105,7 +109,7 @@ export default defineContentScript({
                     : "Extension communication failed.",
               },
             },
-            window.location.origin,
+            window.location.origin
           );
         }
       })();

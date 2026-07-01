@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   ProgramConfigSetAuthorityArgs,
   programConfigSetAuthorityArgsBeet,
-} from '../types/ProgramConfigSetAuthorityArgs'
+} from "../types/ProgramConfigSetAuthorityArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type SetProgramConfigAuthorityInstructionArgs = {
-  args: ProgramConfigSetAuthorityArgs
-}
+  args: ProgramConfigSetAuthorityArgs;
+};
 /**
  * @category Instructions
  * @category SetProgramConfigAuthority
@@ -27,15 +27,15 @@ export type SetProgramConfigAuthorityInstructionArgs = {
  */
 export const setProgramConfigAuthorityStruct = new beet.BeetArgsStruct<
   SetProgramConfigAuthorityInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', programConfigSetAuthorityArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", programConfigSetAuthorityArgsBeet],
   ],
-  'SetProgramConfigAuthorityInstructionArgs'
-)
+  "SetProgramConfigAuthorityInstructionArgs"
+);
 /**
  * Accounts required by the _setProgramConfigAuthority_ instruction
  *
@@ -46,14 +46,14 @@ export const setProgramConfigAuthorityStruct = new beet.BeetArgsStruct<
  * @category generated
  */
 export type SetProgramConfigAuthorityInstructionAccounts = {
-  programConfig: web3.PublicKey
-  authority: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  programConfig: web3.PublicKey;
+  authority: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const setProgramConfigAuthorityInstructionDiscriminator = [
   130, 40, 234, 111, 237, 155, 246, 203,
-]
+];
 
 /**
  * Creates a _SetProgramConfigAuthority_ instruction.
@@ -68,12 +68,12 @@ export const setProgramConfigAuthorityInstructionDiscriminator = [
 export function createSetProgramConfigAuthorityInstruction(
   accounts: SetProgramConfigAuthorityInstructionAccounts,
   args: SetProgramConfigAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = setProgramConfigAuthorityStruct.serialize({
     instructionDiscriminator: setProgramConfigAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.programConfig,
@@ -85,11 +85,11 @@ export function createSetProgramConfigAuthorityInstruction(
       isWritable: false,
       isSigner: true,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -97,6 +97,6 @@ export function createSetProgramConfigAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

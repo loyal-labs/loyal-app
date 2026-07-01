@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ADMIN_SESSION_COOKIE, getSessionCookieOptions } from "@/lib/admin-auth";
+import {
+  ADMIN_SESSION_COOKIE,
+  getSessionCookieOptions,
+} from "@/lib/admin-auth";
 
 function clearSession(request: NextRequest) {
-  const response = NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+  const response = NextResponse.redirect(new URL("/login", request.url), {
+    status: 303,
+  });
   response.cookies.set({
     name: ADMIN_SESSION_COOKIE,
     value: "",

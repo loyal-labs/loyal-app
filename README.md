@@ -11,10 +11,9 @@ the Loyal web frontend, shared packages/SDKs, and worker services.
 | [`app/`](./app) | Next.js Telegram mini-app and API routes | [`app/README.md`](./app/README.md) |
 | [`frontend/`](./frontend) | Next.js Loyal web frontend | [`frontend/README.md`](./frontend/README.md) |
 | [`admin/`](./admin) | Internal Next.js admin dashboard | [`admin/README.md`](./admin/README.md) |
-| [`passkey/`](./passkey) | Next.js passkey proxy app for Squads Grid custom-domain WebAuthn flow | [`passkey/README.md`](./passkey/README.md) |
 | [`programs/`](./programs) | Anchor smart contracts (`telegram-verification`, `telegram-private-transfer`) | [`programs/`](./programs) |
 | [`tests/`](./tests) | Anchor integration tests | [`tests/`](./tests) |
-| [`packages/`](./packages) | Shared workspace libraries (`db-core`, `db-adapter-neon`, `grid-core`, `llm-core`, `llm-server`, `shared`) | [`packages/`](./packages) |
+| [`packages/`](./packages) | Shared workspace libraries (`db-core`, `db-adapter-neon`, `llm-core`, `llm-server`, `shared`) | [`packages/`](./packages) |
 | [`sdk/`](./sdk) | Publishable SDKs for deposits and private transfers | [`sdk/private-transactions/README.md`](./sdk/private-transactions/README.md) |
 | [`workers/`](./workers) | Background workers and service runtimes | [`workers/userbot/README.md`](./workers/userbot/README.md) |
 | [`docs/`](./docs) | Internal engineering and operations documentation | [`docs/README.md`](./docs/README.md) |
@@ -48,11 +47,11 @@ For Vercel monorepo deploys, use separate projects with Root Directory set to `a
 ```bash
 bun run lint
 bun run lint:fix
-bun run build:grid-packages
+bun run build:auth-packages
 bun run build:db-packages
 bun run build:shared-packages
 bun run build:llm-packages
-bun run typecheck:grid-packages
+bun run typecheck:auth-packages
 bun run typecheck:db-packages
 bun run typecheck:shared-packages
 bun run typecheck:llm-packages
@@ -65,9 +64,6 @@ bun run admin:build
 bun run frontend:dev
 bun run frontend:lint
 bun run frontend:build
-bun run passkey:dev
-bun run passkey:lint
-bun run passkey:build
 ```
 
 ### Telegram App (`/app`)
@@ -215,7 +211,7 @@ Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any 
 
 **What is a Confidential VM?** A server runtime where code runs inside hardware-encrypted memory (AMD SEV-SNP or Intel TDX) so that not even the cloud provider or the server's own operator can read what's inside. Loyal uses Confidential VMs to compute private transfer flows without exposing balances or counterparties on the public chain. Hardware attestation produces a cryptographic receipt of the code running in the VM, so you can verify it matches what Loyal published on GitHub before you trust it.
 
-**Is Loyal custodial?** No. Keys live in your Telegram passkey, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a key custodian, and Smart Account policies are enforced on-chain by the Squads program, not by Loyal's backend. Pooling tokens in a shared Vault isn't custody either: this isn't a centralized exchange, and only your own key can withdraw your balance. Attestation is hardware-signed so you can verify the code running before you sign.
+**Is Loyal custodial?** No. Keys live in your Telegram wallet, Chrome extension, web app session, or Android app. The Confidential VM is a signing co-processor, not a key custodian, and Smart Account policies are enforced on-chain by the Squads program, not by Loyal's backend. Pooling tokens in a shared Vault isn't custody either: this isn't a centralized exchange, and only your own key can withdraw your balance. Attestation is hardware-signed so you can verify the code running before you sign.
 
 **What APY can I expect on shielded yield?** A variable, market rate, not a fixed promise. Yield comes from Kamino's lending markets, so the rate floats with on-chain supply and demand. Loyal doesn't run its own strategies and doesn't quote magic numbers. The underlying market rate is public on Kamino, and the current rate for your assets shows in the app before you deposit.
 
@@ -228,14 +224,3 @@ Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any 
 ### About Loyal
 
 **Who builds Loyal?** Loyal DAO LLC, a Marshall Islands-registered DAO LLC. The codebase is open-source under Apache 2.0 in the loyal-labs/loyal-app monorepo on GitHub. The org maintains the on-chain Anchor programs, the @loyal-labs/private-transactions SDK, the web app, the Chrome extension, the Telegram mini-app, and the Android app.
-
-## Grid Auth Domain
-
-Runtime-agnostic Grid helpers now live in [`packages/grid-core/`](./packages/grid-core).
-The `passkey` workspace remains the auth-domain app for passkey session/account
-flows and owns WebAuthn/browser flow orchestration. Other clients should point
-at it with:
-
-- `NEXT_PUBLIC_GRID_AUTH_BASE_URL` in web workspaces
-- `EXPO_PUBLIC_GRID_AUTH_BASE_URL` in mobile
-- `GRID_*` variables inside `passkey`

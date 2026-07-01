@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 export type SpendingLimitPayload = {
-  amount: beet.bignum
-  destination: web3.PublicKey
-  decimals: number
-}
+  amount: beet.bignum;
+  destination: web3.PublicKey;
+  decimals: number;
+};
 
 /**
  * @category userTypes
@@ -21,9 +21,9 @@ export type SpendingLimitPayload = {
 export const spendingLimitPayloadBeet =
   new beet.BeetArgsStruct<SpendingLimitPayload>(
     [
-      ['amount', beet.u64],
-      ['destination', beetSolana.publicKey],
-      ['decimals', beet.u8],
+      ["amount", beet.u64],
+      ["destination", beetSolana.publicKey],
+      ["decimals", beet.u8],
     ],
-    'SpendingLimitPayload'
-  )
+    "SpendingLimitPayload"
+  );

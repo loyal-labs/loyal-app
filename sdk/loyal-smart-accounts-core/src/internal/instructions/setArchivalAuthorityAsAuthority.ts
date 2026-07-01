@@ -1,5 +1,8 @@
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { createSetArchivalAuthorityAsAuthorityInstruction, PROGRAM_ID } from "../generated";
+import {
+  createSetArchivalAuthorityAsAuthorityInstruction,
+  PROGRAM_ID,
+} from "../generated";
 
 export function setArchivalAuthorityAsAuthority({
   settingsPda,

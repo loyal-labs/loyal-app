@@ -1,7 +1,11 @@
 import { createInterface } from "node:readline/promises";
 
 import { createUserbotClient, type UserbotClientBundle } from "../lib/client";
-import { loadUserbotConfig, readBootstrapPhone, type UserbotConfig } from "../lib/env";
+import {
+  loadUserbotConfig,
+  readBootstrapPhone,
+  type UserbotConfig,
+} from "../lib/env";
 import {
   buildReauthGuidance,
   createBotTokenStartParams,
@@ -72,7 +76,8 @@ function getIdentityLabel(user: unknown): string {
       : undefined;
 
   const username =
-    typeof candidate.username === "string" && candidate.username.trim().length > 0
+    typeof candidate.username === "string" &&
+    candidate.username.trim().length > 0
       ? candidate.username.trim()
       : undefined;
 
@@ -120,7 +125,9 @@ export async function runAuthBootstrap(
     })();
 
     deps.logger.info(
-      `[userbot] Auth bootstrap complete for account '${config.accountKey}' as ${getIdentityLabel(user)}.`
+      `[userbot] Auth bootstrap complete for account '${
+        config.accountKey
+      }' as ${getIdentityLabel(user)}.`
     );
   } finally {
     await bundle.client.destroy();
