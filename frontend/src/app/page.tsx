@@ -29,7 +29,7 @@ const featureCards: {
         alt: "Loyal Earn card showing an idle USDC balance accruing yield in the background",
       },
     ],
-    text: "Your idle USDC earns in the background. No lockups, no handing over your keys.",
+    text: "Your idle dollars earn the best available rate in the background. No lockups, no handing over your keys.",
     tone: "black",
   },
   {
@@ -44,7 +44,7 @@ const featureCards: {
         alt: "Loyal mobile app screen sending a private transaction over shielded assets",
       },
     ],
-    text: "Send and receive on Solana, earn on shielded USDC, and keep your balance private.",
+    text: "Send and receive on Solana. Your balance earns while it sits, and stays private too.",
     tone: "light",
   },
   {
@@ -150,7 +150,7 @@ export default function LandingPage() {
               className="inline-flex items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
               href="#get-started"
             >
-              Get started
+              Start earning
             </Link>
           </div>
         </div>
@@ -171,7 +171,7 @@ export default function LandingPage() {
               </h2>
               <Link
                 className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[20px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 lg:h-auto lg:text-[16px]"
-                href="https://docs.askloyal.com/sdk/private-transactions/how-it-works"
+                href="/earn"
               >
                 How it works
               </Link>
