@@ -1905,10 +1905,87 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
     expect(result.persistence).toMatchObject({
       mode: "full",
-      kaminoWithdrawAmountRaw: "1000001",
       vaultCollateralCleanupIncluded: true,
       vaultUsdcRemainderRaw: "1",
       walletTransferAmountRaw: "1000002",
+      withdrawnAmountRaw: "1000002",
+    });
+    expect(result.persistence.reserveWithdrawals?.[0]).toMatchObject({
+      accountingReserve: kaminoReserve.toBase58(),
+      executionReserve: kaminoReserve.toBase58(),
+      liquidityMint: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
+      reserve: kaminoReserve.toBase58(),
+    });
+  });
+
+  test("splits autodeposit teardown from idle full withdraw cleanup", async () => {
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async () => createSerializedEarnPolicyAccount()),
+        getLatestBlockhash: mock(async () => ({
+          blockhash: "11111111111111111111111111111111",
+          lastValidBlockHeight: 1,
+        })),
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      autodepositClose: {
+        policy: autodepositPolicyAccount,
+        recurringDelegation,
+      },
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      mode: "full",
+      source: {
+        type: "idle",
+        id: "idle-usdc",
+        amountRaw: BigInt(1_000_000),
+        mint: STABLECOIN_MINTS[Stablecoin.USDC],
+        tokenAccount: deriveVaultUsdcAta(),
+      },
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(result.autodepositClosePrepared?.prepared.instructions).toHaveLength(
+      2
+    );
+    expect(
+      result.autodepositClosePrepared?.prepared.instructions[0]?.programId.toBase58()
+    ).toBe(SUBSCRIPTIONS_PROGRAM_ID.toBase58());
+    expect(
+      result.autodepositClosePrepared?.prepared.instructions[1]?.programId.toBase58()
+    ).toBe(programId.toBase58());
+    expect(result.withdrawSteps).toHaveLength(1);
+    expect(result.withdrawSteps[0]?.persistence.autodepositClose).toMatchObject(
+      {
+        cluster: "mainnet-beta",
+        delegatedSigner: backendSigner.toBase58(),
+        policyAccount: autodepositPolicyAccount.toBase58(),
+        recurringDelegation: recurringDelegation.toBase58(),
+        settings: settingsPda.toBase58(),
+        vaultIndex: 1,
+        walletAddress: walletAddress.toBase58(),
+      }
+    );
+    expect(result.persistence.autodepositClose).toMatchObject({
+      policyAccount: autodepositPolicyAccount.toBase58(),
+      recurringDelegation: recurringDelegation.toBase58(),
+      settings: settingsPda.toBase58(),
+    });
+    expect(result.persistence).toMatchObject({
+      mode: "full",
+      sourceType: "idle",
+      vaultCollateralCleanupIncluded: false,
+      vaultUsdcRemainderRaw: "0",
+      walletTransferAmountRaw: "1000000",
       withdrawnAmountRaw: "1000000",
     });
   });

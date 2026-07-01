@@ -36,6 +36,7 @@ import {
   type EarnForecastApyHistoryResponse,
 } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import { resolveEarnDetailHeaderActionMode } from "@/lib/yield-optimization/earn-cleanup-ui-state";
 import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
 import type {
   EarnEarningsBar,
@@ -2474,6 +2475,7 @@ export function EarnDetailView({
   currentPositionTokenSymbol = "USDC",
   earningsCacheKey,
   earningsCacheScope,
+  hasCleanupCandidate = false,
   hasCurrentPosition = false,
   isAutodepositConfigured = false,
   isAutodepositPending = false,
@@ -2507,6 +2509,7 @@ export function EarnDetailView({
     solanaEnv?: string;
     walletAddress?: string | null;
   };
+  hasCleanupCandidate?: boolean;
   hasCurrentPosition?: boolean;
   isAutodepositConfigured?: boolean;
   isAutodepositPending?: boolean;
@@ -2607,6 +2610,10 @@ export function EarnDetailView({
   const earnedSummaryLabel = formatEarnedSummaryLabel(estimatedEarnedUsd);
   const depositButtonTone =
     !hasCurrentPosition || isAutodepositConfigured ? "red" : "black";
+  const headerActionMode = resolveEarnDetailHeaderActionMode({
+    hasCleanupCandidate,
+    hasCurrentPosition,
+  });
 
   return (
     <div
@@ -2697,16 +2704,33 @@ export function EarnDetailView({
         </h2>
         <div
           className={`earn-detail-actions${
-            hasCurrentPosition ? "" : " earn-detail-actions-single"
+            headerActionMode === "deposit-only"
+              ? " earn-detail-actions-single"
+              : ""
           }`}
           style={{ display: "flex", gap: "8px" }}
         >
-          {hasCurrentPosition ? (
+          {headerActionMode === "position" ? (
             <>
               <PositionHeaderButton
                 icon="withdraw"
                 iconColor="#85868A"
                 label="Withdraw"
+                onClick={onWithdraw}
+              />
+              <PositionHeaderButton
+                icon="deposit"
+                label="Deposit"
+                onClick={onDeposit}
+                tone={depositButtonTone}
+              />
+            </>
+          ) : headerActionMode === "cleanup" ? (
+            <>
+              <PositionHeaderButton
+                icon="withdraw"
+                iconColor="#85868A"
+                label="Close"
                 onClick={onWithdraw}
               />
               <PositionHeaderButton

@@ -1522,7 +1522,7 @@ async function resolveWithdrawalSource(
   return {
     idleRows: currentIdleRows,
     isFinalExit:
-      source.sourceType === "idle" &&
+      input.mode === "full" &&
       remainingReserveAmountRaw <= BigInt(0) &&
       remainingIdleRaw <= BigInt(0),
     remainingIdleAmountRaw: remainingIdleRaw + reserveVaultIdleDeltaRaw,

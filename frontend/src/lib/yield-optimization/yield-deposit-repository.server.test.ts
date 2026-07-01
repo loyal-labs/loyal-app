@@ -408,6 +408,184 @@ describe("yield deposit repository idempotency", () => {
       ])
     );
   });
+
+  test("closes reserve-source full withdrawals when no holdings remain", async () => {
+    const position = createPosition();
+    const reserveRow = {
+      amountRaw: BigInt(1000),
+      borrowApyBps: null,
+      hasValue: true,
+      liquidityMint: "usdc",
+      market: "market",
+      observedAt: new Date("2026-06-01T00:01:00.000Z"),
+      observedSlot: BigInt(300),
+      planningMetadata: { rank: 1 },
+      reserve: "reserve",
+      snapshotId: BigInt(20),
+      supplyApyBps: BigInt(123),
+      vaultId: BigInt(44),
+    };
+    const insertedValues: unknown[] = [];
+    const updateSets: unknown[] = [];
+    const batchCalls: unknown[][] = [];
+    const selectResults = [[reserveRow]];
+    let insertIndex = 0;
+    let selectIndex = 0;
+
+    function createQuery(index: number) {
+      const query = {
+        from: () => query,
+        limit: () => query,
+        orderBy: () => query,
+        then: (
+          onFulfilled?: (value: unknown[]) => unknown,
+          onRejected?: (reason: unknown) => unknown
+        ) =>
+          Promise.resolve(selectResults[index] ?? []).then(
+            onFulfilled,
+            onRejected
+          ),
+        where: () => query,
+      };
+      return query;
+    }
+
+    const dependencies = {
+      client: {
+        db: {
+          batch: mock(async (items: unknown[]) => {
+            batchCalls.push(items);
+            if (items.length === 2 && batchCalls.length === 1) {
+              return [[reserveRow], []];
+            }
+            return [];
+          }),
+          delete: mock(() => ({
+            where: () => ({}),
+          })),
+          insert: mock(() => {
+            const index = insertIndex++;
+            return {
+              values: (values: unknown) => {
+                insertedValues.push(values);
+                return {
+                  onConflictDoNothing: () => ({
+                    returning: async () => [{ id: BigInt(12) }],
+                  }),
+                  returning: async () => {
+                    if (index === 1) {
+                      return [
+                        createHoldingEvent({
+                          amountRaw: BigInt(0),
+                          eventType: "withdrawal_full",
+                          holdingDeltaRaw: BigInt(-1000),
+                          principalDeltaRaw: BigInt(-1000),
+                          sourceWithdrawalId: BigInt(12),
+                        }),
+                      ];
+                    }
+                    if (index === 2) {
+                      return [{ id: BigInt(55) }];
+                    }
+                    return [];
+                  },
+                };
+              },
+            };
+          }),
+          query: {
+            managedVaults: {
+              findFirst: mock(async () => ({
+                active: true,
+                activePolicyId: BigInt(7),
+                id: BigInt(44),
+                settings: "settings",
+                setupPolicyId: BigInt(8),
+                vaultIndex: 1,
+                vaultPubkey: "vault",
+              })),
+            },
+            userYieldPositionHoldingEvents: {
+              findFirst: mock(async () => createHoldingEvent()),
+            },
+            userYieldPositionWithdrawals: {
+              findFirst: mock(async () => null),
+            },
+            userYieldPositions: {
+              findFirst: mock(async () => position),
+            },
+          },
+          select: mock(() => createQuery(selectIndex++)),
+          update: mock(() => ({
+            set: (set: unknown) => {
+              updateSets.push(set);
+              return {
+                where: () => ({
+                  returning: async () => [
+                    {
+                      ...position,
+                      ...(set as Record<string, unknown>),
+                    },
+                  ],
+                }),
+              };
+            },
+          })),
+        },
+      },
+      now: () => new Date("2026-06-02T00:00:00.000Z"),
+    };
+
+    const result = await recordConfirmedYieldWithdrawal(
+      createWithdrawalInput({
+        accountingReserve: "reserve",
+        confirmedReserveDebitAmountRaw: BigInt(1000),
+        mode: "full",
+        reserveWithdrawals: [
+          {
+            accountingReserve: "reserve",
+            collateralAta: "collateral",
+            executionMarket: "market",
+            executionReserve: "reserve",
+            kaminoWithdrawAmountRaw: "1000",
+            liquidityMint: "usdc",
+            market: "market",
+            reserve: "reserve",
+            sourceAmountRaw: "1000",
+            sourceId: "reserve",
+            vaultCollateralAta: "collateral",
+          },
+        ],
+        sourceAmountRaw: BigInt(1000),
+        sourceId: "reserve",
+        sourceType: "reserve",
+      }),
+      dependencies as never
+    );
+
+    expect(result.status).toBe("closed");
+    expect(result.principalAmountRaw).toBe(BigInt(0));
+    expect(insertedValues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          amountRaw: BigInt(0),
+          eventType: "withdrawal_full",
+          principalDeltaRaw: BigInt(-1000),
+        }),
+      ])
+    );
+    expect(updateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          principalAmountRaw: BigInt(0),
+          status: "closed",
+        }),
+        expect.objectContaining({
+          active: false,
+        }),
+      ])
+    );
+  });
 });
 
 describe("yield position verification", () => {

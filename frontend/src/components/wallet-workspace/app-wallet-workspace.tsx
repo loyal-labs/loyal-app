@@ -166,6 +166,10 @@ import {
   type LoadedEarnAutodepositConfig,
   type LoadedEarnAutodepositScheduledSweep,
 } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import {
+  hasEarnCleanupCandidate as resolveHasEarnCleanupCandidate,
+  resolveEarnPortfolioOpenTarget,
+} from "@/lib/yield-optimization/earn-cleanup-ui-state";
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import { AddSignerPane } from "./add-signer-pane";
 import { ApprovalsPane } from "./approvals-pane";
@@ -2689,11 +2693,20 @@ export function AppWalletWorkspace({
   }, [smartAccountData.overview?.vaults]);
   const hasEarnPolicy = Boolean(smartAccountData.earnPolicy);
   const hasEarnPosition = isActiveEarnPosition(activeEarnPosition);
+  const hasEarnCleanupCandidate = resolveHasEarnCleanupCandidate({
+    hasEarnPolicy,
+    hasEarnPosition,
+  });
   const isEarnPositionInitialLoading =
     canLoadPersonalAccount &&
     isActiveEarnPositionLoading &&
     !hasActiveEarnPositionResolved &&
     !hasEarnPosition;
+  const earnPortfolioOpenTarget = resolveEarnPortfolioOpenTarget({
+    hasEarnPolicy,
+    hasEarnPosition,
+    isEarnPositionInitialLoading,
+  });
   const isEarnAccessResolving =
     canLoadPersonalAccount &&
     detailSelection === "earn" &&
@@ -2703,7 +2716,10 @@ export function AppWalletWorkspace({
           !hasActiveEarnPositionResolved)));
   const isEarnDepositDetailActive =
     detailSelection === "earnDeposit" ||
-    (detailSelection === "earn" && !hasEarnPosition && !isEarnAccessResolving);
+    (detailSelection === "earn" &&
+      !hasEarnPosition &&
+      !hasEarnCleanupCandidate &&
+      !isEarnAccessResolving);
   const isEarnDepositSubViewActive =
     detailSelection === "earnDeposit" && hasEarnPosition;
   const earnDepositReviewItem = useMemo(
@@ -4394,7 +4410,6 @@ export function AppWalletWorkspace({
       const totalLiveAmountRaw =
         getEarnPositionTotalAmountRaw(activeEarnPosition);
       const isFinalExit =
-        draft.source.type === "idle" &&
         draft.mode === "full" &&
         totalLiveAmountRaw > BigInt(0) &&
         effectiveAmountRaw >= totalLiveAmountRaw;
@@ -6395,6 +6410,7 @@ export function AppWalletWorkspace({
             solanaEnv: publicEnv.solanaEnv,
             walletAddress: personalWalletAddress,
           }}
+          hasCleanupCandidate={hasEarnCleanupCandidate}
           hasCurrentPosition={hasEarnPosition}
           isAutodepositConfigured={isAutodepositReady}
           isAutodepositPending={isAutodepositPendingSetup}
@@ -6430,7 +6446,7 @@ export function AppWalletWorkspace({
       return (
         <EarnWithdrawView
           currentPositionHoldings={activeEarnPosition?.holdings}
-          cleanupOnly={hasEarnPolicy && !hasEarnPosition}
+          cleanupOnly={hasEarnCleanupCandidate}
           destinations={earnWithdrawDestinations}
           isSubmitting={
             smartAccountData.isActionPending || isEarnWithdrawPreparePending
@@ -7485,7 +7501,7 @@ export function AppWalletWorkspace({
                   canMutateAccount ? handleOpenEarnDeposit : openSignIn
                 }
                 onOpenEarn={
-                  hasEarnPosition || isEarnPositionInitialLoading
+                  earnPortfolioOpenTarget === "earn"
                     ? handleOpenEarn
                     : handleOpenEarnDeposit
                 }

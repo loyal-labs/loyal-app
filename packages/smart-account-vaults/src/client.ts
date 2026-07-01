@@ -6551,6 +6551,20 @@ export function createSmartAccountVaultsClient(
           sourceType: args.source.type,
         }
       : undefined;
+    const autodepositCloseOperation =
+      isFinalExit && args.autodepositClose
+        ? await prepareEarnUsdcAutodepositClose({
+            cluster,
+            feePayer: args.feePayer,
+            memo: args.memo,
+            policy: args.autodepositClose.policy,
+            policySigner: args.policySigner,
+            recurringDelegation: args.autodepositClose.recurringDelegation,
+            settingsPda: args.settingsPda,
+            signer: args.walletAddress,
+            walletAddress: args.walletAddress,
+          })
+        : null;
 
     if (args.source?.type === "idle") {
       const transferAmountRaw = args.amountRaw;
@@ -6655,6 +6669,7 @@ export function createSmartAccountVaultsClient(
         walletTransferAmountRaw: transferAmountRaw.toString(),
         vaultUsdcRemainderRaw: "0",
         vaultCollateralCleanupIncluded: false,
+        autodepositClose: autodepositCloseOperation?.persistence ?? null,
         ...(sourceMetadata ?? {}),
       };
       const withdrawStep = {
@@ -6683,7 +6698,7 @@ export function createSmartAccountVaultsClient(
         stepIndex: 0,
         persistence: {
           ...persistence,
-          autodepositClose: null,
+          autodepositClose: autodepositCloseOperation?.persistence ?? null,
           isFinalStep: true,
           stepCount: 1,
           stepIndex: 0,
@@ -6691,7 +6706,7 @@ export function createSmartAccountVaultsClient(
       };
 
       return {
-        autodepositClosePrepared: null,
+        autodepositClosePrepared: autodepositCloseOperation,
         prepared,
         withdrawSteps: [withdrawStep],
         mode: args.mode,
@@ -7179,20 +7194,6 @@ export function createSmartAccountVaultsClient(
       ? await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta)
       : BigInt(0);
 
-    const autodepositCloseOperation =
-      isFinalExit && args.autodepositClose
-        ? await prepareEarnUsdcAutodepositClose({
-            cluster,
-            feePayer: args.feePayer,
-            memo: args.memo,
-            policy: args.autodepositClose.policy,
-            policySigner: args.policySigner,
-            recurringDelegation: args.autodepositClose.recurringDelegation,
-            settingsPda: args.settingsPda,
-            signer: args.walletAddress,
-            walletAddress: args.walletAddress,
-          })
-        : null;
     const reserveWithdrawals = (
       await Promise.all(
         withdrawPlans.map((plan) => collectReserveWithdrawalsForPlan(plan))

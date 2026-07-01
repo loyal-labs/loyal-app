@@ -133,6 +133,7 @@ mock.module(
 );
 
 mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
+  findActiveManagedYieldVaultWithPolicy: async () => null,
   findActiveYieldRoutePolicyPair: async (input: unknown) => {
     findPolicyCalls.push(input);
     return {
@@ -161,14 +162,36 @@ mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
   recordConfirmedYieldWithdrawal: async () => {
     throw new Error("recordConfirmedYieldWithdrawal was not expected.");
   },
+  recordReconciledYieldVaultSnapshot: async () => {
+    throw new Error("recordReconciledYieldVaultSnapshot was not expected.");
+  },
+  recordSnapshotReconciledYieldHolding: async () => {
+    throw new Error(
+      "recordSnapshotReconciledYieldHolding was not expected."
+    );
+  },
 }));
 
 mock.module("@loyal-labs/smart-account-vaults", () => ({
+  calculateKaminoRedeemableLiquidityAmountRaw: () => BigInt(0),
   createSmartAccountVaultsClient: () => ({
     prepareEarnUsdcWithdraw: async (input: Record<string, unknown>) => {
       prepareCalls.push(input);
       return { prepared: true, input };
     },
+  }),
+  parseKaminoObligationDepositedCollateralAmountRaw: () => BigInt(0),
+  parseKaminoReserveSnapshot: () => ({}),
+  parseKaminoReserveTokenAccounts: () => ({
+    collateralMint: new PublicKey("11111111111111111111111111111112"),
+    collateralSupplyVault: new PublicKey("11111111111111111111111111111113"),
+    liquidityMint: new PublicKey("11111111111111111111111111111114"),
+    liquiditySupplyVault: new PublicKey("11111111111111111111111111111115"),
+  }),
+  resolveEarnUsdcVaultTokenAccounts: () => ({
+    obligation: new PublicKey("11111111111111111111111111111116"),
+    vaultCollateralAta: new PublicKey("11111111111111111111111111111117"),
+    vaultUsdcAta: new PublicKey("11111111111111111111111111111118"),
   }),
 }));
 
