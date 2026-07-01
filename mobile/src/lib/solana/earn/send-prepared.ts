@@ -1,4 +1,5 @@
 import {
+  ComputeBudgetProgram,
   type Connection,
   TransactionMessage,
   VersionedTransaction,
@@ -20,6 +21,15 @@ const CONFIRMED_SLOT_RETRY_MS = 600;
 // Same lag can follow a (possibly false) blockheight-expiry — give the status a
 // few quick reads before surfacing the expiry.
 const POST_EXPIRY_ATTEMPTS = 3;
+
+// Earn txs carried NO priority fee, so under network load they'd sit unincluded
+// until the blockhash expired ("Signature has expired"). A modest priority fee
+// lets them compete for block space. We don't set a compute-unit LIMIT (the
+// prepared instructions don't, and their default has been landing), so the
+// per-tx fee stays well under ~0.0002 SOL.
+const PRIORITY_FEE_MICRO_LAMPORTS = 100_000;
+// How often to re-broadcast the signed tx while waiting for confirmation.
+const REBROADCAST_INTERVAL_MS = 2000;
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -67,29 +77,15 @@ async function pollConfirmedSlot(
   return null;
 }
 
-// Compiles a hydrated prepared operation into a v0 transaction, signs it with
-// the device wallet, sends it, and waits for confirmation. The wallet may prompt
-// (Seed Vault) for each operation, so callers send stages sequentially.
-export async function signAndSendPreparedOperation(args: {
-  connection: Connection;
-  signer: Signer;
-  operation: HydratedPreparedOperation;
-}): Promise<SentTransaction> {
-  const { connection, signer, operation } = args;
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash("confirmed");
-  const message = new TransactionMessage({
-    payerKey: operation.payer,
-    recentBlockhash: blockhash,
-    instructions: operation.instructions,
-  }).compileToV0Message(operation.lookupTableAccounts);
-  const transaction = new VersionedTransaction(message);
-  await signer.signTransaction(transaction);
-  const signature = await connection.sendRawTransaction(
-    transaction.serialize(),
-    { skipPreflight: false },
-  );
-
+// Waits for confirmation and resolves the landing slot for the read-model.
+// Tolerant of RPC propagation lag and false blockheight-expiries (a WS
+// notification missed for a tx that actually landed).
+async function confirmSentTransaction(
+  connection: Connection,
+  signature: string,
+  blockhash: string,
+  lastValidBlockHeight: number,
+): Promise<SentTransaction> {
   let contextSlot: number | null = null;
   try {
     const confirmation = await connection.confirmTransaction(
@@ -102,9 +98,8 @@ export async function signAndSendPreparedOperation(args: {
     contextSlot = confirmation.context.slot;
   } catch (error) {
     // A real on-chain failure must surface as-is. Otherwise the blockheight
-    // strategy gave up (it can throw a *false* expiry when the WS confirmation
-    // notification is missed for a tx that actually landed) — the signature
-    // status is the source of truth, so check it before failing.
+    // strategy gave up — the signature status is the source of truth, so check
+    // it before failing.
     if (
       error instanceof Error &&
       error.message === "Transaction failed on-chain."
@@ -122,13 +117,77 @@ export async function signAndSendPreparedOperation(args: {
     throw error;
   }
 
-  // Confirmed by the strategy. Resolve the landing slot for the read-model,
-  // tolerating propagation lag; if the status read never catches up, fall back
-  // to the confirmation slot rather than failing an already-confirmed tx.
   const slot = await pollConfirmedSlot(
     connection,
     signature,
     CONFIRMED_SLOT_MAX_ATTEMPTS,
   );
   return { signature, confirmedSlot: slot ?? String(contextSlot) };
+}
+
+// Compiles a hydrated prepared operation into a v0 transaction, signs it with
+// the device wallet, sends it (with a priority fee + rebroadcast so it lands
+// under load), and waits for confirmation. The wallet may prompt (Seed Vault)
+// for each operation, so callers send stages sequentially.
+export async function signAndSendPreparedOperation(args: {
+  connection: Connection;
+  signer: Signer;
+  operation: HydratedPreparedOperation;
+}): Promise<SentTransaction> {
+  const { connection, signer, operation } = args;
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash("confirmed");
+  const message = new TransactionMessage({
+    payerKey: operation.payer,
+    recentBlockhash: blockhash,
+    instructions: [
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: PRIORITY_FEE_MICRO_LAMPORTS,
+      }),
+      ...operation.instructions,
+    ],
+  }).compileToV0Message(operation.lookupTableAccounts);
+  const transaction = new VersionedTransaction(message);
+  await signer.signTransaction(transaction);
+  const rawTransaction = transaction.serialize();
+  // First send runs preflight so a genuinely invalid tx fails fast; resends skip
+  // it. `maxRetries: 0` — we own the rebroadcast cadence below, not the RPC.
+  const signature = await connection.sendRawTransaction(rawTransaction, {
+    skipPreflight: false,
+    maxRetries: 0,
+  });
+
+  // Under load, RPCs drop a pending tx and `confirmTransaction` never re-sends —
+  // it just waits out the blockhash and reports expiry. Re-broadcast the signed
+  // raw tx every couple seconds (in parallel with confirmation) so it stays in
+  // front of leaders until it lands.
+  let rebroadcasting = true;
+  const rebroadcast = (async () => {
+    while (rebroadcasting) {
+      await delay(REBROADCAST_INTERVAL_MS);
+      if (!rebroadcasting) {
+        return;
+      }
+      try {
+        await connection.sendRawTransaction(rawTransaction, {
+          skipPreflight: true,
+          maxRetries: 0,
+        });
+      } catch {
+        // Best-effort — the confirmation path below is the source of truth.
+      }
+    }
+  })();
+
+  try {
+    return await confirmSentTransaction(
+      connection,
+      signature,
+      blockhash,
+      lastValidBlockHeight,
+    );
+  } finally {
+    rebroadcasting = false;
+    await rebroadcast.catch(() => undefined);
+  }
 }
