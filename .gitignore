@@ -9,6 +9,7 @@ claude-report-second.md
 # dependencies
 /app/node_modules
 /app/.next
+/dashboard/node_modules
 /node_modules
 /app/node_modules
 /.pnp
@@ -31,6 +32,8 @@ claude-report-second.md
 /app/out/
 /admin/.next/
 /admin/out/
+/dashboard/.next/
+/dashboard/out/
 /frontend/.next/
 /frontend/out/
 
@@ -54,15 +57,18 @@ yarn-error.log*
 # env files
 .env*
 /frontend/.env*
+!/dashboard/.env.example
 
 # vercel
 /app/.vercel
 /admin/.vercel
+/dashboard/.vercel
 /frontend/.vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+!/dashboard/next-env.d.ts
 
 .anchor
 DS_Store

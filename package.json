@@ -6,6 +6,7 @@
   "workspaces": [
     "admin",
     "app",
+    "dashboard",
     "extension",
     "frontend",
     "packages/*",
@@ -17,6 +18,10 @@
     "admin:dev:1pass": "bun run --cwd admin dev:1pass",
     "admin:build": "bun run --cwd admin build",
     "admin:lint": "bun run --cwd admin lint",
+    "dashboard:dev": "bun run --cwd dashboard dev",
+    "dashboard:dev:1pass": "bun run --cwd dashboard dev:1pass",
+    "dashboard:build": "bun run --cwd dashboard build",
+    "dashboard:lint": "bun run --cwd dashboard lint",
     "extension:dev": "bun run --cwd extension dev",
     "extension:build": "bun run --cwd extension build",
     "extension:zip": "bun run --cwd extension zip",
