@@ -414,6 +414,9 @@ export function SwapSheet({
     ).toString();
 
     let cancelled = false;
+    feeEstimateRequestRef.current = null;
+    setQuote(null);
+    setFeeEstimateState({ status: "idle" });
     setIsFetchingQuote(true);
 
     const timer = setTimeout(() => {

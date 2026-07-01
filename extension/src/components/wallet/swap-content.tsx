@@ -1125,6 +1125,9 @@ export function SwapContent({
       setFeeEstimateState({ status: "idle" });
       return;
     }
+    feeEstimateRequestRef.current = null;
+    resetQuote();
+    setFeeEstimateState({ status: "idle" });
     setIsQuoting(true);
     quoteTimerRef.current = setTimeout(() => {
       void getQuote(
