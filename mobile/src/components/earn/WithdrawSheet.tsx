@@ -154,6 +154,17 @@ function sourceBalanceUsd(source: EarnWithdrawSourceInfo): number {
   return Number.isFinite(raw) ? raw / 1_000_000 : 0;
 }
 
+// Floors to 2 decimals so MAX never rounds UP past the real balance (5.939
+// must show 5.93, not 5.94 — the latter reads as "insufficient balance"). The
+// toFixed(4) absorbs float noise (5.939 * 100 === 593.9000000000001) before the
+// floor. Mirrors the web `floorToBucks`.
+function floorTo2(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  return Math.floor(Number((value * 100).toFixed(4))) / 100;
+}
+
 type WithdrawSheetProps = {
   open: boolean;
   onClose: () => void;
@@ -188,6 +199,9 @@ export function WithdrawSheet({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  // MAX means "empty this source". The 2-decimal input can't hold the exact
+  // balance (5.939), so we display a floored value but submit the exact amount.
+  const [maxSelected, setMaxSelected] = useState(false);
 
   const snapPoints = useMemo(() => ["94%"], []);
   const sourceList = useMemo(() => sources ?? [], [sources]);
@@ -222,6 +236,7 @@ export function WithdrawSheet({
       setSubmitError(null);
       setSubmitting(false);
       setSelectedSourceId(null);
+      setMaxSelected(false);
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
@@ -259,6 +274,7 @@ export function WithdrawSheet({
   }, []);
 
   const handleAmountChange = useCallback((text: string) => {
+    setMaxSelected(false);
     setAmount(sanitizeAmount(text));
   }, []);
 
@@ -269,7 +285,8 @@ export function WithdrawSheet({
 
   const handleMax = useCallback(() => {
     void Haptics.selectionAsync();
-    setAmount(available.toFixed(2));
+    setAmount(floorTo2(available).toFixed(2));
+    setMaxSelected(true);
   }, [available]);
 
   const openSourceList = useCallback(() => {
@@ -285,6 +302,7 @@ export function WithdrawSheet({
     void Haptics.selectionAsync();
     setSelectedSourceId(id);
     setAmount("");
+    setMaxSelected(false);
     sourceSheetRef.current?.dismiss();
   }, []);
 
@@ -302,7 +320,11 @@ export function WithdrawSheet({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
     setSubmitError(null);
-    const result = onWithdraw?.(enteredUsd, selectedSource);
+    // MAX submits the exact source balance (not the floored display value) so it
+    // triggers the caller's full-withdraw path and empties the source — the
+    // display is capped at 2 decimals but the real amount has more precision.
+    const amountToWithdraw = maxSelected ? available : enteredUsd;
+    const result = onWithdraw?.(amountToWithdraw, selectedSource);
     if (!(result instanceof Promise)) {
       sheetRef.current?.dismiss();
       return;
@@ -320,7 +342,7 @@ export function WithdrawSheet({
     } finally {
       setSubmitting(false);
     }
-  }, [disabled, enteredUsd, onWithdraw, selectedSource]);
+  }, [disabled, enteredUsd, maxSelected, available, onWithdraw, selectedSource]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
