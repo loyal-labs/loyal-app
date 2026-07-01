@@ -10,18 +10,18 @@ import { FeatureFlagsProvider } from "@/providers/feature-flags-provider";
 import { AppWorkspaceShell } from "./app-workspace-shell";
 
 export const metadata: Metadata = {
-  title: "Loyal — Solana Wallet with Agent Guardrails",
+  title: "Loyal: Solana Wallet That Earns Yield Automatically",
   description:
-    "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
+    "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
   // Landing CTAs now open the app at askloyal.com/app (same origin) for the
   // preloaded transition, but the canonical app URL stays the subdomain.
   alternates: {
     canonical: "https://app.askloyal.com",
   },
   openGraph: {
-    title: "Loyal — Solana Wallet with Agent Guardrails",
+    title: "Loyal: Solana Wallet That Earns Yield Automatically",
     description:
-      "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
+      "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
     url: "https://askloyal.com",
     type: "website",
     images: [
@@ -29,19 +29,19 @@ export const metadata: Metadata = {
         url: "https://askloyal.com/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Loyal — Solana wallet for AI agents and Telegram payments",
+        alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Loyal — Solana Wallet with Agent Guardrails",
+    title: "Loyal: Solana Wallet That Earns Yield Automatically",
     description:
-      "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
+      "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
     images: [
       {
         url: "https://askloyal.com/og-image.png",
-        alt: "Loyal — Solana wallet for AI agents and Telegram payments",
+        alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],
   },

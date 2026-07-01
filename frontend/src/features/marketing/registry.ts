@@ -16,6 +16,11 @@ export type MarketingPage = {
  */
 export const MARKETING_PAGES: MarketingPage[] = [
   {
+    slug: "earn",
+    title: "Earn",
+    description: "Best Stablecoin Yield on Solana",
+  },
+  {
     slug: "agents",
     title: "Agents",
     description: "Smart Accounts for AI Agents",
@@ -29,10 +34,5 @@ export const MARKETING_PAGES: MarketingPage[] = [
     slug: "yield",
     title: "Yield",
     description: "Yield on Shielded USDC",
-  },
-  {
-    slug: "earn",
-    title: "Earn",
-    description: "Best Stablecoin Yield on Solana",
   },
 ];

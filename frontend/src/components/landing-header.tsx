@@ -321,7 +321,7 @@ function HeaderContent({
           rel="noopener noreferrer"
           tabIndex={linkTabIndex}
         >
-          Open
+          Start earning
         </Link>
       </div>
 

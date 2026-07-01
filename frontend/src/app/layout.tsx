@@ -23,7 +23,7 @@ const siteJsonLd = {
       url: "https://askloyal.com",
       logo: "https://askloyal.com/android-chrome-512x512.png",
       description:
-        "Self-custody Solana smart-account wallet with on-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments and yield on shielded USDC.",
+        "Self-custody Solana smart-account wallet that earns the best available stablecoin yield automatically. On-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments.",
       foundingDate: "2025",
       foundingLocation: {
         "@type": "Place",
@@ -63,7 +63,7 @@ const siteJsonLd = {
       applicationCategory: "FinanceApplication",
       operatingSystem: "Android",
       description:
-        "Solana wallet with smart-account guardrails for AI agents, private transfers, and yield on shielded USDC. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
+        "Solana wallet that earns stablecoin yield automatically, with smart-account guardrails for AI agents and private transfers. Available on web, Chrome extension, Telegram mini app, Android (Google Play), and Solana Mobile (Seeker).",
       publisher: { "@id": "https://askloyal.com/#organization" },
       offers: {
         "@type": "Offer",
@@ -75,9 +75,9 @@ const siteJsonLd = {
 };
 
 export const metadata: Metadata = {
-  title: "Loyal: Solana Wallet with Agent Guardrails",
+  title: "Loyal: Solana Wallet That Earns Yield Automatically",
   description:
-    "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
+    "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
   metadataBase: new URL("https://askloyal.com"),
   alternates: {
     canonical: "/",
@@ -92,27 +92,27 @@ export const metadata: Metadata = {
     url: "https://askloyal.com/",
     siteName: "Loyal",
     locale: "en_US",
-    title: "Loyal: Solana Wallet with Agent Guardrails",
+    title: "Loyal: Solana Wallet That Earns Yield Automatically",
     description:
-      "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
+      "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
     images: [
       {
         url: "https://askloyal.com/og-image.png",
         width: 1200,
         height: 630,
-        alt: "Loyal: Solana wallet with smart-account guardrails for AI agents",
+        alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Loyal: Solana Wallet with Agent Guardrails",
+    title: "Loyal: Solana Wallet That Earns Yield Automatically",
     description:
-      "Solana wallet with smart-account guardrails for AI agents. Private transfers, yield on shielded USDC, fully open-source.",
+      "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
     images: [
       {
         url: "https://askloyal.com/og-image.png",
-        alt: "Loyal: Solana wallet with smart-account guardrails for AI agents",
+        alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],
   },

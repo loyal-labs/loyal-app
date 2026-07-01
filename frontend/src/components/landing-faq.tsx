@@ -11,12 +11,17 @@ export const LANDING_FAQS: FaqItem[] = [
   {
     question: "What is Loyal?",
     answer:
-      "Loyal is a self-custody Solana wallet with on-chain guardrails. Every wallet address is a Smart Account with its own policies and spending caps, so your agents can never spend more or send funds somewhere you didn't approve.",
+      "Loyal is a self-custody Solana wallet that puts your money to work. Idle stablecoins earn the best available lending rate automatically, and every wallet is a Smart Account with policies and spending caps, so apps and agents can never move funds you didn't approve.",
+  },
+  {
+    question: "How do autodeposits work?",
+    answer:
+      "Deposit dollars and set how much goes to earning. Loyal routes that allocation to whichever reputable lending reserve currently pays the most and re-routes as rates move. The automation runs through an on-chain policy on your own smart account, so it never takes custody, and you can withdraw any time.",
   },
   {
     question: "How can I use Loyal?",
     answer:
-      "Start with the browser extension, web app, or mobile app, create a shielded wallet, and approve only the permissions each app or agent needs.",
+      "Start with the browser extension, web app, or mobile app, create a wallet, turn on earning, and approve only the permissions each app or agent needs.",
   },
   {
     question: "Can I create more than one wallet?",

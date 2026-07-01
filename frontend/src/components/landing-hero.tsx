@@ -74,7 +74,7 @@ export function LandingHero() {
               Make your money bigger
             </h1>
             <p className="w-[292px] max-w-full text-[20px] font-normal leading-none lg:mt-6 lg:w-auto lg:max-w-[320px] lg:text-[24px]">
-              A Solana wallet with on-chain guardrails for your AI agents
+              Your stablecoins earn the best available rate, automatically
             </p>
           </div>
 
@@ -98,10 +98,11 @@ export function LandingHero() {
           >
             <div className="order-2 lg:order-1">
               <h2 className="text-[32px] font-semibold leading-[0.92]">
-                Yield on shielded assets
+                Set it once
               </h2>
               <p className="mt-3 text-[20px] font-normal leading-[1.1] lg:mt-4">
-                Earn yield on USDC while your assets stay private
+                Autodeposits route your dollars to the best lending reserve
+                inside on-chain guardrails you control
               </p>
             </div>
             <div className="order-1 flex w-full items-center gap-3 lg:order-2 lg:mt-8">
