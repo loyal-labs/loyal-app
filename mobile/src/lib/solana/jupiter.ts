@@ -1,5 +1,6 @@
 import {
   estimateJupiterSwapFeeState as estimateCoreJupiterSwapFeeState,
+  getJupiterSwapFeeEstimateKey as getCoreJupiterSwapFeeEstimateKey,
   getJupiterQuote as getCoreJupiterQuote,
   getJupiterSwapInstructions as getCoreJupiterSwapInstructions,
   getJupiterSwapTransaction as getCoreJupiterSwapTransaction,
@@ -9,6 +10,7 @@ import {
   type SwapFeeEstimate,
   type SwapFeeEstimateConnection,
   type SwapFeeEstimateState,
+  SWAP_FEE_ESTIMATE_DEBOUNCE_MS,
 } from "@loyal-labs/wallet-core/lib";
 
 const JUPITER_SWAP_API_BASE_URL = "https://api.jup.ag/swap/v1";
@@ -21,6 +23,7 @@ export type {
   SwapFeeEstimateConnection,
   SwapFeeEstimateState,
 };
+export { SWAP_FEE_ESTIMATE_DEBOUNCE_MS };
 
 export async function getJupiterQuote(params: {
   inputMint: string;
@@ -58,8 +61,20 @@ export async function estimateJupiterSwapFeeState(params: {
   connection: SwapFeeEstimateConnection;
   quoteResponse: JupiterQuoteResponse;
   userPublicKey: string;
+  signal?: AbortSignal;
 }): Promise<SwapFeeEstimateState> {
   return estimateCoreJupiterSwapFeeState({
+    ...params,
+    baseUrl: JUPITER_SWAP_API_BASE_URL,
+  });
+}
+
+export function getJupiterSwapFeeEstimateKey(params: {
+  connection?: SwapFeeEstimateConnection;
+  quoteResponse: JupiterQuoteResponse;
+  userPublicKey: string;
+}): string {
+  return getCoreJupiterSwapFeeEstimateKey({
     ...params,
     baseUrl: JUPITER_SWAP_API_BASE_URL,
   });

@@ -48,8 +48,10 @@ import {
 } from "@/lib/solana/constants";
 import {
   estimateJupiterSwapFeeState,
+  getJupiterSwapFeeEstimateKey,
   getJupiterQuote,
   getJupiterSwapTransaction,
+  SWAP_FEE_ESTIMATE_DEBOUNCE_MS,
   type JupiterQuoteResponse,
   type SwapFeeEstimateState,
 } from "@/lib/solana/jupiter";
@@ -301,6 +303,12 @@ export function SwapSheet({
   const [quote, setQuote] = useState<JupiterQuoteResponse | null>(null);
   const [feeEstimateState, setFeeEstimateState] =
     useState<SwapFeeEstimateState>({ status: "idle" });
+  const feeEstimateConnection = useMemo(() => getConnection(), []);
+  const feeEstimateRequestRef = useRef<{
+    key: string;
+    quoteResponse: JupiterQuoteResponse;
+    userPublicKey: string;
+  } | null>(null);
   const [isFetchingQuote, setIsFetchingQuote] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
   const [swapError, setSwapError] = useState<string | null>(null);
@@ -432,28 +440,55 @@ export function SwapSheet({
     };
   }, [amountNum, fromMint, toMint, fromHolding]);
 
+  const feeEstimateRequest = useMemo(() => {
+    if (!quote || !walletAddress) return null;
+    return {
+      key: getJupiterSwapFeeEstimateKey({
+        connection: feeEstimateConnection,
+        quoteResponse: quote,
+        userPublicKey: walletAddress,
+      }),
+      quoteResponse: quote,
+      userPublicKey: walletAddress,
+    };
+  }, [feeEstimateConnection, quote, walletAddress]);
+  feeEstimateRequestRef.current = feeEstimateRequest;
+  const feeEstimateKey = feeEstimateRequest?.key ?? null;
+
   useEffect(() => {
-    if (!quote || !walletAddress) {
+    if (!feeEstimateKey) {
       setFeeEstimateState({ status: "idle" });
       return;
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
     setFeeEstimateState({ status: "loading" });
 
-    void (async () => {
-      const nextState = await estimateJupiterSwapFeeState({
-        connection: getConnection(),
-        quoteResponse: quote,
-        userPublicKey: walletAddress,
-      });
-      if (!cancelled) setFeeEstimateState(nextState);
-    })();
+    const timer = setTimeout(() => {
+      const request = feeEstimateRequestRef.current;
+      if (!request || request.key !== feeEstimateKey) {
+        return;
+      }
+      void (async () => {
+        const nextState = await estimateJupiterSwapFeeState({
+          connection: feeEstimateConnection,
+          quoteResponse: request.quoteResponse,
+          userPublicKey: request.userPublicKey,
+          signal: abortController.signal,
+        });
+        if (!cancelled && !abortController.signal.aborted) {
+          setFeeEstimateState(nextState);
+        }
+      })();
+    }, SWAP_FEE_ESTIMATE_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      abortController.abort();
     };
-  }, [quote, walletAddress]);
+  }, [feeEstimateConnection, feeEstimateKey]);
 
   // Focus the amount input once the sheet has settled at its snap point.
   // Focusing during the present animation pushes the keyboard above the sheet.

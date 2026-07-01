@@ -50,11 +50,26 @@ type EstimateJupiterSwapFeeStateParams = {
 	apiKey?: string;
 	baseUrl?: string;
 	fetchFn?: typeof fetch;
+	signal?: AbortSignal;
 	commitment?: "processed" | "confirmed" | "finalized";
 };
 
 const SOLANA_SIGNATURE_FEE_LAMPORTS = 5_000;
 const MICRO_LAMPORTS_PER_LAMPORT = 1_000_000n;
+export const SWAP_FEE_ESTIMATE_DEBOUNCE_MS = 700;
+const SWAP_FEE_ESTIMATE_SUCCESS_CACHE_MS = 20_000;
+const SWAP_FEE_ESTIMATE_ERROR_CACHE_MS = 3_000;
+
+type SwapFeeEstimateCacheEntry = {
+	state: SwapFeeEstimateState;
+	expiresAt: number;
+};
+
+const feeEstimateStateCache = new Map<string, SwapFeeEstimateCacheEntry>();
+const feeEstimateStateInflight = new Map<
+	string,
+	Promise<SwapFeeEstimateState>
+>();
 
 const getPublicKeyString = (
 	value?: PublicKey | string | { toBase58(): string }
@@ -62,6 +77,57 @@ const getPublicKeyString = (
 	if (!value) return null;
 	if (typeof value === "string") return value;
 	return value.toBase58();
+};
+
+const getConnectionCacheKey = (connection: SwapFeeEstimateConnection): string => {
+	const maybeConnection = connection as SwapFeeEstimateConnection & {
+		rpcEndpoint?: string;
+	};
+	return maybeConnection.rpcEndpoint ?? "connection";
+};
+
+export const getJupiterSwapFeeEstimateKey = (params: {
+	connection?: SwapFeeEstimateConnection;
+	quoteResponse: JupiterQuoteResponse;
+	userPublicKey: PublicKey | string | { toBase58(): string };
+	baseUrl?: string;
+	commitment?: "processed" | "confirmed" | "finalized";
+}): string => {
+	const { quoteResponse } = params;
+	const routePlan = quoteResponse.routePlan.map((route) => ({
+		percent: route.percent,
+		swapInfo: {
+			ammKey: route.swapInfo.ammKey,
+			label: route.swapInfo.label,
+			inputMint: route.swapInfo.inputMint,
+			outputMint: route.swapInfo.outputMint,
+			inAmount: route.swapInfo.inAmount,
+			outAmount: route.swapInfo.outAmount,
+			feeAmount: route.swapInfo.feeAmount,
+			feeMint: route.swapInfo.feeMint,
+		},
+	}));
+
+	return JSON.stringify({
+		baseUrl: params.baseUrl ?? null,
+		commitment: params.commitment ?? "confirmed",
+		connection: params.connection
+			? getConnectionCacheKey(params.connection)
+			: null,
+		userPublicKey: getPublicKeyString(params.userPublicKey),
+		quote: {
+			inputMint: quoteResponse.inputMint,
+			inAmount: quoteResponse.inAmount,
+			outputMint: quoteResponse.outputMint,
+			outAmount: quoteResponse.outAmount,
+			otherAmountThreshold: quoteResponse.otherAmountThreshold,
+			swapMode: quoteResponse.swapMode,
+			slippageBps: quoteResponse.slippageBps,
+			platformFee: quoteResponse.platformFee,
+			priceImpactPct: quoteResponse.priceImpactPct,
+			routePlan,
+		},
+	});
 };
 
 const decodeBase64 = (value: string): Uint8Array => {
@@ -352,6 +418,44 @@ export const getSwapFeeEstimateErrorState = (
 	error: error instanceof Error ? error.message : "Swap fee unavailable",
 });
 
+const getCachedFeeEstimateState = (
+	key: string,
+	now = Date.now()
+): SwapFeeEstimateState | null => {
+	const entry = feeEstimateStateCache.get(key);
+	if (!entry) return null;
+	if (entry.expiresAt < now) {
+		feeEstimateStateCache.delete(key);
+		return null;
+	}
+	return entry.state;
+};
+
+const getCachedSuccessfulFeeEstimateState = (
+	key: string
+): SwapFeeEstimateState | null => {
+	const entry = feeEstimateStateCache.get(key);
+	return entry?.state.status === "success" ? entry.state : null;
+};
+
+const isAbortError = (error: unknown): boolean =>
+	error instanceof Error && error.name === "AbortError";
+
+const setCachedFeeEstimateState = (
+	key: string,
+	state: SwapFeeEstimateState,
+	now = Date.now()
+) => {
+	feeEstimateStateCache.set(key, {
+		state,
+		expiresAt:
+			now +
+			(state.status === "success"
+				? SWAP_FEE_ESTIMATE_SUCCESS_CACHE_MS
+				: SWAP_FEE_ESTIMATE_ERROR_CACHE_MS),
+	});
+};
+
 export async function estimateSwapTransactionFee(
 	params: EstimateSwapTransactionFeeParams
 ): Promise<SwapFeeEstimate> {
@@ -392,6 +496,33 @@ export async function estimateSwapTransactionFee(
 export async function estimateJupiterSwapFeeState(
 	params: EstimateJupiterSwapFeeStateParams
 ): Promise<SwapFeeEstimateState> {
+	const cacheKey = getJupiterSwapFeeEstimateKey(params);
+	const cachedState = getCachedFeeEstimateState(cacheKey);
+	if (cachedState) {
+		return cachedState;
+	}
+
+	const inflight = feeEstimateStateInflight.get(cacheKey);
+	if (inflight) {
+		return inflight;
+	}
+
+	if (params.signal?.aborted) {
+		return { status: "idle" };
+	}
+
+	const request = estimateUncachedJupiterSwapFeeState(params, cacheKey);
+	feeEstimateStateInflight.set(cacheKey, request);
+	request.finally(() => {
+		feeEstimateStateInflight.delete(cacheKey);
+	});
+	return request;
+}
+
+async function estimateUncachedJupiterSwapFeeState(
+	params: EstimateJupiterSwapFeeStateParams,
+	cacheKey: string
+): Promise<SwapFeeEstimateState> {
 	try {
 		const userPublicKey = getPublicKeyString(params.userPublicKey);
 		if (!userPublicKey) {
@@ -405,6 +536,7 @@ export async function estimateJupiterSwapFeeState(
 				apiKey: params.apiKey,
 				baseUrl: params.baseUrl,
 				fetchFn: params.fetchFn,
+				signal: params.signal,
 			}),
 			getJupiterSwapInstructions({
 				quoteResponse: params.quoteResponse,
@@ -412,8 +544,12 @@ export async function estimateJupiterSwapFeeState(
 				apiKey: params.apiKey,
 				baseUrl: params.baseUrl,
 				fetchFn: params.fetchFn,
+				signal: params.signal,
 			}).catch(() => undefined),
 		]);
+		if (params.signal?.aborted) {
+			return { status: "idle" };
+		}
 		const estimate = await estimateSwapTransactionFee({
 			connection: params.connection,
 			swapResponse,
@@ -422,8 +558,19 @@ export async function estimateJupiterSwapFeeState(
 			commitment: params.commitment,
 		});
 
-		return getSwapFeeEstimateState(estimate);
+		const state = getSwapFeeEstimateState(estimate);
+		setCachedFeeEstimateState(cacheKey, state);
+		return state;
 	} catch (error) {
-		return getSwapFeeEstimateErrorState(error);
+		if (params.signal?.aborted || isAbortError(error)) {
+			return { status: "idle" };
+		}
+		const fallbackState = getCachedSuccessfulFeeEstimateState(cacheKey);
+		if (fallbackState) {
+			return fallbackState;
+		}
+		const state = getSwapFeeEstimateErrorState(error);
+		setCachedFeeEstimateState(cacheKey, state);
+		return state;
 	}
 }

@@ -13,7 +13,11 @@ import {
 } from "@solana/web3.js";
 import { describe, expect, test } from "bun:test";
 
-import { estimateSwapTransactionFee } from "../fee-estimator";
+import {
+	estimateJupiterSwapFeeState,
+	estimateSwapTransactionFee,
+	getJupiterSwapFeeEstimateKey,
+} from "../fee-estimator";
 import type { JupiterInstruction } from "../types";
 
 const RENT_EXEMPT_TOKEN_ACCOUNT_LAMPORTS = 2_039_280;
@@ -79,6 +83,56 @@ const createMockConnection = (
 		},
 	}),
 });
+
+const createQuoteResponse = (params?: {
+	inputMint?: string;
+	outputMint?: string;
+	inAmount?: string;
+	outAmount?: string;
+	contextSlot?: number;
+	timeTaken?: number;
+}) => {
+	const inputMint = params?.inputMint ?? Keypair.generate().publicKey.toBase58();
+	const outputMint =
+		params?.outputMint ?? Keypair.generate().publicKey.toBase58();
+	const inAmount = params?.inAmount ?? "1000000";
+	const outAmount = params?.outAmount ?? "990000";
+
+	return {
+		inputMint,
+		inAmount,
+		outputMint,
+		outAmount,
+		otherAmountThreshold: "980000",
+		swapMode: "ExactIn",
+		slippageBps: 50,
+		platformFee: null,
+		priceImpactPct: "0",
+		routePlan: [
+			{
+				swapInfo: {
+					ammKey: Keypair.generate().publicKey.toBase58(),
+					label: "Test AMM",
+					inputMint,
+					outputMint,
+					inAmount,
+					outAmount,
+					feeAmount: "0",
+					feeMint: inputMint,
+				},
+				percent: 100,
+			},
+		],
+		contextSlot: params?.contextSlot,
+		timeTaken: params?.timeTaken,
+	};
+};
+
+const jsonResponse = (body: unknown) =>
+	new Response(JSON.stringify(body), {
+		headers: { "Content-Type": "application/json" },
+		status: 200,
+	});
 
 describe("estimateSwapTransactionFee", () => {
 	test("adds missing user-paid ATA rent to the simulated network fee", async () => {
@@ -195,5 +249,118 @@ describe("estimateSwapTransactionFee", () => {
 		expect(estimate.createdAtaAccounts).toHaveLength(0);
 		expect(estimate.rentLamports).toBe(0);
 		expect(estimate.totalLamports).toBe(MESSAGE_FEE_LAMPORTS);
+	});
+});
+
+describe("estimateJupiterSwapFeeState", () => {
+	test("uses a stable key for materially identical quote responses", () => {
+		const userPublicKey = Keypair.generate().publicKey;
+		const quoteResponse = createQuoteResponse({
+			contextSlot: 1,
+			timeTaken: 0.1,
+		});
+
+		const firstKey = getJupiterSwapFeeEstimateKey({
+			connection: createMockConnection(),
+			quoteResponse,
+			userPublicKey,
+			baseUrl: "https://api.jup.ag/swap/v1",
+		});
+		const secondKey = getJupiterSwapFeeEstimateKey({
+			connection: createMockConnection(),
+			quoteResponse: {
+				...quoteResponse,
+				contextSlot: 2,
+				timeTaken: 0.2,
+			},
+			userPublicKey,
+			baseUrl: "https://api.jup.ag/swap/v1",
+		});
+
+		expect(secondKey).toBe(firstKey);
+	});
+
+	test("dedupes inflight swap builds and caches the completed estimate", async () => {
+		const userPublicKey = Keypair.generate().publicKey;
+		const quoteResponse = createQuoteResponse();
+		const transaction = createSwapTransaction({
+			payer: userPublicKey,
+			instructions: [],
+		});
+		const swapTransaction = Buffer.from(transaction.serialize()).toString(
+			"base64"
+		);
+		let swapCalls = 0;
+		let instructionCalls = 0;
+		const fetchFn = (async (input: Parameters<typeof fetch>[0]) => {
+			const url = String(input);
+			if (url.endsWith("/swap")) {
+				swapCalls += 1;
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				return jsonResponse({
+					swapTransaction,
+					lastValidBlockHeight: 1,
+					prioritizationFeeLamports: 123,
+				});
+			}
+			if (url.endsWith("/swap-instructions")) {
+				instructionCalls += 1;
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				return jsonResponse({
+					setupInstructions: [],
+					swapInstruction: {
+						programId: Keypair.generate().publicKey.toBase58(),
+						accounts: [],
+						data: "",
+					},
+				});
+			}
+			return jsonResponse({});
+		}) as typeof fetch;
+		const params = {
+			connection: createMockConnection(),
+			quoteResponse,
+			userPublicKey,
+			baseUrl: "https://api.jup.ag/swap/v1",
+			fetchFn,
+		};
+
+		const [firstState, secondState] = await Promise.all([
+			estimateJupiterSwapFeeState(params),
+			estimateJupiterSwapFeeState(params),
+		]);
+
+		expect(firstState.status).toBe("success");
+		expect(secondState.status).toBe("success");
+		expect(swapCalls).toBe(1);
+		expect(instructionCalls).toBe(1);
+
+		const cachedState = await estimateJupiterSwapFeeState(params);
+
+		expect(cachedState.status).toBe("success");
+		expect(swapCalls).toBe(1);
+		expect(instructionCalls).toBe(1);
+	});
+
+	test("does not fetch when fee estimation is already aborted", async () => {
+		const abortController = new AbortController();
+		abortController.abort();
+		let fetchCalls = 0;
+		const fetchFn = (async (_input: Parameters<typeof fetch>[0]) => {
+			fetchCalls += 1;
+			return jsonResponse({});
+		}) as typeof fetch;
+
+		const state = await estimateJupiterSwapFeeState({
+			connection: createMockConnection(),
+			quoteResponse: createQuoteResponse(),
+			userPublicKey: Keypair.generate().publicKey,
+			baseUrl: "https://api.jup.ag/swap/v1",
+			fetchFn,
+			signal: abortController.signal,
+		});
+
+		expect(state).toEqual({ status: "idle" });
+		expect(fetchCalls).toBe(0);
 	});
 });

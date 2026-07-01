@@ -2,6 +2,8 @@
 
 import {
   estimateJupiterSwapFeeState,
+  getJupiterSwapFeeEstimateKey,
+  SWAP_FEE_ESTIMATE_DEBOUNCE_MS,
   type SwapFeeEstimateState,
 } from "@loyal-labs/wallet-core/lib";
 import { useConnection } from "@solana/wallet-adapter-react";
@@ -1100,6 +1102,13 @@ export function SwapContent({
   const [feeEstimateState, setFeeEstimateState] =
     useState<SwapFeeEstimateState>({ status: "idle" });
   const quoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const feeEstimateRequestRef = useRef<{
+    key: string;
+    quoteResponse: NonNullable<typeof quoteResponse>;
+    userPublicKey: string;
+    apiKey?: string;
+    baseUrl?: string;
+  } | null>(null);
 
   useEffect(() => {
     onFormActiveChange?.(phase === "form");
@@ -1128,6 +1137,7 @@ export function SwapContent({
   );
   const hasAmount = numericFrom > 0;
   const insufficientFunds = numericFrom > fromToken.balance;
+  const isSameMint = fromToken.mint === toToken.mint;
   const feeUserPublicKey = useMemo(() => {
     const contextKey = executionContext?.userPublicKey;
     if (contextKey) {
@@ -1137,11 +1147,34 @@ export function SwapContent({
     }
     return userPublicKey?.toBase58() ?? null;
   }, [executionContext?.userPublicKey, userPublicKey]);
+  const feeEstimateRequest = useMemo(() => {
+    if (!quoteResponse || !feeUserPublicKey) return null;
+    return {
+      key: getJupiterSwapFeeEstimateKey({
+        connection,
+        quoteResponse,
+        userPublicKey: feeUserPublicKey,
+        baseUrl: swapApiBaseUrl,
+      }),
+      quoteResponse,
+      userPublicKey: feeUserPublicKey,
+      apiKey: swapApiKey,
+      baseUrl: swapApiBaseUrl,
+    };
+  }, [
+    connection,
+    feeUserPublicKey,
+    quoteResponse,
+    swapApiBaseUrl,
+    swapApiKey,
+  ]);
+  feeEstimateRequestRef.current = feeEstimateRequest;
+  const feeEstimateKey = feeEstimateRequest?.key ?? null;
 
   // Debounced quote fetching
   useEffect(() => {
     if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
-    if (!hasAmount || insufficientFunds || phase !== "form") {
+    if (!hasAmount || insufficientFunds || isSameMint || phase !== "form") {
       resetQuote();
       setIsQuoting(false);
       setFeeEstimateState({ status: "idle" });
@@ -1170,6 +1203,7 @@ export function SwapContent({
     toToken.mint,
     hasAmount,
     insufficientFunds,
+    isSameMint,
     phase,
     getQuote,
     resetQuote,
@@ -1177,36 +1211,41 @@ export function SwapContent({
   ]);
 
   useEffect(() => {
-    if (!quoteResponse || !feeUserPublicKey || phase !== "form") {
+    if (!feeEstimateKey || phase !== "form") {
       setFeeEstimateState({ status: "idle" });
       return;
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
     setFeeEstimateState({ status: "loading" });
 
-    void (async () => {
-      const nextState = await estimateJupiterSwapFeeState({
-        connection,
-        quoteResponse,
-        userPublicKey: feeUserPublicKey,
-        apiKey: swapApiKey,
-        baseUrl: swapApiBaseUrl,
-      });
-      if (!cancelled) setFeeEstimateState(nextState);
-    })();
+    const timer = setTimeout(() => {
+      const request = feeEstimateRequestRef.current;
+      if (!request || request.key !== feeEstimateKey) {
+        return;
+      }
+      void (async () => {
+        const nextState = await estimateJupiterSwapFeeState({
+          connection,
+          quoteResponse: request.quoteResponse,
+          userPublicKey: request.userPublicKey,
+          apiKey: request.apiKey,
+          baseUrl: request.baseUrl,
+          signal: abortController.signal,
+        });
+        if (!cancelled && !abortController.signal.aborted) {
+          setFeeEstimateState(nextState);
+        }
+      })();
+    }, SWAP_FEE_ESTIMATE_DEBOUNCE_MS);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
+      abortController.abort();
     };
-  }, [
-    connection,
-    feeUserPublicKey,
-    phase,
-    quoteResponse,
-    swapApiBaseUrl,
-    swapApiKey,
-  ]);
+  }, [connection, feeEstimateKey, phase]);
 
   const buttonLabel = !isAvailable
     ? unavailableReason ?? "Swap unavailable"

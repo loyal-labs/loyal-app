@@ -54,6 +54,7 @@ export interface JupiterQuoteParams {
 	apiKey?: string;
 	baseUrl?: string;
 	fetchFn?: typeof fetch;
+	signal?: AbortSignal;
 }
 
 export async function getJupiterQuote(
@@ -67,6 +68,7 @@ export async function getJupiterQuote(
 		apiKey,
 		baseUrl,
 		fetchFn,
+		signal,
 	} = params;
 
 	const url = new URL(buildJupiterUrl(baseUrl, "quote"));
@@ -79,6 +81,7 @@ export async function getJupiterQuote(
 		url.toString(),
 		{
 			headers: buildJupiterHeaders(apiKey),
+			signal,
 		},
 		fetchFn
 	);
@@ -90,6 +93,7 @@ export interface JupiterSwapParams {
 	apiKey?: string;
 	baseUrl?: string;
 	fetchFn?: typeof fetch;
+	signal?: AbortSignal;
 	wrapAndUnwrapSol?: boolean;
 	dynamicComputeUnitLimit?: boolean;
 	priorityLevel?: string;
@@ -132,6 +136,7 @@ export async function getJupiterSwapTransaction(
 				"Content-Type": "application/json",
 			}),
 			body: JSON.stringify(buildSwapRequestBody(params)),
+			signal: params.signal,
 		},
 		params.fetchFn
 	);
@@ -154,6 +159,7 @@ export async function getJupiterSwapInstructions(
 				"Content-Type": "application/json",
 			}),
 			body: JSON.stringify(buildSwapRequestBody(params)),
+			signal: params.signal,
 		},
 		params.fetchFn
 	);
