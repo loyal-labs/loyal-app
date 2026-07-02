@@ -53,13 +53,14 @@ function getSponsorKeypair(): Keypair {
     return cachedSponsorKeypair;
   }
 
-  const deploymentPrivateKey = getServerEnv().deploymentPrivateKey;
-  if (!deploymentPrivateKey) {
-    throw new Error("DEPLOYMENT_PK is not set");
+  const smartAccountSponsorPrivateKey =
+    getServerEnv().smartAccountSponsorPrivateKey;
+  if (!smartAccountSponsorPrivateKey) {
+    throw new Error("SMART_ACCOUNT_SPONSOR_PK is not set");
   }
 
   cachedSponsorKeypair = Keypair.fromSecretKey(
-    bs58.decode(deploymentPrivateKey)
+    bs58.decode(smartAccountSponsorPrivateKey)
   );
   return cachedSponsorKeypair;
 }

@@ -32,6 +32,7 @@ const AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME = "AUTH_COOKIE_ALLOW_LOCALHOST";
 const AUTH_APP_NAME_ENV_NAME = "AUTH_APP_NAME";
 const DEPLOYMENT_PRIVATE_KEY_ENV_NAME = "DEPLOYMENT_PK";
 const EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME = "EARN_YIELD_ROUTER_PUBLIC_KEY";
+const SMART_ACCOUNT_SPONSOR_PRIVATE_KEY_ENV_NAME = "SMART_ACCOUNT_SPONSOR_PK";
 
 export type ChatRuntimeConfig = {
   apiKey: string;
@@ -57,6 +58,7 @@ export type ServerEnv = {
   deploymentPrivateKey: string | undefined;
   earnYieldRouterPublicKey: string | undefined;
   mixpanelToken: string | undefined;
+  smartAccountSponsorPrivateKey: string | undefined;
   solanaEnv: SolanaEnv;
   loyalSmartAccounts: LoyalSmartAccountsRuntimeConfig;
 };
@@ -145,6 +147,10 @@ export function createServerEnv(env: EnvSource): ServerEnv {
       EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME
     ),
     mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
+    smartAccountSponsorPrivateKey: getOptionalEnv(
+      env,
+      SMART_ACCOUNT_SPONSOR_PRIVATE_KEY_ENV_NAME
+    ),
     solanaEnv,
     loyalSmartAccounts: createLoyalSmartAccountsRuntimeConfig(env, solanaEnv),
   };

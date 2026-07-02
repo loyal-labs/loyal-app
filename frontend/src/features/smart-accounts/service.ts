@@ -181,7 +181,7 @@ function toFailure(args: { error: unknown }): SmartAccountProvisioningError {
 
   if (
     args.error instanceof Error &&
-    /DEPLOYMENT_PK is not set/i.test(args.error.message)
+    /SMART_ACCOUNT_SPONSOR_PK is not set/i.test(args.error.message)
   ) {
     return new SmartAccountProvisioningError({
       code: "smart_account_sponsor_not_configured",
