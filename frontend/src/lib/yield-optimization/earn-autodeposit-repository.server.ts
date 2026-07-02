@@ -1219,6 +1219,41 @@ export async function findEarnAutodepositHistoryEvents(
   });
 }
 
+// The sweep worker's notify payload only carries the wallet address; the
+// execution row it just recorded carries the amount. Callers should treat a
+// stale `recordedAt` as "no amount" rather than attribute an old sweep.
+export async function findLatestEarnAutodepositExecutionForWallet(
+  walletAddress: string,
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<{ amountRaw: bigint; recordedAt: Date } | null> {
+  const rows = await dependencies.client.db
+    .select({
+      amountRaw: balanceSweepExecutions.amountRaw,
+      decodedAt: balanceSweepExecutions.decodedAt,
+      receivedAt: balanceSweepExecutions.receivedAt,
+    })
+    .from(balanceSweepExecutions)
+    .innerJoin(
+      balanceSweepTargets,
+      eq(balanceSweepExecutions.targetId, balanceSweepTargets.id)
+    )
+    .where(eq(balanceSweepTargets.wallet, walletAddress))
+    .orderBy(desc(balanceSweepExecutions.id))
+    .limit(1);
+
+  const row = rows[0];
+  if (!row) {
+    return null;
+  }
+  return {
+    amountRaw: row.amountRaw,
+    recordedAt: row.decodedAt ?? row.receivedAt,
+  };
+}
+
 function targetValuesFromSetup(
   input: ConfirmedEarnAutodepositSetupInput,
   balanceSweepPolicyId: bigint,
