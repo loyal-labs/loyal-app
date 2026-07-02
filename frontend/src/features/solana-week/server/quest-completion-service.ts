@@ -197,13 +197,13 @@ async function reportBestEffort(
 }
 
 /**
- * Minimum qualifying deposit for Quest 1: $10 USDC (6 decimals). Deposits below
+ * Minimum qualifying deposit for Quest 1: $5 USDC (6 decimals). Deposits below
  * this don't earn the badge, so we neither create a completion row nor report.
  */
-export const MIN_EARN_DEPOSIT_QUEST_USDC_RAW = BigInt(10_000_000);
+export const MIN_EARN_DEPOSIT_QUEST_USDC_RAW = BigInt(5_000_000);
 
 /**
- * Best-effort Quest 1 (connect wallet + Earn deposit of at least $10). A deposit
+ * Best-effort Quest 1 (connect wallet + Earn deposit of at least $5). A deposit
  * under the threshold is not a qualifying action and is a no-op. Never throws.
  */
 export function reportEarnDepositQuestCompletion(
