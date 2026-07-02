@@ -6080,9 +6080,6 @@ export function createSmartAccountVaultsClient(
         throw error;
       }
     }
-    const policyInitialization = shouldInitializeYieldRoutingPolicy
-      ? "create"
-      : "reuse";
     const earnPolicy = shouldInitializeYieldRoutingPolicy
       ? (await discoverEarnYieldRoutingPolicyPairOnChain({
           cluster,
@@ -6122,6 +6119,11 @@ export function createSmartAccountVaultsClient(
       : await resolveEarnYieldRoutingPolicyForExecution({
           settingsPda: args.settingsPda,
         });
+    // "create" only when route-policy creation ops are actually prepared —
+    // discovery can satisfy an initialize request by reusing an on-chain pair,
+    // and confirm requires policy-creation signatures whenever it sees
+    // "create", which reuse flows never produce.
+    const policyInitialization = earnPolicy.operation ? "create" : "reuse";
     const policyPersistence = earnPolicy.persistence ?? serializedEarnUniverse;
     const policyAccount = earnPolicy.account;
     const setupPolicyAccount = earnPolicy.setupAccount ?? null;
