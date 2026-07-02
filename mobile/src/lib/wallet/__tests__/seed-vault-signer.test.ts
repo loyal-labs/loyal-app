@@ -16,10 +16,12 @@ import {
 
 const mockSignMessage = jest.fn<Promise<Uint8Array>, [unknown]>();
 const mockSignTransaction = jest.fn<Promise<Uint8Array>, [unknown]>();
+const mockSignTransactions = jest.fn<Promise<Uint8Array[]>, [unknown]>();
 
 jest.mock("expo-seed-vault", () => ({
   signMessage: (args: unknown) => mockSignMessage(args),
   signTransaction: (args: unknown) => mockSignTransaction(args),
+  signTransactions: (args: unknown) => mockSignTransactions(args),
 }));
 
 // eslint-disable-next-line import/first
@@ -33,6 +35,7 @@ const address = kp.publicKey.toBase58();
 beforeEach(() => {
   mockSignMessage.mockReset();
   mockSignTransaction.mockReset();
+  mockSignTransactions.mockReset();
 });
 
 describe("SeedVaultSigner", () => {
@@ -137,11 +140,12 @@ describe("SeedVaultSigner", () => {
     expect(Array.from(vtx.signatures[0])).toEqual(Array.from(fakeSig));
   });
 
-  it("signAllTransactions signs each transaction sequentially", async () => {
+  it("signAllTransactions batches into one vault prompt", async () => {
     const signer = new SeedVaultSigner(authToken, derivationPath, address);
-    mockSignTransaction
-      .mockResolvedValueOnce(new Uint8Array(64))
-      .mockResolvedValueOnce(new Uint8Array(64));
+    mockSignTransactions.mockResolvedValueOnce([
+      new Uint8Array(64),
+      new Uint8Array(64),
+    ]);
 
     const payer = new PublicKey(address);
     const blockhash = new PublicKey(
@@ -161,6 +165,15 @@ describe("SeedVaultSigner", () => {
     });
 
     await signer.signAllTransactions(txs);
-    expect(mockSignTransaction).toHaveBeenCalledTimes(2);
+    expect(mockSignTransactions).toHaveBeenCalledTimes(1);
+    expect(mockSignTransaction).not.toHaveBeenCalled();
+    const callArg = mockSignTransactions.mock.calls[0][0] as {
+      txs: Uint8Array[];
+    };
+    expect(callArg.txs).toHaveLength(2);
+    // Every transaction got its signature injected.
+    for (const tx of txs) {
+      expect(tx.signatures[0].signature).not.toBeNull();
+    }
   });
 });

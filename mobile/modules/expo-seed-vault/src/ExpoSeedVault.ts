@@ -41,6 +41,16 @@ type NativeModule = {
     derivationPath: string,
     txBase64: string,
   ): Promise<string>;
+  /**
+   * Signs a batch of transactions in ONE vault authorization (single user
+   * prompt). Returns base64 (no wrap) signature bytes, one per transaction,
+   * in input order.
+   */
+  signTransactions(
+    authToken: number,
+    derivationPath: string,
+    txsBase64: string[],
+  ): Promise<string[]>;
   /** Returns base64 (no wrap) signature bytes. */
   signMessage(
     authToken: number,

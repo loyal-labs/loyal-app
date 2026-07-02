@@ -173,6 +173,40 @@ export async function signTransaction(args: {
 }
 
 /**
+ * Ask the vault to sign a batch of transactions in a single authorization —
+ * one biometric/PIN prompt for the whole batch. Signatures come back in
+ * input order. Callers must respect the vault's per-prompt request limit
+ * (3 on current Saga/Seeker devices).
+ */
+export async function signTransactions(args: {
+  authToken: number;
+  derivationPath: string;
+  txs: Uint8Array[];
+}): Promise<Uint8Array[]> {
+  // Dev clients built before the batch API lack the native function — fall
+  // back to one prompt per transaction rather than crashing.
+  if (typeof ExpoSeedVault.signTransactions !== "function") {
+    const signatures: Uint8Array[] = [];
+    for (const tx of args.txs) {
+      signatures.push(
+        await signTransaction({
+          authToken: args.authToken,
+          derivationPath: args.derivationPath,
+          txBytes: tx,
+        }),
+      );
+    }
+    return signatures;
+  }
+  const sigsB64 = await ExpoSeedVault.signTransactions(
+    args.authToken,
+    args.derivationPath,
+    args.txs.map(uint8ToBase64),
+  );
+  return sigsB64.map(base64ToUint8);
+}
+
+/**
  * Ask the vault to sign an arbitrary message (used for auth challenges, not
  * for transactions). The vault prompts the user.
  */

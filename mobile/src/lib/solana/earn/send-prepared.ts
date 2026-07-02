@@ -131,18 +131,12 @@ async function confirmSentTransaction(
   return { signature, confirmedSlot: slot ?? String(contextSlot) };
 }
 
-// Compiles a hydrated prepared operation into a v0 transaction, signs it with
-// the device wallet, sends it (with a priority fee + rebroadcast so it lands
-// under load), and waits for confirmation. The wallet may prompt (Seed Vault)
-// for each operation, so callers send stages sequentially.
-export async function signAndSendPreparedOperation(args: {
-  connection: Connection;
-  signer: Signer;
-  operation: HydratedPreparedOperation;
-}): Promise<SentTransaction> {
-  const { connection, signer, operation } = args;
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash("confirmed");
+// Compiles a hydrated prepared operation into a v0 transaction, prepending a
+// priority fee when it fits within the transaction size limit.
+function compilePreparedOperation(
+  operation: HydratedPreparedOperation,
+  blockhash: string,
+): VersionedTransaction {
   const compile = (withPriorityFee: boolean) =>
     new VersionedTransaction(
       new TransactionMessage({
@@ -158,11 +152,21 @@ export async function signAndSendPreparedOperation(args: {
           : operation.instructions,
       }).compileToV0Message(operation.lookupTableAccounts),
     );
-  let transaction = compile(true);
+  const transaction = compile(true);
   if (transaction.serialize().length > MAX_TRANSACTION_BYTES) {
-    transaction = compile(false);
+    return compile(false);
   }
-  await signer.signTransaction(transaction);
+  return transaction;
+}
+
+// Sends an already-signed transaction (with rebroadcast so it lands under
+// load) and waits for confirmation.
+async function sendSignedTransaction(
+  connection: Connection,
+  transaction: VersionedTransaction,
+  blockhash: string,
+  lastValidBlockHeight: number,
+): Promise<SentTransaction> {
   const rawTransaction = transaction.serialize();
   // First send runs preflight so a genuinely invalid tx fails fast; resends skip
   // it. `maxRetries: 0` — we own the rebroadcast cadence below, not the RPC.
@@ -204,4 +208,55 @@ export async function signAndSendPreparedOperation(args: {
     rebroadcasting = false;
     await rebroadcast.catch(() => undefined);
   }
+}
+
+// Signs a sequence of prepared operations in as few wallet prompts as the
+// signer allows (Seed Vault batches them into a single authorization), then
+// sends + confirms them strictly in order. All stages share one blockhash —
+// its ~60s validity comfortably covers a few sequential confirmed-commitment
+// landings, and `confirmSentTransaction` already tolerates false expiries. A
+// stage failure aborts the remainder; the backend's prepare is chain-driven
+// and resumes from whatever landed.
+export async function signAndSendPreparedOperations(args: {
+  connection: Connection;
+  signer: Signer;
+  operations: HydratedPreparedOperation[];
+}): Promise<SentTransaction[]> {
+  const { connection, signer, operations } = args;
+  if (operations.length === 0) {
+    return [];
+  }
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash("confirmed");
+  const transactions = operations.map((operation) =>
+    compilePreparedOperation(operation, blockhash),
+  );
+  await signer.signAllTransactions(transactions);
+
+  const sent: SentTransaction[] = [];
+  for (const transaction of transactions) {
+    sent.push(
+      await sendSignedTransaction(
+        connection,
+        transaction,
+        blockhash,
+        lastValidBlockHeight,
+      ),
+    );
+  }
+  return sent;
+}
+
+// Single-operation convenience over the batch path (one wallet prompt).
+export async function signAndSendPreparedOperation(args: {
+  connection: Connection;
+  signer: Signer;
+  operation: HydratedPreparedOperation;
+}): Promise<SentTransaction> {
+  const [sent] = await signAndSendPreparedOperations({
+    connection: args.connection,
+    signer: args.signer,
+    operations: [args.operation],
+  });
+  return sent;
 }

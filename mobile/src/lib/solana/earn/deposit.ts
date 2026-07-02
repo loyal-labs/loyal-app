@@ -3,10 +3,7 @@ import type { Signer } from "@/lib/wallet/signer";
 
 import { confirmEarnDeposit, prepareEarnDeposit } from "./earn-api";
 import { signEarnAuth } from "./earn-auth";
-import {
-  signAndSendPreparedOperation,
-  type SentTransaction,
-} from "./send-prepared";
+import { signAndSendPreparedOperations } from "./send-prepared";
 import { hydratePreparedOperation } from "./wire";
 
 const USDC_DECIMALS = 6;
@@ -23,10 +20,11 @@ export type EarnDepositResult = {
 };
 
 // Real on-chain Earn deposit: the backend prepares the transaction(s) for the
-// caller's smart account (same position as web), then the device wallet signs +
-// sends each stage. A first-ever deposit also creates the yield-routing policy
-// (policySetup) and Kamino obligation (policyFinalize) as separate signed
-// transactions; a top-up is just the deposit. The deposited USDC routes into
+// caller's smart account (same position as web), then the device wallet signs
+// them all in one batch prompt and sends each stage in order. A first-ever
+// deposit also creates the yield-routing policy (policySetup) and Kamino
+// obligation (policyFinalize) as separate signed transactions; a top-up is
+// just the deposit. The deposited USDC routes into
 // Kamino Safe via the Earn vault. Recording into the web read-model is done via
 // the confirm call (best-effort — the on-chain deposit is the source of truth
 // and the backend reconciler backfills if confirm fails).
@@ -40,23 +38,31 @@ export async function executeEarnDeposit(args: {
 
   const connection = getConnection();
   const preparedDeposit = prepared.preparedDeposit;
-  const send = (operation: Parameters<typeof hydratePreparedOperation>[0]) =>
-    signAndSendPreparedOperation({
-      connection,
-      signer: args.signer,
-      operation: hydratePreparedOperation(operation),
-    });
 
-  // First-deposit policy stages (absent for top-ups).
-  let policy: SentTransaction | undefined;
-  if (preparedDeposit.policySetupPrepared) {
-    policy = await send(preparedDeposit.policySetupPrepared);
-  }
-  let setupPolicy: SentTransaction | undefined;
-  if (preparedDeposit.policyFinalizePrepared) {
-    setupPolicy = await send(preparedDeposit.policyFinalizePrepared);
-  }
-  const deposit = await send(preparedDeposit.prepared);
+  // All stages are prepared upfront with no build-time interdependency, so
+  // they're signed in ONE wallet prompt (Seed Vault batches them) and then
+  // sent strictly in order — the policy stages must land before the deposit.
+  // First-deposit policy stages are absent for top-ups.
+  const stages = [
+    preparedDeposit.policySetupPrepared,
+    preparedDeposit.policyFinalizePrepared,
+    preparedDeposit.prepared,
+  ];
+  const sent = await signAndSendPreparedOperations({
+    connection,
+    signer: args.signer,
+    operations: stages
+      .filter((stage) => stage != null)
+      .map(hydratePreparedOperation),
+  });
+  let cursor = 0;
+  const policy = preparedDeposit.policySetupPrepared
+    ? sent[cursor++]
+    : undefined;
+  const setupPolicy = preparedDeposit.policyFinalizePrepared
+    ? sent[cursor++]
+    : undefined;
+  const deposit = sent[cursor];
 
   // Record into the web read-model. Best-effort: never undo a confirmed
   // on-chain deposit because the DB write failed — the reconciler backfills.
