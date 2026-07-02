@@ -38,11 +38,26 @@ function earnHeaders(): Record<string, string> {
   return headers;
 }
 
+// Carries the backend's error `code` so flows can react to specific failures
+// (e.g. re-sign a fresh auth message on `stale_mobile_auth`).
+export class EarnApiError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "EarnApiError";
+    this.code = code;
+  }
+}
+
 async function throwEarnError(res: Response, fallback: string): Promise<never> {
   const payload = (await res.json().catch(() => null)) as {
     error?: { code?: string; message?: string };
   } | null;
-  throw new Error(payload?.error?.message ?? fallback);
+  throw new EarnApiError(
+    payload?.error?.message ?? fallback,
+    payload?.error?.code,
+  );
 }
 
 export async function prepareEarnDeposit(args: {
@@ -279,11 +294,16 @@ export async function fetchEarnAutodepositState(
 
 export type EarnAutodepositSetupPrepareResponse = {
   preparedSetup: WirePreparedEarnAutodepositSetup;
+  // With `includeBatch`, the create_policy stage also carries the
+  // create_recurring_delegation stage prepared ahead (null otherwise, and
+  // absent on backends that predate the batch support).
+  nextPreparedSetup?: WirePreparedEarnAutodepositSetup | null;
 };
 
 export async function prepareEarnAutodepositSetup(args: {
   auth: EarnAuthFields;
   amountRaw: string;
+  includeBatch?: boolean;
   nonce: string;
   policySeed?: string;
   walletBalanceFloorRaw: string;

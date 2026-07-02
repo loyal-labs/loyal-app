@@ -10,8 +10,11 @@ import {
   toggleEarnAutodeposit,
   updateEarnAutodepositFloor,
 } from "./earn-api";
-import { signEarnAuth } from "./earn-auth";
-import { signAndSendPreparedOperation } from "./send-prepared";
+import { signEarnAuth, withEarnAuth } from "./earn-auth";
+import {
+  signAndSendPreparedOperation,
+  signAndSendPreparedOperations,
+} from "./send-prepared";
 import { hydratePreparedOperation } from "./wire";
 
 const USDC_DECIMALS = 6;
@@ -35,10 +38,13 @@ function thresholdUsdToRaw(thresholdUsd: number): string {
 }
 
 // Create an Autodeposit: stands up the on-chain recurring-delegation policy that
-// sweeps wallet USDC above `thresholdUsd` into Earn. Multi-stage — the backend
-// returns the next stage's prepared op each round; the device signs + confirms
-// it, then re-prepares, until the recurring delegation is created. The nonce is
-// fixed for the whole flow; the generated policy seed is threaded across stages.
+// sweeps wallet USDC above `thresholdUsd` into Earn. Multi-stage — with
+// `includeBatch` the backend returns create_policy AND the prepared-ahead
+// create_recurring_delegation together, so the device signs both in ONE wallet
+// prompt and sends them in order (the one-time subscription-authority init, when
+// needed, is its own round). One prepare auth covers the whole flow; confirms
+// reuse it. The nonce is fixed for the whole flow; the generated policy seed is
+// threaded across rounds.
 export async function executeEarnAutodepositSetup(args: {
   signer: Signer;
   thresholdUsd: number;
@@ -46,47 +52,65 @@ export async function executeEarnAutodepositSetup(args: {
   const walletBalanceFloorRaw = thresholdUsdToRaw(args.thresholdUsd);
   const nonce = BigInt(Date.now()).toString();
   const connection = getConnection();
-  const send = (operation: Parameters<typeof hydratePreparedOperation>[0]) =>
-    signAndSendPreparedOperation({
-      connection,
-      signer: args.signer,
-      operation: hydratePreparedOperation(operation),
-    });
+
+  const flowAuth = await signEarnAuth(
+    args.signer,
+    "earn-autodeposit-setup-prepare",
+  );
 
   let policySeed: string | undefined;
-  for (let stage = 0; stage < MAX_SETUP_STAGES; stage++) {
-    const prepareAuth = await signEarnAuth(
+  for (let round = 0; round < MAX_SETUP_STAGES; round++) {
+    const { preparedSetup, nextPreparedSetup } = await withEarnAuth(
       args.signer,
+      flowAuth,
       "earn-autodeposit-setup-prepare",
+      (auth) =>
+        prepareEarnAutodepositSetup({
+          auth,
+          amountRaw: DEFAULT_AMOUNT_PER_PERIOD_RAW,
+          includeBatch: true,
+          nonce,
+          policySeed,
+          walletBalanceFloorRaw,
+        }),
     );
-    const { preparedSetup } = await prepareEarnAutodepositSetup({
-      auth: prepareAuth,
-      amountRaw: DEFAULT_AMOUNT_PER_PERIOD_RAW,
-      nonce,
-      policySeed,
-      walletBalanceFloorRaw,
-    });
-
-    const sent = await send(preparedSetup.prepared);
-    const confirmAuth = await signEarnAuth(
-      args.signer,
-      "earn-autodeposit-setup-confirm",
-    );
-    await confirmEarnAutodepositSetup({
-      auth: confirmAuth,
+    const stages = [
       preparedSetup,
-      setupSignature: sent.signature,
-      confirmedSlot: sent.confirmedSlot,
-      walletBalanceFloorRaw,
+      ...(nextPreparedSetup ? [nextPreparedSetup] : []),
+    ];
+
+    const sent = await signAndSendPreparedOperations({
+      connection,
+      signer: args.signer,
+      operations: stages.map((stage) =>
+        hydratePreparedOperation(stage.prepared),
+      ),
     });
 
-    // Thread the (generated) policy seed into the next stage so every stage
-    // targets the same policy/delegation.
-    const seed = preparedSetup.persistence.policySeed ?? preparedSetup.policy.seed;
-    if (seed) {
-      policySeed = seed;
+    for (let i = 0; i < stages.length; i++) {
+      const stage = stages[i];
+      await withEarnAuth(
+        args.signer,
+        flowAuth,
+        "earn-autodeposit-setup-confirm",
+        (auth) =>
+          confirmEarnAutodepositSetup({
+            auth,
+            preparedSetup: stage,
+            setupSignature: sent[i].signature,
+            confirmedSlot: sent[i].confirmedSlot,
+            walletBalanceFloorRaw,
+          }),
+      );
+
+      // Thread the (generated) policy seed into the next round so every stage
+      // targets the same policy/delegation.
+      const seed = stage.persistence.policySeed ?? stage.policy.seed;
+      if (seed) {
+        policySeed = seed;
+      }
     }
-    if (preparedSetup.stage === "create_recurring_delegation") {
+    if (stages[stages.length - 1].stage === "create_recurring_delegation") {
       return;
     }
   }
@@ -162,16 +186,19 @@ export async function executeEarnAutodepositClose(args: {
     operation: hydratePreparedOperation(preparedClose.prepared),
   });
 
-  const confirmAuth = await signEarnAuth(
+  // Reuses the flow's prepare auth — no extra wallet prompt.
+  await withEarnAuth(
     args.signer,
+    prepareAuth,
     "earn-autodeposit-close-confirm",
+    (auth) =>
+      confirmEarnAutodepositClose({
+        auth,
+        preparedClose,
+        closeSignature: sent.signature,
+        confirmedSlot: sent.confirmedSlot,
+      }),
   );
-  await confirmEarnAutodepositClose({
-    auth: confirmAuth,
-    preparedClose,
-    closeSignature: sent.signature,
-    confirmedSlot: sent.confirmedSlot,
-  });
 }
 
 // Trigger the pending scheduled Autodeposit sweep to run now instead of waiting

@@ -2,7 +2,7 @@ import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 
 import { confirmEarnDeposit, prepareEarnDeposit } from "./earn-api";
-import { signEarnAuth } from "./earn-auth";
+import { signEarnAuth, withEarnAuth } from "./earn-auth";
 import { signAndSendPreparedOperations } from "./send-prepared";
 import { hydratePreparedOperation } from "./wire";
 
@@ -64,20 +64,22 @@ export async function executeEarnDeposit(args: {
     : undefined;
   const deposit = sent[cursor];
 
-  // Record into the web read-model. Best-effort: never undo a confirmed
-  // on-chain deposit because the DB write failed — the reconciler backfills.
+  // Record into the web read-model, reusing the flow's prepare auth (no
+  // second wallet prompt). Best-effort: never undo a confirmed on-chain
+  // deposit because the DB write failed — the reconciler backfills.
   try {
-    const confirmAuth = await signEarnAuth(args.signer, "earn-deposit-confirm");
-    await confirmEarnDeposit({
-      auth: confirmAuth,
-      preparedDeposit,
-      depositSignature: deposit.signature,
-      confirmedSlot: deposit.confirmedSlot,
-      policySignature: policy?.signature,
-      policyConfirmedSlot: policy?.confirmedSlot,
-      setupPolicySignature: setupPolicy?.signature,
-      setupPolicyConfirmedSlot: setupPolicy?.confirmedSlot,
-    });
+    await withEarnAuth(args.signer, prepareAuth, "earn-deposit-confirm", (auth) =>
+      confirmEarnDeposit({
+        auth,
+        preparedDeposit,
+        depositSignature: deposit.signature,
+        confirmedSlot: deposit.confirmedSlot,
+        policySignature: policy?.signature,
+        policyConfirmedSlot: policy?.confirmedSlot,
+        setupPolicySignature: setupPolicy?.signature,
+        setupPolicyConfirmedSlot: setupPolicy?.confirmedSlot,
+      }),
+    );
   } catch (error) {
     console.warn(
       "[earn-deposit] confirm failed; reconciler will backfill",

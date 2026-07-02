@@ -7,8 +7,8 @@ import {
   type EarnWithdrawMode,
   type EarnWithdrawSource,
 } from "./earn-api";
-import { signEarnAuth } from "./earn-auth";
-import { signAndSendPreparedOperation } from "./send-prepared";
+import { signEarnAuth, withEarnAuth } from "./earn-auth";
+import { signAndSendPreparedOperations } from "./send-prepared";
 import { hydratePreparedOperation } from "./wire";
 
 const USDC_DECIMALS = 6;
@@ -63,30 +63,27 @@ export async function executeEarnWithdraw(args: {
   }
 
   const connection = getConnection();
-  const send = (operation: Parameters<typeof hydratePreparedOperation>[0]) =>
-    signAndSendPreparedOperation({
-      connection,
-      signer: args.signer,
-      operation: hydratePreparedOperation(operation),
-    });
 
+  // Confirms reuse the flow's prepare auth — no extra wallet prompt.
   const confirmStep = async (
     withdrawalSignature: string,
     confirmedSlot: string,
     stepIndex?: number,
   ) => {
     try {
-      const confirmAuth = await signEarnAuth(
+      await withEarnAuth(
         args.signer,
+        prepareAuth,
         "earn-withdraw-confirm",
+        (auth) =>
+          confirmEarnWithdraw({
+            auth,
+            preparedWithdraw,
+            stepIndex,
+            withdrawalSignature,
+            confirmedSlot,
+          }),
       );
-      await confirmEarnWithdraw({
-        auth: confirmAuth,
-        preparedWithdraw,
-        stepIndex,
-        withdrawalSignature,
-        confirmedSlot,
-      });
     } catch (error) {
       console.warn(
         "[earn-withdraw] confirm failed; reconciler will backfill",
@@ -100,17 +97,26 @@ export async function executeEarnWithdraw(args: {
       ? preparedWithdraw.withdrawSteps
       : null;
 
+  // Sign every step in one wallet prompt (Seed Vault batches them) and send
+  // strictly in order; the landed steps are then recorded best-effort (the
+  // reconciler backfills any recording this misses).
+  const operations = (steps ?? [{ prepared: preparedWithdraw.prepared }]).map(
+    (step) => hydratePreparedOperation(step.prepared),
+  );
+  const sent = await signAndSendPreparedOperations({
+    connection,
+    signer: args.signer,
+    operations,
+  });
+
   const withdrawalSignatures: string[] = [];
-  if (steps) {
-    for (let i = 0; i < steps.length; i++) {
-      const sent = await send(steps[i].prepared);
-      withdrawalSignatures.push(sent.signature);
-      await confirmStep(sent.signature, sent.confirmedSlot, i);
-    }
-  } else {
-    const sent = await send(preparedWithdraw.prepared);
-    withdrawalSignatures.push(sent.signature);
-    await confirmStep(sent.signature, sent.confirmedSlot);
+  for (let i = 0; i < sent.length; i++) {
+    withdrawalSignatures.push(sent[i].signature);
+    await confirmStep(
+      sent[i].signature,
+      sent[i].confirmedSlot,
+      steps ? i : undefined,
+    );
   }
 
   return { withdrawalSignatures };
