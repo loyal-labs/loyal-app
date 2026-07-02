@@ -82,9 +82,15 @@ function parseMobileWalletAuthFields(body: unknown): MobileWalletAuthFields {
 
 // Verifies a mobile wallet-signed request and returns the authenticated wallet
 // address. Throws `WalletAuthError` (with an HTTP status) on any failure.
+//
+// `purpose` may list several accepted purposes: confirm endpoints also accept
+// the flow's prepare-purpose signature (within the freshness window) so the
+// device signs ONE auth message per flow instead of one per request. The
+// signature is verified against each candidate message; order them
+// most-likely-first.
 export async function authenticateMobileWalletRequest(args: {
   body: unknown;
-  purpose: MobileWalletAuthPurpose;
+  purpose: MobileWalletAuthPurpose | readonly MobileWalletAuthPurpose[];
   now?: () => number;
 }): Promise<{ walletAddress: string }> {
   const { walletAddress, signature, issuedAt } = parseMobileWalletAuthFields(
@@ -115,22 +121,25 @@ export async function authenticateMobileWalletRequest(args: {
     });
   }
 
-  const message = buildMobileWalletAuthMessage({
-    purpose: args.purpose,
-    walletAddress,
-    issuedAt,
-  });
-  const verified = await verifyWalletSignature({
-    walletAddress,
-    message,
-    signature,
-  });
-  if (!verified) {
-    throw new WalletAuthError("Wallet signature could not be verified.", {
-      code: "invalid_mobile_signature",
-      status: 401,
+  const purposes = Array.isArray(args.purpose) ? args.purpose : [args.purpose];
+  for (const purpose of purposes) {
+    const message = buildMobileWalletAuthMessage({
+      purpose,
+      walletAddress,
+      issuedAt,
     });
+    const verified = await verifyWalletSignature({
+      walletAddress,
+      message,
+      signature,
+    });
+    if (verified) {
+      return { walletAddress };
+    }
   }
 
-  return { walletAddress };
+  throw new WalletAuthError("Wallet signature could not be verified.", {
+    code: "invalid_mobile_signature",
+    status: 401,
+  });
 }

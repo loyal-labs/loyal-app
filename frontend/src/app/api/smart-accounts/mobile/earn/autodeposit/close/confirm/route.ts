@@ -207,7 +207,9 @@ export async function POST(request: Request) {
   try {
     ({ walletAddress } = await authenticateMobileWalletRequest({
       body,
-      purpose: "earn-autodeposit-close-confirm",
+      // Accepts the flow's prepare signature too — the device signs one auth
+      // message per flow (see authenticateMobileWalletRequest).
+      purpose: ["earn-autodeposit-close-confirm", "earn-autodeposit-close-prepare"],
     }));
   } catch (error) {
     if (error instanceof WalletAuthError) {
