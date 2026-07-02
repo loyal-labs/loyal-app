@@ -49,6 +49,14 @@ export const faqSchema = {
     },
     {
       "@type": "Question",
+      "name": "How do autodeposits work?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Deposit dollars and set how much goes to earning. Loyal routes that allocation to whichever reputable lending reserve currently pays the most and re-routes as rates move. The automation runs through an on-chain policy on your own smart account, so it never takes custody, and you can withdraw any time."
+      }
+    },
+    {
+      "@type": "Question",
       "name": "Is it true that Loyal gives the highest yield on Solana?",
       "acceptedAnswer": {
         "@type": "Answer",
@@ -146,7 +154,7 @@ export const orgSchema = {
   "legalName": "Loyal DAO LLC",
   "url": "https://askloyal.com",
   "logo": "https://askloyal.com/android-chrome-512x512.png",
-  "description": "Self-custody Solana smart-account wallet with on-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments and yield on shielded USDC.",
+  "description": "Self-custody Solana smart-account wallet that earns the best available stablecoin yield automatically. On-chain guardrails for AI agents: spending caps, token whitelists, and approved-protocol allowlists. Plus private payments.",
   "foundingDate": "2025",
   "foundingLocation": {
     "@type": "Place",
@@ -212,6 +220,12 @@ export const orgSchema = {
     **Kamino.** Specifically, [Kamino's](https://kamino.finance) single-asset lending vaults on Solana, the same infrastructure used by Phantom, Pendle, Anchorage, and others.
 
     When you earn APY on shielded USDC, your assets are deployed into Kamino's strategies. Loyal doesn't run its own yield strategies and doesn't promise magic numbers. Shielded SOL and USDT are supported for private transfers but do not currently earn yield.
+  </Accordion>
+
+  <Accordion title="How do autodeposits work?">
+    Deposit dollars and set how much goes to earning. Loyal routes that allocation to whichever reputable lending reserve currently pays the most and re-routes as rates move.
+
+    The automation runs through an on-chain policy on your own smart account, so it never takes custody, and you can withdraw any time.
   </Accordion>
 
   <Accordion title="Is it true that Loyal gives the highest yield on Solana?">
