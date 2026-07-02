@@ -85,7 +85,13 @@ export function useEarnPosition(walletAddress: string | null) {
       }
       let liveTotalRaw: string | null = null;
       if (holdingsResult.status === "fulfilled") {
-        liveTotalRaw = holdingsResult.value.currentTotalAmountRaw;
+        // observedAt is null only when the server skipped the chain read (no
+        // active Earn policy row yet) and returned a placeholder "0" — treat
+        // that as "live read unavailable" so it can't zero a real read-model
+        // balance. A genuine snapshot always carries observedAt, even at $0.
+        if (holdingsResult.value.observedAt !== null) {
+          liveTotalRaw = holdingsResult.value.currentTotalAmountRaw;
+        }
         setHoldings(holdingsResult.value.holdings);
       } else {
         console.error("Failed to fetch Earn holdings", holdingsResult.reason);
