@@ -413,6 +413,14 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
         max = Math.max(max, values[i]);
       }
     }
+    // Day one: no completed day has earnings yet, so the historical ceiling is
+    // 0 and every bar collapses to the minimum sliver. Scale to the in-progress
+    // bar instead so the first day's accrual reads as a real bar.
+    if (max <= 0) {
+      for (const value of values) {
+        max = Math.max(max, value);
+      }
+    }
     return { daily: values, axisMax: niceAxisMax(max) };
   }, [bars, baseEarned]);
 
