@@ -318,7 +318,9 @@ function QuestsScreenContent() {
               color: "#000",
             }}
           >
-            {allComplete ? "All tasks\ncompleted" : "Complete tasks.\nGet rewards"}
+            {allComplete
+              ? "All quests\ncomplete"
+              : "Complete quests.\nGet rewards"}
           </Text>
         </View>
 
