@@ -5425,6 +5425,88 @@ export function createSmartAccountVaultsClient(
     };
   }
 
+  // A prior first-deposit attempt can land the policy-create stages and then
+  // fail before confirm records them, leaving valid policies on-chain that the
+  // read-model doesn't know about. Blindly re-creating burns policy rent on
+  // every retry, so scan the settings' policies for a reusable route+setup
+  // pair (route policy at seed N, init-obligation setup twin at N+1, both
+  // carrying the current policy signer) before creating a fresh pair.
+  async function discoverEarnYieldRoutingPolicyPairOnChain(args: {
+    cluster: LoyalCluster;
+    feePayer: PublicKey;
+    policySigner: PublicKey;
+    settingsPda: PublicKey;
+    signer: PublicKey;
+  }): Promise<ResolvedEarnYieldRoutingPolicy | null> {
+    if (typeof config.connection.getProgramAccounts !== "function") {
+      return null;
+    }
+
+    let policies: Awaited<ReturnType<typeof listRawPolicies>>;
+    try {
+      policies = await listRawPolicies({ settingsPda: args.settingsPda });
+    } catch {
+      // Discovery is best-effort; creation remains the fallback.
+      return null;
+    }
+
+    // Earn interaction policies for the deposit vault, keyed by constraint
+    // count: the route policy carries withdraw+deposit (2), its setup twin
+    // carries only init-obligation (1). Anything else returns null.
+    const earnInteractionConstraintCount = (
+      entry: (typeof policies)[number]
+    ): number | null => {
+      const state = entry.policy.policyState;
+      if (
+        state.__kind !== "ProgramInteraction" ||
+        state.fields[0].accountIndex !== EARN_DEPOSIT_VAULT_INDEX ||
+        !entry.policy.signers.some((signer) =>
+          signer.key.equals(args.policySigner)
+        )
+      ) {
+        return null;
+      }
+      return state.fields[0].instructionsConstraints.length;
+    };
+
+    const bySeed = new Map(
+      policies.map((entry) => [toBigInt(entry.policy.seed), entry] as const)
+    );
+    const routes = policies
+      .filter((entry) => earnInteractionConstraintCount(entry) === 2)
+      .sort((left, right) =>
+        toBigInt(left.policy.seed) > toBigInt(right.policy.seed) ? -1 : 1
+      );
+
+    for (const route of routes) {
+      const routeSeed = toBigInt(route.policy.seed);
+      const setupEntry = bySeed.get(routeSeed + BigInt(1));
+      if (setupEntry && earnInteractionConstraintCount(setupEntry) === 1) {
+        return {
+          account: route.address,
+          seed: routeSeed,
+          setupAccount: setupEntry.address,
+          setupSeed: routeSeed + BigInt(1),
+        };
+      }
+      if (!setupEntry) {
+        // The route landed but its setup twin didn't — prepare only the
+        // setup stage against the existing route seed.
+        return resolveEarnYieldRoutingSetupPolicyForCreation({
+          cluster: args.cluster,
+          feePayer: args.feePayer,
+          policySeed: routeSeed,
+          policySigner: args.policySigner,
+          settingsPda: args.settingsPda,
+          signer: args.signer,
+        });
+      }
+      // Seed+1 holds an incompatible policy; try an older route candidate.
+    }
+
+    return null;
+  }
+
   async function resolveAgentPolicy(args: SmartAccountAddSignerProposalInput) {
     const accountIndex = resolveVaultAccountIndex(args.accountIndex);
 
@@ -6002,13 +6084,20 @@ export function createSmartAccountVaultsClient(
       ? "create"
       : "reuse";
     const earnPolicy = shouldInitializeYieldRoutingPolicy
-      ? await resolveEarnYieldRoutingPolicyForCreation({
+      ? (await discoverEarnYieldRoutingPolicyPairOnChain({
           cluster,
           feePayer: args.feePayer,
           policySigner: args.policySigner,
           settingsPda: args.settingsPda,
           signer: args.walletAddress,
-        })
+        })) ??
+        (await resolveEarnYieldRoutingPolicyForCreation({
+          cluster,
+          feePayer: args.feePayer,
+          policySigner: args.policySigner,
+          settingsPda: args.settingsPda,
+          signer: args.walletAddress,
+        }))
       : args.yieldRoutingPolicy
       ? args.yieldRoutingPolicy.setupPolicy
         ? {
@@ -6201,8 +6290,31 @@ export function createSmartAccountVaultsClient(
     const setupRentTopUpLamports = requiresKaminoSetupRent
       ? Math.max(0, KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS - vaultLamports)
       : 0;
+    const setupRentTopUpInstruction =
+      setupRentTopUpLamports > 0
+        ? SystemProgram.transfer({
+            fromPubkey: args.feePayer,
+            toPubkey: vaultPda,
+            lamports: setupRentTopUpLamports,
+          })
+        : null;
+    // Ride the vault SOL top-up in the policy-finalize stage when one exists:
+    // it lands before the deposit and has packet headroom, while the
+    // first-deposit tx sits near the 1232-byte packet limit — and clients may
+    // prepend a priority-fee instruction (~44 bytes) on top of what we prepare
+    // here, so every stage should keep that margin free. The ATA creates stay
+    // in the deposit tx, where their accounts are already referenced and cost
+    // only a few bytes.
     const policyInitializationOperation = earnPolicy.operation ?? null;
-    const policyFinalizeOperation = earnPolicy.finalizeOperation ?? null;
+    const policyFinalizeOperation = earnPolicy.finalizeOperation
+      ? {
+          ...earnPolicy.finalizeOperation,
+          instructions: [
+            ...earnPolicy.finalizeOperation.instructions,
+            ...(setupRentTopUpInstruction ? [setupRentTopUpInstruction] : []),
+          ],
+        }
+      : null;
     const depositExecution =
       await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
         {
@@ -6242,14 +6354,8 @@ export function createSmartAccountVaultsClient(
               ),
             ]
           : []),
-        ...(setupRentTopUpLamports > 0
-          ? [
-              SystemProgram.transfer({
-                fromPubkey: args.feePayer,
-                toPubkey: vaultPda,
-                lamports: setupRentTopUpLamports,
-              }),
-            ]
+        ...(setupRentTopUpInstruction && !policyFinalizeOperation
+          ? [setupRentTopUpInstruction]
           : []),
         createTransferCheckedInstruction(
           walletUsdcAta,
@@ -6277,6 +6383,20 @@ export function createSmartAccountVaultsClient(
       throw new Error(
         "Earn deposit transaction is too large to fit in a Solana packet. Split Kamino setup from the deposit and try again."
       );
+    }
+    for (const stageOperation of [
+      policyInitializationOperation,
+      policyFinalizeOperation,
+    ]) {
+      if (!stageOperation) {
+        continue;
+      }
+      const stageLength = preparedPacketLength(stageOperation);
+      if (stageLength === null || stageLength > EARN_POLICY_PACKET_DATA_SIZE) {
+        throw new Error(
+          "Earn policy setup transaction is too large to fit in a Solana packet."
+        );
+      }
     }
     const nativeSolRequirement = await estimateNativeSolRequirement({
       connection: config.connection,
