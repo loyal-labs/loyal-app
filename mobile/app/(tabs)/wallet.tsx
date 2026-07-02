@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LogoHeader } from "@/components/LogoHeader";
 import { DepositSheet } from "@/components/earn/DepositSheet";
 import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
+import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
 import { BalanceCard } from "@/components/wallet/BalanceCard";
 // import { BannerCard } from "@/components/wallet/BannerCard";
@@ -335,6 +336,9 @@ export default function WalletScreen() {
       }
       await executeEarnDeposit({ signer, amountUsd });
       void refreshEarnPosition();
+      // The confirm also records quest progress — check now so a completion
+      // celebrates immediately instead of on the watcher's next poll tick.
+      nudgeQuestProgressCheck();
     },
     [signer, state, refreshEarnPosition],
   );

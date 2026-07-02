@@ -1,3 +1,4 @@
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
 
@@ -29,8 +30,19 @@ const initKey = (pk: string) => `quest-celebrate-init:${pk}`;
 const kindKey = (pk: string, kind: string) => `quest-celebrated:${pk}:${kind}`;
 const allKey = (pk: string) => `quest-celebrated-all:${pk}`;
 
+// Action flows (e.g. a confirmed Earn deposit) call this so the mounted watcher
+// re-checks progress immediately instead of waiting for the next poll tick —
+// the quest completion row is already written by the time the confirm returns.
+const nudgeListeners = new Set<() => void>();
+export function nudgeQuestProgressCheck() {
+  for (const listener of nudgeListeners) {
+    listener();
+  }
+}
+
 export function QuestCompletionWatcher() {
   const { publicKey } = useWallet();
+  const router = useRouter();
   const [visible, setVisible] = useState(false);
   const [variant, setVariant] = useState<QuestCompleteVariant>("all");
 
@@ -91,11 +103,14 @@ export function QuestCompletionWatcher() {
     const subscription = AppState.addEventListener("change", (next) => {
       if (next === "active") void poll();
     });
+    const nudge = () => void poll();
+    nudgeListeners.add(nudge);
 
     return () => {
       active = false;
       clearInterval(interval);
       subscription.remove();
+      nudgeListeners.delete(nudge);
     };
   }, [publicKey, handleProgress]);
 
@@ -103,7 +118,15 @@ export function QuestCompletionWatcher() {
     <QuestCompleteNotification
       visible={visible}
       variant={variant}
-      onClose={() => setVisible(false)}
+      onClose={() => {
+        setVisible(false);
+        // "Next" (a single task done) lands on the quests page so the user
+        // sees the completed card and what's left; "Great" (all done) just
+        // dismisses.
+        if (variant === "single") {
+          router.navigate("/(tabs)/quests");
+        }
+      }}
     />
   );
 }

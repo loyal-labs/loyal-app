@@ -23,6 +23,7 @@ import { EarnDog } from "@/components/earn/EarnDog";
 import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { PositionsSheet } from "@/components/earn/PositionsSheet";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
+import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { Skeleton } from "@/components/Skeleton";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -435,6 +436,9 @@ export default function EarnScreen() {
       // executeEarnDeposit, just awaited) wrote it with the deposited total, so
       // the next `/state` read is correct immediately while live `/holdings` lags.
       markEarnMutation();
+      // The confirm also records quest progress — check now so a completion
+      // celebrates immediately instead of on the watcher's next poll tick.
+      nudgeQuestProgressCheck();
       // Reveal the funded layout immediately. The optimistic total (prior balance
       // + deposit; correct for top-ups too) bridges the network round-trip until
       // the refresh lands the reconciled read-model value (= the same total).
