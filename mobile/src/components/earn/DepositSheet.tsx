@@ -33,7 +33,7 @@ const usdcLogo = require("../../../assets/images/earn/usdc.png");
 
 // Earn only accepts USDC, so the asset is fixed and the selector is replaced
 // by a static logo chip (Figma 75:33570, annotation "вместо селекта").
-const MIN_DEPOSIT_USD = 5;
+const MIN_DEPOSIT_USD = 1;
 
 const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_CHIP_BG = "#F2F2F7";
@@ -226,14 +226,14 @@ export function DepositSheet({
 
   const displayValue = formatAmountDisplay(amount);
   const enteredUsd = amountToUsd(amount);
-  // < $5 (incl. the empty/zero state) → "Minimum"; ≥ $5 but over the wallet
-  // balance → "Insufficient balance". Both render the same red, non-pressable
-  // CTA; the minimum check takes precedence.
+  // Below the minimum (incl. the empty/zero state) → "Minimum"; at/above it
+  // but over the wallet balance → "Insufficient balance". Both render the same
+  // red, non-pressable CTA; the minimum check takes precedence.
   const belowMinimum = enteredUsd < MIN_DEPOSIT_USD;
   const insufficientFunds = !belowMinimum && enteredUsd > available;
   const hasError = belowMinimum || insufficientFunds;
   const ctaLabel = belowMinimum
-    ? "Minimum deposit is $5"
+    ? `Minimum deposit is $${MIN_DEPOSIT_USD}`
     : insufficientFunds
       ? "Insufficient balance"
       : "Deposit";
