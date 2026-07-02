@@ -163,7 +163,7 @@ export async function POST(request: Request) {
           target.recurringDelegationExpiryTimestamp ?? expiryTimestamp;
       }
     }
-    const preparedSetup = await client.prepareEarnUsdcAutodepositSetup({
+    const prepareArgs = {
       amountRaw: parsed.amountRaw,
       cluster,
       expiryTimestamp,
@@ -177,9 +177,22 @@ export async function POST(request: Request) {
       signer: new PublicKey(walletAddress),
       startTimestamp,
       walletAddress: new PublicKey(walletAddress),
-    });
+    };
+    // `includeBatch` mirrors the web route: the create_policy stage also
+    // returns the create_recurring_delegation stage prepared ahead, so the
+    // device can sign both in one wallet prompt and send them in order.
+    const preparedSetups = parsed.includeBatch
+      ? await client.prepareEarnUsdcAutodepositSetupBatch(prepareArgs)
+      : [await client.prepareEarnUsdcAutodepositSetup(prepareArgs)];
+    const preparedSetup = preparedSetups[0];
+    if (!preparedSetup) {
+      throw new Error("Failed to prepare Earn autodeposit setup.");
+    }
 
     return NextResponse.json({
+      nextPreparedSetup: preparedSetups[1]
+        ? serializePreparedEarnUsdcAutodepositSetup(preparedSetups[1])
+        : null,
       preparedSetup: serializePreparedEarnUsdcAutodepositSetup(preparedSetup),
     });
   } catch (error) {
