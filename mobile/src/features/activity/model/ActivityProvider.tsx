@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 
+import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { useEarnActivity } from "@/hooks/wallet/useEarnActivity";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -277,6 +278,12 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     );
     if (fresh) {
       setSweepMorph((m) => (m && !m.resultTx ? { ...m, resultTx: fresh } : m));
+      // The sweep landing is what completes quest 2, and the worker reports it
+      // within seconds — check now, and once more in case the report is still
+      // in flight (deliberately no cleanup: a late one-shot nudge is harmless,
+      // while clearing on this effect's frequent re-runs would cancel it).
+      nudgeQuestProgressCheck();
+      setTimeout(nudgeQuestProgressCheck, 8_000);
     }
   }, [earnTransactions, sweepMorph]);
 
