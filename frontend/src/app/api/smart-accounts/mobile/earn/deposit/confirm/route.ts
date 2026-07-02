@@ -240,10 +240,45 @@ export async function POST(request: Request) {
       }
     }
 
+    // Resumed first deposit: a prior attempt landed the policy-create stage
+    // and then died (e.g. SOL shortfall at finalize), so this prepare carries
+    // policyFinalizePrepared and/or the deposit but no policySetupPrepared —
+    // the device has no policy signature to echo, and the shared resolution
+    // treats the remaining stages as a first deposit and rejects without one.
+    // Adopt the policy's creation signature (DB row when present, otherwise
+    // resolved from chain) so the retry records instead of stranding the
+    // on-chain deposit invisibly.
+    let adoptedPolicyCreation: {
+      signature: string;
+      slot: string | null;
+    } | null = null;
+    if (
+      !fields.policySignature &&
+      !preparedDeposit.policySetupPrepared &&
+      (preparedDeposit.policyFinalizePrepared ||
+        preparedDeposit.persistence.policyInitialization === "create")
+    ) {
+      if (
+        activePolicy?.account === reusedPolicyAccount &&
+        activePolicy.lastSeenSignature
+      ) {
+        adoptedPolicyCreation = {
+          signature: activePolicy.lastSeenSignature,
+          slot: activePolicy.lastSeenSlot ?? null,
+        };
+      } else {
+        adoptedPolicyCreation = await resolvePolicyCreationSignatureFromChain({
+          cluster: solanaEnv,
+          policyAccount: reusedPolicyAccount,
+        });
+      }
+    }
+
     const resolution = resolveEarnDepositConfirmPolicySignature({
       activePolicy,
-      policySignature: fields.policySignature,
-      policyConfirmedSlot: fields.policyConfirmedSlot,
+      policySignature: fields.policySignature ?? adoptedPolicyCreation?.signature,
+      policyConfirmedSlot:
+        fields.policyConfirmedSlot ?? adoptedPolicyCreation?.slot ?? undefined,
       setupPolicySignature: fields.setupPolicySignature,
       setupPolicyConfirmedSlot: fields.setupPolicyConfirmedSlot,
       preparedDeposit,
