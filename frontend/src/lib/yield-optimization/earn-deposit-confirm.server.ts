@@ -329,6 +329,34 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
+// A route policy can exist on-chain without DB rows (the deposit that created
+// it landed but its confirm failed), so a reuse confirm has no recorded
+// creation signature to cite. Recover it from the chain: the policy account's
+// oldest successful transaction is the one that created it.
+export async function resolvePolicyCreationSignatureFromChain(args: {
+  cluster: SolanaEnv;
+  policyAccount: string;
+}): Promise<{ signature: string; slot: string } | null> {
+  try {
+    const connection = getConnection(args.cluster);
+    const signatures = await connection.getSignaturesForAddress(
+      new PublicKey(args.policyAccount),
+      { limit: 1000 },
+      "confirmed"
+    );
+    const creation = [...signatures]
+      .reverse()
+      .find((entry) => entry.err === null);
+    if (!creation) {
+      return null;
+    }
+    return { signature: creation.signature, slot: creation.slot.toString() };
+  } catch {
+    // Best-effort recovery; the caller falls back to the original error.
+    return null;
+  }
+}
+
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
   operation: "deposit" | "route policy setup" | "setup policy setup";
