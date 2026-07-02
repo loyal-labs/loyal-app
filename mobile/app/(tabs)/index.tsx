@@ -667,7 +667,12 @@ export default function EarnScreen() {
   }, [forecastSummary]);
 
   // Autodeposit threshold subtitle, shown once it's been set up (Figma 74:20722).
-  const isAutodepositSetUp = autodepositThresholdUsd != null;
+  // A pending target (setup abandoned before its delegation stage) can't be
+  // toggled or edited — the server rejects both. Treat it as not set up so the
+  // row offers "Set up" again; the backend resumes the recorded policy/nonce,
+  // so only the missing final stage needs signing.
+  const isAutodepositSetUp =
+    autodepositThresholdUsd != null && autodeposit?.status !== "pending";
   const autodepositSubtitle = useMemo(() => {
     if (autodepositThresholdUsd == null) {
       return null;
