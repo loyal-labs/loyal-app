@@ -44,12 +44,12 @@ export type QuestCompleteVariant = "single" | "all";
 const COPY: Record<QuestCompleteVariant, { title: string; body: string; cta: string }> = {
   single: {
     title: "Task complete",
-    body: "You completed a Seeker Season task",
+    body: "You completed a Seeker Summer task",
     cta: "Next",
   },
   all: {
     title: "Quest complete!",
-    body: "You completed all Seeker Season tasks",
+    body: "You completed all Seeker Summer tasks",
     cta: "Great",
   },
 };
