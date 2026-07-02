@@ -5,6 +5,10 @@ import { authenticateMobileWalletRequest } from "@/features/identity/server/mobi
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import {
+  autodepositEnabledPush,
+  sendWalletPush,
+} from "@/lib/push-notifications/wallet-push.server";
+import {
   parseEarnAutodepositToggleConfirmRequestBody,
   type EarnAutodepositToggleConfirmResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
@@ -114,6 +118,11 @@ export async function POST(request: Request) {
       vaultIndex: input.vaultIndex,
       walletAddress,
     });
+
+    if (input.active) {
+      // Transactional push (ASK-1651).
+      await sendWalletPush(walletAddress, autodepositEnabledPush());
+    }
 
     return NextResponse.json({ target: serializeTarget(target) });
   } catch (error) {

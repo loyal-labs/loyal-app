@@ -23,6 +23,11 @@ import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
+import {
+  autodepositEnabledPush,
+  autodepositSweepScheduledPush,
+  sendWalletPush,
+} from "@/lib/push-notifications/wallet-push.server";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
@@ -640,6 +645,22 @@ export async function POST(request: Request) {
         status: "failed",
       };
     }
+  }
+
+  if (input.setupStage === "create_recurring_delegation") {
+    // Transactional push (ASK-1651). When the bootstrap sweep already found
+    // idle USDC, the "about to move" push implies auto-deposit is on — send
+    // one push, not two.
+    const scheduledSweep =
+      bootstrapSweep?.status === "scheduled" ? bootstrapSweep.sweep : undefined;
+    await sendWalletPush(
+      input.walletAddress,
+      scheduledSweep
+        ? autodepositSweepScheduledPush(
+            BigInt(scheduledSweep.remainingAmountRaw)
+          )
+        : autodepositEnabledPush()
+    );
   }
 
   return NextResponse.json({

@@ -5,6 +5,10 @@ import { authenticateMobileWalletRequest } from "@/features/identity/server/mobi
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import {
+  autodepositSweepScheduledPush,
+  sendWalletPush,
+} from "@/lib/push-notifications/wallet-push.server";
+import {
   parseEarnAutodepositFloorUpdateConfirmRequestBody,
   type EarnAutodepositSetupConfirmResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
@@ -132,6 +136,17 @@ export async function POST(request: Request) {
       walletAddress,
       walletBalanceFloorRaw: input.walletBalanceFloorRaw,
     });
+
+    if (result.rebaselineSweep.status === "scheduled") {
+      // Transactional push (ASK-1651): lowering the floor freed up USDC and a
+      // sweep got scheduled.
+      await sendWalletPush(
+        walletAddress,
+        autodepositSweepScheduledPush(
+          result.rebaselineSweep.sweep.remainingAmountRaw
+        )
+      );
+    }
 
     return NextResponse.json({
       rebaselineSweep:
