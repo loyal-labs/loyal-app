@@ -335,7 +335,7 @@ function QuestsScreenContent() {
         >
           <TaskCard
             icon={<DepositIcon width={40} height={40} />}
-            title="Deposit $10 to Earn with Seeker Wallet"
+            title="Deposit $5 to Earn with Seeker Wallet"
             state={task1State}
             onPress={openDeposit}
           />
