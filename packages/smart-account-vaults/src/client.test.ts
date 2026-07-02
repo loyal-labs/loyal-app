@@ -2395,6 +2395,43 @@ describe("prepareEarnUsdcAutodeposit", () => {
   });
 
   test("builds close policy removal with backend signer metadata", async () => {
+    const recurringDelegation = new PublicKey(
+      "11111111111111111111111111111116"
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(policyAccount)) {
+        return createSerializedEarnPolicyAccount();
+      }
+      if (address.equals(recurringDelegation)) {
+        return createSerializedRecurringDelegationAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositClose({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      policy: policyAccount,
+      recurringDelegation,
+    });
+
+    expect(result.prepared.instructions).toHaveLength(2);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
+    expect(result.persistence).toMatchObject({
+      delegatedSigner: backendSigner.toBase58(),
+      policyAccount: policyAccount.toBase58(),
+      walletAddress: walletAddress.toBase58(),
+    });
+  });
+
+  test("omits the delegation revoke when the delegation was never created", async () => {
     const getAccountInfo = mock(async (address: PublicKey) => {
       if (address.equals(policyAccount)) {
         return createSerializedEarnPolicyAccount();
@@ -2416,13 +2453,11 @@ describe("prepareEarnUsdcAutodeposit", () => {
       recurringDelegation: new PublicKey("11111111111111111111111111111116"),
     });
 
-    expect(result.prepared.instructions).toHaveLength(2);
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
-    expect(result.persistence).toMatchObject({
-      delegatedSigner: backendSigner.toBase58(),
-      policyAccount: policyAccount.toBase58(),
-      walletAddress: walletAddress.toBase58(),
-    });
+    // A setup abandoned before its delegation stage: revoking the nonexistent
+    // delegation would fail simulation and strand the close, so only the
+    // policy-close instruction remains.
+    expect(result.prepared.instructions).toHaveLength(1);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[0]);
   });
 
   test("builds pull execution with the backend policy signer", async () => {

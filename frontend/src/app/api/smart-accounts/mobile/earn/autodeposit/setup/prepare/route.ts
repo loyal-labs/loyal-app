@@ -17,6 +17,7 @@ import {
   parseEarnAutodepositSetupPrepareRequestBody,
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
+import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 
 // Mobile twin of `yield-optimization/autodeposit/setup/prepare`. Wallet-sig auth
 // + self-resolved smart account; the SDK returns the next setup stage's prepared
@@ -131,19 +132,50 @@ export async function POST(request: Request) {
       connection: getConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
+    // Resume a half-finished setup: a pending_delegation target means the
+    // policy stage confirmed but the delegation tx was never signed. Reusing
+    // the recorded seed + nonce makes the SDK's chain-driven stage machine
+    // return the missing create_recurring_delegation stage for the SAME
+    // recorded delegation — a fresh seed/nonce would instead mint (and pay
+    // rent on) a duplicate policy and strand the pending row forever.
+    let policySeed = parsed.policySeed;
+    let nonce = parsed.nonce;
+    let periodLengthSeconds = parsed.periodLengthSeconds;
+    let startTimestamp = parsed.startTimestamp;
+    let expiryTimestamp = parsed.expiryTimestamp;
+    if (policySeed === undefined) {
+      const current = await findCurrentEarnAutodepositState({
+        settings: settingsPda,
+        vaultIndex: 1,
+        walletAddress,
+      });
+      const target = current?.target;
+      if (
+        target?.lifecycleStatus === "pending_delegation" &&
+        target.recurringDelegationNonce !== null
+      ) {
+        policySeed = target.policySeed;
+        nonce = target.recurringDelegationNonce;
+        periodLengthSeconds =
+          target.periodLengthSeconds ?? periodLengthSeconds;
+        startTimestamp = target.startTimestamp ?? startTimestamp;
+        expiryTimestamp =
+          target.recurringDelegationExpiryTimestamp ?? expiryTimestamp;
+      }
+    }
     const preparedSetup = await client.prepareEarnUsdcAutodepositSetup({
       amountRaw: parsed.amountRaw,
       cluster,
-      expiryTimestamp: parsed.expiryTimestamp,
+      expiryTimestamp,
       feePayer: new PublicKey(walletAddress),
       minimumDelegatorBalanceRaw: parsed.walletBalanceFloorRaw,
-      nonce: parsed.nonce,
-      periodLengthSeconds: parsed.periodLengthSeconds,
+      nonce,
+      periodLengthSeconds,
       policySigner,
-      policySeed: parsed.policySeed,
+      policySeed,
       settingsPda: new PublicKey(settingsPda),
       signer: new PublicKey(walletAddress),
-      startTimestamp: parsed.startTimestamp,
+      startTimestamp,
       walletAddress: new PublicKey(walletAddress),
     });
 

@@ -8394,16 +8394,27 @@ export function createSmartAccountVaultsClient(
       policies: [args.policy],
       memo: args.memo,
     });
+    // A setup abandoned before its final stage leaves the policy on-chain with
+    // the recurring delegation never created; revoking the missing delegation
+    // fails simulation ("invalid account owner") and strands the close. Only
+    // revoke a delegation that actually exists.
+    const delegationAccount = await config.connection.getAccountInfo(
+      args.recurringDelegation
+    );
     const prepared = freezePreparedOperation({
       operation: "earnUsdcAutodepositClose",
       payer: args.feePayer,
       programId: smartAccountsClient.programId,
       requiresConfirmation: true,
       instructions: [
-        createSubscriptionRevokeDelegationInstruction({
-          authority: args.walletAddress,
-          delegation: args.recurringDelegation,
-        }),
+        ...(delegationAccount
+          ? [
+              createSubscriptionRevokeDelegationInstruction({
+                authority: args.walletAddress,
+                delegation: args.recurringDelegation,
+              }),
+            ]
+          : []),
         ...closePolicy.instructions,
       ],
       lookupTableAccounts: dedupeLookupTableAccounts(
