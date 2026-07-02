@@ -18,6 +18,7 @@ import {
 import {
   EarnDepositConfirmError,
   recordConfirmedEarnDeposit,
+  resolvePolicyCreationSignatureFromChain,
 } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import {
   resolveEarnDepositConfirmPolicySignature,
@@ -190,7 +191,7 @@ export async function POST(request: Request) {
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       vaultPubkey: earnVaultPda.toBase58(),
     });
-    const activePolicy: EarnDepositPolicySignatureSource = policyPair?.routePolicy
+    let activePolicy: EarnDepositPolicySignatureSource = policyPair?.routePolicy
       ? {
           account: policyPair.routePolicy.policyAccount,
           seed: policyPair.routePolicy.policySeed.toString(),
@@ -198,6 +199,32 @@ export async function POST(request: Request) {
           lastSeenSlot: policyPair.routePolicy.lastSeenSlot?.toString() ?? null,
         }
       : null;
+    // Recovery path: prepare can reuse a policy pair it discovered on-chain
+    // when a prior confirm failure left no DB rows — then there is no recorded
+    // creation signature for the reuse resolution to cite. Resolve it from the
+    // chain so this confirm can adopt the policy instead of failing.
+    const reusedPolicyAccount = preparedDeposit.policy.account.toBase58();
+    if (
+      !preparedDeposit.policySetupPrepared &&
+      !preparedDeposit.policyFinalizePrepared &&
+      preparedDeposit.persistence.policyInitialization !== "create" &&
+      (!activePolicy ||
+        activePolicy.account !== reusedPolicyAccount ||
+        !activePolicy.lastSeenSignature)
+    ) {
+      const creation = await resolvePolicyCreationSignatureFromChain({
+        cluster: solanaEnv,
+        policyAccount: reusedPolicyAccount,
+      });
+      if (creation) {
+        activePolicy = {
+          account: reusedPolicyAccount,
+          seed: preparedDeposit.policy.seed.toString(),
+          lastSeenSignature: creation.signature,
+          lastSeenSlot: creation.slot,
+        };
+      }
+    }
 
     const resolution = resolveEarnDepositConfirmPolicySignature({
       activePolicy,
