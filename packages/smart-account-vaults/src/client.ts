@@ -6290,8 +6290,31 @@ export function createSmartAccountVaultsClient(
     const setupRentTopUpLamports = requiresKaminoSetupRent
       ? Math.max(0, KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS - vaultLamports)
       : 0;
+    const setupRentTopUpInstruction =
+      setupRentTopUpLamports > 0
+        ? SystemProgram.transfer({
+            fromPubkey: args.feePayer,
+            toPubkey: vaultPda,
+            lamports: setupRentTopUpLamports,
+          })
+        : null;
+    // Ride the vault SOL top-up in the policy-finalize stage when one exists:
+    // it lands before the deposit and has packet headroom, while the
+    // first-deposit tx sits near the 1232-byte packet limit — and clients may
+    // prepend a priority-fee instruction (~44 bytes) on top of what we prepare
+    // here, so every stage should keep that margin free. The ATA creates stay
+    // in the deposit tx, where their accounts are already referenced and cost
+    // only a few bytes.
     const policyInitializationOperation = earnPolicy.operation ?? null;
-    const policyFinalizeOperation = earnPolicy.finalizeOperation ?? null;
+    const policyFinalizeOperation = earnPolicy.finalizeOperation
+      ? {
+          ...earnPolicy.finalizeOperation,
+          instructions: [
+            ...earnPolicy.finalizeOperation.instructions,
+            ...(setupRentTopUpInstruction ? [setupRentTopUpInstruction] : []),
+          ],
+        }
+      : null;
     const depositExecution =
       await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
         {
@@ -6331,14 +6354,8 @@ export function createSmartAccountVaultsClient(
               ),
             ]
           : []),
-        ...(setupRentTopUpLamports > 0
-          ? [
-              SystemProgram.transfer({
-                fromPubkey: args.feePayer,
-                toPubkey: vaultPda,
-                lamports: setupRentTopUpLamports,
-              }),
-            ]
+        ...(setupRentTopUpInstruction && !policyFinalizeOperation
+          ? [setupRentTopUpInstruction]
           : []),
         createTransferCheckedInstruction(
           walletUsdcAta,
@@ -6366,6 +6383,20 @@ export function createSmartAccountVaultsClient(
       throw new Error(
         "Earn deposit transaction is too large to fit in a Solana packet. Split Kamino setup from the deposit and try again."
       );
+    }
+    for (const stageOperation of [
+      policyInitializationOperation,
+      policyFinalizeOperation,
+    ]) {
+      if (!stageOperation) {
+        continue;
+      }
+      const stageLength = preparedPacketLength(stageOperation);
+      if (stageLength === null || stageLength > EARN_POLICY_PACKET_DATA_SIZE) {
+        throw new Error(
+          "Earn policy setup transaction is too large to fit in a Solana packet."
+        );
+      }
     }
     const nativeSolRequirement = await estimateNativeSolRequirement({
       connection: config.connection,
