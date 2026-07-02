@@ -28,6 +28,12 @@ const POST_EXPIRY_ATTEMPTS = 3;
 // prepared instructions don't, and their default has been landing), so the
 // per-tx fee stays well under ~0.0002 SOL.
 const PRIORITY_FEE_MICRO_LAMPORTS = 100_000;
+// Solana's max serialized transaction size. The backend prepares txs up to this
+// limit, so prepending the priority-fee instruction (~44 bytes) can push a fat
+// first-deposit tx over it — Seed Vault then refuses to sign (result=1007) and
+// the RPC would reject it anyway. When that happens, send without the fee:
+// landing slowly beats not signing at all.
+const MAX_TRANSACTION_BYTES = 1232;
 // How often to re-broadcast the signed tx while waiting for confirmation.
 const REBROADCAST_INTERVAL_MS = 2000;
 
@@ -137,17 +143,25 @@ export async function signAndSendPreparedOperation(args: {
   const { connection, signer, operation } = args;
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash("confirmed");
-  const message = new TransactionMessage({
-    payerKey: operation.payer,
-    recentBlockhash: blockhash,
-    instructions: [
-      ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: PRIORITY_FEE_MICRO_LAMPORTS,
-      }),
-      ...operation.instructions,
-    ],
-  }).compileToV0Message(operation.lookupTableAccounts);
-  const transaction = new VersionedTransaction(message);
+  const compile = (withPriorityFee: boolean) =>
+    new VersionedTransaction(
+      new TransactionMessage({
+        payerKey: operation.payer,
+        recentBlockhash: blockhash,
+        instructions: withPriorityFee
+          ? [
+              ComputeBudgetProgram.setComputeUnitPrice({
+                microLamports: PRIORITY_FEE_MICRO_LAMPORTS,
+              }),
+              ...operation.instructions,
+            ]
+          : operation.instructions,
+      }).compileToV0Message(operation.lookupTableAccounts),
+    );
+  let transaction = compile(true);
+  if (transaction.serialize().length > MAX_TRANSACTION_BYTES) {
+    transaction = compile(false);
+  }
   await signer.signTransaction(transaction);
   const rawTransaction = transaction.serialize();
   // First send runs preflight so a genuinely invalid tx fails fast; resends skip
