@@ -204,6 +204,7 @@ export async function POST(request: Request) {
     // creation signature for the reuse resolution to cite. Resolve it from the
     // chain so this confirm can adopt the policy instead of failing.
     const reusedPolicyAccount = preparedDeposit.policy.account.toBase58();
+    let adoptedSetupPolicy: { signature: string; slot: string } | null = null;
     if (
       !preparedDeposit.policySetupPrepared &&
       !preparedDeposit.policyFinalizePrepared &&
@@ -223,6 +224,19 @@ export async function POST(request: Request) {
           lastSeenSignature: creation.signature,
           lastSeenSlot: creation.slot,
         };
+        // Adopt the setup policy of the reused pair too: the recorder only
+        // writes the managed-vault row — which every Earn read (holdings,
+        // withdraw sources) keys on — when the confirm carries complete
+        // setup-policy metadata (account/seed from prepare's persistence plus
+        // a creation signature+slot, resolved from chain here).
+        const setupPolicyAccount =
+          preparedDeposit.persistence.setupPolicyAccount;
+        if (setupPolicyAccount) {
+          adoptedSetupPolicy = await resolvePolicyCreationSignatureFromChain({
+            cluster: solanaEnv,
+            policyAccount: setupPolicyAccount,
+          });
+        }
       }
     }
 
@@ -245,8 +259,10 @@ export async function POST(request: Request) {
       smartAccountAddress,
       policySignature: resolution.policySignature,
       policyConfirmedSlot: resolution.policyConfirmedSlot,
-      setupPolicySignature: resolution.setupPolicySignature,
-      setupPolicyConfirmedSlot: resolution.setupPolicyConfirmedSlot,
+      setupPolicySignature:
+        resolution.setupPolicySignature ?? adoptedSetupPolicy?.signature,
+      setupPolicyConfirmedSlot:
+        resolution.setupPolicyConfirmedSlot ?? adoptedSetupPolicy?.slot,
     });
     const input = parseEarnDepositConfirmRequestBody(confirmBody);
 
