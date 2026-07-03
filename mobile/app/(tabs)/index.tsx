@@ -511,17 +511,14 @@ export default function EarnScreen() {
   );
 
   const handleWithdrawConfirmed = useCallback(
-    async (amountUsd: number, source: EarnWithdrawSourceInfo | null) => {
+    async (
+      amountUsd: number,
+      source: EarnWithdrawSourceInfo | null,
+      mode: "full" | "partial",
+    ) => {
       if (!signer || !isWalletUnlocked(state)) {
         throw new Error("Unlock your wallet to withdraw.");
       }
-      // Mode is relative to the selected source: emptying that source is a full
-      // withdrawal (backend uses the exact on-chain amount), otherwise partial.
-      const sourceBalance = source
-        ? Number(source.amountRaw) / 1e6
-        : (depositedUsd ?? 0);
-      const mode: "full" | "partial" =
-        amountUsd >= sourceBalance - 0.005 ? "full" : "partial";
       await executeEarnWithdraw({
         signer,
         amountUsd,
@@ -544,7 +541,6 @@ export default function EarnScreen() {
     [
       signer,
       state,
-      depositedUsd,
       withdrawSources,
       markEarnMutation,
       requestRefresh,

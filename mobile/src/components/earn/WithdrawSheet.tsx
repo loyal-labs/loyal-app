@@ -170,10 +170,14 @@ type WithdrawSheetProps = {
   onClose: () => void;
   // May return a Promise — the button shows a loading spinner while pending.
   // `source` is the selected withdrawal source (null when the position has a
-  // single implicit source / sources haven't loaded).
+  // single implicit source / sources haven't loaded). `mode` is decided here —
+  // the sheet is the only place that has both the MAX intent and the balance
+  // the input validated against; "full" means "empty this source" and the
+  // backend then uses its own exact on-chain amount, ignoring `amountUsd`.
   onWithdraw?: (
     amountUsd: number,
     source: EarnWithdrawSourceInfo | null,
+    mode: "full" | "partial",
   ) => void | Promise<void>;
   // The user's withdrawable Earn balance (token units ≈ dollars). Used as the
   // cap when no per-source breakdown is available.
@@ -307,7 +311,10 @@ export function WithdrawSheet({
   }, []);
 
   const enteredUsd = amountToUsd(amount);
-  const isEmpty = enteredUsd <= 0;
+  // With MAX, judge emptiness by the real balance, not the floored display —
+  // a sub-cent source shows "0.00" but must stay withdrawable (it's exactly
+  // the dust that keeps a position open at $0.00 and blocks the rent refund).
+  const isEmpty = maxSelected ? available <= 0 : enteredUsd <= 0;
   const insufficientFunds = !isEmpty && enteredUsd > available;
   const hasError = insufficientFunds;
   const disabled = isEmpty || hasError;
@@ -320,11 +327,19 @@ export function WithdrawSheet({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
     setSubmitError(null);
-    // MAX submits the exact source balance (not the floored display value) so it
-    // triggers the caller's full-withdraw path and empties the source — the
-    // display is capped at 2 decimals but the real amount has more precision.
-    const amountToWithdraw = maxSelected ? available : enteredUsd;
-    const result = onWithdraw?.(amountToWithdraw, selectedSource);
+    // MAX (or typing the visible floored max — the input only takes cents) means
+    // "empty this source": submit the exact balance and an explicit "full" mode.
+    // Reconstructing the intent later from float comparisons across different
+    // reads degraded MAX to a partial withdraw that stranded dust and kept the
+    // position open at $0.00 (no close, no SOL rent refund). Mirrors the web
+    // `deriveEarnWithdrawMode`.
+    const isMax = maxSelected || enteredUsd >= floorTo2(available);
+    const amountToWithdraw = isMax ? available : enteredUsd;
+    const result = onWithdraw?.(
+      amountToWithdraw,
+      selectedSource,
+      isMax ? "full" : "partial",
+    );
     if (!(result instanceof Promise)) {
       sheetRef.current?.dismiss();
       return;
