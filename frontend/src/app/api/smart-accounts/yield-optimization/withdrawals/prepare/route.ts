@@ -24,6 +24,7 @@ import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/ea
 import {
   findActiveYieldRoutePolicyPair,
   findCurrentNonzeroYieldVaultReservePositions,
+  EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW,
   findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
   type CurrentYieldVaultIdleTokenBalanceRecord,
@@ -33,16 +34,6 @@ import {
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
-
-// Sub-cent idle USDC must not block a final exit. The final-exit prepare path
-// sweeps the vault USDC ATA's live balance into the wallet transfer, so
-// tolerated idle dust is paid out, the ATA closes, and the policies close (SOL
-// rent refund). Without the tolerance, the 1-2 raw units that Kamino redemption
-// rounding strands in the idle account keep the position open at $0.00 forever
-// — the cent-precision withdraw UIs can't express an amount below $0.01 to
-// clear it. Reserve remainders stay strict: the sweep does not touch other
-// reserves' collateral.
-const EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW = BigInt(10_000); // $0.01
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
