@@ -973,6 +973,28 @@ export const solanaWeekQuestCompletions = loyalYieldSchema.table(
   ]
 );
 
+// Push-campaign sent log (ASK-1651 P2/P3): one row per (wallet, campaign).
+// Mixpanel cohort webhooks re-send members after mid-sync failures, so the
+// receiver inserts here first and only pushes when the insert lands.
+export const pushCampaignSends = loyalYieldSchema.table(
+  "push_campaign_sends",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    walletAddress: text("wallet_address").notNull(),
+    campaign: text("campaign").notNull(),
+    cohortId: text("cohort_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("push_campaign_send_wallet_campaign_uidx").on(
+      table.walletAddress,
+      table.campaign
+    ),
+  ]
+);
+
 export const yieldOptimizationSchema = {
   balanceSweepExecutions,
   balanceSweepLotClaimItems,
@@ -986,6 +1008,7 @@ export const yieldOptimizationSchema = {
   earnApyHourlySnapshots,
   earnForecastSnapshots,
   managedVaults,
+  pushCampaignSends,
   rebalanceDecisions,
   routePolicies,
   solanaWeekQuestCompletions,
