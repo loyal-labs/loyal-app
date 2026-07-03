@@ -45,6 +45,13 @@ import {
 // reconcile. Up-direction only — right after a deposit the live read can
 // transiently dip BELOW the freshly confirmed total (funds mid-flight into
 // Kamino), and healing downward would reintroduce the very dip this fixes.
+//
+// Stale-read guard: the RPC pool can serve a lagging node whose account view
+// predates a deposit the DB already confirmed, and the client trusts a
+// successful live read over the read-model. A snapshot observed at a slot
+// below the position's last confirmed slot is provably stale, so it is
+// returned with observedAt: null — the client's existing "live read
+// unavailable" path — instead of letting the old balance flash on screen.
 const EARN_VAULT_INDEX = 1;
 const EARN_READ_MODEL_HEAL_MIN_DELTA_RAW = BigInt(10_000); // $0.01
 const connectionCache = new Map<SolanaEnv, Connection>();
@@ -159,8 +166,10 @@ export async function GET(request: Request) {
       settingsPda,
     });
 
-    // Best-effort read-model heal (see the module comment). Never fails the
-    // holdings response — the live snapshot above is already the answer.
+    // Stale-read guard + best-effort read-model heal (see the module comment).
+    // Neither ever fails the holdings response — the live snapshot above is
+    // already the answer.
+    let staleLiveRead = false;
     try {
       const position = await findActiveYieldPositionForVault({
         cluster,
@@ -168,8 +177,24 @@ export async function GET(request: Request) {
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress,
       });
+      // A snapshot computed at a slot BELOW the position's last confirmed slot
+      // came from a lagging RPC node and predates chain state the DB has
+      // already confirmed — its total must not override the headline. Signal
+      // "live read unavailable" via observedAt: null (the client already keeps
+      // the read-model balance for that case) instead of serving the old view.
+      staleLiveRead =
+        position !== null &&
+        BigInt(snapshot.observedSlot) < position.currentObservedSlot;
+      if (staleLiveRead) {
+        console.warn("[mobile-earn-holdings] stale live read suppressed", {
+          confirmedSlot: position?.currentObservedSlot.toString(),
+          observedSlot: snapshot.observedSlot,
+          walletAddress,
+        });
+      }
       const liveTotalAmountRaw = BigInt(snapshot.currentTotalAmountRaw);
       if (
+        !staleLiveRead &&
         position !== null &&
         liveTotalAmountRaw - position.currentAmountRaw >=
           EARN_READ_MODEL_HEAL_MIN_DELTA_RAW
@@ -195,7 +220,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       currentTotalAmountRaw: snapshot.currentTotalAmountRaw,
       holdings: snapshot.holdings,
-      observedAt: snapshot.observedAt,
+      observedAt: staleLiveRead ? null : snapshot.observedAt,
       observedSlot: snapshot.observedSlot,
       settingsPda: account.settingsPda,
       smartAccountAddress: account.smartAccountAddress,
