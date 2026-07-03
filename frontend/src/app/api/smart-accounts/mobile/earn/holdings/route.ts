@@ -46,12 +46,15 @@ import {
 // transiently dip BELOW the freshly confirmed total (funds mid-flight into
 // Kamino), and healing downward would reintroduce the very dip this fixes.
 //
-// Stale-read guard: the RPC pool can serve a lagging node whose account view
-// predates a deposit the DB already confirmed, and the client trusts a
-// successful live read over the read-model. A snapshot observed at a slot
-// below the position's last confirmed slot is provably stale, so it is
-// returned with observedAt: null — the client's existing "live read
-// unavailable" path — instead of letting the old balance flash on screen.
+// Stale-read protection: the RPC pool can serve a lagging node whose account
+// view predates a deposit the DB already confirmed, and the client trusts a
+// successful live read over the read-model. Primary defense: every chain read
+// carries minContextSlot = the position's last confirmed slot, so a lagging
+// node errors instead of answering (a max-observed-slot check alone cannot
+// catch a mixed read where only the obligation request hit a lagging node).
+// Fallbacks: one retry on rejection, then 502 → the client keeps the
+// read-model balance; plus a residual observedAt: null suppression should a
+// stale snapshot slip through anyway.
 const EARN_VAULT_INDEX = 1;
 const EARN_READ_MODEL_HEAL_MIN_DELTA_RAW = BigInt(10_000); // $0.01
 const connectionCache = new Map<SolanaEnv, Connection>();
@@ -155,33 +158,58 @@ export async function GET(request: Request) {
       });
     }
 
-    const snapshot = await fetchEarnRpcHoldingsSnapshot({
+    // The active position's last confirmed slot anchors the freshness floor
+    // for every chain read below. The snapshot spans two RPC requests that can
+    // land on different nodes; without minContextSlot a lagging node can serve
+    // the obligation as it looked BEFORE a confirmed deposit/withdrawal while
+    // the other request looks fresh — the exact "balance flashes an old value"
+    // bug. With it, a lagging node errors instead of answering.
+    const position = await findActiveYieldPositionForVault({
       cluster,
-      connection: getConnection(solanaEnv),
-      policy: serializeRoutePolicyState(
-        policyPair.routePolicy,
-        policyPair.setupPolicy ?? null
-      ),
-      programId,
-      settingsPda,
+      settings: account.settingsPda,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress,
     });
+    const minContextSlot =
+      position !== null ? Number(position.currentObservedSlot) : undefined;
 
-    // Stale-read guard + best-effort read-model heal (see the module comment).
-    // Neither ever fails the holdings response — the live snapshot above is
-    // already the answer.
-    let staleLiveRead = false;
-    try {
-      const position = await findActiveYieldPositionForVault({
+    const readSnapshot = () =>
+      fetchEarnRpcHoldingsSnapshot({
         cluster,
-        settings: account.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
+        connection: getConnection(solanaEnv),
+        minContextSlot,
+        policy: serializeRoutePolicyState(
+          policyPair.routePolicy,
+          policyPair.setupPolicy ?? null
+        ),
+        programId,
+        settingsPda,
+      });
+    let snapshot;
+    try {
+      snapshot = await readSnapshot();
+    } catch (error) {
+      if (minContextSlot === undefined) {
+        throw error;
+      }
+      // A node behind the freshness floor rejects the read — retry once, the
+      // next request usually lands on a caught-up node. A second failure falls
+      // through to the outer catch (502), and the client keeps the read-model
+      // balance instead of showing stale chain state.
+      console.warn("[mobile-earn-holdings] snapshot read retried", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown read error.",
+        minContextSlot,
         walletAddress,
       });
-      // A snapshot computed at a slot BELOW the position's last confirmed slot
-      // came from a lagging RPC node and predates chain state the DB has
-      // already confirmed — its total must not override the headline. Signal
-      // "live read unavailable" via observedAt: null (the client already keeps
-      // the read-model balance for that case) instead of serving the old view.
+      snapshot = await readSnapshot();
+    }
+
+    // Belt-and-braces stale guard + best-effort read-model heal (see the
+    // module comment). Neither ever fails the holdings response — the live
+    // snapshot above is already the answer.
+    let staleLiveRead = false;
+    try {
       staleLiveRead =
         position !== null &&
         BigInt(snapshot.observedSlot) < position.currentObservedSlot;
@@ -204,6 +232,7 @@ export async function GET(request: Request) {
           cluster,
           connection: getConnection(solanaEnv),
           force: true,
+          minContextSlot,
           settings: account.settingsPda,
           vaultPubkey: earnVaultPda.toBase58(),
         });

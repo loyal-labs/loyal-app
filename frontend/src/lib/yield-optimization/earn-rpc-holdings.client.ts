@@ -224,6 +224,7 @@ function assertPolicyUniverse(args: {
 
 async function readAccountsInChunks(args: {
   connection: AccountReader;
+  minContextSlot?: number;
   pubkeys: PublicKey[];
 }): Promise<BatchedAccountRead> {
   const values: (AccountInfo<Buffer> | null)[] = [];
@@ -240,6 +241,9 @@ async function readAccountsInChunks(args: {
       chunk,
       {
         commitment: SOURCE_COMMITMENT,
+        ...(args.minContextSlot !== undefined
+          ? { minContextSlot: args.minContextSlot }
+          : {}),
       } satisfies GetMultipleAccountsConfig
     );
     chunkCount += 1;
@@ -405,6 +409,12 @@ function toIdleHolding(args: {
 export async function fetchEarnRpcHoldingsSnapshot(args: {
   cluster: LoyalCluster;
   connection: AccountReader;
+  // When set, every underlying RPC read demands a node at or past this slot
+  // (lagging nodes error instead of answering with pre-deposit account state).
+  // The snapshot spans two requests that can hit different nodes, so a
+  // max-observed-slot check alone cannot prove the balance-defining accounts
+  // were fresh — this enforces it per request.
+  minContextSlot?: number;
   policy: EarnRpcPolicyMetadata | null | undefined;
   programId: PublicKey;
   settingsPda: PublicKey;
@@ -441,6 +451,7 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
   ];
   const firstStage = await readAccountsInChunks({
     connection: args.connection,
+    minContextSlot: args.minContextSlot,
     pubkeys: firstStageRoles.map((role) => role.pubkey),
   });
   const accountForRole = (role: AccountRole) =>
@@ -493,6 +504,7 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     reserveRoles.length > 0
       ? await readAccountsInChunks({
           connection: args.connection,
+          minContextSlot: args.minContextSlot,
           pubkeys: reserveRoles.map((role) => role.pubkey),
         })
       : {
