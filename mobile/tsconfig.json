@@ -12,6 +12,9 @@
       "@loyal-labs/shared": [
         "../packages/shared/src/index.ts"
       ],
+      "@loyal-labs/wallet-core/lib": [
+        "../packages/wallet-core/src/lib/index.ts"
+      ],
       "expo-seed-vault": [
         "./modules/expo-seed-vault/src/index.ts"
       ]

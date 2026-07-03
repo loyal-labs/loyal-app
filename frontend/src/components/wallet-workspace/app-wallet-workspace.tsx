@@ -103,6 +103,18 @@ import {
   type WalletCommandGroup,
 } from "./wallet-command-menu";
 
+const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
+
+function findSolPriceUsd(tokens: SwapToken[]): number | null {
+  const solToken = tokens.find(
+    (token) =>
+      token.symbol.toUpperCase() === "SOL" || token.mint === NATIVE_SOL_MINT
+  );
+  return solToken && Number.isFinite(solToken.price) && solToken.price > 0
+    ? solToken.price
+    : null;
+}
+
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
 type WorkspaceSection = "policies" | "settings" | "wallet";
 type DetailTab = "activity" | "tokens";
@@ -980,6 +992,15 @@ export function AppWalletWorkspace({
 
     return [...derivedTokens, ...extras];
   }, [derivedTokens, popularTokens]);
+  const swapFeeSolPriceUsd = useMemo(
+    () =>
+      findSolPriceUsd([
+        ...derivedTokens,
+        ...vaultDerivedTokens,
+        ...swapTargetTokens,
+      ]),
+    [derivedTokens, swapTargetTokens, vaultDerivedTokens]
+  );
   const shieldSecuredBalance = useMemo(() => {
     if (!shieldToken.mint) return 0;
 
@@ -2931,6 +2952,7 @@ export function AppWalletWorkspace({
                 onNavigate={pushView}
                 onSwapModeChange={handleSwapModeChange}
                 onToTokenChange={setSwapToToken}
+                feeSolPriceUsd={swapFeeSolPriceUsd}
                 swapMode={swapMode}
                 toToken={swapToToken}
               />

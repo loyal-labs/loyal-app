@@ -82,6 +82,16 @@ const SOL_TOKEN: SwapToken = {
   balance: 0,
 };
 
+function findSolPriceUsd(tokens: SwapToken[]): number | null {
+  const solToken = tokens.find(
+    (token) =>
+      token.symbol.toUpperCase() === "SOL" || token.mint === SOL_TOKEN.mint
+  );
+  return solToken && Number.isFinite(solToken.price) && solToken.price > 0
+    ? solToken.price
+    : null;
+}
+
 // ---------------------------------------------------------------------------
 // Tab definitions
 // ---------------------------------------------------------------------------
@@ -1397,6 +1407,10 @@ function WalletInterface() {
     );
     return [...swapTokens, ...extras];
   }, [swapTokens, popularTokens]);
+  const swapFeeSolPriceUsd = useMemo(
+    () => findSolPriceUsd(swapTargetTokens),
+    [swapTargetTokens]
+  );
 
   // Sync token state when real positions load
   useEffect(() => {
@@ -1536,6 +1550,7 @@ function WalletInterface() {
             onDone={handleDone}
             swapMode={swapMode}
             onSwapModeChange={handleSwapModeChange}
+            feeSolPriceUsd={swapFeeSolPriceUsd}
           />
         );
       case "shield":

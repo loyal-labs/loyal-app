@@ -1,8 +1,18 @@
-import type { Connection, ParsedAccountData } from "@solana/web3.js";
-import { PublicKey, VersionedTransaction } from "@solana/web3.js";
+import type {
+	Connection,
+	ParsedAccountData,
+	VersionedTransaction,
+} from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { useCallback, useState } from "react";
 
 import { TOKEN_MINTS } from "../constants/token-mints";
+import {
+	deserializeJupiterSwapTransaction,
+	getJupiterQuote,
+	getJupiterSwapTransaction,
+} from "../lib/jupiter/client";
+import type { JupiterQuoteResponse } from "../lib/jupiter/types";
 import type { WalletSigner } from "../types/signer";
 
 // Debug logger that only emits in development
@@ -35,52 +45,8 @@ export type SwapResult = {
 };
 
 export type SwapConfig =
-	| { mode: "enabled"; apiKey: string }
+	| { mode: "enabled"; apiKey?: string; baseUrl?: string }
 	| { mode: "disabled"; reason: string };
-
-const JUPITER_QUOTE_API_URL = "https://lite-api.jup.ag/swap/v1/quote";
-const JUPITER_SWAP_API_URL = "https://lite-api.jup.ag/swap/v1/swap";
-
-const buildJupiterHeaders = (
-	apiKey: string,
-	extra?: Record<string, string>,
-): Record<string, string> => ({
-	...(extra ?? {}),
-	...(apiKey ? { "x-api-key": apiKey } : {}),
-});
-
-type JupiterQuoteResponse = {
-	inputMint: string;
-	inAmount: string;
-	outputMint: string;
-	outAmount: string;
-	otherAmountThreshold: string;
-	swapMode: string;
-	slippageBps: number;
-	platformFee: null | { amount: string; feeBps: number };
-	priceImpactPct: string;
-	routePlan: Array<{
-		swapInfo: {
-			ammKey: string;
-			label: string;
-			inputMint: string;
-			outputMint: string;
-			inAmount: string;
-			outAmount: string;
-			feeAmount: string;
-			feeMint: string;
-		};
-		percent: number;
-	}>;
-	contextSlot?: number;
-	timeTaken?: number;
-};
-
-type JupiterSwapResponse = {
-	swapTransaction: string;
-	lastValidBlockHeight: number;
-	prioritizationFeeLamports: number;
-};
 
 const getTokenMint = (symbol: string): string | undefined => {
 	return TOKEN_MINTS[symbol.toUpperCase()];
@@ -89,7 +55,7 @@ const getTokenMint = (symbol: string): string | undefined => {
 async function sendTransactionViaSigner(
 	signer: WalletSigner,
 	connection: Connection,
-	transaction: VersionedTransaction,
+	transaction: VersionedTransaction
 ): Promise<string> {
 	if (signer.sendTransaction) {
 		return signer.sendTransaction(transaction);
@@ -101,8 +67,13 @@ async function sendTransactionViaSigner(
 export function useSwap(
 	signer: WalletSigner | null,
 	connection: Connection,
-	swapConfig: SwapConfig,
+	swapConfig: SwapConfig
 ) {
+	const isSwapEnabled = swapConfig.mode === "enabled";
+	const swapApiKey = isSwapEnabled ? swapConfig.apiKey : undefined;
+	const swapBaseUrl = isSwapEnabled ? swapConfig.baseUrl : undefined;
+	const unavailableReason =
+		swapConfig.mode === "disabled" ? swapConfig.reason : null;
 	const [loading, setLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [quote, setQuote] = useState<SwapQuote | null>(null);
@@ -112,8 +83,7 @@ export function useSwap(
 	const getTokenDecimals = useCallback(
 		async (mintAddress: string): Promise<number> => {
 			const mintPublicKey = new PublicKey(mintAddress);
-			const accountInfo =
-				await connection.getParsedAccountInfo(mintPublicKey);
+			const accountInfo = await connection.getParsedAccountInfo(mintPublicKey);
 			const data = accountInfo.value?.data;
 
 			if (data && typeof data === "object" && "parsed" in data) {
@@ -125,10 +95,10 @@ export function useSwap(
 			}
 
 			throw new Error(
-				`Unable to determine token decimals for mint ${mintAddress}`,
+				`Unable to determine token decimals for mint ${mintAddress}`
 			);
 		},
-		[connection],
+		[connection]
 	);
 
 	const getQuote = useCallback(
@@ -139,13 +109,13 @@ export function useSwap(
 			fromTokenMint?: string,
 			fromTokenDecimals?: number,
 			toTokenDecimals?: number,
-			toTokenMint?: string,
+			toTokenMint?: string
 		): Promise<SwapQuote | null> => {
 			try {
 				setError(null);
 
-				if (swapConfig.mode === "disabled") {
-					throw new Error(swapConfig.reason);
+				if (!isSwapEnabled) {
+					throw new Error(unavailableReason ?? "Swap unavailable");
 				}
 
 				const inputMint = fromTokenMint || getTokenMint(fromToken);
@@ -153,7 +123,7 @@ export function useSwap(
 
 				if (!inputMint) {
 					throw new Error(
-						`Unknown token: ${fromToken}. Please provide token mint address.`,
+						`Unknown token: ${fromToken}. Please provide token mint address.`
 					);
 				}
 				if (!outputMint) {
@@ -168,7 +138,7 @@ export function useSwap(
 					: getTokenDecimals(outputMint);
 				const inputDecimals = await inputDecimalsPromise;
 				const amountInSmallestUnit = Math.floor(
-					Number.parseFloat(amount) * 10 ** inputDecimals,
+					Number.parseFloat(amount) * 10 ** inputDecimals
 				).toString();
 
 				logger.debug("Token conversion:", {
@@ -181,22 +151,14 @@ export function useSwap(
 					decimals: inputDecimals,
 				});
 
-				const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=50`;
-				logger.debug("Fetching quote from Jupiter API:", url);
-
-				const response = await fetch(url, {
-					headers: buildJupiterHeaders(swapConfig.apiKey),
+				const data = await getJupiterQuote({
+					inputMint,
+					outputMint,
+					amount: amountInSmallestUnit,
+					slippageBps: 50,
+					apiKey: swapApiKey,
+					baseUrl: swapBaseUrl,
 				});
-
-				if (!response.ok) {
-					const errorText = await response.text();
-					logger.debug("Quote API error:", errorText);
-					throw new Error(
-						`Failed to get quote: ${response.statusText}`,
-					);
-				}
-
-				const data: JupiterQuoteResponse = await response.json();
 				logger.debug("Jupiter Quote response:", data);
 
 				setQuoteResponse(data);
@@ -208,8 +170,7 @@ export function useSwap(
 				).toFixed(outputDecimals);
 
 				const priceImpact = `${(
-					Number.parseFloat(data.priceImpactPct) *
-					PERCENTAGE_MULTIPLIER
+					Number.parseFloat(data.priceImpactPct) * PERCENTAGE_MULTIPLIER
 				).toFixed(2)}%`;
 
 				const quoteData: SwapQuote = {
@@ -226,21 +187,26 @@ export function useSwap(
 				return quoteData;
 			} catch (err) {
 				const errorMessage =
-					err instanceof Error
-						? err.message
-						: "Failed to get quote";
+					err instanceof Error ? err.message : "Failed to get quote";
 				setError(errorMessage);
 				logger.debug("Quote error:", err);
 				return null;
 			}
 		},
-		[getTokenDecimals, swapConfig],
+		[
+			getTokenDecimals,
+			isSwapEnabled,
+			swapApiKey,
+			swapBaseUrl,
+			unavailableReason,
+		]
 	);
 
 	const executeSwap = useCallback(async (): Promise<SwapResult> => {
-		if (swapConfig.mode === "disabled") {
-			setError(swapConfig.reason);
-			return { success: false, error: swapConfig.reason };
+		if (!isSwapEnabled) {
+			const errorMsg = unavailableReason ?? "Swap unavailable";
+			setError(errorMsg);
+			return { success: false, error: errorMsg };
 		}
 
 		if (!signer) {
@@ -250,8 +216,7 @@ export function useSwap(
 		}
 
 		if (!quoteResponse) {
-			const errorMsg =
-				"No quote available. Please get a quote first.";
+			const errorMsg = "No quote available. Please get a quote first.";
 			setError(errorMsg);
 			return { success: false, error: errorMsg };
 		}
@@ -262,73 +227,43 @@ export function useSwap(
 		try {
 			logger.debug("Executing swap with quote:", quoteResponse);
 
-			const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
-				method: "POST",
-				headers: buildJupiterHeaders(
-					(swapConfig as { apiKey: string }).apiKey,
-					{ "Content-Type": "application/json" },
-				),
-				body: JSON.stringify({
-					userPublicKey: signer.publicKey.toBase58(),
-					quoteResponse,
-					wrapAndUnwrapSol: true,
-					dynamicComputeUnitLimit: true,
-					prioritizationFeeLamports: {
-						priorityLevelWithMaxLamports: {
-							priorityLevel: "veryHigh",
-							maxLamports: 50_000_000,
-							global: true,
-						},
-					},
-				}),
+			const swapData = await getJupiterSwapTransaction({
+				userPublicKey: signer.publicKey.toBase58(),
+				quoteResponse,
+				apiKey: swapApiKey,
+				baseUrl: swapBaseUrl,
 			});
-
-			if (!swapResponse.ok) {
-				const errorText = await swapResponse.text();
-				logger.debug("Jupiter Swap API error:", errorText);
-				throw new Error(
-					`Jupiter Swap API failed: ${swapResponse.statusText}`,
-				);
-			}
-
-			const swapData: JupiterSwapResponse = await swapResponse.json();
 			logger.debug("Jupiter Swap transaction response:", swapData);
 
 			const { swapTransaction: serializedTx } = swapData;
 			if (!serializedTx) {
-				throw new Error(
-					"No transaction returned from Jupiter Swap API",
-				);
+				throw new Error("No transaction returned from Jupiter Swap API");
 			}
 
-			const txBuffer = Buffer.from(serializedTx, "base64");
-			const transaction =
-				VersionedTransaction.deserialize(new Uint8Array(txBuffer));
+			const transaction = deserializeJupiterSwapTransaction(serializedTx);
 
 			logger.debug("Signing and sending transaction...");
 			const signature = await sendTransactionViaSigner(
 				signer,
 				connection,
-				transaction,
+				transaction
 			);
 
 			logger.debug("Transaction sent:", signature);
 
-			const latestBlockhash =
-				await connection.getLatestBlockhash("confirmed");
+			const latestBlockhash = await connection.getLatestBlockhash("confirmed");
 			const confirmation = await connection.confirmTransaction(
 				{
 					signature,
 					blockhash: latestBlockhash.blockhash,
-					lastValidBlockHeight:
-						latestBlockhash.lastValidBlockHeight,
+					lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
 				},
-				"confirmed",
+				"confirmed"
 			);
 
 			if (confirmation.value.err) {
 				throw new Error(
-					`Transaction failed: ${JSON.stringify(confirmation.value.err)}`,
+					`Transaction failed: ${JSON.stringify(confirmation.value.err)}`
 				);
 			}
 
@@ -345,8 +280,7 @@ export function useSwap(
 					errorMessage =
 						"Transaction signing timed out. Please try again and approve the transaction in your wallet promptly.";
 				} else if (err.message.includes("User rejected")) {
-					errorMessage =
-						"Transaction was rejected in your wallet.";
+					errorMessage = "Transaction was rejected in your wallet.";
 				} else {
 					errorMessage = err.message;
 				}
@@ -356,7 +290,15 @@ export function useSwap(
 			setLoading(false);
 			return { success: false, error: errorMessage };
 		}
-	}, [connection, signer, quoteResponse, swapConfig]);
+	}, [
+		connection,
+		isSwapEnabled,
+		signer,
+		quoteResponse,
+		swapApiKey,
+		swapBaseUrl,
+		unavailableReason,
+	]);
 
 	const resetQuote = useCallback(() => {
 		setQuote(null);
@@ -371,8 +313,8 @@ export function useSwap(
 		quote,
 		loading,
 		error,
-		isAvailable: swapConfig.mode === "enabled",
-		unavailableReason:
-			swapConfig.mode === "disabled" ? swapConfig.reason : null,
+		quoteResponse,
+		isAvailable: isSwapEnabled,
+		unavailableReason,
 	};
 }

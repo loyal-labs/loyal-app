@@ -59,6 +59,18 @@ import { LOYL_TOKEN, swapTokens as fallbackSwapTokens } from "./types";
 
 export type { RightSidebarTab } from "./types";
 
+const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
+
+function findSolPriceUsd(tokens: SwapToken[]): number | null {
+  const solToken = tokens.find(
+    (token) =>
+      token.symbol.toUpperCase() === "SOL" || token.mint === NATIVE_SOL_MINT
+  );
+  return solToken && Number.isFinite(solToken.price) && solToken.price > 0
+    ? solToken.price
+    : null;
+}
+
 export interface HeroRightSidebarProps {
   isOpen: boolean;
   activeTab: RightSidebarTab;
@@ -271,6 +283,14 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     );
     return [...selectedVaultSwapTokens, ...extras];
   }, [popularTokens, selectedVaultSwapTokens]);
+  const mainSwapFeeSolPriceUsd = useMemo(
+    () => findSolPriceUsd(swapTargetTokens),
+    [swapTargetTokens]
+  );
+  const vaultSwapFeeSolPriceUsd = useMemo(
+    () => findSolPriceUsd(vaultSwapTargetTokens) ?? mainSwapFeeSolPriceUsd,
+    [mainSwapFeeSolPriceUsd, vaultSwapTargetTokens]
+  );
   const executeVaultSwap = props.smartAccountData.executeVaultSwap;
   const selectedVaultSwapExecutionContext = useMemo<
     SwapExecutionContext | undefined
@@ -965,6 +985,11 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                 onSwapModeChange={handleSwapModeChange}
                 onToTokenChange={setSwapToToken}
                 executionContext={vaultSwapExecutionContext}
+                feeSolPriceUsd={
+                  isVaultSubview
+                    ? vaultSwapFeeSolPriceUsd
+                    : mainSwapFeeSolPriceUsd
+                }
                 swapMode={swapMode}
                 toToken={swapToToken}
               />
@@ -1378,6 +1403,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         onNavigate={pushView}
                         onSwapModeChange={handleSwapModeChange}
                         onToTokenChange={setSwapToToken}
+                        feeSolPriceUsd={mainSwapFeeSolPriceUsd}
                         swapMode={swapMode}
                         toToken={swapToToken}
                       />

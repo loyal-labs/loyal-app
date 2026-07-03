@@ -1,6 +1,16 @@
 "use client";
 
 import {
+  estimateJupiterSwapFeeState,
+  getJupiterSwapFeeEstimateFlowKey,
+  getJupiterSwapFeeEstimateKey,
+  getSwapFeeEstimateDebounceMs,
+  getSwapFeeEstimateDisplayState,
+  isNonEmptySwapFeeEstimateState,
+  type SwapFeeEstimateState,
+} from "@loyal-labs/wallet-core/lib";
+import { useConnection } from "@solana/wallet-adapter-react";
+import {
   ArrowDownUp,
   ArrowLeft,
   ChevronRight,
@@ -9,7 +19,14 @@ import {
   X,
 } from "lucide-react";
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap, type SwapExecutionContext } from "@/hooks/use-swap";
@@ -101,6 +118,51 @@ function TokenPill({
 }
 
 type SwapPhase = "form" | "processing" | "success" | "error" | "details";
+
+const DEFAULT_SOL_MAX_FEE_RESERVE_LAMPORTS = 50_000;
+
+function formatLamportsAsSol(lamports: number): string {
+  return (lamports / 1_000_000_000).toLocaleString(undefined, {
+    maximumFractionDigits: 9,
+    minimumFractionDigits: 0,
+  });
+}
+
+function getFeeSolPriceUsd(
+  fromToken: SwapToken,
+  toToken: SwapToken,
+  fallbackSolPriceUsd?: number | null
+): number | null {
+  if (
+    typeof fallbackSolPriceUsd === "number" &&
+    Number.isFinite(fallbackSolPriceUsd) &&
+    fallbackSolPriceUsd > 0
+  ) {
+    return fallbackSolPriceUsd;
+  }
+  const solToken = [fromToken, toToken].find(
+    (token) =>
+      token.symbol.toUpperCase() === "SOL" ||
+      token.mint === "So11111111111111111111111111111111111111112"
+  );
+  return solToken && Number.isFinite(solToken.price) && solToken.price > 0
+    ? solToken.price
+    : null;
+}
+
+function formatFeeUsdEstimate(
+  lamports: number,
+  solPriceUsd?: number | null
+): string | null {
+  if (!solPriceUsd || !Number.isFinite(solPriceUsd) || solPriceUsd <= 0) {
+    return null;
+  }
+  const usd = (lamports / 1_000_000_000) * solPriceUsd;
+  return `≈ $${usd.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
 
 function SwapStatusHeader({
   fromToken,
@@ -543,26 +605,145 @@ function SwapResult({
   );
 }
 
+function FeeSkeleton() {
+  return (
+    <span
+      style={{
+        width: "92px",
+        height: "18px",
+        borderRadius: "9px",
+        background: "rgba(60, 60, 67, 0.14)",
+        display: "inline-block",
+      }}
+    />
+  );
+}
+
+function FeeValue({
+  lamports,
+  solPriceUsd,
+}: {
+  lamports: number;
+  solPriceUsd?: number | null;
+}) {
+  const usdEstimate = formatFeeUsdEstimate(lamports, solPriceUsd);
+  return (
+    <>
+      <span style={{ color: "#000" }}>{formatLamportsAsSol(lamports)} SOL</span>
+      {usdEstimate ? (
+        <span style={{ color: secondary }}>{usdEstimate}</span>
+      ) : null}
+    </>
+  );
+}
+
+function SwapFeeRows({
+  feeEstimateState,
+  compact = false,
+  solPriceUsd,
+}: {
+  feeEstimateState: SwapFeeEstimateState;
+  compact?: boolean;
+  solPriceUsd?: number | null;
+}) {
+  const rowPadding = compact ? "9px 12px" : "10px 12px";
+  const labelStyle = {
+    fontFamily: font,
+    fontSize: "13px",
+    fontWeight: 400,
+    lineHeight: "16px",
+    color: secondary,
+    display: "block",
+  } as const;
+  const valueStyle = {
+    display: "flex",
+    gap: "4px",
+    alignItems: "center",
+    fontFamily: font,
+    fontSize: "16px",
+    fontWeight: 400,
+    lineHeight: "20px",
+    marginTop: compact ? "2px" : undefined,
+  } as const;
+
+  const renderRow = (label: string, children: ReactNode) => (
+    <div style={{ padding: rowPadding }}>
+      <span style={labelStyle}>{label}</span>
+      <div style={valueStyle}>{children}</div>
+    </div>
+  );
+
+  if (feeEstimateState.status === "success") {
+    const { estimate } = feeEstimateState;
+    if (estimate.rentLamports > 0) {
+      return (
+        <>
+          {renderRow(
+            "Network Fee",
+            <FeeValue
+              lamports={estimate.transactionFeeLamports}
+              solPriceUsd={solPriceUsd}
+            />
+          )}
+          {renderRow(
+            "Rent Fee",
+            <FeeValue
+              lamports={estimate.rentLamports}
+              solPriceUsd={solPriceUsd}
+            />
+          )}
+          {renderRow(
+            "Total Fee",
+            <FeeValue
+              lamports={estimate.totalLamports}
+              solPriceUsd={solPriceUsd}
+            />
+          )}
+        </>
+      );
+    }
+    return renderRow(
+      "Network Fee",
+      <FeeValue lamports={estimate.totalLamports} solPriceUsd={solPriceUsd} />
+    );
+  }
+
+  if (feeEstimateState.status === "error") {
+    return renderRow("Network Fee", <span style={{ color: "#000" }}>-</span>);
+  }
+
+  return renderRow("Network Fee", <FeeSkeleton />);
+}
+
 function SwapTransactionDetail({
   fromToken,
   toToken,
   receivedAmount,
   usdValue,
   signature,
+  feeEstimateState,
   onClose,
   onDone,
   onBack,
+  feeSolPriceUsd: feeSolPriceUsdProp,
 }: {
   fromToken: SwapToken;
   toToken: SwapToken;
   receivedAmount: string;
   usdValue: string;
   signature?: string;
+  feeEstimateState: SwapFeeEstimateState;
   onClose: () => void;
   onDone: () => void;
   onBack?: () => void;
+  feeSolPriceUsd?: number | null;
 }) {
   const publicEnv = usePublicEnv();
+  const feeSolPriceUsd = getFeeSolPriceUsd(
+    fromToken,
+    toToken,
+    feeSolPriceUsdProp
+  );
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", {
     month: "short",
@@ -719,35 +900,11 @@ function SwapTransactionDetail({
                 Completed
               </span>
             </div>
-            <div style={{ padding: "9px 12px" }}>
-              <span
-                style={{
-                  fontFamily: font,
-                  fontSize: "13px",
-                  fontWeight: 400,
-                  lineHeight: "16px",
-                  color: secondary,
-                  display: "block",
-                }}
-              >
-                Network Fee
-              </span>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  marginTop: "2px",
-                  fontFamily: font,
-                  fontSize: "16px",
-                  fontWeight: 400,
-                  lineHeight: "20px",
-                }}
-              >
-                <span style={{ color: "#000" }}>0.00005 SOL</span>
-                <span style={{ color: secondary }}>≈ $0.00</span>
-              </div>
-            </div>
+            <SwapFeeRows
+              compact
+              feeEstimateState={feeEstimateState}
+              solPriceUsd={feeSolPriceUsd}
+            />
           </div>
         </div>
 
@@ -904,6 +1061,7 @@ export function SwapContent({
   onFormActiveChange,
   onFormButtonChange,
   executionContext,
+  feeSolPriceUsd: feeSolPriceUsdProp,
 }: {
   onClose: () => void;
   onDone: () => void;
@@ -919,25 +1077,44 @@ export function SwapContent({
   onFormActiveChange?: (isForm: boolean) => void;
   onFormButtonChange?: (props: FormButtonProps | null) => void;
   executionContext?: SwapExecutionContext;
+  feeSolPriceUsd?: number | null;
 }) {
+  const { connection } = useConnection();
   const publicEnv = usePublicEnv();
   const {
     getQuote,
     executeSwap,
     resetQuote,
     quote,
+    quoteResponse,
+    userPublicKey,
+    swapApiBaseUrl,
+    swapApiKey,
     isAvailable,
     unavailableReason,
-    error: swapError,
   } = useSwap();
   const [fromAmount, setFromAmount] = useState("");
   const [phase, setPhase] = useState<SwapPhase>("form");
   const [resultAmount, setResultAmount] = useState("");
   const [resultUsd, setResultUsd] = useState("");
   const [resultSignature, setResultSignature] = useState<string | undefined>();
+  const [resultFeeEstimateState, setResultFeeEstimateState] =
+    useState<SwapFeeEstimateState>({ status: "idle" });
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
   const [isQuoting, setIsQuoting] = useState(false);
+  const [feeEstimateState, setFeeEstimateState] =
+    useState<SwapFeeEstimateState>({ status: "idle" });
   const quoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSuccessfulFeeEstimateStateRef =
+    useRef<SwapFeeEstimateState | null>(null);
+  const feeEstimateFlowKeyRef = useRef<string | null>(null);
+  const feeEstimateRequestRef = useRef<{
+    key: string;
+    quoteResponse: NonNullable<typeof quoteResponse>;
+    userPublicKey: string;
+    apiKey: string | undefined;
+    baseUrl: string | undefined;
+  } | null>(null);
 
   useEffect(() => {
     onFormActiveChange?.(phase === "form");
@@ -960,17 +1137,80 @@ export function SwapContent({
     const val = toAmount * toToken.price;
     return Number.isFinite(val) ? val.toFixed(2) : "0.00";
   }, [toAmount, toToken.price]);
+  const feeSolPriceUsd = useMemo(
+    () => getFeeSolPriceUsd(fromToken, toToken, feeSolPriceUsdProp),
+    [fromToken, toToken, feeSolPriceUsdProp]
+  );
   const hasAmount = numericFrom > 0;
   const insufficientFunds = numericFrom > fromToken.balance;
+  const isSameMint = fromToken.mint === toToken.mint;
+  const feeUserPublicKey = useMemo(() => {
+    const contextKey = executionContext?.userPublicKey;
+    if (contextKey) {
+      return typeof contextKey === "string"
+        ? contextKey
+        : contextKey.toBase58();
+    }
+    return userPublicKey?.toBase58() ?? null;
+  }, [executionContext?.userPublicKey, userPublicKey]);
+  const feeEstimateRequest = useMemo(() => {
+    if (!quoteResponse || !feeUserPublicKey) return null;
+    return {
+      key: getJupiterSwapFeeEstimateKey({
+        connection,
+        quoteResponse,
+        userPublicKey: feeUserPublicKey,
+        baseUrl: swapApiBaseUrl,
+      }),
+      quoteResponse,
+      userPublicKey: feeUserPublicKey,
+      apiKey: swapApiKey,
+      baseUrl: swapApiBaseUrl,
+    };
+  }, [
+    connection,
+    feeUserPublicKey,
+    quoteResponse,
+    swapApiBaseUrl,
+    swapApiKey,
+  ]);
+  feeEstimateRequestRef.current = feeEstimateRequest;
+  const feeEstimateKey = feeEstimateRequest?.key ?? null;
+  const feeEstimateFlowKey = useMemo(
+    () =>
+      getJupiterSwapFeeEstimateFlowKey({
+        inputMint: fromToken.mint,
+        outputMint: toToken.mint,
+        userPublicKey: feeUserPublicKey,
+        baseUrl: swapApiBaseUrl,
+      }),
+    [feeUserPublicKey, fromToken.mint, swapApiBaseUrl, toToken.mint]
+  );
+  const displayFeeEstimateState = getSwapFeeEstimateDisplayState(
+    feeEstimateState,
+    lastSuccessfulFeeEstimateStateRef.current
+  );
 
   // Debounced quote fetching
   useEffect(() => {
     if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
-    if (!hasAmount || insufficientFunds || phase !== "form") {
+    if (!hasAmount || insufficientFunds || isSameMint || phase !== "form") {
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = null;
+      feeEstimateRequestRef.current = null;
       resetQuote();
       setIsQuoting(false);
+      setFeeEstimateState({ status: "idle" });
       return;
     }
+    let cancelled = false;
+    feeEstimateRequestRef.current = null;
+    if (feeEstimateFlowKeyRef.current !== feeEstimateFlowKey) {
+      lastSuccessfulFeeEstimateStateRef.current = null;
+      feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+    }
+    resetQuote();
+    setFeeEstimateState({ status: "loading" });
     setIsQuoting(true);
     quoteTimerRef.current = setTimeout(() => {
       void getQuote(
@@ -981,9 +1221,21 @@ export function SwapContent({
         undefined,
         undefined,
         toToken.mint
-      ).finally(() => setIsQuoting(false));
+      )
+        .then((nextQuote) => {
+          if (cancelled) return;
+          if (nextQuote) return;
+          lastSuccessfulFeeEstimateStateRef.current = null;
+          feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+          feeEstimateRequestRef.current = null;
+          setFeeEstimateState({ status: "idle" });
+        })
+        .finally(() => {
+          if (!cancelled) setIsQuoting(false);
+        });
     }, 500);
     return () => {
+      cancelled = true;
       if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
     };
   }, [
@@ -994,11 +1246,54 @@ export function SwapContent({
     toToken.mint,
     hasAmount,
     insufficientFunds,
+    isSameMint,
+    feeEstimateFlowKey,
     phase,
     getQuote,
     resetQuote,
     numericFrom,
   ]);
+
+  useEffect(() => {
+    if (!feeEstimateKey || phase !== "form") {
+      setFeeEstimateState({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    const abortController = new AbortController();
+    setFeeEstimateState({ status: "loading" });
+
+    const timer = setTimeout(() => {
+      const request = feeEstimateRequestRef.current;
+      if (!request || request.key !== feeEstimateKey) {
+        return;
+      }
+      void (async () => {
+        const nextState = await estimateJupiterSwapFeeState({
+          connection,
+          quoteResponse: request.quoteResponse,
+          userPublicKey: request.userPublicKey,
+          apiKey: request.apiKey,
+          baseUrl: request.baseUrl,
+          signal: abortController.signal,
+        });
+        if (!cancelled && !abortController.signal.aborted) {
+          if (isNonEmptySwapFeeEstimateState(nextState)) {
+            lastSuccessfulFeeEstimateStateRef.current = nextState;
+            feeEstimateFlowKeyRef.current = feeEstimateFlowKey;
+          }
+          setFeeEstimateState(nextState);
+        }
+      })();
+    }, getSwapFeeEstimateDebounceMs(lastSuccessfulFeeEstimateStateRef.current));
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      abortController.abort();
+    };
+  }, [connection, feeEstimateFlowKey, feeEstimateKey, phase]);
 
   const buttonLabel = !isAvailable
     ? unavailableReason ?? "Swap unavailable"
@@ -1058,6 +1353,11 @@ export function SwapContent({
     setResultAmount(completedAmount);
     setResultUsd(completedUsd);
     setResultSignature(undefined);
+    setResultFeeEstimateState(
+      displayFeeEstimateState.status === "success"
+        ? displayFeeEstimateState
+        : { status: "error", error: "Swap fee unavailable" }
+    );
     setErrorMessage(undefined);
     setPhase("processing");
 
@@ -1086,6 +1386,7 @@ export function SwapContent({
   }, [
     executeSwap,
     executionContext,
+    displayFeeEstimateState,
     fromAmount,
     fromToken.mint,
     fromToken.symbol,
@@ -1140,15 +1441,19 @@ export function SwapContent({
     (pct: number) => {
       let val =
         pct === 100 ? fromToken.balance : fromToken.balance * (pct / 100);
+      const feeReserveSol =
+        feeEstimateState.status === "success"
+          ? feeEstimateState.estimate.totalLamports / 1_000_000_000
+          : DEFAULT_SOL_MAX_FEE_RESERVE_LAMPORTS / 1_000_000_000;
       if (
         fromToken.symbol.toUpperCase() === "SOL" &&
-        fromToken.balance - val < 0.00005
+        fromToken.balance - val < feeReserveSol
       ) {
-        val = Math.max(0, fromToken.balance - 0.00005);
+        val = Math.max(0, fromToken.balance - feeReserveSol);
       }
       setFromAmount(val > 0 ? String(Number(val.toFixed(6))) : "");
     },
-    [fromToken.balance, fromToken.symbol]
+    [feeEstimateState, fromToken.balance, fromToken.symbol]
   );
 
   const renderPhaseContent = (p: SwapPhase) => {
@@ -1180,6 +1485,7 @@ export function SwapContent({
     if (p === "details") {
       return (
         <SwapTransactionDetail
+          feeEstimateState={resultFeeEstimateState}
           fromToken={fromToken}
           onBack={onBack}
           onClose={onClose}
@@ -1188,6 +1494,7 @@ export function SwapContent({
           signature={resultSignature}
           toToken={toToken}
           usdValue={resultUsd}
+          feeSolPriceUsd={feeSolPriceUsd}
         />
       );
     }
@@ -1611,35 +1918,10 @@ export function SwapContent({
                   1%
                 </span>
               </div>
-              <div style={{ padding: "10px 12px" }}>
-                <span
-                  style={{
-                    fontFamily: font,
-                    fontSize: "13px",
-                    fontWeight: 400,
-                    lineHeight: "16px",
-                    color: secondary,
-                    display: "block",
-                  }}
-                >
-                  Network Fee
-                </span>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: "4px",
-                    alignItems: "center",
-                    fontFamily: font,
-                    fontSize: "16px",
-                    fontWeight: 400,
-                    lineHeight: "20px",
-                    marginTop: "2px",
-                  }}
-                >
-                  <span style={{ color: "#000" }}>0.00005 SOL</span>
-                  <span style={{ color: secondary }}>≈ $0.00</span>
-                </div>
-              </div>
+              <SwapFeeRows
+                feeEstimateState={displayFeeEstimateState}
+                solPriceUsd={feeSolPriceUsd}
+              />
             </div>
           )}
         </div>

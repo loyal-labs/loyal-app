@@ -10,6 +10,7 @@ const config = getDefaultConfig(__dirname);
 // Resolve monorepo packages outside /mobile
 const sharedRoot = path.resolve(__dirname, "../packages/shared");
 const solanaRpcRoot = path.resolve(__dirname, "../packages/solana-rpc/src");
+const walletCoreRoot = path.resolve(__dirname, "../packages/wallet-core/src");
 const privateTransactionsRoot = path.resolve(__dirname, "../sdk/private-transactions");
 const privateTransactionsEntryCandidates = [
   path.resolve(
@@ -29,8 +30,8 @@ const privateTransactionsEntryCandidates = [
     "../sdk/private-transactions/index.ts",
   ),
 ];
-const privateTransactionsEntry = privateTransactionsEntryCandidates.find((candidate) =>
-  fs.existsSync(candidate),
+const privateTransactionsEntry = privateTransactionsEntryCandidates.find(
+  (candidate) => fs.existsSync(candidate),
 );
 
 if (!privateTransactionsEntry) {
@@ -38,13 +39,19 @@ if (!privateTransactionsEntry) {
     "Unable to resolve @loyal-labs/private-transactions entry file from Metro config.",
   );
 }
-config.watchFolders = [sharedRoot, solanaRpcRoot, privateTransactionsRoot];
+config.watchFolders = [
+  sharedRoot,
+  solanaRpcRoot,
+  walletCoreRoot,
+  privateTransactionsRoot,
+];
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, "node_modules"),
   path.resolve(__dirname, ".."),
 ];
 config.resolver.extraNodeModules = {
   "@loyal-labs/solana-rpc": solanaRpcRoot,
+  "@loyal-labs/wallet-core/lib": path.resolve(walletCoreRoot, "lib/index.ts"),
 };
 
 // SVG transformer
