@@ -133,6 +133,7 @@ mock.module(
 );
 
 mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
+  EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW: BigInt(10_000),
   findActiveManagedYieldVaultWithPolicy: async () => null,
   findActiveYieldRoutePolicyPair: async (input: unknown) => {
     findPolicyCalls.push(input);

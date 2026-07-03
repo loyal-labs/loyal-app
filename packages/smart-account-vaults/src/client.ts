@@ -6732,7 +6732,7 @@ export function createSmartAccountVaultsClient(
           } as never
         );
       const policyCloseOperation = isFinalExit
-        ? await prepareCloseYieldRoutingPoliciesSync({
+        ? await prepareCloseLiveYieldRoutingPoliciesSync({
             settingsPda: args.settingsPda,
             feePayer: args.feePayer,
             signers: [args.walletAddress],
@@ -7483,7 +7483,7 @@ export function createSmartAccountVaultsClient(
         );
       const policyCloseOperation =
         isFinalExit && isFinalBatch
-          ? await prepareCloseYieldRoutingPoliciesSync({
+          ? await prepareCloseLiveYieldRoutingPoliciesSync({
               settingsPda: args.settingsPda,
               feePayer: args.feePayer,
               signers: [args.walletAddress],
@@ -7814,13 +7814,15 @@ export function createSmartAccountVaultsClient(
         ? [args.yieldRoutingPolicy.setupPolicy.account]
         : []),
     ];
-    const policyCloseOperation = await prepareCloseYieldRoutingPoliciesSync({
-      settingsPda: args.settingsPda,
-      feePayer: args.feePayer,
-      signers: [args.walletAddress],
-      policies: policyAccounts,
-      memo: args.memo,
-    });
+    const policyCloseOperation = await prepareCloseLiveYieldRoutingPoliciesSync(
+      {
+        settingsPda: args.settingsPda,
+        feePayer: args.feePayer,
+        signers: [args.walletAddress],
+        policies: policyAccounts,
+        memo: args.memo,
+      }
+    );
     const autodepositClosePrepared = args.autodepositClose
       ? await prepareEarnUsdcAutodepositClose({
           cluster,
@@ -7836,8 +7838,13 @@ export function createSmartAccountVaultsClient(
       : null;
     const operations = [
       ...(tokenOperation ? [tokenOperation] : []),
-      policyCloseOperation,
+      ...(policyCloseOperation ? [policyCloseOperation] : []),
     ];
+    if (operations.length === 0) {
+      throw new Error(
+        "Nothing to clean up: yield routing policies are already closed."
+      );
+    }
     const prepared = freezePreparedOperation({
       operation: "earnUsdcCleanup",
       payer: args.feePayer,
@@ -8666,6 +8673,28 @@ export function createSmartAccountVaultsClient(
         remainingAccounts: toWritableAccountMetas(policies),
       } as never
     );
+  }
+
+  // Earn final-exit cleanup must tolerate policies a prior exit already closed
+  // on-chain (a stale DB pair can hand out dead accounts): closing nothing is
+  // success, not an error. Returns null when no listed policy exists anymore.
+  async function prepareCloseLiveYieldRoutingPoliciesSync(
+    args: SmartAccountClosePoliciesSyncInput
+  ): Promise<PreparedLoyalSmartAccountsOperation<string> | null> {
+    const existing = await getExistingAccountSet({
+      accounts: args.policies,
+      connection: config.connection,
+    });
+    const livePolicies = args.policies.filter((policy) =>
+      existing.has(policy.toBase58())
+    );
+    if (livePolicies.length === 0) {
+      return null;
+    }
+    return prepareCloseYieldRoutingPoliciesSync({
+      ...args,
+      policies: livePolicies,
+    });
   }
 
   async function prepareUseSolSpendingLimitPolicy(

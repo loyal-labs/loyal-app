@@ -272,6 +272,14 @@ export type SnapshotReconciliationInput = {
   sourceSnapshotId: bigint;
 };
 
+// Sub-cent idle USDC must not block a final exit. Shared by the withdraw
+// prepare routes (which close the on-chain policies on this basis) and the
+// confirm-side resolveWithdrawalSource (which releases the DB policy rows).
+// Prepare and confirm MUST agree: when prepare closes the policies but confirm
+// keeps the DB pair active, the next deposit adopts dead policy accounts and
+// every subsequent withdraw prepare fails with "Unable to find Policy account".
+export const EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW = BigInt(10_000); // $0.01
+
 const REDEEMABLE_LIQUIDITY_AMOUNT_SEMANTICS = new Set([
   "kamino_redeemable_liquidity",
 ]);
@@ -1521,10 +1529,13 @@ async function resolveWithdrawalSource(
 
   return {
     idleRows: currentIdleRows,
+    // Mirrors the prepare routes' final-exit derivation (same dust tolerance):
+    // a full-mode exit sweeps idle dust and closes the on-chain policies, so
+    // the DB pair must be released here on the same basis.
     isFinalExit:
       input.mode === "full" &&
       remainingReserveAmountRaw <= BigInt(0) &&
-      remainingIdleRaw <= BigInt(0),
+      remainingIdleRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW,
     remainingIdleAmountRaw: remainingIdleRaw + reserveVaultIdleDeltaRaw,
     remainingReserveAmountRaw,
     selectedIdleRow,
