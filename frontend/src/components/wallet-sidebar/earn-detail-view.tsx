@@ -3437,13 +3437,14 @@ export function EarnWithdrawView({
   const effectiveWithdrawAmountLabel = hasWithdrawAmount
     ? withdrawAmount
     : formatDepositAmount(selectedSourceMaxAmount);
-  const effectiveWithdrawMode =
-    selectedSource?.type === "reserve"
-      ? "partial"
-      : deriveEarnWithdrawMode({
-          amount: effectiveWithdrawAmount,
-          maxWithdrawAmount: selectedSourceMaxAmount,
-        });
+  // MAX (or typing the visible floored max) must submit mode "full" for every
+  // source type. Reserve sources used to be pinned to "partial", which drained
+  // the reserve to $0 without the final-exit path — position, policies, vault
+  // ATA, and autodeposit all stayed behind.
+  const effectiveWithdrawMode = deriveEarnWithdrawMode({
+    amount: effectiveWithdrawAmount,
+    maxWithdrawAmount: selectedSourceMaxAmount,
+  });
   const withdrawAmountError = !selectedSource
     ? "No withdrawable Earn source"
     : !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
