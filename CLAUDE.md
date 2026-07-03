@@ -408,6 +408,25 @@ Optional:
 - `DEPLOYMENT_PK` - Gasless transaction keypair (base58)
 - `NEXT_PUBLIC_GAS_PUBLIC_KEY` - Gasless payer public key
 
+### Loyal web frontend quest reporting and push hooks (`/frontend`)
+
+Source of truth: `frontend/.env.example`, `frontend/src/features/solana-week/server/quest-completion-reporter.ts`, `frontend/src/app/api/solana-week/sweep-notify/route.ts`, `frontend/src/lib/push-notifications/wallet-push.server.ts`, and `frontend/src/app/api/push/mixpanel-cohort/route.ts`.
+
+Backend-only (never `NEXT_PUBLIC_`):
+
+- `SOLANA_WEEK_QUESTS_ENABLED` - launch kill-switch; set to exact `true` to enable live quest reporting
+- `SOLANA_WEEK_QUESTS_TESTER_WALLETS` - optional comma-separated wallet allowlist for internal preview-build quest testing while the kill-switch stays off
+- `SOLANA_WEEK_QUESTS_COMPLETION_ENDPOINT` - Challenge Quest Completion API endpoint; reporting no-ops until this, the API key, and the relevant quest ID are set
+- `SOLANA_WEEK_QUESTS_API_KEY` - server-only API key for quest completion reporting
+- `SOLANA_WEEK_QUESTS_SIGNING_KEY` - optional base58/base64 Ed25519 signing key for `x-signature`
+- `SOLANA_WEEK_QUEST_ID_EARN_DEPOSIT` - Quest 1 ID for the user's manual Earn deposit completion
+- `SOLANA_WEEK_QUEST_ID_FIRST_AUTODEPOSIT` - Quest 2 ID for the first autodeposit sweep completion
+- `SOLANA_WEEK_SWEEP_LOOKBACK_HOURS` - optional reconciliation cron lookback window in hours; defaults to `168`
+- `SOLANA_WEEK_NOTIFY_SECRET` - Bearer secret for the autodeposit sweep worker to call `/api/solana-week/sweep-notify`
+- `MOBILE_PUSH_API_BASE_URL` - app deployment origin the earn backend calls to relay wallet pushes
+- `MOBILE_PUSH_API_SECRET` - shared secret for that push relay; must match the app's `PUSH_DEBUG_SECRET`; if unset, pushes stay off
+- `MIXPANEL_COHORT_WEBHOOK_SECRET` - Basic-auth password for `/api/push/mixpanel-cohort`; if unset, the receiver rejects all requests
+
 ### Cloudflare R2/CDN (feature-specific)
 
 Core clients live in `/app/src/lib/core`:
