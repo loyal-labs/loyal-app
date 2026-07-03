@@ -101,3 +101,10 @@ export function autodepositSweepExecutedPush(
     title: `${amount} moved to EARN.`,
   };
 }
+
+export function quest1DonePush(): WalletPushPayload {
+  return {
+    body: "Now flip on auto-deposit for Quest 2 — your USDC starts earning.",
+    title: "Quest 1 done. ✅",
+  };
+}

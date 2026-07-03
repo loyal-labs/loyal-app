@@ -2,6 +2,10 @@ import "server-only";
 
 import { and, eq, ne, sql } from "drizzle-orm";
 
+import {
+  quest1DonePush,
+  sendWalletPush,
+} from "@/lib/push-notifications/wallet-push.server";
 import { findWalletAddressesWithBalanceSweepsSince } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   getYieldOptimizationClient,
@@ -164,7 +168,15 @@ export async function recordAndReportQuestCompletion(args: {
     walletId,
     metadata: args.metadata,
   });
-  return applyReportResult(row.id, result);
+  const status = await applyReportResult(row.id, result);
+  // Quest 1 push (ASK-1651 P2): fires at most once — the row transitions to
+  // 'reported' a single time, and already-reported rows return above. Quest 2
+  // gets no push here; the P1 "$X moved to EARN" push lands at that same
+  // moment from the sweep notify.
+  if (status === "reported" && args.kind === "earn_deposit") {
+    await sendWalletPush(walletId, quest1DonePush());
+  }
+  return status;
 }
 
 async function reportBestEffort(
