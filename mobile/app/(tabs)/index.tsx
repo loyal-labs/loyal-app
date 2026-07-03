@@ -60,7 +60,11 @@ import AutodepositIcon from "../../assets/images/earn/autodeposit.svg";
 import EarnFlash from "../../assets/images/earn/flash.svg";
 import EarnQuestionmark from "../../assets/images/earn/questionmark.svg";
 
-const APY_LABEL = "8.46% APY";
+// Starter-hero principal ("Turn $6,000 into $X"). The guard rate only fires if
+// the forecast API returns a non-positive APY (getLoyalApyBps already falls
+// back to its marketing rate while loading).
+const HERO_PRINCIPAL_USD = 6_000;
+const FALLBACK_APY_PCT = 8.46;
 
 // Earn is a money-sensitive view and the user expects the balance to track the
 // chain promptly, so poll faster than the wallet's 60s safety-net interval.
@@ -655,15 +659,18 @@ export default function EarnScreen() {
     refreshAutodeposit();
   }, [signer, state, autodeposit, refreshAutodeposit]);
 
-  // Loyal APY for the funded header badge — same source as the APY chart and the
-  // web (forecast/loyal rate), not the position's raw reserve supply APY (which
-  // reads lower). getLoyalApyBps falls back to its marketing rate while loading.
-  const apyLabel = useMemo(() => {
-    const pct = getLoyalApyBps(forecastSummary) / 100;
-    if (Number.isFinite(pct) && pct > 0) {
-      return `${pct.toFixed(2)}% APY`;
-    }
-    return APY_LABEL;
+  // Loyal APY for the hero + funded header badges — same source as the APY
+  // chart and the web (forecast/loyal rate), not the position's raw reserve
+  // supply APY (which reads lower). The starter hero's "into $X" projects the
+  // $6,000 principal at the same rate so the headline always matches the badge.
+  const { apyLabel, heroTargetLabel } = useMemo(() => {
+    const raw = getLoyalApyBps(forecastSummary) / 100;
+    const pct = Number.isFinite(raw) && raw > 0 ? raw : FALLBACK_APY_PCT;
+    const target = Math.round(HERO_PRINCIPAL_USD * (1 + pct / 100));
+    return {
+      apyLabel: `${pct.toFixed(2)}% APY`,
+      heroTargetLabel: `$${target.toLocaleString("en-US")}`,
+    };
   }, [forecastSummary]);
 
   // Autodeposit threshold subtitle, shown once it's been set up (Figma 74:20722).
@@ -820,13 +827,15 @@ export default function EarnScreen() {
               <Animated.View style={line0Style}>
                 <Text style={styles.headline}>
                   <Text style={styles.headlineDim}>Turn </Text>
-                  <Text style={styles.headlineBright}>$6,000</Text>
+                  <Text style={styles.headlineBright}>
+                    ${HERO_PRINCIPAL_USD.toLocaleString("en-US")}
+                  </Text>
                 </Text>
               </Animated.View>
               <Animated.View style={line1Style}>
                 <Text style={styles.headline}>
                   <Text style={styles.headlineDim}>into </Text>
-                  <Text style={styles.headlineBright}>$6,507 </Text>
+                  <Text style={styles.headlineBright}>{heroTargetLabel} </Text>
                   <Text style={styles.headlineDim}>in</Text>
                 </Text>
               </Animated.View>
@@ -838,7 +847,7 @@ export default function EarnScreen() {
               <Animated.View style={[styles.badgeReveal, badgeStyle]}>
                 <View style={styles.heroBadge}>
                   <EarnFlash width={21} height={28} />
-                  <Text style={styles.heroBadgeText}>{APY_LABEL}</Text>
+                  <Text style={styles.heroBadgeText}>{apyLabel}</Text>
                 </View>
               </Animated.View>
             </View>
