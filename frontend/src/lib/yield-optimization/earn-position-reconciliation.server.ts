@@ -56,6 +56,9 @@ type ReconcileEarnVaultPositionInput = {
   cluster: Parameters<typeof getKaminoUsdcEarnTargetForCluster>[0];
   connection: Pick<Connection, "getMultipleAccountsInfoAndContext">;
   force?: boolean;
+  // When set, the chain read demands a node at or past this slot so a lagging
+  // node cannot feed pre-confirmation account state into the reconciled write.
+  minContextSlot?: number;
   settings: string;
   vaultPubkey: string;
 };
@@ -297,7 +300,9 @@ export async function reconcileEarnVaultPosition(
   const { context: reserveContext, value: reserveValues } =
     await input.connection.getMultipleAccountsInfoAndContext(
       accountKeys,
-      SOURCE_COMMITMENT
+      input.minContextSlot !== undefined
+        ? { commitment: SOURCE_COMMITMENT, minContextSlot: input.minContextSlot }
+        : SOURCE_COMMITMENT
     );
   const idleAccount = reserveValues[reserveValues.length - 1] ?? null;
   const accountForRole = (role: CandidateAccountRole) =>
