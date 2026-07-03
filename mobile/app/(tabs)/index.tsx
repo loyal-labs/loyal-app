@@ -1,7 +1,7 @@
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowUp, Plus, SlidersHorizontal } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -25,6 +25,7 @@ import { PositionsSheet } from "@/components/earn/PositionsSheet";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { Skeleton } from "@/components/Skeleton";
+import { refreshEarnEarningsCache } from "@/hooks/wallet/useEarnEarnings";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useAppReady } from "@/lib/app-ready";
@@ -254,9 +255,16 @@ export default function EarnScreen() {
   // focus. `requestRefresh("mutation")` is reused below for local deposit/withdraw.
   const refreshEarnData = useCallback(
     async (_reason: WalletRefreshReason) => {
-      await Promise.allSettled([refreshEarnPosition(), refreshAutodeposit()]);
+      await Promise.allSettled([
+        refreshEarnPosition(),
+        refreshAutodeposit(),
+        // Preload the Earned chart's data at app open and keep its cache warm
+        // in the background (TTL-throttled inside). Silent: a mounted chart
+        // keeps its snapshot and only reloads on the balance-change push below.
+        ...(walletAddress ? [refreshEarnEarningsCache(walletAddress)] : []),
+      ]);
     },
-    [refreshEarnPosition, refreshAutodeposit],
+    [refreshEarnPosition, refreshAutodeposit, walletAddress],
   );
   const { requestRefresh } = useWalletAutoRefresh({
     walletAddress,
@@ -302,6 +310,28 @@ export default function EarnScreen() {
       setHasDeposit(false);
     }
   }, [position, earnPositionLoaded]);
+
+  // Push fresh earnings into a mounted Earned chart only when the balance
+  // actually moved (deposit/withdraw/sweep, local or another client). Quiet
+  // background refreshes never reload a chart that's on screen.
+  // ponytail: 1-cent epsilon so live yield accrual between 15s reads doesn't
+  // count as a change; only breaks above ~$200k principal.
+  const lastChartBalanceRawRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!earnPositionLoaded || !walletAddress) {
+      lastChartBalanceRawRef.current = null;
+      return;
+    }
+    const raw = position ? Number(position.currentAmountRaw) : 0;
+    if (!Number.isFinite(raw)) {
+      return;
+    }
+    const prev = lastChartBalanceRawRef.current;
+    lastChartBalanceRawRef.current = raw;
+    if (prev !== null && Math.abs(raw - prev) >= 10_000) {
+      void refreshEarnEarningsCache(walletAddress, { notify: true });
+    }
+  }, [position, earnPositionLoaded, walletAddress]);
 
   // Cross-fade the promo hero ↔ funded layout whenever the funded state flips.
   // Forward (balance loaded) is the common path: funded fades in while the promo
