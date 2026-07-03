@@ -1,3 +1,5 @@
+import { track } from "@/lib/analytics/analytics";
+import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 
@@ -86,6 +88,9 @@ export async function executeEarnDeposit(args: {
       error,
     );
   }
+
+  // Tracked here (not in the sheets) so every deposit entry point counts once.
+  track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
 
   return { depositSignature: deposit.signature };
 }

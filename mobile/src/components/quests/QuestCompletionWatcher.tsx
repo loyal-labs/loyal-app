@@ -2,6 +2,8 @@ import { useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { AppState } from "react-native";
 
+import { track } from "@/lib/analytics/analytics";
+import { QUEST_EVENTS } from "@/lib/analytics/quest-events";
 import {
   fetchSolanaWeekQuestProgress,
   type SolanaWeekQuestKind,
@@ -69,6 +71,14 @@ export function QuestCompletionWatcher() {
       for (const kind of newly) mmkv.setBoolean(kindKey(pk, kind), true);
 
       const allDone = ALL_KINDS.every((k) => reported.has(k));
+      // Same once-per-wallet dedup as the celebration (MMKV above); the
+      // seeding path returns before this, so nothing fires retroactively.
+      for (const kind of newly) {
+        track(QUEST_EVENTS.questCompleted, {
+          quest: kind,
+          all_completed: allDone,
+        });
+      }
       if (allDone && !mmkv.getBoolean(allKey(pk))) {
         mmkv.setBoolean(allKey(pk), true);
         setVariant("all");

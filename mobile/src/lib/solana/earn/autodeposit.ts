@@ -1,3 +1,5 @@
+import { track } from "@/lib/analytics/analytics";
+import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 
@@ -111,6 +113,10 @@ export async function executeEarnAutodepositSetup(args: {
       }
     }
     if (stages[stages.length - 1].stage === "create_recurring_delegation") {
+      track(EARN_EVENTS.autodepositEnabled, {
+        source: "setup",
+        threshold_usd: args.thresholdUsd,
+      });
       return;
     }
   }
@@ -160,6 +166,12 @@ export async function setEarnAutodepositActive(args: {
     recurringDelegation: args.recurringDelegation,
     vaultIndex: args.vaultIndex,
   });
+  track(
+    args.active
+      ? EARN_EVENTS.autodepositEnabled
+      : EARN_EVENTS.autodepositDisabled,
+    { source: "toggle" },
+  );
 }
 
 // Delete an Autodeposit: tears down the on-chain recurring delegation (one
@@ -199,6 +211,7 @@ export async function executeEarnAutodepositClose(args: {
         confirmedSlot: sent.confirmedSlot,
       }),
   );
+  track(EARN_EVENTS.autodepositDisabled, { source: "deleted" });
 }
 
 // Trigger the pending scheduled Autodeposit sweep to run now instead of waiting

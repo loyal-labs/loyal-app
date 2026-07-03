@@ -7,7 +7,8 @@ import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
-import { initAnalytics } from "@/lib/analytics/analytics";
+import { initAnalytics, track } from "@/lib/analytics/analytics";
+import { APP_EVENTS } from "@/lib/analytics/app-events";
 import { AppReadyProvider } from "@/lib/app-ready";
 import { SignApprovalProvider } from "@/lib/wallet/sign-approval";
 import { WalletProvider } from "@/lib/wallet/wallet-provider";
@@ -20,6 +21,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useState } from "react";
+import { AppState } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 SplashScreen.preventAutoHideAsync();
@@ -49,9 +51,17 @@ export default function RootLayout() {
   }, []);
 
   // Initialize Mixpanel as early as possible so identify/track from wallet
-  // boot are not lost.
+  // boot are not lost. "App Opened" fires on cold start and every foreground —
+  // retention cohorts (ASK-1651) key off its recency.
   useEffect(() => {
     void initAnalytics();
+    track(APP_EVENTS.opened);
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        track(APP_EVENTS.opened);
+      }
+    });
+    return () => subscription.remove();
   }, []);
 
   // Handle notification tap while app is running
