@@ -51,6 +51,16 @@ import {
 // in sync with the session route.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
+// Sub-cent idle USDC must not block a final exit. The final-exit prepare path
+// sweeps the vault USDC ATA's live balance into the wallet transfer, so
+// tolerated idle dust is paid out, the ATA closes, and the policies close (SOL
+// rent refund). Without the tolerance, the 1-2 raw units that Kamino redemption
+// rounding strands in the idle account keep the position open at $0.00 forever
+// — the cent-precision withdraw UIs can't express an amount below $0.01 to
+// clear it. Reserve remainders stay strict: the sweep does not touch other
+// reserves' collateral. Keep in sync with the session withdrawals/prepare route.
+const EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW = BigInt(10_000); // $0.01
+
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
@@ -575,30 +585,31 @@ export async function POST(request: Request) {
         reserveRows: currentReserveRows,
       });
       effectiveAmountRaw = selectedSource.amountRaw;
-      const remainingSourceAmountRaw =
-        currentReserveRows.reduce(
-          (total, row) =>
-            total +
-            (selectedSource.type === "reserve" &&
-            row.reserve === selectedSource.reserve
-              ? row.amountRaw > effectiveAmountRaw!
-                ? row.amountRaw - effectiveAmountRaw!
-                : BigInt(0)
-              : row.amountRaw),
-          BigInt(0)
-        ) +
-        currentIdleRows.reduce(
-          (total, row) =>
-            total +
-            (selectedSource.type === "idle" &&
-            row.tokenAccount === selectedSource.tokenAccount
-              ? row.amountRaw > effectiveAmountRaw!
-                ? row.amountRaw - effectiveAmountRaw!
-                : BigInt(0)
-              : row.amountRaw),
-          BigInt(0)
-        );
-      isFinalExit = remainingSourceAmountRaw <= BigInt(0);
+      const remainingReserveAmountRaw = currentReserveRows.reduce(
+        (total, row) =>
+          total +
+          (selectedSource.type === "reserve" &&
+          row.reserve === selectedSource.reserve
+            ? row.amountRaw > effectiveAmountRaw!
+              ? row.amountRaw - effectiveAmountRaw!
+              : BigInt(0)
+            : row.amountRaw),
+        BigInt(0)
+      );
+      const remainingIdleAmountRaw = currentIdleRows.reduce(
+        (total, row) =>
+          total +
+          (selectedSource.type === "idle" &&
+          row.tokenAccount === selectedSource.tokenAccount
+            ? row.amountRaw > effectiveAmountRaw!
+              ? row.amountRaw - effectiveAmountRaw!
+              : BigInt(0)
+            : row.amountRaw),
+        BigInt(0)
+      );
+      isFinalExit =
+        remainingReserveAmountRaw <= BigInt(0) &&
+        remainingIdleAmountRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW;
       withdrawTarget = earnReserveTargetFromActivePosition(position);
     }
 

@@ -425,6 +425,58 @@ describe("Earn withdrawal prepare route", () => {
     expect(targets[0]?.reserve.toBase58()).toBe(activePosition.currentReserve);
   });
 
+  test("treats sub-cent idle dust as a final exit on full reserve withdrawals", async () => {
+    const { POST } = await import("./route");
+    currentIdleRows = [
+      {
+        amountRaw: BigInt(2),
+        mint: activePosition.currentLiquidityMint,
+        tokenAccount: "11111111111111111111111111111116",
+      },
+    ];
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "1000026",
+        mode: "full",
+        source: {
+          id: activePosition.currentReserve,
+          reserve: activePosition.currentReserve,
+          type: "reserve",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(prepareCalls[0]?.closePoliciesOnFullWithdrawal).toBe(true);
+  });
+
+  test("keeps full reserve withdrawals non-final while a withdrawable idle balance remains", async () => {
+    const { POST } = await import("./route");
+    currentIdleRows = [
+      {
+        amountRaw: BigInt(10_000),
+        mint: activePosition.currentLiquidityMint,
+        tokenAccount: "11111111111111111111111111111116",
+      },
+    ];
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "1000026",
+        mode: "full",
+        source: {
+          id: activePosition.currentReserve,
+          reserve: activePosition.currentReserve,
+          type: "reserve",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(prepareCalls[0]?.closePoliciesOnFullWithdrawal).toBe(false);
+  });
+
   test("passes selected idle vault USDC as its own withdrawal source", async () => {
     const { POST } = await import("./route");
     currentIdleRows = [
