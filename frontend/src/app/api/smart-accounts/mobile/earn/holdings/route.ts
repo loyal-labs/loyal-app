@@ -12,9 +12,13 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import { fetchEarnRpcHoldingsSnapshot } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
-import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import {
+  findActiveYieldPositionForVault,
+  findActiveYieldRoutePolicyPair,
+} from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Read-only mobile twin of the web client's live on-chain Earn holdings read
 // (`earn-rpc-holdings.client.ts`, summed by the sidebar for its headline
@@ -25,10 +29,24 @@ import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-d
 //
 // Keyed by wallet address (the native app holds no signer, to avoid a Seed Vault
 // prompt on a passive balance view) — this only reads public on-chain accounts
-// for a vault the caller already knows, and never writes/provisions. Returns an
-// empty snapshot when the wallet has no app user / smart account / active Earn
-// policy yet.
+// for a vault the caller already knows, and never provisions. Its only write is
+// the read-model heal below, which re-derives the stored position from the same
+// public chain state. Returns an empty snapshot when the wallet has no app user
+// / smart account / active Earn policy yet.
+//
+// Read-model heal: the yield worker's sweep confirm can stamp the DB position
+// with the obligation's raw cToken collateral amount (~0.84x the real USDC
+// value). The web hides that because its headline is a client-side chain sum
+// and its client fires POST /yield-optimization/position/reconcile on any
+// divergence, rewriting the read-model. Mobile has no such trigger, so /state
+// keeps serving the undercount (shown during the post-deposit trust window and
+// whenever this live read fails). Mirror the web's heal here: when the live
+// chain total is ABOVE the stored one by at least a cent, run the same
+// reconcile. Up-direction only — right after a deposit the live read can
+// transiently dip BELOW the freshly confirmed total (funds mid-flight into
+// Kamino), and healing downward would reintroduce the very dip this fixes.
 const EARN_VAULT_INDEX = 1;
+const EARN_READ_MODEL_HEAL_MIN_DELTA_RAW = BigInt(10_000); // $0.01
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
@@ -140,6 +158,39 @@ export async function GET(request: Request) {
       programId,
       settingsPda,
     });
+
+    // Best-effort read-model heal (see the module comment). Never fails the
+    // holdings response — the live snapshot above is already the answer.
+    try {
+      const position = await findActiveYieldPositionForVault({
+        cluster,
+        settings: account.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress,
+      });
+      const liveTotalAmountRaw = BigInt(snapshot.currentTotalAmountRaw);
+      if (
+        position !== null &&
+        liveTotalAmountRaw - position.currentAmountRaw >=
+          EARN_READ_MODEL_HEAL_MIN_DELTA_RAW
+      ) {
+        await reconcileEarnVaultPosition({
+          authority: walletAddress,
+          cluster,
+          connection: getConnection(solanaEnv),
+          force: true,
+          settings: account.settingsPda,
+          vaultPubkey: earnVaultPda.toBase58(),
+        });
+      }
+    } catch (error) {
+      console.warn("[mobile-earn-holdings] read-model heal failed", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown heal error.",
+        errorName: error instanceof Error ? error.name : typeof error,
+        walletAddress,
+      });
+    }
 
     return NextResponse.json({
       currentTotalAmountRaw: snapshot.currentTotalAmountRaw,
