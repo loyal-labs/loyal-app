@@ -12,7 +12,10 @@ import { ActivityIndicator, RefreshControl, View as MeasureView } from "react-na
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
-import { DepositSheet } from "@/components/earn/DepositSheet";
+import {
+  computeFirstDepositSolShortfall,
+  DepositSheet,
+} from "@/components/earn/DepositSheet";
 import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { BalanceBackgroundPicker } from "@/components/wallet/BalanceBackgroundPicker";
@@ -229,6 +232,16 @@ export default function WalletScreen() {
     const bps = getLoyalApyBps(forecastSummary);
     return Number.isFinite(bps) && bps > 0 ? bps : null;
   }, [earnPosition, forecastSummary]);
+
+  // First-deposit SOL gate: opening the first Earn position costs SOL
+  // (rent/fees), so with no existing position the wallet must hold ≥ 0.05
+  // SOL. Null while the position/balance are loading — the gate fails open.
+  const firstDepositSolShortfall = useMemo(() => {
+    if (!earnLoaded || earnUsd > 0) return null;
+    return computeFirstDepositSolShortfall(
+      solBalanceLamports != null ? solBalanceLamports / 1e9 : null,
+    );
+  }, [earnLoaded, earnUsd, solBalanceLamports]);
 
   // Wallet USDC balance feeds the Deposit sheet's available/insufficient state.
   const usdcAvailable = useMemo(() => {
@@ -552,6 +565,7 @@ export default function WalletScreen() {
         onClose={() => setIsDepositOpen(false)}
         onDeposit={handleDepositConfirmed}
         availableUsdc={usdcAvailable}
+        firstDepositSolShortfall={firstDepositSolShortfall}
       />
     </View>
   );

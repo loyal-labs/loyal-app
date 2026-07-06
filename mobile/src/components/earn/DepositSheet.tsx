@@ -35,6 +35,30 @@ const usdcLogo = require("../../../assets/images/earn/usdc.png");
 // by a static logo chip (Figma 75:33570, annotation "вместо селекта").
 const MIN_DEPOSIT_USD = 1;
 
+// The first Earn deposit creates the position's on-chain accounts, which costs
+// SOL (rent + fees) — the wallet must hold at least 0.05 SOL before it can
+// open a position.
+const FIRST_DEPOSIT_MIN_SOL = 0.05;
+
+// How much SOL the wallet is missing to cover the first-deposit minimum.
+// Returns null when covered — or when the balance hasn't loaded yet, so the
+// gate fails open instead of blocking a funded wallet on slow data.
+export function computeFirstDepositSolShortfall(
+  solBalance: number | null,
+): number | null {
+  if (solBalance == null || !Number.isFinite(solBalance)) {
+    return null;
+  }
+  const shortfall = FIRST_DEPOSIT_MIN_SOL - solBalance;
+  if (shortfall <= 0) return null;
+  // Ceil at 4 decimals so the ">" prompt stays true after rounding.
+  return Math.ceil(shortfall * 1e4) / 1e4;
+}
+
+function formatSolAmount(sol: number): string {
+  return sol.toFixed(4).replace(/\.?0+$/, "");
+}
+
 const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_CHIP_BG = "#F2F2F7";
 const COLOR_CHIP_SOFT = "rgba(0, 0, 0, 0.04)";
@@ -111,6 +135,10 @@ type DepositSheetProps = {
   // The wallet's spendable USDC balance (token units ≈ dollars). `null` while
   // holdings are still loading or the wallet has no USDC.
   availableUsdc?: number | null;
+  // SOL still needed to cover the 0.05 SOL first-deposit minimum (see
+  // computeFirstDepositSolShortfall). Non-null disables the CTA with a top-up
+  // prompt; parents pass null when this isn't the wallet's first deposit.
+  firstDepositSolShortfall?: number | null;
 };
 
 export function DepositSheet({
@@ -118,6 +146,7 @@ export function DepositSheet({
   onClose,
   onDeposit,
   availableUsdc,
+  firstDepositSolShortfall,
 }: DepositSheetProps) {
   const sheetRef = useRef<BottomSheetModal>(null);
   // The underlying input is gesture-handler's TextInput (forwarded through
@@ -226,17 +255,21 @@ export function DepositSheet({
 
   const displayValue = formatAmountDisplay(amount);
   const enteredUsd = amountToUsd(amount);
-  // Below the minimum (incl. the empty/zero state) → "Minimum"; at/above it
-  // but over the wallet balance → "Insufficient balance". Both render the same
-  // red, non-pressable CTA; the minimum check takes precedence.
+  // First deposit without enough SOL for rent/fees blocks the CTA outright
+  // (independent of the typed amount). Otherwise: below the minimum (incl. the
+  // empty/zero state) → "Minimum"; at/above it but over the wallet balance →
+  // "Insufficient balance". All render the same red, non-pressable CTA.
+  const needsSolTopUp = (firstDepositSolShortfall ?? 0) > 0;
   const belowMinimum = enteredUsd < MIN_DEPOSIT_USD;
   const insufficientFunds = !belowMinimum && enteredUsd > available;
-  const hasError = belowMinimum || insufficientFunds;
-  const ctaLabel = belowMinimum
-    ? `Minimum deposit is $${MIN_DEPOSIT_USD}`
-    : insufficientFunds
-      ? "Insufficient balance"
-      : "Deposit";
+  const hasError = needsSolTopUp || belowMinimum || insufficientFunds;
+  const ctaLabel = needsSolTopUp
+    ? `Deposit > ${formatSolAmount(firstDepositSolShortfall as number)} SOL to open deposit`
+    : belowMinimum
+      ? `Minimum deposit is $${MIN_DEPOSIT_USD}`
+      : insufficientFunds
+        ? "Insufficient balance"
+        : "Deposit";
 
   // Scale the amount text down to fit the row; line-height stays pinned at the
   // max size (see AMOUNT_* constants) so the baseline doesn't move.

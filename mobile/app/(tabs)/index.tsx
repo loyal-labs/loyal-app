@@ -17,7 +17,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutodepositHelpSheet } from "@/components/earn/AutodepositHelpSheet";
 import { AutodepositSetupSheet } from "@/components/earn/AutodepositSetupSheet";
-import { DepositSheet } from "@/components/earn/DepositSheet";
+import {
+  computeFirstDepositSolShortfall,
+  DepositSheet,
+} from "@/components/earn/DepositSheet";
 import { EarnChartTabs } from "@/components/earn/EarnChartTabs";
 import { EarnDog } from "@/components/earn/EarnDog";
 import { getLoyalApyBps } from "@/components/earn/earnForecastModel";
@@ -30,6 +33,7 @@ import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
 import { useAppReady } from "@/lib/app-ready";
 import {
+  NATIVE_SOL_MINT,
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
@@ -211,6 +215,18 @@ export default function EarnScreen() {
   // Principal just deposited, used as the funded Earn Balance until the real
   // on-chain position is wired (see .context/earn-deposit-findings.md, step b).
   const [depositedUsd, setDepositedUsd] = useState<number | null>(null);
+  // First-deposit SOL gate: opening a position costs SOL (rent/fees), so with
+  // no existing position the wallet must hold ≥ 0.05 SOL. SOL balance comes
+  // from the same holdings read as the USDC balance; the missing SOL row means
+  // holdings haven't loaded, and the gate fails open until they do.
+  const firstDepositSolShortfall = useMemo(() => {
+    if (!earnPositionLoaded || hasDeposit) return null;
+    const sol = tokenHoldings.find(
+      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured,
+    );
+    if (!sol) return null;
+    return computeFirstDepositSolShortfall(sol.balance);
+  }, [earnPositionLoaded, hasDeposit, tokenHoldings]);
   const [isFocused, setIsFocused] = useState(false);
   // Bumped to (re)play the reveal each time the tab becomes visible.
   const [runId, setRunId] = useState(0);
@@ -967,6 +983,7 @@ export default function EarnScreen() {
         onClose={handleCloseDeposit}
         onDeposit={handleDepositConfirmed}
         availableUsdc={usdcAvailable}
+        firstDepositSolShortfall={firstDepositSolShortfall}
       />
 
       <WithdrawSheet
