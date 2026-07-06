@@ -733,10 +733,14 @@ export default function EarnScreen() {
   }, [autodepositThresholdUsd]);
 
   // Funded Earn Balance, split so the cents render dimmed (Figma 74:19926).
+  // Round to integer cents BEFORE splitting: Kamino's floor-division values a
+  // fresh $4 deposit at 3.999999, and trunc-then-round-cents rendered that as
+  // whole "3" + cents "100" — "$3.100" on screen, read as a drop to "3.1".
   const balanceParts = useMemo(() => {
     const usd = hasDeposit && depositedUsd != null ? depositedUsd : 0;
-    const whole = Math.trunc(usd);
-    const cents = Math.round((usd - whole) * 100);
+    const totalCents = Math.round(usd * 100);
+    const whole = Math.trunc(totalCents / 100);
+    const cents = totalCents - whole * 100;
     return {
       whole: `$${whole.toLocaleString("en-US")}`,
       cents: `.${cents.toString().padStart(2, "0")}`,

@@ -36,10 +36,13 @@ const COLOR_WITHDRAW_BG = "#F5F5F5";
 const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.92);
 
+// Round to integer cents BEFORE splitting — trunc-then-round-cents renders
+// 3.999999 (Kamino floor-valued $4) as "$3.100" (see the Earn balance twin).
 function splitUsd(value: number): { whole: string; cents: string } {
   const safe = Number.isFinite(value) ? value : 0;
-  const whole = Math.trunc(safe);
-  const cents = Math.round((safe - whole) * 100);
+  const totalCents = Math.round(safe * 100);
+  const whole = Math.trunc(totalCents / 100);
+  const cents = totalCents - whole * 100;
   return {
     whole: `$${whole.toLocaleString("en-US")}`,
     cents: `.${cents.toString().padStart(2, "0")}`,
