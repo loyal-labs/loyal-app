@@ -17,21 +17,10 @@ export type OnboardingStartStep = "slides" | "setup-onboarding";
 
 export const ONBOARDING_SLIDES: OnboardingSlide[] = [
   {
-    title: "Privacy Makes Money",
-    description: "Keep your cash private and earn up to 8% APY.",
-    image: require("../../../assets/images/onboarding/on1.png"),
-  },
-  {
-    title: "Gasless Private Transactions",
+    title: "Autodeposit",
     description:
-      "Zero fees and sub-10ms latency for any private transfers.",
-    image: require("../../../assets/images/onboarding/on2.png"),
-  },
-  {
-    title: "Send Over Telegram",
-    description:
-      "Send crypto to anyone over Telegram. Don’t reveal your address or sensitive data onchain.",
-    image: require("../../../assets/images/onboarding/on3.png"),
+      "Connect your wallet once and earn the best rate on USDC with loyal automations",
+    image: require("../../../assets/images/onboarding/autodeposit.png"),
   },
 ];
 

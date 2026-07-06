@@ -7,11 +7,9 @@ import {
 describe("ONBOARDING_SLIDES", () => {
   it("preserves the existing slide order and copy", () => {
     expect(ONBOARDING_SLIDES.map((slide) => slide.title)).toEqual([
-      "Privacy Makes Money",
-      "Gasless Private Transactions",
-      "Send Over Telegram",
+      "Autodeposit",
     ]);
-    expect(ONBOARDING_SLIDES).toHaveLength(3);
+    expect(ONBOARDING_SLIDES).toHaveLength(1);
   });
 
   it("exposes image and description for each slide", () => {

@@ -138,20 +138,22 @@ export function WalletSetupOnboardingScreen({
       <View className="flex-1">
         <View className="items-center px-4 pb-3 pt-2">
           <View className="flex-row items-center gap-[6px]">
-            {ONBOARDING_SLIDES.map((slide, index) => (
-              <View
-                key={`dot-${slide.title}`}
-                style={[
-                  styles.dot,
-                  {
-                    backgroundColor:
-                      index === currentIndex
-                        ? "#F9363C"
-                        : "rgba(249, 54, 60, 0.25)",
-                  },
-                ]}
-              />
-            ))}
+            {ONBOARDING_SLIDES.length > 1
+              ? ONBOARDING_SLIDES.map((slide, index) => (
+                  <View
+                    key={`dot-${slide.title}`}
+                    style={[
+                      styles.dot,
+                      {
+                        backgroundColor:
+                          index === currentIndex
+                            ? "#F9363C"
+                            : "rgba(249, 54, 60, 0.25)",
+                      },
+                    ]}
+                  />
+                ))
+              : null}
           </View>
         </View>
 
