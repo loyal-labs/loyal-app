@@ -37,7 +37,9 @@ User wallet
 | Earn policy | Constrains the delegated signer | Invalid instructions should fail on-chain. |
 | Kamino route | Supplies or withdraws from approved lending markets | This is where yield and lending risk come from. |
 
-Live Earn holdings are checked from Solana RPC and Kamino account state. Loyal databases store coordination state, confirmed history, and snapshots; they are not the authority for the current balance.
+Live Earn holdings are checked from Solana RPC and Kamino account state. If a live RPC snapshot looks older than Loyal's latest confirmed Earn update, the app treats that live read as unavailable and keeps the last confirmed balance until a fresh chain read succeeds.
+
+Loyal databases store coordination state, confirmed history, and snapshots; they help preserve the last confirmed balance when a live read is stale, but they are not the authority when a fresh balance-defining chain read is available.
 
 ## Rate Source
 
@@ -50,7 +52,7 @@ Kamino reserves pay lenders from borrower interest. A reserve's APY changes as s
 | Route choice | Loyal compares approved routes and can skip when the edge is not worth acting on. |
 | Freshness | Stale or missing market data should cause the system to wait rather than force a move. |
 | Verification | Users should be able to compare the displayed rate with the underlying Kamino market or reserve shown in the app. |
-| Accounting | Confirmed Earn history is written after chain confirmation; live holdings come from chain state. |
+| Accounting | Confirmed Earn history is written after chain confirmation; live holdings come from fresh chain state, and the app keeps the last confirmed balance when a live RPC read is stale or unavailable. |
 
 Base lending yield is borrower-funded: borrowers pay interest, utilization determines the borrow rate from the reserve curve, Kamino's reserve factor or protocol spread reduces the pass-through, and suppliers receive the remaining yield through reserve accounting. Incentives or rewards can add to displayed returns only when that market exposes them separately.
 
