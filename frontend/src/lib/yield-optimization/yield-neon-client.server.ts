@@ -47,6 +47,8 @@ export const decisionReason = loyalYieldSchema.enum("decision_reason", [
   "no_value_source",
   "cross_mint_only",
   "no_same_mint_edge",
+  "unsupported_amount_semantics",
+  "idle_vault_liquidity_available",
 ]);
 
 export const balanceSweepSurplusClassification = loyalYieldSchema.enum(
@@ -85,7 +87,38 @@ export const balanceSweepScheduledSlotStatus = loyalYieldSchema.enum(
   ]
 );
 
-export type YieldSwapLane = Record<string, unknown>;
+type YieldSwapLaneInstructionIndexes =
+  | number[]
+  | readonly [number, number, number];
+
+type YieldSwapLaneBase = Record<string, unknown> & {
+  actionAccount?: string;
+  action_account?: string;
+  instructionConstraintIndexes?: YieldSwapLaneInstructionIndexes;
+  instruction_constraint_indexes?: YieldSwapLaneInstructionIndexes;
+};
+
+export type YieldSwapLane =
+  | (YieldSwapLaneBase & {
+      exactInDiscriminator?: number[];
+      exact_in_discriminator?: number[];
+      kind?: "jupiter";
+      lane?: "jupiter";
+      programId?: string;
+      program_id?: string;
+    })
+  | (YieldSwapLaneBase & {
+      hubAuthorizer?: string;
+      hub_authorizer?: string;
+      kind?: "loyal_hub";
+      lane?: "loyal_hub";
+      maxFeeBps?: number;
+      max_fee_bps?: number;
+    })
+  | (Record<string, unknown> & {
+      kind?: string;
+      lane?: string;
+    });
 export type YieldSnapshotContext = Record<string, unknown>;
 export type YieldPlanningMetadata = Record<string, unknown>;
 export type EarnForecastSnapshotSample = EarnForecastApyHistorySample;
@@ -822,6 +855,28 @@ export const balanceSweepLotClaimItems = loyalYieldSchema.table(
   ]
 );
 
+export const balanceSweepExecutionLots = loyalYieldSchema.table(
+  "balance_sweep_execution_lots",
+  {
+    executionId: bigint("execution_id", { mode: "bigint" }).notNull(),
+    lotId: bigint("lot_id", { mode: "bigint" }).notNull(),
+    amountRaw: bigint("amount_raw", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.executionId, table.lotId],
+      name: "balance_sweep_execution_lots_pkey",
+    }),
+    index("balance_sweep_execution_lots_lot_idx").on(
+      table.lotId,
+      table.createdAt
+    ),
+  ]
+);
+
 export const balanceSweepWalletBalancesCurrent = loyalYieldSchema.table(
   "balance_sweep_wallet_balances_current",
   {
@@ -933,6 +988,63 @@ export const rebalanceDecisions = loyalYieldSchema.table(
   }
 );
 
+export const routeLookupTables = loyalYieldSchema.table(
+  "route_lookup_tables",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    cluster: text("cluster").notNull(),
+    scope: text("scope").notNull(),
+    tableAddress: text("table_address").notNull(),
+    authority: text("authority").notNull(),
+    payer: text("payer").notNull(),
+    status: text("status").notNull().default("usable"),
+    durable: boolean("durable").notNull().default(true),
+    addressCount: integer("address_count").notNull().default(0),
+    addressHash: text("address_hash").notNull().default(""),
+    addresses: jsonb("addresses").$type<string[]>().notNull().default([]),
+    createSignature: text("create_signature"),
+    extendSignatures: jsonb("extend_signatures")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    lastExtendedSlot: bigint("last_extended_slot", { mode: "bigint" }),
+    warmupSlot: bigint("warmup_slot", { mode: "bigint" }),
+    deactivatedSlot: bigint("deactivated_slot", { mode: "bigint" }),
+    deactivateSignature: text("deactivate_signature"),
+    closedSignature: text("closed_signature"),
+    closeRecipient: text("close_recipient"),
+    reclaimedLamports: bigint("reclaimed_lamports", { mode: "bigint" }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("route_lookup_tables_table_address_key").on(
+      table.tableAddress
+    ),
+    index("route_lookup_tables_active_scope_idx")
+      .on(table.cluster, table.scope, table.authority, table.status)
+      .where(
+        sql`${table.durable} = TRUE AND ${table.status} IN ('active', 'warming', 'usable')`
+      ),
+    uniqueIndex("route_lookup_tables_unique_active_scope_idx")
+      .on(table.cluster, table.scope, table.authority)
+      .where(
+        sql`${table.durable} = TRUE AND ${table.status} IN ('active', 'warming', 'usable')`
+      ),
+    index("route_lookup_tables_cleanup_idx").on(
+      table.authority,
+      table.durable,
+      table.status,
+      table.updatedAt
+    ),
+  ]
+);
+
 // Solana Week (dApp Store quests) attribution: our local mirror of the quest
 // completions we report to Solana. Idempotent per (wallet, quest_kind); also the
 // data source for in-app quest progress without hitting Solana's read API.
@@ -995,8 +1107,54 @@ export const pushCampaignSends = loyalYieldSchema.table(
   ]
 );
 
+export const realtimeEvents = loyalYieldSchema.table(
+  "realtime_events",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    eventType: text("event_type").notNull(),
+    scope: text("scope").notNull(),
+    reason: text("reason").notNull(),
+    solanaEnv: text("solana_env"),
+    walletAddress: text("wallet_address"),
+    settingsPda: text("settings_pda"),
+    smartAccountAddress: text("smart_account_address"),
+    vaultPubkey: text("vault_pubkey"),
+    targetId: bigint("target_id", { mode: "bigint" }),
+    scheduledSlotId: bigint("scheduled_slot_id", { mode: "bigint" }),
+    executionId: bigint("execution_id", { mode: "bigint" }),
+    sourceTable: text("source_table"),
+    sourceId: text("source_id"),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+  },
+  (table) => [
+    index("realtime_events_scope_id_idx").on(table.scope, table.id),
+    index("realtime_events_settings_pda_id_idx")
+      .on(table.settingsPda, table.id)
+      .where(sql`${table.settingsPda} IS NOT NULL`),
+    index("realtime_events_wallet_address_id_idx")
+      .on(table.walletAddress, table.id)
+      .where(sql`${table.walletAddress} IS NOT NULL`),
+    index("realtime_events_target_id_id_idx")
+      .on(table.targetId, table.id)
+      .where(sql`${table.targetId} IS NOT NULL`),
+    index("realtime_events_source_idx")
+      .on(table.sourceTable, table.sourceId)
+      .where(
+        sql`${table.sourceTable} IS NOT NULL AND ${table.sourceId} IS NOT NULL`
+      ),
+    index("realtime_events_created_at_idx").on(table.createdAt),
+  ]
+);
+
 export const yieldOptimizationSchema = {
   balanceSweepExecutions,
+  balanceSweepExecutionLots,
   balanceSweepLotClaimItems,
   balanceSweepLotClaims,
   balanceSweepPolicies,
@@ -1009,7 +1167,9 @@ export const yieldOptimizationSchema = {
   earnForecastSnapshots,
   managedVaults,
   pushCampaignSends,
+  realtimeEvents,
   rebalanceDecisions,
+  routeLookupTables,
   routePolicies,
   solanaWeekQuestCompletions,
   userYieldPositionDeposits,
@@ -1018,6 +1178,7 @@ export const yieldOptimizationSchema = {
   userYieldPositions,
   vaultPositionSnapshotPositions,
   vaultPositionSnapshots,
+  vaultIdleTokenBalancesCurrent,
   vaultReservePositionsCurrent,
 };
 
@@ -1031,6 +1192,7 @@ export type YieldOptimizationClientConfig = {
 
 export type YieldOptimizationClientTables = {
   balanceSweepExecutions: typeof balanceSweepExecutions;
+  balanceSweepExecutionLots: typeof balanceSweepExecutionLots;
   balanceSweepLotClaimItems: typeof balanceSweepLotClaimItems;
   balanceSweepLotClaims: typeof balanceSweepLotClaims;
   balanceSweepPolicies: typeof balanceSweepPolicies;
@@ -1043,6 +1205,8 @@ export type YieldOptimizationClientTables = {
   earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
   rebalanceDecisions: typeof rebalanceDecisions;
+  realtimeEvents: typeof realtimeEvents;
+  routeLookupTables: typeof routeLookupTables;
   routePolicies: typeof routePolicies;
   solanaWeekQuestCompletions: typeof solanaWeekQuestCompletions;
   userYieldPositionDeposits: typeof userYieldPositionDeposits;
@@ -1051,6 +1215,7 @@ export type YieldOptimizationClientTables = {
   userYieldPositions: typeof userYieldPositions;
   vaultPositionSnapshotPositions: typeof vaultPositionSnapshotPositions;
   vaultPositionSnapshots: typeof vaultPositionSnapshots;
+  vaultIdleTokenBalancesCurrent: typeof vaultIdleTokenBalancesCurrent;
   vaultReservePositionsCurrent: typeof vaultReservePositionsCurrent;
 };
 
@@ -1058,6 +1223,7 @@ export class YieldOptimizationClient {
   readonly db: YieldOptimizationDatabase;
   readonly tables: YieldOptimizationClientTables = {
     balanceSweepExecutions,
+    balanceSweepExecutionLots,
     balanceSweepLotClaimItems,
     balanceSweepLotClaims,
     balanceSweepPolicies,
@@ -1069,7 +1235,9 @@ export class YieldOptimizationClient {
     earnApyHourlySnapshots,
     earnForecastSnapshots,
     managedVaults,
+    realtimeEvents,
     rebalanceDecisions,
+    routeLookupTables,
     routePolicies,
     solanaWeekQuestCompletions,
     userYieldPositionDeposits,
@@ -1078,6 +1246,7 @@ export class YieldOptimizationClient {
     userYieldPositions,
     vaultPositionSnapshotPositions,
     vaultPositionSnapshots,
+    vaultIdleTokenBalancesCurrent,
     vaultReservePositionsCurrent,
   };
 

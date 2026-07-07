@@ -10,6 +10,7 @@ import {
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -23,7 +24,10 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { assertEarnAutodepositArtifactsExist } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
+import {
+  assertEarnAutodepositArtifactsExist,
+  withEarnAutodepositArtifactRetry,
+} from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import {
   parseEarnAutodepositSetupConfirmRequestBody,
   type EarnAutodepositSetupConfirmResponse,
@@ -444,28 +448,51 @@ export async function POST(request: Request) {
     );
   }
 
-  if (input.confirmedSlot !== confirmedSlot) {
+  if (
+    input.confirmedSlot !== BigInt(0) &&
+    input.confirmedSlot !== confirmedSlot
+  ) {
     return jsonError(
       400,
       "slot_mismatch",
       "Confirmed autodeposit setup slot does not match the transaction status."
     );
   }
+  input = { ...input, confirmedSlot };
 
   if (
     input.setupStage === "create_policy" ||
     input.setupStage === "create_recurring_delegation"
   ) {
     try {
-      await assertEarnAutodepositArtifactsExist({
-        connection,
-        policyAccount: input.policyAccount,
-        recurringDelegation: input.recurringDelegation,
-        requireRecurringDelegation:
-          input.setupStage === "create_recurring_delegation",
-        smartAccountsProgramId: new PublicKey(
-          serverEnv.loyalSmartAccounts.programId
-        ),
+      const smartAccountsProgramId = new PublicKey(
+        serverEnv.loyalSmartAccounts.programId
+      );
+      await withEarnAutodepositArtifactRetry(async () => {
+        await assertEarnAutodepositArtifactsExist({
+          connection,
+          policyAccount: input.policyAccount,
+          recurringDelegation: input.recurringDelegation,
+          requireRecurringDelegation:
+            input.setupStage === "create_recurring_delegation",
+          smartAccountsProgramId,
+        });
+        await createSmartAccountVaultsClient({
+          connection,
+          programId: smartAccountsProgramId,
+        }).assertEarnUsdcAutodepositCanonicalArtifacts({
+          amountRaw: input.amountPerPeriodRaw,
+          cluster: configuredCluster,
+          nonce: input.nonce,
+          policy: new PublicKey(input.policyAccount),
+          policySeed: input.policySeed,
+          policySigner: getDeploymentPolicySignerPublicKey(),
+          recurringDelegation: new PublicKey(input.recurringDelegation),
+          requireRecurringDelegation:
+            input.setupStage === "create_recurring_delegation",
+          settingsPda: new PublicKey(input.settings),
+          walletAddress: new PublicKey(input.walletAddress),
+        });
       });
     } catch (error) {
       return jsonError(
@@ -476,6 +503,12 @@ export async function POST(request: Request) {
           : "Confirmed Autodeposit setup artifacts are missing."
       );
     }
+  }
+
+  if (input.setupStage === "initialize_subscription_authority") {
+    return NextResponse.json({
+      confirmedSlot: confirmedSlot.toString(),
+    });
   }
 
   const target =
@@ -524,6 +557,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
+    confirmedSlot: confirmedSlot.toString(),
     ...(bootstrapSweep ? { bootstrapSweep } : {}),
     target: serializeTarget(target),
   });

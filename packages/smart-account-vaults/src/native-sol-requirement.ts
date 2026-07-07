@@ -13,7 +13,15 @@ export function combineSmartAccountNativeSolRequirements(
     (total, item) => total + BigInt(item.lamports),
     BigInt(0)
   );
-  const balanceLamports = BigInt(first.balanceLamports);
+  const balanceSource = requirements.every(
+    (requirement) => requirement.balanceSource === "assumed_sufficient"
+  )
+    ? "assumed_sufficient"
+    : first.balanceSource;
+  const balanceLamports =
+    balanceSource === "assumed_sufficient"
+      ? requiredLamports
+      : BigInt(first.balanceLamports);
   const deficitLamports =
     requiredLamports > balanceLamports
       ? requiredLamports - balanceLamports
@@ -21,6 +29,7 @@ export function combineSmartAccountNativeSolRequirements(
 
   return {
     balanceLamports: balanceLamports.toString(),
+    ...(balanceSource ? { balanceSource } : {}),
     canProceed: deficitLamports === BigInt(0),
     deficitLamports: deficitLamports.toString(),
     items,

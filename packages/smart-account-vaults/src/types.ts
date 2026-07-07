@@ -542,6 +542,7 @@ export type SmartAccountNativeSolRequirementItem = {
 
 export type SmartAccountNativeSolRequirement = {
   balanceLamports: string;
+  balanceSource?: "assumed_sufficient" | "provided" | "queried";
   canProceed: boolean;
   deficitLamports: string;
   items: SmartAccountNativeSolRequirementItem[];
@@ -821,6 +822,19 @@ export type SmartAccountEarnUsdcAutodepositSetupInput = {
   startTimestamp?: bigint;
   expiryTimestamp?: bigint;
   memo?: string;
+};
+
+export type SmartAccountEarnUsdcAutodepositCanonicalArtifactsInput = {
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  policySigner: PublicKey;
+  policy: PublicKey;
+  policySeed: bigint;
+  recurringDelegation: PublicKey;
+  nonce: bigint;
+  amountRaw: bigint;
+  cluster?: LoyalCluster;
+  requireRecurringDelegation?: boolean;
 };
 
 export type SmartAccountEarnUsdcAutodepositSetupMetadata = {

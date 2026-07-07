@@ -108,6 +108,7 @@ import type {
   SmartAccountClosePolicyProposalInput,
   SmartAccountClosePolicySyncInput,
   SmartAccountEarnUsdcAutodepositCloseInput,
+  SmartAccountEarnUsdcAutodepositCanonicalArtifactsInput,
   SmartAccountEarnUsdcAutodepositPullInput,
   SmartAccountEarnUsdcAutodepositSetupInput,
   SmartAccountCustomInstructionProposalInput,
@@ -432,6 +433,9 @@ function preparedPacketLength(
 }
 
 const FALLBACK_LAMPORTS_PER_SIGNATURE = 5_000;
+const RENT_EXEMPT_ACCOUNT_STORAGE_OVERHEAD_BYTES = BigInt(128);
+const MAINNET_RENT_EXEMPT_LAMPORTS_PER_BYTE = BigInt(6_960);
+const rentExemptionLamportsCache = new Map<string, bigint>();
 
 type NativeSolRentCandidate = {
   account: PublicKey;
@@ -449,6 +453,10 @@ type NativeSolFixedItem = Omit<
   lamports: bigint | number | string;
 };
 
+type NativeSolBalanceSource = NonNullable<
+  SmartAccountNativeSolRequirement["balanceSource"]
+>;
+
 type PolicyByteSizeArgs = Parameters<typeof Policy.byteSize>[0];
 
 function toLamportsBigInt(lamports: bigint | number | string): bigint {
@@ -463,10 +471,101 @@ function toLamportsBigInt(lamports: bigint | number | string): bigint {
   return BigInt(lamports);
 }
 
+function getFallbackPreparedFeeLamports(
+  prepared: PreparedLoyalSmartAccountsOperation<string>
+): bigint {
+  return (
+    BigInt(getPreparedRequiredSignatureCount(prepared)) *
+    BigInt(FALLBACK_LAMPORTS_PER_SIGNATURE)
+  );
+}
+
+function getStaticMainnetRentExemptionLamports(space: number): bigint {
+  return (
+    (BigInt(space) + RENT_EXEMPT_ACCOUNT_STORAGE_OVERHEAD_BYTES) *
+    MAINNET_RENT_EXEMPT_LAMPORTS_PER_BYTE
+  );
+}
+
+async function resolveRentExemptionLamports(args: {
+  cluster?: LoyalCluster;
+  connection: Connection;
+  preferStaticMainnetRent?: boolean;
+  space: number;
+}): Promise<bigint | null> {
+  if (
+    args.preferStaticMainnetRent &&
+    (args.cluster === undefined || args.cluster === LoyalCluster.MainnetBeta)
+  ) {
+    return getStaticMainnetRentExemptionLamports(args.space);
+  }
+
+  if (typeof args.connection.getMinimumBalanceForRentExemption !== "function") {
+    return null;
+  }
+
+  const cacheKey = `${args.cluster ?? "unknown"}:${args.space}`;
+  const cached = rentExemptionLamportsCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const lamports = await args.connection.getMinimumBalanceForRentExemption(
+    args.space,
+    "confirmed"
+  );
+  if (lamports <= 0) {
+    return null;
+  }
+
+  const normalized = BigInt(lamports);
+  rentExemptionLamportsCache.set(cacheKey, normalized);
+  return normalized;
+}
+
 function policyCreationPayloadToState(
   payload: generated.PolicyCreationPayload
 ): PolicyByteSizeArgs["policyState"] {
   return payload as unknown as PolicyByteSizeArgs["policyState"];
+}
+
+function normalizeComparableGeneratedValue(value: unknown): unknown {
+  if (value instanceof PublicKey) {
+    return value.toBase58();
+  }
+
+  if (BN.isBN(value)) {
+    return value.toString(10);
+  }
+
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (value instanceof Uint8Array) {
+    return Buffer.from(value).toString("hex");
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeComparableGeneratedValue(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, normalizeComparableGeneratedValue(entry)])
+    );
+  }
+
+  return value;
+}
+
+function generatedValuesEqual(left: unknown, right: unknown): boolean {
+  return (
+    JSON.stringify(normalizeComparableGeneratedValue(left)) ===
+    JSON.stringify(normalizeComparableGeneratedValue(right))
+  );
 }
 
 function policyRentSpace(args: {
@@ -518,9 +617,7 @@ async function estimatePreparedFeeLamports(args: {
   connection: Connection;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
 }): Promise<bigint> {
-  const fallback =
-    BigInt(getPreparedRequiredSignatureCount(args.prepared)) *
-    BigInt(FALLBACK_LAMPORTS_PER_SIGNATURE);
+  const fallback = getFallbackPreparedFeeLamports(args.prepared);
   const connectionWithFees = args.connection as Connection & {
     getFeeForMessage?: (
       message: ReturnType<typeof compilePreparedOperation>["message"],
@@ -610,10 +707,59 @@ async function getExistingAccountSet(args: {
   return existing;
 }
 
-async function estimateNativeSolRequirement(args: {
+async function getAccountInfoMap(args: {
+  accounts: readonly PublicKey[];
   connection: Connection;
+}): Promise<Map<string, AccountInfo<Buffer> | null>> {
+  const accounts = dedupePublicKeys(args.accounts);
+  const results = new Map<string, AccountInfo<Buffer> | null>();
+
+  if (accounts.length === 0) {
+    return results;
+  }
+
+  const connectionWithBatch = args.connection as Connection & {
+    getMultipleAccountsInfo?: (
+      publicKeys: PublicKey[],
+      commitment?: "confirmed"
+    ) => Promise<Array<AccountInfo<Buffer> | null>>;
+  };
+
+  if (typeof connectionWithBatch.getMultipleAccountsInfo === "function") {
+    try {
+      const infos = await connectionWithBatch.getMultipleAccountsInfo(
+        accounts,
+        "confirmed"
+      );
+      accounts.forEach((account, index) => {
+        results.set(account.toBase58(), infos[index] ?? null);
+      });
+      return results;
+    } catch {
+      // Fall back to single-account reads below.
+    }
+  }
+
+  for (const account of accounts) {
+    results.set(
+      account.toBase58(),
+      await args.connection.getAccountInfo(account, "confirmed")
+    );
+  }
+
+  return results;
+}
+
+async function estimateNativeSolRequirement(args: {
+  balanceLamports?: bigint | number | string;
+  balanceSource?: NativeSolBalanceSource;
+  checkBalance?: boolean;
+  cluster?: LoyalCluster;
+  connection: Connection;
+  estimateFees?: boolean;
   fixedItems?: readonly NativeSolFixedItem[];
   payer: PublicKey;
+  preferStaticMainnetRent?: boolean;
   prepared: readonly PreparedLoyalSmartAccountsOperation<string>[];
   rentCandidates?: readonly NativeSolRentCandidate[];
 }): Promise<SmartAccountNativeSolRequirement> {
@@ -649,17 +795,13 @@ async function estimateNativeSolRequirement(args: {
     if (exists) {
       continue;
     }
-    if (
-      typeof args.connection.getMinimumBalanceForRentExemption !== "function"
-    ) {
-      continue;
-    }
-
-    const lamports = await args.connection.getMinimumBalanceForRentExemption(
-      candidate.space,
-      "confirmed"
-    );
-    if (lamports <= 0) {
+    const lamports = await resolveRentExemptionLamports({
+      cluster: args.cluster,
+      connection: args.connection,
+      preferStaticMainnetRent: args.preferStaticMainnetRent,
+      space: candidate.space,
+    });
+    if (lamports === null || lamports <= BigInt(0)) {
       continue;
     }
 
@@ -673,10 +815,13 @@ async function estimateNativeSolRequirement(args: {
   }
 
   for (const [index, prepared] of args.prepared.entries()) {
-    const lamports = await estimatePreparedFeeLamports({
-      connection: args.connection,
-      prepared,
-    });
+    const lamports =
+      args.estimateFees === false
+        ? getFallbackPreparedFeeLamports(prepared)
+        : await estimatePreparedFeeLamports({
+            connection: args.connection,
+            prepared,
+          });
     if (lamports <= BigInt(0)) {
       continue;
     }
@@ -693,10 +838,20 @@ async function estimateNativeSolRequirement(args: {
     (total, item) => total + BigInt(item.lamports),
     BigInt(0)
   );
+  const balanceSource: NativeSolBalanceSource =
+    args.balanceSource ??
+    (args.balanceLamports !== undefined
+      ? "provided"
+      : args.checkBalance === false
+      ? "assumed_sufficient"
+      : "queried");
   const balanceLamports =
-    typeof args.connection.getBalance === "function"
-      ? BigInt(await args.connection.getBalance(args.payer, "confirmed"))
-      : requiredLamports;
+    args.balanceLamports !== undefined
+      ? toLamportsBigInt(args.balanceLamports)
+      : args.checkBalance === false ||
+        typeof args.connection.getBalance !== "function"
+      ? requiredLamports
+      : BigInt(await args.connection.getBalance(args.payer, "confirmed"));
   const deficitLamports =
     requiredLamports > balanceLamports
       ? requiredLamports - balanceLamports
@@ -704,6 +859,7 @@ async function estimateNativeSolRequirement(args: {
 
   return {
     balanceLamports: balanceLamports.toString(),
+    balanceSource,
     canProceed: deficitLamports === BigInt(0),
     deficitLamports: deficitLamports.toString(),
     items,
@@ -7919,6 +8075,202 @@ export function createSmartAccountVaultsClient(
     };
   }
 
+  async function assertEarnUsdcAutodepositCanonicalArtifacts(
+    args: SmartAccountEarnUsdcAutodepositCanonicalArtifactsInput
+  ): Promise<void> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const amountRaw = normalizeAutodepositU64(args.amountRaw, "amountRaw");
+    const nonce = normalizeAutodepositU64(args.nonce, "nonce");
+    if (
+      args.policySeed <= BigInt(0) ||
+      args.policySeed > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      throw new Error(
+        "Autodeposit policy seed is outside the supported range."
+      );
+    }
+
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const expectedPolicy = pda.getPolicyPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      policySeed: Number(args.policySeed),
+    })[0];
+    if (!args.policy.equals(expectedPolicy)) {
+      throw new Error("Autodeposit policy account does not match its seed.");
+    }
+
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      args.walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const vaultUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      vaultPda,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+      args.policy
+    );
+
+    if (!policy.settings.equals(args.settingsPda)) {
+      throw new Error("Autodeposit policy settings do not match.");
+    }
+    if (toBigInt(policy.seed) !== args.policySeed) {
+      throw new Error("Autodeposit policy seed does not match.");
+    }
+    if (policy.threshold !== 1) {
+      throw new Error("Autodeposit policy threshold is not canonical.");
+    }
+    if (policy.timeLock !== 0) {
+      throw new Error("Autodeposit policy timelock is not canonical.");
+    }
+    if (policy.signers.length !== 1) {
+      throw new Error("Autodeposit policy signer set is not canonical.");
+    }
+
+    const [policySigner] = policy.signers;
+    if (!policySigner?.key.equals(args.policySigner)) {
+      throw new Error("Autodeposit policy signer does not match.");
+    }
+    for (const permission of [
+      Permission.Initiate,
+      Permission.Vote,
+      Permission.Execute,
+    ]) {
+      if (!Permissions.has(policySigner.permissions, permission)) {
+        throw new Error(
+          "Autodeposit policy signer permissions are incomplete."
+        );
+      }
+    }
+
+    const expectedPolicyState = policyCreationPayloadToState(
+      createSubscriptionSweepProgramInteractionPolicyCreationPayload({
+        delegator: args.walletAddress,
+        maxAmountPerPeriodRaw: amountRaw,
+        minimumDelegatorBalanceRaw: undefined,
+        mint: usdcMint,
+        vaultPda,
+        vaultUsdcAta,
+        walletUsdcAta,
+      })
+    );
+    if (!generatedValuesEqual(policy.policyState, expectedPolicyState)) {
+      throw new Error("Autodeposit policy state is not canonical.");
+    }
+
+    if (args.requireRecurringDelegation === false) {
+      return;
+    }
+
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      args.walletAddress,
+      usdcMint
+    );
+    const expectedRecurringDelegation = deriveRecurringDelegation(
+      subscriptionAuthority,
+      args.walletAddress,
+      vaultPda,
+      nonce
+    );
+    if (!args.recurringDelegation.equals(expectedRecurringDelegation)) {
+      throw new Error(
+        "Autodeposit recurring delegation account does not match its nonce."
+      );
+    }
+
+    const recurringDelegationAccount = await config.connection.getAccountInfo(
+      args.recurringDelegation,
+      "confirmed"
+    );
+    if (!recurringDelegationAccount) {
+      throw new Error(
+        "Autodeposit recurring delegation account does not exist."
+      );
+    }
+    if (!recurringDelegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
+      throw new Error("Autodeposit recurring delegation owner is invalid.");
+    }
+    if (
+      recurringDelegationAccount.data.length <
+      SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN
+    ) {
+      throw new Error("Autodeposit recurring delegation data is incomplete.");
+    }
+    if (
+      recurringDelegationAccount.data[
+        SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR_OFFSET
+      ] !== SUBSCRIPTION_RECURRING_DELEGATION_DISCRIMINATOR
+    ) {
+      throw new Error(
+        "Autodeposit recurring delegation discriminator is invalid."
+      );
+    }
+
+    const recurringDelegationData = recurringDelegationAccount.data;
+    const recurringDelegationChecks: [string, PublicKey, PublicKey][] = [
+      [
+        "delegator",
+        readPublicKey(
+          recurringDelegationData,
+          SUBSCRIPTION_RECURRING_DELEGATION_DELEGATOR_OFFSET
+        ),
+        args.walletAddress,
+      ],
+      [
+        "delegatee",
+        readPublicKey(
+          recurringDelegationData,
+          SUBSCRIPTION_RECURRING_DELEGATION_DELEGATEE_OFFSET
+        ),
+        vaultPda,
+      ],
+      [
+        "authority",
+        readPublicKey(
+          recurringDelegationData,
+          SUBSCRIPTION_RECURRING_DELEGATION_AUTHORITY_OFFSET
+        ),
+        subscriptionAuthority,
+      ],
+      [
+        "mint",
+        readPublicKey(
+          recurringDelegationData,
+          SUBSCRIPTION_RECURRING_DELEGATION_MINT_OFFSET
+        ),
+        usdcMint,
+      ],
+    ];
+
+    for (const [label, actual, expected] of recurringDelegationChecks) {
+      if (!actual.equals(expected)) {
+        throw new Error(
+          `Autodeposit recurring delegation ${label} does not match.`
+        );
+      }
+    }
+
+    const amountPerPeriodRaw = readUint64LE(
+      recurringDelegationData,
+      SUBSCRIPTION_RECURRING_DELEGATION_AMOUNT_PER_PERIOD_OFFSET
+    );
+    if (amountPerPeriodRaw !== amountRaw) {
+      throw new Error(
+        "Autodeposit recurring delegation amount does not match."
+      );
+    }
+  }
+
   async function prepareEarnUsdcAutodepositSetupStage(
     args: SmartAccountEarnUsdcAutodepositSetupInput,
     options: { assumePolicyExists?: boolean } = {}
@@ -8001,20 +8353,10 @@ export function createSmartAccountVaultsClient(
       walletUsdcAta: walletUsdcAta.toBase58(),
       vaultUsdcAta: vaultUsdcAta.toBase58(),
     } as const;
-    const authorityAccount = await config.connection.getAccountInfo(
-      subscriptionAuthority,
-      "confirmed"
-    );
-    const settings =
-      await smartAccountsClient.smartAccounts.queries.fetchSettings(
-        args.settingsPda
-      );
-    const nextPolicySeed = resolveNextPolicySeed(settings).bigint;
     const requestedPolicySeed =
       args.policySeed !== undefined
         ? normalizeAutodepositU64(args.policySeed, "policySeed")
         : undefined;
-    let policySeed = requestedPolicySeed ?? nextPolicySeed;
     const resolvePolicyAccount = (seed: bigint) => {
       const seedNumber = Number(seed);
       if (!Number.isSafeInteger(seedNumber)) {
@@ -8029,25 +8371,12 @@ export function createSmartAccountVaultsClient(
         policySeed: seedNumber,
       })[0];
     };
+    let policySeed = requestedPolicySeed ?? BigInt(1);
     let policyAccount = resolvePolicyAccount(policySeed);
-    let policyAccountInfo = await config.connection.getAccountInfo(
-      policyAccount,
+    const authorityAccount = await config.connection.getAccountInfo(
+      subscriptionAuthority,
       "confirmed"
     );
-    if (
-      !options.assumePolicyExists &&
-      requestedPolicySeed !== undefined &&
-      !policyAccountInfo &&
-      requestedPolicySeed !== nextPolicySeed
-    ) {
-      policySeed = nextPolicySeed;
-      policyAccount = resolvePolicyAccount(policySeed);
-      policyAccountInfo = await config.connection.getAccountInfo(
-        policyAccount,
-        "confirmed"
-      );
-    }
-
     if (!authorityAccount) {
       const prepared = freezePreparedOperation({
         operation: "earnUsdcAutodepositInitializeSubscriptionAuthority",
@@ -8065,8 +8394,12 @@ export function createSmartAccountVaultsClient(
         lookupTableAccounts: [],
       });
       const nativeSolRequirement = await estimateNativeSolRequirement({
+        checkBalance: false,
+        cluster,
         connection: config.connection,
+        estimateFees: false,
         payer: args.feePayer,
+        preferStaticMainnetRent: true,
         prepared: [prepared],
         rentCandidates: [
           {
@@ -8114,6 +8447,37 @@ export function createSmartAccountVaultsClient(
       };
     }
 
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const nextPolicySeed = resolveNextPolicySeed(settings).bigint;
+    policySeed = requestedPolicySeed ?? nextPolicySeed;
+    policyAccount = resolvePolicyAccount(policySeed);
+    let accountInfos = await getAccountInfoMap({
+      accounts: [policyAccount, recurringDelegation],
+      connection: config.connection,
+    });
+    let policyAccountInfo = accountInfos.get(policyAccount.toBase58()) ?? null;
+    let delegationAccount =
+      accountInfos.get(recurringDelegation.toBase58()) ?? null;
+    if (
+      !options.assumePolicyExists &&
+      requestedPolicySeed !== undefined &&
+      !policyAccountInfo &&
+      requestedPolicySeed !== nextPolicySeed
+    ) {
+      policySeed = nextPolicySeed;
+      policyAccount = resolvePolicyAccount(policySeed);
+      accountInfos = await getAccountInfoMap({
+        accounts: [policyAccount, recurringDelegation],
+        connection: config.connection,
+      });
+      policyAccountInfo = accountInfos.get(policyAccount.toBase58()) ?? null;
+      delegationAccount =
+        accountInfos.get(recurringDelegation.toBase58()) ?? null;
+    }
+
     if (!authorityAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
       throw new Error(
         "Subscription authority is owned by an unexpected program."
@@ -8124,9 +8488,6 @@ export function createSmartAccountVaultsClient(
       readSubscriptionAuthorityInitId(authorityAccount);
     const policyExistsForPlanning =
       options.assumePolicyExists || Boolean(policyAccountInfo);
-    const delegationAccount = await config.connection.getAccountInfo(
-      recurringDelegation
-    );
 
     if (delegationAccount) {
       if (!delegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
@@ -8221,8 +8582,12 @@ export function createSmartAccountVaultsClient(
         );
       }
       const nativeSolRequirement = await estimateNativeSolRequirement({
+        checkBalance: false,
+        cluster,
         connection: config.connection,
+        estimateFees: false,
         payer: args.feePayer,
+        preferStaticMainnetRent: true,
         prepared: [prepared],
         rentCandidates: [
           {
@@ -8295,8 +8660,12 @@ export function createSmartAccountVaultsClient(
       lookupTableAccounts: [],
     });
     const nativeSolRequirement = await estimateNativeSolRequirement({
+      checkBalance: false,
+      cluster,
       connection: config.connection,
+      estimateFees: false,
       payer: args.feePayer,
+      preferStaticMainnetRent: true,
       prepared: [prepared],
       rentCandidates: [
         {
@@ -8357,10 +8726,12 @@ export function createSmartAccountVaultsClient(
     return prepareEarnUsdcAutodepositSetupStage(args);
   }
 
-  async function prepareEarnUsdcAutodepositSetupBatch(
-    args: SmartAccountEarnUsdcAutodepositSetupInput
+  async function prepareEarnUsdcAutodepositSetupBatchFromPrepared(
+    args: SmartAccountEarnUsdcAutodepositSetupInput & {
+      preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+    }
   ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup[]> {
-    const firstSetup = await prepareEarnUsdcAutodepositSetupStage(args);
+    const firstSetup = args.preparedSetup;
     if (firstSetup.stage !== "create_policy") {
       return [firstSetup];
     }
@@ -8383,6 +8754,16 @@ export function createSmartAccountVaultsClient(
     }
 
     return [firstSetup, recurringDelegationSetup];
+  }
+
+  async function prepareEarnUsdcAutodepositSetupBatch(
+    args: SmartAccountEarnUsdcAutodepositSetupInput
+  ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup[]> {
+    const firstSetup = await prepareEarnUsdcAutodepositSetupStage(args);
+    return prepareEarnUsdcAutodepositSetupBatchFromPrepared({
+      ...args,
+      preparedSetup: firstSetup,
+    });
   }
 
   async function prepareEarnUsdcAutodepositClose(
@@ -9213,8 +9594,10 @@ export function createSmartAccountVaultsClient(
     prepareEarnUsdcCleanup,
     prepareEarnUsdcAutodepositSetup,
     prepareEarnUsdcAutodepositSetupBatch,
+    prepareEarnUsdcAutodepositSetupBatchFromPrepared,
     prepareEarnUsdcAutodepositClose,
     prepareEarnUsdcAutodepositPull,
+    assertEarnUsdcAutodepositCanonicalArtifacts,
     prepareClosePolicies,
     prepareClosePolicy: (args: SmartAccountClosePolicyProposalInput) =>
       prepareClosePolicies({

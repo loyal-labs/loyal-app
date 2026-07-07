@@ -128,7 +128,6 @@ import {
   type ActiveEarnPositionHolding,
 } from "@/hooks/use-active-earn-position";
 import {
-  prepareEarnAutodepositSetupOnServer,
   prepareEarnCleanupOnServer,
   type PreparedEarnUsdcCleanup,
   useSmartAccountSidebarData,
@@ -2684,13 +2683,17 @@ export function AppWalletWorkspace({
     return mainDestination ? [mainDestination] : earnDepositSources.slice(0, 1);
   }, [earnDepositSources]);
   const earnVaultAddressLabel = useMemo(() => {
+    if (smartAccountData.earnVaultPubkey) {
+      return formatAddressForEarnSource(smartAccountData.earnVaultPubkey);
+    }
+
     const earnVault = smartAccountData.overview?.vaults.find(
       (vault) => vault.accountIndex === 1
     );
     return earnVault?.address
       ? formatAddressForEarnSource(earnVault.address)
       : null;
-  }, [smartAccountData.overview?.vaults]);
+  }, [smartAccountData.earnVaultPubkey, smartAccountData.overview?.vaults]);
   const hasEarnPolicy = Boolean(smartAccountData.earnPolicy);
   const hasEarnPosition = isActiveEarnPosition(activeEarnPosition);
   const hasEarnCleanupCandidate = resolveHasEarnCleanupCandidate({
@@ -4140,11 +4143,35 @@ export function AppWalletWorkspace({
     setPendingEarnAutodepositSetupPrepared(null);
     setPendingEarnAutodepositClosePrepared(null);
     setIsEarnAutodepositCloseReview(true);
+    if (
+      autodepositConfig.policyAccount.length > 0 &&
+      autodepositConfig.recurringDelegation.length > 0
+    ) {
+      void smartAccountData
+        .prepareEarnAutodepositClose({
+          policy: autodepositConfig.policyAccount,
+          recurringDelegation: autodepositConfig.recurringDelegation,
+        })
+        .then((preparedClose) => {
+          setPendingEarnAutodepositClosePrepared(preparedClose);
+        })
+        .catch((error) => {
+          console.warn(
+            "[earn] failed to prepare Autodeposit close preview",
+            error
+          );
+        });
+    }
     markDetailPaneTransition("forward");
     setSelectedSignerId(null);
     setDetailSelection("earnAutodeposit");
     setSelectedDetail("Autodeposit");
-  }, [autodepositConfig, markDetailPaneTransition, setDetailSelection]);
+  }, [
+    autodepositConfig,
+    markDetailPaneTransition,
+    setDetailSelection,
+    smartAccountData,
+  ]);
 
   const handleDisableAutodeposit = useCallback(async () => {
     if (!autodepositConfig) {
@@ -5308,7 +5335,7 @@ export function AppWalletWorkspace({
 
       for (;;) {
         if (!preparedSetup) {
-          preparedSetup = await prepareEarnAutodepositSetupOnServer({
+          preparedSetup = await smartAccountData.prepareEarnAutodepositSetup({
             amountRaw,
             expiryTimestamp: pendingEarnAutodepositDraft.expiryTimestamp,
             nonce: pendingEarnAutodepositDraft.nonce,

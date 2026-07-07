@@ -2127,19 +2127,15 @@ describe("prepareEarnUsdcAutodeposit", () => {
   });
 
   test("cold start initializes only the subscription authority", async () => {
-    const getAccountInfo = mock(async (address: PublicKey) => {
-      if (address.equals(settingsPda)) {
-        return createSerializedSettingsAccount();
-      }
-      return null;
-    });
+    const getAccountInfo = mock(async () => null);
     const getMinimumBalanceForRentExemption = mock(
       async (space: number) => space + 1_000
     );
+    const getBalance = mock(async () => 0);
     const client = createSmartAccountVaultsClient({
       connection: {
         getAccountInfo,
-        getBalance: mock(async () => 0),
+        getBalance,
         getMinimumBalanceForRentExemption,
       } as never,
       programId,
@@ -2174,11 +2170,17 @@ describe("prepareEarnUsdcAutodeposit", () => {
       subscriptionAuthorityInitialization: "required",
       walletAddress: walletAddress.toBase58(),
     });
-    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(getAccountInfo).toHaveBeenCalledTimes(1);
+    expect(getMinimumBalanceForRentExemption).not.toHaveBeenCalled();
+    expect(getBalance).not.toHaveBeenCalled();
+    expect(result.nativeSolRequirement.canProceed).toBe(true);
+    expect(result.nativeSolRequirement.balanceSource).toBe(
+      "assumed_sufficient"
+    );
     expect(result.nativeSolRequirement.items).toContainEqual(
       expect.objectContaining({
         kind: "subscription_authority_rent",
-        lamports: "1106",
+        lamports: "1628640",
       })
     );
   });
@@ -2233,7 +2235,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
       policySeed: "1",
       subscriptionAuthorityInitialization: "exists",
     });
-    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(result.nativeSolRequirement.canProceed).toBe(true);
     expect(result.nativeSolRequirement.items).toContainEqual(
       expect.objectContaining({
         kind: "policy_rent",
@@ -2284,7 +2286,8 @@ describe("prepareEarnUsdcAutodeposit", () => {
     const combined = combineSmartAccountNativeSolRequirements(
       setups.map((setup) => setup.nativeSolRequirement)
     );
-    expect(combined?.canProceed).toBe(false);
+    expect(combined?.canProceed).toBe(true);
+    expect(combined?.balanceSource).toBe("assumed_sufficient");
     expect(
       BigInt(combined?.requiredLamports ?? "0") >
         BigInt(setups[0]!.nativeSolRequirement.requiredLamports)
@@ -2344,17 +2347,17 @@ describe("prepareEarnUsdcAutodeposit", () => {
         blockhash: "11111111111111111111111111111111",
       }).serialize()
     ).not.toThrow();
-    expect(result.nativeSolRequirement.canProceed).toBe(false);
+    expect(result.nativeSolRequirement.canProceed).toBe(true);
     expect(result.nativeSolRequirement.items).toContainEqual(
       expect.objectContaining({
         kind: "recurring_delegation_rent",
-        lamports: "1211",
+        lamports: "2359440",
       })
     );
     expect(result.nativeSolRequirement.items).toContainEqual(
       expect.objectContaining({
         kind: "token_account_rent",
-        lamports: `${AccountLayout.span + 1_000}`,
+        lamports: "2039280",
       })
     );
   });

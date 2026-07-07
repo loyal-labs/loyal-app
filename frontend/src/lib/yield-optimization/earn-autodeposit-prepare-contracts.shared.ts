@@ -182,6 +182,7 @@ export type EarnAutodepositClosePrepareResponse = {
 };
 
 export type EarnAutodepositSetupConfirmResponse = {
+  confirmedSlot?: string;
   bootstrapSweep?: {
     reason?: string;
     status: "already_exists" | "failed" | "scheduled" | "skipped";
@@ -214,7 +215,7 @@ export type EarnAutodepositSetupConfirmResponse = {
       status: string;
     };
   };
-  target: {
+  target?: {
     active: boolean;
     balanceSweepPolicyId: string | null;
     id: string;

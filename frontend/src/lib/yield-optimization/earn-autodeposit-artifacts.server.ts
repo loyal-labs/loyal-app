@@ -13,6 +13,56 @@ export type EarnAutodepositArtifactProbe = {
   recurringDelegation: AutodepositArtifactProbeAccount;
 };
 
+const AUTODEPOSIT_ARTIFACT_RETRY_ATTEMPTS = 8;
+const AUTODEPOSIT_ARTIFACT_RETRY_DELAY_MS = 350;
+
+function waitForAutodepositArtifactRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+export function isRetryableEarnAutodepositArtifactError(
+  error: unknown
+): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return /does not exist|not found|unable to find|unavailable/i.test(message);
+}
+
+export async function withEarnAutodepositArtifactRetry<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  let lastError: unknown;
+
+  for (
+    let attempt = 0;
+    attempt < AUTODEPOSIT_ARTIFACT_RETRY_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+
+      if (
+        !isRetryableEarnAutodepositArtifactError(error) ||
+        attempt === AUTODEPOSIT_ARTIFACT_RETRY_ATTEMPTS - 1
+      ) {
+        throw error;
+      }
+
+      await waitForAutodepositArtifactRetry(
+        AUTODEPOSIT_ARTIFACT_RETRY_DELAY_MS
+      );
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Autodeposit artifact verification failed.");
+}
+
 function probeAccount(
   account: Awaited<ReturnType<Connection["getMultipleAccountsInfo"]>>[number],
   expectedOwner: PublicKey

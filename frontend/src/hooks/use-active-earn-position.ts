@@ -84,9 +84,7 @@ type EarnPositionConnection = Pick<
   Connection,
   "getMultipleAccountsInfoAndContext"
 > &
-  Partial<
-    Pick<Connection, "onAccountChange" | "removeAccountChangeListener">
-  >;
+  Partial<Pick<Connection, "onAccountChange" | "removeAccountChangeListener">>;
 
 type RpcPositionRead = {
   position: ActiveEarnPosition | null;
@@ -111,7 +109,9 @@ export function isActiveEarnPosition(
   }
 }
 
-function parseEarnRawAmount(amountRaw: string | null | undefined): bigint | null {
+function parseEarnRawAmount(
+  amountRaw: string | null | undefined
+): bigint | null {
   if (!amountRaw || !/^\d+$/.test(amountRaw)) {
     return null;
   }
@@ -138,12 +138,26 @@ function parseEarnObservedSlot(
   }
 }
 
+function hasRpcObservedHoldings(
+  position: ActiveEarnPosition | null | undefined
+): boolean {
+  return (
+    position?.holdings?.some(
+      (holding) => holding.provenance.source === "rpc_getMultipleAccounts"
+    ) ?? false
+  );
+}
+
 function shouldKeepCurrentPositionOverConfirmed(args: {
   current: ActiveEarnPosition | null;
   confirmed: ActiveEarnPosition | null;
 }): boolean {
   if (!args.current || !args.confirmed) {
-    return false;
+    return hasRpcObservedHoldings(args.current);
+  }
+
+  if (hasRpcObservedHoldings(args.current)) {
+    return true;
   }
 
   const currentSlot = parseEarnObservedSlot(args.current);
@@ -156,7 +170,9 @@ function shouldKeepCurrentPositionOverConfirmed(args: {
     return true;
   }
 
-  const currentAmountRaw = parseEarnRawAmount(args.current.currentTotalAmountRaw);
+  const currentAmountRaw = parseEarnRawAmount(
+    args.current.currentTotalAmountRaw
+  );
   const confirmedAmountRaw = parseEarnRawAmount(
     args.confirmed.currentTotalAmountRaw
   );
@@ -189,14 +205,13 @@ function getEarnPositionSourceSignature(
         ];
 
   return holdings
-    .map(
-      (holding) =>
-        [
-          holding.kind,
-          holding.liquidityMint,
-          holding.market ?? "",
-          holding.reserve ?? "",
-        ].join(":")
+    .map((holding) =>
+      [
+        holding.kind,
+        holding.liquidityMint,
+        holding.market ?? "",
+        holding.reserve ?? "",
+      ].join(":")
     )
     .sort()
     .join("|");
@@ -616,27 +631,28 @@ export function useActiveEarnPosition({
 
     let cancelled = false;
     const loadLivePosition = async () => {
-      let confirmedPosition: ActiveEarnPosition | null | undefined;
-      try {
-        confirmedPosition = await fetchConfirmedEarnPosition();
-      } catch (error) {
-        console.warn(
-          "[earn-position] failed to load confirmed active position",
-          error
-        );
-      }
-      if (cancelled) {
-        return;
-      }
-
-      const basePosition =
-        confirmedPosition !== undefined ? confirmedPosition : cached ?? null;
-      const next = await readRpcPosition(basePosition);
+      const confirmedPositionPromise = fetchConfirmedEarnPosition().catch(
+        (error) => {
+          console.warn(
+            "[earn-position] failed to load confirmed active position",
+            error
+          );
+          return undefined;
+        }
+      );
+      const rpcBasePosition = cached ?? positionRef.current;
+      const next = await readRpcPosition(rpcBasePosition);
       if (cancelled) {
         return;
       }
       if (next) {
         commitRpcPosition(next);
+        const confirmedPosition = await confirmedPositionPromise;
+        if (cancelled) {
+          return;
+        }
+        const basePosition =
+          confirmedPosition !== undefined ? confirmedPosition : rpcBasePosition;
         if (
           shouldRequestPositionReconciliation({
             base: basePosition,
@@ -662,6 +678,10 @@ export function useActiveEarnPosition({
         return;
       }
 
+      const confirmedPosition = await confirmedPositionPromise;
+      if (cancelled) {
+        return;
+      }
       if (confirmedPosition !== undefined) {
         commitConfirmedPosition(confirmedPosition);
         return;
@@ -675,7 +695,10 @@ export function useActiveEarnPosition({
       if (cancelled) {
         return;
       }
-      console.warn("[earn-position] failed to load live active position", error);
+      console.warn(
+        "[earn-position] failed to load live active position",
+        error
+      );
       setHasResolved(true);
       setIsLoading(false);
     });
@@ -726,8 +749,7 @@ export function useActiveEarnPosition({
     ) => {
       const changedSlot =
         typeof context?.slot === "number" ? BigInt(context.slot) : null;
-      const suppressThrough =
-        suppressSubscriptionRefreshThroughSlotRef.current;
+      const suppressThrough = suppressSubscriptionRefreshThroughSlotRef.current;
       if (
         changedSlot !== null &&
         suppressThrough !== null &&
@@ -817,7 +839,8 @@ export function applyEarnRpcSnapshotToPosition(
     return null;
   }
 
-  const activePosition = position ?? createPositionFromRpcHolding(primaryHolding);
+  const activePosition =
+    position ?? createPositionFromRpcHolding(primaryHolding);
   const currentHolding = {
     amountRaw: primaryHolding.amountRaw,
     liquidityMint: primaryHolding.liquidityMint,

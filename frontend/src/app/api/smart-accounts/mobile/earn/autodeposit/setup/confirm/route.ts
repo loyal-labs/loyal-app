@@ -31,7 +31,10 @@ import {
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { assertEarnAutodepositArtifactsExist } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
+import {
+  assertEarnAutodepositArtifactsExist,
+  withEarnAutodepositArtifactRetry,
+} from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import {
   buildEarnAutodepositSetupConfirmRequestBody,
   hydratePreparedEarnUsdcAutodepositSetup,
@@ -448,7 +451,10 @@ export async function POST(request: Request) {
       body,
       // Accepts the flow's prepare signature too — the device signs one auth
       // message per flow (see authenticateMobileWalletRequest).
-      purpose: ["earn-autodeposit-setup-confirm", "earn-autodeposit-setup-prepare"],
+      purpose: [
+        "earn-autodeposit-setup-confirm",
+        "earn-autodeposit-setup-prepare",
+      ],
     }));
   } catch (error) {
     if (error instanceof WalletAuthError) {
@@ -577,21 +583,24 @@ export async function POST(request: Request) {
       "Confirmed autodeposit setup slot does not match the transaction status."
     );
   }
+  input = { ...input, confirmedSlot };
 
   if (
     input.setupStage === "create_policy" ||
     input.setupStage === "create_recurring_delegation"
   ) {
     try {
-      await assertEarnAutodepositArtifactsExist({
-        connection,
-        policyAccount: input.policyAccount,
-        recurringDelegation: input.recurringDelegation,
-        requireRecurringDelegation:
-          input.setupStage === "create_recurring_delegation",
-        smartAccountsProgramId: new PublicKey(
-          serverEnv.loyalSmartAccounts.programId
-        ),
+      await withEarnAutodepositArtifactRetry(async () => {
+        await assertEarnAutodepositArtifactsExist({
+          connection,
+          policyAccount: input.policyAccount,
+          recurringDelegation: input.recurringDelegation,
+          requireRecurringDelegation:
+            input.setupStage === "create_recurring_delegation",
+          smartAccountsProgramId: new PublicKey(
+            serverEnv.loyalSmartAccounts.programId
+          ),
+        });
       });
     } catch (error) {
       return jsonError(
@@ -602,6 +611,12 @@ export async function POST(request: Request) {
           : "Confirmed Autodeposit setup artifacts are missing."
       );
     }
+  }
+
+  if (input.setupStage === "initialize_subscription_authority") {
+    return NextResponse.json({
+      confirmedSlot: confirmedSlot.toString(),
+    });
   }
 
   const target =
@@ -666,6 +681,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({
+    confirmedSlot: confirmedSlot.toString(),
     ...(bootstrapSweep ? { bootstrapSweep } : {}),
     target: serializeTarget(target),
   });
