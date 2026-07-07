@@ -2,13 +2,21 @@ import "server-only";
 
 import bs58 from "bs58";
 import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
+import {
   type AddressLookupTableAccount,
   Keypair,
   PublicKey,
+  SystemInstruction,
+  SystemProgram,
   Transaction,
+  TransactionInstruction,
   VersionedTransaction,
   type Connection,
 } from "@solana/web3.js";
+import { generated } from "@loyal-labs/loyal-smart-accounts";
 
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
@@ -17,11 +25,20 @@ import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 const SEND_ATTEMPTS = 3;
 const STATUS_POLL_ATTEMPTS = 12;
 const STATUS_POLL_DELAY_MS = 1_000;
+const MAX_SPONSORED_SYSTEM_RENT_TRANSFER_LAMPORTS = BigInt(39_532_800);
 
 let cachedSponsorKeypair: Keypair | null = null;
 let cachedSponsorPrivateKey: string | null = null;
 
 type SponsoredTransaction = Transaction | VersionedTransaction;
+
+export type SponsoredTransactionGuardContext = {
+  allowedAssociatedTokenMints?: readonly PublicKey[];
+  allowedAssociatedTokenOwners?: readonly PublicKey[];
+  allowedSmartAccountRentAccounts?: readonly PublicKey[];
+  allowedSmartAccountsProgramId?: PublicKey;
+  allowedSystemTransferDestinations?: readonly PublicKey[];
+};
 
 export type SponsoredTransactionConfirmation = {
   confirmedSlot: string;
@@ -149,11 +166,192 @@ async function resolveAddressLookupTableAccounts(args: {
   return accounts;
 }
 
-async function assertSponsorOnlyFeePayer(args: {
+function publicKeyInList(
+  value: PublicKey,
+  candidates: readonly PublicKey[] | undefined
+): boolean {
+  return Boolean(candidates?.some((candidate) => candidate.equals(value)));
+}
+
+function instructionDataStartsWith(
+  data: Uint8Array,
+  prefix: readonly number[]
+): boolean {
+  if (data.length < prefix.length) {
+    return false;
+  }
+
+  return prefix.every((byte, index) => data[index] === byte);
+}
+
+function buildTransactionInstruction(args: {
+  accountIndexes: readonly number[];
+  data: Uint8Array;
+  getKey: (index: number) => PublicKey | undefined;
+  isSigner: (index: number) => boolean;
+  isWritable: (index: number) => boolean;
+  programId: PublicKey;
+}): TransactionInstruction | null {
+  const keys = args.accountIndexes.map((index) => {
+    const pubkey = args.getKey(index);
+    if (!pubkey) {
+      return null;
+    }
+
+    return {
+      pubkey,
+      isSigner: args.isSigner(index),
+      isWritable: args.isWritable(index),
+    };
+  });
+
+  if (keys.some((key) => key === null)) {
+    return null;
+  }
+
+  return new TransactionInstruction({
+    data: Buffer.from(args.data),
+    keys: keys as NonNullable<(typeof keys)[number]>[],
+    programId: args.programId,
+  });
+}
+
+function isAllowedAssociatedTokenRentInstruction(args: {
+  guard: SponsoredTransactionGuardContext;
+  instruction: TransactionInstruction;
+  sponsor: PublicKey;
+}): boolean {
+  const { guard, instruction, sponsor } = args;
+  if (!instruction.programId.equals(ASSOCIATED_TOKEN_PROGRAM_ID)) {
+    return false;
+  }
+  if (instruction.data.length !== 1 || instruction.data[0] !== 1) {
+    return false;
+  }
+
+  const payer = instruction.keys[0];
+  const associatedTokenAccount = instruction.keys[1];
+  const owner = instruction.keys[2];
+  const mint = instruction.keys[3];
+  const tokenProgram = instruction.keys[5];
+  if (
+    !payer?.pubkey.equals(sponsor) ||
+    !payer.isSigner ||
+    !payer.isWritable ||
+    !associatedTokenAccount ||
+    !owner ||
+    !mint ||
+    !tokenProgram ||
+    !publicKeyInList(owner.pubkey, guard.allowedAssociatedTokenOwners) ||
+    !publicKeyInList(mint.pubkey, guard.allowedAssociatedTokenMints)
+  ) {
+    return false;
+  }
+
+  try {
+    const expectedAssociatedTokenAccount = getAssociatedTokenAddressSync(
+      mint.pubkey,
+      owner.pubkey,
+      true,
+      tokenProgram.pubkey
+    );
+    return associatedTokenAccount.pubkey.equals(expectedAssociatedTokenAccount);
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedSystemRentTransferInstruction(args: {
+  guard: SponsoredTransactionGuardContext;
+  instruction: TransactionInstruction;
+  sponsor: PublicKey;
+}): boolean {
+  const { guard, instruction, sponsor } = args;
+  if (!instruction.programId.equals(SystemProgram.programId)) {
+    return false;
+  }
+  if (!instruction.keys[0]?.pubkey.equals(sponsor)) {
+    return false;
+  }
+
+  try {
+    const transfer = SystemInstruction.decodeTransfer(instruction);
+    const lamports = BigInt(transfer.lamports.toString());
+    return (
+      transfer.fromPubkey.equals(sponsor) &&
+      publicKeyInList(
+        transfer.toPubkey,
+        guard.allowedSystemTransferDestinations
+      ) &&
+      lamports > BigInt(0) &&
+      lamports <= MAX_SPONSORED_SYSTEM_RENT_TRANSFER_LAMPORTS
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedSmartAccountRentInstruction(args: {
+  guard: SponsoredTransactionGuardContext;
+  instruction: TransactionInstruction;
+  sponsor: PublicKey;
+}): boolean {
+  const { guard, instruction, sponsor } = args;
+  const programId = guard.allowedSmartAccountsProgramId;
+  if (!programId || !instruction.programId.equals(programId)) {
+    return false;
+  }
+  if (
+    !instructionDataStartsWith(
+      instruction.data,
+      generated.executeSettingsTransactionSyncInstructionDiscriminator
+    )
+  ) {
+    return false;
+  }
+
+  const rentPayer = instruction.keys[1];
+  if (
+    !rentPayer?.pubkey.equals(sponsor) ||
+    !rentPayer.isSigner ||
+    !rentPayer.isWritable
+  ) {
+    return false;
+  }
+
+  const declaredProgram = instruction.keys[3];
+  if (!declaredProgram?.pubkey.equals(programId)) {
+    return false;
+  }
+
+  return Boolean(
+    guard.allowedSmartAccountRentAccounts?.some((account) =>
+      instruction.keys.some(
+        (key) => key.pubkey.equals(account) && key.isWritable
+      )
+    )
+  );
+}
+
+function isAllowedSponsorInstructionReference(args: {
+  guard: SponsoredTransactionGuardContext;
+  instruction: TransactionInstruction;
+  sponsor: PublicKey;
+}): boolean {
+  return (
+    isAllowedAssociatedTokenRentInstruction(args) ||
+    isAllowedSystemRentTransferInstruction(args) ||
+    isAllowedSmartAccountRentInstruction(args)
+  );
+}
+
+async function assertSponsorUsageAllowed(args: {
   connection: Connection;
+  guard?: SponsoredTransactionGuardContext;
   sponsor: PublicKey;
   transaction: SponsoredTransaction;
 }) {
+  const guard = args.guard ?? {};
   const feePayer = getTransactionFeePayer(args.transaction);
   if (!feePayer.equals(args.sponsor)) {
     throw new EarnPolicySponsoredTransactionError({
@@ -164,12 +362,13 @@ async function assertSponsorOnlyFeePayer(args: {
   }
 
   if (args.transaction instanceof VersionedTransaction) {
+    const transaction = args.transaction;
     let accountKeys;
     try {
-      accountKeys = args.transaction.message.getAccountKeys({
+      accountKeys = transaction.message.getAccountKeys({
         addressLookupTableAccounts: await resolveAddressLookupTableAccounts({
           connection: args.connection,
-          transaction: args.transaction,
+          transaction,
         }),
       });
     } catch (error) {
@@ -196,28 +395,52 @@ async function assertSponsorOnlyFeePayer(args: {
     if (sponsorIndexes.some((index) => index !== 0)) {
       throw new EarnPolicySponsoredTransactionError({
         status: 400,
-        code: "sponsor_not_fee_payer_only",
+        code: "sponsor_not_approved_payer",
         message:
           "Earn policy sponsor must only appear as the transaction fee payer.",
       });
     }
 
     const sponsorInstructionReference =
-      args.transaction.message.compiledInstructions.find((instruction) => {
+      transaction.message.compiledInstructions.find((instruction) => {
         const programId = accountKeys.get(instruction.programIdIndex);
+        if (!programId) {
+          return true;
+        }
+        if (programId.equals(args.sponsor)) {
+          return true;
+        }
+
+        const referencesSponsor = instruction.accountKeyIndexes.some((index) =>
+          accountKeys.get(index)?.equals(args.sponsor)
+        );
+        if (!referencesSponsor) {
+          return false;
+        }
+
+        const transactionInstruction = buildTransactionInstruction({
+          accountIndexes: instruction.accountKeyIndexes,
+          data: instruction.data,
+          getKey: (index) => accountKeys.get(index),
+          isSigner: (index) => transaction.message.isAccountSigner(index),
+          isWritable: (index) => transaction.message.isAccountWritable(index),
+          programId,
+        });
         return (
-          programId?.equals(args.sponsor) ||
-          instruction.accountKeyIndexes.some((index) =>
-            accountKeys.get(index)?.equals(args.sponsor)
-          )
+          !transactionInstruction ||
+          !isAllowedSponsorInstructionReference({
+            guard,
+            instruction: transactionInstruction,
+            sponsor: args.sponsor,
+          })
         );
       });
     if (sponsorInstructionReference) {
       throw new EarnPolicySponsoredTransactionError({
         status: 400,
-        code: "sponsor_not_fee_payer_only",
+        code: "sponsor_not_approved_payer",
         message:
-          "Earn policy sponsor must not be used by transaction instructions.",
+          "Earn policy sponsor must only be used as fee payer or approved rent payer.",
       });
     }
     return;
@@ -230,21 +453,48 @@ async function assertSponsorOnlyFeePayer(args: {
   if (sponsorIndexes.some((index) => index !== 0)) {
     throw new EarnPolicySponsoredTransactionError({
       status: 400,
-      code: "sponsor_not_fee_payer_only",
+      code: "sponsor_not_approved_payer",
       message:
         "Earn policy sponsor must only appear as the transaction fee payer.",
     });
   }
-  if (
-    compiled.instructions.some((instruction) =>
-      instruction.programIdIndex === 0 || instruction.accounts.includes(0)
-    )
-  ) {
+  const sponsorInstructionReference = compiled.instructions.find(
+    (instruction) => {
+      const programId = compiled.accountKeys[instruction.programIdIndex];
+      if (!programId) {
+        return true;
+      }
+      if (programId.equals(args.sponsor)) {
+        return true;
+      }
+      if (!instruction.accounts.includes(0)) {
+        return false;
+      }
+
+      const transactionInstruction = buildTransactionInstruction({
+        accountIndexes: instruction.accounts,
+        data: bs58.decode(instruction.data),
+        getKey: (index) => compiled.accountKeys[index],
+        isSigner: (index) => compiled.isAccountSigner(index),
+        isWritable: (index) => compiled.isAccountWritable(index),
+        programId,
+      });
+      return (
+        !transactionInstruction ||
+        !isAllowedSponsorInstructionReference({
+          guard,
+          instruction: transactionInstruction,
+          sponsor: args.sponsor,
+        })
+      );
+    }
+  );
+  if (sponsorInstructionReference) {
     throw new EarnPolicySponsoredTransactionError({
       status: 400,
-      code: "sponsor_not_fee_payer_only",
+      code: "sponsor_not_approved_payer",
       message:
-        "Earn policy sponsor must not be used as an instruction account.",
+        "Earn policy sponsor must only be used as fee payer or approved rent payer.",
     });
   }
 }
@@ -261,9 +511,7 @@ function signTransaction(args: {
   args.transaction.partialSign(args.sponsor);
 }
 
-function getTransactionSignature(
-  transaction: SponsoredTransaction
-): string {
+function getTransactionSignature(transaction: SponsoredTransaction): string {
   const signature =
     transaction instanceof VersionedTransaction
       ? transaction.signatures[0]
@@ -284,7 +532,9 @@ function assertFullySigned(transaction: SponsoredTransaction) {
       ? transaction.signatures.some((signature) =>
           signature.every((byte) => byte === 0)
         )
-      : transaction.signatures.some((signaturePair) => !signaturePair.signature);
+      : transaction.signatures.some(
+          (signaturePair) => !signaturePair.signature
+        );
   if (missingSignature) {
     throw new EarnPolicySponsoredTransactionError({
       status: 400,
@@ -379,15 +629,17 @@ export function getEarnPolicySponsorPublicKey(): PublicKey {
 }
 
 export async function executeSponsoredEarnPolicyTransaction(
-  serializedTransaction: string
+  serializedTransaction: string,
+  guard?: SponsoredTransactionGuardContext
 ): Promise<SponsoredTransactionConfirmation> {
   const sponsor = getEarnPolicySponsorKeypair();
   const transaction = deserializeTransaction(serializedTransaction);
   const connection = getServerSolanaConnection(
     resolveLoyalWebSolanaEnvFromEnv(process.env)
   );
-  await assertSponsorOnlyFeePayer({
+  await assertSponsorUsageAllowed({
     connection,
+    guard,
     sponsor: sponsor.publicKey,
     transaction,
   });

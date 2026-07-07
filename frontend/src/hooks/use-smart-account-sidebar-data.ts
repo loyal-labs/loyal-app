@@ -89,6 +89,7 @@ import {
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
   hydratePreparedEarnUsdcDeposit,
+  type EarnDepositPrepareRequestBody,
   type EarnDepositPrepareResponse,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import {
@@ -365,7 +366,7 @@ const EMPTY_SIGNER_PORTFOLIO_VIEW: SmartAccountSignerPortfolioView = {
   error: null,
 };
 const EMPTY_STABLECOIN_MINTS = new Set<string>();
-const IS_EARN_POLICY_SPONSORSHIP_ENABLED = true;
+export const IS_EARN_POLICY_SPONSORSHIP_ENABLED = true;
 
 type EarnDepositBatchStage = "policy" | "policy-finalize" | "deposit";
 
@@ -1645,12 +1646,17 @@ async function postEarnAutodepositToggle(args: {
 export async function prepareEarnDepositOnServer(args: {
   amountRaw: bigint;
   fetchImpl?: typeof fetch;
+  sponsored?: boolean;
 }): Promise<SmartAccountPreparedEarnUsdcDeposit> {
   const fetchImpl = args.fetchImpl ?? fetch;
+  const body: EarnDepositPrepareRequestBody = {
+    amountRaw: args.amountRaw.toString(),
+    ...(args.sponsored ? { sponsored: true } : {}),
+  };
   const response = await fetchImpl(
     "/api/smart-accounts/yield-optimization/deposits/prepare",
     {
-      body: JSON.stringify({ amountRaw: args.amountRaw.toString() }),
+      body: JSON.stringify(body),
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       method: "POST",

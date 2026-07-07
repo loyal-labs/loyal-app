@@ -575,6 +575,7 @@ function policyRentSpace(args: {
   policySeed: bigint;
   policySigner: PublicKey;
   programId: PublicKey;
+  rentPayer?: PublicKey;
   settingsPda: PublicKey;
 }): number {
   const [, bump] = pda.getPolicyPda({
@@ -587,7 +588,7 @@ function policyRentSpace(args: {
     bump,
     expiration: null,
     policyState: policyCreationPayloadToState(args.policyPayload),
-    rentCollector: args.feePayer,
+    rentCollector: args.rentPayer ?? args.feePayer,
     seed: toBn(args.policySeed),
     settings: args.settingsPda,
     signers: [createPolicySigner(args.policySigner)],
@@ -5288,6 +5289,7 @@ export function createSmartAccountVaultsClient(
   async function createEarnYieldRoutingPolicyOperation(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
+    rentPayer?: PublicKey;
     policySeed: bigint;
     policySigner: PublicKey;
     settingsPda: PublicKey;
@@ -5368,7 +5370,7 @@ export function createSmartAccountVaultsClient(
       const operation =
         await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
           {
-            feePayer: args.feePayer,
+            feePayer: args.rentPayer ?? args.feePayer,
             settingsPda: args.settingsPda,
             signers: [args.signer],
             actions: [
@@ -5451,6 +5453,7 @@ export function createSmartAccountVaultsClient(
           label: "Earn route policy account rent",
           space: policyRentSpace({
             feePayer: args.feePayer,
+            rentPayer: args.rentPayer ?? args.feePayer,
             policyPayload: routePolicyPayload,
             policySeed: args.policySeed,
             policySigner: args.policySigner,
@@ -5466,6 +5469,7 @@ export function createSmartAccountVaultsClient(
           label: "Earn setup policy account rent",
           space: policyRentSpace({
             feePayer: args.feePayer,
+            rentPayer: args.rentPayer ?? args.feePayer,
             policyPayload: setupPolicyPayload,
             policySeed: setupPolicySeed,
             policySigner: args.policySigner,
@@ -5481,6 +5485,7 @@ export function createSmartAccountVaultsClient(
   async function resolveEarnYieldRoutingPolicyForCreation(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
+    rentPayer?: PublicKey;
     policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
@@ -5508,6 +5513,7 @@ export function createSmartAccountVaultsClient(
     } = await createEarnYieldRoutingPolicyOperation({
       cluster: args.cluster,
       feePayer: args.feePayer,
+      rentPayer: args.rentPayer,
       policySeed: nextPolicySeed.bigint,
       policySigner: args.policySigner,
       settingsPda: args.settingsPda,
@@ -5531,6 +5537,7 @@ export function createSmartAccountVaultsClient(
   async function resolveEarnYieldRoutingSetupPolicyForCreation(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
+    rentPayer?: PublicKey;
     policySeed: bigint;
     policySigner: PublicKey;
     settingsPda: PublicKey;
@@ -5545,6 +5552,7 @@ export function createSmartAccountVaultsClient(
     } = await createEarnYieldRoutingPolicyOperation({
       cluster: args.cluster,
       feePayer: args.feePayer,
+      rentPayer: args.rentPayer,
       policySeed: args.policySeed,
       policySigner: args.policySigner,
       settingsPda: args.settingsPda,
@@ -5610,6 +5618,7 @@ export function createSmartAccountVaultsClient(
   async function discoverEarnYieldRoutingPolicyPairOnChain(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
+    rentPayer?: PublicKey;
     policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
@@ -5671,6 +5680,7 @@ export function createSmartAccountVaultsClient(
         return resolveEarnYieldRoutingSetupPolicyForCreation({
           cluster: args.cluster,
           feePayer: args.feePayer,
+          rentPayer: args.rentPayer,
           policySeed: routeSeed,
           policySigner: args.policySigner,
           settingsPda: args.settingsPda,
@@ -6189,6 +6199,7 @@ export function createSmartAccountVaultsClient(
     }
 
     const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const rentPayer = args.rentPayer ?? args.feePayer;
     const earnTarget = resolveKaminoEarnTarget(cluster, args.target);
     const earnUniverse = resolveEarnPolicyUniverse(cluster);
     const serializedEarnUniverse = serializeEarnPolicyUniverse(earnUniverse);
@@ -6260,6 +6271,7 @@ export function createSmartAccountVaultsClient(
       ? (await discoverEarnYieldRoutingPolicyPairOnChain({
           cluster,
           feePayer: args.feePayer,
+          rentPayer: args.rentPayer,
           policySigner: args.policySigner,
           settingsPda: args.settingsPda,
           signer: args.walletAddress,
@@ -6267,6 +6279,7 @@ export function createSmartAccountVaultsClient(
         (await resolveEarnYieldRoutingPolicyForCreation({
           cluster,
           feePayer: args.feePayer,
+          rentPayer: args.rentPayer,
           policySigner: args.policySigner,
           settingsPda: args.settingsPda,
           signer: args.walletAddress,
@@ -6283,6 +6296,7 @@ export function createSmartAccountVaultsClient(
         ? await resolveEarnYieldRoutingSetupPolicyForCreation({
             cluster,
             feePayer: args.feePayer,
+            rentPayer: args.rentPayer,
             policySeed: args.yieldRoutingPolicy.seed,
             policySigner: args.policySigner,
             settingsPda: args.settingsPda,
@@ -6471,7 +6485,7 @@ export function createSmartAccountVaultsClient(
     const setupRentTopUpInstruction =
       setupRentTopUpLamports > 0
         ? SystemProgram.transfer({
-            fromPubkey: args.feePayer,
+            fromPubkey: rentPayer,
             toPubkey: vaultPda,
             lamports: setupRentTopUpLamports,
           })
@@ -6507,12 +6521,12 @@ export function createSmartAccountVaultsClient(
     const policyOperations = [depositExecution];
     const prepared = freezePreparedOperation({
       operation: "earnUsdcDeposit",
-      payer: args.feePayer,
+      payer: rentPayer,
       programId: smartAccountsClient.programId,
       requiresConfirmation: true,
       instructions: [
         createAssociatedTokenAccountIdempotentInstruction(
-          args.feePayer,
+          rentPayer,
           vaultUsdcAta,
           vaultPda,
           usdcMint,
@@ -6524,7 +6538,7 @@ export function createSmartAccountVaultsClient(
         ...(inferredVaultCollateralAccounts
           ? [
               createAssociatedTokenAccountIdempotentInstruction(
-                args.feePayer,
+                rentPayer,
                 inferredVaultCollateralAccounts.vaultCollateralAta,
                 vaultPda,
                 inferredVaultCollateralAccounts.reserveCollateralMint,
@@ -6590,7 +6604,7 @@ export function createSmartAccountVaultsClient(
               },
             ]
           : [],
-      payer: args.feePayer,
+      payer: rentPayer,
       prepared: [
         ...(policyInitializationOperation
           ? [policyInitializationOperation]

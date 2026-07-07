@@ -14,6 +14,7 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findCurrentEarnDepositOnboardingAttempt,
@@ -44,8 +45,11 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint;
+  let sponsored: boolean;
   try {
-    ({ amountRaw } = parseEarnDepositPrepareRequestBody(await request.json()));
+    ({ amountRaw, sponsored } = parseEarnDepositPrepareRequestBody(
+      await request.json()
+    ));
   } catch (error) {
     return jsonError(
       400,
@@ -169,6 +173,8 @@ export async function POST(request: Request) {
       policy && activePosition
         ? earnReserveTargetFromActivePosition(activePosition)
         : null;
+    const rentPayer =
+      sponsored && !policy ? getEarnPolicySponsorPublicKey() : null;
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
@@ -177,6 +183,7 @@ export async function POST(request: Request) {
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
+      ...(rentPayer ? { rentPayer } : {}),
       ...(target ? { target } : {}),
       ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
     });

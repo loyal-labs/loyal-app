@@ -420,6 +420,7 @@ export type SmartAccountEarnUsdcDepositInput = {
   walletAddress: PublicKey;
   policySigner: PublicKey;
   feePayer: PublicKey;
+  rentPayer?: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
   target?: SmartAccountEarnUsdcReserveTargetInput;

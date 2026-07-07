@@ -128,6 +128,7 @@ import {
   type ActiveEarnPositionHolding,
 } from "@/hooks/use-active-earn-position";
 import {
+  IS_EARN_POLICY_SPONSORSHIP_ENABLED,
   prepareEarnCleanupOnServer,
   type PreparedEarnUsdcCleanup,
   useSmartAccountSidebarData,
@@ -4370,6 +4371,12 @@ export function AppWalletWorkspace({
       const target = yieldRoutingPolicy
         ? resolveActiveEarnDepositTarget(activeEarnPosition)
         : null;
+      const sponsorRentPayer =
+        IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
+        !yieldRoutingPolicy &&
+        publicEnv.earnPolicySponsorPubkey
+          ? new PublicKey(publicEnv.earnPolicySponsorPubkey)
+          : null;
       const client = createSmartAccountVaultsClient({
         connection,
         programId: new PublicKey(overview.programId),
@@ -4381,6 +4388,7 @@ export function AppWalletWorkspace({
         feePayer: userWallet,
         initializeYieldRoutingPolicy: !yieldRoutingPolicy,
         policySigner: new PublicKey(policySignerPublicKey),
+        ...(sponsorRentPayer ? { rentPayer: sponsorRentPayer } : {}),
         settingsPda,
         walletAddress: userWallet,
         ...(target ? { target } : {}),
@@ -4390,6 +4398,7 @@ export function AppWalletWorkspace({
     [
       activeEarnPosition,
       connection,
+      publicEnv.earnPolicySponsorPubkey,
       publicEnv.solanaEnv,
       smartAccountData.earnOnboarding,
       smartAccountData.earnPolicy,

@@ -13,6 +13,7 @@ import {
 
 export type EarnDepositPrepareRequestBody = {
   amountRaw: string;
+  sponsored?: boolean;
 };
 
 export type WireSmartAccountPreparedEarnUsdcDeposit = {
@@ -80,15 +81,24 @@ function readUnsignedIntegerString(
 
 export function parseEarnDepositPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
+  sponsored: boolean;
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
+  const sponsored =
+    record.sponsored === undefined || record.sponsored === null
+      ? false
+      : record.sponsored;
+
+  if (typeof sponsored !== "boolean") {
+    throw new Error("sponsored must be a boolean when provided.");
+  }
 
   if (amountRaw <= BigInt(0)) {
     throw new Error("amountRaw must be greater than 0.");
   }
 
-  return { amountRaw };
+  return { amountRaw, sponsored };
 }
 
 export function serializePreparedEarnUsdcDeposit(
