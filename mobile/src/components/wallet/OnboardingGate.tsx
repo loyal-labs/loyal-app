@@ -128,9 +128,19 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
         );
         return;
       }
-      const existing = await SeedVault.listAuthorizedSeeds();
-      const account =
-        existing.length > 0 ? existing[0] : await SeedVault.authorizeExistingSeed();
+      // Open the vault's seed picker first so the user can choose WHICH seed
+      // to connect (switching wallets = reset + reconnect; the picker only
+      // offers seeds not yet authorized for this app). Fall back to an
+      // already-authorized seed to recover orphaned auth tokens — also the
+      // case when every seed is already authorized and the picker has nothing
+      // to offer.
+      const account = await SeedVault.authorizeExistingSeed().catch(
+        async (authorizeError) => {
+          const existing = await SeedVault.listAuthorizedSeeds();
+          if (existing.length === 0) throw authorizeError;
+          return existing[0];
+        },
+      );
       await handleSeedVaultComplete(account);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Seed Vault operation failed";
