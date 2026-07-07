@@ -9,7 +9,10 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { probeEarnAutodepositArtifacts } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
+import {
+  healPendingEarnAutodepositArtifactProofs,
+  probeEarnAutodepositArtifacts,
+} from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
@@ -111,20 +114,36 @@ async function reconcileAutodepositArtifacts(args: {
     return { ...args.state, status: "pending", target };
   }
 
-  if (
-    args.state.status === "pending" &&
-    policyReady &&
-    delegationReady &&
-    hasRecordedPolicy &&
-    hasRecordedDelegation
-  ) {
-    const target = await markAutodepositTargetActiveFromArtifacts({
-      policyAccount: args.state.target.policyAccount,
+  if (args.state.status === "pending" && policyReady && delegationReady) {
+    let target = args.state.target;
+    if (!hasRecordedPolicy || !hasRecordedDelegation) {
+      // A stage transaction can land while its confirm never reaches the DB;
+      // retry flows skip already-existing stages, so the missing proof would
+      // strand the row in pending forever. Backfill it from chain history
+      // once the artifacts verify as canonical.
+      const healed = await healPendingEarnAutodepositArtifactProofs({
+        connection: args.connection,
+        smartAccountsProgramId: args.smartAccountsProgramId,
+        target,
+      });
+      const proofsComplete =
+        healed != null &&
+        healed.policySignature != null &&
+        healed.policyConfirmedSlot != null &&
+        healed.recurringDelegationSignature != null &&
+        healed.recurringDelegationConfirmedSlot != null;
+      if (!proofsComplete) {
+        return healed ? { ...args.state, target: healed } : args.state;
+      }
+      target = healed;
+    }
+    const activeTarget = await markAutodepositTargetActiveFromArtifacts({
+      policyAccount: target.policyAccount,
       settings: args.settings,
       vaultIndex: EARN_VAULT_INDEX,
       walletAddress: args.walletAddress,
     });
-    return { ...args.state, status: "active", target };
+    return { ...args.state, status: "active", target: activeTarget };
   }
 
   return args.state;
