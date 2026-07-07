@@ -48,6 +48,26 @@ export type CoinGeckoChartResult = {
   volumeUsd24h: number | null;
 };
 
+export type CoinGeckoChartTimeframe = "1d" | "1w" | "1m" | "1y";
+
+const COIN_CHART_DAYS: Record<CoinGeckoChartTimeframe, string> = {
+  "1d": "1",
+  "1w": "7",
+  "1m": "30",
+  "1y": "365",
+};
+
+// GeckoTerminal OHLCV granularity per window (limit caps at 1000 candles).
+const POOL_OHLCV_PARAMS: Record<
+  CoinGeckoChartTimeframe,
+  { granularity: "hour" | "day"; limit: number }
+> = {
+  "1d": { granularity: "hour", limit: 24 },
+  "1w": { granularity: "hour", limit: 168 },
+  "1m": { granularity: "day", limit: 30 },
+  "1y": { granularity: "day", limit: 365 },
+};
+
 type OnchainTokenResponse = {
   data?: {
     attributes?: {
@@ -182,10 +202,11 @@ export async function fetchCoinGeckoTokenInfo(
 }
 
 export async function fetchCoinGeckoCoinChart(
-  coingeckoCoinId: string
+  coingeckoCoinId: string,
+  timeframe: CoinGeckoChartTimeframe = "1d"
 ): Promise<CoinGeckoChartResult> {
   const response = await fetchJson<CoinMarketChartResponse>(
-    `${COINGECKO_BASE_URL}/coins/${coingeckoCoinId}/market_chart?vs_currency=usd&days=1`,
+    `${COINGECKO_BASE_URL}/coins/${coingeckoCoinId}/market_chart?vs_currency=usd&days=${COIN_CHART_DAYS[timeframe]}`,
     { method: "GET", headers: getHeaders() }
   );
 
@@ -201,20 +222,21 @@ export async function fetchCoinGeckoCoinChart(
 }
 
 export async function fetchCoinGeckoPoolOhlcv(
-  poolId: string
+  poolId: string,
+  timeframe: CoinGeckoChartTimeframe = "1d"
 ): Promise<CoinGeckoChartPoint[]> {
+  const { granularity, limit } = POOL_OHLCV_PARAMS[timeframe];
   const response = await fetchJson<PoolOhlcvResponse>(
-    `${COINGECKO_BASE_URL}/onchain/networks/${SOLANA_NETWORK}/pools/${poolId}/ohlcv/hour`,
+    `${COINGECKO_BASE_URL}/onchain/networks/${SOLANA_NETWORK}/pools/${poolId}/ohlcv/${granularity}?limit=${limit}`,
     { method: "GET", headers: getHeaders() }
   );
 
   const ohlcvList = response.data?.attributes?.ohlcv_list ?? [];
 
-  // OHLCV tuples: [timestamp, open, high, low, close, volume].
+  // OHLCV tuples: [timestamp, open, high, low, close, volume]. GeckoTerminal
+  // returns candles newest-first; sort ascending so charts read left-to-right.
   return ohlcvList
-    .filter(
-      (candle): candle is number[] =>
-        Array.isArray(candle) && candle.length >= 5
-    )
-    .map((candle) => ({ timestamp: candle[0], priceUsd: candle[4] }));
+    .filter((candle): candle is number[] => Array.isArray(candle) && candle.length >= 5)
+    .map((candle) => ({ timestamp: candle[0], priceUsd: candle[4] }))
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
