@@ -97,6 +97,32 @@ function shortenAddress(address: string | null): string {
   return `${address.slice(0, 4)}...${address.slice(-4)}`;
 }
 
+// Creating an Autodeposit stands up on-chain accounts (subscription authority,
+// policy, recurring delegation) whose rent + fees total ~0.014 SOL measured on
+// mainnet; gate at 0.02 for headroom. Most of it comes back as a rent refund
+// when the Autodeposit is deleted.
+const SETUP_MIN_SOL = 0.02;
+
+// How much SOL the wallet is missing to cover setup rent/fees. Returns null
+// when covered — or when the balance hasn't loaded yet, so the gate fails open
+// instead of blocking a funded wallet on slow data. (Mirrors DepositSheet's
+// computeFirstDepositSolShortfall.)
+export function computeAutodepositSetupSolShortfall(
+  solBalance: number | null,
+): number | null {
+  if (solBalance == null || !Number.isFinite(solBalance)) {
+    return null;
+  }
+  const shortfall = SETUP_MIN_SOL - solBalance;
+  if (shortfall <= 0) return null;
+  // Ceil at 4 decimals so the ">" prompt stays true after rounding.
+  return Math.ceil(shortfall * 1e4) / 1e4;
+}
+
+function formatSolAmount(sol: number): string {
+  return sol.toFixed(4).replace(/\.?0+$/, "");
+}
+
 export function AutodepositSetupSheet({
   open,
   onClose,
@@ -107,6 +133,7 @@ export function AutodepositSetupSheet({
   availableUsdc,
   earnBalanceUsd,
   walletAddress,
+  setupSolShortfall,
 }: {
   open: boolean;
   onClose: () => void;
@@ -118,6 +145,11 @@ export function AutodepositSetupSheet({
   availableUsdc: number | null;
   earnBalanceUsd: number | null;
   walletAddress: string | null;
+  // SOL still needed to cover setup rent/fees (see
+  // computeAutodepositSetupSolShortfall). Non-null blocks the create CTA with
+  // a top-up prompt instead of letting the transaction fail in simulation.
+  // Ignored in edit mode (threshold changes are DB-only).
+  setupSolShortfall?: number | null;
 }) {
   const sheetRef = useRef<BottomSheetModal>(null);
   const inputRef = useRef<{ focus: () => void } | null>(null);
@@ -216,8 +248,12 @@ export function AutodepositSetupSheet({
   }, [submitting, onDelete]);
 
   const thresholdUsd = amountToUsd(amount);
-  // The design's only validation: a $0 threshold can't create an autodeposit.
-  const disabled = thresholdUsd <= 0;
+  // Creating without enough SOL for the setup accounts' rent blocks the CTA
+  // outright (independent of the typed threshold) — same UX as DepositSheet's
+  // first-deposit gate. Otherwise the design's only validation: a $0 threshold
+  // can't create an autodeposit.
+  const needsSolTopUp = mode === "create" && (setupSolShortfall ?? 0) > 0;
+  const disabled = needsSolTopUp || thresholdUsd <= 0;
 
   const handleConfirm = useCallback(async () => {
     if (disabled || submitting) {
@@ -261,7 +297,11 @@ export function AutodepositSetupSheet({
   const displayValue = formatAmountDisplay(amount);
   const fromParts = splitDollars(balance);
   const toParts = splitDollars(earnBalance);
-  const ctaLabel = mode === "edit" ? "Confirm" : "Create Autodeposit";
+  const ctaLabel = needsSolTopUp
+    ? `Deposit > ${formatSolAmount(setupSolShortfall as number)} SOL to create Autodeposit`
+    : mode === "edit"
+      ? "Confirm"
+      : "Create Autodeposit";
 
   const amountFontSize = useMemo(() => {
     const text = `$${displayValue || "0"}`;
@@ -415,7 +455,11 @@ export function AutodepositSetupSheet({
             disabled={disabled || submitting}
             style={({ pressed }) => [
               styles.cta,
-              disabled ? styles.ctaDisabled : styles.ctaEnabled,
+              needsSolTopUp
+                ? styles.ctaError
+                : disabled
+                  ? styles.ctaDisabled
+                  : styles.ctaEnabled,
               !disabled && !submitting && pressed && styles.ctaPressed,
             ]}
           >
@@ -424,7 +468,11 @@ export function AutodepositSetupSheet({
             ) : (
               <Text
                 style={
-                  disabled ? styles.ctaLabelDisabled : styles.ctaLabelEnabled
+                  needsSolTopUp
+                    ? styles.ctaLabelError
+                    : disabled
+                      ? styles.ctaLabelDisabled
+                      : styles.ctaLabelEnabled
                 }
               >
                 {ctaLabel}
@@ -621,6 +669,9 @@ const styles = StyleSheet.create({
   ctaDisabled: {
     backgroundColor: COLOR_CHIP_BG,
   },
+  ctaError: {
+    backgroundColor: "rgba(249, 54, 60, 0.14)",
+  },
   ctaPressed: {
     opacity: 0.85,
   },
@@ -635,5 +686,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 20,
     color: "rgba(60, 60, 67, 0.3)",
+  },
+  ctaLabelError: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 16,
+    lineHeight: 20,
+    color: COLOR_RED,
+    textAlign: "center",
   },
 });

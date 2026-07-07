@@ -16,7 +16,10 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutodepositHelpSheet } from "@/components/earn/AutodepositHelpSheet";
-import { AutodepositSetupSheet } from "@/components/earn/AutodepositSetupSheet";
+import {
+  AutodepositSetupSheet,
+  computeAutodepositSetupSolShortfall,
+} from "@/components/earn/AutodepositSetupSheet";
 import {
   computeFirstDepositSolShortfall,
   DepositSheet,
@@ -227,6 +230,15 @@ export default function EarnScreen() {
     if (!sol) return null;
     return computeFirstDepositSolShortfall(sol.balance);
   }, [earnPositionLoaded, hasDeposit, tokenHoldings]);
+  // Creating an Autodeposit also costs SOL (policy + delegation account rent) —
+  // same fail-open gate. The sheet only applies it in "create" mode.
+  const autodepositSolShortfall = useMemo(() => {
+    const sol = tokenHoldings.find(
+      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured,
+    );
+    if (!sol) return null;
+    return computeAutodepositSetupSolShortfall(sol.balance);
+  }, [tokenHoldings]);
   const [isFocused, setIsFocused] = useState(false);
   // Bumped to (re)play the reveal each time the tab becomes visible.
   const [runId, setRunId] = useState(0);
@@ -1024,6 +1036,7 @@ export default function EarnScreen() {
         availableUsdc={usdcAvailable}
         earnBalanceUsd={depositedUsd}
         walletAddress={walletAddress}
+        setupSolShortfall={autodepositSolShortfall}
       />
     </View>
   );
