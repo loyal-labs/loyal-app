@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import * as beet from '@metaplex-foundation/beet'
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import * as beet from "@metaplex-foundation/beet";
 export type SmartAccountMessageAddressTableLookup = {
-  accountKey: web3.PublicKey
-  writableIndexes: Uint8Array
-  readonlyIndexes: Uint8Array
-}
+  accountKey: web3.PublicKey;
+  writableIndexes: Uint8Array;
+  readonlyIndexes: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -21,9 +21,9 @@ export type SmartAccountMessageAddressTableLookup = {
 export const smartAccountMessageAddressTableLookupBeet =
   new beet.FixableBeetArgsStruct<SmartAccountMessageAddressTableLookup>(
     [
-      ['accountKey', beetSolana.publicKey],
-      ['writableIndexes', beet.bytes],
-      ['readonlyIndexes', beet.bytes],
+      ["accountKey", beetSolana.publicKey],
+      ["writableIndexes", beet.bytes],
+      ["readonlyIndexes", beet.bytes],
     ],
-    'SmartAccountMessageAddressTableLookup'
-  )
+    "SmartAccountMessageAddressTableLookup"
+  );

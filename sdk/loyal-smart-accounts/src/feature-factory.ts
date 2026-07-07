@@ -23,35 +23,41 @@ type OperationEntries<Operations extends Record<string, unknown>> = Array<
 >;
 
 type InstructionsApi<Operations> = {
-  [K in keyof Operations as Operations[K] extends { instruction: (...args: never[]) => unknown }
+  [K in keyof Operations as Operations[K] extends {
+    instruction: (...args: never[]) => unknown;
+  }
     ? K
     : never]: Operations[K] extends { instruction: infer T } ? T : never;
 };
 
 type PrepareApi<Operations> = {
-  [K in keyof Operations]: Operations[K] extends { prepare: infer T } ? T : never;
+  [K in keyof Operations]: Operations[K] extends { prepare: infer T }
+    ? T
+    : never;
 };
 
 type BoundPrepareApi<Operations> = {
-  [K in keyof Operations]: Operations[K] extends { boundPrepare: infer T } ? T : never;
+  [K in keyof Operations]: Operations[K] extends { boundPrepare: infer T }
+    ? T
+    : never;
 };
 
 type ClientMethodApi<Operations> = {
-  [K in keyof Operations]: Operations[K] extends { client: infer T } ? T : never;
+  [K in keyof Operations]: Operations[K] extends { client: infer T }
+    ? T
+    : never;
 };
 
 type FeatureModule<
   Operations extends Record<string, unknown>,
   Accounts extends Record<string, unknown>,
-  Queries extends QueryFactories,
+  Queries extends QueryFactories
 > = {
   accounts: Accounts;
   instructions: InstructionsApi<Operations>;
   prepare: PrepareApi<Operations>;
   queries: Queries;
-  client: (
-    transport: LoyalSmartAccountsTransport
-  ) => Simplify<
+  client: (transport: LoyalSmartAccountsTransport) => Simplify<
     ClientMethodApi<Operations> & {
       prepare: BoundPrepareApi<Operations>;
       queries: {
@@ -114,14 +120,16 @@ export function createFeatureModule<
   Feature extends LoyalSmartAccountsFeatureName,
   Operations extends RuntimeOperationsForFeature<Feature>,
   Accounts extends Record<string, unknown>,
-  Queries extends QueryFactories,
+  Queries extends QueryFactories
 >(args: {
   feature: Feature;
   accounts: Accounts;
   operations: Operations;
   queries: Queries;
 }): FeatureModule<Operations, Accounts, Queries> {
-  const operationEntries = Object.entries(args.operations) as OperationEntries<Operations>;
+  const operationEntries = Object.entries(
+    args.operations
+  ) as OperationEntries<Operations>;
 
   const instructions = Object.fromEntries(
     operationEntries
@@ -143,7 +151,8 @@ export function createFeatureModule<
         ...Object.fromEntries(
           operationEntries.map(([name, operation]) => [
             name,
-            (clientArgs: unknown) => operation.client(transport, clientArgs as never),
+            (clientArgs: unknown) =>
+              operation.client(transport, clientArgs as never),
           ])
         ),
         prepare: Object.fromEntries(
@@ -154,7 +163,7 @@ export function createFeatureModule<
           ])
         ),
         queries: bindQueries(args.queries, transport.connection),
-      }) as Simplify<
+      } as Simplify<
         ClientMethodApi<Operations> & {
           prepare: BoundPrepareApi<Operations>;
           queries: {
@@ -166,7 +175,7 @@ export function createFeatureModule<
               : never;
           };
         }
-      >,
+      >),
   };
 }
 

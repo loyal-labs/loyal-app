@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const closeSettingsTransactionStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'CloseSettingsTransactionInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "CloseSettingsTransactionInstructionArgs"
+);
 /**
  * Accounts required by the _closeSettingsTransaction_ instruction
  *
@@ -33,19 +33,19 @@ export const closeSettingsTransactionStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type CloseSettingsTransactionInstructionAccounts = {
-  settings: web3.PublicKey
-  proposal: web3.PublicKey
-  transaction: web3.PublicKey
-  proposalRentCollector: web3.PublicKey
-  transactionRentCollector: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  proposal: web3.PublicKey;
+  transaction: web3.PublicKey;
+  proposalRentCollector: web3.PublicKey;
+  transactionRentCollector: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const closeSettingsTransactionInstructionDiscriminator = [
   251, 112, 34, 108, 214, 13, 41, 116,
-]
+];
 
 /**
  * Creates a _CloseSettingsTransaction_ instruction.
@@ -57,11 +57,11 @@ export const closeSettingsTransactionInstructionDiscriminator = [
  */
 export function createCloseSettingsTransactionInstruction(
   accounts: CloseSettingsTransactionInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = closeSettingsTransactionStruct.serialize({
     instructionDiscriminator: closeSettingsTransactionInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -98,11 +98,11 @@ export function createCloseSettingsTransactionInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -110,6 +110,6 @@ export function createCloseSettingsTransactionInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

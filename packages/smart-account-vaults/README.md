@@ -45,6 +45,10 @@ Returned client shape:
 - `prepareRemoveInitiateSigner(args)`
 - `prepareSetSpendingLimitPolicy(args)`
 - `prepareRemoveSpendingLimitPolicy(args)`
+- `prepareClosePolicies(args)`
+- `prepareClosePoliciesSync(args)`
+- `prepareCloseYieldRoutingPolicies(args)`
+- `prepareCloseYieldRoutingPoliciesSync(args)`
 - `prepareUseSolSpendingLimitPolicy(args)`
 - `prepareApproveProposal(args)`
 - `prepareRejectProposal(args)`
@@ -207,6 +211,8 @@ the package:
 - `prepareExecuteProposal()` executes a regular stored transaction.
 - `prepareExecuteSettingsProposal()` first derives any extra execution accounts required by settings actions, then prepares the settings-transaction execution.
 - `prepareExecutePolicyProposal()` resolves execution accounts for stored policy transactions and prepares policy execution.
+- `prepareClosePolicies()` and `prepareCloseYieldRoutingPolicies()` emit `PolicyRemove` settings actions. The smart-account program closes each policy account and refunds rent to that policy account's stored `rentCollector`, which is the rent payer recorded at policy creation.
+- `prepareClosePoliciesSync()` and `prepareCloseYieldRoutingPoliciesSync()` execute the same `PolicyRemove` actions through `executeSettingsTransactionSync`, using the supplied settings signer pubkeys.
 
 The send step is intentionally separate. Typical usage is:
 

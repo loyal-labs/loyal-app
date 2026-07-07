@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { Permissions, permissionsBeet } from './Permissions'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { Permissions, permissionsBeet } from "./Permissions";
 /**
  * This type is used to derive the {@link AllowedSettingsChange} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link AllowedSettingsChange} type instead.
@@ -20,13 +20,13 @@ import { Permissions, permissionsBeet } from './Permissions'
  */
 export type AllowedSettingsChangeRecord = {
   AddSigner: {
-    newSigner: beet.COption<web3.PublicKey>
-    newSignerPermissions: beet.COption<Permissions>
-  }
-  RemoveSigner: { oldSigner: beet.COption<web3.PublicKey> }
-  ChangeThreshold: void /* scalar variant */
-  ChangeTimeLock: { newTimeLock: beet.COption<number> }
-}
+    newSigner: beet.COption<web3.PublicKey>;
+    newSignerPermissions: beet.COption<Permissions>;
+  };
+  RemoveSigner: { oldSigner: beet.COption<web3.PublicKey> };
+  ChangeThreshold: void /* scalar variant */;
+  ChangeTimeLock: { newTimeLock: beet.COption<number> };
+};
 
 /**
  * Union type respresenting the AllowedSettingsChange data enum defined in Rust.
@@ -40,24 +40,24 @@ export type AllowedSettingsChangeRecord = {
  * @category generated
  */
 export type AllowedSettingsChange =
-  beet.DataEnumKeyAsKind<AllowedSettingsChangeRecord>
+  beet.DataEnumKeyAsKind<AllowedSettingsChangeRecord>;
 
 export const isAllowedSettingsChangeAddSigner = (
   x: AllowedSettingsChange
-): x is AllowedSettingsChange & { __kind: 'AddSigner' } =>
-  x.__kind === 'AddSigner'
+): x is AllowedSettingsChange & { __kind: "AddSigner" } =>
+  x.__kind === "AddSigner";
 export const isAllowedSettingsChangeRemoveSigner = (
   x: AllowedSettingsChange
-): x is AllowedSettingsChange & { __kind: 'RemoveSigner' } =>
-  x.__kind === 'RemoveSigner'
+): x is AllowedSettingsChange & { __kind: "RemoveSigner" } =>
+  x.__kind === "RemoveSigner";
 export const isAllowedSettingsChangeChangeThreshold = (
   x: AllowedSettingsChange
-): x is AllowedSettingsChange & { __kind: 'ChangeThreshold' } =>
-  x.__kind === 'ChangeThreshold'
+): x is AllowedSettingsChange & { __kind: "ChangeThreshold" } =>
+  x.__kind === "ChangeThreshold";
 export const isAllowedSettingsChangeChangeTimeLock = (
   x: AllowedSettingsChange
-): x is AllowedSettingsChange & { __kind: 'ChangeTimeLock' } =>
-  x.__kind === 'ChangeTimeLock'
+): x is AllowedSettingsChange & { __kind: "ChangeTimeLock" } =>
+  x.__kind === "ChangeTimeLock";
 
 /**
  * @category userTypes
@@ -66,34 +66,34 @@ export const isAllowedSettingsChangeChangeTimeLock = (
 export const allowedSettingsChangeBeet =
   beet.dataEnum<AllowedSettingsChangeRecord>([
     [
-      'AddSigner',
-      new beet.FixableBeetArgsStruct<AllowedSettingsChangeRecord['AddSigner']>(
+      "AddSigner",
+      new beet.FixableBeetArgsStruct<AllowedSettingsChangeRecord["AddSigner"]>(
         [
-          ['newSigner', beet.coption(beetSolana.publicKey)],
-          ['newSignerPermissions', beet.coption(permissionsBeet)],
+          ["newSigner", beet.coption(beetSolana.publicKey)],
+          ["newSignerPermissions", beet.coption(permissionsBeet)],
         ],
         'AllowedSettingsChangeRecord["AddSigner"]'
       ),
     ],
 
     [
-      'RemoveSigner',
+      "RemoveSigner",
       new beet.FixableBeetArgsStruct<
-        AllowedSettingsChangeRecord['RemoveSigner']
+        AllowedSettingsChangeRecord["RemoveSigner"]
       >(
-        [['oldSigner', beet.coption(beetSolana.publicKey)]],
+        [["oldSigner", beet.coption(beetSolana.publicKey)]],
         'AllowedSettingsChangeRecord["RemoveSigner"]'
       ),
     ],
-    ['ChangeThreshold', beet.unit],
+    ["ChangeThreshold", beet.unit],
 
     [
-      'ChangeTimeLock',
+      "ChangeTimeLock",
       new beet.FixableBeetArgsStruct<
-        AllowedSettingsChangeRecord['ChangeTimeLock']
+        AllowedSettingsChangeRecord["ChangeTimeLock"]
       >(
-        [['newTimeLock', beet.coption(beet.u32)]],
+        [["newTimeLock", beet.coption(beet.u32)]],
         'AllowedSettingsChangeRecord["ChangeTimeLock"]'
       ),
     ],
-  ]) as beet.FixableBeet<AllowedSettingsChange, AllowedSettingsChange>
+  ]) as beet.FixableBeet<AllowedSettingsChange, AllowedSettingsChange>;

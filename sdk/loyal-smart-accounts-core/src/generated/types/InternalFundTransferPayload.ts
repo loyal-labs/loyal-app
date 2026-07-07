@@ -5,16 +5,16 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 export type InternalFundTransferPayload = {
-  sourceIndex: number
-  destinationIndex: number
-  mint: web3.PublicKey
-  decimals: number
-  amount: beet.bignum
-}
+  sourceIndex: number;
+  destinationIndex: number;
+  mint: web3.PublicKey;
+  decimals: number;
+  amount: beet.bignum;
+};
 
 /**
  * @category userTypes
@@ -23,11 +23,11 @@ export type InternalFundTransferPayload = {
 export const internalFundTransferPayloadBeet =
   new beet.BeetArgsStruct<InternalFundTransferPayload>(
     [
-      ['sourceIndex', beet.u8],
-      ['destinationIndex', beet.u8],
-      ['mint', beetSolana.publicKey],
-      ['decimals', beet.u8],
-      ['amount', beet.u64],
+      ["sourceIndex", beet.u8],
+      ["destinationIndex", beet.u8],
+      ["mint", beetSolana.publicKey],
+      ["decimals", beet.u8],
+      ["amount", beet.u64],
     ],
-    'InternalFundTransferPayload'
-  )
+    "InternalFundTransferPayload"
+  );

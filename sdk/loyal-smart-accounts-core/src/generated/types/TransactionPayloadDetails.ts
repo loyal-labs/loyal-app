@@ -5,16 +5,16 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   SmartAccountTransactionMessage,
   smartAccountTransactionMessageBeet,
-} from './SmartAccountTransactionMessage'
+} from "./SmartAccountTransactionMessage";
 export type TransactionPayloadDetails = {
-  accountIndex: number
-  ephemeralSignerBumps: Uint8Array
-  message: SmartAccountTransactionMessage
-}
+  accountIndex: number;
+  ephemeralSignerBumps: Uint8Array;
+  message: SmartAccountTransactionMessage;
+};
 
 /**
  * @category userTypes
@@ -23,9 +23,9 @@ export type TransactionPayloadDetails = {
 export const transactionPayloadDetailsBeet =
   new beet.FixableBeetArgsStruct<TransactionPayloadDetails>(
     [
-      ['accountIndex', beet.u8],
-      ['ephemeralSignerBumps', beet.bytes],
-      ['message', smartAccountTransactionMessageBeet],
+      ["accountIndex", beet.u8],
+      ["ephemeralSignerBumps", beet.bytes],
+      ["message", smartAccountTransactionMessageBeet],
     ],
-    'TransactionPayloadDetails'
-  )
+    "TransactionPayloadDetails"
+  );

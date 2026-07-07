@@ -186,7 +186,15 @@ export function translateAndThrowAnchorError(err: unknown): never {
     Error.captureStackTrace(translatedError, translateAndThrowAnchorError);
   }
 
-  (translatedError as unknown as ErrorWithLogs).logs = err.logs;
+  if (translatedError !== err) {
+    try {
+      (translatedError as unknown as ErrorWithLogs).logs = err.logs;
+    } catch {
+      // Some error types (e.g. web3.js SendTransactionError) expose `logs` as
+      // a getter-only accessor; assigning would throw a TypeError that masks
+      // the real error. Such errors already carry their own logs.
+    }
+  }
 
   throw translatedError;
 }

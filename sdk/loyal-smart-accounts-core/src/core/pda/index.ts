@@ -26,7 +26,10 @@ function getStaticSeed(value: string): Uint8Array {
   return seed;
 }
 
-function derivePda(seeds: Uint8Array[], programId: PublicKey): [PublicKey, number] {
+function derivePda(
+  seeds: Uint8Array[],
+  programId: PublicKey
+): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(seeds, programId);
 }
 
@@ -41,13 +44,22 @@ function toSeedBytes(token: string, args: PdaSeedArgs): Uint8Array {
 
   switch (encoding) {
     case "pubkey":
-      invariant(value instanceof PublicKey, `PDA seed "${field}" must be a PublicKey`);
+      invariant(
+        value instanceof PublicKey,
+        `PDA seed "${field}" must be a PublicKey`
+      );
       return value.toBytes();
     case "u8":
-      invariant(typeof value === "number", `PDA seed "${field}" must be a number`);
+      invariant(
+        typeof value === "number",
+        `PDA seed "${field}" must be a number`
+      );
       return toU8Bytes(value);
     case "u32":
-      invariant(typeof value === "number", `PDA seed "${field}" must be a number`);
+      invariant(
+        typeof value === "number",
+        `PDA seed "${field}" must be a number`
+      );
       return toU32Bytes(value);
     case "u64":
       invariant(
@@ -176,7 +188,11 @@ export function getSpendingLimitPda({
   settingsPda: PublicKey;
   seed: PublicKey;
 }): [PublicKey, number] {
-  return derivePdaFromRegistry("spendingLimit", { settingsPda, seed }, programId);
+  return derivePdaFromRegistry(
+    "spendingLimit",
+    { settingsPda, seed },
+    programId
+  );
 }
 
 export function getTransactionBufferPda({
@@ -204,7 +220,11 @@ export function getPolicyPda({
   settingsPda: PublicKey;
   policySeed: number;
 }): [PublicKey, number] {
-  return derivePdaFromRegistry("policy", { settingsPda, policySeed }, programId);
+  return derivePdaFromRegistry(
+    "policy",
+    { settingsPda, policySeed },
+    programId
+  );
 }
 
 export { PDA_REGISTRY };

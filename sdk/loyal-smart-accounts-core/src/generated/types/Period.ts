@@ -5,7 +5,7 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 /**
  * @category enums
  * @category generated
@@ -24,4 +24,4 @@ export enum Period {
 export const periodBeet = beet.fixedScalarEnum(Period) as beet.FixedSizeBeet<
   Period,
   Period
->
+>;

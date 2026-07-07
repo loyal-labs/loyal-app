@@ -22,7 +22,12 @@ export function approveProposal({
   });
 
   return createApproveProposalInstruction(
-    { consensusAccount: settingsPda, proposal: proposalPda, signer, program: programId },
+    {
+      consensusAccount: settingsPda,
+      proposal: proposalPda,
+      signer,
+      program: programId,
+    },
     { args: { memo: memo ?? null } },
     programId
   );

@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   RemoveSignerArgs,
   removeSignerArgsBeet,
-} from '../types/RemoveSignerArgs'
+} from "../types/RemoveSignerArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type RemoveSignerAsAuthorityInstructionArgs = {
-  args: RemoveSignerArgs
-}
+  args: RemoveSignerArgs;
+};
 /**
  * @category Instructions
  * @category RemoveSignerAsAuthority
@@ -27,15 +27,15 @@ export type RemoveSignerAsAuthorityInstructionArgs = {
  */
 export const removeSignerAsAuthorityStruct = new beet.FixableBeetArgsStruct<
   RemoveSignerAsAuthorityInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', removeSignerArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", removeSignerArgsBeet],
   ],
-  'RemoveSignerAsAuthorityInstructionArgs'
-)
+  "RemoveSignerAsAuthorityInstructionArgs"
+);
 /**
  * Accounts required by the _removeSignerAsAuthority_ instruction
  *
@@ -48,17 +48,17 @@ export const removeSignerAsAuthorityStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type RemoveSignerAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  rentPayer?: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  rentPayer?: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const removeSignerAsAuthorityInstructionDiscriminator = [
   58, 19, 149, 16, 181, 16, 125, 148,
-]
+];
 
 /**
  * Creates a _RemoveSignerAsAuthority_ instruction.
@@ -76,12 +76,12 @@ export const removeSignerAsAuthorityInstructionDiscriminator = [
 export function createRemoveSignerAsAuthorityInstruction(
   accounts: RemoveSignerAsAuthorityInstructionAccounts,
   args: RemoveSignerAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = removeSignerAsAuthorityStruct.serialize({
     instructionDiscriminator: removeSignerAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -108,11 +108,11 @@ export function createRemoveSignerAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -120,6 +120,6 @@ export function createRemoveSignerAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

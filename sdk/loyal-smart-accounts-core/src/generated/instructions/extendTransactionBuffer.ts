@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   ExtendTransactionBufferArgs,
   extendTransactionBufferArgsBeet,
-} from '../types/ExtendTransactionBufferArgs'
+} from "../types/ExtendTransactionBufferArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type ExtendTransactionBufferInstructionArgs = {
-  args: ExtendTransactionBufferArgs
-}
+  args: ExtendTransactionBufferArgs;
+};
 /**
  * @category Instructions
  * @category ExtendTransactionBuffer
@@ -27,15 +27,15 @@ export type ExtendTransactionBufferInstructionArgs = {
  */
 export const extendTransactionBufferStruct = new beet.FixableBeetArgsStruct<
   ExtendTransactionBufferInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', extendTransactionBufferArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", extendTransactionBufferArgsBeet],
   ],
-  'ExtendTransactionBufferInstructionArgs'
-)
+  "ExtendTransactionBufferInstructionArgs"
+);
 /**
  * Accounts required by the _extendTransactionBuffer_ instruction
  *
@@ -47,15 +47,15 @@ export const extendTransactionBufferStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type ExtendTransactionBufferInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  transactionBuffer: web3.PublicKey
-  creator: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  transactionBuffer: web3.PublicKey;
+  creator: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const extendTransactionBufferInstructionDiscriminator = [
   190, 86, 246, 95, 231, 154, 229, 91,
-]
+];
 
 /**
  * Creates a _ExtendTransactionBuffer_ instruction.
@@ -70,12 +70,12 @@ export const extendTransactionBufferInstructionDiscriminator = [
 export function createExtendTransactionBufferInstruction(
   accounts: ExtendTransactionBufferInstructionAccounts,
   args: ExtendTransactionBufferInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = extendTransactionBufferStruct.serialize({
     instructionDiscriminator: extendTransactionBufferInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -92,11 +92,11 @@ export function createExtendTransactionBufferInstruction(
       isWritable: false,
       isSigner: true,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -104,6 +104,6 @@ export function createExtendTransactionBufferInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

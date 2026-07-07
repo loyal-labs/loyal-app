@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   TransactionPayload,
   transactionPayloadBeet,
-} from './TransactionPayload'
-import { PolicyPayload, policyPayloadBeet } from './PolicyPayload'
+} from "./TransactionPayload";
+import { PolicyPayload, policyPayloadBeet } from "./PolicyPayload";
 /**
  * This type is used to derive the {@link CreateTransactionArgs} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link CreateTransactionArgs} type instead.
@@ -21,9 +21,9 @@ import { PolicyPayload, policyPayloadBeet } from './PolicyPayload'
  * @private
  */
 export type CreateTransactionArgsRecord = {
-  TransactionPayload: { fields: [TransactionPayload] }
-  PolicyPayload: { payload: PolicyPayload }
-}
+  TransactionPayload: { fields: [TransactionPayload] };
+  PolicyPayload: { payload: PolicyPayload };
+};
 
 /**
  * Union type respresenting the CreateTransactionArgs data enum defined in Rust.
@@ -37,16 +37,16 @@ export type CreateTransactionArgsRecord = {
  * @category generated
  */
 export type CreateTransactionArgs =
-  beet.DataEnumKeyAsKind<CreateTransactionArgsRecord>
+  beet.DataEnumKeyAsKind<CreateTransactionArgsRecord>;
 
 export const isCreateTransactionArgsTransactionPayload = (
   x: CreateTransactionArgs
-): x is CreateTransactionArgs & { __kind: 'TransactionPayload' } =>
-  x.__kind === 'TransactionPayload'
+): x is CreateTransactionArgs & { __kind: "TransactionPayload" } =>
+  x.__kind === "TransactionPayload";
 export const isCreateTransactionArgsPolicyPayload = (
   x: CreateTransactionArgs
-): x is CreateTransactionArgs & { __kind: 'PolicyPayload' } =>
-  x.__kind === 'PolicyPayload'
+): x is CreateTransactionArgs & { __kind: "PolicyPayload" } =>
+  x.__kind === "PolicyPayload";
 
 /**
  * @category userTypes
@@ -55,22 +55,22 @@ export const isCreateTransactionArgsPolicyPayload = (
 export const createTransactionArgsBeet =
   beet.dataEnum<CreateTransactionArgsRecord>([
     [
-      'TransactionPayload',
+      "TransactionPayload",
       new beet.FixableBeetArgsStruct<
-        CreateTransactionArgsRecord['TransactionPayload']
+        CreateTransactionArgsRecord["TransactionPayload"]
       >(
-        [['fields', beet.tuple([transactionPayloadBeet])]],
+        [["fields", beet.tuple([transactionPayloadBeet])]],
         'CreateTransactionArgsRecord["TransactionPayload"]'
       ),
     ],
 
     [
-      'PolicyPayload',
+      "PolicyPayload",
       new beet.FixableBeetArgsStruct<
-        CreateTransactionArgsRecord['PolicyPayload']
+        CreateTransactionArgsRecord["PolicyPayload"]
       >(
-        [['payload', policyPayloadBeet]],
+        [["payload", policyPayloadBeet]],
         'CreateTransactionArgsRecord["PolicyPayload"]'
       ),
     ],
-  ]) as beet.FixableBeet<CreateTransactionArgs, CreateTransactionArgs>
+  ]) as beet.FixableBeet<CreateTransactionArgs, CreateTransactionArgs>;

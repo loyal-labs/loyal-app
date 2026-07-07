@@ -5,8 +5,8 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 
 /**
  * @category Instructions
@@ -14,11 +14,11 @@ import * as web3 from '@solana/web3.js'
  * @category generated
  */
 export const executeTransactionStruct = new beet.BeetArgsStruct<{
-  instructionDiscriminator: number[] /* size: 8 */
+  instructionDiscriminator: number[] /* size: 8 */;
 }>(
-  [['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)]],
-  'ExecuteTransactionInstructionArgs'
-)
+  [["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)]],
+  "ExecuteTransactionInstructionArgs"
+);
 /**
  * Accounts required by the _executeTransaction_ instruction
  *
@@ -32,17 +32,17 @@ export const executeTransactionStruct = new beet.BeetArgsStruct<{
  * @category generated
  */
 export type ExecuteTransactionInstructionAccounts = {
-  consensusAccount: web3.PublicKey
-  proposal: web3.PublicKey
-  transaction: web3.PublicKey
-  signer: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  consensusAccount: web3.PublicKey;
+  proposal: web3.PublicKey;
+  transaction: web3.PublicKey;
+  signer: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const executeTransactionInstructionDiscriminator = [
   231, 173, 49, 91, 235, 24, 68, 19,
-]
+];
 
 /**
  * Creates a _ExecuteTransaction_ instruction.
@@ -54,11 +54,11 @@ export const executeTransactionInstructionDiscriminator = [
  */
 export function createExecuteTransactionInstruction(
   accounts: ExecuteTransactionInstructionAccounts,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = executeTransactionStruct.serialize({
     instructionDiscriminator: executeTransactionInstructionDiscriminator,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.consensusAccount,
@@ -85,11 +85,11 @@ export function createExecuteTransactionInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -97,6 +97,6 @@ export function createExecuteTransactionInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

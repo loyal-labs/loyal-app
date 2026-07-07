@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type UsageState = {
-  remainingInPeriod: beet.bignum
-  lastReset: beet.bignum
-}
+  remainingInPeriod: beet.bignum;
+  lastReset: beet.bignum;
+};
 
 /**
  * @category userTypes
@@ -17,8 +17,8 @@ export type UsageState = {
  */
 export const usageStateBeet = new beet.BeetArgsStruct<UsageState>(
   [
-    ['remainingInPeriod', beet.u64],
-    ['lastReset', beet.i64],
+    ["remainingInPeriod", beet.u64],
+    ["lastReset", beet.i64],
   ],
-  'UsageState'
-)
+  "UsageState"
+);

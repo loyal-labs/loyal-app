@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type AddTransactionToBatchArgs = {
-  ephemeralSigners: number
-  transactionMessage: Uint8Array
-}
+  ephemeralSigners: number;
+  transactionMessage: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -18,8 +18,8 @@ export type AddTransactionToBatchArgs = {
 export const addTransactionToBatchArgsBeet =
   new beet.FixableBeetArgsStruct<AddTransactionToBatchArgs>(
     [
-      ['ephemeralSigners', beet.u8],
-      ['transactionMessage', beet.bytes],
+      ["ephemeralSigners", beet.u8],
+      ["transactionMessage", beet.bytes],
     ],
-    'AddTransactionToBatchArgs'
-  )
+    "AddTransactionToBatchArgs"
+  );

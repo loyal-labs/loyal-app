@@ -5,9 +5,9 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 
 /**
  * Arguments used to create {@link ProgramConfig}
@@ -15,14 +15,16 @@ import * as beetSolana from '@metaplex-foundation/beet-solana'
  * @category generated
  */
 export type ProgramConfigArgs = {
-  smartAccountIndex: beet.bignum
-  authority: web3.PublicKey
-  smartAccountCreationFee: beet.bignum
-  treasury: web3.PublicKey
-  reserved: number[] /* size: 64 */
-}
+  smartAccountIndex: beet.bignum;
+  authority: web3.PublicKey;
+  smartAccountCreationFee: beet.bignum;
+  treasury: web3.PublicKey;
+  reserved: number[] /* size: 64 */;
+};
 
-export const programConfigDiscriminator = [196, 210, 90, 231, 144, 149, 140, 63]
+export const programConfigDiscriminator = [
+  196, 210, 90, 231, 144, 149, 140, 63,
+];
 /**
  * Holds the data for the {@link ProgramConfig} Account and provides de/serialization
  * functionality for that data
@@ -49,7 +51,7 @@ export class ProgramConfig implements ProgramConfigArgs {
       args.smartAccountCreationFee,
       args.treasury,
       args.reserved
-    )
+    );
   }
 
   /**
@@ -60,7 +62,7 @@ export class ProgramConfig implements ProgramConfigArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [ProgramConfig, number] {
-    return ProgramConfig.deserialize(accountInfo.data, offset)
+    return ProgramConfig.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -77,11 +79,11 @@ export class ProgramConfig implements ProgramConfigArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find ProgramConfig account at ${address}`)
+      throw new Error(`Unable to find ProgramConfig account at ${address}`);
     }
-    return ProgramConfig.fromAccountInfo(accountInfo, 0)[0]
+    return ProgramConfig.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -92,10 +94,10 @@ export class ProgramConfig implements ProgramConfigArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, programConfigBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, programConfigBeet);
   }
 
   /**
@@ -103,7 +105,7 @@ export class ProgramConfig implements ProgramConfigArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [ProgramConfig, number] {
-    return programConfigBeet.deserialize(buf, offset)
+    return programConfigBeet.deserialize(buf, offset);
   }
 
   /**
@@ -114,7 +116,7 @@ export class ProgramConfig implements ProgramConfigArgs {
     return programConfigBeet.serialize({
       accountDiscriminator: programConfigDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -122,7 +124,7 @@ export class ProgramConfig implements ProgramConfigArgs {
    * {@link ProgramConfig}
    */
   static get byteSize() {
-    return programConfigBeet.byteSize
+    return programConfigBeet.byteSize;
   }
 
   /**
@@ -138,7 +140,7 @@ export class ProgramConfig implements ProgramConfigArgs {
     return connection.getMinimumBalanceForRentExemption(
       ProgramConfig.byteSize,
       commitment
-    )
+    );
   }
 
   /**
@@ -146,7 +148,7 @@ export class ProgramConfig implements ProgramConfigArgs {
    * hold {@link ProgramConfig} data.
    */
   static hasCorrectByteSize(buf: Buffer, offset = 0) {
-    return buf.byteLength - offset === ProgramConfig.byteSize
+    return buf.byteLength - offset === ProgramConfig.byteSize;
   }
 
   /**
@@ -156,31 +158,31 @@ export class ProgramConfig implements ProgramConfigArgs {
   pretty() {
     return {
       smartAccountIndex: (() => {
-        const x = <{ toNumber: () => number }>this.smartAccountIndex
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.smartAccountIndex;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       authority: this.authority.toBase58(),
       smartAccountCreationFee: (() => {
-        const x = <{ toNumber: () => number }>this.smartAccountCreationFee
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.smartAccountCreationFee;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       treasury: this.treasury.toBase58(),
       reserved: this.reserved,
-    }
+    };
   }
 }
 
@@ -191,17 +193,17 @@ export class ProgramConfig implements ProgramConfigArgs {
 export const programConfigBeet = new beet.BeetStruct<
   ProgramConfig,
   ProgramConfigArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['smartAccountIndex', beet.u128],
-    ['authority', beetSolana.publicKey],
-    ['smartAccountCreationFee', beet.u64],
-    ['treasury', beetSolana.publicKey],
-    ['reserved', beet.uniformFixedSizeArray(beet.u8, 64)],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["smartAccountIndex", beet.u128],
+    ["authority", beetSolana.publicKey],
+    ["smartAccountCreationFee", beet.u64],
+    ["treasury", beetSolana.publicKey],
+    ["reserved", beet.uniformFixedSizeArray(beet.u8, 64)],
   ],
   ProgramConfig.fromArgs,
-  'ProgramConfig'
-)
+  "ProgramConfig"
+);

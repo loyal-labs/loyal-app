@@ -110,7 +110,10 @@ function resolveEffectivePriceUsd(args: {
   return null;
 }
 
-function comparePositions(left: PortfolioPosition, right: PortfolioPosition): number {
+function comparePositions(
+  left: PortfolioPosition,
+  right: PortfolioPosition
+): number {
   const valueDelta = (right.totalValueUsd ?? -1) - (left.totalValueUsd ?? -1);
   if (valueDelta !== 0) {
     return valueDelta;
@@ -156,9 +159,9 @@ export function computePortfolioTotals(
     Number.isFinite(nativePosition.priceUsd)
       ? nativePosition.priceUsd
       : typeof fallbackSolPriceUsd === "number" &&
-          Number.isFinite(fallbackSolPriceUsd)
-        ? fallbackSolPriceUsd
-        : null;
+        Number.isFinite(fallbackSolPriceUsd)
+      ? fallbackSolPriceUsd
+      : null;
 
   totalUsd = floorToDecimals(totalUsd, 2);
 
@@ -201,46 +204,44 @@ export function buildPortfolioSnapshot(args: {
     shieldedOnlyDescriptors,
     shieldedOnlyPrices,
   });
-  const positions: PortfolioPosition[] = augmentedAssets.map(
-    (assetBalance) => {
-      const secureRaw = secureBalances.get(assetBalance.asset.mint) ?? BigInt(0);
-      const securedBalance =
-        Number(secureRaw) / Math.pow(10, assetBalance.asset.decimals);
-      const publicValueUsd = resolveValueUsd({
-        balance: assetBalance.balance,
-        priceUsd: assetBalance.priceUsd,
-        providedValueUsd: assetBalance.valueUsd,
-      });
-      const effectivePriceUsd = resolveEffectivePriceUsd({
-        balance: assetBalance.balance,
-        providedValueUsd: publicValueUsd,
-        priceUsd: assetBalance.priceUsd,
-      });
-      const securedValueUsd = resolveValueUsd({
-        balance: securedBalance,
-        priceUsd: effectivePriceUsd,
-        providedValueUsd: null,
-      });
+  const positions: PortfolioPosition[] = augmentedAssets.map((assetBalance) => {
+    const secureRaw = secureBalances.get(assetBalance.asset.mint) ?? BigInt(0);
+    const securedBalance =
+      Number(secureRaw) / Math.pow(10, assetBalance.asset.decimals);
+    const publicValueUsd = resolveValueUsd({
+      balance: assetBalance.balance,
+      priceUsd: assetBalance.priceUsd,
+      providedValueUsd: assetBalance.valueUsd,
+    });
+    const effectivePriceUsd = resolveEffectivePriceUsd({
+      balance: assetBalance.balance,
+      providedValueUsd: publicValueUsd,
+      priceUsd: assetBalance.priceUsd,
+    });
+    const securedValueUsd = resolveValueUsd({
+      balance: securedBalance,
+      priceUsd: effectivePriceUsd,
+      providedValueUsd: null,
+    });
 
-      return {
-        asset: assetBalance.asset,
-        publicBalance: assetBalance.balance,
-        securedBalance,
-        totalBalance: assetBalance.balance + securedBalance,
-        priceUsd: effectivePriceUsd,
-        publicValueUsd,
-        securedValueUsd,
-        totalValueUsd:
-          publicValueUsd === null || securedValueUsd === null
-            ? publicValueUsd === null && securedValueUsd === null
-              ? null
-              : publicValueUsd === null
-                ? securedValueUsd
-                : publicValueUsd
-            : publicValueUsd + securedValueUsd,
-      };
-    }
-  );
+    return {
+      asset: assetBalance.asset,
+      publicBalance: assetBalance.balance,
+      securedBalance,
+      totalBalance: assetBalance.balance + securedBalance,
+      priceUsd: effectivePriceUsd,
+      publicValueUsd,
+      securedValueUsd,
+      totalValueUsd:
+        publicValueUsd === null || securedValueUsd === null
+          ? publicValueUsd === null && securedValueUsd === null
+            ? null
+            : publicValueUsd === null
+            ? securedValueUsd
+            : publicValueUsd
+          : publicValueUsd + securedValueUsd,
+    };
+  });
 
   positions.sort(comparePositions);
 
@@ -248,10 +249,7 @@ export function buildPortfolioSnapshot(args: {
     owner: args.assetSnapshot.owner,
     nativeBalanceLamports: args.assetSnapshot.nativeBalanceLamports,
     positions,
-    totals: computePortfolioTotals(
-      positions,
-      args.fallbackSolPriceUsd ?? null
-    ),
+    totals: computePortfolioTotals(positions, args.fallbackSolPriceUsd ?? null),
     fetchedAt: args.assetSnapshot.fetchedAt,
   };
 }

@@ -5,9 +5,9 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
-import { CreateBatchArgs, createBatchArgsBeet } from '../types/CreateBatchArgs'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
+import { CreateBatchArgs, createBatchArgsBeet } from "../types/CreateBatchArgs";
 
 /**
  * @category Instructions
@@ -15,8 +15,8 @@ import { CreateBatchArgs, createBatchArgsBeet } from '../types/CreateBatchArgs'
  * @category generated
  */
 export type CreateBatchInstructionArgs = {
-  args: CreateBatchArgs
-}
+  args: CreateBatchArgs;
+};
 /**
  * @category Instructions
  * @category CreateBatch
@@ -24,15 +24,15 @@ export type CreateBatchInstructionArgs = {
  */
 export const createBatchStruct = new beet.FixableBeetArgsStruct<
   CreateBatchInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', createBatchArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", createBatchArgsBeet],
   ],
-  'CreateBatchInstructionArgs'
-)
+  "CreateBatchInstructionArgs"
+);
 /**
  * Accounts required by the _createBatch_ instruction
  *
@@ -45,17 +45,17 @@ export const createBatchStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type CreateBatchInstructionAccounts = {
-  settings: web3.PublicKey
-  batch: web3.PublicKey
-  creator: web3.PublicKey
-  rentPayer: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  batch: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentPayer: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const createBatchInstructionDiscriminator = [
   159, 198, 248, 43, 248, 31, 235, 86,
-]
+];
 
 /**
  * Creates a _CreateBatch_ instruction.
@@ -70,12 +70,12 @@ export const createBatchInstructionDiscriminator = [
 export function createCreateBatchInstruction(
   accounts: CreateBatchInstructionAccounts,
   args: CreateBatchInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = createBatchStruct.serialize({
     instructionDiscriminator: createBatchInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -102,11 +102,11 @@ export function createCreateBatchInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -114,6 +114,6 @@ export function createCreateBatchInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   SetArchivalAuthorityArgs,
   setArchivalAuthorityArgsBeet,
-} from '../types/SetArchivalAuthorityArgs'
+} from "../types/SetArchivalAuthorityArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type SetArchivalAuthorityAsAuthorityInstructionArgs = {
-  args: SetArchivalAuthorityArgs
-}
+  args: SetArchivalAuthorityArgs;
+};
 /**
  * @category Instructions
  * @category SetArchivalAuthorityAsAuthority
@@ -28,15 +28,15 @@ export type SetArchivalAuthorityAsAuthorityInstructionArgs = {
 export const setArchivalAuthorityAsAuthorityStruct =
   new beet.FixableBeetArgsStruct<
     SetArchivalAuthorityAsAuthorityInstructionArgs & {
-      instructionDiscriminator: number[] /* size: 8 */
+      instructionDiscriminator: number[] /* size: 8 */;
     }
   >(
     [
-      ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-      ['args', setArchivalAuthorityArgsBeet],
+      ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+      ["args", setArchivalAuthorityArgsBeet],
     ],
-    'SetArchivalAuthorityAsAuthorityInstructionArgs'
-  )
+    "SetArchivalAuthorityAsAuthorityInstructionArgs"
+  );
 /**
  * Accounts required by the _setArchivalAuthorityAsAuthority_ instruction
  *
@@ -49,17 +49,17 @@ export const setArchivalAuthorityAsAuthorityStruct =
  * @category generated
  */
 export type SetArchivalAuthorityAsAuthorityInstructionAccounts = {
-  settings: web3.PublicKey
-  settingsAuthority: web3.PublicKey
-  rentPayer?: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  settingsAuthority: web3.PublicKey;
+  rentPayer?: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const setArchivalAuthorityAsAuthorityInstructionDiscriminator = [
   178, 199, 4, 13, 237, 234, 152, 202,
-]
+];
 
 /**
  * Creates a _SetArchivalAuthorityAsAuthority_ instruction.
@@ -77,13 +77,13 @@ export const setArchivalAuthorityAsAuthorityInstructionDiscriminator = [
 export function createSetArchivalAuthorityAsAuthorityInstruction(
   accounts: SetArchivalAuthorityAsAuthorityInstructionAccounts,
   args: SetArchivalAuthorityAsAuthorityInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = setArchivalAuthorityAsAuthorityStruct.serialize({
     instructionDiscriminator:
       setArchivalAuthorityAsAuthorityInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -110,11 +110,11 @@ export function createSetArchivalAuthorityAsAuthorityInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -122,6 +122,6 @@ export function createSetArchivalAuthorityAsAuthorityInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

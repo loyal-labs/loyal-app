@@ -5,11 +5,11 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type CreateProposalArgs = {
-  transactionIndex: beet.bignum
-  draft: boolean
-}
+  transactionIndex: beet.bignum;
+  draft: boolean;
+};
 
 /**
  * @category userTypes
@@ -18,8 +18,8 @@ export type CreateProposalArgs = {
 export const createProposalArgsBeet =
   new beet.BeetArgsStruct<CreateProposalArgs>(
     [
-      ['transactionIndex', beet.u64],
-      ['draft', beet.bool],
+      ["transactionIndex", beet.u64],
+      ["draft", beet.bool],
     ],
-    'CreateProposalArgs'
-  )
+    "CreateProposalArgs"
+  );

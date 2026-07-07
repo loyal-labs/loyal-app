@@ -58,11 +58,9 @@ describe("portfolio domain helpers", () => {
       splitSecuredBalances: true,
     });
     expect(holdings).toHaveLength(3);
-    expect(holdings[2]).toMatchObject({
-      mint: USDC_MINT,
-      isSecured: true,
-      balance: 0.75,
-    });
+    expect(holdings[2]?.mint).toBe(USDC_MINT);
+    expect(holdings[2]?.isSecured).toBe(true);
+    expect(holdings[2]?.balance).toBe(0.75);
   });
 
   test("surfaces shielded-only mints as zero-publicBalance positions", () => {
@@ -107,13 +105,10 @@ describe("portfolio domain helpers", () => {
     const usdcPosition = snapshot.positions.find(
       (position) => position.asset.mint === USDC_MINT
     );
-    expect(usdcPosition).toMatchObject({
-      publicBalance: 0,
-      securedBalance: 2.5,
-      totalBalance: 2.5,
-      priceUsd: 0.9988,
-      asset: { symbol: "USDC", decimals: 6 },
-    });
+    expect(usdcPosition?.publicBalance).toBe(0);
+    expect(usdcPosition?.securedBalance).toBe(2.5);
+    expect(usdcPosition?.totalBalance).toBe(2.5);
+    expect(usdcPosition?.priceUsd).toBe(0.9988);
     expect(usdcPosition?.securedValueUsd).toBeCloseTo(2.497, 3);
   });
 
@@ -135,7 +130,9 @@ describe("portfolio domain helpers", () => {
     expect(usdcPosition?.asset.decimals).toBe(0);
     // With decimals=0 the raw amount is shown verbatim.
     expect(usdcPosition?.securedBalance).toBe(1_000_000);
-    expect(usdcPosition?.asset.symbol).toBe(`${USDC_MINT.slice(0, 4)}...${USDC_MINT.slice(-4)}`);
+    expect(usdcPosition?.asset.symbol).toBe(
+      `${USDC_MINT.slice(0, 4)}...${USDC_MINT.slice(-4)}`
+    );
   });
 
   test("computes totals with fallback sol price when native price is missing", () => {

@@ -5,7 +5,7 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 /**
  * This type is used to derive the {@link PolicyExpirationArgs} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link PolicyExpirationArgs} type instead.
@@ -16,9 +16,9 @@ import * as beet from '@metaplex-foundation/beet'
  * @private
  */
 export type PolicyExpirationArgsRecord = {
-  Timestamp: { fields: [beet.bignum] }
-  SettingsState: void /* scalar variant */
-}
+  Timestamp: { fields: [beet.bignum] };
+  SettingsState: void /* scalar variant */;
+};
 
 /**
  * Union type respresenting the PolicyExpirationArgs data enum defined in Rust.
@@ -32,16 +32,16 @@ export type PolicyExpirationArgsRecord = {
  * @category generated
  */
 export type PolicyExpirationArgs =
-  beet.DataEnumKeyAsKind<PolicyExpirationArgsRecord>
+  beet.DataEnumKeyAsKind<PolicyExpirationArgsRecord>;
 
 export const isPolicyExpirationArgsTimestamp = (
   x: PolicyExpirationArgs
-): x is PolicyExpirationArgs & { __kind: 'Timestamp' } =>
-  x.__kind === 'Timestamp'
+): x is PolicyExpirationArgs & { __kind: "Timestamp" } =>
+  x.__kind === "Timestamp";
 export const isPolicyExpirationArgsSettingsState = (
   x: PolicyExpirationArgs
-): x is PolicyExpirationArgs & { __kind: 'SettingsState' } =>
-  x.__kind === 'SettingsState'
+): x is PolicyExpirationArgs & { __kind: "SettingsState" } =>
+  x.__kind === "SettingsState";
 
 /**
  * @category userTypes
@@ -50,11 +50,11 @@ export const isPolicyExpirationArgsSettingsState = (
 export const policyExpirationArgsBeet =
   beet.dataEnum<PolicyExpirationArgsRecord>([
     [
-      'Timestamp',
-      new beet.BeetArgsStruct<PolicyExpirationArgsRecord['Timestamp']>(
-        [['fields', beet.fixedSizeTuple([beet.i64])]],
+      "Timestamp",
+      new beet.BeetArgsStruct<PolicyExpirationArgsRecord["Timestamp"]>(
+        [["fields", beet.fixedSizeTuple([beet.i64])]],
         'PolicyExpirationArgsRecord["Timestamp"]'
       ),
     ],
-    ['SettingsState', beet.unit],
-  ]) as beet.FixableBeet<PolicyExpirationArgs, PolicyExpirationArgs>
+    ["SettingsState", beet.unit],
+  ]) as beet.FixableBeet<PolicyExpirationArgs, PolicyExpirationArgs>;

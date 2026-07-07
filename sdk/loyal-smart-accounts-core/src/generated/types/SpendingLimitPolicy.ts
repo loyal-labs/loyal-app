@@ -5,15 +5,15 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { SpendingLimitV2, spendingLimitV2Beet } from './SpendingLimitV2'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { SpendingLimitV2, spendingLimitV2Beet } from "./SpendingLimitV2";
 export type SpendingLimitPolicy = {
-  sourceAccountIndex: number
-  destinations: web3.PublicKey[]
-  spendingLimit: SpendingLimitV2
-}
+  sourceAccountIndex: number;
+  destinations: web3.PublicKey[];
+  spendingLimit: SpendingLimitV2;
+};
 
 /**
  * @category userTypes
@@ -22,9 +22,9 @@ export type SpendingLimitPolicy = {
 export const spendingLimitPolicyBeet =
   new beet.FixableBeetArgsStruct<SpendingLimitPolicy>(
     [
-      ['sourceAccountIndex', beet.u8],
-      ['destinations', beet.array(beetSolana.publicKey)],
-      ['spendingLimit', spendingLimitV2Beet],
+      ["sourceAccountIndex", beet.u8],
+      ["destinations", beet.array(beetSolana.publicKey)],
+      ["spendingLimit", spendingLimitV2Beet],
     ],
-    'SpendingLimitPolicy'
-  )
+    "SpendingLimitPolicy"
+  );

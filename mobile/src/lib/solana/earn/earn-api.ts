@@ -268,10 +268,28 @@ export type EarnAutodepositState = {
   lifecycleStatus: string;
   vaultIndex: number;
   scheduledSweeps?: EarnAutodepositScheduledSweep[];
+  // Resume metadata for the device-side prepare (absent on older backends):
+  // a half-finished setup must reuse the recorded seed/nonce/window so the SDK
+  // returns the missing stage for the SAME policy/delegation pair.
+  policySeed?: string;
+  recurringDelegationNonce?: string | null;
+  periodLengthSeconds?: string | null;
+  startTimestamp?: string | null;
+  recurringDelegationExpiryTimestamp?: string | null;
+};
+
+// Deployment parameters the device needs to run the SDK's autodeposit prepare
+// locally. Absent/null on backends that predate device-side prepare or when
+// the deployment isn't configured for it.
+export type EarnAutodepositPrepareContext = {
+  cluster: string;
+  policySigner: string;
+  programId: string;
 };
 
 export type EarnAutodepositStateResponse = {
   autodeposit: EarnAutodepositState | null;
+  prepareContext?: EarnAutodepositPrepareContext | null;
   settingsPda: string | null;
   smartAccountAddress: string | null;
 };
@@ -290,37 +308,6 @@ export async function fetchEarnAutodepositState(
     return throwEarnError(res, "Failed to load Autodeposit state.");
   }
   return (await res.json()) as EarnAutodepositStateResponse;
-}
-
-export type EarnAutodepositSetupPrepareResponse = {
-  preparedSetup: WirePreparedEarnAutodepositSetup;
-  // With `includeBatch`, the create_policy stage also carries the
-  // create_recurring_delegation stage prepared ahead (null otherwise, and
-  // absent on backends that predate the batch support).
-  nextPreparedSetup?: WirePreparedEarnAutodepositSetup | null;
-};
-
-export async function prepareEarnAutodepositSetup(args: {
-  auth: EarnAuthFields;
-  amountRaw: string;
-  includeBatch?: boolean;
-  nonce: string;
-  policySeed?: string;
-  walletBalanceFloorRaw: string;
-}): Promise<EarnAutodepositSetupPrepareResponse> {
-  const { auth, ...rest } = args;
-  const res = await fetch(
-    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/setup/prepare`,
-    {
-      method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({ ...auth, ...rest }),
-    },
-  );
-  if (!res.ok) {
-    return throwEarnError(res, "Failed to prepare Autodeposit setup.");
-  }
-  return (await res.json()) as EarnAutodepositSetupPrepareResponse;
 }
 
 export async function confirmEarnAutodepositSetup(args: {
@@ -384,30 +371,6 @@ export async function toggleEarnAutodeposit(args: {
   if (!res.ok) {
     await throwEarnError(res, "Failed to update Autodeposit on/off state.");
   }
-}
-
-export type EarnAutodepositClosePrepareResponse = {
-  preparedClose: WirePreparedEarnAutodepositClose;
-};
-
-export async function prepareEarnAutodepositClose(args: {
-  auth: EarnAuthFields;
-  policy: string;
-  recurringDelegation: string;
-}): Promise<EarnAutodepositClosePrepareResponse> {
-  const { auth, ...rest } = args;
-  const res = await fetch(
-    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/close/prepare`,
-    {
-      method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({ ...auth, ...rest }),
-    },
-  );
-  if (!res.ok) {
-    return throwEarnError(res, "Failed to prepare Autodeposit removal.");
-  }
-  return (await res.json()) as EarnAutodepositClosePrepareResponse;
 }
 
 export async function confirmEarnAutodepositClose(args: {

@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 export type InternalFundTransferPolicyCreationPayload = {
-  sourceAccountIndices: Uint8Array
-  destinationAccountIndices: Uint8Array
-  allowedMints: web3.PublicKey[]
-}
+  sourceAccountIndices: Uint8Array;
+  destinationAccountIndices: Uint8Array;
+  allowedMints: web3.PublicKey[];
+};
 
 /**
  * @category userTypes
@@ -21,9 +21,9 @@ export type InternalFundTransferPolicyCreationPayload = {
 export const internalFundTransferPolicyCreationPayloadBeet =
   new beet.FixableBeetArgsStruct<InternalFundTransferPolicyCreationPayload>(
     [
-      ['sourceAccountIndices', beet.bytes],
-      ['destinationAccountIndices', beet.bytes],
-      ['allowedMints', beet.array(beetSolana.publicKey)],
+      ["sourceAccountIndices", beet.bytes],
+      ["destinationAccountIndices", beet.bytes],
+      ["allowedMints", beet.array(beetSolana.publicKey)],
     ],
-    'InternalFundTransferPolicyCreationPayload'
-  )
+    "InternalFundTransferPolicyCreationPayload"
+  );

@@ -149,8 +149,8 @@ function compilePreparedOperation(
               }),
               ...operation.instructions,
             ]
-          : operation.instructions,
-      }).compileToV0Message(operation.lookupTableAccounts),
+          : [...operation.instructions],
+      }).compileToV0Message([...operation.lookupTableAccounts]),
     );
   const transaction = compile(true);
   if (transaction.serialize().length > MAX_TRANSACTION_BYTES) {
@@ -159,26 +159,28 @@ function compilePreparedOperation(
   return transaction;
 }
 
-// Sends an already-signed transaction (with rebroadcast so it lands under
-// load) and waits for confirmation.
-async function sendSignedTransaction(
+type InFlightTransaction = {
+  signature: string;
+  stop: () => Promise<void>;
+};
+
+// Sends an already-signed transaction and keeps re-broadcasting it until
+// `stop()` — under load, RPCs drop a pending tx and `confirmTransaction` never
+// re-sends; it just waits out the blockhash and reports expiry. Re-broadcasting
+// the signed raw tx every couple seconds keeps it in front of leaders until it
+// lands.
+async function startSendingSignedTransaction(
   connection: Connection,
   transaction: VersionedTransaction,
-  blockhash: string,
-  lastValidBlockHeight: number,
-): Promise<SentTransaction> {
+): Promise<InFlightTransaction> {
   const rawTransaction = transaction.serialize();
   // First send runs preflight so a genuinely invalid tx fails fast; resends skip
-  // it. `maxRetries: 0` — we own the rebroadcast cadence below, not the RPC.
+  // it. `maxRetries: 0` — we own the rebroadcast cadence, not the RPC.
   const signature = await connection.sendRawTransaction(rawTransaction, {
     skipPreflight: false,
     maxRetries: 0,
   });
 
-  // Under load, RPCs drop a pending tx and `confirmTransaction` never re-sends —
-  // it just waits out the blockhash and reports expiry. Re-broadcast the signed
-  // raw tx every couple seconds (in parallel with confirmation) so it stays in
-  // front of leaders until it lands.
   let rebroadcasting = true;
   const rebroadcast = (async () => {
     while (rebroadcasting) {
@@ -192,23 +194,42 @@ async function sendSignedTransaction(
           maxRetries: 0,
         });
       } catch {
-        // Best-effort — the confirmation path below is the source of truth.
+        // Best-effort — the confirmation path is the source of truth.
       }
     }
   })();
 
+  return {
+    signature,
+    stop: async () => {
+      rebroadcasting = false;
+      await rebroadcast.catch(() => undefined);
+    },
+  };
+}
+
+// Sends an already-signed transaction (with rebroadcast so it lands under
+// load) and waits for confirmation.
+async function sendSignedTransaction(
+  connection: Connection,
+  transaction: VersionedTransaction,
+  blockhash: string,
+  lastValidBlockHeight: number,
+): Promise<SentTransaction> {
+  const inFlight = await startSendingSignedTransaction(connection, transaction);
   try {
     return await confirmSentTransaction(
       connection,
-      signature,
+      inFlight.signature,
       blockhash,
       lastValidBlockHeight,
     );
   } finally {
-    rebroadcasting = false;
-    await rebroadcast.catch(() => undefined);
+    await inFlight.stop();
   }
 }
+
+export type SendPreparedMode = "confirm-each" | "send-all-before-confirm";
 
 // Signs a sequence of prepared operations in as few wallet prompts as the
 // signer allows (Seed Vault batches them into a single authorization), then
@@ -217,12 +238,21 @@ async function sendSignedTransaction(
 // landings, and `confirmSentTransaction` already tolerates false expiries. A
 // stage failure aborts the remainder; the backend's prepare is chain-driven
 // and resumes from whatever landed.
+//
+// `sendMode` (default "confirm-each") mirrors the web SDK's
+// `sendPreparedBatchWithWallet`: "send-all-before-confirm" broadcasts every
+// signed tx in order BEFORE waiting on any confirmation, so a later tx doesn't
+// spend the shared blockhash window queued behind an earlier tx's
+// confirmation. Only safe when the txs don't depend on each other's state
+// (e.g. the autodeposit policy + delegation pair) — deposit/withdraw steps
+// build on the previous tx's state and must stay on "confirm-each".
 export async function signAndSendPreparedOperations(args: {
   connection: Connection;
   signer: Signer;
   operations: HydratedPreparedOperation[];
+  sendMode?: SendPreparedMode;
 }): Promise<SentTransaction[]> {
-  const { connection, signer, operations } = args;
+  const { connection, signer, operations, sendMode = "confirm-each" } = args;
   if (operations.length === 0) {
     return [];
   }
@@ -232,6 +262,35 @@ export async function signAndSendPreparedOperations(args: {
     compilePreparedOperation(operation, blockhash),
   );
   await signer.signAllTransactions(transactions);
+
+  if (sendMode === "send-all-before-confirm" && transactions.length > 1) {
+    const inFlight: InFlightTransaction[] = [];
+    try {
+      for (const transaction of transactions) {
+        inFlight.push(
+          await startSendingSignedTransaction(connection, transaction),
+        );
+      }
+      const sent: SentTransaction[] = [];
+      for (const flight of inFlight) {
+        sent.push(
+          await confirmSentTransaction(
+            connection,
+            flight.signature,
+            blockhash,
+            lastValidBlockHeight,
+          ),
+        );
+      }
+      return sent;
+    } finally {
+      // Stops every rebroadcast loop, including in-flight ones a send or
+      // confirm failure left behind.
+      for (const flight of inFlight) {
+        await flight.stop();
+      }
+    }
+  }
 
   const sent: SentTransaction[] = [];
   for (const transaction of transactions) {

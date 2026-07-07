@@ -5,23 +5,23 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   InternalFundTransferPolicyCreationPayload,
   internalFundTransferPolicyCreationPayloadBeet,
-} from './InternalFundTransferPolicyCreationPayload'
+} from "./InternalFundTransferPolicyCreationPayload";
 import {
   SpendingLimitPolicyCreationPayload,
   spendingLimitPolicyCreationPayloadBeet,
-} from './SpendingLimitPolicyCreationPayload'
+} from "./SpendingLimitPolicyCreationPayload";
 import {
   SettingsChangePolicyCreationPayload,
   settingsChangePolicyCreationPayloadBeet,
-} from './SettingsChangePolicyCreationPayload'
+} from "./SettingsChangePolicyCreationPayload";
 import {
   ProgramInteractionPolicyCreationPayload,
   programInteractionPolicyCreationPayloadBeet,
-} from './ProgramInteractionPolicyCreationPayload'
+} from "./ProgramInteractionPolicyCreationPayload";
 /**
  * This type is used to derive the {@link PolicyCreationPayload} type as well as the de/serializer.
  * However don't refer to it in your code but use the {@link PolicyCreationPayload} type instead.
@@ -32,11 +32,11 @@ import {
  * @private
  */
 export type PolicyCreationPayloadRecord = {
-  InternalFundTransfer: { fields: [InternalFundTransferPolicyCreationPayload] }
-  SpendingLimit: { fields: [SpendingLimitPolicyCreationPayload] }
-  SettingsChange: { fields: [SettingsChangePolicyCreationPayload] }
-  ProgramInteraction: { fields: [ProgramInteractionPolicyCreationPayload] }
-}
+  InternalFundTransfer: { fields: [InternalFundTransferPolicyCreationPayload] };
+  SpendingLimit: { fields: [SpendingLimitPolicyCreationPayload] };
+  SettingsChange: { fields: [SettingsChangePolicyCreationPayload] };
+  ProgramInteraction: { fields: [ProgramInteractionPolicyCreationPayload] };
+};
 
 /**
  * Union type respresenting the PolicyCreationPayload data enum defined in Rust.
@@ -50,24 +50,24 @@ export type PolicyCreationPayloadRecord = {
  * @category generated
  */
 export type PolicyCreationPayload =
-  beet.DataEnumKeyAsKind<PolicyCreationPayloadRecord>
+  beet.DataEnumKeyAsKind<PolicyCreationPayloadRecord>;
 
 export const isPolicyCreationPayloadInternalFundTransfer = (
   x: PolicyCreationPayload
-): x is PolicyCreationPayload & { __kind: 'InternalFundTransfer' } =>
-  x.__kind === 'InternalFundTransfer'
+): x is PolicyCreationPayload & { __kind: "InternalFundTransfer" } =>
+  x.__kind === "InternalFundTransfer";
 export const isPolicyCreationPayloadSpendingLimit = (
   x: PolicyCreationPayload
-): x is PolicyCreationPayload & { __kind: 'SpendingLimit' } =>
-  x.__kind === 'SpendingLimit'
+): x is PolicyCreationPayload & { __kind: "SpendingLimit" } =>
+  x.__kind === "SpendingLimit";
 export const isPolicyCreationPayloadSettingsChange = (
   x: PolicyCreationPayload
-): x is PolicyCreationPayload & { __kind: 'SettingsChange' } =>
-  x.__kind === 'SettingsChange'
+): x is PolicyCreationPayload & { __kind: "SettingsChange" } =>
+  x.__kind === "SettingsChange";
 export const isPolicyCreationPayloadProgramInteraction = (
   x: PolicyCreationPayload
-): x is PolicyCreationPayload & { __kind: 'ProgramInteraction' } =>
-  x.__kind === 'ProgramInteraction'
+): x is PolicyCreationPayload & { __kind: "ProgramInteraction" } =>
+  x.__kind === "ProgramInteraction";
 
 /**
  * @category userTypes
@@ -76,13 +76,13 @@ export const isPolicyCreationPayloadProgramInteraction = (
 export const policyCreationPayloadBeet =
   beet.dataEnum<PolicyCreationPayloadRecord>([
     [
-      'InternalFundTransfer',
+      "InternalFundTransfer",
       new beet.FixableBeetArgsStruct<
-        PolicyCreationPayloadRecord['InternalFundTransfer']
+        PolicyCreationPayloadRecord["InternalFundTransfer"]
       >(
         [
           [
-            'fields',
+            "fields",
             beet.tuple([internalFundTransferPolicyCreationPayloadBeet]),
           ],
         ],
@@ -90,30 +90,30 @@ export const policyCreationPayloadBeet =
       ),
     ],
     [
-      'SpendingLimit',
+      "SpendingLimit",
       new beet.FixableBeetArgsStruct<
-        PolicyCreationPayloadRecord['SpendingLimit']
+        PolicyCreationPayloadRecord["SpendingLimit"]
       >(
-        [['fields', beet.tuple([spendingLimitPolicyCreationPayloadBeet])]],
+        [["fields", beet.tuple([spendingLimitPolicyCreationPayloadBeet])]],
         'PolicyCreationPayloadRecord["SpendingLimit"]'
       ),
     ],
     [
-      'SettingsChange',
+      "SettingsChange",
       new beet.FixableBeetArgsStruct<
-        PolicyCreationPayloadRecord['SettingsChange']
+        PolicyCreationPayloadRecord["SettingsChange"]
       >(
-        [['fields', beet.tuple([settingsChangePolicyCreationPayloadBeet])]],
+        [["fields", beet.tuple([settingsChangePolicyCreationPayloadBeet])]],
         'PolicyCreationPayloadRecord["SettingsChange"]'
       ),
     ],
     [
-      'ProgramInteraction',
+      "ProgramInteraction",
       new beet.FixableBeetArgsStruct<
-        PolicyCreationPayloadRecord['ProgramInteraction']
+        PolicyCreationPayloadRecord["ProgramInteraction"]
       >(
-        [['fields', beet.tuple([programInteractionPolicyCreationPayloadBeet])]],
+        [["fields", beet.tuple([programInteractionPolicyCreationPayloadBeet])]],
         'PolicyCreationPayloadRecord["ProgramInteraction"]'
       ),
     ],
-  ]) as beet.FixableBeet<PolicyCreationPayload, PolicyCreationPayload>
+  ]) as beet.FixableBeet<PolicyCreationPayload, PolicyCreationPayload>;

@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 import {
   SmartAccountTransactionMessage,
   smartAccountTransactionMessageBeet,
-} from '../types/SmartAccountTransactionMessage'
+} from "../types/SmartAccountTransactionMessage";
 
 /**
  * Arguments used to create {@link BatchTransaction}
@@ -19,13 +19,15 @@ import {
  * @category generated
  */
 export type BatchTransactionArgs = {
-  bump: number
-  rentCollector: web3.PublicKey
-  ephemeralSignerBumps: Uint8Array
-  message: SmartAccountTransactionMessage
-}
+  bump: number;
+  rentCollector: web3.PublicKey;
+  ephemeralSignerBumps: Uint8Array;
+  message: SmartAccountTransactionMessage;
+};
 
-export const batchTransactionDiscriminator = [92, 20, 61, 146, 155, 62, 112, 72]
+export const batchTransactionDiscriminator = [
+  92, 20, 61, 146, 155, 62, 112, 72,
+];
 /**
  * Holds the data for the {@link BatchTransaction} Account and provides de/serialization
  * functionality for that data
@@ -50,7 +52,7 @@ export class BatchTransaction implements BatchTransactionArgs {
       args.rentCollector,
       args.ephemeralSignerBumps,
       args.message
-    )
+    );
   }
 
   /**
@@ -61,7 +63,7 @@ export class BatchTransaction implements BatchTransactionArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [BatchTransaction, number] {
-    return BatchTransaction.deserialize(accountInfo.data, offset)
+    return BatchTransaction.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -78,11 +80,11 @@ export class BatchTransaction implements BatchTransactionArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find BatchTransaction account at ${address}`)
+      throw new Error(`Unable to find BatchTransaction account at ${address}`);
     }
-    return BatchTransaction.fromAccountInfo(accountInfo, 0)[0]
+    return BatchTransaction.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -93,10 +95,10 @@ export class BatchTransaction implements BatchTransactionArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, batchTransactionBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, batchTransactionBeet);
   }
 
   /**
@@ -104,7 +106,7 @@ export class BatchTransaction implements BatchTransactionArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [BatchTransaction, number] {
-    return batchTransactionBeet.deserialize(buf, offset)
+    return batchTransactionBeet.deserialize(buf, offset);
   }
 
   /**
@@ -115,7 +117,7 @@ export class BatchTransaction implements BatchTransactionArgs {
     return batchTransactionBeet.serialize({
       accountDiscriminator: batchTransactionDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -126,11 +128,11 @@ export class BatchTransaction implements BatchTransactionArgs {
    * depends on them
    */
   static byteSize(args: BatchTransactionArgs) {
-    const instance = BatchTransaction.fromArgs(args)
+    const instance = BatchTransaction.fromArgs(args);
     return batchTransactionBeet.toFixedFromValue({
       accountDiscriminator: batchTransactionDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -149,7 +151,7 @@ export class BatchTransaction implements BatchTransactionArgs {
     return connection.getMinimumBalanceForRentExemption(
       BatchTransaction.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -162,7 +164,7 @@ export class BatchTransaction implements BatchTransactionArgs {
       rentCollector: this.rentCollector.toBase58(),
       ephemeralSignerBumps: this.ephemeralSignerBumps,
       message: this.message,
-    }
+    };
   }
 }
 
@@ -173,16 +175,16 @@ export class BatchTransaction implements BatchTransactionArgs {
 export const batchTransactionBeet = new beet.FixableBeetStruct<
   BatchTransaction,
   BatchTransactionArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['bump', beet.u8],
-    ['rentCollector', beetSolana.publicKey],
-    ['ephemeralSignerBumps', beet.bytes],
-    ['message', smartAccountTransactionMessageBeet],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["bump", beet.u8],
+    ["rentCollector", beetSolana.publicKey],
+    ["ephemeralSignerBumps", beet.bytes],
+    ["message", smartAccountTransactionMessageBeet],
   ],
   BatchTransaction.fromArgs,
-  'BatchTransaction'
-)
+  "BatchTransaction"
+);

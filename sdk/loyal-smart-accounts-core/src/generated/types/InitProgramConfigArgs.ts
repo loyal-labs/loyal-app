@@ -5,14 +5,14 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
 export type InitProgramConfigArgs = {
-  authority: web3.PublicKey
-  smartAccountCreationFee: beet.bignum
-  treasury: web3.PublicKey
-}
+  authority: web3.PublicKey;
+  smartAccountCreationFee: beet.bignum;
+  treasury: web3.PublicKey;
+};
 
 /**
  * @category userTypes
@@ -21,9 +21,9 @@ export type InitProgramConfigArgs = {
 export const initProgramConfigArgsBeet =
   new beet.BeetArgsStruct<InitProgramConfigArgs>(
     [
-      ['authority', beetSolana.publicKey],
-      ['smartAccountCreationFee', beet.u64],
-      ['treasury', beetSolana.publicKey],
+      ["authority", beetSolana.publicKey],
+      ["smartAccountCreationFee", beet.u64],
+      ["treasury", beetSolana.publicKey],
     ],
-    'InitProgramConfigArgs'
-  )
+    "InitProgramConfigArgs"
+  );

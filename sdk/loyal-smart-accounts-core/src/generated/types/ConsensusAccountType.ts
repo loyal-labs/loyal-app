@@ -5,7 +5,7 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 /**
  * @category enums
  * @category generated
@@ -21,4 +21,4 @@ export enum ConsensusAccountType {
  */
 export const consensusAccountTypeBeet = beet.fixedScalarEnum(
   ConsensusAccountType
-) as beet.FixedSizeBeet<ConsensusAccountType, ConsensusAccountType>
+) as beet.FixedSizeBeet<ConsensusAccountType, ConsensusAccountType>;

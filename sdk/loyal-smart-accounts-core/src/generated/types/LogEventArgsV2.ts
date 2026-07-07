@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 export type LogEventArgsV2 = {
-  event: Uint8Array
-}
+  event: Uint8Array;
+};
 
 /**
  * @category userTypes
@@ -16,6 +16,6 @@ export type LogEventArgsV2 = {
  */
 export const logEventArgsV2Beet =
   new beet.FixableBeetArgsStruct<LogEventArgsV2>(
-    [['event', beet.bytes]],
-    'LogEventArgsV2'
-  )
+    [["event", beet.bytes]],
+    "LogEventArgsV2"
+  );

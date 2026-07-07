@@ -5,10 +5,10 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as web3 from '@solana/web3.js'
-import * as beet from '@metaplex-foundation/beet'
-import * as beetSolana from '@metaplex-foundation/beet-solana'
-import { Payload, payloadBeet } from '../types/Payload'
+import * as web3 from "@solana/web3.js";
+import * as beet from "@metaplex-foundation/beet";
+import * as beetSolana from "@metaplex-foundation/beet-solana";
+import { Payload, payloadBeet } from "../types/Payload";
 
 /**
  * Arguments used to create {@link Transaction}
@@ -16,14 +16,14 @@ import { Payload, payloadBeet } from '../types/Payload'
  * @category generated
  */
 export type TransactionArgs = {
-  consensusAccount: web3.PublicKey
-  creator: web3.PublicKey
-  rentCollector: web3.PublicKey
-  index: beet.bignum
-  payload: Payload
-}
+  consensusAccount: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentCollector: web3.PublicKey;
+  index: beet.bignum;
+  payload: Payload;
+};
 
-export const transactionDiscriminator = [11, 24, 174, 129, 203, 117, 242, 23]
+export const transactionDiscriminator = [11, 24, 174, 129, 203, 117, 242, 23];
 /**
  * Holds the data for the {@link Transaction} Account and provides de/serialization
  * functionality for that data
@@ -50,7 +50,7 @@ export class Transaction implements TransactionArgs {
       args.rentCollector,
       args.index,
       args.payload
-    )
+    );
   }
 
   /**
@@ -61,7 +61,7 @@ export class Transaction implements TransactionArgs {
     accountInfo: web3.AccountInfo<Buffer>,
     offset = 0
   ): [Transaction, number] {
-    return Transaction.deserialize(accountInfo.data, offset)
+    return Transaction.deserialize(accountInfo.data, offset);
   }
 
   /**
@@ -78,11 +78,11 @@ export class Transaction implements TransactionArgs {
     const accountInfo = await connection.getAccountInfo(
       address,
       commitmentOrConfig
-    )
+    );
     if (accountInfo == null) {
-      throw new Error(`Unable to find Transaction account at ${address}`)
+      throw new Error(`Unable to find Transaction account at ${address}`);
     }
-    return Transaction.fromAccountInfo(accountInfo, 0)[0]
+    return Transaction.fromAccountInfo(accountInfo, 0)[0];
   }
 
   /**
@@ -93,10 +93,10 @@ export class Transaction implements TransactionArgs {
    */
   static gpaBuilder(
     programId: web3.PublicKey = new web3.PublicKey(
-      'SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG'
+      "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"
     )
   ) {
-    return beetSolana.GpaBuilder.fromStruct(programId, transactionBeet)
+    return beetSolana.GpaBuilder.fromStruct(programId, transactionBeet);
   }
 
   /**
@@ -104,7 +104,7 @@ export class Transaction implements TransactionArgs {
    * @returns a tuple of the account data and the offset up to which the buffer was read to obtain it.
    */
   static deserialize(buf: Buffer, offset = 0): [Transaction, number] {
-    return transactionBeet.deserialize(buf, offset)
+    return transactionBeet.deserialize(buf, offset);
   }
 
   /**
@@ -115,7 +115,7 @@ export class Transaction implements TransactionArgs {
     return transactionBeet.serialize({
       accountDiscriminator: transactionDiscriminator,
       ...this,
-    })
+    });
   }
 
   /**
@@ -126,11 +126,11 @@ export class Transaction implements TransactionArgs {
    * depends on them
    */
   static byteSize(args: TransactionArgs) {
-    const instance = Transaction.fromArgs(args)
+    const instance = Transaction.fromArgs(args);
     return transactionBeet.toFixedFromValue({
       accountDiscriminator: transactionDiscriminator,
       ...instance,
-    }).byteSize
+    }).byteSize;
   }
 
   /**
@@ -149,7 +149,7 @@ export class Transaction implements TransactionArgs {
     return connection.getMinimumBalanceForRentExemption(
       Transaction.byteSize(args),
       commitment
-    )
+    );
   }
 
   /**
@@ -162,18 +162,18 @@ export class Transaction implements TransactionArgs {
       creator: this.creator.toBase58(),
       rentCollector: this.rentCollector.toBase58(),
       index: (() => {
-        const x = <{ toNumber: () => number }>this.index
-        if (typeof x.toNumber === 'function') {
+        const x = <{ toNumber: () => number }>this.index;
+        if (typeof x.toNumber === "function") {
           try {
-            return x.toNumber()
+            return x.toNumber();
           } catch (_) {
-            return x
+            return x;
           }
         }
-        return x
+        return x;
       })(),
       payload: this.payload.__kind,
-    }
+    };
   }
 }
 
@@ -184,17 +184,17 @@ export class Transaction implements TransactionArgs {
 export const transactionBeet = new beet.FixableBeetStruct<
   Transaction,
   TransactionArgs & {
-    accountDiscriminator: number[] /* size: 8 */
+    accountDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['accountDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['consensusAccount', beetSolana.publicKey],
-    ['creator', beetSolana.publicKey],
-    ['rentCollector', beetSolana.publicKey],
-    ['index', beet.u64],
-    ['payload', payloadBeet],
+    ["accountDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["consensusAccount", beetSolana.publicKey],
+    ["creator", beetSolana.publicKey],
+    ["rentCollector", beetSolana.publicKey],
+    ["index", beet.u64],
+    ["payload", payloadBeet],
   ],
   Transaction.fromArgs,
-  'Transaction'
-)
+  "Transaction"
+);

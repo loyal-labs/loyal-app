@@ -5,7 +5,8 @@ import { USDC_MINT, WALLET_ADDRESS } from "./asset-fixtures";
 
 const COUNTERPARTY = "7vfCXTUXx5pPAtF5NCz7L3A5kZZgwyUrKvYzUKGwEuUq";
 const SOURCE_TOKEN_ACCOUNT = "9xQeWvG816bUx9EPjHmaT23yvVMgF87mWyQExf1w7L5G";
-const DESTINATION_TOKEN_ACCOUNT = "3Kwv3pEAuoe4WevPB8V1qX9q7m2RXf5sP4R2B8vfG8fX";
+const DESTINATION_TOKEN_ACCOUNT =
+  "3Kwv3pEAuoe4WevPB8V1qX9q7m2RXf5sP4R2B8vfG8fX";
 
 function baseParsedTransaction(): ParsedTransactionWithMeta {
   return {
@@ -163,8 +164,7 @@ function modifyBalanceData(increase: boolean): string {
 }
 
 function encodeBase58(bytes: Uint8Array): string {
-  const alphabet =
-    "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
   let x = BigInt(0);
   for (const byte of bytes) {

@@ -5,12 +5,12 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   CreateSettingsTransactionArgs,
   createSettingsTransactionArgsBeet,
-} from '../types/CreateSettingsTransactionArgs'
+} from "../types/CreateSettingsTransactionArgs";
 
 /**
  * @category Instructions
@@ -18,8 +18,8 @@ import {
  * @category generated
  */
 export type CreateSettingsTransactionInstructionArgs = {
-  args: CreateSettingsTransactionArgs
-}
+  args: CreateSettingsTransactionArgs;
+};
 /**
  * @category Instructions
  * @category CreateSettingsTransaction
@@ -27,15 +27,15 @@ export type CreateSettingsTransactionInstructionArgs = {
  */
 export const createSettingsTransactionStruct = new beet.FixableBeetArgsStruct<
   CreateSettingsTransactionInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', createSettingsTransactionArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", createSettingsTransactionArgsBeet],
   ],
-  'CreateSettingsTransactionInstructionArgs'
-)
+  "CreateSettingsTransactionInstructionArgs"
+);
 /**
  * Accounts required by the _createSettingsTransaction_ instruction
  *
@@ -49,18 +49,18 @@ export const createSettingsTransactionStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type CreateSettingsTransactionInstructionAccounts = {
-  settings: web3.PublicKey
-  transaction: web3.PublicKey
-  creator: web3.PublicKey
-  rentPayer: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  transaction: web3.PublicKey;
+  creator: web3.PublicKey;
+  rentPayer: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const createSettingsTransactionInstructionDiscriminator = [
   101, 168, 254, 203, 222, 102, 95, 192,
-]
+];
 
 /**
  * Creates a _CreateSettingsTransaction_ instruction.
@@ -75,12 +75,12 @@ export const createSettingsTransactionInstructionDiscriminator = [
 export function createCreateSettingsTransactionInstruction(
   accounts: CreateSettingsTransactionInstructionAccounts,
   args: CreateSettingsTransactionInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = createSettingsTransactionStruct.serialize({
     instructionDiscriminator: createSettingsTransactionInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -112,11 +112,11 @@ export function createCreateSettingsTransactionInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -124,6 +124,6 @@ export function createCreateSettingsTransactionInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

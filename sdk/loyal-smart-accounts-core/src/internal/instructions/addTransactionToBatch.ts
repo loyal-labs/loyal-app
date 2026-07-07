@@ -3,7 +3,10 @@ import {
   PublicKey,
   TransactionMessage,
 } from "@solana/web3.js";
-import { createAddTransactionToBatchInstruction, PROGRAM_ID } from "../generated";
+import {
+  createAddTransactionToBatchInstruction,
+  PROGRAM_ID,
+} from "../generated";
 import {
   getBatchTransactionPda,
   getProposalPda,

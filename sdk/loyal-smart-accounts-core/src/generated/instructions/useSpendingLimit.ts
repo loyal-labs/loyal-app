@@ -5,13 +5,13 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as splToken from '@solana/spl-token'
-import * as beet from '@metaplex-foundation/beet'
-import * as web3 from '@solana/web3.js'
+import * as splToken from "@solana/spl-token";
+import * as beet from "@metaplex-foundation/beet";
+import * as web3 from "@solana/web3.js";
 import {
   UseSpendingLimitArgs,
   useSpendingLimitArgsBeet,
-} from '../types/UseSpendingLimitArgs'
+} from "../types/UseSpendingLimitArgs";
 
 /**
  * @category Instructions
@@ -19,8 +19,8 @@ import {
  * @category generated
  */
 export type UseSpendingLimitInstructionArgs = {
-  args: UseSpendingLimitArgs
-}
+  args: UseSpendingLimitArgs;
+};
 /**
  * @category Instructions
  * @category UseSpendingLimit
@@ -28,15 +28,15 @@ export type UseSpendingLimitInstructionArgs = {
  */
 export const useSpendingLimitStruct = new beet.FixableBeetArgsStruct<
   UseSpendingLimitInstructionArgs & {
-    instructionDiscriminator: number[] /* size: 8 */
+    instructionDiscriminator: number[] /* size: 8 */;
   }
 >(
   [
-    ['instructionDiscriminator', beet.uniformFixedSizeArray(beet.u8, 8)],
-    ['args', useSpendingLimitArgsBeet],
+    ["instructionDiscriminator", beet.uniformFixedSizeArray(beet.u8, 8)],
+    ["args", useSpendingLimitArgsBeet],
   ],
-  'UseSpendingLimitInstructionArgs'
-)
+  "UseSpendingLimitInstructionArgs"
+);
 /**
  * Accounts required by the _useSpendingLimit_ instruction
  *
@@ -54,23 +54,23 @@ export const useSpendingLimitStruct = new beet.FixableBeetArgsStruct<
  * @category generated
  */
 export type UseSpendingLimitInstructionAccounts = {
-  settings: web3.PublicKey
-  signer: web3.PublicKey
-  spendingLimit: web3.PublicKey
-  smartAccount: web3.PublicKey
-  destination: web3.PublicKey
-  systemProgram?: web3.PublicKey
-  mint?: web3.PublicKey
-  smartAccountTokenAccount?: web3.PublicKey
-  destinationTokenAccount?: web3.PublicKey
-  tokenProgram?: web3.PublicKey
-  program: web3.PublicKey
-  anchorRemainingAccounts?: web3.AccountMeta[]
-}
+  settings: web3.PublicKey;
+  signer: web3.PublicKey;
+  spendingLimit: web3.PublicKey;
+  smartAccount: web3.PublicKey;
+  destination: web3.PublicKey;
+  systemProgram?: web3.PublicKey;
+  mint?: web3.PublicKey;
+  smartAccountTokenAccount?: web3.PublicKey;
+  destinationTokenAccount?: web3.PublicKey;
+  tokenProgram?: web3.PublicKey;
+  program: web3.PublicKey;
+  anchorRemainingAccounts?: web3.AccountMeta[];
+};
 
 export const useSpendingLimitInstructionDiscriminator = [
   41, 179, 70, 5, 194, 147, 239, 158,
-]
+];
 
 /**
  * Creates a _UseSpendingLimit_ instruction.
@@ -88,12 +88,12 @@ export const useSpendingLimitInstructionDiscriminator = [
 export function createUseSpendingLimitInstruction(
   accounts: UseSpendingLimitInstructionAccounts,
   args: UseSpendingLimitInstructionArgs,
-  programId = new web3.PublicKey('SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG')
+  programId = new web3.PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG")
 ) {
   const [data] = useSpendingLimitStruct.serialize({
     instructionDiscriminator: useSpendingLimitInstructionDiscriminator,
     ...args,
-  })
+  });
   const keys: web3.AccountMeta[] = [
     {
       pubkey: accounts.settings,
@@ -150,11 +150,11 @@ export function createUseSpendingLimitInstruction(
       isWritable: false,
       isSigner: false,
     },
-  ]
+  ];
 
   if (accounts.anchorRemainingAccounts != null) {
     for (const acc of accounts.anchorRemainingAccounts) {
-      keys.push(acc)
+      keys.push(acc);
     }
   }
 
@@ -162,6 +162,6 @@ export function createUseSpendingLimitInstruction(
     programId,
     keys,
     data,
-  })
-  return ix
+  });
+  return ix;
 }

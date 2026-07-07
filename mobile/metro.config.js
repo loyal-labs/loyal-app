@@ -11,6 +11,26 @@ const config = getDefaultConfig(__dirname);
 const sharedRoot = path.resolve(__dirname, "../packages/shared");
 const solanaRpcRoot = path.resolve(__dirname, "../packages/solana-rpc/src");
 const walletCoreRoot = path.resolve(__dirname, "../packages/wallet-core/src");
+// Smart-account-vaults SDK (device-side Earn autodeposit prepare) and its
+// workspace deps — all resolved from source, same pattern as wallet-core.
+const smartAccountVaultsRoot = path.resolve(
+  __dirname,
+  "../packages/smart-account-vaults/src",
+);
+const loyalActionsRoot = path.resolve(__dirname, "../packages/loyal-actions/src");
+const loyalSmartAccountsRoot = path.resolve(
+  __dirname,
+  "../sdk/loyal-smart-accounts/src",
+);
+const loyalSmartAccountsCoreRoot = path.resolve(
+  __dirname,
+  "../sdk/loyal-smart-accounts-core/src",
+);
+const solanaWalletRoot = path.resolve(__dirname, "../packages/solana-wallet/src");
+const solanaInstructionDecoderRoot = path.resolve(
+  __dirname,
+  "../packages/solana-instruction-decoder/src",
+);
 const privateTransactionsRoot = path.resolve(__dirname, "../sdk/private-transactions");
 const privateTransactionsEntryCandidates = [
   path.resolve(
@@ -44,6 +64,12 @@ config.watchFolders = [
   solanaRpcRoot,
   walletCoreRoot,
   privateTransactionsRoot,
+  smartAccountVaultsRoot,
+  loyalActionsRoot,
+  loyalSmartAccountsRoot,
+  loyalSmartAccountsCoreRoot,
+  solanaWalletRoot,
+  solanaInstructionDecoderRoot,
 ];
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, "node_modules"),
@@ -52,6 +78,16 @@ config.resolver.nodeModulesPaths = [
 config.resolver.extraNodeModules = {
   "@loyal-labs/solana-rpc": solanaRpcRoot,
   "@loyal-labs/wallet-core/lib": path.resolve(walletCoreRoot, "lib/index.ts"),
+  "@loyal-labs/smart-account-vaults": smartAccountVaultsRoot,
+  "@loyal-labs/actions": loyalActionsRoot,
+  "@loyal-labs/loyal-smart-accounts": loyalSmartAccountsRoot,
+  "@loyal-labs/loyal-smart-accounts-core": loyalSmartAccountsCoreRoot,
+  "@loyal-labs/loyal-smart-accounts-core/internal": path.resolve(
+    loyalSmartAccountsCoreRoot,
+    "internal/index.ts",
+  ),
+  "@loyal-labs/solana-wallet": solanaWalletRoot,
+  "@loyal-labs/solana-instruction-decoder": solanaInstructionDecoderRoot,
 };
 
 // SVG transformer
@@ -86,11 +122,25 @@ nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
     return { type: "empty" };
   }
 
-  if (typeof nativewindResolveRequest === "function") {
-    return nativewindResolveRequest(context, moduleName, platform);
-  }
+  const defaultResolve = (name) => {
+    if (typeof nativewindResolveRequest === "function") {
+      return nativewindResolveRequest(context, name, platform);
+    }
+    return context.resolveRequest(context, name, platform);
+  };
 
-  return context.resolveRequest(context, moduleName, platform);
+  // The monorepo TS packages (loyal-smart-accounts-core etc.) use ESM
+  // ".js"-suffixed relative imports that point at .ts sources (TypeScript
+  // nodenext convention). Metro resolves specifiers literally, so when that
+  // fails retry without the extension and let sourceExts find the .ts file.
+  try {
+    return defaultResolve(moduleName);
+  } catch (error) {
+    if (moduleName.startsWith(".") && moduleName.endsWith(".js")) {
+      return defaultResolve(moduleName.slice(0, -3));
+    }
+    throw error;
+  }
 };
 
 module.exports = nativewindConfig;

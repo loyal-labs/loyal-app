@@ -62,8 +62,10 @@ export async function executeBatchTransaction({
     programId,
   });
 
-  const batchTransactionAccount =
-    await BatchTransaction.fromAccountAddress(connection, batchTransactionPda);
+  const batchTransactionAccount = await BatchTransaction.fromAccountAddress(
+    connection,
+    batchTransactionPda
+  );
 
   const { accountMetas, lookupTableAccounts } =
     await accountsForTransactionExecute({

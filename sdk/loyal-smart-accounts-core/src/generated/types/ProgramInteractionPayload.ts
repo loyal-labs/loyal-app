@@ -5,15 +5,15 @@
  * See: https://github.com/metaplex-foundation/solita
  */
 
-import * as beet from '@metaplex-foundation/beet'
+import * as beet from "@metaplex-foundation/beet";
 import {
   ProgramInteractionTransactionPayload,
   programInteractionTransactionPayloadBeet,
-} from './ProgramInteractionTransactionPayload'
+} from "./ProgramInteractionTransactionPayload";
 export type ProgramInteractionPayload = {
-  instructionConstraintIndices: beet.COption<Uint8Array>
-  transactionPayload: ProgramInteractionTransactionPayload
-}
+  instructionConstraintIndices: beet.COption<Uint8Array>;
+  transactionPayload: ProgramInteractionTransactionPayload;
+};
 
 /**
  * @category userTypes
@@ -22,8 +22,8 @@ export type ProgramInteractionPayload = {
 export const programInteractionPayloadBeet =
   new beet.FixableBeetArgsStruct<ProgramInteractionPayload>(
     [
-      ['instructionConstraintIndices', beet.coption(beet.bytes)],
-      ['transactionPayload', programInteractionTransactionPayloadBeet],
+      ["instructionConstraintIndices", beet.coption(beet.bytes)],
+      ["transactionPayload", programInteractionTransactionPayloadBeet],
     ],
-    'ProgramInteractionPayload'
-  )
+    "ProgramInteractionPayload"
+  );
