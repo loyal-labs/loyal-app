@@ -11,6 +11,7 @@ import {
   CircleDollarSignIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  RouteIcon,
   ShieldUserIcon,
   UsersRoundIcon,
   WalletCardsIcon,
@@ -27,10 +28,18 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
 
 type NavItem = {
+  children?: {
+    href: string;
+    icon?: LucideIcon;
+    label: string;
+  }[];
   href: string;
   icon: LucideIcon;
   label: string;
@@ -55,7 +64,14 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Solana",
     items: [
       { href: "/transfers", icon: ArrowLeftRightIcon, label: "Transfers" },
-      { href: "/earn", icon: CircleDollarSignIcon, label: "Earn" },
+      {
+        children: [
+          { href: "/earn/rebalance", icon: RouteIcon, label: "Rebalance" },
+        ],
+        href: "/earn",
+        icon: CircleDollarSignIcon,
+        label: "Earn",
+      },
       {
         href: "/smart-accounts",
         icon: WalletCardsIcon,
@@ -103,7 +119,7 @@ export function AppSidebar() {
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {group.items.map(({ href, icon: Icon, label }) => {
+                {group.items.map(({ children, href, icon: Icon, label }) => {
                   const isActive =
                     pathname === href || pathname?.startsWith(`${href}/`);
 
@@ -115,6 +131,30 @@ export function AppSidebar() {
                           <span>{label}</span>
                         </Link>
                       </SidebarMenuButton>
+                      {children ? (
+                        <SidebarMenuSub>
+                          {children.map((child) => {
+                            const ChildIcon = child.icon;
+                            const isChildActive =
+                              pathname === child.href ||
+                              pathname?.startsWith(`${child.href}/`);
+
+                            return (
+                              <SidebarMenuSubItem key={child.href}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  isActive={isChildActive}
+                                >
+                                  <Link href={child.href}>
+                                    {ChildIcon ? <ChildIcon /> : null}
+                                    <span>{child.label}</span>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            );
+                          })}
+                        </SidebarMenuSub>
+                      ) : null}
                     </SidebarMenuItem>
                   );
                 })}

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
+
 import {
   getEarnData,
   USDC_DECIMALS,
@@ -159,7 +160,9 @@ function comparePositionValues(
         right.normalizedReserveRaw
       );
     case "warnings":
-      return getTopPositionWarningCount(left) - getTopPositionWarningCount(right);
+      return (
+        getTopPositionWarningCount(left) - getTopPositionWarningCount(right)
+      );
     case "normalized":
     default:
       return compareBigInt(left.normalizedAumRaw, right.normalizedAumRaw);
@@ -595,7 +598,9 @@ export default async function EarnPage({
             <CardDescription>
               Active positions ordered by{" "}
               {POSITION_SORT_LABELS[positionSort.key].toLowerCase()},
-              {positionSort.direction === "asc" ? " low to high" : " high to low"}
+              {positionSort.direction === "asc"
+                ? " low to high"
+                : " high to low"}
             </CardDescription>
           </CardHeader>
           <CardContent>
