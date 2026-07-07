@@ -173,8 +173,7 @@ export async function POST(request: Request) {
       policy && activePosition
         ? earnReserveTargetFromActivePosition(activePosition)
         : null;
-    const rentPayer =
-      sponsored && !policy ? getEarnPolicySponsorPublicKey() : null;
+    const rentPayer = sponsored ? getEarnPolicySponsorPublicKey() : null;
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,

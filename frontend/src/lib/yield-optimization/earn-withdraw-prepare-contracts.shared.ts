@@ -35,6 +35,7 @@ export type WireSmartAccountPreparedEarnUsdcWithdraw = {
   autodepositClosePrepared?: WireSmartAccountPreparedEarnUsdcAutodepositClose | null;
   mode: "partial" | "full";
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
+  policyClosePrepared?: WirePreparedLoyalSmartAccountsOperation | null;
   policy: {
     account: string;
     id: string;
@@ -198,6 +199,9 @@ export function serializePreparedEarnUsdcWithdraw(
       : null,
     mode: preparedWithdraw.mode,
     persistence: preparedWithdraw.persistence,
+    policyClosePrepared: preparedWithdraw.policyClosePrepared
+      ? serializePreparedOperation(preparedWithdraw.policyClosePrepared)
+      : null,
     policy: {
       account: preparedWithdraw.policy.account.toBase58(),
       id: preparedWithdraw.policy.id.toString(),
@@ -285,6 +289,9 @@ export function hydratePreparedEarnUsdcWithdraw(
       : null,
     mode: wire.mode,
     persistence: wire.persistence,
+    policyClosePrepared: wire.policyClosePrepared
+      ? hydratePreparedOperation(wire.policyClosePrepared)
+      : null,
     policy: {
       account: new PublicKey(wire.policy.account),
       id: BigInt(wire.policy.id),

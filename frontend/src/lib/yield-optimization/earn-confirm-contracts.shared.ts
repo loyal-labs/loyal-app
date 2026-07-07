@@ -95,7 +95,7 @@ export type EarnSponsoredDepositConfirmRequestBody = Omit<
   | "setupPolicySignature"
 > & {
   depositTransaction: string;
-  policyTransaction: string;
+  policyTransaction?: string | null;
   setupPolicyTransaction?: string | null;
 };
 
@@ -109,7 +109,7 @@ export type SponsoredYieldDepositConfirmInput = Omit<
   | "setupPolicySignature"
 > & {
   depositTransaction: string;
-  policyTransaction: string;
+  policyTransaction?: string | null;
   setupPolicyTransaction?: string | null;
 };
 
@@ -155,6 +155,22 @@ export type EarnWithdrawalConfirmRequestBody = {
   reserveWithdrawals?: ConfirmedYieldWithdrawalInput["reserveWithdrawals"];
   stepCount?: number | null;
   stepIndex?: number | null;
+};
+
+export type EarnSponsoredWithdrawalConfirmRequestBody = Omit<
+  EarnWithdrawalConfirmRequestBody,
+  "confirmedSlot" | "withdrawalSignature"
+> & {
+  policyCloseTransaction?: string | null;
+  withdrawalTransaction: string;
+};
+
+export type SponsoredYieldWithdrawalConfirmInput = Omit<
+  ConfirmedYieldWithdrawalInput,
+  "confirmedSlot" | "withdrawalSignature"
+> & {
+  policyCloseTransaction?: string | null;
+  withdrawalTransaction: string;
 };
 
 type EarnConfirmRequestRecord = Record<string, unknown>;
@@ -615,10 +631,16 @@ export function parseEarnSponsoredDepositConfirmRequestBody(
 ): SponsoredYieldDepositConfirmInput {
   const record = assertRequestObject(body);
   const policyInitialization = readPolicyInitialization(record);
+  const policyTransaction = readOptionalString(record, "policyTransaction");
   const setupPolicyTransaction = readOptionalString(
     record,
     "setupPolicyTransaction"
   );
+  if (policyInitialization === "create" && !policyTransaction) {
+    throw new Error(
+      "policyTransaction is required when policyInitialization is create."
+    );
+  }
   if (policyInitialization === "create" && !setupPolicyTransaction) {
     throw new Error(
       "setupPolicyTransaction is required when policyInitialization is create."
@@ -636,7 +658,7 @@ export function parseEarnSponsoredDepositConfirmRequestBody(
     policyId: readBigIntString(record, "policyId"),
     policyInitialization,
     policySeed: readBigIntString(record, "policySeed"),
-    policyTransaction: readRequiredString(record, "policyTransaction"),
+    ...(policyTransaction ? { policyTransaction } : {}),
     principalAmountRaw: readBigIntString(record, "principalAmountRaw"),
     settings: readRequiredString(record, "settings"),
     setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
@@ -690,6 +712,51 @@ export function parseEarnWithdrawalConfirmRequestBody(
     vaultPubkey: readRequiredString(record, "vaultPubkey"),
     walletAddress: readRequiredString(record, "walletAddress"),
     withdrawalSignature: readRequiredString(record, "withdrawalSignature"),
+    withdrawnAmountRaw: readBigIntString(record, "withdrawnAmountRaw"),
+  };
+}
+
+export function parseEarnSponsoredWithdrawalConfirmRequestBody(
+  body: unknown
+): SponsoredYieldWithdrawalConfirmInput {
+  const record = assertRequestObject(body);
+  const autodepositClose = readOptionalAutodepositClose(record);
+  return {
+    ...(autodepositClose ? { autodepositClose } : {}),
+    cluster: readRequiredString(record, "cluster"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    liquidityMint: readRequiredString(record, "liquidityMint"),
+    market: readOptionalString(record, "market"),
+    mode: readMode(record),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    policyId: readBigIntString(record, "policyId"),
+    policySeed: readBigIntString(record, "policySeed"),
+    setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
+    setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
+    setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
+    settings: readRequiredString(record, "settings"),
+    smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
+    accountingReserve: readOptionalString(record, "accountingReserve"),
+    executionReserve: readOptionalString(record, "executionReserve"),
+    isFinalStep: readOptionalBoolean(record, "isFinalStep"),
+    reserveWithdrawals: readOptionalReserveWithdrawals(record),
+    sourceAmountRaw: readOptionalBigIntString(record, "sourceAmountRaw"),
+    sourceId: readOptionalString(record, "sourceId"),
+    sourceMetadata: readOptionalSourceMetadata(record),
+    sourceMint: readOptionalString(record, "sourceMint"),
+    sourceTokenAccount: readOptionalString(record, "sourceTokenAccount"),
+    sourceType: readOptionalSourceType(record),
+    stepCount: readOptionalNonNegativeInteger(record, "stepCount"),
+    stepIndex: readOptionalNonNegativeInteger(record, "stepIndex"),
+    targetReserve: readRequiredString(record, "targetReserve"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    walletAddress: readRequiredString(record, "walletAddress"),
+    policyCloseTransaction: readOptionalString(
+      record,
+      "policyCloseTransaction"
+    ),
+    withdrawalTransaction: readRequiredString(record, "withdrawalTransaction"),
     withdrawnAmountRaw: readBigIntString(record, "withdrawnAmountRaw"),
   };
 }

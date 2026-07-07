@@ -47,6 +47,7 @@ const programId = new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG");
 const settingsPda = new PublicKey("11111111111111111111111111111112");
 const walletAddress = new PublicKey("11111111111111111111111111111113");
 const feePayer = walletAddress;
+const sponsorRentCollector = new PublicKey("1111111111111111111111111111111C");
 const backendSigner = new PublicKey("11111111111111111111111111111119");
 const policyAccount = new PublicKey("11111111111111111111111111111117");
 const setupPolicyAccount = new PublicKey("11111111111111111111111111111118");
@@ -315,7 +316,10 @@ function deriveVaultUsdcAta() {
   );
 }
 
-function createSerializedEarnPolicyAccount(seed = new BN(1)) {
+function createSerializedEarnPolicyAccount(
+  seed = new BN(1),
+  rentCollector = walletAddress
+) {
   const [data] = Policy.fromArgs({
     bump: 255,
     expiration: null,
@@ -331,7 +335,7 @@ function createSerializedEarnPolicyAccount(seed = new BN(1)) {
         },
       ],
     },
-    rentCollector: walletAddress,
+    rentCollector,
     seed,
     settings: settingsPda,
     signers: [],
@@ -1482,7 +1486,7 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
   });
 
-  test("builds the full withdraw flow with account cleanup before policy cleanup", async () => {
+  test("builds the full withdraw flow with account cleanup before split policy cleanup", async () => {
     const fetchMock = mockKaminoWithdrawInstruction();
     const vaultCollateralAta = getAssociatedTokenAddressSync(
       kaminoReserveCollateralMint,
@@ -1575,7 +1579,8 @@ describe("prepareEarnUsdcWithdraw", () => {
       },
     });
 
-    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.prepared.instructions).toHaveLength(2);
+    expect(result.policyClosePrepared?.instructions).toHaveLength(1);
     const simulateOptions = (
       simulateTransaction.mock.calls[0] as unknown[]
     )?.[1];
@@ -1601,7 +1606,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       result.prepared.instructions
         .slice(1)
         .map((instruction) => instruction.programId.toBase58())
-    ).toEqual([programId.toBase58(), programId.toBase58()]);
+    ).toEqual([programId.toBase58()]);
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
     expectInstructionAccountMeta(
       result.prepared.instructions[1],
@@ -1628,7 +1633,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       }
     );
     expectInstructionAccountMeta(
-      result.prepared.instructions[2],
+      result.policyClosePrepared?.instructions[0],
       result.policy.account,
       { isWritable: true }
     );
@@ -1876,7 +1881,8 @@ describe("prepareEarnUsdcWithdraw", () => {
       { isWritable: true }
     );
     expect("policyUpdatePrepared" in result).toBe(false);
-    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.prepared.instructions).toHaveLength(2);
+    expect(result.policyClosePrepared?.instructions).toHaveLength(1);
     expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
       ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
     );
@@ -1887,10 +1893,10 @@ describe("prepareEarnUsdcWithdraw", () => {
       result.prepared.instructions
         .slice(1)
         .map((instruction) => instruction.programId.toBase58())
-    ).toEqual([programId.toBase58(), programId.toBase58()]);
+    ).toEqual([programId.toBase58()]);
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
     expectInstructionAccountMeta(
-      result.prepared.instructions[2],
+      result.policyClosePrepared?.instructions[0],
       result.policy.account,
       { isWritable: true }
     );
@@ -2082,9 +2088,10 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
 
     expect("policyUpdatePrepared" in result).toBe(false);
-    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.prepared.instructions).toHaveLength(2);
+    expect(result.policyClosePrepared?.instructions).toHaveLength(1);
     expectInstructionAccountMeta(
-      result.prepared.instructions[2],
+      result.policyClosePrepared?.instructions[0],
       result.policy.account,
       { isWritable: true }
     );
@@ -2349,12 +2356,8 @@ describe("prepareEarnUsdcAutodeposit", () => {
       "create_policy",
       "create_recurring_delegation",
     ]);
-    expect(setups[0]!.subscription.startTimestamp).toBe(
-      BigInt(1_780_000_000)
-    );
-    expect(setups[1]!.subscription.startTimestamp).toBe(
-      BigInt(1_780_000_030)
-    );
+    expect(setups[0]!.subscription.startTimestamp).toBe(BigInt(1_780_000_000));
+    expect(setups[1]!.subscription.startTimestamp).toBe(BigInt(1_780_000_030));
     expect(getAccountInfo).toHaveBeenCalledTimes(2);
     expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
     const firstProbe = getMultipleAccountsInfo.mock.calls[0]?.[0] as
@@ -2702,6 +2705,42 @@ describe("prepareEarnUsdcAutodeposit", () => {
     // policy-close instruction remains.
     expect(result.prepared.instructions).toHaveLength(1);
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[0]);
+  });
+
+  test("uses policy rent collector as close rent payer", async () => {
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(policyAccount)) {
+        return createSerializedEarnPolicyAccount(
+          new BN(1),
+          sponsorRentCollector
+        );
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositClose({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      policy: policyAccount,
+      recurringDelegation: new PublicKey("11111111111111111111111111111116"),
+    });
+
+    const closeInstruction = result.prepared.instructions[0];
+    expectSyncExecutionUsesSettingsConsensus(closeInstruction);
+    expect(closeInstruction?.keys[1]?.pubkey.toBase58()).toBe(
+      sponsorRentCollector.toBase58()
+    );
+    expectInstructionAccountMeta(closeInstruction, sponsorRentCollector, {
+      isSigner: true,
+      isWritable: true,
+    });
   });
 
   test("builds pull execution with the backend policy signer", async () => {

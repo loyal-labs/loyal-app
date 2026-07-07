@@ -144,6 +144,13 @@ export type EarnAutodepositCloseConfirmRequestBody = {
   walletAddress: string;
 };
 
+export type EarnSponsoredAutodepositCloseConfirmRequestBody = Omit<
+  EarnAutodepositCloseConfirmRequestBody,
+  "closeSignature" | "confirmedSlot"
+> & {
+  closeTransaction: string;
+};
+
 export type WireSmartAccountPreparedEarnUsdcAutodepositSetup = {
   authorityInitializationRequired: boolean;
   nativeSolRequirement: SmartAccountNativeSolRequirement;
@@ -600,6 +607,28 @@ export function parseEarnAutodepositCloseConfirmRequestBody(
     cluster: readRequiredString(record, "cluster"),
     closeSignature: readRequiredString(record, "closeSignature"),
     confirmedSlot: readBigIntString(record, "confirmedSlot"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    recurringDelegation: readRequiredString(record, "recurringDelegation"),
+    settings: readRequiredString(record, "settings"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    walletAddress: readRequiredString(record, "walletAddress"),
+  };
+}
+
+export function parseEarnSponsoredAutodepositCloseConfirmRequestBody(
+  body: unknown
+): Omit<
+  ConfirmedEarnAutodepositCloseInput,
+  "closeSignature" | "confirmedSlot"
+> & {
+  closeTransaction: string;
+} {
+  const record = assertRequestObject(body);
+  return {
+    cluster: readRequiredString(record, "cluster"),
+    closeTransaction: readRequiredString(record, "closeTransaction"),
     delegatedSigner: readRequiredString(record, "delegatedSigner"),
     policyAccount: readRequiredString(record, "policyAccount"),
     recurringDelegation: readRequiredString(record, "recurringDelegation"),

@@ -75,6 +75,7 @@ import {
   buildEarnPolicyConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
   type EarnSponsoredDepositConfirmRequestBody,
+  type EarnSponsoredWithdrawalConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import { resolveEarnDepositConfirmPolicySignature } from "@/lib/yield-optimization/earn-deposit-flow.shared";
 import {
@@ -85,6 +86,7 @@ import {
   type EarnAutodepositCloseConfirmResponse,
   type EarnAutodepositSetupConfirmResponse,
   type EarnAutodepositToggleConfirmResponse,
+  type EarnSponsoredAutodepositCloseConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
@@ -622,6 +624,7 @@ type PreparedEarnOperation =
   | "autodeposit setup"
   | "earn cleanup"
   | "deposit"
+  | "policy close"
   | "policy finalize"
   | "policy setup"
   | "setup policy setup"
@@ -1476,7 +1479,7 @@ class SponsoredEarnDepositConfirmError extends Error {
 
 async function postSponsoredEarnDeposit(args: {
   depositTransaction: string;
-  policyTransaction: string;
+  policyTransaction?: string | null;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   setupPolicyTransaction?: string | null;
   smartAccountAddress: string;
@@ -1484,7 +1487,9 @@ async function postSponsoredEarnDeposit(args: {
   const body: EarnSponsoredDepositConfirmRequestBody = {
     ...args.preparedDeposit.persistence,
     depositTransaction: args.depositTransaction,
-    policyTransaction: args.policyTransaction,
+    ...(args.policyTransaction
+      ? { policyTransaction: args.policyTransaction }
+      : {}),
     ...(args.setupPolicyTransaction
       ? { setupPolicyTransaction: args.setupPolicyTransaction }
       : {}),
@@ -1576,6 +1581,77 @@ async function postConfirmedEarnAutodepositClose(args: {
   }
 
   return (await response.json()) as EarnAutodepositCloseConfirmResponse;
+}
+
+type SponsoredEarnAutodepositCloseConfirmations = {
+  close: SponsoredEarnDepositConfirmation;
+};
+
+type SponsoredEarnAutodepositCloseConfirmResponse = {
+  sponsoredConfirmations?: SponsoredEarnAutodepositCloseConfirmations;
+};
+
+class SponsoredEarnAutodepositCloseConfirmError extends Error {
+  readonly confirmations?: SponsoredEarnAutodepositCloseConfirmations;
+
+  constructor(args: {
+    confirmations?: SponsoredEarnAutodepositCloseConfirmations;
+    message: string;
+  }) {
+    super(args.message);
+    this.name = "SponsoredEarnAutodepositCloseConfirmError";
+    this.confirmations = args.confirmations;
+  }
+}
+
+async function postSponsoredEarnAutodepositClose(args: {
+  closeTransaction: string;
+  preparedClose: SmartAccountPreparedEarnUsdcAutodepositClose;
+}): Promise<SponsoredEarnAutodepositCloseConfirmations> {
+  const body = buildEarnAutodepositCloseConfirmRequestBody({
+    confirmedSlot: "0",
+    preparedClose: args.preparedClose,
+    signature: "sponsored-autodeposit-close-signature-placeholder",
+  }) as Partial<
+    ReturnType<typeof buildEarnAutodepositCloseConfirmRequestBody>
+  > as EarnSponsoredAutodepositCloseConfirmRequestBody & {
+    closeSignature?: string;
+    confirmedSlot?: string;
+  };
+  delete body.closeSignature;
+  delete body.confirmedSlot;
+  body.closeTransaction = args.closeTransaction;
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/close/confirm/sponsored",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | (SmartAccountRouteErrorResponse &
+        SponsoredEarnAutodepositCloseConfirmResponse)
+    | null;
+
+  if (!response.ok) {
+    throw new SponsoredEarnAutodepositCloseConfirmError({
+      confirmations: payload?.sponsoredConfirmations,
+      message:
+        payload?.error?.message ??
+        "Failed to execute sponsored Autodeposit close.",
+    });
+  }
+
+  if (!payload?.sponsoredConfirmations) {
+    throw new Error(
+      "Sponsored Autodeposit close response is missing confirmations."
+    );
+  }
+
+  return payload.sponsoredConfirmations;
 }
 
 async function postEarnAutodepositFloorUpdate(args: {
@@ -1845,6 +1921,99 @@ async function postConfirmedEarnWithdraw(args: {
       payload?.error?.message ?? "Failed to record confirmed earn withdrawal."
     );
   }
+}
+
+type SponsoredEarnWithdrawConfirmations = {
+  policyClose?: SponsoredEarnDepositConfirmation | null;
+  withdrawal: SponsoredEarnDepositConfirmation;
+};
+
+type SponsoredEarnWithdrawConfirmResponse = {
+  sponsoredConfirmations?: SponsoredEarnWithdrawConfirmations;
+};
+
+class SponsoredEarnWithdrawConfirmError extends Error {
+  readonly confirmations?: SponsoredEarnWithdrawConfirmations;
+
+  constructor(args: {
+    confirmations?: SponsoredEarnWithdrawConfirmations;
+    message: string;
+  }) {
+    super(args.message);
+    this.name = "SponsoredEarnWithdrawConfirmError";
+    this.confirmations = args.confirmations;
+  }
+}
+
+async function postSponsoredEarnWithdraw(args: {
+  autodepositCloseConfirmedSlot?: string;
+  autodepositCloseSignature?: string;
+  policyCloseTransaction?: string | null;
+  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
+  preparedStep?: SmartAccountPreparedEarnUsdcWithdraw["withdrawSteps"][number];
+  smartAccountAddress: string;
+  withdrawalTransaction: string;
+}): Promise<SponsoredEarnWithdrawConfirmations> {
+  const body = buildEarnWithdrawalConfirmRequestBody({
+    autodepositCloseConfirmedSlot: args.autodepositCloseConfirmedSlot,
+    autodepositCloseSignature: args.autodepositCloseSignature,
+    confirmedSlot: "0",
+    preparedWithdraw: args.preparedWithdraw,
+    preparedStep: args.preparedStep,
+    signature: "sponsored-withdrawal-signature-placeholder",
+    smartAccountAddress: args.smartAccountAddress,
+  }) as Partial<
+    ReturnType<typeof buildEarnWithdrawalConfirmRequestBody>
+  > as EarnSponsoredWithdrawalConfirmRequestBody & {
+    confirmedSlot?: string;
+    withdrawalSignature?: string;
+  };
+  delete body.confirmedSlot;
+  delete body.withdrawalSignature;
+  if (args.policyCloseTransaction) {
+    body.policyCloseTransaction = args.policyCloseTransaction;
+  }
+  body.withdrawalTransaction = args.withdrawalTransaction;
+  assertSerializedEarnTransactionFitsSolanaPacket({
+    operation: "Earn withdrawal",
+    transaction: args.withdrawalTransaction,
+  });
+  if (args.policyCloseTransaction) {
+    assertSerializedEarnTransactionFitsSolanaPacket({
+      operation: "Earn policy close",
+      transaction: args.policyCloseTransaction,
+    });
+  }
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/withdrawals/confirm/sponsored",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | (SmartAccountRouteErrorResponse & SponsoredEarnWithdrawConfirmResponse)
+    | null;
+
+  if (!response.ok) {
+    throw new SponsoredEarnWithdrawConfirmError({
+      confirmations: payload?.sponsoredConfirmations,
+      message:
+        payload?.error?.message ??
+        "Failed to execute sponsored Earn withdrawal.",
+    });
+  }
+
+  if (!payload?.sponsoredConfirmations) {
+    throw new Error(
+      "Sponsored Earn withdrawal response is missing confirmations."
+    );
+  }
+
+  return payload.sponsoredConfirmations;
 }
 
 async function postConfirmedEarnCleanup(args: {
@@ -2480,6 +2649,27 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+const SOLANA_TRANSACTION_PACKET_DATA_SIZE = 1232;
+
+function serializedBase64ByteLength(value: string): number {
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  return Math.floor((value.length * 3) / 4) - padding;
+}
+
+function assertSerializedEarnTransactionFitsSolanaPacket(args: {
+  operation: string;
+  transaction: string;
+}) {
+  const byteLength = serializedBase64ByteLength(args.transaction);
+  if (byteLength <= SOLANA_TRANSACTION_PACKET_DATA_SIZE) {
+    return;
+  }
+
+  throw new Error(
+    `${args.operation} transaction is ${byteLength} bytes, which exceeds Solana's ${SOLANA_TRANSACTION_PACKET_DATA_SIZE} byte packet limit. Re-review this action so it can be split into smaller transactions.`
+  );
+}
+
 async function signPreparedEarnDepositBatchForSponsorship(args: {
   connection: Connection;
   feePayer: PublicKey;
@@ -2541,6 +2731,38 @@ async function signPreparedEarnDepositBatchForSponsorship(args: {
     policyTransaction,
     ...(setupPolicyTransaction ? { setupPolicyTransaction } : {}),
   };
+}
+
+function preparedOperationRequiresSigner(args: {
+  prepared: SmartAccountPreparedEarnUsdcWithdraw["prepared"];
+  signer: PublicKey;
+}): boolean {
+  return (
+    args.prepared.payer.equals(args.signer) ||
+    args.prepared.instructions.some((instruction) =>
+      instruction.keys.some(
+        (key) => key.isSigner && key.pubkey.equals(args.signer)
+      )
+    )
+  );
+}
+
+async function signPreparedEarnOperationForSponsorship(args: {
+  connection: Connection;
+  feePayer: PublicKey;
+  prepared:
+    | SmartAccountPreparedEarnUsdcDeposit["prepared"]
+    | SmartAccountPreparedEarnUsdcWithdraw["prepared"];
+  wallet: WalletAdapterBridge;
+}): Promise<string> {
+  const latestBlockhash = await args.connection.getLatestBlockhash("confirmed");
+  const transaction = compilePreparedTransaction({
+    blockhash: latestBlockhash.blockhash,
+    feePayer: args.feePayer,
+    prepared: args.prepared,
+  });
+  const signedTransaction = await args.wallet.signTransaction(transaction);
+  return encodeBase64(signedTransaction.serialize());
 }
 
 const CONFIRMED_SIGNATURE_SLOT_ATTEMPTS = 10;
@@ -5594,11 +5816,17 @@ export function useSmartAccountSidebarData(
           cluster: expectedEarnCluster,
           prepareLocation: request.preparedDeposit ? "preview" : "server",
         });
-        const preparedDeposit =
+        let preparedDeposit =
           request.preparedDeposit ??
           (await prepareEarnDepositOnServer({
             amountRaw: request.amountRaw,
           }));
+        const isDepositOnlyReusePrepared = (
+          deposit: SmartAccountPreparedEarnUsdcDeposit
+        ) =>
+          deposit.persistence.policyInitialization === "reuse" &&
+          !deposit.policySetupPrepared &&
+          !deposit.policyFinalizePrepared;
         if (
           preparedDeposit.persistence.principalAmountRaw !==
           request.amountRaw.toString()
@@ -5608,6 +5836,50 @@ export function useSmartAccountSidebarData(
             error:
               "Prepared Earn deposit amount changed. Review the deposit again before signing.",
           };
+        }
+
+        const shouldUseSponsoredDeposit =
+          IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
+          isDepositOnlyReusePrepared(preparedDeposit);
+        let sponsorFeePayer: PublicKey | null = null;
+        if (shouldUseSponsoredDeposit) {
+          if (!publicEnv.earnPolicySponsorPubkey) {
+            return {
+              success: false,
+              error:
+                "Earn policy sponsorship is enabled but EARN_POLICY_SPONSOR_PUBKEY is not configured.",
+            };
+          }
+          try {
+            sponsorFeePayer = new PublicKey(publicEnv.earnPolicySponsorPubkey);
+          } catch {
+            return {
+              success: false,
+              error: "EARN_POLICY_SPONSOR_PUBKEY is not a valid public key.",
+            };
+          }
+
+          preparedDeposit = await prepareEarnDepositOnServer({
+            amountRaw: request.amountRaw,
+            sponsored: true,
+          });
+          if (
+            preparedDeposit.persistence.principalAmountRaw !==
+            request.amountRaw.toString()
+          ) {
+            return {
+              success: false,
+              error:
+                "Prepared Earn deposit amount changed. Review the deposit again before signing.",
+            };
+          }
+          if (!isDepositOnlyReusePrepared(preparedDeposit)) {
+            return {
+              success: false,
+              error:
+                "Sponsored Earn top-up preparation changed. Review the deposit again before signing.",
+            };
+          }
         }
         const nativeSolError = getNativeSolRequirementError(
           preparedDeposit.nativeSolRequirement
@@ -5619,10 +5891,68 @@ export function useSmartAccountSidebarData(
           "[executeEarnDeposit] prepared deposit; sending to wallet",
           {
             instructionCount: preparedDeposit.prepared.instructions.length,
+            sponsored: Boolean(sponsorFeePayer),
             vaultAccountIndex: preparedDeposit.vault.accountIndex,
             vaultAddress: preparedDeposit.vault.pubkey.toBase58(),
           }
         );
+
+        if (sponsorFeePayer) {
+          try {
+            const depositTransaction =
+              await signPreparedEarnOperationForSponsorship({
+                connection,
+                feePayer: sponsorFeePayer,
+                prepared: preparedDeposit.prepared,
+                wallet: walletBridge,
+              });
+            const confirmations = await postSponsoredEarnDeposit({
+              depositTransaction,
+              preparedDeposit,
+              smartAccountAddress: preparedDeposit.vault.pubkey.toBase58(),
+            });
+
+            console.log("[executeEarnDeposit] sponsored deposit confirmed", {
+              confirmedSlot: confirmations.deposit.confirmedSlot,
+              signature: confirmations.deposit.signature,
+            });
+
+            const nextEarnState = await fetchEarnState();
+            if (nextEarnState) {
+              setEarnState(nextEarnState);
+            }
+
+            void refreshAfterTx({
+              accountIndex: preparedDeposit.vault.accountIndex,
+              refreshAuthenticatedWallet: false,
+            }).catch((err) => {
+              console.warn("[smart-account] post-earn refresh failed", err);
+            });
+
+            return {
+              success: true,
+              signature: confirmations.deposit.signature,
+              confirmedSlot: confirmations.deposit.confirmedSlot,
+              status: "executed",
+            };
+          } catch (error) {
+            if (
+              error instanceof SponsoredEarnDepositConfirmError &&
+              error.confirmations
+            ) {
+              return {
+                success: false,
+                signature: error.confirmations.deposit.signature,
+                confirmedSlot: error.confirmations.deposit.confirmedSlot,
+                status: "confirmation_record_failed",
+                error: error.message,
+              };
+            }
+
+            throw error;
+          }
+        }
+
         const currentEarnState = earnState ?? (await fetchEarnState());
         if (currentEarnState && currentEarnState !== earnState) {
           setEarnState(currentEarnState);
@@ -5753,6 +6083,7 @@ export function useSmartAccountSidebarData(
       connection,
       earnState,
       overview,
+      publicEnv.earnPolicySponsorPubkey,
       refreshAfterTx,
       solanaEnv,
       user?.smartAccountAddress,
@@ -5811,6 +6142,17 @@ export function useSmartAccountSidebarData(
             error: "Prepared Earn withdrawal is missing withdraw steps.",
           };
         }
+        let sponsorFeePayer: PublicKey | null = null;
+        if (publicEnv.earnPolicySponsorPubkey) {
+          try {
+            sponsorFeePayer = new PublicKey(publicEnv.earnPolicySponsorPubkey);
+          } catch {
+            return {
+              success: false,
+              error: "EARN_POLICY_SPONSOR_PUBKEY is not a valid public key.",
+            };
+          }
+        }
 
         const autodepositClosePrepared =
           preparedWithdraw.autodepositClosePrepared ?? null;
@@ -5829,72 +6171,233 @@ export function useSmartAccountSidebarData(
         let autodepositCloseConfirmedSlot: string | undefined;
 
         if (autodepositClosePrepared) {
-          const closeSendResult = await sendPreparedEarnWithClusterPreflight({
-            expectedCluster: expectedEarnCluster,
-            operation: "autodeposit close",
-            preparedCluster: autodepositClosePrepared.persistence.cluster,
-            send: () =>
-              sendPreparedWithWallet({
-                connection,
-                wallet: walletBridge,
-                prepared: autodepositClosePrepared.prepared,
-                confirm: true,
-              }),
-          });
-          if (!closeSendResult.success) {
-            return closeSendResult;
-          }
-          autodepositCloseSignature = closeSendResult.signature;
-          autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
-            connection,
-            signature: autodepositCloseSignature,
-          });
-          try {
-            await postConfirmedEarnAutodepositClose({
-              preparedClose: autodepositClosePrepared,
-              signature: autodepositCloseSignature,
-              confirmedSlot: autodepositCloseConfirmedSlot,
+          const shouldSponsorAutodepositClose =
+            sponsorFeePayer &&
+            preparedOperationRequiresSigner({
+              prepared: autodepositClosePrepared.prepared,
+              signer: sponsorFeePayer,
             });
+          if (shouldSponsorAutodepositClose && sponsorFeePayer) {
+            const clusterError = validatePreparedEarnPersistenceCluster({
+              expectedCluster: expectedEarnCluster,
+              operation: "autodeposit close",
+              preparedCluster: autodepositClosePrepared.persistence.cluster,
+            });
+            if (clusterError) {
+              return { success: false, error: clusterError };
+            }
+            try {
+              const closeTransaction =
+                await signPreparedEarnOperationForSponsorship({
+                  connection,
+                  feePayer: autodepositClosePrepared.prepared.payer,
+                  prepared: autodepositClosePrepared.prepared,
+                  wallet: walletBridge,
+                });
+              const confirmations = await postSponsoredEarnAutodepositClose({
+                closeTransaction,
+                preparedClose: autodepositClosePrepared,
+              });
+              autodepositCloseSignature = confirmations.close.signature;
+              autodepositCloseConfirmedSlot = confirmations.close.confirmedSlot;
+            } catch (error) {
+              if (
+                error instanceof SponsoredEarnAutodepositCloseConfirmError &&
+                error.confirmations
+              ) {
+                return {
+                  success: false,
+                  signature: error.confirmations.close.signature,
+                  confirmedSlot: error.confirmations.close.confirmedSlot,
+                  status: "confirmation_record_failed",
+                  mode: request.mode,
+                  amountRaw: request.amountRaw.toString(),
+                  error: error.message,
+                };
+              }
+              throw error;
+            }
             const nextEarnState = await fetchEarnState();
             if (nextEarnState) {
               setEarnState(nextEarnState);
             }
-          } catch (error) {
-            return {
-              success: false,
-              signature: autodepositCloseSignature,
-              confirmedSlot: autodepositCloseConfirmedSlot,
-              status: "confirmation_record_failed",
-              mode: request.mode,
-              amountRaw: request.amountRaw.toString(),
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to record confirmed Autodeposit close.",
-            };
+          } else {
+            const closeSendResult = await sendPreparedEarnWithClusterPreflight({
+              expectedCluster: expectedEarnCluster,
+              operation: "autodeposit close",
+              preparedCluster: autodepositClosePrepared.persistence.cluster,
+              send: () =>
+                sendPreparedWithWallet({
+                  connection,
+                  wallet: walletBridge,
+                  prepared: autodepositClosePrepared.prepared,
+                  confirm: true,
+                }),
+            });
+            if (!closeSendResult.success) {
+              return closeSendResult;
+            }
+            autodepositCloseSignature = closeSendResult.signature;
+            autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot(
+              {
+                connection,
+                signature: autodepositCloseSignature,
+              }
+            );
+            try {
+              await postConfirmedEarnAutodepositClose({
+                preparedClose: autodepositClosePrepared,
+                signature: autodepositCloseSignature,
+                confirmedSlot: autodepositCloseConfirmedSlot,
+              });
+              const nextEarnState = await fetchEarnState();
+              if (nextEarnState) {
+                setEarnState(nextEarnState);
+              }
+            } catch (error) {
+              return {
+                success: false,
+                signature: autodepositCloseSignature,
+                confirmedSlot: autodepositCloseConfirmedSlot,
+                status: "confirmation_record_failed",
+                mode: request.mode,
+                amountRaw: request.amountRaw.toString(),
+                error:
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to record confirmed Autodeposit close.",
+              };
+            }
           }
         }
 
-        const sendResult = await sendPreparedEarnWithClusterPreflight({
-          expectedCluster: expectedEarnCluster,
-          operation: "withdrawal",
-          preparedCluster: preparedStep.persistence.cluster,
-          send: () =>
-            sendPreparedWithWallet({
-              connection,
-              wallet: walletBridge,
-              prepared: preparedStep.prepared,
-              confirm: true,
-            }),
-        });
-        if (!sendResult.success) {
-          return sendResult;
+        let withdrawalConfirmationRecorded = false;
+        let signature: string;
+        let confirmedSlot: string;
+        const isFinalPreparedStep =
+          selectedStepIndex === preparedWithdraw.withdrawSteps.length - 1;
+        const policyClosePrepared =
+          isFinalPreparedStep && request.mode === "full"
+            ? preparedWithdraw.policyClosePrepared ?? null
+            : null;
+        const shouldSponsorWithdrawal =
+          sponsorFeePayer &&
+          preparedOperationRequiresSigner({
+            prepared: preparedStep.prepared,
+            signer: sponsorFeePayer,
+          });
+        const shouldSponsorPolicyClose =
+          policyClosePrepared &&
+          sponsorFeePayer &&
+          preparedOperationRequiresSigner({
+            prepared: policyClosePrepared,
+            signer: sponsorFeePayer,
+          });
+        if (
+          (shouldSponsorWithdrawal || shouldSponsorPolicyClose) &&
+          sponsorFeePayer
+        ) {
+          const clusterError = validatePreparedEarnPersistenceCluster({
+            expectedCluster: expectedEarnCluster,
+            operation: "withdrawal",
+            preparedCluster: preparedStep.persistence.cluster,
+          });
+          if (clusterError) {
+            return { success: false, error: clusterError };
+          }
+          try {
+            const withdrawalTransaction =
+              await signPreparedEarnOperationForSponsorship({
+                connection,
+                feePayer: preparedStep.prepared.payer,
+                prepared: preparedStep.prepared,
+                wallet: walletBridge,
+              });
+            const policyCloseTransaction =
+              shouldSponsorPolicyClose && policyClosePrepared
+                ? await signPreparedEarnOperationForSponsorship({
+                    connection,
+                    feePayer: preparedStep.prepared.payer,
+                    prepared: policyClosePrepared,
+                    wallet: walletBridge,
+                  })
+                : null;
+            const confirmations = await postSponsoredEarnWithdraw({
+              autodepositCloseConfirmedSlot,
+              autodepositCloseSignature,
+              policyCloseTransaction,
+              preparedWithdraw,
+              preparedStep,
+              withdrawalTransaction,
+              smartAccountAddress: preparedWithdraw.vault.pubkey.toBase58(),
+            });
+            signature = confirmations.withdrawal.signature;
+            confirmedSlot = confirmations.withdrawal.confirmedSlot;
+            withdrawalConfirmationRecorded = true;
+          } catch (error) {
+            if (
+              error instanceof SponsoredEarnWithdrawConfirmError &&
+              error.confirmations
+            ) {
+              return {
+                success: false,
+                signature: error.confirmations.withdrawal.signature,
+                confirmedSlot: error.confirmations.withdrawal.confirmedSlot,
+                status: "confirmation_record_failed",
+                mode: request.mode,
+                amountRaw: request.amountRaw.toString(),
+                error: error.message,
+              };
+            }
+            throw error;
+          }
+        } else {
+          const sendResult = await sendPreparedEarnWithClusterPreflight({
+            expectedCluster: expectedEarnCluster,
+            operation: "withdrawal",
+            preparedCluster: preparedStep.persistence.cluster,
+            send: () =>
+              sendPreparedWithWallet({
+                connection,
+                wallet: walletBridge,
+                prepared: preparedStep.prepared,
+                confirm: true,
+              }),
+          });
+          if (!sendResult.success) {
+            return sendResult;
+          }
+          signature = sendResult.signature;
+          confirmedSlot = await resolveConfirmedSignatureSlot({
+            connection,
+            signature,
+          });
+          if (policyClosePrepared) {
+            const policyCloseResult =
+              await sendPreparedEarnWithClusterPreflight({
+                expectedCluster: expectedEarnCluster,
+                operation: "policy close",
+                preparedCluster: preparedStep.persistence.cluster,
+                send: () =>
+                  sendPreparedWithWallet({
+                    connection,
+                    wallet: walletBridge,
+                    prepared: policyClosePrepared,
+                    confirm: true,
+                  }),
+              });
+            if (!policyCloseResult.success) {
+              return {
+                ...policyCloseResult,
+                signature,
+                confirmedSlot,
+                status: "confirmation_record_failed",
+                mode: request.mode,
+                amountRaw: request.amountRaw.toString(),
+              };
+            }
+          }
         }
-        const signature = sendResult.signature;
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature,
-        });
 
         const recordWithdrawalConfirmation = async () => {
           await postConfirmedEarnWithdraw({
@@ -5931,9 +6434,30 @@ export function useSmartAccountSidebarData(
         const shouldRecordConfirmationAsync =
           request.mode === "partial" &&
           request.recordConfirmationAsync &&
-          selectedStepIndex === preparedWithdraw.withdrawSteps.length - 1;
+          isFinalPreparedStep;
 
-        if (shouldRecordConfirmationAsync) {
+        if (withdrawalConfirmationRecorded) {
+          try {
+            await Promise.resolve(request.onConfirmationRecorded?.());
+          } catch (error) {
+            console.warn(
+              "[executeEarnWithdraw] post-confirm UI refresh failed",
+              error
+            );
+          }
+
+          try {
+            const nextEarnState = await fetchEarnState();
+            if (nextEarnState) {
+              setEarnState(nextEarnState);
+            }
+          } catch (error) {
+            console.warn(
+              "[executeEarnWithdraw] post-confirm Earn state refresh failed",
+              error
+            );
+          }
+        } else if (shouldRecordConfirmationAsync) {
           void recordWithdrawalConfirmation().catch((error) => {
             console.warn(
               "[executeEarnWithdraw] async backend confirmation failed",
@@ -5998,7 +6522,14 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, refreshAfterTx, solanaEnv, user?.walletAddress, wallet]
+    [
+      connection,
+      publicEnv.earnPolicySponsorPubkey,
+      refreshAfterTx,
+      solanaEnv,
+      user?.walletAddress,
+      wallet,
+    ]
   );
 
   const executeEarnCleanup = useCallback(

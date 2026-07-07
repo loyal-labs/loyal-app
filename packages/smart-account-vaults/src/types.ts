@@ -373,6 +373,7 @@ export type SmartAccountClosePoliciesSyncInput = Omit<
   SmartAccountClosePoliciesProposalInput,
   "creator"
 > & {
+  rentPayer?: PublicKey;
   signers: PublicKey[];
 };
 
@@ -738,6 +739,7 @@ export type SmartAccountPreparedEarnUsdcWithdrawStep = {
 
 export type SmartAccountPreparedEarnUsdcWithdraw = {
   autodepositClosePrepared?: SmartAccountPreparedEarnUsdcAutodepositClose | null;
+  policyClosePrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   withdrawSteps: SmartAccountPreparedEarnUsdcWithdrawStep[];
   mode: "partial" | "full";

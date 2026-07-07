@@ -10,6 +10,7 @@ import {
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
+import { resolvePolicyCreationSignatureFromChain } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import {
   parseEarnSponsoredDepositConfirmRequestBody,
   type EarnDepositConfirmRequestBody,
@@ -20,10 +21,15 @@ import {
   executeSponsoredEarnPolicyTransaction,
   type SponsoredTransactionGuardContext,
 } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
+import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 import { POST as confirmEarnDeposit } from "../route";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
+
+type SponsoredDepositConfirmation = Awaited<
+  ReturnType<typeof executeSponsoredEarnPolicyTransaction>
+>;
 
 function jsonError(
   status: number,
@@ -34,12 +40,10 @@ function jsonError(
 }
 
 function responseBodyWithSponsoredConfirmations(args: {
-  deposit: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  deposit: SponsoredDepositConfirmation;
   payload: unknown;
-  policy: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
-  setupPolicy?: Awaited<
-    ReturnType<typeof executeSponsoredEarnPolicyTransaction>
-  >;
+  policy: SponsoredDepositConfirmation;
+  setupPolicy?: SponsoredDepositConfirmation;
 }) {
   const payload =
     args.payload &&
@@ -59,15 +63,13 @@ function responseBodyWithSponsoredConfirmations(args: {
 }
 
 function buildForwardedConfirmBody(args: {
-  deposit: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  deposit: SponsoredDepositConfirmation;
   input: SponsoredYieldDepositConfirmInput;
-  policy: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
-  setupPolicy?: Awaited<
-    ReturnType<typeof executeSponsoredEarnPolicyTransaction>
-  >;
+  policy: SponsoredDepositConfirmation;
+  setupPolicy?: SponsoredDepositConfirmation;
 }): EarnDepositConfirmRequestBody & {
   depositTransaction: string;
-  policyTransaction: string;
+  policyTransaction?: string | null;
   setupPolicyTransaction?: string | null;
 } {
   const { deposit, input, policy, setupPolicy } = args;
@@ -86,7 +88,9 @@ function buildForwardedConfirmBody(args: {
     policyInitialization: input.policyInitialization,
     policySeed: input.policySeed.toString(),
     policySignature: policy.signature,
-    policyTransaction: input.policyTransaction,
+    ...(input.policyTransaction
+      ? { policyTransaction: input.policyTransaction }
+      : {}),
     principalAmountRaw: input.principalAmountRaw.toString(),
     settings: input.settings,
     setupPolicyAccount: input.setupPolicyAccount ?? null,
@@ -106,6 +110,54 @@ function buildForwardedConfirmBody(args: {
     vaultPubkey: input.vaultPubkey,
     walletAddress: input.walletAddress,
   };
+}
+
+async function resolveReusePolicyConfirmation(
+  input: SponsoredYieldDepositConfirmInput
+): Promise<SponsoredDepositConfirmation> {
+  const activePolicyPair = await findActiveYieldRoutePolicyPair({
+    authority: input.walletAddress,
+    cluster: input.cluster,
+    settings: input.settings,
+    vaultIndex: input.vaultIndex,
+    vaultPubkey: input.vaultPubkey,
+  });
+  const activePolicy = activePolicyPair?.routePolicy ?? null;
+  if (activePolicy) {
+    if (
+      activePolicy.policyAccount !== input.policyAccount ||
+      activePolicy.policySeed !== input.policySeed
+    ) {
+      throw new EarnPolicySponsoredTransactionError({
+        status: 409,
+        code: "active_policy_mismatch",
+        message:
+          "Sponsored Earn top-up policy does not match the active Earn policy.",
+      });
+    }
+    return {
+      confirmedSlot: activePolicy.lastSeenSlot.toString(),
+      signature: activePolicy.lastSeenSignature,
+    };
+  }
+
+  const recoveredPolicy = await resolvePolicyCreationSignatureFromChain({
+    cluster: resolveLoyalWebSolanaEnvFromEnv(process.env),
+    policyAccount: input.policyAccount,
+  });
+  if (recoveredPolicy) {
+    return {
+      confirmedSlot: recoveredPolicy.slot,
+      signature: recoveredPolicy.signature,
+    };
+  }
+
+  throw new EarnPolicySponsoredTransactionError({
+    status: 409,
+    code: "active_policy_not_found",
+    message:
+      "Sponsored Earn top-up could not resolve the active Earn policy confirmation.",
+  });
 }
 
 function uniquePublicKeys(values: readonly PublicKey[]): PublicKey[] {
@@ -243,20 +295,24 @@ export async function POST(request: Request) {
     );
   }
 
-  let policy: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
-  let setupPolicy:
-    | Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>
-    | undefined;
-  let deposit: Awaited<
-    ReturnType<typeof executeSponsoredEarnPolicyTransaction>
-  >;
+  let policy: SponsoredDepositConfirmation;
+  let setupPolicy: SponsoredDepositConfirmation | undefined;
+  let deposit: SponsoredDepositConfirmation;
   try {
     const guards = await resolveDepositSponsoredTransactionGuards(input);
-    policy = await executeSponsoredEarnPolicyTransaction(
-      input.policyTransaction,
-      guards.policy
-    );
     if (input.policyInitialization === "create") {
+      if (!input.policyTransaction) {
+        throw new EarnPolicySponsoredTransactionError({
+          status: 400,
+          code: "missing_policy_transaction",
+          message:
+            "policyTransaction is required when policyInitialization is create.",
+        });
+      }
+      policy = await executeSponsoredEarnPolicyTransaction(
+        input.policyTransaction,
+        guards.policy
+      );
       if (!input.setupPolicyTransaction) {
         throw new EarnPolicySponsoredTransactionError({
           status: 400,
@@ -269,6 +325,8 @@ export async function POST(request: Request) {
         input.setupPolicyTransaction,
         guards.setupPolicy
       );
+    } else {
+      policy = await resolveReusePolicyConfirmation(input);
     }
     deposit = await executeSponsoredEarnPolicyTransaction(
       input.depositTransaction,

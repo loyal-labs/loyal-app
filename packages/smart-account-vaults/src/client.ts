@@ -6877,6 +6877,18 @@ export function createSmartAccountVaultsClient(
             walletAddress: args.walletAddress,
           })
         : null;
+    const policyCloseOperation = isFinalExit
+      ? await prepareCloseLiveYieldRoutingPoliciesSync({
+          settingsPda: args.settingsPda,
+          feePayer: args.feePayer,
+          signers: [args.walletAddress],
+          policies: [
+            policyAccount,
+            ...(setupPolicyAccount ? [setupPolicyAccount] : []),
+          ],
+          memo: args.memo,
+        })
+      : null;
 
     if (args.source?.type === "idle") {
       const transferAmountRaw = args.amountRaw;
@@ -6921,22 +6933,6 @@ export function createSmartAccountVaultsClient(
             memo: args.memo,
           } as never
         );
-      const policyCloseOperation = isFinalExit
-        ? await prepareCloseLiveYieldRoutingPoliciesSync({
-            settingsPda: args.settingsPda,
-            feePayer: args.feePayer,
-            signers: [args.walletAddress],
-            policies: [
-              policyAccount,
-              ...(setupPolicyAccount ? [setupPolicyAccount] : []),
-            ],
-            memo: args.memo,
-          })
-        : null;
-      const operations = [
-        packedExecution,
-        ...(policyCloseOperation ? [policyCloseOperation] : []),
-      ];
       const prepared = freezePreparedOperation({
         operation: "earnUsdcWithdraw",
         payer: args.feePayer,
@@ -6950,10 +6946,10 @@ export function createSmartAccountVaultsClient(
             usdcMint,
             TOKEN_PROGRAM_ID
           ),
-          ...operations.flatMap((operation) => operation.instructions),
+          ...packedExecution.instructions,
         ],
         lookupTableAccounts: dedupeLookupTableAccounts(
-          operations.flatMap((operation) => operation.lookupTableAccounts ?? [])
+          packedExecution.lookupTableAccounts ?? []
         ),
       });
       const persistence = {
@@ -7019,6 +7015,7 @@ export function createSmartAccountVaultsClient(
 
       return {
         autodepositClosePrepared: autodepositCloseOperation,
+        policyClosePrepared: policyCloseOperation,
         prepared,
         withdrawSteps: [withdrawStep],
         mode: args.mode,
@@ -7671,23 +7668,6 @@ export function createSmartAccountVaultsClient(
             memo: args.memo,
           } as never
         );
-      const policyCloseOperation =
-        isFinalExit && isFinalBatch
-          ? await prepareCloseLiveYieldRoutingPoliciesSync({
-              settingsPda: args.settingsPda,
-              feePayer: args.feePayer,
-              signers: [args.walletAddress],
-              policies: [
-                policyAccount,
-                ...(setupPolicyAccount ? [setupPolicyAccount] : []),
-              ],
-              memo: args.memo,
-            })
-          : null;
-      const operations = [
-        packedExecution,
-        ...(policyCloseOperation ? [policyCloseOperation] : []),
-      ];
       const prepared = freezePreparedOperation({
         operation: "earnUsdcWithdraw",
         payer: args.feePayer,
@@ -7701,10 +7681,10 @@ export function createSmartAccountVaultsClient(
             usdcMint,
             TOKEN_PROGRAM_ID
           ),
-          ...operations.flatMap((operation) => operation.instructions),
+          ...packedExecution.instructions,
         ],
         lookupTableAccounts: dedupeLookupTableAccounts(
-          operations.flatMap((operation) => operation.lookupTableAccounts ?? [])
+          packedExecution.lookupTableAccounts ?? []
         ),
       });
       const reserveWithdrawalMetadata = batch.map((withdrawal) => ({
@@ -7810,6 +7790,7 @@ export function createSmartAccountVaultsClient(
 
     return {
       autodepositClosePrepared: autodepositCloseOperation,
+      policyClosePrepared: policyCloseOperation,
       prepared,
       withdrawSteps,
       mode: args.mode,
@@ -8617,9 +8598,7 @@ export function createSmartAccountVaultsClient(
         return {
           delegationAccount:
             accountInfos.get(recurringDelegationAddress) ?? null,
-          policyAccountExists: Boolean(
-            accountInfos.get(policyAccountAddress)
-          ),
+          policyAccountExists: Boolean(accountInfos.get(policyAccountAddress)),
           vaultUsdcAtaExists: Boolean(accountInfos.get(vaultUsdcAtaAddress)),
         };
       };
@@ -9178,14 +9157,14 @@ export function createSmartAccountVaultsClient(
       throw new Error("At least one signer is required.");
     }
 
-    const policies = await resolvePoliciesForClose({
+    const { policies, rentPayer } = await resolvePoliciesForCloseDetails({
       policies: args.policies,
       settingsPda: args.settingsPda,
     });
 
     return smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
       {
-        feePayer: args.feePayer,
+        feePayer: args.rentPayer ?? rentPayer,
         settingsPda: args.settingsPda,
         signers: dedupePublicKeys(args.signers),
         actions: policies.map((policy) => ({
@@ -9228,14 +9207,15 @@ export function createSmartAccountVaultsClient(
       throw new Error("At least one signer is required.");
     }
 
-    const policies = await resolveYieldRoutingPoliciesForClose({
-      policies: args.policies,
-      settingsPda: args.settingsPda,
-    });
+    const { policies, rentPayer } =
+      await resolveYieldRoutingPoliciesForCloseDetails({
+        policies: args.policies,
+        settingsPda: args.settingsPda,
+      });
 
     return smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
       {
-        feePayer: args.feePayer,
+        feePayer: args.rentPayer ?? rentPayer,
         settingsPda: args.settingsPda,
         signers: dedupePublicKeys(args.signers),
         actions: policies.map((policy) => ({
@@ -9546,50 +9526,76 @@ export function createSmartAccountVaultsClient(
     return executionAccounts;
   }
 
+  function resolveSharedPolicyRentCollector(
+    policyAccounts: readonly Policy[]
+  ): PublicKey {
+    const collectors = dedupePublicKeys(
+      policyAccounts.map((policy) => policy.rentCollector)
+    );
+    if (collectors.length !== 1 || !collectors[0]) {
+      throw new Error(
+        "Policies must share one rent collector to close together."
+      );
+    }
+    return collectors[0];
+  }
+
+  async function resolvePoliciesForCloseDetails(args: {
+    policies: PublicKey[];
+    settingsPda: PublicKey;
+  }): Promise<{
+    policies: PublicKey[];
+    policyAccounts: Policy[];
+    rentPayer: PublicKey;
+  }> {
+    const policies = dedupePublicKeys(args.policies);
+
+    if (policies.length === 0) {
+      throw new Error("At least one policy is required.");
+    }
+
+    const policyAccounts = await Promise.all(
+      policies.map((policyPda) =>
+        smartAccountsClient.policies.queries.fetchPolicy(policyPda)
+      )
+    );
+
+    for (const policy of policyAccounts) {
+      if (!policy.settings.equals(args.settingsPda)) {
+        throw new Error("Policy belongs to another vault.");
+      }
+    }
+
+    return {
+      policies,
+      policyAccounts,
+      rentPayer: resolveSharedPolicyRentCollector(policyAccounts),
+    };
+  }
+
   async function resolvePoliciesForClose(args: {
     policies: PublicKey[];
     settingsPda: PublicKey;
   }): Promise<PublicKey[]> {
-    const policies = dedupePublicKeys(args.policies);
-
-    if (policies.length === 0) {
-      throw new Error("At least one policy is required.");
-    }
-
-    const policyAccounts = await Promise.all(
-      policies.map((policyPda) =>
-        smartAccountsClient.policies.queries.fetchPolicy(policyPda)
-      )
-    );
-
-    for (const policy of policyAccounts) {
-      if (!policy.settings.equals(args.settingsPda)) {
-        throw new Error("Policy belongs to another vault.");
-      }
-    }
-
-    return policies;
+    return (
+      await resolvePoliciesForCloseDetails({
+        policies: args.policies,
+        settingsPda: args.settingsPda,
+      })
+    ).policies;
   }
 
-  async function resolveYieldRoutingPoliciesForClose(args: {
+  async function resolveYieldRoutingPoliciesForCloseDetails(args: {
     policies: PublicKey[];
     settingsPda: PublicKey;
-  }): Promise<PublicKey[]> {
-    const policies = dedupePublicKeys(args.policies);
-    if (policies.length === 0) {
-      throw new Error("At least one policy is required.");
-    }
+  }): Promise<{
+    policies: PublicKey[];
+    policyAccounts: Policy[];
+    rentPayer: PublicKey;
+  }> {
+    const details = await resolvePoliciesForCloseDetails(args);
 
-    const policyAccounts = await Promise.all(
-      policies.map((policyPda) =>
-        smartAccountsClient.policies.queries.fetchPolicy(policyPda)
-      )
-    );
-
-    for (const policy of policyAccounts) {
-      if (!policy.settings.equals(args.settingsPda)) {
-        throw new Error("Policy belongs to another vault.");
-      }
+    for (const policy of details.policyAccounts) {
       if (policy.policyState.__kind !== "ProgramInteraction") {
         throw new Error(
           "Yield routing cleanup only accepts program-interaction policies."
@@ -9597,7 +9603,19 @@ export function createSmartAccountVaultsClient(
       }
     }
 
-    return policies;
+    return details;
+  }
+
+  async function resolveYieldRoutingPoliciesForClose(args: {
+    policies: PublicKey[];
+    settingsPda: PublicKey;
+  }): Promise<PublicKey[]> {
+    return (
+      await resolveYieldRoutingPoliciesForCloseDetails({
+        policies: args.policies,
+        settingsPda: args.settingsPda,
+      })
+    ).policies;
   }
 
   async function getPolicyTransactionExecutionAccounts(args: {
