@@ -33,6 +33,29 @@ export type EarnPolicyConfirmRequestBody = {
   walletAddress: string;
 };
 
+export type EarnSponsoredPolicyConfirmRequestBody = Omit<
+  EarnPolicyConfirmRequestBody,
+  | "confirmedSlot"
+  | "policySignature"
+  | "setupPolicyConfirmedSlot"
+  | "setupPolicySignature"
+> & {
+  policyTransaction: string;
+  setupPolicyTransaction: string;
+};
+
+export type SponsoredYieldRoutePolicyInput = Omit<
+  ConfirmedYieldRoutePolicyInput,
+  | "confirmedSlot"
+  | "policySignature"
+  | "setupPolicyConfirmedSlot"
+  | "setupPolicySignature"
+> & {
+  policyTransaction: string;
+  setupPolicyTransaction: string;
+  stage: "route_policy" | "setup_policy";
+};
+
 export type EarnDepositConfirmRequestBody = {
   cluster: string;
   confirmedSlot: string;
@@ -60,6 +83,34 @@ export type EarnDepositConfirmRequestBody = {
   vaultIndex: number;
   vaultPubkey: string;
   walletAddress: string;
+};
+
+export type EarnSponsoredDepositConfirmRequestBody = Omit<
+  EarnDepositConfirmRequestBody,
+  | "confirmedSlot"
+  | "depositSignature"
+  | "policyConfirmedSlot"
+  | "policySignature"
+  | "setupPolicyConfirmedSlot"
+  | "setupPolicySignature"
+> & {
+  depositTransaction: string;
+  policyTransaction: string;
+  setupPolicyTransaction: string;
+};
+
+export type SponsoredYieldDepositConfirmInput = Omit<
+  ConfirmedYieldDepositInput,
+  | "confirmedSlot"
+  | "depositSignature"
+  | "policyConfirmedSlot"
+  | "policySignature"
+  | "setupPolicyConfirmedSlot"
+  | "setupPolicySignature"
+> & {
+  depositTransaction: string;
+  policyTransaction: string;
+  setupPolicyTransaction: string;
 };
 
 export type EarnWithdrawalAutodepositCloseConfirmRequestBody = {
@@ -470,6 +521,36 @@ export function parseEarnPolicyConfirmRequestBody(
   };
 }
 
+export function parseEarnSponsoredPolicyConfirmRequestBody(
+  body: unknown
+): SponsoredYieldRoutePolicyInput {
+  const record = assertRequestObject(body);
+  const stage = readPolicyConfirmStage(record);
+  return {
+    cluster: readRequiredString(record, "cluster"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    liquidityMint: readRequiredString(record, "liquidityMint"),
+    market: readOptionalString(record, "market"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    policyId: readBigIntString(record, "policyId"),
+    policySeed: readBigIntString(record, "policySeed"),
+    policyTransaction: readRequiredString(record, "policyTransaction"),
+    stage,
+    setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
+    setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
+    setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
+    setupPolicyTransaction: readRequiredString(
+      record,
+      "setupPolicyTransaction"
+    ),
+    settings: readRequiredString(record, "settings"),
+    targetReserve: readRequiredString(record, "targetReserve"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    walletAddress: readRequiredString(record, "walletAddress"),
+  };
+}
+
 export function parseEarnDepositConfirmRequestBody(
   body: unknown
 ): ConfirmedYieldDepositInput {
@@ -501,6 +582,40 @@ export function parseEarnDepositConfirmRequestBody(
     setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
     setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
     setupPolicySignature: readOptionalString(record, "setupPolicySignature"),
+    smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
+    targetReserve: readRequiredString(record, "targetReserve"),
+    targetSupplyApyBps: readOptionalBigIntString(record, "targetSupplyApyBps"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    walletAddress: readRequiredString(record, "walletAddress"),
+  };
+}
+
+export function parseEarnSponsoredDepositConfirmRequestBody(
+  body: unknown
+): SponsoredYieldDepositConfirmInput {
+  const record = assertRequestObject(body);
+  return {
+    cluster: readRequiredString(record, "cluster"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    depositMint: readRequiredString(record, "depositMint"),
+    depositTransaction: readRequiredString(record, "depositTransaction"),
+    liquidityMint: readRequiredString(record, "liquidityMint"),
+    market: readOptionalString(record, "market"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    policyId: readBigIntString(record, "policyId"),
+    policyInitialization: readPolicyInitialization(record),
+    policySeed: readBigIntString(record, "policySeed"),
+    policyTransaction: readRequiredString(record, "policyTransaction"),
+    principalAmountRaw: readBigIntString(record, "principalAmountRaw"),
+    settings: readRequiredString(record, "settings"),
+    setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
+    setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
+    setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
+    setupPolicyTransaction: readRequiredString(
+      record,
+      "setupPolicyTransaction"
+    ),
     smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
     targetReserve: readRequiredString(record, "targetReserve"),
     targetSupplyApyBps: readOptionalBigIntString(record, "targetSupplyApyBps"),

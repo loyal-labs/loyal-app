@@ -57,6 +57,13 @@ export type ConfirmedEarnAutodepositSetupInput = {
   walletUsdcAta: string;
 };
 
+export type SponsoredEarnAutodepositSetupInput = Omit<
+  ConfirmedEarnAutodepositSetupInput,
+  "confirmedSlot" | "setupSignature"
+> & {
+  setupTransaction: string;
+};
+
 export type ConfirmedEarnAutodepositCloseInput = {
   cluster: string;
   closeSignature: string;
@@ -115,6 +122,13 @@ export type EarnAutodepositSetupConfirmRequestBody = {
   walletAddress: string;
   walletBalanceFloorRaw: string;
   walletUsdcAta: string;
+};
+
+export type EarnSponsoredAutodepositSetupConfirmRequestBody = Omit<
+  EarnAutodepositSetupConfirmRequestBody,
+  "confirmedSlot" | "setupSignature"
+> & {
+  setupTransaction: string;
 };
 
 export type EarnAutodepositCloseConfirmRequestBody = {
@@ -531,6 +545,39 @@ export function parseEarnAutodepositSetupConfirmRequestBody(
     settings: readRequiredString(record, "settings"),
     setupSignature: readRequiredString(record, "setupSignature"),
     setupStage: readSetupStage(record),
+    startTimestamp: readBigIntString(record, "startTimestamp"),
+    subscriptionAuthority: readRequiredString(record, "subscriptionAuthority"),
+    subscriptionAuthorityInitialization:
+      readSubscriptionAuthorityInitialization(record),
+    subscriptionDelegatee: readRequiredString(record, "subscriptionDelegatee"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    vaultUsdcAta: readRequiredString(record, "vaultUsdcAta"),
+    walletAddress: readRequiredString(record, "walletAddress"),
+    walletBalanceFloorRaw: readBigIntString(record, "walletBalanceFloorRaw"),
+    walletUsdcAta: readRequiredString(record, "walletUsdcAta"),
+  };
+}
+
+export function parseEarnSponsoredAutodepositSetupConfirmRequestBody(
+  body: unknown
+): SponsoredEarnAutodepositSetupInput {
+  const record = assertRequestObject(body);
+  return {
+    amountPerPeriodRaw: readBigIntString(record, "amountPerPeriodRaw"),
+    cluster: readRequiredString(record, "cluster"),
+    delegatedSigner: readRequiredString(record, "delegatedSigner"),
+    expiryTimestamp: readBigIntString(record, "expiryTimestamp"),
+    liquidityMint: readRequiredString(record, "liquidityMint"),
+    nonce: readBigIntString(record, "nonce"),
+    periodLengthSeconds: readBigIntString(record, "periodLengthSeconds"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    policyId: readBigIntString(record, "policyId"),
+    policySeed: readBigIntString(record, "policySeed"),
+    recurringDelegation: readRequiredString(record, "recurringDelegation"),
+    settings: readRequiredString(record, "settings"),
+    setupStage: readSetupStage(record),
+    setupTransaction: readRequiredString(record, "setupTransaction"),
     startTimestamp: readBigIntString(record, "startTimestamp"),
     subscriptionAuthority: readRequiredString(record, "subscriptionAuthority"),
     subscriptionAuthorityInitialization:
