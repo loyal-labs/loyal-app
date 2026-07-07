@@ -2381,6 +2381,80 @@ export async function markAutodepositTargetActiveFromArtifacts(
   return target;
 }
 
+export type AutodepositStageProof = {
+  confirmedSlot: bigint;
+  signature: string;
+};
+
+// Fills stage proof columns that a lost confirm left NULL (the stage's
+// transaction landed on-chain but its confirm never reached the DB, so the
+// row can never satisfy the recorded-proof promotion guard). COALESCE keeps
+// any recorded proof authoritative — the backfill only ever completes a row,
+// never rewrites it. Lifecycle promotion stays with the reconciler.
+export async function backfillAutodepositTargetStageProofs(
+  input: {
+    policyAccount: string;
+    policyProof: AutodepositStageProof | null;
+    recurringDelegationProof: AutodepositStageProof | null;
+    settings: string;
+    vaultIndex: number;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client" | "now"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (existing.lifecycleStatus === "closed") {
+    return existing;
+  }
+  if (!input.policyProof && !input.recurringDelegationProof) {
+    return existing;
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      lastSeenAt: dependencies.now(),
+      ...(input.policyProof
+        ? {
+            policySignature: sql`COALESCE(${balanceSweepTargets.policySignature}, ${input.policyProof.signature})`,
+            policyConfirmedSlot: sql`COALESCE(${balanceSweepTargets.policyConfirmedSlot}, ${input.policyProof.confirmedSlot.toString()}::bigint)`,
+          }
+        : {}),
+      ...(input.recurringDelegationProof
+        ? {
+            recurringDelegationSignature: sql`COALESCE(${balanceSweepTargets.recurringDelegationSignature}, ${input.recurringDelegationProof.signature})`,
+            recurringDelegationConfirmedSlot: sql`COALESCE(${balanceSweepTargets.recurringDelegationConfirmedSlot}, ${input.recurringDelegationProof.confirmedSlot.toString()}::bigint)`,
+          }
+        : {}),
+    })
+    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to backfill autodeposit target proofs.");
+  }
+
+  return target;
+}
+
 export async function upsertBalanceSweepWalletBalanceCurrent(
   input: BalanceSweepWalletBalanceCurrentInput,
   dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
