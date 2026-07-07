@@ -5,12 +5,11 @@ import {
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   parseEarnAutodepositCloseConfirmRequestBody,
@@ -24,7 +23,6 @@ import {
 
 const EARN_DEPOSIT_VAULT_INDEX = 1 as const;
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -95,29 +93,12 @@ function createCanonicalAutodepositCloseInput(
   return canonicalInput;
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getConnection(args.cluster).getSignatureStatuses(
+  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
     [args.signature],
     { searchTransactionHistory: true }
   );

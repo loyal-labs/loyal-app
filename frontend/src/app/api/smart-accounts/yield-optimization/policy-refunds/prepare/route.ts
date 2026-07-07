@@ -9,13 +9,12 @@ import {
 } from "@loyal-labs/actions";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import {
   findEarnPolicyRefundDbState,
   findSingleEarnPolicyRefundDbState,
@@ -31,7 +30,6 @@ import {
 
 const EARN_VAULT_INDEX = 1;
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -41,22 +39,6 @@ function jsonError(
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 function getBlockedReason(args: {
   activeAutodeposit: boolean;
@@ -137,7 +119,7 @@ export async function POST(request: Request) {
     const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
     const settingsPda = new PublicKey(principal.settingsPda);
     const feePayer = new PublicKey(principal.walletAddress);
-    const connection = getConnection(solanaEnv);
+    const connection = getServerSolanaConnection(solanaEnv);
     const client = createSmartAccountVaultsClient({ connection, programId });
     const [vaultPubkey] = pda.getSmartAccountPda({
       accountIndex: EARN_VAULT_INDEX,

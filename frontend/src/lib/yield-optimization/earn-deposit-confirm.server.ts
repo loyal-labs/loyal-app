@@ -6,16 +6,10 @@ import {
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import {
-  Connection,
-  PublicKey,
-  type ParsedTransactionWithMeta,
-  type TokenBalance,
-} from "@solana/web3.js";
+import { PublicKey, type ParsedTransactionWithMeta, type TokenBalance } from "@solana/web3.js";
 
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   markEarnDepositOnboardingAccountingFailed,
@@ -34,7 +28,6 @@ import {
 // a session or a verified wallet signature); this module owns everything after.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 type ConfirmedDepositTransactionProof = {
   principalAmountRaw: bigint;
@@ -311,23 +304,6 @@ function createCanonicalDepositInput(
   return canonicalInput;
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 // A route policy can exist on-chain without DB rows (the deposit that created
 // it landed but its confirm failed), so a reuse confirm has no recorded
@@ -338,7 +314,7 @@ export async function resolvePolicyCreationSignatureFromChain(args: {
   policyAccount: string;
 }): Promise<{ signature: string; slot: string } | null> {
   try {
-    const connection = getConnection(args.cluster);
+    const connection = getServerSolanaConnection(args.cluster);
     const signatures = await connection.getSignaturesForAddress(
       new PublicKey(args.policyAccount),
       { limit: 1000 },
@@ -362,7 +338,7 @@ async function resolveConfirmedSignatureSlot(args: {
   operation: "deposit" | "route policy setup" | "setup policy setup";
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getConnection(args.cluster).getSignatureStatuses(
+  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
     [args.signature],
     { searchTransactionHistory: true }
   );
@@ -390,7 +366,7 @@ async function resolveConfirmedDepositTransactionProof(args: {
   cluster: SolanaEnv;
   input: ConfirmedYieldDepositInput;
 }): Promise<ConfirmedDepositTransactionProof> {
-  const transaction = await getConnection(args.cluster).getParsedTransaction(
+  const transaction = await getServerSolanaConnection(args.cluster).getParsedTransaction(
     args.input.depositSignature,
     {
       commitment: "confirmed",

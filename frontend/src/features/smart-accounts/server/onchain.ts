@@ -1,7 +1,7 @@
 import "server-only";
 
 import bs58 from "bs58";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   codecs,
   createLoyalSmartAccountsClient,
@@ -11,38 +11,18 @@ import {
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 
 import { getServerEnv } from "@/lib/core/config/server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { recordSmartAccountSponsorshipTransactionBySignature } from "./sponsorship-analytics";
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 let cachedSponsorKeypair: Keypair | null = null;
 
-function getSmartAccountsConnection(solanaEnv: SolanaEnv): Connection {
-  const cachedConnection = connectionCache.get(solanaEnv);
-  if (cachedConnection) {
-    return cachedConnection;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(solanaEnv);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-
-  connectionCache.set(solanaEnv, connection);
-  return connection;
-}
 
 function getSmartAccountsClient(args: {
   solanaEnv: SolanaEnv;
   programId: string;
 }): LoyalSmartAccountsClient {
   return createLoyalSmartAccountsClient({
-    connection: getSmartAccountsConnection(args.solanaEnv),
+    connection: getServerSolanaConnection(args.solanaEnv),
     defaultCommitment: "confirmed",
     programId: new PublicKey(args.programId),
   });
@@ -167,7 +147,7 @@ export async function createSponsoredSmartAccount(args: {
   });
 
   void recordSmartAccountSponsorshipTransactionBySignature({
-    connection: getSmartAccountsConnection(args.solanaEnv),
+    connection: getServerSolanaConnection(args.solanaEnv),
     payerAddress: sponsor.publicKey.toBase58(),
     settingsPda: args.settingsPda,
     signature,

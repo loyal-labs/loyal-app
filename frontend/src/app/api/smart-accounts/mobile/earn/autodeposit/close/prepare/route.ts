@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
@@ -10,8 +10,7 @@ import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   parseEarnAutodepositClosePrepareRequestBody,
@@ -22,7 +21,6 @@ import {
 // + self-resolved smart account; the device signs the returned close op and
 // confirms it via `autodeposit/close/confirm`. Keep in sync with the session
 // route.
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -36,23 +34,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -127,7 +108,7 @@ export async function POST(request: Request) {
     const serverEnv = getServerEnv();
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
-      connection: getConnection(solanaEnv),
+      connection: getServerSolanaConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
     const preparedClose = await client.prepareEarnUsdcAutodepositClose({

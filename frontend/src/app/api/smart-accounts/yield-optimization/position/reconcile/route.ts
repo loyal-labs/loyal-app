@@ -2,17 +2,15 @@ import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 
 const EARN_VAULT_INDEX = 1;
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -26,23 +24,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
@@ -67,7 +48,7 @@ export async function POST(request: Request) {
     const result = await reconcileEarnVaultPosition({
       authority: principal.walletAddress,
       cluster: resolveLoyalClusterForSolanaEnv(solanaEnv),
-      connection: getConnection(solanaEnv),
+      connection: getServerSolanaConnection(solanaEnv),
       force: body.force === true,
       settings: principal.settingsPda,
       vaultPubkey: earnVaultPda.toBase58(),

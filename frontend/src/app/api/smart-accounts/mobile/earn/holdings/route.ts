@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
@@ -10,8 +10,7 @@ import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-sign
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import { fetchEarnRpcHoldingsSnapshot } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
@@ -57,7 +56,6 @@ import {
 // stale snapshot slip through anyway.
 const EARN_VAULT_INDEX = 1;
 const EARN_READ_MODEL_HEAL_MIN_DELTA_RAW = BigInt(10_000); // $0.01
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -71,22 +69,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 export async function GET(request: Request) {
   const walletAddress =
@@ -176,7 +158,7 @@ export async function GET(request: Request) {
     const readSnapshot = () =>
       fetchEarnRpcHoldingsSnapshot({
         cluster,
-        connection: getConnection(solanaEnv),
+        connection: getServerSolanaConnection(solanaEnv),
         minContextSlot,
         policy: serializeRoutePolicyState(
           policyPair.routePolicy,
@@ -230,7 +212,7 @@ export async function GET(request: Request) {
         await reconcileEarnVaultPosition({
           authority: walletAddress,
           cluster,
-          connection: getConnection(solanaEnv),
+          connection: getServerSolanaConnection(solanaEnv),
           force: true,
           minContextSlot,
           settings: account.settingsPda,

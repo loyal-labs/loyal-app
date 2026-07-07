@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey, type Connection } from "@solana/web3.js";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
@@ -10,8 +10,7 @@ import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-sign
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import {
   fetchEarnRpcHoldingsSnapshot,
   type EarnRpcHolding,
@@ -32,7 +31,6 @@ import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-d
 // tokenAccount/mint) so a `withdraw/prepare` call can match it.
 const EARN_VAULT_INDEX = 1 as const;
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 type WithdrawSource = {
   type: "reserve" | "idle";
@@ -57,7 +55,7 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-function getConnection(env: SolanaEnv): Connection {
+function getServerSolanaConnection(env: SolanaEnv): Connection {
   const cached = connectionCache.get(env);
   if (cached) {
     return cached;
@@ -187,7 +185,7 @@ export async function GET(request: Request) {
 
     const snapshot = await fetchEarnRpcHoldingsSnapshot({
       cluster,
-      connection: getConnection(solanaEnv),
+      connection: getServerSolanaConnection(solanaEnv),
       policy: serializeRoutePolicyState(
         policyPair.routePolicy,
         policyPair.setupPolicy ?? null

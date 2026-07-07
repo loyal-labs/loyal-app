@@ -16,13 +16,12 @@ import {
   TOKEN_PROGRAM_ID,
   unpackAccount,
 } from "@solana/spl-token";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey, type Connection } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   assertEarnAutodepositArtifactsExist,
@@ -47,7 +46,6 @@ const MONTH_PERIOD_SECONDS = BigInt(30 * 24 * 60 * 60);
 const BOOTSTRAP_BALANCE_SOURCE = "app_autodeposit_setup_confirm";
 const BOOTSTRAP_BALANCE_SOURCE_COMMITMENT = "confirmed";
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -218,28 +216,12 @@ function createCanonicalAutodepositSetupInput(
   return canonicalInput;
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getConnection(args.cluster).getSignatureStatuses(
+  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
     [args.signature],
     { searchTransactionHistory: true }
   );
@@ -424,7 +406,7 @@ export async function POST(request: Request) {
   }
 
   const solanaEnv = getConfiguredSolanaEnv();
-  const connection = getConnection(solanaEnv);
+  const connection = getServerSolanaConnection(solanaEnv);
   const serverEnv = getServerEnv();
   const configuredCluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   if (input.cluster !== configuredCluster) {

@@ -18,10 +18,10 @@ import { Connection, PublicKey } from "@solana/web3.js";
 
 import { getServerEnv } from "@/lib/core/config/server";
 import { createFrontendAssetProvider } from "@/lib/solana/frontend-asset-provider";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 const walletDataClientCache = new Map<
   SolanaEnv,
   ReturnType<typeof createSolanaWalletDataClient>
@@ -115,24 +115,6 @@ function setCompletedOverviewResult(cacheKey: string, result: unknown) {
   });
 }
 
-function getConnection(solanaEnv: SolanaEnv) {
-  const cachedConnection = connectionCache.get(solanaEnv);
-  if (cachedConnection) {
-    return cachedConnection;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(solanaEnv);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-
-  connectionCache.set(solanaEnv, connection);
-  return connection;
-}
 
 function getWalletDataClient(solanaEnv: SolanaEnv) {
   const cachedClient = walletDataClientCache.get(solanaEnv);
@@ -216,7 +198,7 @@ function createSmartAccountVaultsReadClient(solanaEnv: SolanaEnv) {
   const serverEnv = getServerEnv();
 
   return createSmartAccountVaultsClient({
-    connection: getConnection(solanaEnv),
+    connection: getServerSolanaConnection(solanaEnv),
     walletDataClient: getWalletDataClient(solanaEnv),
     programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
   });
@@ -371,7 +353,7 @@ export async function fetchCurrentSmartAccountVaultSnapshots(args: {
   }
 
   const client = createSmartAccountVaultsClient({
-    connection: getConnection(serverEnv.solanaEnv),
+    connection: getServerSolanaConnection(serverEnv.solanaEnv),
     walletDataClient,
     programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
   });
@@ -439,7 +421,7 @@ export async function fetchCurrentSmartAccountOverview(args: {
   }
 
   const client = createSmartAccountVaultsClient({
-    connection: getConnection(serverEnv.solanaEnv),
+    connection: getServerSolanaConnection(serverEnv.solanaEnv),
     walletDataClient,
     programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
   });

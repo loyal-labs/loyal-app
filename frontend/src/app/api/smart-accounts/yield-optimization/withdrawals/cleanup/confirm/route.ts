@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection } from "@solana/web3.js";
+import { type Connection } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { parseEarnWithdrawCleanupConfirmRequestBody } from "@/lib/yield-optimization/earn-withdraw-cleanup-contracts.shared";
 import { recordConfirmedEarnCleanup } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -22,23 +20,6 @@ function jsonError(
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 async function resolveConfirmedSignatureSlot(args: {
   connection: Connection;
@@ -96,7 +77,7 @@ export async function POST(request: Request) {
   }
 
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
-  const connection = getConnection(solanaEnv);
+  const connection = getServerSolanaConnection(solanaEnv);
 
   try {
     const confirmedSlot = await resolveConfirmedSignatureSlot({

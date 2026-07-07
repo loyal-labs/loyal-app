@@ -10,15 +10,9 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import {
-  Connection,
-  PublicKey,
-  type ParsedTransactionWithMeta,
-  type TokenBalance,
-} from "@solana/web3.js";
+import { PublicKey, type ParsedTransactionWithMeta, type TokenBalance } from "@solana/web3.js";
 
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
@@ -54,7 +48,6 @@ export class EarnWithdrawConfirmError extends Error {
   }
 }
 
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 type ConfirmedWithdrawalTransactionProof = {
   reserveDebitAmountRaw: bigint;
@@ -63,23 +56,6 @@ type ConfirmedWithdrawalTransactionProof = {
   walletTransferAmountRaw: bigint;
 };
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 function assertCanonicalField(
   actual: string | bigint | number | null,
@@ -168,7 +144,7 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
   cluster: SolanaEnv;
   input: ConfirmedYieldWithdrawalInput;
 }): Promise<ConfirmedWithdrawalTransactionProof> {
-  const transaction = await getConnection(args.cluster).getParsedTransaction(
+  const transaction = await getServerSolanaConnection(args.cluster).getParsedTransaction(
     args.input.withdrawalSignature,
     {
       commitment: "confirmed",
@@ -403,7 +379,7 @@ async function resolveConfirmedSignatureSlot(args: {
   operation: "autodeposit close" | "withdrawal";
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getConnection(args.cluster).getSignatureStatuses(
+  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
     [args.signature],
     { searchTransactionHistory: true }
   );
@@ -589,7 +565,7 @@ export async function recordConfirmedEarnWithdrawal(args: {
     await reconcileEarnVaultPosition({
       authority: input.walletAddress,
       cluster: normalizeLoyalCluster(input.cluster),
-      connection: getConnection(solanaEnv),
+      connection: getServerSolanaConnection(solanaEnv),
       force: true,
       settings: input.settings,
       vaultPubkey: input.vaultPubkey,

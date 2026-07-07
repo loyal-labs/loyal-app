@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey, type Connection } from "@solana/web3.js";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
@@ -8,8 +8,7 @@ import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-sign
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { probeEarnAutodepositArtifacts } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
 import { getDisplayableEarnAutodepositScheduledSweeps } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
@@ -32,7 +31,6 @@ const EARN_VAULT_INDEX = 1 as const;
 const RECONCILE_BOOTSTRAP_BALANCE_SOURCE =
   "mobile_autodeposit_artifact_reconcile";
 const RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT = "confirmed";
-const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
@@ -67,22 +65,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-function getConnection(cluster: SolanaEnv): Connection {
-  const cached = connectionCache.get(cluster);
-  if (cached) {
-    return cached;
-  }
-
-  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(cluster, connection);
-  return connection;
-}
 
 async function reconcileAutodepositArtifacts(args: {
   connection: Connection;
@@ -196,7 +178,7 @@ export async function GET(request: Request) {
       });
     }
     const serverEnv = getServerEnv();
-    const connection = getConnection(getConfiguredSolanaEnv());
+    const connection = getServerSolanaConnection(getConfiguredSolanaEnv());
     const reconciledState = await reconcileAutodepositArtifacts({
       connection,
       settings: account.settingsPda,
