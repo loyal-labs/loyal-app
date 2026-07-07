@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
@@ -10,6 +11,7 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import { probeEarnAutodepositArtifacts } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
 import { getDisplayableEarnAutodepositScheduledSweeps } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
@@ -65,6 +67,30 @@ function serializeScheduledSweep(
 
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
+}
+
+// Everything the device needs to run the SDK's autodeposit prepare locally
+// (client-side instruction building) instead of calling `setup/prepare`.
+// Null when the deployment isn't configured for it (missing signer env or an
+// unsupported cluster) — the read-only state above must still be served.
+function buildPrepareContext(): {
+  cluster: string;
+  policySigner: string;
+  programId: string;
+} | null {
+  try {
+    return {
+      cluster: resolveLoyalClusterForSolanaEnv(getConfiguredSolanaEnv()),
+      policySigner: getDeploymentPolicySignerPublicKey().toBase58(),
+      programId: getServerEnv().loyalSmartAccounts.programId,
+    };
+  } catch (error) {
+    console.warn("[mobile-earn-autodeposit-state] prepare context unavailable", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown context error.",
+    });
+    return null;
+  }
 }
 
 function getConnection(cluster: SolanaEnv): Connection {
@@ -163,6 +189,7 @@ export async function GET(request: Request) {
 
   const emptyState = {
     autodeposit: null,
+    prepareContext: null,
     settingsPda: null,
     smartAccountAddress: null,
   };
@@ -191,6 +218,7 @@ export async function GET(request: Request) {
     if (!state) {
       return NextResponse.json({
         autodeposit: null,
+        prepareContext: buildPrepareContext(),
         settingsPda: account.settingsPda,
         smartAccountAddress: account.smartAccountAddress,
       });
@@ -295,11 +323,26 @@ export async function GET(request: Request) {
           reconciledState.target.walletBalanceFloorRaw?.toString() ?? null,
         lifecycleStatus: reconciledState.target.lifecycleStatus,
         vaultIndex: EARN_VAULT_INDEX,
+        // Resume metadata for the device-side prepare: a half-finished setup
+        // (pending_policy/pending_delegation) must reuse the recorded seed,
+        // nonce and window so the SDK returns the missing stage for the SAME
+        // policy/delegation pair — mirrors the `setup/prepare` resume logic.
+        policySeed: reconciledState.target.policySeed.toString(),
+        recurringDelegationNonce:
+          reconciledState.target.recurringDelegationNonce?.toString() ?? null,
+        periodLengthSeconds:
+          reconciledState.target.periodLengthSeconds?.toString() ?? null,
+        startTimestamp:
+          reconciledState.target.startTimestamp?.toString() ?? null,
+        recurringDelegationExpiryTimestamp:
+          reconciledState.target.recurringDelegationExpiryTimestamp?.toString() ??
+          null,
         scheduledSweeps: getDisplayableEarnAutodepositScheduledSweeps(
           reconciledState.status,
           scheduledSweeps
         ).map(serializeScheduledSweep),
       },
+      prepareContext: buildPrepareContext(),
       settingsPda: account.settingsPda,
       smartAccountAddress: account.smartAccountAddress,
     });
