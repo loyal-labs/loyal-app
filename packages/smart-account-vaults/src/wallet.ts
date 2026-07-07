@@ -2,7 +2,7 @@ import {
   compilePreparedOperation,
   translateAndThrowAnchorError,
 } from "@loyal-labs/loyal-smart-accounts-core";
-import type { VersionedTransaction } from "@solana/web3.js";
+import type { PublicKey, VersionedTransaction } from "@solana/web3.js";
 import {
   getPreparedSimulationDiagnosticError,
   simulationIndicatesMissingAccount,
@@ -18,6 +18,19 @@ type PreparedConnection = SendPreparedWithWalletArgs["connection"];
 type SimulatedTransactionValue = Awaited<
   ReturnType<PreparedConnection["simulateTransaction"]>
 >["value"];
+
+export function compilePreparedTransaction(args: {
+  blockhash: string;
+  feePayer?: PublicKey;
+  prepared: PreparedOperation;
+}): VersionedTransaction {
+  return compilePreparedOperation({
+    blockhash: args.blockhash,
+    prepared: args.feePayer
+      ? { ...args.prepared, payer: args.feePayer }
+      : args.prepared,
+  });
+}
 
 function attachCause(error: Error, cause: unknown, logs?: string[]): Error {
   (error as Error & { cause?: unknown; logs?: string[] }).cause ??= cause;
@@ -185,7 +198,7 @@ export async function sendPreparedWithWallet({
   sendOptions,
 }: SendPreparedWithWalletArgs): Promise<string> {
   const latestBlockhash = await connection.getLatestBlockhash("confirmed");
-  const transaction = compilePreparedOperation({
+  const transaction = compilePreparedTransaction({
     prepared,
     blockhash: latestBlockhash.blockhash,
   });
@@ -257,7 +270,7 @@ export async function sendPreparedBatchWithWallet({
 
   const latestBlockhash = await connection.getLatestBlockhash("confirmed");
   const transactions = prepared.map((operation) =>
-    compilePreparedOperation({
+    compilePreparedTransaction({
       prepared: operation,
       blockhash: latestBlockhash.blockhash,
     })

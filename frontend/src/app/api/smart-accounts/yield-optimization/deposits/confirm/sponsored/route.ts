@@ -20,16 +20,39 @@ function jsonError(
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function buildForwardedConfirmBody(
-  args: {
-    deposit: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
-    input: SponsoredYieldDepositConfirmInput;
-    policy: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
-    setupPolicy?: Awaited<
-      ReturnType<typeof executeSponsoredEarnPolicyTransaction>
-    >;
-  }
-): EarnDepositConfirmRequestBody & {
+function responseBodyWithSponsoredConfirmations(args: {
+  deposit: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  payload: unknown;
+  policy: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  setupPolicy?: Awaited<
+    ReturnType<typeof executeSponsoredEarnPolicyTransaction>
+  >;
+}) {
+  const payload =
+    args.payload &&
+    typeof args.payload === "object" &&
+    !Array.isArray(args.payload)
+      ? args.payload
+      : { data: args.payload };
+
+  return {
+    ...payload,
+    sponsoredConfirmations: {
+      deposit: args.deposit,
+      policy: args.policy,
+      setupPolicy: args.setupPolicy ?? null,
+    },
+  };
+}
+
+function buildForwardedConfirmBody(args: {
+  deposit: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  input: SponsoredYieldDepositConfirmInput;
+  policy: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  setupPolicy?: Awaited<
+    ReturnType<typeof executeSponsoredEarnPolicyTransaction>
+  >;
+}): EarnDepositConfirmRequestBody & {
   depositTransaction: string;
   policyTransaction: string;
   setupPolicyTransaction: string;
@@ -86,7 +109,9 @@ export async function POST(request: Request) {
   let setupPolicy:
     | Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>
     | undefined;
-  let deposit: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  let deposit: Awaited<
+    ReturnType<typeof executeSponsoredEarnPolicyTransaction>
+  >;
   try {
     policy = await executeSponsoredEarnPolicyTransaction(
       input.policyTransaction
@@ -110,7 +135,7 @@ export async function POST(request: Request) {
   headers.set("content-type", "application/json");
   headers.delete("content-length");
 
-  return confirmEarnDeposit(
+  const forwardedResponse = await confirmEarnDeposit(
     new Request(request.url, {
       body: JSON.stringify(
         buildForwardedConfirmBody({ deposit, input, policy, setupPolicy })
@@ -118,5 +143,15 @@ export async function POST(request: Request) {
       headers,
       method: "POST",
     })
+  );
+  const forwardedPayload = await forwardedResponse.json().catch(() => null);
+  return NextResponse.json(
+    responseBodyWithSponsoredConfirmations({
+      deposit,
+      payload: forwardedPayload,
+      policy,
+      setupPolicy,
+    }),
+    { status: forwardedResponse.status }
   );
 }

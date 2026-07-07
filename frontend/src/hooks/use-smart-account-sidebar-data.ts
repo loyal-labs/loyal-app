@@ -6,6 +6,7 @@ import {
 } from "@loyal-labs/actions";
 import {
   combineSmartAccountNativeSolRequirements,
+  compilePreparedTransaction,
   createSmartAccountVaultsClient,
   sendPreparedBatchWithWallet,
   sendPreparedWithWallet,
@@ -73,6 +74,7 @@ import {
   buildEarnDepositPolicyStageConfirmRequestBody,
   buildEarnPolicyConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
+  type EarnSponsoredDepositConfirmRequestBody,
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import { resolveEarnDepositConfirmPolicySignature } from "@/lib/yield-optimization/earn-deposit-flow.shared";
 import {
@@ -363,6 +365,9 @@ const EMPTY_SIGNER_PORTFOLIO_VIEW: SmartAccountSignerPortfolioView = {
   error: null,
 };
 const EMPTY_STABLECOIN_MINTS = new Set<string>();
+const IS_EARN_POLICY_SPONSORSHIP_ENABLED = true;
+
+type EarnDepositBatchStage = "policy" | "policy-finalize" | "deposit";
 
 export type VaultTransferRequest = {
   accountIndex: number;
@@ -1440,6 +1445,79 @@ async function postConfirmedEarnDeposit(args: {
   }
 }
 
+type SponsoredEarnDepositConfirmation = {
+  confirmedSlot: string;
+  signature: string;
+};
+
+type SponsoredEarnDepositConfirmations = {
+  deposit: SponsoredEarnDepositConfirmation;
+  policy: SponsoredEarnDepositConfirmation;
+  setupPolicy?: SponsoredEarnDepositConfirmation | null;
+};
+
+type SponsoredEarnDepositConfirmResponse = {
+  sponsoredConfirmations?: SponsoredEarnDepositConfirmations;
+};
+
+class SponsoredEarnDepositConfirmError extends Error {
+  readonly confirmations?: SponsoredEarnDepositConfirmations;
+
+  constructor(args: {
+    confirmations?: SponsoredEarnDepositConfirmations;
+    message: string;
+  }) {
+    super(args.message);
+    this.name = "SponsoredEarnDepositConfirmError";
+    this.confirmations = args.confirmations;
+  }
+}
+
+async function postSponsoredEarnDeposit(args: {
+  depositTransaction: string;
+  policyTransaction: string;
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  setupPolicyTransaction: string;
+  smartAccountAddress: string;
+}): Promise<SponsoredEarnDepositConfirmations> {
+  const body: EarnSponsoredDepositConfirmRequestBody = {
+    ...args.preparedDeposit.persistence,
+    depositTransaction: args.depositTransaction,
+    policyTransaction: args.policyTransaction,
+    setupPolicyTransaction: args.setupPolicyTransaction,
+    smartAccountAddress: args.smartAccountAddress,
+  };
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/deposits/confirm/sponsored",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | (SmartAccountRouteErrorResponse & SponsoredEarnDepositConfirmResponse)
+    | null;
+
+  if (!response.ok) {
+    throw new SponsoredEarnDepositConfirmError({
+      confirmations: payload?.sponsoredConfirmations,
+      message:
+        payload?.error?.message ?? "Failed to execute sponsored Earn deposit.",
+    });
+  }
+
+  if (!payload?.sponsoredConfirmations) {
+    throw new Error(
+      "Sponsored Earn deposit response is missing confirmations."
+    );
+  }
+
+  return payload.sponsoredConfirmations;
+}
+
 async function postConfirmedEarnAutodepositSetup(args: {
   preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
   signature: string;
@@ -2378,6 +2456,74 @@ function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
       nextConnection: ReturnType<typeof useConnection>["connection"],
       options?: SendOptions
     ) => wallet.sendTransaction!(transaction, nextConnection, options),
+  };
+}
+
+type WalletAdapterBridge = NonNullable<
+  ReturnType<typeof createWalletAdapterBridge>
+>;
+
+function encodeBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function signPreparedEarnDepositBatchForSponsorship(args: {
+  connection: Connection;
+  feePayer: PublicKey;
+  preparedStages: ReadonlyArray<{
+    prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"];
+    stage: EarnDepositBatchStage;
+  }>;
+  wallet: WalletAdapterBridge;
+}): Promise<{
+  depositTransaction: string;
+  policyTransaction: string;
+  setupPolicyTransaction: string;
+}> {
+  if (!args.wallet.signAllTransactions) {
+    throw new Error("Connected wallet does not support signAllTransactions.");
+  }
+
+  const latestBlockhash = await args.connection.getLatestBlockhash("confirmed");
+  const transactions = args.preparedStages.map(({ prepared }) =>
+    compilePreparedTransaction({
+      blockhash: latestBlockhash.blockhash,
+      feePayer: args.feePayer,
+      prepared,
+    })
+  );
+  const signedTransactions = await args.wallet.signAllTransactions(
+    transactions
+  );
+  if (signedTransactions.length !== args.preparedStages.length) {
+    throw new Error("Signed transaction count does not match prepared count.");
+  }
+
+  const transactionByStage = new Map<EarnDepositBatchStage, string>();
+  for (const [index, transaction] of signedTransactions.entries()) {
+    const stage = args.preparedStages[index]?.stage;
+    if (!stage) {
+      throw new Error("Signed transaction did not match a prepared stage.");
+    }
+    transactionByStage.set(stage, encodeBase64(transaction.serialize()));
+  }
+
+  const policyTransaction = transactionByStage.get("policy");
+  const setupPolicyTransaction = transactionByStage.get("policy-finalize");
+  const depositTransaction = transactionByStage.get("deposit");
+  if (!policyTransaction || !setupPolicyTransaction || !depositTransaction) {
+    throw new Error("Sponsored Earn deposit batch is missing a signed stage.");
+  }
+
+  return {
+    depositTransaction,
+    policyTransaction,
+    setupPolicyTransaction,
   };
 }
 
@@ -4997,7 +5143,6 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      type EarnDepositBatchStage = "policy" | "policy-finalize" | "deposit";
       const batchStages: Array<{
         stage: EarnDepositBatchStage;
         prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"];
@@ -5045,6 +5190,30 @@ export function useSmartAccountSidebarData(
       );
       if (nativeSolError) {
         return { success: false, error: nativeSolError };
+      }
+
+      const canUseSponsoredBatch =
+        IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
+        request.startStage === "policy" &&
+        Boolean(request.preparedDeposit.policySetupPrepared) &&
+        Boolean(request.preparedDeposit.policyFinalizePrepared);
+      let sponsorFeePayer: PublicKey | null = null;
+      if (canUseSponsoredBatch) {
+        if (!publicEnv.earnPolicySponsorPubkey) {
+          return {
+            success: false,
+            error:
+              "Earn policy sponsorship is enabled but EARN_POLICY_SPONSOR_PUBKEY is not configured.",
+          };
+        }
+        try {
+          sponsorFeePayer = new PublicKey(publicEnv.earnPolicySponsorPubkey);
+        } catch {
+          return {
+            success: false,
+            error: "EARN_POLICY_SPONSOR_PUBKEY is not a valid public key.",
+          };
+        }
       }
 
       setIsActionPending(true);
@@ -5103,6 +5272,74 @@ export function useSmartAccountSidebarData(
             signature: string;
           } | null;
         } = { current: null };
+
+        if (canUseSponsoredBatch && sponsorFeePayer) {
+          try {
+            const signedTransactions =
+              await signPreparedEarnDepositBatchForSponsorship({
+                connection,
+                feePayer: sponsorFeePayer,
+                preparedStages: batchStages,
+                wallet: walletBridge,
+              });
+            const confirmations = await postSponsoredEarnDeposit({
+              ...signedTransactions,
+              preparedDeposit: request.preparedDeposit,
+              smartAccountAddress:
+                request.preparedDeposit.vault.pubkey.toBase58(),
+            });
+
+            policyConfirmedSlot = confirmations.policy.confirmedSlot;
+            policySignature = confirmations.policy.signature;
+            setupPolicyConfirmedSlot = confirmations.setupPolicy?.confirmedSlot;
+            setupPolicySignature = confirmations.setupPolicy?.signature;
+            depositConfirmedSlot = confirmations.deposit.confirmedSlot;
+            depositSignature = confirmations.deposit.signature;
+
+            const nextEarnState = await fetchEarnState();
+            if (nextEarnState) {
+              setEarnState(nextEarnState);
+            }
+
+            void refreshAfterTx({
+              accountIndex: request.preparedDeposit.vault.accountIndex,
+              refreshAuthenticatedWallet: false,
+            }).catch((err) => {
+              console.warn("[smart-account] post-earn refresh failed", err);
+            });
+
+            return {
+              success: true,
+              signature: depositSignature,
+              confirmedSlot: depositConfirmedSlot,
+              status: "executed",
+              ...collectedSignatureFields(),
+            };
+          } catch (error) {
+            if (
+              error instanceof SponsoredEarnDepositConfirmError &&
+              error.confirmations
+            ) {
+              policyConfirmedSlot = error.confirmations.policy.confirmedSlot;
+              policySignature = error.confirmations.policy.signature;
+              setupPolicyConfirmedSlot =
+                error.confirmations.setupPolicy?.confirmedSlot;
+              setupPolicySignature = error.confirmations.setupPolicy?.signature;
+
+              return {
+                success: false,
+                signature: error.confirmations.deposit.signature,
+                confirmedSlot: error.confirmations.deposit.confirmedSlot,
+                status: "confirmation_record_failed",
+                ...collectedSignatureFields(),
+                resumeStage: "deposit",
+                error: error.message,
+              };
+            }
+
+            throw error;
+          }
+        }
 
         try {
           await sendPreparedBatchWithWallet({
@@ -5267,6 +5504,7 @@ export function useSmartAccountSidebarData(
     [
       connection,
       earnState,
+      publicEnv.earnPolicySponsorPubkey,
       refreshAfterTx,
       solanaEnv,
       user?.walletAddress,

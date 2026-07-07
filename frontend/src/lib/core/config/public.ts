@@ -19,6 +19,7 @@ const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
 const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
+const EARN_POLICY_SPONSOR_PUBKEY_ENV_NAME = "EARN_POLICY_SPONSOR_PUBKEY";
 const USERCENTRICS_SETTINGS_ID_ENV_NAME =
   "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
@@ -41,6 +42,7 @@ export type PublicEnv = {
   swap: SwapConfig;
   skillsEnabled: boolean;
   demoRecipeEnabled: boolean;
+  earnPolicySponsorPubkey: string | undefined;
   mixpanelToken: string | undefined;
   mixpanelProxyPath: string;
   usercentricsSettingsId: string | undefined;
@@ -120,6 +122,10 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
       getOptionalEnv(env, SKILLS_ENABLED_ENV_NAME) ?? "true"
     ),
     demoRecipeEnabled: isStrictTrue(getOptionalEnv(env, DEMO_RECIPE_ENV_NAME)),
+    earnPolicySponsorPubkey: getOptionalEnv(
+      env,
+      EARN_POLICY_SPONSOR_PUBKEY_ENV_NAME
+    ),
     mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
     mixpanelProxyPath: (() => {
       const value = getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_PROXY_PATH");
