@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { fetchTokenDetailByMint } from "@/lib/market/token-detail.server";
+import {
+  fetchTokenDetailByMint,
+  parseMobileTokenDetailTimeframe,
+} from "@/lib/market/token-detail.server";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,19 +16,19 @@ export async function OPTIONS() {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ mint: string }> }
 ): Promise<NextResponse> {
   try {
     const { mint } = await context.params;
-    const detail = await fetchTokenDetailByMint(mint);
+    const timeframe = parseMobileTokenDetailTimeframe(
+      new URL(request.url).searchParams.get("timeframe")
+    );
+    const detail = await fetchTokenDetailByMint(mint, timeframe);
 
     return NextResponse.json(detail, { headers: corsHeaders });
   } catch (error) {
-    console.error(
-      "[api/mobile/tokens/[mint]] Failed to fetch token detail",
-      error
-    );
+    console.error("[api/mobile/tokens/[mint]] Failed to fetch token detail", error);
 
     return NextResponse.json(
       { error: "Failed to fetch token detail" },
