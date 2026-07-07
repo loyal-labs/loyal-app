@@ -139,6 +139,7 @@ type EarnStateResponse = {
       classification: string;
       confidence: string;
       eligibleAfter: string;
+      executeNowAvailableAt?: string | null;
       id: string;
       originalAmountRaw: string;
       reason: string;
@@ -522,6 +523,13 @@ type EarnAutodepositPrepareContextKeyInput = {
   walletAddress: PublicKey;
 };
 
+type EarnAutodepositSetupPrepareKeyRequest = Omit<
+  EarnAutodepositSetupRequest,
+  "preparedSetup"
+> & {
+  refreshImmediateStartTimestamp?: boolean;
+};
+
 function formatPrepareKeyBigInt(value: bigint | null | undefined): string {
   return value === null || value === undefined ? "" : value.toString();
 }
@@ -530,7 +538,7 @@ function createEarnAutodepositPrepareKey(args: {
   context: EarnAutodepositPrepareContextKeyInput;
   kind: "batch" | "setup";
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
-  request: Omit<EarnAutodepositSetupRequest, "preparedSetup">;
+  request: EarnAutodepositSetupPrepareKeyRequest;
 }): string {
   const preparedSetup = args.preparedSetup;
 
@@ -551,6 +559,9 @@ function createEarnAutodepositPrepareKey(args: {
     preparedStage: preparedSetup?.stage ?? null,
     preparedSubscriptionNonce:
       preparedSetup?.subscription.nonce.toString() ?? null,
+    refreshImmediateStartTimestamp: Boolean(
+      args.request.refreshImmediateStartTimestamp
+    ),
     settingsPda: args.context.settingsPda.toBase58(),
     signer: args.context.signer.toBase58(),
     startTimestamp: formatPrepareKeyBigInt(args.request.startTimestamp),
@@ -749,8 +760,8 @@ function isMatchingEarnAutodepositSetupBatch(args: {
       preparedSetup.persistence.periodLengthSeconds &&
     nextPreparedSetup.persistence.settings ===
       preparedSetup.persistence.settings &&
-    nextPreparedSetup.persistence.startTimestamp ===
-      preparedSetup.persistence.startTimestamp &&
+    BigInt(nextPreparedSetup.persistence.startTimestamp) >=
+      BigInt(preparedSetup.persistence.startTimestamp) &&
     nextPreparedSetup.persistence.vaultPubkey ===
       preparedSetup.persistence.vaultPubkey &&
     nextPreparedSetup.persistence.walletAddress ===
@@ -767,7 +778,7 @@ function isMatchingEarnAutodepositSetupBatch(args: {
       preparedSetup.subscription.expiryTimestamp &&
     nextPreparedSetup.subscription.periodLengthSeconds ===
       preparedSetup.subscription.periodLengthSeconds &&
-    nextPreparedSetup.subscription.startTimestamp ===
+    nextPreparedSetup.subscription.startTimestamp >=
       preparedSetup.subscription.startTimestamp &&
     nextPreparedSetup.vault.pubkey.toBase58() ===
       preparedSetup.vault.pubkey.toBase58()
@@ -5964,6 +5975,7 @@ export function useSmartAccountSidebarData(
     async (
       request: Omit<EarnAutodepositSetupRequest, "preparedSetup"> & {
         preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
+        refreshImmediateStartTimestamp?: boolean;
       }
     ): Promise<EarnAutodepositSetupBatchPrepare> => {
       const context = getEarnAutodepositPrepareContext();
@@ -6000,6 +6012,8 @@ export function useSmartAccountSidebarData(
               {
                 ...setupInput,
                 preparedSetup: request.preparedSetup,
+                refreshImmediateStartTimestamp:
+                  request.refreshImmediateStartTimestamp,
               }
             )
           : await context.client.prepareEarnUsdcAutodepositSetupBatch({
@@ -6212,6 +6226,7 @@ export function useSmartAccountSidebarData(
                 wallet: walletBridge,
                 prepared: batchPreparedSetups.map((setup) => setup.prepared),
                 confirm: true,
+                sendMode: "send-all-before-confirm",
                 onTransactionSent: ({ index }) => {
                   const sentSetup = batchPreparedSetups[index];
                   if (sentSetup?.stage === "create_recurring_delegation") {
@@ -6404,6 +6419,27 @@ export function useSmartAccountSidebarData(
         const nextPreparedSetup =
           preparedSetup.stage === "create_recurring_delegation"
             ? null
+            : preparedSetup.stage === "create_policy"
+            ? (
+                await prepareEarnAutodepositSetupBatch({
+                  amountRaw: request.amountRaw,
+                  expiryTimestamp:
+                    request.expiryTimestamp ??
+                    preparedSetup.subscription.expiryTimestamp,
+                  nonce: preparedSetup.subscription.nonce,
+                  periodLengthSeconds:
+                    request.periodLengthSeconds ??
+                    preparedSetup.subscription.periodLengthSeconds,
+                  policySeed: preparedSetup.policy.seed ?? undefined,
+                  preparedSetup,
+                  refreshImmediateStartTimestamp:
+                    requestedStartTimestamp === undefined,
+                  // Undefined means "immediate"; let the builder resolve it
+                  // after policy confirmation so the delegation start is not stale.
+                  startTimestamp: requestedStartTimestamp,
+                  walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+                })
+              ).nextPreparedSetup
             : await prepareEarnAutodepositSetup({
                 amountRaw: request.amountRaw,
                 expiryTimestamp:
@@ -6414,8 +6450,6 @@ export function useSmartAccountSidebarData(
                   request.periodLengthSeconds ??
                   preparedSetup.subscription.periodLengthSeconds,
                 policySeed: preparedSetup.policy.seed ?? undefined,
-                // Undefined means "immediate"; let the builder resolve it after
-                // policy confirmation so the delegation start is not stale.
                 startTimestamp: requestedStartTimestamp,
                 walletBalanceFloorRaw: request.walletBalanceFloorRaw,
               });

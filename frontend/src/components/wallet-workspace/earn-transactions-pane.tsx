@@ -21,7 +21,11 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { useAuthSession } from "@/contexts/auth-session-context";
-import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import {
+  formatLoadedScheduledSweepAvailableIn,
+  getLoadedScheduledSweepExecuteNowAvailableAtMs,
+  type LoadedEarnAutodepositScheduledSweep,
+} from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
   hydratePreparedEarnRecurringDelegationRefund,
   hydratePreparedEarnPolicyRefund,
@@ -765,6 +769,7 @@ function ScheduledTransactionRow({
   isRetryable = false,
   isPending = false,
   isBalanceHidden = false,
+  nowMs,
   onExecuteNow,
   sweep,
 }: {
@@ -774,6 +779,7 @@ function ScheduledTransactionRow({
   isRetryable?: boolean;
   isPending?: boolean;
   isBalanceHidden?: boolean;
+  nowMs: number;
   onExecuteNow?: () => void;
   sweep: LoadedEarnAutodepositScheduledSweep | PendingScheduledSweepPreview;
 }) {
@@ -785,7 +791,20 @@ function ScheduledTransactionRow({
     : "eligibleAfter" in sweep
     ? formatScheduledSweepTime(sweep.eligibleAfter, displayTimeZone)
     : "Scheduling...";
-  const isButtonDisabled = isPending || isExecuting || !onExecuteNow;
+  const executeNowAvailableAtMs =
+    "executeNowAvailableAt" in sweep
+      ? getLoadedScheduledSweepExecuteNowAvailableAtMs(sweep)
+      : null;
+  const availableInLabel =
+    executeNowAvailableAtMs === null
+      ? null
+      : formatLoadedScheduledSweepAvailableIn(
+          executeNowAvailableAtMs,
+          nowMs
+        );
+  const isWaitingForDelegation = availableInLabel !== null;
+  const isButtonDisabled =
+    isPending || isExecuting || isWaitingForDelegation || !onExecuteNow;
 
   return (
     <>
@@ -957,6 +976,8 @@ function ScheduledTransactionRow({
               ) : null}
               {isPending
                 ? "Scheduling"
+                : availableInLabel
+                ? availableInLabel
                 : isAwaitingExecution
                 ? "Executing..."
                 : isExecuting
@@ -1591,6 +1612,9 @@ export function EarnTransactionsPane({
   const scheduledSweepsLengthRef = useRef(scheduledSweeps.length);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [scheduledSweepNowMs, setScheduledSweepNowMs] = useState(() =>
+    Date.now()
+  );
   const [
     scheduledSweepExecutionRequestedAtMs,
     setScheduledSweepExecutionRequestedAtMs,
@@ -1626,6 +1650,23 @@ export function EarnTransactionsPane({
   useEffect(() => {
     scheduledSweepsLengthRef.current = scheduledSweeps.length;
   }, [scheduledSweeps.length]);
+
+  useEffect(() => {
+    const hasFutureExecuteNow = renderedScheduledSweeps.some((sweep) => {
+      const availableAtMs =
+        getLoadedScheduledSweepExecuteNowAvailableAtMs(sweep);
+      return availableAtMs !== null && availableAtMs > Date.now();
+    });
+    if (!hasFutureExecuteNow) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setScheduledSweepNowMs(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [renderedScheduledSweeps]);
 
   useEffect(() => {
     if (lastRefreshKeyRef.current === refreshKey) {
@@ -1691,7 +1732,10 @@ export function EarnTransactionsPane({
 
   const handleExecuteScheduledSweep = useCallback(
     (sweep: LoadedEarnAutodepositScheduledSweep) => {
+      const availableAtMs =
+        getLoadedScheduledSweepExecuteNowAvailableAtMs(sweep);
       if (
+        (availableAtMs !== null && availableAtMs > Date.now()) ||
         isAwaitingScheduledSweepExecution ||
         isExecutingScheduledSweep ||
         !onExecuteScheduledSweep
@@ -2393,6 +2437,7 @@ export function EarnTransactionsPane({
                       displayTimeZone={displayTimeZone}
                       isBalanceHidden={isBalanceHidden}
                       isPending
+                      nowMs={scheduledSweepNowMs}
                       sweep={visiblePendingScheduledSweep}
                     />
                   ) : null}
@@ -2423,6 +2468,7 @@ export function EarnTransactionsPane({
                         }
                         isRetryable={isRetryable}
                         key={sweep.id}
+                        nowMs={scheduledSweepNowMs}
                         onExecuteNow={() => handleExecuteScheduledSweep(sweep)}
                         sweep={sweep}
                       />

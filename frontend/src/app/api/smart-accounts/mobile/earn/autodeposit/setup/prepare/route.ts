@@ -132,12 +132,9 @@ export async function POST(request: Request) {
       connection: getConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
-    // Resume a half-finished setup: a pending_delegation target means the
-    // policy stage confirmed but the delegation tx was never signed. Reusing
-    // the recorded seed + nonce makes the SDK's chain-driven stage machine
-    // return the missing create_recurring_delegation stage for the SAME
-    // recorded delegation — a fresh seed/nonce would instead mint (and pay
-    // rent on) a duplicate policy and strand the pending row forever.
+    // Resume a half-finished setup. Reusing the recorded seed + nonce makes the
+    // SDK's chain-driven stage machine return only the missing stage for the
+    // SAME policy/delegation pair.
     let policySeed = parsed.policySeed;
     let nonce = parsed.nonce;
     let periodLengthSeconds = parsed.periodLengthSeconds;
@@ -151,7 +148,8 @@ export async function POST(request: Request) {
       });
       const target = current?.target;
       if (
-        target?.lifecycleStatus === "pending_delegation" &&
+        (target?.lifecycleStatus === "pending_delegation" ||
+          target?.lifecycleStatus === "pending_policy") &&
         target.recurringDelegationNonce !== null
       ) {
         policySeed = target.policySeed;

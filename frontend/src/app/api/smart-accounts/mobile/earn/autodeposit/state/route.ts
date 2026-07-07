@@ -51,6 +51,8 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
+    executeNowAvailableAt:
+      sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
@@ -103,9 +105,20 @@ async function reconcileAutodepositArtifacts(args: {
   const policyReady = probe.policy.exists && !probe.policy.invalidOwner;
   const delegationReady =
     probe.recurringDelegation.exists && !probe.recurringDelegation.invalidOwner;
+  const hasRecordedPolicy =
+    args.state.target.policySignature !== null &&
+    args.state.target.policyConfirmedSlot !== null;
+  const hasRecordedDelegation =
+    args.state.target.recurringDelegationSignature !== null &&
+    args.state.target.recurringDelegationConfirmedSlot !== null;
 
   if (args.state.status !== "pending" && (!policyReady || !delegationReady)) {
     const target = await markAutodepositTargetPendingDelegation({
+      lifecycleStatus: policyReady
+        ? "pending_delegation"
+        : delegationReady
+        ? "pending_policy"
+        : "pending_delegation",
       policyAccount: args.state.target.policyAccount,
       settings: args.settings,
       vaultIndex: EARN_VAULT_INDEX,
@@ -114,7 +127,13 @@ async function reconcileAutodepositArtifacts(args: {
     return { ...args.state, status: "pending", target };
   }
 
-  if (args.state.status === "pending" && policyReady && delegationReady) {
+  if (
+    args.state.status === "pending" &&
+    policyReady &&
+    delegationReady &&
+    hasRecordedPolicy &&
+    hasRecordedDelegation
+  ) {
     const target = await markAutodepositTargetActiveFromArtifacts({
       policyAccount: args.state.target.policyAccount,
       settings: args.settings,

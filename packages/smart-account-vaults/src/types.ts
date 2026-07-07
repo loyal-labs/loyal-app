@@ -211,6 +211,7 @@ export type SendPreparedBatchWithWalletArgs = {
   prepared: readonly PreparedLoyalSmartAccountsOperation<string>[];
   confirm?: boolean | "if-required";
   sendOptions?: SendOptions;
+  sendMode?: "confirm-each" | "send-all-before-confirm";
   onTransactionConfirmed?: (args: {
     index: number;
     prepared: PreparedLoyalSmartAccountsOperation<string>;
@@ -834,6 +835,7 @@ export type SmartAccountEarnUsdcAutodepositCanonicalArtifactsInput = {
   nonce: bigint;
   amountRaw: bigint;
   cluster?: LoyalCluster;
+  requirePolicy?: boolean;
   requireRecurringDelegation?: boolean;
 };
 
@@ -862,7 +864,23 @@ export type SmartAccountEarnUsdcAutodepositSetupMetadata = {
   subscriptionAuthorityInitialization: "required" | "exists";
 };
 
+export type SmartAccountEarnUsdcAutodepositSetupAccountEvidence = {
+  observedAtMs: number;
+  policyAccount: string | null;
+  policyExists?: boolean;
+  policySeed: string | null;
+  recurringDelegation: string;
+  recurringDelegationExists?: boolean;
+  subscriptionAuthority: string;
+  subscriptionAuthorityExists?: boolean;
+  subscriptionAuthorityInitId?: string | null;
+  subscriptionAuthorityOwnerVerified?: boolean;
+  vaultUsdcAta: string;
+  vaultUsdcAtaExists?: boolean;
+};
+
 export type SmartAccountPreparedEarnUsdcAutodepositSetup = {
+  accountEvidence?: SmartAccountEarnUsdcAutodepositSetupAccountEvidence;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   nativeSolRequirement: SmartAccountNativeSolRequirement;
   stage:

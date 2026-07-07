@@ -77,6 +77,9 @@ async function main() {
     migration0007,
     migration0009,
     migration0015,
+    migration0021,
+    migration0022,
+    migration0023,
     smartAccountClient,
   ] = await Promise.all([
     read("frontend/src/lib/yield-optimization/yield-neon-client.server.ts"),
@@ -121,6 +124,15 @@ async function main() {
     ),
     read(
       "frontend/src/lib/yield-optimization/migrations/0015_add_balance_sweep_target_token_accounts.sql"
+    ),
+    read(
+      "frontend/src/lib/yield-optimization/migrations/0021_allow_pending_policy_autodeposit_targets.sql"
+    ),
+    read(
+      "frontend/src/lib/yield-optimization/migrations/0022_earn_realtime_events.sql"
+    ),
+    read(
+      "frontend/src/lib/yield-optimization/migrations/0023_autodeposit_execution_slot_realtime.sql"
     ),
     read("packages/smart-account-vaults/src/client.ts"),
   ]);
@@ -186,32 +198,40 @@ async function main() {
   record(
     checks,
     "migration columns and indexes",
-    includesAll(migration0005 + migration0006 + migration0007 + migration0015, [
-      "CREATE TABLE IF NOT EXISTS loyal_yield.balance_sweep_policies",
-      "balance_sweep_policy_id",
-      "balance_sweep_policies_policy_account_uidx",
-      "balance_sweep_targets_policy_id_fkey",
-      "ADD COLUMN IF NOT EXISTS subscription_authority",
-      "ADD COLUMN IF NOT EXISTS recurring_delegation",
-      "ADD COLUMN IF NOT EXISTS period_length_seconds",
-      "ADD COLUMN IF NOT EXISTS start_timestamp",
-      "ADD COLUMN IF NOT EXISTS token_mint",
-      "ADD COLUMN IF NOT EXISTS wallet_token_ata",
-      "ADD COLUMN IF NOT EXISTS vault_token_ata",
-      "ADD COLUMN IF NOT EXISTS source_token_ata",
-      "ADD COLUMN IF NOT EXISTS destination_token_ata",
-      "ADD COLUMN IF NOT EXISTS mint",
-      "ADD PRIMARY KEY (target_id, mint)",
-      "ADD COLUMN IF NOT EXISTS wallet_balance_floor_raw",
-      "ADD COLUMN IF NOT EXISTS lifecycle_status",
-      "balance_sweep_executions_target_mint_slot_idx",
-      "balance_sweep_targets_recurring_delegation_uidx",
-      "balance_sweep_targets_lifecycle_status_idx",
-      "balance_sweep_targets_active_wallet_token_ata_idx",
-      "balance_sweep_targets_wallet_token_idx",
-      "balance_sweep_wallet_balance_events_target_mint_event_idx",
-      "balance_sweep_wallet_balances_wallet_token_idx",
-    ]),
+    includesAll(
+      migration0005 +
+        migration0006 +
+        migration0007 +
+        migration0015 +
+        migration0021,
+      [
+        "CREATE TABLE IF NOT EXISTS loyal_yield.balance_sweep_policies",
+        "balance_sweep_policy_id",
+        "balance_sweep_policies_policy_account_uidx",
+        "balance_sweep_targets_policy_id_fkey",
+        "ADD COLUMN IF NOT EXISTS subscription_authority",
+        "ADD COLUMN IF NOT EXISTS recurring_delegation",
+        "ADD COLUMN IF NOT EXISTS period_length_seconds",
+        "ADD COLUMN IF NOT EXISTS start_timestamp",
+        "ADD COLUMN IF NOT EXISTS token_mint",
+        "ADD COLUMN IF NOT EXISTS wallet_token_ata",
+        "ADD COLUMN IF NOT EXISTS vault_token_ata",
+        "ADD COLUMN IF NOT EXISTS source_token_ata",
+        "ADD COLUMN IF NOT EXISTS destination_token_ata",
+        "ADD COLUMN IF NOT EXISTS mint",
+        "ADD PRIMARY KEY (target_id, mint)",
+        "ADD COLUMN IF NOT EXISTS wallet_balance_floor_raw",
+        "ADD COLUMN IF NOT EXISTS lifecycle_status",
+        "pending_policy",
+        "balance_sweep_executions_target_mint_slot_idx",
+        "balance_sweep_targets_recurring_delegation_uidx",
+        "balance_sweep_targets_lifecycle_status_idx",
+        "balance_sweep_targets_active_wallet_token_ata_idx",
+        "balance_sweep_targets_wallet_token_idx",
+        "balance_sweep_wallet_balance_events_target_mint_event_idx",
+        "balance_sweep_wallet_balances_wallet_token_idx",
+      ]
+    ),
     "Migration extends balance-sweep token-account tables additively."
   );
 
@@ -226,6 +246,34 @@ async function main() {
       '"floor_rebaseline"',
     ]),
     "Migration adds a distinct negative synthetic-event sequence and typed floor-rebaseline classification."
+  );
+
+  record(
+    checks,
+    "earn realtime migration sync",
+    includesAll(migration0022 + migration0023, [
+      "realtime_events_smart_account_address_id_idx",
+      "realtime_events_event_type_id_idx",
+      "realtime_private_scope_requires_identity",
+      "realtime_relation_has_columns",
+      "CREATE OR REPLACE FUNCTION loyal_yield.emit_realtime_event",
+      "private realtime event %.% requires wallet_address, settings_pda, or smart_account_address",
+      "emit_autodeposit_scheduled_slot_realtime_event",
+      "earn.autodeposit.sweep_requested",
+      "earn.autodeposit.sweep_selected",
+      "emit_autodeposit_execution_realtime_event",
+      "balance_sweep_executions_realtime_event",
+      "emit_user_yield_position_realtime_event",
+      "user_yield_positions_realtime_event",
+      "emit_user_yield_holding_event_realtime_event",
+      "user_yield_position_holding_events_realtime_event",
+      "emit_earn_onboarding_realtime_event",
+      "earn_deposit_onboarding_attempts_realtime_event",
+      "LEFT JOIN loyal_yield.balance_sweep_lot_claims AS claim",
+      "claim.status = 'selected'",
+      "claim.execution_id IS NULL",
+    ]),
+    "Frontend migration set mirrors routing realtime event and execution-slot trigger migrations."
   );
 
   record(
@@ -263,7 +311,7 @@ async function main() {
       "sourceEventId",
       "initial_surplus",
       "confirmed_snapshot",
-      "eligibleAfter: addOneHour(snapshot.observedAt)",
+      "resolveEarnAutodepositSweepEligibleAfter",
       "originalAmountRaw: surplusRaw",
       "remainingAmountRaw: surplusRaw",
       "onConflictDoNothing",
@@ -428,7 +476,9 @@ async function main() {
       "wallet_balance_projection_missing",
       "wallet_balance_at_or_below_floor",
       "executeEarnAutodepositFloorUpdate",
-      "requiresSignature: !autodepositConfig || amountChanged",
+      "!autodepositCanUseFloorUpdate",
+      "autodepositIsPendingSetup",
+      "amountChanged",
       "pendingEarnAutodepositDraft.requiresSignature === false",
       "policySeed: pendingEarnAutodepositDraft.existingPolicySeed",
     ]),
@@ -460,14 +510,13 @@ async function main() {
     checks,
     "monitorable target predicate",
     includesAll(repository + client + migration0005, [
-      "balanceSweepPolicies.active",
       "balanceSweepTargets.active",
       "balanceSweepTargets.lifecycleStatus",
       "lifecycle_status, active",
       "CASE WHEN",
       'target.active ? "active" : "paused"',
     ]),
-    "Code and indexes preserve policy-active plus target-active plus active-lifecycle as the monitorability boundary."
+    "Code and indexes preserve target-active plus active-lifecycle as the monitorability boundary."
   );
 
   if (live) {
@@ -558,6 +607,12 @@ async function main() {
         )
       ORDER BY conname;
     `);
+    const liveLifecycleConstraint = await runPsql(`
+      SELECT pg_get_constraintdef(oid)
+      FROM pg_constraint
+      WHERE conrelid = 'loyal_yield.balance_sweep_targets'::regclass
+        AND conname = 'balance_sweep_targets_lifecycle_status_chk';
+    `);
     const livePolicyColumns = await runPsql(`
       SELECT column_name
       FROM information_schema.columns
@@ -611,9 +666,12 @@ async function main() {
       FROM loyal_yield.balance_sweep_targets AS target
       LEFT JOIN loyal_yield.balance_sweep_policies AS policy
         ON policy.id = target.balance_sweep_policy_id
-      WHERE target.balance_sweep_policy_id IS NULL
-        OR policy.id IS NULL
-        OR policy.policy_account <> target.policy_account;
+      WHERE target.lifecycle_status <> 'pending_policy'
+        AND (
+          target.balance_sweep_policy_id IS NULL
+          OR policy.id IS NULL
+          OR policy.policy_account <> target.policy_account
+        );
     `);
     const liveLoadQueryMisses = await runPsql(`
       SELECT COUNT(*)
@@ -762,6 +820,12 @@ async function main() {
     );
     record(
       checks,
+      "live Neon pending-policy lifecycle",
+      liveLifecycleConstraint.includes("pending_policy"),
+      "Live lifecycle constraint allows delegation-first pending_policy rows."
+    );
+    record(
+      checks,
       "live Neon balance-sweep policies",
       includesAll(livePolicyColumns, [
         "policy_account",
@@ -803,7 +867,7 @@ async function main() {
       checks,
       "live Neon policy backfill",
       livePolicyLinks === "0",
-      "Every live balance-sweep target links to a matching balance-sweep policy."
+      "Every non-pending_policy balance-sweep target links to a matching balance-sweep policy."
     );
     record(
       checks,

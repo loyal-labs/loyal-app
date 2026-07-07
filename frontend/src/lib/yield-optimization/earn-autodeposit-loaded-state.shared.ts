@@ -2,6 +2,7 @@ export type LoadedEarnAutodepositScheduledSweep = {
   classification: string;
   confidence: string;
   eligibleAfter: string;
+  executeNowAvailableAt?: string | null;
   id: string;
   lotCount?: number;
   originalAmountRaw: string;
@@ -64,6 +65,25 @@ export function getDisplayableEarnAutodepositScheduledSweeps<T>(
     : [];
 }
 
+export function getLoadedScheduledSweepExecuteNowAvailableAtMs(
+  sweep: LoadedEarnAutodepositScheduledSweep
+): number | null {
+  if (!sweep.executeNowAvailableAt) {
+    return null;
+  }
+
+  const availableAtMs = new Date(sweep.executeNowAvailableAt).getTime();
+  return Number.isFinite(availableAtMs) ? availableAtMs : null;
+}
+
+export function formatLoadedScheduledSweepAvailableIn(
+  availableAtMs: number,
+  nowMs = Date.now()
+): string | null {
+  const remainingSeconds = Math.ceil((availableAtMs - nowMs) / 1000);
+  return remainingSeconds > 0 ? `Available in ${remainingSeconds}s` : null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -76,6 +96,9 @@ function isLoadedScheduledSweep(
     typeof value.classification === "string" &&
     typeof value.confidence === "string" &&
     typeof value.eligibleAfter === "string" &&
+    (value.executeNowAvailableAt === undefined ||
+      typeof value.executeNowAvailableAt === "string" ||
+      value.executeNowAvailableAt === null) &&
     typeof value.id === "string" &&
     typeof value.originalAmountRaw === "string" &&
     typeof value.reason === "string" &&

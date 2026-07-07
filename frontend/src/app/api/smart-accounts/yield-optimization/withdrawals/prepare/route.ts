@@ -429,11 +429,11 @@ export async function POST(request: Request) {
     let reconciledMissingAutodepositPolicy = false;
 
     if (
-      autodepositState?.policy.policyAccount &&
+      autodepositState?.target.policyAccount &&
       autodepositState.target.recurringDelegation
     ) {
       const autodepositPolicyAccount = new PublicKey(
-        autodepositState.policy.policyAccount
+        autodepositState.target.policyAccount
       );
       const autodepositPolicyInfo = await connection.getAccountInfo(
         autodepositPolicyAccount,
@@ -451,7 +451,7 @@ export async function POST(request: Request) {
         reconciledMissingAutodepositPolicy = true;
         const reconciledTarget =
           await reconcileMissingOnChainEarnAutodepositPolicy({
-            policyAccount: autodepositState.policy.policyAccount,
+            policyAccount: autodepositState.target.policyAccount,
             settings: principal.settingsPda,
             vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
             walletAddress: principal.walletAddress,
@@ -461,7 +461,7 @@ export async function POST(request: Request) {
           {
             cluster,
             lifecycleStatus: reconciledTarget.lifecycleStatus,
-            policyAccount: autodepositState.policy.policyAccount,
+            policyAccount: autodepositState.target.policyAccount,
             reconciliationSource: "reconciled_missing_policy",
             settings: principal.settingsPda,
             targetId: reconciledTarget.id.toString(),
@@ -483,7 +483,7 @@ export async function POST(request: Request) {
         "[earn-withdraw-prepare] active autodeposit state is missing close metadata",
         {
           cluster,
-          policyAccount: autodepositState.policy.policyAccount,
+          policyAccount: autodepositState.target.policyAccount,
           recurringDelegation: autodepositState.target.recurringDelegation,
           settings: principal.settingsPda,
           targetId: autodepositState.target.id.toString(),

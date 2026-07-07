@@ -2297,6 +2297,142 @@ describe("prepareEarnUsdcAutodeposit", () => {
     );
   });
 
+  test("batch setup reuses first-stage account evidence for the recurring delegation", async () => {
+    const originalDateNow = Date.now;
+    Date.now = () => 1_780_000_000_000;
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      walletAddress,
+      STABLECOIN_MINTS[Stablecoin.USDC]
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      if (address.equals(subscriptionAuthority)) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      return null;
+    });
+    const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
+      addresses.map(() => null)
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+        getMultipleAccountsInfo,
+      } as never,
+      programId,
+    });
+
+    let setups: Awaited<
+      ReturnType<typeof client.prepareEarnUsdcAutodepositSetupBatch>
+    >;
+    try {
+      setups = await client.prepareEarnUsdcAutodepositSetupBatch({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        signer: walletAddress,
+        policySigner: backendSigner,
+        amountRaw: BigInt(1_000_000),
+        nonce: BigInt(42),
+      });
+    } finally {
+      Date.now = originalDateNow;
+    }
+
+    expect(setups.map((setup) => setup.stage)).toEqual([
+      "create_policy",
+      "create_recurring_delegation",
+    ]);
+    expect(setups[0]!.subscription.startTimestamp).toBe(
+      BigInt(1_780_000_000)
+    );
+    expect(setups[1]!.subscription.startTimestamp).toBe(
+      BigInt(1_780_000_030)
+    );
+    expect(getAccountInfo).toHaveBeenCalledTimes(2);
+    expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
+    const firstProbe = getMultipleAccountsInfo.mock.calls[0]?.[0] as
+      | PublicKey[]
+      | undefined;
+    expect(firstProbe?.map((address) => address.toBase58())).toEqual([
+      setups[0]!.policy.account!.toBase58(),
+      setups[0]!.subscription.recurringDelegation.toBase58(),
+      deriveVaultUsdcAta().toBase58(),
+    ]);
+  });
+
+  test("staged policy follow-up refreshes immediate start without the batch buffer", async () => {
+    const originalDateNow = Date.now;
+    Date.now = () => 1_780_000_000_000;
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      walletAddress,
+      STABLECOIN_MINTS[Stablecoin.USDC]
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      if (address.equals(subscriptionAuthority)) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      return null;
+    });
+    const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
+      addresses.map(() => null)
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+        getMultipleAccountsInfo,
+      } as never,
+      programId,
+    });
+
+    try {
+      const firstSetup = await client.prepareEarnUsdcAutodepositSetup({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        signer: walletAddress,
+        policySigner: backendSigner,
+        amountRaw: BigInt(1_000_000),
+        nonce: BigInt(42),
+      });
+      Date.now = () => 1_780_000_012_000;
+
+      const setups =
+        await client.prepareEarnUsdcAutodepositSetupBatchFromPrepared({
+          settingsPda,
+          walletAddress,
+          feePayer,
+          signer: walletAddress,
+          policySigner: backendSigner,
+          amountRaw: BigInt(1_000_000),
+          nonce: firstSetup.subscription.nonce,
+          policySeed: firstSetup.policy.seed ?? undefined,
+          preparedSetup: firstSetup,
+          refreshImmediateStartTimestamp: true,
+        });
+
+      expect(setups[1]?.stage).toBe("create_recurring_delegation");
+      expect(setups[1]?.subscription.startTimestamp).toBe(
+        BigInt(1_780_000_012)
+      );
+    } finally {
+      Date.now = originalDateNow;
+    }
+  });
+
   test("existing policy with missing delegation creates the recurring delegation", async () => {
     let nonSettingsLookupCount = 0;
     const getAccountInfo = mock(async (address: PublicKey) => {
@@ -2360,6 +2496,111 @@ describe("prepareEarnUsdcAutodeposit", () => {
         lamports: "2039280",
       })
     );
+  });
+
+  test("existing delegation with missing policy prepares only the policy stage", async () => {
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      walletAddress,
+      STABLECOIN_MINTS[Stablecoin.USDC]
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      if (address.equals(subscriptionAuthority)) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      return null;
+    });
+    const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
+      addresses.map((_, index) =>
+        index === 1 ? createSerializedRecurringDelegationAccount() : null
+      )
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+        getMultipleAccountsInfo,
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositSetup({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      nonce: BigInt(42),
+    });
+
+    expect(result.stage).toBe("create_policy");
+    expect(result.accountEvidence).toMatchObject({
+      policyExists: false,
+      recurringDelegationExists: true,
+    });
+    expect(result.prepared.instructions).toHaveLength(1);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      programId.toBase58()
+    );
+  });
+
+  test("batches vault ATA existence with the policy and delegation probe", async () => {
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      walletAddress,
+      STABLECOIN_MINTS[Stablecoin.USDC]
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      if (address.equals(subscriptionAuthority)) {
+        return createSerializedSubscriptionAuthorityAccount(BigInt(7));
+      }
+      return null;
+    });
+    const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
+      addresses.map((_, index) =>
+        index === 0 ? createSerializedEarnPolicyAccount() : null
+      )
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+        getMultipleAccountsInfo,
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositSetup({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      nonce: BigInt(42),
+    });
+
+    expect(result.stage).toBe("create_recurring_delegation");
+    expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
+    const probe = getMultipleAccountsInfo.mock.calls[0]?.[0] as
+      | PublicKey[]
+      | undefined;
+    expect(probe?.map((address) => address.toBase58())).toEqual([
+      result.policy.account!.toBase58(),
+      result.subscription.recurringDelegation.toBase58(),
+      deriveVaultUsdcAta().toBase58(),
+    ]);
   });
 
   test("rejects setup when policy and recurring delegation already exist", async () => {

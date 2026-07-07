@@ -190,6 +190,7 @@ export type EarnAutodepositSetupConfirmResponse = {
       classification: string;
       confidence: string;
       eligibleAfter: string;
+      executeNowAvailableAt?: string | null;
       id: string;
       lotCount?: number;
       originalAmountRaw: string;
@@ -206,6 +207,7 @@ export type EarnAutodepositSetupConfirmResponse = {
       classification: string;
       confidence: string;
       eligibleAfter: string;
+      executeNowAvailableAt?: string | null;
       id: string;
       lotCount?: number;
       originalAmountRaw: string;

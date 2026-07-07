@@ -243,6 +243,7 @@ export async function sendPreparedBatchWithWallet({
   wallet,
   prepared,
   confirm = "if-required",
+  sendMode = "confirm-each",
   sendOptions,
   onTransactionConfirmed,
   onTransactionSent,
@@ -286,6 +287,110 @@ export async function sendPreparedBatchWithWallet({
     throw new Error("Signed transaction count does not match prepared count.");
   }
   const signatures: string[] = [];
+
+  if (sendMode === "send-all-before-confirm") {
+    const sentTransactions: {
+      index: number;
+      operation: PreparedOperation;
+      shouldConfirm: boolean;
+      signature: string;
+      transaction: VersionedTransaction;
+    }[] = [];
+    let sendFailure: unknown;
+
+    for (const [index, signedTransaction] of signedTransactions.entries()) {
+      const operation = prepared[index];
+      if (!operation) {
+        throw new Error(
+          "Signed transaction count does not match prepared count."
+        );
+      }
+
+      try {
+        const signature = await withSimulationDiagnostic(
+          () =>
+            connection.sendRawTransaction(
+              signedTransaction.serialize(),
+              sendOptions
+            ),
+          {
+            connection,
+            prepared: operation,
+            transaction: signedTransaction,
+          }
+        );
+        signatures.push(signature);
+        sentTransactions.push({
+          index,
+          operation,
+          shouldConfirm:
+            confirm === true ||
+            (confirm !== false && operation.requiresConfirmation),
+          signature,
+          transaction: signedTransaction,
+        });
+        await onTransactionSent?.({
+          index,
+          prepared: operation,
+          signature,
+        });
+      } catch (error) {
+        sendFailure = error;
+        break;
+      }
+    }
+
+    const confirmationResults = await Promise.allSettled(
+      sentTransactions.map(async (sent) => {
+        if (sent.shouldConfirm) {
+          await withSimulationDiagnostic(
+            async () => {
+              const confirmation = await connection.confirmTransaction(
+                {
+                  signature: sent.signature,
+                  blockhash: latestBlockhash.blockhash,
+                  lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+                },
+                "confirmed"
+              );
+
+              if (confirmation.value.err) {
+                throw new Error(
+                  `Transaction ${
+                    sent.signature
+                  } failed to confirm: ${JSON.stringify(
+                    confirmation.value.err
+                  )}`
+                );
+              }
+            },
+            {
+              connection,
+              prepared: sent.operation,
+              transaction: sent.transaction,
+            }
+          );
+        }
+
+        await onTransactionConfirmed?.({
+          index: sent.index,
+          prepared: sent.operation,
+          signature: sent.signature,
+        });
+      })
+    );
+    const confirmationFailure = confirmationResults.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected"
+    );
+    if (confirmationFailure) {
+      throw confirmationFailure.reason;
+    }
+    if (sendFailure) {
+      throw sendFailure;
+    }
+
+    return signatures;
+  }
 
   for (const [index, signedTransaction] of signedTransactions.entries()) {
     const operation = prepared[index];

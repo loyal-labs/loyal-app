@@ -166,11 +166,11 @@ export async function POST(request: Request) {
       | undefined;
 
     if (
-      autodepositState?.policy.policyAccount &&
+      autodepositState?.target.policyAccount &&
       autodepositState.target.recurringDelegation
     ) {
       const autodepositPolicyAccount = new PublicKey(
-        autodepositState.policy.policyAccount
+        autodepositState.target.policyAccount
       );
       const autodepositPolicyInfo = await connection.getAccountInfo(
         autodepositPolicyAccount,
@@ -186,7 +186,7 @@ export async function POST(request: Request) {
         };
       } else {
         await reconcileMissingOnChainEarnAutodepositPolicy({
-          policyAccount: autodepositState.policy.policyAccount,
+          policyAccount: autodepositState.target.policyAccount,
           settings: principal.settingsPda,
           vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
           walletAddress: principal.walletAddress,

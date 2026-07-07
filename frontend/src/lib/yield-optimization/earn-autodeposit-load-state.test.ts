@@ -24,10 +24,14 @@ function createRecord(overrides: Record<string, unknown> = {}) {
     maxAmountPerPeriod: BigInt(100_000_000),
     periodLengthSeconds: BigInt(2_592_000),
     policyAccount: "policy",
+    policyConfirmedSlot: BigInt(123),
     policySeed: BigInt(1),
+    policySignature: "policy-signature",
     policyType: "subscription_sweep",
     recurringDelegation: "recurring",
+    recurringDelegationConfirmedSlot: BigInt(123),
     settings: "settings",
+    recurringDelegationSignature: "delegation-signature",
     startTimestamp: BigInt(1_780_185_600),
     subscriptionAuthority: "subscription-authority",
     subscriptionDelegatee: "subscription-delegatee",
@@ -54,6 +58,10 @@ function createClient(rows: unknown[]) {
     },
     innerJoin() {
       calls.push("innerJoin");
+      return query;
+    },
+    leftJoin() {
+      calls.push("leftJoin");
       return query;
     },
     limit() {
@@ -85,14 +93,19 @@ function createClient(rows: unknown[]) {
 
 function createMutationClient({
   existing,
+  insertReturnValues = [],
   updated,
 }: {
   existing: unknown | null;
+  insertReturnValues?: unknown[];
   updated?: unknown;
 }) {
   const calls: string[] = [];
   const dialect = new PgDialect();
   const executeSql: string[] = [];
+  const insertValues: Record<string, unknown>[] = [];
+  const insertConflictSets: Record<string, unknown>[] = [];
+  let insertReturnIndex = 0;
   let updateSet: Record<string, unknown> | null = null;
   const updateSets: Record<string, unknown>[] = [];
   const selectQuery = {
@@ -125,10 +138,30 @@ function createMutationClient({
       return updateQuery;
     },
   };
+  const insertQuery = {
+    onConflictDoUpdate(args: { set: Record<string, unknown> }) {
+      calls.push("insert.onConflictDoUpdate");
+      insertConflictSets.push(args.set);
+      return insertQuery;
+    },
+    returning() {
+      calls.push("insert.returning");
+      const returned = insertReturnValues[insertReturnIndex] ?? updated;
+      insertReturnIndex += 1;
+      return returned ? [returned] : [];
+    },
+    values(values: Record<string, unknown>) {
+      calls.push("insert.values");
+      insertValues.push(values);
+      return insertQuery;
+    },
+  };
 
   return {
     calls,
     getExecuteSql: () => executeSql,
+    getInsertConflictSets: () => insertConflictSets,
+    getInsertValues: () => insertValues,
     getUpdateSet: () => updateSet,
     getUpdateSets: () => updateSets,
     client: {
@@ -137,6 +170,10 @@ function createMutationClient({
           calls.push("execute");
           executeSql.push(dialect.sqlToQuery(query).sql);
           return {};
+        },
+        insert() {
+          calls.push("insert");
+          return insertQuery;
         },
         select() {
           calls.push("select");
@@ -274,6 +311,24 @@ function createBootstrapClient({
   };
 }
 
+function createImmediateSweepClient(row: Record<string, unknown> | null) {
+  const dialect = new PgDialect();
+  const executeParams: unknown[][] = [];
+
+  return {
+    client: {
+      db: {
+        execute(query: SQL) {
+          const compiled = dialect.sqlToQuery(query);
+          executeParams.push(compiled.params);
+          return { rows: row ? [row] : [] };
+        },
+      },
+    },
+    getExecuteParams: () => executeParams,
+  };
+}
+
 function createSetupInput(overrides: Record<string, unknown> = {}) {
   return {
     amountPerPeriodRaw: BigInt(100_000_000),
@@ -404,6 +459,36 @@ describe("Earn autodeposit load state", () => {
     expect(state?.target.recurringDelegation).toBeNull();
   });
 
+  test("delegation-only target loads as pending without a policy row", async () => {
+    const { findCurrentEarnAutodepositState } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const target = createRecord({
+      active: false,
+      balanceSweepPolicyId: null,
+      lifecycleStatus: "pending_policy",
+      policyConfirmedSlot: null,
+      policySignature: null,
+      recurringDelegationConfirmedSlot: BigInt(200),
+      recurringDelegationSignature: "delegation-signature",
+    });
+    const { client } = createClient([{ policy: null, target }]);
+
+    const state = await findCurrentEarnAutodepositState(
+      {
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+      },
+      { client } as never
+    );
+
+    expect(state?.status).toBe("pending");
+    expect(state?.policy).toBeNull();
+    expect(state?.target.lifecycleStatus).toBe("pending_policy");
+    expect(state?.target.balanceSweepPolicyId).toBeNull();
+  });
+
   test("active policy and paused target load as paused", async () => {
     const { findCurrentEarnAutodepositState } = await import(
       "./earn-autodeposit-repository.server"
@@ -467,6 +552,34 @@ describe("Earn autodeposit load state", () => {
         status: "pending",
       })?.scheduledSweeps
     ).toEqual([]);
+  });
+
+  test("scheduled sweep availability copy counts down until delegation readiness", async () => {
+    const {
+      formatLoadedScheduledSweepAvailableIn,
+      getLoadedScheduledSweepExecuteNowAvailableAtMs,
+    } = await import("./earn-autodeposit-loaded-state.shared");
+    const availableAtMs = getLoadedScheduledSweepExecuteNowAvailableAtMs(
+      createLoadedScheduledSweep({
+        executeNowAvailableAt: "2026-06-16T00:00:30.000Z",
+      })
+    );
+
+    expect(availableAtMs).toBe(
+      new Date("2026-06-16T00:00:30.000Z").getTime()
+    );
+    expect(
+      formatLoadedScheduledSweepAvailableIn(
+        availableAtMs!,
+        new Date("2026-06-16T00:00:01.200Z").getTime()
+      )
+    ).toBe("Available in 29s");
+    expect(
+      formatLoadedScheduledSweepAvailableIn(
+        availableAtMs!,
+        new Date("2026-06-16T00:00:30.000Z").getTime()
+      )
+    ).toBeNull();
   });
 
   test("serialized autodeposit state hides scheduled sweeps while paused", async () => {
@@ -971,6 +1084,185 @@ describe("Earn autodeposit load state", () => {
     ).rejects.toThrow("Closed autodeposit targets cannot be reactivated.");
   });
 
+  test("delegation-first confirmation inserts pending_policy without a fake policy row", async () => {
+    const { recordConfirmedAutodepositDelegation } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const inserted = createRecord({
+      active: false,
+      balanceSweepPolicyId: null,
+      lifecycleStatus: "pending_policy",
+      policyConfirmedSlot: null,
+      policySignature: null,
+      recurringDelegationConfirmedSlot: BigInt(200),
+      recurringDelegationSignature: "delegation-signature",
+    });
+    const { client, getInsertValues } = createMutationClient({
+      existing: null,
+      insertReturnValues: [inserted],
+    });
+
+    const target = await recordConfirmedAutodepositDelegation(
+      createSetupInput({
+        setupSignature: "delegation-signature",
+        setupStage: "create_recurring_delegation",
+      }) as never,
+      { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+    );
+
+    expect(target).toMatchObject({
+      active: false,
+      balanceSweepPolicyId: null,
+      lifecycleStatus: "pending_policy",
+      policyConfirmedSlot: null,
+      policySignature: null,
+      recurringDelegationConfirmedSlot: BigInt(200),
+      recurringDelegationSignature: "delegation-signature",
+    });
+    expect(getInsertValues()[0]).toMatchObject({
+      active: false,
+      balanceSweepPolicyId: null,
+      lifecycleStatus: "pending_policy",
+      policyConfirmedSlot: null,
+      policySignature: null,
+      recurringDelegationConfirmedSlot: BigInt(200),
+      recurringDelegationSignature: "delegation-signature",
+    });
+  });
+
+  test("policy confirmation activates an existing delegation-only target", async () => {
+    const { recordPendingAutodepositSetup } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      active: false,
+      balanceSweepPolicyId: null,
+      lastSeenSignature: "delegation-signature",
+      lastSeenSlot: BigInt(199),
+      lifecycleStatus: "pending_policy",
+      policyConfirmedSlot: null,
+      policySignature: null,
+      recurringDelegationConfirmedSlot: BigInt(199),
+      recurringDelegationSignature: "delegation-signature",
+    });
+    const updated = {
+      ...existing,
+      active: true,
+      balanceSweepPolicyId: BigInt(7),
+      lastSeenSignature: "policy-signature",
+      lastSeenSlot: BigInt(200),
+      lifecycleStatus: "active",
+      policyConfirmedSlot: BigInt(200),
+      policySignature: "policy-signature",
+    };
+    const { client, getUpdateSet } = createMutationClient({
+      existing,
+      insertReturnValues: [{ id: BigInt(7) }],
+      updated,
+    });
+
+    const target = await recordPendingAutodepositSetup(
+      createSetupInput({
+        confirmedSlot: BigInt(200),
+        policyId: BigInt(7),
+        policySeed: BigInt(7),
+        setupSignature: "policy-signature",
+        setupStage: "create_policy",
+      }) as never,
+      { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+    );
+
+    expect(target).toMatchObject({
+      active: true,
+      lifecycleStatus: "active",
+      policyConfirmedSlot: BigInt(200),
+      policySignature: "policy-signature",
+      recurringDelegationConfirmedSlot: BigInt(199),
+      recurringDelegationSignature: "delegation-signature",
+    });
+    expect(getUpdateSet()).toMatchObject({
+      active: true,
+      balanceSweepPolicyId: BigInt(7),
+      lifecycleStatus: "active",
+      policyConfirmedSlot: BigInt(200),
+      policySignature: "policy-signature",
+      recurringDelegationConfirmedSlot: BigInt(199),
+      recurringDelegationSignature: "delegation-signature",
+    });
+  });
+
+  test("duplicate delegation confirmations return the recorded target without downgrading", async () => {
+    const { recordConfirmedAutodepositDelegation } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const existing = createRecord({
+      active: false,
+      balanceSweepPolicyId: null,
+      lifecycleStatus: "pending_policy",
+      policyConfirmedSlot: null,
+      policySignature: null,
+      recurringDelegationConfirmedSlot: BigInt(250),
+      recurringDelegationSignature: "delegation-signature",
+    });
+    const { calls, client } = createMutationClient({ existing });
+
+    const target = await recordConfirmedAutodepositDelegation(
+      createSetupInput({
+        confirmedSlot: BigInt(200),
+        setupSignature: "older-delegation-signature",
+        setupStage: "create_recurring_delegation",
+      }) as never,
+      { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+    );
+
+    expect(target).toBe(existing);
+    expect(calls).not.toContain("update");
+    expect(calls).not.toContain("insert");
+  });
+
+  test("racy target upsert merges policy and delegation confirmation fields", async () => {
+    const { recordPendingAutodepositSetup } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const inserted = createRecord({
+      active: true,
+      balanceSweepPolicyId: BigInt(7),
+      lifecycleStatus: "active",
+      policyConfirmedSlot: BigInt(200),
+      policySignature: "policy-signature",
+      recurringDelegationConfirmedSlot: BigInt(199),
+      recurringDelegationSignature: "delegation-signature",
+    });
+    const { client, getInsertConflictSets } = createMutationClient({
+      existing: null,
+      insertReturnValues: [{ id: BigInt(7) }, inserted],
+    });
+
+    const target = await recordPendingAutodepositSetup(
+      createSetupInput({
+        confirmedSlot: BigInt(200),
+        setupSignature: "policy-signature",
+        setupStage: "create_policy",
+      }) as never,
+      { client, now: () => new Date("2026-06-02T00:00:00.000Z") } as never
+    );
+
+    expect(target).toMatchObject({
+      active: true,
+      lifecycleStatus: "active",
+      recurringDelegationSignature: "delegation-signature",
+    });
+    const [, targetConflictSet] = getInsertConflictSets();
+    expect(targetConflictSet).toMatchObject({
+      active: expect.anything(),
+      lifecycleStatus: expect.anything(),
+      policyConfirmedSlot: BigInt(200),
+      policySignature: "policy-signature",
+      recurringDelegationConfirmedSlot: expect.anything(),
+      recurringDelegationSignature: expect.anything(),
+    });
+  });
+
   test("older setup confirmation returns an already closed target", async () => {
     const { recordConfirmedAutodepositDelegation } = await import(
       "./earn-autodeposit-repository.server"
@@ -1163,6 +1455,96 @@ describe("Earn autodeposit load state", () => {
       status: "open",
       targetId: BigInt(11),
     });
+  });
+
+  test("bootstrap setup scheduling waits for future delegation readiness", async () => {
+    const { scheduleBootstrapEarnAutodepositSweep } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const observedAt = new Date("2026-06-16T00:00:00.000Z");
+    const delegationReadyAt = new Date("2026-06-16T02:00:00.000Z");
+    const scheduledSweep = {
+      classification: "initial_surplus",
+      confidence: "confirmed_snapshot",
+      eligibleAfter: delegationReadyAt,
+      executeNowAvailableAt: delegationReadyAt,
+      id: BigInt(42),
+      lotCount: BigInt(1),
+      originalAmountRaw: BigInt(500_000_000),
+      reason: "initial Autodeposit surplus detected at setup confirmation",
+      remainingAmountRaw: BigInt(500_000_000),
+      slotId: BigInt(42),
+      status: "scheduled",
+    };
+    const { client, getInsertValues } = createBootstrapClient({
+      insertedLot: { id: BigInt(41), scheduledSlotId: BigInt(42) },
+      scheduledSweep,
+    });
+
+    const result = await scheduleBootstrapEarnAutodepositSweep(
+      {
+        snapshot: {
+          accountDataHash: "hash",
+          amountRaw: BigInt(1_000_000_000),
+          mint: "mint",
+          observedAt,
+          observedSlot: BigInt(500),
+          owner: "wallet",
+          source: "app_autodeposit_setup_confirm",
+          sourceCommitment: "confirmed",
+        },
+        target: createRecord({
+          id: BigInt(11),
+          startTimestamp: BigInt(
+            Math.floor(delegationReadyAt.getTime() / 1000)
+          ),
+          walletBalanceFloorRaw: BigInt(500_000_000),
+        }) as never,
+      },
+      {
+        client,
+        now: () => new Date("2026-06-16T00:05:00.000Z"),
+      } as never
+    );
+
+    expect(result.status).toBe("scheduled");
+    const [, , lotValues] = getInsertValues();
+    expect(lotValues).toMatchObject({
+      eligibleAfter: delegationReadyAt,
+    });
+  });
+
+  test("execute now cannot request a sweep before delegation readiness", async () => {
+    const { requestImmediateEarnAutodepositScheduledSweep } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const now = new Date("2026-06-16T00:00:00.000Z");
+    const delegationReadyAt = new Date("2026-06-16T00:00:30.000Z");
+    const { client, getExecuteParams } = createImmediateSweepClient({
+      acceleratedAmountRaw: BigInt(334_480_000),
+      acceleratedLotCount: BigInt(2),
+      eligibleAfter: delegationReadyAt,
+      slotId: BigInt(42),
+      status: "requested",
+    });
+
+    const result = await requestImmediateEarnAutodepositScheduledSweep(
+      {
+        policy: createRecord({ id: BigInt(7), policyAccount: "policy" }),
+        status: "active",
+        target: createRecord({
+          id: BigInt(11),
+          startTimestamp: BigInt(
+            Math.floor(delegationReadyAt.getTime() / 1000)
+          ),
+        }),
+      },
+      {},
+      { client, now: () => now } as never
+    );
+
+    expect(result?.eligibleAfter).toEqual(delegationReadyAt);
+    expect(getExecuteParams()[0]).toContainEqual(delegationReadyAt);
   });
 
   test("bootstrap setup scheduling skips at-or-below-floor balances after projection upsert", async () => {

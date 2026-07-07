@@ -107,12 +107,14 @@ export async function assertEarnAutodepositArtifactsExist(args: {
   connection: Connection;
   policyAccount: string;
   recurringDelegation: string;
+  requirePolicy?: boolean;
   requireRecurringDelegation: boolean;
   smartAccountsProgramId: PublicKey;
 }) {
   const probe = await probeEarnAutodepositArtifacts(args);
 
-  if (!probe.policy.exists) {
+  const requirePolicy = args.requirePolicy ?? true;
+  if (requirePolicy && !probe.policy.exists) {
     throw new Error("Confirmed Autodeposit policy account does not exist.");
   }
   if (probe.policy.invalidOwner) {

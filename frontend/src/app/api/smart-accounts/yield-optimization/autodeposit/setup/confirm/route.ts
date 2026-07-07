@@ -283,6 +283,7 @@ function serializeScheduledSweep(
   classification: string;
   confidence: string;
   eligibleAfter: string;
+  executeNowAvailableAt?: string | null;
   id: string;
   lotCount?: number;
   originalAmountRaw: string;
@@ -295,6 +296,8 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
+    executeNowAvailableAt:
+      sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
@@ -473,6 +476,7 @@ export async function POST(request: Request) {
           connection,
           policyAccount: input.policyAccount,
           recurringDelegation: input.recurringDelegation,
+          requirePolicy: input.setupStage === "create_policy",
           requireRecurringDelegation:
             input.setupStage === "create_recurring_delegation",
           smartAccountsProgramId,
@@ -488,6 +492,7 @@ export async function POST(request: Request) {
           policySeed: input.policySeed,
           policySigner: getDeploymentPolicySignerPublicKey(),
           recurringDelegation: new PublicKey(input.recurringDelegation),
+          requirePolicy: input.setupStage === "create_policy",
           requireRecurringDelegation:
             input.setupStage === "create_recurring_delegation",
           settingsPda: new PublicKey(input.settings),
@@ -516,7 +521,7 @@ export async function POST(request: Request) {
       ? await recordConfirmedAutodepositDelegation(input)
       : await recordPendingAutodepositSetup(input);
   let bootstrapSweep: EarnAutodepositSetupConfirmResponse["bootstrapSweep"];
-  if (input.setupStage === "create_recurring_delegation") {
+  if (target.active && target.lifecycleStatus === "active") {
     try {
       const snapshotResult = await readBootstrapWalletBalanceSnapshot({
         connection,

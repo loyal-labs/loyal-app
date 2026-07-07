@@ -22,6 +22,8 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
+    executeNowAvailableAt:
+      sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
@@ -37,7 +39,7 @@ export function serializeAutodepositState(
 ) {
   const delegatedSigner =
     autodeposit.target.delegatedSigners[0] ??
-    autodeposit.policy.delegatedSigners[0] ??
+    autodeposit.policy?.delegatedSigners[0] ??
     null;
   const scheduledSweeps = getDisplayableEarnAutodepositScheduledSweeps(
     autodeposit.status,
@@ -47,9 +49,9 @@ export function serializeAutodepositState(
   return {
     active: autodeposit.target.active,
     amountPerPeriodRaw: autodeposit.target.maxAmountPerPeriod.toString(),
-    balanceSweepPolicyId:
-      autodeposit.target.balanceSweepPolicyId?.toString() ??
-      autodeposit.policy.id.toString(),
+    balanceSweepPolicyId: autodeposit.target.balanceSweepPolicyId?.toString() ??
+      autodeposit.policy?.id.toString() ??
+      null,
     cluster: autodeposit.target.cluster,
     delegatedSigner,
     depositedThisPeriodRaw: autodeposit.depositedThisPeriodRaw.toString(),
@@ -60,10 +62,13 @@ export function serializeAutodepositState(
     nonce: autodeposit.target.recurringDelegationNonce?.toString() ?? null,
     periodLengthSeconds:
       autodeposit.target.periodLengthSeconds?.toString() ?? null,
-    policyAccount: autodeposit.policy.policyAccount,
+    policyAccount:
+      autodeposit.policy?.policyAccount ?? autodeposit.target.policyAccount,
     policyConfirmedSlot:
       autodeposit.target.policyConfirmedSlot?.toString() ?? null,
-    policySeed: autodeposit.policy.policySeed.toString(),
+    policySeed: (
+      autodeposit.policy?.policySeed ?? autodeposit.target.policySeed
+    ).toString(),
     policySignature: autodeposit.target.policySignature,
     recurringDelegation: autodeposit.target.recurringDelegation,
     recurringDelegationConfirmedSlot:
@@ -77,8 +82,11 @@ export function serializeAutodepositState(
     status: autodeposit.status,
     subscriptionAuthority:
       autodeposit.target.subscriptionAuthority ??
-      autodeposit.policy.subscriptionAuthority,
-    subscriptionDelegatee: autodeposit.policy.subscriptionDelegatee,
+      autodeposit.policy?.subscriptionAuthority ??
+      null,
+    subscriptionDelegatee:
+      autodeposit.policy?.subscriptionDelegatee ??
+      autodeposit.target.vaultPubkey,
     vaultUsdcAta: autodeposit.target.vaultUsdcAta,
     walletBalanceFloorRaw:
       autodeposit.target.walletBalanceFloorRaw?.toString() ?? null,

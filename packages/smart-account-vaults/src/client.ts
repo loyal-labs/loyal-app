@@ -109,6 +109,7 @@ import type {
   SmartAccountClosePolicySyncInput,
   SmartAccountEarnUsdcAutodepositCloseInput,
   SmartAccountEarnUsdcAutodepositCanonicalArtifactsInput,
+  SmartAccountEarnUsdcAutodepositSetupAccountEvidence,
   SmartAccountEarnUsdcAutodepositPullInput,
   SmartAccountEarnUsdcAutodepositSetupInput,
   SmartAccountCustomInstructionProposalInput,
@@ -3432,6 +3433,25 @@ function resolveEarnAutodepositStartTimestamp(args: {
   }
 
   return args.startTimestamp;
+}
+
+const EARN_AUTODEPOSIT_BATCH_IMMEDIATE_START_BUFFER_SECONDS = BigInt(30);
+
+function resolveEarnAutodepositBatchStartTimestamp(args: {
+  refreshImmediateStartTimestamp?: boolean;
+  startTimestamp?: bigint;
+}): bigint | undefined {
+  if (args.refreshImmediateStartTimestamp === true) {
+    return args.startTimestamp;
+  }
+  if (args.startTimestamp !== undefined) {
+    return args.startTimestamp;
+  }
+
+  return (
+    BigInt(Math.floor(Date.now() / 1000)) +
+    EARN_AUTODEPOSIT_BATCH_IMMEDIATE_START_BUFFER_SECONDS
+  );
 }
 
 function createSubscriptionRevokeDelegationInstruction(args: {
@@ -8117,55 +8137,58 @@ export function createSmartAccountVaultsClient(
       true,
       TOKEN_PROGRAM_ID
     );
-    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
-      args.policy
-    );
+    const requirePolicy = args.requirePolicy ?? true;
+    if (requirePolicy) {
+      const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+        args.policy
+      );
 
-    if (!policy.settings.equals(args.settingsPda)) {
-      throw new Error("Autodeposit policy settings do not match.");
-    }
-    if (toBigInt(policy.seed) !== args.policySeed) {
-      throw new Error("Autodeposit policy seed does not match.");
-    }
-    if (policy.threshold !== 1) {
-      throw new Error("Autodeposit policy threshold is not canonical.");
-    }
-    if (policy.timeLock !== 0) {
-      throw new Error("Autodeposit policy timelock is not canonical.");
-    }
-    if (policy.signers.length !== 1) {
-      throw new Error("Autodeposit policy signer set is not canonical.");
-    }
-
-    const [policySigner] = policy.signers;
-    if (!policySigner?.key.equals(args.policySigner)) {
-      throw new Error("Autodeposit policy signer does not match.");
-    }
-    for (const permission of [
-      Permission.Initiate,
-      Permission.Vote,
-      Permission.Execute,
-    ]) {
-      if (!Permissions.has(policySigner.permissions, permission)) {
-        throw new Error(
-          "Autodeposit policy signer permissions are incomplete."
-        );
+      if (!policy.settings.equals(args.settingsPda)) {
+        throw new Error("Autodeposit policy settings do not match.");
       }
-    }
+      if (toBigInt(policy.seed) !== args.policySeed) {
+        throw new Error("Autodeposit policy seed does not match.");
+      }
+      if (policy.threshold !== 1) {
+        throw new Error("Autodeposit policy threshold is not canonical.");
+      }
+      if (policy.timeLock !== 0) {
+        throw new Error("Autodeposit policy timelock is not canonical.");
+      }
+      if (policy.signers.length !== 1) {
+        throw new Error("Autodeposit policy signer set is not canonical.");
+      }
 
-    const expectedPolicyState = policyCreationPayloadToState(
-      createSubscriptionSweepProgramInteractionPolicyCreationPayload({
-        delegator: args.walletAddress,
-        maxAmountPerPeriodRaw: amountRaw,
-        minimumDelegatorBalanceRaw: undefined,
-        mint: usdcMint,
-        vaultPda,
-        vaultUsdcAta,
-        walletUsdcAta,
-      })
-    );
-    if (!generatedValuesEqual(policy.policyState, expectedPolicyState)) {
-      throw new Error("Autodeposit policy state is not canonical.");
+      const [policySigner] = policy.signers;
+      if (!policySigner?.key.equals(args.policySigner)) {
+        throw new Error("Autodeposit policy signer does not match.");
+      }
+      for (const permission of [
+        Permission.Initiate,
+        Permission.Vote,
+        Permission.Execute,
+      ]) {
+        if (!Permissions.has(policySigner.permissions, permission)) {
+          throw new Error(
+            "Autodeposit policy signer permissions are incomplete."
+          );
+        }
+      }
+
+      const expectedPolicyState = policyCreationPayloadToState(
+        createSubscriptionSweepProgramInteractionPolicyCreationPayload({
+          delegator: args.walletAddress,
+          maxAmountPerPeriodRaw: amountRaw,
+          minimumDelegatorBalanceRaw: undefined,
+          mint: usdcMint,
+          vaultPda,
+          vaultUsdcAta,
+          walletUsdcAta,
+        })
+      );
+      if (!generatedValuesEqual(policy.policyState, expectedPolicyState)) {
+        throw new Error("Autodeposit policy state is not canonical.");
+      }
     }
 
     if (args.requireRecurringDelegation === false) {
@@ -8271,9 +8294,32 @@ export function createSmartAccountVaultsClient(
     }
   }
 
+  const EARN_AUTODEPOSIT_SETUP_ACCOUNT_EVIDENCE_TTL_MS = 5 * 60 * 1000;
+
+  type EarnAutodepositSetupAccountState = {
+    delegationAccount: AccountInfo<Buffer> | null;
+    policyAccountExists: boolean;
+    vaultUsdcAtaExists: boolean | undefined;
+  };
+
+  function isFreshAutodepositSetupAccountEvidence(
+    evidence: SmartAccountEarnUsdcAutodepositSetupAccountEvidence | undefined
+  ): evidence is SmartAccountEarnUsdcAutodepositSetupAccountEvidence {
+    return (
+      evidence !== undefined &&
+      Number.isFinite(evidence.observedAtMs) &&
+      evidence.observedAtMs <= Date.now() &&
+      Date.now() - evidence.observedAtMs <=
+        EARN_AUTODEPOSIT_SETUP_ACCOUNT_EVIDENCE_TTL_MS
+    );
+  }
+
   async function prepareEarnUsdcAutodepositSetupStage(
     args: SmartAccountEarnUsdcAutodepositSetupInput,
-    options: { assumePolicyExists?: boolean } = {}
+    options: {
+      accountEvidence?: SmartAccountEarnUsdcAutodepositSetupAccountEvidence;
+      assumePolicyExists?: boolean;
+    } = {}
   ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup> {
     if (args.amountRaw <= BigInt(0)) {
       throw new Error("Autodeposit amount must be greater than 0.");
@@ -8373,11 +8419,70 @@ export function createSmartAccountVaultsClient(
     };
     let policySeed = requestedPolicySeed ?? BigInt(1);
     let policyAccount = resolvePolicyAccount(policySeed);
-    const authorityAccount = await config.connection.getAccountInfo(
-      subscriptionAuthority,
-      "confirmed"
-    );
-    if (!authorityAccount) {
+    const accountEvidence = isFreshAutodepositSetupAccountEvidence(
+      options.accountEvidence
+    )
+      ? options.accountEvidence
+      : undefined;
+    const subscriptionAuthorityAddress = subscriptionAuthority.toBase58();
+    const recurringDelegationAddress = recurringDelegation.toBase58();
+    const vaultUsdcAtaAddress = vaultUsdcAta.toBase58();
+    const baseEvidenceMatches =
+      accountEvidence?.subscriptionAuthority === subscriptionAuthorityAddress &&
+      accountEvidence.recurringDelegation === recurringDelegationAddress &&
+      accountEvidence.vaultUsdcAta === vaultUsdcAtaAddress;
+    const createAccountEvidence = (input: {
+      policyAccount: PublicKey | null;
+      policyExists?: boolean;
+      policySeed: bigint | null;
+      recurringDelegationExists?: boolean;
+      subscriptionAuthorityExists?: boolean;
+      subscriptionAuthorityInitId?: bigint | null;
+      subscriptionAuthorityOwnerVerified?: boolean;
+      vaultUsdcAtaExists?: boolean;
+    }): SmartAccountEarnUsdcAutodepositSetupAccountEvidence => ({
+      observedAtMs: Date.now(),
+      policyAccount: input.policyAccount?.toBase58() ?? null,
+      policyExists: input.policyExists,
+      policySeed: input.policySeed?.toString() ?? null,
+      recurringDelegation: recurringDelegationAddress,
+      recurringDelegationExists: input.recurringDelegationExists,
+      subscriptionAuthority: subscriptionAuthorityAddress,
+      subscriptionAuthorityExists: input.subscriptionAuthorityExists,
+      subscriptionAuthorityInitId:
+        input.subscriptionAuthorityInitId?.toString() ?? null,
+      subscriptionAuthorityOwnerVerified:
+        input.subscriptionAuthorityOwnerVerified,
+      vaultUsdcAta: vaultUsdcAtaAddress,
+      vaultUsdcAtaExists: input.vaultUsdcAtaExists,
+    });
+    let authorityAccount: AccountInfo<Buffer> | null = null;
+    let expectedSubscriptionAuthorityInitId: bigint | null = null;
+
+    if (
+      accountEvidence !== undefined &&
+      baseEvidenceMatches &&
+      accountEvidence.subscriptionAuthorityExists === true &&
+      accountEvidence.subscriptionAuthorityOwnerVerified === true &&
+      accountEvidence.subscriptionAuthorityInitId !== null &&
+      accountEvidence.subscriptionAuthorityInitId !== undefined
+    ) {
+      try {
+        expectedSubscriptionAuthorityInitId = BigInt(
+          accountEvidence.subscriptionAuthorityInitId
+        );
+      } catch {
+        expectedSubscriptionAuthorityInitId = null;
+      }
+    }
+
+    if (expectedSubscriptionAuthorityInitId === null) {
+      authorityAccount = await config.connection.getAccountInfo(
+        subscriptionAuthority,
+        "confirmed"
+      );
+    }
+    if (!authorityAccount && expectedSubscriptionAuthorityInitId === null) {
       const prepared = freezePreparedOperation({
         operation: "earnUsdcAutodepositInitializeSubscriptionAuthority",
         payer: args.feePayer,
@@ -8417,6 +8522,13 @@ export function createSmartAccountVaultsClient(
         prepared,
         nativeSolRequirement,
         stage: "initialize_subscription_authority",
+        accountEvidence: createAccountEvidence({
+          policyAccount,
+          policySeed,
+          subscriptionAuthorityExists: false,
+          subscriptionAuthorityInitId: null,
+          subscriptionAuthorityOwnerVerified: false,
+        }),
         authorityInitializationRequired: true,
         policy: {
           account: policyAccount,
@@ -8447,59 +8559,102 @@ export function createSmartAccountVaultsClient(
       };
     }
 
-    const settings =
-      await smartAccountsClient.smartAccounts.queries.fetchSettings(
-        args.settingsPda
-      );
-    const nextPolicySeed = resolveNextPolicySeed(settings).bigint;
-    policySeed = requestedPolicySeed ?? nextPolicySeed;
-    policyAccount = resolvePolicyAccount(policySeed);
-    let accountInfos = await getAccountInfoMap({
-      accounts: [policyAccount, recurringDelegation],
-      connection: config.connection,
-    });
-    let policyAccountInfo = accountInfos.get(policyAccount.toBase58()) ?? null;
-    let delegationAccount =
-      accountInfos.get(recurringDelegation.toBase58()) ?? null;
+    let nextPolicySeed: bigint | null = null;
+    if (!(options.assumePolicyExists && requestedPolicySeed !== undefined)) {
+      const settings =
+        await smartAccountsClient.smartAccounts.queries.fetchSettings(
+          args.settingsPda
+        );
+      nextPolicySeed = resolveNextPolicySeed(settings).bigint;
+      policySeed = requestedPolicySeed ?? nextPolicySeed;
+      policyAccount = resolvePolicyAccount(policySeed);
+    }
+
+    const readSetupAccountState =
+      async (): Promise<EarnAutodepositSetupAccountState> => {
+        const policyAccountAddress = policyAccount.toBase58();
+        const policyEvidenceMatches =
+          accountEvidence !== undefined &&
+          baseEvidenceMatches &&
+          accountEvidence.policyAccount === policyAccountAddress &&
+          accountEvidence.policySeed === policySeed.toString();
+        if (
+          accountEvidence !== undefined &&
+          policyEvidenceMatches &&
+          accountEvidence.recurringDelegationExists === false &&
+          accountEvidence.vaultUsdcAtaExists !== undefined &&
+          (options.assumePolicyExists ||
+            accountEvidence.policyExists !== undefined)
+        ) {
+          return {
+            delegationAccount: null,
+            policyAccountExists:
+              options.assumePolicyExists ||
+              accountEvidence.policyExists === true,
+            vaultUsdcAtaExists: accountEvidence.vaultUsdcAtaExists,
+          };
+        }
+
+        const accountInfos = await getAccountInfoMap({
+          accounts: [policyAccount, recurringDelegation, vaultUsdcAta],
+          connection: config.connection,
+        });
+
+        return {
+          delegationAccount:
+            accountInfos.get(recurringDelegationAddress) ?? null,
+          policyAccountExists: Boolean(
+            accountInfos.get(policyAccountAddress)
+          ),
+          vaultUsdcAtaExists: Boolean(accountInfos.get(vaultUsdcAtaAddress)),
+        };
+      };
+
+    let accountState = await readSetupAccountState();
     if (
       !options.assumePolicyExists &&
       requestedPolicySeed !== undefined &&
-      !policyAccountInfo &&
+      !accountState.policyAccountExists &&
+      nextPolicySeed !== null &&
       requestedPolicySeed !== nextPolicySeed
     ) {
       policySeed = nextPolicySeed;
       policyAccount = resolvePolicyAccount(policySeed);
-      accountInfos = await getAccountInfoMap({
-        accounts: [policyAccount, recurringDelegation],
-        connection: config.connection,
-      });
-      policyAccountInfo = accountInfos.get(policyAccount.toBase58()) ?? null;
-      delegationAccount =
-        accountInfos.get(recurringDelegation.toBase58()) ?? null;
+      accountState = await readSetupAccountState();
     }
 
-    if (!authorityAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
+    if (
+      authorityAccount &&
+      !authorityAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)
+    ) {
       throw new Error(
         "Subscription authority is owned by an unexpected program."
       );
     }
 
-    const expectedSubscriptionAuthorityInitId =
-      readSubscriptionAuthorityInitId(authorityAccount);
+    expectedSubscriptionAuthorityInitId ??=
+      authorityAccount === null
+        ? null
+        : readSubscriptionAuthorityInitId(authorityAccount);
+    if (expectedSubscriptionAuthorityInitId === null) {
+      throw new Error("Subscription authority init id is unavailable.");
+    }
     const policyExistsForPlanning =
-      options.assumePolicyExists || Boolean(policyAccountInfo);
+      options.assumePolicyExists || accountState.policyAccountExists;
 
-    if (delegationAccount) {
-      if (!delegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)) {
+    if (accountState.delegationAccount) {
+      if (
+        !accountState.delegationAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)
+      ) {
         throw new Error(
           "Recurring delegation is owned by an unexpected program."
         );
       }
-      throw new Error(
-        policyExistsForPlanning
-          ? "Autodeposit policy and recurring delegation already exist."
-          : "Autodeposit recurring delegation already exists before policy setup."
-      );
+      if (policyExistsForPlanning) {
+        throw new Error(
+          "Autodeposit policy and recurring delegation already exist."
+        );
+      }
     }
 
     const createDelegationInstruction =
@@ -8612,6 +8767,16 @@ export function createSmartAccountVaultsClient(
         prepared,
         nativeSolRequirement,
         stage: "create_policy",
+        accountEvidence: createAccountEvidence({
+          policyAccount,
+          policyExists: false,
+          policySeed,
+          recurringDelegationExists: Boolean(accountState.delegationAccount),
+          subscriptionAuthorityExists: true,
+          subscriptionAuthorityInitId: expectedSubscriptionAuthorityInitId,
+          subscriptionAuthorityOwnerVerified: true,
+          vaultUsdcAtaExists: accountState.vaultUsdcAtaExists,
+        }),
         authorityInitializationRequired: false,
         policy: {
           account: policyAccount,
@@ -8678,6 +8843,7 @@ export function createSmartAccountVaultsClient(
         },
         {
           account: vaultUsdcAta,
+          exists: accountState.vaultUsdcAtaExists,
           kind: "token_account_rent",
           label: "Earn vault USDC token account rent",
           space: AccountLayout.span,
@@ -8690,6 +8856,16 @@ export function createSmartAccountVaultsClient(
       prepared,
       nativeSolRequirement,
       stage: "create_recurring_delegation",
+      accountEvidence: createAccountEvidence({
+        policyAccount,
+        policyExists: true,
+        policySeed,
+        recurringDelegationExists: false,
+        subscriptionAuthorityExists: true,
+        subscriptionAuthorityInitId: expectedSubscriptionAuthorityInitId,
+        subscriptionAuthorityOwnerVerified: true,
+        vaultUsdcAtaExists: accountState.vaultUsdcAtaExists,
+      }),
       authorityInitializationRequired: false,
       policy: {
         account: policyAccount,
@@ -8729,6 +8905,7 @@ export function createSmartAccountVaultsClient(
   async function prepareEarnUsdcAutodepositSetupBatchFromPrepared(
     args: SmartAccountEarnUsdcAutodepositSetupInput & {
       preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+      refreshImmediateStartTimestamp?: boolean;
     }
   ): Promise<SmartAccountPreparedEarnUsdcAutodepositSetup[]> {
     const firstSetup = args.preparedSetup;
@@ -8743,9 +8920,10 @@ export function createSmartAccountVaultsClient(
         nonce: firstSetup.subscription.nonce,
         periodLengthSeconds: firstSetup.subscription.periodLengthSeconds,
         policySeed: firstSetup.policy.seed ?? args.policySeed,
-        startTimestamp: firstSetup.subscription.startTimestamp,
+        startTimestamp: resolveEarnAutodepositBatchStartTimestamp(args),
       },
       {
+        accountEvidence: firstSetup.accountEvidence,
         assumePolicyExists: true,
       }
     );

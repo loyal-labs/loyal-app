@@ -51,6 +51,8 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
+    executeNowAvailableAt:
+      sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
