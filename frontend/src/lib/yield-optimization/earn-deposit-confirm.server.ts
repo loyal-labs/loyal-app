@@ -6,7 +6,11 @@ import {
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { PublicKey, type ParsedTransactionWithMeta, type TokenBalance } from "@solana/web3.js";
+import {
+  PublicKey,
+  type ParsedTransactionWithMeta,
+  type TokenBalance,
+} from "@solana/web3.js";
 
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
@@ -27,7 +31,6 @@ import {
 // drift between surfaces. The caller supplies the authenticated principal (from
 // a session or a verified wallet signature); this module owns everything after.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
-
 
 type ConfirmedDepositTransactionProof = {
   principalAmountRaw: bigint;
@@ -304,7 +307,6 @@ function createCanonicalDepositInput(
   return canonicalInput;
 }
 
-
 // A route policy can exist on-chain without DB rows (the deposit that created
 // it landed but its confirm failed), so a reuse confirm has no recorded
 // creation signature to cite. Recover it from the chain: the policy account's
@@ -338,10 +340,9 @@ async function resolveConfirmedSignatureSlot(args: {
   operation: "deposit" | "route policy setup" | "setup policy setup";
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
+  const { value } = await getServerSolanaConnection(
+    args.cluster
+  ).getSignatureStatuses([args.signature], { searchTransactionHistory: true });
   const status = value[0];
 
   if (!status || status.err) {
@@ -366,13 +367,12 @@ async function resolveConfirmedDepositTransactionProof(args: {
   cluster: SolanaEnv;
   input: ConfirmedYieldDepositInput;
 }): Promise<ConfirmedDepositTransactionProof> {
-  const transaction = await getServerSolanaConnection(args.cluster).getParsedTransaction(
-    args.input.depositSignature,
-    {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    }
-  );
+  const transaction = await getServerSolanaConnection(
+    args.cluster
+  ).getParsedTransaction(args.input.depositSignature, {
+    commitment: "confirmed",
+    maxSupportedTransactionVersion: 0,
+  });
 
   if (!transaction || !transaction.meta) {
     throw new Error("Confirmed deposit transaction details are unavailable.");

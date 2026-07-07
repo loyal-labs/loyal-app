@@ -10,7 +10,11 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { PublicKey, type ParsedTransactionWithMeta, type TokenBalance } from "@solana/web3.js";
+import {
+  PublicKey,
+  type ParsedTransactionWithMeta,
+  type TokenBalance,
+} from "@solana/web3.js";
 
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
@@ -48,14 +52,12 @@ export class EarnWithdrawConfirmError extends Error {
   }
 }
 
-
 type ConfirmedWithdrawalTransactionProof = {
   reserveDebitAmountRaw: bigint;
   vaultIdleDeltaRaw: bigint;
   vaultIdleTokenAccount: string;
   walletTransferAmountRaw: bigint;
 };
-
 
 function assertCanonicalField(
   actual: string | bigint | number | null,
@@ -134,7 +136,8 @@ function getParsedTokenBalanceDeltaRaw(args: {
       continue;
     }
 
-    deltaRaw += readTokenBalanceAmountRaw(post) - readTokenBalanceAmountRaw(pre);
+    deltaRaw +=
+      readTokenBalanceAmountRaw(post) - readTokenBalanceAmountRaw(pre);
   }
 
   return deltaRaw;
@@ -144,16 +147,17 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
   cluster: SolanaEnv;
   input: ConfirmedYieldWithdrawalInput;
 }): Promise<ConfirmedWithdrawalTransactionProof> {
-  const transaction = await getServerSolanaConnection(args.cluster).getParsedTransaction(
-    args.input.withdrawalSignature,
-    {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    }
-  );
+  const transaction = await getServerSolanaConnection(
+    args.cluster
+  ).getParsedTransaction(args.input.withdrawalSignature, {
+    commitment: "confirmed",
+    maxSupportedTransactionVersion: 0,
+  });
 
   if (!transaction || !transaction.meta) {
-    throw new Error("Confirmed withdrawal transaction details are unavailable.");
+    throw new Error(
+      "Confirmed withdrawal transaction details are unavailable."
+    );
   }
   if (transaction.meta.err) {
     throw new Error("Withdrawal transaction proof has an execution error.");
@@ -379,10 +383,9 @@ async function resolveConfirmedSignatureSlot(args: {
   operation: "autodeposit close" | "withdrawal";
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
+  const { value } = await getServerSolanaConnection(
+    args.cluster
+  ).getSignatureStatuses([args.signature], { searchTransactionHistory: true });
   const status = value[0];
 
   if (!status || status.err) {

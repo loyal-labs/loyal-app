@@ -14,7 +14,6 @@ import {
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 
-
 function jsonError(
   status: number,
   code: string,
@@ -26,7 +25,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);

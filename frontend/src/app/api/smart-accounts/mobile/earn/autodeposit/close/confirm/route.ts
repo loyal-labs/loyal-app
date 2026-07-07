@@ -33,7 +33,6 @@ import {
 // target. The canonicalization mirrors the session route — keep in sync.
 const EARN_DEPOSIT_VAULT_INDEX = 1 as const;
 
-
 type MobileCloseConfirmFields = {
   preparedClose: WireSmartAccountPreparedEarnUsdcAutodepositClose;
   closeSignature: string;
@@ -51,7 +50,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 function assertCanonicalField(
   actual: string | bigint | number | null,
@@ -114,10 +112,9 @@ async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
+  const { value } = await getServerSolanaConnection(
+    args.cluster
+  ).getSignatureStatuses([args.signature], { searchTransactionHistory: true });
   const status = value[0];
 
   if (!status || status.err) {
@@ -159,7 +156,10 @@ function parseMobileCloseConfirmFields(
     throw new Error("Request body must be an object.");
   }
   const record = body as Record<string, unknown>;
-  if (typeof record.preparedClose !== "object" || record.preparedClose === null) {
+  if (
+    typeof record.preparedClose !== "object" ||
+    record.preparedClose === null
+  ) {
     throw new Error("preparedClose is required.");
   }
   if (typeof record.closeSignature !== "string" || !record.closeSignature) {
@@ -190,7 +190,10 @@ export async function POST(request: Request) {
       body,
       // Accepts the flow's prepare signature too — the device signs one auth
       // message per flow (see authenticateMobileWalletRequest).
-      purpose: ["earn-autodeposit-close-confirm", "earn-autodeposit-close-prepare"],
+      purpose: [
+        "earn-autodeposit-close-confirm",
+        "earn-autodeposit-close-prepare",
+      ],
     }));
   } catch (error) {
     if (error instanceof WalletAuthError) {

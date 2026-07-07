@@ -16,7 +16,6 @@ import { recordSmartAccountSponsorshipTransactionBySignature } from "./sponsorsh
 
 let cachedSponsorKeypair: Keypair | null = null;
 
-
 function getSmartAccountsClient(args: {
   solanaEnv: SolanaEnv;
   programId: string;

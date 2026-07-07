@@ -51,7 +51,6 @@ import {
 // in sync with the session route.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -63,7 +62,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 type EarnWithdrawSourceRequest = ReturnType<
   typeof parseEarnWithdrawPrepareRequestBody
@@ -142,11 +140,9 @@ function sourceMatchesStableMint(
     return false;
   }
 
-  const identifiers = [
-    request.id,
-    request.liquidityMint,
-    request.mint,
-  ].filter(isNonEmptyString);
+  const identifiers = [request.id, request.liquidityMint, request.mint].filter(
+    isNonEmptyString
+  );
 
   return source.type === "reserve"
     ? identifiers.includes(source.liquidityMint)
@@ -464,12 +460,15 @@ export async function POST(request: Request) {
       ]);
     policy = policyResult?.routePolicy ?? null;
     if (!policy) {
-      console.warn("[mobile-earn-withdraw-prepare] missing active Earn policy", {
-        cluster,
-        settings: settingsPda,
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        walletAddress,
-      });
+      console.warn(
+        "[mobile-earn-withdraw-prepare] missing active Earn policy",
+        {
+          cluster,
+          settings: settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          walletAddress,
+        }
+      );
       return jsonError(
         409,
         "missing_earn_policy",
@@ -545,8 +544,8 @@ export async function POST(request: Request) {
               reserve: new PublicKey(selected.reserve),
               supplyApyBps: null,
             }
-          : (snapshotReserveTarget(snapshot.holdings) ??
-            earnReserveTargetFromActivePosition(position));
+          : snapshotReserveTarget(snapshot.holdings) ??
+            earnReserveTargetFromActivePosition(position);
     } else {
       selectedSource = selectEarnWithdrawSource({
         amountRaw,

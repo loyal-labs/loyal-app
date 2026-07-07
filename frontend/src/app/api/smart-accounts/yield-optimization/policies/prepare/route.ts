@@ -11,7 +11,6 @@ import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import { serializePreparedEarnUsdcYieldRoutingPolicy } from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
 
-
 function jsonError(
   status: number,
   code: string,
@@ -23,7 +22,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);

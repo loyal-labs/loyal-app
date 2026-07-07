@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { PublicKey, type Connection } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
@@ -31,7 +31,6 @@ import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-d
 // tokenAccount/mint) so a `withdraw/prepare` call can match it.
 const EARN_VAULT_INDEX = 1 as const;
 
-
 type WithdrawSource = {
   type: "reserve" | "idle";
   id: string;
@@ -53,22 +52,6 @@ function jsonError(
 
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
-}
-
-function getServerSolanaConnection(env: SolanaEnv): Connection {
-  const cached = connectionCache.get(env);
-  if (cached) {
-    return cached;
-  }
-  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(env);
-  const connection = new Connection(rpcEndpoint, {
-    commitment: "confirmed",
-    disableRetryOnRateLimit: true,
-    fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
-    wsEndpoint: websocketEndpoint,
-  });
-  connectionCache.set(env, connection);
-  return connection;
 }
 
 function isPositiveAmount(amountRaw: string): boolean {
@@ -158,7 +141,9 @@ export async function GET(request: Request) {
 
     const solanaEnv = getConfiguredSolanaEnv();
     const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-    const programId = new PublicKey(getServerEnv().loyalSmartAccounts.programId);
+    const programId = new PublicKey(
+      getServerEnv().loyalSmartAccounts.programId
+    );
     const settingsPda = new PublicKey(account.settingsPda);
     const [earnVaultPda] = pda.getSmartAccountPda({
       accountIndex: EARN_VAULT_INDEX,

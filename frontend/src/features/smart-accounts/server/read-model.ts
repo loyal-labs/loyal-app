@@ -19,8 +19,8 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { getServerEnv } from "@/lib/core/config/server";
 import { createFrontendAssetProvider } from "@/lib/solana/frontend-asset-provider";
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
-import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
+import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 
 const walletDataClientCache = new Map<
   SolanaEnv,
@@ -114,7 +114,6 @@ function setCompletedOverviewResult(cacheKey: string, result: unknown) {
     result,
   });
 }
-
 
 function getWalletDataClient(solanaEnv: SolanaEnv) {
   const cachedClient = walletDataClientCache.get(solanaEnv);

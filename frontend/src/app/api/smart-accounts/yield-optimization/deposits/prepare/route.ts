@@ -24,7 +24,6 @@ import {
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -36,7 +35,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);

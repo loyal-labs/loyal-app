@@ -61,7 +61,6 @@ const MONTH_PERIOD_SECONDS = BigInt(30 * 24 * 60 * 60);
 const BOOTSTRAP_BALANCE_SOURCE = "app_autodeposit_setup_confirm";
 const BOOTSTRAP_BALANCE_SOURCE_COMMITMENT = "confirmed";
 
-
 type MobileSetupConfirmFields = {
   preparedSetup: WireSmartAccountPreparedEarnUsdcAutodepositSetup;
   setupSignature: string;
@@ -238,15 +237,13 @@ function createCanonicalAutodepositSetupInput(
   return canonicalInput;
 }
 
-
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
+  const { value } = await getServerSolanaConnection(
+    args.cluster
+  ).getSignatureStatuses([args.signature], { searchTransactionHistory: true });
   const status = value[0];
 
   if (!status || status.err) {
@@ -300,8 +297,7 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
-    executeNowAvailableAt:
-      sweep.executeNowAvailableAt?.toISOString() ?? null,
+    executeNowAvailableAt: sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),

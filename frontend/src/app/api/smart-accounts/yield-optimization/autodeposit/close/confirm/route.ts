@@ -23,7 +23,6 @@ import {
 
 const EARN_DEPOSIT_VAULT_INDEX = 1 as const;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -93,15 +92,13 @@ function createCanonicalAutodepositCloseInput(
   return canonicalInput;
 }
 
-
 async function resolveConfirmedSignatureSlot(args: {
   cluster: SolanaEnv;
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getServerSolanaConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
+  const { value } = await getServerSolanaConnection(
+    args.cluster
+  ).getSignatureStatuses([args.signature], { searchTransactionHistory: true });
   const status = value[0];
 
   if (!status || status.err) {

@@ -24,7 +24,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-
 export async function POST(request: Request) {
   const principal = await resolveAuthenticatedPrincipalFromRequest(request);
 

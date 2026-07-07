@@ -37,7 +37,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -136,8 +135,7 @@ export async function POST(request: Request) {
       ) {
         policySeed = target.policySeed;
         nonce = target.recurringDelegationNonce;
-        periodLengthSeconds =
-          target.periodLengthSeconds ?? periodLengthSeconds;
+        periodLengthSeconds = target.periodLengthSeconds ?? periodLengthSeconds;
         startTimestamp = target.startTimestamp ?? startTimestamp;
         expiryTimestamp =
           target.recurringDelegationExpiryTimestamp ?? expiryTimestamp;

@@ -34,7 +34,6 @@ import {
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -46,7 +45,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 type EarnWithdrawSourceRequest = ReturnType<
   typeof parseEarnWithdrawPrepareRequestBody
@@ -125,11 +123,9 @@ function sourceMatchesStableMint(
     return false;
   }
 
-  const identifiers = [
-    request.id,
-    request.liquidityMint,
-    request.mint,
-  ].filter(isNonEmptyString);
+  const identifiers = [request.id, request.liquidityMint, request.mint].filter(
+    isNonEmptyString
+  );
 
   return source.type === "reserve"
     ? identifiers.includes(source.liquidityMint)
@@ -215,7 +211,11 @@ function selectEarnWithdrawSource(args: {
           },
         ]
       : [];
-  const sources = [...reserveSources, ...idleSources, ...positionFallbackSources];
+  const sources = [
+    ...reserveSources,
+    ...idleSources,
+    ...positionFallbackSources,
+  ];
 
   if (sources.length === 0) {
     throw new Error("No active Earn withdrawal source was found.");

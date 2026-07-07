@@ -34,7 +34,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-
 export async function POST(request: Request) {
   let body: unknown;
   try {

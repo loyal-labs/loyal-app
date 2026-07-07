@@ -69,7 +69,6 @@ function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
 
-
 export async function GET(request: Request) {
   const walletAddress =
     new URL(request.url).searchParams.get("walletAddress")?.trim() ?? "";
@@ -244,6 +243,10 @@ export async function GET(request: Request) {
       stack: error instanceof Error ? error.stack : undefined,
       walletAddress,
     });
-    return jsonError(502, "earn_holdings_failed", "Failed to load Earn holdings.");
+    return jsonError(
+      502,
+      "earn_holdings_failed",
+      "Failed to load Earn holdings."
+    );
   }
 }

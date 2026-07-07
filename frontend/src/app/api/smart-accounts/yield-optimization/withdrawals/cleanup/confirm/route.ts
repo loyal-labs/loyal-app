@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { type Connection } from "@solana/web3.js";
+import type { Connection } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
@@ -11,7 +10,6 @@ import { recordConfirmedEarnCleanup } from "@/lib/yield-optimization/yield-depos
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -19,7 +17,6 @@ function jsonError(
 ): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
 }
-
 
 async function resolveConfirmedSignatureSlot(args: {
   connection: Connection;

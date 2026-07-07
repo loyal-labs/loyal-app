@@ -49,7 +49,6 @@ function resolveConfiguredCluster(solanaEnv = resolveConfiguredSolanaEnv()) {
   return resolveLoyalClusterForSolanaEnv(solanaEnv);
 }
 
-
 async function reconcileAutodepositArtifacts(args: {
   connection: Connection;
   settings: string;

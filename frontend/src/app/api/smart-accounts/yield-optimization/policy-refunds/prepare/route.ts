@@ -8,7 +8,6 @@ import {
   subscriptionRevokeDelegationData,
 } from "@loyal-labs/actions";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
-import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
@@ -30,7 +29,6 @@ import {
 
 const EARN_VAULT_INDEX = 1;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -38,7 +36,6 @@ function jsonError(
 ): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
 }
-
 
 function getBlockedReason(args: {
   activeAutodeposit: boolean;

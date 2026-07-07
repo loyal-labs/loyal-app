@@ -40,7 +40,6 @@ import {
 // below in sync with the session route.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -52,7 +51,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 // Sum the wallet's USDC across its token accounts (parsed RPC; no spl-token
 // dependency, mirroring the frontend asset provider).

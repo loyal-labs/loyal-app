@@ -22,7 +22,6 @@ import {
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
-
 function jsonError(
   status: number,
   code: string,
@@ -34,7 +33,6 @@ function jsonError(
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
 }
-
 
 function publicKeyFromMetadata(
   metadata: Record<string, unknown> | null | undefined,
@@ -237,9 +235,7 @@ export async function POST(request: Request) {
     return jsonError(
       500,
       "prepare_failed",
-      error instanceof Error
-        ? error.message
-        : "Failed to prepare Earn cleanup."
+      error instanceof Error ? error.message : "Failed to prepare Earn cleanup."
     );
   }
 }
