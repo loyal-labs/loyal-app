@@ -19,6 +19,7 @@ import {
   findCurrentEarnAutodepositState,
   findPendingEarnAutodepositScheduledSweeps,
   markAutodepositTargetActiveFromArtifacts,
+  markAutodepositTargetClosedFromChain,
   markAutodepositTargetPendingDelegation,
   reconcileStaleEarnAutodepositScheduledSweeps,
   scheduleBootstrapEarnAutodepositSweep,
@@ -98,6 +99,26 @@ async function reconcileAutodepositArtifacts(args: {
   const hasRecordedDelegation =
     args.state.target.recurringDelegationSignature !== null &&
     args.state.target.recurringDelegationConfirmedSlot !== null;
+
+  // Both stage transactions were recorded and both accounts are gone from
+  // chain: the autodeposit was closed on-chain but the close confirm never
+  // reached the DB (or lost a write race against this reconciler). Record the
+  // close — demoting to pending would strand the row as a live autodeposit
+  // the close flow can no longer tear down.
+  if (
+    hasRecordedPolicy &&
+    hasRecordedDelegation &&
+    !policyReady &&
+    !delegationReady
+  ) {
+    const target = await markAutodepositTargetClosedFromChain({
+      policyAccount: args.state.target.policyAccount,
+      settings: args.settings,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress: args.walletAddress,
+    });
+    return { ...args.state, target };
+  }
 
   if (args.state.status !== "pending" && (!policyReady || !delegationReady)) {
     const target = await markAutodepositTargetPendingDelegation({
@@ -302,6 +323,11 @@ export async function GET(request: Request) {
             state,
             walletAddress: principal.walletAddress,
           });
+          // Reconcile (or a concurrent close confirm surfaced by its write
+          // guards) concluded the autodeposit is closed — same as no row.
+          if (reconciledState.target.lifecycleStatus === "closed") {
+            return null;
+          }
           const activatedFromPending =
             state.status === "pending" && reconciledState.status === "active";
           if (activatedFromPending) {

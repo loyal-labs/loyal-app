@@ -2312,6 +2312,10 @@ export async function markAutodepositTargetPendingDelegation(
     return existing;
   }
 
+  // The closed guard above is read-then-write (Neon HTTP has no
+  // transactions), and the caller runs RPC probes between its read and this
+  // write — a close confirm landing in that window must win, so the demote
+  // is conditional on the row still not being closed.
   const [target] = await client.db
     .update(balanceSweepTargets)
     .set({
@@ -2319,10 +2323,22 @@ export async function markAutodepositTargetPendingDelegation(
         lastSeenAt: dependencies.now(),
         lifecycleStatus: input.lifecycleStatus ?? "pending_delegation",
       })
-    .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
+    .where(
+      and(
+        eq(balanceSweepTargets.policyAccount, input.policyAccount),
+        ne(balanceSweepTargets.lifecycleStatus, "closed")
+      )
+    )
     .returning();
 
   if (!target) {
+    const closed = await findTargetByPolicy({
+      client,
+      policyAccount: input.policyAccount,
+    });
+    if (closed?.lifecycleStatus === "closed") {
+      return closed;
+    }
     throw new Error("Failed to mark autodeposit target pending.");
   }
 
@@ -2364,6 +2380,9 @@ export async function markAutodepositTargetActiveFromArtifacts(
     throw new Error("Autodeposit recurring delegation is missing.");
   }
 
+  // Same concurrent-close guard as markAutodepositTargetPendingDelegation:
+  // a close recorded between the read above and this write must not be
+  // resurrected to active.
   const [target] = await client.db
     .update(balanceSweepTargets)
     .set({
@@ -2371,11 +2390,97 @@ export async function markAutodepositTargetActiveFromArtifacts(
       lastSeenAt: dependencies.now(),
       lifecycleStatus: "active",
     })
+    .where(
+      and(
+        eq(balanceSweepTargets.policyAccount, input.policyAccount),
+        ne(balanceSweepTargets.lifecycleStatus, "closed")
+      )
+    )
+    .returning();
+
+  if (!target) {
+    const closed = await findTargetByPolicy({
+      client,
+      policyAccount: input.policyAccount,
+    });
+    if (closed?.lifecycleStatus === "closed") {
+      return closed;
+    }
+    throw new Error("Failed to mark autodeposit target active.");
+  }
+
+  return target;
+}
+
+// Records a close observed on-chain rather than through the close confirm:
+// both stage transactions were recorded for this row, yet the policy AND
+// recurring delegation accounts are gone from chain — the close transaction
+// landed but its confirm never reached the DB (or lost a write race). Without
+// this the reconciler demotes the row to pending_delegation and it lingers as
+// a live autodeposit forever. No close signature is available here, so the
+// close proof columns stay untouched for a later confirm retry to fill.
+export async function markAutodepositTargetClosedFromChain(
+  input: {
+    policyAccount: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client" | "now"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+
+  await cancelScheduledAutodepositTransactionsForClose({
+    client,
+    now,
+    targetId: existing.id,
+  });
+
+  if (existing.lifecycleStatus === "closed") {
+    return existing;
+  }
+
+  await client.db
+    .update(balanceSweepPolicies)
+    .set({
+      active: false,
+      closedAt: sql`COALESCE(${balanceSweepPolicies.closedAt}, ${now})`,
+      lastSeenAt: now,
+    })
+    .where(eq(balanceSweepPolicies.policyAccount, input.policyAccount));
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: false,
+      closedAt: sql`COALESCE(${balanceSweepTargets.closedAt}, ${now})`,
+      lastSeenAt: now,
+      lifecycleStatus: "closed",
+    })
     .where(eq(balanceSweepTargets.policyAccount, input.policyAccount))
     .returning();
 
   if (!target) {
-    throw new Error("Failed to mark autodeposit target active.");
+    throw new Error("Failed to close autodeposit target from chain state.");
   }
 
   return target;
