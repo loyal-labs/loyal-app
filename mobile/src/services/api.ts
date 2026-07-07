@@ -12,6 +12,8 @@ export type GroupChat = {
   photoMimeType?: string;
 };
 
+export type TokenDetailTimeframe = "1d" | "1w" | "1m" | "1y";
+
 export type MobileTokenDetailResponse = {
   mint: string;
   token: {
@@ -84,9 +86,10 @@ export async function fetchSummariesByGroup(
 
 export async function fetchTokenDetailMarket(
   mint: string,
+  timeframe: TokenDetailTimeframe = "1d",
 ): Promise<MobileTokenDetailResponse> {
   const response = await fetch(
-    `${env.apiBaseUrl}/api/mobile/tokens/${encodeURIComponent(mint)}`,
+    `${env.apiBaseUrl}/api/mobile/tokens/${encodeURIComponent(mint)}?timeframe=${timeframe}`,
   );
 
   if (!response.ok) {

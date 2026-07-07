@@ -6,13 +6,15 @@ export function normalizeTokenChartTimestamp(timestamp: number) {
   return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
 }
 
+// Scrub label under the finger, e.g. "Jun 18, 6:00 PM" (Figma 316:9540).
 export function formatTokenChartTimeLabel(timestamp: number) {
   const date = new Date(normalizeTokenChartTimestamp(timestamp));
-  const hasMinutes = date.getMinutes() !== 0;
 
   return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
-    ...(hasMinutes ? { minute: "2-digit" } : {}),
+    minute: "2-digit",
   }).format(date);
 }
 
