@@ -277,7 +277,7 @@ async function loadPublicPerformanceSnapshot() {
         SELECT
           COALESCE(SUM(normalized_aum_raw), 0)::text AS active_aum_raw,
           COALESCE(
-            SUM(normalized_reserve_raw - principal_amount_raw),
+            SUM(GREATEST(normalized_reserve_raw - principal_amount_raw, 0::bigint)),
             0
           )::text AS active_user_earnings_raw,
           (
