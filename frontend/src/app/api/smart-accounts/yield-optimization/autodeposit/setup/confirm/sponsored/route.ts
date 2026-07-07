@@ -8,6 +8,7 @@ import {
 import {
   EarnPolicySponsoredTransactionError,
   executeSponsoredEarnPolicyTransaction,
+  type SponsoredTransactionConfirmation,
 } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 
 import { POST as confirmEarnAutodepositSetup } from "../route";
@@ -20,12 +21,10 @@ function jsonError(
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function buildForwardedConfirmBody(
-  args: {
-    input: SponsoredEarnAutodepositSetupInput;
-    setup: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
-  }
-): EarnAutodepositSetupConfirmRequestBody & {
+function buildForwardedConfirmBody(args: {
+  input: SponsoredEarnAutodepositSetupInput;
+  setup: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+}): EarnAutodepositSetupConfirmRequestBody & {
   setupTransaction: string;
 } {
   const { input, setup } = args;
@@ -48,7 +47,8 @@ function buildForwardedConfirmBody(
     setupTransaction: input.setupTransaction,
     startTimestamp: input.startTimestamp.toString(),
     subscriptionAuthority: input.subscriptionAuthority,
-    subscriptionAuthorityInitialization: input.subscriptionAuthorityInitialization,
+    subscriptionAuthorityInitialization:
+      input.subscriptionAuthorityInitialization,
     subscriptionDelegatee: input.subscriptionDelegatee,
     vaultIndex: input.vaultIndex,
     vaultPubkey: input.vaultPubkey,
@@ -56,6 +56,25 @@ function buildForwardedConfirmBody(
     walletAddress: input.walletAddress,
     walletBalanceFloorRaw: input.walletBalanceFloorRaw.toString(),
     walletUsdcAta: input.walletUsdcAta,
+  };
+}
+
+function responseBodyWithSponsoredConfirmations(args: {
+  payload: unknown;
+  setup: SponsoredTransactionConfirmation;
+}) {
+  const payload =
+    args.payload &&
+    typeof args.payload === "object" &&
+    !Array.isArray(args.payload)
+      ? args.payload
+      : { data: args.payload };
+
+  return {
+    ...payload,
+    sponsoredConfirmations: {
+      setup: args.setup,
+    },
   };
 }
 
@@ -87,11 +106,19 @@ export async function POST(request: Request) {
   headers.set("content-type", "application/json");
   headers.delete("content-length");
 
-  return confirmEarnAutodepositSetup(
+  const forwardedResponse = await confirmEarnAutodepositSetup(
     new Request(request.url, {
       body: JSON.stringify(buildForwardedConfirmBody({ input, setup })),
       headers,
       method: "POST",
     })
+  );
+  const forwardedPayload = await forwardedResponse.json().catch(() => null);
+  return NextResponse.json(
+    responseBodyWithSponsoredConfirmations({
+      payload: forwardedPayload,
+      setup,
+    }),
+    { status: forwardedResponse.status }
   );
 }

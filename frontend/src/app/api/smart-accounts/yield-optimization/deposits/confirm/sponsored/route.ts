@@ -68,7 +68,7 @@ function buildForwardedConfirmBody(args: {
 }): EarnDepositConfirmRequestBody & {
   depositTransaction: string;
   policyTransaction: string;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
 } {
   const { deposit, input, policy, setupPolicy } = args;
   return {
@@ -96,7 +96,9 @@ function buildForwardedConfirmBody(args: {
     setupPolicyId: input.setupPolicyId?.toString() ?? null,
     setupPolicySeed: input.setupPolicySeed?.toString() ?? null,
     ...(setupPolicy ? { setupPolicySignature: setupPolicy.signature } : {}),
-    setupPolicyTransaction: input.setupPolicyTransaction,
+    ...(input.setupPolicyTransaction
+      ? { setupPolicyTransaction: input.setupPolicyTransaction }
+      : {}),
     smartAccountAddress: input.smartAccountAddress,
     targetReserve: input.targetReserve,
     targetSupplyApyBps: input.targetSupplyApyBps?.toString() ?? null,
@@ -255,6 +257,14 @@ export async function POST(request: Request) {
       guards.policy
     );
     if (input.policyInitialization === "create") {
+      if (!input.setupPolicyTransaction) {
+        throw new EarnPolicySponsoredTransactionError({
+          status: 400,
+          code: "missing_setup_policy_transaction",
+          message:
+            "setupPolicyTransaction is required when policyInitialization is create.",
+        });
+      }
       setupPolicy = await executeSponsoredEarnPolicyTransaction(
         input.setupPolicyTransaction,
         guards.setupPolicy

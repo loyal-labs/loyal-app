@@ -41,7 +41,7 @@ export type EarnSponsoredPolicyConfirmRequestBody = Omit<
   | "setupPolicySignature"
 > & {
   policyTransaction: string;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
 };
 
 export type SponsoredYieldRoutePolicyInput = Omit<
@@ -52,7 +52,7 @@ export type SponsoredYieldRoutePolicyInput = Omit<
   | "setupPolicySignature"
 > & {
   policyTransaction: string;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
   stage: "route_policy" | "setup_policy";
 };
 
@@ -96,7 +96,7 @@ export type EarnSponsoredDepositConfirmRequestBody = Omit<
 > & {
   depositTransaction: string;
   policyTransaction: string;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
 };
 
 export type SponsoredYieldDepositConfirmInput = Omit<
@@ -110,7 +110,7 @@ export type SponsoredYieldDepositConfirmInput = Omit<
 > & {
   depositTransaction: string;
   policyTransaction: string;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
 };
 
 export type EarnWithdrawalAutodepositCloseConfirmRequestBody = {
@@ -246,6 +246,20 @@ function readPolicyConfirmStage(
     return readOptionalString(body, "setupPolicySignature")
       ? "setup_policy"
       : "route_policy";
+  }
+  if (value !== "route_policy" && value !== "setup_policy") {
+    throw new Error("stage must be route_policy or setup_policy.");
+  }
+  return value;
+}
+
+function readSponsoredPolicyConfirmStage(
+  body: EarnConfirmRequestRecord,
+  setupPolicyTransaction: string | null
+): "route_policy" | "setup_policy" {
+  const value = readOptionalString(body, "stage");
+  if (value === null) {
+    return setupPolicyTransaction ? "setup_policy" : "route_policy";
   }
   if (value !== "route_policy" && value !== "setup_policy") {
     throw new Error("stage must be route_policy or setup_policy.");
@@ -525,7 +539,15 @@ export function parseEarnSponsoredPolicyConfirmRequestBody(
   body: unknown
 ): SponsoredYieldRoutePolicyInput {
   const record = assertRequestObject(body);
-  const stage = readPolicyConfirmStage(record);
+  const setupPolicyTransaction = readOptionalString(
+    record,
+    "setupPolicyTransaction"
+  );
+  const stage = readSponsoredPolicyConfirmStage(record, setupPolicyTransaction);
+  if (stage === "setup_policy" && !setupPolicyTransaction) {
+    throw new Error("setupPolicyTransaction is required for policy setup.");
+  }
+
   return {
     cluster: readRequiredString(record, "cluster"),
     delegatedSigner: readRequiredString(record, "delegatedSigner"),
@@ -539,10 +561,7 @@ export function parseEarnSponsoredPolicyConfirmRequestBody(
     setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
     setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
     setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
-    setupPolicyTransaction: readRequiredString(
-      record,
-      "setupPolicyTransaction"
-    ),
+    setupPolicyTransaction,
     settings: readRequiredString(record, "settings"),
     targetReserve: readRequiredString(record, "targetReserve"),
     vaultIndex: readVaultIndex(record),
@@ -595,6 +614,17 @@ export function parseEarnSponsoredDepositConfirmRequestBody(
   body: unknown
 ): SponsoredYieldDepositConfirmInput {
   const record = assertRequestObject(body);
+  const policyInitialization = readPolicyInitialization(record);
+  const setupPolicyTransaction = readOptionalString(
+    record,
+    "setupPolicyTransaction"
+  );
+  if (policyInitialization === "create" && !setupPolicyTransaction) {
+    throw new Error(
+      "setupPolicyTransaction is required when policyInitialization is create."
+    );
+  }
+
   return {
     cluster: readRequiredString(record, "cluster"),
     delegatedSigner: readRequiredString(record, "delegatedSigner"),
@@ -604,7 +634,7 @@ export function parseEarnSponsoredDepositConfirmRequestBody(
     market: readOptionalString(record, "market"),
     policyAccount: readRequiredString(record, "policyAccount"),
     policyId: readBigIntString(record, "policyId"),
-    policyInitialization: readPolicyInitialization(record),
+    policyInitialization,
     policySeed: readBigIntString(record, "policySeed"),
     policyTransaction: readRequiredString(record, "policyTransaction"),
     principalAmountRaw: readBigIntString(record, "principalAmountRaw"),
@@ -612,10 +642,7 @@ export function parseEarnSponsoredDepositConfirmRequestBody(
     setupPolicyAccount: readOptionalString(record, "setupPolicyAccount"),
     setupPolicyId: readOptionalBigIntString(record, "setupPolicyId"),
     setupPolicySeed: readOptionalBigIntString(record, "setupPolicySeed"),
-    setupPolicyTransaction: readRequiredString(
-      record,
-      "setupPolicyTransaction"
-    ),
+    setupPolicyTransaction,
     smartAccountAddress: readRequiredString(record, "smartAccountAddress"),
     targetReserve: readRequiredString(record, "targetReserve"),
     targetSupplyApyBps: readOptionalBigIntString(record, "targetSupplyApyBps"),

@@ -21,16 +21,14 @@ function jsonError(
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function buildForwardedConfirmBody(
-  args: {
-    input: SponsoredYieldRoutePolicyInput;
-    policy: SponsoredTransactionConfirmation;
-    setupPolicy?: SponsoredTransactionConfirmation;
-    stage: "route_policy" | "setup_policy";
-  }
-): EarnPolicyConfirmRequestBody & {
+function buildForwardedConfirmBody(args: {
+  input: SponsoredYieldRoutePolicyInput;
+  policy: SponsoredTransactionConfirmation;
+  setupPolicy?: SponsoredTransactionConfirmation;
+  stage: "route_policy" | "setup_policy";
+}): EarnPolicyConfirmRequestBody & {
   policyTransaction: string;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
 } {
   const { input, policy, setupPolicy, stage } = args;
   const setupPolicyFields =
@@ -56,7 +54,9 @@ function buildForwardedConfirmBody(
     setupPolicyAccount: input.setupPolicyAccount ?? null,
     setupPolicyId: input.setupPolicyId?.toString() ?? null,
     setupPolicySeed: input.setupPolicySeed?.toString() ?? null,
-    setupPolicyTransaction: input.setupPolicyTransaction,
+    ...(input.setupPolicyTransaction
+      ? { setupPolicyTransaction: input.setupPolicyTransaction }
+      : {}),
     settings: input.settings,
     stage,
     targetReserve: input.targetReserve,
@@ -76,6 +76,27 @@ function buildForwardedRequest(args: {
     headers: args.headers,
     method: "POST",
   });
+}
+
+function responseBodyWithSponsoredConfirmations(args: {
+  payload: unknown;
+  policy: SponsoredTransactionConfirmation;
+  setupPolicy?: SponsoredTransactionConfirmation;
+}) {
+  const payload =
+    args.payload &&
+    typeof args.payload === "object" &&
+    !Array.isArray(args.payload)
+      ? args.payload
+      : { data: args.payload };
+
+  return {
+    ...payload,
+    sponsoredConfirmations: {
+      policy: args.policy,
+      setupPolicy: args.setupPolicy ?? null,
+    },
+  };
 }
 
 export async function POST(request: Request) {
@@ -119,23 +140,45 @@ export async function POST(request: Request) {
         url: request.url,
       })
     );
+    const routePolicyPayload = await routePolicyResponse
+      .json()
+      .catch(() => null);
     if (!routePolicyResponse.ok) {
-      return routePolicyResponse;
+      return NextResponse.json(
+        responseBodyWithSponsoredConfirmations({
+          payload: routePolicyPayload,
+          policy,
+        }),
+        { status: routePolicyResponse.status }
+      );
     }
 
     try {
+      if (!input.setupPolicyTransaction) {
+        throw new EarnPolicySponsoredTransactionError({
+          status: 400,
+          code: "missing_setup_policy_transaction",
+          message: "setupPolicyTransaction is required for policy setup.",
+        });
+      }
       setupPolicy = await executeSponsoredEarnPolicyTransaction(
         input.setupPolicyTransaction
       );
     } catch (error) {
       if (error instanceof EarnPolicySponsoredTransactionError) {
-        return jsonError(error.status, error.code, error.message);
+        return NextResponse.json(
+          responseBodyWithSponsoredConfirmations({
+            payload: { error: { code: error.code, message: error.message } },
+            policy,
+          }),
+          { status: error.status }
+        );
       }
       throw error;
     }
   }
 
-  return confirmEarnPolicy(
+  const forwardedResponse = await confirmEarnPolicy(
     buildForwardedRequest({
       body: buildForwardedConfirmBody({
         input,
@@ -146,5 +189,14 @@ export async function POST(request: Request) {
       headers,
       url: request.url,
     })
+  );
+  const forwardedPayload = await forwardedResponse.json().catch(() => null);
+  return NextResponse.json(
+    responseBodyWithSponsoredConfirmations({
+      payload: forwardedPayload,
+      policy,
+      setupPolicy,
+    }),
+    { status: forwardedResponse.status }
   );
 }

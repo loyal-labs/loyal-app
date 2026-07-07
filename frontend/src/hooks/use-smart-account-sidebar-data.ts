@@ -1478,14 +1478,16 @@ async function postSponsoredEarnDeposit(args: {
   depositTransaction: string;
   policyTransaction: string;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
   smartAccountAddress: string;
 }): Promise<SponsoredEarnDepositConfirmations> {
   const body: EarnSponsoredDepositConfirmRequestBody = {
     ...args.preparedDeposit.persistence,
     depositTransaction: args.depositTransaction,
     policyTransaction: args.policyTransaction,
-    setupPolicyTransaction: args.setupPolicyTransaction,
+    ...(args.setupPolicyTransaction
+      ? { setupPolicyTransaction: args.setupPolicyTransaction }
+      : {}),
     smartAccountAddress: args.smartAccountAddress,
   };
   const response = await fetch(
@@ -2489,7 +2491,7 @@ async function signPreparedEarnDepositBatchForSponsorship(args: {
 }): Promise<{
   depositTransaction: string;
   policyTransaction: string;
-  setupPolicyTransaction: string;
+  setupPolicyTransaction?: string | null;
 }> {
   if (!args.wallet.signAllTransactions) {
     throw new Error("Connected wallet does not support signAllTransactions.");
@@ -2522,14 +2524,22 @@ async function signPreparedEarnDepositBatchForSponsorship(args: {
   const policyTransaction = transactionByStage.get("policy");
   const setupPolicyTransaction = transactionByStage.get("policy-finalize");
   const depositTransaction = transactionByStage.get("deposit");
-  if (!policyTransaction || !setupPolicyTransaction || !depositTransaction) {
+  if (!policyTransaction || !depositTransaction) {
     throw new Error("Sponsored Earn deposit batch is missing a signed stage.");
+  }
+  if (
+    args.preparedStages.some(({ stage }) => stage === "policy-finalize") &&
+    !setupPolicyTransaction
+  ) {
+    throw new Error(
+      "Sponsored Earn deposit batch is missing a signed setup policy stage."
+    );
   }
 
   return {
     depositTransaction,
     policyTransaction,
-    setupPolicyTransaction,
+    ...(setupPolicyTransaction ? { setupPolicyTransaction } : {}),
   };
 }
 
