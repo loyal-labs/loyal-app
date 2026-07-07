@@ -5,11 +5,12 @@ import {
   type EarnAutodepositSetupConfirmRequestBody,
   type SponsoredEarnAutodepositSetupInput,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
+import {
+  EarnPolicySponsoredTransactionError,
+  executeSponsoredEarnPolicyTransaction,
+} from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 
 import { POST as confirmEarnAutodepositSetup } from "../route";
-
-const MOCK_CONFIRMED_SLOT = "0";
-const MOCK_SETUP_SIGNATURE = "mock-sponsored-autodeposit-setup-signature";
 
 function jsonError(
   status: number,
@@ -20,14 +21,18 @@ function jsonError(
 }
 
 function buildForwardedConfirmBody(
-  input: SponsoredEarnAutodepositSetupInput
+  args: {
+    input: SponsoredEarnAutodepositSetupInput;
+    setup: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  }
 ): EarnAutodepositSetupConfirmRequestBody & {
   setupTransaction: string;
 } {
+  const { input, setup } = args;
   return {
     amountPerPeriodRaw: input.amountPerPeriodRaw.toString(),
     cluster: input.cluster,
-    confirmedSlot: MOCK_CONFIRMED_SLOT,
+    confirmedSlot: setup.confirmedSlot,
     delegatedSigner: input.delegatedSigner,
     expiryTimestamp: input.expiryTimestamp.toString(),
     liquidityMint: input.liquidityMint,
@@ -38,7 +43,7 @@ function buildForwardedConfirmBody(
     policySeed: input.policySeed.toString(),
     recurringDelegation: input.recurringDelegation,
     settings: input.settings,
-    setupSignature: MOCK_SETUP_SIGNATURE,
+    setupSignature: setup.signature,
     setupStage: input.setupStage,
     setupTransaction: input.setupTransaction,
     startTimestamp: input.startTimestamp.toString(),
@@ -68,13 +73,23 @@ export async function POST(request: Request) {
     );
   }
 
+  let setup: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
+  try {
+    setup = await executeSponsoredEarnPolicyTransaction(input.setupTransaction);
+  } catch (error) {
+    if (error instanceof EarnPolicySponsoredTransactionError) {
+      return jsonError(error.status, error.code, error.message);
+    }
+    throw error;
+  }
+
   const headers = new Headers(request.headers);
   headers.set("content-type", "application/json");
   headers.delete("content-length");
 
   return confirmEarnAutodepositSetup(
     new Request(request.url, {
-      body: JSON.stringify(buildForwardedConfirmBody(input)),
+      body: JSON.stringify(buildForwardedConfirmBody({ input, setup })),
       headers,
       method: "POST",
     })

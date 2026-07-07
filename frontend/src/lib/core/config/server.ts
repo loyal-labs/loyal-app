@@ -32,6 +32,7 @@ const AUTH_COOKIE_ALLOW_LOCALHOST_ENV_NAME = "AUTH_COOKIE_ALLOW_LOCALHOST";
 const AUTH_APP_NAME_ENV_NAME = "AUTH_APP_NAME";
 const DEPLOYMENT_PRIVATE_KEY_ENV_NAME = "DEPLOYMENT_PK";
 const EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME = "EARN_YIELD_ROUTER_PUBLIC_KEY";
+const EARN_POLICY_SPONSOR_PRIVATE_KEY_ENV_NAME = "EARN_POLICY_SPONSOR_PK";
 const SMART_ACCOUNT_SPONSOR_PRIVATE_KEY_ENV_NAME = "SMART_ACCOUNT_SPONSOR_PK";
 
 export type ChatRuntimeConfig = {
@@ -56,6 +57,7 @@ export type ServerEnv = {
   authSessionRs256PrivateKey: string | undefined;
   authSessionRs256PublicKey: string | undefined;
   deploymentPrivateKey: string | undefined;
+  earnPolicySponsorPrivateKey: string | undefined;
   earnYieldRouterPublicKey: string | undefined;
   mixpanelToken: string | undefined;
   smartAccountSponsorPrivateKey: string | undefined;
@@ -142,6 +144,10 @@ export function createServerEnv(env: EnvSource): ServerEnv {
         getOptionalEnv(env, AUTH_SESSION_RS256_PUBLIC_KEY_ENV_NAME)
     ),
     deploymentPrivateKey: getOptionalEnv(env, DEPLOYMENT_PRIVATE_KEY_ENV_NAME),
+    earnPolicySponsorPrivateKey: getOptionalEnv(
+      env,
+      EARN_POLICY_SPONSOR_PRIVATE_KEY_ENV_NAME
+    ),
     earnYieldRouterPublicKey: getOptionalEnv(
       env,
       EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME
