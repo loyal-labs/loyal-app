@@ -58,7 +58,7 @@ export function WalletSetupOnboardingScreen({
     [seedVaultAvailable],
   );
   const imageHeight = useMemo(
-    () => Math.min(Math.max(height * 0.24, 180), 250),
+    () => Math.min(Math.max(height * 0.34, 220), 340),
     [height],
   );
 
@@ -172,9 +172,9 @@ export function WalletSetupOnboardingScreen({
             <View
               key={slide.title}
               style={{ width }}
-              className="items-center justify-center px-8"
+              className="items-center justify-center"
             >
-              <View className="w-full items-center" style={{ maxWidth: 400 }}>
+              <View className="w-full items-center" style={{ maxWidth: 440 }}>
                 <View
                   className="w-full items-center justify-center"
                   style={{ height: imageHeight }}
@@ -187,7 +187,7 @@ export function WalletSetupOnboardingScreen({
                   />
                 </View>
 
-                <View className="mt-6 items-center gap-1">
+                <View className="mt-6 items-center gap-1 px-8">
                   <Text style={styles.title}>{slide.title}</Text>
                   <Text style={styles.description}>{slide.description}</Text>
                 </View>
