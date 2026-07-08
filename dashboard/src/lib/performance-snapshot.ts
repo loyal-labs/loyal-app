@@ -238,8 +238,6 @@ async function loadPublicPerformanceSnapshot() {
         weeks AS (
           SELECT
             raw_weeks.week_start,
-            (raw_weeks.week_start::timestamp AT TIME ZONE 'UTC')
-              AS week_start_inclusive,
             LEAST(
               (raw_weeks.week_start + interval '6 days')::date,
               (SELECT current_day FROM current_bounds)
@@ -265,7 +263,6 @@ async function loadPublicPerformanceSnapshot() {
           ON decision.status = 'confirmed'
           AND decision.signature IS NOT NULL
           AND decision.amount_raw IS NOT NULL
-          AND decision.updated_at >= weeks.week_start_inclusive
           AND decision.updated_at < weeks.week_end_exclusive
         GROUP BY weeks.week_start, weeks.week_end
         ORDER BY weeks.week_start ASC

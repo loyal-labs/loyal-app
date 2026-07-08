@@ -89,15 +89,15 @@ export default async function DashboardHome() {
           <div className="min-w-0">
             <div className="flex flex-col gap-1">
               <h2 className="text-xl font-semibold tracking-normal">
-                Weekly Optimization Volume
+                Cumulative Optimization Volume
               </h2>
               <p className="text-sm leading-6 text-muted-foreground">
-                Bars show weekly moved volume. Total above is cumulative.
+                Bars show total confirmed moved volume through each week.
               </p>
             </div>
             <EarnAumBarChart
-              ariaLabel="Weekly optimization volume bar chart from Jun 15 through the latest data"
-              metricLabel="optimization volume"
+              ariaLabel="Cumulative optimization volume bar chart from Jun 15 through the latest data"
+              metricLabel="cumulative optimization volume"
               points={snapshot.optimizationVolumeSeries}
             />
           </div>
