@@ -207,7 +207,11 @@ async function attemptCompletion(
     };
   }
 
-  if (response.status === 201) {
+  // 201 = recorded synchronously; 202 = accepted for asynchronous processing
+  // (the API started responding "202 Accepted" when the round opened on
+  // 2026-07-08 — previously misclassified as a permanent error, stranding
+  // rows as `failed`). Both mean Solana took the completion.
+  if (response.status === 201 || response.status === 202) {
     return { status: "completed" };
   }
   if (response.status === 200) {
