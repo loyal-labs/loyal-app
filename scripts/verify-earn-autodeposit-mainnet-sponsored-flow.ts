@@ -6,7 +6,6 @@ import {
   resolveLoyalClusterForSolanaEnv,
 } from "../packages/loyal-actions/src/index.ts";
 import {
-  combineSmartAccountNativeSolRequirements,
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
 } from "../packages/smart-account-vaults/src/index.ts";
@@ -22,10 +21,12 @@ import {
 import {
   buildEarnAutodepositCloseConfirmRequestBody,
   buildEarnAutodepositSetupConfirmRequestBody,
+  buildEarnSponsoredAutodepositSetupPrefundRequestBody,
   type EarnAutodepositCloseConfirmResponse,
   type EarnAutodepositSetupConfirmResponse,
   type EarnSponsoredAutodepositCloseConfirmRequestBody,
   type EarnSponsoredAutodepositSetupConfirmRequestBody,
+  type EarnSponsoredAutodepositSetupPrefundResponse,
 } from "../frontend/src/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared.ts";
 import { PROGRAM_ADDRESS } from "../sdk/loyal-smart-accounts/src/index.ts";
 import {
@@ -88,6 +89,7 @@ type EvidenceStep = {
   instructionCount?: number;
   nativeSolRequirement?: SmartAccountNativeSolRequirement | null;
   persistence?: unknown;
+  prefund?: unknown;
   reason?: string;
   signature?: string;
   sponsored?: boolean;
@@ -217,77 +219,56 @@ function getRequestedStartTimestamp(args: {
   return args.startTimestamp > nowSeconds ? args.startTimestamp : undefined;
 }
 
-function isMatchingSetupBatch(args: {
-  amountRaw: bigint;
-  nextPreparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
-  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
-}): args is {
-  amountRaw: bigint;
-  nextPreparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup & {
-    stage: "create_recurring_delegation";
-  };
-  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup & {
-    stage: "create_policy";
-  };
-} {
-  const { nextPreparedSetup, preparedSetup } = args;
-  if (
-    preparedSetup.stage !== "create_policy" ||
-    nextPreparedSetup?.stage !== "create_recurring_delegation"
-  ) {
-    return false;
-  }
-
-  return (
-    preparedSetup.persistence.amountPerPeriodRaw ===
-      args.amountRaw.toString() &&
-    nextPreparedSetup.persistence.amountPerPeriodRaw ===
-      args.amountRaw.toString() &&
-    nextPreparedSetup.persistence.cluster ===
-      preparedSetup.persistence.cluster &&
-    nextPreparedSetup.persistence.policyAccount ===
-      preparedSetup.persistence.policyAccount &&
-    nextPreparedSetup.persistence.policySeed ===
-      preparedSetup.persistence.policySeed &&
-    nextPreparedSetup.persistence.recurringDelegation ===
-      preparedSetup.persistence.recurringDelegation &&
-    nextPreparedSetup.persistence.expiryTimestamp ===
-      preparedSetup.persistence.expiryTimestamp &&
-    nextPreparedSetup.persistence.periodLengthSeconds ===
-      preparedSetup.persistence.periodLengthSeconds &&
-    nextPreparedSetup.persistence.settings ===
-      preparedSetup.persistence.settings &&
-    BigInt(nextPreparedSetup.persistence.startTimestamp) >=
-      BigInt(preparedSetup.persistence.startTimestamp) &&
-    nextPreparedSetup.persistence.vaultPubkey ===
-      preparedSetup.persistence.vaultPubkey &&
-    nextPreparedSetup.persistence.walletAddress ===
-      preparedSetup.persistence.walletAddress &&
-    nextPreparedSetup.persistence.walletUsdcAta ===
-      preparedSetup.persistence.walletUsdcAta &&
-    nextPreparedSetup.policy.account?.toBase58() ===
-      preparedSetup.policy.account?.toBase58() &&
-    nextPreparedSetup.policy.seed === preparedSetup.policy.seed &&
-    nextPreparedSetup.subscription.nonce === preparedSetup.subscription.nonce &&
-    nextPreparedSetup.subscription.recurringDelegation.toBase58() ===
-      preparedSetup.subscription.recurringDelegation.toBase58() &&
-    nextPreparedSetup.subscription.expiryTimestamp ===
-      preparedSetup.subscription.expiryTimestamp &&
-    nextPreparedSetup.subscription.periodLengthSeconds ===
-      preparedSetup.subscription.periodLengthSeconds &&
-    nextPreparedSetup.subscription.startTimestamp >=
-      preparedSetup.subscription.startTimestamp &&
-    nextPreparedSetup.vault.pubkey.toBase58() ===
-      preparedSetup.vault.pubkey.toBase58()
-  );
-}
-
 async function fetchEarnState(args: {
   session: FrontendSession;
 }): Promise<unknown> {
   const response = await frontendGetJson<unknown>({
     cookie: args.session.cookie,
     path: "/api/smart-accounts/yield-optimization/earn-state",
+    session: args.session,
+  });
+
+  return response.body;
+}
+
+async function postSponsoredEarnAutodepositSetupPrefund(args: {
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+  session: FrontendSession;
+}): Promise<EarnSponsoredAutodepositSetupPrefundResponse> {
+  const response =
+    await frontendPostJson<EarnSponsoredAutodepositSetupPrefundResponse>({
+      body: buildEarnSponsoredAutodepositSetupPrefundRequestBody({
+        preparedSetup: args.preparedSetup,
+      }),
+      cookie: args.session.cookie,
+      path: "/api/smart-accounts/yield-optimization/autodeposit/setup/prefund/sponsored",
+      session: args.session,
+    });
+  if (!response.body.sponsoredPrefund) {
+    throw new Error(
+      "Sponsored Autodeposit setup pre-fund response is missing confirmation."
+    );
+  }
+
+  return response.body;
+}
+
+async function postConfirmedEarnAutodepositSetup(args: {
+  confirmedSlot: string;
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+  session: FrontendSession;
+  signature: string;
+  walletBalanceFloorRaw: bigint;
+}): Promise<EarnAutodepositSetupConfirmResponse> {
+  const response = await frontendPostJson<EarnAutodepositSetupConfirmResponse>({
+    body: buildEarnAutodepositSetupConfirmRequestBody({
+      confirmedSlot: args.confirmedSlot,
+      preparedSetup: args.preparedSetup,
+      signature: args.signature,
+      walletBalanceFloorRaw: args.walletBalanceFloorRaw,
+    }),
+    cookie: args.session.cookie,
+    path: "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm",
     session: args.session,
   });
 
@@ -415,7 +396,6 @@ function setupInput(args: {
   cluster: LoyalCluster;
   feePayer: PublicKey;
   policySeed?: bigint;
-  rentPayer?: PublicKey;
   policySigner: PublicKey;
   settingsPda: PublicKey;
   signer: PublicKey;
@@ -431,7 +411,6 @@ function setupInput(args: {
     nonce: NONCE,
     periodLengthSeconds: PERIOD_LENGTH_SECONDS,
     policySeed: args.policySeed,
-    rentPayer: args.rentPayer,
     policySigner: args.policySigner,
     settingsPda: args.settingsPda,
     signer: args.signer,
@@ -494,7 +473,6 @@ async function main() {
       cluster,
       feePayer: wallet.publicKey,
       policySeed: REQUESTED_POLICY_SEED,
-      rentPayer: sponsorFeePayer,
       policySigner,
       settingsPda,
       signer: wallet.publicKey,
@@ -522,14 +500,57 @@ async function main() {
     }
 
     if (preparedSetup.stage === "create_policy") {
-      const batchSetups =
+      validatePreparedCluster({
+        cluster,
+        operation: `autodeposit setup ${preparedSetup.stage}`,
+        preparedCluster: preparedSetup.persistence.cluster,
+      });
+      const prefundResponse = await postSponsoredEarnAutodepositSetupPrefund({
+        preparedSetup,
+        session,
+      });
+      const signature = await sendPreparedWithWallet({
+        connection,
+        wallet: walletBridge,
+        prepared: preparedSetup.prepared,
+        confirm: true,
+      });
+      const confirmedSlot = await resolveConfirmedSignatureSlot({
+        connection,
+        signature,
+      });
+      const response = await postConfirmedEarnAutodepositSetup({
+        confirmedSlot,
+        preparedSetup,
+        session,
+        signature,
+        walletBalanceFloorRaw: WALLET_BALANCE_FLOOR_RAW,
+      });
+      setupConfirmations.push({
+        backend: response,
+        confirmedSlot,
+        endpoint:
+          "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm",
+        instructionCount: preparedSetup.prepared.instructions.length,
+        persistence: preparedSetup.persistence,
+        prefund: {
+          endpoint:
+            "/api/smart-accounts/yield-optimization/autodeposit/setup/prefund/sponsored",
+          response: prefundResponse,
+        },
+        signature,
+        sponsored: false,
+        stage: preparedSetup.stage,
+        status: "success",
+      });
+
+      const nextSetups =
         await client.prepareEarnUsdcAutodepositSetupBatchFromPrepared({
           ...setupInput({
             amountRaw: AMOUNT_RAW,
             cluster,
             feePayer: wallet.publicKey,
             policySeed: preparedSetup.policy.seed ?? REQUESTED_POLICY_SEED,
-            rentPayer: sponsorFeePayer,
             policySigner,
             settingsPda,
             signer: wallet.publicKey,
@@ -542,68 +563,8 @@ async function main() {
           preparedSetup,
           refreshImmediateStartTimestamp: requestedStartTimestamp === undefined,
         });
-      const batchPreparedSetup = batchSetups[0] ?? null;
-      const batchNextPreparedSetup = batchSetups[1] ?? null;
-      if (
-        batchPreparedSetup &&
-        isMatchingSetupBatch({
-          amountRaw: AMOUNT_RAW,
-          nextPreparedSetup: batchNextPreparedSetup,
-          preparedSetup: batchPreparedSetup,
-        })
-      ) {
-        const batchNativeSolError = sponsoredSetupNativeSolRequirementError(
-          combineSmartAccountNativeSolRequirements(
-            [batchPreparedSetup, batchNextPreparedSetup].map(
-              (setup) => setup.nativeSolRequirement
-            )
-          )
-        );
-        if (batchNativeSolError) {
-          throw new Error(batchNativeSolError);
-        }
-        for (const setup of [batchPreparedSetup, batchNextPreparedSetup]) {
-          validatePreparedCluster({
-            cluster,
-            operation: `autodeposit setup ${setup.stage}`,
-            preparedCluster: setup.persistence.cluster,
-          });
-          const response = await postSponsoredEarnAutodepositSetup({
-            connection,
-            preparedSetup: setup,
-            session,
-            sponsorFeePayer,
-            wallet: walletBridge,
-          });
-          setupConfirmations.push({
-            backend: response,
-            confirmedSlot: response.sponsoredConfirmations?.setup.confirmedSlot,
-            endpoint:
-              "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm/sponsored",
-            instructionCount: setup.prepared.instructions.length,
-            persistence: setup.persistence,
-            signature: response.sponsoredConfirmations?.setup.signature,
-            sponsored: true,
-            sponsoredConfirmations: response.sponsoredConfirmations,
-            stage: setup.stage,
-            status: "success",
-          });
-        }
-
-        finalSetup = batchNextPreparedSetup;
-        evidence.steps.setupBatch = {
-          instructionCount:
-            batchPreparedSetup.prepared.instructions.length +
-            batchNextPreparedSetup.prepared.instructions.length,
-          persistence: {
-            first: batchPreparedSetup.persistence,
-            second: batchNextPreparedSetup.persistence,
-          },
-          stage: "create_recurring_delegation",
-          status: "success",
-        };
-        break;
-      }
+      preparedSetup = nextSetups[1] ?? nextSetups[0] ?? preparedSetup;
+      continue;
     }
 
     validatePreparedCluster({
@@ -652,7 +613,6 @@ async function main() {
             cluster,
             feePayer: wallet.publicKey,
             policySeed: preparedSetup.policy.seed ?? REQUESTED_POLICY_SEED,
-            rentPayer: sponsorFeePayer,
             policySigner,
             settingsPda,
             signer: wallet.publicKey,
@@ -673,7 +633,6 @@ async function main() {
           cluster,
           feePayer: wallet.publicKey,
           policySeed: preparedSetup.policy.seed ?? REQUESTED_POLICY_SEED,
-          rentPayer: sponsorFeePayer,
           policySigner,
           settingsPda,
           signer: wallet.publicKey,
@@ -692,8 +651,7 @@ async function main() {
 
   evidence.steps.setupConfirmations = {
     backend: setupConfirmations,
-    endpoint:
-      "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm/sponsored",
+    endpoint: "autodeposit setup confirm endpoints",
     status: "success",
   };
   evidence.steps.postSetupEarnState = {
