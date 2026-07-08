@@ -99,11 +99,31 @@ export async function fetchProgramConfigAccount(args: {
   return client.programConfig.queries.fetchProgramConfig(programConfigPda);
 }
 
+// Settings signer sets change only through explicit settings-change flows,
+// but the wallet-pairing guard reads them on every authenticated mobile Earn
+// request (2 RPC calls per read) — far too hot for the 5 rps Helius budget.
+// Cache successful non-null reads briefly. Null results (settings not visible
+// yet) are never cached, so provisioning and promotion always see fresh
+// state. On-chain signing stays the real enforcement — a stale entry can only
+// let the read-model pairing check pass for up to the TTL.
+const SETTINGS_SIGNERS_CACHE_TTL_MS = 120_000;
+const SETTINGS_SIGNERS_CACHE_MAX_ENTRIES = 5_000;
+const settingsSignersCache = new Map<
+  string,
+  { expiresAt: number; signers: string[] }
+>();
+
 export async function findSettingsSignerAddresses(args: {
   solanaEnv: SolanaEnv;
   programId: string;
   settingsPda: string;
 }): Promise<string[] | null> {
+  const cacheKey = `${args.solanaEnv}:${args.programId}:${args.settingsPda}`;
+  const cached = settingsSignersCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return [...cached.signers];
+  }
+
   const client = getSmartAccountsClient(args);
   const settingsPda = new PublicKey(args.settingsPda);
 
@@ -121,7 +141,15 @@ export async function findSettingsSignerAddresses(args: {
     const settings =
       await client.smartAccounts.queries.fetchSettings(settingsPda);
 
-    return settings.signers.map((signer) => signer.key.toBase58());
+    const signers = settings.signers.map((signer) => signer.key.toBase58());
+    if (settingsSignersCache.size >= SETTINGS_SIGNERS_CACHE_MAX_ENTRIES) {
+      settingsSignersCache.clear();
+    }
+    settingsSignersCache.set(cacheKey, {
+      expiresAt: Date.now() + SETTINGS_SIGNERS_CACHE_TTL_MS,
+      signers,
+    });
+    return signers;
   } catch (error) {
     if (isMissingAccountError(error, "Settings")) {
       return null;
