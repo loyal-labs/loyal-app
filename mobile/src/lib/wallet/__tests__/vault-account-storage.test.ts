@@ -23,7 +23,7 @@ jest.mock("expo-secure-store", () => ({
 beforeEach(() => store.clear());
 
 const sample = {
-  authToken: 42,
+  authToken: "42",
   derivationPath: "m/44'/501'/0'/0'",
   publicKey: "9fSPbH1GX3wfwUdkr3ytxi6qSr7AJeEZ9W27qhRbvMX9",
 };
@@ -56,6 +56,22 @@ describe("vault-account-storage", () => {
     store.set(
       "loyal.seedVaultAccount",
       JSON.stringify({ authToken: "42", derivationPath: 1, publicKey: null }),
+    );
+    expect(await loadVaultAccount()).toBeNull();
+  });
+
+  it("migrates legacy records with numeric auth tokens", async () => {
+    store.set(
+      "loyal.seedVaultAccount",
+      JSON.stringify({ ...sample, authToken: 42 }),
+    );
+    expect(await loadVaultAccount()).toEqual(sample);
+  });
+
+  it("rejects non-numeric auth token strings", async () => {
+    store.set(
+      "loyal.seedVaultAccount",
+      JSON.stringify({ ...sample, authToken: "not-a-token" }),
     );
     expect(await loadVaultAccount()).toBeNull();
   });

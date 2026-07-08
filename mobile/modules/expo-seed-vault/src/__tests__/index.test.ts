@@ -122,7 +122,8 @@ describe("seed authorization flows", () => {
     expect(nativeStub.authorizeExistingSeed).toHaveBeenCalledWith(
       DEFAULT_SOLANA_DERIVATION_PATH,
     );
-    expect(account.authToken).toBe(42);
+    // Legacy binaries return numeric tokens; the wrapper normalizes to string.
+    expect(account.authToken).toBe("42");
     expect(account.derivationPath).toBe(DEFAULT_SOLANA_DERIVATION_PATH);
     expect(account.publicKey).toBe(kp.publicKey.toBase58());
   });
@@ -164,11 +165,13 @@ describe("signing", () => {
     nativeStub.signTransaction.mockResolvedValueOnce(uint8ToBase64(sig));
 
     const out = await signTransaction({
-      authToken: 42,
+      authToken: "42",
       derivationPath: DEFAULT_SOLANA_DERIVATION_PATH,
       txBytes: tx,
     });
 
+    // The stub has no stringAuthTokens constant (legacy binary), so the
+    // wrapper downgrades the token to a number on the wire.
     expect(nativeStub.signTransaction).toHaveBeenCalledWith(
       42,
       DEFAULT_SOLANA_DERIVATION_PATH,
@@ -183,7 +186,7 @@ describe("signing", () => {
     nativeStub.signMessage.mockResolvedValueOnce(uint8ToBase64(sig));
 
     const out = await signMessage({
-      authToken: 7,
+      authToken: "7",
       derivationPath: DEFAULT_SOLANA_DERIVATION_PATH,
       message,
     });
@@ -204,7 +207,7 @@ describe("getPublicKey", () => {
       uint8ToBase64(kp.publicKey.toBytes()),
     );
     const address = await getPublicKey({
-      authToken: 42,
+      authToken: "42",
       derivationPath: DEFAULT_SOLANA_DERIVATION_PATH,
     });
     expect(address).toBe(kp.publicKey.toBase58());
@@ -212,9 +215,23 @@ describe("getPublicKey", () => {
 });
 
 describe("deauthorize", () => {
-  it("forwards the auth token to native", async () => {
+  it("forwards the auth token as a number to legacy binaries", async () => {
     nativeStub.deauthorize.mockResolvedValueOnce(undefined);
-    await deauthorize(42);
+    await deauthorize("42");
     expect(nativeStub.deauthorize).toHaveBeenCalledWith(42);
+  });
+});
+
+describe("string-token binaries", () => {
+  it("passes the token as a string when the binary advertises support", async () => {
+    const stub = nativeStub as Record<string, unknown>;
+    stub.stringAuthTokens = true;
+    try {
+      nativeStub.deauthorize.mockResolvedValueOnce(undefined);
+      await deauthorize("9007199254740995");
+      expect(nativeStub.deauthorize).toHaveBeenCalledWith("9007199254740995");
+    } finally {
+      delete stub.stringAuthTokens;
+    }
   });
 });

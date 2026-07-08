@@ -17,25 +17,46 @@ import {
 const mockSignMessage = jest.fn<Promise<Uint8Array>, [unknown]>();
 const mockSignTransaction = jest.fn<Promise<Uint8Array>, [unknown]>();
 const mockSignTransactions = jest.fn<Promise<Uint8Array[]>, [unknown]>();
+const mockListAuthorizedSeeds = jest.fn<
+  Promise<{ authToken: string; derivationPath: string; publicKey: string }[]>,
+  [unknown?]
+>();
 
 jest.mock("expo-seed-vault", () => ({
   signMessage: (args: unknown) => mockSignMessage(args),
   signTransaction: (args: unknown) => mockSignTransaction(args),
   signTransactions: (args: unknown) => mockSignTransactions(args),
+  listAuthorizedSeeds: (args?: unknown) => mockListAuthorizedSeeds(args),
+}));
+
+const mockStoreVaultAccount = jest.fn<Promise<void>, [unknown]>();
+const mockClearVaultAccount = jest.fn<Promise<void>, []>();
+
+jest.mock("../vault-account-storage", () => ({
+  storeVaultAccount: (account: unknown) => mockStoreVaultAccount(account),
+  clearVaultAccount: () => mockClearVaultAccount(),
 }));
 
 // eslint-disable-next-line import/first
 import { SeedVaultSigner } from "../seed-vault-signer";
 
-const authToken = 42;
+const authToken = "42";
 const derivationPath = "m/44'/501'/0'/0'";
 const kp = Keypair.generate();
 const address = kp.publicKey.toBase58();
+
+const invalidAuthTokenError = () =>
+  new Error("signMessages failed with result=1002");
 
 beforeEach(() => {
   mockSignMessage.mockReset();
   mockSignTransaction.mockReset();
   mockSignTransactions.mockReset();
+  mockListAuthorizedSeeds.mockReset();
+  mockStoreVaultAccount.mockReset();
+  mockClearVaultAccount.mockReset();
+  mockStoreVaultAccount.mockResolvedValue(undefined);
+  mockClearVaultAccount.mockResolvedValue(undefined);
 });
 
 describe("SeedVaultSigner", () => {
@@ -89,7 +110,7 @@ describe("SeedVaultSigner", () => {
     // Native bridge was invoked with the message bytes (not the full tx).
     expect(mockSignTransaction).toHaveBeenCalledTimes(1);
     const callArg = mockSignTransaction.mock.calls[0][0] as {
-      authToken: number;
+      authToken: string;
       derivationPath: string;
       txBytes: Uint8Array;
     };
@@ -175,5 +196,56 @@ describe("SeedVaultSigner", () => {
     for (const tx of txs) {
       expect(tx.signatures[0].signature).not.toBeNull();
     }
+  });
+
+  it("recovers from an invalid auth token via listAuthorizedSeeds and retries", async () => {
+    const signer = new SeedVaultSigner(authToken, derivationPath, address);
+    const stubSig = new Uint8Array([1, 2, 3]);
+    mockSignMessage
+      .mockRejectedValueOnce(invalidAuthTokenError())
+      .mockResolvedValueOnce(stubSig);
+    mockListAuthorizedSeeds.mockResolvedValueOnce([
+      { authToken: "77", derivationPath, publicKey: address },
+    ]);
+
+    const sig = await signer.signMessage(new Uint8Array([0]));
+
+    expect(sig).toBe(stubSig);
+    // Retry used the refreshed token, and it was persisted for next launch.
+    expect(
+      (mockSignMessage.mock.calls[1][0] as { authToken: string }).authToken,
+    ).toBe("77");
+    expect(signer.authToken).toBe("77");
+    expect(mockStoreVaultAccount).toHaveBeenCalledWith({
+      authToken: "77",
+      derivationPath,
+      publicKey: address,
+    });
+    expect(mockClearVaultAccount).not.toHaveBeenCalled();
+  });
+
+  it("clears the stored account and asks to reconnect when no live authorization exists", async () => {
+    const signer = new SeedVaultSigner(authToken, derivationPath, address);
+    mockSignMessage.mockRejectedValue(invalidAuthTokenError());
+    mockListAuthorizedSeeds.mockResolvedValueOnce([]);
+
+    await expect(signer.signMessage(new Uint8Array([0]))).rejects.toThrow(
+      /reconnect Seed Vault/i,
+    );
+    expect(mockSignMessage).toHaveBeenCalledTimes(1); // no blind retry
+    expect(mockClearVaultAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run recovery for unrelated errors", async () => {
+    const signer = new SeedVaultSigner(authToken, derivationPath, address);
+    mockSignMessage.mockRejectedValueOnce(
+      new Error("signMessages failed with result=1004"),
+    );
+
+    await expect(signer.signMessage(new Uint8Array([0]))).rejects.toThrow(
+      "result=1004",
+    );
+    expect(mockListAuthorizedSeeds).not.toHaveBeenCalled();
+    expect(mockClearVaultAccount).not.toHaveBeenCalled();
   });
 });

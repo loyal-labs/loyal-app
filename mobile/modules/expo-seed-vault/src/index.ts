@@ -52,10 +52,23 @@ function encodeBase58(bytes: Uint8Array): string {
 
 function toVaultAccount(native: NativeVaultAccount): VaultAccount {
   return {
-    authToken: native.authToken,
+    // Legacy binaries return the token as a number; normalize to string.
+    authToken: String(native.authToken),
     derivationPath: native.derivationPath,
     publicKey: encodeBase58(base64ToUint8(native.publicKey)),
   };
+}
+
+/**
+ * Pick the wire format the installed binary understands. Binaries built
+ * before the string-token bridge (reachable via OTA updates) expect a JS
+ * number — safe there in practice because real vault tokens are small
+ * database row IDs, far below 2^53.
+ */
+function nativeAuthToken(authToken: string): string | number {
+  return ExpoSeedVault.stringAuthTokens === true
+    ? authToken
+    : Number(authToken);
 }
 
 // ---------------------------------------------------------------------------
@@ -151,8 +164,8 @@ export async function importSeed(
  * Release this app's authorization for the given seed. The seed itself stays
  * in the vault and can be re-authorized later.
  */
-export async function deauthorize(authToken: number): Promise<void> {
-  await ExpoSeedVault.deauthorize(authToken);
+export async function deauthorize(authToken: string): Promise<void> {
+  await ExpoSeedVault.deauthorize(nativeAuthToken(authToken));
 }
 
 /**
@@ -160,12 +173,12 @@ export async function deauthorize(authToken: number): Promise<void> {
  * biometric/PIN confirmation before returning the signature bytes.
  */
 export async function signTransaction(args: {
-  authToken: number;
+  authToken: string;
   derivationPath: string;
   txBytes: Uint8Array;
 }): Promise<Uint8Array> {
   const sigB64 = await ExpoSeedVault.signTransaction(
-    args.authToken,
+    nativeAuthToken(args.authToken),
     args.derivationPath,
     uint8ToBase64(args.txBytes),
   );
@@ -179,7 +192,7 @@ export async function signTransaction(args: {
  * (3 on current Saga/Seeker devices).
  */
 export async function signTransactions(args: {
-  authToken: number;
+  authToken: string;
   derivationPath: string;
   txs: Uint8Array[];
 }): Promise<Uint8Array[]> {
@@ -199,7 +212,7 @@ export async function signTransactions(args: {
     return signatures;
   }
   const sigsB64 = await ExpoSeedVault.signTransactions(
-    args.authToken,
+    nativeAuthToken(args.authToken),
     args.derivationPath,
     args.txs.map(uint8ToBase64),
   );
@@ -211,12 +224,12 @@ export async function signTransactions(args: {
  * for transactions). The vault prompts the user.
  */
 export async function signMessage(args: {
-  authToken: number;
+  authToken: string;
   derivationPath: string;
   message: Uint8Array;
 }): Promise<Uint8Array> {
   const sigB64 = await ExpoSeedVault.signMessage(
-    args.authToken,
+    nativeAuthToken(args.authToken),
     args.derivationPath,
     uint8ToBase64(args.message),
   );
@@ -229,11 +242,11 @@ export async function signMessage(args: {
  * authorization time (the Solana defaults are pre-derived).
  */
 export async function getPublicKey(args: {
-  authToken: number;
+  authToken: string;
   derivationPath: string;
 }): Promise<string> {
   const b64 = await ExpoSeedVault.getPublicKey(
-    args.authToken,
+    nativeAuthToken(args.authToken),
     args.derivationPath,
   );
   return encodeBase58(base64ToUint8(b64));

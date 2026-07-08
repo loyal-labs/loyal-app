@@ -45,6 +45,11 @@ class ExpoSeedVaultModule : Module() {
         ModuleDefinition {
             Name("ExpoSeedVault")
 
+            // Auth tokens are Kotlin Longs. They cross the bridge as decimal
+            // strings (a JS number would corrupt values above 2^53); this
+            // constant lets the JS side detect binaries that speak strings.
+            Constants("stringAuthTokens" to true)
+
             AsyncFunction("isAvailable") { promise: Promise ->
                 val context = appContext.reactContext
                 if (context == null) {
@@ -113,7 +118,7 @@ class ExpoSeedVaultModule : Module() {
                                 ?: continue
                             accounts.add(
                                 mapOf(
-                                    "authToken" to authToken.toDouble(),
+                                    "authToken" to authToken.toString(),
                                     "derivationPath" to derivationPath,
                                     "publicKey" to Base64.encodeToString(pk, Base64.NO_WRAP),
                                 ),
@@ -149,7 +154,7 @@ class ExpoSeedVaultModule : Module() {
                 }
             }
 
-            AsyncFunction("deauthorize") { authToken: Double, promise: Promise ->
+            AsyncFunction("deauthorize") { authToken: String, promise: Promise ->
                 val context = appContext.reactContext
                 if (context == null) {
                     promise.reject(SeedVaultException("NO_CONTEXT", "No React context"))
@@ -169,7 +174,7 @@ class ExpoSeedVaultModule : Module() {
             }
 
             AsyncFunction("signTransaction") {
-                authToken: Double,
+                authToken: String,
                 derivationPath: String,
                 txBase64: String,
                 promise: Promise,
@@ -203,7 +208,7 @@ class ExpoSeedVaultModule : Module() {
             }
 
             AsyncFunction("signTransactions") {
-                authToken: Double,
+                authToken: String,
                 derivationPath: String,
                 txsBase64: List<String>,
                 promise: Promise,
@@ -241,7 +246,7 @@ class ExpoSeedVaultModule : Module() {
             }
 
             AsyncFunction("signMessage") {
-                authToken: Double,
+                authToken: String,
                 derivationPath: String,
                 messageBase64: String,
                 promise: Promise,
@@ -275,7 +280,7 @@ class ExpoSeedVaultModule : Module() {
             }
 
             AsyncFunction("getPublicKey") {
-                authToken: Double,
+                authToken: String,
                 derivationPath: String,
                 promise: Promise,
                 ->
@@ -328,7 +333,7 @@ class ExpoSeedVaultModule : Module() {
                                 )
                             request.promise.resolve(
                                 mapOf(
-                                    "authToken" to authToken.toDouble(),
+                                    "authToken" to authToken.toString(),
                                     "derivationPath" to request.derivationPath,
                                     "publicKey" to Base64.encodeToString(pk, Base64.NO_WRAP),
                                 ),
