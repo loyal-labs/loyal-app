@@ -25,6 +25,10 @@ export type EarnDepositPrepareResponse = {
   programId: string;
   settingsPda: string;
   smartAccountAddress: string;
+  // Sponsor fee-payer pubkey when a sponsored prepare was requested and the
+  // backend has a sponsor key configured; null/absent means the device must
+  // fall back to the self-paid sign-and-send flow.
+  sponsorFeePayer?: string | null;
   preparedDeposit: WirePreparedEarnDeposit;
 };
 
@@ -63,13 +67,18 @@ async function throwEarnError(res: Response, fallback: string): Promise<never> {
 export async function prepareEarnDeposit(args: {
   auth: EarnAuthFields;
   amountRaw: string;
+  sponsored?: boolean;
 }): Promise<EarnDepositPrepareResponse> {
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/deposit/prepare`,
     {
       method: "POST",
       headers: earnHeaders(),
-      body: JSON.stringify({ ...args.auth, amountRaw: args.amountRaw }),
+      body: JSON.stringify({
+        ...args.auth,
+        amountRaw: args.amountRaw,
+        ...(args.sponsored ? { sponsored: true } : {}),
+      }),
     },
   );
   if (!res.ok) {
@@ -678,6 +687,72 @@ export async function confirmEarnDeposit(
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Earn deposit.");
   }
+}
+
+// --- Sponsored deposit -----------------------------------------------------
+
+export type EarnSponsoredConfirmation = {
+  signature: string;
+  confirmedSlot: string;
+};
+
+export type EarnSponsoredDepositConfirmations = {
+  deposit: EarnSponsoredConfirmation;
+  policy: EarnSponsoredConfirmation;
+  setupPolicy: EarnSponsoredConfirmation | null;
+};
+
+export type EarnSponsoredDepositConfirmArgs = {
+  auth: EarnAuthFields;
+  // Echoed back verbatim from the prepare response (like `confirmEarnDeposit`).
+  preparedDeposit: WirePreparedEarnDeposit;
+  // Base64 user-signed transactions compiled with the sponsor as fee payer.
+  // The server sponsor-signs, sends and confirms them, so unlike
+  // `confirmEarnDeposit` this call IS the on-chain execution — treat failures
+  // as flow failures, not best-effort recording misses.
+  depositTransaction: string;
+  policyTransaction?: string;
+  setupPolicyTransaction?: string;
+};
+
+export async function confirmEarnDepositSponsored(
+  args: EarnSponsoredDepositConfirmArgs,
+): Promise<EarnSponsoredDepositConfirmations> {
+  const { auth, ...rest } = args;
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/deposit/confirm/sponsored`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({ ...auth, ...rest }),
+    },
+  );
+  const payload = (await res.json().catch(() => null)) as {
+    error?: { code?: string; message?: string };
+    sponsoredConfirmations?: EarnSponsoredDepositConfirmations;
+  } | null;
+  // An error response that still carries confirmations means the transactions
+  // landed on-chain but the read-model record failed — same as the regular
+  // flow's best-effort confirm, the reconciler backfills, so don't fail a
+  // deposit that already happened.
+  if (payload?.sponsoredConfirmations) {
+    if (!res.ok) {
+      console.warn(
+        "[earn-api] sponsored deposit landed but record failed; reconciler will backfill",
+        payload.error,
+      );
+    }
+    return payload.sponsoredConfirmations;
+  }
+  if (!res.ok) {
+    throw new EarnApiError(
+      payload?.error?.message ?? "Failed to execute sponsored Earn deposit.",
+      payload?.error?.code,
+    );
+  }
+  throw new EarnApiError(
+    "Sponsored Earn deposit response is missing confirmations.",
+  );
 }
 
 // Solana Week quest progress (read-only, keyed by wallet — same `frontend`

@@ -27,6 +27,12 @@ const EARN_API_BASE_URL =
 // non-empty.
 const VERCEL_PROTECTION_BYPASS =
   process.env.EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS ?? "";
+// Sponsored Earn deposits (PR #452 backend): the device signs but the server
+// fee-pays and sends. Rollback switch — anything but "true" keeps the
+// self-paid sign-and-send flow, and the flow also falls back per-deposit when
+// the backend doesn't return a sponsor fee payer.
+const EARN_SPONSORED_DEPOSITS =
+  process.env.EXPO_PUBLIC_EARN_SPONSORED_DEPOSITS === "true";
 
 // Hardcoded identity for MVP (auth deferred)
 const TELEGRAM_USER_ID = "2131567542";
@@ -36,6 +42,7 @@ const MIXPANEL_TOKEN = process.env.EXPO_PUBLIC_MIXPANEL_TOKEN ?? "";
 export const env = {
   apiBaseUrl: API_BASE_URL,
   earnApiBaseUrl: EARN_API_BASE_URL,
+  earnSponsoredDeposits: EARN_SPONSORED_DEPOSITS,
   vercelProtectionBypass: VERCEL_PROTECTION_BYPASS,
   gridAuthBaseUrl: GRID_AUTH_BASE_URL,
   solanaEnv: SOLANA_ENV,

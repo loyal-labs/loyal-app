@@ -1,11 +1,21 @@
+import { PublicKey } from "@solana/web3.js";
+
+import { env } from "@/config/env";
 import { track } from "@/lib/analytics/analytics";
 import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 
-import { confirmEarnDeposit, prepareEarnDeposit } from "./earn-api";
+import {
+  confirmEarnDeposit,
+  confirmEarnDepositSponsored,
+  prepareEarnDeposit,
+} from "./earn-api";
 import { signEarnAuth, withEarnAuth } from "./earn-auth";
-import { signAndSendPreparedOperations } from "./send-prepared";
+import {
+  signAndSendPreparedOperations,
+  signPreparedOperationsForSponsor,
+} from "./send-prepared";
 import { hydratePreparedOperation } from "./wire";
 
 const USDC_DECIMALS = 6;
@@ -36,10 +46,67 @@ export async function executeEarnDeposit(args: {
 }): Promise<EarnDepositResult> {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
   const prepareAuth = await signEarnAuth(args.signer, "earn-deposit-prepare");
-  const prepared = await prepareEarnDeposit({ auth: prepareAuth, amountRaw });
+  const prepared = await prepareEarnDeposit({
+    auth: prepareAuth,
+    amountRaw,
+    sponsored: env.earnSponsoredDeposits,
+  });
 
   const connection = getConnection();
   const preparedDeposit = prepared.preparedDeposit;
+
+  // Which sponsor the backend derived from EARN_POLICY_SPONSOR_PK (null =
+  // sponsor not configured → self-paid fallback). Kept as a plain log: the
+  // fee payer of every sponsored tx, essential when debugging sponsor issues.
+  console.log(
+    "[earn-deposit] sponsorFeePayer:",
+    prepared.sponsorFeePayer ?? null,
+  );
+
+  // Sponsored flow (flagged): sign every stage with the sponsor as fee payer
+  // but send nothing — the sponsored confirm endpoint sponsor-signs, sends,
+  // confirms, and records in one call. Falls back to the self-paid flow when
+  // the backend returns no sponsor (flag off server-side, older deploy, or
+  // sponsor key unconfigured).
+  if (env.earnSponsoredDeposits && prepared.sponsorFeePayer) {
+    // Same stage order as the self-paid flow; first-deposit policy stages are
+    // absent for top-ups, so map signed transactions back with a cursor.
+    const signed = await signPreparedOperationsForSponsor({
+      connection,
+      signer: args.signer,
+      feePayer: new PublicKey(prepared.sponsorFeePayer),
+      operations: [
+        preparedDeposit.policySetupPrepared,
+        preparedDeposit.policyFinalizePrepared,
+        preparedDeposit.prepared,
+      ]
+        .filter((stage) => stage != null)
+        .map(hydratePreparedOperation),
+    });
+    let cursor = 0;
+    const policyTransaction = preparedDeposit.policySetupPrepared
+      ? signed[cursor++]
+      : undefined;
+    const setupPolicyTransaction = preparedDeposit.policyFinalizePrepared
+      ? signed[cursor++]
+      : undefined;
+    const depositTransaction = signed[cursor];
+    const confirmations = await withEarnAuth(
+      args.signer,
+      prepareAuth,
+      "earn-deposit-confirm",
+      (auth) =>
+        confirmEarnDepositSponsored({
+          auth,
+          preparedDeposit,
+          depositTransaction,
+          policyTransaction,
+          setupPolicyTransaction,
+        }),
+    );
+    track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
+    return { depositSignature: confirmations.deposit.signature };
+  }
 
   // All stages are prepared upfront with no build-time interdependency, so
   // they're signed in ONE wallet prompt (Seed Vault batches them) and then

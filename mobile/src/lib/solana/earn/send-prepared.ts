@@ -1,9 +1,11 @@
 import {
   ComputeBudgetProgram,
   type Connection,
+  type PublicKey,
   TransactionMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
+import { Buffer } from "buffer";
 
 import type { Signer } from "@/lib/wallet/signer";
 
@@ -304,6 +306,28 @@ export async function signAndSendPreparedOperations(args: {
     );
   }
   return sent;
+}
+
+// Sign-only path for the sponsored flow: compiles every stage against one
+// fresh blockhash with the sponsor as fee payer, signs them in a single wallet
+// prompt, and returns the partially-signed transactions as base64 — nothing is
+// broadcast from the device. The server adds the sponsor signature, sends, and
+// confirms. The priority-fee prepend from `compilePreparedOperation` stays (the
+// sponsor pays it) so the server-side send still competes for block space.
+export async function signPreparedOperationsForSponsor(args: {
+  connection: Connection;
+  signer: Signer;
+  operations: HydratedPreparedOperation[];
+  feePayer: PublicKey;
+}): Promise<string[]> {
+  const { blockhash } = await args.connection.getLatestBlockhash("confirmed");
+  const transactions = args.operations.map((operation) =>
+    compilePreparedOperation({ ...operation, payer: args.feePayer }, blockhash),
+  );
+  await args.signer.signAllTransactions(transactions);
+  return transactions.map((transaction) =>
+    Buffer.from(transaction.serialize()).toString("base64"),
+  );
 }
 
 // Single-operation convenience over the batch path (one wallet prompt).
