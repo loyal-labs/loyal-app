@@ -6221,12 +6221,13 @@ export function useSmartAccountSidebarData(
               | undefined;
 
             try {
+              // Keep the one-prompt signAll UX, but confirm and record each
+              // setup stage before sending the next dependent transaction.
               await sendPreparedBatchWithWallet({
                 connection,
                 wallet: walletBridge,
                 prepared: batchPreparedSetups.map((setup) => setup.prepared),
                 confirm: true,
-                sendMode: "send-all-before-confirm",
                 onTransactionSent: ({ index }) => {
                   const sentSetup = batchPreparedSetups[index];
                   if (sentSetup?.stage === "create_recurring_delegation") {

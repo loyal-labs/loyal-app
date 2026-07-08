@@ -296,8 +296,7 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
-    executeNowAvailableAt:
-      sweep.executeNowAvailableAt?.toISOString() ?? null,
+    executeNowAvailableAt: sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
@@ -516,10 +515,27 @@ export async function POST(request: Request) {
     });
   }
 
-  const target =
-    input.setupStage === "create_recurring_delegation"
-      ? await recordConfirmedAutodepositDelegation(input)
-      : await recordPendingAutodepositSetup(input);
+  let target: BalanceSweepTargetRecord;
+  try {
+    target =
+      input.setupStage === "create_recurring_delegation"
+        ? await recordConfirmedAutodepositDelegation(input)
+        : await recordPendingAutodepositSetup(input);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to record confirmed autodeposit setup.";
+    if (message.includes("Closed autodeposit targets cannot be reactivated")) {
+      return jsonError(
+        409,
+        "autodeposit_target_closed",
+        "Autodeposit was already closed. Start Autodeposit again to create a fresh policy."
+      );
+    }
+
+    return jsonError(400, "record_failed", message);
+  }
   let bootstrapSweep: EarnAutodepositSetupConfirmResponse["bootstrapSweep"];
   if (target.active && target.lifecycleStatus === "active") {
     try {
