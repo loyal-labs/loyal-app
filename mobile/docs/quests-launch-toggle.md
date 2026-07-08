@@ -1,8 +1,9 @@
 # Quests launch toggle (Seeker Season / Solana Week)
 
-**Status: quests are HIDDEN in the public dApp Store build and Solana-side
-reporting is OFF for everyone except allowlisted testers.** This doc records
-exactly what was switched off and how to turn everything on at the reveal.
+**Status: REVEALED (2026-07-08 Solana Mobile launch).** Mobile
+`QUESTS_ENABLED` is now unconditionally `true` (shipped via OTA to the
+dApp Store build); backend `SOLANA_WEEK_QUESTS_ENABLED=true` is set in Vercel
+prod. The rest of this doc records the pre-launch gating for history/rollback.
 
 The tricky constraint: **all builds share one backend**
 (`solana-telegram-transactions.vercel.app`), and an internal **preview** build
