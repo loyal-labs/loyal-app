@@ -11,6 +11,7 @@ const POLICY_ACCOUNT = new PublicKey("11111111111111111111111111111111");
 
 function createPreparedDeposit(args: {
   finalize?: boolean;
+  kaminoSetup?: boolean;
   policyInitialization: "create" | "reuse";
   setup?: boolean;
 }): SmartAccountPreparedEarnUsdcDeposit {
@@ -22,6 +23,7 @@ function createPreparedDeposit(args: {
       account: POLICY_ACCOUNT,
       seed: BigInt(7),
     },
+    kaminoSetupPrepared: args.kaminoSetup ? ({} as never) : null,
     policyFinalizePrepared: args.finalize ? ({} as never) : null,
     policySetupPrepared: args.setup ? ({} as never) : null,
   } as SmartAccountPreparedEarnUsdcDeposit;
@@ -69,6 +71,19 @@ describe("Earn deposit flow helpers", () => {
         ? resolution.setupPolicySignature
         : ""
     ).toBe("setup-policy-signature");
+  });
+
+  test("first deposit with Kamino setup sends setup before deposit", () => {
+    const preparedDeposit = createPreparedDeposit({
+      finalize: true,
+      kaminoSetup: true,
+      policyInitialization: "create",
+      setup: true,
+    });
+
+    expect(getEarnDepositReviewStages({ preparedDeposit }).join(">")).toBe(
+      "policy>policy-finalize>kamino-setup>deposit"
+    );
   });
 
   test("first deposit with finalize rejects missing setup policy signature", () => {

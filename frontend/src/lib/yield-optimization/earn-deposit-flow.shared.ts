@@ -1,6 +1,10 @@
 import type { SmartAccountPreparedEarnUsdcDeposit } from "@loyal-labs/smart-account-vaults";
 
-export type EarnDepositReviewStage = "deposit" | "policy" | "policy-finalize";
+export type EarnDepositReviewStage =
+  | "deposit"
+  | "kamino-setup"
+  | "policy"
+  | "policy-finalize";
 
 export type EarnDepositPolicySignatureSource = {
   account: string;
@@ -32,6 +36,7 @@ export function getEarnDepositReviewStages(args: {
     ...(preparedDeposit.policyFinalizePrepared
       ? (["policy-finalize"] as const)
       : []),
+    ...(preparedDeposit.kaminoSetupPrepared ? (["kamino-setup"] as const) : []),
     "deposit",
   ];
 }

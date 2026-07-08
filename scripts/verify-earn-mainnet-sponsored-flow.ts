@@ -1,13 +1,15 @@
 import { mock } from "bun:test";
 import { Connection } from "@solana/web3.js";
 
-import type {
-  EarnSponsoredDepositConfirmRequestBody,
-  EarnSponsoredPolicyConfirmRequestBody,
+import {
+  buildEarnDepositConfirmRequestBody,
+  type EarnSponsoredPolicyConfirmRequestBody,
 } from "../frontend/src/lib/yield-optimization/earn-confirm-contracts.shared.ts";
 import {
+  buildEarnSponsoredDepositPrefundRequestBody,
   hydratePreparedEarnUsdcDeposit,
   type EarnDepositPrepareResponse,
+  type EarnSponsoredDepositPrefundResponse,
 } from "../frontend/src/lib/yield-optimization/earn-deposit-prepare-contracts.shared.ts";
 import {
   hydratePreparedEarnUsdcYieldRoutingPolicy,
@@ -17,6 +19,7 @@ import {
   getSolanaEndpoints,
   resolveSolanaEnv,
 } from "../packages/solana-rpc/src/index.ts";
+import { sendPreparedWithWallet } from "../packages/smart-account-vaults/src/index.ts";
 import type {
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
@@ -29,9 +32,8 @@ import {
   frontendPostJson,
   loadSponsorFeePayer,
   loadTestingKeypair,
-  nativeSolRequirementError,
   parsePositiveRawAmount,
-  signPreparedEarnOperationForSponsorship,
+  resolveConfirmedSignatureSlot,
   signPreparedEarnOperationsForSponsorship,
   type FrontendSession,
   type SponsoredTransactionConfirmation,
@@ -58,22 +60,17 @@ type SponsoredPolicyConfirmResponse = {
   };
 };
 
-type SponsoredDepositConfirmResponse = {
-  sponsoredConfirmations?: {
-    deposit: SponsoredTransactionConfirmation;
-    policy: SponsoredTransactionConfirmation;
-    setupPolicy?: SponsoredTransactionConfirmation | null;
-  };
-};
-
 type EvidenceStep = {
   attempts?: unknown[];
   backend?: unknown;
+  confirmedSlot?: string;
   endpoint?: string;
   error?: string;
   instructionCount?: number;
   nativeSolRequirement?: unknown;
   persistence?: unknown;
+  prefund?: unknown;
+  signature?: string;
   sponsoredConfirmations?: unknown;
   status: "failed" | "skipped" | "success";
 };
@@ -263,36 +260,52 @@ async function prepareSponsoredDepositReusingPolicy(args: {
   );
 }
 
-async function postSponsoredEarnDeposit(args: {
-  connection: Connection;
+async function postSponsoredEarnDepositPrefund(args: {
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   session: FrontendSession;
-  sponsorFeePayer: ReturnType<typeof loadSponsorFeePayer>;
-  wallet: ReturnType<typeof createKeypairWallet>;
-}): Promise<SponsoredDepositConfirmResponse> {
-  const depositTransaction = await signPreparedEarnOperationForSponsorship({
-    connection: args.connection,
-    feePayer: args.sponsorFeePayer,
-    operation: "sponsored Earn deposit",
-    prepared: args.preparedDeposit.prepared,
-    wallet: args.wallet,
-  });
-  const body: EarnSponsoredDepositConfirmRequestBody = {
-    ...args.preparedDeposit.persistence,
-    depositTransaction,
-    smartAccountAddress: args.preparedDeposit.vault.pubkey.toBase58(),
-  };
-  const response = await frontendPostJson<SponsoredDepositConfirmResponse>({
-    body,
+}): Promise<EarnSponsoredDepositPrefundResponse> {
+  const response = await frontendPostJson<EarnSponsoredDepositPrefundResponse>({
+    body: buildEarnSponsoredDepositPrefundRequestBody({
+      preparedDeposit: args.preparedDeposit,
+    }),
     cookie: args.session.cookie,
-    path: "/api/smart-accounts/yield-optimization/deposits/confirm/sponsored",
+    path: "/api/smart-accounts/yield-optimization/deposits/prefund/sponsored",
     session: args.session,
   });
-  if (!response.body.sponsoredConfirmations) {
+  if (!response.body.sponsoredPrefund) {
     throw new Error(
-      "Sponsored Earn deposit response is missing confirmations."
+      "Sponsored Earn deposit pre-fund response is missing confirmation."
     );
   }
+
+  return response.body;
+}
+
+async function postConfirmedEarnDeposit(args: {
+  confirmedSlot: string;
+  policyConfirmedSlot?: string;
+  policySignature: string;
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+  session: FrontendSession;
+  setupPolicyConfirmedSlot?: string;
+  setupPolicySignature?: string;
+  signature: string;
+}) {
+  const response = await frontendPostJson<unknown>({
+    body: buildEarnDepositConfirmRequestBody({
+      confirmedSlot: args.confirmedSlot,
+      policyConfirmedSlot: args.policyConfirmedSlot,
+      policySignature: args.policySignature,
+      preparedDeposit: args.preparedDeposit,
+      setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot,
+      setupPolicySignature: args.setupPolicySignature,
+      signature: args.signature,
+      smartAccountAddress: args.preparedDeposit.vault.pubkey.toBase58(),
+    }),
+    cookie: args.session.cookie,
+    path: "/api/smart-accounts/yield-optimization/deposits/confirm",
+    session: args.session,
+  });
 
   return response.body;
 }
@@ -360,31 +373,76 @@ async function main() {
     evidenceAttempts: depositPrepareAttempts,
     session,
   });
-  const nativeSolError = nativeSolRequirementError(
-    preparedDeposit.nativeSolRequirement
-  );
-  if (nativeSolError) {
-    throw new Error(nativeSolError);
-  }
-  evidence.steps.depositPrepare = {
-    attempts: depositPrepareAttempts,
-    instructionCount: preparedDeposit.prepared.instructions.length,
-    nativeSolRequirement: preparedDeposit.nativeSolRequirement,
-    persistence: preparedDeposit.persistence,
-    status: "success",
-  };
-  const depositResponse = await postSponsoredEarnDeposit({
-    connection,
+  const prefundResponse = await postSponsoredEarnDepositPrefund({
     preparedDeposit,
     session,
-    sponsorFeePayer,
-    wallet: walletBridge,
   });
-  evidence.steps.depositSponsoredConfirm = {
+  evidence.steps.depositPrepare = {
+    attempts: depositPrepareAttempts,
+    instructionCount:
+      preparedDeposit.prepared.instructions.length +
+      (preparedDeposit.kaminoSetupPrepared?.instructions.length ?? 0),
+    nativeSolRequirement: preparedDeposit.nativeSolRequirement,
+    persistence: preparedDeposit.persistence,
+    prefund: {
+      endpoint:
+        "/api/smart-accounts/yield-optimization/deposits/prefund/sponsored",
+      response: prefundResponse,
+    },
+    status: "success",
+  };
+
+  if (preparedDeposit.kaminoSetupPrepared) {
+    const kaminoSetupSignature = await sendPreparedWithWallet({
+      connection,
+      wallet: walletBridge,
+      prepared: preparedDeposit.kaminoSetupPrepared,
+      confirm: true,
+    });
+    const kaminoSetupConfirmedSlot = await resolveConfirmedSignatureSlot({
+      connection,
+      signature: kaminoSetupSignature,
+    });
+    evidence.steps.kaminoSetup = {
+      confirmedSlot: kaminoSetupConfirmedSlot,
+      endpoint: "wallet-send",
+      instructionCount: preparedDeposit.kaminoSetupPrepared.instructions.length,
+      signature: kaminoSetupSignature,
+      status: "success",
+    };
+  }
+
+  const depositSignature = await sendPreparedWithWallet({
+    connection,
+    wallet: walletBridge,
+    prepared: preparedDeposit.prepared,
+    confirm: true,
+  });
+  const depositConfirmedSlot = await resolveConfirmedSignatureSlot({
+    connection,
+    signature: depositSignature,
+  });
+  const policyConfirmation = policyResponse.sponsoredConfirmations?.policy;
+  if (!policyConfirmation) {
+    throw new Error("Sponsored policy confirmation is missing route policy.");
+  }
+  const setupPolicyConfirmation =
+    policyResponse.sponsoredConfirmations?.setupPolicy ?? null;
+  const depositResponse = await postConfirmedEarnDeposit({
+    confirmedSlot: depositConfirmedSlot,
+    policyConfirmedSlot: policyConfirmation.confirmedSlot,
+    policySignature: policyConfirmation.signature,
+    preparedDeposit,
+    session,
+    setupPolicyConfirmedSlot: setupPolicyConfirmation?.confirmedSlot,
+    setupPolicySignature: setupPolicyConfirmation?.signature,
+    signature: depositSignature,
+  });
+  evidence.steps.depositConfirm = {
     backend: depositResponse,
-    endpoint:
-      "/api/smart-accounts/yield-optimization/deposits/confirm/sponsored",
-    sponsoredConfirmations: depositResponse.sponsoredConfirmations,
+    confirmedSlot: depositConfirmedSlot,
+    endpoint: "/api/smart-accounts/yield-optimization/deposits/confirm",
+    signature: depositSignature,
     status: "success",
   };
   evidence.steps.postDepositEarnState = {

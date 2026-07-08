@@ -558,6 +558,7 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
   kaminoSetupAccountCount: number;
   kaminoSetupRentLamports: string;
   kaminoSetupRequired: boolean;
+  kaminoSetupPrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
   nativeSolRequirement: SmartAccountNativeSolRequirement;
   policyFinalizePrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
   policySetupPrepared?: PreparedLoyalSmartAccountsOperation<string> | null;

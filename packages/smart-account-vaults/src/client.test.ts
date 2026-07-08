@@ -176,6 +176,7 @@ function mockKaminoDepositInstruction() {
               { address: "VAULT_PLACEHOLDER", role: "WRITABLE_SIGNER" },
               { address: "11111111111111111111111111111111", role: "READONLY" },
               { address: kaminoMarket.toBase58(), role: "READONLY" },
+              { address: "11111111111111111111111111111111", role: "READONLY" },
               { address: kaminoReserve.toBase58(), role: "WRITABLE" },
               {
                 address: STABLECOIN_MINTS[Stablecoin.USDC].toBase58(),
@@ -510,6 +511,16 @@ function expectIncludesKaminoSetupAccount(
   expect(
     instruction?.keys.some((key) => key.pubkey.equals(kaminoSetupAccount))
   ).toBe(true);
+}
+
+function expectExcludesKaminoSetupAccount(
+  instruction:
+    | { keys: { pubkey: PublicKey }[]; programId: PublicKey }
+    | undefined
+) {
+  expect(
+    instruction?.keys.some((key) => key.pubkey.equals(kaminoSetupAccount))
+  ).toBe(false);
 }
 
 function expectInstructionAccountMeta(
@@ -866,9 +877,18 @@ describe("prepareEarnUsdcDeposit", () => {
 
   test("builds the one-transaction earn deposit flow in order", async () => {
     const fetchMock = mockKaminoDepositInstruction();
-    const getAccountInfo = mock(async (_address: PublicKey) =>
-      createSerializedSettingsAccount(new BN(6))
-    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount(new BN(6));
+      }
+      if (address.equals(kaminoReserve)) {
+        return createSerializedKaminoReserveAccount({
+          collateralSupplyRaw: BigInt(1_000_000),
+          liquidityAvailableAmountRaw: BigInt(1_000_000),
+        });
+      }
+      return null;
+    });
     const client = createSmartAccountVaultsClient({
       connection: { getAccountInfo } as never,
       programId,
@@ -941,7 +961,14 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(transfer.data.decimals).toBe(6);
 
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
-    expectIncludesKaminoSetupAccount(result.prepared.instructions[3]);
+    expectExcludesKaminoSetupAccount(result.prepared.instructions[3]);
+    expect(result.kaminoSetupPrepared?.instructions).toHaveLength(1);
+    expectSyncExecutionUsesSettingsConsensus(
+      result.kaminoSetupPrepared?.instructions[0]
+    );
+    expectIncludesKaminoSetupAccount(
+      result.kaminoSetupPrepared?.instructions[0]
+    );
     expect(result.policy.seed).toBe(BigInt(7));
     expect(result.policy.sameMintInstructionConstraintIndexes).toEqual([0, 1]);
     expect(result.setupPolicy?.seed).toBe(BigInt(8));
@@ -1074,7 +1101,14 @@ describe("prepareEarnUsdcDeposit", () => {
     );
     expect(transfer.data.amount.toString()).toBe("500000");
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
-    expectIncludesKaminoSetupAccount(result.prepared.instructions[3]);
+    expectExcludesKaminoSetupAccount(result.prepared.instructions[3]);
+    expect(result.kaminoSetupPrepared?.instructions).toHaveLength(1);
+    expectSyncExecutionUsesSettingsConsensus(
+      result.kaminoSetupPrepared?.instructions[0]
+    );
+    expectIncludesKaminoSetupAccount(
+      result.kaminoSetupPrepared?.instructions[0]
+    );
     expect(result.persistence).toMatchObject({
       policyInitialization: "reuse",
       principalAmountRaw: "500000",
@@ -1111,6 +1145,14 @@ describe("prepareEarnUsdcDeposit", () => {
 
     expect(getProgramAccounts).not.toHaveBeenCalled();
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
+    expectExcludesKaminoSetupAccount(result.prepared.instructions[3]);
+    expect(result.kaminoSetupPrepared?.instructions).toHaveLength(1);
+    expectSyncExecutionUsesSettingsConsensus(
+      result.kaminoSetupPrepared?.instructions[0]
+    );
+    expectIncludesKaminoSetupAccount(
+      result.kaminoSetupPrepared?.instructions[0]
+    );
     expect(result.policy.account.toBase58()).toBe(policyAccount.toBase58());
     expect(result.policy.seed).toBe(BigInt(7));
     expect(result.persistence).toMatchObject({
@@ -1144,15 +1186,22 @@ describe("prepareEarnUsdcDeposit", () => {
       },
     });
 
-    expect(result.prepared.instructions).toHaveLength(5);
+    expect(result.prepared.instructions).toHaveLength(4);
+    expect(result.kaminoSetupPrepared?.instructions).toHaveLength(2);
     const transfer = SystemInstruction.decodeTransfer(
-      result.prepared.instructions[2]!
+      result.kaminoSetupPrepared!.instructions[0]!
     );
     expect(transfer.fromPubkey.toBase58()).toBe(feePayer.toBase58());
     expect(transfer.toPubkey.toBase58()).toBe(deriveVault().toBase58());
     expect(transfer.lamports).toBe(BigInt(39_532_800));
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[4]);
-    expectIncludesKaminoSetupAccount(result.prepared.instructions[4]);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
+    expectExcludesKaminoSetupAccount(result.prepared.instructions[3]);
+    expectSyncExecutionUsesSettingsConsensus(
+      result.kaminoSetupPrepared?.instructions[1]
+    );
+    expectIncludesKaminoSetupAccount(
+      result.kaminoSetupPrepared?.instructions[1]
+    );
   });
 
   test("returns a native SOL deficit when the payer cannot fund Kamino setup rent", async () => {

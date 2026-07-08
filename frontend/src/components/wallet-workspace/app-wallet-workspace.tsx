@@ -128,7 +128,6 @@ import {
   type ActiveEarnPositionHolding,
 } from "@/hooks/use-active-earn-position";
 import {
-  IS_EARN_POLICY_SPONSORSHIP_ENABLED,
   prepareEarnCleanupOnServer,
   type PreparedEarnUsdcCleanup,
   useSmartAccountSidebarData,
@@ -1295,6 +1294,7 @@ async function parseEarnAutodepositExecuteError(response: Response) {
 }
 
 type EarnDepositPolicyStageSignatures = {
+  kaminoSetupCompleted?: boolean;
   policyConfirmedSlot?: string;
   policySignature?: string;
   setupPolicyConfirmedSlot?: string;
@@ -4371,12 +4371,6 @@ export function AppWalletWorkspace({
       const target = yieldRoutingPolicy
         ? resolveActiveEarnDepositTarget(activeEarnPosition)
         : null;
-      const sponsorRentPayer =
-        IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
-        !yieldRoutingPolicy &&
-        publicEnv.earnPolicySponsorPubkey
-          ? new PublicKey(publicEnv.earnPolicySponsorPubkey)
-          : null;
       const client = createSmartAccountVaultsClient({
         connection,
         programId: new PublicKey(overview.programId),
@@ -4388,7 +4382,6 @@ export function AppWalletWorkspace({
         feePayer: userWallet,
         initializeYieldRoutingPolicy: !yieldRoutingPolicy,
         policySigner: new PublicKey(policySignerPublicKey),
-        ...(sponsorRentPayer ? { rentPayer: sponsorRentPayer } : {}),
         settingsPda,
         walletAddress: userWallet,
         ...(target ? { target } : {}),
@@ -4398,7 +4391,6 @@ export function AppWalletWorkspace({
     [
       activeEarnPosition,
       connection,
-      publicEnv.earnPolicySponsorPubkey,
       publicEnv.solanaEnv,
       smartAccountData.earnOnboarding,
       smartAccountData.earnPolicy,
@@ -4644,7 +4636,8 @@ export function AppWalletWorkspace({
           hasEarnPosition &&
           !requiresPolicySetup &&
           !preparedDeposit.policySetupPrepared &&
-          !preparedDeposit.policyFinalizePrepared;
+          !preparedDeposit.policyFinalizePrepared &&
+          !preparedDeposit.kaminoSetupPrepared;
 
         if (shouldBypassTopUpPreview) {
           if (!ensureCanSignAccountAction()) {
@@ -4865,12 +4858,17 @@ export function AppWalletWorkspace({
       let stageSignatures: EarnDepositPolicyStageSignatures = {
         ...earnDepositPolicyStageSignatures,
       };
+      let kaminoSetupAlreadyCompleted = false;
       const amountRaw = parseTokenAmountLabelToRaw(
         pendingEarnDepositDraft.amountLabel,
         pendingEarnDepositDraft.tokenDecimals
       );
 
-      if (stage === "policy" || stage === "policy-finalize") {
+      if (
+        stage === "policy" ||
+        stage === "policy-finalize" ||
+        stage === "kamino-setup"
+      ) {
         const batchResult = await smartAccountData.executeEarnDepositBatch({
           amountRaw,
           preparedDeposit: pendingEarnDepositPrepared,
@@ -4894,6 +4892,9 @@ export function AppWalletWorkspace({
                     batchResult.setupPolicyConfirmedSlot,
                   setupPolicySignature: batchResult.setupPolicySignature,
                 }
+              : {}),
+            ...(batchResult.kaminoSetupCompleted
+              ? { kaminoSetupCompleted: true }
               : {}),
           };
           setEarnDepositPolicyStageSignatures(stageSignatures);
@@ -4935,7 +4936,11 @@ export function AppWalletWorkspace({
         setDetailSelection("earnDeposit");
         setSelectedDetail("Deposit");
 
-        if (stage === "policy" || stage === "policy-finalize") {
+        if (
+          stage === "policy" ||
+          stage === "policy-finalize" ||
+          stage === "kamino-setup"
+        ) {
           const result = await smartAccountData.executeEarnDepositPolicyStage({
             preparedDeposit: pendingEarnDepositPrepared,
             stage,
@@ -4944,7 +4949,11 @@ export function AppWalletWorkspace({
             throw new Error(result.error ?? "Earn policy approval failed.");
           }
 
-          if (result.signature && result.confirmedSlot) {
+          if (
+            result.signature &&
+            result.confirmedSlot &&
+            (stage === "policy" || stage === "policy-finalize")
+          ) {
             stageSignatures =
               stage === "policy"
                 ? {
@@ -4957,6 +4966,14 @@ export function AppWalletWorkspace({
                     setupPolicyConfirmedSlot: result.confirmedSlot,
                     setupPolicySignature: result.signature,
                   };
+            setEarnDepositPolicyStageSignatures(stageSignatures);
+          }
+          if (stage === "kamino-setup") {
+            kaminoSetupAlreadyCompleted = true;
+            stageSignatures = {
+              ...stageSignatures,
+              kaminoSetupCompleted: true,
+            };
             setEarnDepositPolicyStageSignatures(stageSignatures);
           }
 
@@ -4979,6 +4996,9 @@ export function AppWalletWorkspace({
 
         const result = await smartAccountData.executeEarnDeposit({
           amountRaw,
+          kaminoSetupAlreadyCompleted:
+            kaminoSetupAlreadyCompleted ||
+            stageSignatures.kaminoSetupCompleted === true,
           ...stageSignatures,
           preparedDeposit: pendingEarnDepositPrepared,
         });

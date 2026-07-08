@@ -18,6 +18,7 @@ export type EarnDepositPrepareRequestBody = {
 
 export type WireSmartAccountPreparedEarnUsdcDeposit = {
   kaminoSetupAccountCount: number;
+  kaminoSetupPrepared?: WirePreparedLoyalSmartAccountsOperation | null;
   kaminoSetupRentLamports: string;
   kaminoSetupRequired: boolean;
   nativeSolRequirement: SmartAccountNativeSolRequirement;
@@ -56,6 +57,44 @@ export type EarnDepositPrepareResponse = {
   preparedDeposit: WireSmartAccountPreparedEarnUsdcDeposit;
 };
 
+export type SponsoredEarnDepositPrefundInput = {
+  cluster: string;
+  policyAccount: string;
+  policyInitialization: "create" | "reuse";
+  policySeed: bigint;
+  requiredLamports: bigint;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  walletAddress: string;
+};
+
+export type SponsoredEarnDepositPrefundConfirmation = {
+  balanceLamports: string;
+  confirmedSlot?: string;
+  destination: string;
+  lamports: string;
+  requiredLamports: string;
+  signature?: string;
+  status: "skipped" | "transferred";
+};
+
+export type EarnSponsoredDepositPrefundRequestBody = {
+  cluster: string;
+  policyAccount: string;
+  policyInitialization: "create" | "reuse";
+  policySeed: string;
+  requiredLamports: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  walletAddress: string;
+};
+
+export type EarnSponsoredDepositPrefundResponse = {
+  sponsoredPrefund: SponsoredEarnDepositPrefundConfirmation;
+};
+
 type EarnDepositPrepareRecord = Record<string, unknown>;
 
 function assertRequestObject(body: unknown): EarnDepositPrepareRecord {
@@ -77,6 +116,35 @@ function readUnsignedIntegerString(
   }
 
   return value.trim();
+}
+
+function readRequiredString(
+  body: EarnDepositPrepareRecord,
+  key: string
+): string {
+  const value = body[key];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${key} must be a non-empty string.`);
+  }
+  return value.trim();
+}
+
+function readPolicyInitialization(
+  body: EarnDepositPrepareRecord
+): "create" | "reuse" {
+  const value = readRequiredString(body, "policyInitialization");
+  if (value !== "create" && value !== "reuse") {
+    throw new Error("policyInitialization must be create or reuse.");
+  }
+  return value;
+}
+
+function readVaultIndex(body: EarnDepositPrepareRecord): 1 {
+  const value = body.vaultIndex;
+  if (value !== 1) {
+    throw new Error("vaultIndex must be 1 for Earn deposits.");
+  }
+  return value;
 }
 
 export function parseEarnDepositPrepareRequestBody(body: unknown): {
@@ -101,11 +169,52 @@ export function parseEarnDepositPrepareRequestBody(body: unknown): {
   return { amountRaw, sponsored };
 }
 
+export function buildEarnSponsoredDepositPrefundRequestBody({
+  preparedDeposit,
+}: {
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+}): EarnSponsoredDepositPrefundRequestBody {
+  const persistence = preparedDeposit.persistence;
+  return {
+    cluster: persistence.cluster,
+    policyAccount: persistence.policyAccount,
+    policyInitialization: persistence.policyInitialization,
+    policySeed: persistence.policySeed,
+    requiredLamports: preparedDeposit.nativeSolRequirement.requiredLamports,
+    settings: persistence.settings,
+    vaultIndex: persistence.vaultIndex,
+    vaultPubkey: persistence.vaultPubkey,
+    walletAddress: persistence.walletAddress,
+  };
+}
+
+export function parseEarnSponsoredDepositPrefundRequestBody(
+  body: unknown
+): SponsoredEarnDepositPrefundInput {
+  const record = assertRequestObject(body);
+  return {
+    cluster: readRequiredString(record, "cluster"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    policyInitialization: readPolicyInitialization(record),
+    policySeed: BigInt(readUnsignedIntegerString(record, "policySeed")),
+    requiredLamports: BigInt(
+      readUnsignedIntegerString(record, "requiredLamports")
+    ),
+    settings: readRequiredString(record, "settings"),
+    vaultIndex: readVaultIndex(record),
+    vaultPubkey: readRequiredString(record, "vaultPubkey"),
+    walletAddress: readRequiredString(record, "walletAddress"),
+  };
+}
+
 export function serializePreparedEarnUsdcDeposit(
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit
 ): WireSmartAccountPreparedEarnUsdcDeposit {
   return {
     kaminoSetupAccountCount: preparedDeposit.kaminoSetupAccountCount,
+    kaminoSetupPrepared: preparedDeposit.kaminoSetupPrepared
+      ? serializePreparedOperation(preparedDeposit.kaminoSetupPrepared)
+      : null,
     kaminoSetupRentLamports: preparedDeposit.kaminoSetupRentLamports,
     kaminoSetupRequired: preparedDeposit.kaminoSetupRequired,
     nativeSolRequirement: preparedDeposit.nativeSolRequirement,
@@ -158,6 +267,9 @@ export function hydratePreparedEarnUsdcDeposit(
 ): SmartAccountPreparedEarnUsdcDeposit {
   return {
     kaminoSetupAccountCount: wire.kaminoSetupAccountCount,
+    kaminoSetupPrepared: wire.kaminoSetupPrepared
+      ? hydratePreparedOperation(wire.kaminoSetupPrepared)
+      : null,
     kaminoSetupRentLamports: wire.kaminoSetupRentLamports,
     kaminoSetupRequired: wire.kaminoSetupRequired,
     nativeSolRequirement: wire.nativeSolRequirement,

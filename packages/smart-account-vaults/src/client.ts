@@ -6459,20 +6459,35 @@ export function createSmartAccountVaultsClient(
             vaultPda,
             vaultUsdcAta,
           });
+    const isKaminoSetupInstruction = (instruction: TransactionInstruction) =>
+      instructionStartsWithAnyDiscriminator(
+        instruction,
+        KAMINO_SETUP_INSTRUCTION_DISCRIMINATORS
+      );
+    const kaminoSetupInstructions = kaminoDepositBundle.instructions.filter(
+      isKaminoSetupInstruction
+    );
+    const kaminoFinalInstructions = kaminoDepositBundle.instructions.filter(
+      (instruction) => !isKaminoSetupInstruction(instruction)
+    );
+    if (kaminoFinalInstructions.length === 0) {
+      throw new Error("Kamino deposit execution instruction is missing.");
+    }
+    const compiledKaminoSetupPayload = kaminoSetupInstructions.length
+      ? instructionsToSynchronousTransactionDetailsV2({
+          vaultPda,
+          members: [args.walletAddress],
+          transaction_instructions: kaminoSetupInstructions,
+        })
+      : null;
     const compiledKaminoPayload = instructionsToSynchronousTransactionDetailsV2(
       {
         vaultPda,
         members: [args.walletAddress],
-        transaction_instructions: kaminoDepositBundle.instructions,
+        transaction_instructions: kaminoFinalInstructions,
       }
     );
-    const kaminoSetupInstructionCount = kaminoDepositBundle.instructions.filter(
-      (instruction) =>
-        instructionStartsWithAnyDiscriminator(
-          instruction,
-          KAMINO_SETUP_INSTRUCTION_DISCRIMINATORS
-        )
-    ).length;
+    const kaminoSetupInstructionCount = kaminoSetupInstructions.length;
     const requiresKaminoSetupRent = kaminoSetupInstructionCount > 0;
     const vaultLamports =
       requiresKaminoSetupRent &&
@@ -6507,6 +6522,18 @@ export function createSmartAccountVaultsClient(
           ],
         }
       : null;
+    const kaminoSetupExecution = compiledKaminoSetupPayload
+      ? await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
+          {
+            feePayer: args.feePayer,
+            settingsPda: args.settingsPda,
+            accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+            numSigners: 1,
+            instructions: compiledKaminoSetupPayload.instructions,
+            instruction_accounts: compiledKaminoSetupPayload.accounts,
+          } as never
+        )
+      : null;
     const depositExecution =
       await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
         {
@@ -6519,6 +6546,23 @@ export function createSmartAccountVaultsClient(
         } as never
       );
     const policyOperations = [depositExecution];
+    const kaminoSetupPrepared = kaminoSetupExecution
+      ? freezePreparedOperation({
+          operation: "earnUsdcDepositKaminoSetup",
+          payer: rentPayer,
+          programId: smartAccountsClient.programId,
+          requiresConfirmation: true,
+          instructions: [
+            ...(setupRentTopUpInstruction && !policyFinalizeOperation
+              ? [setupRentTopUpInstruction]
+              : []),
+            ...kaminoSetupExecution.instructions,
+          ],
+          lookupTableAccounts: dedupeLookupTableAccounts(
+            kaminoSetupExecution.lookupTableAccounts ?? []
+          ),
+        })
+      : null;
     const prepared = freezePreparedOperation({
       operation: "earnUsdcDeposit",
       payer: rentPayer,
@@ -6545,9 +6589,6 @@ export function createSmartAccountVaultsClient(
                 TOKEN_PROGRAM_ID
               ),
             ]
-          : []),
-        ...(setupRentTopUpInstruction && !policyFinalizeOperation
-          ? [setupRentTopUpInstruction]
           : []),
         createTransferCheckedInstruction(
           walletUsdcAta,
@@ -6579,6 +6620,7 @@ export function createSmartAccountVaultsClient(
     for (const stageOperation of [
       policyInitializationOperation,
       policyFinalizeOperation,
+      kaminoSetupPrepared,
     ]) {
       if (!stageOperation) {
         continue;
@@ -6586,7 +6628,9 @@ export function createSmartAccountVaultsClient(
       const stageLength = preparedPacketLength(stageOperation);
       if (stageLength === null || stageLength > EARN_POLICY_PACKET_DATA_SIZE) {
         throw new Error(
-          "Earn policy setup transaction is too large to fit in a Solana packet."
+          stageOperation.operation === "earnUsdcDepositKaminoSetup"
+            ? "Earn Kamino setup transaction is too large to fit in a Solana packet."
+            : "Earn policy setup transaction is too large to fit in a Solana packet."
         );
       }
     }
@@ -6600,7 +6644,9 @@ export function createSmartAccountVaultsClient(
                 kind: "kamino_setup_top_up",
                 label: "Kamino setup account rent top-up",
                 lamports: setupRentTopUpLamports,
-                stage: "deposit",
+                stage: policyFinalizeOperation
+                  ? "policy-finalize"
+                  : "kamino-setup",
               },
             ]
           : [],
@@ -6610,6 +6656,7 @@ export function createSmartAccountVaultsClient(
           ? [policyInitializationOperation]
           : []),
         ...(policyFinalizeOperation ? [policyFinalizeOperation] : []),
+        ...(kaminoSetupPrepared ? [kaminoSetupPrepared] : []),
         prepared,
       ],
       rentCandidates: [
@@ -6639,6 +6686,7 @@ export function createSmartAccountVaultsClient(
       kaminoSetupAccountCount: kaminoSetupInstructionCount,
       kaminoSetupRentLamports: setupRentTopUpLamports.toString(),
       kaminoSetupRequired: requiresKaminoSetupRent,
+      kaminoSetupPrepared,
       nativeSolRequirement,
       policyFinalizePrepared: policyFinalizeOperation,
       policySetupPrepared: policyInitializationOperation,

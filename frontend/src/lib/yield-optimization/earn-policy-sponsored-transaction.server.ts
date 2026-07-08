@@ -709,8 +709,11 @@ export function getEarnPolicySponsorPublicKey(): PublicKey {
 
 export async function prefundEarnPolicySponsorDestination(args: {
   destination: PublicKey;
+  maxLamports?: bigint;
   requiredLamports: bigint;
 }): Promise<EarnPolicySponsorPrefundConfirmation> {
+  const maxLamports =
+    args.maxLamports ?? MAX_SPONSORED_SYSTEM_RENT_TRANSFER_LAMPORTS;
   if (args.requiredLamports < BigInt(0)) {
     throw new EarnPolicySponsoredTransactionError({
       status: 400,
@@ -718,7 +721,7 @@ export async function prefundEarnPolicySponsorDestination(args: {
       message: "Sponsored pre-fund requirement cannot be negative.",
     });
   }
-  if (args.requiredLamports > MAX_SPONSORED_SYSTEM_RENT_TRANSFER_LAMPORTS) {
+  if (args.requiredLamports > maxLamports) {
     throw new EarnPolicySponsoredTransactionError({
       status: 413,
       code: "prefund_amount_too_large",

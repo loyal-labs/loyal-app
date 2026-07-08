@@ -371,6 +371,9 @@ export function buildEarnDepositReviewItem(args: {
     if (item === "policy-finalize") {
       return "Create Kamino obligation policy";
     }
+    if (item === "kamino-setup") {
+      return "Initialize Kamino deposit accounts";
+    }
     return `Deposit $${args.draft.amountLabel} ${args.draft.symbol} into ${EARN_VAULT_LABEL}`;
   };
   const getStageRows = (
@@ -386,7 +389,9 @@ export function buildEarnDepositReviewItem(args: {
           ? [
               {
                 label: "Policy account",
-                value: shortenAddress(preparedDeposit.policy.account.toBase58()),
+                value: shortenAddress(
+                  preparedDeposit.policy.account.toBase58()
+                ),
               },
             ]
           : []),
@@ -403,6 +408,28 @@ export function buildEarnDepositReviewItem(args: {
                 label: "Policy account",
                 value: shortenAddress(
                   preparedDeposit.setupPolicy.account.toBase58()
+                ),
+              },
+            ]
+          : []),
+      ];
+    }
+
+    if (item === "kamino-setup") {
+      return [
+        { label: "Setup", value: "Initialize Kamino deposit accounts" },
+        {
+          label: "Earn",
+          value: `${EARN_VAULT_LABEL} prepares the Kamino obligation before deposit`,
+        },
+        ...targetRows,
+        ...(preparedDeposit?.kaminoSetupRentLamports &&
+        preparedDeposit.kaminoSetupRentLamports !== "0"
+          ? [
+              {
+                label: "Rent top-up",
+                value: formatSolLamports(
+                  Number(BigInt(preparedDeposit.kaminoSetupRentLamports))
                 ),
               },
             ]
@@ -550,14 +577,13 @@ export function buildEarnDepositReviewItem(args: {
         })),
       }
     : null;
-  const pages =
-    batchPage
-      ? [batchPage]
-      : stage === "policy"
-      ? [policyPage]
-      : stage === "policy-finalize"
-      ? [finalizePage]
-      : [depositPage];
+  const pages = batchPage
+    ? [batchPage]
+    : stage === "policy"
+    ? [policyPage]
+    : stage === "policy-finalize"
+    ? [finalizePage]
+    : [depositPage];
 
   return {
     actionMode: "vote",
@@ -756,9 +782,11 @@ export function buildEarnWithdrawReviewItem(args: {
 }
 
 export function buildEarnCleanupReviewItem(args: {
-  preparedCleanup?: (SmartAccountPreparedEarnUsdcCleanup & {
-    estimatedRefundLamports?: number | null;
-  }) | null;
+  preparedCleanup?:
+    | (SmartAccountPreparedEarnUsdcCleanup & {
+        estimatedRefundLamports?: number | null;
+      })
+    | null;
 }): ApprovalReviewDisplayItem {
   const preparedCleanup = args.preparedCleanup ?? null;
   const idleTransferRaw = preparedCleanup?.persistence.idleTransferAmountRaw
