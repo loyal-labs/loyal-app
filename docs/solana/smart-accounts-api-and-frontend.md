@@ -212,6 +212,29 @@ active Earn view, display the current principal, and set the withdrawal maximum.
 | Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
 | Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
 
+#### Mobile Earn route notes
+
+The wallet-addressed and wallet-signed mobile twins live under
+`frontend/src/app/api/smart-accounts/mobile/earn/**`.
+
+- `GET /api/smart-accounts/mobile/earn/autodeposit/state` stays read-only, but
+  it now returns `prepareContext` (`cluster`, `policySigner`, `programId`) plus
+  the saved `policySeed`, `recurringDelegationNonce`,
+  `periodLengthSeconds`, `startTimestamp`, and
+  `recurringDelegationExpiryTimestamp` so the device can run and resume the
+  SDK's local Autodeposit prepare flow instead of always calling
+  `setup/prepare`. The same read also heals missing setup proofs from chain
+  history and records a target as closed when both recorded setup artifacts
+  exist but both on-chain accounts are already gone.
+- `GET /api/smart-accounts/mobile/earn/withdraw/sources` lists withdrawable
+  sources from the live on-chain holdings snapshot, not the Yield Neon read
+  model, because a cross-market rebalance can leave the reconciled reserve rows
+  stale.
+- `POST /api/smart-accounts/mobile/earn/withdraw/prepare` still mirrors the
+  session withdraw prepare flow, but partial withdrawals always source from the
+  live holdings snapshot and full withdrawals now fall back to that same
+  snapshot when the reconciled DB rows are empty after a cross-market rebalance.
+
 ### CLI Agent Connect Flow
 
 `cli/loyal-cli` opens the frontend with `?connect=<CLI_PUBLIC_KEY>` during
