@@ -165,7 +165,10 @@ export async function GET(request: Request) {
       walletAddress,
     });
     const account = user
-      ? await findReadyCurrentUserSmartAccount({ userId: user.id })
+      ? await findReadyCurrentUserSmartAccount({
+          userId: user.id,
+          walletAddress,
+        })
       : null;
     const pathEvents = account
       ? (

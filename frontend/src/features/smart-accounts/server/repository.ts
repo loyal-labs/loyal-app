@@ -152,6 +152,8 @@ export async function reserveProvisioningAppUserSmartAccount(
   input: {
     userId: string;
     solanaEnv: AppUserSmartAccountSolanaEnv;
+    replaceRecordId?: string;
+    replaceSettingsPda?: string;
     settingsPda: string;
   },
   dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
@@ -160,7 +162,7 @@ export async function reserveProvisioningAppUserSmartAccount(
   const now = dependencies.now();
 
   try {
-    const result = await db
+    const insertResult = await db
       .insert(appUserSmartAccounts)
       .values({
         userId: input.userId,
@@ -174,25 +176,60 @@ export async function reserveProvisioningAppUserSmartAccount(
         createdAt: now,
         updatedAt: now,
       })
-      .onConflictDoUpdate({
+      .onConflictDoNothing({
         target: [appUserSmartAccounts.userId, appUserSmartAccounts.solanaEnv],
-        set: {
-          settingsPda: input.settingsPda,
-          state: "provisioning",
-          creationSignature: null,
-          lastCheckedAt: now,
-          lastErrorCode: null,
-          lastErrorMessage: null,
-          updatedAt: now,
-        },
       })
       .returning();
 
-    if (!result[0]) {
+    if (insertResult[0]) {
+      return insertResult[0];
+    }
+
+    const existing = await findAppUserSmartAccountByUserIdAndEnv(
+      input.userId,
+      input.solanaEnv
+    );
+    if (!existing) {
       throw new Error("Failed to reserve app user smart account provisioning");
     }
 
-    return result[0];
+    if (!input.replaceRecordId || !input.replaceSettingsPda) {
+      if (existing.state === "provisioning" || existing.state === "ready") {
+        return existing;
+      }
+      throw new Error(
+        "Smart account provisioning reservation already exists and was not replaceable"
+      );
+    }
+
+    const updateResult = await db
+      .update(appUserSmartAccounts)
+      .set({
+        settingsPda: input.settingsPda,
+        state: "provisioning",
+        creationSignature: null,
+        lastCheckedAt: now,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(appUserSmartAccounts.id, input.replaceRecordId),
+          eq(appUserSmartAccounts.userId, input.userId),
+          eq(appUserSmartAccounts.solanaEnv, input.solanaEnv),
+          eq(appUserSmartAccounts.settingsPda, input.replaceSettingsPda)
+        )
+      )
+      .returning();
+
+    if (!updateResult[0]) {
+      throw new Error(
+        "Smart account provisioning reservation was superseded before it could be replaced"
+      );
+    }
+
+    return updateResult[0];
   } catch (error) {
     if (isUniqueViolation(error)) {
       throw new AppUserSmartAccountSettingsConflictError();
@@ -204,8 +241,10 @@ export async function reserveProvisioningAppUserSmartAccount(
 
 export async function markAppUserSmartAccountReady(
   input: {
+    id: string;
     userId: string;
     solanaEnv: AppUserSmartAccountSolanaEnv;
+    settingsPda: string;
     creationSignature?: string | null;
   },
   dependencies: AppUserSmartAccountRepositoryDependencies = createRepositoryDependencies()
@@ -227,14 +266,18 @@ export async function markAppUserSmartAccountReady(
     })
     .where(
       and(
+        eq(appUserSmartAccounts.id, input.id),
         eq(appUserSmartAccounts.userId, input.userId),
-        eq(appUserSmartAccounts.solanaEnv, input.solanaEnv)
+        eq(appUserSmartAccounts.solanaEnv, input.solanaEnv),
+        eq(appUserSmartAccounts.settingsPda, input.settingsPda)
       )
     )
     .returning();
 
   if (!result[0]) {
-    throw new Error("Failed to mark app user smart account ready");
+    throw new Error(
+      "Smart account provisioning reservation was superseded before it could be marked ready"
+    );
   }
 
   return result[0];
@@ -242,8 +285,10 @@ export async function markAppUserSmartAccountReady(
 
 export async function markAppUserSmartAccountFailed(
   input: {
+    id: string;
     userId: string;
     solanaEnv: AppUserSmartAccountSolanaEnv;
+    settingsPda: string;
     errorCode: string;
     errorMessage: string;
     creationSignature?: string | null;
@@ -267,14 +312,18 @@ export async function markAppUserSmartAccountFailed(
     })
     .where(
       and(
+        eq(appUserSmartAccounts.id, input.id),
         eq(appUserSmartAccounts.userId, input.userId),
-        eq(appUserSmartAccounts.solanaEnv, input.solanaEnv)
+        eq(appUserSmartAccounts.solanaEnv, input.solanaEnv),
+        eq(appUserSmartAccounts.settingsPda, input.settingsPda)
       )
     )
     .returning();
 
   if (!result[0]) {
-    throw new Error("Failed to mark app user smart account failed");
+    throw new Error(
+      "Smart account provisioning reservation was superseded before it could be marked failed"
+    );
   }
 
   return result[0];

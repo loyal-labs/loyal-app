@@ -6,6 +6,10 @@ import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
+import {
+  assertAuthenticatedWalletControlsSettings,
+  isSmartAccountProvisioningError,
+} from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
@@ -284,6 +288,12 @@ export async function POST(request: Request) {
   let effectiveAmountRaw: bigint | null = null;
 
   try {
+    await assertAuthenticatedWalletControlsSettings({
+      settingsPda: principal.settingsPda,
+      smartAccountAddress: principal.smartAccountAddress,
+      walletAddress: principal.walletAddress,
+    });
+
     const serverEnv = getServerEnv();
     const programId = new PublicKey(serverEnv.loyalSmartAccounts.programId);
     const settingsPda = new PublicKey(principal.settingsPda);
@@ -588,6 +598,10 @@ export async function POST(request: Request) {
       preparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
     });
   } catch (error) {
+    if (isSmartAccountProvisioningError(error)) {
+      return jsonError(error.status, error.code, error.message);
+    }
+
     console.error("[earn-withdraw-prepare] prepare failed", {
       amountRaw: amountRaw.toString(),
       effectiveAmountRaw: effectiveAmountRaw?.toString() ?? null,

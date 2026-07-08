@@ -72,6 +72,21 @@ function isMissingAccountError(error: unknown, accountName: string): boolean {
   );
 }
 
+async function isSettingsOwnedByProgram(args: {
+  solanaEnv: SolanaEnv;
+  programId: string;
+  settingsPda: PublicKey;
+}): Promise<boolean> {
+  const accountInfo = await getSmartAccountsConnection(
+    args.solanaEnv
+  ).getAccountInfo(args.settingsPda, "confirmed");
+
+  return (
+    accountInfo !== null &&
+    accountInfo.owner.equals(new PublicKey(args.programId))
+  );
+}
+
 export async function fetchProgramConfigAccount(args: {
   solanaEnv: SolanaEnv;
   programId: string;
@@ -90,11 +105,21 @@ export async function findSettingsSignerAddresses(args: {
   settingsPda: string;
 }): Promise<string[] | null> {
   const client = getSmartAccountsClient(args);
+  const settingsPda = new PublicKey(args.settingsPda);
+
+  if (
+    !(await isSettingsOwnedByProgram({
+      solanaEnv: args.solanaEnv,
+      programId: args.programId,
+      settingsPda,
+    }))
+  ) {
+    return null;
+  }
 
   try {
-    const settings = await client.smartAccounts.queries.fetchSettings(
-      new PublicKey(args.settingsPda)
-    );
+    const settings =
+      await client.smartAccounts.queries.fetchSettings(settingsPda);
 
     return settings.signers.map((signer) => signer.key.toBase58());
   } catch (error) {
@@ -112,11 +137,21 @@ export async function fetchRootSettingsSigners(args: {
   settingsPda: string;
 }): Promise<Array<{ address: string; permissionMask: number }> | null> {
   const client = getSmartAccountsClient(args);
+  const settingsPda = new PublicKey(args.settingsPda);
+
+  if (
+    !(await isSettingsOwnedByProgram({
+      solanaEnv: args.solanaEnv,
+      programId: args.programId,
+      settingsPda,
+    }))
+  ) {
+    return null;
+  }
 
   try {
-    const settings = await client.smartAccounts.queries.fetchSettings(
-      new PublicKey(args.settingsPda)
-    );
+    const settings =
+      await client.smartAccounts.queries.fetchSettings(settingsPda);
 
     return settings.signers.map((signer) => ({
       address: signer.key.toBase58(),
@@ -158,6 +193,7 @@ export async function createSponsoredSmartAccount(args: {
   });
 
   const signature = await client.send(prepared, {
+    confirm: true,
     signers: [sponsor],
   });
   const [smartAccountPda] = pda.getSmartAccountPda({

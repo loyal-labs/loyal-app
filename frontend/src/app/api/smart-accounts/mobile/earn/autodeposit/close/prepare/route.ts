@@ -96,6 +96,7 @@ export async function POST(request: Request) {
     });
     const existing = await findReadyCurrentUserSmartAccount({
       userId: user.id,
+      walletAddress,
     });
     if (!existing) {
       return jsonError(

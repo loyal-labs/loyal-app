@@ -127,7 +127,10 @@ export async function GET(request: Request) {
       return NextResponse.json(emptySnapshot);
     }
 
-    const account = await findReadyCurrentUserSmartAccount({ userId: user.id });
+    const account = await findReadyCurrentUserSmartAccount({
+      userId: user.id,
+      walletAddress,
+    });
     if (!account) {
       return NextResponse.json(emptySnapshot);
     }
