@@ -1,11 +1,13 @@
-// Host-based "secure RPC" mainnet endpoint from the `Dancerhail`
-// Helius API key's project. Authentication is by hostname — no api key
-// in URL, query, header, or env. Do NOT reintroduce
-// `EXPO_PUBLIC_HELIUS_API_KEY` here: anything in EXPO_PUBLIC_* lands in
-// the shipped JS bundle and is trivially extractable from the APK/IPA.
-// The previous endpoint (Thumbvenom) was rotated out via ASK-1334.
+// Helius Gatekeeper mainnet endpoint. The api key in the URL is exposed
+// by design — Gatekeeper enforces per-key method/rate rules server-side,
+// so extracting it from the bundle (or this public repo) only grants the
+// same gated access the app has. This key's budget is separate from the
+// backend's keyed RPC, so mobile traffic no longer competes with server
+// routes for the same rate limit. Replaced the host-authenticated
+// "secure RPC" URL (Dancerhail project, rotated in via ASK-1334) on
+// 2026-07-09 during the RPC saturation incident.
 export const SECURE_MAINNET_RPC_URL =
-  "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
+  "https://beta.helius-rpc.com/?api-key=765be1fd-1402-443f-aba4-f41fe30bae1d";
 
 // Mobile no longer opens any Solana WebSocket subscriptions — incoming
 // transfer pushes come via the Helius enhanced webhook → Expo push
