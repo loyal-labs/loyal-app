@@ -1,6 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts-core";
-import type { Connection, Transaction, VersionedTransaction } from "@solana/web3.js";
+import type {
+  Connection,
+  Transaction,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
 import type { WalletAdapterLike } from "./types";
@@ -44,8 +48,7 @@ function createRejectingWallet(error = new Error("wallet rejected")) {
 
 function createSignAllTransactionsMock() {
   return mock(
-    async (transactions: (Transaction | VersionedTransaction)[]) =>
-      transactions
+    async (transactions: (Transaction | VersionedTransaction)[]) => transactions
   ) as unknown as NonNullable<WalletAdapterLike["signAllTransactions"]>;
 }
 
@@ -61,15 +64,14 @@ function createConnection(args: {
     mock(async () => ({
       context: { slot: 1 },
       value: {
-        err: { InstructionError: [0, { Custom: 1 }] },
+        err: args.logs ? { InstructionError: [0, { Custom: 1 }] } : null,
         logs: args.logs ?? [],
       },
     }));
 
   return {
     confirmTransaction:
-      args.confirmTransaction ??
-      mock(async () => ({ value: { err: null } })),
+      args.confirmTransaction ?? mock(async () => ({ value: { err: null } })),
     getAccountInfo: args.getAccountInfo,
     getLatestBlockhash: mock(async () => ({
       blockhash: recentBlockhash,
@@ -84,7 +86,7 @@ function createConnection(args: {
 }
 
 describe("wallet prepared sends", () => {
-  test("simulates after wallet send failure and surfaces insufficient SOL top-up", async () => {
+  test("simulates before wallet send and surfaces insufficient SOL top-up", async () => {
     const connection = createConnection({
       logs: [
         "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG invoke [1]",
@@ -113,18 +115,35 @@ describe("wallet prepared sends", () => {
       })
     ).rejects.toThrow("Top up at least 0.00203204 SOL");
 
-    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(sendTransaction).not.toHaveBeenCalled();
     expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
   });
 
   test("keeps the original wallet send failure when simulation is inconclusive", async () => {
+    let simulationCount = 0;
+    const simulateTransaction = mock(async () => {
+      simulationCount += 1;
+      return {
+        context: { slot: 1 },
+        value:
+          simulationCount === 1
+            ? { err: null, logs: [] }
+            : {
+                err: { InstructionError: [0, { Custom: 0x1788 }] },
+                logs: [
+                  "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG invoke [1]",
+                  "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG failed: custom program error: 0x1788",
+                ],
+              },
+      };
+    });
     const connection = createConnection({
-      logs: [
-        "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG invoke [1]",
-        "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG failed: custom program error: 0x1788",
-      ],
+      simulateTransaction,
     });
     const walletError = new Error("WalletSendTransactionError: failed");
+    const sendTransaction = mock(async () => {
+      throw walletError;
+    });
 
     try {
       await sendPreparedWithWallet({
@@ -132,9 +151,7 @@ describe("wallet prepared sends", () => {
         prepared: createPrepared(),
         wallet: {
           publicKey: feePayer,
-          sendTransaction: mock(async () => {
-            throw walletError;
-          }),
+          sendTransaction,
           signTransaction: mock(
             async <T extends VersionedTransaction>(transaction: T) =>
               transaction
@@ -146,7 +163,8 @@ describe("wallet prepared sends", () => {
       expect(error).toBe(walletError);
     }
 
-    expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(connection.simulateTransaction).toHaveBeenCalledTimes(2);
   });
 
   test("simulates prepared batch transactions after wallet signing failure", async () => {
@@ -211,14 +229,16 @@ describe("wallet prepared sends", () => {
         publicKey: feePayer,
         signAllTransactions: createSignAllTransactionsMock(),
         signTransaction: mock(
-          async <T extends VersionedTransaction>(transaction: T) =>
-            transaction
+          async <T extends VersionedTransaction>(transaction: T) => transaction
         ),
       },
     });
 
     expect(signatures).toEqual(["signature-1", "signature-2"]);
-    expect(events.slice(0, 2)).toEqual(["send:signature-1", "send:signature-2"]);
+    expect(events.slice(0, 2)).toEqual([
+      "send:signature-1",
+      "send:signature-2",
+    ]);
     expect(events.indexOf("confirm:signature-1")).toBeGreaterThan(1);
     expect(events.indexOf("confirm:signature-2")).toBeGreaterThan(1);
     expect(events).toContain("callback:signature-1");
@@ -290,7 +310,7 @@ describe("wallet prepared sends", () => {
       })
     ).rejects.toThrow("wallet rejected");
 
-    expect(simulateTransaction).toHaveBeenCalledTimes(1);
+    expect(simulateTransaction).toHaveBeenCalledTimes(2);
   });
 
   test("surfaces exact SOL top-up amount from simulation logs", async () => {

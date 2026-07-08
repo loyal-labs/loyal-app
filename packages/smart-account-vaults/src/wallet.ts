@@ -54,6 +54,84 @@ function translateSimulationLogs(logs: string[]): Error | null {
   }
 }
 
+function stringifySimulationErr(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function getPreSendSimulationError(args: {
+  connection: PreparedConnection;
+  prepared: PreparedOperation;
+  simulation: SimulatedTransactionValue;
+  transaction: VersionedTransaction;
+}): Promise<Error | null> {
+  if (!args.simulation.err) {
+    return null;
+  }
+
+  const logs = args.simulation.logs ?? [];
+  const simulationError = Object.assign(
+    new Error(
+      `Transaction simulation failed before send: ${stringifySimulationErr(
+        args.simulation.err
+      )}`
+    ),
+    { logs }
+  );
+  const translatedError = translateSimulationLogs(logs);
+  const preparedDiagnostic = await getPreparedSimulationDiagnosticError({
+    connection: args.connection,
+    logs,
+    originalError: simulationError,
+    prepared: args.prepared,
+    simulationErr: args.simulation.err,
+    transaction: args.transaction,
+    translatedError,
+  });
+  if (preparedDiagnostic) {
+    return preparedDiagnostic;
+  }
+
+  if (translatedError) {
+    return attachCause(translatedError, simulationError, logs);
+  }
+
+  return simulationError;
+}
+
+async function simulatePreparedTransactionBeforeSend(args: {
+  connection: PreparedConnection;
+  prepared: PreparedOperation;
+  transaction: VersionedTransaction;
+}): Promise<void> {
+  if (typeof args.connection.simulateTransaction !== "function") {
+    return;
+  }
+
+  const { value: simulation } = await args.connection.simulateTransaction(
+    args.transaction,
+    {
+      commitment: "confirmed",
+      replaceRecentBlockhash: false,
+      sigVerify: false,
+    }
+  );
+  const simulationError = await getPreSendSimulationError({
+    ...args,
+    simulation,
+  });
+  if (simulationError) {
+    throw simulationError;
+  }
+}
+
 async function getSimulationDiagnosticError(args: {
   connection: PreparedConnection;
   error: unknown;
@@ -202,6 +280,11 @@ export async function sendPreparedWithWallet({
     prepared,
     blockhash: latestBlockhash.blockhash,
   });
+  await simulatePreparedTransactionBeforeSend({
+    connection,
+    prepared,
+    transaction,
+  });
   const signature = await withSimulationDiagnostic(
     () =>
       sendVersionedTransaction({
@@ -320,6 +403,11 @@ export async function sendPreparedBatchWithWallet({
       }
 
       try {
+        await simulatePreparedTransactionBeforeSend({
+          connection,
+          prepared: operation,
+          transaction: signedTransaction,
+        });
         const signature = await withSimulationDiagnostic(
           () =>
             connection.sendRawTransaction(
@@ -413,6 +501,11 @@ export async function sendPreparedBatchWithWallet({
       );
     }
 
+    await simulatePreparedTransactionBeforeSend({
+      connection,
+      prepared: operation,
+      transaction: signedTransaction,
+    });
     const signature = await withSimulationDiagnostic(
       () =>
         connection.sendRawTransaction(
