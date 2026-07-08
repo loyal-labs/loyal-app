@@ -133,6 +133,16 @@ export async function executeEarnAutodepositSetup(args: {
     programId: context.programId,
   });
 
+  // A live Autodeposit must be deleted, not set up over: a fresh setup would
+  // mint a second policy seed and stand up a duplicate on-chain policy that
+  // delete/withdraw flows then trip over. `/state` reconciles against chain,
+  // so this read is authoritative even if the sheet was opened on stale UI.
+  if (state.autodeposit?.lifecycleStatus === "active") {
+    throw new Error(
+      "An Autodeposit is already active for this wallet. Delete it before creating a new one.",
+    );
+  }
+
   // Resume a half-finished setup: reusing the recorded seed + nonce makes the
   // SDK return only the missing stage for the SAME policy/delegation pair
   // (mirrors the backend `setup/prepare` resume logic).
@@ -313,13 +323,21 @@ export async function setEarnAutodepositActive(args: {
   );
 }
 
+// A wallet normally has one live Autodeposit row, but historic duplicate
+// setups left some with several; deleting only the surfaced one leaves the
+// leftover silently sweeping and blocking full withdrawals.
+const MAX_DUPLICATE_CLOSES = 4;
+
 // Delete an Autodeposit: tears down the on-chain recurring delegation (one
-// signed tx, built on-device with the SDK) and records the closed target via
-// the backend confirm.
+// signed tx per policy, built on-device with the SDK) and records each closed
+// target via the backend confirm. After the requested close, any leftover
+// live row `/state` still surfaces is closed too, so "delete" means no live
+// Autodeposit remains.
 export async function executeEarnAutodepositClose(args: {
   signer: Signer;
   policy: string;
   recurringDelegation: string;
+  source?: "deleted" | "withdraw";
 }): Promise<void> {
   const walletAddress = args.signer.publicKey;
   const connection = getConnection();
@@ -331,42 +349,73 @@ export async function executeEarnAutodepositClose(args: {
     connection,
     programId: context.programId,
   });
-  const preparedClose = await client.prepareEarnUsdcAutodepositClose({
-    cluster: context.cluster,
-    feePayer: walletAddress,
-    policy: new PublicKey(args.policy),
-    policySigner: context.policySigner,
-    recurringDelegation: new PublicKey(args.recurringDelegation),
-    settingsPda: context.settingsPda,
-    signer: walletAddress,
-    walletAddress,
-  });
 
-  const sent = await signAndSendPreparedOperation({
-    connection,
-    signer: args.signer,
-    operation: preparedClose.prepared,
-  });
+  // One auth message covers every confirm; signed lazily after the first close
+  // tx so a rejected wallet prompt doesn't burn an auth signature.
+  let flowAuth: Awaited<ReturnType<typeof signEarnAuth>> | null = null;
+  const closeOne = async (policy: string, recurringDelegation: string) => {
+    const preparedClose = await client.prepareEarnUsdcAutodepositClose({
+      cluster: context.cluster,
+      feePayer: walletAddress,
+      policy: new PublicKey(policy),
+      policySigner: context.policySigner,
+      recurringDelegation: new PublicKey(recurringDelegation),
+      settingsPda: context.settingsPda,
+      signer: walletAddress,
+      walletAddress,
+    });
 
-  const flowAuth = await signEarnAuth(
-    args.signer,
-    "earn-autodeposit-close-confirm",
-  );
-  await withUnconfirmedRetry(() =>
-    withEarnAuth(
+    const sent = await signAndSendPreparedOperation({
+      connection,
+      signer: args.signer,
+      operation: preparedClose.prepared,
+    });
+
+    flowAuth ??= await signEarnAuth(
       args.signer,
-      flowAuth,
       "earn-autodeposit-close-confirm",
-      (auth) =>
-        confirmEarnAutodepositClose({
-          auth,
-          preparedClose: serializePreparedEarnAutodepositClose(preparedClose),
-          closeSignature: sent.signature,
-          confirmedSlot: sent.confirmedSlot,
-        }),
-    ),
-  );
-  track(EARN_EVENTS.autodepositDisabled, { source: "deleted" });
+    );
+    const auth = flowAuth;
+    await withUnconfirmedRetry(() =>
+      withEarnAuth(
+        args.signer,
+        auth,
+        "earn-autodeposit-close-confirm",
+        (retryAuth) =>
+          confirmEarnAutodepositClose({
+            auth: retryAuth,
+            preparedClose: serializePreparedEarnAutodepositClose(preparedClose),
+            closeSignature: sent.signature,
+            confirmedSlot: sent.confirmedSlot,
+          }),
+      ),
+    );
+  };
+
+  await closeOne(args.policy, args.recurringDelegation);
+
+  // Sweep duplicates: `/state` surfaces the next live row once the previous
+  // close is recorded. Rows without a recorded delegation can't be closed
+  // here (and don't block withdrawals); the seen-set stops a stale read from
+  // looping on an already-closed policy.
+  const closed = new Set([args.policy]);
+  for (let round = 0; round < MAX_DUPLICATE_CLOSES; round++) {
+    const { autodeposit } = await fetchEarnAutodepositState(
+      walletAddress.toBase58(),
+    );
+    if (
+      !autodeposit?.recurringDelegation ||
+      closed.has(autodeposit.policyAccount)
+    ) {
+      break;
+    }
+    await closeOne(autodeposit.policyAccount, autodeposit.recurringDelegation);
+    closed.add(autodeposit.policyAccount);
+  }
+
+  track(EARN_EVENTS.autodepositDisabled, {
+    source: args.source ?? "deleted",
+  });
 }
 
 // Trigger the pending scheduled Autodeposit sweep to run now instead of waiting

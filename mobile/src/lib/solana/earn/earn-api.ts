@@ -111,10 +111,18 @@ export type WirePreparedEarnWithdrawStep = {
   prepared: WirePreparedOperation;
 };
 
+// The Autodeposit teardown bundled into a full exit. Mobile only reads the
+// identifiers and re-prepares the close on-device via the close flow; the rest
+// of the wire payload is ignored.
+export type WireEarnWithdrawAutodepositClose = {
+  policy: { account: string };
+  subscription: { recurringDelegation: string };
+};
+
 export type WirePreparedEarnWithdraw = {
   prepared: WirePreparedOperation;
   withdrawSteps?: WirePreparedEarnWithdrawStep[];
-  autodepositClosePrepared?: unknown | null;
+  autodepositClosePrepared?: WireEarnWithdrawAutodepositClose | null;
 };
 
 export type EarnWithdrawPrepareResponse = {

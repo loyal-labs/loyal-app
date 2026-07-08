@@ -1,6 +1,7 @@
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 
+import { executeEarnAutodepositClose } from "./autodeposit";
 import {
   confirmEarnWithdraw,
   prepareEarnWithdraw,
@@ -12,6 +13,10 @@ import { signAndSendPreparedOperations } from "./send-prepared";
 import { hydratePreparedOperation } from "./wire";
 
 const USDC_DECIMALS = 6;
+// A wallet normally has one live Autodeposit, but historic duplicate setups
+// left some with several; each re-prepare surfaces the next one. The cap
+// guards against a close that never sticks in the read-model.
+const MAX_WITHDRAW_AUTODEPOSIT_CLOSES = 4;
 
 function usdToUsdcRaw(amountUsd: number): string {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
@@ -44,22 +49,38 @@ export async function executeEarnWithdraw(args: {
 }): Promise<EarnWithdrawResult> {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
   const prepareAuth = await signEarnAuth(args.signer, "earn-withdraw-prepare");
-  const prepared = await prepareEarnWithdraw({
-    auth: prepareAuth,
-    amountRaw,
-    mode: args.mode,
-    source: args.source ?? null,
-  });
-  const preparedWithdraw = prepared.preparedWithdraw;
+  const prepare = () =>
+    withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
+      prepareEarnWithdraw({
+        auth,
+        amountRaw,
+        mode: args.mode,
+        source: args.source ?? null,
+      }),
+    );
+  let preparedWithdraw = (await prepare()).preparedWithdraw;
 
   // A full exit of a position with an active Autodeposit also tears down the
-  // recurring delegation (autodepositClosePrepared). That path is signed via
-  // the Autodeposit close flow (wired separately); until then, refuse rather
-  // than sign a withdrawal whose policy teardown we can't complete.
-  if (preparedWithdraw.autodepositClosePrepared) {
-    throw new Error(
-      "Withdrawing a position with active Autodeposit isn't supported on mobile yet.",
-    );
+  // recurring delegation (mirrors web): close it via the Autodeposit close
+  // flow first, then re-prepare the withdrawal against the post-close state.
+  for (
+    let round = 0;
+    preparedWithdraw.autodepositClosePrepared;
+    round++
+  ) {
+    if (round >= MAX_WITHDRAW_AUTODEPOSIT_CLOSES) {
+      throw new Error(
+        "Couldn't remove the Autodeposit tied to this position. Delete the Autodeposit and try again.",
+      );
+    }
+    const close = preparedWithdraw.autodepositClosePrepared;
+    await executeEarnAutodepositClose({
+      signer: args.signer,
+      policy: close.policy.account,
+      recurringDelegation: close.subscription.recurringDelegation,
+      source: "withdraw",
+    });
+    preparedWithdraw = (await prepare()).preparedWithdraw;
   }
 
   const connection = getConnection();
