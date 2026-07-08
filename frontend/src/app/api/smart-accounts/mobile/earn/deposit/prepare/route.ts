@@ -25,6 +25,7 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
@@ -97,8 +98,9 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint;
+  let sponsored: boolean;
   try {
-    ({ amountRaw } = parseEarnDepositPrepareRequestBody(body));
+    ({ amountRaw, sponsored } = parseEarnDepositPrepareRequestBody(body));
   } catch (error) {
     return jsonError(
       400,
@@ -230,6 +232,20 @@ export async function POST(request: Request) {
       policy && activePosition
         ? earnReserveTargetFromActivePosition(activePosition)
         : null;
+    // Sponsored prepare mirrors the session route: the sponsor funds new-policy
+    // rent (create path only) and the device compiles every stage with the
+    // sponsor as fee payer. `sponsorFeePayer` is echoed because mobile has no
+    // access to the web public env; null tells the device to fall back to the
+    // self-paid sign-and-send flow (e.g. sponsor key not configured).
+    let sponsorFeePayer: PublicKey | null = null;
+    if (sponsored) {
+      try {
+        sponsorFeePayer = getEarnPolicySponsorPublicKey();
+      } catch {
+        sponsorFeePayer = null;
+      }
+    }
+    const rentPayer = sponsorFeePayer && !policy ? sponsorFeePayer : null;
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
@@ -238,6 +254,7 @@ export async function POST(request: Request) {
       policySigner,
       settingsPda: settings,
       walletAddress: new PublicKey(walletAddress),
+      ...(rentPayer ? { rentPayer } : {}),
       ...(target ? { target } : {}),
       ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
     });
@@ -246,6 +263,7 @@ export async function POST(request: Request) {
       programId: serverEnv.loyalSmartAccounts.programId,
       settingsPda,
       smartAccountAddress,
+      sponsorFeePayer: sponsorFeePayer?.toBase58() ?? null,
       preparedDeposit: serializePreparedEarnUsdcDeposit(preparedDeposit),
     });
   } catch (error) {
