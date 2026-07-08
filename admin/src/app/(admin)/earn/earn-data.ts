@@ -434,32 +434,17 @@ async function loadEarnData(): Promise<EarnData> {
             (deposit.confirmed_at AT TIME ZONE 'UTC')::date AS day,
             'deposit'::text AS direction,
             'earn_deposit'::text AS source,
-            deposit.deposit_signature AS signature,
+            deposit.id AS source_id,
             deposit.principal_amount_raw AS amount_raw
           FROM loyal_yield.user_yield_position_deposits AS deposit
           WHERE deposit.confirmed_at >= (SELECT start_day FROM bounds)
             AND deposit.confirmed_at < (SELECT end_day FROM bounds)
           UNION ALL
           SELECT
-            (execution.received_at AT TIME ZONE 'UTC')::date AS day,
-            'deposit'::text AS direction,
-            'autodeposit_sweep'::text AS source,
-            execution.signature,
-            execution.amount_raw
-          FROM loyal_yield.balance_sweep_executions AS execution
-          WHERE execution.received_at >= (SELECT start_day FROM bounds)
-            AND execution.received_at < (SELECT end_day FROM bounds)
-            AND NOT EXISTS (
-              SELECT 1
-              FROM loyal_yield.user_yield_position_deposits AS deposit
-              WHERE deposit.deposit_signature = execution.signature
-            )
-          UNION ALL
-          SELECT
             (withdrawal.confirmed_at AT TIME ZONE 'UTC')::date AS day,
             'withdrawal'::text AS direction,
             'earn_withdrawal'::text AS source,
-            withdrawal.withdrawal_signature AS signature,
+            withdrawal.id AS source_id,
             withdrawal.withdrawn_amount_raw AS amount_raw
           FROM loyal_yield.user_yield_position_withdrawals AS withdrawal
           WHERE withdrawal.confirmed_at >= (SELECT start_day FROM bounds)
