@@ -19,7 +19,7 @@ import {
   type ParsedTransactionWithMeta,
   type TokenBalance,
 } from "@solana/web3.js";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 
 import { reportEarnDepositQuestCompletion } from "@/features/solana-week/server/quest-completion-service";
 import { getServerEnv } from "@/lib/core/config/server";
@@ -63,6 +63,11 @@ const DEPOSIT_TX_SCAN_CAP = 80; // max parsed txs inspected per wallet
 const MIN_ADOPT_TOTAL_RAW = BigInt(10_000); // ignore sub-$0.01 dust vaults
 const DEFAULT_TIME_BUDGET_MS = 240_000;
 const SCAN_CONCURRENCY = 5;
+// Lost confirms happen to fresh signups (every adoption so far was a new
+// account), and the Helius budget is a hard 5 rps — so each run scans only
+// recently-touched accounts (~100 RPC calls) instead of the whole fleet
+// (~1,300). `full=1` on the cron route runs the unbounded sweep on demand.
+const RECENT_CANDIDATE_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 export type EarnDepositReconcileOutcome = {
   wallet: string;
@@ -122,7 +127,10 @@ function buildScanPolicyMetadata(cluster: LoyalCluster): EarnRpcPolicyMetadata {
 
 // Ready smart accounts (app DB) that have no active yield position (yield DB).
 // Newest accounts first: fresh signups are where confirms get lost.
-async function listCandidates(solanaEnv: SolanaEnv): Promise<Candidate[]> {
+async function listCandidates(
+  solanaEnv: SolanaEnv,
+  fullScan: boolean
+): Promise<Candidate[]> {
   const readyAccounts = await getDatabase()
     .select({
       settingsPda: appUserSmartAccounts.settingsPda,
@@ -133,7 +141,15 @@ async function listCandidates(solanaEnv: SolanaEnv): Promise<Candidate[]> {
     .where(
       and(
         eq(appUserSmartAccounts.state, "ready"),
-        eq(appUserSmartAccounts.solanaEnv, solanaEnv)
+        eq(appUserSmartAccounts.solanaEnv, solanaEnv),
+        ...(fullScan
+          ? []
+          : [
+              gte(
+                appUserSmartAccounts.updatedAt,
+                new Date(Date.now() - RECENT_CANDIDATE_WINDOW_MS)
+              ),
+            ])
       )
     )
     .orderBy(desc(appUserSmartAccounts.updatedAt));
@@ -591,9 +607,11 @@ async function reconcileWallet(args: {
 
 export async function reconcileInvisibleEarnDeposits(args?: {
   dryRun?: boolean;
+  fullScan?: boolean;
   timeBudgetMs?: number;
 }): Promise<EarnDepositReconcileSummary> {
   const dryRun = args?.dryRun ?? false;
+  const fullScan = args?.fullScan ?? false;
   const deadline = Date.now() + (args?.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
@@ -610,10 +628,7 @@ export async function reconcileInvisibleEarnDeposits(args?: {
   const scanPolicy = buildScanPolicyMetadata(cluster);
   const connection = getConnection(solanaEnv);
 
-  const candidates = await listCandidates(solanaEnv);
-  // ponytail: full scan every run — fine at hundreds of candidates (~2s per
-  // wallet, concurrency 5, 4-minute budget). If the fleet outgrows the budget,
-  // switch the work-list to prepare-time deposit intents instead of scanning.
+  const candidates = await listCandidates(solanaEnv, fullScan);
   const summary: EarnDepositReconcileSummary = {
     candidates: candidates.length,
     scanned: 0,

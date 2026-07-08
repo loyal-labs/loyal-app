@@ -16,9 +16,13 @@ async function handleCronRequest(request: Request) {
     return authError;
   }
 
-  const dryRun = new URL(request.url).searchParams.get("dryRun") === "1";
+  const params = new URL(request.url).searchParams;
+  const dryRun = params.get("dryRun") === "1";
+  // Scheduled runs scan only recently-touched accounts to respect the 5 rps
+  // Helius budget; `?full=1` runs the unbounded fleet sweep on demand.
+  const fullScan = params.get("full") === "1";
   try {
-    const summary = await reconcileInvisibleEarnDeposits({ dryRun });
+    const summary = await reconcileInvisibleEarnDeposits({ dryRun, fullScan });
     return NextResponse.json(summary);
   } catch (error) {
     console.error("[cron/earn-deposit-reconcile] failed", error);
