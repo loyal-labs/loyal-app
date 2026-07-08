@@ -1,4 +1,5 @@
 import bs58 from "bs58";
+import { readFileSync } from "node:fs";
 import nacl from "tweetnacl";
 import {
   Connection,
@@ -101,12 +102,20 @@ function keypairFromSecretOrSeed(value: string): Keypair {
     : Keypair.fromSecretKey(bytes);
 }
 
+function readOptionalSecretFile(path: string | undefined): string | undefined {
+  const trimmed = path?.trim();
+  return trimmed ? readFileSync(trimmed, "utf8") : undefined;
+}
+
 export function loadTestingKeypair(): Keypair {
   const raw =
-    process.env.EARN_VERIFY_SOLANA_TESTING_PK ?? process.env.SOLANA_TESTING_PK;
+    process.env.EARN_VERIFY_SOLANA_TESTING_PK ??
+    readOptionalSecretFile(process.env.EARN_VERIFY_SOLANA_TESTING_PK_FILE) ??
+    process.env.SOLANA_TESTING_PK ??
+    readOptionalSecretFile(process.env.SOLANA_TESTING_PK_FILE);
   if (!raw) {
     throw new Error(
-      "EARN_VERIFY_SOLANA_TESTING_PK or SOLANA_TESTING_PK is required."
+      "EARN_VERIFY_SOLANA_TESTING_PK, SOLANA_TESTING_PK, EARN_VERIFY_SOLANA_TESTING_PK_FILE, or SOLANA_TESTING_PK_FILE is required."
     );
   }
 
@@ -146,10 +155,12 @@ export function loadSponsorFeePayer(): PublicKey {
     return new PublicKey(publicSponsor);
   }
 
-  const sponsorPrivateKey = process.env.EARN_POLICY_SPONSOR_PK;
+  const sponsorPrivateKey =
+    process.env.EARN_POLICY_SPONSOR_PK ??
+    readOptionalSecretFile(process.env.EARN_POLICY_SPONSOR_PK_FILE);
   if (!sponsorPrivateKey) {
     throw new Error(
-      "EARN_POLICY_SPONSOR_PUBKEY or EARN_POLICY_SPONSOR_PK is required."
+      "EARN_POLICY_SPONSOR_PUBKEY, EARN_POLICY_SPONSOR_PK, or EARN_POLICY_SPONSOR_PK_FILE is required."
     );
   }
 

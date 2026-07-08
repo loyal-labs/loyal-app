@@ -2,15 +2,24 @@ import { mock } from "bun:test";
 import { Connection } from "@solana/web3.js";
 
 import {
-  buildEarnDepositConfirmRequestBody,
+  buildEarnAutodepositCloseConfirmRequestBody,
+  type EarnAutodepositCloseConfirmResponse,
+  type EarnSponsoredAutodepositCloseConfirmRequestBody,
+} from "../frontend/src/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared.ts";
+import {
+  type EarnSponsoredDepositConfirmRequestBody,
   type EarnSponsoredPolicyConfirmRequestBody,
+  type EarnSponsoredWithdrawalConfirmRequestBody,
+  buildEarnWithdrawalConfirmRequestBody,
 } from "../frontend/src/lib/yield-optimization/earn-confirm-contracts.shared.ts";
 import {
-  buildEarnSponsoredDepositPrefundRequestBody,
   hydratePreparedEarnUsdcDeposit,
   type EarnDepositPrepareResponse,
-  type EarnSponsoredDepositPrefundResponse,
 } from "../frontend/src/lib/yield-optimization/earn-deposit-prepare-contracts.shared.ts";
+import {
+  hydratePreparedEarnUsdcWithdraw,
+  type EarnWithdrawPrepareResponse,
+} from "../frontend/src/lib/yield-optimization/earn-withdraw-prepare-contracts.shared.ts";
 import {
   hydratePreparedEarnUsdcYieldRoutingPolicy,
   type EarnPolicyPrepareResponse,
@@ -19,9 +28,10 @@ import {
   getSolanaEndpoints,
   resolveSolanaEnv,
 } from "../packages/solana-rpc/src/index.ts";
-import { sendPreparedWithWallet } from "../packages/smart-account-vaults/src/index.ts";
 import type {
+  SmartAccountPreparedEarnUsdcAutodepositClose,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdraw,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
 } from "../packages/smart-account-vaults/src/types.ts";
 import {
@@ -33,7 +43,7 @@ import {
   loadSponsorFeePayer,
   loadTestingKeypair,
   parsePositiveRawAmount,
-  resolveConfirmedSignatureSlot,
+  signPreparedEarnOperationForSponsorship,
   signPreparedEarnOperationsForSponsorship,
   type FrontendSession,
   type SponsoredTransactionConfirmation,
@@ -60,6 +70,29 @@ type SponsoredPolicyConfirmResponse = {
   };
 };
 
+type SponsoredDepositConfirmResponse = {
+  sponsoredConfirmations?: {
+    deposit: SponsoredTransactionConfirmation;
+    kaminoSetup?: SponsoredTransactionConfirmation | null;
+    policy: SponsoredTransactionConfirmation;
+    setupPolicy?: SponsoredTransactionConfirmation | null;
+  };
+};
+
+type SponsoredWithdrawConfirmResponse = {
+  sponsoredConfirmations?: {
+    policyClose?: SponsoredTransactionConfirmation | null;
+    withdrawal: SponsoredTransactionConfirmation;
+  };
+};
+
+type SponsoredAutodepositCloseConfirmResponse =
+  EarnAutodepositCloseConfirmResponse & {
+    sponsoredConfirmations?: {
+      close: SponsoredTransactionConfirmation;
+    };
+  };
+
 type EvidenceStep = {
   attempts?: unknown[];
   backend?: unknown;
@@ -73,6 +106,19 @@ type EvidenceStep = {
   signature?: string;
   sponsoredConfirmations?: unknown;
   status: "failed" | "skipped" | "success";
+};
+
+type EarnStateForFullWithdraw = {
+  position?: {
+    currentHolding?: {
+      amountRaw?: string;
+      liquidityMint?: string;
+      market?: string | null;
+      reserve?: string;
+    } | null;
+    currentTotalAmountRaw?: string;
+    status?: string;
+  } | null;
 };
 
 const SOLANA_ENV = resolveSolanaEnv(
@@ -130,6 +176,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function redactSensitive(value: string): string {
+  return value.replace(
+    /([?&](?:api-key|apikey|key|token)=)[^&\s"'`)]+/gi,
+    "$1[REDACTED]"
+  );
+}
+
 async function fetchEarnState(args: {
   session: FrontendSession;
 }): Promise<unknown> {
@@ -172,6 +225,41 @@ async function prepareSponsoredEarnDepositOnServer(args: {
   });
 
   return hydratePreparedEarnUsdcDeposit(response.body.preparedDeposit);
+}
+
+async function prepareSponsoredEarnFullWithdrawOnServer(args: {
+  amountRaw: bigint;
+  session: FrontendSession;
+  source: NonNullable<EarnStateForFullWithdraw["position"]>["currentHolding"];
+}): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
+  const source = args.source;
+  const response = await frontendPostJson<EarnWithdrawPrepareResponse>({
+    body: {
+      amountRaw: args.amountRaw.toString(),
+      mode: "full",
+      ...(source?.amountRaw &&
+      source.liquidityMint &&
+      source.market &&
+      source.reserve
+        ? {
+            source: {
+              amountRaw: source.amountRaw,
+              id: source.reserve,
+              liquidityMint: source.liquidityMint,
+              market: source.market,
+              reserve: source.reserve,
+              type: "reserve",
+            },
+          }
+        : {}),
+      sponsored: true,
+    },
+    cookie: args.session.cookie,
+    path: "/api/smart-accounts/yield-optimization/withdrawals/prepare",
+    session: args.session,
+  });
+
+  return hydratePreparedEarnUsdcWithdraw(response.body.preparedWithdraw);
 }
 
 async function postSponsoredEarnPolicySetup(args: {
@@ -260,52 +348,173 @@ async function prepareSponsoredDepositReusingPolicy(args: {
   );
 }
 
-async function postSponsoredEarnDepositPrefund(args: {
+async function postSponsoredEarnDeposit(args: {
+  depositTransaction: string;
+  kaminoSetupTransaction?: string | null;
+  policyTransaction?: string | null;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   session: FrontendSession;
-}): Promise<EarnSponsoredDepositPrefundResponse> {
-  const response = await frontendPostJson<EarnSponsoredDepositPrefundResponse>({
-    body: buildEarnSponsoredDepositPrefundRequestBody({
-      preparedDeposit: args.preparedDeposit,
-    }),
+  setupPolicyTransaction?: string | null;
+}): Promise<SponsoredDepositConfirmResponse> {
+  const body: EarnSponsoredDepositConfirmRequestBody = {
+    ...args.preparedDeposit.persistence,
+    depositTransaction: args.depositTransaction,
+    ...(args.kaminoSetupTransaction
+      ? { kaminoSetupTransaction: args.kaminoSetupTransaction }
+      : {}),
+    ...(args.policyTransaction
+      ? { policyTransaction: args.policyTransaction }
+      : {}),
+    ...(args.setupPolicyTransaction
+      ? { setupPolicyTransaction: args.setupPolicyTransaction }
+      : {}),
+    smartAccountAddress: args.preparedDeposit.vault.pubkey.toBase58(),
+  };
+  const response = await frontendPostJson<SponsoredDepositConfirmResponse>({
+    body,
     cookie: args.session.cookie,
-    path: "/api/smart-accounts/yield-optimization/deposits/prefund/sponsored",
+    path: "/api/smart-accounts/yield-optimization/deposits/confirm/sponsored",
     session: args.session,
   });
-  if (!response.body.sponsoredPrefund) {
+  if (!response.body.sponsoredConfirmations) {
     throw new Error(
-      "Sponsored Earn deposit pre-fund response is missing confirmation."
+      "Sponsored Earn deposit response is missing confirmations."
     );
   }
 
   return response.body;
 }
 
-async function postConfirmedEarnDeposit(args: {
-  confirmedSlot: string;
-  policyConfirmedSlot?: string;
-  policySignature: string;
-  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
+function resolveFullWithdrawRequest(state: unknown): {
+  amountRaw: bigint;
+  source: EarnStateForFullWithdraw["position"] extends infer T
+    ? T extends { currentHolding?: infer U }
+      ? U
+      : null
+    : null;
+} {
+  const earnState = state as EarnStateForFullWithdraw;
+  const position = earnState.position;
+  const holding = position?.currentHolding ?? null;
+  const amountRaw =
+    holding?.amountRaw && /^\d+$/.test(holding.amountRaw)
+      ? BigInt(holding.amountRaw)
+      : position?.currentTotalAmountRaw &&
+        /^\d+$/.test(position.currentTotalAmountRaw)
+      ? BigInt(position.currentTotalAmountRaw)
+      : BigInt(0);
+
+  if (!position || position.status !== "active" || amountRaw <= BigInt(0)) {
+    throw new Error("No active Earn position is available for full withdraw.");
+  }
+
+  return {
+    amountRaw,
+    source: holding,
+  };
+}
+
+function buildSponsoredEarnWithdrawConfirmBody(args: {
+  autodepositCloseConfirmedSlot?: string;
+  autodepositCloseSignature?: string;
+  policyCloseTransaction?: string | null;
+  preparedStep: SmartAccountPreparedEarnUsdcWithdraw["withdrawSteps"][number];
+  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
+  smartAccountAddress: string;
+  withdrawalTransaction: string;
+}): EarnSponsoredWithdrawalConfirmRequestBody {
+  const body = buildEarnWithdrawalConfirmRequestBody({
+    autodepositCloseConfirmedSlot: args.autodepositCloseConfirmedSlot,
+    autodepositCloseSignature: args.autodepositCloseSignature,
+    confirmedSlot: "0",
+    preparedStep: args.preparedStep,
+    preparedWithdraw: args.preparedWithdraw,
+    signature: "sponsored-withdrawal-signature-placeholder",
+    smartAccountAddress: args.smartAccountAddress,
+  }) as Partial<
+    ReturnType<typeof buildEarnWithdrawalConfirmRequestBody>
+  > as EarnSponsoredWithdrawalConfirmRequestBody & {
+    confirmedSlot?: string;
+    withdrawalSignature?: string;
+  };
+  delete body.confirmedSlot;
+  delete body.withdrawalSignature;
+  if (args.policyCloseTransaction) {
+    body.policyCloseTransaction = args.policyCloseTransaction;
+  }
+  body.withdrawalTransaction = args.withdrawalTransaction;
+  return body;
+}
+
+function buildSponsoredAutodepositCloseConfirmBody(args: {
+  closeTransaction: string;
+  preparedClose: SmartAccountPreparedEarnUsdcAutodepositClose;
+}): EarnSponsoredAutodepositCloseConfirmRequestBody {
+  const body = buildEarnAutodepositCloseConfirmRequestBody({
+    confirmedSlot: "0",
+    preparedClose: args.preparedClose,
+    signature: "sponsored-autodeposit-close-signature-placeholder",
+  }) as Partial<
+    ReturnType<typeof buildEarnAutodepositCloseConfirmRequestBody>
+  > as EarnSponsoredAutodepositCloseConfirmRequestBody & {
+    closeSignature?: string;
+    confirmedSlot?: string;
+  };
+  delete body.closeSignature;
+  delete body.confirmedSlot;
+  body.closeTransaction = args.closeTransaction;
+  return body;
+}
+
+async function postSponsoredEarnAutodepositClose(args: {
+  closeTransaction: string;
+  preparedClose: SmartAccountPreparedEarnUsdcAutodepositClose;
   session: FrontendSession;
-  setupPolicyConfirmedSlot?: string;
-  setupPolicySignature?: string;
-  signature: string;
-}) {
-  const response = await frontendPostJson<unknown>({
-    body: buildEarnDepositConfirmRequestBody({
-      confirmedSlot: args.confirmedSlot,
-      policyConfirmedSlot: args.policyConfirmedSlot,
-      policySignature: args.policySignature,
-      preparedDeposit: args.preparedDeposit,
-      setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot,
-      setupPolicySignature: args.setupPolicySignature,
-      signature: args.signature,
-      smartAccountAddress: args.preparedDeposit.vault.pubkey.toBase58(),
+}): Promise<SponsoredAutodepositCloseConfirmResponse> {
+  const response =
+    await frontendPostJson<SponsoredAutodepositCloseConfirmResponse>({
+      body: buildSponsoredAutodepositCloseConfirmBody(args),
+      cookie: args.session.cookie,
+      path: "/api/smart-accounts/yield-optimization/autodeposit/close/confirm/sponsored",
+      session: args.session,
+    });
+  if (!response.body.sponsoredConfirmations) {
+    throw new Error(
+      "Sponsored Autodeposit close response is missing confirmations."
+    );
+  }
+
+  return response.body;
+}
+
+async function postSponsoredEarnFullWithdraw(args: {
+  autodepositCloseConfirmedSlot?: string;
+  autodepositCloseSignature?: string;
+  policyCloseTransaction?: string | null;
+  preparedStep: SmartAccountPreparedEarnUsdcWithdraw["withdrawSteps"][number];
+  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
+  session: FrontendSession;
+  withdrawalTransaction: string;
+}): Promise<SponsoredWithdrawConfirmResponse> {
+  const response = await frontendPostJson<SponsoredWithdrawConfirmResponse>({
+    body: buildSponsoredEarnWithdrawConfirmBody({
+      autodepositCloseConfirmedSlot: args.autodepositCloseConfirmedSlot,
+      autodepositCloseSignature: args.autodepositCloseSignature,
+      policyCloseTransaction: args.policyCloseTransaction,
+      preparedStep: args.preparedStep,
+      preparedWithdraw: args.preparedWithdraw,
+      smartAccountAddress: args.preparedWithdraw.vault.pubkey.toBase58(),
+      withdrawalTransaction: args.withdrawalTransaction,
     }),
     cookie: args.session.cookie,
-    path: "/api/smart-accounts/yield-optimization/deposits/confirm",
+    path: "/api/smart-accounts/yield-optimization/withdrawals/confirm/sponsored",
     session: args.session,
   });
+  if (!response.body.sponsoredConfirmations) {
+    throw new Error(
+      "Sponsored Earn withdrawal response is missing confirmations."
+    );
+  }
 
   return response.body;
 }
@@ -330,7 +539,7 @@ async function main() {
     config: {
       amountRaw: DEPOSIT_AMOUNT_RAW.toString(),
       frontendBaseUrl: FRONTEND_BASE_URL,
-      rpcUrl: RPC_URL,
+      rpcUrl: redactSensitive(RPC_URL),
       settingsPda: session.settingsPda,
       smartAccountAddress: session.smartAccountAddress,
       solanaEnv: SOLANA_ENV,
@@ -340,28 +549,52 @@ async function main() {
     steps: {},
   };
 
-  const preparedPolicy = await prepareEarnPolicyOnServer({ session });
-  evidence.steps.policyPrepare = {
-    instructionCount:
-      preparedPolicy.prepared.instructions.length +
-      (preparedPolicy.finalizePrepared?.instructions.length ?? 0),
-    persistence: preparedPolicy.persistence,
-    status: "success",
+  const initialEarnState = (await fetchEarnState({ session })) as {
+    policy?: {
+      lastSeenSignature?: string | null;
+      setupPolicy?: { lastSeenSignature?: string | null } | null;
+    } | null;
   };
-  const policyResponse = await postSponsoredEarnPolicySetup({
-    connection,
-    preparedPolicy,
-    session,
-    sponsorFeePayer,
-    wallet: walletBridge,
-  });
-  evidence.steps.policySponsoredConfirm = {
-    backend: policyResponse,
-    endpoint:
-      "/api/smart-accounts/yield-optimization/policies/confirm/sponsored",
-    sponsoredConfirmations: policyResponse.sponsoredConfirmations,
-    status: "success",
-  };
+  const existingPolicy = initialEarnState.policy;
+  if (
+    existingPolicy?.lastSeenSignature &&
+    existingPolicy.setupPolicy?.lastSeenSignature
+  ) {
+    evidence.steps.policyPrepare = {
+      reason: "existing confirmed Earn policy pair",
+      status: "skipped",
+    };
+    evidence.steps.policySponsoredConfirm = {
+      backend: initialEarnState,
+      endpoint:
+        "/api/smart-accounts/yield-optimization/policies/confirm/sponsored",
+      reason: "existing confirmed Earn policy pair",
+      status: "skipped",
+    };
+  } else {
+    const preparedPolicy = await prepareEarnPolicyOnServer({ session });
+    evidence.steps.policyPrepare = {
+      instructionCount:
+        preparedPolicy.prepared.instructions.length +
+        (preparedPolicy.finalizePrepared?.instructions.length ?? 0),
+      persistence: preparedPolicy.persistence,
+      status: "success",
+    };
+    const policyResponse = await postSponsoredEarnPolicySetup({
+      connection,
+      preparedPolicy,
+      session,
+      sponsorFeePayer,
+      wallet: walletBridge,
+    });
+    evidence.steps.policySponsoredConfirm = {
+      backend: policyResponse,
+      endpoint:
+        "/api/smart-accounts/yield-optimization/policies/confirm/sponsored",
+      sponsoredConfirmations: policyResponse.sponsoredConfirmations,
+      status: "success",
+    };
+  }
   evidence.steps.postPolicyEarnState = {
     backend: await fetchEarnState({ session }),
     status: "success",
@@ -373,10 +606,6 @@ async function main() {
     evidenceAttempts: depositPrepareAttempts,
     session,
   });
-  const prefundResponse = await postSponsoredEarnDepositPrefund({
-    preparedDeposit,
-    session,
-  });
   evidence.steps.depositPrepare = {
     attempts: depositPrepareAttempts,
     instructionCount:
@@ -384,68 +613,161 @@ async function main() {
       (preparedDeposit.kaminoSetupPrepared?.instructions.length ?? 0),
     nativeSolRequirement: preparedDeposit.nativeSolRequirement,
     persistence: preparedDeposit.persistence,
-    prefund: {
-      endpoint:
-        "/api/smart-accounts/yield-optimization/deposits/prefund/sponsored",
-      response: prefundResponse,
-    },
     status: "success",
   };
 
-  if (preparedDeposit.kaminoSetupPrepared) {
-    const kaminoSetupSignature = await sendPreparedWithWallet({
-      connection,
-      wallet: walletBridge,
-      prepared: preparedDeposit.kaminoSetupPrepared,
-      confirm: true,
+  const policyTransaction = preparedDeposit.policySetupPrepared
+    ? await signPreparedEarnOperationForSponsorship({
+        connection,
+        feePayer: sponsorFeePayer,
+        operation: "sponsored Earn deposit policy setup",
+        prepared: preparedDeposit.policySetupPrepared,
+        wallet: walletBridge,
+      })
+    : null;
+  const setupPolicyTransaction = preparedDeposit.policyFinalizePrepared
+    ? await signPreparedEarnOperationForSponsorship({
+        connection,
+        feePayer: sponsorFeePayer,
+        operation: "sponsored Earn deposit setup policy setup",
+        prepared: preparedDeposit.policyFinalizePrepared,
+        wallet: walletBridge,
+      })
+    : null;
+  const kaminoSetupTransaction = preparedDeposit.kaminoSetupPrepared
+    ? await signPreparedEarnOperationForSponsorship({
+        connection,
+        feePayer: sponsorFeePayer,
+        operation: "sponsored Earn Kamino setup",
+        prepared: preparedDeposit.kaminoSetupPrepared,
+        wallet: walletBridge,
+      })
+    : null;
+  const depositTransaction = await signPreparedEarnOperationForSponsorship({
+    connection,
+    feePayer: sponsorFeePayer,
+    operation: "sponsored Earn deposit",
+    prepared: preparedDeposit.prepared,
+    wallet: walletBridge,
+  });
+  const depositResponse = await postSponsoredEarnDeposit({
+    depositTransaction,
+    kaminoSetupTransaction,
+    policyTransaction,
+    preparedDeposit,
+    session,
+    setupPolicyTransaction,
+  });
+  evidence.steps.depositConfirm = {
+    backend: depositResponse,
+    confirmedSlot:
+      depositResponse.sponsoredConfirmations?.deposit.confirmedSlot,
+    endpoint:
+      "/api/smart-accounts/yield-optimization/deposits/confirm/sponsored",
+    signature: depositResponse.sponsoredConfirmations?.deposit.signature,
+    sponsoredConfirmations: depositResponse.sponsoredConfirmations,
+    status: "success",
+  };
+  evidence.steps.postDepositEarnState = {
+    backend: await fetchEarnState({ session }),
+    status: "success",
+  };
+
+  const withdrawRequest = resolveFullWithdrawRequest(
+    evidence.steps.postDepositEarnState.backend
+  );
+  const preparedWithdraw = await prepareSponsoredEarnFullWithdrawOnServer({
+    amountRaw: withdrawRequest.amountRaw,
+    session,
+    source: withdrawRequest.source,
+  });
+  const preparedStep =
+    preparedWithdraw.withdrawSteps[preparedWithdraw.withdrawSteps.length - 1];
+  if (!preparedStep) {
+    throw new Error("Sponsored Earn full withdraw is missing withdraw steps.");
+  }
+  if (preparedStep.stepIndex !== preparedStep.stepCount - 1) {
+    throw new Error(
+      "Sponsored Earn verifier only supports the final full-withdraw step."
+    );
+  }
+  evidence.steps.withdrawPrepare = {
+    instructionCount:
+      preparedStep.prepared.instructions.length +
+      (preparedWithdraw.autodepositClosePrepared?.prepared.instructions
+        .length ?? 0) +
+      (preparedWithdraw.policyClosePrepared?.instructions.length ?? 0),
+    persistence: preparedStep.persistence,
+    status: "success",
+  };
+
+  let autodepositCloseConfirmedSlot: string | undefined;
+  let autodepositCloseSignature: string | undefined;
+  if (preparedWithdraw.autodepositClosePrepared) {
+    const autodepositCloseTransaction =
+      await signPreparedEarnOperationForSponsorship({
+        connection,
+        feePayer: sponsorFeePayer,
+        operation: "sponsored Earn withdrawal Autodeposit close",
+        prepared: preparedWithdraw.autodepositClosePrepared.prepared,
+        wallet: walletBridge,
+      });
+    const autodepositCloseResponse = await postSponsoredEarnAutodepositClose({
+      closeTransaction: autodepositCloseTransaction,
+      preparedClose: preparedWithdraw.autodepositClosePrepared,
+      session,
     });
-    const kaminoSetupConfirmedSlot = await resolveConfirmedSignatureSlot({
-      connection,
-      signature: kaminoSetupSignature,
-    });
-    evidence.steps.kaminoSetup = {
-      confirmedSlot: kaminoSetupConfirmedSlot,
-      endpoint: "wallet-send",
-      instructionCount: preparedDeposit.kaminoSetupPrepared.instructions.length,
-      signature: kaminoSetupSignature,
+    autodepositCloseConfirmedSlot =
+      autodepositCloseResponse.sponsoredConfirmations?.close.confirmedSlot;
+    autodepositCloseSignature =
+      autodepositCloseResponse.sponsoredConfirmations?.close.signature;
+    evidence.steps.withdrawAutodepositCloseConfirm = {
+      backend: autodepositCloseResponse,
+      confirmedSlot: autodepositCloseConfirmedSlot,
+      endpoint:
+        "/api/smart-accounts/yield-optimization/autodeposit/close/confirm/sponsored",
+      signature: autodepositCloseSignature,
+      sponsoredConfirmations: autodepositCloseResponse.sponsoredConfirmations,
       status: "success",
     };
   }
 
-  const depositSignature = await sendPreparedWithWallet({
+  const withdrawalTransaction = await signPreparedEarnOperationForSponsorship({
     connection,
+    feePayer: sponsorFeePayer,
+    operation: "sponsored Earn full withdraw",
+    prepared: preparedStep.prepared,
     wallet: walletBridge,
-    prepared: preparedDeposit.prepared,
-    confirm: true,
   });
-  const depositConfirmedSlot = await resolveConfirmedSignatureSlot({
-    connection,
-    signature: depositSignature,
-  });
-  const policyConfirmation = policyResponse.sponsoredConfirmations?.policy;
-  if (!policyConfirmation) {
-    throw new Error("Sponsored policy confirmation is missing route policy.");
-  }
-  const setupPolicyConfirmation =
-    policyResponse.sponsoredConfirmations?.setupPolicy ?? null;
-  const depositResponse = await postConfirmedEarnDeposit({
-    confirmedSlot: depositConfirmedSlot,
-    policyConfirmedSlot: policyConfirmation.confirmedSlot,
-    policySignature: policyConfirmation.signature,
-    preparedDeposit,
+  const policyCloseTransaction = preparedWithdraw.policyClosePrepared
+    ? await signPreparedEarnOperationForSponsorship({
+        connection,
+        feePayer: sponsorFeePayer,
+        operation: "sponsored Earn policy close",
+        prepared: preparedWithdraw.policyClosePrepared,
+        wallet: walletBridge,
+      })
+    : null;
+  const withdrawResponse = await postSponsoredEarnFullWithdraw({
+    autodepositCloseConfirmedSlot,
+    autodepositCloseSignature,
+    policyCloseTransaction,
+    preparedStep,
+    preparedWithdraw,
     session,
-    setupPolicyConfirmedSlot: setupPolicyConfirmation?.confirmedSlot,
-    setupPolicySignature: setupPolicyConfirmation?.signature,
-    signature: depositSignature,
+    withdrawalTransaction,
   });
-  evidence.steps.depositConfirm = {
-    backend: depositResponse,
-    confirmedSlot: depositConfirmedSlot,
-    endpoint: "/api/smart-accounts/yield-optimization/deposits/confirm",
-    signature: depositSignature,
+  evidence.steps.withdrawConfirm = {
+    backend: withdrawResponse,
+    confirmedSlot:
+      withdrawResponse.sponsoredConfirmations?.withdrawal.confirmedSlot,
+    endpoint:
+      "/api/smart-accounts/yield-optimization/withdrawals/confirm/sponsored",
+    signature: withdrawResponse.sponsoredConfirmations?.withdrawal.signature,
+    sponsoredConfirmations: withdrawResponse.sponsoredConfirmations,
     status: "success",
   };
-  evidence.steps.postDepositEarnState = {
+  evidence.steps.postWithdrawEarnState = {
     backend: await fetchEarnState({ session }),
     status: "success",
   };
