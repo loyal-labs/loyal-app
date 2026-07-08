@@ -255,14 +255,70 @@ function snapshotReserveTarget(
   };
 }
 
-function selectEarnWithdrawSource(args: {
+// Full-withdrawal targets from the live snapshot (fallback when the DB rows
+// are empty). Collateral metadata comes from the holding provenance when
+// present; the SDK resolves anything omitted on-chain.
+function snapshotFullWithdrawalTargets(
+  holdings: EarnRpcHolding[],
+  reserve: string
+): {
   amountRaw: bigint;
+  liquidityMint: PublicKey;
+  market: PublicKey;
+  reserve: PublicKey;
+  reserveCollateralMint?: PublicKey;
+  supplyApyBps: bigint | null;
+}[] {
+  const targets = [];
+  for (const holding of holdings) {
+    if (
+      holding.kind !== "kamino" ||
+      holding.reserve !== reserve ||
+      !holding.market
+    ) {
+      continue;
+    }
+    let amountRaw: bigint;
+    try {
+      amountRaw = BigInt(holding.amountRaw);
+    } catch {
+      continue;
+    }
+    if (amountRaw <= BigInt(0)) {
+      continue;
+    }
+    let supplyApyBps: bigint | null = null;
+    if (holding.supplyApyBps) {
+      try {
+        supplyApyBps = BigInt(holding.supplyApyBps);
+      } catch {
+        supplyApyBps = null;
+      }
+    }
+    const reserveCollateralMint = publicKeyFromMetadata(holding.provenance, [
+      "reserveCollateralMint",
+    ]);
+    targets.push({
+      amountRaw,
+      liquidityMint: new PublicKey(holding.liquidityMint),
+      market: new PublicKey(holding.market),
+      reserve: new PublicKey(holding.reserve),
+      ...(reserveCollateralMint ? { reserveCollateralMint } : {}),
+      supplyApyBps,
+    });
+  }
+  return targets;
+}
+
+// Withdraw sources from the reconciled DB rows (full exits) — the row
+// planning metadata carries the collateral accounts the full-withdrawal
+// instruction prefers. Empty after a cross-market rebalance the reconcile
+// couldn't follow; the caller then falls back to the live snapshot.
+function buildDbEarnWithdrawSources(args: {
   idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
-  mode: "partial" | "full";
   position: UserYieldPositionRecord;
-  request: EarnWithdrawSourceRequest;
   reserveRows: CurrentYieldVaultReservePositionRecord[];
-}): SelectedEarnWithdrawSource {
+}): SelectedEarnWithdrawSource[] {
   const reserveSources = args.reserveRows
     .filter((row) => row.amountRaw > BigInt(0))
     .map((row) => {
@@ -303,11 +359,22 @@ function selectEarnWithdrawSource(args: {
           },
         ]
       : [];
-  const sources = [
-    ...reserveSources,
-    ...idleSources,
-    ...positionFallbackSources,
-  ];
+  return [...reserveSources, ...idleSources, ...positionFallbackSources];
+}
+
+function selectEarnWithdrawSource(args: {
+  amountRaw: bigint;
+  idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
+  mode: "partial" | "full";
+  position: UserYieldPositionRecord;
+  request: EarnWithdrawSourceRequest;
+  reserveRows: CurrentYieldVaultReservePositionRecord[];
+}): SelectedEarnWithdrawSource {
+  const sources = buildDbEarnWithdrawSources({
+    idleRows: args.idleRows,
+    position: args.position,
+    reserveRows: args.reserveRows,
+  });
 
   if (sources.length === 0) {
     throw new Error("No active Earn withdrawal source was found.");
@@ -502,6 +569,9 @@ export async function POST(request: Request) {
     let selectedSource: SelectedEarnWithdrawSource;
     let isFinalExit: boolean;
     let withdrawTarget: EarnUsdcReserveTarget;
+    // Set when a full exit had to source from the live snapshot (DB rows
+    // empty); the full-withdrawal targets are then built from it too.
+    let snapshotFullExitHoldings: EarnRpcHolding[] | null = null;
     if (mode === "partial") {
       const snapshot = await fetchEarnRpcHoldingsSnapshot({
         cluster,
@@ -546,6 +616,73 @@ export async function POST(request: Request) {
             }
           : snapshotReserveTarget(snapshot.holdings) ??
             earnReserveTargetFromActivePosition(position);
+    } else if (
+      buildDbEarnWithdrawSources({
+        idleRows: currentIdleRows,
+        position,
+        reserveRows: currentReserveRows,
+      }).length === 0
+    ) {
+      // Full-exit snapshot fallback: after a cross-market rebalance the
+      // reconciled DB rows (and the position row) can read zero while the
+      // funds live on-chain in another market's obligation. Source the full
+      // exit from the same live snapshot partial withdrawals use — its
+      // provenance carries the collateral metadata the full path needs.
+      const snapshot = await fetchEarnRpcHoldingsSnapshot({
+        cluster,
+        connection,
+        policy: policyResult
+          ? serializeRoutePolicyState(
+              policyResult.routePolicy,
+              policyResult.setupPolicy ?? null
+            )
+          : null,
+        programId,
+        settingsPda: settingsPdaKey,
+      });
+      const snapshotSources = buildSnapshotWithdrawSources(snapshot.holdings);
+      if (snapshotSources.length === 0) {
+        throw new Error("No active Earn withdrawal source was found.");
+      }
+      const selected = selectRequestedEarnWithdrawSource(
+        snapshotSources,
+        selectedSourceRequest
+      );
+      if (!selected) {
+        throw new Error("Select an Earn source before withdrawing.");
+      }
+      selectedSource = selected;
+      effectiveAmountRaw = selected.amountRaw;
+      const remainingReserveAmountRaw = snapshotSources.reduce(
+        (total, source) =>
+          total +
+          (source.type === "reserve" && source.id !== selected.id
+            ? source.amountRaw
+            : BigInt(0)),
+        BigInt(0)
+      );
+      const remainingIdleAmountRaw = snapshotSources.reduce(
+        (total, source) =>
+          total +
+          (source.type === "idle" && source.id !== selected.id
+            ? source.amountRaw
+            : BigInt(0)),
+        BigInt(0)
+      );
+      isFinalExit =
+        remainingReserveAmountRaw <= BigInt(0) &&
+        remainingIdleAmountRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW;
+      withdrawTarget =
+        selected.type === "reserve"
+          ? {
+              liquidityMint: new PublicKey(selected.liquidityMint),
+              market: new PublicKey(selected.market),
+              reserve: new PublicKey(selected.reserve),
+              supplyApyBps: null,
+            }
+          : snapshotReserveTarget(snapshot.holdings) ??
+            earnReserveTargetFromActivePosition(position);
+      snapshotFullExitHoldings = snapshot.holdings;
     } else {
       selectedSource = selectEarnWithdrawSource({
         amountRaw,
@@ -691,53 +828,62 @@ export async function POST(request: Request) {
       target: withdrawTarget,
       ...(mode === "full" && selectedSource.type === "reserve"
         ? {
-            fullWithdrawalTargets: currentReserveRows
-              .filter((row) => row.reserve === selectedSource.reserve)
-              .map((row) => {
-                if (!row.market) {
-                  throw new Error(
-                    "Reconciled Earn reserve row is missing a Kamino market."
-                  );
-                }
-                const reserveCollateralMint = publicKeyFromMetadata(
-                  row.planningMetadata,
-                  [
-                    "reserveCollateralMint",
-                    "reserve_collateral_mint",
-                    "collateralMint",
-                    "collateral_mint",
-                  ]
-                );
-                const reserveLiquiditySupply = publicKeyFromMetadata(
-                  row.planningMetadata,
-                  [
-                    "reserveLiquiditySupply",
-                    "reserve_liquidity_supply",
-                    "liquiditySupply",
-                    "liquidity_supply",
-                  ]
-                );
-                const vaultCollateralAta = publicKeyFromMetadata(
-                  row.planningMetadata,
-                  [
-                    "vaultCollateralAta",
-                    "vault_collateral_ata",
-                    "collateralAta",
-                    "collateral_ata",
-                  ]
-                );
+            fullWithdrawalTargets: snapshotFullExitHoldings
+              ? snapshotFullWithdrawalTargets(
+                  snapshotFullExitHoldings,
+                  selectedSource.reserve
+                )
+              : currentReserveRows
+                  .filter((row) => row.reserve === selectedSource.reserve)
+                  .map((row) => {
+                    if (!row.market) {
+                      throw new Error(
+                        "Reconciled Earn reserve row is missing a Kamino market."
+                      );
+                    }
+                    const reserveCollateralMint = publicKeyFromMetadata(
+                      row.planningMetadata,
+                      [
+                        "reserveCollateralMint",
+                        "reserve_collateral_mint",
+                        "collateralMint",
+                        "collateral_mint",
+                      ]
+                    );
+                    const reserveLiquiditySupply = publicKeyFromMetadata(
+                      row.planningMetadata,
+                      [
+                        "reserveLiquiditySupply",
+                        "reserve_liquidity_supply",
+                        "liquiditySupply",
+                        "liquidity_supply",
+                      ]
+                    );
+                    const vaultCollateralAta = publicKeyFromMetadata(
+                      row.planningMetadata,
+                      [
+                        "vaultCollateralAta",
+                        "vault_collateral_ata",
+                        "collateralAta",
+                        "collateral_ata",
+                      ]
+                    );
 
-                return {
-                  amountRaw: row.amountRaw,
-                  liquidityMint: new PublicKey(row.liquidityMint),
-                  market: new PublicKey(row.market),
-                  reserve: new PublicKey(row.reserve),
-                  ...(reserveCollateralMint ? { reserveCollateralMint } : {}),
-                  ...(reserveLiquiditySupply ? { reserveLiquiditySupply } : {}),
-                  supplyApyBps: row.supplyApyBps ?? null,
-                  ...(vaultCollateralAta ? { vaultCollateralAta } : {}),
-                };
-              }),
+                    return {
+                      amountRaw: row.amountRaw,
+                      liquidityMint: new PublicKey(row.liquidityMint),
+                      market: new PublicKey(row.market),
+                      reserve: new PublicKey(row.reserve),
+                      ...(reserveCollateralMint
+                        ? { reserveCollateralMint }
+                        : {}),
+                      ...(reserveLiquiditySupply
+                        ? { reserveLiquiditySupply }
+                        : {}),
+                      supplyApyBps: row.supplyApyBps ?? null,
+                      ...(vaultCollateralAta ? { vaultCollateralAta } : {}),
+                    };
+                  }),
           }
         : {}),
       closePoliciesOnFullWithdrawal: isFinalExit,
