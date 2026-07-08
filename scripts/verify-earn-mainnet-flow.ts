@@ -77,7 +77,8 @@ mock.module("server-only", () => ({}));
 // op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=same-mint-frontend-sdk-live bun scripts/verify-earn-mainnet-flow.ts'
 // op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=source-lifecycle-withdrawals bun scripts/verify-earn-mainnet-flow.ts'
 //
-// Keep SOLANA_TESTING_PK and database/RPC secrets inside the op run subprocess.
+// Use EARN_VERIFY_SOLANA_TESTING_PK to override SOLANA_TESTING_PK for one run.
+// Keep wallet private keys and database/RPC secrets inside the op run subprocess.
 // Remove EARN_VERIFY_DRY_RUN only for an approved live lifecycle run. Dry-run
 // "all" is intentionally rejected because simulated cleanup cannot make the
 // current mainnet wallet clean for the following initial-deposit-from-clean
@@ -120,6 +121,9 @@ type EvidenceStep = {
   policyUpdateSignature?: string;
   policyUpdateSimulationLogs?: string[];
   policyUpdateUnsignedSimulationLogs?: string[];
+  policyCloseConfirmedSlot?: string | null;
+  policyCloseSignature?: string | null;
+  policyCloseTransactionFeeLamports?: string;
   confirmedFinalizeSlot?: string | null;
   routeConfirmedSlot?: string | null;
   routeSignature?: string | null;
@@ -283,23 +287,39 @@ function parseRawAmount(value: string): bigint {
 }
 
 function loadTestingKeypair(): Keypair {
-  const raw = process.env.SOLANA_TESTING_PK;
+  const raw =
+    process.env.EARN_VERIFY_SOLANA_TESTING_PK ?? process.env.SOLANA_TESTING_PK;
   if (!raw) {
-    throw new Error("SOLANA_TESTING_PK is not set.");
+    throw new Error(
+      "EARN_VERIFY_SOLANA_TESTING_PK or SOLANA_TESTING_PK is not set."
+    );
   }
 
   const trimmed = raw.trim();
+  let keypair: Keypair;
   if (trimmed.startsWith("[")) {
-    return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(trimmed)));
-  }
-  if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
-    return Keypair.fromSecretKey(
+    keypair = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(trimmed)));
+  } else if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
+    keypair = Keypair.fromSecretKey(
       Uint8Array.from(
         trimmed.match(/../g)!.map((byte) => Number.parseInt(byte, 16))
       )
     );
+  } else {
+    keypair = Keypair.fromSecretKey(bs58.decode(trimmed));
   }
-  return Keypair.fromSecretKey(bs58.decode(trimmed));
+
+  const expectedWallet = process.env.EARN_VERIFY_EXPECTED_WALLET_ADDRESS;
+  if (
+    expectedWallet &&
+    keypair.publicKey.toBase58() !== expectedWallet.trim()
+  ) {
+    throw new Error(
+      `Verifier keypair resolves to ${keypair.publicKey.toBase58()}, expected ${expectedWallet.trim()}.`
+    );
+  }
+
+  return keypair;
 }
 
 function loadDeploymentPolicySigner(): PublicKey {
@@ -603,7 +623,7 @@ function buildEarnDepositConfirmFrontendBody(args: {
     setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot?.toString(),
     setupPolicySignature: args.setupPolicySignature,
     signature: args.signature,
-    smartAccountAddress: args.session.smartAccountAddress,
+    smartAccountAddress: args.prepared.vault.pubkey.toBase58(),
   });
 }
 
@@ -694,7 +714,7 @@ function buildEarnWithdrawConfirmFrontendBody(args: {
     confirmedSlot: args.confirmedSlot.toString(),
     preparedWithdraw: args.prepared,
     signature: args.signature,
-    smartAccountAddress: args.session.smartAccountAddress,
+    smartAccountAddress: args.prepared.vault.pubkey.toBase58(),
   });
 }
 
@@ -1733,6 +1753,24 @@ async function resolveConfirmedSignatureSlot(args: {
   );
 }
 
+async function resolveAccountCreationSignatureFromChain(args: {
+  account: PublicKey;
+  connection: Connection;
+}): Promise<{ signature: string; slot: bigint } | null> {
+  const signatures = await args.connection.getSignaturesForAddress(
+    args.account,
+    { limit: 1000 },
+    "confirmed"
+  );
+  const creation = [...signatures]
+    .reverse()
+    .find((entry) => entry.err === null);
+
+  return creation
+    ? { signature: creation.signature, slot: BigInt(creation.slot) }
+    : null;
+}
+
 async function resolveTransactionFeeLamports(args: {
   connection: Connection;
   signature: string;
@@ -2578,7 +2616,10 @@ async function runRpcHoldingsWithdrawalPreview(): Promise<void> {
     ],
     cwd,
   });
-  assertHasMatches(browserPrepareEvidence, "browser withdrawal prepare evidence");
+  assertHasMatches(
+    browserPrepareEvidence,
+    "browser withdrawal prepare evidence"
+  );
 
   await writeEvidence({
     cluster: LoyalCluster.MainnetBeta,
@@ -3416,6 +3457,15 @@ async function main() {
       resumeSlot: RESUME_FULL_WITHDRAW_SLOT,
       wallet,
     });
+    const sentPolicyClose = prepared.policyClosePrepared
+      ? await sendOrResumePrepared({
+          connection,
+          prepared: prepared.policyClosePrepared,
+          resumeSignature: null,
+          resumeSlot: null,
+          wallet,
+        })
+      : null;
     const withdrawalConfirmArgs = {
       ...(sentAutodepositClose
         ? {
@@ -3463,6 +3513,8 @@ async function main() {
         : undefined,
       preparedTarget: preparedTargetEvidence(prepared),
       persistence: { position: compactPosition(position) },
+      policyCloseConfirmedSlot: sentPolicyClose?.slot.toString() ?? null,
+      policyCloseSignature: sentPolicyClose?.signature ?? null,
       signature: sent.signature,
       simulationLogs: sent.simulationLogs.slice(-12),
       status: "success",
@@ -3513,11 +3565,29 @@ async function main() {
       connection,
       signature: sent.signature,
     });
+    const policyCloseTransactionFee = sentPolicyClose
+      ? await resolveTransactionFeeLamports({
+          connection,
+          signature: sentPolicyClose.signature,
+        })
+      : 0n;
+    const autodepositCloseTransactionFee = sentAutodepositClose
+      ? await resolveTransactionFeeLamports({
+          connection,
+          signature: sentAutodepositClose.signature,
+        })
+      : 0n;
+    const totalTransactionFee =
+      transactionFee +
+      policyCloseTransactionFee +
+      autodepositCloseTransactionFee;
     evidence.steps.fullWithdrawal.transactionFeeLamports =
       transactionFee.toString();
+    evidence.steps.fullWithdrawal.policyCloseTransactionFeeLamports =
+      policyCloseTransactionFee.toString();
     if (
       postSol +
-        transactionFee +
+        totalTransactionFee +
         BigInt(RENT_REFUND_ROUNDING_ALLOWANCE_LAMPORTS) <
       preSol + expectedRent
     ) {
@@ -3624,26 +3694,80 @@ async function main() {
       assertSafePolicyUniverse(prepared.persistence);
       const policySetupPrepared = prepared.policySetupPrepared ?? null;
       const policyFinalizePrepared = prepared.policyFinalizePrepared ?? null;
-      if (
-        !policySetupPrepared ||
-        !policyFinalizePrepared ||
-        !prepared.setupPolicy
-      ) {
+      const onboardingAttempt =
+        prepared.persistence.policyInitialization === "reuse"
+          ? await repository.findCurrentEarnDepositOnboardingAttempt({
+              settings: SETTINGS_PDA.toBase58(),
+              vaultIndex: 1,
+              vaultPubkey: vaultPubkey.toBase58(),
+              walletAddress: wallet.publicKey.toBase58(),
+            })
+          : null;
+      const resumedPolicySignature =
+        onboardingAttempt?.routePolicySignature ?? null;
+      const resumedPolicySlot =
+        onboardingAttempt?.routePolicyConfirmedSlot !== undefined &&
+        onboardingAttempt?.routePolicyConfirmedSlot !== null
+          ? BigInt(onboardingAttempt.routePolicyConfirmedSlot)
+          : null;
+      const recoveredPolicyCreation =
+        !policySetupPrepared && !resumedPolicySignature
+          ? await resolveAccountCreationSignatureFromChain({
+              account: prepared.policy.account,
+              connection,
+            })
+          : null;
+      const resumedSetupPolicySignature =
+        onboardingAttempt?.setupPolicySignature ?? null;
+      const resumedSetupPolicySlot =
+        onboardingAttempt?.setupPolicyConfirmedSlot !== undefined &&
+        onboardingAttempt?.setupPolicyConfirmedSlot !== null
+          ? BigInt(onboardingAttempt.setupPolicyConfirmedSlot)
+          : null;
+      const recoveredSetupPolicyCreation =
+        !policyFinalizePrepared &&
+        prepared.setupPolicy &&
+        !resumedSetupPolicySignature
+          ? await resolveAccountCreationSignatureFromChain({
+              account: prepared.setupPolicy.account,
+              connection,
+            })
+          : null;
+      const hasRoutePolicyConfirmation = Boolean(
+        policySetupPrepared ||
+          (resumedPolicySignature && resumedPolicySlot) ||
+          recoveredPolicyCreation
+      );
+      const hasSetupPolicyConfirmation = Boolean(
+        policyFinalizePrepared ||
+          !prepared.setupPolicy ||
+          (resumedSetupPolicySignature && resumedSetupPolicySlot) ||
+          recoveredSetupPolicyCreation
+      );
+      if (!hasRoutePolicyConfirmation || !hasSetupPolicyConfirmation) {
         throw new Error(
-          "Frontend initial deposit did not return the required route and init-obligation policy setup transactions."
+          "Frontend initial deposit did not return or resume the required route and init-obligation policy setup confirmations."
         );
       }
-      assertPreparedPolicyCreateUsesSafeUniverse({
-        prepared: policySetupPrepared,
-      });
-      assertPreparedSetupPolicyCreateUsesInitObligation(policyFinalizePrepared);
-
-      if (DRY_RUN) {
-        const unsignedPolicySimulationLogs = await simulatePreparedUnsigned({
-          connection,
-          label: "initial route policy setup",
+      if (policySetupPrepared) {
+        assertPreparedPolicyCreateUsesSafeUniverse({
           prepared: policySetupPrepared,
         });
+      }
+      if (policyFinalizePrepared) {
+        assertPreparedSetupPolicyCreateUsesInitObligation(
+          policyFinalizePrepared
+        );
+      }
+
+      if (DRY_RUN) {
+        const unsignedPolicySimulationLogs = policySetupPrepared
+          ? await simulatePreparedUnsigned({
+              connection,
+              label: "initial route policy setup",
+              prepared: policySetupPrepared,
+            })
+          : [];
         const setupPolicySimulationSkippedReason =
           "Dry-run does not send the route policy transaction, so the init-obligation setup policy transaction is not simulated against unadvanced settings state.";
         const depositSimulationSkippedReason =
@@ -3667,7 +3791,9 @@ async function main() {
           persistence: prepared.persistence,
           status: "skipped",
           setupPolicy: prepared.setupPolicy,
-          setupPacketLength: preparedPacketLength(policyFinalizePrepared),
+          setupPacketLength: policyFinalizePrepared
+            ? preparedPacketLength(policyFinalizePrepared)
+            : null,
           setupPolicyUnsignedSimulationSkippedReason:
             setupPolicySimulationSkippedReason,
           unsignedSimulationLogs: unsignedPolicySimulationLogs.slice(-12),
@@ -3696,14 +3822,22 @@ async function main() {
         return;
       }
 
-      let policySignature = RESUME_INITIAL_POLICY_SIGNATURE;
+      let policySignature =
+        RESUME_INITIAL_POLICY_SIGNATURE ??
+        resumedPolicySignature ??
+        recoveredPolicyCreation?.signature ??
+        null;
       let policySlot = RESUME_INITIAL_POLICY_SLOT
         ? BigInt(RESUME_INITIAL_POLICY_SLOT)
-        : null;
-      let setupPolicySignature = RESUME_INITIAL_SETUP_POLICY_SIGNATURE;
+        : resumedPolicySlot ?? recoveredPolicyCreation?.slot ?? null;
+      let setupPolicySignature =
+        RESUME_INITIAL_SETUP_POLICY_SIGNATURE ??
+        resumedSetupPolicySignature ??
+        recoveredSetupPolicyCreation?.signature ??
+        null;
       let setupPolicySlot = RESUME_INITIAL_SETUP_POLICY_SLOT
         ? BigInt(RESUME_INITIAL_SETUP_POLICY_SLOT)
-        : null;
+        : resumedSetupPolicySlot ?? recoveredSetupPolicyCreation?.slot ?? null;
       let sentPolicy: {
         signature: string;
         simulationLogs: string[];
@@ -3715,7 +3849,7 @@ async function main() {
         slot: bigint;
       } | null = null;
 
-      if (!policySignature) {
+      if (!policySignature && policySetupPrepared) {
         sentPolicy = await sendOrResumePrepared({
           connection,
           prepared: policySetupPrepared,
@@ -3736,7 +3870,7 @@ async function main() {
           signature: policySignature,
         });
       }
-      if (!setupPolicySignature) {
+      if (!setupPolicySignature && policyFinalizePrepared) {
         sentSetupPolicy = await sendOrResumePrepared({
           connection,
           prepared: policyFinalizePrepared,
@@ -3747,10 +3881,10 @@ async function main() {
         setupPolicySignature = sentSetupPolicy.signature;
         setupPolicySlot = sentSetupPolicy.slot;
       }
-      if (!setupPolicySignature) {
+      if (prepared.setupPolicy && !setupPolicySignature) {
         throw new Error("Frontend setup policy signature is unavailable.");
       }
-      if (!setupPolicySlot) {
+      if (setupPolicySignature && !setupPolicySlot) {
         setupPolicySlot = await resolveConfirmedSignatureSlot({
           connection,
           signature: setupPolicySignature,
@@ -3782,8 +3916,8 @@ async function main() {
         policySignature,
         prepared,
         session: frontendSession,
-        setupPolicyConfirmedSlot: setupPolicySlot,
-        setupPolicySignature,
+        setupPolicyConfirmedSlot: setupPolicySlot ?? undefined,
+        setupPolicySignature: setupPolicySignature ?? undefined,
         signature: sent.signature,
       };
       const position = await confirmEarnDepositViaFrontend(depositConfirmArgs);
@@ -3792,7 +3926,7 @@ async function main() {
         label: "initial deposit confirm",
       });
       evidence.steps.initialPolicy = {
-        confirmedFinalizeSlot: setupPolicySlot.toString(),
+        confirmedFinalizeSlot: setupPolicySlot?.toString() ?? null,
         confirmedSlot: policySlot.toString(),
         finalizeInstructionCount:
           policyFinalizePrepared?.instructions.length ?? 0,
@@ -3803,7 +3937,7 @@ async function main() {
         persistence: prepared.persistence,
         routeConfirmedSlot: policySlot.toString(),
         routeSignature: policySignature,
-        setupConfirmedSlot: setupPolicySlot.toString(),
+        setupConfirmedSlot: setupPolicySlot?.toString() ?? null,
         setupPolicy: prepared.setupPolicy,
         signature: policySignature,
         setupSignature: setupPolicySignature,
@@ -4610,6 +4744,15 @@ async function main() {
       resumeSlot: RESUME_RESERVE_WITHDRAW_SLOT,
       wallet,
     });
+    const reservePolicyCloseSent = reservePrepared.policyClosePrepared
+      ? await sendOrResumePrepared({
+          connection,
+          prepared: reservePrepared.policyClosePrepared,
+          resumeSignature: null,
+          resumeSlot: null,
+          wallet,
+        })
+      : null;
     const reserveConfirmArgs = {
       confirmedSlot: reserveSent.slot,
       prepared: reservePrepared,
@@ -4639,6 +4782,14 @@ async function main() {
       connection,
       signature: reserveSent.signature,
     });
+    const reservePolicyCloseTransactionFee = reservePolicyCloseSent
+      ? await resolveTransactionFeeLamports({
+          connection,
+          signature: reservePolicyCloseSent.signature,
+        })
+      : 0n;
+    const reserveTotalTransactionFee =
+      reserveTransactionFee + reservePolicyCloseTransactionFee;
     const expectedRent =
       BigInt(preReserveState.accounts.policy?.lamports ?? 0) +
       BigInt(preReserveState.accounts.setupPolicy?.lamports ?? 0) +
@@ -4654,7 +4805,7 @@ async function main() {
     );
     if (
       postReserveSol +
-        reserveTransactionFee +
+        reserveTotalTransactionFee +
         BigInt(RENT_REFUND_ROUNDING_ALLOWANCE_LAMPORTS) <
       preReserveSol + expectedRent
     ) {
@@ -4704,6 +4855,8 @@ async function main() {
         source: reserveSource,
       },
       preparedTarget: preparedTargetEvidence(reservePrepared),
+      policyCloseConfirmedSlot: reservePolicyCloseSent?.slot.toString() ?? null,
+      policyCloseSignature: reservePolicyCloseSent?.signature ?? null,
       sendsTransactions: true,
       signature: reserveSent.signature,
       simulationLogs: reserveSent.simulationLogs.slice(-12),
@@ -4716,13 +4869,17 @@ async function main() {
         ).toString(),
         postWalletLamports: postReserveSol.toString(),
         preWalletLamports: preReserveSol.toString(),
+        policyCloseTransactionFeeLamports:
+          reservePolicyCloseTransactionFee.toString(),
         transactionFeeLamports: reserveTransactionFee.toString(),
         walletDeltaPlusFeeLamports: (
           postReserveSol -
           preReserveSol +
-          reserveTransactionFee
+          reserveTotalTransactionFee
         ).toString(),
       },
+      policyCloseTransactionFeeLamports:
+        reservePolicyCloseTransactionFee.toString(),
       transactionFeeLamports: reserveTransactionFee.toString(),
     };
     evidence.postState = postReserveState;
