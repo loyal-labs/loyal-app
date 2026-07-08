@@ -57,7 +57,7 @@ function assertRequestObject(body: unknown): EarnPolicyPrepareRecord {
 
 export function parseEarnPolicyPrepareRequestBody(
   body: unknown
-): EarnPolicyPrepareRequestBody {
+): Required<EarnPolicyPrepareRequestBody> {
   const record = assertRequestObject(body);
   const sponsored =
     record.sponsored === undefined || record.sponsored === null

@@ -8676,12 +8676,11 @@ export function createSmartAccountVaultsClient(
         vaultUsdcAta,
         walletUsdcAta,
       });
-    const policyRentPayer = args.rentPayer ?? args.feePayer;
     const policyCreation = policyExistsForPlanning
       ? null
       : await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
           {
-            feePayer: policyRentPayer,
+            feePayer: args.feePayer,
             settingsPda: args.settingsPda,
             signers: [args.signer],
             actions: [
@@ -8706,7 +8705,7 @@ export function createSmartAccountVaultsClient(
       const prepared = withEarnPolicyCreateSimulationDiagnostics(
         freezePreparedOperation({
           operation: "earnUsdcAutodepositCreatePolicy",
-          payer: policyRentPayer,
+          payer: args.feePayer,
           programId: smartAccountsClient.programId,
           requiresConfirmation: true,
           instructions: [...policyCreation.instructions],
@@ -8736,7 +8735,7 @@ export function createSmartAccountVaultsClient(
         cluster,
         connection: config.connection,
         estimateFees: false,
-        payer: policyRentPayer,
+        payer: args.feePayer,
         preferStaticMainnetRent: true,
         prepared: [prepared],
         rentCandidates: [
@@ -8747,7 +8746,7 @@ export function createSmartAccountVaultsClient(
             label: "Autodeposit policy account rent",
             space: policyRentSpace({
               feePayer: args.feePayer,
-              rentPayer: policyRentPayer,
+              rentPayer: args.feePayer,
               policyPayload: autodepositPolicyPayload,
               policySeed,
               policySigner: args.policySigner,

@@ -64,6 +64,27 @@ export type SponsoredEarnAutodepositSetupInput = Omit<
   setupTransaction: string;
 };
 
+export type SponsoredEarnAutodepositSetupPrefundInput = {
+  cluster: string;
+  policyAccount: string;
+  policySeed: bigint;
+  requiredLamports: bigint;
+  settings: string;
+  setupStage: EarnAutodepositSetupStage;
+  vaultIndex: 1;
+  walletAddress: string;
+};
+
+export type SponsoredEarnAutodepositSetupPrefundConfirmation = {
+  balanceLamports: string;
+  confirmedSlot?: string;
+  destination: string;
+  lamports: string;
+  requiredLamports: string;
+  signature?: string;
+  status: "skipped" | "transferred";
+};
+
 export type ConfirmedEarnAutodepositCloseInput = {
   cluster: string;
   closeSignature: string;
@@ -129,6 +150,21 @@ export type EarnSponsoredAutodepositSetupConfirmRequestBody = Omit<
   "confirmedSlot" | "setupSignature"
 > & {
   setupTransaction: string;
+};
+
+export type EarnSponsoredAutodepositSetupPrefundRequestBody = {
+  cluster: string;
+  policyAccount: string;
+  policySeed: string;
+  requiredLamports: string;
+  settings: string;
+  setupStage: EarnAutodepositSetupStage;
+  vaultIndex: 1;
+  walletAddress: string;
+};
+
+export type EarnSponsoredAutodepositSetupPrefundResponse = {
+  sponsoredPrefund: SponsoredEarnAutodepositSetupPrefundConfirmation;
 };
 
 export type EarnAutodepositCloseConfirmRequestBody = {
@@ -516,6 +552,31 @@ export function buildEarnAutodepositSetupConfirmRequestBody({
   };
 }
 
+export function buildEarnSponsoredAutodepositSetupPrefundRequestBody({
+  preparedSetup,
+}: {
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+}): EarnSponsoredAutodepositSetupPrefundRequestBody {
+  const persistence = preparedSetup.persistence;
+  return {
+    cluster: persistence.cluster,
+    policyAccount: requirePreparedMetadataValue(
+      persistence.policyAccount,
+      "policyAccount"
+    ),
+    policySeed: requirePreparedMetadataValue(
+      persistence.policySeed,
+      "policySeed"
+    ),
+    requiredLamports:
+      preparedSetup.nativeSolRequirement?.requiredLamports ?? "0",
+    settings: persistence.settings,
+    setupStage: preparedSetup.stage,
+    vaultIndex: persistence.vaultIndex,
+    walletAddress: persistence.walletAddress,
+  };
+}
+
 export function buildEarnAutodepositCloseConfirmRequestBody({
   confirmedSlot,
   preparedClose,
@@ -563,6 +624,22 @@ export function parseEarnAutodepositSetupConfirmRequestBody(
     walletAddress: readRequiredString(record, "walletAddress"),
     walletBalanceFloorRaw: readBigIntString(record, "walletBalanceFloorRaw"),
     walletUsdcAta: readRequiredString(record, "walletUsdcAta"),
+  };
+}
+
+export function parseEarnSponsoredAutodepositSetupPrefundRequestBody(
+  body: unknown
+): SponsoredEarnAutodepositSetupPrefundInput {
+  const record = assertRequestObject(body);
+  return {
+    cluster: readRequiredString(record, "cluster"),
+    policyAccount: readRequiredString(record, "policyAccount"),
+    policySeed: readBigIntString(record, "policySeed"),
+    requiredLamports: readBigIntString(record, "requiredLamports"),
+    settings: readRequiredString(record, "settings"),
+    setupStage: readSetupStage(record),
+    vaultIndex: readVaultIndex(record),
+    walletAddress: readRequiredString(record, "walletAddress"),
   };
 }
 

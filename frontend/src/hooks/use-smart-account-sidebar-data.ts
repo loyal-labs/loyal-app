@@ -81,6 +81,7 @@ import { resolveEarnDepositConfirmPolicySignature } from "@/lib/yield-optimizati
 import {
   buildEarnAutodepositCloseConfirmRequestBody,
   buildEarnAutodepositSetupConfirmRequestBody,
+  buildEarnSponsoredAutodepositSetupPrefundRequestBody,
   type EarnAutodepositFloorUpdateConfirmRequestBody,
   type EarnAutodepositToggleConfirmRequestBody,
   type EarnAutodepositCloseConfirmResponse,
@@ -88,6 +89,7 @@ import {
   type EarnAutodepositToggleConfirmResponse,
   type EarnSponsoredAutodepositCloseConfirmRequestBody,
   type EarnSponsoredAutodepositSetupConfirmRequestBody,
+  type EarnSponsoredAutodepositSetupPrefundResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
@@ -526,7 +528,6 @@ type EarnAutodepositSetupBatchPrepare = {
 type EarnAutodepositPrepareContextKeyInput = {
   cluster: LoyalCluster;
   feePayer: PublicKey;
-  policyRentPayer?: PublicKey | null;
   policySigner: PublicKey;
   settingsPda: PublicKey;
   signer: PublicKey;
@@ -563,7 +564,6 @@ function createEarnAutodepositPrepareKey(args: {
       args.request.periodLengthSeconds
     ),
     policySeed: formatPrepareKeyBigInt(args.request.policySeed),
-    policyRentPayer: args.context.policyRentPayer?.toBase58() ?? null,
     policySigner: args.context.policySigner.toBase58(),
     preparedPolicyAccount: preparedSetup?.persistence.policyAccount ?? null,
     preparedPolicySeed: preparedSetup?.persistence.policySeed ?? null,
@@ -1578,6 +1578,42 @@ class SponsoredEarnAutodepositSetupConfirmError extends Error {
     this.name = "SponsoredEarnAutodepositSetupConfirmError";
     this.confirmations = args.confirmations;
   }
+}
+
+async function postSponsoredEarnAutodepositSetupPrefund(args: {
+  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
+}): Promise<EarnSponsoredAutodepositSetupPrefundResponse> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/autodeposit/setup/prefund/sponsored",
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        buildEarnSponsoredAutodepositSetupPrefundRequestBody(args)
+      ),
+    }
+  );
+
+  const payload = (await response.json().catch(() => null)) as
+    | (SmartAccountRouteErrorResponse &
+        EarnSponsoredAutodepositSetupPrefundResponse)
+    | null;
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.error?.message ??
+        "Failed to pre-fund sponsored Autodeposit setup."
+    );
+  }
+
+  if (!payload?.sponsoredPrefund) {
+    throw new Error(
+      "Sponsored Autodeposit setup pre-fund response is missing confirmation."
+    );
+  }
+
+  return payload;
 }
 
 async function postSponsoredEarnAutodepositSetup(args: {
@@ -6775,11 +6811,6 @@ export function useSmartAccountSidebarData(
       throw new Error("Earn policy signer is unavailable. Refresh and retry.");
     }
 
-    const policyRentPayer =
-      IS_EARN_POLICY_SPONSORSHIP_ENABLED && publicEnv.earnPolicySponsorPubkey
-        ? new PublicKey(publicEnv.earnPolicySponsorPubkey)
-        : null;
-
     return {
       client: createSmartAccountVaultsClient({
         connection,
@@ -6787,7 +6818,6 @@ export function useSmartAccountSidebarData(
       }),
       cluster: resolveEarnLoyalCluster(solanaEnv),
       feePayer: wallet.publicKey,
-      policyRentPayer,
       policySigner: new PublicKey(policySignerPublicKey),
       settingsPda: new PublicKey(overview.settingsPda),
       signer: wallet.publicKey,
@@ -6797,7 +6827,6 @@ export function useSmartAccountSidebarData(
     connection,
     earnState?.policySignerPublicKey,
     overview,
-    publicEnv.earnPolicySponsorPubkey,
     solanaEnv,
     user?.walletAddress,
     wallet.publicKey,
@@ -6827,9 +6856,6 @@ export function useSmartAccountSidebarData(
         nonce: request.nonce,
         periodLengthSeconds: request.periodLengthSeconds,
         policySeed: request.policySeed,
-        ...(context.policyRentPayer
-          ? { rentPayer: context.policyRentPayer }
-          : {}),
         policySigner: context.policySigner,
         settingsPda: context.settingsPda,
         signer: context.signer,
@@ -6876,9 +6902,6 @@ export function useSmartAccountSidebarData(
         nonce: request.nonce,
         periodLengthSeconds: request.periodLengthSeconds,
         policySeed: request.policySeed,
-        ...(context.policyRentPayer
-          ? { rentPayer: context.policyRentPayer }
-          : {}),
         policySigner: context.policySigner,
         settingsPda: context.settingsPda,
         signer: context.signer,
@@ -6992,7 +7015,7 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
-        let preparedSetup =
+        const preparedSetup =
           request.preparedSetup ??
           (await prepareEarnAutodepositSetup({
             amountRaw: request.amountRaw,
@@ -7016,6 +7039,7 @@ export function useSmartAccountSidebarData(
         }
 
         let sponsorFeePayer: PublicKey | null = null;
+        let sponsoredCreatePolicyPrefunded = false;
         if (
           IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
           publicEnv.earnPolicySponsorPubkey
@@ -7029,29 +7053,32 @@ export function useSmartAccountSidebarData(
             };
           }
 
-          if (
-            preparedSetup.stage === "create_policy" &&
-            !preparedSetup.prepared.payer.equals(sponsorFeePayer)
-          ) {
-            preparedSetup = await prepareEarnAutodepositSetup({
-              amountRaw: request.amountRaw,
-              expiryTimestamp: request.expiryTimestamp,
-              nonce: request.nonce,
-              periodLengthSeconds: request.periodLengthSeconds,
-              policySeed: request.policySeed,
-              startTimestamp: requestedStartTimestamp,
-              walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+          if (preparedSetup.stage === "create_policy") {
+            const clusterError = validatePreparedEarnPersistenceCluster({
+              expectedCluster: expectedEarnCluster,
+              operation: "autodeposit setup",
+              preparedCluster: preparedSetup.persistence.cluster,
             });
-            if (
-              preparedSetup.persistence.amountPerPeriodRaw !==
-              request.amountRaw.toString()
-            ) {
+            if (clusterError) {
+              return { success: false, error: clusterError };
+            }
+
+            try {
+              await postSponsoredEarnAutodepositSetupPrefund({
+                preparedSetup,
+              });
+            } catch (error) {
               return {
                 success: false,
                 error:
-                  "Prepared Autodeposit amount changed. Review Autodeposit again before signing.",
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to pre-fund sponsored Autodeposit setup.",
               };
             }
+
+            sponsoredCreatePolicyPrefunded = true;
+            sponsorFeePayer = null;
           }
         }
 
@@ -7193,7 +7220,8 @@ export function useSmartAccountSidebarData(
 
         if (
           preparedSetup.stage === "create_policy" &&
-          walletBridge.signAllTransactions
+          walletBridge.signAllTransactions &&
+          !sponsoredCreatePolicyPrefunded
         ) {
           let batchPrepare: EarnAutodepositSetupBatchPrepare | null = null;
           try {
@@ -7420,9 +7448,9 @@ export function useSmartAccountSidebarData(
           }
         }
 
-        const nativeSolError = getNativeSolRequirementError(
-          preparedSetup.nativeSolRequirement
-        );
+        const nativeSolError = sponsoredCreatePolicyPrefunded
+          ? null
+          : getNativeSolRequirementError(preparedSetup.nativeSolRequirement);
         if (nativeSolError) {
           return { success: false, error: nativeSolError };
         }

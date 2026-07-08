@@ -47,6 +47,16 @@ export type SponsoredTransactionConfirmation = {
   signature: string;
 };
 
+export type EarnPolicySponsorPrefundConfirmation = {
+  balanceLamports: string;
+  confirmedSlot?: string;
+  destination: string;
+  lamports: string;
+  requiredLamports: string;
+  signature?: string;
+  status: "skipped" | "transferred";
+};
+
 export class EarnPolicySponsoredTransactionError extends Error {
   readonly status: number;
   readonly code: string;
@@ -695,6 +705,74 @@ async function sendAndConfirmSignedTransaction(args: {
 
 export function getEarnPolicySponsorPublicKey(): PublicKey {
   return getEarnPolicySponsorKeypair().publicKey;
+}
+
+export async function prefundEarnPolicySponsorDestination(args: {
+  destination: PublicKey;
+  requiredLamports: bigint;
+}): Promise<EarnPolicySponsorPrefundConfirmation> {
+  if (args.requiredLamports < BigInt(0)) {
+    throw new EarnPolicySponsoredTransactionError({
+      status: 400,
+      code: "invalid_prefund_amount",
+      message: "Sponsored pre-fund requirement cannot be negative.",
+    });
+  }
+  if (args.requiredLamports > MAX_SPONSORED_SYSTEM_RENT_TRANSFER_LAMPORTS) {
+    throw new EarnPolicySponsoredTransactionError({
+      status: 413,
+      code: "prefund_amount_too_large",
+      message:
+        "Sponsored pre-fund requirement exceeds the Earn policy sponsorship limit.",
+    });
+  }
+
+  const sponsor = getEarnPolicySponsorKeypair();
+  const connection = getServerSolanaConnection(
+    resolveLoyalWebSolanaEnvFromEnv(process.env)
+  );
+  const balanceLamports = BigInt(
+    await connection.getBalance(args.destination, "confirmed")
+  );
+  if (balanceLamports >= args.requiredLamports) {
+    return {
+      balanceLamports: balanceLamports.toString(),
+      destination: args.destination.toBase58(),
+      lamports: "0",
+      requiredLamports: args.requiredLamports.toString(),
+      status: "skipped",
+    };
+  }
+
+  const lamports = args.requiredLamports - balanceLamports;
+  const { blockhash, lastValidBlockHeight } =
+    await connection.getLatestBlockhash("confirmed");
+  const transaction = new Transaction({
+    blockhash,
+    feePayer: sponsor.publicKey,
+    lastValidBlockHeight,
+  }).add(
+    SystemProgram.transfer({
+      fromPubkey: sponsor.publicKey,
+      lamports: Number(lamports),
+      toPubkey: args.destination,
+    })
+  );
+  transaction.sign(sponsor);
+  const confirmation = await sendAndConfirmSignedTransaction({
+    connection,
+    transaction,
+  });
+
+  return {
+    balanceLamports: balanceLamports.toString(),
+    confirmedSlot: confirmation.confirmedSlot,
+    destination: args.destination.toBase58(),
+    lamports: lamports.toString(),
+    requiredLamports: args.requiredLamports.toString(),
+    signature: confirmation.signature,
+    status: "transferred",
+  };
 }
 
 export async function executeSponsoredEarnPolicyTransaction(

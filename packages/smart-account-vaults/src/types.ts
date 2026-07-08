@@ -816,7 +816,6 @@ export type SmartAccountEarnUsdcAutodepositSetupInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
   feePayer: PublicKey;
-  rentPayer?: PublicKey;
   signer: PublicKey;
   policySigner: PublicKey;
   amountRaw: bigint;
