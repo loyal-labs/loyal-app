@@ -299,43 +299,64 @@ async function sponsorRecord(args: {
   treasury: PublicKey;
   dependencies: SmartAccountServiceDependencies;
 }): Promise<ServiceRecord> {
-  let signature: string | null = null;
+  let record = args.record;
+  let treasury = args.treasury;
 
-  try {
-    signature = await args.dependencies.createSmartAccount({
-      solanaEnv: args.record.solanaEnv,
-      programId: args.programId,
-      settingsPda: args.record.settingsPda,
-      treasury: args.treasury,
-      walletAddress: args.walletAddress,
-    });
+  for (let attempt = 0; ; attempt += 1) {
+    let signature: string | null = null;
 
-    return await args.dependencies.markReady({
-      userId: args.record.userId,
-      solanaEnv: args.record.solanaEnv,
-      creationSignature: signature,
-    });
-  } catch (error) {
-    const reconciledRecord = await maybePromoteRecord({
-      record: args.record,
-      programId: args.programId,
-      walletAddress: args.walletAddress,
-      dependencies: args.dependencies,
-    });
+    try {
+      signature = await args.dependencies.createSmartAccount({
+        solanaEnv: record.solanaEnv,
+        programId: args.programId,
+        settingsPda: record.settingsPda,
+        treasury,
+        walletAddress: args.walletAddress,
+      });
 
-    if (reconciledRecord.kind === "ready") {
-      return reconciledRecord.record;
+      return await args.dependencies.markReady({
+        userId: record.userId,
+        solanaEnv: record.solanaEnv,
+        creationSignature: signature,
+      });
+    } catch (error) {
+      const reconciledRecord = await maybePromoteRecord({
+        record,
+        programId: args.programId,
+        walletAddress: args.walletAddress,
+        dependencies: args.dependencies,
+      });
+
+      if (reconciledRecord.kind === "ready") {
+        return reconciledRecord.record;
+      }
+
+      // Concurrent-signup index race: another user's create landed on the
+      // settings PDA this record had reserved, so our create failed and the
+      // PDA now belongs to them. Reserve the next index and retry once
+      // instead of surfacing a transient error to the user.
+      if (reconciledRecord.kind === "owner_mismatch" && attempt === 0) {
+        const reservation = await reserveProvisioningRecord({
+          userId: record.userId,
+          solanaEnv: record.solanaEnv,
+          programId: args.programId,
+          dependencies: args.dependencies,
+        });
+        record = reservation.record;
+        treasury = reservation.treasury;
+        continue;
+      }
+
+      const failure = toFailure({ error });
+      await args.dependencies.markFailed({
+        userId: record.userId,
+        solanaEnv: record.solanaEnv,
+        errorCode: failure.code,
+        errorMessage: failure.message,
+        ...(signature ? { creationSignature: signature } : {}),
+      });
+      throw failure;
     }
-
-    const failure = toFailure({ error });
-    await args.dependencies.markFailed({
-      userId: args.record.userId,
-      solanaEnv: args.record.solanaEnv,
-      errorCode: failure.code,
-      errorMessage: failure.message,
-      ...(signature ? { creationSignature: signature } : {}),
-    });
-    throw failure;
   }
 }
 

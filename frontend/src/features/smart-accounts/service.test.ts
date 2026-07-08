@@ -283,3 +283,61 @@ describe("ensureUserSmartAccount delegated root signer onboarding", () => {
     expect(dependencies.createSmartAccount).toHaveBeenCalled();
   });
 });
+
+describe("ensureUserSmartAccount concurrent-signup index race", () => {
+  test("re-reserves and retries once when a racing signup takes the reserved settings PDA", async () => {
+    const firstPda = deriveSettingsPdaAddress({
+      programId,
+      accountIndex: BigInt(11),
+    });
+    const secondPda = deriveSettingsPdaAddress({
+      programId,
+      accountIndex: BigInt(12),
+    });
+    let reservations = 0;
+    let creates = 0;
+    const markFailed = mock(async () => createReadyRecord({ state: "failed" }));
+    const dependencies = createDependencies({
+      reserveProvisioning: mock(async () => {
+        reservations += 1;
+        return createReadyRecord({
+          creationSignature: null,
+          id: `reserved-${reservations}`,
+          settingsPda: reservations === 1 ? firstPda : secondPda,
+          state: "provisioning",
+        });
+      }),
+      createSmartAccount: mock(async (input) => {
+        creates += 1;
+        if (creates === 1) {
+          throw new Error("Missing account");
+        }
+        expect(input.settingsPda).toBe(secondPda);
+        return "sponsor-signature-2";
+      }),
+      // After the failed create, the first PDA holds the RACING user's
+      // settings — our wallet is not among its signers (owner_mismatch).
+      findSignerAddressesForSettings: mock(async () => [
+        "SomeOtherWa11etAddre55111111111111111111111",
+      ]),
+      markFailed,
+      markReady: mock(async (input) =>
+        createReadyRecord({
+          creationSignature: input.creationSignature ?? null,
+          settingsPda: secondPda,
+        })
+      ),
+    });
+
+    const result = await ensureUserSmartAccount(
+      { userId, walletAddress },
+      dependencies
+    );
+
+    expect(result.provisioningOutcome).toBe("sponsored_new_record");
+    expect(result.smartAccount.settingsPda).toBe(secondPda);
+    expect(reservations).toBe(2);
+    expect(creates).toBe(2);
+    expect(markFailed).not.toHaveBeenCalled();
+  });
+});
