@@ -36,6 +36,46 @@ const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
+// The verification reads below can land on RPC nodes that lag behind the
+// client's own confirmation (launch night 2026-07-08: ~70 valid confirms were
+// rejected 400 this way and their on-chain deposits went invisible). Poll
+// briefly before treating a missing status/transaction as a rejection.
+const RPC_VERIFY_ATTEMPTS = 6;
+const RPC_VERIFY_DELAY_MS = 500;
+
+export async function pollRpcRead<T>(
+  read: () => Promise<T | null>
+): Promise<T | null> {
+  for (let attempt = 1; attempt <= RPC_VERIFY_ATTEMPTS; attempt += 1) {
+    const value = await read();
+    if (value !== null) {
+      return value;
+    }
+    if (attempt < RPC_VERIFY_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, RPC_VERIFY_DELAY_MS));
+    }
+  }
+  return null;
+}
+
+// Every rejection here strands a confirmed on-chain deposit outside the
+// read-model until the earn-deposit-reconcile cron adopts it — so a rejection
+// must never be silent (the launch-night 400s were).
+function rejectConfirm(args: {
+  status: number;
+  code: string;
+  message: string;
+  context: Record<string, unknown>;
+}): never {
+  console.error("[earn-deposit-confirm] rejected", {
+    code: args.code,
+    message: args.message,
+    status: args.status,
+    ...args.context,
+  });
+  throw new EarnDepositConfirmError(args);
+}
+
 type ConfirmedDepositTransactionProof = {
   principalAmountRaw: bigint;
 };
@@ -362,41 +402,53 @@ async function resolveConfirmedSignatureSlot(args: {
   operation: "deposit" | "route policy setup" | "setup policy setup";
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
-  const status = value[0];
+  const slot = await pollRpcRead(async () => {
+    const { value } = await getConnection(args.cluster).getSignatureStatuses(
+      [args.signature],
+      { searchTransactionHistory: true }
+    );
+    const status = value[0];
 
-  if (!status || status.err) {
+    if (status?.err) {
+      // Executed and failed on-chain — permanent, no point polling.
+      throw new Error(`${args.operation} transaction failed on-chain.`);
+    }
+
+    if (
+      !status ||
+      (status.confirmationStatus !== "confirmed" &&
+        status.confirmationStatus !== "finalized") ||
+      typeof status.slot !== "number"
+    ) {
+      return null;
+    }
+
+    return BigInt(status.slot);
+  });
+
+  if (slot === null) {
     throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
-  if (
-    status.confirmationStatus !== "confirmed" &&
-    status.confirmationStatus !== "finalized"
-  ) {
-    throw new Error(`${args.operation} transaction is not confirmed.`);
-  }
-
-  if (typeof status.slot !== "number") {
-    throw new Error("Confirmed transaction slot is unavailable.");
-  }
-
-  return BigInt(status.slot);
+  return slot;
 }
 
 async function resolveConfirmedDepositTransactionProof(args: {
   cluster: SolanaEnv;
   input: ConfirmedYieldDepositInput;
 }): Promise<ConfirmedDepositTransactionProof> {
-  const transaction = await getConnection(args.cluster).getParsedTransaction(
-    args.input.depositSignature,
-    {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    }
-  );
+  const transaction = await pollRpcRead(async () => {
+    const parsed = await getConnection(args.cluster).getParsedTransaction(
+      args.input.depositSignature,
+      {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      }
+    );
+    // Parsed transactions propagate later than signature statuses — a null
+    // here is usually lag, not a missing transaction.
+    return parsed?.meta ? parsed : null;
+  });
 
   if (!transaction || !transaction.meta) {
     throw new Error("Confirmed deposit transaction details are unavailable.");
@@ -472,39 +524,48 @@ export async function recordConfirmedEarnDeposit(args: {
   let input = args.input;
   const { principal } = args;
 
+  const rejectionContext = {
+    depositSignature: input.depositSignature,
+    settings: input.settings,
+    walletAddress: input.walletAddress,
+  };
+
   if (
     input.walletAddress !== principal.walletAddress ||
     input.settings !== principal.settingsPda
   ) {
-    throw new EarnDepositConfirmError({
+    rejectConfirm({
       status: 403,
       code: "principal_mismatch",
       message:
         "Confirmed yield deposit does not match the authenticated wallet session.",
+      context: rejectionContext,
     });
   }
 
   try {
     input = createCanonicalDepositInput(input);
   } catch (error) {
-    throw new EarnDepositConfirmError({
+    rejectConfirm({
       status: 400,
       code: "metadata_mismatch",
       message:
         error instanceof Error
           ? error.message
           : "Confirmed yield deposit metadata is invalid.",
+      context: rejectionContext,
     });
   }
 
   const solanaEnv = getConfiguredSolanaEnv();
   const configuredCluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   if (input.cluster !== configuredCluster) {
-    throw new EarnDepositConfirmError({
+    rejectConfirm({
       status: 400,
       code: "cluster_mismatch",
       message:
         "Confirmed yield deposit cluster does not match the configured Solana environment.",
+      context: { ...rejectionContext, cluster: input.cluster },
     });
   }
 
@@ -516,23 +577,28 @@ export async function recordConfirmedEarnDeposit(args: {
       signature: input.depositSignature,
     });
   } catch (error) {
-    throw new EarnDepositConfirmError({
+    rejectConfirm({
       status: 400,
       code: "unconfirmed_signature",
       message:
         error instanceof Error
           ? error.message
           : "Deposit transaction is not confirmed.",
+      context: rejectionContext,
     });
   }
 
   if (input.confirmedSlot !== confirmedSlot) {
-    throw new EarnDepositConfirmError({
-      status: 400,
-      code: "slot_mismatch",
-      message:
-        "Confirmed yield deposit slot does not match the transaction status.",
+    // The client-supplied slot can be its confirmation context slot (the
+    // client's RPC-lag fallback), not the landing slot. The server-resolved
+    // status slot is canonical — rejecting on this mismatch stranded valid
+    // launch-night deposits invisibly.
+    console.warn("[earn-deposit-confirm] corrected client slot", {
+      ...rejectionContext,
+      clientSlot: input.confirmedSlot.toString(),
+      resolvedSlot: confirmedSlot.toString(),
     });
+    input = { ...input, confirmedSlot };
   }
 
   let depositProof: ConfirmedDepositTransactionProof;
@@ -542,13 +608,14 @@ export async function recordConfirmedEarnDeposit(args: {
       input,
     });
   } catch (error) {
-    throw new EarnDepositConfirmError({
+    rejectConfirm({
       status: 400,
       code: "invalid_deposit_proof",
       message:
         error instanceof Error
           ? error.message
           : "Deposit transaction amount proof is invalid.",
+      context: rejectionContext,
     });
   }
   input = {
@@ -565,23 +632,24 @@ export async function recordConfirmedEarnDeposit(args: {
         signature: input.policySignature,
       });
     } catch (error) {
-      throw new EarnDepositConfirmError({
+      rejectConfirm({
         status: 400,
         code: "unconfirmed_policy_signature",
         message:
           error instanceof Error
             ? error.message
             : "Route policy setup transaction is not confirmed.",
+        context: { ...rejectionContext, policySignature: input.policySignature },
       });
     }
 
     if (input.policyConfirmedSlot !== policyConfirmedSlot) {
-      throw new EarnDepositConfirmError({
-        status: 400,
-        code: "policy_slot_mismatch",
-        message:
-          "Confirmed route policy setup slot does not match the transaction status.",
+      console.warn("[earn-deposit-confirm] corrected client policy slot", {
+        ...rejectionContext,
+        clientSlot: input.policyConfirmedSlot?.toString() ?? null,
+        resolvedSlot: policyConfirmedSlot.toString(),
       });
+      input = { ...input, policyConfirmedSlot };
     }
 
     let setupPolicyConfirmedSlot: bigint;
@@ -592,23 +660,27 @@ export async function recordConfirmedEarnDeposit(args: {
         signature: input.setupPolicySignature ?? "",
       });
     } catch (error) {
-      throw new EarnDepositConfirmError({
+      rejectConfirm({
         status: 400,
         code: "unconfirmed_setup_policy_signature",
         message:
           error instanceof Error
             ? error.message
             : "Setup policy transaction is not confirmed.",
+        context: {
+          ...rejectionContext,
+          setupPolicySignature: input.setupPolicySignature ?? null,
+        },
       });
     }
 
     if (input.setupPolicyConfirmedSlot !== setupPolicyConfirmedSlot) {
-      throw new EarnDepositConfirmError({
-        status: 400,
-        code: "setup_policy_slot_mismatch",
-        message:
-          "Confirmed setup policy slot does not match the transaction status.",
+      console.warn("[earn-deposit-confirm] corrected client setup policy slot", {
+        ...rejectionContext,
+        clientSlot: input.setupPolicyConfirmedSlot?.toString() ?? null,
+        resolvedSlot: setupPolicyConfirmedSlot.toString(),
       });
+      input = { ...input, setupPolicyConfirmedSlot };
     }
   }
 
