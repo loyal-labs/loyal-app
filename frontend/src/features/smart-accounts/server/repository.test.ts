@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   appSmartAccountSettingsChangeRequests,
   appSmartAccountSigners,
+  appUserSmartAccounts,
 } from "@loyal-labs/db-core/schema";
 
 mock.module("server-only", () => ({}));
@@ -56,6 +57,7 @@ const store: {
 };
 
 let idCounter = 0;
+let appUserSmartAccountsInsertError: unknown = null;
 
 function nextId(prefix: string) {
   idCounter += 1;
@@ -73,7 +75,27 @@ function createInsertBuilder(table: unknown) {
     onConflictDoUpdate() {
       return this;
     },
+    onConflictDoNothing() {
+      return this;
+    },
     returning() {
+      if (table === appUserSmartAccounts) {
+        if (appUserSmartAccountsInsertError) {
+          throw appUserSmartAccountsInsertError;
+        }
+
+        return [
+          {
+            id: nextId("smart-account"),
+            creationSignature: null,
+            lastCheckedAt: valuesInput.lastCheckedAt,
+            lastErrorCode: null,
+            lastErrorMessage: null,
+            ...valuesInput,
+          },
+        ];
+      }
+
       if (table === appSmartAccountSettingsChangeRequests) {
         const existing = store.requests.find(
           (row) =>
@@ -212,6 +234,7 @@ describe("smart account signer repository", () => {
     store.requests = [];
     store.signers = [];
     idCounter = 0;
+    appUserSmartAccountsInsertError = null;
     getDatabase.mockClear();
   });
 
@@ -370,5 +393,71 @@ describe("smart account signer repository", () => {
       "latest",
       "old",
     ]);
+  });
+});
+
+describe("app user smart account reservation repository", () => {
+  beforeEach(() => {
+    idCounter = 0;
+    appUserSmartAccountsInsertError = null;
+    getDatabase.mockClear();
+  });
+
+  test("unwraps Drizzle query errors and classifies settings PDA reservation conflicts", async () => {
+    const postgresError = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "app_user_smart_accounts_env_settings_uidx"'
+      ),
+      {
+        code: "23505",
+        constraint: "app_user_smart_accounts_env_settings_uidx",
+      }
+    );
+    const drizzleError = new Error("Failed query: insert into smart accounts");
+    (drizzleError as Error & { cause?: unknown }).cause = postgresError;
+    appUserSmartAccountsInsertError = drizzleError;
+
+    await expect(
+      repository.reserveProvisioningAppUserSmartAccount(
+        {
+          settingsPda: "settings",
+          solanaEnv: "mainnet",
+          userId: "user-1",
+        },
+        dependencies
+      )
+    ).rejects.toBeInstanceOf(
+      repository.AppUserSmartAccountSettingsConflictError
+    );
+  });
+
+  test("does not classify explicit unrelated unique violations as settings PDA reservation conflicts", async () => {
+    const postgresError = Object.assign(
+      new Error('duplicate key value violates unique constraint "other_uidx"'),
+      {
+        code: "23505",
+        constraint: "other_uidx",
+      }
+    );
+    const drizzleError = new Error("Failed query: insert into smart accounts");
+    (drizzleError as Error & { cause?: unknown }).cause = postgresError;
+    appUserSmartAccountsInsertError = drizzleError;
+
+    try {
+      await repository.reserveProvisioningAppUserSmartAccount(
+        {
+          settingsPda: "settings",
+          solanaEnv: "mainnet",
+          userId: "user-1",
+        },
+        dependencies
+      );
+      throw new Error("Expected reservation to throw");
+    } catch (error) {
+      expect(error).toBe(drizzleError);
+      expect(error).not.toBeInstanceOf(
+        repository.AppUserSmartAccountSettingsConflictError
+      );
+    }
   });
 });

@@ -86,7 +86,7 @@ function createDependencies(
       treasury: PublicKey.default,
     })),
     createSmartAccount: mock(async () => "sponsor-signature"),
-    findSignerAddressesForSettings: mock(async () => null),
+    findSignerAddressesForSettings: mock(async () => [walletAddress]),
     findActiveRootSignerMemberships: mock(async () => []),
     fetchRootSettingsSigners: mock(async () => []),
     recordActiveRootSignerMembership: mock(async (input) => ({
@@ -285,6 +285,72 @@ describe("ensureUserSmartAccount delegated root signer onboarding", () => {
 });
 
 describe("ensureUserSmartAccount concurrent-signup index race", () => {
+  test("retries reservation when the next settings PDA is already reserved", async () => {
+    const firstPda = deriveSettingsPdaAddress({
+      programId,
+      accountIndex: BigInt(11),
+    });
+    const secondPda = deriveSettingsPdaAddress({
+      programId,
+      accountIndex: BigInt(12),
+    });
+    const settingsConflict = new Error("settings already reserved");
+    let reservations = 0;
+    let configReads = 0;
+    let creates = 0;
+    const markFailed = mock(async () => createReadyRecord({ state: "failed" }));
+    const dependencies = createDependencies({
+      fetchProgramConfig: mock(async () => {
+        configReads += 1;
+        return {
+          smartAccountIndex: {
+            toString: () => (configReads === 1 ? "10" : "11"),
+          },
+          treasury: PublicKey.default,
+        };
+      }),
+      reserveProvisioning: mock(async (input) => {
+        reservations += 1;
+        if (reservations === 1) {
+          expect(input.settingsPda).toBe(firstPda);
+          throw settingsConflict;
+        }
+
+        expect(input.settingsPda).toBe(secondPda);
+        return createReadyRecord({
+          creationSignature: null,
+          id: "reserved-after-conflict",
+          settingsPda: secondPda,
+          state: "provisioning",
+        });
+      }),
+      createSmartAccount: mock(async (input) => {
+        creates += 1;
+        expect(input.settingsPda).toBe(secondPda);
+        return "sponsor-signature-2";
+      }),
+      isSettingsReservationConflict: (error) => error === settingsConflict,
+      markFailed,
+      markReady: mock(async (input) =>
+        createReadyRecord({
+          creationSignature: input.creationSignature ?? null,
+          settingsPda: input.settingsPda,
+        })
+      ),
+    });
+
+    const result = await ensureUserSmartAccount(
+      { userId, walletAddress },
+      dependencies
+    );
+
+    expect(result.provisioningOutcome).toBe("sponsored_new_record");
+    expect(result.smartAccount.settingsPda).toBe(secondPda);
+    expect(reservations).toBe(2);
+    expect(creates).toBe(1);
+    expect(markFailed).not.toHaveBeenCalled();
+  });
+
   test("re-reserves and retries once when a racing signup takes the reserved settings PDA", async () => {
     const firstPda = deriveSettingsPdaAddress({
       programId,
@@ -296,6 +362,7 @@ describe("ensureUserSmartAccount concurrent-signup index race", () => {
     });
     let reservations = 0;
     let creates = 0;
+    let signerReads = 0;
     const markFailed = mock(async () => createReadyRecord({ state: "failed" }));
     const dependencies = createDependencies({
       reserveProvisioning: mock(async () => {
@@ -317,9 +384,12 @@ describe("ensureUserSmartAccount concurrent-signup index race", () => {
       }),
       // After the failed create, the first PDA holds the RACING user's
       // settings — our wallet is not among its signers (owner_mismatch).
-      findSignerAddressesForSettings: mock(async () => [
-        "SomeOtherWa11etAddre55111111111111111111111",
-      ]),
+      findSignerAddressesForSettings: mock(async () => {
+        signerReads += 1;
+        return signerReads === 1
+          ? ["SomeOtherWa11etAddre55111111111111111111111"]
+          : [walletAddress];
+      }),
       markFailed,
       markReady: mock(async (input) =>
         createReadyRecord({

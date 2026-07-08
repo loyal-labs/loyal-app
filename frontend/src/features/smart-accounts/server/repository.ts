@@ -85,25 +85,96 @@ type AppUserSmartAccountRepositoryDependencies = {
   now: () => Date;
 };
 
+const APP_USER_SMART_ACCOUNTS_SETTINGS_PDA_UNIQUE_INDEX =
+  "app_user_smart_accounts_env_settings_uidx";
+
 export class AppUserSmartAccountSettingsConflictError extends Error {
-  constructor() {
+  constructor(cause?: unknown) {
     super(
       "Smart account settings PDA is already reserved for this environment."
     );
     this.name = "AppUserSmartAccountSettingsConflictError";
+    if (cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = cause;
+    }
   }
 }
 
-function isUniqueViolation(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
+type ErrorRecord = {
+  cause?: unknown;
+  code?: unknown;
+  constraint?: unknown;
+  constraintName?: unknown;
+  constraint_name?: unknown;
+  message?: unknown;
+  sourceError?: unknown;
+};
+
+function toErrorRecord(error: unknown): ErrorRecord | null {
+  if (
+    (typeof error !== "object" && typeof error !== "function") ||
+    error === null
+  ) {
+    return null;
   }
 
-  const record = error as Error & { code?: string };
-  return (
-    record.code === "23505" ||
-    /duplicate key|unique constraint/i.test(record.message)
-  );
+  return error as ErrorRecord;
+}
+
+function getConstraintName(record: ErrorRecord): string | null {
+  for (const value of [
+    record.constraint,
+    record.constraintName,
+    record.constraint_name,
+  ]) {
+    if (typeof value === "string" && value.length > 0) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function isSettingsReservationUniqueViolation(error: unknown): boolean {
+  const toVisit: unknown[] = [error];
+  const visited = new Set<object>();
+
+  for (let depth = 0; depth < toVisit.length && depth < 8; depth += 1) {
+    const current = toVisit[depth];
+    const record = toErrorRecord(current);
+    if (!record) {
+      continue;
+    }
+    if (visited.has(record)) {
+      continue;
+    }
+    visited.add(record);
+
+    const message = typeof record.message === "string" ? record.message : "";
+    const constraintName = getConstraintName(record);
+    const mentionsSettingsConstraint = message.includes(
+      APP_USER_SMART_ACCOUNTS_SETTINGS_PDA_UNIQUE_INDEX
+    );
+
+    if (record.code === "23505") {
+      return (
+        constraintName === null ||
+        constraintName === APP_USER_SMART_ACCOUNTS_SETTINGS_PDA_UNIQUE_INDEX ||
+        mentionsSettingsConstraint
+      );
+    }
+
+    if (
+      mentionsSettingsConstraint &&
+      /duplicate key|unique constraint/i.test(message)
+    ) {
+      return true;
+    }
+
+    toVisit.push(record.cause, record.sourceError);
+  }
+
+  return false;
 }
 
 function createRepositoryDependencies(): AppUserSmartAccountRepositoryDependencies {
@@ -231,8 +302,8 @@ export async function reserveProvisioningAppUserSmartAccount(
 
     return updateResult[0];
   } catch (error) {
-    if (isUniqueViolation(error)) {
-      throw new AppUserSmartAccountSettingsConflictError();
+    if (isSettingsReservationUniqueViolation(error)) {
+      throw new AppUserSmartAccountSettingsConflictError(error);
     }
 
     throw error;
