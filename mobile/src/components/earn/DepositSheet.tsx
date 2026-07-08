@@ -175,6 +175,18 @@ export function DepositSheet({
   const [caretOn, setCaretOn] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // First deposits provision a smart account server-side (finalized-creation
+  // wait), which can take tens of seconds — reassure instead of looking hung.
+  const [slowSetupHint, setSlowSetupHint] = useState(false);
+
+  useEffect(() => {
+    if (!submitting || !isFirstDeposit) {
+      setSlowSetupHint(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlowSetupHint(true), 8_000);
+    return () => clearTimeout(timer);
+  }, [submitting, isFirstDeposit]);
 
   const snapPoints = useMemo(() => ["94%"], []);
   const available = Number.isFinite(availableUsdc ?? NaN)
@@ -435,6 +447,13 @@ export function DepositSheet({
 
           {submitError ? (
             <Text style={styles.submitError}>{submitError}</Text>
+          ) : null}
+
+          {slowSetupHint ? (
+            <Text style={styles.solHint}>
+              Setting up your Earn account — a first deposit can take up to a
+              minute…
+            </Text>
           ) : null}
 
           {isFirstDeposit ? (

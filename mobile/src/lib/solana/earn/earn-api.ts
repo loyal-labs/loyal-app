@@ -1,6 +1,17 @@
 import { env } from "@/config/env";
+import {
+  fetchWithTimeout,
+  FetchTimeoutError,
+} from "@/lib/network/fetch-with-timeout";
 
 import type { WirePreparedOperation } from "./wire";
+
+// A first-ever deposit provisions the smart account inline on the server
+// (finalized-creation wait plus reservation-conflict retries), which can
+// exceed the platform's default request ceiling — iOS aborts at ~60s. Give
+// prepare its own generous deadline; provisioning keeps running server-side,
+// so a retry after a timeout lands on the fast path.
+const PREPARE_TIMEOUT_MS = 120_000;
 
 // Client for the wallet-signed mobile Earn endpoints on the `frontend` backend
 // (env.earnApiBaseUrl, e.g. staging.askloyal.com). These are NOT the `/app`
@@ -69,18 +80,29 @@ export async function prepareEarnDeposit(args: {
   amountRaw: string;
   sponsored?: boolean;
 }): Promise<EarnDepositPrepareResponse> {
-  const res = await fetch(
-    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/deposit/prepare`,
-    {
-      method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({
-        ...args.auth,
-        amountRaw: args.amountRaw,
-        ...(args.sponsored ? { sponsored: true } : {}),
-      }),
-    },
-  );
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/deposit/prepare`,
+      {
+        method: "POST",
+        headers: earnHeaders(),
+        body: JSON.stringify({
+          ...args.auth,
+          amountRaw: args.amountRaw,
+          ...(args.sponsored ? { sponsored: true } : {}),
+        }),
+        timeoutMs: PREPARE_TIMEOUT_MS,
+      },
+    );
+  } catch (error) {
+    if (error instanceof FetchTimeoutError) {
+      throw new EarnApiError(
+        "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute.",
+      );
+    }
+    throw error;
+  }
   if (!res.ok) {
     return throwEarnError(res, "Failed to prepare Earn deposit.");
   }
