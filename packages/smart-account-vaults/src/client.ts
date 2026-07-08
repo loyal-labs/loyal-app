@@ -2517,6 +2517,7 @@ function makeSignerWritable(
 function createEarnFullWithdrawCleanupInstructions(args: {
   vaultCollateralAtas?: PublicKey[];
   vaultPda: PublicKey;
+  vaultSweepLamports?: bigint;
   vaultUsdcAta: PublicKey;
   walletAddress: PublicKey;
 }): TransactionInstruction[] {
@@ -2549,7 +2550,42 @@ function createEarnFullWithdrawCleanupInstructions(args: {
     )
   );
 
+  // Refund the vault PDA's SOL on final exit. The first deposit tops the vault
+  // up with KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS but the Kamino setup only
+  // spends part of it — without this sweep the remainder (~0.024 SOL) strands
+  // on the vault forever. The Kamino obligation and farms user-state rents are
+  // NOT recoverable: klend/kfarms have no close instructions; those accounts
+  // are reused by the wallet's next deposit. Amount is the prepare-time
+  // balance: anything that lands later stays as dust for the next exit.
+  const vaultSweepLamports = args.vaultSweepLamports ?? BigInt(0);
+  if (vaultSweepLamports > BigInt(0)) {
+    instructions.push(
+      SystemProgram.transfer({
+        fromPubkey: args.vaultPda,
+        toPubkey: args.walletAddress,
+        lamports: vaultSweepLamports,
+      })
+    );
+  }
+
   return instructions;
+}
+
+// Prepare-time read of the vault PDA's SOL for the final-exit sweep. Feature-
+// checked like the deposit-side top-up read: some injected connections don't
+// implement getBalance — sweeping 0 there simply skips the refund.
+async function getVaultSweepLamportsOrZero(
+  connection: Connection,
+  vaultPda: PublicKey
+): Promise<bigint> {
+  if (typeof connection.getBalance !== "function") {
+    return BigInt(0);
+  }
+  try {
+    return BigInt(await connection.getBalance(vaultPda, "confirmed"));
+  } catch {
+    return BigInt(0);
+  }
 }
 
 async function getTokenAccountAmountOrZero(
@@ -2724,9 +2760,14 @@ function calculateRedeemableAmountOrFallback(args: {
 
 async function simulatePreparedTokenAccountAmount(args: {
   connection: Connection;
+  // Optional extra account whose POST-simulation lamports are wanted (the
+  // Earn vault PDA: klend's v2 full withdraw closes the emptied obligation
+  // and refunds its rent to the vault mid-transaction, so a prepare-time
+  // balance read misses it — only the simulated post-state sees it).
+  lamportAccount?: PublicKey;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   tokenAccount: PublicKey;
-}): Promise<bigint> {
+}): Promise<{ amountRaw: bigint; lamportAccountLamports: bigint | null }> {
   const blockhash = await args.connection.getLatestBlockhash("confirmed");
   const transaction = compilePreparedOperation({
     blockhash: blockhash.blockhash,
@@ -2734,7 +2775,10 @@ async function simulatePreparedTokenAccountAmount(args: {
   });
   const simulation = await args.connection.simulateTransaction(transaction, {
     accounts: {
-      addresses: [args.tokenAccount.toBase58()],
+      addresses: [
+        args.tokenAccount.toBase58(),
+        ...(args.lamportAccount ? [args.lamportAccount.toBase58()] : []),
+      ],
       encoding: "base64",
     },
     commitment: "confirmed",
@@ -2750,14 +2794,23 @@ async function simulatePreparedTokenAccountAmount(args: {
     );
   }
 
+  const lamportAccountInfo = args.lamportAccount
+    ? simulation.value.accounts?.[1]
+    : null;
+  const lamportAccountLamports =
+    lamportAccountInfo != null ? BigInt(lamportAccountInfo.lamports) : null;
+
   const account = simulation.value.accounts?.[0];
   const accountData = account?.data;
   if (!accountData || !Array.isArray(accountData)) {
-    return BigInt(0);
+    return { amountRaw: BigInt(0), lamportAccountLamports };
   }
 
   const data = Buffer.from(accountData[0] as string, "base64");
-  return AccountLayout.decode(data).amount;
+  return {
+    amountRaw: AccountLayout.decode(data).amount,
+    lamportAccountLamports,
+  };
 }
 
 function formatProposalTokenAmount(
@@ -6882,6 +6935,10 @@ export function createSmartAccountVaultsClient(
       const cleanupInstructions = isFinalExit
         ? createEarnFullWithdrawCleanupInstructions({
             vaultPda,
+            vaultSweepLamports: await getVaultSweepLamportsOrZero(
+              config.connection,
+              vaultPda
+            ),
             vaultUsdcAta,
             walletAddress: args.walletAddress,
           })
@@ -7491,6 +7548,9 @@ export function createSmartAccountVaultsClient(
     const fullWithdrawVaultUsdcRemainderRaw = isFinalExit
       ? await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta)
       : BigInt(0);
+    const fullWithdrawVaultSweepLamports = isFinalExit
+      ? await getVaultSweepLamportsOrZero(config.connection, vaultPda)
+      : BigInt(0);
 
     const reserveWithdrawals = (
       await Promise.all(
@@ -7551,30 +7611,44 @@ export function createSmartAccountVaultsClient(
         isFinalExit && isFinalBatch
           ? fullWithdrawVaultUsdcRemainderRaw
           : await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta);
-      const simulatedVaultUsdcAmountRaw =
-        await simulatePreparedTokenAccountAmount({
-          connection: config.connection,
-          prepared: freezePreparedOperation({
-            operation: "earnUsdcWithdrawPrefixSimulation",
-            payer: args.feePayer,
-            programId: smartAccountsClient.programId,
-            requiresConfirmation: false,
-            instructions: [
-              createAssociatedTokenAccountIdempotentInstruction(
-                args.feePayer,
-                walletUsdcAta,
-                args.walletAddress,
-                usdcMint,
-                TOKEN_PROGRAM_ID
-              ),
-              ...withdrawPrefixExecution.instructions,
-            ],
-            lookupTableAccounts: dedupeLookupTableAccounts(
-              withdrawPrefixExecution.lookupTableAccounts ?? []
+      const {
+        amountRaw: simulatedVaultUsdcAmountRaw,
+        lamportAccountLamports: simulatedVaultLamports,
+      } = await simulatePreparedTokenAccountAmount({
+        connection: config.connection,
+        lamportAccount: isFinalExit && isFinalBatch ? vaultPda : undefined,
+        prepared: freezePreparedOperation({
+          operation: "earnUsdcWithdrawPrefixSimulation",
+          payer: args.feePayer,
+          programId: smartAccountsClient.programId,
+          requiresConfirmation: false,
+          instructions: [
+            createAssociatedTokenAccountIdempotentInstruction(
+              args.feePayer,
+              walletUsdcAta,
+              args.walletAddress,
+              usdcMint,
+              TOKEN_PROGRAM_ID
             ),
-          }),
-          tokenAccount: vaultUsdcAta,
-        });
+            ...withdrawPrefixExecution.instructions,
+          ],
+          lookupTableAccounts: dedupeLookupTableAccounts(
+            withdrawPrefixExecution.lookupTableAccounts ?? []
+          ),
+        }),
+        tokenAccount: vaultUsdcAta,
+      });
+      // Sweep what the vault will hold AFTER the withdraw prefix runs: klend's
+      // v2 full withdraw closes the emptied obligation and refunds its rent
+      // (~0.024 SOL) to the vault inside this same transaction, so the
+      // simulated post-state is the correct amount — the prepare-time balance
+      // is only a fallback. With 3+ reserves the earlier batches' obligation
+      // refunds land after this simulation and stay as vault dust for the
+      // cleanup flow; the sweep can only undershoot, never overdraw.
+      const vaultSweepLamports =
+        isFinalExit && isFinalBatch
+          ? simulatedVaultLamports ?? fullWithdrawVaultSweepLamports
+          : BigInt(0);
       const simulatedRedeemedOnlyAmountRaw = resolveSimulatedRedeemedAmountRaw({
         currentVaultUsdcAmountRaw,
         simulatedVaultUsdcAmountRaw,
@@ -7631,6 +7705,7 @@ export function createSmartAccountVaultsClient(
           ? createEarnFullWithdrawCleanupInstructions({
               vaultCollateralAtas: uniqueCloseableCollateralAtas,
               vaultPda,
+              vaultSweepLamports,
               vaultUsdcAta,
               walletAddress: args.walletAddress,
             })
@@ -7959,6 +8034,24 @@ export function createSmartAccountVaultsClient(
           ),
           vaultPda
         )
+      );
+    }
+
+    // Same final-exit refund as the full-withdraw path: return the unspent
+    // Kamino setup buffer sitting on the vault PDA (see
+    // createEarnFullWithdrawCleanupInstructions for why the obligation and
+    // farms rents cannot be reclaimed).
+    const vaultSweepLamports = await getVaultSweepLamportsOrZero(
+      config.connection,
+      vaultPda
+    );
+    if (vaultSweepLamports > BigInt(0)) {
+      tokenInstructions.push(
+        SystemProgram.transfer({
+          fromPubkey: vaultPda,
+          toPubkey: args.walletAddress,
+          lamports: vaultSweepLamports,
+        })
       );
     }
 
