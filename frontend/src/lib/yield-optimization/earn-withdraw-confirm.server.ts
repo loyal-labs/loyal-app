@@ -20,6 +20,7 @@ import {
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { pollRpcRead } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   recordConfirmedYieldWithdrawal,
@@ -55,6 +56,24 @@ export class EarnWithdrawConfirmError extends Error {
 }
 
 const connectionCache = new Map<SolanaEnv, Connection>();
+
+// Every rejection here leaves the read-model stale while the on-chain
+// withdrawal already happened — never let one pass silently (the launch-night
+// deposit-confirm 400s were invisible for exactly this reason).
+function rejectWithdrawConfirm(args: {
+  status: number;
+  code: string;
+  message: string;
+  context: Record<string, unknown>;
+}): never {
+  console.error("[earn-withdraw-confirm] rejected", {
+    code: args.code,
+    message: args.message,
+    status: args.status,
+    ...args.context,
+  });
+  throw new EarnWithdrawConfirmError(args.status, args.code, args.message);
+}
 
 type ConfirmedWithdrawalTransactionProof = {
   reserveDebitAmountRaw: bigint;
@@ -168,13 +187,18 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
   cluster: SolanaEnv;
   input: ConfirmedYieldWithdrawalInput;
 }): Promise<ConfirmedWithdrawalTransactionProof> {
-  const transaction = await getConnection(args.cluster).getParsedTransaction(
-    args.input.withdrawalSignature,
-    {
-      commitment: "confirmed",
-      maxSupportedTransactionVersion: 0,
-    }
-  );
+  const transaction = await pollRpcRead(async () => {
+    const parsed = await getConnection(args.cluster).getParsedTransaction(
+      args.input.withdrawalSignature,
+      {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      }
+    );
+    // Parsed transactions propagate later than signature statuses — a null
+    // here is usually lag, not a missing transaction.
+    return parsed?.meta ? parsed : null;
+  });
 
   if (!transaction || !transaction.meta) {
     throw new Error("Confirmed withdrawal transaction details are unavailable.");
@@ -403,30 +427,36 @@ async function resolveConfirmedSignatureSlot(args: {
   operation: "autodeposit close" | "withdrawal";
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
-  const status = value[0];
-
-  if (!status || status.err) {
-    throw new Error(`${args.operation} transaction is not confirmed.`);
-  }
-
-  if (
-    status.confirmationStatus !== "confirmed" &&
-    status.confirmationStatus !== "finalized"
-  ) {
-    throw new Error(`${args.operation} transaction is not confirmed.`);
-  }
-
-  if (typeof status.slot !== "number") {
-    throw new Error(
-      `Confirmed ${args.operation} transaction slot is unavailable.`
+  // Same RPC-lag hazard as the deposit confirm: a status read can land on a
+  // node that has not seen the transaction yet — poll before rejecting.
+  const slot = await pollRpcRead(async () => {
+    const { value } = await getConnection(args.cluster).getSignatureStatuses(
+      [args.signature],
+      { searchTransactionHistory: true }
     );
+    const status = value[0];
+
+    if (status?.err) {
+      throw new Error(`${args.operation} transaction failed on-chain.`);
+    }
+
+    if (
+      !status ||
+      (status.confirmationStatus !== "confirmed" &&
+        status.confirmationStatus !== "finalized") ||
+      typeof status.slot !== "number"
+    ) {
+      return null;
+    }
+
+    return BigInt(status.slot);
+  });
+
+  if (slot === null) {
+    throw new Error(`${args.operation} transaction is not confirmed.`);
   }
 
-  return BigInt(status.slot);
+  return slot;
 }
 
 export function serializeWithdrawPosition(position: UserYieldPositionRecord) {
@@ -467,37 +497,49 @@ export async function recordConfirmedEarnWithdrawal(args: {
 }): Promise<ReturnType<typeof serializeWithdrawPosition>> {
   const { principal, solanaEnv } = args;
 
+  const rejectionContext = {
+    settings: args.input.settings,
+    walletAddress: args.input.walletAddress,
+    withdrawalSignature: args.input.withdrawalSignature,
+  };
+
   if (
     args.input.walletAddress !== principal.walletAddress ||
     args.input.settings !== principal.settingsPda
   ) {
-    throw new EarnWithdrawConfirmError(
-      403,
-      "principal_mismatch",
-      "Confirmed yield withdrawal does not match the authenticated wallet."
-    );
+    rejectWithdrawConfirm({
+      status: 403,
+      code: "principal_mismatch",
+      message:
+        "Confirmed yield withdrawal does not match the authenticated wallet.",
+      context: rejectionContext,
+    });
   }
 
   let input: ConfirmedYieldWithdrawalInput;
   try {
     input = createCanonicalWithdrawalInput(args.input);
   } catch (error) {
-    throw new EarnWithdrawConfirmError(
-      400,
-      "metadata_mismatch",
-      error instanceof Error
-        ? error.message
-        : "Confirmed yield withdrawal metadata is invalid."
-    );
+    rejectWithdrawConfirm({
+      status: 400,
+      code: "metadata_mismatch",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Confirmed yield withdrawal metadata is invalid.",
+      context: rejectionContext,
+    });
   }
 
   const configuredCluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   if (input.cluster !== configuredCluster) {
-    throw new EarnWithdrawConfirmError(
-      400,
-      "cluster_mismatch",
-      "Confirmed yield withdrawal cluster does not match the configured Solana environment."
-    );
+    rejectWithdrawConfirm({
+      status: 400,
+      code: "cluster_mismatch",
+      message:
+        "Confirmed yield withdrawal cluster does not match the configured Solana environment.",
+      context: { ...rejectionContext, cluster: input.cluster },
+    });
   }
 
   let confirmedSlot: bigint;
@@ -508,21 +550,28 @@ export async function recordConfirmedEarnWithdrawal(args: {
       signature: input.withdrawalSignature,
     });
   } catch (error) {
-    throw new EarnWithdrawConfirmError(
-      400,
-      "unconfirmed_signature",
-      error instanceof Error
-        ? error.message
-        : "Withdrawal transaction is not confirmed."
-    );
+    rejectWithdrawConfirm({
+      status: 400,
+      code: "unconfirmed_signature",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Withdrawal transaction is not confirmed.",
+      context: rejectionContext,
+    });
   }
 
   if (input.confirmedSlot !== confirmedSlot) {
-    throw new EarnWithdrawConfirmError(
-      400,
-      "slot_mismatch",
-      "Confirmed yield withdrawal slot does not match the transaction status."
-    );
+    // The client-supplied slot can be its confirmation context slot (RPC-lag
+    // fallback), not the landing slot. The server-resolved status slot is
+    // canonical — rejecting on this mismatch strands the withdrawal out of
+    // the read-model (balance shows too high).
+    console.warn("[earn-withdraw-confirm] corrected client slot", {
+      ...rejectionContext,
+      clientSlot: input.confirmedSlot.toString(),
+      resolvedSlot: confirmedSlot.toString(),
+    });
+    input = { ...input, confirmedSlot };
   }
 
   try {
@@ -532,50 +581,64 @@ export async function recordConfirmedEarnWithdrawal(args: {
     });
     input = applyConfirmedWithdrawalTransactionProof({ input, proof });
   } catch (error) {
-    throw new EarnWithdrawConfirmError(
-      400,
-      "invalid_transaction_proof",
-      error instanceof Error
-        ? error.message
-        : "Confirmed withdrawal transaction proof is invalid."
-    );
+    rejectWithdrawConfirm({
+      status: 400,
+      code: "invalid_transaction_proof",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Confirmed withdrawal transaction proof is invalid.",
+      context: rejectionContext,
+    });
   }
 
   if (input.mode === "full" && input.autodepositClose) {
+    let autodepositClose = input.autodepositClose;
     let autodepositCloseConfirmedSlot: bigint;
     try {
       autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
         cluster: solanaEnv,
         operation: "autodeposit close",
-        signature: input.autodepositClose.closeSignature,
+        signature: autodepositClose.closeSignature,
       });
     } catch (error) {
-      throw new EarnWithdrawConfirmError(
-        400,
-        "unconfirmed_autodeposit_close_signature",
-        error instanceof Error
-          ? error.message
-          : "Autodeposit close transaction is not confirmed."
-      );
+      rejectWithdrawConfirm({
+        status: 400,
+        code: "unconfirmed_autodeposit_close_signature",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Autodeposit close transaction is not confirmed.",
+        context: {
+          ...rejectionContext,
+          closeSignature: autodepositClose.closeSignature,
+        },
+      });
     }
 
-    if (
-      input.autodepositClose.confirmedSlot !== autodepositCloseConfirmedSlot
-    ) {
-      throw new EarnWithdrawConfirmError(
-        400,
-        "autodeposit_close_slot_mismatch",
-        "Confirmed autodeposit close slot does not match the transaction status."
+    if (autodepositClose.confirmedSlot !== autodepositCloseConfirmedSlot) {
+      console.warn(
+        "[earn-withdraw-confirm] corrected autodeposit close slot",
+        {
+          ...rejectionContext,
+          clientSlot: autodepositClose.confirmedSlot.toString(),
+          resolvedSlot: autodepositCloseConfirmedSlot.toString(),
+        }
       );
+      autodepositClose = {
+        ...autodepositClose,
+        confirmedSlot: autodepositCloseConfirmedSlot,
+      };
+      input = { ...input, autodepositClose };
     }
 
     await recordClosedAutodepositTarget({
       cluster: input.cluster,
-      closeSignature: input.autodepositClose.closeSignature,
-      confirmedSlot: input.autodepositClose.confirmedSlot,
-      delegatedSigner: input.autodepositClose.delegatedSigner,
-      policyAccount: input.autodepositClose.policyAccount,
-      recurringDelegation: input.autodepositClose.recurringDelegation,
+      closeSignature: autodepositClose.closeSignature,
+      confirmedSlot: autodepositClose.confirmedSlot,
+      delegatedSigner: autodepositClose.delegatedSigner,
+      policyAccount: autodepositClose.policyAccount,
+      recurringDelegation: autodepositClose.recurringDelegation,
       settings: input.settings,
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       vaultPubkey: input.vaultPubkey,
@@ -616,7 +679,16 @@ export async function recordConfirmedEarnWithdrawal(args: {
       message.includes("Withdrawal target does not match") ||
       message.includes("Withdrawal exceeds")
     ) {
-      throw new EarnWithdrawConfirmError(409, "withdrawal_conflict", message);
+      rejectWithdrawConfirm({
+        status: 409,
+        code: "withdrawal_conflict",
+        message,
+        context: {
+          settings: input.settings,
+          walletAddress: input.walletAddress,
+          withdrawalSignature: input.withdrawalSignature,
+        },
+      });
     }
 
     console.error("[earn-withdraw-confirm] record failed", {
