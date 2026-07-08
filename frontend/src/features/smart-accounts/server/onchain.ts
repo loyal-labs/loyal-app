@@ -166,6 +166,45 @@ export async function fetchRootSettingsSigners(args: {
   }
 }
 
+// `client.send` resolves at "confirmed" commitment, which is not finality: a
+// confirmed creation can be forked out and never land while the caller has
+// already recorded the account as ready. That exact sequence poisoned 21
+// `ready` rows on 2026-07-08 — the row kept a settings PDA that a concurrent
+// creation from another app of the shared smart-account program later claimed
+// with different signers, and every subsequent Earn deposit failed with
+// NotASigner (0x1776). Creation is a durable product-state commitment, so it
+// must not be reported successful until the transaction is finalized.
+async function waitForFinalizedSignature(args: {
+  connection: Connection;
+  signature: string;
+}): Promise<void> {
+  const timeoutMs = 90_000;
+  const pollIntervalMs = 2_500;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const { value } = await args.connection.getSignatureStatuses([
+      args.signature,
+    ]);
+    const status = value[0];
+
+    if (status?.err) {
+      throw new Error(
+        `Smart account creation ${args.signature} failed on-chain: ${JSON.stringify(status.err)}`
+      );
+    }
+    if (status?.confirmationStatus === "finalized") {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(
+    `Smart account creation ${args.signature} was not finalized within ${timeoutMs}ms.`
+  );
+}
+
 export async function createSponsoredSmartAccount(args: {
   solanaEnv: SolanaEnv;
   programId: string;
@@ -196,6 +235,28 @@ export async function createSponsoredSmartAccount(args: {
     confirm: true,
     signers: [sponsor],
   });
+
+  await waitForFinalizedSignature({
+    connection: getSmartAccountsConnection(args.solanaEnv),
+    signature,
+  });
+
+  // Belt and braces on top of finality: the settings PDA seed is a global
+  // counter shared by every app on this program, so confirm the account that
+  // now exists at the PDA is OURS (wallet in the signer set) before the
+  // caller marks the record ready. A throw here leaves the record
+  // provisioning/failed, which the reconcile cron retries with a fresh PDA.
+  const signerAddresses = await findSettingsSignerAddresses({
+    solanaEnv: args.solanaEnv,
+    programId: args.programId,
+    settingsPda: args.settingsPda,
+  });
+  if (!signerAddresses?.includes(args.walletAddress)) {
+    throw new Error(
+      `Smart account creation ${signature} finalized but settings ${args.settingsPda} does not list ${args.walletAddress} as a signer.`
+    );
+  }
+
   const [smartAccountPda] = pda.getSmartAccountPda({
     accountIndex: 0,
     programId: new PublicKey(args.programId),
