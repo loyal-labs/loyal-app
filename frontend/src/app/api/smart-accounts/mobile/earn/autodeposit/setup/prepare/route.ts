@@ -147,6 +147,17 @@ export async function POST(request: Request) {
         walletAddress,
       });
       const target = current?.target;
+      // An already-active Autodeposit must be deleted, not set up over: a
+      // fresh prepare mints a second policy seed and stands up a duplicate
+      // on-chain policy that delete/withdraw flows then trip over. A stale
+      // "active" row heals through the `/state` reconcile before retry.
+      if (target?.lifecycleStatus === "active") {
+        return jsonError(
+          409,
+          "autodeposit_already_active",
+          "An Autodeposit is already active for this wallet. Delete it before creating a new one."
+        );
+      }
       if (
         (target?.lifecycleStatus === "pending_delegation" ||
           target?.lifecycleStatus === "pending_policy") &&

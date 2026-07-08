@@ -14,6 +14,7 @@ import {
   parseEarnAutodepositSetupPrepareRequestBody,
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
+import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -68,6 +69,25 @@ export async function POST(request: Request) {
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
 
   try {
+    // A fresh setup (no resume seed) while an Autodeposit is already active
+    // would mint a second policy seed and stand up a duplicate on-chain
+    // policy that delete/withdraw flows then trip over. Resumes pass the
+    // recorded seed and skip this. Keep in sync with the mobile twin route.
+    if (parsed.policySeed === undefined) {
+      const current = await findCurrentEarnAutodepositState({
+        settings: principal.settingsPda,
+        vaultIndex: 1,
+        walletAddress: principal.walletAddress,
+      });
+      if (current?.target.lifecycleStatus === "active") {
+        return jsonError(
+          409,
+          "autodeposit_already_active",
+          "An Autodeposit is already active for this wallet. Delete it before creating a new one."
+        );
+      }
+    }
+
     const serverEnv = getServerEnv();
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
