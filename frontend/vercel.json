@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/solana-week-quest-completions",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/smart-account-reconcile",
+      "schedule": "*/15 * * * *"
     }
   ],
   "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ] || ! git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA\" 2>/dev/null; then exit 1; fi; git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ../packages ../sdk",
