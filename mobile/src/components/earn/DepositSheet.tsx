@@ -29,6 +29,8 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { env } from "@/config/env";
+
 const usdcLogo = require("../../../assets/images/earn/usdc.png");
 
 // Earn only accepts USDC, so the asset is fixed and the selector is replaced
@@ -36,9 +38,11 @@ const usdcLogo = require("../../../assets/images/earn/usdc.png");
 const MIN_DEPOSIT_USD = 1;
 
 // The first Earn deposit creates the position's on-chain accounts, which costs
-// SOL (rent + fees) — the wallet must hold at least 0.05 SOL before it can
-// open a position.
-const FIRST_DEPOSIT_MIN_SOL = 0.05;
+// SOL (rent + fees, refunded when the position closes). Measured on mainnet
+// for a virgin wallet (2026-07-08): policy stages + fees ≈ 0.0178 SOL, then
+// the deposit stage transfers exactly 39,532,800 lamports (≈0.0395 SOL) of
+// Kamino obligation setup rent — ≈0.0574 SOL total, so 0.05 was not enough.
+const FIRST_DEPOSIT_MIN_SOL = 0.06;
 
 // How much SOL the wallet is missing to cover the first-deposit minimum.
 // Returns null when covered — or when the balance hasn't loaded yet, so the
@@ -46,6 +50,14 @@ const FIRST_DEPOSIT_MIN_SOL = 0.05;
 export function computeFirstDepositSolShortfall(
   solBalance: number | null,
 ): number | null {
+  // Sponsored deposits: the sponsor fee-pays and funds first-deposit rent
+  // (policy accounts, ATAs), so a USDC-only wallet with no SOL is the intended
+  // case — skip the gate for every entry point. The flow still falls back to
+  // self-paid when the backend returns no sponsor; the on-chain error is the
+  // guard then, same as before this gate existed.
+  if (env.earnSponsoredDeposits) {
+    return null;
+  }
   if (solBalance == null || !Number.isFinite(solBalance)) {
     return null;
   }
@@ -158,6 +170,9 @@ export function DepositSheet({
   const [caretOn, setCaretOn] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // "?" badge on the SOL top-up CTA toggles an explanation of why SOL is
+  // needed (rent, refunded on close).
+  const [showSolHint, setShowSolHint] = useState(false);
 
   const snapPoints = useMemo(() => ["94%"], []);
   const available = Number.isFinite(availableUsdc ?? NaN)
@@ -169,6 +184,7 @@ export function DepositSheet({
       setAmount("");
       setSubmitError(null);
       setSubmitting(false);
+      setShowSolHint(false);
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
@@ -420,6 +436,13 @@ export function DepositSheet({
             <Text style={styles.submitError}>{submitError}</Text>
           ) : null}
 
+          {needsSolTopUp && showSolHint ? (
+            <Text style={styles.solHint}>
+              SOL is required for this operation and will be fully refunded to
+              your wallet when the position is closed
+            </Text>
+          ) : null}
+
           <Pressable
             onPress={handleDeposit}
             accessibilityRole="button"
@@ -433,6 +456,21 @@ export function DepositSheet({
           >
             {submitting ? (
               <ActivityIndicator color="#FFF" />
+            ) : needsSolTopUp ? (
+              // Disabled parent Pressable doesn't block the nested "?" —
+              // children still receive touches in RN.
+              <View style={styles.ctaLabelRow}>
+                <Text style={styles.ctaLabelError}>{ctaLabel}</Text>
+                <Pressable
+                  onPress={() => setShowSolHint((v) => !v)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Why is SOL required?"
+                  hitSlop={8}
+                  style={styles.solHintBadge}
+                >
+                  <Text style={styles.solHintBadgeText}>?</Text>
+                </Pressable>
+              </View>
             ) : (
               <Text
                 style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}
@@ -629,6 +667,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: COLOR_ERROR_TEXT,
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  ctaLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  solHintBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: COLOR_ERROR_TEXT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  solHintBadgeText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 12,
+    lineHeight: 15,
+    color: COLOR_ERROR_TEXT,
+  },
+  solHint: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLOR_LABEL_DIM,
     textAlign: "center",
     marginBottom: 12,
   },

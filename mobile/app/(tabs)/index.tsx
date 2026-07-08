@@ -219,9 +219,10 @@ export default function EarnScreen() {
   // on-chain position is wired (see .context/earn-deposit-findings.md, step b).
   const [depositedUsd, setDepositedUsd] = useState<number | null>(null);
   // First-deposit SOL gate: opening a position costs SOL (rent/fees), so with
-  // no existing position the wallet must hold ≥ 0.05 SOL. SOL balance comes
-  // from the same holdings read as the USDC balance; the missing SOL row means
-  // holdings haven't loaded, and the gate fails open until they do.
+  // no existing position the wallet must hold FIRST_DEPOSIT_MIN_SOL. SOL
+  // balance comes from the same holdings read as the USDC balance; the missing
+  // SOL row means holdings haven't loaded, and the gate fails open until they
+  // do.
   const firstDepositSolShortfall = useMemo(() => {
     if (!earnPositionLoaded || hasDeposit) return null;
     const sol = tokenHoldings.find(

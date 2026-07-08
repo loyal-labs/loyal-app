@@ -234,8 +234,9 @@ export default function WalletScreen() {
   }, [earnPosition, forecastSummary]);
 
   // First-deposit SOL gate: opening the first Earn position costs SOL
-  // (rent/fees), so with no existing position the wallet must hold ≥ 0.05
-  // SOL. Null while the position/balance are loading — the gate fails open.
+  // (rent/fees), so with no existing position the wallet must hold
+  // FIRST_DEPOSIT_MIN_SOL. Null while the position/balance are loading — the
+  // gate fails open.
   const firstDepositSolShortfall = useMemo(() => {
     if (!earnLoaded || earnUsd > 0) return null;
     return computeFirstDepositSolShortfall(
