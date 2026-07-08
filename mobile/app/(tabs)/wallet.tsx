@@ -567,6 +567,7 @@ export default function WalletScreen() {
         onDeposit={handleDepositConfirmed}
         availableUsdc={usdcAvailable}
         firstDepositSolShortfall={firstDepositSolShortfall}
+        isFirstDeposit={earnLoaded && earnUsd <= 0}
       />
     </View>
   );

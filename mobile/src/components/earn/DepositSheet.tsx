@@ -147,10 +147,14 @@ type DepositSheetProps = {
   // The wallet's spendable USDC balance (token units ≈ dollars). `null` while
   // holdings are still loading or the wallet has no USDC.
   availableUsdc?: number | null;
-  // SOL still needed to cover the 0.05 SOL first-deposit minimum (see
+  // SOL still needed to cover the first-deposit minimum (see
   // computeFirstDepositSolShortfall). Non-null disables the CTA with a top-up
   // prompt; parents pass null when this isn't the wallet's first deposit.
   firstDepositSolShortfall?: number | null;
+  // True when the wallet has no Earn position yet — shows the always-visible
+  // note that the first deposit takes ~FIRST_DEPOSIT_MIN_SOL of SOL and that
+  // it comes back on full withdrawal.
+  isFirstDeposit?: boolean;
 };
 
 export function DepositSheet({
@@ -159,6 +163,7 @@ export function DepositSheet({
   onDeposit,
   availableUsdc,
   firstDepositSolShortfall,
+  isFirstDeposit,
 }: DepositSheetProps) {
   const sheetRef = useRef<BottomSheetModal>(null);
   // The underlying input is gesture-handler's TextInput (forwarded through
@@ -170,9 +175,6 @@ export function DepositSheet({
   const [caretOn, setCaretOn] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // "?" badge on the SOL top-up CTA toggles an explanation of why SOL is
-  // needed (rent, refunded on close).
-  const [showSolHint, setShowSolHint] = useState(false);
 
   const snapPoints = useMemo(() => ["94%"], []);
   const available = Number.isFinite(availableUsdc ?? NaN)
@@ -184,7 +186,6 @@ export function DepositSheet({
       setAmount("");
       setSubmitError(null);
       setSubmitting(false);
-      setShowSolHint(false);
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
@@ -436,10 +437,11 @@ export function DepositSheet({
             <Text style={styles.submitError}>{submitError}</Text>
           ) : null}
 
-          {needsSolTopUp && showSolHint ? (
+          {isFirstDeposit ? (
             <Text style={styles.solHint}>
-              SOL is required for this operation and will be fully refunded to
-              your wallet when the position is closed
+              Your first deposit takes ~
+              {formatSolAmount(FIRST_DEPOSIT_MIN_SOL)} SOL from your wallet for
+              Solana account rent — it is returned when you fully withdraw.
             </Text>
           ) : null}
 
@@ -456,21 +458,6 @@ export function DepositSheet({
           >
             {submitting ? (
               <ActivityIndicator color="#FFF" />
-            ) : needsSolTopUp ? (
-              // Disabled parent Pressable doesn't block the nested "?" —
-              // children still receive touches in RN.
-              <View style={styles.ctaLabelRow}>
-                <Text style={styles.ctaLabelError}>{ctaLabel}</Text>
-                <Pressable
-                  onPress={() => setShowSolHint((v) => !v)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Why is SOL required?"
-                  hitSlop={8}
-                  style={styles.solHintBadge}
-                >
-                  <Text style={styles.solHintBadgeText}>?</Text>
-                </Pressable>
-              </View>
             ) : (
               <Text
                 style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}
@@ -669,26 +656,6 @@ const styles = StyleSheet.create({
     color: COLOR_ERROR_TEXT,
     textAlign: "center",
     marginBottom: 12,
-  },
-  ctaLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  solHintBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: COLOR_ERROR_TEXT,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  solHintBadgeText: {
-    fontFamily: "Geist_500Medium",
-    fontSize: 12,
-    lineHeight: 15,
-    color: COLOR_ERROR_TEXT,
   },
   solHint: {
     fontFamily: "Geist_400Regular",

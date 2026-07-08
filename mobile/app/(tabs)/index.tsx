@@ -1001,6 +1001,7 @@ export default function EarnScreen() {
         onDeposit={handleDepositConfirmed}
         availableUsdc={usdcAvailable}
         firstDepositSolShortfall={firstDepositSolShortfall}
+        isFirstDeposit={earnPositionLoaded && !hasDeposit}
       />
 
       <WithdrawSheet

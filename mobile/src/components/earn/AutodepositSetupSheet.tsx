@@ -159,9 +159,6 @@ export function AutodepositSetupSheet({
   const [caretOn, setCaretOn] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  // "?" badge on the SOL top-up CTA toggles an explanation of why SOL is
-  // needed (rent, refunded on close) — same as DepositSheet.
-  const [showSolHint, setShowSolHint] = useState(false);
 
   const snapPoints = useMemo(() => ["94%"], []);
   // The two flow cells show the CURRENT balances of the two accounts (wallet
@@ -197,7 +194,6 @@ export function AutodepositSetupSheet({
     );
     setSubmitError(null);
     setSubmitting(false);
-    setShowSolHint(false);
   }, [open, mode, initialThresholdUsd]);
 
   useEffect(() => {
@@ -452,10 +448,11 @@ export function AutodepositSetupSheet({
             <Text style={styles.submitError}>{submitError}</Text>
           ) : null}
 
-          {needsSolTopUp && showSolHint ? (
+          {mode === "create" ? (
             <Text style={styles.solHint}>
-              SOL is required for this operation and will be fully refunded to
-              your wallet when the position is closed
+              Setting up Autodeposit takes ~{formatSolAmount(SETUP_MIN_SOL)}{" "}
+              SOL from your wallet for Solana account rent — it is returned
+              when you remove Autodeposit.
             </Text>
           ) : null}
 
@@ -477,20 +474,7 @@ export function AutodepositSetupSheet({
             {submitting ? (
               <ActivityIndicator color="#FFF" />
             ) : needsSolTopUp ? (
-              // Disabled parent Pressable doesn't block the nested "?" —
-              // children still receive touches in RN.
-              <View style={styles.ctaLabelRow}>
-                <Text style={styles.ctaLabelError}>{ctaLabel}</Text>
-                <Pressable
-                  onPress={() => setShowSolHint((v) => !v)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Why is SOL required?"
-                  hitSlop={8}
-                  style={styles.solHintBadge}
-                >
-                  <Text style={styles.solHintBadgeText}>?</Text>
-                </Pressable>
-              </View>
+              <Text style={styles.ctaLabelError}>{ctaLabel}</Text>
             ) : (
               <Text
                 style={
@@ -614,26 +598,6 @@ const styles = StyleSheet.create({
     color: COLOR_RED,
     textAlign: "center",
     marginBottom: 8,
-  },
-  ctaLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  solHintBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: COLOR_RED,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  solHintBadgeText: {
-    fontFamily: "Geist_500Medium",
-    fontSize: 12,
-    lineHeight: 15,
-    color: COLOR_RED,
   },
   solHint: {
     fontFamily: "Geist_400Regular",
