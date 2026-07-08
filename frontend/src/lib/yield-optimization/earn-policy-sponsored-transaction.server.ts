@@ -1,9 +1,12 @@
 import "server-only";
 
 import bs58 from "bs58";
+import { readFileSync } from "node:fs";
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  decodeCloseAccountInstruction,
   getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
   type AddressLookupTableAccount,
@@ -30,6 +33,7 @@ const MAX_SPONSORED_SYSTEM_RENT_TRANSFER_LAMPORTS = BigInt(39_532_800);
 
 let cachedSponsorKeypair: Keypair | null = null;
 let cachedSponsorPrivateKey: string | null = null;
+let cachedSponsorPrivateKeyFile: string | null = null;
 
 type SponsoredTransaction = Transaction | VersionedTransaction;
 
@@ -38,7 +42,10 @@ export type SponsoredTransactionGuardContext = {
   allowedAssociatedTokenOwners?: readonly PublicKey[];
   allowedSmartAccountRentAccounts?: readonly PublicKey[];
   allowedSmartAccountsProgramId?: PublicKey;
+  allowedSubscriptionRentAccounts?: readonly PublicKey[];
+  allowedSubscriptionsProgramId?: PublicKey;
   allowedSystemTransferDestinations?: readonly PublicKey[];
+  allowedTokenCloseAccounts?: readonly PublicKey[];
   requireSponsorFeePayer?: boolean;
 };
 
@@ -89,17 +96,38 @@ function decodePrivateKey(value: string): Uint8Array {
   return bs58.decode(trimmed);
 }
 
-function getEarnPolicySponsorKeypair(): Keypair {
+function getEarnPolicySponsorPrivateKey(): {
+  privateKey: string | undefined;
+  privateKeyFile: string | null;
+} {
+  const privateKeyFile = process.env.EARN_POLICY_SPONSOR_PK_FILE?.trim();
+  if (privateKeyFile) {
+    return {
+      privateKey: readFileSync(privateKeyFile, "utf8"),
+      privateKeyFile,
+    };
+  }
+
   const privateKey = getServerEnv().earnPolicySponsorPrivateKey;
+  return { privateKey, privateKeyFile: null };
+}
+
+function getEarnPolicySponsorKeypair(): Keypair {
+  const { privateKey, privateKeyFile } = getEarnPolicySponsorPrivateKey();
   if (!privateKey) {
     throw new EarnPolicySponsoredTransactionError({
       status: 500,
       code: "earn_policy_sponsor_not_configured",
-      message: "EARN_POLICY_SPONSOR_PK is not set.",
+      message:
+        "EARN_POLICY_SPONSOR_PK or EARN_POLICY_SPONSOR_PK_FILE is not set.",
     });
   }
 
-  if (cachedSponsorKeypair && cachedSponsorPrivateKey === privateKey) {
+  if (
+    cachedSponsorKeypair &&
+    cachedSponsorPrivateKey === privateKey &&
+    cachedSponsorPrivateKeyFile === privateKeyFile
+  ) {
     return cachedSponsorKeypair;
   }
 
@@ -109,6 +137,7 @@ function getEarnPolicySponsorKeypair(): Keypair {
       ? Keypair.fromSeed(privateKeyBytes)
       : Keypair.fromSecretKey(privateKeyBytes);
   cachedSponsorPrivateKey = privateKey;
+  cachedSponsorPrivateKeyFile = privateKeyFile;
   return cachedSponsorKeypair;
 }
 
@@ -303,6 +332,30 @@ function isAllowedSystemRentTransferInstruction(args: {
   }
 }
 
+function isAllowedTokenCloseRentInstruction(args: {
+  guard: SponsoredTransactionGuardContext;
+  instruction: TransactionInstruction;
+  sponsor: PublicKey;
+}): boolean {
+  const { guard, instruction, sponsor } = args;
+  if (!instruction.programId.equals(TOKEN_PROGRAM_ID)) {
+    return false;
+  }
+
+  try {
+    const close = decodeCloseAccountInstruction(instruction, TOKEN_PROGRAM_ID);
+    return (
+      close.keys.destination.pubkey.equals(sponsor) &&
+      publicKeyInList(
+        close.keys.account.pubkey,
+        guard.allowedTokenCloseAccounts
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isAllowedSmartAccountRentInstruction(args: {
   guard: SponsoredTransactionGuardContext;
   instruction: TransactionInstruction;
@@ -345,6 +398,205 @@ function isAllowedSmartAccountRentInstruction(args: {
   );
 }
 
+function parseSyncV2CompiledInstructions(data: Uint8Array): Array<{
+  accountIndexes: number[];
+  data: Uint8Array;
+  programIdIndex: number;
+}> | null {
+  const instructions: Array<{
+    accountIndexes: number[];
+    data: Uint8Array;
+    programIdIndex: number;
+  }> = [];
+  let offset = 0;
+  const instructionCount = data[offset];
+  if (instructionCount === undefined) {
+    return null;
+  }
+  offset += 1;
+
+  for (let index = 0; index < instructionCount; index += 1) {
+    const programIdIndex = data[offset];
+    const accountCount = data[offset + 1];
+    if (programIdIndex === undefined || accountCount === undefined) {
+      return null;
+    }
+    offset += 2;
+
+    if (offset + accountCount > data.length) {
+      return null;
+    }
+    const accountIndexes = Array.from(
+      data.slice(offset, offset + accountCount)
+    );
+    offset += accountCount;
+
+    if (offset + 2 > data.length) {
+      return null;
+    }
+    const instructionDataLength = data[offset] | (data[offset + 1]! << 8);
+    offset += 2;
+
+    if (offset + instructionDataLength > data.length) {
+      return null;
+    }
+    const instructionData = data.slice(offset, offset + instructionDataLength);
+    offset += instructionDataLength;
+
+    instructions.push({
+      accountIndexes,
+      data: instructionData,
+      programIdIndex,
+    });
+  }
+
+  return offset === data.length ? instructions : null;
+}
+
+function isAllowedSmartAccountWrappedTokenCloseRentInstruction(args: {
+  guard: SponsoredTransactionGuardContext;
+  instruction: TransactionInstruction;
+  sponsor: PublicKey;
+}): boolean {
+  const { guard, instruction, sponsor } = args;
+  const programId = guard.allowedSmartAccountsProgramId;
+  if (!programId || !instruction.programId.equals(programId)) {
+    return false;
+  }
+  if (
+    !instructionDataStartsWith(
+      instruction.data,
+      generated.executeTransactionSyncV2InstructionDiscriminator
+    )
+  ) {
+    return false;
+  }
+
+  const sponsorMeta = instruction.keys.find((key) =>
+    key.pubkey.equals(sponsor)
+  );
+  if (!sponsorMeta?.isSigner || !sponsorMeta.isWritable) {
+    return false;
+  }
+
+  let decoded:
+    | {
+        args?: {
+          numSigners?: number;
+          payload?: {
+            __kind?: string;
+            fields?: unknown[];
+          };
+        };
+      }
+    | undefined;
+  try {
+    [decoded] = generated.executeTransactionSyncV2Struct.deserialize(
+      Buffer.from(instruction.data)
+    );
+  } catch {
+    return false;
+  }
+
+  const payload = decoded?.args?.payload;
+  if (payload?.__kind !== "Transaction") {
+    return false;
+  }
+  const payloadBytes = payload.fields?.[0];
+  if (!(payloadBytes instanceof Uint8Array)) {
+    return false;
+  }
+
+  const memberCount = decoded?.args?.numSigners;
+  if (
+    typeof memberCount !== "number" ||
+    !Number.isInteger(memberCount) ||
+    memberCount < 0
+  ) {
+    return false;
+  }
+  const remainingAccountOffset = 2 + memberCount;
+  const getInnerAccount = (index: number) =>
+    instruction.keys[remainingAccountOffset + index];
+
+  const innerInstructions = parseSyncV2CompiledInstructions(payloadBytes);
+  if (!innerInstructions) {
+    return false;
+  }
+
+  let hasAllowedSponsorReference = false;
+  for (const innerInstruction of innerInstructions) {
+    const innerProgram = getInnerAccount(innerInstruction.programIdIndex);
+    if (!innerProgram) {
+      return false;
+    }
+    const referencesSponsor =
+      innerProgram.pubkey.equals(sponsor) ||
+      innerInstruction.accountIndexes.some((index) =>
+        getInnerAccount(index)?.pubkey.equals(sponsor)
+      );
+    if (!referencesSponsor) {
+      continue;
+    }
+
+    const transactionInstruction = buildTransactionInstruction({
+      accountIndexes: innerInstruction.accountIndexes,
+      data: innerInstruction.data,
+      getKey: (index) => getInnerAccount(index)?.pubkey,
+      isSigner: (index) => getInnerAccount(index)?.isSigner ?? false,
+      isWritable: (index) => getInnerAccount(index)?.isWritable ?? false,
+      programId: innerProgram.pubkey,
+    });
+    if (!transactionInstruction) {
+      return false;
+    }
+    const isAllowed = isAllowedTokenCloseRentInstruction({
+      guard,
+      instruction: transactionInstruction,
+      sponsor,
+    });
+    if (!isAllowed) {
+      return false;
+    }
+    hasAllowedSponsorReference = true;
+  }
+
+  return hasAllowedSponsorReference;
+}
+
+function isAllowedSubscriptionRentInstruction(args: {
+  guard: SponsoredTransactionGuardContext;
+  instruction: TransactionInstruction;
+  sponsor: PublicKey;
+}): boolean {
+  const { guard, instruction, sponsor } = args;
+  const programId = guard.allowedSubscriptionsProgramId;
+  if (!programId || !instruction.programId.equals(programId)) {
+    return false;
+  }
+  const opcode = instruction.data[0];
+  if (opcode !== 0 && opcode !== 2) {
+    return false;
+  }
+
+  const rentPayer = instruction.keys[instruction.keys.length - 1];
+  if (
+    !rentPayer?.pubkey.equals(sponsor) ||
+    !rentPayer.isSigner ||
+    !rentPayer.isWritable
+  ) {
+    return false;
+  }
+
+  const rentAccount = instruction.keys[opcode === 0 ? 1 : 2];
+  return Boolean(
+    rentAccount?.isWritable &&
+      guard.allowedSubscriptionRentAccounts?.some((account) =>
+        account.equals(rentAccount.pubkey)
+      )
+  );
+}
+
 function isAllowedSponsorInstructionReference(args: {
   guard: SponsoredTransactionGuardContext;
   instruction: TransactionInstruction;
@@ -353,7 +605,10 @@ function isAllowedSponsorInstructionReference(args: {
   return (
     isAllowedAssociatedTokenRentInstruction(args) ||
     isAllowedSystemRentTransferInstruction(args) ||
-    isAllowedSmartAccountRentInstruction(args)
+    isAllowedTokenCloseRentInstruction(args) ||
+    isAllowedSmartAccountRentInstruction(args) ||
+    isAllowedSmartAccountWrappedTokenCloseRentInstruction(args) ||
+    isAllowedSubscriptionRentInstruction(args)
   );
 }
 

@@ -28,6 +28,7 @@ export type EarnWithdrawPrepareRequestBody = {
     tokenAccount?: string;
     type: "reserve" | "idle";
   } | null;
+  sponsored?: boolean;
 };
 
 export type WireSmartAccountPreparedEarnUsdcWithdraw = {
@@ -125,18 +126,31 @@ export function parseEarnWithdrawPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
   mode: "partial" | "full";
   source: EarnWithdrawPrepareRequestBody["source"];
+  sponsored: boolean;
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
+  const sponsoredValue = record.sponsored;
 
   if (amountRaw <= BigInt(0)) {
     throw new Error("amountRaw must be greater than 0.");
+  }
+  if (
+    sponsoredValue !== undefined &&
+    sponsoredValue !== null &&
+    typeof sponsoredValue !== "boolean"
+  ) {
+    throw new Error("sponsored must be a boolean when provided.");
   }
 
   return {
     amountRaw,
     mode: readWithdrawMode(record),
     source: readOptionalWithdrawSource(record),
+    sponsored:
+      sponsoredValue === undefined || sponsoredValue === null
+        ? false
+        : sponsoredValue,
   };
 }
 

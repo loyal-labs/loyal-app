@@ -9,6 +9,7 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 import {
   parseEarnAutodepositSetupPrepareRequestBody,
   serializePreparedEarnUsdcAutodepositSetup,
@@ -50,6 +51,9 @@ export async function POST(request: Request) {
   try {
     const serverEnv = getServerEnv();
     const policySigner = getDeploymentPolicySignerPublicKey();
+    const feePayer = parsed.sponsored
+      ? getEarnPolicySponsorPublicKey()
+      : new PublicKey(principal.walletAddress);
     const client = createSmartAccountVaultsClient({
       connection: getServerSolanaConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
@@ -58,7 +62,7 @@ export async function POST(request: Request) {
       amountRaw: parsed.amountRaw,
       cluster,
       expiryTimestamp: parsed.expiryTimestamp,
-      feePayer: new PublicKey(principal.walletAddress),
+      feePayer,
       minimumDelegatorBalanceRaw: parsed.walletBalanceFloorRaw,
       nonce: parsed.nonce,
       periodLengthSeconds: parsed.periodLengthSeconds,

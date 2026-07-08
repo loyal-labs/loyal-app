@@ -43,6 +43,7 @@ export type SponsoredEarnDepositGuardInput = {
 
 export type SponsoredEarnDepositGuards = {
   deposit: SponsoredTransactionGuardContext;
+  kaminoSetup: SponsoredTransactionGuardContext;
   policy: SponsoredTransactionGuardContext;
   setupPolicy: SponsoredTransactionGuardContext;
 };
@@ -141,16 +142,19 @@ export async function resolveDepositSponsoredTransactionGuards(
     smartAccountAddress,
   ]);
 
+  const depositGuard = {
+    allowedAssociatedTokenMints: uniquePublicKeys([
+      new PublicKey(input.depositMint),
+      new PublicKey(input.liquidityMint),
+      reserveAccounts.reserveCollateralMint,
+    ]),
+    allowedAssociatedTokenOwners: allowedSystemTransferDestinations,
+    allowedSystemTransferDestinations,
+  };
+
   return {
-    deposit: {
-      allowedAssociatedTokenMints: uniquePublicKeys([
-        new PublicKey(input.depositMint),
-        new PublicKey(input.liquidityMint),
-        reserveAccounts.reserveCollateralMint,
-      ]),
-      allowedAssociatedTokenOwners: allowedSystemTransferDestinations,
-      allowedSystemTransferDestinations,
-    },
+    deposit: depositGuard,
+    kaminoSetup: depositGuard,
     policy: {
       allowedSmartAccountRentAccounts: [policyAccount],
       allowedSmartAccountsProgramId: smartAccountsProgramId,

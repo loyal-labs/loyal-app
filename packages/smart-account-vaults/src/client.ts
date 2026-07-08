@@ -472,6 +472,14 @@ function toLamportsBigInt(lamports: bigint | number | string): bigint {
   return BigInt(lamports);
 }
 
+function toSafeLamportsNumber(lamports: bigint): number {
+  if (lamports > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("Lamport amount exceeds JavaScript safe integer range.");
+  }
+
+  return Number(lamports);
+}
+
 function getFallbackPreparedFeeLamports(
   prepared: PreparedLoyalSmartAccountsOperation<string>
 ): bigint {
@@ -1644,7 +1652,6 @@ function createSubscriptionSweepProgramInteractionPolicyCreationPayload(args: {
     args.delegator,
     args.mint
   );
-  const eventAuthority = deriveSubscriptionEventAuthority();
   const recurringDelegationConstraint: generated.AccountConstraint = {
     accountIndex: 0,
     accountConstraint: {
@@ -1701,8 +1708,6 @@ function createSubscriptionSweepProgramInteractionPolicyCreationPayload(args: {
       pubkeyAccountConstraint(4, [args.mint], TOKEN_PROGRAM_ID),
       pubkeyAccountConstraint(5, [TOKEN_PROGRAM_ID]),
       pubkeyAccountConstraint(6, [args.vaultPda]),
-      pubkeyAccountConstraint(7, [eventAuthority]),
-      pubkeyAccountConstraint(8, [SUBSCRIPTIONS_PROGRAM_ID]),
     ],
     dataConstraints: [
       dataU8Equals(BigInt(0), SUBSCRIPTIONS_TRANSFER_RECURRING),
@@ -2516,10 +2521,10 @@ function makeSignerWritable(
 }
 
 function createEarnFullWithdrawCleanupInstructions(args: {
+  rentReceiver: PublicKey;
   vaultCollateralAtas?: PublicKey[];
   vaultPda: PublicKey;
   vaultUsdcAta: PublicKey;
-  walletAddress: PublicKey;
 }): TransactionInstruction[] {
   const instructions: TransactionInstruction[] = [];
   for (const vaultCollateralAta of args.vaultCollateralAtas ?? []) {
@@ -2527,7 +2532,7 @@ function createEarnFullWithdrawCleanupInstructions(args: {
       makeSignerWritable(
         createCloseAccountInstruction(
           vaultCollateralAta,
-          args.walletAddress,
+          args.rentReceiver,
           args.vaultPda,
           [],
           TOKEN_PROGRAM_ID
@@ -2541,7 +2546,7 @@ function createEarnFullWithdrawCleanupInstructions(args: {
     makeSignerWritable(
       createCloseAccountInstruction(
         args.vaultUsdcAta,
-        args.walletAddress,
+        args.rentReceiver,
         args.vaultPda,
         [],
         TOKEN_PROGRAM_ID
@@ -2721,6 +2726,14 @@ function calculateRedeemableAmountOrFallback(args: {
   return expectedRedeemedAmountRaw > BigInt(0)
     ? expectedRedeemedAmountRaw
     : args.fallbackAmountRaw;
+}
+
+function isAccountNotFoundSimulationError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes('"AccountNotFound"') &&
+    error.message.startsWith("Earn full withdraw prefix simulation failed:")
+  );
 }
 
 async function simulatePreparedTokenAccountAmount(args: {
@@ -3359,6 +3372,7 @@ function toWritableAccountMetas(keys: readonly PublicKey[]): AccountMeta[] {
 
 function createSubscriptionInitAuthorityInstruction(args: {
   owner: PublicKey;
+  rentPayer?: PublicKey;
   subscriptionAuthority: PublicKey;
   tokenMint: PublicKey;
   userAta: PublicKey;
@@ -3376,6 +3390,9 @@ function createSubscriptionInitAuthorityInstruction(args: {
       { pubkey: args.userAta, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      ...(args.rentPayer
+        ? [{ pubkey: args.rentPayer, isSigner: true, isWritable: true }]
+        : []),
     ],
     data: Buffer.from(subscriptionInitAuthorityData()),
   });
@@ -3386,6 +3403,7 @@ function createSubscriptionCreateRecurringDelegationInstruction(args: {
   subscriptionAuthority: PublicKey;
   delegation: PublicKey;
   delegatee: PublicKey;
+  rentPayer?: PublicKey;
   nonce: bigint;
   amountPerPeriodRaw: bigint;
   periodLengthSeconds: bigint;
@@ -3405,6 +3423,9 @@ function createSubscriptionCreateRecurringDelegationInstruction(args: {
       { pubkey: args.delegation, isSigner: false, isWritable: true },
       { pubkey: args.delegatee, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ...(args.rentPayer
+        ? [{ pubkey: args.rentPayer, isSigner: true, isWritable: true }]
+        : []),
     ],
     data: Buffer.from(
       subscriptionCreateRecurringDelegationData({
@@ -6921,6 +6942,9 @@ export function createSmartAccountVaultsClient(
             policy: args.autodepositClose.policy,
             policySigner: args.policySigner,
             recurringDelegation: args.autodepositClose.recurringDelegation,
+            ...(args.feePayer.equals(args.walletAddress)
+              ? {}
+              : { rentPayer: args.feePayer }),
             settingsPda: args.settingsPda,
             signer: args.walletAddress,
             walletAddress: args.walletAddress,
@@ -6956,9 +6980,9 @@ export function createSmartAccountVaultsClient(
       );
       const cleanupInstructions = isFinalExit
         ? createEarnFullWithdrawCleanupInstructions({
+            rentReceiver: args.feePayer,
             vaultPda,
             vaultUsdcAta,
-            walletAddress: args.walletAddress,
           })
         : [];
       const compiledPackedPayload =
@@ -7634,6 +7658,11 @@ export function createSmartAccountVaultsClient(
             ),
           }),
           tokenAccount: vaultUsdcAta,
+        }).catch((error) => {
+          if (isAccountNotFoundSimulationError(error)) {
+            return currentVaultUsdcAmountRaw;
+          }
+          throw error;
         });
       const simulatedRedeemedOnlyAmountRaw = resolveSimulatedRedeemedAmountRaw({
         currentVaultUsdcAmountRaw,
@@ -7689,10 +7718,10 @@ export function createSmartAccountVaultsClient(
       const cleanupInstructions =
         isFinalExit && isFinalBatch
           ? createEarnFullWithdrawCleanupInstructions({
+              rentReceiver: args.feePayer,
               vaultCollateralAtas: uniqueCloseableCollateralAtas,
               vaultPda,
               vaultUsdcAta,
-              walletAddress: args.walletAddress,
             })
           : [];
       const compiledPackedPayload =
@@ -7976,7 +8005,7 @@ export function createSmartAccountVaultsClient(
         makeSignerWritable(
           createCloseAccountInstruction(
             collateralAta,
-            args.walletAddress,
+            args.feePayer,
             vaultPda,
             [],
             TOKEN_PROGRAM_ID
@@ -7996,7 +8025,7 @@ export function createSmartAccountVaultsClient(
         makeSignerWritable(
           createCloseAccountInstruction(
             vaultUsdcAta,
-            args.walletAddress,
+            args.feePayer,
             vaultPda,
             [],
             TOKEN_PROGRAM_ID
@@ -8051,6 +8080,9 @@ export function createSmartAccountVaultsClient(
           policy: args.autodepositClose.policy,
           policySigner: args.policySigner,
           recurringDelegation: args.autodepositClose.recurringDelegation,
+          ...(args.feePayer.equals(args.walletAddress)
+            ? {}
+            : { rentPayer: args.feePayer }),
           settingsPda: args.settingsPda,
           signer: args.walletAddress,
           walletAddress: args.walletAddress,
@@ -8502,6 +8534,9 @@ export function createSmartAccountVaultsClient(
     });
     let authorityAccount: AccountInfo<Buffer> | null = null;
     let expectedSubscriptionAuthorityInitId: bigint | null = null;
+    const subscriptionRentPayer = args.feePayer.equals(args.walletAddress)
+      ? undefined
+      : args.feePayer;
 
     if (
       accountEvidence !== undefined &&
@@ -8535,6 +8570,7 @@ export function createSmartAccountVaultsClient(
         instructions: [
           createSubscriptionInitAuthorityInstruction({
             owner: args.walletAddress,
+            rentPayer: subscriptionRentPayer,
             subscriptionAuthority,
             tokenMint: usdcMint,
             userAta: walletUsdcAta,
@@ -8665,6 +8701,12 @@ export function createSmartAccountVaultsClient(
       accountState = await readSetupAccountState();
     }
 
+    if (subscriptionRentPayer && authorityAccount === null) {
+      authorityAccount = await config.connection.getAccountInfo(
+        subscriptionAuthority,
+        "confirmed"
+      );
+    }
     if (
       authorityAccount &&
       !authorityAccount.owner.equals(SUBSCRIPTIONS_PROGRAM_ID)
@@ -8709,6 +8751,7 @@ export function createSmartAccountVaultsClient(
         expiryTimestamp,
         nonce,
         periodLengthSeconds,
+        rentPayer: subscriptionRentPayer,
         startTimestamp,
         subscriptionAuthority,
       });
@@ -8850,12 +8893,50 @@ export function createSmartAccountVaultsClient(
       };
     }
 
+    const recurringDelegationRentLamports = subscriptionRentPayer
+      ? await resolveRentExemptionLamports({
+          cluster,
+          connection: config.connection,
+          preferStaticMainnetRent: true,
+          space: SUBSCRIPTION_RECURRING_DELEGATION_DATA_LEN,
+        })
+      : null;
+    const subscriptionAuthorityRentLamports = subscriptionRentPayer
+      ? await resolveRentExemptionLamports({
+          cluster,
+          connection: config.connection,
+          preferStaticMainnetRent: true,
+          space: SUBSCRIPTION_AUTHORITY_DATA_LEN,
+        })
+      : null;
+    const recurringDelegationRentTopUpLamports =
+      subscriptionRentPayer &&
+      authorityAccount &&
+      recurringDelegationRentLamports !== null &&
+      subscriptionAuthorityRentLamports !== null
+        ? subscriptionAuthorityRentLamports +
+          recurringDelegationRentLamports -
+          BigInt(authorityAccount.lamports)
+        : BigInt(0);
+    const recurringDelegationRentTopUpInstruction =
+      subscriptionRentPayer && recurringDelegationRentTopUpLamports > BigInt(0)
+        ? SystemProgram.transfer({
+            fromPubkey: subscriptionRentPayer,
+            toPubkey: subscriptionAuthority,
+            lamports: toSafeLamportsNumber(
+              recurringDelegationRentTopUpLamports
+            ),
+          })
+        : null;
     const prepared = freezePreparedOperation({
       operation: "earnUsdcAutodepositCreateRecurringDelegation",
       payer: args.feePayer,
       programId: SUBSCRIPTIONS_PROGRAM_ID,
       requiresConfirmation: true,
       instructions: [
+        ...(recurringDelegationRentTopUpInstruction
+          ? [recurringDelegationRentTopUpInstruction]
+          : []),
         createAssociatedTokenAccountIdempotentInstruction(
           args.feePayer,
           vaultUsdcAta,
@@ -8999,6 +9080,7 @@ export function createSmartAccountVaultsClient(
     const closePolicy = await prepareClosePoliciesSync({
       settingsPda: args.settingsPda,
       feePayer: args.feePayer,
+      rentPayer: args.rentPayer,
       signers: [args.signer],
       policies: [args.policy],
       memo: args.memo,
@@ -9010,13 +9092,15 @@ export function createSmartAccountVaultsClient(
     const delegationAccount = await config.connection.getAccountInfo(
       args.recurringDelegation
     );
+    const shouldRevokeDelegation =
+      Boolean(delegationAccount) && args.feePayer.equals(args.walletAddress);
     const prepared = freezePreparedOperation({
       operation: "earnUsdcAutodepositClose",
       payer: args.feePayer,
       programId: smartAccountsClient.programId,
       requiresConfirmation: true,
       instructions: [
-        ...(delegationAccount
+        ...(shouldRevokeDelegation
           ? [
               createSubscriptionRevokeDelegationInstruction({
                 authority: args.walletAddress,

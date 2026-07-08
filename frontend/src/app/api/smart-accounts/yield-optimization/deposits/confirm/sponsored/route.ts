@@ -39,6 +39,7 @@ function jsonError(
 
 function responseBodyWithSponsoredConfirmations(args: {
   deposit: SponsoredDepositConfirmation;
+  kaminoSetup?: SponsoredDepositConfirmation | null;
   payload: unknown;
   policy: SponsoredDepositConfirmation;
   setupPolicy?: SponsoredDepositConfirmation;
@@ -54,6 +55,7 @@ function responseBodyWithSponsoredConfirmations(args: {
     ...payload,
     sponsoredConfirmations: {
       deposit: args.deposit,
+      kaminoSetup: args.kaminoSetup ?? null,
       policy: args.policy,
       setupPolicy: args.setupPolicy ?? null,
     },
@@ -78,6 +80,9 @@ function buildForwardedConfirmBody(args: {
     depositMint: input.depositMint,
     depositSignature: deposit.signature,
     depositTransaction: input.depositTransaction,
+    ...(input.kaminoSetupTransaction
+      ? { kaminoSetupTransaction: input.kaminoSetupTransaction }
+      : {}),
     liquidityMint: input.liquidityMint,
     market: input.market,
     policyAccount: input.policyAccount,
@@ -177,6 +182,7 @@ export async function POST(request: Request) {
 
   let policy: SponsoredDepositConfirmation;
   let setupPolicy: SponsoredDepositConfirmation | undefined;
+  let kaminoSetup: SponsoredDepositConfirmation | null = null;
   let deposit: SponsoredDepositConfirmation;
   try {
     const guards = await resolveDepositSponsoredTransactionGuards(input);
@@ -208,6 +214,12 @@ export async function POST(request: Request) {
     } else {
       policy = await resolveReusePolicyConfirmation(input);
     }
+    if (input.kaminoSetupTransaction) {
+      kaminoSetup = await executeSponsoredEarnPolicyTransaction(
+        input.kaminoSetupTransaction,
+        guards.kaminoSetup
+      );
+    }
     deposit = await executeSponsoredEarnPolicyTransaction(
       input.depositTransaction,
       guards.deposit
@@ -236,6 +248,7 @@ export async function POST(request: Request) {
   return NextResponse.json(
     responseBodyWithSponsoredConfirmations({
       deposit,
+      kaminoSetup,
       payload: forwardedPayload,
       policy,
       setupPolicy,

@@ -245,16 +245,16 @@ export async function POST(request: Request) {
         sponsorFeePayer = null;
       }
     }
-    const rentPayer = sponsorFeePayer && !policy ? sponsorFeePayer : null;
+    const feePayer = sponsorFeePayer ?? new PublicKey(walletAddress);
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
-      feePayer: new PublicKey(walletAddress),
+      feePayer,
       initializeYieldRoutingPolicy: !policy,
       policySigner,
       settingsPda: settings,
       walletAddress: new PublicKey(walletAddress),
-      ...(rentPayer ? { rentPayer } : {}),
+      ...(sponsorFeePayer ? { rentPayer: sponsorFeePayer } : {}),
       ...(target ? { target } : {}),
       ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
     });

@@ -150,6 +150,8 @@ export async function POST(request: Request) {
       resumeRouteOnly = !setupPolicy;
     }
     const policySigner = getDeploymentPolicySignerPublicKey();
+    const sponsorFeePayer = sponsored ? getEarnPolicySponsorPublicKey() : null;
+    const feePayer = sponsorFeePayer ?? new PublicKey(principal.walletAddress);
     const client = createSmartAccountVaultsClient({
       connection: getServerSolanaConnection(solanaEnv),
       programId,
@@ -173,19 +175,15 @@ export async function POST(request: Request) {
       policy && activePosition
         ? earnReserveTargetFromActivePosition(activePosition)
         : null;
-    const rentPayer =
-      sponsored && policy && activePosition
-        ? getEarnPolicySponsorPublicKey()
-        : null;
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
-      feePayer: new PublicKey(principal.walletAddress),
+      feePayer,
       initializeYieldRoutingPolicy: !policy,
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
-      ...(rentPayer ? { rentPayer } : {}),
+      ...(sponsorFeePayer ? { rentPayer: sponsorFeePayer } : {}),
       ...(target ? { target } : {}),
       ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
     });

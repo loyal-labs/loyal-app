@@ -54,14 +54,17 @@ export async function POST(request: Request) {
   try {
     const serverEnv = getServerEnv();
     const policySigner = getDeploymentPolicySignerPublicKey();
+    const feePayer = sponsored
+      ? getEarnPolicySponsorPublicKey()
+      : new PublicKey(principal.walletAddress);
     const client = createSmartAccountVaultsClient({
       connection: getServerSolanaConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
     const preparedPolicy = await client.prepareEarnUsdcYieldRoutingPolicy({
       cluster,
-      feePayer: new PublicKey(principal.walletAddress),
-      ...(sponsored ? { rentPayer: getEarnPolicySponsorPublicKey() } : {}),
+      feePayer,
+      ...(sponsored ? { rentPayer: feePayer } : {}),
       settingsPda: new PublicKey(principal.settingsPda),
       signer: policySigner,
       walletAddress: new PublicKey(principal.walletAddress),

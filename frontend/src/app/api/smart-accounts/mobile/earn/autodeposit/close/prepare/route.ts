@@ -16,6 +16,7 @@ import {
   parseEarnAutodepositClosePrepareRequestBody,
   serializePreparedEarnUsdcAutodepositClose,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 
 // Mobile twin of `yield-optimization/autodeposit/close/prepare`. Wallet-sig auth
 // + self-resolved smart account; the device signs the returned close op and
@@ -106,16 +107,20 @@ export async function POST(request: Request) {
   try {
     const serverEnv = getServerEnv();
     const policySigner = getDeploymentPolicySignerPublicKey();
+    const feePayer = parsed.sponsored
+      ? getEarnPolicySponsorPublicKey()
+      : new PublicKey(walletAddress);
     const client = createSmartAccountVaultsClient({
       connection: getServerSolanaConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
     });
     const preparedClose = await client.prepareEarnUsdcAutodepositClose({
       cluster,
-      feePayer: new PublicKey(walletAddress),
+      feePayer,
       policy: new PublicKey(parsed.policy),
       policySigner,
       recurringDelegation: new PublicKey(parsed.recurringDelegation),
+      ...(parsed.sponsored ? { rentPayer: feePayer } : {}),
       settingsPda: new PublicKey(settingsPda),
       signer: new PublicKey(walletAddress),
       walletAddress: new PublicKey(walletAddress),

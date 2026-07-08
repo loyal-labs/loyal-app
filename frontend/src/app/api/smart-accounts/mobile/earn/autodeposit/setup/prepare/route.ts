@@ -17,6 +17,7 @@ import {
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 
 // Mobile twin of `yield-optimization/autodeposit/setup/prepare`. Wallet-sig auth
 // + self-resolved smart account; the SDK returns the next setup stage's prepared
@@ -109,6 +110,9 @@ export async function POST(request: Request) {
   try {
     const serverEnv = getServerEnv();
     const policySigner = getDeploymentPolicySignerPublicKey();
+    const feePayer = parsed.sponsored
+      ? getEarnPolicySponsorPublicKey()
+      : new PublicKey(walletAddress);
     const client = createSmartAccountVaultsClient({
       connection: getServerSolanaConnection(solanaEnv),
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
@@ -145,7 +149,7 @@ export async function POST(request: Request) {
       amountRaw: parsed.amountRaw,
       cluster,
       expiryTimestamp,
-      feePayer: new PublicKey(walletAddress),
+      feePayer,
       minimumDelegatorBalanceRaw: parsed.walletBalanceFloorRaw,
       nonce,
       periodLengthSeconds,

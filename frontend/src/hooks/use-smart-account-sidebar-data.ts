@@ -81,7 +81,6 @@ import { resolveEarnDepositConfirmPolicySignature } from "@/lib/yield-optimizati
 import {
   buildEarnAutodepositCloseConfirmRequestBody,
   buildEarnAutodepositSetupConfirmRequestBody,
-  buildEarnSponsoredAutodepositSetupPrefundRequestBody,
   type EarnAutodepositFloorUpdateConfirmRequestBody,
   type EarnAutodepositToggleConfirmRequestBody,
   type EarnAutodepositCloseConfirmResponse,
@@ -89,15 +88,12 @@ import {
   type EarnAutodepositToggleConfirmResponse,
   type EarnSponsoredAutodepositCloseConfirmRequestBody,
   type EarnSponsoredAutodepositSetupConfirmRequestBody,
-  type EarnSponsoredAutodepositSetupPrefundResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
-  buildEarnSponsoredDepositPrefundRequestBody,
   hydratePreparedEarnUsdcDeposit,
   type EarnDepositPrepareRequestBody,
   type EarnDepositPrepareResponse,
-  type EarnSponsoredDepositPrefundResponse,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import {
   hydratePreparedEarnUsdcCleanup,
@@ -1468,6 +1464,7 @@ type SponsoredEarnDepositConfirmation = {
 
 type SponsoredEarnDepositConfirmations = {
   deposit: SponsoredEarnDepositConfirmation;
+  kaminoSetup?: SponsoredEarnDepositConfirmation | null;
   policy: SponsoredEarnDepositConfirmation;
   setupPolicy?: SponsoredEarnDepositConfirmation | null;
 };
@@ -1491,6 +1488,7 @@ class SponsoredEarnDepositConfirmError extends Error {
 
 async function postSponsoredEarnDeposit(args: {
   depositTransaction: string;
+  kaminoSetupTransaction?: string | null;
   policyTransaction?: string | null;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   setupPolicyTransaction?: string | null;
@@ -1499,6 +1497,9 @@ async function postSponsoredEarnDeposit(args: {
   const body: EarnSponsoredDepositConfirmRequestBody = {
     ...args.preparedDeposit.persistence,
     depositTransaction: args.depositTransaction,
+    ...(args.kaminoSetupTransaction
+      ? { kaminoSetupTransaction: args.kaminoSetupTransaction }
+      : {}),
     ...(args.policyTransaction
       ? { policyTransaction: args.policyTransaction }
       : {}),
@@ -1536,38 +1537,6 @@ async function postSponsoredEarnDeposit(args: {
   }
 
   return payload.sponsoredConfirmations;
-}
-
-async function postSponsoredEarnDepositPrefund(args: {
-  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
-}): Promise<EarnSponsoredDepositPrefundResponse> {
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/deposits/prefund/sponsored",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildEarnSponsoredDepositPrefundRequestBody(args)),
-    }
-  );
-
-  const payload = (await response.json().catch(() => null)) as
-    | (SmartAccountRouteErrorResponse & EarnSponsoredDepositPrefundResponse)
-    | null;
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error?.message ?? "Failed to pre-fund sponsored Earn deposit."
-    );
-  }
-
-  if (!payload?.sponsoredPrefund) {
-    throw new Error(
-      "Sponsored Earn deposit pre-fund response is missing confirmation."
-    );
-  }
-
-  return payload;
 }
 
 async function postConfirmedEarnAutodepositSetup(args: {
@@ -1619,42 +1588,6 @@ class SponsoredEarnAutodepositSetupConfirmError extends Error {
     this.name = "SponsoredEarnAutodepositSetupConfirmError";
     this.confirmations = args.confirmations;
   }
-}
-
-async function postSponsoredEarnAutodepositSetupPrefund(args: {
-  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
-}): Promise<EarnSponsoredAutodepositSetupPrefundResponse> {
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/autodeposit/setup/prefund/sponsored",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        buildEarnSponsoredAutodepositSetupPrefundRequestBody(args)
-      ),
-    }
-  );
-
-  const payload = (await response.json().catch(() => null)) as
-    | (SmartAccountRouteErrorResponse &
-        EarnSponsoredAutodepositSetupPrefundResponse)
-    | null;
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error?.message ??
-        "Failed to pre-fund sponsored Autodeposit setup."
-    );
-  }
-
-  if (!payload?.sponsoredPrefund) {
-    throw new Error(
-      "Sponsored Autodeposit setup pre-fund response is missing confirmation."
-    );
-  }
-
-  return payload;
 }
 
 async function postSponsoredEarnAutodepositSetup(args: {
@@ -5363,32 +5296,9 @@ export function useSmartAccountSidebarData(
               : "Prepared Kamino setup is missing. Review the deposit again before signing.",
         };
       }
-      let sponsoredPrefunded = false;
-      if (
-        IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
-        publicEnv.earnPolicySponsorPubkey
-      ) {
-        try {
-          new PublicKey(publicEnv.earnPolicySponsorPubkey);
-          await postSponsoredEarnDepositPrefund({
-            preparedDeposit: request.preparedDeposit,
-          });
-          sponsoredPrefunded = true;
-        } catch (error) {
-          return {
-            success: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to pre-fund sponsored Earn deposit.",
-          };
-        }
-      }
-      const nativeSolError = sponsoredPrefunded
-        ? null
-        : getNativeSolRequirementError(
-            request.preparedDeposit.nativeSolRequirement
-          );
+      const nativeSolError = getNativeSolRequirementError(
+        request.preparedDeposit.nativeSolRequirement
+      );
       if (nativeSolError) {
         return { success: false, error: nativeSolError };
       }
@@ -5457,13 +5367,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [
-      connection,
-      publicEnv.earnPolicySponsorPubkey,
-      solanaEnv,
-      user?.walletAddress,
-      wallet,
-    ]
+    [connection, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnDepositBatch = useCallback(
@@ -5570,33 +5474,9 @@ export function useSmartAccountSidebarData(
       if (clusterError) {
         return { success: false, error: clusterError };
       }
-      const shouldUseSponsoredPrefund =
-        IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
-        Boolean(publicEnv.earnPolicySponsorPubkey) &&
-        request.preparedDeposit.persistence.policyInitialization === "create";
-      let sponsoredPrefunded = false;
-      if (shouldUseSponsoredPrefund) {
-        try {
-          new PublicKey(publicEnv.earnPolicySponsorPubkey!);
-          await postSponsoredEarnDepositPrefund({
-            preparedDeposit: request.preparedDeposit,
-          });
-          sponsoredPrefunded = true;
-        } catch (error) {
-          return {
-            success: false,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to pre-fund sponsored Earn deposit.",
-          };
-        }
-      }
-      const nativeSolError = sponsoredPrefunded
-        ? null
-        : getNativeSolRequirementError(
-            request.preparedDeposit.nativeSolRequirement
-          );
+      const nativeSolError = getNativeSolRequirementError(
+        request.preparedDeposit.nativeSolRequirement
+      );
       if (nativeSolError) {
         return { success: false, error: nativeSolError };
       }
@@ -5840,7 +5720,6 @@ export function useSmartAccountSidebarData(
     [
       connection,
       earnState,
-      publicEnv.earnPolicySponsorPubkey,
       refreshAfterTx,
       solanaEnv,
       user?.walletAddress,
@@ -5919,13 +5798,6 @@ export function useSmartAccountSidebarData(
           (await prepareEarnDepositOnServer({
             amountRaw: request.amountRaw,
           }));
-        const isDepositOnlyReusePrepared = (
-          deposit: SmartAccountPreparedEarnUsdcDeposit
-        ) =>
-          deposit.persistence.policyInitialization === "reuse" &&
-          !deposit.policySetupPrepared &&
-          !deposit.policyFinalizePrepared &&
-          !deposit.kaminoSetupPrepared;
         if (
           preparedDeposit.persistence.principalAmountRaw !==
           request.amountRaw.toString()
@@ -5937,11 +5809,8 @@ export function useSmartAccountSidebarData(
           };
         }
 
-        const shouldUseSponsoredDeposit =
-          IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
-          isDepositOnlyReusePrepared(preparedDeposit);
         let sponsorFeePayer: PublicKey | null = null;
-        if (shouldUseSponsoredDeposit) {
+        if (IS_EARN_POLICY_SPONSORSHIP_ENABLED) {
           if (!publicEnv.earnPolicySponsorPubkey) {
             return {
               success: false,
@@ -5958,6 +5827,8 @@ export function useSmartAccountSidebarData(
             };
           }
 
+          // Re-prepare after choosing sponsorship so every stage is compiled
+          // with the sponsor as fee/rent payer instead of the user wallet.
           preparedDeposit = await prepareEarnDepositOnServer({
             amountRaw: request.amountRaw,
             sponsored: true,
@@ -5972,41 +5843,12 @@ export function useSmartAccountSidebarData(
                 "Prepared Earn deposit amount changed. Review the deposit again before signing.",
             };
           }
-          if (!isDepositOnlyReusePrepared(preparedDeposit)) {
-            return {
-              success: false,
-              error:
-                "Sponsored Earn top-up preparation changed. Review the deposit again before signing.",
-            };
-          }
         }
         const needsKaminoSetup = Boolean(
           preparedDeposit.kaminoSetupPrepared &&
             !request.kaminoSetupAlreadyCompleted
         );
-        let sponsoredPrefunded = false;
-        if (
-          IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
-          publicEnv.earnPolicySponsorPubkey &&
-          !sponsorFeePayer &&
-          (preparedDeposit.persistence.policyInitialization === "create" ||
-            needsKaminoSetup)
-        ) {
-          try {
-            new PublicKey(publicEnv.earnPolicySponsorPubkey);
-            await postSponsoredEarnDepositPrefund({ preparedDeposit });
-            sponsoredPrefunded = true;
-          } catch (error) {
-            return {
-              success: false,
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to pre-fund sponsored Earn deposit.",
-            };
-          }
-        }
-        const nativeSolError = sponsoredPrefunded
+        const nativeSolError = sponsorFeePayer
           ? null
           : getNativeSolRequirementError(preparedDeposit.nativeSolRequirement);
         if (nativeSolError) {
@@ -6024,6 +5866,32 @@ export function useSmartAccountSidebarData(
 
         if (sponsorFeePayer) {
           try {
+            const policyTransaction = preparedDeposit.policySetupPrepared
+              ? await signPreparedEarnOperationForSponsorship({
+                  connection,
+                  feePayer: sponsorFeePayer,
+                  prepared: preparedDeposit.policySetupPrepared,
+                  wallet: walletBridge,
+                })
+              : null;
+            const setupPolicyTransaction =
+              preparedDeposit.policyFinalizePrepared
+                ? await signPreparedEarnOperationForSponsorship({
+                    connection,
+                    feePayer: sponsorFeePayer,
+                    prepared: preparedDeposit.policyFinalizePrepared,
+                    wallet: walletBridge,
+                  })
+                : null;
+            const kaminoSetupTransaction =
+              needsKaminoSetup && preparedDeposit.kaminoSetupPrepared
+                ? await signPreparedEarnOperationForSponsorship({
+                    connection,
+                    feePayer: sponsorFeePayer,
+                    prepared: preparedDeposit.kaminoSetupPrepared,
+                    wallet: walletBridge,
+                  })
+                : null;
             const depositTransaction =
               await signPreparedEarnOperationForSponsorship({
                 connection,
@@ -6033,7 +5901,10 @@ export function useSmartAccountSidebarData(
               });
             const confirmations = await postSponsoredEarnDeposit({
               depositTransaction,
+              kaminoSetupTransaction,
+              policyTransaction,
               preparedDeposit,
+              setupPolicyTransaction,
               smartAccountAddress: preparedDeposit.vault.pubkey.toBase58(),
             });
 
@@ -6837,13 +6708,25 @@ export function useSmartAccountSidebarData(
       throw new Error("Earn policy signer is unavailable. Refresh and retry.");
     }
 
+    let feePayer = wallet.publicKey;
+    if (
+      IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
+      publicEnv.earnPolicySponsorPubkey
+    ) {
+      try {
+        feePayer = new PublicKey(publicEnv.earnPolicySponsorPubkey);
+      } catch {
+        feePayer = wallet.publicKey;
+      }
+    }
+
     return {
       client: createSmartAccountVaultsClient({
         connection,
         programId: new PublicKey(overview.programId),
       }),
       cluster: resolveEarnLoyalCluster(solanaEnv),
-      feePayer: wallet.publicKey,
+      feePayer,
       policySigner: new PublicKey(policySignerPublicKey),
       settingsPda: new PublicKey(overview.settingsPda),
       signer: wallet.publicKey,
@@ -6853,6 +6736,7 @@ export function useSmartAccountSidebarData(
     connection,
     earnState?.policySignerPublicKey,
     overview,
+    publicEnv.earnPolicySponsorPubkey,
     solanaEnv,
     user?.walletAddress,
     wallet.publicKey,
@@ -6980,6 +6864,9 @@ export function useSmartAccountSidebarData(
         policy: new PublicKey(request.policy),
         policySigner: context.policySigner,
         recurringDelegation: new PublicKey(request.recurringDelegation),
+        ...(context.feePayer.equals(context.walletAddress)
+          ? {}
+          : { rentPayer: context.feePayer }),
         settingsPda: context.settingsPda,
         signer: context.signer,
         walletAddress: context.walletAddress,
@@ -7065,7 +6952,6 @@ export function useSmartAccountSidebarData(
         }
 
         let sponsorFeePayer: PublicKey | null = null;
-        let sponsoredCreatePolicyPrefunded = false;
         if (
           IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
           publicEnv.earnPolicySponsorPubkey
@@ -7077,34 +6963,6 @@ export function useSmartAccountSidebarData(
               success: false,
               error: "EARN_POLICY_SPONSOR_PUBKEY is not a valid public key.",
             };
-          }
-
-          if (preparedSetup.stage === "create_policy") {
-            const clusterError = validatePreparedEarnPersistenceCluster({
-              expectedCluster: expectedEarnCluster,
-              operation: "autodeposit setup",
-              preparedCluster: preparedSetup.persistence.cluster,
-            });
-            if (clusterError) {
-              return { success: false, error: clusterError };
-            }
-
-            try {
-              await postSponsoredEarnAutodepositSetupPrefund({
-                preparedSetup,
-              });
-            } catch (error) {
-              return {
-                success: false,
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Failed to pre-fund sponsored Autodeposit setup.",
-              };
-            }
-
-            sponsoredCreatePolicyPrefunded = true;
-            sponsorFeePayer = null;
           }
         }
 
@@ -7246,8 +7104,7 @@ export function useSmartAccountSidebarData(
 
         if (
           preparedSetup.stage === "create_policy" &&
-          walletBridge.signAllTransactions &&
-          !sponsoredCreatePolicyPrefunded
+          walletBridge.signAllTransactions
         ) {
           let batchPrepare: EarnAutodepositSetupBatchPrepare | null = null;
           try {
@@ -7474,9 +7331,9 @@ export function useSmartAccountSidebarData(
           }
         }
 
-        const nativeSolError = sponsoredCreatePolicyPrefunded
-          ? null
-          : getNativeSolRequirementError(preparedSetup.nativeSolRequirement);
+        const nativeSolError = getNativeSolRequirementError(
+          preparedSetup.nativeSolRequirement
+        );
         if (nativeSolError) {
           return { success: false, error: nativeSolError };
         }
@@ -7738,6 +7595,88 @@ export function useSmartAccountSidebarData(
             policy: request.policy,
             recurringDelegation: request.recurringDelegation,
           }));
+        let sponsorFeePayer: PublicKey | null = null;
+        if (
+          IS_EARN_POLICY_SPONSORSHIP_ENABLED &&
+          publicEnv.earnPolicySponsorPubkey
+        ) {
+          try {
+            sponsorFeePayer = new PublicKey(publicEnv.earnPolicySponsorPubkey);
+          } catch {
+            return {
+              success: false,
+              error: "EARN_POLICY_SPONSOR_PUBKEY is not a valid public key.",
+            };
+          }
+        }
+
+        if (sponsorFeePayer) {
+          const clusterError = validatePreparedEarnPersistenceCluster({
+            expectedCluster: expectedEarnCluster,
+            operation: "autodeposit close",
+            preparedCluster: preparedClose.persistence.cluster,
+          });
+          if (clusterError) {
+            return { success: false, error: clusterError };
+          }
+
+          try {
+            const closeTransaction =
+              await signPreparedEarnOperationForSponsorship({
+                connection,
+                feePayer: sponsorFeePayer,
+                prepared: preparedClose.prepared,
+                wallet: walletBridge,
+              });
+            assertSerializedEarnTransactionFitsSolanaPacket({
+              operation: "sponsored Autodeposit close",
+              transaction: closeTransaction,
+            });
+            const confirmations = await postSponsoredEarnAutodepositClose({
+              closeTransaction,
+              preparedClose,
+            });
+            const confirmedSlot = confirmations.close.confirmedSlot;
+
+            const nextEarnState = await fetchEarnState();
+            if (nextEarnState) {
+              setEarnState(nextEarnState);
+            }
+
+            void refreshAfterTx({
+              accountIndex: preparedClose.vault.accountIndex,
+              signerAddresses: [wallet.publicKey.toBase58()],
+            }).catch((err) => {
+              console.warn(
+                "[smart-account] post-autodeposit-close refresh failed",
+                err
+              );
+            });
+
+            return {
+              success: true,
+              signature: confirmations.close.signature,
+              confirmedSlot,
+              status: "executed",
+            };
+          } catch (error) {
+            if (
+              error instanceof SponsoredEarnAutodepositCloseConfirmError &&
+              error.confirmations
+            ) {
+              return {
+                success: false,
+                signature: error.confirmations.close.signature,
+                confirmedSlot: error.confirmations.close.confirmedSlot,
+                status: "confirmation_record_failed",
+                error: error.message,
+              };
+            }
+
+            throw error;
+          }
+        }
+
         const closeSend = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "autodeposit close",
@@ -7809,6 +7748,7 @@ export function useSmartAccountSidebarData(
     [
       connection,
       prepareEarnAutodepositClose,
+      publicEnv.earnPolicySponsorPubkey,
       refreshAfterTx,
       solanaEnv,
       user?.walletAddress,

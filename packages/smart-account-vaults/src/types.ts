@@ -919,6 +919,7 @@ export type SmartAccountEarnUsdcAutodepositCloseInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
   feePayer: PublicKey;
+  rentPayer?: PublicKey;
   signer: PublicKey;
   policySigner: PublicKey;
   policy: PublicKey;

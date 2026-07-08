@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { SUBSCRIPTIONS_PROGRAM_ID } from "@loyal-labs/actions";
 import { PublicKey } from "@solana/web3.js";
 
 import { getServerEnv } from "@/lib/core/config/server";
@@ -83,16 +84,39 @@ function responseBodyWithSponsoredConfirmations(args: {
 function sponsoredAutodepositSetupGuard(
   input: SponsoredEarnAutodepositSetupInput
 ) {
-  if (input.setupStage !== "create_policy") {
-    return undefined;
+  if (input.setupStage === "initialize_subscription_authority") {
+    return {
+      allowedSubscriptionRentAccounts: [
+        new PublicKey(input.subscriptionAuthority),
+      ],
+      allowedSubscriptionsProgramId: SUBSCRIPTIONS_PROGRAM_ID,
+    };
   }
 
-  return {
-    allowedSmartAccountRentAccounts: [new PublicKey(input.policyAccount)],
-    allowedSmartAccountsProgramId: new PublicKey(
-      getServerEnv().loyalSmartAccounts.programId
-    ),
-  };
+  if (input.setupStage === "create_recurring_delegation") {
+    return {
+      allowedAssociatedTokenMints: [new PublicKey(input.liquidityMint)],
+      allowedAssociatedTokenOwners: [new PublicKey(input.vaultPubkey)],
+      allowedSystemTransferDestinations: [
+        new PublicKey(input.subscriptionAuthority),
+      ],
+      allowedSubscriptionRentAccounts: [
+        new PublicKey(input.recurringDelegation),
+      ],
+      allowedSubscriptionsProgramId: SUBSCRIPTIONS_PROGRAM_ID,
+    };
+  }
+
+  if (input.setupStage === "create_policy") {
+    return {
+      allowedSmartAccountRentAccounts: [new PublicKey(input.policyAccount)],
+      allowedSmartAccountsProgramId: new PublicKey(
+        getServerEnv().loyalSmartAccounts.programId
+      ),
+    };
+  }
+
+  return undefined;
 }
 
 export async function POST(request: Request) {

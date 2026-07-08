@@ -382,14 +382,17 @@ function createSerializedSettingsAccount(policySeed: BN | null = null) {
   };
 }
 
-function createSerializedSubscriptionAuthorityAccount(initId = BigInt(1)) {
+function createSerializedSubscriptionAuthorityAccount(
+  initId = BigInt(1),
+  lamports = 1
+) {
   const data = Buffer.alloc(106);
   data.writeBigInt64LE(initId, 98);
 
   return {
     data,
     executable: false,
-    lamports: 1,
+    lamports,
     owner: SUBSCRIPTIONS_PROGRAM_ID,
     rentEpoch: 0,
   };
@@ -2550,6 +2553,70 @@ describe("prepareEarnUsdcAutodeposit", () => {
     );
   });
 
+  test("sponsored recurring delegation tops up the subscription authority rent payer", async () => {
+    let nonSettingsLookupCount = 0;
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      walletAddress,
+      STABLECOIN_MINTS[Stablecoin.USDC]
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(settingsPda)) {
+        return createSerializedSettingsAccount();
+      }
+      nonSettingsLookupCount += 1;
+      if (nonSettingsLookupCount === 1) {
+        return createSerializedSubscriptionAuthorityAccount(
+          BigInt(7),
+          1_628_640
+        );
+      }
+      if (nonSettingsLookupCount === 2) {
+        return createSerializedEarnPolicyAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getBalance: mock(async () => 0),
+        getMinimumBalanceForRentExemption: mock(
+          async (space: number) => space + 1_000
+        ),
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositSetup({
+      settingsPda,
+      walletAddress,
+      feePayer: sponsorRentCollector,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      amountRaw: BigInt(1_000_000),
+      nonce: BigInt(42),
+    });
+
+    expect(result.stage).toBe("create_recurring_delegation");
+    expect(result.prepared.instructions).toHaveLength(3);
+    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
+      SystemProgram.programId.toBase58()
+    );
+    const transfer = SystemInstruction.decodeTransfer(
+      result.prepared.instructions[0]!
+    );
+    expect(transfer.fromPubkey.toBase58()).toBe(
+      sponsorRentCollector.toBase58()
+    );
+    expect(transfer.toPubkey.toBase58()).toBe(subscriptionAuthority.toBase58());
+    expect(transfer.lamports).toBe(BigInt(2_359_440));
+    expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
+    );
+    expect(result.prepared.instructions[2]?.programId.toBase58()).toBe(
+      SUBSCRIPTIONS_PROGRAM_ID.toBase58()
+    );
+  });
+
   test("existing delegation with missing policy prepares only the policy stage", async () => {
     const subscriptionAuthority = deriveSubscriptionAuthority(
       walletAddress,
@@ -2752,6 +2819,39 @@ describe("prepareEarnUsdcAutodeposit", () => {
     // A setup abandoned before its delegation stage: revoking the nonexistent
     // delegation would fail simulation and strand the close, so only the
     // policy-close instruction remains.
+    expect(result.prepared.instructions).toHaveLength(1);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[0]);
+  });
+
+  test("sponsored close omits delegation revoke and removes the policy only", async () => {
+    const recurringDelegation = new PublicKey(
+      "11111111111111111111111111111116"
+    );
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(policyAccount)) {
+        return createSerializedEarnPolicyAccount();
+      }
+      if (address.equals(recurringDelegation)) {
+        return createSerializedRecurringDelegationAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcAutodepositClose({
+      settingsPda,
+      walletAddress,
+      feePayer: sponsorRentCollector,
+      rentPayer: sponsorRentCollector,
+      signer: walletAddress,
+      policySigner: backendSigner,
+      policy: policyAccount,
+      recurringDelegation,
+    });
+
     expect(result.prepared.instructions).toHaveLength(1);
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[0]);
   });

@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
@@ -10,7 +14,6 @@ import {
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   EarnPolicySponsoredTransactionError,
-  executeSignedEarnPolicyTransaction,
   executeSponsoredEarnPolicyTransaction,
   type SponsoredTransactionConfirmation,
 } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
@@ -161,6 +164,8 @@ export async function POST(request: Request) {
   }
 
   const smartAccountCloseGuard = {
+    allowedAssociatedTokenMints: [new PublicKey(input.liquidityMint)],
+    allowedAssociatedTokenOwners: [new PublicKey(input.walletAddress)],
     allowedSmartAccountRentAccounts: [
       new PublicKey(input.policyAccount),
       ...(input.setupPolicyAccount
@@ -170,17 +175,25 @@ export async function POST(request: Request) {
     allowedSmartAccountsProgramId: new PublicKey(
       getServerEnv().loyalSmartAccounts.programId
     ),
-    requireSponsorFeePayer: false,
+    allowedTokenCloseAccounts: [
+      getAssociatedTokenAddressSync(
+        new PublicKey(input.liquidityMint),
+        new PublicKey(input.vaultPubkey),
+        true,
+        TOKEN_PROGRAM_ID
+      ),
+      ...(input.reserveWithdrawals ?? []).map(
+        (withdrawal) => new PublicKey(withdrawal.collateralAta)
+      ),
+    ],
   };
 
   let withdrawal: SponsoredTransactionConfirmation;
   try {
-    withdrawal = input.policyCloseTransaction
-      ? await executeSignedEarnPolicyTransaction(input.withdrawalTransaction)
-      : await executeSponsoredEarnPolicyTransaction(
-          input.withdrawalTransaction,
-          smartAccountCloseGuard
-        );
+    withdrawal = await executeSponsoredEarnPolicyTransaction(
+      input.withdrawalTransaction,
+      smartAccountCloseGuard
+    );
   } catch (error) {
     if (error instanceof EarnPolicySponsoredTransactionError) {
       return jsonError(error.status, error.code, error.message);

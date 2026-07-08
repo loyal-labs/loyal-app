@@ -30,11 +30,7 @@ import {
 } from "../generated/loyal-hub-abi.ts";
 import type { LoyalClusterConfig } from "../cluster.ts";
 import type { U64Amount } from "../types.ts";
-import {
-  deriveSubscriptionAuthority,
-  deriveSubscriptionEventAuthority,
-  normalizeU64,
-} from "../subscriptions.ts";
+import { deriveSubscriptionAuthority, normalizeU64 } from "../subscriptions.ts";
 import type {
   AccountConstraint,
   DataConstraint,
@@ -214,7 +210,6 @@ export function subscriptionSweepConstraint(
   minimumDelegatorBalanceRaw?: U64Amount
 ): InstructionConstraint {
   const subscriptionAuthority = deriveSubscriptionAuthority(delegator, mint);
-  const eventAuthority = deriveSubscriptionEventAuthority();
 
   return {
     programId: SUBSCRIPTIONS_PROGRAM_ID,
@@ -236,8 +231,6 @@ export function subscriptionSweepConstraint(
       pubkeyConstraint(4, [mint], config.tokenProgramId),
       pubkeyConstraint(5, [config.tokenProgramId]),
       pubkeyConstraint(6, [vault]),
-      pubkeyConstraint(7, [eventAuthority]),
-      pubkeyConstraint(8, [SUBSCRIPTIONS_PROGRAM_ID]),
     ],
     dataConstraints: [
       dataU8Equals(BigInt(0), SUBSCRIPTIONS_TRANSFER_RECURRING),

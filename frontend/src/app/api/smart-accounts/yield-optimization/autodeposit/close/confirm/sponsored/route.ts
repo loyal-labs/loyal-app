@@ -108,7 +108,6 @@ export async function POST(request: Request) {
         allowedSmartAccountsProgramId: new PublicKey(
           getServerEnv().loyalSmartAccounts.programId
         ),
-        requireSponsorFeePayer: false,
       }
     );
   } catch (error) {

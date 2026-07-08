@@ -4431,6 +4431,16 @@ export function AppWalletWorkspace({
       );
       const settingsPda = new PublicKey(overview.settingsPda);
       const userWallet = new PublicKey(walletAddress);
+      let feePayer = userWallet;
+      if (publicEnv.earnPolicySponsorPubkey) {
+        try {
+          feePayer = new PublicKey(publicEnv.earnPolicySponsorPubkey);
+        } catch {
+          throw new Error(
+            "EARN_POLICY_SPONSOR_PUBKEY is not a valid public key."
+          );
+        }
+      }
       const target =
         draft.source.type === "reserve"
           ? toEarnWithdrawReserveTarget(draft.source)
@@ -4474,7 +4484,7 @@ export function AppWalletWorkspace({
         amountRaw: effectiveAmountRaw,
         closePoliciesOnFullWithdrawal: isFinalExit,
         cluster,
-        feePayer: userWallet,
+        feePayer,
         policySigner: new PublicKey(policySigner),
         settingsPda,
         source,
@@ -4501,6 +4511,7 @@ export function AppWalletWorkspace({
       activeEarnPosition,
       connection,
       getEarnWithdrawDraftAmountRaw,
+      publicEnv.earnPolicySponsorPubkey,
       publicEnv.solanaEnv,
       smartAccountData.earnAutodeposit,
       smartAccountData.earnPolicy,
@@ -4863,11 +4874,15 @@ export function AppWalletWorkspace({
         pendingEarnDepositDraft.amountLabel,
         pendingEarnDepositDraft.tokenDecimals
       );
+      const shouldUseSponsoredEarnDeposit = Boolean(
+        publicEnv.earnPolicySponsorPubkey
+      );
 
       if (
-        stage === "policy" ||
-        stage === "policy-finalize" ||
-        stage === "kamino-setup"
+        !shouldUseSponsoredEarnDeposit &&
+        (stage === "policy" ||
+          stage === "policy-finalize" ||
+          stage === "kamino-setup")
       ) {
         const batchResult = await smartAccountData.executeEarnDepositBatch({
           amountRaw,
@@ -4937,9 +4952,10 @@ export function AppWalletWorkspace({
         setSelectedDetail("Deposit");
 
         if (
-          stage === "policy" ||
-          stage === "policy-finalize" ||
-          stage === "kamino-setup"
+          !shouldUseSponsoredEarnDeposit &&
+          (stage === "policy" ||
+            stage === "policy-finalize" ||
+            stage === "kamino-setup")
         ) {
           const result = await smartAccountData.executeEarnDepositPolicyStage({
             preparedDeposit: pendingEarnDepositPrepared,
@@ -5056,6 +5072,7 @@ export function AppWalletWorkspace({
     markDetailPaneTransition,
     pendingEarnDepositDraft,
     pendingEarnDepositPrepared,
+    publicEnv.earnPolicySponsorPubkey,
     setActiveEarnPosition,
     setDetailSelection,
     suppressEarnSubscriptionRefreshThroughSlot,

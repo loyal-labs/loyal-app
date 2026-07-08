@@ -20,6 +20,7 @@ export type EarnAutodepositSetupPrepareRequestBody = {
   nonce?: string;
   periodLengthSeconds?: string;
   policySeed?: string;
+  sponsored?: boolean;
   startTimestamp?: string;
   walletBalanceFloorRaw?: string;
 };
@@ -101,6 +102,7 @@ export type ConfirmedEarnAutodepositCloseInput = {
 export type EarnAutodepositClosePrepareRequestBody = {
   policy: string;
   recurringDelegation: string;
+  sponsored?: boolean;
 };
 
 export type EarnAutodepositFloorUpdateConfirmRequestBody = {
@@ -406,6 +408,7 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
   nonce?: bigint;
   periodLengthSeconds?: bigint;
   policySeed?: bigint;
+  sponsored: boolean;
   startTimestamp?: bigint;
   walletBalanceFloorRaw?: bigint;
 } {
@@ -426,6 +429,7 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
     record,
     "startTimestamp"
   );
+  const sponsoredValue = record.sponsored;
   const walletBalanceFloorRaw = readOptionalUnsignedIntegerString(
     record,
     "walletBalanceFloorRaw"
@@ -441,6 +445,13 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
   if (amountRaw <= BigInt(0)) {
     throw new Error("amountRaw must be greater than 0.");
   }
+  if (
+    sponsoredValue !== undefined &&
+    sponsoredValue !== null &&
+    typeof sponsoredValue !== "boolean"
+  ) {
+    throw new Error("sponsored must be a boolean when provided.");
+  }
 
   return {
     amountRaw,
@@ -454,6 +465,10 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
       ? { periodLengthSeconds: BigInt(periodLengthSeconds) }
       : {}),
     ...(policySeed ? { policySeed: BigInt(policySeed) } : {}),
+    sponsored:
+      sponsoredValue === undefined || sponsoredValue === null
+        ? false
+        : sponsoredValue,
     ...(startTimestamp ? { startTimestamp: BigInt(startTimestamp) } : {}),
     ...(walletBalanceFloorRaw
       ? { walletBalanceFloorRaw: BigInt(walletBalanceFloorRaw) }
@@ -464,11 +479,20 @@ export function parseEarnAutodepositSetupPrepareRequestBody(body: unknown): {
 export function parseEarnAutodepositClosePrepareRequestBody(body: unknown): {
   policy: string;
   recurringDelegation: string;
+  sponsored: boolean;
 } {
   const record = assertRequestObject(body);
+  const sponsored =
+    record.sponsored === undefined || record.sponsored === null
+      ? false
+      : record.sponsored;
+  if (typeof sponsored !== "boolean") {
+    throw new Error("sponsored must be a boolean when provided.");
+  }
   return {
     policy: readRequiredString(record, "policy"),
     recurringDelegation: readRequiredString(record, "recurringDelegation"),
+    sponsored,
   };
 }
 

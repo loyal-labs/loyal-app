@@ -95,6 +95,7 @@ export type EarnSponsoredDepositConfirmRequestBody = Omit<
   | "setupPolicySignature"
 > & {
   depositTransaction: string;
+  kaminoSetupTransaction?: string | null;
   policyTransaction?: string | null;
   setupPolicyTransaction?: string | null;
 };
@@ -109,6 +110,7 @@ export type SponsoredYieldDepositConfirmInput = Omit<
   | "setupPolicySignature"
 > & {
   depositTransaction: string;
+  kaminoSetupTransaction?: string | null;
   policyTransaction?: string | null;
   setupPolicyTransaction?: string | null;
 };
@@ -631,6 +633,10 @@ export function parseEarnSponsoredDepositConfirmRequestBody(
 ): SponsoredYieldDepositConfirmInput {
   const record = assertRequestObject(body);
   const policyInitialization = readPolicyInitialization(record);
+  const kaminoSetupTransaction = readOptionalString(
+    record,
+    "kaminoSetupTransaction"
+  );
   const policyTransaction = readOptionalString(record, "policyTransaction");
   const setupPolicyTransaction = readOptionalString(
     record,
@@ -652,6 +658,7 @@ export function parseEarnSponsoredDepositConfirmRequestBody(
     delegatedSigner: readRequiredString(record, "delegatedSigner"),
     depositMint: readRequiredString(record, "depositMint"),
     depositTransaction: readRequiredString(record, "depositTransaction"),
+    ...(kaminoSetupTransaction ? { kaminoSetupTransaction } : {}),
     liquidityMint: readRequiredString(record, "liquidityMint"),
     market: readOptionalString(record, "market"),
     policyAccount: readRequiredString(record, "policyAccount"),

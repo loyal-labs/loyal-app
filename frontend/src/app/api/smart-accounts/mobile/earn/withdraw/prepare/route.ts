@@ -12,6 +12,7 @@ import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/serv
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 import {
   parseEarnWithdrawPrepareRequestBody,
   serializePreparedEarnUsdcWithdraw,
@@ -415,12 +416,14 @@ export async function POST(request: Request) {
 
   let amountRaw: bigint;
   let mode: "partial" | "full";
+  let sponsored = false;
   let selectedSourceRequest: EarnWithdrawSourceRequest;
   try {
     ({
       amountRaw,
       mode,
       source: selectedSourceRequest,
+      sponsored,
     } = parseEarnWithdrawPrepareRequestBody(body));
   } catch (error) {
     return jsonError(
@@ -819,10 +822,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const feePayer = sponsored
+      ? getEarnPolicySponsorPublicKey()
+      : new PublicKey(walletAddress);
     const withdrawInput = {
       amountRaw: effectiveAmountRaw,
       cluster,
-      feePayer: new PublicKey(walletAddress),
+      feePayer,
       policySigner,
       settingsPda: settingsPdaKey,
       target: withdrawTarget,

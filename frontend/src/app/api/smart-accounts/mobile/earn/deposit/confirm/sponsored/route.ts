@@ -37,6 +37,7 @@ type SponsoredConfirmation = Awaited<
 type MobileSponsoredConfirmFields = {
   preparedDeposit: WireSmartAccountPreparedEarnUsdcDeposit;
   depositTransaction: string;
+  kaminoSetupTransaction?: string;
   policyTransaction?: string;
   setupPolicyTransaction?: string;
 };
@@ -76,6 +77,7 @@ function parseMobileSponsoredConfirmFields(
     preparedDeposit:
       record.preparedDeposit as WireSmartAccountPreparedEarnUsdcDeposit,
     depositTransaction: record.depositTransaction,
+    kaminoSetupTransaction: optionalString(record.kaminoSetupTransaction),
     policyTransaction: optionalString(record.policyTransaction),
     setupPolicyTransaction: optionalString(record.setupPolicyTransaction),
   };
@@ -163,6 +165,7 @@ export async function POST(request: Request) {
 
   let policy: SponsoredConfirmation;
   let setupPolicy: SponsoredConfirmation | undefined;
+  let kaminoSetup: SponsoredConfirmation | null = null;
   let deposit: SponsoredConfirmation;
   try {
     const persistence = hydratePreparedEarnUsdcDeposit(
@@ -238,6 +241,12 @@ export async function POST(request: Request) {
         walletAddress,
       });
     }
+    if (fields.kaminoSetupTransaction) {
+      kaminoSetup = await executeSponsoredEarnPolicyTransaction(
+        fields.kaminoSetupTransaction,
+        guards.kaminoSetup
+      );
+    }
     deposit = await executeSponsoredEarnPolicyTransaction(
       fields.depositTransaction,
       guards.deposit
@@ -298,6 +307,7 @@ export async function POST(request: Request) {
       ...payload,
       sponsoredConfirmations: {
         deposit,
+        kaminoSetup,
         policy,
         setupPolicy: setupPolicy ?? null,
       },

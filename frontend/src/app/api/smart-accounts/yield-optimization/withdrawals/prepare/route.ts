@@ -9,6 +9,7 @@ import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/se
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 import {
   parseEarnWithdrawPrepareRequestBody,
   serializePreparedEarnUsdcWithdraw,
@@ -242,15 +243,18 @@ export async function POST(request: Request) {
 
   let amountRaw: bigint;
   let mode: "partial" | "full";
+  let sponsored = false;
   let selectedSourceRequest: ReturnType<
     typeof parseEarnWithdrawPrepareRequestBody
   >["source"];
   try {
-    ({
-      amountRaw,
-      mode,
-      source: selectedSourceRequest,
-    } = parseEarnWithdrawPrepareRequestBody(await request.json()));
+    const parsedBody = parseEarnWithdrawPrepareRequestBody(
+      await request.json()
+    );
+    amountRaw = parsedBody.amountRaw;
+    mode = parsedBody.mode;
+    selectedSourceRequest = parsedBody.source;
+    sponsored = parsedBody.sponsored === true;
   } catch (error) {
     return jsonError(
       400,
@@ -377,6 +381,9 @@ export async function POST(request: Request) {
       remainingIdleAmountRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW;
 
     const policySigner = getDeploymentPolicySignerPublicKey();
+    const feePayer = sponsored
+      ? getEarnPolicySponsorPublicKey()
+      : new PublicKey(principal.walletAddress);
     const client = createSmartAccountVaultsClient({
       connection,
       programId,
@@ -477,7 +484,7 @@ export async function POST(request: Request) {
     const withdrawInput = {
       amountRaw: effectiveAmountRaw,
       cluster,
-      feePayer: new PublicKey(principal.walletAddress),
+      feePayer,
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       target: earnReserveTargetFromActivePosition(position),
