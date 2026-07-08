@@ -36,9 +36,10 @@ export async function POST(request: Request) {
 
   let sponsored: boolean;
   try {
-    ({ sponsored } = parseEarnPolicyPrepareRequestBody(
+    const parsed = parseEarnPolicyPrepareRequestBody(
       await request.json().catch(() => ({}))
-    ));
+    );
+    sponsored = parsed.sponsored ?? false;
   } catch (error) {
     return jsonError(
       400,
