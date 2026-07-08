@@ -37,9 +37,39 @@ export type WireSmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
   };
 };
 
+export type EarnPolicyPrepareRequestBody = {
+  sponsored?: boolean;
+};
+
 export type EarnPolicyPrepareResponse = {
   preparedPolicy: WireSmartAccountPreparedEarnUsdcYieldRoutingPolicy;
 };
+
+type EarnPolicyPrepareRecord = Record<string, unknown>;
+
+function assertRequestObject(body: unknown): EarnPolicyPrepareRecord {
+  if (!body || typeof body !== "object") {
+    throw new Error("Request body must be an object.");
+  }
+
+  return body as EarnPolicyPrepareRecord;
+}
+
+export function parseEarnPolicyPrepareRequestBody(
+  body: unknown
+): EarnPolicyPrepareRequestBody {
+  const record = assertRequestObject(body);
+  const sponsored =
+    record.sponsored === undefined || record.sponsored === null
+      ? false
+      : record.sponsored;
+
+  if (typeof sponsored !== "boolean") {
+    throw new Error("sponsored must be a boolean when provided.");
+  }
+
+  return { sponsored };
+}
 
 export function serializePreparedEarnUsdcYieldRoutingPolicy(
   preparedPolicy: SmartAccountPreparedEarnUsdcYieldRoutingPolicy

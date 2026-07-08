@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { PublicKey } from "@solana/web3.js";
 
+import { getServerEnv } from "@/lib/core/config/server";
 import {
   parseEarnSponsoredPolicyConfirmRequestBody,
   type EarnPolicyConfirmRequestBody,
@@ -99,6 +101,15 @@ function responseBodyWithSponsoredConfirmations(args: {
   };
 }
 
+function sponsoredPolicyTransactionGuard(policyAccount: string) {
+  return {
+    allowedSmartAccountRentAccounts: [new PublicKey(policyAccount)],
+    allowedSmartAccountsProgramId: new PublicKey(
+      getServerEnv().loyalSmartAccounts.programId
+    ),
+  };
+}
+
 export async function POST(request: Request) {
   let input: SponsoredYieldRoutePolicyInput;
   try {
@@ -115,7 +126,8 @@ export async function POST(request: Request) {
   let setupPolicy: SponsoredTransactionConfirmation | undefined;
   try {
     policy = await executeSponsoredEarnPolicyTransaction(
-      input.policyTransaction
+      input.policyTransaction,
+      sponsoredPolicyTransactionGuard(input.policyAccount)
     );
   } catch (error) {
     if (error instanceof EarnPolicySponsoredTransactionError) {
@@ -161,8 +173,16 @@ export async function POST(request: Request) {
           message: "setupPolicyTransaction is required for policy setup.",
         });
       }
+      if (!input.setupPolicyAccount) {
+        throw new EarnPolicySponsoredTransactionError({
+          status: 400,
+          code: "missing_setup_policy_account",
+          message: "setupPolicyAccount is required for sponsored policy setup.",
+        });
+      }
       setupPolicy = await executeSponsoredEarnPolicyTransaction(
-        input.setupPolicyTransaction
+        input.setupPolicyTransaction,
+        sponsoredPolicyTransactionGuard(input.setupPolicyAccount)
       );
     } catch (error) {
       if (error instanceof EarnPolicySponsoredTransactionError) {

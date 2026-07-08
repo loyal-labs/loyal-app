@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { PublicKey } from "@solana/web3.js";
 
+import { getServerEnv } from "@/lib/core/config/server";
 import {
   parseEarnSponsoredAutodepositSetupConfirmRequestBody,
   type EarnAutodepositSetupConfirmRequestBody,
@@ -78,6 +80,21 @@ function responseBodyWithSponsoredConfirmations(args: {
   };
 }
 
+function sponsoredAutodepositSetupGuard(
+  input: SponsoredEarnAutodepositSetupInput
+) {
+  if (input.setupStage !== "create_policy") {
+    return undefined;
+  }
+
+  return {
+    allowedSmartAccountRentAccounts: [new PublicKey(input.policyAccount)],
+    allowedSmartAccountsProgramId: new PublicKey(
+      getServerEnv().loyalSmartAccounts.programId
+    ),
+  };
+}
+
 export async function POST(request: Request) {
   let input: SponsoredEarnAutodepositSetupInput;
   try {
@@ -94,7 +111,10 @@ export async function POST(request: Request) {
 
   let setup: Awaited<ReturnType<typeof executeSponsoredEarnPolicyTransaction>>;
   try {
-    setup = await executeSponsoredEarnPolicyTransaction(input.setupTransaction);
+    setup = await executeSponsoredEarnPolicyTransaction(
+      input.setupTransaction,
+      sponsoredAutodepositSetupGuard(input)
+    );
   } catch (error) {
     if (error instanceof EarnPolicySponsoredTransactionError) {
       return jsonError(error.status, error.code, error.message);

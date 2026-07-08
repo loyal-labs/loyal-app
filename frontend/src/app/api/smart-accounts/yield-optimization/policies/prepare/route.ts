@@ -9,7 +9,11 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaConnection } from "@/lib/solana/rpc-connection.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { serializePreparedEarnUsdcYieldRoutingPolicy } from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
+import {
+  parseEarnPolicyPrepareRequestBody,
+  serializePreparedEarnUsdcYieldRoutingPolicy,
+} from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
+import { getEarnPolicySponsorPublicKey } from "@/lib/yield-optimization/earn-policy-sponsored-transaction.server";
 
 function jsonError(
   status: number,
@@ -30,6 +34,19 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "No active auth session.");
   }
 
+  let sponsored: boolean;
+  try {
+    ({ sponsored } = parseEarnPolicyPrepareRequestBody(
+      await request.json().catch(() => ({}))
+    ));
+  } catch (error) {
+    return jsonError(
+      400,
+      "invalid_request",
+      error instanceof Error ? error.message : "Invalid request body."
+    );
+  }
+
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
 
@@ -43,6 +60,7 @@ export async function POST(request: Request) {
     const preparedPolicy = await client.prepareEarnUsdcYieldRoutingPolicy({
       cluster,
       feePayer: new PublicKey(principal.walletAddress),
+      ...(sponsored ? { rentPayer: getEarnPolicySponsorPublicKey() } : {}),
       settingsPda: new PublicKey(principal.settingsPda),
       signer: policySigner,
       walletAddress: new PublicKey(principal.walletAddress),

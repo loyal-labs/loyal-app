@@ -443,6 +443,7 @@ export type SmartAccountEarnUsdcYieldRoutingPolicyInput = {
   walletAddress: PublicKey;
   signer: PublicKey;
   feePayer: PublicKey;
+  rentPayer?: PublicKey;
   cluster?: LoyalCluster;
   target?: SmartAccountEarnUsdcReserveTargetInput;
   memo?: string;
@@ -815,6 +816,7 @@ export type SmartAccountEarnUsdcAutodepositSetupInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
   feePayer: PublicKey;
+  rentPayer?: PublicKey;
   signer: PublicKey;
   policySigner: PublicKey;
   amountRaw: bigint;
