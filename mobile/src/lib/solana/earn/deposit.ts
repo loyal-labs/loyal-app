@@ -38,8 +38,9 @@ export type EarnDepositResult = {
 // obligation (policyFinalize) as separate signed transactions; a top-up is
 // just the deposit. The deposited USDC routes into
 // Kamino Safe via the Earn vault. Recording into the web read-model is done via
-// the confirm call (best-effort — the on-chain deposit is the source of truth
-// and the backend reconciler backfills if confirm fails).
+// the confirm call (best-effort with retries — the on-chain deposit is the
+// source of truth and the backend earn-deposit-reconcile cron adopts any
+// deposit whose confirm is still lost).
 export async function executeEarnDeposit(args: {
   signer: Signer;
   amountUsd: number;
@@ -135,25 +136,37 @@ export async function executeEarnDeposit(args: {
 
   // Record into the web read-model, reusing the flow's prepare auth (no
   // second wallet prompt). Best-effort: never undo a confirmed on-chain
-  // deposit because the DB write failed — the reconciler backfills.
-  try {
-    await withEarnAuth(args.signer, prepareAuth, "earn-deposit-confirm", (auth) =>
-      confirmEarnDeposit({
-        auth,
-        preparedDeposit,
-        depositSignature: deposit.signature,
-        confirmedSlot: deposit.confirmedSlot,
-        policySignature: policy?.signature,
-        policyConfirmedSlot: policy?.confirmedSlot,
-        setupPolicySignature: setupPolicy?.signature,
-        setupPolicyConfirmedSlot: setupPolicy?.confirmedSlot,
-      }),
-    );
-  } catch (error) {
-    console.warn(
-      "[earn-deposit] confirm failed; reconciler will backfill",
-      error,
-    );
+  // deposit because the DB write failed. Retried because a confirm loss makes
+  // the deposit invisible in the app until the backend earn-deposit-reconcile
+  // cron adopts it (launch night: ~10% of confirms were lost to RPC-lag
+  // rejections; the server now retries its reads too, but network drops on
+  // this call remain). Each attempt is idempotent server-side.
+  const CONFIRM_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= CONFIRM_ATTEMPTS; attempt += 1) {
+    try {
+      await withEarnAuth(args.signer, prepareAuth, "earn-deposit-confirm", (auth) =>
+        confirmEarnDeposit({
+          auth,
+          preparedDeposit,
+          depositSignature: deposit.signature,
+          confirmedSlot: deposit.confirmedSlot,
+          policySignature: policy?.signature,
+          policyConfirmedSlot: policy?.confirmedSlot,
+          setupPolicySignature: setupPolicy?.signature,
+          setupPolicyConfirmedSlot: setupPolicy?.confirmedSlot,
+        }),
+      );
+      break;
+    } catch (error) {
+      if (attempt === CONFIRM_ATTEMPTS) {
+        console.warn(
+          "[earn-deposit] confirm failed after retries; the earn-deposit-reconcile cron will adopt this deposit",
+          error,
+        );
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+    }
   }
 
   // Tracked here (not in the sheets) so every deposit entry point counts once.
