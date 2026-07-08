@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { fetchTokenMarketsByMints } from "@/lib/market/token-markets.server";
+import {
+  TOKEN_MARKETS_RESPONSE_CACHE_CONTROL,
+  fetchTokenMarketsByMints,
+} from "@/lib/market/token-markets.server";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -19,12 +22,26 @@ export async function GET(request: Request) {
     .filter((value) => value.length > 0);
 
   if (mints.length === 0) {
-    return NextResponse.json({ markets: [] });
+    return NextResponse.json(
+      { markets: [] },
+      {
+        headers: {
+          "Cache-Control": TOKEN_MARKETS_RESPONSE_CACHE_CONTROL,
+        },
+      }
+    );
   }
 
   try {
     const markets = await fetchTokenMarketsByMints(mints);
-    return NextResponse.json({ markets });
+    return NextResponse.json(
+      { markets },
+      {
+        headers: {
+          "Cache-Control": TOKEN_MARKETS_RESPONSE_CACHE_CONTROL,
+        },
+      }
+    );
   } catch (error) {
     console.error("[api/tokens/markets] failed to fetch markets", error);
     return NextResponse.json(

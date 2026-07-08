@@ -2,7 +2,8 @@ import "server-only";
 
 const COINGECKO_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 const SOLANA_NETWORK = "solana";
-const TOKEN_MARKETS_CACHE_TTL_MS = 60 * 1000;
+const TOKEN_MARKETS_CACHE_TTL_SECONDS = 15 * 60;
+const TOKEN_MARKETS_CACHE_TTL_MS = TOKEN_MARKETS_CACHE_TTL_SECONDS * 1000;
 const MAX_MINTS_PER_CALL = 30;
 
 export type TokenMarket = {
@@ -30,6 +31,8 @@ type CacheEntry = {
 
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<TokenMarket[]>>();
+
+export const TOKEN_MARKETS_RESPONSE_CACHE_CONTROL = `public, max-age=60, s-maxage=${TOKEN_MARKETS_CACHE_TTL_SECONDS}, stale-while-revalidate=3600`;
 
 function getCoinGeckoApiKey(): string | null {
   return (
@@ -64,6 +67,9 @@ async function fetchTokenMarketsBatch(mints: string[]): Promise<TokenMarket[]> {
       "x-cg-pro-api-key": apiKey,
     },
     method: "GET",
+    next: {
+      revalidate: TOKEN_MARKETS_CACHE_TTL_SECONDS,
+    },
   });
 
   if (!response.ok) {
@@ -88,7 +94,7 @@ export async function fetchTokenMarketsByMints(
 ): Promise<TokenMarket[]> {
   const normalized = Array.from(
     new Set(mints.map((mint) => mint.trim()).filter((mint) => mint.length > 0))
-  );
+  ).sort();
 
   if (normalized.length === 0) {
     return [];
