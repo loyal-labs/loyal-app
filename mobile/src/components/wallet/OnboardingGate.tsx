@@ -2,7 +2,6 @@ import { Keypair } from "@solana/web3.js";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 import * as SeedVault from "expo-seed-vault";
-import type { VaultAccount } from "expo-seed-vault";
 import Animated, {
   Easing,
   FadeIn,
@@ -18,8 +17,10 @@ import { OnboardingSlidesScreen } from "@/components/wallet/OnboardingSlidesScre
 import {
   getSetupStartStep,
   type OnboardingStartStep,
+  type WalletConnectMode,
 } from "@/components/wallet/onboarding-slides";
 import { WalletSetupOnboardingScreen } from "@/components/wallet/WalletSetupOnboardingScreen";
+import { connectMwaWallet, isMwaSupported } from "@/lib/wallet/mwa-signer";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import { Text, View } from "@/tw";
 
@@ -49,7 +50,8 @@ const SCREEN_EXITING_ANIMATION = FadeOut.duration(160).easing(
 );
 
 export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
-  const { finalizeSigner, finalizeVaultSigner } = useWallet();
+  const { finalizeSigner, finalizeMwaSigner, finalizeVaultSigner } =
+    useWallet();
 
   const [step, setStep] = useState<Step>(() => getSetupStartStep(mode));
   const [flow, setFlow] = useState<Flow>(null);
@@ -57,13 +59,24 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [seedVaultAvailable, setSeedVaultAvailable] = useState(false);
-  const [seedVaultPending, setSeedVaultPending] = useState(false);
-  const [seedVaultError, setSeedVaultError] = useState<string | null>(null);
+  const [connectWalletPending, setConnectWalletPending] = useState(false);
+  const [connectWalletError, setConnectWalletError] = useState<string | null>(
+    null,
+  );
   const [transitionDirection, setTransitionDirection] =
     useState<TransitionDirection>("forward");
   const [screenAnimationsReady, setScreenAnimationsReady] = useState(false);
 
+  // MWA when the binary has the native module; direct Seed Vault as the
+  // legacy fallback on pre-MWA Seeker builds receiving this bundle via OTA.
+  const connectMode: WalletConnectMode = isMwaSupported()
+    ? "mwa"
+    : seedVaultAvailable
+      ? "seed-vault"
+      : "none";
+
   useEffect(() => {
+    if (isMwaSupported()) return;
     SeedVault.isAvailable().then(setSeedVaultAvailable);
   }, []);
 
@@ -108,47 +121,56 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     }
   }, [flow, pendingKeypair, pendingPin, finalizeSigner]);
 
-  const handleSeedVaultComplete = useCallback(
-    async (account: VaultAccount) => {
-      setFinalizing(true);
-      await finalizeVaultSigner(account);
-    },
-    [finalizeVaultSigner],
-  );
-
-  const handleUseSeedVault = useCallback(async () => {
-    if (seedVaultPending) return;
-    setSeedVaultError(null);
-    setSeedVaultPending(true);
-    try {
-      const granted = await SeedVault.requestPermission();
-      if (!granted) {
-        setSeedVaultError(
-          "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
-        );
-        return;
-      }
-      // Open the vault's seed picker first so the user can choose WHICH seed
-      // to connect (switching wallets = reset + reconnect; the picker only
-      // offers seeds not yet authorized for this app). Fall back to an
-      // already-authorized seed to recover orphaned auth tokens — also the
-      // case when every seed is already authorized and the picker has nothing
-      // to offer.
-      const account = await SeedVault.authorizeExistingSeed().catch(
-        async (authorizeError) => {
-          const existing = await SeedVault.listAuthorizedSeeds();
-          if (existing.length === 0) throw authorizeError;
-          return existing[0];
-        },
+  // Legacy fallback for pre-MWA Seeker builds: authorize a seed directly
+  // with the vault. Opens the vault's seed picker first so the user can
+  // choose WHICH seed to connect; falls back to an already-authorized seed
+  // to recover orphaned auth tokens.
+  const connectSeedVault = useCallback(async () => {
+    const granted = await SeedVault.requestPermission();
+    if (!granted) {
+      setConnectWalletError(
+        "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
       );
-      await handleSeedVaultComplete(account);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Seed Vault operation failed";
-      setSeedVaultError(msg);
-    } finally {
-      setSeedVaultPending(false);
+      return;
     }
-  }, [seedVaultPending, handleSeedVaultComplete]);
+    const account = await SeedVault.authorizeExistingSeed().catch(
+      async (authorizeError) => {
+        const existing = await SeedVault.listAuthorizedSeeds();
+        if (existing.length === 0) throw authorizeError;
+        return existing[0];
+      },
+    );
+    setFinalizing(true);
+    await finalizeVaultSigner(account);
+  }, [finalizeVaultSigner]);
+
+  const connectMwa = useCallback(async () => {
+    // Opens the MWA wallet chooser; the user picks the wallet app and
+    // account there. Null means they cancelled or declined — no error.
+    const account = await connectMwaWallet();
+    if (!account) return;
+    setFinalizing(true);
+    await finalizeMwaSigner(account);
+  }, [finalizeMwaSigner]);
+
+  const handleConnectWallet = useCallback(async () => {
+    if (connectWalletPending) return;
+    setConnectWalletError(null);
+    setConnectWalletPending(true);
+    try {
+      if (connectMode === "seed-vault") {
+        await connectSeedVault();
+      } else {
+        await connectMwa();
+      }
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "Wallet connection failed";
+      setConnectWalletError(msg);
+    } finally {
+      setConnectWalletPending(false);
+    }
+  }, [connectWalletPending, connectMode, connectSeedVault, connectMwa]);
 
   if (finalizing) {
     return (
@@ -186,12 +208,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   } else if (step === "setup-onboarding") {
     content = (
       <WalletSetupOnboardingScreen
-        seedVaultAvailable={seedVaultAvailable}
-        seedVaultPending={seedVaultPending}
-        seedVaultError={seedVaultError}
-        onUseSeedVault={() => {
+        connectMode={connectMode}
+        connectWalletPending={connectWalletPending}
+        connectWalletError={connectWalletError}
+        onConnectWallet={() => {
           setFlow(null);
-          void handleUseSeedVault();
+          void handleConnectWallet();
         }}
         onCreateWallet={() => {
           setFlow("create");

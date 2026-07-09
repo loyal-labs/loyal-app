@@ -230,7 +230,7 @@ describe("SeedVaultSigner", () => {
     mockListAuthorizedSeeds.mockResolvedValueOnce([]);
 
     await expect(signer.signMessage(new Uint8Array([0]))).rejects.toThrow(
-      /reconnect Seed Vault/i,
+      /reconnect your wallet/i,
     );
     expect(mockSignMessage).toHaveBeenCalledTimes(1); // no blind retry
     expect(mockClearVaultAccount).toHaveBeenCalledTimes(1);

@@ -19,6 +19,7 @@ import {
 import {
   buildWalletSetupActions,
   ONBOARDING_SLIDES,
+  type WalletConnectMode,
 } from "@/components/wallet/onboarding-slides";
 import { track } from "@/lib/analytics/analytics";
 import {
@@ -29,19 +30,19 @@ import { Pressable, Text, View } from "@/tw";
 import { Image } from "@/tw/image";
 
 type Props = {
-  seedVaultAvailable: boolean;
-  seedVaultPending?: boolean;
-  seedVaultError?: string | null;
-  onUseSeedVault: () => void;
+  connectMode: WalletConnectMode;
+  connectWalletPending?: boolean;
+  connectWalletError?: string | null;
+  onConnectWallet: () => void;
   onCreateWallet: () => void;
   onImportWallet: () => void;
 };
 
 export function WalletSetupOnboardingScreen({
-  seedVaultAvailable,
-  seedVaultPending = false,
-  seedVaultError = null,
-  onUseSeedVault,
+  connectMode,
+  connectWalletPending = false,
+  connectWalletError = null,
+  onConnectWallet,
   onCreateWallet,
   onImportWallet,
 }: Props) {
@@ -54,8 +55,8 @@ export function WalletSetupOnboardingScreen({
   const currentIndex = playbackState.currentIndex;
 
   const actions = useMemo(
-    () => buildWalletSetupActions(seedVaultAvailable),
-    [seedVaultAvailable],
+    () => buildWalletSetupActions(connectMode),
+    [connectMode],
   );
   const imageHeight = useMemo(
     () => Math.min(Math.max(height * 0.34, 220), 340),
@@ -70,7 +71,7 @@ export function WalletSetupOnboardingScreen({
   );
 
   const wrapWithEnded = useCallback(
-    (flow: "seed-vault" | "create" | "import", handler: () => void) =>
+    (flow: "connect-wallet" | "create" | "import", handler: () => void) =>
       () => {
         track(ONBOARDING_EVENTS.ended, {
           method: ONBOARDING_COMPLETION_METHODS.completed,
@@ -84,11 +85,11 @@ export function WalletSetupOnboardingScreen({
 
   const actionHandlers = useMemo(
     () => ({
-      "seed-vault": wrapWithEnded("seed-vault", onUseSeedVault),
+      "connect-wallet": wrapWithEnded("connect-wallet", onConnectWallet),
       create: wrapWithEnded("create", onCreateWallet),
       import: wrapWithEnded("import", onImportWallet),
     }),
-    [onCreateWallet, onImportWallet, onUseSeedVault, wrapWithEnded],
+    [onConnectWallet, onCreateWallet, onImportWallet, wrapWithEnded],
   );
 
   useEffect(() => {
@@ -202,9 +203,9 @@ export function WalletSetupOnboardingScreen({
         >
           {actions.map((action, index) => {
             const isPrimary = index === 0;
-            const isSeedVault = action.id === "seed-vault";
-            const showSpinner = isSeedVault && seedVaultPending;
-            const isDisabled = action.disabled || seedVaultPending;
+            const isConnectWallet = action.id === "connect-wallet";
+            const showSpinner = isConnectWallet && connectWalletPending;
+            const isDisabled = action.disabled || connectWalletPending;
             const pressableStyle = [
               isPrimary ? styles.primaryButton : styles.secondaryButton,
               isDisabled && styles.disabledButton,
@@ -241,8 +242,8 @@ export function WalletSetupOnboardingScreen({
                   )}
                 </Pressable>
 
-                {isSeedVault && seedVaultError ? (
-                  <Text style={styles.errorText}>{seedVaultError}</Text>
+                {isConnectWallet && connectWalletError ? (
+                  <Text style={styles.errorText}>{connectWalletError}</Text>
                 ) : action.helperText ? (
                   <Text style={styles.helperText}>{action.helperText}</Text>
                 ) : null}

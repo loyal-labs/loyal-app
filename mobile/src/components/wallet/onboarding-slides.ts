@@ -5,11 +5,19 @@ export type OnboardingSlide = {
 };
 
 export type WalletSetupAction = {
-  id: "seed-vault" | "create" | "import";
+  id: "connect-wallet" | "create" | "import";
   label: string;
   disabled: boolean;
   helperText?: string;
 };
+
+/**
+ * Which external-wallet connect path this binary supports: "mwa" on builds
+ * with the MWA native module, "seed-vault" as the legacy fallback on older
+ * Seeker builds receiving this bundle via OTA, "none" elsewhere (iOS,
+ * non-Seeker Android without MWA).
+ */
+export type WalletConnectMode = "mwa" | "seed-vault" | "none";
 
 export type OnboardingMode = "setup" | "replay";
 
@@ -25,17 +33,24 @@ export const ONBOARDING_SLIDES: OnboardingSlide[] = [
 ];
 
 export function buildWalletSetupActions(
-  seedVaultAvailable: boolean,
+  connectMode: WalletConnectMode,
 ): WalletSetupAction[] {
   return [
-    {
-      id: "seed-vault",
-      label: "Use Seed Vault",
-      disabled: !seedVaultAvailable,
-      helperText: !seedVaultAvailable
-        ? "Only available on Solana Seeker"
-        : undefined,
-    },
+    connectMode === "seed-vault"
+      ? {
+          id: "connect-wallet",
+          label: "Use Seed Vault",
+          disabled: false,
+        }
+      : {
+          id: "connect-wallet",
+          label: "Connect Wallet",
+          disabled: connectMode === "none",
+          helperText:
+            connectMode === "none"
+              ? "Only available on Android"
+              : "Phantom, Solflare, or Seed Vault",
+        },
     {
       id: "create",
       label: "Create New Wallet",

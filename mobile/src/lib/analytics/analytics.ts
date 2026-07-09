@@ -77,7 +77,7 @@ export function track(event: string, properties?: AnalyticsProperties): void {
 
 export function identifyWallet(
   publicKey: string,
-  source: "created" | "imported" | "vault",
+  source: "created" | "imported" | "vault" | "mwa",
 ): void {
   const distinctId = `mob:${publicKey}`;
   identifyDatadogUser({

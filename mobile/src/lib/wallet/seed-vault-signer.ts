@@ -17,7 +17,7 @@ const MAX_SIGNING_REQUESTS_PER_PROMPT = 3;
 const INVALID_AUTH_TOKEN_RESULT = /\bresult=1002\b/;
 
 const RECONNECT_MESSAGE =
-  "Seed Vault authorization is no longer valid. Reset your wallet in Settings and reconnect Seed Vault.";
+  "Seed Vault authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.";
 
 function isInvalidAuthTokenError(error: unknown): boolean {
   return (

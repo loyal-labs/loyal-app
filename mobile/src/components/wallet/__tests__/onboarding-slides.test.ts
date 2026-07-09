@@ -19,24 +19,34 @@ describe("ONBOARDING_SLIDES", () => {
 });
 
 describe("buildWalletSetupActions", () => {
-  it("marks Seed Vault unavailable when the device does not support it", () => {
-    expect(buildWalletSetupActions(false)[0]).toMatchObject({
-      id: "seed-vault",
+  it("marks Connect Wallet unavailable when no external wallet path exists", () => {
+    expect(buildWalletSetupActions("none")[0]).toMatchObject({
+      id: "connect-wallet",
+      label: "Connect Wallet",
       disabled: true,
-      helperText: "Only available on Solana Seeker",
+      helperText: "Only available on Android",
     });
   });
 
-  it("enables Seed Vault and clears the helper text when available", () => {
-    expect(buildWalletSetupActions(true)[0]).toMatchObject({
-      id: "seed-vault",
+  it("enables Connect Wallet and names supported wallets on MWA builds", () => {
+    expect(buildWalletSetupActions("mwa")[0]).toMatchObject({
+      id: "connect-wallet",
+      label: "Connect Wallet",
       disabled: false,
-      helperText: undefined,
+      helperText: "Phantom, Solflare, or Seed Vault",
+    });
+  });
+
+  it("falls back to the direct Seed Vault action on pre-MWA Seeker builds", () => {
+    expect(buildWalletSetupActions("seed-vault")[0]).toMatchObject({
+      id: "connect-wallet",
+      label: "Use Seed Vault",
+      disabled: false,
     });
   });
 
   it("keeps create and import actions enabled", () => {
-    const actions = buildWalletSetupActions(false);
+    const actions = buildWalletSetupActions("none");
     expect(actions[1].disabled).toBe(false);
     expect(actions[2].disabled).toBe(false);
   });
