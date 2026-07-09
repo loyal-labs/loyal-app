@@ -230,6 +230,12 @@ const KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL =
   "/api/kamino/klend/deposit-instructions";
 const KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL =
   "/api/kamino/klend/withdraw-instructions";
+// React Native defines `window` but has no CORS and no web origin — the
+// relative browser proxy paths above would resolve against the Metro/dev
+// host and 404. Only real browser pages route through the Next.js proxy;
+// React Native calls the Kamino API directly, like the server.
+const IS_REACT_NATIVE =
+  typeof navigator !== "undefined" && navigator.product === "ReactNative";
 const KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS = 39_532_800;
 const KAMINO_FARMS_PROGRAM_ID = new PublicKey(
   "FarmsPZpWu9i7Kky8tPN37rs2TpmMrAZrC7S7vJa91Hr"
@@ -2265,7 +2271,7 @@ async function fetchKaminoDepositInstruction(args: {
     amount,
   };
   const response = await fetch(
-    typeof window === "undefined"
+    typeof window === "undefined" || IS_REACT_NATIVE
       ? KAMINO_DEPOSIT_INSTRUCTIONS_URL
       : KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL,
     {
@@ -2298,7 +2304,7 @@ async function fetchKaminoWithdrawInstruction(args: {
   wallet: PublicKey;
 }): Promise<KaminoInstructionBundle> {
   const response = await fetch(
-    typeof window === "undefined"
+    typeof window === "undefined" || IS_REACT_NATIVE
       ? KAMINO_WITHDRAW_INSTRUCTIONS_URL
       : KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL,
     {
