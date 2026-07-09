@@ -204,7 +204,10 @@ function resolveEarnAutodepositStatus(
 }
 
 function hasRecordedAutodepositPolicy(
-  target: Pick<BalanceSweepTargetRecord, "policyConfirmedSlot" | "policySignature">
+  target: Pick<
+    BalanceSweepTargetRecord,
+    "policyConfirmedSlot" | "policySignature"
+  >
 ): boolean {
   return Boolean(
     target.policySignature &&
@@ -867,8 +870,7 @@ export async function findPendingEarnAutodepositScheduledSweeps(
     ORDER BY aggregated.eligible_after ASC, aggregated.first_lot_created_at ASC NULLS LAST, aggregated.slot_id ASC
   `);
 
-  const executeNowAvailableAt =
-    resolveEarnAutodepositDelegationReadyAt(target);
+  const executeNowAvailableAt = resolveEarnAutodepositDelegationReadyAt(target);
 
   return getExecuteRows(queryResult).map((row) => ({
     classification: String(row.classification),
@@ -1541,7 +1543,10 @@ function resolveMergedLastSeen(args: {
   existing: BalanceSweepTargetRecord | null;
   input: ConfirmedEarnAutodepositSetupInput;
 }): { lastSeenSignature: string; lastSeenSlot: bigint } {
-  if (!args.existing || args.input.confirmedSlot >= args.existing.lastSeenSlot) {
+  if (
+    !args.existing ||
+    args.input.confirmedSlot >= args.existing.lastSeenSlot
+  ) {
     return {
       lastSeenSignature: args.input.setupSignature,
       lastSeenSlot: args.input.confirmedSlot,
@@ -1564,8 +1569,12 @@ function mergedTargetActiveSql() {
 function mergedTargetLifecycleStatusSql() {
   return sql`CASE
     WHEN ${mergedTargetActiveSql()} THEN 'active'
-    WHEN COALESCE(${balanceSweepTargets.policySignature}, excluded.policy_signature) IS NOT NULL
-      AND COALESCE(${balanceSweepTargets.policyConfirmedSlot}, excluded.policy_confirmed_slot) IS NOT NULL
+    WHEN COALESCE(${
+      balanceSweepTargets.policySignature
+    }, excluded.policy_signature) IS NOT NULL
+      AND COALESCE(${
+        balanceSweepTargets.policyConfirmedSlot
+      }, excluded.policy_confirmed_slot) IS NOT NULL
       THEN 'pending_delegation'
     ELSE 'pending_policy'
   END`;
@@ -1772,6 +1781,73 @@ export async function recordConfirmedAutodepositDelegation(
   }
 
   return recordAutodepositSetupConfirmation(input, dependencies);
+}
+
+export async function recordConfirmedAutodepositTokenApproval(
+  input: ConfirmedEarnAutodepositSetupInput,
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  if (input.setupStage !== "approve_token_delegate") {
+    throw new Error(
+      "Autodeposit token approval repair requires approval stage."
+    );
+  }
+
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const existing = await findTargetForAutodepositSetup({
+    client,
+    policyAccount: input.policyAccount,
+    recurringDelegation: input.recurringDelegation,
+  });
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist for approval repair.");
+  }
+  assertTargetCanResumeAutodepositSetup(existing, input);
+  if (!hasRecordedAutodepositPolicy(existing)) {
+    throw new Error("Autodeposit approval repair requires a recorded policy.");
+  }
+  if (!hasRecordedAutodepositDelegation(existing)) {
+    throw new Error(
+      "Autodeposit approval repair requires a recorded recurring delegation."
+    );
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: true,
+      cluster: input.cluster,
+      closeSignature: null,
+      closeSlot: null,
+      closedAt: null,
+      delegatedSigners: [input.delegatedSigner],
+      lastSeenAt: now,
+      lastSeenSignature: input.setupSignature,
+      lastSeenSlot: input.confirmedSlot,
+      lifecycleStatus: "active",
+      maxAmountPerPeriod: input.amountPerPeriodRaw,
+      periodLengthSeconds: input.periodLengthSeconds,
+      recurringDelegationExpiryTimestamp: input.expiryTimestamp,
+      recurringDelegationNonce: input.nonce,
+      startTimestamp: input.startTimestamp,
+      subscriptionAuthority: input.subscriptionAuthority,
+      tokenMint: input.liquidityMint,
+      vaultPubkey: input.vaultPubkey,
+      vaultTokenAta: input.vaultUsdcAta,
+      vaultUsdcAta: input.vaultUsdcAta,
+      walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+      walletTokenAta: input.walletUsdcAta,
+      walletUsdcAta: input.walletUsdcAta,
+    })
+    .where(eq(balanceSweepTargets.id, existing.id))
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to record autodeposit approval repair.");
+  }
+
+  return target;
 }
 
 export async function recordClosedAutodepositTarget(
@@ -2345,10 +2421,10 @@ export async function markAutodepositTargetPendingDelegation(
   const [target] = await client.db
     .update(balanceSweepTargets)
     .set({
-        active: false,
-        lastSeenAt: dependencies.now(),
-        lifecycleStatus: input.lifecycleStatus ?? "pending_delegation",
-      })
+      active: false,
+      lastSeenAt: dependencies.now(),
+      lifecycleStatus: input.lifecycleStatus ?? "pending_delegation",
+    })
     .where(
       and(
         eq(balanceSweepTargets.policyAccount, input.policyAccount),
@@ -2566,13 +2642,17 @@ export async function backfillAutodepositTargetStageProofs(
       ...(input.policyProof
         ? {
             policySignature: sql`COALESCE(${balanceSweepTargets.policySignature}, ${input.policyProof.signature})`,
-            policyConfirmedSlot: sql`COALESCE(${balanceSweepTargets.policyConfirmedSlot}, ${input.policyProof.confirmedSlot.toString()}::bigint)`,
+            policyConfirmedSlot: sql`COALESCE(${
+              balanceSweepTargets.policyConfirmedSlot
+            }, ${input.policyProof.confirmedSlot.toString()}::bigint)`,
           }
         : {}),
       ...(input.recurringDelegationProof
         ? {
             recurringDelegationSignature: sql`COALESCE(${balanceSweepTargets.recurringDelegationSignature}, ${input.recurringDelegationProof.signature})`,
-            recurringDelegationConfirmedSlot: sql`COALESCE(${balanceSweepTargets.recurringDelegationConfirmedSlot}, ${input.recurringDelegationProof.confirmedSlot.toString()}::bigint)`,
+            recurringDelegationConfirmedSlot: sql`COALESCE(${
+              balanceSweepTargets.recurringDelegationConfirmedSlot
+            }, ${input.recurringDelegationProof.confirmedSlot.toString()}::bigint)`,
           }
         : {}),
     })
