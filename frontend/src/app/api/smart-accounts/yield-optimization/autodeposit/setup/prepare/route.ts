@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -19,6 +20,7 @@ import {
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -96,6 +98,41 @@ export async function POST(request: Request) {
           "An Autodeposit is already active for this wallet. Delete it before creating a new one."
         );
       }
+    }
+
+    // An Autodeposit sweep can only route into an ACTIVE Earn position — the
+    // route policy is created by a user-signed deposit, and the sweep worker
+    // (delegate) can't initialize one. Without this gate a setup on an empty
+    // Earn (e.g. after a full withdrawal) strands every sweep as a perpetual
+    // worker failure ("no active Earn route policy"). Fail open on lookup
+    // errors: the worker's refusal remains the last line. Keep in sync with
+    // the mobile twin route.
+    try {
+      const [earnVaultPda] = pda.getSmartAccountPda({
+        accountIndex: 1,
+        programId: new PublicKey(getServerEnv().loyalSmartAccounts.programId),
+        settingsPda: new PublicKey(principal.settingsPda),
+      });
+      const policyPair = await findActiveYieldRoutePolicyPair({
+        authority: principal.walletAddress,
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: 1,
+        vaultPubkey: earnVaultPda.toBase58(),
+      });
+      if (!policyPair?.routePolicy) {
+        return jsonError(
+          409,
+          "earn_position_required",
+          "Autodeposit needs an active Earn account to deposit into. Make a deposit first."
+        );
+      }
+    } catch (error) {
+      console.warn("[autodeposit-setup-prepare] earn position gate skipped", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown gate error.",
+        walletAddress: principal.walletAddress,
+      });
     }
 
     const serverEnv = getServerEnv();
