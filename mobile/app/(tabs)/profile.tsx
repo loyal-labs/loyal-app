@@ -9,7 +9,6 @@ import {
   ChevronRight,
   CircleHelp,
   Fingerprint,
-  FlaskConical,
   Globe,
   Heart,
   Key,
@@ -23,13 +22,7 @@ import { Alert, StyleSheet, Switch } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
-import { useActivity } from "@/features/activity/model/ActivityProvider";
-import {
-  getExperimentalFeatures,
-  getShowTips,
-  setExperimentalFeatures,
-  setShowTips,
-} from "@/lib/settings";
+import { getShowTips, setShowTips } from "@/lib/settings";
 import { mmkv } from "@/lib/storage";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
@@ -163,9 +156,6 @@ export default function ProfileScreen() {
     () => mmkv.getBoolean(ANALYTICS_OPT_IN_KEY) ?? true,
   );
   const [showTips, setShowTipsState] = useState(getShowTips);
-  const [experimentalFeatures, setExperimentalFeaturesState] = useState(
-    getExperimentalFeatures,
-  );
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
@@ -175,7 +165,6 @@ export default function ProfileScreen() {
 
   const wallet = useWallet();
   const router = useRouter();
-  const { refreshEarnRefunds } = useActivity();
   const isUnlocked = isWalletUnlocked(wallet.state);
   const isVaultBacked = wallet.state === "vault-unlocked";
 
@@ -226,30 +215,6 @@ export default function ProfileScreen() {
     setShowTipsState(value);
     setShowTips(value);
   }, []);
-
-  // Enabling experimental features immediately scans for refundable closed
-  // Earn accounts (read-only, no Seed Vault prompt) and, when any exist, takes
-  // the user to the Earn feed where the Refund rows are pinned. Disabling
-  // rescans too — with the flag off the scan resolves empty and clears rows.
-  const handleExperimentalToggle = useCallback(
-    (value: boolean) => {
-      if (process.env.EXPO_OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      setExperimentalFeaturesState(value);
-      setExperimentalFeatures(value);
-      void (async () => {
-        const refunds = await refreshEarnRefunds();
-        if (value && refunds.length > 0) {
-          router.navigate({
-            pathname: "/(tabs)/activity",
-            params: { section: "earn" },
-          });
-        }
-      })();
-    },
-    [refreshEarnRefunds, router],
-  );
 
   const handleBiometricToggle = useCallback(
     (value: boolean) => {
@@ -366,7 +331,7 @@ export default function ProfileScreen() {
           />
         </SettingsSection>
 
-        {/* Tips + experimental */}
+        {/* Tips */}
         <SettingsSection>
           <ProfileCell
             icon={
@@ -377,21 +342,6 @@ export default function ProfileScreen() {
             toggle={{
               value: showTips,
               onValueChange: handleShowTipsToggle,
-            }}
-          />
-          <ProfileCell
-            icon={
-              <FlaskConical
-                size={28}
-                strokeWidth={1.5}
-                color="rgba(0,0,0,0.6)"
-              />
-            }
-            title="Experimental features"
-            subtitle="Early features, like Earn rent refunds in Activity"
-            toggle={{
-              value: experimentalFeatures,
-              onValueChange: handleExperimentalToggle,
             }}
           />
         </SettingsSection>

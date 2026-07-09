@@ -147,7 +147,7 @@ const REFUND_SUBTITLES: Record<EarnRefundItem["kind"], string> = {
   vault: "Earn account rent",
 };
 
-// A refundable closed Earn account (experimental): rent we can return to the
+// A refundable closed Earn account: rent we can return to the
 // wallet. Funds flow Earn -> Main, so it shows the withdraw icon.
 function EarnRefundRow({
   item,

@@ -31,6 +31,7 @@ import { PositionsSheet } from "@/components/earn/PositionsSheet";
 import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { Skeleton } from "@/components/Skeleton";
+import { useActivity } from "@/features/activity/model/ActivityProvider";
 import { refreshEarnEarningsCache } from "@/hooks/wallet/useEarnEarnings";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -246,6 +247,17 @@ export default function EarnScreen() {
 
   // Quests deep-links here to open a sheet (?open=deposit | autodeposit).
   const router = useRouter();
+
+  // Refundable closed Earn accounts (empty when nothing is refundable).
+  // A non-empty scan surfaces a Refund pill beside the balance that routes
+  // to the Earn activity feed, where the refund rows live.
+  const { earnRefunds } = useActivity();
+  const handleOpenRefunds = useCallback(() => {
+    router.navigate({
+      pathname: "/(tabs)/activity",
+      params: { section: "earn" },
+    });
+  }, [router]);
   const openParam = useLocalSearchParams<{ open?: string }>();
   useEffect(() => {
     const open = openParam.open;
@@ -937,18 +949,33 @@ export default function EarnScreen() {
 
             <View style={styles.balanceRow}>
               <Text style={styles.balanceLabel}>Earn Balance</Text>
-              {balanceLoading ? (
-                <Skeleton style={styles.balanceSkeleton} />
-              ) : (
-                <Text style={styles.balanceValue}>
-                  <Text style={styles.balanceValueStrong}>
-                    {balanceParts.whole}
+              <View style={styles.balanceValueRow}>
+                {balanceLoading ? (
+                  <Skeleton style={styles.balanceSkeleton} />
+                ) : (
+                  <Text style={styles.balanceValue}>
+                    <Text style={styles.balanceValueStrong}>
+                      {balanceParts.whole}
+                    </Text>
+                    <Text style={styles.balanceValueDim}>
+                      {balanceParts.cents}
+                    </Text>
                   </Text>
-                  <Text style={styles.balanceValueDim}>
-                    {balanceParts.cents}
-                  </Text>
-                </Text>
-              )}
+                )}
+                {earnRefunds.length > 0 ? (
+                  <Pressable
+                    onPress={handleOpenRefunds}
+                    accessibilityRole="button"
+                    accessibilityLabel="View refundable accounts"
+                    style={({ pressed }) => [
+                      styles.refundButton,
+                      { opacity: pressed ? 0.8 : 1 },
+                    ]}
+                  >
+                    <Text style={styles.refundLabel}>Refund</Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
 
             <View style={styles.actionRow}>
@@ -1261,11 +1288,30 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: COLOR_LABEL_DIM,
   },
+  balanceValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   balanceValue: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 36,
     lineHeight: 48,
     letterSpacing: -0.4,
+  },
+  refundButton: {
+    height: 36,
+    paddingHorizontal: 18,
+    borderRadius: 78,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLOR_WITHDRAW_BG,
+  },
+  refundLabel: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 15,
+    lineHeight: 20,
+    color: "#000",
   },
   balanceValueStrong: {
     fontFamily: "Geist_600SemiBold",

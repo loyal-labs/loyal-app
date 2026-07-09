@@ -18,7 +18,6 @@ import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
-import { getExperimentalFeatures } from "@/lib/settings";
 import { executeEarnAutodepositScheduledSweep } from "@/lib/solana/earn/autodeposit";
 import {
   fetchEarnRefundScan,
@@ -75,7 +74,7 @@ type ActivityContextValue = {
   anyUnread: boolean;
   /** Mark a section as seen, clearing its dot. */
   markSeen: (section: ActivitySection) => void;
-  /** Refundable closed Earn accounts (experimental; empty when the toggle is off). */
+  /** Refundable closed Earn accounts (empty when nothing is refundable). */
   earnRefunds: EarnRefundItem[];
   /** Rescan for refundable accounts; resolves to the fresh list. */
   refreshEarnRefunds: () => Promise<EarnRefundItem[]>;
@@ -349,12 +348,11 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const [earnRefunds, setEarnRefunds] = useState<EarnRefundItem[]>([]);
   const [refundingAccount, setRefundingAccount] = useState<string | null>(null);
 
-  // Scan for refundable closed Earn accounts. Only when the experimental
-  // toggle is on (off → clears any rows) and read-only — never prompts Seed
-  // Vault. Resolves to the fresh list so the Settings toggle can decide
-  // whether to route the user to the Earn feed.
+  // Scan for refundable closed Earn accounts. Read-only — never prompts Seed
+  // Vault. Resolves to the fresh list so callers can route the user to the
+  // Earn feed when refunds exist.
   const refreshEarnRefunds = useCallback(async (): Promise<EarnRefundItem[]> => {
-    if (!publicKey || !getExperimentalFeatures()) {
+    if (!publicKey) {
       setEarnRefunds([]);
       return [];
     }
@@ -396,9 +394,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     }
   }, [publicKey]);
 
-  // Auto-scan on start / wallet change when the toggle is already on. The
-  // Settings toggle triggers its own scan on enable, so this only covers
-  // sessions that begin with the flag set.
+  // Auto-scan on start / wallet change.
   useEffect(() => {
     void refreshEarnRefunds();
   }, [refreshEarnRefunds]);

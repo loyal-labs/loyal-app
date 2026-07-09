@@ -824,12 +824,12 @@ export async function fetchSolanaWeekQuestProgress(
   return (await res.json()) as SolanaWeekQuestProgressResponse;
 }
 
-// --- Rent refunds (experimental) -------------------------------------------
+// --- Rent refunds -----------------------------------------------------------
 //
 // Scan for closed Earn accounts still holding refundable rent: dead vault
 // policies, revoked/expired recurring delegations, and the vault itself
 // (stranded setup SOL + token-account rents). Wallet-keyed and read-only —
-// no signature (like `state`), so the experimental auto-scan never prompts
+// no signature (like `state`), so the auto-scan never prompts
 // Seed Vault. Only `prepare` (which returns a signable transaction) is
 // wallet-signed.
 
