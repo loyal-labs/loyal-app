@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { Alert } from "react-native";
 
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { useEarnActivity } from "@/hooks/wallet/useEarnActivity";
@@ -272,6 +273,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       await Promise.all([refreshAutodeposit(), refreshEarnTransactions()]);
     } catch (error) {
       console.warn("[autodeposit] execute scheduled sweep failed", error);
+      Alert.alert(
+        "Deposit didn't complete",
+        "The deposit didn't complete this time. Please wait 1 minute and try again.",
+      );
     } finally {
       setIsExecutingSweep(false);
     }
@@ -422,6 +427,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         // Row stays for a retry; the backend re-verifies on every prepare.
         console.warn("[earn-refunds] refund failed", error);
+        Alert.alert(
+          "Refund didn't complete",
+          "Refund didn't complete this time. Please wait 1 minute and try again.",
+        );
       } finally {
         setRefundingAccount(null);
       }
