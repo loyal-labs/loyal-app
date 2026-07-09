@@ -73,6 +73,7 @@ import {
   AccountLayout,
   createAssociatedTokenAccountIdempotentInstruction,
   createCloseAccountInstruction,
+  createRevokeInstruction,
   createTransferCheckedInstruction,
   decodeTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
@@ -115,6 +116,8 @@ import type {
   SmartAccountCustomInstructionProposalInput,
   SmartAccountEarnUsdcCleanupInput,
   SmartAccountEarnUsdcDepositInput,
+  SmartAccountEarnVaultRefundInput,
+  SmartAccountEarnVaultRefundSnapshot,
   SmartAccountEarnUsdcReserveTargetInput,
   SmartAccountEarnUsdcYieldRoutingPolicyInput,
   SmartAccountNativeSolRequirement,
@@ -128,6 +131,7 @@ import type {
   SmartAccountPreparedEarnUsdcAutodepositSetup,
   SmartAccountPreparedEarnUsdcCleanup,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnVaultRefund,
   SmartAccountPreparedEarnUsdcWithdrawStep,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   SmartAccountPreparedEarnUsdcWithdraw,
@@ -2517,6 +2521,7 @@ function makeSignerWritable(
 function createEarnFullWithdrawCleanupInstructions(args: {
   vaultCollateralAtas?: PublicKey[];
   vaultPda: PublicKey;
+  vaultSweepLamports?: bigint;
   vaultUsdcAta: PublicKey;
   walletAddress: PublicKey;
 }): TransactionInstruction[] {
@@ -2549,7 +2554,42 @@ function createEarnFullWithdrawCleanupInstructions(args: {
     )
   );
 
+  // Refund the vault PDA's SOL on final exit. The first deposit tops the vault
+  // up with KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS but the Kamino setup only
+  // spends part of it — without this sweep the remainder (~0.024 SOL) strands
+  // on the vault forever. The Kamino obligation and farms user-state rents are
+  // NOT recoverable: klend/kfarms have no close instructions; those accounts
+  // are reused by the wallet's next deposit. Amount is the prepare-time
+  // balance: anything that lands later stays as dust for the next exit.
+  const vaultSweepLamports = args.vaultSweepLamports ?? BigInt(0);
+  if (vaultSweepLamports > BigInt(0)) {
+    instructions.push(
+      SystemProgram.transfer({
+        fromPubkey: args.vaultPda,
+        toPubkey: args.walletAddress,
+        lamports: vaultSweepLamports,
+      })
+    );
+  }
+
   return instructions;
+}
+
+// Prepare-time read of the vault PDA's SOL for the final-exit sweep. Feature-
+// checked like the deposit-side top-up read: some injected connections don't
+// implement getBalance — sweeping 0 there simply skips the refund.
+async function getVaultSweepLamportsOrZero(
+  connection: Connection,
+  vaultPda: PublicKey
+): Promise<bigint> {
+  if (typeof connection.getBalance !== "function") {
+    return BigInt(0);
+  }
+  try {
+    return BigInt(await connection.getBalance(vaultPda, "confirmed"));
+  } catch {
+    return BigInt(0);
+  }
 }
 
 async function getTokenAccountAmountOrZero(
@@ -2724,9 +2764,14 @@ function calculateRedeemableAmountOrFallback(args: {
 
 async function simulatePreparedTokenAccountAmount(args: {
   connection: Connection;
+  // Optional extra account whose POST-simulation lamports are wanted (the
+  // Earn vault PDA: klend's v2 full withdraw closes the emptied obligation
+  // and refunds its rent to the vault mid-transaction, so a prepare-time
+  // balance read misses it — only the simulated post-state sees it).
+  lamportAccount?: PublicKey;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   tokenAccount: PublicKey;
-}): Promise<bigint> {
+}): Promise<{ amountRaw: bigint; lamportAccountLamports: bigint | null }> {
   const blockhash = await args.connection.getLatestBlockhash("confirmed");
   const transaction = compilePreparedOperation({
     blockhash: blockhash.blockhash,
@@ -2734,7 +2779,10 @@ async function simulatePreparedTokenAccountAmount(args: {
   });
   const simulation = await args.connection.simulateTransaction(transaction, {
     accounts: {
-      addresses: [args.tokenAccount.toBase58()],
+      addresses: [
+        args.tokenAccount.toBase58(),
+        ...(args.lamportAccount ? [args.lamportAccount.toBase58()] : []),
+      ],
       encoding: "base64",
     },
     commitment: "confirmed",
@@ -2750,14 +2798,23 @@ async function simulatePreparedTokenAccountAmount(args: {
     );
   }
 
+  const lamportAccountInfo = args.lamportAccount
+    ? simulation.value.accounts?.[1]
+    : null;
+  const lamportAccountLamports =
+    lamportAccountInfo != null ? BigInt(lamportAccountInfo.lamports) : null;
+
   const account = simulation.value.accounts?.[0];
   const accountData = account?.data;
   if (!accountData || !Array.isArray(accountData)) {
-    return BigInt(0);
+    return { amountRaw: BigInt(0), lamportAccountLamports };
   }
 
   const data = Buffer.from(accountData[0] as string, "base64");
-  return AccountLayout.decode(data).amount;
+  return {
+    amountRaw: AccountLayout.decode(data).amount,
+    lamportAccountLamports,
+  };
 }
 
 function formatProposalTokenAmount(
@@ -6882,6 +6939,10 @@ export function createSmartAccountVaultsClient(
       const cleanupInstructions = isFinalExit
         ? createEarnFullWithdrawCleanupInstructions({
             vaultPda,
+            vaultSweepLamports: await getVaultSweepLamportsOrZero(
+              config.connection,
+              vaultPda
+            ),
             vaultUsdcAta,
             walletAddress: args.walletAddress,
           })
@@ -7491,6 +7552,9 @@ export function createSmartAccountVaultsClient(
     const fullWithdrawVaultUsdcRemainderRaw = isFinalExit
       ? await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta)
       : BigInt(0);
+    const fullWithdrawVaultSweepLamports = isFinalExit
+      ? await getVaultSweepLamportsOrZero(config.connection, vaultPda)
+      : BigInt(0);
 
     const reserveWithdrawals = (
       await Promise.all(
@@ -7551,30 +7615,44 @@ export function createSmartAccountVaultsClient(
         isFinalExit && isFinalBatch
           ? fullWithdrawVaultUsdcRemainderRaw
           : await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta);
-      const simulatedVaultUsdcAmountRaw =
-        await simulatePreparedTokenAccountAmount({
-          connection: config.connection,
-          prepared: freezePreparedOperation({
-            operation: "earnUsdcWithdrawPrefixSimulation",
-            payer: args.feePayer,
-            programId: smartAccountsClient.programId,
-            requiresConfirmation: false,
-            instructions: [
-              createAssociatedTokenAccountIdempotentInstruction(
-                args.feePayer,
-                walletUsdcAta,
-                args.walletAddress,
-                usdcMint,
-                TOKEN_PROGRAM_ID
-              ),
-              ...withdrawPrefixExecution.instructions,
-            ],
-            lookupTableAccounts: dedupeLookupTableAccounts(
-              withdrawPrefixExecution.lookupTableAccounts ?? []
+      const {
+        amountRaw: simulatedVaultUsdcAmountRaw,
+        lamportAccountLamports: simulatedVaultLamports,
+      } = await simulatePreparedTokenAccountAmount({
+        connection: config.connection,
+        lamportAccount: isFinalExit && isFinalBatch ? vaultPda : undefined,
+        prepared: freezePreparedOperation({
+          operation: "earnUsdcWithdrawPrefixSimulation",
+          payer: args.feePayer,
+          programId: smartAccountsClient.programId,
+          requiresConfirmation: false,
+          instructions: [
+            createAssociatedTokenAccountIdempotentInstruction(
+              args.feePayer,
+              walletUsdcAta,
+              args.walletAddress,
+              usdcMint,
+              TOKEN_PROGRAM_ID
             ),
-          }),
-          tokenAccount: vaultUsdcAta,
-        });
+            ...withdrawPrefixExecution.instructions,
+          ],
+          lookupTableAccounts: dedupeLookupTableAccounts(
+            withdrawPrefixExecution.lookupTableAccounts ?? []
+          ),
+        }),
+        tokenAccount: vaultUsdcAta,
+      });
+      // Sweep what the vault will hold AFTER the withdraw prefix runs: klend's
+      // v2 full withdraw closes the emptied obligation and refunds its rent
+      // (~0.024 SOL) to the vault inside this same transaction, so the
+      // simulated post-state is the correct amount — the prepare-time balance
+      // is only a fallback. With 3+ reserves the earlier batches' obligation
+      // refunds land after this simulation and stay as vault dust for the
+      // cleanup flow; the sweep can only undershoot, never overdraw.
+      const vaultSweepLamports =
+        isFinalExit && isFinalBatch
+          ? simulatedVaultLamports ?? fullWithdrawVaultSweepLamports
+          : BigInt(0);
       const simulatedRedeemedOnlyAmountRaw = resolveSimulatedRedeemedAmountRaw({
         currentVaultUsdcAmountRaw,
         simulatedVaultUsdcAmountRaw,
@@ -7631,6 +7709,7 @@ export function createSmartAccountVaultsClient(
           ? createEarnFullWithdrawCleanupInstructions({
               vaultCollateralAtas: uniqueCloseableCollateralAtas,
               vaultPda,
+              vaultSweepLamports,
               vaultUsdcAta,
               walletAddress: args.walletAddress,
             })
@@ -7962,6 +8041,24 @@ export function createSmartAccountVaultsClient(
       );
     }
 
+    // Same final-exit refund as the full-withdraw path: return the unspent
+    // Kamino setup buffer sitting on the vault PDA (see
+    // createEarnFullWithdrawCleanupInstructions for why the obligation and
+    // farms rents cannot be reclaimed).
+    const vaultSweepLamports = await getVaultSweepLamportsOrZero(
+      config.connection,
+      vaultPda
+    );
+    if (vaultSweepLamports > BigInt(0)) {
+      tokenInstructions.push(
+        SystemProgram.transfer({
+          fromPubkey: vaultPda,
+          toPubkey: args.walletAddress,
+          lamports: vaultSweepLamports,
+        })
+      );
+    }
+
     const tokenOperation =
       tokenInstructions.length > 0
         ? await (async () => {
@@ -8087,6 +8184,217 @@ export function createSmartAccountVaultsClient(
             },
           }
         : {}),
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+        usdcAta: vaultUsdcAta,
+      },
+    };
+  }
+
+  // Chain-first inventory of everything refundable on the Earn vault itself:
+  // the vault PDA's SOL and the rent locked in its token accounts. The
+  // policy-refund scan uses this to surface "account" refunds for wallets
+  // whose Earn position is closed — route-policy DB rows may be long gone, so
+  // nothing here reads a database. Feature-checked like the other vault reads:
+  // injected connections without the RPC methods just report an empty vault.
+  async function fetchEarnVaultRefundSnapshot(args: {
+    cluster?: LoyalCluster;
+    settingsPda: PublicKey;
+  }): Promise<SmartAccountEarnVaultRefundSnapshot> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const vaultUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      vaultPda,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+
+    const getTokenAccountsByOwner = (
+      config.connection as {
+        getTokenAccountsByOwner?: Connection["getTokenAccountsByOwner"];
+      }
+    ).getTokenAccountsByOwner;
+    const [lamports, tokenAccountsResponse] = await Promise.all([
+      getVaultSweepLamportsOrZero(config.connection, vaultPda),
+      typeof getTokenAccountsByOwner === "function"
+        ? getTokenAccountsByOwner.call(
+            config.connection,
+            vaultPda,
+            { programId: TOKEN_PROGRAM_ID },
+            "confirmed"
+          )
+        : Promise.resolve(null),
+    ]);
+
+    const tokenAccounts = (tokenAccountsResponse?.value ?? [])
+      .map(({ account, pubkey }) => {
+        const decoded = AccountLayout.decode(account.data);
+        const mint = new PublicKey(decoded.mint);
+        return {
+          address: pubkey,
+          amountRaw: BigInt(decoded.amount.toString()),
+          isUsdc: mint.equals(usdcMint),
+          lamports: account.lamports,
+          mint,
+        };
+      })
+      .sort((left, right) =>
+        left.address.toBase58().localeCompare(right.address.toBase58())
+      );
+
+    return { lamports, tokenAccounts, vaultPda, vaultUsdcAta };
+  }
+
+  // Refund the rent still parked on the Earn vault after the position is
+  // closed: withdraw any idle USDC to the wallet, close the vault's token
+  // accounts (USDC ATA + stale collateral ATAs), and sweep the vault PDA's
+  // SOL. This is the token-side of `prepareEarnUsdcCleanup` without the
+  // policy-close half, for wallets whose routing-policy rows are already
+  // closed or missing. Refuses to run while any non-USDC token account holds
+  // a balance (a live on-chain position) — unwinding that is the withdraw
+  // flow's job, never a refund's.
+  async function prepareEarnVaultAccountsRefund(
+    args: SmartAccountEarnVaultRefundInput
+  ): Promise<SmartAccountPreparedEarnVaultRefund> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const snapshot = await fetchEarnVaultRefundSnapshot({
+      cluster,
+      settingsPda: args.settingsPda,
+    });
+    const vaultPda = snapshot.vaultPda;
+    const vaultUsdcAta = snapshot.vaultUsdcAta;
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      args.walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+
+    const blockedTokenAccounts = snapshot.tokenAccounts.filter(
+      (tokenAccount) =>
+        tokenAccount.amountRaw > BigInt(0) &&
+        !tokenAccount.address.equals(vaultUsdcAta)
+    );
+    if (blockedTokenAccounts.length > 0) {
+      throw new Error(
+        "Earn vault still holds token balances outside its USDC account; withdraw the position before refunding vault accounts."
+      );
+    }
+
+    const idleUsdcAccount = snapshot.tokenAccounts.find((tokenAccount) =>
+      tokenAccount.address.equals(vaultUsdcAta)
+    );
+    const idleAmountRaw = idleUsdcAccount?.amountRaw ?? BigInt(0);
+    const instructions: TransactionInstruction[] = [];
+
+    if (idleAmountRaw > BigInt(0)) {
+      instructions.push(
+        makeSignerWritable(
+          createTransferCheckedInstruction(
+            vaultUsdcAta,
+            usdcMint,
+            walletUsdcAta,
+            vaultPda,
+            idleAmountRaw,
+            EARN_DEPOSIT_USDC_DECIMALS,
+            [],
+            TOKEN_PROGRAM_ID
+          ),
+          vaultPda
+        )
+      );
+    }
+
+    const closedTokenAccounts: PublicKey[] = [];
+    for (const tokenAccount of snapshot.tokenAccounts) {
+      instructions.push(
+        makeSignerWritable(
+          createCloseAccountInstruction(
+            tokenAccount.address,
+            args.walletAddress,
+            vaultPda,
+            [],
+            TOKEN_PROGRAM_ID
+          ),
+          vaultPda
+        )
+      );
+      closedTokenAccounts.push(tokenAccount.address);
+    }
+
+    const sweepLamports = snapshot.lamports;
+    if (sweepLamports > BigInt(0)) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: vaultPda,
+          toPubkey: args.walletAddress,
+          lamports: sweepLamports,
+        })
+      );
+    }
+
+    if (instructions.length === 0) {
+      throw new Error(
+        "Nothing to refund: the Earn vault holds no SOL and no token accounts."
+      );
+    }
+
+    const compiledPackedPayload = instructionsToSynchronousTransactionDetailsV2(
+      {
+        vaultPda,
+        members: [args.walletAddress],
+        transaction_instructions: instructions,
+      }
+    );
+    const operation =
+      await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
+        {
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          numSigners: 1,
+          instructions: compiledPackedPayload.instructions,
+          instruction_accounts: compiledPackedPayload.accounts,
+          memo: args.memo,
+        } as never
+      );
+    const prepared = freezePreparedOperation({
+      operation: "earnVaultAccountsRefund",
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      requiresConfirmation: true,
+      instructions: [
+        ...(idleAmountRaw > BigInt(0)
+          ? [
+              createAssociatedTokenAccountIdempotentInstruction(
+                args.feePayer,
+                walletUsdcAta,
+                args.walletAddress,
+                usdcMint,
+                TOKEN_PROGRAM_ID
+              ),
+            ]
+          : []),
+        ...operation.instructions,
+      ],
+      lookupTableAccounts: operation.lookupTableAccounts ?? [],
+    });
+
+    return {
+      prepared,
+      refund: {
+        closedTokenAccounts,
+        idleUsdcTransferRaw: idleAmountRaw,
+        sweepLamports,
+      },
       vault: {
         accountIndex: EARN_DEPOSIT_VAULT_INDEX,
         pubkey: vaultPda,
@@ -8482,7 +8790,30 @@ export function createSmartAccountVaultsClient(
         "confirmed"
       );
     }
-    if (!authorityAccount && expectedSubscriptionAuthorityInitId === null) {
+    // A close revokes the wallet USDC ATA's SPL delegate; an authority account
+    // that survives with a missing/foreign delegate can't sweep, so re-run
+    // InitAuthority — the program re-approves the delegate and bumps its init
+    // id (delegations pin the previous id, so stale ones stay dead).
+    let authorityDelegateMissing = false;
+    if (authorityAccount && expectedSubscriptionAuthorityInitId === null) {
+      const walletUsdcAtaInfo = await config.connection.getAccountInfo(
+        walletUsdcAta,
+        "confirmed"
+      );
+      if (
+        walletUsdcAtaInfo &&
+        walletUsdcAtaInfo.data.length >= AccountLayout.span
+      ) {
+        const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
+        authorityDelegateMissing =
+          decoded.delegateOption !== 1 ||
+          !new PublicKey(decoded.delegate).equals(subscriptionAuthority);
+      }
+    }
+    if (
+      (!authorityAccount || authorityDelegateMissing) &&
+      expectedSubscriptionAuthorityInitId === null
+    ) {
       const prepared = freezePreparedOperation({
         operation: "earnUsdcAutodepositInitializeSubscriptionAuthority",
         payer: args.feePayer,
@@ -8509,7 +8840,9 @@ export function createSmartAccountVaultsClient(
         rentCandidates: [
           {
             account: subscriptionAuthority,
-            exists: false,
+            // Re-init on an existing authority (delegate re-approve) pays no
+            // rent; only a first-time init creates the account.
+            exists: authorityAccount !== null,
             kind: "subscription_authority_rent",
             label: "Autodeposit subscription authority rent",
             space: SUBSCRIPTION_AUTHORITY_DATA_LEN,
@@ -8967,6 +9300,37 @@ export function createSmartAccountVaultsClient(
     const delegationAccount = await config.connection.getAccountInfo(
       args.recurringDelegation
     );
+    // The subscription program's RevokeDelegation only closes the delegation
+    // account — the unlimited SPL delegate that InitAuthority approved on the
+    // wallet's USDC ATA stays behind and shows up as a lingering token
+    // approval in wallet UIs. Revoke it in the same tx (the wallet signs the
+    // close anyway), but only when the delegate is still our subscription
+    // authority so a foreign approval is never clobbered. Setup re-approves
+    // via InitAuthority re-init when the delegate is missing.
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      args.walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      args.walletAddress,
+      usdcMint
+    );
+    const walletUsdcAtaInfo = await config.connection.getAccountInfo(
+      walletUsdcAta
+    );
+    let revokeTokenDelegate = false;
+    if (
+      walletUsdcAtaInfo &&
+      walletUsdcAtaInfo.data.length >= AccountLayout.span
+    ) {
+      const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
+      revokeTokenDelegate =
+        decoded.delegateOption === 1 &&
+        new PublicKey(decoded.delegate).equals(subscriptionAuthority);
+    }
     const prepared = freezePreparedOperation({
       operation: "earnUsdcAutodepositClose",
       payer: args.feePayer,
@@ -8982,6 +9346,9 @@ export function createSmartAccountVaultsClient(
             ]
           : []),
         ...closePolicy.instructions,
+        ...(revokeTokenDelegate
+          ? [createRevokeInstruction(walletUsdcAta, args.walletAddress)]
+          : []),
       ],
       lookupTableAccounts: dedupeLookupTableAccounts(
         closePolicy.lookupTableAccounts ?? []
@@ -9770,6 +10137,8 @@ export function createSmartAccountVaultsClient(
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,
     prepareEarnUsdcCleanup,
+    fetchEarnVaultRefundSnapshot,
+    prepareEarnVaultAccountsRefund,
     prepareEarnUsdcAutodepositSetup,
     prepareEarnUsdcAutodepositSetupBatch,
     prepareEarnUsdcAutodepositSetupBatchFromPrepared,

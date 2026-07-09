@@ -2355,7 +2355,8 @@ describe("prepareEarnUsdcAutodeposit", () => {
     expect(setups[1]!.subscription.startTimestamp).toBe(
       BigInt(1_780_000_030)
     );
-    expect(getAccountInfo).toHaveBeenCalledTimes(2);
+    // Settings + subscription authority + wallet USDC ATA delegate probe.
+    expect(getAccountInfo).toHaveBeenCalledTimes(3);
     expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
     const firstProbe = getMultipleAccountsInfo.mock.calls[0]?.[0] as
       | PublicKey[]
@@ -2443,7 +2444,8 @@ describe("prepareEarnUsdcAutodeposit", () => {
       if (nonSettingsLookupCount === 1) {
         return createSerializedSubscriptionAuthorityAccount(BigInt(7));
       }
-      if (nonSettingsLookupCount === 2) {
+      // Lookup 2 is the wallet USDC ATA delegate probe (null = no re-init).
+      if (nonSettingsLookupCount === 3) {
         return createSerializedEarnPolicyAccount();
       }
       return null;
