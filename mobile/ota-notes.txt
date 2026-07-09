@@ -1,2 +1,1 @@
-New:
-- Mobile Wallet Adapter with multi-wallets support
+Important update.
