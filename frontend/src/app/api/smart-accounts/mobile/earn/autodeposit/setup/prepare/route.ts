@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
-import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -19,7 +18,10 @@ import {
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
-import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import {
+  EARN_POSITION_REQUIRED_ERROR,
+  hasActiveEarnRoutePolicyPair,
+} from "@/lib/yield-optimization/earn-position-gate.server";
 
 // Mobile twin of `yield-optimization/autodeposit/setup/prepare`. Wallet-sig auth
 // + self-resolved smart account; the SDK returns the next setup stage's prepared
@@ -128,32 +130,21 @@ export async function POST(request: Request) {
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
 
-  // An Autodeposit sweep can only route into an ACTIVE Earn position — the
-  // route policy is created by a user-signed deposit, and the sweep worker
-  // (delegate) can't initialize one. Without this gate a setup on an empty
-  // Earn (e.g. after a full withdrawal) strands every sweep as a perpetual
-  // worker failure ("no active Earn route policy") that the app renders as
-  // "Executing…" forever. Fail open on lookup errors: the client gates this
-  // too, and the worker's refusal remains the last line.
+  // Setup on an empty Earn (e.g. after a full withdrawal) strands every sweep —
+  // see earn-position-gate.server.ts. Fail open on lookup errors: the client
+  // gates this too, and the worker's refusal remains the last line.
   try {
-    const programId = new PublicKey(getServerEnv().loyalSmartAccounts.programId);
-    const [earnVaultPda] = pda.getSmartAccountPda({
-      accountIndex: 1,
-      programId,
-      settingsPda: new PublicKey(settingsPda),
-    });
-    const policyPair = await findActiveYieldRoutePolicyPair({
-      authority: walletAddress,
-      cluster,
-      settings: settingsPda,
-      vaultIndex: 1,
-      vaultPubkey: earnVaultPda.toBase58(),
-    });
-    if (!policyPair?.routePolicy) {
+    if (
+      !(await hasActiveEarnRoutePolicyPair({
+        cluster,
+        settingsPda,
+        walletAddress,
+      }))
+    ) {
       return jsonError(
         409,
-        "earn_position_required",
-        "Autodeposit needs an active Earn account to deposit into. Make a deposit first."
+        EARN_POSITION_REQUIRED_ERROR.code,
+        EARN_POSITION_REQUIRED_ERROR.message
       );
     }
   } catch (error) {

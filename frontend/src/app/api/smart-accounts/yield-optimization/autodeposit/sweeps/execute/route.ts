@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   findCurrentEarnAutodepositState,
   requestImmediateEarnAutodepositScheduledSweep,
   type BalanceSweepTargetRecord,
   type ImmediateEarnAutodepositScheduledSweepRequestResult,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  EARN_POSITION_REQUIRED_ERROR,
+  hasActiveEarnRoutePolicyPair,
+} from "@/lib/yield-optimization/earn-position-gate.server";
 
 const EARN_AUTODEPOSIT_VAULT_INDEX = 1;
 
@@ -103,6 +109,38 @@ export async function POST(request: Request) {
         "autodeposit_not_active",
         "Earn Autodeposit must be active before a scheduled sweep can be executed now."
       );
+    }
+
+    // A target whose Earn position was fully withdrawn has no active route
+    // policy left — the worker refuses its sweeps ("no active Earn route
+    // policy"), so accepting the request would only mint a slot stuck on
+    // "Executing…" forever. Refuse up front with the same error the setup
+    // prepare gate uses; see earn-position-gate.server.ts. Fail open on
+    // lookup errors. Keep in sync with the mobile twin route.
+    try {
+      if (
+        !(await hasActiveEarnRoutePolicyPair({
+          cluster: resolveLoyalClusterForSolanaEnv(
+            resolveLoyalWebSolanaEnvFromEnv(process.env)
+          ),
+          settingsPda: principal.settingsPda,
+          walletAddress: principal.walletAddress,
+        }))
+      ) {
+        return jsonError(
+          409,
+          EARN_POSITION_REQUIRED_ERROR.code,
+          EARN_POSITION_REQUIRED_ERROR.message
+        );
+      }
+    } catch (gateError) {
+      console.warn("[autodeposit-sweeps-execute] earn position gate skipped", {
+        errorMessage:
+          gateError instanceof Error
+            ? gateError.message
+            : "Unknown gate error.",
+        walletAddress: principal.walletAddress,
+      });
     }
 
     const requestResult = await requestImmediateEarnAutodepositScheduledSweep(

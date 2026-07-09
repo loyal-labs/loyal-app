@@ -40,6 +40,20 @@ mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest,
 }));
 
+// The earn-position gate pulls the real DB client through
+// yield-deposit-repository.server; stub it so the route stays unit-testable.
+// Defaults to an active pair — the gate is a pass-through for these cases.
+const hasActiveEarnRoutePolicyPair = mock(async () => true);
+
+mock.module("@/lib/yield-optimization/earn-position-gate.server", () => ({
+  EARN_POSITION_REQUIRED_ERROR: {
+    code: "earn_position_required",
+    message:
+      "Autodeposit needs an active Earn account to deposit into. Make a deposit first.",
+  },
+  hasActiveEarnRoutePolicyPair,
+}));
+
 mock.module(
   "@/lib/yield-optimization/earn-autodeposit-repository.server",
   () => ({
@@ -86,6 +100,8 @@ describe("Earn autodeposit sweeps execute route", () => {
     resolveAuthenticatedPrincipalFromRequest.mockClear();
     findCurrentEarnAutodepositState.mockClear();
     requestImmediateEarnAutodepositScheduledSweep.mockClear();
+    hasActiveEarnRoutePolicyPair.mockClear();
+    hasActiveEarnRoutePolicyPair.mockImplementation(async () => true);
     resolveAuthenticatedPrincipalFromRequest.mockImplementation(
       async () => principal
     );
