@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
@@ -13,24 +12,21 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import {
-  parseEarnWithdrawPrepareRequestBody,
-  serializePreparedEarnUsdcWithdraw,
-} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
+import { parseEarnWithdrawPrepareRequestBody } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   EarnWithdrawResolveError,
   resolveEarnUsdcWithdrawInput,
+  serializeEarnUsdcWithdrawInput,
 } from "@/lib/yield-optimization/earn-withdraw-input-resolution.server";
 
-// Mobile twin of `yield-optimization/withdrawals/prepare`. Identical source
-// selection + prepare logic, but authenticated by a wallet signature (no
-// Turnstile/session) and it resolves the caller's smart account itself instead
-// of reading it from a session principal. Withdrawing requires an existing
-// account, so (unlike deposit) it never provisions. Source selection lives in
-// `earn-withdraw-input-resolution.server.ts`, shared with `../prepare-context`
-// (the on-device build twin) — this route remains for app versions that
-// predate on-device prepare.
+// Context twin of `../prepare` for ON-DEVICE withdraw prepare: same auth and
+// source-selection/reconcile logic (shared via
+// `earn-withdraw-input-resolution.server.ts`), but instead of building the
+// withdrawal here it returns the resolved SDK input so the device runs
+// `prepareEarnUsdcWithdraw` on its own RPC/IP allowance — mirroring the
+// deposit `prepare-context` and the on-device autodeposit flows. `../prepare`
+// stays for app versions that predate on-device prepare.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 const connectionCache = new Map<SolanaEnv, Connection>();
@@ -129,7 +125,7 @@ export async function POST(request: Request) {
     settingsPda = existing.settingsPda;
     smartAccountAddress = existing.smartAccountAddress;
   } catch (error) {
-    console.error("[mobile-earn-withdraw-prepare] resolve failed", {
+    console.error("[mobile-earn-withdraw-prepare-context] resolve failed", {
       errorMessage:
         error instanceof Error ? error.message : "Unknown resolve error.",
       errorName: error instanceof Error ? error.name : typeof error,
@@ -154,13 +150,12 @@ export async function POST(request: Request) {
       programId,
       settingsPda: new PublicKey(settingsPda),
     });
-    const connection = getConnection(solanaEnv);
     const resolved = await resolveEarnUsdcWithdrawInput({
       amountRaw,
       cluster,
-      connection,
+      connection: getConnection(solanaEnv),
       earnVaultPda,
-      logTag: "mobile-earn-withdraw-prepare",
+      logTag: "mobile-earn-withdraw-prepare-context",
       mode,
       policySigner: getDeploymentPolicySignerPublicKey(),
       programId,
@@ -168,30 +163,23 @@ export async function POST(request: Request) {
       sourceRequest: selectedSourceRequest,
       walletAddress,
     });
-    const client = createSmartAccountVaultsClient({
-      connection,
-      programId,
-    });
-    const preparedWithdraw = await client.prepareEarnUsdcWithdraw(
-      resolved.input
-    );
 
     return NextResponse.json({
       cluster,
       programId: serverEnv.loyalSmartAccounts.programId,
       settingsPda,
       smartAccountAddress,
-      preparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
+      withdrawInput: serializeEarnUsdcWithdrawInput(resolved.input),
     });
   } catch (error) {
     if (error instanceof EarnWithdrawResolveError) {
       return jsonError(error.status, error.code, error.message);
     }
-    console.error("[mobile-earn-withdraw-prepare] prepare failed", {
+    console.error("[mobile-earn-withdraw-prepare-context] context failed", {
       amountRaw: amountRaw.toString(),
       cluster,
       errorMessage:
-        error instanceof Error ? error.message : "Unknown prepare error.",
+        error instanceof Error ? error.message : "Unknown context error.",
       errorName: error instanceof Error ? error.name : typeof error,
       mode,
       settings: settingsPda,
@@ -201,10 +189,10 @@ export async function POST(request: Request) {
     });
     return jsonError(
       500,
-      "prepare_failed",
+      "context_failed",
       error instanceof Error
         ? error.message
-        : "Failed to prepare Earn withdrawal."
+        : "Failed to resolve Earn withdrawal context."
     );
   }
 }
