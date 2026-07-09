@@ -61,10 +61,32 @@ export type EarnPolicyRefundScanPolicy = {
   state: string;
 };
 
+export type EarnVaultRefundTokenAccount = {
+  account: string;
+  amountRaw: string;
+  isUsdc: boolean;
+  lamports: number;
+  mint: string;
+};
+
+// The Earn vault's own refundable rent: the SOL sitting on the vault PDA (the
+// unspent Kamino setup buffer) plus the rent locked in its token accounts.
+// Everything here is chain-derived, so it surfaces even when the DB rows for
+// the position are long gone.
+export type EarnPolicyRefundVaultEntry = {
+  account: string;
+  blockedReason: string | null;
+  canRefund: boolean;
+  lamports: number;
+  tokenAccounts: EarnVaultRefundTokenAccount[];
+  totalRefundableLamports: number;
+};
+
 export type EarnPolicyRefundScanResponse = {
   policies: EarnPolicyRefundScanPolicy[];
   recurringDelegations: EarnPolicyRefundRecurringDelegation[];
   settingsPda: string;
+  vault: EarnPolicyRefundVaultEntry | null;
   vaultIndex: 1;
   vaultPubkey: string;
 };
@@ -77,6 +99,9 @@ export type EarnPolicyRefundPrepareRequestBody =
   | {
       kind: "recurring_delegation";
       recurringDelegation: string;
+    }
+  | {
+      kind: "vault";
     };
 
 export type WireSmartAccountPreparedEarnPolicyRefund = {
@@ -95,9 +120,18 @@ export type WireSmartAccountPreparedEarnRecurringDelegationRefund = {
   vaultIndex: 1;
 };
 
+export type WireSmartAccountPreparedEarnVaultRefund = {
+  estimatedRefundLamports: number | null;
+  prepared: WirePreparedLoyalSmartAccountsOperation;
+  settingsPda: string;
+  vault: EarnPolicyRefundVaultEntry;
+  vaultIndex: 1;
+};
+
 export type EarnPolicyRefundPrepareResponse = {
   preparedRecurringDelegationRefund?: WireSmartAccountPreparedEarnRecurringDelegationRefund;
   preparedRefund?: WireSmartAccountPreparedEarnPolicyRefund;
+  preparedVaultRefund?: WireSmartAccountPreparedEarnVaultRefund;
 };
 
 function assertRecord(body: unknown): Record<string, unknown> {
@@ -129,8 +163,14 @@ export function parseEarnPolicyRefundPrepareRequestBody(
     };
   }
 
+  if (kind === "vault") {
+    return { kind: "vault" };
+  }
+
   if (kind !== undefined && kind !== "policy") {
-    throw new Error("kind must be either policy or recurring_delegation.");
+    throw new Error(
+      "kind must be one of policy, recurring_delegation, or vault."
+    );
   }
 
   const policyAccount = record.policyAccount;
@@ -188,6 +228,40 @@ export function hydratePreparedEarnPolicyRefund(
     policy: wire.policy,
     prepared: hydratePreparedOperation(wire.prepared),
     settingsPda: wire.settingsPda,
+    vaultIndex: wire.vaultIndex,
+  };
+}
+
+export function serializePreparedEarnVaultRefund(args: {
+  estimatedRefundLamports: number | null;
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  settingsPda: string;
+  vault: EarnPolicyRefundVaultEntry;
+  vaultIndex: 1;
+}): WireSmartAccountPreparedEarnVaultRefund {
+  return {
+    estimatedRefundLamports: args.estimatedRefundLamports,
+    prepared: serializePreparedOperation(args.prepared),
+    settingsPda: args.settingsPda,
+    vault: args.vault,
+    vaultIndex: args.vaultIndex,
+  };
+}
+
+export function hydratePreparedEarnVaultRefund(
+  wire: WireSmartAccountPreparedEarnVaultRefund
+): {
+  estimatedRefundLamports: number | null;
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  settingsPda: string;
+  vault: EarnPolicyRefundVaultEntry;
+  vaultIndex: 1;
+} {
+  return {
+    estimatedRefundLamports: wire.estimatedRefundLamports,
+    prepared: hydratePreparedOperation(wire.prepared),
+    settingsPda: wire.settingsPda,
+    vault: wire.vault,
     vaultIndex: wire.vaultIndex,
   };
 }

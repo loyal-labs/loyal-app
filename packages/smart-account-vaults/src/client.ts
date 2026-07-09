@@ -115,6 +115,8 @@ import type {
   SmartAccountCustomInstructionProposalInput,
   SmartAccountEarnUsdcCleanupInput,
   SmartAccountEarnUsdcDepositInput,
+  SmartAccountEarnVaultRefundInput,
+  SmartAccountEarnVaultRefundSnapshot,
   SmartAccountEarnUsdcReserveTargetInput,
   SmartAccountEarnUsdcYieldRoutingPolicyInput,
   SmartAccountNativeSolRequirement,
@@ -128,6 +130,7 @@ import type {
   SmartAccountPreparedEarnUsdcAutodepositSetup,
   SmartAccountPreparedEarnUsdcCleanup,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnVaultRefund,
   SmartAccountPreparedEarnUsdcWithdrawStep,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   SmartAccountPreparedEarnUsdcWithdraw,
@@ -8188,6 +8191,217 @@ export function createSmartAccountVaultsClient(
     };
   }
 
+  // Chain-first inventory of everything refundable on the Earn vault itself:
+  // the vault PDA's SOL and the rent locked in its token accounts. The
+  // policy-refund scan uses this to surface "account" refunds for wallets
+  // whose Earn position is closed — route-policy DB rows may be long gone, so
+  // nothing here reads a database. Feature-checked like the other vault reads:
+  // injected connections without the RPC methods just report an empty vault.
+  async function fetchEarnVaultRefundSnapshot(args: {
+    cluster?: LoyalCluster;
+    settingsPda: PublicKey;
+  }): Promise<SmartAccountEarnVaultRefundSnapshot> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const vaultUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      vaultPda,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+
+    const getTokenAccountsByOwner = (
+      config.connection as {
+        getTokenAccountsByOwner?: Connection["getTokenAccountsByOwner"];
+      }
+    ).getTokenAccountsByOwner;
+    const [lamports, tokenAccountsResponse] = await Promise.all([
+      getVaultSweepLamportsOrZero(config.connection, vaultPda),
+      typeof getTokenAccountsByOwner === "function"
+        ? getTokenAccountsByOwner.call(
+            config.connection,
+            vaultPda,
+            { programId: TOKEN_PROGRAM_ID },
+            "confirmed"
+          )
+        : Promise.resolve(null),
+    ]);
+
+    const tokenAccounts = (tokenAccountsResponse?.value ?? [])
+      .map(({ account, pubkey }) => {
+        const decoded = AccountLayout.decode(account.data);
+        const mint = new PublicKey(decoded.mint);
+        return {
+          address: pubkey,
+          amountRaw: BigInt(decoded.amount.toString()),
+          isUsdc: mint.equals(usdcMint),
+          lamports: account.lamports,
+          mint,
+        };
+      })
+      .sort((left, right) =>
+        left.address.toBase58().localeCompare(right.address.toBase58())
+      );
+
+    return { lamports, tokenAccounts, vaultPda, vaultUsdcAta };
+  }
+
+  // Refund the rent still parked on the Earn vault after the position is
+  // closed: withdraw any idle USDC to the wallet, close the vault's token
+  // accounts (USDC ATA + stale collateral ATAs), and sweep the vault PDA's
+  // SOL. This is the token-side of `prepareEarnUsdcCleanup` without the
+  // policy-close half, for wallets whose routing-policy rows are already
+  // closed or missing. Refuses to run while any non-USDC token account holds
+  // a balance (a live on-chain position) — unwinding that is the withdraw
+  // flow's job, never a refund's.
+  async function prepareEarnVaultAccountsRefund(
+    args: SmartAccountEarnVaultRefundInput
+  ): Promise<SmartAccountPreparedEarnVaultRefund> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const snapshot = await fetchEarnVaultRefundSnapshot({
+      cluster,
+      settingsPda: args.settingsPda,
+    });
+    const vaultPda = snapshot.vaultPda;
+    const vaultUsdcAta = snapshot.vaultUsdcAta;
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      args.walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+
+    const blockedTokenAccounts = snapshot.tokenAccounts.filter(
+      (tokenAccount) =>
+        tokenAccount.amountRaw > BigInt(0) &&
+        !tokenAccount.address.equals(vaultUsdcAta)
+    );
+    if (blockedTokenAccounts.length > 0) {
+      throw new Error(
+        "Earn vault still holds token balances outside its USDC account; withdraw the position before refunding vault accounts."
+      );
+    }
+
+    const idleUsdcAccount = snapshot.tokenAccounts.find((tokenAccount) =>
+      tokenAccount.address.equals(vaultUsdcAta)
+    );
+    const idleAmountRaw = idleUsdcAccount?.amountRaw ?? BigInt(0);
+    const instructions: TransactionInstruction[] = [];
+
+    if (idleAmountRaw > BigInt(0)) {
+      instructions.push(
+        makeSignerWritable(
+          createTransferCheckedInstruction(
+            vaultUsdcAta,
+            usdcMint,
+            walletUsdcAta,
+            vaultPda,
+            idleAmountRaw,
+            EARN_DEPOSIT_USDC_DECIMALS,
+            [],
+            TOKEN_PROGRAM_ID
+          ),
+          vaultPda
+        )
+      );
+    }
+
+    const closedTokenAccounts: PublicKey[] = [];
+    for (const tokenAccount of snapshot.tokenAccounts) {
+      instructions.push(
+        makeSignerWritable(
+          createCloseAccountInstruction(
+            tokenAccount.address,
+            args.walletAddress,
+            vaultPda,
+            [],
+            TOKEN_PROGRAM_ID
+          ),
+          vaultPda
+        )
+      );
+      closedTokenAccounts.push(tokenAccount.address);
+    }
+
+    const sweepLamports = snapshot.lamports;
+    if (sweepLamports > BigInt(0)) {
+      instructions.push(
+        SystemProgram.transfer({
+          fromPubkey: vaultPda,
+          toPubkey: args.walletAddress,
+          lamports: sweepLamports,
+        })
+      );
+    }
+
+    if (instructions.length === 0) {
+      throw new Error(
+        "Nothing to refund: the Earn vault holds no SOL and no token accounts."
+      );
+    }
+
+    const compiledPackedPayload = instructionsToSynchronousTransactionDetailsV2(
+      {
+        vaultPda,
+        members: [args.walletAddress],
+        transaction_instructions: instructions,
+      }
+    );
+    const operation =
+      await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
+        {
+          feePayer: args.feePayer,
+          settingsPda: args.settingsPda,
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          numSigners: 1,
+          instructions: compiledPackedPayload.instructions,
+          instruction_accounts: compiledPackedPayload.accounts,
+          memo: args.memo,
+        } as never
+      );
+    const prepared = freezePreparedOperation({
+      operation: "earnVaultAccountsRefund",
+      payer: args.feePayer,
+      programId: smartAccountsClient.programId,
+      requiresConfirmation: true,
+      instructions: [
+        ...(idleAmountRaw > BigInt(0)
+          ? [
+              createAssociatedTokenAccountIdempotentInstruction(
+                args.feePayer,
+                walletUsdcAta,
+                args.walletAddress,
+                usdcMint,
+                TOKEN_PROGRAM_ID
+              ),
+            ]
+          : []),
+        ...operation.instructions,
+      ],
+      lookupTableAccounts: operation.lookupTableAccounts ?? [],
+    });
+
+    return {
+      prepared,
+      refund: {
+        closedTokenAccounts,
+        idleUsdcTransferRaw: idleAmountRaw,
+        sweepLamports,
+      },
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+        usdcAta: vaultUsdcAta,
+      },
+    };
+  }
+
   async function assertEarnUsdcAutodepositCanonicalArtifacts(
     args: SmartAccountEarnUsdcAutodepositCanonicalArtifactsInput
   ): Promise<void> {
@@ -9863,6 +10077,8 @@ export function createSmartAccountVaultsClient(
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,
     prepareEarnUsdcCleanup,
+    fetchEarnVaultRefundSnapshot,
+    prepareEarnVaultAccountsRefund,
     prepareEarnUsdcAutodepositSetup,
     prepareEarnUsdcAutodepositSetupBatch,
     prepareEarnUsdcAutodepositSetupBatchFromPrepared,
