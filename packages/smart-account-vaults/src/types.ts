@@ -433,6 +433,13 @@ export type SmartAccountEarnUsdcDepositInput = {
       seed: bigint;
     } | null;
   };
+  /**
+   * Heal a stray autodeposit token approval by riding an SPL revoke in the
+   * deposit tx. Callers MUST only set this when the wallet has no live
+   * autodeposit (the delegate is load-bearing for sweeps); the SDK itself only
+   * verifies on chain that the delegate is our subscription authority.
+   */
+  revokeStrayUsdcDelegate?: boolean;
   memo?: string;
 };
 
