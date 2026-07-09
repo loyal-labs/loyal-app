@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server";
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
+import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
   findCurrentEarnAutodepositState,
   requestImmediateEarnAutodepositScheduledSweep,
   type BalanceSweepTargetRecord,
   type ImmediateEarnAutodepositScheduledSweepRequestResult,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  EARN_POSITION_REQUIRED_ERROR,
+  hasActiveEarnRoutePolicyPair,
+} from "@/lib/yield-optimization/earn-position-gate.server";
 
 // Mobile twin of `yield-optimization/autodeposit/sweeps/execute`. Lets the
 // native app ask the worker to run the pending scheduled Autodeposit sweep now
@@ -158,6 +164,41 @@ export async function POST(request: Request) {
         409,
         "autodeposit_not_active",
         "Earn Autodeposit must be active before a scheduled sweep can be executed now."
+      );
+    }
+
+    // A target whose Earn position was fully withdrawn has no active route
+    // policy left — the worker refuses its sweeps ("no active Earn route
+    // policy"), so accepting the request would only mint a slot stuck on
+    // "Executing…" forever. Refuse up front with the same error the setup
+    // prepare gate uses; see earn-position-gate.server.ts. Fail open on
+    // lookup errors. Keep in sync with the session route.
+    try {
+      if (
+        !(await hasActiveEarnRoutePolicyPair({
+          cluster: resolveLoyalClusterForSolanaEnv(
+            resolveLoyalWebSolanaEnvFromEnv(process.env)
+          ),
+          settingsPda,
+          walletAddress,
+        }))
+      ) {
+        return jsonError(
+          409,
+          EARN_POSITION_REQUIRED_ERROR.code,
+          EARN_POSITION_REQUIRED_ERROR.message
+        );
+      }
+    } catch (gateError) {
+      console.warn(
+        "[mobile-earn-autodeposit-sweeps-execute] earn position gate skipped",
+        {
+          errorMessage:
+            gateError instanceof Error
+              ? gateError.message
+              : "Unknown gate error.",
+          walletAddress,
+        }
       );
     }
 

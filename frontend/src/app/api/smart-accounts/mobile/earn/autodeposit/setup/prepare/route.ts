@@ -18,6 +18,10 @@ import {
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  EARN_POSITION_REQUIRED_ERROR,
+  hasActiveEarnRoutePolicyPair,
+} from "@/lib/yield-optimization/earn-position-gate.server";
 
 // Mobile twin of `yield-optimization/autodeposit/setup/prepare`. Wallet-sig auth
 // + self-resolved smart account; the SDK returns the next setup stage's prepared
@@ -125,6 +129,34 @@ export async function POST(request: Request) {
 
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
+
+  // Setup on an empty Earn (e.g. after a full withdrawal) strands every sweep —
+  // see earn-position-gate.server.ts. Fail open on lookup errors: the client
+  // gates this too, and the worker's refusal remains the last line.
+  try {
+    if (
+      !(await hasActiveEarnRoutePolicyPair({
+        cluster,
+        settingsPda,
+        walletAddress,
+      }))
+    ) {
+      return jsonError(
+        409,
+        EARN_POSITION_REQUIRED_ERROR.code,
+        EARN_POSITION_REQUIRED_ERROR.message
+      );
+    }
+  } catch (error) {
+    console.warn(
+      "[mobile-earn-autodeposit-setup-prepare] earn position gate skipped",
+      {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown gate error.",
+        walletAddress,
+      }
+    );
+  }
 
   try {
     const serverEnv = getServerEnv();

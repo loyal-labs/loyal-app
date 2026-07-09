@@ -19,6 +19,10 @@ import {
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  EARN_POSITION_REQUIRED_ERROR,
+  hasActiveEarnRoutePolicyPair,
+} from "@/lib/yield-optimization/earn-position-gate.server";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -96,6 +100,32 @@ export async function POST(request: Request) {
           "An Autodeposit is already active for this wallet. Delete it before creating a new one."
         );
       }
+    }
+
+    // Setup on an empty Earn (e.g. after a full withdrawal) strands every
+    // sweep — see earn-position-gate.server.ts. Fail open on lookup errors:
+    // the worker's refusal remains the last line. Keep in sync with the
+    // mobile twin route.
+    try {
+      if (
+        !(await hasActiveEarnRoutePolicyPair({
+          cluster,
+          settingsPda: principal.settingsPda,
+          walletAddress: principal.walletAddress,
+        }))
+      ) {
+        return jsonError(
+          409,
+          EARN_POSITION_REQUIRED_ERROR.code,
+          EARN_POSITION_REQUIRED_ERROR.message
+        );
+      }
+    } catch (error) {
+      console.warn("[autodeposit-setup-prepare] earn position gate skipped", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown gate error.",
+        walletAddress: principal.walletAddress,
+      });
     }
 
     const serverEnv = getServerEnv();
