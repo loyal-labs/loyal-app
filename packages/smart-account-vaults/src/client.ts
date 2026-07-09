@@ -73,6 +73,7 @@ import {
   AccountLayout,
   createAssociatedTokenAccountIdempotentInstruction,
   createCloseAccountInstruction,
+  createRevokeInstruction,
   createTransferCheckedInstruction,
   decodeTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
@@ -8789,7 +8790,30 @@ export function createSmartAccountVaultsClient(
         "confirmed"
       );
     }
-    if (!authorityAccount && expectedSubscriptionAuthorityInitId === null) {
+    // A close revokes the wallet USDC ATA's SPL delegate; an authority account
+    // that survives with a missing/foreign delegate can't sweep, so re-run
+    // InitAuthority — the program re-approves the delegate and bumps its init
+    // id (delegations pin the previous id, so stale ones stay dead).
+    let authorityDelegateMissing = false;
+    if (authorityAccount && expectedSubscriptionAuthorityInitId === null) {
+      const walletUsdcAtaInfo = await config.connection.getAccountInfo(
+        walletUsdcAta,
+        "confirmed"
+      );
+      if (
+        walletUsdcAtaInfo &&
+        walletUsdcAtaInfo.data.length >= AccountLayout.span
+      ) {
+        const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
+        authorityDelegateMissing =
+          decoded.delegateOption !== 1 ||
+          !new PublicKey(decoded.delegate).equals(subscriptionAuthority);
+      }
+    }
+    if (
+      (!authorityAccount || authorityDelegateMissing) &&
+      expectedSubscriptionAuthorityInitId === null
+    ) {
       const prepared = freezePreparedOperation({
         operation: "earnUsdcAutodepositInitializeSubscriptionAuthority",
         payer: args.feePayer,
@@ -8816,7 +8840,9 @@ export function createSmartAccountVaultsClient(
         rentCandidates: [
           {
             account: subscriptionAuthority,
-            exists: false,
+            // Re-init on an existing authority (delegate re-approve) pays no
+            // rent; only a first-time init creates the account.
+            exists: authorityAccount !== null,
             kind: "subscription_authority_rent",
             label: "Autodeposit subscription authority rent",
             space: SUBSCRIPTION_AUTHORITY_DATA_LEN,
@@ -9274,6 +9300,37 @@ export function createSmartAccountVaultsClient(
     const delegationAccount = await config.connection.getAccountInfo(
       args.recurringDelegation
     );
+    // The subscription program's RevokeDelegation only closes the delegation
+    // account — the unlimited SPL delegate that InitAuthority approved on the
+    // wallet's USDC ATA stays behind and shows up as a lingering token
+    // approval in wallet UIs. Revoke it in the same tx (the wallet signs the
+    // close anyway), but only when the delegate is still our subscription
+    // authority so a foreign approval is never clobbered. Setup re-approves
+    // via InitAuthority re-init when the delegate is missing.
+    const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      usdcMint,
+      args.walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const subscriptionAuthority = deriveSubscriptionAuthority(
+      args.walletAddress,
+      usdcMint
+    );
+    const walletUsdcAtaInfo = await config.connection.getAccountInfo(
+      walletUsdcAta
+    );
+    let revokeTokenDelegate = false;
+    if (
+      walletUsdcAtaInfo &&
+      walletUsdcAtaInfo.data.length >= AccountLayout.span
+    ) {
+      const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
+      revokeTokenDelegate =
+        decoded.delegateOption === 1 &&
+        new PublicKey(decoded.delegate).equals(subscriptionAuthority);
+    }
     const prepared = freezePreparedOperation({
       operation: "earnUsdcAutodepositClose",
       payer: args.feePayer,
@@ -9289,6 +9346,9 @@ export function createSmartAccountVaultsClient(
             ]
           : []),
         ...closePolicy.instructions,
+        ...(revokeTokenDelegate
+          ? [createRevokeInstruction(walletUsdcAta, args.walletAddress)]
+          : []),
       ],
       lookupTableAccounts: dedupeLookupTableAccounts(
         closePolicy.lookupTableAccounts ?? []
