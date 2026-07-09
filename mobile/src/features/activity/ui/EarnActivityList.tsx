@@ -230,6 +230,32 @@ function EarnRefundRow({
   );
 }
 
+// Rent the refund scan reports as blocked by the wallet's Autodeposit. Not
+// actionable here — it becomes refundable the moment the Autodeposit is
+// deleted — but showing it stops "my SOL is stuck" reports for rent that is
+// one delete away.
+function EarnLockedRefundRow({ lamports }: { lamports: number }) {
+  return (
+    <View className="flex-row items-start px-4 py-2.5">
+      <EarnTxCompoundIcon item={{ kind: "withdraw" }} />
+      <View className="ml-3 flex-1">
+        <Text className="text-[17px] font-medium text-black">Reserved</Text>
+        <Text className="text-[15px]" style={{ color: SECONDARY }}>
+          Held while Autodeposit is set up. Delete Autodeposit to refund it.
+        </Text>
+      </View>
+      <View className="ml-3 items-end">
+        <Text className="text-[17px] text-black">
+          {formatRefundSol(lamports)} SOL
+        </Text>
+        <Text className="text-[13px]" style={{ color: SECONDARY }}>
+          Locked
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 const noop = () => {};
 
 // Renders an executed sweep morphing in place into its result tx. Holds the
@@ -305,6 +331,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     expectingScheduledSweep,
     sweepMorph,
     earnRefunds,
+    earnLockedRefundLamports,
     refundingAccount,
     executeRefund,
   } = useActivity();
@@ -312,6 +339,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
   // suppress the live "Scheduled" section to avoid rendering the same row twice.
   const hasScheduled = !sweepMorph && earnScheduledSweeps.length > 0;
   const hasRefunds = earnRefunds.length > 0;
+  const hasLockedRefunds = earnLockedRefundLamports > 0;
   // A just-created Autodeposit's sweep is on its way but the provider's read
   // hasn't caught up — hold its slot with a skeleton so the user who was just
   // routed here sees the row forming instead of an unchanged feed.
@@ -326,6 +354,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     !hasScheduled &&
     !sweepMorph &&
     !hasRefunds &&
+    !hasLockedRefunds &&
     !showScheduledSkeleton
   ) {
     return (
@@ -367,6 +396,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     !hasScheduled &&
     !sweepMorph &&
     !hasRefunds &&
+    !hasLockedRefunds &&
     !showScheduledSkeleton
   ) {
     return (
@@ -397,7 +427,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
 
   return (
     <View>
-      {hasRefunds ? (
+      {hasRefunds || hasLockedRefunds ? (
         <View>
           <Text
             className="px-4 pb-2 pt-3 text-[17px]"
@@ -413,6 +443,9 @@ export function EarnActivityList({ limit }: { limit: number }) {
               onRefund={() => void executeRefund(refund)}
             />
           ))}
+          {hasLockedRefunds ? (
+            <EarnLockedRefundRow lamports={earnLockedRefundLamports} />
+          ) : null}
         </View>
       ) : null}
       {sweepMorph ? (

@@ -21,6 +21,7 @@ import {
 } from "@/lib/solana/constants";
 import { executeEarnAutodepositScheduledSweep } from "@/lib/solana/earn/autodeposit";
 import {
+  EarnApiError,
   fetchEarnRefundScan,
   type EarnAutodepositScheduledSweep,
   type EarnRefundPrepareRequest,
@@ -85,6 +86,13 @@ type ActivityContextValue = {
   markSeen: (section: ActivitySection) => void;
   /** Refundable closed Earn accounts (empty when nothing is refundable). */
   earnRefunds: EarnRefundItem[];
+  /**
+   * Rent lamports the refund scan reports as blocked by the wallet's
+   * Autodeposit (policy + delegation + vault buckets). Refundable only after
+   * the Autodeposit is deleted — shown as an informational row so users know
+   * where the SOL is instead of reporting it missing.
+   */
+  earnLockedRefundLamports: number;
   /** Rescan for refundable accounts; resolves to the fresh list. */
   refreshEarnRefunds: () => Promise<EarnRefundItem[]>;
   /** Account whose refund is currently in flight, or null. */
@@ -308,9 +316,21 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       await Promise.all([refreshAutodeposit(), refreshEarnTransactions()]);
     } catch (error) {
       console.warn("[autodeposit] execute scheduled sweep failed", error);
+      // The endpoint refuses with a user-actionable reason when the sweep can
+      // never run as-is (e.g. no active Earn position after a full withdrawal)
+      // — surface that instead of the generic retry copy, which would send the
+      // user into a retry loop that can't succeed.
+      const refusal =
+        error instanceof EarnApiError &&
+        (error.code === "earn_position_required" ||
+          error.code === "autodeposit_not_active" ||
+          error.code === "no_scheduled_sweeps")
+          ? error.message
+          : null;
       Alert.alert(
-        "Deposit didn't complete",
-        "The deposit didn't complete this time. Please wait 1 minute and try again.",
+        refusal ? "Deposit can't run" : "Deposit didn't complete",
+        refusal ??
+          "The deposit didn't complete this time. Please wait 1 minute and try again.",
       );
     } finally {
       setIsExecutingSweep(false);
@@ -387,6 +407,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   }, [publicKey]);
 
   const [earnRefunds, setEarnRefunds] = useState<EarnRefundItem[]>([]);
+  const [earnLockedRefundLamports, setEarnLockedRefundLamports] = useState(0);
   const [refundingAccount, setRefundingAccount] = useState<string | null>(null);
 
   // Scan for refundable closed Earn accounts. Read-only — never prompts Seed
@@ -395,6 +416,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const refreshEarnRefunds = useCallback(async (): Promise<EarnRefundItem[]> => {
     if (!publicKey) {
       setEarnRefunds([]);
+      setEarnLockedRefundLamports(0);
       return [];
     }
     try {
@@ -427,7 +449,28 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
             ]
           : []),
       ];
+      // Rents held hostage by the Autodeposit (blocked reasons like "Active
+      // Autodeposit" / "Paused Autodeposit delegation" / "Protected recurring
+      // delegation") — refundable the moment the Autodeposit is deleted.
+      // Position-blocked buckets ("Active Earn position") are working capital,
+      // not stranded rent, so they don't count.
+      const isAutodepositBlock = (reason: string | null | undefined) =>
+        typeof reason === "string" &&
+        /autodeposit|recurring delegation/i.test(reason);
+      const lockedLamports =
+        (scan?.policies ?? [])
+          .filter((p) => !p.canRefund && isAutodepositBlock(p.blockedReason))
+          .reduce((sum, p) => sum + (p.lamports ?? 0), 0) +
+        (scan?.recurringDelegations ?? [])
+          .filter((d) => !d.canRefund && isAutodepositBlock(d.blockedReason))
+          .reduce((sum, d) => sum + (d.lamports ?? 0), 0) +
+        (scan?.vault &&
+        !scan.vault.canRefund &&
+        isAutodepositBlock(scan.vault.blockedReason)
+          ? scan.vault.totalRefundableLamports
+          : 0);
       setEarnRefunds(items);
+      setEarnLockedRefundLamports(lockedLamports);
       return items;
     } catch (error) {
       console.warn("[earn-refunds] scan failed", error);
@@ -554,6 +597,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       anyUnread: walletUnread || earnUnread,
       markSeen,
       earnRefunds,
+      earnLockedRefundLamports,
       refreshEarnRefunds,
       refundingAccount,
       executeRefund,
@@ -579,6 +623,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnUnread,
       markSeen,
       earnRefunds,
+      earnLockedRefundLamports,
       refreshEarnRefunds,
       refundingAccount,
       executeRefund,
