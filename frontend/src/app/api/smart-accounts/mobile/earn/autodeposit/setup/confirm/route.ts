@@ -44,6 +44,7 @@ import {
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
   recordConfirmedAutodepositDelegation,
+  recordConfirmedAutodepositTokenApproval,
   recordPendingAutodepositSetup,
   scheduleBootstrapEarnAutodepositSweep,
   type BalanceSweepTargetRecord,
@@ -318,8 +319,7 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
-    executeNowAvailableAt:
-      sweep.executeNowAvailableAt?.toISOString() ?? null,
+    executeNowAvailableAt: sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
@@ -402,6 +402,31 @@ async function readBootstrapWalletBalanceSnapshot(args: {
     },
     status: "ok",
   };
+}
+
+async function assertWalletTokenApproval(args: {
+  connection: Connection;
+  input: ConfirmedEarnAutodepositSetupInput;
+}) {
+  const walletUsdcAta = new PublicKey(args.input.walletUsdcAta);
+  const account = await args.connection.getAccountInfo(
+    walletUsdcAta,
+    "confirmed"
+  );
+  if (!account) {
+    throw new Error("Wallet USDC ATA does not exist.");
+  }
+
+  const tokenAccount = unpackAccount(walletUsdcAta, account, TOKEN_PROGRAM_ID);
+  const expectedDelegate = new PublicKey(args.input.subscriptionAuthority);
+  if (!tokenAccount.delegate?.equals(expectedDelegate)) {
+    throw new Error("Wallet USDC ATA delegate does not match autodeposit.");
+  }
+  if (tokenAccount.delegatedAmount < args.input.amountPerPeriodRaw) {
+    throw new Error(
+      "Wallet USDC ATA delegated amount is below autodeposit period amount."
+    );
+  }
 }
 
 function parseMobileSetupConfirmFields(
@@ -591,7 +616,8 @@ export async function POST(request: Request) {
 
   if (
     input.setupStage === "create_policy" ||
-    input.setupStage === "create_recurring_delegation"
+    input.setupStage === "create_recurring_delegation" ||
+    input.setupStage === "approve_token_delegate"
   ) {
     try {
       await withEarnAutodepositArtifactRetry(async () => {
@@ -599,9 +625,12 @@ export async function POST(request: Request) {
           connection,
           policyAccount: input.policyAccount,
           recurringDelegation: input.recurringDelegation,
-          requirePolicy: input.setupStage === "create_policy",
+          requirePolicy:
+            input.setupStage === "create_policy" ||
+            input.setupStage === "approve_token_delegate",
           requireRecurringDelegation:
-            input.setupStage === "create_recurring_delegation",
+            input.setupStage === "create_recurring_delegation" ||
+            input.setupStage === "approve_token_delegate",
           smartAccountsProgramId: new PublicKey(
             serverEnv.loyalSmartAccounts.programId
           ),
@@ -618,6 +647,25 @@ export async function POST(request: Request) {
     }
   }
 
+  if (
+    input.setupStage === "create_recurring_delegation" ||
+    input.setupStage === "approve_token_delegate"
+  ) {
+    try {
+      await withEarnAutodepositArtifactRetry(async () => {
+        await assertWalletTokenApproval({ connection, input });
+      });
+    } catch (error) {
+      return jsonError(
+        409,
+        "token_approval_missing",
+        error instanceof Error
+          ? error.message
+          : "Confirmed Autodeposit token approval is missing."
+      );
+    }
+  }
+
   if (input.setupStage === "initialize_subscription_authority") {
     return NextResponse.json({
       confirmedSlot: confirmedSlot.toString(),
@@ -627,6 +675,8 @@ export async function POST(request: Request) {
   const target =
     input.setupStage === "create_recurring_delegation"
       ? await recordConfirmedAutodepositDelegation(input)
+      : input.setupStage === "approve_token_delegate"
+      ? await recordConfirmedAutodepositTokenApproval(input)
       : await recordPendingAutodepositSetup(input);
   let bootstrapSweep: EarnAutodepositSetupConfirmResponse["bootstrapSweep"];
   if (target.active && target.lifecycleStatus === "active") {
@@ -669,7 +719,10 @@ export async function POST(request: Request) {
     }
   }
 
-  if (input.setupStage === "create_recurring_delegation") {
+  if (
+    input.setupStage === "create_recurring_delegation" ||
+    input.setupStage === "approve_token_delegate"
+  ) {
     // Transactional push (ASK-1651). When the bootstrap sweep already found
     // idle USDC, the "about to move" push implies auto-deposit is on — send
     // one push, not two.

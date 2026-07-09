@@ -26,6 +26,7 @@ export type EarnAutodepositSetupPrepareRequestBody = {
 
 export type EarnAutodepositSetupStage =
   | "initialize_subscription_authority"
+  | "approve_token_delegate"
   | "create_policy"
   | "create_recurring_delegation";
 
@@ -312,6 +313,7 @@ function readSetupStage(
   const value = readRequiredString(body, "setupStage");
   if (
     value !== "initialize_subscription_authority" &&
+    value !== "approve_token_delegate" &&
     value !== "create_policy" &&
     value !== "create_recurring_delegation"
   ) {
