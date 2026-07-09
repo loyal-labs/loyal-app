@@ -929,6 +929,7 @@ export type SmartAccountPreparedEarnUsdcAutodepositSetup = {
   nativeSolRequirement: SmartAccountNativeSolRequirement;
   stage:
     | "initialize_subscription_authority"
+    | "approve_token_delegate"
     | "create_policy"
     | "create_recurring_delegation";
   authorityInitializationRequired: boolean;

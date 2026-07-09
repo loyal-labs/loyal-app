@@ -6417,31 +6417,14 @@ export function useSmartAccountSidebarData(
                 : "Failed to record confirmed Autodeposit setup.",
           };
         }
-        const nextPreparedSetup =
-          preparedSetup.stage === "create_recurring_delegation"
-            ? null
-            : preparedSetup.stage === "create_policy"
-            ? (
-                await prepareEarnAutodepositSetupBatch({
-                  amountRaw: request.amountRaw,
-                  expiryTimestamp:
-                    request.expiryTimestamp ??
-                    preparedSetup.subscription.expiryTimestamp,
-                  nonce: preparedSetup.subscription.nonce,
-                  periodLengthSeconds:
-                    request.periodLengthSeconds ??
-                    preparedSetup.subscription.periodLengthSeconds,
-                  policySeed: preparedSetup.policy.seed ?? undefined,
-                  preparedSetup,
-                  refreshImmediateStartTimestamp:
-                    requestedStartTimestamp === undefined,
-                  // Undefined means "immediate"; let the builder resolve it
-                  // after policy confirmation so the delegation start is not stale.
-                  startTimestamp: requestedStartTimestamp,
-                  walletBalanceFloorRaw: request.walletBalanceFloorRaw,
-                })
-              ).nextPreparedSetup
-            : await prepareEarnAutodepositSetup({
+        const completedAutodepositSetup =
+          preparedSetup.stage === "create_recurring_delegation" ||
+          preparedSetup.stage === "approve_token_delegate";
+        const nextPreparedSetup = completedAutodepositSetup
+          ? null
+          : preparedSetup.stage === "create_policy"
+          ? (
+              await prepareEarnAutodepositSetupBatch({
                 amountRaw: request.amountRaw,
                 expiryTimestamp:
                   request.expiryTimestamp ??
@@ -6451,19 +6434,37 @@ export function useSmartAccountSidebarData(
                   request.periodLengthSeconds ??
                   preparedSetup.subscription.periodLengthSeconds,
                 policySeed: preparedSetup.policy.seed ?? undefined,
+                preparedSetup,
+                refreshImmediateStartTimestamp:
+                  requestedStartTimestamp === undefined,
+                // Undefined means "immediate"; let the builder resolve it
+                // after policy confirmation so the delegation start is not stale.
                 startTimestamp: requestedStartTimestamp,
                 walletBalanceFloorRaw: request.walletBalanceFloorRaw,
-              });
+              })
+            ).nextPreparedSetup
+          : await prepareEarnAutodepositSetup({
+              amountRaw: request.amountRaw,
+              expiryTimestamp:
+                request.expiryTimestamp ??
+                preparedSetup.subscription.expiryTimestamp,
+              nonce: preparedSetup.subscription.nonce,
+              periodLengthSeconds:
+                request.periodLengthSeconds ??
+                preparedSetup.subscription.periodLengthSeconds,
+              policySeed: preparedSetup.policy.seed ?? undefined,
+              startTimestamp: requestedStartTimestamp,
+              walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+            });
 
         const nextEarnState = await fetchEarnState();
         if (nextEarnState) {
           setEarnState(nextEarnState);
         }
         const scheduledSweeps =
-          confirmResponse.bootstrapSweep?.sweep &&
-          preparedSetup.stage === "create_recurring_delegation"
+          confirmResponse.bootstrapSweep?.sweep && completedAutodepositSetup
             ? [confirmResponse.bootstrapSweep.sweep]
-            : preparedSetup.stage === "create_recurring_delegation"
+            : completedAutodepositSetup
             ? nextEarnState?.autodeposit?.scheduledSweeps ?? []
             : undefined;
 

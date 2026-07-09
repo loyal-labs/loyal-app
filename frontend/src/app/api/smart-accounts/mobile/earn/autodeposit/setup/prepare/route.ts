@@ -22,9 +22,9 @@ import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-a
 // Mobile twin of `yield-optimization/autodeposit/setup/prepare`. Wallet-sig auth
 // + self-resolved smart account; the SDK returns the next setup stage's prepared
 // op (initialize_subscription_authority -> create_policy ->
-// create_recurring_delegation) for the device to sign. The orchestrator threads
-// the returned nonce/policySeed back into subsequent stages. Keep in sync with
-// the session route.
+// create_recurring_delegation, or approve_token_delegate repair) for the device
+// to sign. The orchestrator threads the returned nonce/policySeed back into
+// subsequent stages. Keep in sync with the session route.
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
@@ -166,8 +166,7 @@ export async function POST(request: Request) {
       ) {
         policySeed = target.policySeed;
         nonce = target.recurringDelegationNonce;
-        periodLengthSeconds =
-          target.periodLengthSeconds ?? periodLengthSeconds;
+        periodLengthSeconds = target.periodLengthSeconds ?? periodLengthSeconds;
         startTimestamp = target.startTimestamp ?? startTimestamp;
         expiryTimestamp =
           target.recurringDelegationExpiryTimestamp ?? expiryTimestamp;
