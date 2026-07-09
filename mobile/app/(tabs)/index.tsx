@@ -2,7 +2,7 @@ import * as Haptics from "expo-haptics";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowUp, Plus, SlidersHorizontal } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, useWindowDimensions } from "react-native";
+import { Alert, StyleSheet, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   cancelAnimation,
@@ -267,6 +267,33 @@ export default function EarnScreen() {
       params: { section: "earn" },
     });
   }, [router]);
+  // Single entry point for CREATE mode. Autodeposit sweeps can only route into
+  // an ACTIVE Earn position — the routing policy is created by a user-signed
+  // deposit, and the sweep worker (delegate) can't make one. Creating an
+  // Autodeposit on an empty Earn strands every sweep as a perpetual
+  // "Executing…" row (launch-week quest-hunter trap), so an empty position
+  // routes through Deposit instead. Fails open while the position is still
+  // loading — the backend prepare rejects the truly-empty case as a backstop.
+  const openAutodepositCreate = useCallback(() => {
+    if (earnPositionLoaded && !hasDeposit) {
+      Alert.alert(
+        "Deposit first",
+        "Autodeposit needs an active Earn account to deposit into. Make a deposit first — anything above your threshold then moves to Earn automatically.",
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "Deposit", onPress: () => setDepositOpen(true) },
+        ],
+      );
+      return;
+    }
+    // Pull the live wallet USDC + Earn position so both flow balances are
+    // current, not cached from before the latest deposit/sweep (like withdraw).
+    refreshTokenHoldings(true);
+    refreshEarnPosition();
+    setAutodepositSetupMode("create");
+    setAutodepositSetupOpen(true);
+  }, [earnPositionLoaded, hasDeposit, refreshTokenHoldings, refreshEarnPosition]);
+
   const openParam = useLocalSearchParams<{ open?: string }>();
   useEffect(() => {
     const open = openParam.open;
@@ -274,11 +301,15 @@ export default function EarnScreen() {
     if (open === "deposit") {
       setDepositOpen(true);
     } else if (open === "autodeposit") {
-      setAutodepositSetupMode(autodepositEnabled ? "edit" : "create");
-      setAutodepositSetupOpen(true);
+      if (autodepositEnabled) {
+        setAutodepositSetupMode("edit");
+        setAutodepositSetupOpen(true);
+      } else {
+        openAutodepositCreate();
+      }
     }
     router.setParams({ open: "" });
-  }, [openParam.open, autodepositEnabled, router]);
+  }, [openParam.open, autodepositEnabled, openAutodepositCreate, router]);
 
   const dogHeight = width * DOG_NATURAL_RATIO;
 
@@ -630,13 +661,8 @@ export default function EarnScreen() {
 
   const handleAutodepositSetup = useCallback(() => {
     void Haptics.selectionAsync();
-    // Pull the live wallet USDC + Earn position so both flow balances are
-    // current, not cached from before the latest deposit/sweep (like withdraw).
-    refreshTokenHoldings(true);
-    refreshEarnPosition();
-    setAutodepositSetupMode("create");
-    setAutodepositSetupOpen(true);
-  }, [refreshTokenHoldings, refreshEarnPosition]);
+    openAutodepositCreate();
+  }, [openAutodepositCreate]);
 
   const handleAutodepositEdit = useCallback(() => {
     void Haptics.selectionAsync();
@@ -653,12 +679,9 @@ export default function EarnScreen() {
 
   // Help sheet "Set up autodeposit" → close help, open the create flow.
   const handleAutodepositHelpSetUp = useCallback(() => {
-    refreshTokenHoldings(true);
-    refreshEarnPosition();
     setAutodepositHelpOpen(false);
-    setAutodepositSetupMode("create");
-    setAutodepositSetupOpen(true);
-  }, [refreshTokenHoldings, refreshEarnPosition]);
+    openAutodepositCreate();
+  }, [openAutodepositCreate]);
 
   const handleAutodepositToggle = useCallback(async () => {
     if (
