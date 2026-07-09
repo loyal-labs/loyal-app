@@ -12,8 +12,24 @@ import {
 
 const CHECK_COOLDOWN_MS = 10 * 60 * 1000;
 
+const GENERIC_NOTES =
+  "We are constantly improving the app, optimizing performance and fixing issues. Please update now to have the latest version running!";
+
+// The incoming update's manifest embeds the app config published with it —
+// including `extra.otaNotes`, the free-form release notes from ota-notes.txt.
+function readManifestNotes(manifest: unknown): string | null {
+  const extra = (
+    manifest as
+      | { extra?: { expoClient?: { extra?: Record<string, unknown> } } }
+      | undefined
+  )?.extra?.expoClient?.extra;
+  const raw = extra?.otaNotes;
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+}
+
 export function OtaUpdateBanner() {
   const [isVisible, setIsVisible] = useState(false);
+  const [notes, setNotes] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isCheckingRef = useRef(false);
@@ -55,6 +71,7 @@ export function OtaUpdateBanner() {
         const result = await Updates.checkForUpdateAsync();
         if (!result.isAvailable) return;
 
+        setNotes(readManifestNotes(result.manifest));
         setError(null);
         setIsVisible(true);
       } catch (err) {
@@ -109,11 +126,7 @@ export function OtaUpdateBanner() {
       <View style={styles.banner}>
         <View style={styles.copy}>
           <Text style={styles.title}>Update available</Text>
-          <Text style={styles.subtitle}>
-            We are constantly improving the app, optimizing performance and
-            fixing issues. Please update now to have the latest version
-            running!
-          </Text>
+          <Text style={styles.subtitle}>{notes ?? GENERIC_NOTES}</Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
 
