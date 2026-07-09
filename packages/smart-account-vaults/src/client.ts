@@ -71,6 +71,7 @@ import {
 import { decodeSolanaInstruction } from "@loyal-labs/solana-instruction-decoder";
 import {
   AccountLayout,
+  createApproveCheckedInstruction,
   createAssociatedTokenAccountIdempotentInstruction,
   createCloseAccountInstruction,
   createRevokeInstruction,
@@ -209,6 +210,8 @@ const EARN_DEPOSIT_VAULT_INDEX = 1 as const;
 const EARN_SAME_MINT_INSTRUCTION_CONSTRAINT_INDEXES = [0, 1] as const;
 const EARN_POLICY_PACKET_DATA_SIZE = 1232;
 const EARN_DEPOSIT_USDC_DECIMALS = 6;
+const EARN_AUTODEPOSIT_TOKEN_APPROVAL_ALLOWANCE_RAW =
+  (BigInt(1) << BigInt(64)) - BigInt(1);
 const EARN_RISK_PROFILE = RiskBasket.Safe;
 const EARN_ROUTE_MODES = ["same_mint_kamino"] as const;
 const EARN_UNIVERSE_PRESET = "canonical_stable_kamino";
@@ -3579,6 +3582,45 @@ function readSubscriptionAuthorityInitId(
     bytes.byteOffset,
     bytes.byteLength
   ).getBigInt64(0, true);
+}
+
+function readSplTokenDelegate(
+  account: AccountInfo<Buffer> | null | undefined
+): { delegate: PublicKey | null; delegatedAmount: bigint } {
+  if (
+    !account ||
+    !account.owner.equals(TOKEN_PROGRAM_ID) ||
+    account.data.length < AccountLayout.span
+  ) {
+    return { delegate: null, delegatedAmount: BigInt(0) };
+  }
+
+  const decoded = AccountLayout.decode(account.data);
+  return {
+    delegate:
+      decoded.delegateOption === 1 ? new PublicKey(decoded.delegate) : null,
+    delegatedAmount: decoded.delegatedAmount,
+  };
+}
+
+function hasExpectedSplTokenDelegateAuthority(args: {
+  account: AccountInfo<Buffer> | null | undefined;
+  expectedDelegate: PublicKey;
+}): boolean {
+  const delegate = readSplTokenDelegate(args.account);
+  return delegate.delegate?.equals(args.expectedDelegate) === true;
+}
+
+function hasSufficientExpectedSplTokenDelegate(args: {
+  account: AccountInfo<Buffer> | null | undefined;
+  expectedDelegate: PublicKey;
+  minimumDelegatedAmount: bigint;
+}): boolean {
+  const delegate = readSplTokenDelegate(args.account);
+  return (
+    delegate.delegate?.equals(args.expectedDelegate) === true &&
+    delegate.delegatedAmount >= args.minimumDelegatedAmount
+  );
 }
 
 function normalizeAutodepositU64(value: bigint, name: string): bigint {
@@ -8607,6 +8649,7 @@ export function createSmartAccountVaultsClient(
   type EarnAutodepositSetupAccountState = {
     delegationAccount: AccountInfo<Buffer> | null;
     policyAccountExists: boolean;
+    walletUsdcAtaAccount: AccountInfo<Buffer> | null;
     vaultUsdcAtaExists: boolean | undefined;
   };
 
@@ -8790,30 +8833,7 @@ export function createSmartAccountVaultsClient(
         "confirmed"
       );
     }
-    // A close revokes the wallet USDC ATA's SPL delegate; an authority account
-    // that survives with a missing/foreign delegate can't sweep, so re-run
-    // InitAuthority — the program re-approves the delegate and bumps its init
-    // id (delegations pin the previous id, so stale ones stay dead).
-    let authorityDelegateMissing = false;
-    if (authorityAccount && expectedSubscriptionAuthorityInitId === null) {
-      const walletUsdcAtaInfo = await config.connection.getAccountInfo(
-        walletUsdcAta,
-        "confirmed"
-      );
-      if (
-        walletUsdcAtaInfo &&
-        walletUsdcAtaInfo.data.length >= AccountLayout.span
-      ) {
-        const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
-        authorityDelegateMissing =
-          decoded.delegateOption !== 1 ||
-          !new PublicKey(decoded.delegate).equals(subscriptionAuthority);
-      }
-    }
-    if (
-      (!authorityAccount || authorityDelegateMissing) &&
-      expectedSubscriptionAuthorityInitId === null
-    ) {
+    if (!authorityAccount && expectedSubscriptionAuthorityInitId === null) {
       const prepared = freezePreparedOperation({
         operation: "earnUsdcAutodepositInitializeSubscriptionAuthority",
         payer: args.feePayer,
@@ -8840,9 +8860,7 @@ export function createSmartAccountVaultsClient(
         rentCandidates: [
           {
             account: subscriptionAuthority,
-            // Re-init on an existing authority (delegate re-approve) pays no
-            // rent; only a first-time init creates the account.
-            exists: authorityAccount !== null,
+            exists: false,
             kind: "subscription_authority_rent",
             label: "Autodeposit subscription authority rent",
             space: SUBSCRIPTION_AUTHORITY_DATA_LEN,
@@ -8924,21 +8942,27 @@ export function createSmartAccountVaultsClient(
             policyAccountExists:
               options.assumePolicyExists ||
               accountEvidence.policyExists === true,
+            walletUsdcAtaAccount: null,
             vaultUsdcAtaExists: accountEvidence.vaultUsdcAtaExists,
           };
         }
 
         const accountInfos = await getAccountInfoMap({
-          accounts: [policyAccount, recurringDelegation, vaultUsdcAta],
+          accounts: [
+            policyAccount,
+            recurringDelegation,
+            vaultUsdcAta,
+            walletUsdcAta,
+          ],
           connection: config.connection,
         });
 
         return {
           delegationAccount:
             accountInfos.get(recurringDelegationAddress) ?? null,
-          policyAccountExists: Boolean(
-            accountInfos.get(policyAccountAddress)
-          ),
+          policyAccountExists: Boolean(accountInfos.get(policyAccountAddress)),
+          walletUsdcAtaAccount:
+            accountInfos.get(walletUsdcAta.toBase58()) ?? null,
           vaultUsdcAtaExists: Boolean(accountInfos.get(vaultUsdcAtaAddress)),
         };
       };
@@ -8974,6 +8998,17 @@ export function createSmartAccountVaultsClient(
     }
     const policyExistsForPlanning =
       options.assumePolicyExists || accountState.policyAccountExists;
+    const createTokenDelegateApprovalInstruction = () =>
+      createApproveCheckedInstruction(
+        walletUsdcAta,
+        usdcMint,
+        subscriptionAuthority,
+        args.walletAddress,
+        EARN_AUTODEPOSIT_TOKEN_APPROVAL_ALLOWANCE_RAW,
+        EARN_DEPOSIT_USDC_DECIMALS,
+        [],
+        TOKEN_PROGRAM_ID
+      );
 
     if (accountState.delegationAccount) {
       if (
@@ -8984,6 +9019,75 @@ export function createSmartAccountVaultsClient(
         );
       }
       if (policyExistsForPlanning) {
+        if (
+          !hasSufficientExpectedSplTokenDelegate({
+            account: accountState.walletUsdcAtaAccount,
+            expectedDelegate: subscriptionAuthority,
+            minimumDelegatedAmount: amountPerPeriodRaw,
+          })
+        ) {
+          const prepared = freezePreparedOperation({
+            operation: "earnUsdcAutodepositApproveTokenDelegate",
+            payer: args.feePayer,
+            programId: TOKEN_PROGRAM_ID,
+            requiresConfirmation: true,
+            instructions: [createTokenDelegateApprovalInstruction()],
+            lookupTableAccounts: [],
+          });
+          const nativeSolRequirement = await estimateNativeSolRequirement({
+            checkBalance: false,
+            cluster,
+            connection: config.connection,
+            estimateFees: false,
+            payer: args.feePayer,
+            preferStaticMainnetRent: true,
+            prepared: [prepared],
+            rentCandidates: [],
+          });
+
+          return {
+            prepared,
+            nativeSolRequirement,
+            stage: "approve_token_delegate",
+            accountEvidence: createAccountEvidence({
+              policyAccount,
+              policyExists: true,
+              policySeed,
+              recurringDelegationExists: true,
+              subscriptionAuthorityExists: true,
+              subscriptionAuthorityInitId: expectedSubscriptionAuthorityInitId,
+              subscriptionAuthorityOwnerVerified: true,
+              vaultUsdcAtaExists: accountState.vaultUsdcAtaExists,
+            }),
+            authorityInitializationRequired: false,
+            policy: {
+              account: policyAccount,
+              id: policySeed,
+              seed: policySeed,
+            },
+            vault: {
+              accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+              pubkey: vaultPda,
+              usdcAta: vaultUsdcAta,
+            },
+            subscription: {
+              authority: subscriptionAuthority,
+              recurringDelegation,
+              amountPerPeriodRaw,
+              periodLengthSeconds,
+              nonce,
+              startTimestamp,
+              expiryTimestamp,
+            },
+            persistence: {
+              ...basePersistence,
+              policyId: policySeed.toString(),
+              policyAccount: policyAccount.toBase58(),
+              policySeed: policySeed.toString(),
+              subscriptionAuthorityInitialization: "exists",
+            },
+          };
+        }
         throw new Error(
           "Autodeposit policy and recurring delegation already exist."
         );
@@ -9153,6 +9257,7 @@ export function createSmartAccountVaultsClient(
           usdcMint,
           TOKEN_PROGRAM_ID
         ),
+        createTokenDelegateApprovalInstruction(),
         createDelegationInstruction,
       ],
       lookupTableAccounts: [],
@@ -9301,12 +9406,12 @@ export function createSmartAccountVaultsClient(
       args.recurringDelegation
     );
     // The subscription program's RevokeDelegation only closes the delegation
-    // account — the unlimited SPL delegate that InitAuthority approved on the
-    // wallet's USDC ATA stays behind and shows up as a lingering token
-    // approval in wallet UIs. Revoke it in the same tx (the wallet signs the
-    // close anyway), but only when the delegate is still our subscription
-    // authority so a foreign approval is never clobbered. Setup re-approves
-    // via InitAuthority re-init when the delegate is missing.
+    // account — the SPL delegate approval on the wallet's USDC ATA stays
+    // behind and shows up as a lingering token approval in wallet UIs. Revoke
+    // it in the same tx (the wallet signs the close anyway), but only when the
+    // delegate is still our subscription authority so a foreign approval is
+    // never clobbered. Setup repairs missing/insufficient approval through the
+    // explicit approve_token_delegate stage.
     const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
     const walletUsdcAta = getAssociatedTokenAddressSync(
       usdcMint,
@@ -9321,16 +9426,10 @@ export function createSmartAccountVaultsClient(
     const walletUsdcAtaInfo = await config.connection.getAccountInfo(
       walletUsdcAta
     );
-    let revokeTokenDelegate = false;
-    if (
-      walletUsdcAtaInfo &&
-      walletUsdcAtaInfo.data.length >= AccountLayout.span
-    ) {
-      const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
-      revokeTokenDelegate =
-        decoded.delegateOption === 1 &&
-        new PublicKey(decoded.delegate).equals(subscriptionAuthority);
-    }
+    const revokeTokenDelegate = hasExpectedSplTokenDelegateAuthority({
+      account: walletUsdcAtaInfo,
+      expectedDelegate: subscriptionAuthority,
+    });
     const prepared = freezePreparedOperation({
       operation: "earnUsdcAutodepositClose",
       payer: args.feePayer,

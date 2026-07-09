@@ -61,13 +61,12 @@ async function withUnconfirmedRetry<T>(run: () => Promise<T>): Promise<T> {
       return await run();
     } catch (error) {
       const transient =
-        error instanceof EarnApiError &&
-        error.code === "unconfirmed_signature";
+        error instanceof EarnApiError && error.code === "unconfirmed_signature";
       if (!transient || attempt >= CONFIRM_RETRY_ATTEMPTS) {
         throw error;
       }
       await new Promise((resolve) =>
-        setTimeout(resolve, CONFIRM_RETRY_DELAY_MS),
+        setTimeout(resolve, CONFIRM_RETRY_DELAY_MS)
       );
     }
   }
@@ -93,7 +92,7 @@ async function loadAutodepositPrepareContext(walletAddress: string): Promise<{
   }
   if (!state.prepareContext) {
     throw new Error(
-      "Autodeposit isn't available right now — the backend didn't provide prepare parameters.",
+      "Autodeposit isn't available right now — the backend didn't provide prepare parameters."
     );
   }
   return {
@@ -113,10 +112,10 @@ async function loadAutodepositPrepareContext(walletAddress: string): Promise<{
 // only the per-stage confirms still hit the backend. Multi-stage — the SDK's
 // chain-driven stage machine returns the one-time subscription-authority init as
 // its own round when needed, then create_policy AND create_recurring_delegation
-// together, so the device signs both in ONE wallet prompt and sends them before
-// confirming. One auth message covers all confirms. The nonce is fixed for the
-// whole flow; the policy seed is threaded across rounds, and a half-finished
-// setup resumes from the seed/nonce/window recorded in `/state`.
+// together. Existing broken setups can return an approval-only repair stage.
+// One auth message covers all confirms. The nonce is fixed for the whole flow;
+// the policy seed is threaded across rounds, and a half-finished setup resumes
+// from the seed/nonce/window recorded in `/state`.
 export async function executeEarnAutodepositSetup(args: {
   signer: Signer;
   thresholdUsd: number;
@@ -126,7 +125,7 @@ export async function executeEarnAutodepositSetup(args: {
   const connection = getConnection();
 
   const { context, state } = await loadAutodepositPrepareContext(
-    walletAddress.toBase58(),
+    walletAddress.toBase58()
   );
   const client = createSmartAccountVaultsClient({
     connection,
@@ -139,7 +138,7 @@ export async function executeEarnAutodepositSetup(args: {
   // so this read is authoritative even if the sheet was opened on stale UI.
   if (state.autodeposit?.lifecycleStatus === "active") {
     throw new Error(
-      "An Autodeposit is already active for this wallet. Delete it before creating a new one.",
+      "An Autodeposit is already active for this wallet. Delete it before creating a new one."
     );
   }
 
@@ -171,7 +170,7 @@ export async function executeEarnAutodepositSetup(args: {
 
   const flowAuth = await signEarnAuth(
     args.signer,
-    "earn-autodeposit-setup-confirm",
+    "earn-autodeposit-setup-confirm"
   );
 
   for (let round = 0; round < MAX_SETUP_STAGES; round++) {
@@ -201,11 +200,11 @@ export async function executeEarnAutodepositSetup(args: {
     const requiredLamports = stages.reduce(
       (total, stage) =>
         total + BigInt(stage.nativeSolRequirement.requiredLamports),
-      BigInt(0),
+      BigInt(0)
     );
     if (requiredLamports > BigInt(0)) {
       const balanceLamports = BigInt(
-        await connection.getBalance(walletAddress),
+        await connection.getBalance(walletAddress)
       );
       if (balanceLamports < requiredLamports) {
         const deficitSol =
@@ -213,7 +212,7 @@ export async function executeEarnAutodepositSetup(args: {
         throw new Error(
           `Not enough SOL to create the Autodeposit — deposit at least ${(
             Math.ceil(deficitSol * 1e4) / 1e4
-          ).toFixed(4)} SOL and try again.`,
+          ).toFixed(4)} SOL and try again.`
         );
       }
     }
@@ -242,8 +241,8 @@ export async function executeEarnAutodepositSetup(args: {
               setupSignature: sent[i].signature,
               confirmedSlot: sent[i].confirmedSlot,
               walletBalanceFloorRaw,
-            }),
-        ),
+            })
+        )
       );
 
       // Thread the (generated) policy seed into the next round so every stage
@@ -261,7 +260,10 @@ export async function executeEarnAutodepositSetup(args: {
         }
       }
     }
-    if (stages[stages.length - 1].stage === "create_recurring_delegation") {
+    if (
+      stages[stages.length - 1].stage === "create_recurring_delegation" ||
+      stages[stages.length - 1].stage === "approve_token_delegate"
+    ) {
       track(EARN_EVENTS.autodepositEnabled, {
         source: "setup",
         threshold_usd: args.thresholdUsd,
@@ -284,7 +286,7 @@ export async function updateEarnAutodepositThreshold(args: {
 }): Promise<void> {
   const auth = await signEarnAuth(
     args.signer,
-    "earn-autodeposit-floor-confirm",
+    "earn-autodeposit-floor-confirm"
   );
   await updateEarnAutodepositFloor({
     auth,
@@ -306,7 +308,7 @@ export async function setEarnAutodepositActive(args: {
 }): Promise<void> {
   const auth = await signEarnAuth(
     args.signer,
-    "earn-autodeposit-toggle-confirm",
+    "earn-autodeposit-toggle-confirm"
   );
   await toggleEarnAutodeposit({
     auth,
@@ -319,7 +321,7 @@ export async function setEarnAutodepositActive(args: {
     args.active
       ? EARN_EVENTS.autodepositEnabled
       : EARN_EVENTS.autodepositDisabled,
-    { source: "toggle" },
+    { source: "toggle" }
   );
 }
 
@@ -343,7 +345,7 @@ export async function executeEarnAutodepositClose(args: {
   const connection = getConnection();
 
   const { context } = await loadAutodepositPrepareContext(
-    walletAddress.toBase58(),
+    walletAddress.toBase58()
   );
   const client = createSmartAccountVaultsClient({
     connection,
@@ -373,7 +375,7 @@ export async function executeEarnAutodepositClose(args: {
 
     flowAuth ??= await signEarnAuth(
       args.signer,
-      "earn-autodeposit-close-confirm",
+      "earn-autodeposit-close-confirm"
     );
     const auth = flowAuth;
     await withUnconfirmedRetry(() =>
@@ -387,8 +389,8 @@ export async function executeEarnAutodepositClose(args: {
             preparedClose: serializePreparedEarnAutodepositClose(preparedClose),
             closeSignature: sent.signature,
             confirmedSlot: sent.confirmedSlot,
-          }),
-      ),
+          })
+      )
     );
   };
 
@@ -401,7 +403,7 @@ export async function executeEarnAutodepositClose(args: {
   const closed = new Set([args.policy]);
   for (let round = 0; round < MAX_DUPLICATE_CLOSES; round++) {
     const { autodeposit } = await fetchEarnAutodepositState(
-      walletAddress.toBase58(),
+      walletAddress.toBase58()
     );
     if (
       !autodeposit?.recurringDelegation ||
@@ -426,7 +428,7 @@ export async function executeEarnAutodepositScheduledSweep(args: {
 }): Promise<void> {
   const auth = await signEarnAuth(
     args.signer,
-    "earn-autodeposit-sweep-execute",
+    "earn-autodeposit-sweep-execute"
   );
   await requestEarnAutodepositSweepExecute({ auth });
 }

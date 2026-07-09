@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
+import { AccountLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Connection, PublicKey } from "@solana/web3.js";
 
 import { findCurrentUser } from "@/features/chat/server/app-user";
@@ -53,8 +54,7 @@ function serializeScheduledSweep(
     classification: sweep.classification,
     confidence: sweep.confidence,
     eligibleAfter: sweep.eligibleAfter.toISOString(),
-    executeNowAvailableAt:
-      sweep.executeNowAvailableAt?.toISOString() ?? null,
+    executeNowAvailableAt: sweep.executeNowAvailableAt?.toISOString() ?? null,
     id: sweep.id.toString(),
     lotCount: sweep.lotCount,
     originalAmountRaw: sweep.originalAmountRaw.toString(),
@@ -85,10 +85,13 @@ function buildPrepareContext(): {
       programId: getServerEnv().loyalSmartAccounts.programId,
     };
   } catch (error) {
-    console.warn("[mobile-earn-autodeposit-state] prepare context unavailable", {
-      errorMessage:
-        error instanceof Error ? error.message : "Unknown context error.",
-    });
+    console.warn(
+      "[mobile-earn-autodeposit-state] prepare context unavailable",
+      {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown context error.",
+      }
+    );
     return null;
   }
 }
@@ -108,6 +111,41 @@ function getConnection(cluster: SolanaEnv): Connection {
   });
   connectionCache.set(cluster, connection);
   return connection;
+}
+
+async function hasExpectedWalletTokenDelegate(args: {
+  connection: Connection;
+  minimumDelegatedAmount: bigint;
+  subscriptionAuthority: string | null | undefined;
+  walletUsdcAta: string | null | undefined;
+}): Promise<boolean> {
+  if (!args.subscriptionAuthority || !args.walletUsdcAta) {
+    return false;
+  }
+
+  try {
+    const expectedDelegate = new PublicKey(args.subscriptionAuthority);
+    const account = await args.connection.getAccountInfo(
+      new PublicKey(args.walletUsdcAta),
+      "confirmed"
+    );
+    if (
+      !account ||
+      !account.owner.equals(TOKEN_PROGRAM_ID) ||
+      account.data.length < AccountLayout.span
+    ) {
+      return false;
+    }
+
+    const decoded = AccountLayout.decode(account.data);
+    return (
+      decoded.delegateOption === 1 &&
+      new PublicKey(decoded.delegate).equals(expectedDelegate) &&
+      decoded.delegatedAmount >= args.minimumDelegatedAmount
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function reconcileAutodepositArtifacts(args: {
@@ -131,6 +169,12 @@ async function reconcileAutodepositArtifacts(args: {
   const policyReady = probe.policy.exists && !probe.policy.invalidOwner;
   const delegationReady =
     probe.recurringDelegation.exists && !probe.recurringDelegation.invalidOwner;
+  const tokenApprovalReady = await hasExpectedWalletTokenDelegate({
+    connection: args.connection,
+    minimumDelegatedAmount: args.state.target.maxAmountPerPeriod,
+    subscriptionAuthority: args.state.target.subscriptionAuthority,
+    walletUsdcAta: args.state.target.walletUsdcAta,
+  });
   const hasRecordedPolicy =
     args.state.target.policySignature !== null &&
     args.state.target.policyConfirmedSlot !== null;
@@ -138,13 +182,14 @@ async function reconcileAutodepositArtifacts(args: {
     args.state.target.recurringDelegationSignature !== null &&
     args.state.target.recurringDelegationConfirmedSlot !== null;
 
-  if (args.state.status !== "pending" && (!policyReady || !delegationReady)) {
+  if (
+    args.state.status !== "pending" &&
+    (!policyReady || !delegationReady || !tokenApprovalReady)
+  ) {
+    const lifecycleStatus =
+      !policyReady && delegationReady ? "pending_policy" : "pending_delegation";
     const target = await markAutodepositTargetPendingDelegation({
-      lifecycleStatus: policyReady
-        ? "pending_delegation"
-        : delegationReady
-        ? "pending_policy"
-        : "pending_delegation",
+      lifecycleStatus,
       policyAccount: args.state.target.policyAccount,
       settings: args.settings,
       vaultIndex: EARN_VAULT_INDEX,
@@ -157,6 +202,7 @@ async function reconcileAutodepositArtifacts(args: {
     args.state.status === "pending" &&
     policyReady &&
     delegationReady &&
+    tokenApprovalReady &&
     hasRecordedPolicy &&
     hasRecordedDelegation
   ) {
