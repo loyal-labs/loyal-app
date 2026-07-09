@@ -6562,55 +6562,102 @@ export function createSmartAccountVaultsClient(
         } as never
       );
     const policyOperations = [depositExecution];
-    const prepared = freezePreparedOperation({
-      operation: "earnUsdcDeposit",
-      payer: args.feePayer,
-      programId: smartAccountsClient.programId,
-      requiresConfirmation: true,
-      instructions: [
-        createAssociatedTokenAccountIdempotentInstruction(
-          args.feePayer,
-          vaultUsdcAta,
-          vaultPda,
-          usdcMint,
-          TOKEN_PROGRAM_ID
-        ),
-        // The Kamino deposit CPI receives reserve collateral (cTokens) into the
-        // vault's collateral ATA, so it must exist and be Token-owned before the
-        // smart-account program validates the interaction. Create it idempotently.
-        ...(inferredVaultCollateralAccounts
-          ? [
-              createAssociatedTokenAccountIdempotentInstruction(
-                args.feePayer,
-                inferredVaultCollateralAccounts.vaultCollateralAta,
-                vaultPda,
-                inferredVaultCollateralAccounts.reserveCollateralMint,
-                TOKEN_PROGRAM_ID
-              ),
-            ]
-          : []),
-        ...(setupRentTopUpInstruction && !policyFinalizeOperation
-          ? [setupRentTopUpInstruction]
-          : []),
-        createTransferCheckedInstruction(
-          walletUsdcAta,
-          usdcMint,
-          vaultUsdcAta,
-          args.walletAddress,
-          args.amountRaw,
-          EARN_DEPOSIT_USDC_DECIMALS,
-          [],
-          TOKEN_PROGRAM_ID
-        ),
-        ...policyOperations.flatMap((operation) => operation.instructions),
-      ],
-      lookupTableAccounts: dedupeLookupTableAccounts(
-        policyOperations.flatMap(
-          (operation) => operation.lookupTableAccounts ?? []
-        )
+    // Stray-approval heal: a pre-fix autodeposit delete left the unlimited
+    // SPL delegate that InitAuthority approved on the wallet's USDC ATA. When
+    // the caller vouches there is no live autodeposit (DB-side gate), ride an
+    // SPL revoke in the deposit tx — but only when the delegate on chain is
+    // still our subscription authority, so a foreign approval is untouched.
+    let strayDelegateRevokeInstruction: TransactionInstruction | null = null;
+    if (args.revokeStrayUsdcDelegate === true) {
+      const subscriptionAuthority = deriveSubscriptionAuthority(
+        args.walletAddress,
+        usdcMint
+      );
+      const walletUsdcAtaInfo = await config.connection.getAccountInfo(
+        walletUsdcAta
+      );
+      if (
+        walletUsdcAtaInfo &&
+        walletUsdcAtaInfo.data.length >= AccountLayout.span
+      ) {
+        const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
+        if (
+          decoded.delegateOption === 1 &&
+          new PublicKey(decoded.delegate).equals(subscriptionAuthority)
+        ) {
+          strayDelegateRevokeInstruction = createRevokeInstruction(
+            walletUsdcAta,
+            args.walletAddress
+          );
+        }
+      }
+    }
+    const depositInstructions = [
+      createAssociatedTokenAccountIdempotentInstruction(
+        args.feePayer,
+        vaultUsdcAta,
+        vaultPda,
+        usdcMint,
+        TOKEN_PROGRAM_ID
       ),
-    });
-    const preparedLength = preparedPacketLength(prepared);
+      // The Kamino deposit CPI receives reserve collateral (cTokens) into the
+      // vault's collateral ATA, so it must exist and be Token-owned before the
+      // smart-account program validates the interaction. Create it idempotently.
+      ...(inferredVaultCollateralAccounts
+        ? [
+            createAssociatedTokenAccountIdempotentInstruction(
+              args.feePayer,
+              inferredVaultCollateralAccounts.vaultCollateralAta,
+              vaultPda,
+              inferredVaultCollateralAccounts.reserveCollateralMint,
+              TOKEN_PROGRAM_ID
+            ),
+          ]
+        : []),
+      ...(setupRentTopUpInstruction && !policyFinalizeOperation
+        ? [setupRentTopUpInstruction]
+        : []),
+      createTransferCheckedInstruction(
+        walletUsdcAta,
+        usdcMint,
+        vaultUsdcAta,
+        args.walletAddress,
+        args.amountRaw,
+        EARN_DEPOSIT_USDC_DECIMALS,
+        [],
+        TOKEN_PROGRAM_ID
+      ),
+      ...policyOperations.flatMap((operation) => operation.instructions),
+    ];
+    const freezeDeposit = (instructions: TransactionInstruction[]) =>
+      freezePreparedOperation({
+        operation: "earnUsdcDeposit",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions,
+        lookupTableAccounts: dedupeLookupTableAccounts(
+          policyOperations.flatMap(
+            (operation) => operation.lookupTableAccounts ?? []
+          )
+        ),
+      });
+    let prepared = freezeDeposit(
+      strayDelegateRevokeInstruction
+        ? [...depositInstructions, strayDelegateRevokeInstruction]
+        : depositInstructions
+    );
+    let preparedLength = preparedPacketLength(prepared);
+    if (
+      strayDelegateRevokeInstruction &&
+      (preparedLength === null ||
+        preparedLength > EARN_POLICY_PACKET_DATA_SIZE)
+    ) {
+      // The heal rider must never sink a deposit: drop it when the tx is at
+      // the packet ceiling — a later deposit or delete re-heals the wallet.
+      prepared = freezeDeposit(depositInstructions);
+      preparedLength = preparedPacketLength(prepared);
+    }
     if (
       preparedLength === null ||
       preparedLength > EARN_POLICY_PACKET_DATA_SIZE

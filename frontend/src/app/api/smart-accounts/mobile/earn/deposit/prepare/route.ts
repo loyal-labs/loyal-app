@@ -21,6 +21,7 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { hasLiveBalanceSweepTargetForWallet } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   parseEarnDepositPrepareRequestBody,
   serializePreparedEarnUsdcDeposit,
@@ -252,12 +253,24 @@ export async function POST(request: Request) {
       policy && activePosition
         ? earnReserveTargetFromActivePosition(activePosition)
         : null;
+    // Stray-approval heal, fail-closed: the SPL delegate is load-bearing for
+    // sweeps, so the revoke rider is requested only when the wallet provably
+    // has NO live autodeposit target (any settings, duplicates included). On
+    // a gate read error the heal is skipped, never the deposit.
+    let revokeStrayUsdcDelegate = false;
+    try {
+      revokeStrayUsdcDelegate =
+        !(await hasLiveBalanceSweepTargetForWallet(walletAddress));
+    } catch {
+      revokeStrayUsdcDelegate = false;
+    }
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
       feePayer: new PublicKey(walletAddress),
       initializeYieldRoutingPolicy: !policy,
       policySigner,
+      revokeStrayUsdcDelegate,
       settingsPda: settings,
       walletAddress: new PublicKey(walletAddress),
       ...(target ? { target } : {}),

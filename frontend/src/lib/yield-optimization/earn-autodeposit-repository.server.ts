@@ -717,6 +717,32 @@ export async function findCurrentEarnAutodepositState(
   };
 }
 
+/**
+ * True when the wallet has ANY non-closed autodeposit target, across all
+ * settings (duplicate/poisoned rows included). Gates the stray-approval
+ * revoke rider: the SPL delegate is load-bearing for sweeps while any target
+ * is live, so the rider must stay off unless every row is closed.
+ */
+export async function hasLiveBalanceSweepTargetForWallet(
+  walletAddress: string,
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<boolean> {
+  const [row] = await dependencies.client.db
+    .select({ id: balanceSweepTargets.id })
+    .from(balanceSweepTargets)
+    .where(
+      and(
+        eq(balanceSweepTargets.wallet, walletAddress),
+        ne(balanceSweepTargets.lifecycleStatus, "closed")
+      )
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
 export function resolveEarnAutodepositCurrentPeriodStart(
   target: Pick<
     BalanceSweepTargetRecord,
