@@ -1,7 +1,9 @@
 import "server-only";
 
-import { and, eq, ne, sql } from "drizzle-orm";
+import { pushTokens } from "@loyal-labs/db-core/schema";
+import { and, eq, gte, inArray, ne, notExists, sql } from "drizzle-orm";
 
+import { getDatabase } from "@/lib/core/database";
 import {
   quest1DonePush,
   sendWalletPush,
@@ -10,6 +12,7 @@ import { findWalletAddressesWithBalanceSweepsSince } from "@/lib/yield-optimizat
 import {
   getYieldOptimizationClient,
   solanaWeekQuestCompletions,
+  userYieldPositionDeposits,
 } from "@/lib/yield-optimization/yield-neon-client.server";
 
 import {
@@ -240,12 +243,64 @@ export function reportFirstAutodepositSweepQuestCompletion(
 export type ReconcileSummary = {
   retriedRows: number;
   backfilledWallets: number;
+  backfilledDepositWallets: number;
   reported: number;
   stillPending: number;
   failed: number;
 };
 
 const RETRY_BATCH_LIMIT = 500;
+
+// Deposit backfill: qualifying manual deposits whose inline confirm hook never
+// produced an earn_deposit row. The hook is best-effort — a swallowed DB error
+// or a killed function loses it silently, and nothing else re-creates it.
+async function findQualifyingDepositWalletsWithoutQuestRowSince(
+  since: Date
+): Promise<string[]> {
+  const rows = await db()
+    .selectDistinct({ wallet: userYieldPositionDeposits.walletAddress })
+    .from(userYieldPositionDeposits)
+    .where(
+      and(
+        gte(userYieldPositionDeposits.createdAt, since),
+        gte(
+          userYieldPositionDeposits.principalAmountRaw,
+          MIN_EARN_DEPOSIT_QUEST_USDC_RAW
+        ),
+        notExists(
+          db()
+            .select({ one: sql`1` })
+            .from(solanaWeekQuestCompletions)
+            .where(
+              and(
+                eq(
+                  solanaWeekQuestCompletions.walletAddress,
+                  userYieldPositionDeposits.walletAddress
+                ),
+                eq(solanaWeekQuestCompletions.questKind, "earn_deposit")
+              )
+            )
+        )
+      )
+    );
+  return rows.map((row) => row.wallet);
+}
+
+// Quest 1 is mobile-only attribution and deposits don't record their surface;
+// a push-token registration (app DB) is the mobile discriminator, so web
+// deposits stay excluded by design.
+async function filterToMobileWallets(wallets: string[]): Promise<string[]> {
+  if (wallets.length === 0) {
+    return [];
+  }
+  const rows = await getDatabase()
+    .selectDistinct({ wallet: pushTokens.walletPublicKey })
+    .from(pushTokens)
+    .where(inArray(pushTokens.walletPublicKey, wallets));
+  return rows
+    .map((row) => row.wallet)
+    .filter((wallet): wallet is string => Boolean(wallet));
+}
 
 /**
  * Reconciliation backstop for the cron: (1) retry every row not yet reported,
@@ -259,6 +314,7 @@ export async function reconcileQuestCompletions(args: {
   const summary: ReconcileSummary = {
     retriedRows: 0,
     backfilledWallets: 0,
+    backfilledDepositWallets: 0,
     reported: 0,
     stillPending: 0,
     failed: 0,
@@ -316,6 +372,33 @@ export async function reconcileQuestCompletions(args: {
     } catch (error) {
       summary.stillPending += 1;
       console.error("[solana-week] reconcile backfill threw", {
+        wallet,
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown backfill error.",
+      });
+    }
+  }
+
+  // (3) Backfill qualifying manual deposits that never produced an
+  // earn_deposit row (lost best-effort confirm hook), mobile wallets only.
+  // Idempotent like (2); a newly reported wallet gets the Quest 1 push once
+  // via recordAndReportQuestCompletion, same as the inline path.
+  const depositWallets = await filterToMobileWallets(
+    await findQualifyingDepositWalletsWithoutQuestRowSince(since)
+  );
+  for (const wallet of depositWallets) {
+    summary.backfilledDepositWallets += 1;
+    try {
+      tally(
+        await recordAndReportQuestCompletion({
+          kind: "earn_deposit",
+          walletId: wallet,
+          metadata: { source: "cron:deposit-backfill" },
+        })
+      );
+    } catch (error) {
+      summary.stillPending += 1;
+      console.error("[solana-week] deposit backfill threw", {
         wallet,
         errorMessage:
           error instanceof Error ? error.message : "Unknown backfill error.",
