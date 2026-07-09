@@ -249,8 +249,10 @@ export default function EarnScreen() {
   const router = useRouter();
 
   // Refundable closed Earn accounts (empty when nothing is refundable).
-  // A non-empty scan surfaces a Refund pill beside the balance that routes
-  // to the Earn activity feed, where the refund rows live.
+  // A non-empty scan surfaces a "Refund SOL" button beside Deposit on the
+  // empty hero only, routing to the Earn activity feed where the refund rows
+  // live. Funded state shows nothing — the rent comes back when the position
+  // closes, so there's nothing actionable while a deposit is live.
   const { earnRefunds } = useActivity();
   const handleOpenRefunds = useCallback(() => {
     router.navigate({
@@ -949,33 +951,18 @@ export default function EarnScreen() {
 
             <View style={styles.balanceRow}>
               <Text style={styles.balanceLabel}>Earn Balance</Text>
-              <View style={styles.balanceValueRow}>
-                {balanceLoading ? (
-                  <Skeleton style={styles.balanceSkeleton} />
-                ) : (
-                  <Text style={styles.balanceValue}>
-                    <Text style={styles.balanceValueStrong}>
-                      {balanceParts.whole}
-                    </Text>
-                    <Text style={styles.balanceValueDim}>
-                      {balanceParts.cents}
-                    </Text>
+              {balanceLoading ? (
+                <Skeleton style={styles.balanceSkeleton} />
+              ) : (
+                <Text style={styles.balanceValue}>
+                  <Text style={styles.balanceValueStrong}>
+                    {balanceParts.whole}
                   </Text>
-                )}
-                {earnRefunds.length > 0 ? (
-                  <Pressable
-                    onPress={handleOpenRefunds}
-                    accessibilityRole="button"
-                    accessibilityLabel="View refundable accounts"
-                    style={({ pressed }) => [
-                      styles.refundButton,
-                      { opacity: pressed ? 0.8 : 1 },
-                    ]}
-                  >
-                    <Text style={styles.refundLabel}>Refund</Text>
-                  </Pressable>
-                ) : null}
-              </View>
+                  <Text style={styles.balanceValueDim}>
+                    {balanceParts.cents}
+                  </Text>
+                </Text>
+              )}
             </View>
 
             <View style={styles.actionRow}>
@@ -985,7 +972,8 @@ export default function EarnScreen() {
                 accessibilityLabel="Deposit"
                 style={({ pressed }) => [
                   styles.depositButton,
-                  // Full-width on the empty hero; stays content-width beside
+                  // Full-width on the empty hero (split half-and-half with
+                  // Refund SOL when refunds exist); stays content-width beside
                   // Withdraw once a deposit exists (per Figma 3883:18293).
                   hasDeposit ? null : styles.depositButtonFull,
                   { opacity: pressed ? 0.8 : 1 },
@@ -996,6 +984,19 @@ export default function EarnScreen() {
                 </View>
                 <Text style={styles.depositLabel}>Deposit</Text>
               </Pressable>
+              {!hasDeposit && earnRefunds.length > 0 ? (
+                <Pressable
+                  onPress={handleOpenRefunds}
+                  accessibilityRole="button"
+                  accessibilityLabel="View refundable accounts"
+                  style={({ pressed }) => [
+                    styles.refundActionButton,
+                    { opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <Text style={styles.withdrawLabel}>Refund SOL</Text>
+                </Pressable>
+              ) : null}
               {hasDeposit ? (
                 <Pressable
                   onPress={handleOpenWithdraw}
@@ -1288,30 +1289,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: COLOR_LABEL_DIM,
   },
-  balanceValueRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
   balanceValue: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 36,
     lineHeight: 48,
     letterSpacing: -0.4,
-  },
-  refundButton: {
-    height: 36,
-    paddingHorizontal: 18,
-    borderRadius: 78,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLOR_WITHDRAW_BG,
-  },
-  refundLabel: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 15,
-    lineHeight: 20,
-    color: "#000",
   },
   balanceValueStrong: {
     fontFamily: "Geist_600SemiBold",
@@ -1365,6 +1347,16 @@ const styles = StyleSheet.create({
     borderRadius: 78,
     backgroundColor: COLOR_WITHDRAW_BG,
     overflow: "hidden",
+  },
+  // Refund SOL beside Deposit on the empty hero — Withdraw's pill without the
+  // icon, splitting the action row half-and-half.
+  refundActionButton: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    borderRadius: 78,
+    backgroundColor: COLOR_WITHDRAW_BG,
   },
   iconWrap: {
     width: 28,
