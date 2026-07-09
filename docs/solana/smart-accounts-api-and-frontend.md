@@ -100,12 +100,14 @@ Main exports:
 | Types                  | Read-model and action input types                                                                                                                              |
 
 Client reads include `fetchVault`, `listVaults`,
-`listSpendingLimitPolicies`, `listSpendingLimits`, `listProposals`, and
-`fetchOverview`.
+`listSpendingLimitPolicies`, `listSpendingLimits`, `listProposals`,
+`fetchOverview`, and `fetchEarnVaultRefundSnapshot`.
 
 Prepared operations include SOL/SPL/custom transfer proposals, policy custom
 instruction proposals, initiate signer add/remove, spending-limit policy
-set/remove/use, approval/rejection, and transaction/settings/policy execution.
+set/remove/use, approval/rejection, transaction/settings/policy execution, and
+Earn helpers such as `prepareEarnUsdcDeposit`, `prepareEarnUsdcWithdraw`,
+`prepareEarnUsdcCleanup`, and `prepareEarnVaultAccountsRefund`.
 
 Important behavior: `fetchOverview` joins settings, vault
 balances/portfolio/activity, policy signers, spending-limit policies, and
@@ -130,14 +132,22 @@ sign them.
 The frontend service provisions one canonical smart account for an authenticated
 wallet. It fetches the Squads program config to reserve the next settings index,
 stores a pending DB record keyed by user and Solana environment, creates the
-smart account through a sponsor path, and reconciles pending or failed records
-by checking whether the wallet is already a signer on the on-chain settings
-account.
+smart account through a sponsor path, waits for the creation signature to reach
+`finalized`, and reconciles pending or failed records by checking whether the
+wallet is already a signer on the on-chain settings account.
+
+That repair path runs inline on the user's next provisioning attempt and ahead
+of time through `GET`/`POST /api/cron/smart-account-reconcile`. The cron route
+repairs `failed` or stale `provisioning` rows caused by sponsor outages or
+concurrent-signup index races so returning users do not hit a second setup
+error.
 
 Key files are `frontend/src/features/smart-accounts/service.ts`,
 `frontend/src/features/smart-accounts/server/provisioner.ts`,
 `frontend/src/features/smart-accounts/server/onchain.ts`, and
-`frontend/src/features/smart-accounts/server/repository.ts`.
+`frontend/src/features/smart-accounts/server/repository.ts`. The repair path
+also flows through `frontend/src/features/smart-accounts/server/reconciler.ts`
+and `frontend/src/app/api/cron/smart-account-reconcile/route.ts`.
 
 ### Read Model Routes
 
@@ -185,32 +195,61 @@ existing policy by passing `initializeYieldRoutingPolicy: false`.
 policy shape.
 
 The browser hook sends the prepared transaction and then posts the confirmed
-signature metadata to `POST
-/api/smart-accounts/yield-optimization/deposits/confirm` or `POST
-/api/smart-accounts/yield-optimization/withdrawals/confirm`.
+signature metadata to
+`POST /api/smart-accounts/yield-optimization/deposits/confirm` or
+`POST /api/smart-accounts/yield-optimization/withdrawals/confirm`.
+
+Mobile Earn uses `POST /api/smart-accounts/mobile/earn/deposit/confirm` as a
+wallet-authenticated twin of the web deposit confirm route. The device echoes
+back the serialized prepared deposit plus each stage's signature metadata, and
+the server rebuilds the canonical confirm payload before reusing the shared
+recorder.
 
 Those confirmation routes validate the authenticated wallet/session, the
 configured cluster from `NEXT_PUBLIC_SOLANA_ENV`, canonical policy/vault/reserve
 metadata, confirmed signature status, and confirmed slot before writing Yield
 Neon state.
 
-The frontend reads active Earn state from `GET
-/api/smart-accounts/yield-optimization/position`. That route returns the active aggregate row from
+If a deposit lands on-chain but the confirm call is lost or rejected,
+`GET`/`POST /api/cron/earn-deposit-reconcile` scans for invisible deposits and
+adopts them into Yield Neon. Scheduled runs scan only recently touched accounts
+to stay within the 5 rps Helius budget; `?dryRun=1` reports without writing and
+`?full=1` forces the unbounded fleet sweep.
+
+Refund recovery has dedicated route families for both web sessions and mobile
+wallet auth:
+`POST /api/smart-accounts/yield-optimization/policy-refunds/scan`,
+`POST /api/smart-accounts/yield-optimization/policy-refunds/prepare`,
+`GET /api/smart-accounts/mobile/earn/policy-refunds/scan?walletAddress=<address>`,
+and `POST /api/smart-accounts/mobile/earn/policy-refunds/prepare`. The shared
+refund contracts support `policy`, `recurring_delegation`, and `vault` prepare
+requests, and the scan payload surfaces active/refundable policy accounts,
+recurring delegations, and vault-account rent so the UI can reclaim stranded
+SOL without closing active Earn positions.
+
+The frontend reads active Earn state from
+`GET /api/smart-accounts/yield-optimization/position`. That route returns the
+active aggregate row from
 `loyal_yield.user_yield_positions` for the authenticated wallet, configured
 cluster (`devnet` or `mainnet-beta`), vault index `1`, and canonical target
 reserve. `AppWalletWorkspace` uses that response to decide whether to show the
 active Earn view, display the current principal, and set the withdrawal maximum.
 
-| Area                     | Key file                                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| Workspace state          | `frontend/src/components/wallet-workspace/app-wallet-workspace.tsx`                   |
-| Earn detail UI           | `frontend/src/components/wallet-sidebar/earn-detail-view.tsx`                         |
-| Browser action adapter   | `frontend/src/hooks/use-smart-account-sidebar-data.ts`                                |
-| Active position route    | `frontend/src/app/api/smart-accounts/yield-optimization/position/route.ts`            |
-| Deposit confirm route    | `frontend/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`    |
-| Withdrawal confirm route | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts` |
-| Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
-| Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
+| Area                      | Key file                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace state           | `frontend/src/components/wallet-workspace/app-wallet-workspace.tsx`                                                                                     |
+| Earn detail UI            | `frontend/src/components/wallet-sidebar/earn-detail-view.tsx`                                                                                           |
+| Browser action adapter    | `frontend/src/hooks/use-smart-account-sidebar-data.ts`                                                                                                  |
+| Active position route     | `frontend/src/app/api/smart-accounts/yield-optimization/position/route.ts`                                                                              |
+| Web deposit confirm route | `frontend/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`                                                                      |
+| Mobile deposit confirm    | `frontend/src/app/api/smart-accounts/mobile/earn/deposit/confirm/route.ts`                                                                              |
+| Withdrawal confirm route  | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts`                                                                   |
+| Deposit reconcile cron    | `frontend/src/app/api/cron/earn-deposit-reconcile/route.ts`                                                                                             |
+| Web refund routes         | `frontend/src/app/api/smart-accounts/yield-optimization/policy-refunds/scan/route.ts`, `frontend/src/app/api/smart-accounts/yield-optimization/policy-refunds/prepare/route.ts` |
+| Mobile refund routes      | `frontend/src/app/api/smart-accounts/mobile/earn/policy-refunds/scan/route.ts`, `frontend/src/app/api/smart-accounts/mobile/earn/policy-refunds/prepare/route.ts`             |
+| Refund core + contracts   | `frontend/src/lib/yield-optimization/earn-policy-refund.server.ts`, `frontend/src/lib/yield-optimization/earn-policy-refund-contracts.shared.ts`       |
+| Yield repository          | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`                                                                                |
+| Instruction builder       | `packages/smart-account-vaults/src/client.ts`                                                                                                           |
 
 ### CLI Agent Connect Flow
 
