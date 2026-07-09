@@ -2379,9 +2379,7 @@ function validateKaminoWithdrawInstruction(args: {
 } {
   const { instruction } = args;
   if (
-    !instruction.data
-      .subarray(0, args.withdrawDiscriminator.length)
-      .equals(Buffer.from(args.withdrawDiscriminator))
+    !dataStartsWithDiscriminator(instruction.data, args.withdrawDiscriminator)
   ) {
     throw new Error(
       "Kamino withdraw instruction has an unexpected withdraw discriminator."
@@ -3324,13 +3322,29 @@ function deserializeSettingsTransactionAccount(args: {
   };
 }
 
+// Hermes (React Native) lacks TypedArray species subclassing, so the `buffer`
+// polyfill's `.subarray()` returns a plain Uint8Array with no Buffer
+// `.equals` — compare discriminator bytes manually, environment-agnostic.
+function dataStartsWithDiscriminator(
+  data: Uint8Array,
+  discriminator: readonly number[]
+): boolean {
+  if (data.length < discriminator.length) {
+    return false;
+  }
+  for (let index = 0; index < discriminator.length; index++) {
+    if (data[index] !== discriminator[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function accountMatchesDiscriminator(
   account: AccountInfo<Buffer>,
   discriminator: readonly number[]
 ): boolean {
-  return Buffer.from(account.data)
-    .subarray(0, discriminator.length)
-    .equals(Buffer.from(discriminator));
+  return dataStartsWithDiscriminator(account.data, discriminator);
 }
 
 function toAssetIndex(vaults: readonly SmartAccountVaultSnapshot[]) {
@@ -6447,9 +6461,10 @@ export function createSmartAccountVaultsClient(
         });
         const refreshPrefix = kaminoDepositBundle.instructions.filter(
           (instruction) =>
-            !instruction.data
-              .subarray(0, earnTarget.depositDiscriminator.length)
-              .equals(Buffer.from(earnTarget.depositDiscriminator))
+            !dataStartsWithDiscriminator(
+              instruction.data,
+              earnTarget.depositDiscriminator
+            )
         );
         kaminoDepositBundle = {
           instruction: localDepositInstruction,
@@ -7365,9 +7380,10 @@ export function createSmartAccountVaultsClient(
           });
         const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
           (instruction) =>
-            !instruction.data
-              .subarray(0, plan.target.withdrawDiscriminator.length)
-              .equals(Buffer.from(plan.target.withdrawDiscriminator))
+            !dataStartsWithDiscriminator(
+              instruction.data,
+              plan.target.withdrawDiscriminator
+            )
         );
         kaminoWithdrawBundle = {
           instruction: selectedWithdrawInstruction,
@@ -7434,9 +7450,10 @@ export function createSmartAccountVaultsClient(
             });
           const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
             (instruction) =>
-              !instruction.data
-                .subarray(0, plan.target.withdrawDiscriminator.length)
-                .equals(Buffer.from(plan.target.withdrawDiscriminator))
+              !dataStartsWithDiscriminator(
+                instruction.data,
+                plan.target.withdrawDiscriminator
+              )
           );
           kaminoWithdrawBundle = {
             instruction: reconciledWithdrawInstruction,
