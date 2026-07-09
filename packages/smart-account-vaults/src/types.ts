@@ -808,6 +808,43 @@ export type SmartAccountPreparedEarnUsdcCleanup = {
   };
 };
 
+export type SmartAccountEarnVaultRefundTokenAccount = {
+  address: PublicKey;
+  amountRaw: bigint;
+  isUsdc: boolean;
+  lamports: number;
+  mint: PublicKey;
+};
+
+export type SmartAccountEarnVaultRefundSnapshot = {
+  lamports: bigint;
+  tokenAccounts: SmartAccountEarnVaultRefundTokenAccount[];
+  vaultPda: PublicKey;
+  vaultUsdcAta: PublicKey;
+};
+
+export type SmartAccountEarnVaultRefundInput = {
+  cluster?: LoyalCluster;
+  feePayer: PublicKey;
+  memo?: string;
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+};
+
+export type SmartAccountPreparedEarnVaultRefund = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  refund: {
+    closedTokenAccounts: PublicKey[];
+    idleUsdcTransferRaw: bigint;
+    sweepLamports: bigint;
+  };
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+    usdcAta: PublicKey;
+  };
+};
+
 export type SmartAccountEarnUsdcAutodepositSetupInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;

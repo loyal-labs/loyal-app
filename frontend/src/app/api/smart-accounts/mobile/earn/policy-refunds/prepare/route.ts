@@ -2,11 +2,10 @@ import { NextResponse } from "next/server";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
-import {
-  assertAuthenticatedWalletControlsSettings,
-  isSmartAccountProvisioningError,
-} from "@/features/smart-accounts/server/service";
+import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
+import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
+import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
+import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
@@ -20,6 +19,11 @@ import {
   type EarnPolicyRefundPrepareRequestBody,
 } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 
+// Mobile twin of the session `policy-refunds/prepare` route: same shared core,
+// but authenticated by a wallet signature instead of a session. The prepared
+// transaction pays out to (and must be signed by) the authenticated wallet,
+// so a stolen request body cannot redirect a refund. Refunding requires an
+// existing smart account; this never provisions.
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
@@ -48,15 +52,29 @@ function getConnection(cluster: SolanaEnv): Connection {
 }
 
 export async function POST(request: Request) {
-  const principal = await resolveAuthenticatedPrincipalFromRequest(request);
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonError(400, "invalid_request", "Invalid request body.");
+  }
 
-  if (!principal) {
-    return jsonError(401, "unauthenticated", "No active auth session.");
+  let walletAddress: string;
+  try {
+    ({ walletAddress } = await authenticateMobileWalletRequest({
+      body,
+      purpose: "earn-refund-prepare",
+    }));
+  } catch (error) {
+    if (error instanceof WalletAuthError) {
+      return jsonError(error.status, error.code, error.message);
+    }
+    return jsonError(401, "unauthenticated", "Mobile wallet auth failed.");
   }
 
   let parsed: EarnPolicyRefundPrepareRequestBody;
   try {
-    parsed = parseEarnPolicyRefundPrepareRequestBody(await request.json());
+    parsed = parseEarnPolicyRefundPrepareRequestBody(body);
   } catch (error) {
     return jsonError(
       400,
@@ -65,21 +83,48 @@ export async function POST(request: Request) {
     );
   }
 
+  let settingsPda: string;
   try {
-    await assertAuthenticatedWalletControlsSettings({
-      settingsPda: principal.settingsPda,
-      smartAccountAddress: principal.smartAccountAddress,
-      walletAddress: principal.walletAddress,
+    const user = await getOrCreateCurrentUser({
+      provider: "solana",
+      authMethod: "wallet",
+      subjectAddress: walletAddress,
+      walletAddress,
     });
+    const existing = await findReadyCurrentUserSmartAccount({
+      userId: user.id,
+      walletAddress,
+    });
+    if (!existing) {
+      return jsonError(
+        409,
+        "smart_account_not_ready",
+        "No provisioned smart account for this wallet."
+      );
+    }
+    settingsPda = existing.settingsPda;
+  } catch (error) {
+    console.error("[mobile-earn-policy-refunds-prepare] resolve failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown resolve error.",
+      walletAddress,
+    });
+    return jsonError(
+      500,
+      "smart_account_resolve_failed",
+      "Failed to resolve the smart account for this wallet."
+    );
+  }
 
+  try {
     const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
     const response = await prepareEarnPolicyRefund(
       {
         connection: getConnection(solanaEnv),
         programId: new PublicKey(getServerEnv().loyalSmartAccounts.programId),
-        settingsPda: principal.settingsPda,
+        settingsPda,
         solanaEnv,
-        walletAddress: principal.walletAddress,
+        walletAddress,
       },
       parsed
     );
@@ -89,11 +134,8 @@ export async function POST(request: Request) {
     if (error instanceof EarnPolicyRefundError) {
       return jsonError(error.status, error.code, error.message);
     }
-    if (isSmartAccountProvisioningError(error)) {
-      return jsonError(error.status, error.code, error.message);
-    }
 
-    console.error("[earn-policy-refunds-prepare] failed", {
+    console.error("[mobile-earn-policy-refunds-prepare] failed", {
       errorMessage: error instanceof Error ? error.message : String(error),
       requestedAccount:
         parsed.kind === "recurring_delegation"
@@ -101,8 +143,8 @@ export async function POST(request: Request) {
           : parsed.kind === "vault"
             ? "vault"
             : parsed.policyAccount,
-      settings: principal.settingsPda,
-      walletAddress: principal.walletAddress,
+      settings: settingsPda,
+      walletAddress,
     });
     return jsonError(
       500,

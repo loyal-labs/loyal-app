@@ -705,6 +705,54 @@ export async function findEarnPolicyRefundDbState(args: {
   };
 }
 
+// Vault-level (not per-policy) liveness flags gating the vault-accounts
+// refund: sweeping the vault's SOL and closing its token accounts is only
+// safe once nothing can still deposit into or hold funds in the vault. Any
+// non-closed autodeposit target counts — including pending_delegation rows
+// mid-setup.
+export async function findEarnVaultRefundDbState(args: {
+  settings: string;
+}): Promise<{
+  hasActiveAutodeposit: boolean;
+  hasActiveManagedVault: boolean;
+  hasActivePosition: boolean;
+}> {
+  const client = getYieldOptimizationClient();
+  const [activePosition, activeManagedVault, openAutodepositTarget] =
+    await Promise.all([
+      client.db.query.userYieldPositions.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(userYieldPositions.settings, args.settings),
+          eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX),
+          eq(userYieldPositions.status, "active")
+        ),
+      }),
+      client.db.query.managedVaults.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(managedVaults.active, true),
+          eq(managedVaults.settings, args.settings),
+          eq(managedVaults.vaultIndex, EARN_VAULT_INDEX)
+        ),
+      }),
+      client.db.query.balanceSweepTargets.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(balanceSweepTargets.settings, args.settings),
+          eq(balanceSweepTargets.vaultIndex, EARN_VAULT_INDEX),
+          ne(balanceSweepTargets.lifecycleStatus, "closed")
+        ),
+      }),
+    ]);
+
+  return {
+    hasActiveAutodeposit: openAutodepositTarget !== undefined,
+    hasActiveManagedVault: activeManagedVault !== undefined,
+    hasActivePosition: activePosition !== undefined,
+  };
+}
+
 export async function findSingleEarnPolicyRefundDbState(args: {
   connection: Connection;
   policyAccount: string;
