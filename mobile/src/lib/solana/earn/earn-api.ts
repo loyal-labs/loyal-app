@@ -75,6 +75,68 @@ async function throwEarnError(res: Response, fallback: string): Promise<never> {
   );
 }
 
+// Everything the device needs to run the SDK's deposit prepare locally
+// (client-side instruction building on the device's own RPC) instead of
+// calling `deposit/prepare` — mirrors the autodeposit `/state` prepareContext.
+// Serialized by `deposit/prepare-context`.
+export type EarnDepositPrepareContext = {
+  cluster: string;
+  programId: string;
+  settingsPda: string;
+  smartAccountAddress: string;
+  policySigner: string;
+  revokeStrayUsdcDelegate: boolean;
+  yieldRoutingPolicy: {
+    account: string;
+    seed: string;
+    setupPolicy: { account: string; seed: string } | null;
+  } | null;
+  target: {
+    reserve: string;
+    market: string;
+    liquidityMint: string;
+    supplyApyBps: string | null;
+  } | null;
+};
+
+// Resolves the on-device prepare context (auth + provisioning + DB reads only
+// — no instruction building server-side). Returns null when the backend
+// predates the endpoint so the caller can fall back to the server prepare.
+export async function fetchEarnDepositPrepareContext(args: {
+  auth: EarnAuthFields;
+  amountRaw: string;
+}): Promise<EarnDepositPrepareContext | null> {
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(
+      `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/deposit/prepare-context`,
+      {
+        method: "POST",
+        headers: earnHeaders(),
+        body: JSON.stringify({
+          ...args.auth,
+          amountRaw: args.amountRaw,
+        }),
+        timeoutMs: PREPARE_TIMEOUT_MS,
+      },
+    );
+  } catch (error) {
+    if (error instanceof FetchTimeoutError) {
+      throw new EarnApiError(
+        "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute.",
+      );
+    }
+    throw error;
+  }
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to prepare Earn deposit.");
+  }
+  return (await res.json()) as EarnDepositPrepareContext;
+}
+
 export async function prepareEarnDeposit(args: {
   auth: EarnAuthFields;
   amountRaw: string;
@@ -178,6 +240,98 @@ export async function prepareEarnWithdraw(args: {
     return throwEarnError(res, "Failed to prepare Earn withdrawal.");
   }
   return (await res.json()) as EarnWithdrawPrepareResponse;
+}
+
+// The resolved SDK input for an ON-DEVICE withdraw prepare, serialized by
+// `withdraw/prepare-context` (`earn-withdraw-input-resolution.server.ts`) —
+// the server keeps source selection/reconcile; the device builds the
+// transactions. Hydrated in `withdraw.ts`.
+export type EarnWithdrawPrepareContext = {
+  cluster: string;
+  programId: string;
+  settingsPda: string;
+  smartAccountAddress: string;
+  withdrawInput: {
+    amountRaw: string;
+    mode: EarnWithdrawMode;
+    closePoliciesOnFullWithdrawal: boolean;
+    policySigner: string;
+    source:
+      | {
+          type: "reserve";
+          id: string;
+          amountRaw: string;
+          liquidityMint: string;
+          market: string;
+          reserve: string;
+        }
+      | {
+          type: "idle";
+          id: string;
+          amountRaw: string;
+          mint: string;
+          tokenAccount: string;
+        }
+      | null;
+    target: {
+      reserve: string;
+      market: string;
+      liquidityMint: string;
+      supplyApyBps: string | null;
+    } | null;
+    fullWithdrawalTargets:
+      | {
+          amountRaw: string | null;
+          liquidityMint: string;
+          market: string;
+          reserve: string;
+          reserveCollateralMint: string | null;
+          reserveLiquiditySupply: string | null;
+          supplyApyBps: string | null;
+          vaultCollateralAta: string | null;
+        }[]
+      | null;
+    yieldRoutingPolicy: {
+      account: string;
+      seed: string;
+      setupPolicy: { account: string; seed: string } | null;
+    };
+    autodepositClose: {
+      policy: string;
+      recurringDelegation: string;
+    } | null;
+  };
+};
+
+// Resolves the on-device withdraw prepare context (auth + source selection
+// only — no instruction building server-side). Returns null when the backend
+// predates the endpoint so the caller can fall back to the server prepare.
+export async function fetchEarnWithdrawPrepareContext(args: {
+  auth: EarnAuthFields;
+  amountRaw: string;
+  mode: EarnWithdrawMode;
+  source?: EarnWithdrawSource;
+}): Promise<EarnWithdrawPrepareContext | null> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/prepare-context`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({
+        ...args.auth,
+        amountRaw: args.amountRaw,
+        mode: args.mode,
+        source: args.source ?? null,
+      }),
+    },
+  );
+  if (res.status === 404) {
+    return null;
+  }
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to prepare Earn withdrawal.");
+  }
+  return (await res.json()) as EarnWithdrawPrepareContext;
 }
 
 export type EarnWithdrawConfirmArgs = {

@@ -230,6 +230,12 @@ const KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL =
   "/api/kamino/klend/deposit-instructions";
 const KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL =
   "/api/kamino/klend/withdraw-instructions";
+// React Native defines `window` but has no CORS and no web origin — the
+// relative browser proxy paths above would resolve against the Metro/dev
+// host and 404. Only real browser pages route through the Next.js proxy;
+// React Native calls the Kamino API directly, like the server.
+const IS_REACT_NATIVE =
+  typeof navigator !== "undefined" && navigator.product === "ReactNative";
 const KAMINO_EARN_SETUP_RENT_BUFFER_LAMPORTS = 39_532_800;
 const KAMINO_FARMS_PROGRAM_ID = new PublicKey(
   "FarmsPZpWu9i7Kky8tPN37rs2TpmMrAZrC7S7vJa91Hr"
@@ -2265,7 +2271,7 @@ async function fetchKaminoDepositInstruction(args: {
     amount,
   };
   const response = await fetch(
-    typeof window === "undefined"
+    typeof window === "undefined" || IS_REACT_NATIVE
       ? KAMINO_DEPOSIT_INSTRUCTIONS_URL
       : KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL,
     {
@@ -2298,7 +2304,7 @@ async function fetchKaminoWithdrawInstruction(args: {
   wallet: PublicKey;
 }): Promise<KaminoInstructionBundle> {
   const response = await fetch(
-    typeof window === "undefined"
+    typeof window === "undefined" || IS_REACT_NATIVE
       ? KAMINO_WITHDRAW_INSTRUCTIONS_URL
       : KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL,
     {
@@ -2373,9 +2379,7 @@ function validateKaminoWithdrawInstruction(args: {
 } {
   const { instruction } = args;
   if (
-    !instruction.data
-      .subarray(0, args.withdrawDiscriminator.length)
-      .equals(Buffer.from(args.withdrawDiscriminator))
+    !dataStartsWithDiscriminator(instruction.data, args.withdrawDiscriminator)
   ) {
     throw new Error(
       "Kamino withdraw instruction has an unexpected withdraw discriminator."
@@ -3318,13 +3322,29 @@ function deserializeSettingsTransactionAccount(args: {
   };
 }
 
+// Hermes (React Native) lacks TypedArray species subclassing, so the `buffer`
+// polyfill's `.subarray()` returns a plain Uint8Array with no Buffer
+// `.equals` — compare discriminator bytes manually, environment-agnostic.
+function dataStartsWithDiscriminator(
+  data: Uint8Array,
+  discriminator: readonly number[]
+): boolean {
+  if (data.length < discriminator.length) {
+    return false;
+  }
+  for (let index = 0; index < discriminator.length; index++) {
+    if (data[index] !== discriminator[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function accountMatchesDiscriminator(
   account: AccountInfo<Buffer>,
   discriminator: readonly number[]
 ): boolean {
-  return Buffer.from(account.data)
-    .subarray(0, discriminator.length)
-    .equals(Buffer.from(discriminator));
+  return dataStartsWithDiscriminator(account.data, discriminator);
 }
 
 function toAssetIndex(vaults: readonly SmartAccountVaultSnapshot[]) {
@@ -6441,9 +6461,10 @@ export function createSmartAccountVaultsClient(
         });
         const refreshPrefix = kaminoDepositBundle.instructions.filter(
           (instruction) =>
-            !instruction.data
-              .subarray(0, earnTarget.depositDiscriminator.length)
-              .equals(Buffer.from(earnTarget.depositDiscriminator))
+            !dataStartsWithDiscriminator(
+              instruction.data,
+              earnTarget.depositDiscriminator
+            )
         );
         kaminoDepositBundle = {
           instruction: localDepositInstruction,
@@ -6562,55 +6583,102 @@ export function createSmartAccountVaultsClient(
         } as never
       );
     const policyOperations = [depositExecution];
-    const prepared = freezePreparedOperation({
-      operation: "earnUsdcDeposit",
-      payer: args.feePayer,
-      programId: smartAccountsClient.programId,
-      requiresConfirmation: true,
-      instructions: [
-        createAssociatedTokenAccountIdempotentInstruction(
-          args.feePayer,
-          vaultUsdcAta,
-          vaultPda,
-          usdcMint,
-          TOKEN_PROGRAM_ID
-        ),
-        // The Kamino deposit CPI receives reserve collateral (cTokens) into the
-        // vault's collateral ATA, so it must exist and be Token-owned before the
-        // smart-account program validates the interaction. Create it idempotently.
-        ...(inferredVaultCollateralAccounts
-          ? [
-              createAssociatedTokenAccountIdempotentInstruction(
-                args.feePayer,
-                inferredVaultCollateralAccounts.vaultCollateralAta,
-                vaultPda,
-                inferredVaultCollateralAccounts.reserveCollateralMint,
-                TOKEN_PROGRAM_ID
-              ),
-            ]
-          : []),
-        ...(setupRentTopUpInstruction && !policyFinalizeOperation
-          ? [setupRentTopUpInstruction]
-          : []),
-        createTransferCheckedInstruction(
-          walletUsdcAta,
-          usdcMint,
-          vaultUsdcAta,
-          args.walletAddress,
-          args.amountRaw,
-          EARN_DEPOSIT_USDC_DECIMALS,
-          [],
-          TOKEN_PROGRAM_ID
-        ),
-        ...policyOperations.flatMap((operation) => operation.instructions),
-      ],
-      lookupTableAccounts: dedupeLookupTableAccounts(
-        policyOperations.flatMap(
-          (operation) => operation.lookupTableAccounts ?? []
-        )
+    // Stray-approval heal: a pre-fix autodeposit delete left the unlimited
+    // SPL delegate that InitAuthority approved on the wallet's USDC ATA. When
+    // the caller vouches there is no live autodeposit (DB-side gate), ride an
+    // SPL revoke in the deposit tx — but only when the delegate on chain is
+    // still our subscription authority, so a foreign approval is untouched.
+    let strayDelegateRevokeInstruction: TransactionInstruction | null = null;
+    if (args.revokeStrayUsdcDelegate === true) {
+      const subscriptionAuthority = deriveSubscriptionAuthority(
+        args.walletAddress,
+        usdcMint
+      );
+      const walletUsdcAtaInfo = await config.connection.getAccountInfo(
+        walletUsdcAta
+      );
+      if (
+        walletUsdcAtaInfo &&
+        walletUsdcAtaInfo.data.length >= AccountLayout.span
+      ) {
+        const decoded = AccountLayout.decode(walletUsdcAtaInfo.data);
+        if (
+          decoded.delegateOption === 1 &&
+          new PublicKey(decoded.delegate).equals(subscriptionAuthority)
+        ) {
+          strayDelegateRevokeInstruction = createRevokeInstruction(
+            walletUsdcAta,
+            args.walletAddress
+          );
+        }
+      }
+    }
+    const depositInstructions = [
+      createAssociatedTokenAccountIdempotentInstruction(
+        args.feePayer,
+        vaultUsdcAta,
+        vaultPda,
+        usdcMint,
+        TOKEN_PROGRAM_ID
       ),
-    });
-    const preparedLength = preparedPacketLength(prepared);
+      // The Kamino deposit CPI receives reserve collateral (cTokens) into the
+      // vault's collateral ATA, so it must exist and be Token-owned before the
+      // smart-account program validates the interaction. Create it idempotently.
+      ...(inferredVaultCollateralAccounts
+        ? [
+            createAssociatedTokenAccountIdempotentInstruction(
+              args.feePayer,
+              inferredVaultCollateralAccounts.vaultCollateralAta,
+              vaultPda,
+              inferredVaultCollateralAccounts.reserveCollateralMint,
+              TOKEN_PROGRAM_ID
+            ),
+          ]
+        : []),
+      ...(setupRentTopUpInstruction && !policyFinalizeOperation
+        ? [setupRentTopUpInstruction]
+        : []),
+      createTransferCheckedInstruction(
+        walletUsdcAta,
+        usdcMint,
+        vaultUsdcAta,
+        args.walletAddress,
+        args.amountRaw,
+        EARN_DEPOSIT_USDC_DECIMALS,
+        [],
+        TOKEN_PROGRAM_ID
+      ),
+      ...policyOperations.flatMap((operation) => operation.instructions),
+    ];
+    const freezeDeposit = (instructions: TransactionInstruction[]) =>
+      freezePreparedOperation({
+        operation: "earnUsdcDeposit",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions,
+        lookupTableAccounts: dedupeLookupTableAccounts(
+          policyOperations.flatMap(
+            (operation) => operation.lookupTableAccounts ?? []
+          )
+        ),
+      });
+    let prepared = freezeDeposit(
+      strayDelegateRevokeInstruction
+        ? [...depositInstructions, strayDelegateRevokeInstruction]
+        : depositInstructions
+    );
+    let preparedLength = preparedPacketLength(prepared);
+    if (
+      strayDelegateRevokeInstruction &&
+      (preparedLength === null ||
+        preparedLength > EARN_POLICY_PACKET_DATA_SIZE)
+    ) {
+      // The heal rider must never sink a deposit: drop it when the tx is at
+      // the packet ceiling — a later deposit or delete re-heals the wallet.
+      prepared = freezeDeposit(depositInstructions);
+      preparedLength = preparedPacketLength(prepared);
+    }
     if (
       preparedLength === null ||
       preparedLength > EARN_POLICY_PACKET_DATA_SIZE
@@ -7312,9 +7380,10 @@ export function createSmartAccountVaultsClient(
           });
         const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
           (instruction) =>
-            !instruction.data
-              .subarray(0, plan.target.withdrawDiscriminator.length)
-              .equals(Buffer.from(plan.target.withdrawDiscriminator))
+            !dataStartsWithDiscriminator(
+              instruction.data,
+              plan.target.withdrawDiscriminator
+            )
         );
         kaminoWithdrawBundle = {
           instruction: selectedWithdrawInstruction,
@@ -7381,9 +7450,10 @@ export function createSmartAccountVaultsClient(
             });
           const refreshPrefix = kaminoWithdrawBundle.instructions.filter(
             (instruction) =>
-              !instruction.data
-                .subarray(0, plan.target.withdrawDiscriminator.length)
-                .equals(Buffer.from(plan.target.withdrawDiscriminator))
+              !dataStartsWithDiscriminator(
+                instruction.data,
+                plan.target.withdrawDiscriminator
+              )
           );
           kaminoWithdrawBundle = {
             instruction: reconciledWithdrawInstruction,

@@ -1,6 +1,8 @@
 import type {
   SmartAccountPreparedEarnUsdcAutodepositClose,
   SmartAccountPreparedEarnUsdcAutodepositSetup,
+  SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
 import {
   AddressLookupTableAccount,
@@ -124,6 +126,59 @@ export function serializePreparedEarnAutodepositSetup(
   };
 }
 
+// Wire form of a device-prepared Earn deposit, matching the backend
+// `serializePreparedEarnUsdcDeposit` (`earn-deposit-prepare-contracts.shared.ts`)
+// — `deposit/confirm` hydrates this exact shape.
+export function serializePreparedEarnUsdcDeposit(
+  deposit: SmartAccountPreparedEarnUsdcDeposit,
+) {
+  return {
+    kaminoSetupAccountCount: deposit.kaminoSetupAccountCount,
+    kaminoSetupRentLamports: deposit.kaminoSetupRentLamports,
+    kaminoSetupRequired: deposit.kaminoSetupRequired,
+    nativeSolRequirement: deposit.nativeSolRequirement,
+    persistence: deposit.persistence,
+    policyFinalizePrepared: deposit.policyFinalizePrepared
+      ? serializePreparedOperation(deposit.policyFinalizePrepared)
+      : null,
+    policy: {
+      account: deposit.policy.account.toBase58(),
+      id: deposit.policy.id.toString(),
+      sameMintInstructionConstraintIndexes:
+        deposit.policy.sameMintInstructionConstraintIndexes,
+      seed: deposit.policy.seed.toString(),
+    },
+    ...(deposit.setupPolicy
+      ? {
+          setupPolicy: {
+            account: deposit.setupPolicy.account.toBase58(),
+            id: deposit.setupPolicy.id.toString(),
+            initObligationInstructionConstraintIndex:
+              deposit.setupPolicy.initObligationInstructionConstraintIndex,
+            seed: deposit.setupPolicy.seed.toString(),
+          },
+        }
+      : {}),
+    policySetupPrepared: deposit.policySetupPrepared
+      ? serializePreparedOperation(deposit.policySetupPrepared)
+      : null,
+    prepared: serializePreparedOperation(deposit.prepared),
+    targetReserve: {
+      liquidityMint: deposit.targetReserve.liquidityMint.toBase58(),
+      market: deposit.targetReserve.market.toBase58(),
+      obligation: deposit.targetReserve.obligation.toBase58(),
+      reserve: deposit.targetReserve.reserve.toBase58(),
+      supplyApyBps: deposit.targetReserve.supplyApyBps?.toString() ?? null,
+    },
+    vault: {
+      accountIndex: deposit.vault.accountIndex,
+      collateralAta: deposit.vault.collateralAta?.toBase58() ?? null,
+      pubkey: deposit.vault.pubkey.toBase58(),
+      usdcAta: deposit.vault.usdcAta.toBase58(),
+    },
+  };
+}
+
 // Wire form of a device-prepared autodeposit close, matching the backend
 // `serializePreparedEarnUsdcAutodepositClose` — `close/confirm` hydrates it.
 export function serializePreparedEarnAutodepositClose(
@@ -180,5 +235,73 @@ export function hydratePreparedOperation(
         }),
     ),
     payer: new PublicKey(wire.payer),
+  };
+}
+
+// Wire form of a device-prepared Earn withdrawal, matching the backend
+// `serializePreparedEarnUsdcWithdraw` (`earn-withdraw-prepare-contracts.shared.ts`)
+// — `withdraw/confirm` hydrates this exact shape.
+export function serializePreparedEarnUsdcWithdraw(
+  withdraw: SmartAccountPreparedEarnUsdcWithdraw,
+) {
+  return {
+    amountRaw: withdraw.amountRaw.toString(),
+    autodepositClosePrepared: withdraw.autodepositClosePrepared
+      ? serializePreparedEarnAutodepositClose(withdraw.autodepositClosePrepared)
+      : null,
+    mode: withdraw.mode,
+    persistence: withdraw.persistence,
+    policy: {
+      account: withdraw.policy.account.toBase58(),
+      id: withdraw.policy.id.toString(),
+      sameMintInstructionConstraintIndexes:
+        withdraw.policy.sameMintInstructionConstraintIndexes,
+      seed: withdraw.policy.seed.toString(),
+      withdrawInstructionConstraintIndex:
+        withdraw.policy.withdrawInstructionConstraintIndex,
+    },
+    ...(withdraw.setupPolicy
+      ? {
+          setupPolicy: {
+            account: withdraw.setupPolicy.account.toBase58(),
+            id: withdraw.setupPolicy.id.toString(),
+            seed: withdraw.setupPolicy.seed.toString(),
+          },
+        }
+      : {}),
+    prepared: serializePreparedOperation(withdraw.prepared),
+    withdrawSteps: withdraw.withdrawSteps.map((step) => ({
+      accountingReserve: {
+        liquidityMint: step.accountingReserve.liquidityMint.toBase58(),
+        market: step.accountingReserve.market.toBase58(),
+        obligation: step.accountingReserve.obligation.toBase58(),
+        reserve: step.accountingReserve.reserve.toBase58(),
+      },
+      amountRaw: step.amountRaw.toString(),
+      collateralAta: step.collateralAta.toBase58(),
+      executionReserve: {
+        liquidityMint: step.executionReserve.liquidityMint.toBase58(),
+        market: step.executionReserve.market.toBase58(),
+        reserve: step.executionReserve.reserve.toBase58(),
+      },
+      mode: step.mode,
+      persistence: step.persistence,
+      prepared: serializePreparedOperation(step.prepared),
+      reserveWithdrawals: step.reserveWithdrawals,
+      stepCount: step.stepCount,
+      stepIndex: step.stepIndex,
+    })),
+    targetReserve: {
+      liquidityMint: withdraw.targetReserve.liquidityMint.toBase58(),
+      market: withdraw.targetReserve.market.toBase58(),
+      obligation: withdraw.targetReserve.obligation.toBase58(),
+      reserve: withdraw.targetReserve.reserve.toBase58(),
+    },
+    vault: {
+      accountIndex: withdraw.vault.accountIndex,
+      collateralAta: withdraw.vault.collateralAta.toBase58(),
+      pubkey: withdraw.vault.pubkey.toBase58(),
+      usdcAta: withdraw.vault.usdcAta.toBase58(),
+    },
   };
 }
