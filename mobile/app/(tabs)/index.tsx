@@ -253,7 +253,14 @@ export default function EarnScreen() {
   // empty hero only, routing to the Earn activity feed where the refund rows
   // live. Funded state shows nothing — the rent comes back when the position
   // closes, so there's nothing actionable while a deposit is live.
-  const { earnRefunds } = useActivity();
+  // `refreshAutodeposit` is renamed: the Activity feed keeps its own
+  // Autodeposit read (it drives the "Scheduled" row), separate from this
+  // screen's `useEarnAutodeposit` instance below.
+  const {
+    earnRefunds,
+    expectScheduledSweep,
+    refreshAutodeposit: refreshActivityAutodeposit,
+  } = useActivity();
   const handleOpenRefunds = useCallback(() => {
     router.navigate({
       pathname: "/(tabs)/activity",
@@ -703,14 +710,29 @@ export default function EarnScreen() {
       // Criteria met for immediate execution → the backend scheduled a bootstrap
       // sweep. Take the user straight to Activity so the pending transaction (and
       // its "Execute now" shortcut) is visible, instead of leaving them guessing.
+      // The Activity feed reads Autodeposit state through its own hook instance,
+      // which hasn't seen the new sweep yet: flag the expectation (the feed shows
+      // a skeleton "Scheduled" row immediately) and warm its read in the
+      // background so the real row lands without waiting for a manual refresh.
       if (getVisibleEarnScheduledSweeps(fresh?.scheduledSweeps).length > 0) {
+        expectScheduledSweep();
+        void refreshActivityAutodeposit();
         router.navigate({
           pathname: "/(tabs)/activity",
           params: { section: "earn" },
         });
       }
     },
-    [signer, state, autodepositSetupMode, autodeposit, refreshAutodeposit, router],
+    [
+      signer,
+      state,
+      autodepositSetupMode,
+      autodeposit,
+      refreshAutodeposit,
+      expectScheduledSweep,
+      refreshActivityAutodeposit,
+      router,
+    ],
   );
 
   const handleAutodepositDelete = useCallback(async () => {

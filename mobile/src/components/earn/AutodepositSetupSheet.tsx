@@ -422,7 +422,11 @@ export function AutodepositSetupSheet({
                 <Wallet size={24} color="#FFF" strokeWidth={2} />
               </View>
               <View style={styles.flowMiddle}>
-                <Text style={styles.flowSubtitle}>
+                <Text
+                  style={styles.flowSubtitle}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
                   from {shortenAddress(walletAddress)}
                 </Text>
                 <Text style={styles.flowAmount}>
@@ -435,7 +439,9 @@ export function AutodepositSetupSheet({
             <View style={styles.flowCell}>
               <AutodepositIcon width={48} height={48} />
               <View style={styles.flowMiddle}>
-                <Text style={styles.flowSubtitle}>to Earn</Text>
+                <Text style={styles.flowSubtitle} numberOfLines={1}>
+                  to Earn
+                </Text>
                 <Text style={styles.flowAmount}>
                   <Text style={styles.flowAmountWhole}>{toParts.whole}</Text>
                   <Text style={styles.flowAmountCents}>{toParts.cents}</Text>
@@ -616,12 +622,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
   },
+  // Side-by-side from → to (was stacked): the keyboard-riding footer must stay
+  // short enough that it doesn't cover the body's red caption on small screens.
   flow: {
-    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     marginBottom: 16,
   },
   flowCell: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -661,13 +671,10 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: COLOR_CENTS_DIM,
   },
-  // Short vertical tick joining the two cells' icons (Figma 75:32258).
+  // Short horizontal tick joining the two cells in the row.
   connector: {
-    position: "absolute",
-    left: 23,
-    top: 54,
-    width: 2,
-    height: 18,
+    width: 14,
+    height: 2,
     borderRadius: 2,
     backgroundColor: COLOR_CONNECTOR,
   },

@@ -61,6 +61,14 @@ type ActivityContextValue = {
   /** Ask the worker to run the pending scheduled sweep now. */
   executeScheduledSweep: () => Promise<void>;
   /**
+   * True while a just-created Autodeposit's scheduled sweep is expected to
+   * appear but this provider's own Autodeposit read hasn't caught up yet — the
+   * Earn feed shows a skeleton "Scheduled" row instead of nothing.
+   */
+  expectingScheduledSweep: boolean;
+  /** Flag that a scheduled sweep is about to appear (called on Autodeposit create). */
+  expectScheduledSweep: () => void;
+  /**
    * An executed scheduled sweep morphing in place into its result `balance_sweep`
    * tx (or null when none is in progress). Drives the cross-fade in the Earn feed.
    */
@@ -235,6 +243,33 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(intervalId);
   }, [hasDueScheduledSweep, refreshAutodeposit]);
 
+  // After an Autodeposit create schedules a bootstrap sweep, the Earn tab
+  // routes here before this provider's own Autodeposit read has caught up.
+  // The expectation flag keeps a skeleton "Scheduled" row on screen until the
+  // real sweep lands; the timeout gives up so a backend hiccup (or a sweep the
+  // surplus cap hides because it already executed) can't pin a skeleton forever.
+  const EXPECTED_SWEEP_TIMEOUT_MS = 30_000;
+  const [expectingScheduledSweep, setExpectingScheduledSweep] = useState(false);
+  const expectScheduledSweep = useCallback(
+    () => setExpectingScheduledSweep(true),
+    [],
+  );
+  const hasVisibleScheduledSweep = earnScheduledSweeps.length > 0;
+  useEffect(() => {
+    if (!expectingScheduledSweep) {
+      return;
+    }
+    if (hasVisibleScheduledSweep) {
+      setExpectingScheduledSweep(false);
+      return;
+    }
+    const timeoutId = setTimeout(
+      () => setExpectingScheduledSweep(false),
+      EXPECTED_SWEEP_TIMEOUT_MS,
+    );
+    return () => clearTimeout(timeoutId);
+  }, [expectingScheduledSweep, hasVisibleScheduledSweep]);
+
   const [isExecutingSweep, setIsExecutingSweep] = useState(false);
   // The in-place morph of an executed scheduled sweep into its result tx. Set
   // when "Execute now" succeeds; resolved (cross-faded) when the worker's
@@ -345,9 +380,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timeoutId);
   }, [sweepMorph]);
 
-  // A morph belongs to one wallet's execution — drop it if the wallet changes.
+  // A morph/expectation belongs to one wallet — drop them if the wallet changes.
   useEffect(() => {
     setSweepMorph(null);
+    setExpectingScheduledSweep(false);
   }, [publicKey]);
 
   const [earnRefunds, setEarnRefunds] = useState<EarnRefundItem[]>([]);
@@ -509,6 +545,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
+      expectingScheduledSweep,
+      expectScheduledSweep,
       sweepMorph,
       clearSweepMorph,
       walletUnread,
@@ -533,6 +571,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
+      expectingScheduledSweep,
+      expectScheduledSweep,
       sweepMorph,
       clearSweepMorph,
       walletUnread,

@@ -137,6 +137,44 @@ function EarnScheduledRow({
   );
 }
 
+// Placeholder mirroring EarnScheduledRow's geometry, shown the instant the user
+// lands here after creating an Autodeposit — the provider's own Autodeposit
+// read is still catching up, and an empty slot reads as "nothing happened".
+function EarnScheduledSkeletonRow() {
+  return (
+    <View className="flex-row items-start px-4 py-2.5">
+      <View
+        className="h-12 w-12 rounded-full"
+        style={{ backgroundColor: "#f2f2f7" }}
+      />
+      <View className="ml-3 flex-1">
+        <View
+          className="h-4 w-28 rounded"
+          style={{ backgroundColor: "#f2f2f7" }}
+        />
+        <View
+          className="mt-1.5 h-3.5 w-40 rounded"
+          style={{ backgroundColor: "#f2f2f7" }}
+        />
+        <View
+          className="mt-2 h-[30px] w-28 rounded-full"
+          style={{ backgroundColor: "#f2f2f7" }}
+        />
+      </View>
+      <View className="ml-3 items-end">
+        <View
+          className="h-4 w-16 rounded"
+          style={{ backgroundColor: "#f2f2f7" }}
+        />
+        <View
+          className="mt-1 h-3 w-20 rounded"
+          style={{ backgroundColor: "#f2f2f7" }}
+        />
+      </View>
+    </View>
+  );
+}
+
 function formatRefundSol(lamports: number): string {
   return (lamports / 1e9).toFixed(4).replace(/\.?0+$/, "");
 }
@@ -264,6 +302,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     earnScheduledSweeps,
     isExecutingSweep,
     executeScheduledSweep,
+    expectingScheduledSweep,
     sweepMorph,
     earnRefunds,
     refundingAccount,
@@ -273,6 +312,11 @@ export function EarnActivityList({ limit }: { limit: number }) {
   // suppress the live "Scheduled" section to avoid rendering the same row twice.
   const hasScheduled = !sweepMorph && earnScheduledSweeps.length > 0;
   const hasRefunds = earnRefunds.length > 0;
+  // A just-created Autodeposit's sweep is on its way but the provider's read
+  // hasn't caught up — hold its slot with a skeleton so the user who was just
+  // routed here sees the row forming instead of an unchanged feed.
+  const showScheduledSkeleton =
+    expectingScheduledSweep && !hasScheduled && !sweepMorph;
 
   // Skeleton only on the cold load (before the first fetch settles). Background
   // 15s polls keep the feed fresh without flashing the skeleton on each tick.
@@ -281,7 +325,8 @@ export function EarnActivityList({ limit }: { limit: number }) {
     earnTransactions.length === 0 &&
     !hasScheduled &&
     !sweepMorph &&
-    !hasRefunds
+    !hasRefunds &&
+    !showScheduledSkeleton
   ) {
     return (
       <View className="px-4">
@@ -321,7 +366,8 @@ export function EarnActivityList({ limit }: { limit: number }) {
     earnTransactions.length === 0 &&
     !hasScheduled &&
     !sweepMorph &&
-    !hasRefunds
+    !hasRefunds &&
+    !showScheduledSkeleton
   ) {
     return (
       <View className="items-center px-4 py-12">
@@ -391,6 +437,16 @@ export function EarnActivityList({ limit }: { limit: number }) {
               onExecute={executeScheduledSweep}
             />
           ))}
+        </View>
+      ) : showScheduledSkeleton ? (
+        <View>
+          <Text
+            className="px-4 pb-2 pt-3 text-[17px]"
+            style={{ color: SECONDARY, letterSpacing: -0.187 }}
+          >
+            Scheduled
+          </Text>
+          <EarnScheduledSkeletonRow />
         </View>
       ) : null}
       {groups.map((group) => (
