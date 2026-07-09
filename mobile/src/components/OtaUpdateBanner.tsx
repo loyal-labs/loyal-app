@@ -81,11 +81,6 @@ export function OtaUpdateBanner() {
     return () => subscription.remove();
   }, [checkForUpdate]);
 
-  const handleDismiss = useCallback(() => {
-    setIsVisible(false);
-    setError(null);
-  }, []);
-
   const handleApply = useCallback(async () => {
     if (isApplying) return;
 
@@ -115,20 +110,14 @@ export function OtaUpdateBanner() {
         <View style={styles.copy}>
           <Text style={styles.title}>Update available</Text>
           <Text style={styles.subtitle}>
-            Restart Loyal to use the latest version.
+            We are constantly improving the app, optimizing performance and
+            fixing issues. Please update now to have the latest version
+            running!
           </Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
 
         <View style={styles.actions}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={isApplying}
-            onPress={handleDismiss}
-            style={[styles.button, styles.secondaryButton]}
-          >
-            <Text style={styles.secondaryText}>Later</Text>
-          </Pressable>
           <Pressable
             accessibilityRole="button"
             disabled={isApplying}
@@ -197,16 +186,8 @@ const styles = StyleSheet.create({
     height: 42,
     justifyContent: "center",
   },
-  secondaryButton: {
-    backgroundColor: "rgba(255,255,255,0.1)",
-  },
   primaryButton: {
     backgroundColor: "#f9363c",
-  },
-  secondaryText: {
-    color: "rgba(255,255,255,0.82)",
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 14,
   },
   primaryText: {
     color: "#fff",
