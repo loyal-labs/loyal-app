@@ -217,12 +217,12 @@ export default function EarnScreen() {
   const [autodepositSetupMode, setAutodepositSetupMode] = useState<
     "create" | "edit"
   >("create");
-  // "How Autodeposit works" transparency sheet, shown after a successful
-  // create/edit/delete. The confirm/delete handlers arm the ref; the setup
-  // sheet's onClose presents it, so it never stacks under the closing sheet
-  // and never shows for a cancelled one.
+  // "How Autodeposit works" pre-flight interstitial: every path into the
+  // setup sheet (create or edit — delete lives inside the edit sheet) opens
+  // this first; its Continue proceeds to the setup sheet in the mode captured
+  // at initiation.
   const [autodepositInfoOpen, setAutodepositInfoOpen] = useState(false);
-  const autodepositInfoPendingRef = useRef(false);
+  const autodepositInfoModeRef = useRef<"create" | "edit">("create");
   // Principal just deposited, used as the funded Earn Balance until the real
   // on-chain position is wired (see .context/earn-deposit-findings.md, step b).
   const [depositedUsd, setDepositedUsd] = useState<number | null>(null);
@@ -294,12 +294,18 @@ export default function EarnScreen() {
       return;
     }
     // Pull the live wallet USDC + Earn position so both flow balances are
-    // current, not cached from before the latest deposit/sweep (like withdraw).
+    // current by the time the user continues past the info sheet.
     refreshTokenHoldings(true);
     refreshEarnPosition();
-    setAutodepositSetupMode("create");
-    setAutodepositSetupOpen(true);
+    autodepositInfoModeRef.current = "create";
+    setAutodepositInfoOpen(true);
   }, [earnPositionLoaded, hasDeposit, refreshTokenHoldings, refreshEarnPosition]);
+
+  // Info accepted — open the setup sheet in the mode captured at initiation.
+  const handleAutodepositInfoContinue = useCallback(() => {
+    setAutodepositSetupMode(autodepositInfoModeRef.current);
+    setAutodepositSetupOpen(true);
+  }, []);
 
   const openParam = useLocalSearchParams<{ open?: string }>();
   useEffect(() => {
@@ -309,8 +315,8 @@ export default function EarnScreen() {
       setDepositOpen(true);
     } else if (open === "autodeposit") {
       if (autodepositEnabled) {
-        setAutodepositSetupMode("edit");
-        setAutodepositSetupOpen(true);
+        autodepositInfoModeRef.current = "edit";
+        setAutodepositInfoOpen(true);
       } else {
         openAutodepositCreate();
       }
@@ -675,8 +681,8 @@ export default function EarnScreen() {
     void Haptics.selectionAsync();
     refreshTokenHoldings(true);
     refreshEarnPosition();
-    setAutodepositSetupMode("edit");
-    setAutodepositSetupOpen(true);
+    autodepositInfoModeRef.current = "edit";
+    setAutodepositInfoOpen(true);
   }, [refreshTokenHoldings, refreshEarnPosition]);
 
   const handleAutodepositHelp = useCallback(() => {
@@ -736,7 +742,6 @@ export default function EarnScreen() {
       } else {
         await executeEarnAutodepositSetup({ signer, thresholdUsd });
       }
-      autodepositInfoPendingRef.current = true;
       const fresh = await refreshAutodeposit();
       // Criteria met for immediate execution → the backend scheduled a bootstrap
       // sweep. Take the user straight to Activity so the pending transaction (and
@@ -778,7 +783,6 @@ export default function EarnScreen() {
       policy: autodeposit.policyAccount,
       recurringDelegation: autodeposit.recurringDelegation,
     });
-    autodepositInfoPendingRef.current = true;
     refreshAutodeposit();
   }, [signer, state, autodeposit, refreshAutodeposit]);
 
@@ -1112,13 +1116,7 @@ export default function EarnScreen() {
 
       <AutodepositSetupSheet
         open={autodepositSetupOpen}
-        onClose={() => {
-          setAutodepositSetupOpen(false);
-          if (autodepositInfoPendingRef.current) {
-            autodepositInfoPendingRef.current = false;
-            setAutodepositInfoOpen(true);
-          }
-        }}
+        onClose={() => setAutodepositSetupOpen(false)}
         onConfirm={handleAutodepositConfirm}
         onDelete={handleAutodepositDelete}
         mode={autodepositSetupMode}
@@ -1131,6 +1129,7 @@ export default function EarnScreen() {
       <AutodepositInfoSheet
         open={autodepositInfoOpen}
         onClose={() => setAutodepositInfoOpen(false)}
+        onContinue={handleAutodepositInfoContinue}
       />
     </View>
   );

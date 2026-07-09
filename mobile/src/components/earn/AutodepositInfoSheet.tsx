@@ -8,11 +8,13 @@ import { useCallback, useEffect, useRef } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// Post-action transparency sheet, shown once after an Autodeposit is created,
-// edited or deleted: what primitive it runs on, what permission it holds, and
-// how it's undone. Exists so the on-chain footprint (token delegate + rent)
-// reads as designed behavior, not something scary a wallet UI surprises the
-// user with later.
+// Pre-flight transparency interstitial, shown BEFORE the Autodeposit setup
+// sheet opens (create and edit — delete lives inside the edit sheet, so every
+// operation passes through here first): what primitive it runs on, what
+// permission it holds, and how it's undone. Exists so the on-chain footprint
+// (token delegate + rent) is understood before the user commits, not something
+// a wallet UI surprises them with later. "Continue" proceeds to the setup
+// sheet; closing any other way cancels.
 const COLOR_CHIP_BG = "#F2F2F7";
 const COLOR_BODY_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_BRAND_RED = "#F9363C";
@@ -38,9 +40,13 @@ const ROWS = [
 export function AutodepositInfoSheet({
   open,
   onClose,
+  onContinue,
 }: {
   open: boolean;
   onClose: () => void;
+  // Called when the user accepts — close this sheet, then open the setup
+  // sheet (mirrors AutodepositHelpSheet → setup).
+  onContinue: () => void;
 }) {
   const sheetRef = useRef<BottomSheetModal>(null);
   const insets = useSafeAreaInsets();
@@ -53,9 +59,10 @@ export function AutodepositInfoSheet({
     }
   }, [open]);
 
-  const handleClose = useCallback(() => {
+  const handleContinue = useCallback(() => {
     sheetRef.current?.dismiss();
-  }, []);
+    onContinue();
+  }, [onContinue]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -98,16 +105,16 @@ export function AutodepositInfoSheet({
         </View>
 
         <Pressable
-          onPress={handleClose}
+          onPress={handleContinue}
           accessibilityRole="button"
-          accessibilityLabel="Got it"
+          accessibilityLabel="Continue"
           style={({ pressed }) => [
             styles.cta,
             { marginBottom: insets.bottom + 12 },
             pressed && styles.ctaPressed,
           ]}
         >
-          <Text style={styles.ctaLabel}>Got it</Text>
+          <Text style={styles.ctaLabel}>Continue</Text>
         </Pressable>
       </BottomSheetView>
     </BottomSheetModal>
