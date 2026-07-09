@@ -127,29 +127,30 @@ async function hasExpectedWalletTokenDelegate(args: {
     return false;
   }
 
-  try {
-    const expectedDelegate = new PublicKey(args.subscriptionAuthority);
-    const account = await args.connection.getAccountInfo(
-      new PublicKey(args.walletUsdcAta),
-      "confirmed"
-    );
-    if (
-      !account ||
-      !account.owner.equals(TOKEN_PROGRAM_ID) ||
-      account.data.length < AccountLayout.span
-    ) {
-      return false;
-    }
-
-    const decoded = AccountLayout.decode(account.data);
-    return (
-      decoded.delegateOption === 1 &&
-      new PublicKey(decoded.delegate).equals(expectedDelegate) &&
-      decoded.delegatedAmount >= args.minimumDelegatedAmount
-    );
-  } catch {
+  // Deliberately no catch: a failed RPC read must throw (failing the whole
+  // reconcile, which is served unreconciled — same contract as
+  // probeEarnAutodepositArtifacts), NOT read as "approval missing". Mapping a
+  // transient read error to false would demote a healthy ACTIVE autodeposit
+  // and silently stop its sweeps until a later state read re-promotes it.
+  const expectedDelegate = new PublicKey(args.subscriptionAuthority);
+  const account = await args.connection.getAccountInfo(
+    new PublicKey(args.walletUsdcAta),
+    "confirmed"
+  );
+  if (
+    !account ||
+    !account.owner.equals(TOKEN_PROGRAM_ID) ||
+    account.data.length < AccountLayout.span
+  ) {
     return false;
   }
+
+  const decoded = AccountLayout.decode(account.data);
+  return (
+    decoded.delegateOption === 1 &&
+    new PublicKey(decoded.delegate).equals(expectedDelegate) &&
+    decoded.delegatedAmount >= args.minimumDelegatedAmount
+  );
 }
 
 async function reconcileAutodepositArtifacts(args: {
