@@ -16,6 +16,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AutodepositHelpSheet } from "@/components/earn/AutodepositHelpSheet";
+import { AutodepositInfoSheet } from "@/components/earn/AutodepositInfoSheet";
 import {
   AutodepositSetupSheet,
   computeAutodepositSetupSolShortfall,
@@ -216,6 +217,12 @@ export default function EarnScreen() {
   const [autodepositSetupMode, setAutodepositSetupMode] = useState<
     "create" | "edit"
   >("create");
+  // "How Autodeposit works" transparency sheet, shown after a successful
+  // create/edit/delete. The confirm/delete handlers arm the ref; the setup
+  // sheet's onClose presents it, so it never stacks under the closing sheet
+  // and never shows for a cancelled one.
+  const [autodepositInfoOpen, setAutodepositInfoOpen] = useState(false);
+  const autodepositInfoPendingRef = useRef(false);
   // Principal just deposited, used as the funded Earn Balance until the real
   // on-chain position is wired (see .context/earn-deposit-findings.md, step b).
   const [depositedUsd, setDepositedUsd] = useState<number | null>(null);
@@ -729,6 +736,7 @@ export default function EarnScreen() {
       } else {
         await executeEarnAutodepositSetup({ signer, thresholdUsd });
       }
+      autodepositInfoPendingRef.current = true;
       const fresh = await refreshAutodeposit();
       // Criteria met for immediate execution → the backend scheduled a bootstrap
       // sweep. Take the user straight to Activity so the pending transaction (and
@@ -770,6 +778,7 @@ export default function EarnScreen() {
       policy: autodeposit.policyAccount,
       recurringDelegation: autodeposit.recurringDelegation,
     });
+    autodepositInfoPendingRef.current = true;
     refreshAutodeposit();
   }, [signer, state, autodeposit, refreshAutodeposit]);
 
@@ -1103,7 +1112,13 @@ export default function EarnScreen() {
 
       <AutodepositSetupSheet
         open={autodepositSetupOpen}
-        onClose={() => setAutodepositSetupOpen(false)}
+        onClose={() => {
+          setAutodepositSetupOpen(false);
+          if (autodepositInfoPendingRef.current) {
+            autodepositInfoPendingRef.current = false;
+            setAutodepositInfoOpen(true);
+          }
+        }}
         onConfirm={handleAutodepositConfirm}
         onDelete={handleAutodepositDelete}
         mode={autodepositSetupMode}
@@ -1112,6 +1127,10 @@ export default function EarnScreen() {
         earnBalanceUsd={depositedUsd}
         walletAddress={walletAddress}
         setupSolShortfall={autodepositSolShortfall}
+      />
+      <AutodepositInfoSheet
+        open={autodepositInfoOpen}
+        onClose={() => setAutodepositInfoOpen(false)}
       />
     </View>
   );
