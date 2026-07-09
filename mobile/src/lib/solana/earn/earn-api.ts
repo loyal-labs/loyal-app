@@ -823,3 +823,80 @@ export async function fetchSolanaWeekQuestProgress(
   }
   return (await res.json()) as SolanaWeekQuestProgressResponse;
 }
+
+// --- Rent refunds (experimental) -------------------------------------------
+//
+// Scan for closed Earn accounts still holding refundable rent: dead vault
+// policies, revoked/expired recurring delegations, and the vault itself
+// (stranded setup SOL + token-account rents). Wallet-keyed and read-only —
+// no signature (like `state`), so the experimental auto-scan never prompts
+// Seed Vault. Only `prepare` (which returns a signable transaction) is
+// wallet-signed.
+
+export type EarnRefundScanItem = {
+  account: string;
+  blockedReason: string | null;
+  canRefund: boolean;
+  lamports: number | null;
+};
+
+export type EarnRefundScanVault = EarnRefundScanItem & {
+  totalRefundableLamports: number;
+};
+
+export type EarnRefundScanResponse = {
+  scan: {
+    policies: EarnRefundScanItem[];
+    recurringDelegations: EarnRefundScanItem[];
+    vault: EarnRefundScanVault | null;
+  } | null;
+};
+
+export async function fetchEarnRefundScan(
+  walletAddress: string,
+): Promise<EarnRefundScanResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/policy-refunds/scan?walletAddress=${encodeURIComponent(
+      walletAddress,
+    )}`,
+    { method: "GET", headers: earnHeaders() },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to scan for refunds.");
+  }
+  return (await res.json()) as EarnRefundScanResponse;
+}
+
+export type EarnRefundPrepareRequest =
+  | { kind: "policy"; policyAccount: string }
+  | { kind: "recurring_delegation"; recurringDelegation: string }
+  | { kind: "vault" };
+
+type WirePreparedEarnRefund = {
+  estimatedRefundLamports: number | null;
+  prepared: WirePreparedOperation;
+};
+
+export type EarnRefundPrepareResponse = {
+  preparedRefund?: WirePreparedEarnRefund;
+  preparedRecurringDelegationRefund?: WirePreparedEarnRefund;
+  preparedVaultRefund?: WirePreparedEarnRefund;
+};
+
+export async function prepareEarnRefund(args: {
+  auth: EarnAuthFields;
+  request: EarnRefundPrepareRequest;
+}): Promise<EarnRefundPrepareResponse> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/policy-refunds/prepare`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({ ...args.auth, ...args.request }),
+    },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to prepare the refund.");
+  }
+  return (await res.json()) as EarnRefundPrepareResponse;
+}

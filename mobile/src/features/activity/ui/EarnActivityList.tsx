@@ -25,7 +25,11 @@ import {
 } from "@/lib/solana/earn/earn-tx-display";
 import { Text, View } from "@/tw";
 
-import { type SweepMorph, useActivity } from "../model/ActivityProvider";
+import {
+  type EarnRefundItem,
+  type SweepMorph,
+  useActivity,
+} from "../model/ActivityProvider";
 import { EarnTxAccountIcon, EarnTxCompoundIcon } from "./EarnTxIcon";
 
 const SECONDARY = "rgba(60, 60, 67, 0.6)";
@@ -133,6 +137,61 @@ function EarnScheduledRow({
   );
 }
 
+function formatRefundSol(lamports: number): string {
+  return (lamports / 1e9).toFixed(4).replace(/\.?0+$/, "");
+}
+
+const REFUND_SUBTITLES: Record<EarnRefundItem["kind"], string> = {
+  policy: "Earn policy rent",
+  recurring_delegation: "Earn allowance rent",
+  vault: "Earn account rent",
+};
+
+// A refundable closed Earn account (experimental): rent we can return to the
+// wallet. Funds flow Earn -> Main, so it shows the withdraw icon.
+function EarnRefundRow({
+  item,
+  isRefunding,
+  onRefund,
+}: {
+  item: EarnRefundItem;
+  isRefunding: boolean;
+  onRefund: () => void;
+}) {
+  return (
+    <View className="flex-row items-start px-4 py-2.5">
+      <EarnTxCompoundIcon item={{ kind: "withdraw" }} />
+      <View className="ml-3 flex-1">
+        <Text className="text-[17px] font-medium text-black">Refund</Text>
+        <Text className="text-[15px]" style={{ color: SECONDARY }}>
+          {REFUND_SUBTITLES[item.kind]}
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          disabled={isRefunding}
+          onPress={onRefund}
+          style={({ pressed }) => [
+            styles.executeButton,
+            (pressed || isRefunding) && styles.executeButtonMuted,
+          ]}
+        >
+          <Text className="text-[14px] font-medium text-white">
+            {isRefunding ? "Refunding…" : "Refund"}
+          </Text>
+        </Pressable>
+      </View>
+      <View className="ml-3 items-end">
+        <Text className="text-[17px] text-black">
+          +{formatRefundSol(item.lamports)} SOL
+        </Text>
+        <Text className="text-[13px]" style={{ color: SECONDARY }}>
+          Earn → Main
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 const noop = () => {};
 
 // Renders an executed sweep morphing in place into its result tx. Holds the
@@ -206,10 +265,14 @@ export function EarnActivityList({ limit }: { limit: number }) {
     isExecutingSweep,
     executeScheduledSweep,
     sweepMorph,
+    earnRefunds,
+    refundingAccount,
+    executeRefund,
   } = useActivity();
   // While a morph is in progress it owns the top slot (the executed sweeps), so
   // suppress the live "Scheduled" section to avoid rendering the same row twice.
   const hasScheduled = !sweepMorph && earnScheduledSweeps.length > 0;
+  const hasRefunds = earnRefunds.length > 0;
 
   // Skeleton only on the cold load (before the first fetch settles). Background
   // 15s polls keep the feed fresh without flashing the skeleton on each tick.
@@ -217,7 +280,8 @@ export function EarnActivityList({ limit }: { limit: number }) {
     !hasLoadedEarn &&
     earnTransactions.length === 0 &&
     !hasScheduled &&
-    !sweepMorph
+    !sweepMorph &&
+    !hasRefunds
   ) {
     return (
       <View className="px-4">
@@ -253,7 +317,12 @@ export function EarnActivityList({ limit }: { limit: number }) {
     );
   }
 
-  if (earnTransactions.length === 0 && !hasScheduled && !sweepMorph) {
+  if (
+    earnTransactions.length === 0 &&
+    !hasScheduled &&
+    !sweepMorph &&
+    !hasRefunds
+  ) {
     return (
       <View className="items-center px-4 py-12">
         <Text className="text-[17px] font-medium text-black">
@@ -282,6 +351,24 @@ export function EarnActivityList({ limit }: { limit: number }) {
 
   return (
     <View>
+      {hasRefunds ? (
+        <View>
+          <Text
+            className="px-4 pb-2 pt-3 text-[17px]"
+            style={{ color: SECONDARY, letterSpacing: -0.187 }}
+          >
+            Refunds
+          </Text>
+          {earnRefunds.map((refund) => (
+            <EarnRefundRow
+              key={refund.account}
+              item={refund}
+              isRefunding={refundingAccount === refund.account}
+              onRefund={() => void executeRefund(refund)}
+            />
+          ))}
+        </View>
+      ) : null}
       {sweepMorph ? (
         <SweepMorphSection
           key={sweepMorph.startedAtMs}

@@ -16,7 +16,8 @@ export type EarnAuthPurpose =
   | "earn-autodeposit-toggle-confirm"
   | "earn-autodeposit-close-prepare"
   | "earn-autodeposit-close-confirm"
-  | "earn-autodeposit-sweep-execute";
+  | "earn-autodeposit-sweep-execute"
+  | "earn-refund-prepare";
 
 // Must stay byte-for-byte in sync with the backend `buildMobileWalletAuthMessage`
 // (`frontend/src/features/identity/server/mobile-wallet-auth.ts`). The server

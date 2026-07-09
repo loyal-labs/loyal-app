@@ -13,3 +13,15 @@ export function getShowTips(): boolean {
 export function setShowTips(value: boolean): void {
   mmkv.setBoolean(SHOW_TIPS_KEY, value);
 }
+
+const EXPERIMENTAL_FEATURES_KEY = "settings.experimentalFeatures";
+
+// Experimental features (currently: Earn rent-refund scan in Activity). Off
+// by default; toggled from Settings.
+export function getExperimentalFeatures(): boolean {
+  return mmkv.getBoolean(EXPERIMENTAL_FEATURES_KEY) ?? false;
+}
+
+export function setExperimentalFeatures(value: boolean): void {
+  mmkv.setBoolean(EXPERIMENTAL_FEATURES_KEY, value);
+}

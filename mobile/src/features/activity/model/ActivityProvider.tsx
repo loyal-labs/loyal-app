@@ -18,11 +18,15 @@ import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
+import { getExperimentalFeatures } from "@/lib/settings";
 import { executeEarnAutodepositScheduledSweep } from "@/lib/solana/earn/autodeposit";
-import type {
-  EarnAutodepositScheduledSweep,
-  EarnTransactionItem,
+import {
+  fetchEarnRefundScan,
+  type EarnAutodepositScheduledSweep,
+  type EarnRefundPrepareRequest,
+  type EarnTransactionItem,
 } from "@/lib/solana/earn/earn-api";
+import { executeEarnRefund } from "@/lib/solana/earn/refund";
 import {
   EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
   getVisibleEarnScheduledSweeps,
@@ -71,6 +75,22 @@ type ActivityContextValue = {
   anyUnread: boolean;
   /** Mark a section as seen, clearing its dot. */
   markSeen: (section: ActivitySection) => void;
+  /** Refundable closed Earn accounts (experimental; empty when the toggle is off). */
+  earnRefunds: EarnRefundItem[];
+  /** Rescan for refundable accounts; resolves to the fresh list. */
+  refreshEarnRefunds: () => Promise<EarnRefundItem[]>;
+  /** Account whose refund is currently in flight, or null. */
+  refundingAccount: string | null;
+  /** Prepare, sign and send one refund, then rescan. */
+  executeRefund: (item: EarnRefundItem) => Promise<void>;
+};
+
+// One refundable row in the Earn feed: a dead policy, a revoked recurring
+// delegation, or the closed vault's stranded SOL + token-account rents.
+export type EarnRefundItem = {
+  kind: "policy" | "recurring_delegation" | "vault";
+  account: string;
+  lamports: number;
 };
 
 // An "Execute now" in progress, morphing in place into its result. While
@@ -326,6 +346,93 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     setSweepMorph(null);
   }, [publicKey]);
 
+  const [earnRefunds, setEarnRefunds] = useState<EarnRefundItem[]>([]);
+  const [refundingAccount, setRefundingAccount] = useState<string | null>(null);
+
+  // Scan for refundable closed Earn accounts. Only when the experimental
+  // toggle is on (off → clears any rows) and read-only — never prompts Seed
+  // Vault. Resolves to the fresh list so the Settings toggle can decide
+  // whether to route the user to the Earn feed.
+  const refreshEarnRefunds = useCallback(async (): Promise<EarnRefundItem[]> => {
+    if (!publicKey || !getExperimentalFeatures()) {
+      setEarnRefunds([]);
+      return [];
+    }
+    try {
+      const { scan } = await fetchEarnRefundScan(publicKey);
+      const items: EarnRefundItem[] = [
+        ...(scan?.policies ?? [])
+          .filter((policy) => policy.canRefund && (policy.lamports ?? 0) > 0)
+          .map((policy) => ({
+            kind: "policy" as const,
+            account: policy.account,
+            lamports: policy.lamports ?? 0,
+          })),
+        ...(scan?.recurringDelegations ?? [])
+          .filter(
+            (delegation) =>
+              delegation.canRefund && (delegation.lamports ?? 0) > 0,
+          )
+          .map((delegation) => ({
+            kind: "recurring_delegation" as const,
+            account: delegation.account,
+            lamports: delegation.lamports ?? 0,
+          })),
+        ...(scan?.vault?.canRefund && scan.vault.totalRefundableLamports > 0
+          ? [
+              {
+                kind: "vault" as const,
+                account: scan.vault.account,
+                lamports: scan.vault.totalRefundableLamports,
+              },
+            ]
+          : []),
+      ];
+      setEarnRefunds(items);
+      return items;
+    } catch (error) {
+      console.warn("[earn-refunds] scan failed", error);
+      return [];
+    }
+  }, [publicKey]);
+
+  // Auto-scan on start / wallet change when the toggle is already on. The
+  // Settings toggle triggers its own scan on enable, so this only covers
+  // sessions that begin with the flag set.
+  useEffect(() => {
+    void refreshEarnRefunds();
+  }, [refreshEarnRefunds]);
+
+  const executeRefund = useCallback(
+    async (item: EarnRefundItem) => {
+      if (!signer || !isWalletUnlocked(state) || refundingAccount) {
+        return;
+      }
+      setRefundingAccount(item.account);
+      try {
+        const request: EarnRefundPrepareRequest =
+          item.kind === "policy"
+            ? { kind: "policy", policyAccount: item.account }
+            : item.kind === "recurring_delegation"
+              ? { kind: "recurring_delegation", recurringDelegation: item.account }
+              : { kind: "vault" };
+        await executeEarnRefund({ signer, request });
+        // Drop the row right away, then rescan for anything remaining. The
+        // refunded SOL shows up in the wallet balance, not the Earn feed.
+        setEarnRefunds((current) =>
+          current.filter((refund) => refund.account !== item.account),
+        );
+        void refreshEarnRefunds();
+      } catch (error) {
+        // Row stays for a retry; the backend re-verifies on every prepare.
+        console.warn("[earn-refunds] refund failed", error);
+      } finally {
+        setRefundingAccount(null);
+      }
+    },
+    [signer, state, refundingAccount, refreshEarnRefunds],
+  );
+
   const newestWalletTs = useMemo(() => {
     let newest = 0;
     for (const tx of walletTransactions) {
@@ -403,6 +510,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnUnread,
       anyUnread: walletUnread || earnUnread,
       markSeen,
+      earnRefunds,
+      refreshEarnRefunds,
+      refundingAccount,
+      executeRefund,
     }),
     [
       publicKey,
@@ -422,6 +533,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       walletUnread,
       earnUnread,
       markSeen,
+      earnRefunds,
+      refreshEarnRefunds,
+      refundingAccount,
+      executeRefund,
     ],
   );
 
