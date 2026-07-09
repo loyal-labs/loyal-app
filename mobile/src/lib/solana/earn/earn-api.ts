@@ -417,6 +417,7 @@ export function toWithdrawPrepareSource(
 
 export type EarnAutodepositSetupStage =
   | "initialize_subscription_authority"
+  | "approve_token_delegate"
   | "create_policy"
   | "create_recurring_delegation";
 

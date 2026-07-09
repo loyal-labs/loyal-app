@@ -114,7 +114,9 @@ async function loadAutodepositPrepareContext(walletAddress: string): Promise<{
 // chain-driven stage machine returns the one-time subscription-authority init as
 // its own round when needed, then create_policy AND create_recurring_delegation
 // together, so the device signs both in ONE wallet prompt and sends them before
-// confirming. One auth message covers all confirms. The nonce is fixed for the
+// confirming. Existing broken setups (policy + delegation live but the wallet
+// ATA's token approval missing/foreign) get an approval-only repair stage
+// instead. One auth message covers all confirms. The nonce is fixed for the
 // whole flow; the policy seed is threaded across rounds, and a half-finished
 // setup resumes from the seed/nonce/window recorded in `/state`.
 export async function executeEarnAutodepositSetup(args: {
@@ -261,7 +263,10 @@ export async function executeEarnAutodepositSetup(args: {
         }
       }
     }
-    if (stages[stages.length - 1].stage === "create_recurring_delegation") {
+    if (
+      stages[stages.length - 1].stage === "create_recurring_delegation" ||
+      stages[stages.length - 1].stage === "approve_token_delegate"
+    ) {
       track(EARN_EVENTS.autodepositEnabled, {
         source: "setup",
         threshold_usd: args.thresholdUsd,
