@@ -2039,6 +2039,33 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
   });
 
+  test("pins Earn vault refund reads to the withdrawal confirmation slot", async () => {
+    const getTokenAccountsByOwner = mock(async () => ({
+      context: { slot: 101 },
+      value: [],
+    }));
+    const client = createSmartAccountVaultsClient({
+      connection: { getTokenAccountsByOwner } as never,
+      programId,
+    });
+
+    await client.fetchEarnVaultRefundSnapshot({
+      minContextSlot: 101,
+      settingsPda,
+    });
+
+    expect(getTokenAccountsByOwner).toHaveBeenCalledTimes(1);
+    const calls = getTokenAccountsByOwner.mock.calls as unknown as [
+      PublicKey,
+      unknown,
+      unknown
+    ][];
+    expect(calls[0]?.[2]).toEqual({
+      commitment: "confirmed",
+      minContextSlot: 101,
+    });
+  });
+
   test("skips collateral cleanup when the token account is not vault-owned", async () => {
     mockKaminoWithdrawInstruction();
     const vaultCollateralAta = getAssociatedTokenAddressSync(

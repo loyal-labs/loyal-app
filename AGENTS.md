@@ -262,6 +262,11 @@ logic lives in `mobile/src`. Keep network calls centralized in
 `mobile/src/services/api.ts`, use the `@/` alias for imports under
 `mobile/src`, and keep shared cross-app summary types in `@loyal-labs/shared`.
 
+Prepare mobile Earn deposit, withdrawal, autodeposit, and cleanup transactions
+on-device with the shared SDK. Backend mobile endpoints should return
+authenticated prepare contexts only; server-prepared transaction routes are
+legacy fallbacks for older app versions.
+
 Client-exposed mobile env vars must use the `EXPO_PUBLIC_` prefix. For cloud
 builds, `eas.json` is the source of truth; `.env` is local-only. Keep fallback
 behavior in `mobile/src/config/env.ts` aligned with production API

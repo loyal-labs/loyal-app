@@ -8311,6 +8311,7 @@ export function createSmartAccountVaultsClient(
   // injected connections without the RPC methods just report an empty vault.
   async function fetchEarnVaultRefundSnapshot(args: {
     cluster?: LoyalCluster;
+    minContextSlot?: number;
     settingsPda: PublicKey;
   }): Promise<SmartAccountEarnVaultRefundSnapshot> {
     const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
@@ -8339,7 +8340,12 @@ export function createSmartAccountVaultsClient(
             config.connection,
             vaultPda,
             { programId: TOKEN_PROGRAM_ID },
-            "confirmed"
+            {
+              commitment: "confirmed",
+              ...(args.minContextSlot !== undefined
+                ? { minContextSlot: args.minContextSlot }
+                : {}),
+            }
           )
         : Promise.resolve(null),
     ]);

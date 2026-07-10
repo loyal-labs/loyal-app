@@ -3213,6 +3213,7 @@ export async function findActiveYieldRoutePolicyPair(
 export async function findEarnCleanupVaultState(
   input: {
     authority: string;
+    includeInactive?: boolean;
     settings: string;
     vaultIndex: number;
     vaultPubkey: string;
@@ -3224,7 +3225,7 @@ export async function findEarnCleanupVaultState(
   const client = dependencies.client;
   const vault = await client.db.query.managedVaults.findFirst({
     where: and(
-      eq(managedVaults.active, true),
+      ...(input.includeInactive ? [] : [eq(managedVaults.active, true)]),
       eq(managedVaults.settings, input.settings),
       eq(managedVaults.vaultIndex, input.vaultIndex),
       eq(managedVaults.vaultPubkey, input.vaultPubkey)
@@ -3237,7 +3238,7 @@ export async function findEarnCleanupVaultState(
 
   const routePolicy = await client.db.query.routePolicies.findFirst({
     where: and(
-      eq(routePolicies.active, true),
+      ...(input.includeInactive ? [] : [eq(routePolicies.active, true)]),
       eq(routePolicies.authority, input.authority),
       eq(routePolicies.id, vault.activePolicyId),
       eq(routePolicies.settings, input.settings),
@@ -3254,7 +3255,7 @@ export async function findEarnCleanupVaultState(
       ? Promise.resolve(null)
       : client.db.query.routePolicies.findFirst({
           where: and(
-            eq(routePolicies.active, true),
+            ...(input.includeInactive ? [] : [eq(routePolicies.active, true)]),
             eq(routePolicies.authority, input.authority),
             eq(routePolicies.id, vault.setupPolicyId),
             eq(routePolicies.settings, input.settings),
