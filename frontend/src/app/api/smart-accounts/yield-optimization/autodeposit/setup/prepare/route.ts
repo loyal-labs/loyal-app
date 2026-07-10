@@ -18,7 +18,10 @@ import {
   parseEarnAutodepositSetupPrepareRequestBody,
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
-import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION,
+  findCurrentEarnAutodepositState,
+} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   EARN_POSITION_REQUIRED_ERROR,
   hasActiveEarnRoutePolicyPair,
@@ -93,7 +96,14 @@ export async function POST(request: Request) {
         vaultIndex: 1,
         walletAddress: principal.walletAddress,
       });
-      if (current?.target.lifecycleStatus === "active") {
+      // A position-paused row is the same fully-built autodeposit (it
+      // auto-resumes on the next state read after a deposit), so it guards
+      // identically.
+      if (
+        current?.target.lifecycleStatus === "active" ||
+        current?.target.lifecycleStatus ===
+          EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION
+      ) {
         return jsonError(
           409,
           "autodeposit_already_active",

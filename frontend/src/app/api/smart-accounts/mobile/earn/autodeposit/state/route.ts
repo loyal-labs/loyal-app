@@ -18,6 +18,7 @@ import {
   probeEarnAutodepositArtifacts,
 } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
+import { reconcileEarnAutodepositPositionPause } from "@/lib/yield-optimization/earn-autodeposit-position-pause.server";
 import { getDisplayableEarnAutodepositScheduledSweeps } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
   findCurrentEarnAutodepositState,
@@ -319,7 +320,7 @@ export async function GET(request: Request) {
     }
     const serverEnv = getServerEnv();
     const connection = getConnection(getConfiguredSolanaEnv());
-    const reconciledState = await reconcileAutodepositArtifacts({
+    let reconciledState = await reconcileAutodepositArtifacts({
       connection,
       settings: account.settingsPda,
       smartAccountsProgramId: new PublicKey(
@@ -338,8 +339,21 @@ export async function GET(request: Request) {
         smartAccountAddress: account.smartAccountAddress,
       });
     }
+    // Pause the autodeposit while the wallet has no Earn position to sweep
+    // into (and auto-resume once a deposit recreates the policy pair) —
+    // otherwise the worker perma-fails and the app shows an eternal
+    // "Execute now".
+    const positionPause = await reconcileEarnAutodepositPositionPause({
+      cluster: resolveLoyalClusterForSolanaEnv(getConfiguredSolanaEnv()),
+      settingsPda: account.settingsPda,
+      state: reconciledState,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress,
+    });
+    reconciledState = positionPause.state;
     const activatedFromPending =
-      state.status === "pending" && reconciledState.status === "active";
+      (state.status === "pending" && reconciledState.status === "active") ||
+      positionPause.resumed;
     if (activatedFromPending) {
       try {
         const snapshotResult =
