@@ -77,6 +77,49 @@ function hasPositiveAmount(amountRaw: string): boolean {
   }
 }
 
+// The device pins these reads to its withdrawal confirmation slot; this
+// route's RPC node can be a beat behind right after confirmation, which
+// surfaces as JSON-RPC -32016 rather than stale data. That lag clears within
+// a slot or two, so retry briefly instead of failing the cleanup phase of an
+// already-landed withdrawal (the invisible-deposits incident came from
+// unretried post-confirm reads like this).
+const SLOT_LAG_ATTEMPTS = 3;
+const SLOT_LAG_RETRY_DELAY_MS = 500;
+
+function isMinContextSlotError(error: unknown): boolean {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === -32016
+  ) {
+    return true;
+  }
+  return (
+    error instanceof Error &&
+    /minimum context slot has not been reached/i.test(error.message)
+  );
+}
+
+async function readWithSlotLagRetry<T>(read: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < SLOT_LAG_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, SLOT_LAG_RETRY_DELAY_MS)
+      );
+    }
+    try {
+      return await read();
+    } catch (error) {
+      if (!isMinContextSlotError(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -173,24 +216,26 @@ export async function POST(request: Request) {
 
     const connection = getConnection(solanaEnv);
     const client = createSmartAccountVaultsClient({ connection, programId });
-    const [holdingsSnapshot, vaultSnapshot] = await Promise.all([
-      fetchEarnRpcHoldingsSnapshot({
-        cluster,
-        connection,
-        minContextSlot,
-        policy: serializeRoutePolicyState(
-          cleanupState.routePolicy,
-          cleanupState.setupPolicy
-        ),
-        programId,
-        settingsPda: settingsPdaKey,
-      }),
-      client.fetchEarnVaultRefundSnapshot({
-        cluster,
-        minContextSlot,
-        settingsPda: settingsPdaKey,
-      }),
-    ]);
+    const [holdingsSnapshot, vaultSnapshot] = await readWithSlotLagRetry(() =>
+      Promise.all([
+        fetchEarnRpcHoldingsSnapshot({
+          cluster,
+          connection,
+          minContextSlot,
+          policy: serializeRoutePolicyState(
+            cleanupState.routePolicy,
+            cleanupState.setupPolicy
+          ),
+          programId,
+          settingsPda: settingsPdaKey,
+        }),
+        client.fetchEarnVaultRefundSnapshot({
+          cluster,
+          minContextSlot,
+          settingsPda: settingsPdaKey,
+        }),
+      ])
+    );
     if (
       holdingsSnapshot.holdings.some(
         (holding) =>
