@@ -194,11 +194,22 @@ function assertSetupHasPolicy(input: ConfirmedEarnAutodepositSetupInput) {
   }
 }
 
-function resolveEarnAutodepositStatus(
+// System pause distinct from the user toggle: the wallet's Earn route policy
+// pair is gone (a full withdrawal closed the position), so the sweep worker
+// can never execute for this target. The dedicated lifecycle value lets the
+// state reconcile auto-resume it once a deposit recreates the policy pair —
+// a plain toggle-off (active=false, lifecycle "active") stays user-owned.
+export const EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION =
+  "paused_missing_position" as const;
+
+export function resolveEarnAutodepositStatus(
   target: Pick<BalanceSweepTargetRecord, "active" | "lifecycleStatus">
 ): CurrentEarnAutodepositState["status"] {
   if (target.lifecycleStatus === "active") {
     return target.active ? "active" : "paused";
+  }
+  if (target.lifecycleStatus === EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION) {
+    return "paused";
   }
   return "pending";
 }
@@ -2512,6 +2523,173 @@ export async function markAutodepositTargetActiveFromArtifacts(
   }
 
   return target;
+}
+
+// System-pauses a fully-active target whose Earn route policy pair is gone
+// (see EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION). active=false is the same
+// switch the user toggle uses, so the sweep worker stops scheduling. Only an
+// active+lifecycle-"active" row is eligible — closed/pending rows aren't
+// sweeping, and a user toggle-off must stay user-owned. The write is
+// conditional on that same shape so a concurrent close or demote wins.
+export async function markAutodepositTargetPausedMissingPosition(
+  input: {
+    policyAccount: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client" | "now"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (existing.lifecycleStatus !== "active" || !existing.active) {
+    return existing;
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: false,
+      lastSeenAt: dependencies.now(),
+      lifecycleStatus: EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION,
+    })
+    .where(
+      and(
+        eq(balanceSweepTargets.policyAccount, input.policyAccount),
+        eq(balanceSweepTargets.lifecycleStatus, "active"),
+        eq(balanceSweepTargets.active, true)
+      )
+    )
+    .returning();
+
+  if (!target) {
+    const fresh = await findTargetByPolicy({
+      client,
+      policyAccount: input.policyAccount,
+    });
+    return fresh ?? existing;
+  }
+
+  return target;
+}
+
+// Reverses markAutodepositTargetPausedMissingPosition once a deposit has
+// recreated the route policy pair. Conditional on the row still being
+// system-paused so it can never resurrect a row a concurrent close confirm
+// or artifacts demote has moved elsewhere.
+export async function resumeAutodepositTargetFromMissingPosition(
+  input: {
+    policyAccount: string;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client" | "now"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (existing.lifecycleStatus !== EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION) {
+    return existing;
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: true,
+      lastSeenAt: dependencies.now(),
+      lifecycleStatus: "active",
+    })
+    .where(
+      and(
+        eq(balanceSweepTargets.policyAccount, input.policyAccount),
+        eq(
+          balanceSweepTargets.lifecycleStatus,
+          EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION
+        )
+      )
+    )
+    .returning();
+
+  if (!target) {
+    const fresh = await findTargetByPolicy({
+      client,
+      policyAccount: input.policyAccount,
+    });
+    return fresh ?? existing;
+  }
+
+  return target;
+}
+
+// Same shape as reconcileStaleEarnAutodepositScheduledSweeps but
+// unconditional on surplus: a paused target's sweeps can never execute, so
+// open lots are suppressed (their 'scheduled' slots empty out and stay
+// reusable after a resume) and finished 'failed'/'released' slots stop
+// rendering as an eternal "Execute now".
+export async function suppressEarnAutodepositScheduledSweepsForMissingPosition(
+  args: { target: Pick<BalanceSweepTargetRecord, "id"> },
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<{ canceledSlotCount: number; suppressedLotCount: number }> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+
+  const suppressed = await client.db.execute(sql`
+    UPDATE ${balanceSweepSurplusLots}
+    SET status = 'suppressed', updated_at = ${now}
+    WHERE ${balanceSweepSurplusLots.targetId} = ${args.target.id}
+      AND ${balanceSweepSurplusLots.status} = 'open'
+      AND ${balanceSweepSurplusLots.remainingAmountRaw} > 0
+    RETURNING ${balanceSweepSurplusLots.id}
+  `);
+
+  const canceled = await client.db.execute(sql`
+    UPDATE ${balanceSweepScheduledSlots}
+    SET status = 'canceled',
+        last_error = 'reconciled: autodeposit paused, Earn position closed',
+        updated_at = ${now}
+    WHERE ${balanceSweepScheduledSlots.targetId} = ${args.target.id}
+      AND ${balanceSweepScheduledSlots.status} IN ('failed', 'released')
+    RETURNING ${balanceSweepScheduledSlots.id}
+  `);
+
+  return {
+    canceledSlotCount: getExecuteRows(canceled).length,
+    suppressedLotCount: getExecuteRows(suppressed).length,
+  };
 }
 
 // Records a close observed on-chain rather than through the close confirm:

@@ -17,7 +17,10 @@ import {
   parseEarnAutodepositSetupPrepareRequestBody,
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
-import { findCurrentEarnAutodepositState } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION,
+  findCurrentEarnAutodepositState,
+} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   EARN_POSITION_REQUIRED_ERROR,
   hasActiveEarnRoutePolicyPair,
@@ -184,7 +187,13 @@ export async function POST(request: Request) {
       // fresh prepare mints a second policy seed and stands up a duplicate
       // on-chain policy that delete/withdraw flows then trip over. A stale
       // "active" row heals through the `/state` reconcile before retry.
-      if (target?.lifecycleStatus === "active") {
+      // A position-paused row is the same fully-built autodeposit (it
+      // auto-resumes on the next state read after a deposit), so it guards
+      // identically.
+      if (
+        target?.lifecycleStatus === "active" ||
+        target?.lifecycleStatus === EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION
+      ) {
         return jsonError(
           409,
           "autodeposit_already_active",

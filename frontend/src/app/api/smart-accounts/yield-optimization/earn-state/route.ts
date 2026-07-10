@@ -15,6 +15,7 @@ import {
   probeEarnAutodepositArtifacts,
 } from "@/lib/yield-optimization/earn-autodeposit-artifacts.server";
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
+import { reconcileEarnAutodepositPositionPause } from "@/lib/yield-optimization/earn-autodeposit-position-pause.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   findCurrentEarnAutodepositState,
@@ -365,7 +366,7 @@ export async function GET(request: Request) {
           if (!state) {
             return null;
           }
-          const reconciledState = await reconcileAutodepositArtifacts({
+          let reconciledState = await reconcileAutodepositArtifacts({
             connection,
             settings: principal.settingsPda,
             smartAccountsProgramId: programId,
@@ -377,8 +378,22 @@ export async function GET(request: Request) {
           if (reconciledState.target.lifecycleStatus === "closed") {
             return null;
           }
+          // Pause the autodeposit while the wallet has no Earn position to
+          // sweep into (and auto-resume once a deposit recreates the policy
+          // pair) — otherwise the worker perma-fails and the pane shows an
+          // eternal "Execute now".
+          const positionPause = await reconcileEarnAutodepositPositionPause({
+            cluster,
+            settingsPda: principal.settingsPda,
+            state: reconciledState,
+            vaultIndex: EARN_VAULT_INDEX,
+            walletAddress: principal.walletAddress,
+          });
+          reconciledState = positionPause.state;
           const activatedFromPending =
-            state.status === "pending" && reconciledState.status === "active";
+            (state.status === "pending" &&
+              reconciledState.status === "active") ||
+            positionPause.resumed;
           if (activatedFromPending) {
             try {
               const snapshotResult =
