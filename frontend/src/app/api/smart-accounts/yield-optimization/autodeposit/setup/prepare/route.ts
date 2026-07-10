@@ -19,6 +19,10 @@ import {
   serializePreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
+  activateOrphanedEarnAutodepositSetup,
+  isAutodepositSetupAlreadyCompleteError,
+} from "@/lib/yield-optimization/earn-autodeposit-orphaned-setup.server";
+import {
   EARN_AUTODEPOSIT_PAUSED_MISSING_POSITION,
   findCurrentEarnAutodepositState,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
@@ -177,6 +181,41 @@ export async function POST(request: Request) {
   } catch (error) {
     if (isSmartAccountProvisioningError(error)) {
       return jsonError(error.status, error.code, error.message);
+    }
+
+    // The SDK refuses to prepare when policy + delegation + token approval
+    // all already exist on-chain. With the target row stuck in a pending
+    // lifecycle (lost stage confirms), every Create retry rethrows here —
+    // user-unrecoverable. Backfill the lost confirmations from chain and
+    // answer with the already-active contract the client knows. Keep in sync
+    // with the mobile twin route.
+    if (isAutodepositSetupAlreadyCompleteError(error)) {
+      const activated = await activateOrphanedEarnAutodepositSetup({
+        connection: getConnection(solanaEnv),
+        settings: principal.settingsPda,
+        vaultIndex: 1,
+        walletAddress: principal.walletAddress,
+      }).catch((healError: unknown) => {
+        console.error(
+          "[earn-autodeposit-setup-prepare] orphaned setup heal failed",
+          {
+            errorMessage:
+              healError instanceof Error
+                ? healError.message
+                : "Unknown heal error.",
+            settings: principal.settingsPda,
+            walletAddress: principal.walletAddress,
+          }
+        );
+        return null;
+      });
+      if (activated) {
+        return jsonError(
+          409,
+          "autodeposit_already_active",
+          "An Autodeposit is already active for this wallet. Delete it before creating a new one."
+        );
+      }
     }
 
     console.error("[earn-autodeposit-setup-prepare] prepare failed", {
