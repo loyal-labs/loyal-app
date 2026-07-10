@@ -11,6 +11,18 @@ const fetchEarnWithdrawPrepareContext = jest.fn();
 const confirmEarnWithdraw = jest.fn();
 const signAndSendPreparedOperations = jest.fn();
 
+// Mirrors the real EarnApiError so withdraw.ts's instanceof/code checks that
+// gate cleanup-context retries stay exercised.
+class MockEarnApiError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "EarnApiError";
+    this.code = code;
+  }
+}
+
 jest.mock(
   "@loyal-labs/actions",
   () => ({
@@ -36,6 +48,7 @@ jest.mock("../autodeposit", () => ({
 }));
 
 jest.mock("../earn-api", () => ({
+  EarnApiError: MockEarnApiError,
   confirmEarnWithdraw,
   fetchEarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawPrepareContext,
@@ -145,6 +158,9 @@ describe("executeEarnWithdraw", () => {
     prepareEarnUsdcCleanup.mockResolvedValue({
       prepared: cleanupOperation,
     });
+    // clearAllMocks does not drain queued mockResolvedValueOnce values; reset
+    // so tests that send only the withdraw don't leak a stale cleanup entry.
+    signAndSendPreparedOperations.mockReset();
     signAndSendPreparedOperations
       .mockResolvedValueOnce([
         { confirmedSlot: "101", signature: "withdraw-signature" },
@@ -182,6 +198,48 @@ describe("executeEarnWithdraw", () => {
     expect(signAndSendPreparedOperations.mock.calls[1]?.[0]).toMatchObject({
       operations: [cleanupOperation],
     });
+    expect(result).toEqual({
+      cleanupSignature: "cleanup-signature",
+      withdrawalSignatures: ["withdraw-signature"],
+    });
+  });
+
+  test("returns the landed withdrawal when cleanup fails", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    // Code-less EarnApiError = terminal (e.g. backend without the endpoint):
+    // no retry, and the landed withdrawal must still resolve as a success.
+    fetchEarnWithdrawCleanupPrepareContext.mockRejectedValue(
+      new MockEarnApiError("Failed to prepare Earn account cleanup."),
+    );
+
+    const result = await executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "full",
+      signer,
+    });
+
+    expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
+    expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(1);
+    expect(confirmEarnWithdraw).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      withdrawalSignatures: ["withdraw-signature"],
+    });
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test("retries the cleanup context while the backend RPC catches up", async () => {
+    fetchEarnWithdrawCleanupPrepareContext.mockRejectedValueOnce(
+      new MockEarnApiError("Minimum context slot not reached", "context_failed"),
+    );
+
+    const result = await executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "full",
+      signer,
+    });
+
+    expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(2);
     expect(result).toEqual({
       cleanupSignature: "cleanup-signature",
       withdrawalSignatures: ["withdraw-signature"],

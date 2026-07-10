@@ -12,6 +12,7 @@ import type { Signer } from "@/lib/wallet/signer";
 import { executeEarnAutodepositClose } from "./autodeposit";
 import {
   confirmEarnWithdraw,
+  EarnApiError,
   type EarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawPrepareContext,
@@ -185,6 +186,54 @@ function hydrateEarnWithdrawCleanupInput(
   };
 }
 
+// The cleanup context read races the backend's RPC catching up to the
+// withdrawal slot — the route 5xxs (`context_failed`/`resolve_failed`) until
+// its node reaches `minContextSlot`. Those and network blips heal on retry;
+// 4xx codes (missing endpoint, genuine leftover sources) never do.
+const RETRYABLE_CLEANUP_CONTEXT_CODES = new Set([
+  "context_failed",
+  "resolve_failed",
+]);
+const CLEANUP_CONTEXT_ATTEMPTS = 3;
+const CLEANUP_CONTEXT_RETRY_DELAY_MS = 1_200;
+
+async function fetchCleanupContextWithRetry(args: {
+  signer: Signer;
+  prepareAuth: EarnAuthFields;
+  minContextSlot: string;
+}): Promise<EarnWithdrawCleanupPrepareContext> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < CLEANUP_CONTEXT_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, CLEANUP_CONTEXT_RETRY_DELAY_MS),
+      );
+    }
+    try {
+      return await withEarnAuth(
+        args.signer,
+        args.prepareAuth,
+        "earn-withdraw-prepare",
+        (auth) =>
+          fetchEarnWithdrawCleanupPrepareContext({
+            auth,
+            minContextSlot: args.minContextSlot,
+          }),
+      );
+    } catch (error) {
+      if (
+        error instanceof EarnApiError &&
+        (error.code === undefined ||
+          !RETRYABLE_CLEANUP_CONTEXT_CODES.has(error.code))
+      ) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 // Shared back half: sign every step in one wallet prompt (Seed Vault batches
 // them), send strictly in order, then record each landed step best-effort —
 // the on-chain withdrawal is the source of truth and the backend reconciler
@@ -339,30 +388,41 @@ export async function executeEarnWithdraw(args: {
     const minContextSlot = withdrawResult.withdrawalConfirmedSlots.reduce(
       (latest, slot) => (BigInt(slot) > BigInt(latest) ? slot : latest),
     );
-    const cleanupContext = await withEarnAuth(
-      args.signer,
-      prepareAuth,
-      "earn-withdraw-prepare",
-      (auth) =>
-        fetchEarnWithdrawCleanupPrepareContext({ auth, minContextSlot }),
-    );
-    const cleanupClient = createSmartAccountVaultsClient({
-      connection: getConnection(),
-      programId: new PublicKey(cleanupContext.programId),
-    });
-    const preparedCleanup = await cleanupClient.prepareEarnUsdcCleanup(
-      hydrateEarnWithdrawCleanupInput(cleanupContext, args.signer.publicKey),
-    );
-    const [cleanupResult] = await signAndSendPreparedOperations({
-      connection: getConnection(),
-      signer: args.signer,
-      operations: [preparedCleanup.prepared],
-    });
-    if (!cleanupResult) {
-      throw new Error("Earn account cleanup did not produce a transaction.");
+    // The withdrawal is on-chain past this point: a cleanup failure (backend
+    // without the endpoint yet, RPC lag, user declining the second prompt)
+    // must NOT present as a failed withdrawal. Skipping cleanup only strands
+    // reclaimables — the next deposit reuses the still-open policies and the
+    // refund scan surfaces the idle vault USDC and rents.
+    let cleanupSignature: string | undefined;
+    try {
+      const cleanupContext = await fetchCleanupContextWithRetry({
+        signer: args.signer,
+        prepareAuth,
+        minContextSlot,
+      });
+      const cleanupClient = createSmartAccountVaultsClient({
+        connection: getConnection(),
+        programId: new PublicKey(cleanupContext.programId),
+      });
+      const preparedCleanup = await cleanupClient.prepareEarnUsdcCleanup(
+        hydrateEarnWithdrawCleanupInput(cleanupContext, args.signer.publicKey),
+      );
+      const [cleanupResult] = await signAndSendPreparedOperations({
+        connection: getConnection(),
+        signer: args.signer,
+        operations: [preparedCleanup.prepared],
+      });
+      cleanupSignature = cleanupResult?.signature;
+    } catch (error) {
+      console.warn("[earn-withdraw] cleanup skipped after landed withdrawal", {
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : typeof error,
+        minContextSlot,
+        withdrawalSignatures: withdrawResult.withdrawalSignatures,
+      });
     }
     return {
-      cleanupSignature: cleanupResult.signature,
+      ...(cleanupSignature !== undefined ? { cleanupSignature } : {}),
       withdrawalSignatures: withdrawResult.withdrawalSignatures,
     };
   }
