@@ -57,6 +57,13 @@ type ActivityContextValue = {
   refreshAutodeposit: () => Promise<unknown>;
   /** Pending Autodeposit "bootstrap" sweeps awaiting their execution window. */
   earnScheduledSweeps: EarnAutodepositScheduledSweep[];
+  /**
+   * The backend system-paused the Autodeposit because a full withdrawal
+   * closed the Earn position it sweeps into. It resumes automatically after
+   * the next deposit — shown as an informational row so the user knows why
+   * nothing is scheduling instead of reporting it stuck.
+   */
+  autodepositPausedMissingPosition: boolean;
   /** True while an "Execute now" request is in flight. */
   isExecutingSweep: boolean;
   /** Ask the worker to run the pending scheduled sweep now. */
@@ -217,6 +224,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       ),
     [autodeposit, walletUsdcRaw, scheduledSweepFloorRaw],
   );
+
+  const autodepositPausedMissingPosition =
+    autodeposit?.lifecycleStatus === "paused_missing_position";
 
   // Re-read Autodeposit state AND the wallet balance the surplus cap depends on.
   // The force holdings refresh is the point: after an execute the scheduled slot
@@ -588,6 +598,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
+      autodepositPausedMissingPosition,
       expectingScheduledSweep,
       expectScheduledSweep,
       sweepMorph,
@@ -615,6 +626,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       earnScheduledSweeps,
       isExecutingSweep,
       executeScheduledSweep,
+      autodepositPausedMissingPosition,
       expectingScheduledSweep,
       expectScheduledSweep,
       sweepMorph,

@@ -256,6 +256,31 @@ function EarnLockedRefundRow({ lamports }: { lamports: number }) {
   );
 }
 
+// The backend paused the Autodeposit because a full withdrawal closed the
+// Earn position it sweeps into (nothing can execute until a deposit recreates
+// it, at which point it resumes by itself). Purely informational, like
+// EarnLockedRefundRow — without it the feed just goes quiet and users report
+// the Autodeposit as stuck.
+function EarnAutodepositPausedRow() {
+  return (
+    <View className="flex-row items-start px-4 py-2.5">
+      <EarnTxCompoundIcon item={{ kind: "deposit" }} />
+      <View className="ml-3 flex-1">
+        <Text className="text-[17px] font-medium text-black">Autodeposit</Text>
+        <Text className="text-[15px]" style={{ color: SECONDARY }}>
+          Paused — your Earn account was closed. Make a deposit and Autodeposit
+          turns back on automatically.
+        </Text>
+      </View>
+      <View className="ml-3 items-end">
+        <Text className="text-[13px]" style={{ color: SECONDARY }}>
+          Paused
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 const noop = () => {};
 
 // Renders an executed sweep morphing in place into its result tx. Holds the
@@ -329,6 +354,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     isExecutingSweep,
     executeScheduledSweep,
     expectingScheduledSweep,
+    autodepositPausedMissingPosition,
     sweepMorph,
     earnRefunds,
     earnLockedRefundLamports,
@@ -355,6 +381,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     !sweepMorph &&
     !hasRefunds &&
     !hasLockedRefunds &&
+    !autodepositPausedMissingPosition &&
     !showScheduledSkeleton
   ) {
     return (
@@ -397,6 +424,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     !sweepMorph &&
     !hasRefunds &&
     !hasLockedRefunds &&
+    !autodepositPausedMissingPosition &&
     !showScheduledSkeleton
   ) {
     return (
@@ -448,6 +476,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
           ) : null}
         </View>
       ) : null}
+      {autodepositPausedMissingPosition ? <EarnAutodepositPausedRow /> : null}
       {sweepMorph ? (
         <SweepMorphSection
           key={sweepMorph.startedAtMs}
