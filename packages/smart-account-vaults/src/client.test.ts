@@ -1925,21 +1925,24 @@ describe("prepareEarnUsdcWithdraw", () => {
       { isWritable: true }
     );
     expect("policyUpdatePrepared" in result).toBe(false);
-    expect(result.prepared.instructions).toHaveLength(3);
-    expect(result.prepared.instructions[0]?.programId.toBase58()).toBe(
-      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58()
-    );
-    expect(result.prepared.instructions[1]?.programId.toBase58()).toBe(
-      programId.toBase58()
-    );
+    expect(result.prepared.instructions).toHaveLength(5);
     expect(
       result.prepared.instructions
-        .slice(1)
+        .slice(0, 3)
+        .map((instruction) => instruction.programId.toBase58())
+    ).toEqual([
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+      ASSOCIATED_TOKEN_PROGRAM_ID.toBase58(),
+    ]);
+    expect(
+      result.prepared.instructions
+        .slice(3)
         .map((instruction) => instruction.programId.toBase58())
     ).toEqual([programId.toBase58(), programId.toBase58()]);
-    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[1]);
+    expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[3]);
     expectInstructionAccountMeta(
-      result.prepared.instructions[2],
+      result.prepared.instructions[4],
       result.policy.account,
       { isWritable: true }
     );

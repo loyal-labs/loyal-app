@@ -7278,6 +7278,7 @@ export function createSmartAccountVaultsClient(
       accountingReserve: SmartAccountPreparedEarnUsdcWithdrawStep["accountingReserve"];
       amountRaw: bigint;
       collateralAta: PublicKey;
+      collateralMint: PublicKey;
       executionReserve: SmartAccountPreparedEarnUsdcWithdrawStep["executionReserve"];
       expectedRedeemedAmountRaw: bigint;
       instruction: TransactionInstruction;
@@ -7643,6 +7644,7 @@ export function createSmartAccountVaultsClient(
           },
           amountRaw: plan.amountRaw,
           collateralAta: instructionValidation.vaultCollateralAta,
+          collateralMint: instructionValidation.reserveCollateralMint,
           executionReserve: {
             liquidityMint: usdcMint,
             market: instructionValidation.executionMarket,
@@ -7722,6 +7724,45 @@ export function createSmartAccountVaultsClient(
             memo: args.memo,
           } as never
         );
+      // A prior full exit's cleanup closes the vault's USDC and collateral
+      // ATAs while sweeps/rebalances can still land funds afterwards; klend's
+      // withdraw requires both destination token accounts to exist, so
+      // recreate them idempotently. Non-ATA collateral accounts are skipped:
+      // they only pass instruction validation when they already exist.
+      const vaultAtaSetupInstructions = [
+        createAssociatedTokenAccountIdempotentInstruction(
+          args.feePayer,
+          vaultUsdcAta,
+          vaultPda,
+          usdcMint,
+          TOKEN_PROGRAM_ID
+        ),
+      ];
+      const seenVaultCollateralAtas = new Set<string>();
+      for (const withdrawal of batch) {
+        const collateralAtaKey = withdrawal.collateralAta.toBase58();
+        if (seenVaultCollateralAtas.has(collateralAtaKey)) {
+          continue;
+        }
+        seenVaultCollateralAtas.add(collateralAtaKey);
+        const derivedCollateralAta = getAssociatedTokenAddressSync(
+          withdrawal.collateralMint,
+          vaultPda,
+          true,
+          TOKEN_PROGRAM_ID
+        );
+        if (derivedCollateralAta.equals(withdrawal.collateralAta)) {
+          vaultAtaSetupInstructions.push(
+            createAssociatedTokenAccountIdempotentInstruction(
+              args.feePayer,
+              withdrawal.collateralAta,
+              vaultPda,
+              withdrawal.collateralMint,
+              TOKEN_PROGRAM_ID
+            )
+          );
+        }
+      }
       const currentVaultUsdcAmountRaw =
         isFinalExit && isFinalBatch
           ? fullWithdrawVaultUsdcRemainderRaw
@@ -7745,6 +7786,7 @@ export function createSmartAccountVaultsClient(
               usdcMint,
               TOKEN_PROGRAM_ID
             ),
+            ...vaultAtaSetupInstructions,
             ...withdrawPrefixExecution.instructions,
           ],
           lookupTableAccounts: dedupeLookupTableAccounts(
@@ -7877,6 +7919,7 @@ export function createSmartAccountVaultsClient(
             usdcMint,
             TOKEN_PROGRAM_ID
           ),
+          ...vaultAtaSetupInstructions,
           ...operations.flatMap((operation) => operation.instructions),
         ],
         lookupTableAccounts: dedupeLookupTableAccounts(
