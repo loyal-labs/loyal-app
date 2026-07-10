@@ -132,9 +132,9 @@ function resolveImageUrl(asset: HeliusAsset): string | null {
   return imageUrl.length > 0 ? imageUrl : null;
 }
 
-// Helius getAssetsByOwner returns NFTs/cNFTs/SBTs (e.g. Seeker Genesis Token)
-// alongside fungibles when showFungible is true. Only the fungible interfaces
-// belong in the wallet's token list.
+// searchAssets tokenType "fungible" should only return these interfaces, but
+// keep the filter as a backstop so an NFT/SBT (e.g. Seeker Genesis Token) can
+// never leak into the wallet's token list.
 const FUNGIBLE_ASSET_INTERFACES: ReadonlySet<string> = new Set([
   "FungibleToken",
   "FungibleAsset",
@@ -267,16 +267,21 @@ async function fetchHoldingsFromHelius(
   const response = await fetchWithTimeout(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    // searchAssets with tokenType "fungible", NOT getAssetsByOwner with
+    // showFungible: getAssetsByOwner pages NFTs and fungibles together, so a
+    // wallet with 1000+ airdrop-spam NFTs (common on Seeker) fills page 1
+    // entirely with NFTs and the wallet's actual tokens never arrive — USDC
+    // and the rest silently vanish from the app.
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: "token-holdings",
-      method: "getAssetsByOwner",
+      method: "searchAssets",
       params: {
         ownerAddress: publicKey,
+        tokenType: "fungible",
         page: 1,
         limit: 1000,
-        displayOptions: {
-          showFungible: true,
+        options: {
           showNativeBalance: true,
         },
       },
@@ -322,7 +327,7 @@ export async function fetchTokenHoldings(
   }
 
   // Coalesce concurrent fetches for the same wallet — including forced ones.
-  // One holdings fetch fans out into several RPC calls (getAssetsByOwner +
+  // One holdings fetch fans out into several RPC calls (searchAssets +
   // getProgramAccounts via enumerateDepositsByUser + per-mint reads + a Kamino
   // quote); getProgramAccounts in particular is heavily rate-limited. With many
   // mounted useTokenHoldings instances and several `forceRefresh` callers firing
