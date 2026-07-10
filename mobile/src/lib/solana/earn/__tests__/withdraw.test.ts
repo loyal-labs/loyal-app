@@ -1,0 +1,215 @@
+import { PublicKey } from "@solana/web3.js";
+
+const prepareEarnUsdcWithdraw = jest.fn();
+const prepareEarnUsdcCleanup = jest.fn();
+const createSmartAccountVaultsClient = jest.fn(() => ({
+  prepareEarnUsdcCleanup,
+  prepareEarnUsdcWithdraw,
+}));
+const fetchEarnWithdrawCleanupPrepareContext = jest.fn();
+const fetchEarnWithdrawPrepareContext = jest.fn();
+const confirmEarnWithdraw = jest.fn();
+const signAndSendPreparedOperations = jest.fn();
+
+jest.mock(
+  "@loyal-labs/actions",
+  () => ({
+    normalizeLoyalCluster: (cluster: string) => cluster,
+  }),
+  { virtual: true },
+);
+
+jest.mock(
+  "@loyal-labs/smart-account-vaults",
+  () => ({
+    createSmartAccountVaultsClient,
+  }),
+  { virtual: true },
+);
+
+jest.mock("@/lib/solana/rpc/connection", () => ({
+  getConnection: () => ({ rpc: true }),
+}));
+
+jest.mock("../autodeposit", () => ({
+  executeEarnAutodepositClose: jest.fn(),
+}));
+
+jest.mock("../earn-api", () => ({
+  confirmEarnWithdraw,
+  fetchEarnWithdrawCleanupPrepareContext,
+  fetchEarnWithdrawPrepareContext,
+  prepareEarnWithdraw: jest.fn(),
+}));
+
+jest.mock("../earn-auth", () => ({
+  signEarnAuth: jest.fn(async () => ({
+    issuedAt: "2026-07-10T00:00:00.000Z",
+    signature: "auth-signature",
+    walletAddress: PublicKey.default.toBase58(),
+  })),
+  withEarnAuth: jest.fn(
+    async (
+      _signer: unknown,
+      auth: unknown,
+      _purpose: unknown,
+      call: (value: unknown) => unknown,
+    ) => call(auth),
+  ),
+}));
+
+jest.mock("../send-prepared", () => ({
+  signAndSendPreparedOperations,
+}));
+
+jest.mock("../wire", () => ({
+  hydratePreparedOperation: (operation: unknown) => operation,
+  serializePreparedEarnUsdcWithdraw: () => ({ wire: "withdraw" }),
+}));
+
+// Keep the subject import after mock initialization: this test uses virtual
+// workspace-package mocks that cannot be referenced before their declarations.
+// eslint-disable-next-line import/first
+import { executeEarnWithdraw } from "../withdraw";
+
+const address = PublicKey.default.toBase58();
+const withdrawOperation = { operation: "withdraw" };
+const cleanupOperation = { operation: "cleanup" };
+const signer = { publicKey: PublicKey.default } as never;
+
+function fullFinalExitContext() {
+  return {
+    cluster: "mainnet-beta",
+    programId: address,
+    settingsPda: address,
+    smartAccountAddress: address,
+    withdrawInput: {
+      amountRaw: "1000000",
+      closePoliciesOnFullWithdrawal: true,
+      fullWithdrawalTargets: [
+        {
+          amountRaw: "1000000",
+          liquidityMint: address,
+          market: address,
+          reserve: address,
+          supplyApyBps: null,
+        },
+      ],
+      mode: "full",
+      policySigner: address,
+      source: {
+        amountRaw: "1000000",
+        id: address,
+        liquidityMint: address,
+        market: address,
+        reserve: address,
+        type: "reserve",
+      },
+      target: {
+        liquidityMint: address,
+        market: address,
+        reserve: address,
+        supplyApyBps: null,
+      },
+      yieldRoutingPolicy: {
+        account: address,
+        seed: "1",
+      },
+    },
+  };
+}
+
+describe("executeEarnWithdraw", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    fetchEarnWithdrawPrepareContext.mockResolvedValue(fullFinalExitContext());
+    fetchEarnWithdrawCleanupPrepareContext.mockResolvedValue({
+      cleanupInput: {
+        closeVaultCollateralAtas: [],
+        idleAmountRaw: "7",
+        policySigner: address,
+        yieldRoutingPolicy: {
+          account: address,
+          seed: "1",
+          setupPolicy: null,
+        },
+      },
+      cluster: "mainnet-beta",
+      programId: address,
+      settingsPda: address,
+    });
+    prepareEarnUsdcWithdraw.mockResolvedValue({
+      prepared: withdrawOperation,
+      withdrawSteps: [{ prepared: withdrawOperation }],
+    });
+    prepareEarnUsdcCleanup.mockResolvedValue({
+      prepared: cleanupOperation,
+    });
+    signAndSendPreparedOperations
+      .mockResolvedValueOnce([
+        { confirmedSlot: "101", signature: "withdraw-signature" },
+      ])
+      .mockResolvedValueOnce([
+        { confirmedSlot: "102", signature: "cleanup-signature" },
+      ]);
+  });
+
+  test("defers final-exit cleanup until after the full withdrawal confirms", async () => {
+    const result = await executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "full",
+      signer,
+    });
+
+    expect(prepareEarnUsdcWithdraw).toHaveBeenCalledWith(
+      expect.objectContaining({
+        closePoliciesOnFullWithdrawal: false,
+        mode: "full",
+      }),
+    );
+    expect(confirmEarnWithdraw).toHaveBeenCalledTimes(1);
+    expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
+    expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledWith(
+      expect.objectContaining({ minContextSlot: "101" }),
+    );
+    expect(prepareEarnUsdcCleanup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idleAmountRaw: BigInt(7),
+        walletAddress: PublicKey.default,
+      }),
+    );
+    expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(2);
+    expect(signAndSendPreparedOperations.mock.calls[1]?.[0]).toMatchObject({
+      operations: [cleanupOperation],
+    });
+    expect(result).toEqual({
+      cleanupSignature: "cleanup-signature",
+      withdrawalSignatures: ["withdraw-signature"],
+    });
+  });
+
+  test("keeps partial withdrawals single-phase", async () => {
+    const context = fullFinalExitContext();
+    fetchEarnWithdrawPrepareContext.mockResolvedValue({
+      ...context,
+      withdrawInput: {
+        ...context.withdrawInput,
+        closePoliciesOnFullWithdrawal: false,
+        mode: "partial",
+      },
+    });
+
+    const result = await executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "partial",
+      signer,
+    });
+
+    expect(fetchEarnWithdrawCleanupPrepareContext).not.toHaveBeenCalled();
+    expect(prepareEarnUsdcCleanup).not.toHaveBeenCalled();
+    expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      withdrawalSignatures: ["withdraw-signature"],
+    });
+  });
+});

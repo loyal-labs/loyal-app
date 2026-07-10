@@ -1,6 +1,7 @@
 import { normalizeLoyalCluster } from "@loyal-labs/actions";
 import {
   createSmartAccountVaultsClient,
+  type SmartAccountEarnUsdcCleanupInput,
   type SmartAccountEarnUsdcWithdrawInput,
 } from "@loyal-labs/smart-account-vaults";
 import { PublicKey } from "@solana/web3.js";
@@ -11,6 +12,8 @@ import type { Signer } from "@/lib/wallet/signer";
 import { executeEarnAutodepositClose } from "./autodeposit";
 import {
   confirmEarnWithdraw,
+  type EarnWithdrawCleanupPrepareContext,
+  fetchEarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawPrepareContext,
   prepareEarnWithdraw,
   type EarnAuthFields,
@@ -41,7 +44,12 @@ function usdToUsdcRaw(amountUsd: number): string {
 }
 
 export type EarnWithdrawResult = {
+  cleanupSignature?: string;
   withdrawalSignatures: string[];
+};
+
+type EarnWithdrawSendResult = EarnWithdrawResult & {
+  withdrawalConfirmedSlots: string[];
 };
 
 // Rebuild the SDK withdraw input from the `prepare-context` wire form. The
@@ -145,6 +153,38 @@ function hydrateEarnWithdrawInput(
     : { ...base, mode: "partial" };
 }
 
+function hydrateEarnWithdrawCleanupInput(
+  context: EarnWithdrawCleanupPrepareContext,
+  walletAddress: PublicKey,
+): SmartAccountEarnUsdcCleanupInput {
+  const wire = context.cleanupInput;
+  return {
+    closeVaultCollateralAtas: wire.closeVaultCollateralAtas.map(
+      (account) => new PublicKey(account),
+    ),
+    cluster: normalizeLoyalCluster(context.cluster),
+    feePayer: walletAddress,
+    idleAmountRaw: BigInt(wire.idleAmountRaw),
+    policySigner: new PublicKey(wire.policySigner),
+    settingsPda: new PublicKey(context.settingsPda),
+    walletAddress,
+    yieldRoutingPolicy: {
+      account: new PublicKey(wire.yieldRoutingPolicy.account),
+      seed: BigInt(wire.yieldRoutingPolicy.seed),
+      ...(wire.yieldRoutingPolicy.setupPolicy
+        ? {
+            setupPolicy: {
+              account: new PublicKey(
+                wire.yieldRoutingPolicy.setupPolicy.account,
+              ),
+              seed: BigInt(wire.yieldRoutingPolicy.setupPolicy.seed),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 // Shared back half: sign every step in one wallet prompt (Seed Vault batches
 // them), send strictly in order, then record each landed step best-effort —
 // the on-chain withdrawal is the source of truth and the backend reconciler
@@ -160,7 +200,7 @@ async function signSendAndConfirmWithdraw(args: {
   // Echoed to `withdraw/confirm` verbatim — the server-prepared wire object
   // or the device-prepared serialization (identical shapes).
   wirePreparedWithdraw: WirePreparedEarnWithdraw;
-}): Promise<EarnWithdrawResult> {
+}): Promise<EarnWithdrawSendResult> {
   const connection = getConnection();
 
   // Confirms reuse the flow's prepare auth — no extra wallet prompt.
@@ -198,8 +238,10 @@ async function signSendAndConfirmWithdraw(args: {
   });
 
   const withdrawalSignatures: string[] = [];
+  const withdrawalConfirmedSlots: string[] = [];
   for (let i = 0; i < sent.length; i++) {
     withdrawalSignatures.push(sent[i].signature);
+    withdrawalConfirmedSlots.push(sent[i].confirmedSlot);
     await confirmStep(
       sent[i].signature,
       sent[i].confirmedSlot,
@@ -207,7 +249,7 @@ async function signSendAndConfirmWithdraw(args: {
     );
   }
 
-  return { withdrawalSignatures };
+  return { withdrawalConfirmedSlots, withdrawalSignatures };
 }
 
 // Real on-chain Earn withdrawal from the caller's smart account (same position
@@ -266,11 +308,20 @@ export async function executeEarnWithdraw(args: {
       connection: getConnection(),
       programId: new PublicKey(context.programId),
     });
+    const needsSeparateCleanup =
+      context.withdrawInput.mode === "full" &&
+      context.withdrawInput.closePoliciesOnFullWithdrawal;
+    const withdrawInput = hydrateEarnWithdrawInput(
+      context,
+      args.signer.publicKey,
+    );
     const preparedWithdraw = await client.prepareEarnUsdcWithdraw(
-      hydrateEarnWithdrawInput(context, args.signer.publicKey),
+      needsSeparateCleanup
+        ? { ...withdrawInput, closePoliciesOnFullWithdrawal: false }
+        : withdrawInput,
     );
     const hasSteps = preparedWithdraw.withdrawSteps.length > 0;
-    return signSendAndConfirmWithdraw({
+    const withdrawResult = await signSendAndConfirmWithdraw({
       signer: args.signer,
       prepareAuth,
       operations: hasSteps
@@ -279,6 +330,41 @@ export async function executeEarnWithdraw(args: {
       hasSteps,
       wirePreparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
     });
+    if (!needsSeparateCleanup) {
+      return {
+        withdrawalSignatures: withdrawResult.withdrawalSignatures,
+      };
+    }
+
+    const minContextSlot = withdrawResult.withdrawalConfirmedSlots.reduce(
+      (latest, slot) => (BigInt(slot) > BigInt(latest) ? slot : latest),
+    );
+    const cleanupContext = await withEarnAuth(
+      args.signer,
+      prepareAuth,
+      "earn-withdraw-prepare",
+      (auth) =>
+        fetchEarnWithdrawCleanupPrepareContext({ auth, minContextSlot }),
+    );
+    const cleanupClient = createSmartAccountVaultsClient({
+      connection: getConnection(),
+      programId: new PublicKey(cleanupContext.programId),
+    });
+    const preparedCleanup = await cleanupClient.prepareEarnUsdcCleanup(
+      hydrateEarnWithdrawCleanupInput(cleanupContext, args.signer.publicKey),
+    );
+    const [cleanupResult] = await signAndSendPreparedOperations({
+      connection: getConnection(),
+      signer: args.signer,
+      operations: [preparedCleanup.prepared],
+    });
+    if (!cleanupResult) {
+      throw new Error("Earn account cleanup did not produce a transaction.");
+    }
+    return {
+      cleanupSignature: cleanupResult.signature,
+      withdrawalSignatures: withdrawResult.withdrawalSignatures,
+    };
   }
 
   // Backend predates `prepare-context` — legacy server-side prepare.
@@ -313,7 +399,7 @@ export async function executeEarnWithdraw(args: {
     preparedWithdraw.withdrawSteps && preparedWithdraw.withdrawSteps.length > 0
       ? preparedWithdraw.withdrawSteps
       : null;
-  return signSendAndConfirmWithdraw({
+  const withdrawResult = await signSendAndConfirmWithdraw({
     signer: args.signer,
     prepareAuth,
     operations: (steps ?? [{ prepared: preparedWithdraw.prepared }]).map(
@@ -322,4 +408,5 @@ export async function executeEarnWithdraw(args: {
     hasSteps: steps !== null,
     wirePreparedWithdraw: preparedWithdraw,
   });
+  return { withdrawalSignatures: withdrawResult.withdrawalSignatures };
 }

@@ -334,6 +334,46 @@ export async function fetchEarnWithdrawPrepareContext(args: {
   return (await res.json()) as EarnWithdrawPrepareContext;
 }
 
+// Fresh post-withdraw inputs for the device-side cleanup prepare. The backend
+// verifies that no Kamino holding remains at or after `minContextSlot` and
+// returns the exact stable vault-USDC balance; it does not build a transaction.
+export type EarnWithdrawCleanupPrepareContext = {
+  cluster: string;
+  programId: string;
+  settingsPda: string;
+  cleanupInput: {
+    closeVaultCollateralAtas: string[];
+    idleAmountRaw: string;
+    policySigner: string;
+    yieldRoutingPolicy: {
+      account: string;
+      seed: string;
+      setupPolicy: { account: string; seed: string } | null;
+    };
+  };
+};
+
+export async function fetchEarnWithdrawCleanupPrepareContext(args: {
+  auth: EarnAuthFields;
+  minContextSlot: string;
+}): Promise<EarnWithdrawCleanupPrepareContext> {
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({
+        ...args.auth,
+        minContextSlot: args.minContextSlot,
+      }),
+    },
+  );
+  if (!res.ok) {
+    return throwEarnError(res, "Failed to prepare Earn account cleanup.");
+  }
+  return (await res.json()) as EarnWithdrawCleanupPrepareContext;
+}
+
 export type EarnWithdrawConfirmArgs = {
   auth: EarnAuthFields;
   preparedWithdraw: WirePreparedEarnWithdraw;
