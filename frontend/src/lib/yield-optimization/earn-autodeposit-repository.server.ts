@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, gte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 
 import type {
   ConfirmedEarnAutodepositCloseInput,
@@ -2653,6 +2653,94 @@ export async function resumeAutodepositTargetFromMissingPosition(
   }
 
   return target;
+}
+
+// Promotes a setup-stranded target (pending_policy/pending_delegation) to
+// active by recording setup confirmations that were lost in flight. Only the
+// orphaned-setup heal calls this, after verifying on-chain that the full
+// setup (policy + delegation + token approval) exists. Conditional on the
+// row still being in a pending lifecycle so it can never race a concurrent
+// confirm or close.
+export async function activateAutodepositTargetWithBackfilledSetup(
+  input: {
+    policyAccount: string;
+    policyConfirmedSlot: bigint;
+    policySignature: string;
+    recurringDelegationConfirmedSlot: bigint | null;
+    recurringDelegationSignature: string | null;
+    settings: string;
+    vaultIndex: 1;
+    walletAddress: string;
+  },
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client" | "now"
+  > = createDependencies()
+): Promise<BalanceSweepTargetRecord | null> {
+  const { client } = dependencies;
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex
+  ) {
+    throw new Error("Autodeposit target does not match the wallet.");
+  }
+  if (
+    existing.lifecycleStatus !== "pending_policy" &&
+    existing.lifecycleStatus !== "pending_delegation"
+  ) {
+    return existing.lifecycleStatus === "active" ? existing : null;
+  }
+
+  const policySignature = existing.policySignature ?? input.policySignature;
+  const policyConfirmedSlot =
+    existing.policyConfirmedSlot ?? input.policyConfirmedSlot;
+  const recurringDelegationSignature =
+    existing.recurringDelegationSignature ??
+    input.recurringDelegationSignature;
+  const recurringDelegationConfirmedSlot =
+    existing.recurringDelegationConfirmedSlot ??
+    input.recurringDelegationConfirmedSlot;
+  if (
+    !policySignature ||
+    policyConfirmedSlot === null ||
+    !recurringDelegationSignature ||
+    recurringDelegationConfirmedSlot === null
+  ) {
+    return null;
+  }
+
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({
+      active: true,
+      lastSeenAt: dependencies.now(),
+      lifecycleStatus: "active",
+      policyConfirmedSlot,
+      policySignature,
+      recurringDelegationConfirmedSlot,
+      recurringDelegationSignature,
+    })
+    .where(
+      and(
+        eq(balanceSweepTargets.policyAccount, input.policyAccount),
+        inArray(balanceSweepTargets.lifecycleStatus, [
+          "pending_policy",
+          "pending_delegation",
+        ])
+      )
+    )
+    .returning();
+
+  return target ?? null;
 }
 
 // Same shape as reconcileStaleEarnAutodepositScheduledSweeps but
