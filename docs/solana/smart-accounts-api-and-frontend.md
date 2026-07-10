@@ -194,6 +194,15 @@ configured cluster from `NEXT_PUBLIC_SOLANA_ENV`, canonical policy/vault/reserve
 metadata, confirmed signature status, and confirmed slot before writing Yield
 Neon state.
 
+Mobile clients prepare Earn instructions on-device. After mobile-wallet
+authentication, `POST
+/api/smart-accounts/mobile/earn/deposit/prepare-context` and `POST
+/api/smart-accounts/mobile/earn/withdraw/prepare-context` return the resolved
+smart-account, deployment, policy, reserve, and withdrawal inputs that the
+device uses with `prepareEarnUsdcDeposit` or `prepareEarnUsdcWithdraw`. The
+legacy mobile `prepare` routes remain available for app versions that predate
+on-device preparation.
+
 The frontend reads active Earn state from `GET
 /api/smart-accounts/yield-optimization/position`. That route returns the active aggregate row from
 `loyal_yield.user_yield_positions` for the authenticated wallet, configured
@@ -209,6 +218,8 @@ active Earn view, display the current principal, and set the withdrawal maximum.
 | Active position route    | `frontend/src/app/api/smart-accounts/yield-optimization/position/route.ts`            |
 | Deposit confirm route    | `frontend/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`    |
 | Withdrawal confirm route | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts` |
+| Mobile deposit context   | `frontend/src/app/api/smart-accounts/mobile/earn/deposit/prepare-context/route.ts`    |
+| Mobile withdrawal context | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
 | Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
 | Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
 
