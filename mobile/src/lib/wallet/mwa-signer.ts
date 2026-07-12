@@ -25,6 +25,12 @@ const MWA_CHAIN =
 const RECONNECT_MESSAGE =
   "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.";
 
+const SIGNING_CANCELLED_MESSAGE =
+  "Signing was cancelled in your wallet app. Try again and approve each prompt without switching apps or locking the screen.";
+
+const SIGNING_DECLINED_MESSAGE =
+  "The request was declined in your wallet app. Try again and approve each prompt.";
+
 /**
  * True only when the binary actually contains the MWA native module. The
  * package calls TurboModuleRegistry.getEnforcing at import time, which THROWS
@@ -57,6 +63,17 @@ function isUserCancellation(error: unknown): boolean {
   return (
     hasErrorCode(error, "ERROR_ASSOCIATION_CANCELLED") ||
     hasErrorCode(error, -1) // ERROR_AUTHORIZATION_FAILED
+  );
+}
+
+// A signing session torn down before approval (wallet sheet dismissed, screen
+// locked, wallet app killed) reaches JS as a bare
+// "java.util.concurrent.CancellationException" from the native module rather
+// than a coded protocol error.
+function isSessionCancellation(error: unknown): boolean {
+  return (
+    hasErrorCode(error, "ERROR_ASSOCIATION_CANCELLED") ||
+    (error instanceof Error && error.message.includes("CancellationException"))
   );
 }
 
@@ -239,10 +256,21 @@ export class MwaSigner implements Signer {
     op: (wallet: Web3MobileWallet) => Promise<T>,
   ): Promise<T> {
     const { transact } = await getMwa();
-    return transact(async (wallet) => {
-      await this.reauthorize(wallet);
-      return op(wallet);
-    });
+    try {
+      return await transact(async (wallet) => {
+        await this.reauthorize(wallet);
+        return op(wallet);
+      });
+    } catch (error) {
+      if (isSessionCancellation(error)) {
+        throw new Error(SIGNING_CANCELLED_MESSAGE);
+      }
+      if (hasErrorCode(error, -3)) {
+        // ERROR_NOT_SIGNED: the user tapped decline in the wallet app.
+        throw new Error(SIGNING_DECLINED_MESSAGE);
+      }
+      throw error;
+    }
   }
 
   private async reauthorize(wallet: Web3MobileWallet): Promise<void> {

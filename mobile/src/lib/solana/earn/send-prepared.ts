@@ -258,6 +258,25 @@ export async function signAndSendPreparedOperations(args: {
   if (operations.length === 0) {
     return [];
   }
+  // MWA wallet apps with transaction protection (Solflare, Seeker Wallet)
+  // simulate each tx at signing time and append Lighthouse guard instructions
+  // asserting the expected post-state. Batch signing computes every stage's
+  // guards against the SAME pre-state, so once stage 1 lands, stage 2's
+  // guards are stale and it fails on-chain with Lighthouse AssertionFailed
+  // (custom error 0x1900). Sign each stage in its own wallet session, after
+  // the previous stage confirmed, so the wallet simulates against real state.
+  if (signer.kind === "mwa" && operations.length > 1) {
+    const sent: SentTransaction[] = [];
+    for (const operation of operations) {
+      const [confirmed] = await signAndSendPreparedOperations({
+        connection,
+        signer,
+        operations: [operation],
+      });
+      sent.push(confirmed);
+    }
+    return sent;
+  }
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash("confirmed");
   const transactions = operations.map((operation) =>
