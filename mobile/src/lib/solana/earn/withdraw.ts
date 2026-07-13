@@ -12,6 +12,7 @@ import type { Signer } from "@/lib/wallet/signer";
 import { executeEarnAutodepositClose } from "./autodeposit";
 import {
   confirmEarnWithdraw,
+  confirmEarnWithdrawCleanup,
   EarnApiError,
   type EarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawCleanupPrepareContext,
@@ -357,18 +358,17 @@ export async function executeEarnWithdraw(args: {
       connection: getConnection(),
       programId: new PublicKey(context.programId),
     });
-    const needsSeparateCleanup =
-      context.withdrawInput.mode === "full" &&
-      context.withdrawInput.closePoliciesOnFullWithdrawal;
+    // Policy close is now a separate server phase, so this flag is always false.
+    // Cleanup prepare gates full exits after the zero-balance proof.
+    const needsSeparateCleanup = context.withdrawInput.mode === "full";
     const withdrawInput = hydrateEarnWithdrawInput(
       context,
       args.signer.publicKey,
     );
-    const preparedWithdraw = await client.prepareEarnUsdcWithdraw(
-      needsSeparateCleanup
-        ? { ...withdrawInput, closePoliciesOnFullWithdrawal: false }
-        : withdrawInput,
-    );
+    const preparedWithdraw = await client.prepareEarnUsdcWithdraw({
+      ...withdrawInput,
+      closePoliciesOnFullWithdrawal: false,
+    });
     const hasSteps = preparedWithdraw.withdrawSteps.length > 0;
     const withdrawResult = await signSendAndConfirmWithdraw({
       signer: args.signer,
@@ -413,6 +413,26 @@ export async function executeEarnWithdraw(args: {
         operations: [preparedCleanup.prepared],
       });
       cleanupSignature = cleanupResult?.signature;
+      if (cleanupResult) {
+        try {
+          await withEarnAuth(
+            args.signer,
+            prepareAuth,
+            "earn-withdraw-confirm",
+            (auth) =>
+              confirmEarnWithdrawCleanup({
+                auth,
+                cleanupSignature: cleanupResult.signature,
+                confirmedSlot: cleanupResult.confirmedSlot,
+              }),
+          );
+        } catch (error) {
+          console.warn(
+            "[earn-withdraw] cleanup confirm failed; backend will reconcile",
+            error,
+          );
+        }
+      }
     } catch (error) {
       console.warn("[earn-withdraw] cleanup skipped after landed withdrawal", {
         errorMessage: error instanceof Error ? error.message : String(error),

@@ -9,6 +9,7 @@ const createSmartAccountVaultsClient = jest.fn(() => ({
 const fetchEarnWithdrawCleanupPrepareContext = jest.fn();
 const fetchEarnWithdrawPrepareContext = jest.fn();
 const confirmEarnWithdraw = jest.fn();
+const confirmEarnWithdrawCleanup = jest.fn();
 const signAndSendPreparedOperations = jest.fn();
 
 // Mirrors the real EarnApiError so withdraw.ts's instanceof/code checks that
@@ -50,6 +51,7 @@ jest.mock("../autodeposit", () => ({
 jest.mock("../earn-api", () => ({
   EarnApiError: MockEarnApiError,
   confirmEarnWithdraw,
+  confirmEarnWithdrawCleanup,
   fetchEarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawPrepareContext,
   prepareEarnWithdraw: jest.fn(),
@@ -98,7 +100,7 @@ function fullFinalExitContext() {
     smartAccountAddress: address,
     withdrawInput: {
       amountRaw: "1000000",
-      closePoliciesOnFullWithdrawal: true,
+      closePoliciesOnFullWithdrawal: false,
       fullWithdrawalTargets: [
         {
           amountRaw: "1000000",
@@ -184,6 +186,14 @@ describe("executeEarnWithdraw", () => {
       }),
     );
     expect(confirmEarnWithdraw).toHaveBeenCalledTimes(1);
+    expect(confirmEarnWithdrawCleanup).toHaveBeenCalledWith({
+      auth: expect.objectContaining({
+        signature: "auth-signature",
+        walletAddress: address,
+      }),
+      cleanupSignature: "cleanup-signature",
+      confirmedSlot: "102",
+    });
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
     expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledWith(
       expect.objectContaining({ minContextSlot: "101" }),
@@ -225,6 +235,29 @@ describe("executeEarnWithdraw", () => {
       withdrawalSignatures: ["withdraw-signature"],
     });
     expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test("returns the cleanup signature when cleanup confirm fails", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    confirmEarnWithdrawCleanup.mockRejectedValueOnce(
+      new Error("Failed to confirm Earn account cleanup."),
+    );
+
+    const result = await executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "full",
+      signer,
+    });
+
+    expect(result).toEqual({
+      cleanupSignature: "cleanup-signature",
+      withdrawalSignatures: ["withdraw-signature"],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "[earn-withdraw] cleanup confirm failed; backend will reconcile",
+      expect.any(Error),
+    );
     warn.mockRestore();
   });
 

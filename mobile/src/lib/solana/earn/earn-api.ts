@@ -374,6 +374,29 @@ export async function fetchEarnWithdrawCleanupPrepareContext(args: {
   return (await res.json()) as EarnWithdrawCleanupPrepareContext;
 }
 
+export type EarnWithdrawCleanupConfirmArgs = {
+  auth: EarnAuthFields;
+  cleanupSignature: string;
+  confirmedSlot: string;
+};
+
+export async function confirmEarnWithdrawCleanup(
+  args: EarnWithdrawCleanupConfirmArgs,
+): Promise<void> {
+  const { auth, ...rest } = args;
+  const res = await fetch(
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm`,
+    {
+      method: "POST",
+      headers: earnHeaders(),
+      body: JSON.stringify({ ...auth, ...rest }),
+    },
+  );
+  if (!res.ok) {
+    await throwEarnError(res, "Failed to confirm Earn account cleanup.");
+  }
+}
+
 export type EarnWithdrawConfirmArgs = {
   auth: EarnAuthFields;
   preparedWithdraw: WirePreparedEarnWithdraw;
