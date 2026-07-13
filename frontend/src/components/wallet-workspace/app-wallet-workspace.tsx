@@ -84,6 +84,7 @@ import {
   EarnDepositView,
   EarnDetailView,
   EarnWithdrawView,
+  selectEarnFullExitSources,
   type EarnDepositDraft,
   type EarnAutodepositDraft,
   type EarnDepositSourceOption,
@@ -4412,6 +4413,9 @@ export function AppWalletWorkspace({
         draft.source.type === "reserve"
           ? toEarnWithdrawReserveTarget(draft.source)
           : null;
+      const fullWithdrawalTargets = selectEarnFullExitSources(draft).map(
+        toEarnWithdrawReserveTarget
+      );
       const client = createSmartAccountVaultsClient({
         connection,
         programId: new PublicKey(overview.programId),
@@ -4437,9 +4441,7 @@ export function AppWalletWorkspace({
         settingsPda,
         source,
         ...(target ? { target } : {}),
-        ...(draft.mode === "full" && target
-          ? { fullWithdrawalTargets: [target] }
-          : {}),
+        ...(fullWithdrawalTargets.length > 0 ? { fullWithdrawalTargets } : {}),
         walletAddress: userWallet,
         yieldRoutingPolicy,
       };
