@@ -224,6 +224,10 @@ export type EarnWithdrawDraft = {
   amount: number;
   amountLabel: string;
   destination: EarnDepositSourceOption;
+  // Every reserve the vault still holds. A full exit must unwind all of them —
+  // a wallet can hold USDC in a second Kamino market, and leaving one behind
+  // strands it and fails the post-withdrawal zero proof.
+  fullExitSources: EarnWithdrawSourceOption[];
   mode: "partial" | "full";
   source: EarnWithdrawSourceOption;
   symbol: "USDC";
@@ -580,14 +584,44 @@ export function getEarningsRatePerSecond(
 
 export function deriveEarnWithdrawMode({
   amount,
-  maxWithdrawAmount,
+  sources,
 }: {
   amount: number;
-  maxWithdrawAmount: number;
+  sources: EarnWithdrawSourceOption[];
 }): "partial" | "full" {
+  // Compared against the WHOLE position, never the selected source: "full"
+  // closes the position, the policies and the vault, so it may only mean
+  // "everything". Maxing one of several sources is a partial withdrawal.
+  //
   // The input only accepts cents, so typing the visible (floored) max means
   // "withdraw everything" — compare at cent precision to avoid dust positions.
-  return amount >= floorToBucks(maxWithdrawAmount) ? "full" : "partial";
+  const totalWithdrawableAmount = sources.reduce(
+    (total, source) => total + source.balance,
+    0
+  );
+
+  return amount >= floorToBucks(totalWithdrawableAmount) ? "full" : "partial";
+}
+
+// The reserves a full exit must unwind, selected source first. A vault can hold
+// USDC in a second Kamino market; unwinding only the selected reserve strands
+// the rest and fails the post-withdrawal zero proof, so the position never
+// closes and its rent is never refunded. With one reserve this is [source] —
+// byte-identical to the single-target input this replaced.
+export function selectEarnFullExitSources(
+  draft: Pick<EarnWithdrawDraft, "fullExitSources" | "mode" | "source">
+): EarnWithdrawSourceOption[] {
+  if (draft.mode !== "full" || draft.source.type !== "reserve") {
+    return [];
+  }
+
+  return [
+    draft.source,
+    ...draft.fullExitSources.filter(
+      (source) =>
+        source.type === "reserve" && source.sourceId !== draft.source.sourceId
+    ),
+  ];
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
@@ -3443,7 +3477,7 @@ export function EarnWithdrawView({
   // ATA, and autodeposit all stayed behind.
   const effectiveWithdrawMode = deriveEarnWithdrawMode({
     amount: effectiveWithdrawAmount,
-    maxWithdrawAmount: selectedSourceMaxAmount,
+    sources: sourceOptions,
   });
   const withdrawAmountError = !selectedSource
     ? "No withdrawable Earn source"
@@ -3466,6 +3500,9 @@ export function EarnWithdrawView({
       amount: effectiveWithdrawAmount,
       amountLabel: effectiveWithdrawAmountLabel,
       destination: selectedDestination,
+      fullExitSources: sourceOptions.filter(
+        (source) => source.type === "reserve"
+      ),
       mode: effectiveWithdrawMode,
       source: selectedSource,
       symbol: "USDC",
