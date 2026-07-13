@@ -84,7 +84,7 @@ export type ConfirmedYieldRoutePolicyInput = {
 export type UserYieldPositionRecord = typeof userYieldPositions.$inferSelect;
 export type UserYieldPositionHoldingEventRecord =
   typeof userYieldPositionHoldingEvents.$inferSelect;
-type UserYieldPositionWithdrawalRecord =
+export type UserYieldPositionWithdrawalRecord =
   typeof userYieldPositionWithdrawals.$inferSelect;
 export type RoutePolicyRecord = typeof routePolicies.$inferSelect;
 export type UserYieldPositionEventRecord = {
@@ -577,140 +577,6 @@ async function projectPositionForUserFacingRead(
   ))
     ? principalBackedPositionProjection(position, latestEvent)
     : position;
-}
-
-async function recordZeroCurrentVaultPositionsAfterFullWithdrawal(
-  input: ConfirmedYieldWithdrawalInput,
-  dependencies: Pick<YieldDepositRepositoryDependencies, "client" | "now">
-): Promise<void> {
-  const vault = await dependencies.client.db.query.managedVaults.findFirst({
-    where: and(
-      eq(managedVaults.settings, input.settings),
-      eq(managedVaults.vaultIndex, input.vaultIndex),
-      eq(managedVaults.vaultPubkey, input.vaultPubkey)
-    ),
-  });
-  if (!vault) {
-    return;
-  }
-
-  const currentRows = await dependencies.client.db
-    .select()
-    .from(vaultReservePositionsCurrent)
-    .where(eq(vaultReservePositionsCurrent.vaultId, vault.id));
-  if (currentRows.length === 0) {
-    return;
-  }
-  const alreadyZeroCurrent = currentRows.every(
-    (row) => row.amountRaw === BigInt(0) && !row.hasValue
-  );
-  if (alreadyZeroCurrent) {
-    return;
-  }
-
-  const observedAt = dependencies.now();
-  const [snapshot] = await dependencies.client.db
-    .insert(vaultPositionSnapshots)
-    .values({
-      chainSlot: input.confirmedSlot,
-      context: {
-        source: "frontend_full_withdraw",
-        withdrawalSignature: input.withdrawalSignature,
-      },
-      isCurrent: false,
-      observedAt,
-      observedSlot: input.confirmedSlot,
-      policyId: vault.activePolicyId,
-      vaultId: vault.id,
-    })
-    .returning({ id: vaultPositionSnapshots.id });
-  if (!snapshot) {
-    return;
-  }
-
-  await dependencies.client.db.batch([
-    dependencies.client.db.insert(vaultPositionSnapshotPositions).values(
-      currentRows.map((row) => ({
-        amountRaw: BigInt(0),
-        borrowApyBps: row.borrowApyBps,
-        hasValue: false,
-        liquidityMint: row.liquidityMint,
-        market: row.market,
-        planningMetadata: {
-          ...row.planningMetadata,
-          source: "frontend_full_withdraw",
-        },
-        reserve: row.reserve,
-        snapshotId: snapshot.id,
-        supplyApyBps: row.supplyApyBps,
-      }))
-    ) as never,
-    dependencies.client.db
-      .update(vaultPositionSnapshots)
-      .set({ isCurrent: false })
-      .where(eq(vaultPositionSnapshots.vaultId, vault.id)) as never,
-    dependencies.client.db
-      .update(vaultReservePositionsCurrent)
-      .set({
-        amountRaw: BigInt(0),
-        hasValue: false,
-        observedAt,
-        observedSlot: input.confirmedSlot,
-        snapshotId: snapshot.id,
-      })
-      .where(eq(vaultReservePositionsCurrent.vaultId, vault.id)) as never,
-    dependencies.client.db
-      .update(vaultPositionSnapshots)
-      .set({ isCurrent: true })
-      .where(eq(vaultPositionSnapshots.id, snapshot.id)) as never,
-  ]);
-}
-
-async function deactivateVaultAfterFullWithdrawal(
-  input: ConfirmedYieldWithdrawalInput,
-  dependencies: Pick<YieldDepositRepositoryDependencies, "client">,
-  now: Date
-): Promise<void> {
-  const vault = await dependencies.client.db.query.managedVaults.findFirst({
-    where: and(
-      eq(managedVaults.settings, input.settings),
-      eq(managedVaults.vaultIndex, input.vaultIndex),
-      eq(managedVaults.vaultPubkey, input.vaultPubkey)
-    ),
-  });
-  if (!vault) {
-    return;
-  }
-
-  const policyIds = [vault.activePolicyId, vault.setupPolicyId].filter(
-    (policyId): policyId is bigint => typeof policyId === "bigint"
-  );
-
-  if (policyIds.length === 0) {
-    const deactivateVault = dependencies.client.db
-      .update(managedVaults)
-      .set({ active: false, lastSeenAt: now })
-      .where(eq(managedVaults.id, vault.id)) as never;
-
-    await dependencies.client.db.batch([deactivateVault]);
-    return;
-  }
-
-  const deactivatePolicies = dependencies.client.db
-    .update(routePolicies)
-    .set({
-      active: false,
-      lastSeenAt: now,
-      lastSeenSignature: input.withdrawalSignature,
-      lastSeenSlot: input.confirmedSlot,
-    })
-    .where(inArray(routePolicies.id, policyIds)) as never;
-  const deactivateVault = dependencies.client.db
-    .update(managedVaults)
-    .set({ active: false, lastSeenAt: now })
-    .where(eq(managedVaults.id, vault.id)) as never;
-
-  await dependencies.client.db.batch([deactivatePolicies, deactivateVault]);
 }
 
 export async function recordConfirmedEarnCleanup(
@@ -1529,9 +1395,9 @@ async function resolveWithdrawalSource(
 
   return {
     idleRows: currentIdleRows,
-    // Mirrors the prepare routes' final-exit derivation (same dust tolerance):
-    // a full-mode exit sweeps idle dust and closes the on-chain policies, so
-    // the DB pair must be released here on the same basis.
+    // This is an accounting event classification only. It never authorizes
+    // closing the position, vault, or policies; cleanup owns that transition
+    // after a minContextSlot-safe chain-wide zero proof.
     isFinalExit:
       input.mode === "full" &&
       remainingReserveAmountRaw <= BigInt(0) &&
@@ -3298,6 +3164,35 @@ export async function findEarnCleanupVaultState(
   };
 }
 
+export async function findLatestFullYieldWithdrawalForVault(
+  input: {
+    settings: string;
+    vaultIndex: number;
+    vaultPubkey: string;
+    walletAddress: string;
+  },
+  dependencies: Pick<YieldDepositRepositoryDependencies, "client"> = {
+    client: getYieldOptimizationClient(),
+  }
+): Promise<UserYieldPositionWithdrawalRecord | null> {
+  const withdrawal =
+    await dependencies.client.db.query.userYieldPositionWithdrawals.findFirst({
+      where: and(
+        eq(userYieldPositionWithdrawals.mode, "full"),
+        eq(userYieldPositionWithdrawals.settings, input.settings),
+        eq(userYieldPositionWithdrawals.vaultIndex, input.vaultIndex),
+        eq(userYieldPositionWithdrawals.vaultPubkey, input.vaultPubkey),
+        eq(userYieldPositionWithdrawals.walletAddress, input.walletAddress)
+      ),
+      orderBy: [
+        desc(userYieldPositionWithdrawals.confirmedSlot),
+        desc(userYieldPositionWithdrawals.id),
+      ],
+    });
+
+  return withdrawal ?? null;
+}
+
 export async function findActiveManagedYieldVaultWithPolicy(
   input: {
     authority: string;
@@ -3872,13 +3767,6 @@ export async function recordConfirmedYieldWithdrawal(
       input,
       withdrawal: idempotentWithdrawal.withdrawal,
     });
-    if (idempotentWithdrawal.position.status === "closed") {
-      await recordZeroCurrentVaultPositionsAfterFullWithdrawal(
-        input,
-        dependencies
-      );
-      await deactivateVaultAfterFullWithdrawal(input, dependencies, now);
-    }
     return idempotentWithdrawal.position;
   }
 
@@ -3961,9 +3849,8 @@ export async function recordConfirmedYieldWithdrawal(
     withdrawalSignature: input.withdrawalSignature,
     withdrawnAmountRaw: input.withdrawnAmountRaw,
   };
-  const nextPrincipal = withdrawalSource.isFinalExit
-    ? BigInt(0)
-    : withdrawalSource.sourceType === "idle"
+  const nextPrincipal =
+    withdrawalSource.sourceType === "idle"
     ? existingPosition.principalAmountRaw
     : existingPosition.principalAmountRaw > input.withdrawnAmountRaw
     ? existingPosition.principalAmountRaw - input.withdrawnAmountRaw
@@ -3993,13 +3880,11 @@ export async function recordConfirmedYieldWithdrawal(
   }
 
   const [insertedWithdrawal] = insertedWithdrawals;
-  const nextHoldingAmountRaw = withdrawalSource.isFinalExit
-    ? BigInt(0)
-    : withdrawalSource.remainingReserveAmountRaw +
-      withdrawalSource.remainingIdleAmountRaw;
-  const principalDeltaRaw = withdrawalSource.isFinalExit
-    ? -existingPosition.principalAmountRaw
-    : withdrawalSource.sourceType === "idle"
+  const nextHoldingAmountRaw =
+    withdrawalSource.remainingReserveAmountRaw +
+    withdrawalSource.remainingIdleAmountRaw;
+  const principalDeltaRaw =
+    withdrawalSource.sourceType === "idle"
     ? BigInt(0)
     : -(existingPosition.principalAmountRaw > input.withdrawnAmountRaw
         ? input.withdrawnAmountRaw
@@ -4034,12 +3919,11 @@ export async function recordConfirmedYieldWithdrawal(
     event,
     lastConfirmedSlot: input.confirmedSlot,
     now,
-    principalAmountRaw: withdrawalSource.isFinalExit
-      ? BigInt(0)
-      : withdrawalSource.sourceType === "idle"
+    principalAmountRaw:
+      withdrawalSource.sourceType === "idle"
       ? existingPosition.principalAmountRaw
       : nextPrincipal,
-    status: withdrawalSource.isFinalExit ? "closed" : "active",
+    status: "active",
   });
 
   await recordCurrentVaultSourceWithdrawal({
@@ -4047,10 +3931,6 @@ export async function recordConfirmedYieldWithdrawal(
     input,
     resolution: withdrawalSource,
   });
-
-  if (withdrawalSource.isFinalExit) {
-    await deactivateVaultAfterFullWithdrawal(input, dependencies, now);
-  }
 
   if (position.principalAmountRaw !== nextPrincipal) {
     return position;

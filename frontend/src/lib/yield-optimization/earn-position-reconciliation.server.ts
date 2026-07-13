@@ -59,6 +59,10 @@ type ReconcileEarnVaultPositionInput = {
   // When set, the chain read demands a node at or past this slot so a lagging
   // node cannot feed pre-confirmation account state into the reconciled write.
   minContextSlot?: number;
+  // Routine reads preserve a last-known-positive fallback when an RPC account
+  // is temporarily unavailable. A post-withdraw proof must instead accept
+  // confirmed zeroes as authoritative and fail closed in the caller.
+  purpose?: "routine" | "post_withdrawal_zero_proof";
   settings: string;
   vaultPubkey: string;
 };
@@ -377,6 +381,8 @@ export async function reconcileEarnVaultPosition(
     const amountRaw =
       measuredAmountRaw > BigInt(0)
         ? measuredAmountRaw
+        : input.purpose === "post_withdrawal_zero_proof"
+        ? BigInt(0)
         : fallbackRow?.amountRaw ?? positionFallbackRaw;
     const reconciliationFallback =
       measuredAmountRaw <= BigInt(0) && amountRaw > BigInt(0)
@@ -413,6 +419,7 @@ export async function reconcileEarnVaultPosition(
     chainSlot: observedSlot,
     context: {
       source: "frontend_position_reconcile",
+      purpose: input.purpose ?? "routine",
       sourceCommitment: SOURCE_COMMITMENT,
       skippedReserveCount: candidates.length - reconciledCandidates.length,
     },

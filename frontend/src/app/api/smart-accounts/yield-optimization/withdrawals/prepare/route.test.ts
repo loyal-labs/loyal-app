@@ -68,6 +68,11 @@ mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest: async () => currentPrincipal,
 }));
 
+mock.module("@/features/smart-accounts/server/service", () => ({
+  assertAuthenticatedWalletControlsSettings: async () => {},
+  isSmartAccountProvisioningError: () => false,
+}));
+
 mock.module("@/lib/core/config/server", () => ({
   getServerEnv: () => ({
     loyalSmartAccounts: {
@@ -95,6 +100,13 @@ mock.module("@/lib/yield-optimization/deployment-policy-signer.server", () => ({
   getDeploymentPolicySignerPublicKey: () =>
     new PublicKey("11111111111111111111111111111115"),
 }));
+
+mock.module(
+  "@/lib/yield-optimization/earn-position-reconciliation.server",
+  () => ({
+    reconcileEarnVaultPosition: async () => ({ status: "refreshed" }),
+  })
+);
 
 mock.module(
   "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared",
@@ -206,6 +218,16 @@ function createRequest(body: Record<string, unknown>): Request {
 describe("Earn withdrawal prepare route", () => {
   beforeEach(() => {
     (
+      globalThis as unknown as {
+        __createEarnTestVaultsClient?: () => unknown;
+      }
+    ).__createEarnTestVaultsClient = () => ({
+      prepareEarnUsdcWithdraw: async (input: Record<string, unknown>) => {
+        prepareCalls.push(input);
+        return { prepared: true, input };
+      },
+    });
+    (
       Connection.prototype as unknown as {
         getAccountInfo: (key: PublicKey) => Promise<unknown | null>;
       }
@@ -283,7 +305,7 @@ describe("Earn withdrawal prepare route", () => {
     ).toBe(activeSetupPolicy.policySeed);
   });
 
-  test("passes complete active autodeposit close metadata for full withdrawals", async () => {
+  test("never combines policy closure with a full withdrawal", async () => {
     const { POST } = await import("./route");
     currentAutodepositState = completeAutodepositState;
 
@@ -302,85 +324,11 @@ describe("Earn withdrawal prepare route", () => {
     ]);
     expect(findReserveRowsCalls).toHaveLength(1);
     expect(prepareCalls[0]?.amountRaw).toBe(activePosition.principalAmountRaw);
-    expect(findAutodepositCalls).toEqual([
-      {
-        settings: principal.settingsPda,
-        vaultIndex: 1,
-        walletAddress: principal.walletAddress,
-      },
-    ]);
-    expect(getAccountInfoCalls).toEqual([
-      completeAutodepositState.policy.policyAccount,
-    ]);
+    expect(prepareCalls[0]?.closePoliciesOnFullWithdrawal).toBe(false);
+    expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
+    expect(findAutodepositCalls).toHaveLength(0);
+    expect(getAccountInfoCalls).toHaveLength(0);
     expect(reconcileMissingAutodepositCalls).toHaveLength(0);
-    expect(
-      (
-        prepareCalls[0]?.autodepositClose as {
-          policy: PublicKey;
-          recurringDelegation: PublicKey;
-        }
-      ).policy.toBase58()
-    ).toBe(completeAutodepositState.policy.policyAccount);
-    expect(
-      (
-        prepareCalls[0]?.autodepositClose as {
-          policy: PublicKey;
-          recurringDelegation: PublicKey;
-        }
-      ).recurringDelegation.toBase58()
-    ).toBe(completeAutodepositState.target.recurringDelegation);
-  });
-
-  test("reconciles and skips autodeposit close when the policy account is already missing", async () => {
-    const { POST } = await import("./route");
-    currentAutodepositState = completeAutodepositState;
-    currentAutodepositPolicyAccountExists = false;
-
-    const response = await POST(
-      createRequest({ amountRaw: "1000000", mode: "full" })
-    );
-
-    expect(response.status).toBe(200);
-    expect(getAccountInfoCalls).toEqual([
-      completeAutodepositState.policy.policyAccount,
-    ]);
-    expect(reconcileMissingAutodepositCalls).toEqual([
-      {
-        policyAccount: completeAutodepositState.policy.policyAccount,
-        settings: principal.settingsPda,
-        vaultIndex: 1,
-        walletAddress: principal.walletAddress,
-      },
-    ]);
-    expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
-  });
-
-  test("omits autodeposit close metadata when full withdrawal state is incomplete", async () => {
-    const { POST } = await import("./route");
-    currentAutodepositState = {
-      ...completeAutodepositState,
-      target: {
-        ...completeAutodepositState.target,
-        recurringDelegation: null,
-      },
-    } as never;
-
-    const response = await POST(
-      createRequest({
-        amountRaw: "1000000",
-        mode: "full",
-        source: {
-          id: activePosition.currentReserve,
-          reserve: activePosition.currentReserve,
-          type: "reserve",
-        },
-      })
-    );
-
-    expect(response.status).toBe(200);
-    expect(findAutodepositCalls).toHaveLength(1);
-    expect(findPositionCalls).toHaveLength(1);
-    expect(prepareCalls[0]?.autodepositClose).toBeUndefined();
   });
 
   test("passes reconciled nonzero reserve rows as full withdrawal targets", async () => {
@@ -426,7 +374,7 @@ describe("Earn withdrawal prepare route", () => {
     expect(targets[0]?.reserve.toBase58()).toBe(activePosition.currentReserve);
   });
 
-  test("treats sub-cent idle dust as a final exit on full reserve withdrawals", async () => {
+  test("keeps policy closure out of withdrawal even with only sub-cent idle dust", async () => {
     const { POST } = await import("./route");
     currentIdleRows = [
       {
@@ -449,7 +397,7 @@ describe("Earn withdrawal prepare route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(prepareCalls[0]?.closePoliciesOnFullWithdrawal).toBe(true);
+    expect(prepareCalls[0]?.closePoliciesOnFullWithdrawal).toBe(false);
   });
 
   test("keeps full reserve withdrawals non-final while a withdrawable idle balance remains", async () => {

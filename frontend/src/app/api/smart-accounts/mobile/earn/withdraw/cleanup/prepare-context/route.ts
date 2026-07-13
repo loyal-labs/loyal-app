@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
 
@@ -14,9 +13,12 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { fetchEarnRpcHoldingsSnapshot } from "@/lib/yield-optimization/earn-rpc-holdings.client";
+import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
-import { findEarnCleanupVaultState } from "@/lib/yield-optimization/yield-deposit-repository.server";
+import {
+  findEarnCleanupVaultState,
+  findLatestFullYieldWithdrawalForVault,
+} from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Phase two of a full mobile withdrawal. The backend only resolves a fresh,
 // post-withdraw chain context; the device builds and signs the cleanup with
@@ -69,57 +71,6 @@ function parseMinContextSlot(body: unknown): number {
   return slot;
 }
 
-function hasPositiveAmount(amountRaw: string): boolean {
-  try {
-    return BigInt(amountRaw) > BigInt(0);
-  } catch {
-    return true;
-  }
-}
-
-// The device pins these reads to its withdrawal confirmation slot; this
-// route's RPC node can be a beat behind right after confirmation, which
-// surfaces as JSON-RPC -32016 rather than stale data. That lag clears within
-// a slot or two, so retry briefly instead of failing the cleanup phase of an
-// already-landed withdrawal (the invisible-deposits incident came from
-// unretried post-confirm reads like this).
-const SLOT_LAG_ATTEMPTS = 3;
-const SLOT_LAG_RETRY_DELAY_MS = 500;
-
-function isMinContextSlotError(error: unknown): boolean {
-  if (
-    error !== null &&
-    typeof error === "object" &&
-    (error as { code?: unknown }).code === -32016
-  ) {
-    return true;
-  }
-  return (
-    error instanceof Error &&
-    /minimum context slot has not been reached/i.test(error.message)
-  );
-}
-
-async function readWithSlotLagRetry<T>(read: () => Promise<T>): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < SLOT_LAG_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, SLOT_LAG_RETRY_DELAY_MS)
-      );
-    }
-    try {
-      return await read();
-    } catch (error) {
-      if (!isMinContextSlotError(error)) {
-        throw error;
-      }
-      lastError = error;
-    }
-  }
-  throw lastError;
-}
-
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -141,9 +92,9 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "Mobile wallet auth failed.");
   }
 
-  let minContextSlot: number;
+  let requestedMinContextSlot: number;
   try {
-    minContextSlot = parseMinContextSlot(body);
+    requestedMinContextSlot = parseMinContextSlot(body);
   } catch (error) {
     return jsonError(
       400,
@@ -201,7 +152,6 @@ export async function POST(request: Request) {
     });
     const cleanupState = await findEarnCleanupVaultState({
       authority: walletAddress,
-      includeInactive: true,
       settings: settingsPda,
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       vaultPubkey: earnVaultPda.toBase58(),
@@ -215,71 +165,78 @@ export async function POST(request: Request) {
     }
 
     const connection = getConnection(solanaEnv);
-    const client = createSmartAccountVaultsClient({ connection, programId });
-    const [holdingsSnapshot, vaultSnapshot] = await readWithSlotLagRetry(() =>
-      Promise.all([
-        fetchEarnRpcHoldingsSnapshot({
-          cluster,
-          connection,
-          minContextSlot,
-          policy: serializeRoutePolicyState(
-            cleanupState.routePolicy,
-            cleanupState.setupPolicy
-          ),
-          programId,
-          settingsPda: settingsPdaKey,
-        }),
-        client.fetchEarnVaultRefundSnapshot({
-          cluster,
-          minContextSlot,
-          settingsPda: settingsPdaKey,
-        }),
-      ])
+    const latestFullWithdrawal = await findLatestFullYieldWithdrawalForVault({
+      settings: settingsPda,
+      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+      vaultPubkey: earnVaultPda.toBase58(),
+      walletAddress,
+    });
+    if (!latestFullWithdrawal) {
+      return jsonError(
+        409,
+        "missing_full_withdrawal",
+        "A confirmed full withdrawal is required before closing Earn accounts."
+      );
+    }
+    const serverMinContextSlot = Number(latestFullWithdrawal.confirmedSlot);
+    if (!Number.isSafeInteger(serverMinContextSlot) || serverMinContextSlot < 0) {
+      return jsonError(
+        409,
+        "missing_full_exit_verification_anchor",
+        "The confirmed full withdrawal slot is outside the supported range."
+      );
+    }
+    const minContextSlot = Math.max(
+      requestedMinContextSlot,
+      serverMinContextSlot
     );
-    if (
-      holdingsSnapshot.holdings.some(
-        (holding) =>
-          holding.kind === "kamino" && hasPositiveAmount(holding.amountRaw)
-      )
-    ) {
+
+    let proof: Awaited<ReturnType<typeof verifyEarnFullExitZeroBalances>>;
+    try {
+      proof = await verifyEarnFullExitZeroBalances({
+        cluster,
+        connection,
+        minContextSlot,
+        policy: serializeRoutePolicyState(
+          cleanupState.routePolicy,
+          cleanupState.setupPolicy
+        ),
+        programId,
+        settingsPda: settingsPdaKey,
+      });
+    } catch (error) {
+      console.error(
+        "[mobile-earn-withdraw-cleanup-context] zero proof retryable",
+        {
+          errorMessage:
+            error instanceof Error ? error.message : "Unknown proof error.",
+          errorName: error instanceof Error ? error.name : typeof error,
+          minContextSlot,
+          settings: settingsPda,
+          stack: error instanceof Error ? error.stack : undefined,
+          walletAddress,
+        }
+      );
       return jsonError(
-        409,
-        "active_earn_sources_remaining",
-        "The full Earn withdrawal must confirm before cleanup."
+        503,
+        "full_exit_verification_retryable",
+        error instanceof Error
+          ? error.message
+          : "Earn balances could not be verified. Retry cleanup."
       );
     }
-
-    const vaultUsdcAta = vaultSnapshot.vaultUsdcAta;
-    if (
-      vaultSnapshot.tokenAccounts.some(
-        (tokenAccount) =>
-          !tokenAccount.address.equals(vaultUsdcAta) &&
-          tokenAccount.amountRaw > BigInt(0)
-      )
-    ) {
+    if (proof.status !== "policy_close_required") {
       return jsonError(
         409,
-        "active_earn_sources_remaining",
-        "The Earn vault still holds a non-cleanup token balance."
+        "full_exit_incomplete",
+        "Earn balances remain above the full-exit dust tolerance."
       );
     }
-
-    const idleAmountRaw =
-      vaultSnapshot.tokenAccounts.find((tokenAccount) =>
-        tokenAccount.address.equals(vaultUsdcAta)
-      )?.amountRaw ?? BigInt(0);
-    const closeVaultCollateralAtas = vaultSnapshot.tokenAccounts
-      .filter(
-        (tokenAccount) =>
-          !tokenAccount.address.equals(vaultUsdcAta) &&
-          tokenAccount.amountRaw === BigInt(0)
-      )
-      .map((tokenAccount) => tokenAccount.address.toBase58());
 
     return NextResponse.json({
       cleanupInput: {
-        closeVaultCollateralAtas,
-        idleAmountRaw: idleAmountRaw.toString(),
+        closeVaultCollateralAtas: proof.closeableTokenAccounts,
+        idleAmountRaw: proof.idleAmountRaw,
         policySigner: getDeploymentPolicySignerPublicKey().toBase58(),
         yieldRoutingPolicy: {
           account: cleanupState.routePolicy.policyAccount,
@@ -302,7 +259,7 @@ export async function POST(request: Request) {
       errorMessage:
         error instanceof Error ? error.message : "Unknown context error.",
       errorName: error instanceof Error ? error.name : typeof error,
-      minContextSlot,
+      requestedMinContextSlot,
       settings: settingsPda,
       solanaEnv,
       stack: error instanceof Error ? error.stack : undefined,

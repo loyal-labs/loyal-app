@@ -19,16 +19,11 @@ import {
   serializePreparedEarnUsdcWithdraw,
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import {
-  findCurrentEarnAutodepositState,
-  reconcileMissingOnChainEarnAutodepositPolicy,
-} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
   findCurrentNonzeroYieldVaultReservePositions,
-  EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW,
   findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
   type CurrentYieldVaultIdleTokenBalanceRecord,
@@ -379,32 +374,6 @@ export async function POST(request: Request) {
       reserveRows: currentReserveRows,
     });
     effectiveAmountRaw = mode === "full" ? selectedSource.amountRaw : amountRaw;
-    const remainingReserveAmountRaw = currentReserveRows.reduce(
-      (total, row) =>
-        total +
-        (selectedSource.type === "reserve" &&
-        row.reserve === selectedSource.reserve
-          ? row.amountRaw > effectiveAmountRaw!
-            ? row.amountRaw - effectiveAmountRaw!
-            : BigInt(0)
-          : row.amountRaw),
-      BigInt(0)
-    );
-    const remainingIdleAmountRaw = currentIdleRows.reduce(
-      (total, row) =>
-        total +
-        (selectedSource.type === "idle" &&
-        row.tokenAccount === selectedSource.tokenAccount
-          ? row.amountRaw > effectiveAmountRaw!
-            ? row.amountRaw - effectiveAmountRaw!
-            : BigInt(0)
-          : row.amountRaw),
-      BigInt(0)
-    );
-    const isFinalExit =
-      remainingReserveAmountRaw <= BigInt(0) &&
-      remainingIdleAmountRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW;
-
     const policySigner = getDeploymentPolicySignerPublicKey();
     const client = createSmartAccountVaultsClient({
       connection,
@@ -422,87 +391,6 @@ export async function POST(request: Request) {
           }
         : {}),
     };
-    const autodepositState =
-      mode === "full" && isFinalExit
-        ? await findCurrentEarnAutodepositState({
-            settings: principal.settingsPda,
-            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-            walletAddress: principal.walletAddress,
-          })
-        : null;
-    let autodepositClose:
-      | {
-          policy: PublicKey;
-          recurringDelegation: PublicKey;
-        }
-      | undefined;
-    let reconciledMissingAutodepositPolicy = false;
-
-    if (
-      autodepositState?.target.policyAccount &&
-      autodepositState.target.recurringDelegation
-    ) {
-      const autodepositPolicyAccount = new PublicKey(
-        autodepositState.target.policyAccount
-      );
-      const autodepositPolicyInfo = await connection.getAccountInfo(
-        autodepositPolicyAccount,
-        "confirmed"
-      );
-
-      if (autodepositPolicyInfo) {
-        autodepositClose = {
-          policy: autodepositPolicyAccount,
-          recurringDelegation: new PublicKey(
-            autodepositState.target.recurringDelegation
-          ),
-        };
-      } else {
-        reconciledMissingAutodepositPolicy = true;
-        const reconciledTarget =
-          await reconcileMissingOnChainEarnAutodepositPolicy({
-            policyAccount: autodepositState.target.policyAccount,
-            settings: principal.settingsPda,
-            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-            walletAddress: principal.walletAddress,
-          });
-        console.warn(
-          "[earn-withdraw-prepare] reconciled missing autodeposit policy account",
-          {
-            cluster,
-            lifecycleStatus: reconciledTarget.lifecycleStatus,
-            policyAccount: autodepositState.target.policyAccount,
-            reconciliationSource: "reconciled_missing_policy",
-            settings: principal.settingsPda,
-            targetId: reconciledTarget.id.toString(),
-            vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-            walletAddress: principal.walletAddress,
-          }
-        );
-      }
-    }
-
-    if (
-      mode === "full" &&
-      isFinalExit &&
-      autodepositState &&
-      !autodepositClose &&
-      !reconciledMissingAutodepositPolicy
-    ) {
-      console.warn(
-        "[earn-withdraw-prepare] active autodeposit state is missing close metadata",
-        {
-          cluster,
-          policyAccount: autodepositState.target.policyAccount,
-          recurringDelegation: autodepositState.target.recurringDelegation,
-          settings: principal.settingsPda,
-          targetId: autodepositState.target.id.toString(),
-          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-          walletAddress: principal.walletAddress,
-        }
-      );
-    }
-
     const withdrawInput = {
       amountRaw: effectiveAmountRaw,
       cluster,
@@ -561,7 +449,9 @@ export async function POST(request: Request) {
               }),
           }
         : {}),
-      closePoliciesOnFullWithdrawal: isFinalExit,
+      // Full withdrawal and policy close are intentionally separate phases.
+      // Cleanup is prepared only after a minContextSlot-safe zero proof.
+      closePoliciesOnFullWithdrawal: false,
       source:
         selectedSource.type === "idle"
           ? {
@@ -582,17 +472,10 @@ export async function POST(request: Request) {
       walletAddress: new PublicKey(principal.walletAddress),
       yieldRoutingPolicy,
     };
-    const preparedWithdraw =
-      mode === "full"
-        ? await client.prepareEarnUsdcWithdraw({
-            ...withdrawInput,
-            ...(autodepositClose ? { autodepositClose } : {}),
-            mode,
-          })
-        : await client.prepareEarnUsdcWithdraw({
-            ...withdrawInput,
-            mode,
-          });
+    const preparedWithdraw = await client.prepareEarnUsdcWithdraw({
+      ...withdrawInput,
+      mode,
+    });
 
     return NextResponse.json({
       preparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),

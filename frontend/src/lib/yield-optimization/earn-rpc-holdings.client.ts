@@ -417,6 +417,10 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
   minContextSlot?: number;
   policy: EarnRpcPolicyMetadata | null | undefined;
   programId: PublicKey;
+  // Closure verification cannot treat an unreadable reserve backing a
+  // discovered obligation deposit as zero. Ordinary display reads retain the
+  // historical best-effort behavior; full-exit proof opts into fail-closed.
+  requireCompleteReserveReads?: boolean;
   settingsPda: PublicKey;
   now?: () => Date;
 }): Promise<EarnRpcHoldingsSnapshot> {
@@ -536,6 +540,14 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
       lendProgramId,
     });
     if (!reserveAccount) {
+      if (
+        args.requireCompleteReserveReads &&
+        discovered.collateralAmountRaw > BigInt(0)
+      ) {
+        throw new Error(
+          "Kamino reserve account is unavailable for a positive Earn obligation."
+        );
+      }
       continue;
     }
 
