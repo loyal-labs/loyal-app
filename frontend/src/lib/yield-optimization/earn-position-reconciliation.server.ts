@@ -4,10 +4,13 @@ import {
   KAMINO_VANILLA_OBLIGATION_ID,
   KAMINO_VANILLA_OBLIGATION_TAG,
   LoyalCluster,
+  RiskBasket,
   getKaminoUsdcEarnTargetForCluster,
+  getRiskBasketMarketsForCluster,
 } from "@loyal-labs/actions";
 import {
   calculateKaminoRedeemableLiquidityAmountRaw,
+  parseKaminoObligationAccount,
   parseKaminoObligationDepositedCollateralAmountRaw,
   parseKaminoReserveTokenAccounts,
   parseKaminoReserveSnapshot,
@@ -17,7 +20,12 @@ import {
   AccountLayout,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import type { AccountInfo, Connection } from "@solana/web3.js";
+import type {
+  AccountInfo,
+  Commitment,
+  Connection,
+  GetMultipleAccountsConfig,
+} from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 
 import {
@@ -83,12 +91,6 @@ type ReconciledReserveCandidate = {
   obligationAccount: AccountInfo<Buffer> | null;
   reserveAccount: AccountInfo<Buffer> | null;
   reserveCollateralMint: PublicKey | null;
-};
-
-type CandidateAccountRole = {
-  candidateIndex: number;
-  kind: "obligation" | "reserve";
-  pubkey: PublicKey;
 };
 
 function isFresh(lastReconciledAt: Date | null, now: Date): boolean {
@@ -195,6 +197,30 @@ function buildReserveCandidates(args: {
   return [...candidates.values()];
 }
 
+// The Safe markets this policy may route into. The candidate list above only
+// covers reserves we have ALREADY recorded, so a market the optimizer
+// rebalanced into is invisible to it — and its funds then read as zero. Deriving
+// an obligation for every allowed market lets the chain tell us where the money
+// actually is, the same universe `fetchEarnRpcHoldingsSnapshot` scans.
+function resolvePolicySafeMarkets(args: {
+  cluster: Parameters<typeof getRiskBasketMarketsForCluster>[0];
+  policy: { kaminoMarkets?: string[] | null };
+}): PublicKey[] {
+  const safeMarkets = new Set(
+    getRiskBasketMarketsForCluster(args.cluster, RiskBasket.Safe).map((market) =>
+      market.toBase58()
+    )
+  );
+
+  return (args.policy.kaminoMarkets ?? []).flatMap((market) => {
+    if (!safeMarkets.has(market)) {
+      return [];
+    }
+    const key = publicKeyOrNull(market);
+    return key ? [key] : [];
+  });
+}
+
 function fallbackRowsAsPositions(
   currentRows: CurrentYieldVaultReservePositionRecord[]
 ): ReconciledYieldVaultReservePositionInput[] {
@@ -276,77 +302,156 @@ export async function reconcileEarnVaultPosition(
     vaultPda,
   });
   const lendProgramId = EARN_MAINNET_TARGET.lendProgramId;
-  const candidateAccountRoles: CandidateAccountRole[] = candidates.flatMap(
-    (candidate, candidateIndex) => {
-      const reserve = publicKeyOrNull(candidate.reserve);
-      const market = publicKeyOrNull(candidate.market);
-      if (!reserve || !market) {
-        return [];
-      }
+  const readConfig: Commitment | GetMultipleAccountsConfig =
+    input.minContextSlot !== undefined
+      ? { commitment: SOURCE_COMMITMENT, minContextSlot: input.minContextSlot }
+      : SOURCE_COMMITMENT;
+  const obligationForMarket = (market: PublicKey) =>
+    deriveKaminoVanillaObligation({ lendProgramId, market, vaultPda });
 
-      return [
-        { candidateIndex, kind: "reserve" as const, pubkey: reserve },
-        {
-          candidateIndex,
-          kind: "obligation" as const,
-          pubkey: deriveKaminoVanillaObligation({
-            lendProgramId,
-            market,
-            vaultPda,
-          }),
-        },
-      ];
+  const accountKeys: PublicKey[] = [];
+  const requestedKeys = new Set<string>();
+  const requestKey = (key: PublicKey) => {
+    const text = key.toBase58();
+    if (requestedKeys.has(text)) {
+      return;
     }
-  );
-  const accountKeys = [
-    ...candidateAccountRoles.map((role) => role.pubkey),
-    canonicalAccounts.usdcAta,
-  ];
+    requestedKeys.add(text);
+    accountKeys.push(key);
+  };
+
+  for (const candidate of candidates) {
+    const reserve = publicKeyOrNull(candidate.reserve);
+    const market = publicKeyOrNull(candidate.market);
+    if (!reserve || !market) {
+      continue;
+    }
+    requestKey(reserve);
+    requestKey(obligationForMarket(market));
+  }
+  // Discovery rides along in the SAME batch: an allowed market whose obligation
+  // a candidate already covers dedupes away, so the common single-market vault
+  // reads exactly the accounts it read before.
+  const policySafeMarkets = resolvePolicySafeMarkets({
+    cluster: input.cluster,
+    policy: managed.routePolicy,
+  });
+  for (const market of policySafeMarkets) {
+    requestKey(obligationForMarket(market));
+  }
+  requestKey(canonicalAccounts.usdcAta);
+
   const { context: reserveContext, value: reserveValues } =
     await input.connection.getMultipleAccountsInfoAndContext(
       accountKeys,
-      input.minContextSlot !== undefined
-        ? { commitment: SOURCE_COMMITMENT, minContextSlot: input.minContextSlot }
-        : SOURCE_COMMITMENT
+      readConfig
     );
-  const idleAccount = reserveValues[reserveValues.length - 1] ?? null;
-  const accountForRole = (role: CandidateAccountRole) =>
-    reserveValues[candidateAccountRoles.indexOf(role)] ?? null;
+  const accountByKey = new Map<string, AccountInfo<Buffer> | null>();
+  accountKeys.forEach((key, index) => {
+    accountByKey.set(key.toBase58(), reserveValues[index] ?? null);
+  });
+  const accountFor = (key: PublicKey | null) =>
+    key ? accountByKey.get(key.toBase58()) ?? null : null;
   const idleAmountRaw = decodeTokenAccountAmount({
-    account: idleAccount,
+    account: accountFor(canonicalAccounts.usdcAta),
     expectedMint: canonicalAccounts.targetReserve.liquidityMint,
     expectedOwner: vaultPda,
   });
 
-  const reconciledCandidates: ReconciledReserveCandidate[] = candidates.map(
-    (candidate, candidateIndex) => {
-      const reserveRole = candidateAccountRoles.find(
-        (role) =>
-          role.kind === "reserve" && role.candidateIndex === candidateIndex
-      );
-      const obligationRole = candidateAccountRoles.find(
-        (role) =>
-          role.kind === "obligation" && role.candidateIndex === candidateIndex
-      );
-      const reserveAccount = reserveRole ? accountForRole(reserveRole) : null;
-      const obligationAccount = obligationRole
-        ? accountForRole(obligationRole)
-        : null;
-      const reserveTokenAccounts = reserveAccount
-        ? parseKaminoReserveTokenAccounts(reserveAccount.data)
-        : null;
-
-      return {
-        candidate,
-        obligation: obligationRole?.pubkey ?? null,
-        obligationAccount,
-        reserveAccount,
-        reserveCollateralMint:
-          reserveTokenAccounts?.reserveCollateralMint ?? null,
-      };
+  // Reserves the vault holds in a policy market we have never recorded. Their
+  // exchange rate needs a second read, so this only costs an extra round trip
+  // when a market actually went missing from the read-model.
+  const knownReserves = new Set(candidates.map((candidate) => candidate.reserve));
+  const discoveredCandidates: ReserveCandidate[] = [];
+  for (const market of policySafeMarkets) {
+    const obligationAccount = accountFor(obligationForMarket(market));
+    if (!obligationAccount || !obligationAccount.owner.equals(lendProgramId)) {
+      continue;
     }
-  );
 
+    const parsedObligation = parseKaminoObligationAccount(
+      obligationAccount.data
+    );
+    if (
+      !parsedObligation.owner.equals(vaultPda) ||
+      !parsedObligation.lendingMarket.equals(market)
+    ) {
+      continue;
+    }
+
+    for (const deposit of parsedObligation.deposits) {
+      const reserve = deposit.reserve.toBase58();
+      if (
+        knownReserves.has(reserve) ||
+        deposit.depositedAmountRaw <= BigInt(0)
+      ) {
+        continue;
+      }
+
+      knownReserves.add(reserve);
+      discoveredCandidates.push({
+        borrowApyBps: null,
+        liquidityMint: canonicalAccounts.targetReserve.liquidityMint.toBase58(),
+        market: market.toBase58(),
+        planningMetadata: { source: "policy_market_discovery" },
+        reserve,
+        supplyApyBps: null,
+      });
+    }
+  }
+
+  if (discoveredCandidates.length > 0) {
+    const discoveredReserveKeys = discoveredCandidates.map(
+      (candidate) => new PublicKey(candidate.reserve)
+    );
+    const { value: discoveredReserveValues } =
+      await input.connection.getMultipleAccountsInfoAndContext(
+        discoveredReserveKeys,
+        readConfig
+      );
+    discoveredReserveKeys.forEach((key, index) => {
+      accountByKey.set(key.toBase58(), discoveredReserveValues[index] ?? null);
+    });
+  }
+
+  // An unreadable reserve keeps its candidate: dropping it here would hide a
+  // positive obligation from the post-withdrawal zero proof's fail-closed check
+  // below. A readable reserve for some other liquidity is not ours — drop it.
+  const usdcCandidates = discoveredCandidates.filter((candidate) => {
+    const reserveAccount = accountFor(new PublicKey(candidate.reserve));
+    if (!reserveAccount) {
+      return true;
+    }
+
+    return parseKaminoReserveTokenAccounts(
+      reserveAccount.data
+    ).reserveLiquidityMint?.equals(canonicalAccounts.targetReserve.liquidityMint);
+  });
+  const reconciledCandidates: ReconciledReserveCandidate[] = [
+    ...candidates,
+    ...usdcCandidates,
+  ].map((candidate) => {
+    const market = publicKeyOrNull(candidate.market);
+    const obligation = market ? obligationForMarket(market) : null;
+    const reserveAccount = accountFor(publicKeyOrNull(candidate.reserve));
+    const obligationAccount = accountFor(obligation);
+    const reserveTokenAccounts = reserveAccount
+      ? parseKaminoReserveTokenAccounts(reserveAccount.data)
+      : null;
+
+    return {
+      candidate,
+      obligation,
+      obligationAccount,
+      reserveAccount,
+      reserveCollateralMint:
+        reserveTokenAccounts?.reserveCollateralMint ?? null,
+    };
+  });
+
+  // The obligations and the idle ATA — everything that defines a balance — come
+  // from the first read; a discovered reserve only contributes its exchange
+  // rate, so this slot stays the honest observation point.
   const observedSlot = BigInt(reserveContext.slot);
 
   const positions = reconciledCandidates.map((reconciled) => {
@@ -430,7 +535,7 @@ export async function reconcileEarnVaultPosition(
       source: "frontend_position_reconcile",
       purpose: input.purpose ?? "routine",
       sourceCommitment: SOURCE_COMMITMENT,
-      skippedReserveCount: candidates.length - reconciledCandidates.length,
+      discoveredReserveCount: reconciledCandidates.length - candidates.length,
     },
     idleTokenBalance: {
       amountRaw: idleAmountRaw,
