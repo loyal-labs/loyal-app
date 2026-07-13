@@ -55,6 +55,7 @@ Returned client shape:
 - `prepareExecuteProposal(args)`
 - `prepareExecuteSettingsProposal(args)`
 - `prepareExecutePolicyProposal(args)`
+- `prepareEarnUsdcWithdraw(args)`
 
 Notes:
 
@@ -213,6 +214,10 @@ the package:
 - `prepareExecutePolicyProposal()` resolves execution accounts for stored policy transactions and prepares policy execution.
 - `prepareClosePolicies()` and `prepareCloseYieldRoutingPolicies()` emit `PolicyRemove` settings actions. The smart-account program closes each policy account and refunds rent to that policy account's stored `rentCollector`, which is the rent payer recorded at policy creation.
 - `prepareClosePoliciesSync()` and `prepareCloseYieldRoutingPoliciesSync()` execute the same `PolicyRemove` actions through `executeSettingsTransactionSync`, using the supplied settings signer pubkeys.
+
+### Earn withdrawals
+
+`prepareEarnUsdcWithdraw(args)` prepares partial or full Earn withdrawals. It adds idempotent setup for the vault's USDC associated token account and any ATA-compatible collateral accounts required by the withdrawal before the Kamino withdrawal instructions. This makes retries safe when a previous full-exit cleanup closed those accounts but a later sweep or rebalance restored funds; non-ATA collateral accounts are not recreated.
 
 The send step is intentionally separate. Typical usage is:
 
