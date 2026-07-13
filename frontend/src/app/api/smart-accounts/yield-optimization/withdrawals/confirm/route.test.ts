@@ -22,6 +22,7 @@ let parsedInput: Record<string, unknown>;
 let resolvedPrincipal: typeof principal | null = principal;
 let callOrder: string[] = [];
 let depositCalls: unknown[] = [];
+let reconcileCalls: unknown[] = [];
 let withdrawalCalls: unknown[] = [];
 let fullExitProofStatus: "full_exit_incomplete" | "policy_close_required" =
   "full_exit_incomplete";
@@ -120,8 +121,9 @@ mock.module(
 mock.module(
   "@/lib/yield-optimization/earn-position-reconciliation.server",
   () => ({
-    reconcileEarnVaultPosition: async () => {
+    reconcileEarnVaultPosition: async (input: unknown) => {
       callOrder.push("reconcile");
+      reconcileCalls.push(input);
       return { status: "refreshed" };
     },
   })
@@ -298,6 +300,7 @@ describe("Earn withdrawal confirm route", () => {
     resolvedPrincipal = principal;
     callOrder = [];
     depositCalls = [];
+    reconcileCalls = [];
     withdrawalCalls = [];
     fullExitProofError = null;
     fullExitProofStatus = "full_exit_incomplete";
@@ -368,7 +371,7 @@ describe("Earn withdrawal confirm route", () => {
     })) as never;
   });
 
-  test("records withdrawal before zero verification and keeps positive holdings active", async () => {
+  test("does not reconcile holdings until zero verification succeeds", async () => {
     const { POST } = await import("./route");
 
     const response = await POST(
@@ -383,11 +386,8 @@ describe("Earn withdrawal confirm route", () => {
       position: { status: "active" },
       status: "full_exit_incomplete",
     });
-    expect(callOrder).toEqual([
-      "record-withdrawal",
-      "reconcile",
-      "verify-zero",
-    ]);
+    expect(callOrder).toEqual(["record-withdrawal", "verify-zero"]);
+    expect(reconcileCalls).toEqual([]);
     expect(withdrawalCalls[0]).toMatchObject({
       mode: "full",
       withdrawalSignature: "withdrawal-signature",
@@ -432,11 +432,8 @@ describe("Earn withdrawal confirm route", () => {
     expect(await response.json()).toMatchObject({
       error: { code: "full_exit_verification_retryable" },
     });
-    expect(callOrder).toEqual([
-      "record-withdrawal",
-      "reconcile",
-      "verify-zero",
-    ]);
+    expect(callOrder).toEqual(["record-withdrawal", "verify-zero"]);
+    expect(reconcileCalls).toEqual([]);
   });
 
   test("reports policy close required without closing the active position", async () => {
@@ -457,9 +454,13 @@ describe("Earn withdrawal confirm route", () => {
     });
     expect(callOrder).toEqual([
       "record-withdrawal",
-      "reconcile",
       "verify-zero",
+      "reconcile",
     ]);
+    expect(reconcileCalls[0]).toMatchObject({
+      minContextSlot: 300,
+      purpose: "post_withdrawal_zero_proof",
+    });
   });
 });
 
@@ -469,6 +470,7 @@ describe("Earn deposit confirm route", () => {
     resolvedPrincipal = principal;
     callOrder = [];
     depositCalls = [];
+    reconcileCalls = [];
     withdrawalCalls = [];
     Connection.prototype.getSignatureStatuses = mock(async () => ({
       value: [

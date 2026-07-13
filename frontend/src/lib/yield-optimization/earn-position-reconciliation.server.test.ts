@@ -339,4 +339,45 @@ describe("earn position reconciliation", () => {
       connection.getMultipleAccountsInfoAndContext.mock.calls[0]?.[1]
     ).toEqual({ commitment: "confirmed", minContextSlot: 500 });
   });
+
+  test("rejects an unreadable reserve before mutating a positive obligation snapshot", async () => {
+    const now = new Date("2026-06-17T00:40:00.000Z");
+    const connection = createConnection([
+      null,
+      { data: Buffer.from([1]) },
+      null,
+    ]);
+    findActiveManagedYieldVaultWithPolicy.mockImplementation(async () =>
+      createManagedVault(null)
+    );
+    findReconciledActiveYieldPositionForVault.mockImplementation(async () =>
+      createPosition()
+    );
+    findCurrentNonzeroYieldVaultReservePositions.mockImplementation(
+      async () => []
+    );
+    const snapshotWriteCount =
+      recordReconciledYieldVaultSnapshot.mock.calls.length;
+
+    await expect(
+      reconcileEarnVaultPosition(
+        {
+          authority: "wallet",
+          cluster: "mainnet-beta" as never,
+          connection: connection as never,
+          force: true,
+          minContextSlot: 500,
+          purpose: "post_withdrawal_zero_proof",
+          settings: "settings",
+          vaultPubkey: vault.toBase58(),
+        },
+        { now: () => now }
+      )
+    ).rejects.toThrow(
+      "Kamino reserve account is unavailable for a positive Earn obligation."
+    );
+    expect(recordReconciledYieldVaultSnapshot.mock.calls.length).toBe(
+      snapshotWriteCount
+    );
+  });
 });

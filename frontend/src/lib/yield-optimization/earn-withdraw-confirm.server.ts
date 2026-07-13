@@ -708,16 +708,6 @@ export async function recordConfirmedEarnWithdrawal(args: {
 
   try {
     const minContextSlot = toSafeContextSlot(input.confirmedSlot);
-    await reconcileEarnVaultPosition({
-      authority: input.walletAddress,
-      cluster,
-      connection,
-      force: true,
-      minContextSlot,
-      purpose: "post_withdrawal_zero_proof",
-      settings: input.settings,
-      vaultPubkey: input.vaultPubkey,
-    });
     const cleanupState = await findEarnCleanupVaultState({
       authority: input.walletAddress,
       settings: input.settings,
@@ -742,13 +732,26 @@ export async function recordConfirmedEarnWithdrawal(args: {
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
       settingsPda: new PublicKey(input.settings),
     });
-    const reconciledPosition =
-      (await findReconciledActiveYieldPositionForVault({
+    let reconciledPosition = position;
+    if (proof.status === "policy_close_required") {
+      await reconcileEarnVaultPosition({
+        authority: input.walletAddress,
         cluster,
+        connection,
+        force: true,
+        minContextSlot: toSafeContextSlot(BigInt(proof.observedSlot)),
+        purpose: "post_withdrawal_zero_proof",
         settings: input.settings,
-        vaultIndex: input.vaultIndex,
-        walletAddress: input.walletAddress,
-      })) ?? position;
+        vaultPubkey: input.vaultPubkey,
+      });
+      reconciledPosition =
+        (await findReconciledActiveYieldPositionForVault({
+          cluster,
+          settings: input.settings,
+          vaultIndex: input.vaultIndex,
+          walletAddress: input.walletAddress,
+        })) ?? position;
+    }
 
     console.info("[earn-withdraw-confirm] full exit verification", {
       blockingTokenAccountCount: proof.blockingTokenAccounts.length,
