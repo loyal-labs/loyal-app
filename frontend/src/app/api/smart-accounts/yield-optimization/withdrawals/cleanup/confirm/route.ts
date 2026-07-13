@@ -9,8 +9,11 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
-import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
-import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
+import {
+  assertEarnFullExitProven,
+  EarnCleanupConfirmError,
+  resolveConfirmedSignatureSlot,
+} from "@/lib/yield-optimization/earn-cleanup-confirm.server";
 import { parseEarnWithdrawCleanupConfirmRequestBody } from "@/lib/yield-optimization/earn-withdraw-cleanup-contracts.shared";
 import {
   findEarnCleanupVaultState,
@@ -47,40 +50,6 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
-async function resolveConfirmedSignatureSlot(args: {
-  connection: Connection;
-  signature: string;
-}): Promise<bigint> {
-  const { value } = await args.connection.getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
-  const status = value[0] ?? null;
-  if (status?.err) {
-    throw new Error("Earn cleanup transaction failed on-chain.");
-  }
-  if (
-    typeof status?.slot === "number" &&
-    (status.confirmationStatus === "confirmed" ||
-      status.confirmationStatus === "finalized")
-  ) {
-    return BigInt(status.slot);
-  }
-
-  const transaction = await args.connection.getTransaction(args.signature, {
-    commitment: "confirmed",
-    maxSupportedTransactionVersion: 0,
-  });
-  if (transaction?.meta?.err) {
-    throw new Error("Earn cleanup transaction failed on-chain.");
-  }
-  if (typeof transaction?.slot === "number") {
-    return BigInt(transaction.slot);
-  }
-
-  throw new Error("Confirmed transaction slot is unavailable.");
-}
-
 function cleanupPolicyMetadataMatches(args: {
   cleanupState: NonNullable<
     Awaited<ReturnType<typeof findEarnCleanupVaultState>>
@@ -100,26 +69,6 @@ function cleanupPolicyMetadataMatches(args: {
     (setupPolicy?.policySeed.toString() ?? null) ===
       (persistence.setupPolicySeed ?? null)
   );
-}
-
-async function verifyPolicyAccountsClosed(args: {
-  accounts: string[];
-  connection: Connection;
-  minContextSlot: number;
-}): Promise<void> {
-  const { context, value } =
-    await args.connection.getMultipleAccountsInfoAndContext(
-      args.accounts.map((account) => new PublicKey(account)),
-      { commitment: "confirmed", minContextSlot: args.minContextSlot }
-    );
-  if (context.slot < args.minContextSlot) {
-    throw new Error(
-      "Earn policy close proof was observed before the cleanup confirmation slot."
-    );
-  }
-  if (value.some((account) => account !== null)) {
-    throw new Error("One or more Earn policy accounts remain open on-chain.");
-  }
 }
 
 export async function POST(request: Request) {
@@ -240,27 +189,12 @@ export async function POST(request: Request) {
 
     try {
       const serverEnv = getServerEnv();
-      const proof = await verifyEarnFullExitZeroBalances({
+      await assertEarnFullExitProven({
+        cleanupState,
         cluster: persistence.cluster,
         connection,
         minContextSlot,
-        policy: serializeRoutePolicyState(
-          cleanupState.routePolicy,
-          cleanupState.setupPolicy
-        ),
-        programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
-        settingsPda: new PublicKey(persistence.settings),
-      });
-      if (proof.status !== "policy_close_required") {
-        return jsonError(
-          409,
-          "full_exit_incomplete",
-          "Earn balances remain after cleanup; the position stays active."
-        );
-      }
-
-      await verifyPolicyAccountsClosed({
-        accounts: [
+        policyAccounts: [
           persistence.policyAccount,
           ...(persistence.setupPolicyAccount
             ? [persistence.setupPolicyAccount]
@@ -269,10 +203,13 @@ export async function POST(request: Request) {
             ? [persistence.autodepositClose.policyAccount]
             : []),
         ],
-        connection,
-        minContextSlot,
+        programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
+        settingsPda: new PublicKey(persistence.settings),
       });
     } catch (error) {
+      if (!(error instanceof EarnCleanupConfirmError)) {
+        throw error;
+      }
       console.error("[earn-withdraw-cleanup-confirm] proof retryable", {
         cleanupSignature: body.cleanupSignature,
         errorMessage:
@@ -283,13 +220,7 @@ export async function POST(request: Request) {
         stack: error instanceof Error ? error.stack : undefined,
         walletAddress: principal.walletAddress,
       });
-      return jsonError(
-        503,
-        "full_exit_verification_retryable",
-        error instanceof Error
-          ? error.message
-          : "Earn cleanup could not be verified. Retry confirmation."
-      );
+      return jsonError(error.status, error.code, error.message);
     }
 
     if (
@@ -331,6 +262,9 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true, status: "full_exit_closed" });
   } catch (error) {
+    if (error instanceof EarnCleanupConfirmError) {
+      return jsonError(error.status, error.code, error.message);
+    }
     console.error("[earn-withdraw-cleanup-confirm] failed", {
       cleanupSignature: body.cleanupSignature,
       errorMessage:
@@ -341,11 +275,11 @@ export async function POST(request: Request) {
       walletAddress: principal.walletAddress,
     });
     return jsonError(
-      503,
-      "full_exit_verification_retryable",
+      500,
+      "confirm_failed",
       error instanceof Error
         ? error.message
-        : "Earn cleanup confirmation could not be verified. Retry confirmation."
+        : "Earn cleanup confirmation failed."
     );
   }
 }
