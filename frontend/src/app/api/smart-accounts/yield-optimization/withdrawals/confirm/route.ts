@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const position = await recordConfirmedEarnWithdrawal({
+    const result = await recordConfirmedEarnWithdrawal({
       principal: {
         walletAddress: principal.walletAddress,
         smartAccountAddress: principal.smartAccountAddress,
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
       input,
       solanaEnv: getConfiguredSolanaEnv(),
     });
-    return NextResponse.json({ position });
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof EarnWithdrawConfirmError) {
       return jsonError(error.status, error.code, error.message);

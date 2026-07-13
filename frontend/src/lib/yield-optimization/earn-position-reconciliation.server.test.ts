@@ -10,6 +10,7 @@ const collateralAta = new PublicKey("11111111111111111111111111111115");
 const reserve = new PublicKey("11111111111111111111111111111116");
 const market = new PublicKey("11111111111111111111111111111117");
 const usdcAta = new PublicKey("11111111111111111111111111111118");
+const programId = new PublicKey("11111111111111111111111111111119");
 const tokenProgramId = new PublicKey(
   "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
 );
@@ -26,20 +27,32 @@ const findReconciledActiveYieldPositionForVault = mock(
 const recordReconciledYieldVaultSnapshot = mock(async () => ({
   snapshotId: BigInt(55),
 }));
+const recordSnapshotReconciledYieldHolding = mock(async () => ({}));
 
 mock.module("./yield-deposit-repository.server", () => ({
   findActiveManagedYieldVaultWithPolicy,
   findCurrentNonzeroYieldVaultReservePositions,
   findReconciledActiveYieldPositionForVault,
+  recordSnapshotReconciledYieldHolding,
   recordReconciledYieldVaultSnapshot,
 }));
 
 mock.module("@loyal-labs/actions", () => ({
+  KAMINO_VANILLA_OBLIGATION_ID: 0,
+  KAMINO_VANILLA_OBLIGATION_TAG: 0,
+  LoyalCluster: { MainnetBeta: "mainnet-beta" },
+  RiskBasket: { Safe: "safe" },
+  Stablecoin: { USDC: "usdc" },
   getKaminoUsdcEarnTargetForCluster: () => ({
+    lendProgramId: programId,
     liquidityMint: usdcMint,
     market,
     reserve,
   }),
+  getRiskBasketMarketsForCluster: () => [market],
+  getStablecoinMintForCluster: () => usdcMint,
+  normalizeLoyalCluster: (cluster: string) => cluster,
+  resolveLoyalClusterForSolanaEnv: () => "mainnet-beta",
 }));
 
 mock.module("@loyal-labs/smart-account-vaults", () => ({
@@ -48,6 +61,22 @@ mock.module("@loyal-labs/smart-account-vaults", () => ({
   }: {
     collateralAmountRaw: bigint;
   }) => collateralAmountRaw * BigInt(2),
+  createSmartAccountVaultsClient: (input: unknown) => {
+    const hook = (
+      globalThis as unknown as {
+        __createEarnTestVaultsClient?: (config: unknown) => unknown;
+      }
+    ).__createEarnTestVaultsClient;
+    return hook?.(input) ?? {};
+  },
+  parseKaminoObligationDepositedCollateralAmountRaw: ({
+    data,
+  }: {
+    data: Buffer;
+  }) => (data[0] === 1 ? BigInt(5) : BigInt(0)),
+  parseKaminoReserveTokenAccounts: () => ({
+    reserveCollateralMint: collateralMint,
+  }),
   parseKaminoReserveSnapshot: () => ({
     collateralSupplyRaw: BigInt(100),
     totalLiquiditySupplyScaled: BigInt(200),
@@ -69,6 +98,9 @@ mock.module("@loyal-labs/smart-account-vaults", () => ({
 }));
 
 mock.module("@solana/spl-token", () => ({
+  ASSOCIATED_TOKEN_PROGRAM_ID: new PublicKey(
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+  ),
   AccountLayout: {
     decode: (data: Buffer) => {
       if (data[0] === 1) {
@@ -87,6 +119,7 @@ mock.module("@solana/spl-token", () => ({
     },
   },
   TOKEN_PROGRAM_ID: tokenProgramId,
+  getAssociatedTokenAddressSync: () => usdcAta,
 }));
 
 const { reconcileEarnVaultPosition } = await import(
@@ -123,17 +156,23 @@ function createPosition() {
 
 function createConnection(accounts: Array<{ data: Buffer } | null>) {
   return {
-    getMultipleAccountsInfoAndContext: mock(async () => ({
-      context: { slot: 123 },
-      value: accounts.map((account) =>
-        account
-          ? {
-              data: account.data,
-              owner: tokenProgramId,
-            }
-          : null
-      ),
-    })),
+    getMultipleAccountsInfoAndContext: mock(
+      async (_keys: PublicKey[], _config?: unknown) => {
+        void _keys;
+        void _config;
+        return {
+          context: { slot: 123 },
+          value: accounts.map((account) =>
+            account
+              ? {
+                  data: account.data,
+                  owner: tokenProgramId,
+                }
+              : null
+          ),
+        };
+      }
+    ),
   };
 }
 
@@ -245,5 +284,100 @@ describe("earn position reconciliation", () => {
     const [input] = (recordReconciledYieldVaultSnapshot.mock.calls.at(-1) ??
       []) as unknown as [RecordedSnapshotInput];
     expect(input.idleTokenBalance.amountRaw).toBe(BigInt(0));
+  });
+
+  test("does not reuse a positive fallback for a post-withdraw zero proof", async () => {
+    const now = new Date("2026-06-17T00:30:00.000Z");
+    const connection = createConnection([
+      { data: Buffer.from([0]) },
+      { data: Buffer.from([0]) },
+      null,
+    ]);
+    findActiveManagedYieldVaultWithPolicy.mockImplementation(async () =>
+      createManagedVault(null)
+    );
+    findReconciledActiveYieldPositionForVault.mockImplementation(async () =>
+      createPosition()
+    );
+    findCurrentNonzeroYieldVaultReservePositions.mockImplementation(
+      async () => [
+        {
+          amountRaw: BigInt(99),
+          borrowApyBps: null,
+          hasValue: true,
+          liquidityMint: usdcMint.toBase58(),
+          market: market.toBase58(),
+          observedAt: now,
+          observedSlot: BigInt(400),
+          planningMetadata: {},
+          reserve: reserve.toBase58(),
+          snapshotId: BigInt(1),
+          supplyApyBps: null,
+          vaultId: BigInt(22),
+        },
+      ]
+    );
+
+    await reconcileEarnVaultPosition(
+      {
+        authority: "wallet",
+        cluster: "mainnet-beta" as never,
+        connection: connection as never,
+        force: true,
+        minContextSlot: 500,
+        purpose: "post_withdrawal_zero_proof",
+        settings: "settings",
+        vaultPubkey: vault.toBase58(),
+      },
+      { now: () => now }
+    );
+
+    const [input] = (recordReconciledYieldVaultSnapshot.mock.calls.at(-1) ??
+      []) as unknown as [RecordedSnapshotInput];
+    expect(input.positions[0]?.amountRaw).toBe(BigInt(0));
+    expect(
+      connection.getMultipleAccountsInfoAndContext.mock.calls[0]?.[1]
+    ).toEqual({ commitment: "confirmed", minContextSlot: 500 });
+  });
+
+  test("rejects an unreadable reserve before mutating a positive obligation snapshot", async () => {
+    const now = new Date("2026-06-17T00:40:00.000Z");
+    const connection = createConnection([
+      null,
+      { data: Buffer.from([1]) },
+      null,
+    ]);
+    findActiveManagedYieldVaultWithPolicy.mockImplementation(async () =>
+      createManagedVault(null)
+    );
+    findReconciledActiveYieldPositionForVault.mockImplementation(async () =>
+      createPosition()
+    );
+    findCurrentNonzeroYieldVaultReservePositions.mockImplementation(
+      async () => []
+    );
+    const snapshotWriteCount =
+      recordReconciledYieldVaultSnapshot.mock.calls.length;
+
+    await expect(
+      reconcileEarnVaultPosition(
+        {
+          authority: "wallet",
+          cluster: "mainnet-beta" as never,
+          connection: connection as never,
+          force: true,
+          minContextSlot: 500,
+          purpose: "post_withdrawal_zero_proof",
+          settings: "settings",
+          vaultPubkey: vault.toBase58(),
+        },
+        { now: () => now }
+      )
+    ).rejects.toThrow(
+      "Kamino reserve account is unavailable for a positive Earn obligation."
+    );
+    expect(recordReconciledYieldVaultSnapshot.mock.calls.length).toBe(
+      snapshotWriteCount
+    );
   });
 });

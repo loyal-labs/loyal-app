@@ -5,6 +5,9 @@ mock.module("server-only", () => ({}));
 const { recordConfirmedYieldDeposit } = await import(
   "./yield-deposit-repository.server"
 );
+const { recordConfirmedEarnCleanup } = await import(
+  "./yield-deposit-repository.server"
+);
 const { recordConfirmedYieldWithdrawal } = await import(
   "./yield-deposit-repository.server"
 );
@@ -285,12 +288,12 @@ describe("yield deposit repository idempotency", () => {
     expect(dependencies.update).not.toHaveBeenCalled();
   });
 
-  test("completes zero-current cleanup and deactivation for duplicate full withdrawals", async () => {
+  test("keeps policies active when a full withdrawal confirmation is replayed", async () => {
     const position = createPosition();
     Object.assign(position, {
       currentAmountRaw: BigInt(0),
       principalAmountRaw: BigInt(0),
-      status: "closed",
+      status: "active",
     });
     const insertCalls: Array<{ index: number; values: unknown }> = [];
     const updateCalls: Array<{ index: number; set: unknown }> = [];
@@ -392,24 +395,12 @@ describe("yield deposit repository idempotency", () => {
     );
 
     expect(result).toBe(position);
-    expect(batchCalls).toHaveLength(2);
-    expect(insertCalls).toHaveLength(2);
-    expect(updateCalls.map((call) => call.set)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          amountRaw: BigInt(0),
-          hasValue: false,
-        }),
-        expect.objectContaining({
-          active: false,
-          lastSeenSignature: "withdrawal-signature",
-          lastSeenSlot: BigInt(500),
-        }),
-      ])
-    );
+    expect(batchCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(0);
+    expect(updateCalls).toHaveLength(0);
   });
 
-  test("closes reserve-source full withdrawals when no holdings remain", async () => {
+  test("records a zero-balance full withdrawal without closing position or policy state", async () => {
     const position = createPosition();
     const reserveRow = {
       amountRaw: BigInt(1000),
@@ -563,7 +554,7 @@ describe("yield deposit repository idempotency", () => {
       dependencies as never
     );
 
-    expect(result.status).toBe("closed");
+    expect(result.status).toBe("active");
     expect(result.principalAmountRaw).toBe(BigInt(0));
     expect(insertedValues).toEqual(
       expect.arrayContaining([
@@ -578,13 +569,50 @@ describe("yield deposit repository idempotency", () => {
       expect.arrayContaining([
         expect.objectContaining({
           principalAmountRaw: BigInt(0),
-          status: "closed",
+          status: "active",
         }),
+      ])
+    );
+    expect(updateSets).not.toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           active: false,
         }),
       ])
     );
+  });
+});
+
+describe("Earn cleanup idempotency", () => {
+  test("treats an already inactive vault as a completed cleanup", async () => {
+    const batch = mock(async () => []);
+    const dependencies = {
+      client: {
+        db: {
+          batch,
+          query: {
+            managedVaults: {
+              findFirst: mock(async () => null),
+            },
+          },
+        },
+      },
+      now: () => new Date("2026-06-02T00:00:00.000Z"),
+    };
+    const input = {
+      cleanupSignature: "cleanup-signature",
+      cluster: "mainnet-beta",
+      confirmedSlot: BigInt(600),
+      settings: "settings",
+      vaultIndex: 1,
+      vaultPubkey: "vault",
+      walletAddress: "wallet",
+    };
+
+    await recordConfirmedEarnCleanup(input, dependencies as never);
+    await recordConfirmedEarnCleanup(input, dependencies as never);
+
+    expect(batch).not.toHaveBeenCalled();
   });
 });
 

@@ -19,10 +19,12 @@ import {
   findCurrentEarnAutodepositState,
   reconcileMissingOnChainEarnAutodepositPolicy,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
+import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import { serializePreparedEarnUsdcCleanup } from "@/lib/yield-optimization/earn-withdraw-cleanup-contracts.shared";
 import {
   findEarnCleanupVaultState,
-  type CurrentYieldVaultReservePositionRecord,
+  findLatestFullYieldWithdrawalForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
@@ -57,55 +59,6 @@ function getConnection(cluster: SolanaEnv): Connection {
   });
   connectionCache.set(cluster, connection);
   return connection;
-}
-
-function publicKeyFromMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-  keys: string[]
-): PublicKey | null {
-  if (!metadata) {
-    return null;
-  }
-
-  for (const key of keys) {
-    const value = metadata[key];
-    if (typeof value !== "string" || value.trim().length === 0) {
-      continue;
-    }
-    try {
-      return new PublicKey(value);
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
-
-function resolveVaultCollateralAtas(
-  rows: CurrentYieldVaultReservePositionRecord[]
-): PublicKey[] {
-  const seen = new Set<string>();
-  const atas: PublicKey[] = [];
-
-  for (const row of rows) {
-    const vaultCollateralAta = publicKeyFromMetadata(row.planningMetadata, [
-      "vaultCollateralAta",
-      "vault_collateral_ata",
-      "collateralAta",
-      "collateral_ata",
-    ]);
-    if (!vaultCollateralAta) {
-      continue;
-    }
-    const key = vaultCollateralAta.toBase58();
-    if (!seen.has(key)) {
-      seen.add(key);
-      atas.push(vaultCollateralAta);
-    }
-  }
-
-  return atas;
 }
 
 export async function POST(request: Request) {
@@ -146,22 +99,70 @@ export async function POST(request: Request) {
       );
     }
 
-    const activeReserveRows = cleanupState.reserveRows.filter(
-      (row) => row.amountRaw > BigInt(0)
-    );
-    if (activeReserveRows.length > 0) {
+    const connection = getConnection(solanaEnv);
+    const latestFullWithdrawal =
+      await findLatestFullYieldWithdrawalForVault({
+        settings: principal.settingsPda,
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
+        walletAddress: principal.walletAddress,
+      });
+    if (!latestFullWithdrawal) {
       return jsonError(
         409,
-        "active_earn_sources_remaining",
-        "Withdraw active Earn sources before closing Earn accounts."
+        "missing_full_withdrawal",
+        "A confirmed full withdrawal is required before closing Earn accounts."
+      );
+    }
+    const minContextSlot = Number(latestFullWithdrawal.confirmedSlot);
+    if (!Number.isSafeInteger(minContextSlot) || minContextSlot < 0) {
+      return jsonError(
+        409,
+        "missing_full_exit_verification_anchor",
+        "A confirmed full withdrawal is required before closing Earn accounts."
       );
     }
 
-    const idleAmountRaw = cleanupState.idleRows.reduce(
-      (total, row) => total + row.amountRaw,
-      BigInt(0)
-    );
-    const connection = getConnection(solanaEnv);
+    let zeroProof: Awaited<ReturnType<typeof verifyEarnFullExitZeroBalances>>;
+    try {
+      zeroProof = await verifyEarnFullExitZeroBalances({
+        cluster,
+        connection,
+        minContextSlot,
+        policy: serializeRoutePolicyState(
+          cleanupState.routePolicy,
+          cleanupState.setupPolicy
+        ),
+        programId,
+        settingsPda,
+      });
+    } catch (error) {
+      console.error("[earn-withdraw-cleanup-prepare] zero proof retryable", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown proof error.",
+        errorName: error instanceof Error ? error.name : typeof error,
+        minContextSlot,
+        settings: principal.settingsPda,
+        stack: error instanceof Error ? error.stack : undefined,
+        walletAddress: principal.walletAddress,
+      });
+      return jsonError(
+        503,
+        "full_exit_verification_retryable",
+        error instanceof Error
+          ? error.message
+          : "Earn balances could not be verified. Retry cleanup."
+      );
+    }
+    if (zeroProof.status !== "policy_close_required") {
+      return jsonError(
+        409,
+        "full_exit_incomplete",
+        "Earn balances remain above the full-exit dust tolerance. Resume withdrawal before closing policies."
+      );
+    }
+
+    const idleAmountRaw = BigInt(zeroProof.idleAmountRaw);
     const client = createSmartAccountVaultsClient({ connection, programId });
     const autodepositState = await findCurrentEarnAutodepositState({
       settings: principal.settingsPda,
@@ -219,8 +220,8 @@ export async function POST(request: Request) {
           );
     const preparedCleanup = await client.prepareEarnUsdcCleanup({
       cluster,
-      closeVaultCollateralAtas: resolveVaultCollateralAtas(
-        cleanupState.reserveRows
+      closeVaultCollateralAtas: zeroProof.closeableTokenAccounts.map(
+        (account) => new PublicKey(account)
       ),
       feePayer: new PublicKey(principal.walletAddress),
       idleAmountRaw,

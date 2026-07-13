@@ -4,10 +4,6 @@ import type { LoyalCluster } from "@loyal-labs/actions";
 import type { SmartAccountEarnUsdcWithdrawInput } from "@loyal-labs/smart-account-vaults";
 import { Connection, PublicKey } from "@solana/web3.js";
 
-import {
-  findCurrentEarnAutodepositState,
-  reconcileMissingOnChainEarnAutodepositPolicy,
-} from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import {
   earnReserveTargetFromActivePosition,
@@ -22,7 +18,6 @@ import type { parseEarnWithdrawPrepareRequestBody } from "@/lib/yield-optimizati
 import {
   findActiveYieldRoutePolicyPair,
   findCurrentNonzeroYieldVaultReservePositions,
-  EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW,
   findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
   type CurrentYieldVaultIdleTokenBalanceRecord,
@@ -491,7 +486,6 @@ export async function resolveEarnUsdcWithdrawInput(args: {
   // ("Select an Earn source"). Full exits keep the DB path (its reconciled
   // rows carry the collateral metadata the full-withdrawal instruction needs).
   let selectedSource: SelectedEarnWithdrawSource;
-  let isFinalExit: boolean;
   let withdrawTarget: EarnUsdcReserveTarget;
   let effectiveAmountRaw: bigint;
   // Set when a full exit had to source from the live snapshot (DB rows
@@ -526,11 +520,6 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     }
     selectedSource = selected;
     effectiveAmountRaw = amountRaw;
-    const snapshotTotal = snapshotSources.reduce(
-      (total, source) => total + source.amountRaw,
-      BigInt(0)
-    );
-    isFinalExit = snapshotTotal - effectiveAmountRaw <= BigInt(0);
     withdrawTarget =
       selected.type === "reserve"
         ? {
@@ -578,25 +567,6 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     }
     selectedSource = selected;
     effectiveAmountRaw = selected.amountRaw;
-    const remainingReserveAmountRaw = snapshotSources.reduce(
-      (total, source) =>
-        total +
-        (source.type === "reserve" && source.id !== selected.id
-          ? source.amountRaw
-          : BigInt(0)),
-      BigInt(0)
-    );
-    const remainingIdleAmountRaw = snapshotSources.reduce(
-      (total, source) =>
-        total +
-        (source.type === "idle" && source.id !== selected.id
-          ? source.amountRaw
-          : BigInt(0)),
-      BigInt(0)
-    );
-    isFinalExit =
-      remainingReserveAmountRaw <= BigInt(0) &&
-      remainingIdleAmountRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW;
     withdrawTarget =
       selected.type === "reserve"
         ? {
@@ -618,31 +588,6 @@ export async function resolveEarnUsdcWithdrawInput(args: {
       reserveRows: currentReserveRows,
     });
     effectiveAmountRaw = selectedSource.amountRaw;
-    const remainingReserveAmountRaw = currentReserveRows.reduce(
-      (total, row) =>
-        total +
-        (selectedSource.type === "reserve" &&
-        row.reserve === selectedSource.reserve
-          ? row.amountRaw > effectiveAmountRaw
-            ? row.amountRaw - effectiveAmountRaw
-            : BigInt(0)
-          : row.amountRaw),
-      BigInt(0)
-    );
-    const remainingIdleAmountRaw = currentIdleRows.reduce(
-      (total, row) =>
-        total +
-        (selectedSource.type === "idle" &&
-        row.tokenAccount === selectedSource.tokenAccount
-          ? row.amountRaw > effectiveAmountRaw
-            ? row.amountRaw - effectiveAmountRaw
-            : BigInt(0)
-          : row.amountRaw),
-      BigInt(0)
-    );
-    isFinalExit =
-      remainingReserveAmountRaw <= BigInt(0) &&
-      remainingIdleAmountRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW;
     withdrawTarget = earnReserveTargetFromActivePosition(position);
   }
 
@@ -658,81 +603,6 @@ export async function resolveEarnUsdcWithdrawInput(args: {
         }
       : {}),
   };
-  const autodepositState =
-    mode === "full" && isFinalExit
-      ? await findCurrentEarnAutodepositState({
-          settings: settingsPda,
-          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-          walletAddress,
-        })
-      : null;
-  let autodepositClose:
-    | {
-        policy: PublicKey;
-        recurringDelegation: PublicKey;
-      }
-    | undefined;
-  let reconciledMissingAutodepositPolicy = false;
-
-  if (
-    autodepositState?.target.policyAccount &&
-    autodepositState.target.recurringDelegation
-  ) {
-    const autodepositPolicyAccount = new PublicKey(
-      autodepositState.target.policyAccount
-    );
-    const autodepositPolicyInfo = await connection.getAccountInfo(
-      autodepositPolicyAccount,
-      "confirmed"
-    );
-
-    if (autodepositPolicyInfo) {
-      autodepositClose = {
-        policy: autodepositPolicyAccount,
-        recurringDelegation: new PublicKey(
-          autodepositState.target.recurringDelegation
-        ),
-      };
-    } else {
-      reconciledMissingAutodepositPolicy = true;
-      const reconciledTarget =
-        await reconcileMissingOnChainEarnAutodepositPolicy({
-          policyAccount: autodepositState.target.policyAccount,
-          settings: settingsPda,
-          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-          walletAddress,
-        });
-      console.warn(`[${logTag}] reconciled missing autodeposit policy account`, {
-        cluster,
-        lifecycleStatus: reconciledTarget.lifecycleStatus,
-        policyAccount: autodepositState.target.policyAccount,
-        reconciliationSource: "reconciled_missing_policy",
-        settings: settingsPda,
-        targetId: reconciledTarget.id.toString(),
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        walletAddress,
-      });
-    }
-  }
-
-  if (
-    mode === "full" &&
-    isFinalExit &&
-    autodepositState &&
-    !autodepositClose &&
-    !reconciledMissingAutodepositPolicy
-  ) {
-    console.warn(`[${logTag}] active autodeposit state is missing close metadata`, {
-      cluster,
-      policyAccount: autodepositState.target.policyAccount,
-      recurringDelegation: autodepositState.target.recurringDelegation,
-      settings: settingsPda,
-      targetId: autodepositState.target.id.toString(),
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      walletAddress,
-    });
-  }
-
   const withdrawInput = {
     amountRaw: effectiveAmountRaw,
     cluster,
@@ -800,7 +670,8 @@ export async function resolveEarnUsdcWithdrawInput(args: {
                 }),
         }
       : {}),
-    closePoliciesOnFullWithdrawal: isFinalExit,
+    // Full withdrawal and policy close are intentionally separate phases.
+    closePoliciesOnFullWithdrawal: false,
     source:
       selectedSource.type === "idle"
         ? {
@@ -822,17 +693,10 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     yieldRoutingPolicy,
   };
 
-  const input: SmartAccountEarnUsdcWithdrawInput =
-    mode === "full"
-      ? {
-          ...withdrawInput,
-          ...(autodepositClose ? { autodepositClose } : {}),
-          mode,
-        }
-      : {
-          ...withdrawInput,
-          mode,
-        };
+  const input: SmartAccountEarnUsdcWithdrawInput = {
+    ...withdrawInput,
+    mode,
+  };
 
   return { input, policy, effectiveAmountRaw };
 }

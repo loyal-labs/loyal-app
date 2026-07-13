@@ -216,12 +216,12 @@ export async function POST(request: Request) {
     });
     const input = parseEarnWithdrawalConfirmRequestBody(confirmBody);
 
-    const position = await recordConfirmedEarnWithdrawal({
+    const result = await recordConfirmedEarnWithdrawal({
       principal: { walletAddress, smartAccountAddress, settingsPda },
       input,
       solanaEnv: getConfiguredSolanaEnv(),
     });
-    return NextResponse.json({ position });
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof EarnWithdrawConfirmError) {
       return jsonError(error.status, error.code, error.message);

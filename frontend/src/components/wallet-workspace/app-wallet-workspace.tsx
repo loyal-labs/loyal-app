@@ -1515,27 +1515,6 @@ function resolveActiveEarnDepositTarget(
     : null;
 }
 
-function getEarnPositionTotalAmountRaw(
-  position: ActiveEarnPosition | null
-): bigint {
-  const holdings = position?.holdings ?? [];
-  if (holdings.length > 0) {
-    return holdings.reduce((total, holding) => {
-      try {
-        return total + BigInt(holding.amountRaw);
-      } catch {
-        return total;
-      }
-    }, BigInt(0));
-  }
-
-  try {
-    return BigInt(position?.currentTotalAmountRaw ?? "0");
-  } catch {
-    return BigInt(0);
-  }
-}
-
 function earnHoldingMatchesWithdrawSource(
   holding: ActiveEarnPositionHolding,
   source: EarnWithdrawSourceOption
@@ -4402,8 +4381,7 @@ export function AppWalletWorkspace({
 
   const prepareEarnWithdrawInBrowser = useCallback(
     async (
-      draft: EarnWithdrawDraft,
-      options: { autodepositCloseAlreadyCompleted?: boolean } = {}
+      draft: EarnWithdrawDraft
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
       const overview = smartAccountData.overview;
       const policy = smartAccountData.earnPolicy;
@@ -4434,27 +4412,6 @@ export function AppWalletWorkspace({
         draft.source.type === "reserve"
           ? toEarnWithdrawReserveTarget(draft.source)
           : null;
-      const totalLiveAmountRaw =
-        getEarnPositionTotalAmountRaw(activeEarnPosition);
-      const isFinalExit =
-        draft.mode === "full" &&
-        totalLiveAmountRaw > BigInt(0) &&
-        effectiveAmountRaw >= totalLiveAmountRaw;
-      const autodepositClose =
-        draft.mode === "full" &&
-        isFinalExit &&
-        !options.autodepositCloseAlreadyCompleted &&
-        smartAccountData.earnAutodeposit?.policyAccount &&
-        smartAccountData.earnAutodeposit.recurringDelegation
-          ? {
-              policy: new PublicKey(
-                smartAccountData.earnAutodeposit.policyAccount
-              ),
-              recurringDelegation: new PublicKey(
-                smartAccountData.earnAutodeposit.recurringDelegation
-              ),
-            }
-          : undefined;
       const client = createSmartAccountVaultsClient({
         connection,
         programId: new PublicKey(overview.programId),
@@ -4471,7 +4428,9 @@ export function AppWalletWorkspace({
       };
       const withdrawInput = {
         amountRaw: effectiveAmountRaw,
-        closePoliciesOnFullWithdrawal: isFinalExit,
+        // Policy teardown is prepared only after the server proves the
+        // post-withdraw balances at or after the confirmed withdrawal slot.
+        closePoliciesOnFullWithdrawal: false,
         cluster,
         feePayer: userWallet,
         policySigner: new PublicKey(policySigner),
@@ -4488,7 +4447,6 @@ export function AppWalletWorkspace({
       return draft.mode === "full"
         ? client.prepareEarnUsdcWithdraw({
             ...withdrawInput,
-            ...(autodepositClose ? { autodepositClose } : {}),
             mode: "full",
           })
         : client.prepareEarnUsdcWithdraw({
@@ -4497,11 +4455,9 @@ export function AppWalletWorkspace({
           });
     },
     [
-      activeEarnPosition,
       connection,
       getEarnWithdrawDraftAmountRaw,
       publicEnv.solanaEnv,
-      smartAccountData.earnAutodeposit,
       smartAccountData.earnPolicy,
       smartAccountData.overview,
       personalWalletAddress,
@@ -5078,8 +5034,7 @@ export function AppWalletWorkspace({
           setAutodepositConfig(null);
           setIsEarnWithdrawPreparePending(true);
           const nextPreparedWithdraw = await prepareEarnWithdrawInBrowser(
-            pendingEarnWithdrawDraft,
-            { autodepositCloseAlreadyCompleted: true }
+            pendingEarnWithdrawDraft
           );
           setIsEarnWithdrawPreparePending(false);
           if (nextPreparedWithdraw.autodepositClosePrepared) {

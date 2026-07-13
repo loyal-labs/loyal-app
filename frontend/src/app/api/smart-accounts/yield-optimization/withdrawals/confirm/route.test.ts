@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
 mock.module("server-only", () => ({}));
 
 const principal = {
   settingsPda: "11111111111111111111111111111112",
   smartAccountAddress: "11111111111111111111111111111113",
-  walletAddress: "11111111111111111111111111111114",
+  walletAddress: Keypair.fromSeed(new Uint8Array(32).fill(1))
+    .publicKey.toBase58(),
 };
 const canonical = {
   liquidityMint: "11111111111111111111111111111115",
@@ -20,9 +21,12 @@ const canonical = {
 let parsedInput: Record<string, unknown>;
 let resolvedPrincipal: typeof principal | null = principal;
 let callOrder: string[] = [];
-let closeCalls: unknown[] = [];
 let depositCalls: unknown[] = [];
+let reconcileCalls: unknown[] = [];
 let withdrawalCalls: unknown[] = [];
+let fullExitProofStatus: "full_exit_incomplete" | "policy_close_required" =
+  "full_exit_incomplete";
+let fullExitProofError: Error | null = null;
 
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest: async () => resolvedPrincipal,
@@ -30,6 +34,14 @@ mock.module("@/features/identity/server/auth-session", () => ({
 
 mock.module("@/lib/core/config/solana-env-override", () => ({
   resolveLoyalWebSolanaEnvFromEnv: () => "mainnet",
+}));
+
+mock.module("@/lib/core/config/server", () => ({
+  getServerEnv: () => ({
+    loyalSmartAccounts: {
+      programId: "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+    },
+  }),
 }));
 
 mock.module("@/lib/solana/rpc-endpoints", () => ({
@@ -54,6 +66,7 @@ mock.module("@loyal-labs/actions", () => ({
 }));
 
 mock.module("@loyal-labs/loyal-smart-accounts", () => ({
+  PROGRAM_ADDRESS: "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
   pda: {
     getPolicyPda: (input: { policySeed: number }) => [
       new PublicKey(
@@ -99,11 +112,59 @@ mock.module(
     findCurrentEarnAutodepositState: async () => {
       throw new Error("findCurrentEarnAutodepositState was not expected.");
     },
-    recordClosedAutodepositTarget: async (input: unknown) => {
-      callOrder.push("close-autodeposit");
-      closeCalls.push(input);
-      return {};
+    recordClosedAutodepositTarget: async () => {
+      throw new Error("recordClosedAutodepositTarget was not expected.");
     },
+  })
+);
+
+mock.module(
+  "@/lib/yield-optimization/earn-position-reconciliation.server",
+  () => ({
+    reconcileEarnVaultPosition: async (input: unknown) => {
+      callOrder.push("reconcile");
+      reconcileCalls.push(input);
+      return { status: "refreshed" };
+    },
+  })
+);
+
+mock.module(
+  "@/lib/yield-optimization/earn-full-exit-zero-proof.server",
+  () => ({
+    verifyEarnFullExitZeroBalances: async () => {
+      callOrder.push("verify-zero");
+      if (fullExitProofError) {
+        throw fullExitProofError;
+      }
+      return {
+        blockingTokenAccounts: [],
+        closeableTokenAccounts: [],
+        idleAmountRaw: "0",
+        idleReadsAgree: true,
+        observedSlot: "300",
+        remainingHoldings:
+          fullExitProofStatus === "full_exit_incomplete"
+            ? [
+                {
+                  amountRaw: "1",
+                  kind: "kamino",
+                  liquidityMint: canonical.liquidityMint,
+                  market: canonical.market,
+                  reserve: canonical.reserve,
+                },
+              ]
+            : [],
+        status: fullExitProofStatus,
+      };
+    },
+  })
+);
+
+mock.module(
+  "@/lib/yield-optimization/earn-state-serializers.server",
+  () => ({
+    serializeRoutePolicyState: () => ({ vaultIndex: 1 }),
   })
 );
 
@@ -111,11 +172,30 @@ mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
   findActiveYieldRoutePolicy: async () => {
     throw new Error("findActiveYieldRoutePolicy was not expected.");
   },
-  findReconciledActiveYieldPositionForVault: async () => {
-    throw new Error(
-      "findReconciledActiveYieldPositionForVault was not expected."
-    );
-  },
+  findEarnCleanupVaultState: async () => ({
+    routePolicy: {},
+    setupPolicy: null,
+  }),
+  findReconciledActiveYieldPositionForVault: async () => ({
+    currentAmountRaw: BigInt(0),
+    currentLiquidityMint: canonical.liquidityMint,
+    currentMarket: canonical.market,
+    currentObservedAt: new Date("2026-06-02T00:00:00.000Z"),
+    currentObservedSlot: BigInt(300),
+    currentReserve: canonical.reserve,
+    id: BigInt(1),
+    initialLiquidityMint: canonical.liquidityMint,
+    initialMarket: canonical.market,
+    initialReserve: canonical.reserve,
+    initialSupplyApyBps: null,
+    lastHoldingEventId: BigInt(2),
+    lastRebalanceDecisionId: null,
+    principalAmountRaw: BigInt(0),
+    status: "active",
+  }),
+  markEarnDepositOnboardingAccountingFailed: async () => {},
+  markEarnDepositOnboardingComplete: async () => {},
+  recordEarnDepositOnboardingDepositSignature: async () => ({}),
   recordConfirmedYieldDeposit: async (input: unknown) => {
     depositCalls.push(input);
     return {
@@ -154,7 +234,7 @@ mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
       lastHoldingEventId: BigInt(2),
       lastRebalanceDecisionId: null,
       principalAmountRaw: BigInt(0),
-      status: "closed",
+      status: "active",
     };
   },
 }));
@@ -181,7 +261,7 @@ function createDepositInput(overrides: Record<string, unknown> = {}) {
     setupPolicyId: BigInt(8),
     setupPolicySeed: BigInt(8),
     setupPolicySignature: "setup-policy-signature",
-    smartAccountAddress: principal.smartAccountAddress,
+    smartAccountAddress: canonical.vaultPubkey,
     targetReserve: canonical.reserve,
     targetSupplyApyBps: BigInt(123),
     vaultIndex: 1,
@@ -193,13 +273,6 @@ function createDepositInput(overrides: Record<string, unknown> = {}) {
 
 function createFullWithdrawalInput(overrides: Record<string, unknown> = {}) {
   return {
-    autodepositClose: {
-      closeSignature: "autodeposit-close-signature",
-      confirmedSlot: BigInt(299),
-      delegatedSigner: "autodeposit-delegate",
-      policyAccount: "1111111111111111111111111111111A",
-      recurringDelegation: "1111111111111111111111111111111B",
-    },
     cluster: "mainnet-beta",
     confirmedSlot: BigInt(300),
     delegatedSigner: "yield-delegate",
@@ -210,7 +283,7 @@ function createFullWithdrawalInput(overrides: Record<string, unknown> = {}) {
     policyId: BigInt(7),
     policySeed: BigInt(7),
     settings: principal.settingsPda,
-    smartAccountAddress: principal.smartAccountAddress,
+    smartAccountAddress: canonical.vaultPubkey,
     targetReserve: canonical.reserve,
     vaultIndex: 1,
     vaultPubkey: canonical.vaultPubkey,
@@ -226,25 +299,79 @@ describe("Earn withdrawal confirm route", () => {
     parsedInput = createFullWithdrawalInput();
     resolvedPrincipal = principal;
     callOrder = [];
-    closeCalls = [];
     depositCalls = [];
+    reconcileCalls = [];
     withdrawalCalls = [];
-    Connection.prototype.getSignatureStatuses = mock(async (signatures) => ({
+    fullExitProofError = null;
+    fullExitProofStatus = "full_exit_incomplete";
+    Connection.prototype.getSignatureStatuses = mock(async () => ({
       value: [
         {
           confirmationStatus: "confirmed",
           err: null,
-          slot:
-            Array.isArray(signatures) &&
-            signatures[0] === "autodeposit-close-signature"
-              ? 299
-              : 300,
+          slot: 300,
         },
       ],
     })) as never;
+    Connection.prototype.getParsedTransaction = mock(async () => ({
+      blockTime: 1,
+      meta: {
+        err: null,
+        fee: 5000,
+        innerInstructions: null,
+        logMessages: [],
+        postBalances: [1],
+        postTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: canonical.liquidityMint,
+            owner: principal.walletAddress,
+            uiTokenAmount: {
+              amount: "1000000",
+              decimals: 6,
+              uiAmount: 1,
+              uiAmountString: "1",
+            },
+          },
+        ],
+        preBalances: [1],
+        preTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: canonical.liquidityMint,
+            owner: principal.walletAddress,
+            uiTokenAmount: {
+              amount: "0",
+              decimals: 6,
+              uiAmount: 0,
+              uiAmountString: "0",
+            },
+          },
+        ],
+        rewards: [],
+        status: { Ok: null },
+      },
+      slot: 300,
+      transaction: {
+        message: {
+          accountKeys: [
+            {
+              pubkey: new PublicKey("1111111111111111111111111111111B"),
+              signer: false,
+              source: "transaction",
+              writable: true,
+            },
+          ],
+          addressTableLookups: null,
+          instructions: [],
+          recentBlockhash: "11111111111111111111111111111111",
+        },
+        signatures: ["withdrawal-signature"],
+      },
+    })) as never;
   });
 
-  test("verifies and closes split autodeposit target before recording full withdrawal", async () => {
+  test("does not reconcile holdings until zero verification succeeds", async () => {
     const { POST } = await import("./route");
 
     const response = await POST(
@@ -255,55 +382,24 @@ describe("Earn withdrawal confirm route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(callOrder).toEqual(["close-autodeposit", "record-withdrawal"]);
-    expect(closeCalls).toEqual([
-      {
-        cluster: "mainnet-beta",
-        closeSignature: "autodeposit-close-signature",
-        confirmedSlot: BigInt(299),
-        delegatedSigner: "autodeposit-delegate",
-        policyAccount: "1111111111111111111111111111111A",
-        recurringDelegation: "1111111111111111111111111111111B",
-        settings: principal.settingsPda,
-        vaultIndex: 1,
-        vaultPubkey: canonical.vaultPubkey,
-        walletAddress: principal.walletAddress,
-      },
-    ]);
+    expect(await response.json()).toMatchObject({
+      position: { status: "active" },
+      status: "full_exit_incomplete",
+    });
+    expect(callOrder).toEqual(["record-withdrawal", "verify-zero"]);
+    expect(reconcileCalls).toEqual([]);
     expect(withdrawalCalls[0]).toMatchObject({
-      autodepositClose: {
-        closeSignature: "autodeposit-close-signature",
-        confirmedSlot: BigInt(299),
-        delegatedSigner: "autodeposit-delegate",
-        policyAccount: "1111111111111111111111111111111A",
-        recurringDelegation: "1111111111111111111111111111111B",
-      },
       mode: "full",
       withdrawalSignature: "withdrawal-signature",
     });
   });
 
-  test("rejects autodeposit close metadata on partial confirmations", async () => {
-    const { POST } = await import("./route");
-    parsedInput = createFullWithdrawalInput({ mode: "partial" });
-
-    const response = await POST(
-      new Request("http://localhost/api/withdrawals/confirm", {
-        body: JSON.stringify({}),
-        method: "POST",
-      })
-    );
-
-    expect(response.status).toBe(400);
-    expect(callOrder).toEqual([]);
-  });
-
-  test("rejects mismatched split autodeposit close slots", async () => {
+  test("rejects policy close metadata on every withdrawal confirmation", async () => {
     const { POST } = await import("./route");
     parsedInput = createFullWithdrawalInput({
       autodepositClose: {
         closeSignature: "autodeposit-close-signature",
-        confirmedSlot: BigInt(301),
+        confirmedSlot: BigInt(299),
         delegatedSigner: "autodeposit-delegate",
         policyAccount: "1111111111111111111111111111111A",
         recurringDelegation: "1111111111111111111111111111111B",
@@ -319,6 +415,52 @@ describe("Earn withdrawal confirm route", () => {
 
     expect(response.status).toBe(400);
     expect(callOrder).toEqual([]);
+  });
+
+  test("returns retryable after recording when post-withdraw RPC verification fails", async () => {
+    const { POST } = await import("./route");
+    fullExitProofError = new Error("minimum context slot has not been reached");
+
+    const response = await POST(
+      new Request("http://localhost/api/withdrawals/confirm", {
+        body: JSON.stringify({}),
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      error: { code: "full_exit_verification_retryable" },
+    });
+    expect(callOrder).toEqual(["record-withdrawal", "verify-zero"]);
+    expect(reconcileCalls).toEqual([]);
+  });
+
+  test("reports policy close required without closing the active position", async () => {
+    const { POST } = await import("./route");
+    fullExitProofStatus = "policy_close_required";
+
+    const response = await POST(
+      new Request("http://localhost/api/withdrawals/confirm", {
+        body: JSON.stringify({}),
+        method: "POST",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      position: { status: "active" },
+      status: "policy_close_required",
+    });
+    expect(callOrder).toEqual([
+      "record-withdrawal",
+      "verify-zero",
+      "reconcile",
+    ]);
+    expect(reconcileCalls[0]).toMatchObject({
+      minContextSlot: 300,
+      purpose: "post_withdrawal_zero_proof",
+    });
   });
 });
 
@@ -327,8 +469,8 @@ describe("Earn deposit confirm route", () => {
     parsedInput = createDepositInput();
     resolvedPrincipal = principal;
     callOrder = [];
-    closeCalls = [];
     depositCalls = [];
+    reconcileCalls = [];
     withdrawalCalls = [];
     Connection.prototype.getSignatureStatuses = mock(async () => ({
       value: [
@@ -338,6 +480,62 @@ describe("Earn deposit confirm route", () => {
           slot: 300,
         },
       ],
+    })) as never;
+    Connection.prototype.getParsedTransaction = mock(async () => ({
+      blockTime: 1,
+      meta: {
+        err: null,
+        fee: 5000,
+        innerInstructions: null,
+        logMessages: [],
+        postBalances: [1],
+        postTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: canonical.liquidityMint,
+            owner: principal.walletAddress,
+            uiTokenAmount: {
+              amount: "0",
+              decimals: 6,
+              uiAmount: 0,
+              uiAmountString: "0",
+            },
+          },
+        ],
+        preBalances: [1],
+        preTokenBalances: [
+          {
+            accountIndex: 0,
+            mint: canonical.liquidityMint,
+            owner: principal.walletAddress,
+            uiTokenAmount: {
+              amount: "1000000",
+              decimals: 6,
+              uiAmount: 1,
+              uiAmountString: "1",
+            },
+          },
+        ],
+        rewards: [],
+        status: { Ok: null },
+      },
+      slot: 300,
+      transaction: {
+        message: {
+          accountKeys: [
+            {
+              pubkey: new PublicKey("1111111111111111111111111111111B"),
+              signer: false,
+              source: "transaction",
+              writable: true,
+            },
+          ],
+          addressTableLookups: null,
+          instructions: [],
+          recentBlockhash: "11111111111111111111111111111111",
+        },
+        signatures: ["deposit-signature"],
+      },
     })) as never;
   });
 
@@ -413,7 +611,7 @@ describe("Earn deposit confirm route", () => {
     expect(depositCalls).toEqual([]);
   });
 
-  test("rejects mismatched confirmed slots before recording", async () => {
+  test("uses the server-resolved slot when the client context slot differs", async () => {
     const { POST } = await import("../../deposits/confirm/route");
     parsedInput = createDepositInput({ confirmedSlot: BigInt(301) });
 
@@ -424,8 +622,8 @@ describe("Earn deposit confirm route", () => {
       })
     );
 
-    expect(response.status).toBe(400);
-    expect(depositCalls).toEqual([]);
+    expect(response.status).toBe(200);
+    expect(depositCalls[0]).toMatchObject({ confirmedSlot: BigInt(300) });
   });
 
   test("rejects missing sessions before recording", async () => {

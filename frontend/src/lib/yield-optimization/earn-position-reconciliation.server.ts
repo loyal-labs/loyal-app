@@ -59,6 +59,11 @@ type ReconcileEarnVaultPositionInput = {
   // When set, the chain read demands a node at or past this slot so a lagging
   // node cannot feed pre-confirmation account state into the reconciled write.
   minContextSlot?: number;
+  // Routine reads preserve a last-known-positive fallback when an RPC account
+  // is temporarily unavailable. Post-withdraw reconciliation runs only after
+  // an independent zero proof and must fail before writing if a positive
+  // obligation cannot be valued from its reserve account.
+  purpose?: "routine" | "post_withdrawal_zero_proof";
   settings: string;
   vaultPubkey: string;
 };
@@ -360,13 +365,21 @@ export async function reconcileEarnVaultPosition(
           ? position.currentAmountRaw - idleAmountRaw
           : BigInt(0)
         : BigInt(0);
-    const obligationCollateralAmountRaw =
-      reserveAccount && obligationAccount
-        ? parseKaminoObligationDepositedCollateralAmountRaw({
-            data: obligationAccount.data,
-            reserve: new PublicKey(candidate.reserve),
-          })
-        : BigInt(0);
+    const obligationCollateralAmountRaw = obligationAccount
+      ? parseKaminoObligationDepositedCollateralAmountRaw({
+          data: obligationAccount.data,
+          reserve: new PublicKey(candidate.reserve),
+        })
+      : BigInt(0);
+    if (
+      input.purpose === "post_withdrawal_zero_proof" &&
+      obligationCollateralAmountRaw > BigInt(0) &&
+      !reserveAccount
+    ) {
+      throw new Error(
+        "Kamino reserve account is unavailable for a positive Earn obligation."
+      );
+    }
     const measuredAmountRaw =
       reserveAccount && obligationAccount
         ? calculateKaminoRedeemableLiquidityAmountRaw({
@@ -377,6 +390,8 @@ export async function reconcileEarnVaultPosition(
     const amountRaw =
       measuredAmountRaw > BigInt(0)
         ? measuredAmountRaw
+        : input.purpose === "post_withdrawal_zero_proof"
+        ? BigInt(0)
         : fallbackRow?.amountRaw ?? positionFallbackRaw;
     const reconciliationFallback =
       measuredAmountRaw <= BigInt(0) && amountRaw > BigInt(0)
@@ -413,6 +428,7 @@ export async function reconcileEarnVaultPosition(
     chainSlot: observedSlot,
     context: {
       source: "frontend_position_reconcile",
+      purpose: input.purpose ?? "routine",
       sourceCommitment: SOURCE_COMMITMENT,
       skippedReserveCount: candidates.length - reconciledCandidates.length,
     },

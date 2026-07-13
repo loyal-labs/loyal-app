@@ -12,20 +12,24 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
-import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
+import {
+  assertEarnFullExitProven,
+  EarnCleanupConfirmError,
+  resolveConfirmedSignatureSlot,
+} from "@/lib/yield-optimization/earn-cleanup-confirm.server";
 import {
   findEarnCleanupVaultState,
-  findLatestFullYieldWithdrawalForVault,
+  recordConfirmedEarnCleanup,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
-// Phase two of a full mobile withdrawal. The backend only resolves a fresh,
-// post-withdraw chain context; the device builds and signs the cleanup with
-// prepareEarnUsdcCleanup, matching the other on-device Earn prepare flows.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 const connectionCache = new Map<SolanaEnv, Connection>();
+
+type MobileEarnCleanupConfirmFields = {
+  cleanupSignature: string;
+  confirmedSlot: string;
+};
 
 function jsonError(
   status: number,
@@ -45,7 +49,8 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } =
+    getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -56,19 +61,32 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
-function parseMinContextSlot(body: unknown): number {
+function parseMobileEarnCleanupConfirmFields(
+  body: unknown
+): MobileEarnCleanupConfirmFields {
   if (!body || typeof body !== "object") {
     throw new Error("Invalid request body.");
   }
-  const value = (body as { minContextSlot?: unknown }).minContextSlot;
-  if (typeof value !== "string" || !/^\d+$/.test(value)) {
-    throw new Error("minContextSlot must be a non-negative integer string.");
+  const record = body as Record<string, unknown>;
+  if (
+    typeof record.cleanupSignature !== "string" ||
+    !record.cleanupSignature
+  ) {
+    throw new Error("cleanupSignature is required.");
   }
-  const slot = Number(value);
-  if (!Number.isSafeInteger(slot)) {
-    throw new Error("minContextSlot is outside the supported range.");
+  if (
+    typeof record.confirmedSlot !== "string" ||
+    !/^\d+$/.test(record.confirmedSlot)
+  ) {
+    throw new Error("confirmedSlot must be a non-negative integer string.");
   }
-  return slot;
+  if (!Number.isSafeInteger(Number(record.confirmedSlot))) {
+    throw new Error("confirmedSlot is outside the supported range.");
+  }
+  return {
+    cleanupSignature: record.cleanupSignature,
+    confirmedSlot: record.confirmedSlot,
+  };
 }
 
 export async function POST(request: Request) {
@@ -83,7 +101,7 @@ export async function POST(request: Request) {
   try {
     ({ walletAddress } = await authenticateMobileWalletRequest({
       body,
-      purpose: "earn-withdraw-prepare",
+      purpose: "earn-withdraw-confirm",
     }));
   } catch (error) {
     if (error instanceof WalletAuthError) {
@@ -92,9 +110,9 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "Mobile wallet auth failed.");
   }
 
-  let requestedMinContextSlot: number;
+  let fields: MobileEarnCleanupConfirmFields;
   try {
-    requestedMinContextSlot = parseMinContextSlot(body);
+    fields = parseMobileEarnCleanupConfirmFields(body);
   } catch (error) {
     return jsonError(
       400,
@@ -124,7 +142,7 @@ export async function POST(request: Request) {
     }
     settingsPda = existing.settingsPda;
   } catch (error) {
-    console.error("[mobile-earn-withdraw-cleanup-context] resolve failed", {
+    console.error("[mobile-earn-withdraw-cleanup-confirm] resolve failed", {
       errorMessage:
         error instanceof Error ? error.message : "Unknown resolve error.",
       errorName: error instanceof Error ? error.name : typeof error,
@@ -152,6 +170,7 @@ export async function POST(request: Request) {
     });
     const cleanupState = await findEarnCleanupVaultState({
       authority: walletAddress,
+      includeInactive: true,
       settings: settingsPda,
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       vaultPubkey: earnVaultPda.toBase58(),
@@ -160,117 +179,76 @@ export async function POST(request: Request) {
       return jsonError(
         409,
         "missing_earn_policy",
-        "No Earn accounts were found to close."
+        "Earn policy state is unavailable for cleanup confirmation."
       );
     }
 
     const connection = getConnection(solanaEnv);
-    const latestFullWithdrawal = await findLatestFullYieldWithdrawalForVault({
+    const confirmedSlot = await resolveConfirmedSignatureSlot({
+      connection,
+      signature: fields.cleanupSignature,
+    });
+    if (confirmedSlot !== BigInt(fields.confirmedSlot)) {
+      return jsonError(
+        400,
+        "slot_mismatch",
+        "Confirmed Earn cleanup slot does not match the transaction status."
+      );
+    }
+
+    await assertEarnFullExitProven({
+      cleanupState,
+      cluster,
+      connection,
+      minContextSlot: Number(fields.confirmedSlot),
+      policyAccounts: [
+        cleanupState.routePolicy.policyAccount,
+        ...(cleanupState.setupPolicy
+          ? [cleanupState.setupPolicy.policyAccount]
+          : []),
+      ],
+      programId,
+      settingsPda: settingsPdaKey,
+    });
+
+    await recordConfirmedEarnCleanup({
+      cleanupSignature: fields.cleanupSignature,
+      cluster,
+      confirmedSlot: BigInt(fields.confirmedSlot),
       settings: settingsPda,
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       vaultPubkey: earnVaultPda.toBase58(),
       walletAddress,
     });
-    if (!latestFullWithdrawal) {
-      return jsonError(
-        409,
-        "missing_full_withdrawal",
-        "A confirmed full withdrawal is required before closing Earn accounts."
-      );
-    }
-    const serverMinContextSlot = Number(latestFullWithdrawal.confirmedSlot);
-    if (!Number.isSafeInteger(serverMinContextSlot) || serverMinContextSlot < 0) {
-      return jsonError(
-        409,
-        "missing_full_exit_verification_anchor",
-        "The confirmed full withdrawal slot is outside the supported range."
-      );
-    }
-    const minContextSlot = Math.max(
-      requestedMinContextSlot,
-      serverMinContextSlot
-    );
 
-    let proof: Awaited<ReturnType<typeof verifyEarnFullExitZeroBalances>>;
-    try {
-      proof = await verifyEarnFullExitZeroBalances({
-        cluster,
-        connection,
-        minContextSlot,
-        policy: serializeRoutePolicyState(
-          cleanupState.routePolicy,
-          cleanupState.setupPolicy
-        ),
-        programId,
-        settingsPda: settingsPdaKey,
-      });
-    } catch (error) {
-      console.error(
-        "[mobile-earn-withdraw-cleanup-context] zero proof retryable",
-        {
-          errorMessage:
-            error instanceof Error ? error.message : "Unknown proof error.",
-          errorName: error instanceof Error ? error.name : typeof error,
-          minContextSlot,
-          settings: settingsPda,
-          stack: error instanceof Error ? error.stack : undefined,
-          walletAddress,
-        }
-      );
-      return jsonError(
-        503,
-        "full_exit_verification_retryable",
-        error instanceof Error
-          ? error.message
-          : "Earn balances could not be verified. Retry cleanup."
-      );
-    }
-    if (proof.status !== "policy_close_required") {
-      return jsonError(
-        409,
-        "full_exit_incomplete",
-        "Earn balances remain above the full-exit dust tolerance."
-      );
-    }
-
-    return NextResponse.json({
-      cleanupInput: {
-        closeVaultCollateralAtas: proof.closeableTokenAccounts,
-        idleAmountRaw: proof.idleAmountRaw,
-        policySigner: getDeploymentPolicySignerPublicKey().toBase58(),
-        yieldRoutingPolicy: {
-          account: cleanupState.routePolicy.policyAccount,
-          seed: cleanupState.routePolicy.policySeed.toString(),
-          setupPolicy: cleanupState.setupPolicy
-            ? {
-                account: cleanupState.setupPolicy.policyAccount,
-                seed: cleanupState.setupPolicy.policySeed.toString(),
-              }
-            : null,
-        },
-      },
-      cluster,
-      programId: serverEnv.loyalSmartAccounts.programId,
-      settingsPda,
-    });
-  } catch (error) {
-    console.error("[mobile-earn-withdraw-cleanup-context] context failed", {
-      cluster,
-      errorMessage:
-        error instanceof Error ? error.message : "Unknown context error.",
-      errorName: error instanceof Error ? error.name : typeof error,
-      requestedMinContextSlot,
+    console.info("[mobile-earn-withdraw-cleanup-confirm] full exit closed", {
+      cleanupSignature: fields.cleanupSignature,
+      confirmedSlot: fields.confirmedSlot,
       settings: settingsPda,
-      solanaEnv,
+      status: "full_exit_closed",
+      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+      walletAddress,
+    });
+    return NextResponse.json({ ok: true, status: "full_exit_closed" });
+  } catch (error) {
+    if (error instanceof EarnCleanupConfirmError) {
+      return jsonError(error.status, error.code, error.message);
+    }
+    console.error("[mobile-earn-withdraw-cleanup-confirm] failed", {
+      cleanupSignature: fields.cleanupSignature,
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown cleanup error.",
+      errorName: error instanceof Error ? error.name : typeof error,
+      settings: settingsPda,
       stack: error instanceof Error ? error.stack : undefined,
       walletAddress,
     });
     return jsonError(
       500,
-      "context_failed",
+      "confirm_failed",
       error instanceof Error
         ? error.message
-        : "Failed to resolve Earn cleanup context."
+        : "Earn cleanup confirmation failed."
     );
   }
 }

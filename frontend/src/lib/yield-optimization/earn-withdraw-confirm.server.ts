@@ -17,12 +17,16 @@ import {
   type TokenBalance,
 } from "@solana/web3.js";
 
+import { getServerEnv } from "@/lib/core/config/server";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { pollRpcRead } from "@/lib/yield-optimization/earn-deposit-confirm.server";
+import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
 import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
+import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
+  findEarnCleanupVaultState,
+  findReconciledActiveYieldPositionForVault,
   recordConfirmedYieldWithdrawal,
   type ConfirmedYieldWithdrawalInput,
   type UserYieldPositionRecord,
@@ -413,9 +417,9 @@ export function createCanonicalWithdrawalInput(
     canonicalInput.vaultPubkey,
     "vaultPubkey"
   );
-  if (requestInput.mode !== "full" && requestInput.autodepositClose) {
+  if (requestInput.autodepositClose) {
     throw new Error(
-      "autodepositClose can only be confirmed with full withdrawals."
+      "Withdrawal confirmation cannot include policy close metadata; close policies only after zero-balance verification."
     );
   }
 
@@ -487,6 +491,36 @@ export function serializeWithdrawPosition(position: UserYieldPositionRecord) {
   };
 }
 
+export type EarnWithdrawConfirmationStatus =
+  | "withdrawal_recorded"
+  | "full_exit_incomplete"
+  | "policy_close_required";
+
+export type EarnWithdrawConfirmationResult = {
+  blockingTokenAccounts: Array<{
+    address: string;
+    amountRaw: string;
+    mint: string;
+  }>;
+  position: ReturnType<typeof serializeWithdrawPosition>;
+  remainingHoldings: Array<{
+    amountRaw: string;
+    kind: "idle" | "kamino";
+    liquidityMint: string;
+    market: string | null;
+    reserve: string | null;
+  }>;
+  status: EarnWithdrawConfirmationStatus;
+};
+
+function toSafeContextSlot(slot: bigint): number {
+  const value = Number(slot);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Confirmed withdrawal slot is outside the safe RPC range.");
+  }
+  return value;
+}
+
 // Validates + records a confirmed Earn withdrawal against the authenticated
 // principal. Throws `EarnWithdrawConfirmError` (with an HTTP status) on any
 // validation failure; returns the serialized post-withdrawal position.
@@ -494,7 +528,7 @@ export async function recordConfirmedEarnWithdrawal(args: {
   principal: EarnWithdrawConfirmPrincipal;
   input: ConfirmedYieldWithdrawalInput;
   solanaEnv: SolanaEnv;
-}): Promise<ReturnType<typeof serializeWithdrawPosition>> {
+}): Promise<EarnWithdrawConfirmationResult> {
   const { principal, solanaEnv } = args;
 
   const rejectionContext = {
@@ -592,82 +626,9 @@ export async function recordConfirmedEarnWithdrawal(args: {
     });
   }
 
-  if (input.mode === "full" && input.autodepositClose) {
-    let autodepositClose = input.autodepositClose;
-    let autodepositCloseConfirmedSlot: bigint;
-    try {
-      autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
-        cluster: solanaEnv,
-        operation: "autodeposit close",
-        signature: autodepositClose.closeSignature,
-      });
-    } catch (error) {
-      rejectWithdrawConfirm({
-        status: 400,
-        code: "unconfirmed_autodeposit_close_signature",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Autodeposit close transaction is not confirmed.",
-        context: {
-          ...rejectionContext,
-          closeSignature: autodepositClose.closeSignature,
-        },
-      });
-    }
-
-    if (autodepositClose.confirmedSlot !== autodepositCloseConfirmedSlot) {
-      console.warn(
-        "[earn-withdraw-confirm] corrected autodeposit close slot",
-        {
-          ...rejectionContext,
-          clientSlot: autodepositClose.confirmedSlot.toString(),
-          resolvedSlot: autodepositCloseConfirmedSlot.toString(),
-        }
-      );
-      autodepositClose = {
-        ...autodepositClose,
-        confirmedSlot: autodepositCloseConfirmedSlot,
-      };
-      input = { ...input, autodepositClose };
-    }
-
-    await recordClosedAutodepositTarget({
-      cluster: input.cluster,
-      closeSignature: autodepositClose.closeSignature,
-      confirmedSlot: autodepositClose.confirmedSlot,
-      delegatedSigner: autodepositClose.delegatedSigner,
-      policyAccount: autodepositClose.policyAccount,
-      recurringDelegation: autodepositClose.recurringDelegation,
-      settings: input.settings,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      vaultPubkey: input.vaultPubkey,
-      walletAddress: input.walletAddress,
-    });
-  }
-
   let position: UserYieldPositionRecord;
   try {
     position = await recordConfirmedYieldWithdrawal(input);
-    await reconcileEarnVaultPosition({
-      authority: input.walletAddress,
-      cluster: normalizeLoyalCluster(input.cluster),
-      connection: getConnection(solanaEnv),
-      force: true,
-      settings: input.settings,
-      vaultPubkey: input.vaultPubkey,
-    }).catch((error) => {
-      console.warn("[earn-withdraw-confirm] post-record reconcile failed", {
-        cluster: input.cluster,
-        errorMessage:
-          error instanceof Error ? error.message : "Unknown reconcile error.",
-        errorName: error instanceof Error ? error.name : typeof error,
-        settings: input.settings,
-        signature: input.withdrawalSignature,
-        vaultIndex: input.vaultIndex,
-        walletAddress: input.walletAddress,
-      });
-    });
   } catch (error) {
     const message =
       error instanceof Error
@@ -704,5 +665,141 @@ export async function recordConfirmedEarnWithdrawal(args: {
     throw new EarnWithdrawConfirmError(500, "record_failed", message);
   }
 
-  return serializeWithdrawPosition(position);
+  const connection = getConnection(solanaEnv);
+  const cluster = normalizeLoyalCluster(input.cluster);
+
+  if (input.mode !== "full") {
+    await reconcileEarnVaultPosition({
+      authority: input.walletAddress,
+      cluster,
+      connection,
+      force: true,
+      settings: input.settings,
+      vaultPubkey: input.vaultPubkey,
+    }).catch((error) => {
+      console.warn("[earn-withdraw-confirm] partial reconcile failed", {
+        cluster: input.cluster,
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown reconcile error.",
+        errorName: error instanceof Error ? error.name : typeof error,
+        settings: input.settings,
+        signature: input.withdrawalSignature,
+        vaultIndex: input.vaultIndex,
+        walletAddress: input.walletAddress,
+      });
+    });
+
+    return {
+      blockingTokenAccounts: [],
+      position: serializeWithdrawPosition(position),
+      remainingHoldings: [],
+      status: "withdrawal_recorded",
+    };
+  }
+
+  if (input.isFinalStep === false) {
+    return {
+      blockingTokenAccounts: [],
+      position: serializeWithdrawPosition(position),
+      remainingHoldings: [],
+      status: "full_exit_incomplete",
+    };
+  }
+
+  try {
+    const minContextSlot = toSafeContextSlot(input.confirmedSlot);
+    const cleanupState = await findEarnCleanupVaultState({
+      authority: input.walletAddress,
+      settings: input.settings,
+      vaultIndex: input.vaultIndex,
+      vaultPubkey: input.vaultPubkey,
+    });
+    if (!cleanupState) {
+      throw new Error(
+        "Active Earn policy state is unavailable for full-exit verification."
+      );
+    }
+
+    const serverEnv = getServerEnv();
+    const proof = await verifyEarnFullExitZeroBalances({
+      cluster,
+      connection,
+      minContextSlot,
+      policy: serializeRoutePolicyState(
+        cleanupState.routePolicy,
+        cleanupState.setupPolicy
+      ),
+      programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
+      settingsPda: new PublicKey(input.settings),
+    });
+    let reconciledPosition = position;
+    if (proof.status === "policy_close_required") {
+      await reconcileEarnVaultPosition({
+        authority: input.walletAddress,
+        cluster,
+        connection,
+        force: true,
+        minContextSlot: toSafeContextSlot(BigInt(proof.observedSlot)),
+        purpose: "post_withdrawal_zero_proof",
+        settings: input.settings,
+        vaultPubkey: input.vaultPubkey,
+      });
+      reconciledPosition =
+        (await findReconciledActiveYieldPositionForVault({
+          cluster,
+          settings: input.settings,
+          vaultIndex: input.vaultIndex,
+          walletAddress: input.walletAddress,
+        })) ?? position;
+    }
+
+    console.info("[earn-withdraw-confirm] full exit verification", {
+      blockingTokenAccountCount: proof.blockingTokenAccounts.length,
+      cluster: input.cluster,
+      idleAmountRaw: proof.idleAmountRaw,
+      idleReadsAgree: proof.idleReadsAgree,
+      observedSlot: proof.observedSlot,
+      remainingHoldingCount: proof.remainingHoldings.length,
+      settings: input.settings,
+      signature: input.withdrawalSignature,
+      status: proof.status,
+      vaultIndex: input.vaultIndex,
+      walletAddress: input.walletAddress,
+    });
+
+    return {
+      blockingTokenAccounts: proof.blockingTokenAccounts,
+      position: serializeWithdrawPosition(reconciledPosition),
+      remainingHoldings: proof.remainingHoldings.map((holding) => ({
+        amountRaw: holding.amountRaw,
+        kind: holding.kind,
+        liquidityMint: holding.liquidityMint,
+        market: holding.market,
+        reserve: holding.reserve,
+      })),
+      status: proof.status,
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Post-withdraw balance verification failed.";
+    console.error("[earn-withdraw-confirm] full exit verification retryable", {
+      cluster: input.cluster,
+      errorMessage: message,
+      errorName: error instanceof Error ? error.name : typeof error,
+      minContextSlot: input.confirmedSlot.toString(),
+      settings: input.settings,
+      signature: input.withdrawalSignature,
+      stack: error instanceof Error ? error.stack : undefined,
+      status: "full_exit_verification_retryable",
+      vaultIndex: input.vaultIndex,
+      walletAddress: input.walletAddress,
+    });
+    throw new EarnWithdrawConfirmError(
+      503,
+      "full_exit_verification_retryable",
+      message
+    );
+  }
 }
