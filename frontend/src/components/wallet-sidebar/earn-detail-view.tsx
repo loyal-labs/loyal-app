@@ -1913,6 +1913,7 @@ function AutodepositCard({
   isBalanceHidden = false,
   isConfigured = false,
   isPendingSetup = false,
+  isUpdating = false,
   scheduledSweeps = [],
   state = "idle",
   onDisable,
@@ -1925,6 +1926,7 @@ function AutodepositCard({
   isBalanceHidden?: boolean;
   isConfigured?: boolean;
   isPendingSetup?: boolean;
+  isUpdating?: boolean;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   state?:
     | "closing"
@@ -1938,23 +1940,25 @@ function AutodepositCard({
   helpTooltip?: string;
   onSetUp?: () => void;
 }) {
-  const isBusy = state === "creating" || state === "closing";
+  const isLifecycleBusy = state === "creating" || state === "closing";
+  const isBusy = isLifecycleBusy || isUpdating;
   const isToggling = state === "pausing" || state === "resuming";
   const visibleScheduledSweeps = scheduledSweeps.slice(0, 3);
-  const statusLabel =
-    state === "creating"
-      ? "Creating allowance and policy"
-      : state === "closing"
-      ? "Removing allowance and refunding rent"
-      : state === "pausing"
-      ? "Pausing…"
-      : state === "resuming"
-      ? "Resuming…"
-      : state === "paused"
-      ? "Paused"
-      : `Keeps ${
-          floorLabel ?? "$0"
-        } in ${floorAccountLabel}, moves the rest to the best earn position`;
+  const statusLabel = isUpdating
+    ? "Updating minimum balance…"
+    : state === "creating"
+    ? "Creating allowance and policy"
+    : state === "closing"
+    ? "Removing allowance and refunding rent"
+    : state === "pausing"
+    ? "Pausing…"
+    : state === "resuming"
+    ? "Resuming…"
+    : state === "paused"
+    ? "Paused"
+    : `Keeps ${
+        floorLabel ?? "$0"
+      } in ${floorAccountLabel}, moves the rest to the best earn position`;
   // Only the configured Smart Account status carries balance numbers; the
   // creating/closing/pausing/resuming/paused statuses are plain text and must
   // not blur.
@@ -2016,7 +2020,7 @@ function AutodepositCard({
           .earn-autodeposit-settings {
             transition: background 0.15s ease;
           }
-          .earn-autodeposit-settings:hover {
+          .earn-autodeposit-settings:not(:disabled):hover {
             background: rgba(0, 0, 0, 0.06) !important;
           }
           .earn-autodeposit-title-line {
@@ -2121,6 +2125,7 @@ function AutodepositCard({
                 <button
                   aria-label="Edit Autodeposit"
                   className="earn-autodeposit-settings"
+                  disabled={isBusy || isToggling}
                   onClick={onSetUp}
                   style={{
                     alignItems: "center",
@@ -2128,7 +2133,7 @@ function AutodepositCard({
                     border: "none",
                     borderRadius: "9999px",
                     color: "#3C3C43",
-                    cursor: "pointer",
+                    cursor: isBusy || isToggling ? "default" : "pointer",
                     display: "inline-flex",
                     flexShrink: 0,
                     height: "32px",
@@ -2147,7 +2152,7 @@ function AutodepositCard({
                   isOn={
                     isToggling
                       ? state === "resuming"
-                      : !isBusy && state !== "paused"
+                      : !isLifecycleBusy && state !== "paused"
                   }
                   isPending={isToggling}
                   onToggle={onDisable}
@@ -2466,6 +2471,7 @@ export function EarnDetailView({
   hasCurrentPosition = false,
   isAutodepositConfigured = false,
   isAutodepositPending = false,
+  isAutodepositUpdating = false,
   isBalanceHidden = false,
   onDeposit,
   onDisableAutodeposit,
@@ -2500,6 +2506,7 @@ export function EarnDetailView({
   hasCurrentPosition?: boolean;
   isAutodepositConfigured?: boolean;
   isAutodepositPending?: boolean;
+  isAutodepositUpdating?: boolean;
   isBalanceHidden?: boolean;
   onDeposit?: () => void;
   onDisableAutodeposit?: () => void;
@@ -2942,6 +2949,7 @@ export function EarnDetailView({
         isBalanceHidden={isBalanceHidden}
         isConfigured={isAutodepositConfigured}
         isPendingSetup={isAutodepositPending}
+        isUpdating={isAutodepositUpdating}
         scheduledSweeps={autodepositScheduledSweeps}
         state={autodepositState}
         helpTooltip={helpTooltip("autodeposit")}
@@ -3278,10 +3286,12 @@ function WithdrawRouteRow({
 }
 
 function BucksAmountInput({
+  disabled = false,
   inputRef,
   onValueChange,
   value,
 }: {
+  disabled?: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
   onValueChange: (rawValue: string) => void;
   value: string;
@@ -3353,6 +3363,7 @@ function BucksAmountInput({
         ) : null}
         <input
           className="bucks-amount-input"
+          disabled={disabled}
           inputMode="decimal"
           onChange={(event) => onValueChange(event.target.value)}
           placeholder="0"
@@ -6630,9 +6641,11 @@ export function EarnDepositView({
 const AUTODEPOSIT_AMOUNT_PRESETS = [100, 200, 500, 1000, 2000] as const;
 
 function AutodepositAmountChips({
+  disabled = false,
   onSelect,
   selectedValue,
 }: {
+  disabled?: boolean;
   onSelect: (value: string) => void;
   selectedValue?: string;
 }) {
@@ -6647,13 +6660,13 @@ function AutodepositAmountChips({
       }}
     >
       <style jsx>{`
-        .autodeposit-chip:hover {
+        .autodeposit-chip:not(:disabled):hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
-        .autodeposit-chip[aria-pressed="true"]:hover {
+        .autodeposit-chip[aria-pressed="true"]:not(:disabled):hover {
           background: #000 !important;
         }
-        .autodeposit-chip:active {
+        .autodeposit-chip:not(:disabled):active {
           scale: 0.96;
         }
       `}</style>
@@ -6664,6 +6677,7 @@ function AutodepositAmountChips({
           <button
             aria-pressed={isSelected}
             className="autodeposit-chip"
+            disabled={disabled}
             key={preset}
             onClick={() => onSelect(value)}
             style={{
@@ -6671,7 +6685,7 @@ function AutodepositAmountChips({
               border: "none",
               borderRadius: "9999px",
               color: isSelected ? "#fff" : secondary,
-              cursor: "pointer",
+              cursor: disabled ? "default" : "pointer",
               fontFamily: font,
               fontSize: "14px",
               fontWeight: 500,
@@ -6693,10 +6707,12 @@ function AutodepositAmountChips({
 // Large borderless amount input shared by the deposit goal and the minimum
 // balance fields. Clicking anywhere in the row focuses and selects the input.
 function AutodepositAmountInputRow({
+  disabled = false,
   inputRef,
   onValueChange,
   value,
 }: {
+  disabled?: boolean;
   inputRef: RefObject<HTMLInputElement | null>;
   onValueChange: (value: string) => void;
   value: string;
@@ -6708,15 +6724,16 @@ function AutodepositAmountInputRow({
 
   return (
     <div
-      onClick={focusInput}
+      onClick={disabled ? undefined : focusInput}
       style={{
         alignItems: "baseline",
-        cursor: "text",
+        cursor: disabled ? "default" : "text",
         display: "flex",
         padding: "8px 0",
       }}
     >
       <BucksAmountInput
+        disabled={disabled}
         inputRef={inputRef}
         onValueChange={(rawValue) => {
           const sanitizedValue = sanitizeBucksAmountInput(rawValue, value);
@@ -6859,20 +6876,24 @@ export function AutodepositSetupView({
   initialKeepAmount = "500",
   isEditing = false,
   isPendingSetup = false,
+  isSubmitting = false,
   mainSource,
   onBack,
   onDelete,
   onSubmit,
+  submitError = null,
 }: {
   earnBalance?: number;
   earnVaultAddressLabel?: string | null;
   initialKeepAmount?: string;
   isEditing?: boolean;
   isPendingSetup?: boolean;
+  isSubmitting?: boolean;
   mainSource?: EarnDepositSourceOption | null;
   onBack?: () => void;
   onDelete?: () => void;
   onSubmit?: (keepAmount: string) => void;
+  submitError?: string | null;
 }) {
   const keepAmountInputRef = useRef<HTMLInputElement | null>(null);
   const [keepAmount, setKeepAmount] = useState(initialKeepAmount);
@@ -6884,8 +6905,10 @@ export function AutodepositSetupView({
     normalizeAutodepositAmount(keepAmount) !==
     normalizeAutodepositAmount(initialKeepAmount);
   const hasChanges = !isEditing || keepAmountChanged;
-  const canSubmit = hasChanges;
-  const submitLabel = isEditing
+  const canSubmit = hasChanges && !isSubmitting;
+  const submitLabel = isSubmitting
+    ? "Updating minimum balance…"
+    : isEditing
     ? !hasChanges
       ? "No changes yet"
       : "Update minimum balance"
@@ -6928,10 +6951,10 @@ export function AutodepositSetupView({
       }}
     >
       <style jsx>{`
-        .autodeposit-back:hover {
+        .autodeposit-back:not(:disabled):hover {
           background: rgba(0, 0, 0, 0.08) !important;
         }
-        .autodeposit-delete:hover {
+        .autodeposit-delete:not(:disabled):hover {
           background: rgba(249, 54, 60, 0.22) !important;
         }
         .autodeposit-submit:not(:disabled):hover {
@@ -6960,6 +6983,7 @@ export function AutodepositSetupView({
         <button
           aria-label="Back"
           className="autodeposit-back"
+          disabled={isSubmitting}
           onClick={onBack}
           style={{
             alignItems: "center",
@@ -6967,7 +6991,7 @@ export function AutodepositSetupView({
             border: "none",
             borderRadius: "9999px",
             color: "#3C3C43",
-            cursor: "pointer",
+            cursor: isSubmitting ? "default" : "pointer",
             display: "inline-flex",
             height: "36px",
             justifyContent: "center",
@@ -7017,6 +7041,7 @@ export function AutodepositSetupView({
             />
             <button
               className="autodeposit-delete"
+              disabled={isSubmitting}
               onClick={onDelete}
               style={{
                 alignItems: "center",
@@ -7024,7 +7049,7 @@ export function AutodepositSetupView({
                 border: "none",
                 borderRadius: "9999px",
                 color: LOYAL_EARN_BRAND_COLOR,
-                cursor: "pointer",
+                cursor: isSubmitting ? "default" : "pointer",
                 display: "inline-flex",
                 flexShrink: 0,
                 fontFamily: font,
@@ -7086,6 +7111,7 @@ export function AutodepositSetupView({
               />
             </div>
             <AutodepositAmountInputRow
+              disabled={isSubmitting}
               inputRef={keepAmountInputRef}
               onValueChange={setKeepAmount}
               value={keepAmount}
@@ -7093,6 +7119,7 @@ export function AutodepositSetupView({
           </div>
           <div style={{ padding: "0 12px" }}>
             <AutodepositAmountChips
+              disabled={isSubmitting}
               onSelect={setKeepAmount}
               selectedValue={keepAmount}
             />
@@ -7186,7 +7213,21 @@ export function AutodepositSetupView({
           width: "100%",
         }}
       >
+        {submitError ? (
+          <p
+            style={{
+              color: "#F9363C",
+              fontFamily: font,
+              fontSize: "13px",
+              lineHeight: "18px",
+              margin: "0 0 10px",
+            }}
+          >
+            {submitError}
+          </p>
+        ) : null}
         <button
+          aria-busy={isSubmitting}
           className="autodeposit-submit"
           disabled={!canSubmit}
           // A stranded trailing dot ("8.") is valid mid-typing but not a

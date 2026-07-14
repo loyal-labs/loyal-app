@@ -1123,12 +1123,14 @@ function WalletWorkspaceBugReportLink({
 }
 
 function MobileWorkspaceHeader({
+  backDisabled = false,
   canOpenActivity,
   onBack,
   onOpenActivity,
   pane,
   title,
 }: {
+  backDisabled?: boolean;
   canOpenActivity: boolean;
   onBack: () => void;
   onOpenActivity: () => void;
@@ -1140,6 +1142,7 @@ function MobileWorkspaceHeader({
       <button
         aria-label={pane === "activity" ? "Back to detail" : "Back to accounts"}
         className="wallet-workspace-mobile-icon-button"
+        disabled={backDisabled}
         onClick={onBack}
         type="button"
       >
@@ -2096,6 +2099,7 @@ export function AppWalletWorkspace({
   const [isSelectionRestored, setIsSelectionRestored] = useState(false);
   const [detailSelection, setDetailSelectionState] =
     useState<DetailSelection>("earn");
+  const detailSelectionRef = useRef<DetailSelection>(detailSelection);
   const setDetailSelection = useCallback(
     (selection: SetStateAction<DetailSelection>) => {
       if (!hasRestoredSelectionRef.current) {
@@ -2106,6 +2110,9 @@ export function AppWalletWorkspace({
     },
     []
   );
+  useEffect(() => {
+    detailSelectionRef.current = detailSelection;
+  }, [detailSelection]);
   useEffect(() => {
     if (typeof window.matchMedia !== "function") {
       setIsMobileWorkspaceViewport(false);
@@ -2269,6 +2276,9 @@ export function AppWalletWorkspace({
     useState(false);
   const [autodepositConfig, setAutodepositConfig] =
     useState<EarnAutodepositConfig | null>(null);
+  const earnAutodepositFloorUpdateInFlightRef = useRef(false);
+  const [isEarnAutodepositFloorUpdating, setIsEarnAutodepositFloorUpdating] =
+    useState(false);
   const [
     isEarnAutodepositSetupConfirming,
     setIsEarnAutodepositSetupConfirming,
@@ -3987,6 +3997,10 @@ export function AppWalletWorkspace({
   ]);
 
   const handleOpenEarn = useCallback(() => {
+    if (earnAutodepositFloorUpdateInFlightRef.current) {
+      return;
+    }
+
     markDetailPaneTransition("switch");
     setPendingEarnDepositDraft(null);
     setPendingEarnDepositPrepared(null);
@@ -4058,6 +4072,10 @@ export function AppWalletWorkspace({
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleOpenAutodeposit = useCallback(() => {
+    if (earnAutodepositFloorUpdateInFlightRef.current) {
+      return;
+    }
+
     markDetailPaneTransition("forward");
     setEarnAutodepositSetupReviewStage("policy");
     setProposalActionError(null);
@@ -4068,6 +4086,10 @@ export function AppWalletWorkspace({
   }, [markDetailPaneTransition, setDetailSelection]);
 
   const handleBackFromAutodeposit = useCallback(() => {
+    if (earnAutodepositFloorUpdateInFlightRef.current) {
+      return;
+    }
+
     markDetailPaneTransition("back");
     setPendingEarnAutodepositDraft(null);
     setPendingEarnAutodepositSetupPrepared(null);
@@ -4127,6 +4149,10 @@ export function AppWalletWorkspace({
 
   const handleSaveAutodeposit = useCallback(
     async (keepAmount: string) => {
+      if (earnAutodepositFloorUpdateInFlightRef.current) {
+        return;
+      }
+
       if (!canMutateAccount) {
         openSignIn();
         return;
@@ -4214,34 +4240,43 @@ export function AppWalletWorkspace({
           return;
         }
 
-        setAutodepositConfig({ ...autodepositConfig, state: "creating" });
-        const result = await smartAccountData.executeEarnAutodepositFloorUpdate(
-          {
-            policyAccount: autodepositConfig.policyAccount,
-            recurringDelegation: autodepositConfig.recurringDelegation,
-            walletBalanceFloorRaw: keepAmountRaw,
+        earnAutodepositFloorUpdateInFlightRef.current = true;
+        setIsEarnAutodepositFloorUpdating(true);
+        try {
+          const result =
+            await smartAccountData.executeEarnAutodepositFloorUpdate({
+              policyAccount: autodepositConfig.policyAccount,
+              recurringDelegation: autodepositConfig.recurringDelegation,
+              walletBalanceFloorRaw: keepAmountRaw,
+            });
+
+          if (!result.success) {
+            setProposalActionError(
+              result.error ?? "Autodeposit wallet balance floor update failed."
+            );
+            return;
           }
-        );
 
-        if (!result.success) {
-          setAutodepositConfig({ ...autodepositConfig, state: "created" });
-          setProposalActionError(
-            result.error ?? "Autodeposit wallet balance floor update failed."
+          setAutodepositConfig((current) =>
+            current
+              ? {
+                  ...current,
+                  keepAmount,
+                  scheduledSweeps: result.scheduledSweeps ?? [],
+                }
+              : current
           );
-          return;
+          invalidateEarnClientCaches();
+          if (detailSelectionRef.current === "earnAutodeposit") {
+            markDetailPaneTransition("back");
+            setSelectedSignerId(null);
+            setDetailSelection("earn");
+            setSelectedDetail("Earn");
+          }
+        } finally {
+          earnAutodepositFloorUpdateInFlightRef.current = false;
+          setIsEarnAutodepositFloorUpdating(false);
         }
-
-        setAutodepositConfig({
-          ...autodepositConfig,
-          keepAmount,
-          scheduledSweeps: result.scheduledSweeps ?? [],
-          state: "created",
-        });
-        invalidateEarnClientCaches();
-        markDetailPaneTransition("back");
-        setSelectedSignerId(null);
-        setDetailSelection("earn");
-        setSelectedDetail("Earn");
         return;
       }
 
@@ -4305,6 +4340,10 @@ export function AppWalletWorkspace({
   }, []);
 
   const handleOpenAutodepositCloseReview = useCallback(() => {
+    if (earnAutodepositFloorUpdateInFlightRef.current) {
+      return;
+    }
+
     if (
       !autodepositConfig ||
       (autodepositConfig.state !== "created" &&
@@ -4348,6 +4387,10 @@ export function AppWalletWorkspace({
   ]);
 
   const handleDisableAutodeposit = useCallback(async () => {
+    if (earnAutodepositFloorUpdateInFlightRef.current) {
+      return;
+    }
+
     if (!autodepositConfig) {
       return;
     }
@@ -4370,11 +4413,15 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     // Optimistic transient state: the switch flips and spins right away
     // while the DB-only toggle persists; revert on failure.
-    setAutodepositConfig({
-      ...autodepositConfig,
-      scheduledSweeps: [],
-      state: nextActive ? "resuming" : "pausing",
-    });
+    setAutodepositConfig((current) =>
+      current
+        ? {
+            ...current,
+            scheduledSweeps: [],
+            state: nextActive ? "resuming" : "pausing",
+          }
+        : current
+    );
 
     const result = await smartAccountData.executeEarnAutodepositToggle({
       active: nextActive,
@@ -4383,24 +4430,33 @@ export function AppWalletWorkspace({
     });
 
     if (!result.success) {
-      setAutodepositConfig({ ...autodepositConfig, state: previousState });
+      setAutodepositConfig((current) =>
+        current ? { ...current, state: previousState } : current
+      );
       setProposalActionError(
         result.error ?? "Autodeposit active state update failed."
       );
       return;
     }
 
-    setAutodepositConfig({
-      ...autodepositConfig,
-      scheduledSweeps: nextActive ? result.scheduledSweeps ?? [] : [],
-      state: nextActive ? "created" : "paused",
-    });
+    setAutodepositConfig((current) =>
+      current
+        ? {
+            ...current,
+            scheduledSweeps: nextActive ? result.scheduledSweeps ?? [] : [],
+            state: nextActive ? "created" : "paused",
+          }
+        : current
+    );
     invalidateEarnClientCaches();
   }, [autodepositConfig, invalidateEarnClientCaches, smartAccountData]);
 
   const handleExecuteScheduledAutodepositSweep = useCallback(
     async (sweep?: LoadedEarnAutodepositScheduledSweep) => {
-      if (isExecutingScheduledSweep) {
+      if (
+        earnAutodepositFloorUpdateInFlightRef.current ||
+        isExecutingScheduledSweep
+      ) {
         return;
       }
 
@@ -6428,6 +6484,18 @@ export function AppWalletWorkspace({
       if (!mobilePaneHistoryArmedRef.current) return;
 
       mobilePaneHistoryArmedRef.current = false;
+      if (
+        earnAutodepositFloorUpdateInFlightRef.current &&
+        detailSelection === "earnAutodeposit"
+      ) {
+        window.history.pushState(
+          createMobilePaneHistoryState(),
+          "",
+          window.location.href
+        );
+        mobilePaneHistoryArmedRef.current = true;
+        return;
+      }
       handleMobilePaneBack();
     };
 
@@ -6436,7 +6504,7 @@ export function AppWalletWorkspace({
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [handleMobilePaneBack]);
+  }, [detailSelection, handleMobilePaneBack]);
 
   useEffect(() => {
     if (!hasMobilePaneBackTarget) {
@@ -6626,6 +6694,7 @@ export function AppWalletWorkspace({
           hasCurrentPosition={hasEarnPosition}
           isAutodepositConfigured={isAutodepositReady}
           isAutodepositPending={isAutodepositPendingSetup}
+          isAutodepositUpdating={isEarnAutodepositFloorUpdating}
           isBalanceHidden={isBalanceHidden}
           onDeposit={handleOpenEarnDeposit}
           onDisableAutodeposit={handleDisableAutodeposit}
@@ -6644,12 +6713,14 @@ export function AppWalletWorkspace({
           initialKeepAmount={autodepositConfig?.keepAmount ?? "500"}
           isEditing={isAutodepositReady}
           isPendingSetup={isAutodepositPendingSetup}
+          isSubmitting={isEarnAutodepositFloorUpdating}
           mainSource={
             earnDepositSources.find((source) => source.id === "main") ?? null
           }
           onBack={handleBackFromAutodeposit}
           onDelete={handleDeleteAutodeposit}
           onSubmit={handleSaveAutodeposit}
+          submitError={proposalActionError}
         />
       );
     }
@@ -7632,6 +7703,10 @@ export function AppWalletWorkspace({
       mobilePane !== "accounts" &&
       !isAnonymousMobilePreview ? (
         <MobileWorkspaceHeader
+          backDisabled={
+            detailSelection === "earnAutodeposit" &&
+            isEarnAutodepositFloorUpdating
+          }
           canOpenActivity={canOpenMobileActivity}
           onBack={handleMobileBackIntent}
           onOpenActivity={handleOpenMobileActivity}
@@ -8094,13 +8169,18 @@ export function AppWalletWorkspace({
           transition: background 0.15s ease, transform 0.15s ease;
         }
 
-        .wallet-workspace-mobile-icon-button:hover {
+        .wallet-workspace-mobile-icon-button:not(:disabled):hover {
           background: rgba(0, 0, 0, 0.08);
           transform: translateY(-1px);
         }
 
-        .wallet-workspace-mobile-icon-button:active {
+        .wallet-workspace-mobile-icon-button:not(:disabled):active {
           transform: translateY(0);
+        }
+
+        .wallet-workspace-mobile-icon-button:disabled {
+          cursor: default;
+          opacity: 0.45;
         }
 
         .wallet-workspace-mobile-action-button {
