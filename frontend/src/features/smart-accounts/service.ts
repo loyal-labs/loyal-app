@@ -253,6 +253,19 @@ async function maybePromoteRecord(args: {
   };
 }
 
+// The settings PDA seed is a global counter on the smart-account program, so a
+// reservation is a *prediction*: index+1 is only ours until someone else's
+// create lands. Concurrent signups therefore derive the identical PDA and all
+// but one lose the settings_pda unique index. The prediction becomes valid
+// again as soon as the winner's create lands and the counter moves — a second
+// or two — so the loser only has to look again.
+//
+// The old policy gave up after 3 tries inside ~450ms, far shorter than a create
+// takes to land, so a burst of signups hard-failed everyone but the winner with
+// a 409 on their FIRST DEPOSIT. Wait long enough to outlive a landing create
+// (and a short queue of them) instead.
+const RESERVATION_RETRY_DELAYS_MS = [400, 900, 1_800, 2_700, 3_600];
+
 async function reserveProvisioningRecord(args: {
   userId: string;
   solanaEnv: AppUserSmartAccountSolanaEnv;
@@ -265,7 +278,11 @@ async function reserveProvisioningRecord(args: {
 }> {
   let lastConflictError: unknown = null;
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt <= RESERVATION_RETRY_DELAYS_MS.length;
+    attempt += 1
+  ) {
     const programConfig = await args.dependencies.fetchProgramConfig({
       solanaEnv: args.solanaEnv,
       programId: args.programId,
@@ -300,18 +317,30 @@ async function reserveProvisioningRecord(args: {
       }
 
       lastConflictError = error;
-      if (attempt < 2) {
-        await wait(150 * (attempt + 1));
+      const delayMs = RESERVATION_RETRY_DELAYS_MS[attempt];
+      if (delayMs !== undefined) {
+        await wait(delayMs);
       }
     }
   }
 
+  // Still contended after every retry. The message reaches the user mid-deposit,
+  // so say what they can do about it; the PDA detail only ever meant something
+  // to us, and is kept in the log.
+  console.warn("[smart-accounts] settings PDA reservation exhausted", {
+    attempts: RESERVATION_RETRY_DELAYS_MS.length + 1,
+    errorMessage:
+      lastConflictError instanceof Error
+        ? lastConflictError.message
+        : String(lastConflictError),
+    solanaEnv: args.solanaEnv,
+    userId: args.userId,
+  });
+
   throw new SmartAccountProvisioningError({
     code: "smart_account_reservation_conflict",
     message:
-      lastConflictError instanceof Error
-        ? lastConflictError.message
-        : "Failed to reserve a unique smart account settings PDA.",
+      "We're still setting up your Earn account — a lot of people are signing up right now. Please try again in a moment.",
     status: 409,
   });
 }
