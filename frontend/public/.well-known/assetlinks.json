@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.loyal.app",
+      "sha256_cert_fingerprints": [
+        "AD:69:BC:84:AA:21:71:8D:B1:2B:76:65:87:39:BA:C3:55:F9:33:5E:8D:03:59:72:E0:BF:B9:D0:10:C3:D3:7B"
+      ]
+    }
+  }
+]
