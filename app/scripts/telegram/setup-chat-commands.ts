@@ -1,55 +1,27 @@
 import type { Bot } from "grammy";
 
 import { getBot } from "@/lib/telegram/bot-api/bot";
-
-type BotCommand = { command: string; description: string };
+import {
+  LOYAL_CHAT_ADMIN_COMMANDS,
+  LOYAL_CHAT_ADMIN_ONLY_COMMANDS,
+  LOYAL_CHAT_USER_COMMANDS,
+  registerCommandsForLoyalChat,
+} from "@/lib/telegram/bot-api/register-commands";
 
 export const DEFAULT_CHAT_ID = "-1002981429221";
-
-export const CHAT_USER_COMMANDS: BotCommand[] = [
-  { command: "summary", description: "Get the latest chat summary" },
-  { command: "ca", description: "Show $LOYAL contract address" },
-  { command: "stats", description: "Show Loyal performance stats" },
-];
-
-export const CHAT_ADMIN_ONLY_COMMANDS: BotCommand[] = [
-  {
-    command: "notifications",
-    description: "Configure summary notifications (admins only)",
-  },
-  {
-    command: "activate_community",
-    description: "Enable message tracking (admins only)",
-  },
-  {
-    command: "deactivate_community",
-    description: "Disable message tracking (admins only)",
-  },
-  {
-    command: "hide",
-    description: "Hide this community from public summaries (admins only)",
-  },
-  {
-    command: "unhide",
-    description: "Show this community in public summaries (admins only)",
-  },
-];
-
-export const CHAT_ADMIN_COMMANDS: BotCommand[] = [
-  ...CHAT_USER_COMMANDS,
-  ...CHAT_ADMIN_ONLY_COMMANDS,
-];
+export const CHAT_USER_COMMANDS = LOYAL_CHAT_USER_COMMANDS;
+export const CHAT_ADMIN_ONLY_COMMANDS = LOYAL_CHAT_ADMIN_ONLY_COMMANDS;
+export const CHAT_ADMIN_COMMANDS = LOYAL_CHAT_ADMIN_COMMANDS;
 
 export async function registerCommandsForChat(
   bot: Bot,
   chatId: string = DEFAULT_CHAT_ID
 ): Promise<void> {
-  await bot.api.setMyCommands(CHAT_USER_COMMANDS, {
-    scope: { type: "chat", chat_id: chatId },
-  });
-  await bot.api.setMyCommands(CHAT_ADMIN_COMMANDS, {
-    scope: { type: "chat_administrators", chat_id: chatId },
-  });
+  if (chatId !== DEFAULT_CHAT_ID) {
+    throw new Error(`Unsupported Telegram command chat: ${chatId}`);
+  }
+
+  await registerCommandsForLoyalChat(bot);
 }
 
 export async function runSetupChatCommands(
