@@ -1,3 +1,7 @@
+import { appUsers } from "@loyal-labs/db-core/schema";
+import { count } from "drizzle-orm";
+
+import { getDatabase } from "@/lib/core/database.server";
 import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.server";
 
 const USDC_DECIMALS = 6;
@@ -98,16 +102,8 @@ type AumSeriesRow = {
   week_start: string;
 };
 
-type OptimizationVolumeSeriesRow = {
-  volume_raw: string | number | bigint | null;
-  week_end: string;
-  week_start: string;
-};
-
 type HeadlineRow = {
   active_aum_raw: string | number | bigint | null;
-  active_user_earnings_raw: string | number | bigint | null;
-  balance_sweep_volume_raw: string | number | bigint | null;
   optimization_volume_raw: string | number | bigint | null;
 };
 
@@ -150,12 +146,19 @@ function rawToUsdc(raw: bigint) {
   return Number(raw) / 10 ** USDC_DECIMALS;
 }
 
+function formatUserCount(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
 async function loadPublicPerformanceSnapshot() {
   const sql = getYieldNeonSql();
+  const database = getDatabase();
   const queryRows = <T>(query: string) =>
     sql.query(query) as unknown as Promise<T[]>;
 
-  const [aumRows, optimizationVolumeRows, headlineRows] = await Promise.all([
+  const [aumRows, headlineRows, userCountRows] = await Promise.all([
     queryRows<AumSeriesRow>(
       `
         ${ACTIVE_EARN_HOLDINGS_CTE},
@@ -222,65 +225,11 @@ async function loadPublicPerformanceSnapshot() {
         ORDER BY weeks.week_start ASC
       `
     ),
-    queryRows<OptimizationVolumeSeriesRow>(
-      `
-        WITH current_bounds AS (
-          SELECT date_trunc('day', now() AT TIME ZONE 'UTC')::date AS current_day
-        ),
-        raw_weeks AS (
-          SELECT generated.week_start::date AS week_start
-          FROM generate_series(
-            DATE '${EARN_AUM_START_DATE}',
-            date_trunc('week', now() AT TIME ZONE 'UTC')::date,
-            interval '1 week'
-          ) AS generated(week_start)
-        ),
-        weeks AS (
-          SELECT
-            raw_weeks.week_start,
-            LEAST(
-              (raw_weeks.week_start + interval '6 days')::date,
-              (SELECT current_day FROM current_bounds)
-            )::date AS week_end,
-            LEAST(
-              (
-                (raw_weeks.week_start + interval '7 days')::timestamp
-                AT TIME ZONE 'UTC'
-              ),
-              (
-                ((SELECT current_day FROM current_bounds) + interval '1 day')::timestamp
-                AT TIME ZONE 'UTC'
-              )
-            ) AS week_end_exclusive
-          FROM raw_weeks
-        )
-        SELECT
-          to_char(weeks.week_start, 'YYYY-MM-DD') AS week_start,
-          to_char(weeks.week_end, 'YYYY-MM-DD') AS week_end,
-          COALESCE(SUM(decision.amount_raw), 0)::text AS volume_raw
-        FROM weeks
-        LEFT JOIN loyal_yield.rebalance_decisions AS decision
-          ON decision.status = 'confirmed'
-          AND decision.signature IS NOT NULL
-          AND decision.amount_raw IS NOT NULL
-          AND decision.updated_at < weeks.week_end_exclusive
-        GROUP BY weeks.week_start, weeks.week_end
-        ORDER BY weeks.week_start ASC
-      `
-    ),
     queryRows<HeadlineRow>(
       `
         ${ACTIVE_EARN_HOLDINGS_CTE}
         SELECT
           COALESCE(SUM(normalized_aum_raw), 0)::text AS active_aum_raw,
-          COALESCE(
-            SUM(GREATEST(normalized_reserve_raw - principal_amount_raw, 0::bigint)),
-            0
-          )::text AS active_user_earnings_raw,
-          (
-            SELECT COALESCE(SUM(execution.amount_raw), 0)::text
-            FROM loyal_yield.balance_sweep_executions AS execution
-          ) AS balance_sweep_volume_raw,
           (
             SELECT COALESCE(SUM(decision.amount_raw), 0)::text
             FROM loyal_yield.rebalance_decisions AS decision
@@ -291,6 +240,7 @@ async function loadPublicPerformanceSnapshot() {
         FROM normalized_active_positions
       `
     ),
+    database.select({ value: count() }).from(appUsers),
   ]);
 
   const earnAumSeries = aumRows.map((row) => {
@@ -303,17 +253,12 @@ async function loadPublicPerformanceSnapshot() {
       valueRaw: raw.toString(),
     };
   });
-  const optimizationVolumeSeries = optimizationVolumeRows.map((row) => {
-    const raw = toBigInt(row.volume_raw);
-
-    return {
-      label: formatDateLabel(row.week_start),
-      periodLabel: formatDateRangeLabel(row.week_start, row.week_end),
-      value: rawToUsdc(raw),
-      valueRaw: raw.toString(),
-    };
-  });
   const headline = headlineRows[0];
+  const totalUsers = userCountRows[0]?.value;
+
+  if (typeof totalUsers !== "number") {
+    throw new Error("Failed to load total Loyal user count");
+  }
 
   return {
     updatedAt: `${dateTimeFormatter.format(new Date())} UTC`,
@@ -333,22 +278,13 @@ async function loadPublicPerformanceSnapshot() {
           "Total USDC reallocated by confirmed Earn optimizations. This measures routing throughput across reserves, so the same deposited dollar can add to volume again when it is moved by a later optimization.",
       },
       {
-        label: "User Earnings",
-        value: formatUsdcRaw(toBigInt(headline?.active_user_earnings_raw)),
-        detail: "Current net earned on active deposits.",
-        tooltip:
-          "Current reserve value above active principal, excluding idle vault USDC. This is active on-reserve earned value, not lifetime realized withdrawals.",
-      },
-      {
-        label: "Balance Sweep Volume",
-        value: formatUsdcRaw(toBigInt(headline?.balance_sweep_volume_raw)),
-        detail: "Cumulative balance sweep volume.",
-        tooltip:
-          "Cumulative USDC moved by balance sweep executions from user wallets into Earn vaults through autodeposit.",
+        label: "Total Users",
+        value: formatUserCount(totalUsers),
+        detail: "Registered Loyal users.",
+        tooltip: "Total wallet-based user accounts registered with Loyal.",
       },
     ],
     earnAumSeries,
-    optimizationVolumeSeries,
   };
 }
 

@@ -45,10 +45,10 @@ export default async function DashboardHome() {
             </a>
           </header>
 
-          <div className="grid gap-x-8 gap-y-6 border-t pt-7 md:grid-cols-2 xl:grid-cols-[1.35fr_repeat(3,minmax(0,1fr))]">
+          <div className="grid gap-x-8 gap-y-6 border-t pt-7 md:grid-cols-3">
             {snapshot.metrics.map((metric) => (
-              <div className="min-w-0" key={metric.label}>
-                <div className="flex min-w-0 items-center gap-2">
+              <div className="min-w-0 text-center" key={metric.label}>
+                <div className="flex min-w-0 items-center justify-center gap-2">
                   <p className="min-w-0 text-sm font-medium text-muted-foreground">
                     {metric.label}
                   </p>
@@ -69,38 +69,21 @@ export default async function DashboardHome() {
         </div>
       </section>
 
-      <section className="mx-auto w-full max-w-[1840px] px-6 py-12 lg:px-10">
-        <div className="grid gap-x-14 gap-y-14 xl:grid-cols-2">
-          <div className="min-w-0">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold tracking-normal">
-                Earn AUM by Week
-              </h2>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Weekly snapshot. Current AUM is shown above.
-              </p>
-            </div>
-            <EarnAumBarChart
-              ariaLabel="Earn AUM weekly snapshot bar chart from Jun 15 through the latest data"
-              metricLabel="Earn AUM"
-              points={snapshot.earnAumSeries}
-            />
+      <section className="mx-auto w-full max-w-5xl px-6 py-12 lg:px-10">
+        <div className="min-w-0">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-xl font-semibold tracking-normal">
+              Earn AUM by Week
+            </h2>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Weekly snapshot. Current AUM is shown above.
+            </p>
           </div>
-          <div className="min-w-0">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-xl font-semibold tracking-normal">
-                Cumulative Optimization Volume
-              </h2>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Bars show total confirmed moved volume through each week.
-              </p>
-            </div>
-            <EarnAumBarChart
-              ariaLabel="Cumulative optimization volume bar chart from Jun 15 through the latest data"
-              metricLabel="cumulative optimization volume"
-              points={snapshot.optimizationVolumeSeries}
-            />
-          </div>
+          <EarnAumBarChart
+            ariaLabel="Earn AUM weekly snapshot bar chart from Jun 15 through the latest data"
+            metricLabel="Earn AUM"
+            points={snapshot.earnAumSeries}
+          />
         </div>
       </section>
     </main>
