@@ -8,54 +8,38 @@ import { LandingFooter } from "@/components/landing-footer";
 import { LandingGetStarted } from "@/components/landing-get-started";
 import { LandingHeader } from "@/components/landing-header";
 import { LandingHero } from "@/components/landing-hero";
-import { LandingRoadmap } from "@/components/landing-roadmap";
+// Roadmap temporarily hidden — restore by uncommenting
+// import { LandingRoadmap } from "@/components/landing-roadmap";
 import { LandingScrollAnimations } from "@/components/landing-scroll-animations";
 
-type FeatureImage = {
-  src: string;
-  alt: string;
-  decorative?: boolean;
-};
-
 const featureCards: {
-  images: FeatureImage[];
+  image: { src: string; alt: string };
   text: string;
   tone: "black" | "light" | "red";
 }[] = [
   {
-    images: [
-      {
-        src: "/landing/figma/feature-yield-card.png",
-        alt: "Loyal Earn card showing an idle USDC balance accruing yield in the background",
-      },
-    ],
-    text: "Your idle dollars earn the best available rate in the background. No lockups, no handing over your keys.",
-    tone: "black",
+    image: {
+      src: "/landing/figma/feature-automation-steps.png",
+      alt: "Three steps: connect your wallet, set up Autodeposit, earn the best APY",
+    },
+    text: "Discover powerful onchain automation without giving up ownership",
+    tone: "red",
   },
   {
-    images: [
-      {
-        src: "/landing/figma/feature-phone-bg.png",
-        alt: "",
-        decorative: true,
-      },
-      {
-        src: "/landing/figma/feature-phone-overlay.png",
-        alt: "Loyal mobile app screen sending a private transaction over shielded assets",
-      },
-    ],
-    text: "Send and receive on Solana. Your balance earns while it sits, and stays private too.",
+    image: {
+      src: "/landing/figma/feature-earn-phone.png",
+      alt: "Loyal Earn screen on a phone showing $192 earned and a rising yield chart",
+    },
+    text: "Always get the best low-risk Solana APY on your idle funds with Loyal automations",
     tone: "light",
   },
   {
-    images: [
-      {
-        src: "/landing/figma/feature-agent-card.png",
-        alt: "Agent permission panel with spending caps and approved-protocol whitelists for AI agents",
-      },
-    ],
-    text: "Set spending caps and whitelists for every agent. They literally can't exceed your limits.",
-    tone: "red",
+    image: {
+      src: "/landing/figma/feature-actions-pills.png",
+      alt: "Send, Receive, and Earn pills with a Privately toggle switched on",
+    },
+    text: "Connect any wallet, enjoy one seamless experience",
+    tone: "black",
   },
 ];
 
@@ -85,22 +69,18 @@ export default function LandingPage() {
                     ? "bg-black"
                     : feature.tone === "red"
                     ? "bg-[#f9363c]"
-                    : "bg-[#f2f2f2]"
+                    : "bg-[#f5f5f5]"
                 }`}
               >
-                {feature.images.map((image) => (
-                  <Image
-                    alt={image.alt}
-                    aria-hidden={image.decorative ? "true" : undefined}
-                    className="object-cover"
-                    fill
-                    key={image.src}
-                    loading="eager"
-                    sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
-                    src={image.src}
-                    unoptimized
-                  />
-                ))}
+                <Image
+                  alt={feature.image.alt}
+                  className="object-cover"
+                  fill
+                  loading="eager"
+                  sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
+                  src={feature.image.src}
+                  unoptimized
+                />
               </div>
               <p className="max-w-[400px] pr-4 text-[20px] font-normal leading-[1.2] text-black lg:text-[24px]">
                 {feature.text}
@@ -113,45 +93,42 @@ export default function LandingPage() {
       <section className="flex w-full justify-center bg-white px-4 py-12 lg:px-6 lg:py-32">
         <div className="grid w-full max-w-[528px] gap-6 lg:max-w-[1560px] lg:grid-cols-12 lg:gap-6">
           <div
-            className="order-1 flex items-center lg:col-span-4 lg:order-none lg:pr-1"
+            className="flex flex-col items-start justify-center gap-8 lg:col-span-4 lg:row-start-1 lg:gap-12 lg:pr-1"
             data-reveal="left"
           >
             <h2 className="max-w-[420px] text-[48px] font-semibold leading-none text-black lg:text-[56px]">
               Multiple wallets, one smart account
             </h2>
-          </div>
-
-          <div
-            className="order-3 flex items-start justify-center lg:col-span-4 lg:col-start-5 lg:order-none lg:row-start-1"
-            data-reveal="scale"
-            data-reveal-delay="1"
-          >
-            <div className="relative mt-6 aspect-[400/600] w-full overflow-hidden rounded-[24px] border border-black/10 lg:mt-0">
-              <Image
-                alt="Multiple wallets organized under one Loyal smart account, each with its own balances and policies"
-                className="object-cover"
-                fill
-                sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
-                src="/landing/figma/multiple-wallets-content.png"
-              />
+            <div className="flex items-start gap-2">
+              <Link
+                className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
+                href="#get-started"
+              >
+                Start earning
+              </Link>
+              <Link
+                className="inline-flex h-[52px] items-center justify-center rounded-full bg-black/[0.04] px-5 text-center text-[20px] font-normal leading-6 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/[0.08] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
+                href="https://docs.askloyal.com/earn/overview"
+              >
+                How it works
+              </Link>
             </div>
           </div>
 
           <div
-            className="order-2 flex flex-col items-start justify-center gap-6 lg:col-span-3 lg:col-start-10 lg:order-none lg:row-start-1 lg:gap-8"
-            data-reveal="right"
-            data-reveal-delay="2"
+            className="flex items-start justify-center lg:col-span-4 lg:col-start-5 lg:row-start-1"
+            data-reveal="scale"
+            data-reveal-delay="1"
           >
-            <p className="max-w-[280px] text-[20px] font-normal leading-[1.1] text-black lg:max-w-[300px] lg:text-[24px]">
-              Schedule payments, run strategies, and let your agents work while
-              you sleep
-            </p>
-            <Link
-              className="inline-flex items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
-              href="#get-started"
-            >
-              Start earning
-            </Link>
+            <div className="relative mt-6 aspect-[488/732] w-full max-w-[488px] lg:mt-0">
+              <Image
+                alt="Loyal wallet on a phone showing total balance, Earn yield chart, and stablecoin and crypto holdings"
+                className="object-contain"
+                fill
+                sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
+                src="/landing/figma/multiple-wallets-phone.png"
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -166,11 +143,11 @@ export default function LandingPage() {
             data-reveal="left"
           >
             <div className="flex w-full flex-col items-start gap-6 px-6 py-6 pr-8 lg:gap-8 lg:px-8 lg:py-8 lg:pr-16">
-              <h2 className="max-w-[600px] text-[24px] font-medium leading-[1.1] text-black lg:text-[32px]">
-                Ready-made agent workflows, built into the wallet and extension.
+              <h2 className="max-w-[600px] text-[24px] font-semibold leading-none text-black lg:text-[36px]">
+                Explore Solana’s latest technology behind Loyal
               </h2>
               <Link
-                className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[20px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0 lg:h-auto lg:text-[16px]"
+                className="inline-flex h-[52px] items-center justify-center rounded-full bg-black px-5 py-3 text-center text-[20px] font-medium leading-6 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black active:translate-y-0"
                 href="/earn"
               >
                 How it works
@@ -187,12 +164,11 @@ export default function LandingPage() {
             data-reveal-delay="1"
           >
             <div className="flex w-full flex-col items-start gap-6 px-6 py-6 pr-8 lg:gap-8 lg:px-8 lg:py-8 lg:pr-16">
-              <h2 className="max-w-[600px] text-[24px] font-medium leading-[1.1] text-white lg:text-[32px]">
-                Build your own agents and interfaces on our open-source SDK. No
-                permission required.
+              <h2 className="max-w-[600px] text-[24px] font-semibold leading-none text-white lg:text-[36px]">
+                For Builders
               </h2>
               <Link
-                className="inline-flex h-[52px] items-center justify-center rounded-full bg-white px-5 py-3 text-center text-[20px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0 lg:h-auto lg:text-[16px]"
+                className="inline-flex h-[52px] items-center justify-center rounded-full bg-white px-5 py-3 text-center text-[20px] font-medium leading-6 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
                 href="https://docs.askloyal.com/"
               >
                 Explore SDK
@@ -205,7 +181,8 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <LandingRoadmap />
+      {/* Roadmap temporarily hidden — restore by uncommenting */}
+      {/* <LandingRoadmap /> */}
 
       <LandingFaq />
 
