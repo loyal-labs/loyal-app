@@ -136,9 +136,10 @@ export type SyncConfirmedRebalanceHoldingEventsResult = {
   updatedPositionCount: number;
 };
 
-export type YieldPositionEventsLookupInput = ActiveYieldPositionLookupInput & {
-  vaultPubkey?: string;
-};
+export type YieldPositionEventsLookupInput =
+  ActiveYieldPositionForVaultLookupInput & {
+    vaultPubkey?: string;
+  };
 
 export type CurrentYieldVaultReservePositionRecord =
   typeof vaultReservePositionsCurrent.$inferSelect;

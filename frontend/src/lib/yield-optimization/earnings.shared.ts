@@ -26,7 +26,69 @@ export type EarnEarningsResponse = {
   todayEarnedUsd: number;
 };
 
-export type EarnEarningsRangeSetResponse = {
-  generatedAt: string;
-  ranges: Record<EarningsRangeId, EarnEarningsResponse>;
+export type EarnEarningsCoverage = {
+  currentReserveSampleAgeMs: number | null;
+  eventCount: number;
+  gappedReserves: string[];
+  maxSampleGapMs: number | null;
+  missingReserves: string[];
+  reserveCount: number;
+  sampleCount: number;
+  sampledReserveCount: number;
+  staleReserves: string[];
 };
+
+export type EarnEarningsFreshness = "fresh" | "stale";
+export type EarnEarningsOutcome = "empty" | "ready";
+
+export type EarnEarningsRangeSetResponse = {
+  coverage: EarnEarningsCoverage;
+  freshness: EarnEarningsFreshness;
+  generatedAt: string;
+  historyRevision: string;
+  outcome: EarnEarningsOutcome;
+  principalMatchesHistory: boolean;
+  ranges: Record<EarningsRangeId, EarnEarningsResponse>;
+  snapshotAgeMs: number | null;
+  sourcePrincipalAmountRaw: string;
+  staleReason: string | null;
+};
+
+export type EarnEarningsUnavailableResponse = {
+  error: {
+    code: "earnings_unavailable" | "history_incomplete";
+    message: string;
+  };
+  freshness: "unavailable";
+  outcome: "unavailable";
+};
+
+export function isServerVerifiedEarnEarningsPayload(
+  value: unknown
+): value is EarnEarningsRangeSetResponse {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Partial<EarnEarningsRangeSetResponse>;
+  const ranges = payload.ranges;
+  return (
+    (payload.outcome === "empty" || payload.outcome === "ready") &&
+    (payload.freshness === "fresh" || payload.freshness === "stale") &&
+    payload.principalMatchesHistory === true &&
+    typeof payload.sourcePrincipalAmountRaw === "string" &&
+    typeof ranges === "object" &&
+    ranges !== null &&
+    EARNINGS_RANGE_IDS.every((rangeId) => {
+      const range = (ranges as Partial<EarnEarningsRangeSetResponse["ranges"]>)[
+        rangeId
+      ];
+      return (
+        Boolean(range) &&
+        Array.isArray(range?.bars) &&
+        typeof range?.lifetimeEarnedUsd === "number" &&
+        typeof range?.principalAmountRaw === "string"
+      );
+    })
+  );
+}

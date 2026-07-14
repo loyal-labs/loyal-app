@@ -411,6 +411,107 @@ export class TimescaleReserveClient {
     }));
   }
 
+  async getReserveApyHistorySamplesForReserves(args: {
+    end: Date;
+    reserves: readonly string[];
+    sampleIntervalSeconds?: number;
+    start: Date;
+  }): Promise<(TimescaleReserveApySample & { reserve: string })[]> {
+    const reserves = [...new Set(args.reserves)].sort();
+    if (reserves.length === 0) {
+      return [];
+    }
+
+    const sampleIntervalSeconds = args.sampleIntervalSeconds ?? 24 * 60 * 60;
+    const endIso = args.end.toISOString();
+    const startIso = args.start.toISOString();
+    const rows = await this.sqlClient<
+      {
+        observed_at: Date | string;
+        reserve: string;
+        supply_apy: number | string;
+      }[]
+    >`
+      WITH requested_reserves AS (
+        SELECT unnest(${reserves}::text[]) AS reserve
+      ),
+      previous_samples AS (
+        SELECT r.reserve, sample.observed_at, sample.supply_apy
+        FROM requested_reserves r
+        CROSS JOIN LATERAL (
+          SELECT observed_at, supply_apy
+          FROM kamino.reserve_updates
+          WHERE reserve = r.reserve
+            AND reserve_last_update_stale = false
+            AND supply_apy >= 0
+            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+            AND observed_at < ${startIso}::timestamptz
+          ORDER BY observed_at DESC
+          LIMIT 1
+        ) sample
+      ),
+      latest_samples AS (
+        SELECT r.reserve, sample.observed_at, sample.supply_apy
+        FROM requested_reserves r
+        CROSS JOIN LATERAL (
+          SELECT observed_at, supply_apy
+          FROM kamino.reserve_updates
+          WHERE reserve = r.reserve
+            AND reserve_last_update_stale = false
+            AND supply_apy >= 0
+            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+            AND observed_at <= ${endIso}::timestamptz
+          ORDER BY observed_at DESC
+          LIMIT 1
+        ) sample
+      ),
+      range_candidates AS (
+        SELECT
+          reserve,
+          date_bin(
+            make_interval(secs => ${sampleIntervalSeconds}),
+            observed_at,
+            ${startIso}::timestamptz
+          ) AS sample_bucket,
+          observed_at,
+          supply_apy
+        FROM kamino.reserve_updates
+        WHERE reserve = ANY(${reserves}::text[])
+          AND reserve_last_update_stale = false
+          AND supply_apy >= 0
+          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+          AND observed_at >= ${startIso}::timestamptz
+          AND observed_at <= ${endIso}::timestamptz
+      ),
+      range_samples AS (
+        SELECT DISTINCT ON (reserve, sample_bucket)
+          reserve,
+          observed_at,
+          supply_apy
+        FROM range_candidates
+        ORDER BY reserve, sample_bucket, observed_at DESC
+      )
+      SELECT reserve, observed_at, supply_apy
+      FROM (
+        SELECT reserve, observed_at, supply_apy FROM previous_samples
+        UNION
+        SELECT reserve, observed_at, supply_apy FROM range_samples
+        UNION
+        SELECT reserve, observed_at, supply_apy FROM latest_samples
+      ) samples
+      ORDER BY observed_at ASC, reserve ASC
+    `;
+
+    return rows.map((row) => ({
+      observedAt:
+        row.observed_at instanceof Date
+          ? row.observed_at
+          : new Date(row.observed_at),
+      reserve: row.reserve,
+      supplyApy: Number(row.supply_apy),
+    }));
+  }
+
   async getCurrentReserveUpdatesByReserve(args: {
     reserves: readonly string[];
   }): Promise<TimescaleReserveUpdateRow[]> {

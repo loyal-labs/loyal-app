@@ -25,6 +25,7 @@ import type {
   EarnForecastApyHistorySample,
   EarnForecastApyHistorySeries,
 } from "@/lib/kamino/earn-forecast.shared";
+import type { EarnEarningsRangeSetResponse } from "./earnings.shared";
 
 const loyalYieldSchema = pgSchema("loyal_yield");
 const YIELD_OPTIMIZATION_DATABASE_URL_ENV_NAME = "NEON_DATABASE_URL";
@@ -320,6 +321,35 @@ export const userYieldPositions = loyalYieldSchema.table(
       "user_yield_positions_smart_account_is_vault",
       sql`${table.smartAccountAddress} = ${table.vaultPubkey}`
     ),
+  ]
+);
+
+export const earnEarningsSnapshots = loyalYieldSchema.table(
+  "earn_earnings_snapshots",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    cluster: text("cluster").notNull(),
+    walletAddress: text("wallet_address").notNull(),
+    settings: text("settings").notNull(),
+    vaultIndex: smallint("vault_index").notNull(),
+    timezone: text("timezone").notNull(),
+    historyRevision: text("history_revision").notNull(),
+    principalAmountRaw: bigint("principal_amount_raw", {
+      mode: "bigint",
+    }).notNull(),
+    payload: jsonb("payload").$type<EarnEarningsRangeSetResponse>().notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_earnings_snapshots_scope_uidx").on(
+      table.cluster,
+      table.walletAddress,
+      table.settings,
+      table.vaultIndex,
+      table.timezone
+    ),
+    index("earn_earnings_snapshots_updated_idx").on(table.updatedAt),
   ]
 );
 
@@ -1163,6 +1193,7 @@ export const yieldOptimizationSchema = {
   balanceSweepWalletBalanceEvents,
   balanceSweepWalletBalancesCurrent,
   earnDepositOnboardingAttempts,
+  earnEarningsSnapshots,
   earnApyHourlySnapshots,
   earnForecastSnapshots,
   managedVaults,
@@ -1201,6 +1232,7 @@ export type YieldOptimizationClientTables = {
   balanceSweepWalletBalanceEvents: typeof balanceSweepWalletBalanceEvents;
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
   earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
+  earnEarningsSnapshots: typeof earnEarningsSnapshots;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
   earnForecastSnapshots: typeof earnForecastSnapshots;
   managedVaults: typeof managedVaults;
@@ -1232,6 +1264,7 @@ export class YieldOptimizationClient {
     balanceSweepWalletBalanceEvents,
     balanceSweepWalletBalancesCurrent,
     earnDepositOnboardingAttempts,
+    earnEarningsSnapshots,
     earnApyHourlySnapshots,
     earnForecastSnapshots,
     managedVaults,

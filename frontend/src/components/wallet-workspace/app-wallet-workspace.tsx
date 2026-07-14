@@ -2881,25 +2881,15 @@ export function AppWalletWorkspace({
       ),
     [earnCurrentBalanceAmount, mainAccountDisplayUsd, smartAccountData.totalUsd]
   );
-  const earnEarningsPrincipalAmountRaw =
+  const earnEarningsRevalidationKey =
     hasEarnPosition && activeEarnPosition
       ? activeEarnPosition.principalAmountRaw
       : "0";
-  const earnEarningsHistoryCursor =
-    hasEarnPosition && activeEarnPosition
-      ? [
-          activeEarnPosition.currentHolding.provenance.lastHoldingEventId ??
-            "no-holding-event",
-          activeEarnPosition.currentHolding.provenance
-            .lastRebalanceDecisionId ?? "no-rebalance-decision",
-        ].join(".")
-      : "no-position";
   const earnEarningsCacheKey = [
     publicEnv.solanaEnv,
     personalWalletAddress ?? "anonymous",
     smartAccountData.overview?.settingsPda ?? "no-settings",
-    earnEarningsPrincipalAmountRaw,
-    earnEarningsHistoryCursor,
+    "vault-1",
   ].join(":");
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
@@ -6389,7 +6379,7 @@ export function AppWalletWorkspace({
           currentSupplyApyBps={activeEarnPosition?.currentSupplyApyBps}
           earningsCacheKey={earnEarningsCacheKey}
           earningsCacheScope={{
-            expectedPrincipalAmountRaw: earnEarningsPrincipalAmountRaw,
+            revalidationKey: earnEarningsRevalidationKey,
             settingsPda: smartAccountData.overview?.settingsPda,
             solanaEnv: publicEnv.solanaEnv,
             walletAddress: personalWalletAddress,

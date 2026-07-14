@@ -38,6 +38,7 @@ import {
 import { getTokenIconUrl } from "@/lib/token-icon";
 import { resolveEarnDetailHeaderActionMode } from "@/lib/yield-optimization/earn-cleanup-ui-state";
 import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
+import { deriveEarnEarningsDisplayAmounts } from "@/lib/yield-optimization/earnings-display.shared";
 import type {
   EarnEarningsBar,
   EarnEarningsResponse,
@@ -940,7 +941,7 @@ function EarnGrowingBalance({
 // Figma spec) so the in-progress day always reads as the full-height cap.
 const EARNINGS_BAR_MAX_FRACTION = 295 / 300;
 const EARNINGS_BAR_MIN_HEIGHT_PX = 4;
-const EARNINGS_MONTHLY_RANGE_ID = "1Y" satisfies EarningsRangeId;
+const EARNINGS_LIFETIME_RANGE_ID = "ALL" satisfies EarningsRangeId;
 const EARNINGS_DAILY_RANGE_ID = "30D" satisfies EarningsRangeId;
 const EARNINGS_BAR_COLOR = "rgba(52, 199, 89, 0.6)";
 const EARNINGS_BAR_HOVER_COLOR = "rgba(52, 199, 89, 0.16)";
@@ -950,97 +951,12 @@ const EARNINGS_TODAY_BAR_HOVER_FILL =
 
 const EMPTY_EARNINGS_BARS: EarnEarningsBar[] = [];
 
-// Skeleton bars for a freshly-funded position before real earnings data lands,
-// so the chart always shows the current period (today / this month) as the last
-// bar instead of a blank "No earnings yet". Mirrors the server bucketing shape.
-function buildPlaceholderEarningsBars(
-  rangeId: EarningsRangeId
-): EarnEarningsBar[] {
-  const now = new Date();
-  const dayFormatter = new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-  });
-  const monthFormatter = new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    year: "numeric",
-  });
-  const makeBar = (
-    startAt: Date,
-    endAt: Date,
-    label: string,
-    isCurrent: boolean
-  ): EarnEarningsBar => ({
-    apyBps: null,
-    avgPrincipalUsd: 0,
-    earnedUsd: 0,
-    endAt: endAt.toISOString(),
-    isCurrent,
-    label,
-    principalAmountRaw: "0",
-    principalUsd: 0,
-    startAt: startAt.toISOString(),
-  });
-
-  if (rangeId === "7D" || rangeId === "30D") {
-    const count = rangeId === "7D" ? 7 : 30;
-    return Array.from({ length: count }, (_, index) => {
-      const offset = count - 1 - index;
-      const dayStart = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - offset
-      );
-      const dayEnd = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() - offset + 1
-      );
-      const isCurrent = offset === 0;
-      return makeBar(
-        dayStart,
-        isCurrent ? now : dayEnd,
-        dayFormatter.format(dayStart),
-        isCurrent
-      );
-    });
-  }
-
-  if (rangeId === "1Y") {
-    return Array.from({ length: 12 }, (_, index) => {
-      const offset = 11 - index;
-      const monthStart = new Date(
-        now.getFullYear(),
-        now.getMonth() - offset,
-        1
-      );
-      const monthEnd = new Date(
-        now.getFullYear(),
-        now.getMonth() - offset + 1,
-        1
-      );
-      const isCurrent = offset === 0;
-      return makeBar(
-        monthStart,
-        isCurrent ? now : monthEnd,
-        monthFormatter.format(monthStart),
-        isCurrent
-      );
-    });
-  }
-
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  return [makeBar(monthStart, now, monthFormatter.format(monthStart), true)];
-}
-
 export function deriveEstimatedEarnedAmount({
   earningsData,
-  earningsError,
 }: {
   earningsData: EarnEarningsResponse | null;
-  earningsError: string | null;
 }) {
-  if (earningsError || !earningsData) {
+  if (!earningsData) {
     return 0;
   }
 
@@ -1078,20 +994,20 @@ function normalizeDisplayedEarnedUsd(value: number) {
 
 export function deriveEstimatedEarnedSummaryAmount({
   apyBps,
+  canLiveEstimate = true,
   earningsData,
-  earningsError,
   generatedAt,
   nowMs,
   principalAmount,
 }: {
   apyBps: number;
+  canLiveEstimate?: boolean;
   earningsData: EarnEarningsResponse | null;
-  earningsError: string | null;
   generatedAt: string | null;
   nowMs?: number;
   principalAmount: number;
 }) {
-  if (earningsError || !earningsData) {
+  if (!earningsData) {
     return 0;
   }
 
@@ -1100,12 +1016,14 @@ export function deriveEstimatedEarnedSummaryAmount({
     : 0;
   const estimatedLifetimeEarnedUsd =
     lifetimeEarnedUsd +
-    deriveLiveEarnedUsd({
-      apyBps,
-      generatedAt,
-      nowMs,
-      principalAmount,
-    });
+    (canLiveEstimate
+      ? deriveLiveEarnedUsd({
+          apyBps,
+          generatedAt,
+          nowMs,
+          principalAmount,
+        })
+      : 0);
 
   // A fresh RPC balance can include an Autodeposit sweep before the confirmed
   // principal history catches up. Treating balance - principal as earned in
@@ -1120,14 +1038,12 @@ export function formatEarnedSummaryLabel(value: number) {
 
 export function deriveEstimatedEarnedAmountApyBps({
   earningsData,
-  earningsError,
   fallbackApyBps,
 }: {
   earningsData: EarnEarningsResponse | null;
-  earningsError: string | null;
   fallbackApyBps: number;
 }) {
-  if (earningsError || !earningsData || earningsData.currentApyBps === null) {
+  if (!earningsData || earningsData.currentApyBps === null) {
     return Number.isFinite(fallbackApyBps) ? fallbackApyBps : 0;
   }
 
@@ -1252,19 +1168,25 @@ function EarningsChartLoader() {
 function EarningsBlock({
   apy,
   earningsData,
-  estimatedEarnedUsd,
+  estimatedRangeEarnedUsd,
+  estimatedTodayEarnedUsd,
   forecastPrincipalAmount,
   isBalanceHidden = false,
   isEarningsLoading = false,
-  principalAmount,
+  earningsUnavailable = false,
+  earningsStale = false,
+  onRetryEarnings,
 }: {
   apy: EarnForecastApy;
   earningsData: EarnEarningsResponse | null;
-  estimatedEarnedUsd: number;
+  estimatedRangeEarnedUsd: number;
+  estimatedTodayEarnedUsd: number;
   forecastPrincipalAmount: number;
   isBalanceHidden?: boolean;
   isEarningsLoading?: boolean;
-  principalAmount: number;
+  earningsUnavailable?: boolean;
+  earningsStale?: boolean;
+  onRetryEarnings: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<EarnChartTab>("Forecast");
   const [earningsRevision, setEarningsRevision] = useState(0);
@@ -1284,48 +1206,28 @@ function EarningsBlock({
     }
   };
   const forecastAmount = forecastPrincipalAmount;
-  const placeholderBars = useMemo(
-    () =>
-      principalAmount > 0
-        ? buildPlaceholderEarningsBars(EARNINGS_DAILY_RANGE_ID)
-        : EMPTY_EARNINGS_BARS,
-    [principalAmount]
-  );
   const realBars = earningsData?.bars ?? EMPTY_EARNINGS_BARS;
   const hasRealBars = realBars.length > 0;
   // Show the loader only while we have nothing real to paint yet; cached/persisted
   // bars revalidating in the background keep rendering instead of flashing a spinner.
   const showEarningsLoader = isEarningsLoading && !hasRealBars;
-  const bars = hasRealBars ? realBars : placeholderBars;
+  const bars = realBars;
   // Each bar carries the amount earned within that day. Reconcile the current
   // in-progress bar against the live estimate without turning prior bars into
   // cumulative values.
   const dailyBars = useMemo(() => {
-    const safeEstimatedEarnedUsd = Math.max(0, estimatedEarnedUsd);
-    const nonCurrentRecordedEarnedUsd = bars.reduce(
-      (sum, bar) => (bar.isCurrent ? sum : sum + Math.max(0, bar.earnedUsd)),
-      0
-    );
-    const currentResidualEarnedUsd = Math.max(
-      0,
-      safeEstimatedEarnedUsd - nonCurrentRecordedEarnedUsd
-    );
     const reconciledBars = bars.map((bar) =>
       bar.isCurrent
         ? {
             ...bar,
-            earnedUsd: Math.max(0, bar.earnedUsd, currentResidualEarnedUsd),
+            earnedUsd: Math.max(0, bar.earnedUsd, estimatedTodayEarnedUsd),
           }
         : bar
     );
     return reconciledBars;
-  }, [bars, estimatedEarnedUsd]);
+  }, [bars, estimatedTodayEarnedUsd]);
   const maxDailyEarnedUsd = useMemo(
-    () =>
-      dailyBars.reduce(
-        (max, bar) => (bar.isCurrent ? max : Math.max(max, bar.earnedUsd)),
-        0
-      ),
+    () => dailyBars.reduce((max, bar) => Math.max(max, bar.earnedUsd), 0),
     [dailyBars]
   );
   const hoveredBarEntry =
@@ -1343,11 +1245,11 @@ function EarningsBlock({
   const headerValue = splitEarningsHeaderValue(
     hoveredBarEntry
       ? Math.max(0, hoveredBarEntry.earnedUsd)
-      : estimatedEarnedUsd
+      : estimatedRangeEarnedUsd
   );
   let headerSubtitle: ReactNode;
   if (!hoveredBarEntry) {
-    headerSubtitle = "";
+    headerSubtitle = earningsStale ? "Updating earnings…" : "";
   } else if (hoveredApyBps !== null) {
     headerSubtitle = `with ${formatEarnApyPercent(hoveredApyBps)} APY`;
   } else if (hoveredBarEntry.isCurrent) {
@@ -1606,14 +1508,22 @@ function EarningsBlock({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {`$${headerValue.whole}`}
-                  <span
-                    style={{
-                      color: isBalanceHidden ? "#BBBBC0" : decimalGray,
-                    }}
-                  >
-                    {`.${headerValue.fraction}`}
-                  </span>
+                  {earningsUnavailable ? (
+                    "Unavailable"
+                  ) : showEarningsLoader ? (
+                    "Loading…"
+                  ) : (
+                    <>
+                      {`$${headerValue.whole}`}
+                      <span
+                        style={{
+                          color: isBalanceHidden ? "#BBBBC0" : decimalGray,
+                        }}
+                      >
+                        {`.${headerValue.fraction}`}
+                      </span>
+                    </>
+                  )}
                 </p>
                 <EarnSectionHelpTrigger
                   ariaLabel="About earned amount"
@@ -1653,7 +1563,9 @@ function EarningsBlock({
                   filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                 }}
               >
-                {formatMaxDailyEarningsLabel(maxDailyEarnedUsd)}
+                {earningsUnavailable || showEarningsLoader
+                  ? ""
+                  : formatMaxDailyEarningsLabel(maxDailyEarnedUsd)}
               </span>
             </div>
             <div
@@ -1669,7 +1581,39 @@ function EarningsBlock({
                 width: "100%",
               }}
             >
-              {showEarningsLoader ? (
+              {earningsUnavailable ? (
+                <div
+                  style={{
+                    alignItems: "center",
+                    color: secondary,
+                    display: "flex",
+                    flex: 1,
+                    flexDirection: "column",
+                    fontFamily: font,
+                    fontSize: "13px",
+                    gap: "8px",
+                    height: "100%",
+                    justifyContent: "center",
+                    lineHeight: "16px",
+                  }}
+                >
+                  <span>Earnings are temporarily unavailable.</span>
+                  <button
+                    onClick={onRetryEarnings}
+                    style={{
+                      background: "#F5F5F5",
+                      border: 0,
+                      borderRadius: "9999px",
+                      cursor: "pointer",
+                      font: "inherit",
+                      padding: "6px 12px",
+                    }}
+                    type="button"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : showEarningsLoader ? (
                 <EarningsChartLoader />
               ) : (
                 dailyBars.map((bar, i) => {
@@ -1709,14 +1653,21 @@ function EarningsBlock({
                                     ? EARNINGS_BAR_COLOR
                                     : EARNINGS_TODAY_BAR_BORDER_COLOR
                                 }`,
-                                height: "100%",
+                                height: `${fillPercent.toFixed(2)}%`,
+                                minHeight:
+                                  bar.earnedUsd > 0
+                                    ? `${EARNINGS_BAR_MIN_HEIGHT_PX}px`
+                                    : 0,
                               }
                             : {
                                 background: isActive
                                   ? EARNINGS_BAR_HOVER_COLOR
                                   : EARNINGS_BAR_COLOR,
                                 height: `${fillPercent.toFixed(2)}%`,
-                                minHeight: `${EARNINGS_BAR_MIN_HEIGHT_PX}px`,
+                                minHeight:
+                                  bar.earnedUsd > 0
+                                    ? `${EARNINGS_BAR_MIN_HEIGHT_PX}px`
+                                    : 0,
                               }
                         }
                       />
@@ -1724,7 +1675,9 @@ function EarningsBlock({
                   );
                 })
               )}
-              {dailyBars.length === 0 && !showEarningsLoader ? (
+              {dailyBars.length === 0 &&
+              !showEarningsLoader &&
+              !earningsUnavailable ? (
                 <div
                   style={{
                     alignItems: "center",
@@ -2538,7 +2491,7 @@ export function EarnDetailView({
   currentSupplyApyBps?: string | null;
   earningsCacheKey?: string;
   earningsCacheScope?: {
-    expectedPrincipalAmountRaw?: string | null;
+    revalidationKey?: string | null;
     settingsPda?: string | null;
     solanaEnv?: string;
     walletAddress?: string | null;
@@ -2559,12 +2512,14 @@ export function EarnDetailView({
     hasCurrentPosition && currentBalanceAmount > 0;
   const {
     data: earningsRangeSet,
-    error: earningsError,
+    freshness: earningsFreshness,
     isLoading: isEarningsLoading,
+    outcome: earningsOutcome,
+    refresh: refreshEarnings,
   } = useEarnEarnings({
     cacheKey: earningsCacheKey,
     enabled: hasPositiveCurrentBalance,
-    expectedPrincipalAmountRaw: earningsCacheScope?.expectedPrincipalAmountRaw,
+    revalidationKey: earningsCacheScope?.revalidationKey,
     settingsPda: earningsCacheScope?.settingsPda,
     solanaEnv: earningsCacheScope?.solanaEnv,
     walletAddress: earningsCacheScope?.walletAddress,
@@ -2583,7 +2538,7 @@ export function EarnDetailView({
     return () => window.clearInterval(interval);
   }, [hasCurrentPosition]);
   const earningsData =
-    earningsRangeSet?.ranges[EARNINGS_MONTHLY_RANGE_ID] ?? null;
+    earningsRangeSet?.ranges[EARNINGS_LIFETIME_RANGE_ID] ?? null;
   const earningsDailyData =
     earningsRangeSet?.ranges[EARNINGS_DAILY_RANGE_ID] ?? null;
   const mainAccountHelpLabel =
@@ -2596,7 +2551,6 @@ export function EarnDetailView({
     });
   const estimatedEarnedAmountApyBps = deriveEstimatedEarnedAmountApyBps({
     earningsData,
-    earningsError,
     fallbackApyBps: earnForecastApy.apyBps,
   });
   const visibleCurrentPositionHoldings =
@@ -2633,15 +2587,29 @@ export function EarnDetailView({
     hasCurrentPosition && currentBalanceAmount > 0
       ? currentBalanceAmount
       : principalAmount;
-  const estimatedEarnedUsd = deriveEstimatedEarnedSummaryAmount({
+  const canLiveEstimate =
+    earningsFreshness === "fresh" &&
+    earningsRangeSet?.principalMatchesHistory === true &&
+    earningsData?.currentApyBps !== null &&
+    earningsData?.currentApyBps !== undefined;
+  const estimatedEarnedAmounts = deriveEarnEarningsDisplayAmounts({
     apyBps: estimatedEarnedAmountApyBps,
-    earningsData,
-    earningsError,
+    canLiveEstimate,
+    dailyData: earningsDailyData,
     generatedAt: earningsRangeSet?.generatedAt ?? null,
+    lifetimeData: earningsData,
     nowMs: earnLiveNowMs,
     principalAmount,
   });
-  const earnedSummaryLabel = formatEarnedSummaryLabel(estimatedEarnedUsd);
+  const estimatedEarnedUsd = estimatedEarnedAmounts.lifetimeEarnedUsd;
+  const earnedSummaryLabel =
+    earningsOutcome === null
+      ? "Loading earnings…"
+      : earningsOutcome === "unavailable"
+      ? "Earnings unavailable"
+      : earningsFreshness === "stale"
+      ? `${formatEarnedSummaryLabel(estimatedEarnedUsd)} · Updating`
+      : formatEarnedSummaryLabel(estimatedEarnedUsd);
   const depositButtonTone =
     !hasCurrentPosition || isAutodepositConfigured ? "red" : "black";
   const headerActionMode = resolveEarnDetailHeaderActionMode({
@@ -2956,11 +2924,14 @@ export function EarnDetailView({
         <EarningsBlock
           apy={earnForecastApy}
           earningsData={earningsDailyData}
-          estimatedEarnedUsd={estimatedEarnedUsd}
+          estimatedRangeEarnedUsd={estimatedEarnedAmounts.rangeEarnedUsd}
+          estimatedTodayEarnedUsd={estimatedEarnedAmounts.todayEarnedUsd}
+          earningsStale={earningsFreshness === "stale"}
+          earningsUnavailable={earningsOutcome === "unavailable"}
           forecastPrincipalAmount={forecastPrincipalAmount}
           isBalanceHidden={isBalanceHidden}
           isEarningsLoading={isEarningsLoading}
-          principalAmount={principalAmount}
+          onRetryEarnings={refreshEarnings}
         />
       ) : null}
 

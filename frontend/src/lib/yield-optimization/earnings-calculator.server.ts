@@ -154,7 +154,11 @@ function addLocalMonths(
 
 function startOfLocalDay(date: Date, timezone: string): Date {
   const parts = getZonedParts(date, timezone);
-  return zonedDateTimeToUtc(timezone, parts);
+  return zonedDateTimeToUtc(timezone, {
+    day: parts.day,
+    month: parts.month,
+    year: parts.year,
+  });
 }
 
 function startOfLocalMonth(date: Date, timezone: string): Date {

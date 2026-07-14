@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import {
   readClientCache,
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
-import type { EarnEarningsRangeSetResponse } from "@/lib/yield-optimization/earnings.shared";
+import {
+  isServerVerifiedEarnEarningsPayload,
+  type EarnEarningsRangeSetResponse,
+} from "@/lib/yield-optimization/earnings.shared";
 
 const CLIENT_CACHE_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_CACHE_KEY = "default";
 const EARNINGS_EPSILON = 0.000000001;
-const EARN_EARNINGS_CACHE_VERSION = 4;
+const EARN_EARNINGS_CACHE_VERSION = 5;
+const RETRY_DELAYS_MS = [250, 750] as const;
 
 type EarnEarningsCacheEntry = {
   expiresAt: number;
@@ -29,10 +33,11 @@ export type EarnDisplayCachePayload = {
 };
 
 type EarnEarningsCacheScope = {
-  expectedPrincipalAmountRaw?: string | null;
+  revalidationKey?: string | null;
   settingsPda?: string | null;
   solanaEnv?: string;
   walletAddress?: string | null;
+  timezone?: string;
 };
 
 const cachedEarnings = new Map<string, EarnEarningsCacheEntry>();
@@ -41,31 +46,6 @@ const inflightEarnings = new Map<
   Promise<EarnEarningsRangeSetResponse>
 >();
 let cacheVersion = 0;
-
-function hasPositiveRawAmount(amountRaw: string | null | undefined): boolean {
-  if (!amountRaw) {
-    return false;
-  }
-
-  try {
-    return BigInt(amountRaw) > BigInt(0);
-  } catch {
-    return false;
-  }
-}
-
-function responseMatchesExpectedPrincipal(
-  payload: EarnEarningsRangeSetResponse,
-  expectedPrincipalAmountRaw: string | null | undefined
-): boolean {
-  if (!hasPositiveRawAmount(expectedPrincipalAmountRaw)) {
-    return true;
-  }
-
-  return Object.values(payload.ranges).some(
-    (range) => range.principalAmountRaw === expectedPrincipalAmountRaw
-  );
-}
 
 function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
   earnedBarCount: number;
@@ -188,6 +168,83 @@ function getPersistentEarnEarningsCacheKey(cacheKey: string): string {
   );
 }
 
+function markPayloadStale(
+  payload: EarnEarningsRangeSetResponse,
+  staleReason: string
+): EarnEarningsRangeSetResponse {
+  const generatedAtMs = Date.parse(payload.generatedAt);
+  return {
+    ...payload,
+    freshness: "stale",
+    snapshotAgeMs: Number.isFinite(generatedAtMs)
+      ? Math.max(0, Date.now() - generatedAtMs)
+      : null,
+    staleReason,
+  };
+}
+
+class EarnEarningsRequestError extends Error {
+  readonly retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.name = "EarnEarningsRequestError";
+    this.retryable = retryable;
+  }
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function requestEarnEarnings(timezone: string) {
+  const url = new URL(
+    "/api/smart-accounts/yield-optimization/earnings",
+    window.location.origin
+  );
+  url.searchParams.set("timezone", timezone);
+  const response = await fetch(url.toString(), {
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new EarnEarningsRequestError(
+      `Earn earnings request failed: ${response.status}`,
+      response.status === 408 ||
+        response.status === 429 ||
+        response.status >= 500
+    );
+  }
+  const payload: unknown = await response.json();
+  if (!isServerVerifiedEarnEarningsPayload(payload)) {
+    throw new EarnEarningsRequestError(
+      "Earn earnings response was not server-verified.",
+      false
+    );
+  }
+  return payload;
+}
+
+async function requestEarnEarningsWithRetry(timezone: string) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await requestEarnEarnings(timezone);
+    } catch (error) {
+      lastError = error;
+      if (
+        !(error instanceof EarnEarningsRequestError) ||
+        !error.retryable ||
+        attempt === RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+      await wait(RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastError;
+}
+
 function readPersistentEarnEarningsCache(
   cacheKey: string,
   scope: EarnEarningsCacheScope
@@ -203,19 +260,14 @@ function readPersistentEarnEarningsCache(
     solanaEnv: scope.solanaEnv,
     walletAddress: scope.walletAddress,
     settingsPda: scope.settingsPda,
-    validate: (data): data is EarnEarningsRangeSetResponse =>
-      typeof data === "object" && data !== null && "ranges" in data,
+    validate: isServerVerifiedEarnEarningsPayload,
   });
 
   if (!payload) {
     return null;
   }
 
-  const matches = responseMatchesExpectedPrincipal(
-    payload,
-    scope.expectedPrincipalAmountRaw
-  );
-  return matches ? payload : null;
+  return payload;
 }
 
 function writePersistentEarnEarningsCache(
@@ -241,8 +293,16 @@ export function invalidateEarnEarningsCache(cacheKey?: string) {
   cacheVersion += 1;
 
   if (cacheKey) {
-    cachedEarnings.delete(cacheKey);
-    inflightEarnings.delete(cacheKey);
+    for (const [key, cached] of cachedEarnings) {
+      if (key === cacheKey || key.startsWith(`${cacheKey}:`)) {
+        cachedEarnings.set(key, { ...cached, expiresAt: 0 });
+      }
+    }
+    for (const key of inflightEarnings.keys()) {
+      if (key === cacheKey || key.startsWith(`${cacheKey}:`)) {
+        inflightEarnings.delete(key);
+      }
+    }
     return;
   }
 
@@ -264,7 +324,8 @@ export async function fetchEarnEarningsRangeSet(
     return cached.value;
   }
 
-  const inflight = inflightEarnings.get(cacheKey);
+  const inflightKey = `${cacheKey}:request:${scope.revalidationKey ?? "stable"}`;
+  const inflight = inflightEarnings.get(inflightKey);
   if (inflight) {
     return inflight;
   }
@@ -272,33 +333,9 @@ export async function fetchEarnEarningsRangeSet(
   const staleBeforeFetch =
     cached?.value ?? readPersistentEarnEarningsCache(cacheKey, scope);
   const requestCacheVersion = cacheVersion;
-  const request = fetch("/api/smart-accounts/yield-optimization/earnings", {
-    cache: "no-store",
-    credentials: "include",
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`Earn earnings request failed: ${response.status}`);
-      }
-
-      return (await response.json()) as EarnEarningsRangeSetResponse;
-    })
+  const request = requestEarnEarningsWithRetry(scope.timezone ?? "UTC")
     .then((payload) => {
       if (requestCacheVersion === cacheVersion) {
-        if (
-          !responseMatchesExpectedPrincipal(
-            payload,
-            scope.expectedPrincipalAmountRaw
-          )
-        ) {
-          const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
-          if (stale) {
-            return stale;
-          }
-
-          throw new Error("Earn earnings response did not include principal.");
-        }
-
         if (
           isRegressiveEarningsPayload({
             fresh: payload,
@@ -307,7 +344,7 @@ export async function fetchEarnEarningsRangeSet(
         ) {
           const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
           if (stale) {
-            return stale;
+            return markPayloadStale(stale, "regressive_revalidation");
           }
         }
 
@@ -319,7 +356,7 @@ export async function fetchEarnEarningsRangeSet(
         ) {
           const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
           if (stale) {
-            return stale;
+            return markPayloadStale(stale, "unchanged_revalidation");
           }
         }
 
@@ -331,11 +368,20 @@ export async function fetchEarnEarningsRangeSet(
       }
       return payload;
     })
+    .catch((error) => {
+      const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
+      if (stale) {
+        return markPayloadStale(stale, "client_revalidation_failed");
+      }
+      throw error;
+    })
     .finally(() => {
-      inflightEarnings.delete(cacheKey);
+      if (inflightEarnings.get(inflightKey) === request) {
+        inflightEarnings.delete(inflightKey);
+      }
     });
 
-  inflightEarnings.set(cacheKey, request);
+  inflightEarnings.set(inflightKey, request);
   return request;
 }
 
@@ -343,7 +389,7 @@ export function useEarnEarnings({
   cacheKey = DEFAULT_CACHE_KEY,
   enabled,
   seed,
-  expectedPrincipalAmountRaw,
+  revalidationKey,
   settingsPda,
   solanaEnv,
   walletAddress,
@@ -351,68 +397,88 @@ export function useEarnEarnings({
   cacheKey?: string;
   enabled: boolean;
   seed?: EarnEarningsRangeSetResponse | null;
-  expectedPrincipalAmountRaw?: string | null;
+  revalidationKey?: string | null;
   settingsPda?: string | null;
   solanaEnv?: string;
   walletAddress?: string | null;
 }) {
-  const persisted = readPersistentEarnEarningsCache(cacheKey, {
-    expectedPrincipalAmountRaw,
+  const [timezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+  );
+  const scopedCacheKey = `${cacheKey}:${timezone}`;
+  const persisted = readPersistentEarnEarningsCache(scopedCacheKey, {
+    revalidationKey,
     settingsPda,
     solanaEnv,
     walletAddress,
+    timezone,
   });
-  const cached = cachedEarnings.get(cacheKey);
-  const [data, setData] = useState<EarnEarningsRangeSetResponse | null>(
-    seed ??
+  const cached = cachedEarnings.get(scopedCacheKey);
+  const [dataState, setDataState] = useState<{
+    scopeKey: string;
+    value: EarnEarningsRangeSetResponse | null;
+  }>(() => ({
+    scopeKey: scopedCacheKey,
+    value:
+      seed ??
       (cached && cached.expiresAt > Date.now() ? cached.value : null) ??
-      persisted
-  );
+      persisted,
+  }));
+  const data =
+    dataState.scopeKey === scopedCacheKey ? dataState.value : null;
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const refresh = useCallback(() => {
+    invalidateEarnEarningsCache(scopedCacheKey);
+    setRefreshNonce((value) => value + 1);
+  }, [scopedCacheKey]);
 
   useEffect(() => {
     if (!enabled) {
-      setData(null);
+      setDataState({ scopeKey: scopedCacheKey, value: null });
       setError(null);
       setIsLoading(false);
       return;
     }
 
     let isMounted = true;
-    const freshCached = cachedEarnings.get(cacheKey);
+    const freshCached = cachedEarnings.get(scopedCacheKey);
     if (freshCached && freshCached.expiresAt > Date.now()) {
-      setData(freshCached.value);
+      setDataState({ scopeKey: scopedCacheKey, value: freshCached.value });
       setError(null);
       setIsLoading(false);
       return;
     }
 
-    const freshPersisted = readPersistentEarnEarningsCache(cacheKey, {
-      expectedPrincipalAmountRaw,
+    const freshPersisted = readPersistentEarnEarningsCache(scopedCacheKey, {
+      revalidationKey,
       settingsPda,
       solanaEnv,
       walletAddress,
+      timezone,
     });
     if (freshPersisted) {
-      setData(freshPersisted);
+      setDataState({ scopeKey: scopedCacheKey, value: freshPersisted });
+    } else if (dataState.scopeKey !== scopedCacheKey) {
+      setDataState({ scopeKey: scopedCacheKey, value: seed ?? null });
     }
 
     setIsLoading(true);
     setError(null);
-    const requestCacheVersion = cacheVersion;
-    fetchEarnEarningsRangeSet(cacheKey, {
-      expectedPrincipalAmountRaw,
+    fetchEarnEarningsRangeSet(scopedCacheKey, {
+      revalidationKey,
       settingsPda,
       solanaEnv,
       walletAddress,
+      timezone,
     })
       .then((payload) => {
-        if (!isMounted || requestCacheVersion !== cacheVersion) {
+        if (!isMounted) {
           return;
         }
 
-        setData(payload);
+        setDataState({ scopeKey: scopedCacheKey, value: payload });
       })
       .catch((err) => {
         if (!isMounted) {
@@ -420,7 +486,16 @@ export function useEarnEarnings({
         }
 
         console.warn("[earnings] failed to load Earn earnings", err);
-        setData(null);
+        setDataState((current) => ({
+          scopeKey: scopedCacheKey,
+          value:
+            current.scopeKey === scopedCacheKey && current.value
+              ? markPayloadStale(
+                  current.value,
+                  "client_revalidation_failed"
+                )
+              : null,
+        }));
         setError("Earnings are unavailable.");
       })
       .finally(() => {
@@ -433,17 +508,24 @@ export function useEarnEarnings({
       isMounted = false;
     };
   }, [
-    cacheKey,
+    scopedCacheKey,
     enabled,
-    expectedPrincipalAmountRaw,
+    revalidationKey,
     settingsPda,
     solanaEnv,
     walletAddress,
+    timezone,
+    refreshNonce,
+    seed,
+    dataState.scopeKey,
   ]);
 
   return {
     data,
     error,
+    freshness: data?.freshness ?? (error ? "unavailable" : null),
     isLoading,
+    outcome: data?.outcome ?? (error ? "unavailable" : null),
+    refresh,
   };
 }
