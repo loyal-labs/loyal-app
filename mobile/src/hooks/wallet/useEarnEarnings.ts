@@ -19,9 +19,17 @@ import {
 // `notify: true`, i.e. when the earn balance explicitly changed — and picks up
 // the latest cache on remount.
 
+// The backend refuses to compute earnings it can't verify against the recorded
+// deposit history (503), which is a different thing from "you have earned
+// nothing" (200, zero bars). Keep them apart: zeros are a truthful answer only
+// in the second case, so `status` lets the chart say so instead of claiming a
+// position earned $0.00.
+export type EarnEarningsStatus = "loading" | "ready" | "unavailable";
+
 type CachedEarnings = {
-  earnings: EarnEarningsResponse;
+  earnings: EarnEarningsResponse | null;
   fetchedAtMs: number;
+  status: Exclude<EarnEarningsStatus, "loading">;
 };
 
 // ponytail: single-wallet cache; key by address if multi-wallet ever lands.
@@ -48,9 +56,19 @@ function fetchIntoCache(walletAddress: string): Promise<void> {
     try {
       const res = await fetchEarnEarnings(walletAddress);
       cacheAddress = walletAddress;
-      cached = { earnings: res, fetchedAtMs: Date.now() };
+      cached = { earnings: res, fetchedAtMs: Date.now(), status: "ready" };
     } catch (error) {
       console.error("Failed to fetch Earn earnings", error);
+      // A failed refresh never clobbers a good snapshot — a blip shouldn't wipe
+      // a drawn chart. Only surface "unavailable" when we have nothing to show.
+      if (cacheAddress !== walletAddress || cached?.status !== "ready") {
+        cacheAddress = walletAddress;
+        cached = {
+          earnings: null,
+          fetchedAtMs: Date.now(),
+          status: "unavailable",
+        };
+      }
     } finally {
       if (inFlight === entry) {
         inFlight = null;
@@ -83,20 +101,28 @@ export async function refreshEarnEarningsCache(
   }
 }
 
+type EarnEarningsSnapshot = {
+  earnings: EarnEarningsResponse | null;
+  fetchedAtMs: number | null;
+  status: EarnEarningsStatus;
+};
+
+const LOADING: EarnEarningsSnapshot = {
+  earnings: null,
+  fetchedAtMs: null,
+  status: "loading",
+};
+
 export function useEarnEarnings(walletAddress: string | null) {
-  const [snapshot, setSnapshot] = useState<{
-    earnings: EarnEarningsResponse | null;
-    fetchedAtMs: number | null;
-    hasLoaded: boolean;
-  }>(() =>
+  const [snapshot, setSnapshot] = useState<EarnEarningsSnapshot>(() =>
     walletAddress && cacheAddress === walletAddress && cached
-      ? { ...cached, hasLoaded: true }
-      : { earnings: null, fetchedAtMs: null, hasLoaded: false },
+      ? { ...cached }
+      : LOADING,
   );
 
   useEffect(() => {
     if (!walletAddress) {
-      setSnapshot({ earnings: null, fetchedAtMs: null, hasLoaded: false });
+      setSnapshot(LOADING);
       return;
     }
     let alive = true;
@@ -104,29 +130,23 @@ export function useEarnEarnings(walletAddress: string | null) {
       if (!alive || cacheAddress !== walletAddress || !cached) {
         return;
       }
-      const { earnings, fetchedAtMs } = cached;
+      const { earnings, fetchedAtMs, status } = cached;
       setSnapshot((prev) =>
-        prev.earnings === earnings && prev.fetchedAtMs === fetchedAtMs
+        prev.earnings === earnings &&
+        prev.fetchedAtMs === fetchedAtMs &&
+        prev.status === status
           ? prev
-          : { earnings, fetchedAtMs, hasLoaded: true },
+          : { earnings, fetchedAtMs, status },
       );
     };
     if (cacheAddress === walletAddress && cached) {
       // Preloaded (or background-updated) data: show it immediately.
       syncFromCache();
     } else {
-      // Nothing cached yet — fetch now. On failure, settle `hasLoaded` so the
-      // chart shows its empty state instead of a forever-pulsing skeleton; the
-      // cache stays empty so the next mount retries.
-      void fetchIntoCache(walletAddress).then(() => {
-        if (!alive) {
-          return;
-        }
-        syncFromCache();
-        setSnapshot((prev) =>
-          prev.hasLoaded ? prev : { ...prev, hasLoaded: true },
-        );
-      });
+      // Nothing cached yet — fetch now. `fetchIntoCache` always settles the
+      // cache (ready or unavailable), so the chart leaves the skeleton either
+      // way instead of pulsing forever.
+      void fetchIntoCache(walletAddress).then(syncFromCache);
     }
     pushListeners.add(syncFromCache);
     return () => {

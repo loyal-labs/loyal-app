@@ -764,11 +764,9 @@ export async function fetchEarnHoldings(
 }
 
 // Per-user Earn earnings for the Earnings chart (read-only, keyed by wallet
-// address — no signature, like `state`). Mirrors the web's single-range
-// `/yield-optimization/earnings` response; the mobile route always returns the
-// 30-day daily range. `bars` are per-day earned amounts; the chart plots them
-// per-day (each bar = that day's earnings). The single-range response has no
-// `generatedAt`, so the live odometer anchors to the client fetch time.
+// address — no signature, like `state`). `bars` are per-day earned amounts; the
+// chart plots them per-day (each bar = that day's earnings). The live odometer
+// anchors to the client fetch time.
 export type EarnEarningsBar = {
   apyBps: number | null;
   avgPrincipalUsd: number;
@@ -793,19 +791,41 @@ export type EarnEarningsResponse = {
   todayEarnedUsd: number;
 };
 
+// The backend returns every range in one payload (7D/30D/1Y/ALL); the mobile
+// chart plots the 30-day daily range. Older backends returned that one range
+// flat, so accept both shapes — the OTA and the backend deploy independently.
+export type EarnEarningsRangeSetResponse = {
+  ranges: Record<"7D" | "30D" | "1Y" | "ALL", EarnEarningsResponse>;
+};
+
+// The server buckets bars by calendar day in this zone. Omitting it buckets in
+// UTC, which puts the wrong earnings in "today" for anyone far from it — and
+// disagrees with web, which sends the browser's zone.
+function deviceTimezone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchEarnEarnings(
   walletAddress: string,
 ): Promise<EarnEarningsResponse> {
+  const timezone = deviceTimezone();
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/earnings?walletAddress=${encodeURIComponent(
       walletAddress,
-    )}`,
+    )}${timezone ? `&timezone=${encodeURIComponent(timezone)}` : ""}`,
     { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn earnings.");
   }
-  return (await res.json()) as EarnEarningsResponse;
+  const payload = (await res.json()) as
+    | EarnEarningsRangeSetResponse
+    | EarnEarningsResponse;
+  return "ranges" in payload ? payload.ranges["30D"] : payload;
 }
 
 // --- Earn transactions (activity) ----------------------------------------

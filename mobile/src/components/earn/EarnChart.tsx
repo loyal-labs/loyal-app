@@ -383,16 +383,33 @@ function ChartSkeleton() {
   );
 }
 
+// Shown when the backend can't verify the wallet's earnings history yet. We
+// deliberately show no number: every input to the odometer (earned-to-date, the
+// daily bars) comes from the payload we didn't get, so a live "$0.00 and
+// counting" would just be a different wrong number.
+function ChartUnavailable() {
+  return (
+    <View style={[styles.root, styles.unavailableRoot]}>
+      <Text style={styles.unavailableTitle}>Earnings history is updating</Text>
+      <Text style={styles.unavailableBody}>
+        Your balance isn&apos;t affected — we just can&apos;t chart the daily
+        breakdown right now. Check back shortly.
+      </Text>
+    </View>
+  );
+}
+
 export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
-  const { earnings, fetchedAtMs, hasLoaded } = useEarnEarnings(walletAddress);
+  const { earnings, fetchedAtMs, status } = useEarnEarnings(walletAddress);
   const bars = useMemo(() => earnings?.bars ?? [], [earnings]);
   const barCount = bars.length;
   const lastIndex = Math.max(0, barCount - 1);
   const hasData = barCount > 0;
-  // Show the skeleton only until the first read settles. Once it has (with bars,
-  // or empty/errored), we never fall back to it — so a quiet refresh of an
-  // already-drawn chart doesn't blink, and a failed read shows the empty chart.
-  const showSkeleton = !hasData && !hasLoaded;
+  // Show the skeleton only until the first read settles. Once it has, we never
+  // fall back to it — so a quiet refresh of an already-drawn chart doesn't
+  // blink. A settled read with no bars is either a truthful zero (empty chart)
+  // or an unavailable one (see below).
+  const showSkeleton = !hasData && status === "loading";
 
   // Live odometer inputs.
   const principalUsd = earnings?.principalUsd ?? 0;
@@ -551,6 +568,13 @@ export function EarnChart({ walletAddress }: { walletAddress: string | null }) {
   // Placed after all hooks so the hook order stays stable across the swap.
   if (showSkeleton) {
     return <ChartSkeleton />;
+  }
+  // The server couldn't verify this wallet's earnings history and we have no
+  // earlier snapshot to fall back on. Rendering the chart here would draw a
+  // $0.00 odometer over a real position — say what's happening instead. The
+  // balance itself is read live from chain and is unaffected.
+  if (status === "unavailable" && !hasData) {
+    return <ChartUnavailable />;
   }
 
   return (
@@ -715,6 +739,26 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     color: COLOR_GREEN,
+  },
+  unavailableRoot: {
+    alignItems: "center",
+    gap: 8,
+    justifyContent: "center",
+  },
+  unavailableTitle: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 17,
+    lineHeight: 24,
+    color: COLOR_WHITE,
+    textAlign: "center",
+  },
+  unavailableBody: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 14,
+    lineHeight: 20,
+    color: COLOR_DIM_WHITE_60,
+    textAlign: "center",
+    maxWidth: 280,
   },
   subtitleDate: {
     fontFamily: "Geist_400Regular",
