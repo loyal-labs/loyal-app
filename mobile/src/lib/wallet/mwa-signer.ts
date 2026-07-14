@@ -13,9 +13,15 @@ import {
   type StoredMwaAccount,
 } from "./mwa-account-storage";
 
+// Wallets verify this identity by resolving `uri` against the Digital Asset
+// Links statement at https://askloyal.com/.well-known/assetlinks.json, which
+// pins our Android package + signing certificate. Without a match they cannot
+// attest who is asking to sign and show the request as unverified.
+// `icon` is a path relative to `uri`, per the MWA spec.
 const APP_IDENTITY = {
   name: "Loyal",
   uri: "https://askloyal.com",
+  icon: "android-chrome-192x192.png",
 };
 
 // MWA has no localnet identifier; devnet is the closest for local development.
