@@ -18,6 +18,7 @@ const resolveAuthenticatedPrincipalFromRequest = mock(
 const findCurrentEarnAutodepositState = mock(
   async (): Promise<ReturnType<typeof createState> | null> => createState()
 );
+const findEarnAutodepositScheduledSweepProgress = mock(async () => null);
 const requestImmediateEarnAutodepositScheduledSweep = mock(
   async (): Promise<{
     acceleratedAmountRaw: bigint;
@@ -57,6 +58,7 @@ mock.module("@/lib/yield-optimization/earn-position-gate.server", () => ({
 mock.module(
   "@/lib/yield-optimization/earn-autodeposit-repository.server",
   () => ({
+    findEarnAutodepositScheduledSweepProgress,
     findCurrentEarnAutodepositState,
     requestImmediateEarnAutodepositScheduledSweep,
   })
@@ -98,6 +100,7 @@ const { POST } = await import("./route");
 describe("Earn autodeposit sweeps execute route", () => {
   beforeEach(() => {
     resolveAuthenticatedPrincipalFromRequest.mockClear();
+    findEarnAutodepositScheduledSweepProgress.mockClear();
     findCurrentEarnAutodepositState.mockClear();
     requestImmediateEarnAutodepositScheduledSweep.mockClear();
     hasActiveEarnRoutePolicyPair.mockClear();

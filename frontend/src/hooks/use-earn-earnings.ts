@@ -48,6 +48,9 @@ const inflightEarnings = new Map<
   Promise<EarnEarningsRangeSetResponse>
 >();
 const latestRequestByCacheKey = new Map<string, string>();
+const earnEarningsInvalidationListeners = new Set<
+  (cacheKey?: string) => void
+>();
 let cacheVersion = 0;
 
 function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
@@ -311,12 +314,15 @@ export function invalidateEarnEarningsCache(cacheKey?: string) {
         latestRequestByCacheKey.delete(key);
       }
     }
-    return;
+  } else {
+    cachedEarnings.clear();
+    inflightEarnings.clear();
+    latestRequestByCacheKey.clear();
   }
 
-  cachedEarnings.clear();
-  inflightEarnings.clear();
-  latestRequestByCacheKey.clear();
+  for (const listener of earnEarningsInvalidationListeners) {
+    listener(cacheKey);
+  }
 }
 
 export function resetEarnEarningsCacheForTests() {
@@ -486,7 +492,22 @@ export function useEarnEarnings({
   const [refreshNonce, setRefreshNonce] = useState(0);
   const refresh = useCallback(() => {
     invalidateEarnEarningsCache(scopedCacheKey);
-    setRefreshNonce((value) => value + 1);
+  }, [scopedCacheKey]);
+
+  useEffect(() => {
+    const handleInvalidation = (invalidatedCacheKey?: string) => {
+      if (
+        !invalidatedCacheKey ||
+        scopedCacheKey === invalidatedCacheKey ||
+        scopedCacheKey.startsWith(`${invalidatedCacheKey}:`)
+      ) {
+        setRefreshNonce((value) => value + 1);
+      }
+    };
+    earnEarningsInvalidationListeners.add(handleInvalidation);
+    return () => {
+      earnEarningsInvalidationListeners.delete(handleInvalidation);
+    };
   }, [scopedCacheKey]);
 
   useEffect(() => {

@@ -33,6 +33,11 @@ const AUTH_APP_NAME_ENV_NAME = "AUTH_APP_NAME";
 const DEPLOYMENT_PRIVATE_KEY_ENV_NAME = "DEPLOYMENT_PK";
 const EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME = "EARN_YIELD_ROUTER_PUBLIC_KEY";
 const SMART_ACCOUNT_SPONSOR_PRIVATE_KEY_ENV_NAME = "SMART_ACCOUNT_SPONSOR_PK";
+const REALTIME_AUTH_SECRET_ENV_NAME = "REALTIME_AUTH_SECRET";
+const REALTIME_EVENTS_URL_ENV_NAME = "REALTIME_EVENTS_URL";
+const DEFAULT_REALTIME_EVENTS_URL =
+  "https://loyal-yield-realtime.onrender.com/events";
+const DEFAULT_LOCAL_REALTIME_EVENTS_URL = "http://127.0.0.1:10000/events";
 
 export type ChatRuntimeConfig = {
   apiKey: string;
@@ -41,6 +46,11 @@ export type ChatRuntimeConfig = {
 
 export type LoyalSmartAccountsRuntimeConfig = {
   programId: string;
+};
+
+export type EarnRealtimeRuntimeConfig = {
+  authSecret: string | undefined;
+  eventsUrl: string;
 };
 
 export type ServerEnv = {
@@ -57,6 +67,7 @@ export type ServerEnv = {
   authSessionRs256PublicKey: string | undefined;
   deploymentPrivateKey: string | undefined;
   earnYieldRouterPublicKey: string | undefined;
+  earnRealtime: EarnRealtimeRuntimeConfig;
   mixpanelToken: string | undefined;
   smartAccountSponsorPrivateKey: string | undefined;
   solanaEnv: SolanaEnv;
@@ -113,11 +124,12 @@ function createLoyalSmartAccountsRuntimeConfig(
 
 export function createServerEnv(env: EnvSource): ServerEnv {
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(env);
+  const appEnvironment = resolveAppEnvironment(
+    getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
+  );
 
   return {
-    appEnvironment: resolveAppEnvironment(
-      getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
-    ),
+    appEnvironment,
     chatRuntime: createChatRuntimeConfig(env),
     databaseUrl: getRequiredEnv(env, "DATABASE_URL"),
     authAppName: getOptionalEnv(env, AUTH_APP_NAME_ENV_NAME) ?? "askloyal",
@@ -146,6 +158,14 @@ export function createServerEnv(env: EnvSource): ServerEnv {
       env,
       EARN_YIELD_ROUTER_PUBLIC_KEY_ENV_NAME
     ),
+    earnRealtime: {
+      authSecret: getOptionalEnv(env, REALTIME_AUTH_SECRET_ENV_NAME),
+      eventsUrl:
+        getOptionalEnv(env, REALTIME_EVENTS_URL_ENV_NAME) ??
+        (appEnvironment === "local"
+          ? DEFAULT_LOCAL_REALTIME_EVENTS_URL
+          : DEFAULT_REALTIME_EVENTS_URL),
+    },
     mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
     smartAccountSponsorPrivateKey: getOptionalEnv(
       env,

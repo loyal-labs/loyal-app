@@ -22,6 +22,10 @@ import type {
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import {
+  isEarnAutodepositTerminalState,
+  type EarnAutodepositProgress,
+} from "@/features/earn-realtime";
+import {
   formatLoadedScheduledSweepAvailableIn,
   getLoadedScheduledSweepExecuteNowAvailableAtMs,
   type LoadedEarnAutodepositScheduledSweep,
@@ -36,7 +40,6 @@ import {
 } from "@/lib/yield-optimization/earn-policy-refund-contracts.shared";
 import {
   fetchEarnTransactions,
-  invalidateEarnTransactionsCache,
   type EarnTransactionItem,
 } from "@/lib/yield-optimization/earn-transactions.client";
 
@@ -49,12 +52,6 @@ const LOYAL_EARN_BRAND_COLOR = "#F9363C";
 const UTC_TIME_ZONE = "UTC";
 const USDC_RAW_SCALE = BigInt(1_000_000);
 
-// Poll cadence for the pseudo-realtime feed. Most ticks resolve from the
-// client cache for free; the tick after an Earn action fetches fresh data
-// because the workspace invalidates the cache on confirmation.
-const EARN_TRANSACTIONS_POLL_INTERVAL_MS = 15_000;
-const EARN_TRANSACTIONS_FAST_POLL_INTERVAL_MS = 2_000;
-const EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS = 90_000;
 const EARN_MASCOT_EXPERIMENTAL_TOGGLE_CLICK_COUNT = 5;
 const EARN_MASCOT_EXPERIMENTAL_TOGGLE_RESET_MS = 1_800;
 
@@ -732,34 +729,54 @@ function isPersistedScheduledSweepRetryable(
   return sweep.status === "failed" || sweep.status === "released";
 }
 
-function parseExactUsdcRawAmount(rawAmount: string): bigint | null {
-  const match = rawAmount.trim().match(/^\$(-?\d+)\.(\d{6})$/);
-  if (!match) {
-    return null;
+function getAutodepositProgressLabel(
+  progress: EarnAutodepositProgress | undefined
+): string | null {
+  switch (progress?.state) {
+    case "requesting":
+      return "Requesting execution";
+    case "requested":
+      return "Queued";
+    case "selected":
+      return "Preparing deposit";
+    case "pull_confirmed":
+      return "Funds moved — depositing";
+    case "completed":
+      return "Autodeposit complete";
+    case "failed":
+      return "Autodeposit failed";
+    case "released":
+      return "Ready to retry";
+    case "canceled":
+      return "Autodeposit canceled";
+    case "scheduled":
+      return "Scheduled";
+    default:
+      return null;
   }
-
-  const [, whole = "0", fraction = "000000"] = match;
-  const sign = whole.startsWith("-") ? BigInt(-1) : BigInt(1);
-  const absoluteWhole = whole.startsWith("-") ? whole.slice(1) : whole;
-  return sign * (BigInt(absoluteWhole) * USDC_RAW_SCALE + BigInt(fraction));
 }
 
-function hasBalanceSweepActivityForScheduledSweep(
-  transactions: readonly EarnTransactionItem[],
-  sweep: LoadedEarnAutodepositScheduledSweep
-): boolean {
-  if (!/^\d+$/.test(sweep.remainingAmountRaw)) {
-    return false;
+function getAutodepositProgressButtonLabel(
+  progress: EarnAutodepositProgress | undefined
+): string | null {
+  switch (progress?.state) {
+    case "requesting":
+      return "Requesting...";
+    case "requested":
+      return "Queued";
+    case "selected":
+      return "Preparing...";
+    case "pull_confirmed":
+      return "Depositing...";
+    case "completed":
+      return "Complete";
+    case "failed":
+    case "released":
+    case "canceled":
+      return "Try again";
+    default:
+      return null;
   }
-
-  const scheduledAmountRaw = BigInt(sweep.remainingAmountRaw);
-  return transactions.some((item) => {
-    if (item.kind !== "balance_sweep") {
-      return false;
-    }
-
-    return parseExactUsdcRawAmount(item.rawAmount) === scheduledAmountRaw;
-  });
 }
 
 function ScheduledTransactionRow({
@@ -771,6 +788,7 @@ function ScheduledTransactionRow({
   isBalanceHidden = false,
   nowMs,
   onExecuteNow,
+  progress,
   sweep,
 }: {
   displayTimeZone: string;
@@ -781,16 +799,31 @@ function ScheduledTransactionRow({
   isBalanceHidden?: boolean;
   nowMs: number;
   onExecuteNow?: () => void;
+  progress?: EarnAutodepositProgress;
   sweep: LoadedEarnAutodepositScheduledSweep | PendingScheduledSweepPreview;
 }) {
   const amountLabel = formatScheduledSweepAmount(
     "remainingAmountRaw" in sweep ? sweep.remainingAmountRaw : sweep.amountRaw
   );
-  const timeLabel = isRetryable
-    ? "Retry needed"
-    : "eligibleAfter" in sweep
-    ? formatScheduledSweepTime(sweep.eligibleAfter, displayTimeZone)
-    : "Scheduling...";
+  const progressLabel = getAutodepositProgressLabel(progress);
+  const progressButtonLabel = getAutodepositProgressButtonLabel(progress);
+  const isProgressActive = Boolean(
+    progress &&
+      ["requesting", "requested", "selected", "pull_confirmed"].includes(
+        progress.state
+      )
+  );
+  const isProgressComplete = progress?.state === "completed";
+  const isProgressRetryable = Boolean(
+    progress && ["failed", "released", "canceled"].includes(progress.state)
+  );
+  const timeLabel =
+    progressLabel ??
+    (isRetryable
+      ? "Retry needed"
+      : "eligibleAfter" in sweep
+      ? formatScheduledSweepTime(sweep.eligibleAfter, displayTimeZone)
+      : "Scheduling...");
   const executeNowAvailableAtMs =
     "executeNowAvailableAt" in sweep
       ? getLoadedScheduledSweepExecuteNowAvailableAtMs(sweep)
@@ -798,13 +831,15 @@ function ScheduledTransactionRow({
   const availableInLabel =
     executeNowAvailableAtMs === null
       ? null
-      : formatLoadedScheduledSweepAvailableIn(
-          executeNowAvailableAtMs,
-          nowMs
-        );
+      : formatLoadedScheduledSweepAvailableIn(executeNowAvailableAtMs, nowMs);
   const isWaitingForDelegation = availableInLabel !== null;
   const isButtonDisabled =
-    isPending || isExecuting || isWaitingForDelegation || !onExecuteNow;
+    isPending ||
+    isExecuting ||
+    isProgressActive ||
+    isProgressComplete ||
+    isWaitingForDelegation ||
+    !onExecuteNow;
 
   return (
     <>
@@ -937,14 +972,16 @@ function ScheduledTransactionRow({
           </span>
           <span style={{ display: "flex", gap: "8px", paddingBottom: "11px" }}>
             <button
-              aria-busy={isExecuting}
+              aria-busy={isExecuting || isProgressActive}
               className="earn-scheduled-execute-btn"
               disabled={isButtonDisabled}
               onClick={onExecuteNow}
               style={{
                 alignItems: "center",
                 background:
-                  isPending || isExecuting ? "#F97B80" : LOYAL_EARN_BRAND_COLOR,
+                  isPending || isExecuting || isProgressActive
+                    ? "#F97B80"
+                    : LOYAL_EARN_BRAND_COLOR,
                 border: "none",
                 borderRadius: "9999px",
                 color: "#fff",
@@ -960,7 +997,7 @@ function ScheduledTransactionRow({
               }}
               type="button"
             >
-              {isPending ? (
+              {isPending || isProgressActive ? (
                 <span
                   aria-hidden="true"
                   className="earn-scheduled-spinner"
@@ -974,17 +1011,18 @@ function ScheduledTransactionRow({
                   }}
                 />
               ) : null}
-              {isPending
-                ? "Scheduling"
-                : availableInLabel
-                ? availableInLabel
-                : isAwaitingExecution
-                ? "Executing..."
-                : isExecuting
-                ? "Requesting..."
-                : isRetryable
-                ? "Try again"
-                : "Execute now"}
+              {progressButtonLabel ??
+                (isPending
+                  ? "Scheduling"
+                  : availableInLabel
+                  ? availableInLabel
+                  : isAwaitingExecution
+                  ? "Executing..."
+                  : isExecuting
+                  ? "Requesting..."
+                  : isRetryable || isProgressRetryable
+                  ? "Try again"
+                  : "Execute now")}
             </button>
           </span>
         </span>
@@ -1557,13 +1595,14 @@ export function groupEarnTransactions(
 }
 
 export function EarnTransactionsPane({
+  activeScheduledSweepSlotId = null,
+  autodepositProgressBySlot = {},
   isAutodepositConfigured = false,
   isBalanceHidden = false,
   isExecutingScheduledSweep = false,
   mascotPaneHeight = "38%",
   onExperimentalModeToggle,
   onExecuteScheduledSweep,
-  onRefreshScheduledSweeps,
   onSelectTransaction,
   pendingScheduledSweep = null,
   refreshKey = 0,
@@ -1575,6 +1614,8 @@ export function EarnTransactionsPane({
   topInset = 0,
   walletAddress,
 }: {
+  activeScheduledSweepSlotId?: string | null;
+  autodepositProgressBySlot?: Readonly<Record<string, EarnAutodepositProgress>>;
   isAutodepositConfigured?: boolean;
   isBalanceHidden?: boolean;
   isExecutingScheduledSweep?: boolean;
@@ -1583,7 +1624,6 @@ export function EarnTransactionsPane({
   onExecuteScheduledSweep?: (
     sweep: LoadedEarnAutodepositScheduledSweep
   ) => Promise<void> | void;
-  onRefreshScheduledSweeps?: () => Promise<void> | void;
   onSelectTransaction: (detail: TransactionDetail) => void;
   pendingScheduledSweep?: PendingScheduledSweepPreview | null;
   refreshKey?: number;
@@ -1609,23 +1649,11 @@ export function EarnTransactionsPane({
   const knownTransactionIdsRef = useRef<Set<string> | null>(null);
   const loadRequestSeqRef = useRef(0);
   const renderedScheduledSweepsFeedKeyRef = useRef<string | null>(null);
-  const scheduledSweepsLengthRef = useRef(scheduledSweeps.length);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scheduledSweepNowMs, setScheduledSweepNowMs] = useState(() =>
     Date.now()
   );
-  const [
-    scheduledSweepExecutionRequestedAtMs,
-    setScheduledSweepExecutionRequestedAtMs,
-  ] = useState<number | null>(null);
-  const [
-    scheduledSweepExecutionRequestedSlotId,
-    setScheduledSweepExecutionRequestedSlotId,
-  ] = useState<string | null>(null);
-  const [earnActionRefreshRequestedAtMs, setEarnActionRefreshRequestedAtMs] =
-    useState<number | null>(null);
-  const lastRefreshKeyRef = useRef<number | null>(null);
   const [policyRefundPolicies, setPolicyRefundPolicies] = useState<
     EarnPolicyRefundScanPolicy[] | null
   >(null);
@@ -1644,12 +1672,13 @@ export function EarnTransactionsPane({
   const [policyRefundError, setPolicyRefundError] = useState<string | null>(
     null
   );
-  const isAwaitingScheduledSweepExecution =
-    scheduledSweepExecutionRequestedAtMs !== null;
-
-  useEffect(() => {
-    scheduledSweepsLengthRef.current = scheduledSweeps.length;
-  }, [scheduledSweeps.length]);
+  const activeScheduledSweepProgress = activeScheduledSweepSlotId
+    ? autodepositProgressBySlot[activeScheduledSweepSlotId]
+    : undefined;
+  const isAwaitingScheduledSweepExecution = Boolean(
+    activeScheduledSweepProgress &&
+      !isEarnAutodepositTerminalState(activeScheduledSweepProgress.state)
+  );
 
   useEffect(() => {
     const hasFutureExecuteNow = renderedScheduledSweeps.some((sweep) => {
@@ -1669,18 +1698,6 @@ export function EarnTransactionsPane({
   }, [renderedScheduledSweeps]);
 
   useEffect(() => {
-    if (lastRefreshKeyRef.current === refreshKey) {
-      return;
-    }
-
-    const previousRefreshKey = lastRefreshKeyRef.current;
-    lastRefreshKeyRef.current = refreshKey;
-    if (previousRefreshKey !== null || refreshKey > 0) {
-      setEarnActionRefreshRequestedAtMs(Date.now());
-    }
-  }, [refreshKey]);
-
-  useEffect(() => {
     const feedKey = `${solanaEnv}:${settingsPda ?? ""}:${walletAddress ?? ""}`;
     if (renderedScheduledSweepsFeedKeyRef.current !== feedKey) {
       renderedScheduledSweepsFeedKeyRef.current = feedKey;
@@ -1698,37 +1715,18 @@ export function EarnTransactionsPane({
       return;
     }
 
-    if (
-      scheduledSweepExecutionRequestedAtMs === null ||
-      scheduledSweepExecuteError
-    ) {
+    if (!isAwaitingScheduledSweepExecution || scheduledSweepExecuteError) {
       setRenderedScheduledSweeps([]);
-      return;
     }
-
-    setRenderedScheduledSweeps((current) =>
-      current.filter(
-        (sweep) =>
-          !hasBalanceSweepActivityForScheduledSweep(transactions, sweep)
-      )
-    );
   }, [
     isAutodepositConfigured,
+    isAwaitingScheduledSweepExecution,
     scheduledSweepExecuteError,
-    scheduledSweepExecutionRequestedAtMs,
     scheduledSweeps,
     settingsPda,
     solanaEnv,
-    transactions,
     walletAddress,
   ]);
-
-  useEffect(() => {
-    if (scheduledSweepExecuteError) {
-      setScheduledSweepExecutionRequestedAtMs(null);
-      setScheduledSweepExecutionRequestedSlotId(null);
-    }
-  }, [scheduledSweepExecuteError]);
 
   const handleExecuteScheduledSweep = useCallback(
     (sweep: LoadedEarnAutodepositScheduledSweep) => {
@@ -1743,12 +1741,7 @@ export function EarnTransactionsPane({
         return;
       }
 
-      setScheduledSweepExecutionRequestedAtMs(Date.now());
-      setScheduledSweepExecutionRequestedSlotId(sweep.slotId ?? sweep.id);
-      void Promise.resolve(onExecuteScheduledSweep(sweep)).catch(() => {
-        setScheduledSweepExecutionRequestedAtMs(null);
-        setScheduledSweepExecutionRequestedSlotId(null);
-      });
+      void Promise.resolve(onExecuteScheduledSweep(sweep));
     },
     [
       isAwaitingScheduledSweepExecution,
@@ -1777,9 +1770,6 @@ export function EarnTransactionsPane({
       setPolicyRefundError(null);
       feedKeyRef.current = null;
       knownTransactionIdsRef.current = null;
-      setScheduledSweepExecutionRequestedAtMs(null);
-      setScheduledSweepExecutionRequestedSlotId(null);
-      setEarnActionRefreshRequestedAtMs(null);
       return;
     }
 
@@ -1789,54 +1779,6 @@ export function EarnTransactionsPane({
       feedKeyRef.current = feedKey;
       knownTransactionIdsRef.current = null;
     }
-
-    const refreshScheduledSweeps = () => {
-      void Promise.resolve(onRefreshScheduledSweeps?.()).catch((error) => {
-        console.warn(
-          "[earn-transactions] failed to refresh scheduled sweeps",
-          error
-        );
-      });
-    };
-
-    const hasConfirmedRequestedSweep = (items: EarnTransactionItem[]) => {
-      if (scheduledSweepExecutionRequestedAtMs === null) {
-        return false;
-      }
-
-      return items.some((item) => {
-        if (item.kind !== "balance_sweep") {
-          return false;
-        }
-
-        const confirmedAt = parseEarnTransactionInstant(
-          getEarnTransactionConfirmedAt(item)
-        );
-        return (
-          confirmedAt !== null &&
-          confirmedAt.getTime() >= scheduledSweepExecutionRequestedAtMs - 5_000
-        );
-      });
-    };
-    const hasConfirmedRequestedEarnAction = (items: EarnTransactionItem[]) => {
-      if (earnActionRefreshRequestedAtMs === null) {
-        return false;
-      }
-
-      return items.some((item) => {
-        if (item.kind !== "deposit" && item.kind !== "withdraw") {
-          return false;
-        }
-
-        const confirmedAt = parseEarnTransactionInstant(
-          getEarnTransactionConfirmedAt(item)
-        );
-        return (
-          confirmedAt !== null &&
-          confirmedAt.getTime() >= earnActionRefreshRequestedAtMs - 5_000
-        );
-      });
-    };
 
     const applyTransactions = (items: EarnTransactionItem[]) => {
       const previousIds = knownTransactionIdsRef.current;
@@ -1851,59 +1793,19 @@ export function EarnTransactionsPane({
         freshIds.length === 0 &&
         items.length === previousIds.size
       ) {
-        if (
-          hasConfirmedRequestedSweep(items) &&
-          scheduledSweepsLengthRef.current === 0
-        ) {
-          setScheduledSweepExecutionRequestedAtMs(null);
-          setScheduledSweepExecutionRequestedSlotId(null);
-        }
-        if (hasConfirmedRequestedEarnAction(items)) {
-          setEarnActionRefreshRequestedAtMs(null);
-        }
-        // Same id set as the last render — skip the no-op state update.
         return;
       }
       knownTransactionIdsRef.current = new Set(items.map((item) => item.id));
       setTransactions(items);
       setEnteringIds(new Set(freshIds));
-
-      if (
-        hasConfirmedRequestedSweep(items) &&
-        scheduledSweepsLengthRef.current === 0
-      ) {
-        setScheduledSweepExecutionRequestedAtMs(null);
-        setScheduledSweepExecutionRequestedSlotId(null);
-      }
-      if (hasConfirmedRequestedEarnAction(items)) {
-        setEarnActionRefreshRequestedAtMs(null);
-      }
     };
 
-    const invalidateTransactionsCache = () => {
-      invalidateEarnTransactionsCache({
-        settingsPda,
-        solanaEnv,
-        walletAddress,
-      });
-    };
-
-    const loadTransactions = async ({
-      fresh = false,
-      silent,
-    }: {
-      fresh?: boolean;
-      silent: boolean;
-    }) => {
+    const loadTransactions = async (silent: boolean) => {
       const requestSeq = (loadRequestSeqRef.current += 1);
       if (!silent) {
         setIsLoading(true);
         setErrorMessage(null);
       }
-      if (fresh) {
-        invalidateTransactionsCache();
-      }
-
       try {
         const payload = await fetchEarnTransactions({
           settingsPda,
@@ -1917,8 +1819,6 @@ export function EarnTransactionsPane({
         }
       } catch (error) {
         console.warn("[earn-transactions] failed to load transactions", error);
-        // Silent polls keep whatever is on screen; only the initial load
-        // surfaces the error state.
         if (isMounted && requestSeq === loadRequestSeqRef.current && !silent) {
           setTransactions([]);
           setErrorMessage(
@@ -1934,81 +1834,15 @@ export function EarnTransactionsPane({
       }
     };
 
-    const nowMs = Date.now();
-    const isScheduledSweepFastPolling =
-      scheduledSweepExecutionRequestedAtMs !== null &&
-      nowMs - scheduledSweepExecutionRequestedAtMs <
-        EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
-    const isEarnActionFastPolling =
-      earnActionRefreshRequestedAtMs !== null &&
-      nowMs - earnActionRefreshRequestedAtMs <
-        EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
-    const isFastPolling =
-      isScheduledSweepFastPolling || isEarnActionFastPolling;
-    const pollIntervalMs = isFastPolling
-      ? EARN_TRANSACTIONS_FAST_POLL_INTERVAL_MS
-      : EARN_TRANSACTIONS_POLL_INTERVAL_MS;
-
-    if (
-      scheduledSweepExecutionRequestedAtMs !== null &&
-      !isScheduledSweepFastPolling
-    ) {
-      setScheduledSweepExecutionRequestedAtMs(null);
-      setScheduledSweepExecutionRequestedSlotId(null);
-    }
-    if (earnActionRefreshRequestedAtMs !== null && !isEarnActionFastPolling) {
-      setEarnActionRefreshRequestedAtMs(null);
-    }
-
-    void loadTransactions({
-      fresh: isFastPolling,
-      silent: knownTransactionIdsRef.current !== null,
-    });
-    refreshScheduledSweeps();
-
-    // Pseudo-realtime: poll the cached fetcher so confirmed Earn actions appear
-    // without a reload. Refresh loaded Earn state on the same cadence because
-    // scheduled sweep lots are created by the background worker after setup.
-    const intervalId = window.setInterval(() => {
-      const intervalNowMs = Date.now();
-      const shouldFastPollScheduledSweeps =
-        scheduledSweepExecutionRequestedAtMs !== null &&
-        intervalNowMs - scheduledSweepExecutionRequestedAtMs <
-          EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
-      const shouldFastPollEarnAction =
-        earnActionRefreshRequestedAtMs !== null &&
-        intervalNowMs - earnActionRefreshRequestedAtMs <
-          EARN_TRANSACTIONS_FAST_POLL_WINDOW_MS;
-      const shouldFastPoll =
-        shouldFastPollScheduledSweeps || shouldFastPollEarnAction;
-      if (
-        scheduledSweepExecutionRequestedAtMs !== null &&
-        !shouldFastPollScheduledSweeps
-      ) {
-        setScheduledSweepExecutionRequestedAtMs(null);
-        setScheduledSweepExecutionRequestedSlotId(null);
-      }
-      if (
-        earnActionRefreshRequestedAtMs !== null &&
-        !shouldFastPollEarnAction
-      ) {
-        setEarnActionRefreshRequestedAtMs(null);
-      }
-      void loadTransactions({ fresh: shouldFastPoll, silent: true });
-      refreshScheduledSweeps();
-    }, pollIntervalMs);
+    void loadTransactions(knownTransactionIdsRef.current !== null);
 
     return () => {
       isMounted = false;
-      window.clearInterval(intervalId);
     };
   }, [
     isAuthenticated,
-    earnActionRefreshRequestedAtMs,
     isHydrated,
-    onRefreshScheduledSweeps,
     refreshKey,
-    scheduledSweepExecutionRequestedAtMs,
     settingsPda,
     solanaEnv,
     walletAddress,
@@ -2447,9 +2281,9 @@ export function EarnTransactionsPane({
                     const isRetryable =
                       isPersistedScheduledSweepRetryable(sweep);
                     const sweepSlotId = sweep.slotId ?? sweep.id;
-                    const isLocallyRequestedSweep =
-                      scheduledSweepExecutionRequestedAtMs !== null &&
-                      scheduledSweepExecutionRequestedSlotId === sweepSlotId;
+                    const progress = autodepositProgressBySlot[sweepSlotId];
+                    const isActiveSweep =
+                      activeScheduledSweepSlotId === sweepSlotId;
 
                     return (
                       <ScheduledTransactionRow
@@ -2457,19 +2291,17 @@ export function EarnTransactionsPane({
                         isBalanceHidden={isBalanceHidden}
                         isAwaitingExecution={
                           isPersistedExecuting ||
-                          (isLocallyRequestedSweep &&
-                            !isExecutingScheduledSweep)
+                          (isActiveSweep && !isExecutingScheduledSweep)
                         }
                         isExecuting={
                           isPersistedExecuting ||
-                          (isExecutingScheduledSweep &&
-                            isLocallyRequestedSweep) ||
-                          isLocallyRequestedSweep
+                          (isExecutingScheduledSweep && isActiveSweep)
                         }
                         isRetryable={isRetryable}
                         key={sweep.id}
                         nowMs={scheduledSweepNowMs}
                         onExecuteNow={() => handleExecuteScheduledSweep(sweep)}
+                        progress={progress}
                         sweep={sweep}
                       />
                     );
@@ -2533,9 +2365,7 @@ export function EarnTransactionsPane({
           )}
         </div>
       </section>
-      <EarnMascotPanel
-        onExperimentalModeToggle={onExperimentalModeToggle}
-      />
+      <EarnMascotPanel onExperimentalModeToggle={onExperimentalModeToggle} />
     </div>
   );
 }

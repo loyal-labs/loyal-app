@@ -859,6 +859,7 @@ export type SmartAccountSidebarData = {
     invalidateAddresses?: string[];
     readCache?: boolean;
   }) => Promise<void>;
+  refreshEarnState: () => Promise<void>;
   /**
    * Invalidate caches and re-fetch portfolio + activity after an on-chain tx.
    * Pass the affected vault/signer addresses to make sure their balances
@@ -2710,6 +2711,7 @@ export function useSmartAccountSidebarData(
   const walletDataClient = useSolanaWalletDataClient();
   const activeSettingsPdaRef = useRef<string | null>(user?.settingsPda ?? null);
   const refreshRunIdRef = useRef(0);
+  const earnStateRefreshRunIdRef = useRef(0);
   activeSettingsPdaRef.current = user?.settingsPda ?? null;
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
   const [isBaseLoading, setIsBaseLoading] = useState(false);
@@ -3266,6 +3268,43 @@ export function useSmartAccountSidebarData(
     },
     [loadVaultSnapshots, solanaEnv, user?.settingsPda]
   );
+
+  const refreshEarnState = useCallback(async () => {
+    const requestedSettingsPda = user?.settingsPda ?? null;
+    if (!requestedSettingsPda) {
+      setEarnState(null);
+      setHasEarnStateResolved(true);
+      setIsEarnStateLoading(false);
+      return;
+    }
+
+    const runId = earnStateRefreshRunIdRef.current + 1;
+    earnStateRefreshRunIdRef.current = runId;
+    setIsEarnStateLoading(true);
+    try {
+      const nextEarnState = await fetchEarnState();
+      if (
+        activeSettingsPdaRef.current !== requestedSettingsPda ||
+        earnStateRefreshRunIdRef.current !== runId
+      ) {
+        return;
+      }
+      setEarnState(nextEarnState);
+      if (nextEarnState) {
+        setOverview((current) =>
+          current ? mergeEarnVaultIntoOverview(current, nextEarnState) : current
+        );
+      }
+    } finally {
+      if (
+        activeSettingsPdaRef.current === requestedSettingsPda &&
+        earnStateRefreshRunIdRef.current === runId
+      ) {
+        setHasEarnStateResolved(true);
+        setIsEarnStateLoading(false);
+      }
+    }
+  }, [user?.settingsPda]);
 
   useEffect(() => {
     setHasEarnStateResolved(!user?.settingsPda);
@@ -6741,6 +6780,7 @@ export function useSmartAccountSidebarData(
     approvals,
     loadVaultActivity,
     refresh,
+    refreshEarnState,
     refreshAfterTx,
     approveProposal: (proposal) => runProposalAction(proposal, "approve"),
     rejectProposal: (proposal) => runProposalAction(proposal, "reject"),

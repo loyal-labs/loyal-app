@@ -4,11 +4,18 @@ import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import {
+  findEarnAutodepositScheduledSweepProgress,
   findCurrentEarnAutodepositState,
   requestImmediateEarnAutodepositScheduledSweep,
   type BalanceSweepTargetRecord,
+  type EarnAutodepositScheduledSweepProgressRecord,
   type ImmediateEarnAutodepositScheduledSweepRequestResult,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  EARN_REALTIME_EVENT_TYPES,
+  EARN_REALTIME_SCHEMA_VERSION,
+  type EarnAutodepositProgressState,
+} from "@/features/earn-realtime/types";
 import {
   EARN_POSITION_REQUIRED_ERROR,
   hasActiveEarnRoutePolicyPair,
@@ -21,7 +28,10 @@ function jsonError(
   code: string,
   message: string
 ): NextResponse {
-  return NextResponse.json({ error: { code, message } }, { status });
+  return NextResponse.json(
+    { error: { code, message } },
+    { headers: { "Cache-Control": "no-store" }, status }
+  );
 }
 
 function serializeTarget(target: BalanceSweepTargetRecord) {
@@ -63,6 +73,118 @@ function parseOptionalSlotId(body: unknown): bigint | null {
   }
 
   return BigInt(slotId);
+}
+
+function parseRequiredSlotId(request: Request): bigint {
+  const slotId = new URL(request.url).searchParams.get("slotId");
+  if (!slotId || !/^\d+$/.test(slotId)) {
+    throw new Error("Invalid Autodeposit scheduled slot.");
+  }
+  return BigInt(slotId);
+}
+
+function resolveProgressState(
+  progress: EarnAutodepositScheduledSweepProgressRecord
+): EarnAutodepositProgressState | null {
+  if (progress.completedAt) {
+    return "completed";
+  }
+  if (progress.completionFailureCode) {
+    return "failed";
+  }
+  if (progress.status === "executed") {
+    return "pull_confirmed";
+  }
+  if (
+    progress.status === "scheduled" ||
+    progress.status === "requested" ||
+    progress.status === "selected" ||
+    progress.status === "failed" ||
+    progress.status === "released" ||
+    progress.status === "canceled"
+  ) {
+    return progress.status;
+  }
+  return null;
+}
+
+export async function GET(request: Request) {
+  const principal = await resolveAuthenticatedPrincipalFromRequest(request);
+  if (!principal) {
+    return jsonError(401, "unauthenticated", "No active auth session.");
+  }
+
+  let slotId: bigint;
+  try {
+    slotId = parseRequiredSlotId(request);
+  } catch (error) {
+    return jsonError(
+      400,
+      "invalid_request",
+      error instanceof Error
+        ? error.message
+        : "Invalid Autodeposit scheduled slot."
+    );
+  }
+
+  try {
+    const autodeposit = await findCurrentEarnAutodepositState({
+      settings: principal.settingsPda,
+      vaultIndex: EARN_AUTODEPOSIT_VAULT_INDEX,
+      walletAddress: principal.walletAddress,
+    });
+    if (!autodeposit) {
+      return jsonError(
+        404,
+        "autodeposit_not_found",
+        "No Earn Autodeposit policy is available for this wallet."
+      );
+    }
+
+    const progress = await findEarnAutodepositScheduledSweepProgress(
+      autodeposit.target,
+      slotId
+    );
+    const state = progress ? resolveProgressState(progress) : null;
+    if (!progress || !state) {
+      return jsonError(
+        404,
+        "scheduled_sweep_not_found",
+        "No matching Autodeposit scheduled sweep is available."
+      );
+    }
+
+    return NextResponse.json(
+      {
+        eventId: progress.eventId?.toString(),
+        eventType: EARN_REALTIME_EVENT_TYPES.autodeposit,
+        failureCode: progress.completionFailureCode ?? undefined,
+        occurredAt: progress.occurredAt.toISOString(),
+        scheduledSlotId: progress.slotId.toString(),
+        schemaVersion: EARN_REALTIME_SCHEMA_VERSION,
+        scope: "autodeposit",
+        state,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
+  } catch (error) {
+    console.error("[earn-autodeposit-sweeps-progress] read failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown request error.",
+      errorName: error instanceof Error ? error.name : typeof error,
+      settings: principal.settingsPda,
+      walletAddress: principal.walletAddress,
+    });
+    return jsonError(
+      500,
+      "progress_read_failed",
+      "Failed to read Autodeposit sweep progress."
+    );
+  }
 }
 
 export async function POST(request: Request) {

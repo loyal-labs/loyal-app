@@ -141,6 +141,15 @@ import {
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import {
+  EARN_REALTIME_EVENT_TYPES,
+  fetchEarnAutodepositProgress,
+  isEarnAutodepositTerminalState,
+  mergeEarnAutodepositProgress,
+  useEarnRealtime,
+  type EarnAutodepositProgress,
+  type EarnRealtimeInvalidation,
+} from "@/features/earn-realtime";
 import { useAuthCapability } from "@/lib/auth/capability";
 import {
   readClientCache,
@@ -1294,6 +1303,24 @@ async function parseEarnAutodepositExecuteError(response: Response) {
   );
 }
 
+function parseEarnAutodepositExecuteResponse(value: unknown): {
+  scheduledSlotId: string;
+} {
+  const slotId =
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { sweepRequest?: { slotId?: unknown } }).sweepRequest
+      ?.slotId === "string"
+      ? (value as { sweepRequest: { slotId: string } }).sweepRequest.slotId
+      : null;
+  if (!slotId || !/^\d+$/.test(slotId)) {
+    throw new Error(
+      "Autodeposit execution returned an invalid scheduled slot."
+    );
+  }
+  return { scheduledSlotId: slotId };
+}
+
 type EarnDepositPolicyStageSignatures = {
   policyConfirmedSlot?: string;
   policySignature?: string;
@@ -1811,18 +1838,227 @@ export function AppWalletWorkspace({
   });
   const [earnTransactionsRefreshKey, setEarnTransactionsRefreshKey] =
     useState(0);
+  const [activeScheduledSweepSlotId, setActiveScheduledSweepSlotId] = useState<
+    string | null
+  >(null);
+  const [autodepositProgressBySlot, setAutodepositProgressBySlot] = useState<
+    Record<string, EarnAutodepositProgress>
+  >({});
+  const earnRealtimeSettingsPda = smartAccountData.overview?.settingsPda;
+  const earnRealtimeVaultAddress = smartAccountData.earnVaultPubkey;
+  const refreshEarnState = smartAccountData.refreshEarnState;
   const invalidateEarnClientCaches = useCallback(() => {
     invalidateEarnEarningsCache();
     invalidateEarnTransactionsCache({
-      settingsPda: smartAccountData.overview?.settingsPda,
+      settingsPda: earnRealtimeSettingsPda,
       solanaEnv: publicEnv.solanaEnv,
       walletAddress: personalWalletAddress ?? undefined,
     });
     setEarnTransactionsRefreshKey((value) => value + 1);
+  }, [earnRealtimeSettingsPda, publicEnv.solanaEnv, personalWalletAddress]);
+  const applyEarnAutodepositProgress = useCallback(
+    (progress: EarnAutodepositProgress) => {
+      const scheduledSlotId = progress.scheduledSlotId;
+      setAutodepositProgressBySlot((current) => ({
+        ...current,
+        [scheduledSlotId]: mergeEarnAutodepositProgress(
+          current[scheduledSlotId],
+          progress
+        ),
+      }));
+    },
+    []
+  );
+  const handleEarnRealtimeInvalidation = useCallback(
+    (event: EarnRealtimeInvalidation) => {
+      if (
+        event.eventType !== EARN_REALTIME_EVENT_TYPES.autodeposit ||
+        !event.scheduledSlotId ||
+        !event.state
+      ) {
+        return;
+      }
+      applyEarnAutodepositProgress({
+        eventId: event.eventId,
+        failureCode: event.failureCode,
+        scheduledSlotId: event.scheduledSlotId,
+        state: event.state,
+      });
+    },
+    [applyEarnAutodepositProgress]
+  );
+  const handleEarnRealtimeInvalidationBatch = useCallback(
+    (
+      events: readonly Pick<EarnRealtimeInvalidation, "eventType" | "state">[]
+    ) => {
+      let shouldRefreshEarnState = false;
+      let shouldRefreshPosition = false;
+      let shouldRefreshTransactions = false;
+      let shouldRefreshEarnings = false;
+
+      for (const event of events) {
+        if (event.eventType === EARN_REALTIME_EVENT_TYPES.autodeposit) {
+          if (event.state === "scheduled") {
+            shouldRefreshEarnState = true;
+          } else if (event.state === "pull_confirmed") {
+            shouldRefreshPosition = true;
+            shouldRefreshTransactions = true;
+          } else if (event.state === "completed") {
+            shouldRefreshEarnState = true;
+            shouldRefreshPosition = true;
+            shouldRefreshTransactions = true;
+            shouldRefreshEarnings = true;
+          } else if (
+            event.state === "failed" ||
+            event.state === "released" ||
+            event.state === "canceled"
+          ) {
+            shouldRefreshEarnState = true;
+          }
+        } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.transaction) {
+          shouldRefreshTransactions = true;
+          shouldRefreshEarnings = true;
+        } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.position) {
+          shouldRefreshPosition = true;
+          shouldRefreshEarnings = true;
+        } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.onboarding) {
+          shouldRefreshEarnState = true;
+        }
+      }
+
+      if (shouldRefreshTransactions) {
+        invalidateEarnTransactionsCache({
+          settingsPda: earnRealtimeSettingsPda,
+          solanaEnv: publicEnv.solanaEnv,
+          walletAddress: personalWalletAddress ?? undefined,
+        });
+        setEarnTransactionsRefreshKey((value) => value + 1);
+      }
+      if (shouldRefreshEarnings) {
+        invalidateEarnEarningsCache();
+      }
+      const refreshes: Promise<unknown>[] = [];
+      if (shouldRefreshEarnState) {
+        refreshes.push(refreshEarnState());
+      }
+      if (shouldRefreshPosition) {
+        refreshes.push(refreshActiveEarnPosition());
+      }
+      if (refreshes.length > 0) {
+        void Promise.allSettled(refreshes);
+      }
+    },
+    [
+      earnRealtimeSettingsPda,
+      personalWalletAddress,
+      publicEnv.solanaEnv,
+      refreshActiveEarnPosition,
+      refreshEarnState,
+    ]
+  );
+  const earnRealtimeIdentity = useMemo(() => {
+    if (
+      !personalWalletAddress ||
+      !earnRealtimeSettingsPda ||
+      !earnRealtimeVaultAddress
+    ) {
+      return null;
+    }
+    return {
+      earnVaultAddress: earnRealtimeVaultAddress,
+      settingsPda: earnRealtimeSettingsPda,
+      solanaEnv: publicEnv.solanaEnv,
+      walletAddress: personalWalletAddress,
+    };
   }, [
-    publicEnv.solanaEnv,
-    smartAccountData.overview?.settingsPda,
+    earnRealtimeSettingsPda,
+    earnRealtimeVaultAddress,
     personalWalletAddress,
+    publicEnv.solanaEnv,
+  ]);
+  useEffect(() => {
+    setActiveScheduledSweepSlotId(null);
+    setAutodepositProgressBySlot({});
+  }, [earnRealtimeIdentity]);
+  const earnRealtimeConnectionState = useEarnRealtime({
+    enabled: isAuthHydrated && canLoadPersonalAccount,
+    identity: earnRealtimeIdentity,
+    onInvalidation: handleEarnRealtimeInvalidation,
+    onInvalidationBatch: handleEarnRealtimeInvalidationBatch,
+    onResyncRequired: async () => {
+      invalidateEarnTransactionsCache({
+        settingsPda: earnRealtimeSettingsPda,
+        solanaEnv: publicEnv.solanaEnv,
+        walletAddress: personalWalletAddress ?? undefined,
+      });
+      setEarnTransactionsRefreshKey((value) => value + 1);
+      invalidateEarnEarningsCache();
+      await Promise.allSettled([
+        refreshEarnState(),
+        refreshActiveEarnPosition(),
+      ]);
+    },
+  });
+  const activeAutodepositProgress = activeScheduledSweepSlotId
+    ? autodepositProgressBySlot[activeScheduledSweepSlotId]
+    : undefined;
+  const isActiveAutodepositTerminal = Boolean(
+    activeAutodepositProgress &&
+      isEarnAutodepositTerminalState(activeAutodepositProgress.state)
+  );
+  useEffect(() => {
+    if (
+      !activeScheduledSweepSlotId ||
+      earnRealtimeConnectionState === "connected" ||
+      isActiveAutodepositTerminal
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | null = null;
+    const controller = new AbortController();
+    const run = async () => {
+      for (const delayMs of [4_000, 8_000, 16_000, 30_000]) {
+        await new Promise<void>((resolve) => {
+          timer = window.setTimeout(resolve, delayMs);
+        });
+        if (cancelled) {
+          return;
+        }
+        const progress = await fetchEarnAutodepositProgress(
+          activeScheduledSweepSlotId,
+          controller.signal
+        ).catch(() => null);
+        if (cancelled || !progress) {
+          continue;
+        }
+        applyEarnAutodepositProgress(progress);
+        handleEarnRealtimeInvalidationBatch([
+          {
+            eventType: EARN_REALTIME_EVENT_TYPES.autodeposit,
+            state: progress.state,
+          },
+        ]);
+        if (isEarnAutodepositTerminalState(progress.state)) {
+          return;
+        }
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [
+    activeScheduledSweepSlotId,
+    applyEarnAutodepositProgress,
+    earnRealtimeConnectionState,
+    handleEarnRealtimeInvalidationBatch,
+    isActiveAutodepositTerminal,
   ]);
   const signInOpenedForConnectRef = useRef(false);
   const [isExperimentalMode, setIsExperimentalMode] = useState(false);
@@ -4202,6 +4438,17 @@ export function AppWalletWorkspace({
 
       setIsExecutingScheduledSweep(true);
       setScheduledSweepExecuteError(null);
+      const requestedSlotId = sweep?.slotId ?? sweep?.id ?? null;
+      if (requestedSlotId) {
+        setActiveScheduledSweepSlotId(requestedSlotId);
+        setAutodepositProgressBySlot((current) => ({
+          ...current,
+          [requestedSlotId]: {
+            scheduledSlotId: requestedSlotId,
+            state: "requesting",
+          },
+        }));
+      }
 
       try {
         const response = await fetch(
@@ -4221,10 +4468,33 @@ export function AppWalletWorkspace({
         if (!response.ok) {
           throw new Error(await parseEarnAutodepositExecuteError(response));
         }
-
-        invalidateEarnClientCaches();
-        await smartAccountData.refresh();
+        const { scheduledSlotId } = parseEarnAutodepositExecuteResponse(
+          await response.json()
+        );
+        setActiveScheduledSweepSlotId(scheduledSlotId);
+        setAutodepositProgressBySlot((current) => {
+          const next = { ...current };
+          if (requestedSlotId && requestedSlotId !== scheduledSlotId) {
+            delete next[requestedSlotId];
+          }
+          next[scheduledSlotId] = mergeEarnAutodepositProgress(
+            current[scheduledSlotId],
+            {
+              scheduledSlotId,
+              state: "requested",
+            }
+          );
+          return next;
+        });
       } catch (error) {
+        setActiveScheduledSweepSlotId(null);
+        if (requestedSlotId) {
+          setAutodepositProgressBySlot((current) => {
+            const next = { ...current };
+            delete next[requestedSlotId];
+            return next;
+          });
+        }
         setScheduledSweepExecuteError(
           error instanceof Error
             ? error.message.replaceAll("autodeposit", "Autodeposit")
@@ -4234,7 +4504,7 @@ export function AppWalletWorkspace({
         setIsExecutingScheduledSweep(false);
       }
     },
-    [invalidateEarnClientCaches, isExecutingScheduledSweep, smartAccountData]
+    [isExecutingScheduledSweep]
   );
 
   const handleDeleteAutodeposit = useCallback(() => {
@@ -7596,12 +7866,13 @@ export function AppWalletWorkspace({
               </AnimatePresence>
             ) : isEarnReviewContext ? (
               <EarnTransactionsPane
+                activeScheduledSweepSlotId={activeScheduledSweepSlotId}
+                autodepositProgressBySlot={autodepositProgressBySlot}
                 isAutodepositConfigured={isAutodepositReady}
                 isBalanceHidden={isBalanceHidden}
                 isExecutingScheduledSweep={isExecutingScheduledSweep}
                 onExperimentalModeToggle={toggleExperimentalMode}
                 onExecuteScheduledSweep={handleExecuteScheduledAutodepositSweep}
-                onRefreshScheduledSweeps={smartAccountData.refresh}
                 onSelectTransaction={(detail) => {
                   openActionView(
                     { type: "transaction", detail, from: "portfolio" },

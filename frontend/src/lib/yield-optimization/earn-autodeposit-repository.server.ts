@@ -110,6 +110,15 @@ export type PendingEarnAutodepositScheduledSweepRecord = {
   status: string;
 };
 
+export type EarnAutodepositScheduledSweepProgressRecord = {
+  completedAt: Date | null;
+  completionFailureCode: string | null;
+  eventId: bigint | null;
+  occurredAt: Date;
+  slotId: bigint;
+  status: string;
+};
+
 export type ImmediateEarnAutodepositScheduledSweepRequestResult = {
   acceleratedAmountRaw: bigint;
   acceleratedLotCount: number;
@@ -896,6 +905,61 @@ export async function findPendingEarnAutodepositScheduledSweeps(
     slotId: toBigIntValue(row.slotId),
     status: String(row.status),
   }));
+}
+
+export async function findEarnAutodepositScheduledSweepProgress(
+  target: Pick<BalanceSweepTargetRecord, "id">,
+  slotId: bigint,
+  dependencies: Pick<
+    EarnAutodepositRepositoryDependencies,
+    "client"
+  > = createDependencies()
+): Promise<EarnAutodepositScheduledSweepProgressRecord | null> {
+  const queryResult = await dependencies.client.db.execute(sql`
+    SELECT
+      slot.id AS "slotId",
+      slot.status::text AS status,
+      execution.completed_at AS "completedAt",
+      execution.completion_failure_code AS "completionFailureCode",
+      latest_event.id AS "eventId",
+      COALESCE(latest_event.created_at, slot.updated_at) AS "occurredAt"
+    FROM ${balanceSweepScheduledSlots} AS slot
+    LEFT JOIN loyal_yield.balance_sweep_executions AS execution
+      ON execution.id = slot.execution_id
+    LEFT JOIN LATERAL (
+      SELECT event.id, event.created_at
+      FROM loyal_yield.realtime_events AS event
+      WHERE event.scheduled_slot_id = slot.id
+        AND event.scope = 'autodeposit'
+      ORDER BY event.id DESC
+      LIMIT 1
+    ) AS latest_event ON true
+    WHERE slot.target_id = ${target.id}
+      AND slot.id = ${slotId}
+    LIMIT 1
+  `);
+  const [row] = getExecuteRows(queryResult);
+  if (!row) {
+    return null;
+  }
+
+  return {
+    completedAt:
+      row.completedAt === null || row.completedAt === undefined
+        ? null
+        : toDateValue(row.completedAt),
+    completionFailureCode:
+      typeof row.completionFailureCode === "string"
+        ? row.completionFailureCode
+        : null,
+    eventId:
+      row.eventId === null || row.eventId === undefined
+        ? null
+        : toBigIntValue(row.eventId),
+    occurredAt: toDateValue(row.occurredAt),
+    slotId: toBigIntValue(row.slotId),
+    status: String(row.status),
+  };
 }
 
 export async function requestImmediateEarnAutodepositScheduledSweep(
