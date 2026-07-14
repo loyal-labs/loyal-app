@@ -10,6 +10,7 @@ import {
   handleNotificationsCommand,
   handleSettingsCommand,
   handleStartCommand,
+  handleStatsCommand,
   handleSummaryCommand,
   handleUnhideCommunityCommand,
 } from "@/lib/telegram/bot-api/commands";
@@ -67,6 +68,10 @@ bot.chatType("private").command("settings", async (ctx) => {
 
 bot.command("ca", async (ctx: CommandContext<Context>) => {
   await handleCaCommand(ctx, bot);
+});
+
+bot.command("stats", async (ctx: CommandContext<Context>) => {
+  await handleStatsCommand(ctx, bot);
 });
 
 bot.command("activate_community", async (ctx: CommandContext<Context>) => {

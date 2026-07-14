@@ -72,6 +72,9 @@ export const serverEnv = {
   get databaseUrl(): string {
     return getRequiredEnv("DATABASE_URL");
   },
+  get yieldNeonDatabaseUrl(): string {
+    return getRequiredEnv("NEON_DATABASE_URL");
+  },
   get redpillApiKey(): string {
     return getRequiredEnv("REDPILL_AI_API_KEY");
   },

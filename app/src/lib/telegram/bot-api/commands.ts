@@ -24,11 +24,13 @@ import {
   formatCaCommandMessage,
   LOYAL_CA_ADDRESS,
 } from "./ca-command";
-import { CA_COMMAND_CHAT_ID } from "./constants";
+import { LOYAL_COMMUNITY_CHAT_ID } from "./constants";
 import { replyWithAutoCleanup } from "./helper-message-cleanup";
 import { evictActiveCommunityCache } from "./message-handlers";
 import { sendNotificationSettingsMessage } from "./notification-settings";
 import { sendStartCarousel } from "./start-carousel";
+import { formatStatsCommandMessage, type LoyalStats } from "./stats-command";
+import { loadLoyalStats } from "./stats-command.server";
 import { sendLatestSummary } from "./summaries";
 import type { HandleSummaryCommandOptions } from "./types";
 import { sendUserSettingsMessage } from "./user-settings";
@@ -211,7 +213,7 @@ export async function handleCaCommand(
   }
 
   // Only respond in the designated community chat
-  if (chatId !== Number(CA_COMMAND_CHAT_ID)) {
+  if (chatId !== Number(LOYAL_COMMUNITY_CHAT_ID)) {
     return;
   }
 
@@ -231,6 +233,49 @@ export async function handleCaCommand(
       reply_markup: keyboard,
     }
   );
+}
+
+type StatsCommandDependencies = {
+  loadStats: () => Promise<LoyalStats>;
+};
+
+const statsCommandDependencies: StatsCommandDependencies = {
+  loadStats: loadLoyalStats,
+};
+
+export async function handleStatsCommand(
+  ctx: CommandContext<Context>,
+  bot: Bot,
+  dependencies: StatsCommandDependencies = statsCommandDependencies
+): Promise<void> {
+  const chatId = ctx.chat?.id;
+  if (!chatId || chatId !== Number(LOYAL_COMMUNITY_CHAT_ID)) {
+    return;
+  }
+
+  let stats: LoyalStats;
+  try {
+    stats = await dependencies.loadStats();
+  } catch (error) {
+    console.error("Failed to load /stats metrics", {
+      command: "/stats",
+      error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      telegramChatId: String(chatId),
+      telegramChatType: ctx.chat?.type ?? null,
+      telegramUserId: ctx.from ? String(ctx.from.id) : null,
+    });
+    await bot.api.sendMessage(
+      chatId,
+      "Loyal stats are unavailable right now. Please try again shortly."
+    );
+    return;
+  }
+
+  await bot.api.sendMessage(chatId, formatStatsCommandMessage(stats), {
+    parse_mode: "Markdown",
+  });
 }
 
 export async function handleActivateCommunityCommand(

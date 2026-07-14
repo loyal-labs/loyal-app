@@ -18,6 +18,7 @@ export async function registerBotCommands(bot: Bot): Promise<void> {
     [
       { command: "summary", description: "Get the latest chat summary" },
       { command: "ca", description: "Show $LOYAL contract address" },
+      { command: "stats", description: "Show Loyal performance stats" },
       {
         command: "notifications",
         description: "Configure summary notifications (admins only)",

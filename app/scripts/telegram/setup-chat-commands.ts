@@ -9,6 +9,7 @@ export const DEFAULT_CHAT_ID = "-1002981429221";
 export const CHAT_USER_COMMANDS: BotCommand[] = [
   { command: "summary", description: "Get the latest chat summary" },
   { command: "ca", description: "Show $LOYAL contract address" },
+  { command: "stats", description: "Show Loyal performance stats" },
 ];
 
 export const CHAT_ADMIN_ONLY_COMMANDS: BotCommand[] = [
