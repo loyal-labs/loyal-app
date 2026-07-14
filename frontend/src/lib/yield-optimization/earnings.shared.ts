@@ -63,6 +63,13 @@ export type EarnEarningsUnavailableResponse = {
   outcome: "unavailable";
 };
 
+export function isEarnEarningsCacheRevisionCurrent(
+  cachedRevision: string | null | undefined,
+  currentRevision: string | null | undefined
+) {
+  return (cachedRevision ?? null) === (currentRevision ?? null);
+}
+
 export function isServerVerifiedEarnEarningsPayload(
   value: unknown
 ): value is EarnEarningsRangeSetResponse {

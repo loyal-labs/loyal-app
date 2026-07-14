@@ -7,6 +7,7 @@ import {
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
 import {
+  isEarnEarningsCacheRevisionCurrent,
   isServerVerifiedEarnEarningsPayload,
   type EarnEarningsRangeSetResponse,
 } from "@/lib/yield-optimization/earnings.shared";
@@ -19,6 +20,7 @@ const RETRY_DELAYS_MS = [250, 750] as const;
 
 type EarnEarningsCacheEntry = {
   expiresAt: number;
+  revalidationKey: string | null;
   value: EarnEarningsRangeSetResponse;
 };
 
@@ -45,6 +47,7 @@ const inflightEarnings = new Map<
   string,
   Promise<EarnEarningsRangeSetResponse>
 >();
+const latestRequestByCacheKey = new Map<string, string>();
 let cacheVersion = 0;
 
 function summarizeEarningsPayload(payload: EarnEarningsRangeSetResponse): {
@@ -303,11 +306,17 @@ export function invalidateEarnEarningsCache(cacheKey?: string) {
         inflightEarnings.delete(key);
       }
     }
+    for (const key of latestRequestByCacheKey.keys()) {
+      if (key === cacheKey || key.startsWith(`${cacheKey}:`)) {
+        latestRequestByCacheKey.delete(key);
+      }
+    }
     return;
   }
 
   cachedEarnings.clear();
   inflightEarnings.clear();
+  latestRequestByCacheKey.clear();
 }
 
 export function resetEarnEarningsCacheForTests() {
@@ -320,7 +329,14 @@ export async function fetchEarnEarningsRangeSet(
 ): Promise<EarnEarningsRangeSetResponse> {
   const now = Date.now();
   const cached = cachedEarnings.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
+  if (
+    cached &&
+    cached.expiresAt > now &&
+    isEarnEarningsCacheRevisionCurrent(
+      cached.revalidationKey,
+      scope.revalidationKey
+    )
+  ) {
     return cached.value;
   }
 
@@ -330,38 +346,64 @@ export async function fetchEarnEarningsRangeSet(
     return inflight;
   }
 
-  const staleBeforeFetch =
+  const fallbackBeforeFetch =
     cached?.value ?? readPersistentEarnEarningsCache(cacheKey, scope);
+  const comparableBeforeFetch =
+    cached &&
+    isEarnEarningsCacheRevisionCurrent(
+      cached.revalidationKey,
+      scope.revalidationKey
+    )
+      ? cached.value
+      : null;
   const requestCacheVersion = cacheVersion;
+  latestRequestByCacheKey.set(cacheKey, inflightKey);
   const request = requestEarnEarningsWithRetry(scope.timezone ?? "UTC")
     .then((payload) => {
-      if (requestCacheVersion === cacheVersion) {
+      if (
+        requestCacheVersion === cacheVersion &&
+        latestRequestByCacheKey.get(cacheKey) === inflightKey
+      ) {
+        const latestCached = cachedEarnings.get(cacheKey);
+        const comparableStale =
+          latestCached &&
+          isEarnEarningsCacheRevisionCurrent(
+            latestCached.revalidationKey,
+            scope.revalidationKey
+          )
+            ? latestCached.value
+            : comparableBeforeFetch;
         if (
           isRegressiveEarningsPayload({
             fresh: payload,
-            stale: cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch,
+            stale: comparableStale,
           })
         ) {
-          const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
-          if (stale) {
-            return markPayloadStale(stale, "regressive_revalidation");
+          if (comparableStale) {
+            return markPayloadStale(
+              comparableStale,
+              "regressive_revalidation"
+            );
           }
         }
 
         if (
           isEqualRecordedEarningsWithNewerTimestamp({
             fresh: payload,
-            stale: cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch,
+            stale: comparableStale,
           })
         ) {
-          const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
-          if (stale) {
-            return markPayloadStale(stale, "unchanged_revalidation");
+          if (comparableStale) {
+            return markPayloadStale(
+              comparableStale,
+              "unchanged_revalidation"
+            );
           }
         }
 
         cachedEarnings.set(cacheKey, {
           expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
+          revalidationKey: scope.revalidationKey ?? null,
           value: payload,
         });
         writePersistentEarnEarningsCache(cacheKey, scope, payload);
@@ -369,7 +411,7 @@ export async function fetchEarnEarningsRangeSet(
       return payload;
     })
     .catch((error) => {
-      const stale = cachedEarnings.get(cacheKey)?.value ?? staleBeforeFetch;
+      const stale = cachedEarnings.get(cacheKey)?.value ?? fallbackBeforeFetch;
       if (stale) {
         return markPayloadStale(stale, "client_revalidation_failed");
       }
@@ -378,6 +420,9 @@ export async function fetchEarnEarningsRangeSet(
     .finally(() => {
       if (inflightEarnings.get(inflightKey) === request) {
         inflightEarnings.delete(inflightKey);
+      }
+      if (latestRequestByCacheKey.get(cacheKey) === inflightKey) {
+        latestRequestByCacheKey.delete(cacheKey);
       }
     });
 
@@ -414,6 +459,14 @@ export function useEarnEarnings({
     timezone,
   });
   const cached = cachedEarnings.get(scopedCacheKey);
+  const cachedForRevision =
+    cached &&
+    isEarnEarningsCacheRevisionCurrent(
+      cached.revalidationKey,
+      revalidationKey
+    )
+      ? cached
+      : null;
   const [dataState, setDataState] = useState<{
     scopeKey: string;
     value: EarnEarningsRangeSetResponse | null;
@@ -421,7 +474,9 @@ export function useEarnEarnings({
     scopeKey: scopedCacheKey,
     value:
       seed ??
-      (cached && cached.expiresAt > Date.now() ? cached.value : null) ??
+      (cachedForRevision && cachedForRevision.expiresAt > Date.now()
+        ? cachedForRevision.value
+        : null) ??
       persisted,
   }));
   const data =
@@ -444,7 +499,14 @@ export function useEarnEarnings({
 
     let isMounted = true;
     const freshCached = cachedEarnings.get(scopedCacheKey);
-    if (freshCached && freshCached.expiresAt > Date.now()) {
+    if (
+      freshCached &&
+      freshCached.expiresAt > Date.now() &&
+      isEarnEarningsCacheRevisionCurrent(
+        freshCached.revalidationKey,
+        revalidationKey
+      )
+    ) {
       setDataState({ scopeKey: scopedCacheKey, value: freshCached.value });
       setError(null);
       setIsLoading(false);

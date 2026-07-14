@@ -182,12 +182,16 @@ export function buildCanonicalEarningsPath(args: {
       if (event.type === "deposit") {
         principalAmountRaw += event.amountRaw;
       } else {
+        const recordedPrincipalDeltaRaw =
+          matchingHolding?.principalDeltaRaw ?? null;
         const principalReductionRaw =
-          matchingHolding?.eventType === "withdrawal_full"
+          recordedPrincipalDeltaRaw === BigInt(0)
+            ? BigInt(0)
+            : matchingHolding?.eventType === "withdrawal_full"
             ? principalAmountRaw
-            : matchingHolding?.principalDeltaRaw &&
-              matchingHolding.principalDeltaRaw < BigInt(0)
-            ? -matchingHolding.principalDeltaRaw
+            : recordedPrincipalDeltaRaw !== null &&
+              recordedPrincipalDeltaRaw < BigInt(0)
+            ? -recordedPrincipalDeltaRaw
             : event.amountRaw;
         principalAmountRaw =
           principalAmountRaw > principalReductionRaw
@@ -282,7 +286,7 @@ export function getEarningsCoverage(args: {
   }
   const sampledReserves = new Set(
     args.apySamples.flatMap((sample) =>
-      sample.reserve ? [sample.reserve] : []
+      sample.reserve && required.has(sample.reserve) ? [sample.reserve] : []
     )
   );
   const missingReserves = [...required]
@@ -434,7 +438,13 @@ async function loadApySamples(args: {
   pathEvents: readonly YieldPositionPathEvent[];
   start: Date;
 }) {
-  const reserves = [...new Set(args.pathEvents.map((event) => event.reserve))]
+  const reserves = [
+    ...new Set(
+      args.pathEvents
+        .filter((event) => event.principalAmountRaw > BigInt(0))
+        .map((event) => event.reserve)
+    ),
+  ]
     .filter(Boolean)
     .sort();
   if (reserves.length === 0) {

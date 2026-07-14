@@ -6,6 +6,7 @@ import { calculateEarnEarnings } from "@/lib/yield-optimization/earnings-calcula
 import { deriveEarnEarningsDisplayAmounts } from "@/lib/yield-optimization/earnings-display.shared";
 import {
   buildCanonicalEarningsPath,
+  getEarningsCoverage,
   getMaterialEarningsHistoryRevision,
   readEarnEarningsRangeSet,
   type EarnEarningsReadDependencies,
@@ -15,7 +16,10 @@ import type {
   UserYieldPositionHistoryEventRecord,
   UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
-import { isServerVerifiedEarnEarningsPayload } from "@/lib/yield-optimization/earnings.shared";
+import {
+  isEarnEarningsCacheRevisionCurrent,
+  isServerVerifiedEarnEarningsPayload,
+} from "@/lib/yield-optimization/earnings.shared";
 import {
   getYieldOptimizationClient,
   userYieldPositions,
@@ -203,6 +207,88 @@ async function verifyFixtures() {
   verify(
     "top-up, partial/full withdrawal, exit, and redeposit project principal",
     lifecyclePath.at(-1)?.principalAmountRaw === rawUsdc(40)
+  );
+
+  const idleWithdrawalPath = buildCanonicalEarningsPath({
+    holdingEvents: [
+      fixtureHolding({ at: DEPOSIT_AT, type: "deposit" }),
+      {
+        ...fixtureHolding({
+          at: new Date("2026-07-01T00:00:00.000Z"),
+          type: "withdrawal",
+        }),
+        eventType: "withdrawal_full",
+        principalDeltaRaw: BigInt(0),
+      },
+    ],
+    ledgerEvents: [
+      ...ledgerEvents,
+      {
+        amountRaw: rawUsdc(10),
+        confirmedAt: new Date("2026-07-01T00:00:00.000Z"),
+        type: "withdrawal",
+      },
+    ],
+    position: fixturePosition(),
+  });
+  verify(
+    "idle withdrawal zero principal delta leaves invested principal unchanged",
+    idleWithdrawalPath.at(-1)?.principalAmountRaw === rawUsdc(100)
+  );
+
+  const zeroPrincipalReserveCoverage = getEarningsCoverage({
+    apySamples: [
+      {
+        observedAt: new Date("2026-06-28T00:00:00.000Z"),
+        reserve: "reserve-a",
+        supplyApy: 0.1,
+      },
+      {
+        observedAt: new Date("2026-06-28T00:00:00.000Z"),
+        reserve: "reserve-b",
+        supplyApy: 0.1,
+      },
+    ],
+    now: new Date("2026-06-29T00:00:00.000Z"),
+    pathEvents: [
+      {
+        amountRaw: rawUsdc(100),
+        confirmedAt: DEPOSIT_AT,
+        liquidityMint: "USDC",
+        market: "market-a",
+        principalAmountRaw: rawUsdc(100),
+        reserve: "reserve-a",
+        type: "deposit",
+      },
+      {
+        amountRaw: BigInt(0),
+        confirmedAt: new Date("2026-06-29T00:00:00.000Z"),
+        liquidityMint: "USDC",
+        market: "market-b",
+        principalAmountRaw: BigInt(0),
+        reserve: "reserve-b",
+        type: "reconciliation",
+      },
+    ],
+  });
+  verify(
+    "zero-principal reserve samples do not inflate required coverage",
+    zeroPrincipalReserveCoverage.reserveCount === 1 &&
+      zeroPrincipalReserveCoverage.sampledReserveCount === 1 &&
+      zeroPrincipalReserveCoverage.missingReserves.length === 0 &&
+      zeroPrincipalReserveCoverage.gappedReserves.length === 0 &&
+      zeroPrincipalReserveCoverage.staleReserves.length === 0,
+    zeroPrincipalReserveCoverage
+  );
+
+  verify(
+    "Autodeposit revision changes bypass the fresh in-memory cache",
+    isEarnEarningsCacheRevisionCurrent("principal-100", "principal-100") &&
+      !isEarnEarningsCacheRevisionCurrent("principal-100", "principal-125")
+  );
+  verify(
+    "prior Autodeposit revisions are excluded from stale-response comparisons",
+    !isEarnEarningsCacheRevisionCurrent("principal-100", "principal-125")
   );
 
   const freshFixture = fixtureDependencies();
