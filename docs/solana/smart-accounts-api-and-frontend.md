@@ -174,15 +174,19 @@ limits, and policy reallocation failures.
 ### Earn Flow
 
 The Loyal web Earn flow is user-initiated. It uses smart-account vault
-`accountIndex = 1` and the canonical Kamino USDC reserve.
+`accountIndex = 1` and the canonical Kamino USDC target, while reconciliation
+and withdrawals account for holdings in policy-approved Kamino markets.
 
 Instruction building stays in `packages/smart-account-vaults`.
 `prepareEarnUsdcDeposit` builds the user wallet transfer into the vault plus the
 Kamino deposit executed through the Earn `ProgramInteraction` policy. The first
 deposit creates the Earn yield-routing policy. Top-up deposits reuse the
 existing policy by passing `initializeYieldRoutingPolicy: false`.
-`prepareEarnUsdcWithdraw` builds partial and full withdrawals through the same
-policy shape.
+`prepareEarnUsdcWithdraw` resolves sources from the live RPC holdings snapshot.
+Partial withdrawals select one idle or Kamino source. Full withdrawals sum all
+positive sources and pass every positive Kamino holding to the SDK, so one exit
+can unwind multiple approved markets. Full withdrawals leave policy closure to
+the separate cleanup phase.
 
 The browser hook sends the prepared transaction and then posts the confirmed
 signature metadata to `POST
@@ -190,25 +194,40 @@ signature metadata to `POST
 /api/smart-accounts/yield-optimization/withdrawals/confirm`.
 
 Those confirmation routes validate the authenticated wallet/session, the
-configured cluster from `NEXT_PUBLIC_SOLANA_ENV`, canonical policy/vault/reserve
+configured cluster from `NEXT_PUBLIC_SOLANA_ENV`, canonical policy/vault/mint
 metadata, confirmed signature status, and confirmed slot before writing Yield
-Neon state.
+Neon state. A full withdrawal does not close policies in this step. When it is
+the final step, the route verifies live holdings at or after the withdrawal slot
+and returns `policy_close_required` only when Kamino holdings and idle USDC pass
+the zero-balance/dust proof; otherwise it returns an incomplete or retryable
+verification result.
+
+The browser then prepares `POST
+/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare` and submits
+the wallet-signed cleanup to `POST
+/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm`. Cleanup
+re-proves zero balances and policy closure before finalizing the full exit; when
+Autodeposit is active, its close transaction is confirmed as part of this flow.
 
 Mobile clients prepare Earn instructions on-device. After mobile-wallet
 authentication, `POST
 /api/smart-accounts/mobile/earn/deposit/prepare-context` and `POST
 /api/smart-accounts/mobile/earn/withdraw/prepare-context` return the resolved
 smart-account, deployment, policy, reserve, and withdrawal inputs that the
-device uses with `prepareEarnUsdcDeposit` or `prepareEarnUsdcWithdraw`. The
-legacy mobile `prepare` routes remain available for app versions that predate
-on-device preparation.
+device uses with `prepareEarnUsdcDeposit` or `prepareEarnUsdcWithdraw`, including
+all live full-withdrawal targets. Mobile full exits use the same separate cleanup
+and zero-proof phases; the legacy mobile `prepare` routes remain available for
+app versions that predate on-device preparation.
 
 The frontend reads active Earn state from `GET
 /api/smart-accounts/yield-optimization/position`. That route returns the active aggregate row from
 `loyal_yield.user_yield_positions` for the authenticated wallet, configured
 cluster (`devnet` or `mainnet-beta`), vault index `1`, and canonical target
-reserve. `AppWalletWorkspace` uses that response to decide whether to show the
-active Earn view, display the current principal, and set the withdrawal maximum.
+reserve. The reconciliation path also discovers positive USDC obligations in
+every safe Kamino market allowed by the active route policy, rather than
+depending only on reserves already recorded in the database. `AppWalletWorkspace`
+uses the position response to decide whether to show the active Earn view,
+display the current principal, and set the withdrawal maximum.
 
 | Area                     | Key file                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------- |
@@ -218,8 +237,12 @@ active Earn view, display the current principal, and set the withdrawal maximum.
 | Active position route    | `frontend/src/app/api/smart-accounts/yield-optimization/position/route.ts`            |
 | Deposit confirm route    | `frontend/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`    |
 | Withdrawal confirm route | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts` |
+| Withdrawal cleanup prepare | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts` |
+| Withdrawal cleanup confirm | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts` |
 | Mobile deposit context   | `frontend/src/app/api/smart-accounts/mobile/earn/deposit/prepare-context/route.ts`    |
 | Mobile withdrawal context | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
+| Mobile cleanup context   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts` |
+| Mobile cleanup confirm   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts` |
 | Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
 | Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
 
