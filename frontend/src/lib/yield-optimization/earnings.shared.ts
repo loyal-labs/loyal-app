@@ -57,6 +57,12 @@ export type EarnEarningsRangeSetResponse = {
 export type EarnEarningsUnavailableResponse = {
   error: {
     code: "earnings_unavailable" | "history_incomplete";
+    // Which verification actually failed. `code` alone says only "we won't draw
+    // this", which is the same answer for a missing APY feed, a drifted
+    // principal and a drifted holding — three unrelated defects that need three
+    // unrelated fixes. Without this, triaging one report means reconstructing
+    // the wallet's whole history from the yield DB by hand.
+    detailCode?: string;
     message: string;
   };
   freshness: "unavailable";

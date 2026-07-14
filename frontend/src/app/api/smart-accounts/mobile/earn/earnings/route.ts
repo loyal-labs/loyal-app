@@ -74,6 +74,9 @@ export async function GET(request: Request) {
     const payload: EarnEarningsUnavailableResponse = {
       error: {
         code,
+        ...(error instanceof EarnEarningsUnavailableError
+          ? { detailCode: error.detailCode }
+          : {}),
         message:
           code === "history_incomplete"
             ? "Earn history is still updating."

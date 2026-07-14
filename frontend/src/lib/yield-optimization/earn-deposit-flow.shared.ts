@@ -71,6 +71,24 @@ export function getEarnDepositReviewStagePosition(args: {
   };
 }
 
+// A top-up signs no policy transaction: the policy already exists on-chain and
+// the deposit just routes through it. Its "policy signature" is therefore only
+// a citation of where we last saw that policy — a server fact, resolvable from
+// the DB row or, when there is none, from the chain. The DB row legitimately
+// goes missing (a full Earn exit releases the pair; a failed confirm never
+// wrote one), and a browser cannot read the chain, so the client must never
+// gate a top-up on being able to cite it. Callers that can reach the chain
+// (the confirm routes) resolve it themselves.
+export function isReusedEarnDepositPolicy(
+  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit
+): boolean {
+  return (
+    !preparedDeposit.policySetupPrepared &&
+    !preparedDeposit.policyFinalizePrepared &&
+    preparedDeposit.persistence.policyInitialization === "reuse"
+  );
+}
+
 export function resolveEarnDepositConfirmPolicySignature(args: {
   activePolicy?: EarnDepositPolicySignatureSource;
   policyConfirmedSlot?: string | null;
