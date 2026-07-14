@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 mock.module("server-only", () => ({}));
 
@@ -12,6 +13,9 @@ const { recordConfirmedYieldWithdrawal } = await import(
   "./yield-deposit-repository.server"
 );
 const { verifyUserYieldPositions } = await import(
+  "./yield-deposit-repository.server"
+);
+const { syncConfirmedRebalanceHoldingEventsForVault } = await import(
   "./yield-deposit-repository.server"
 );
 
@@ -613,6 +617,33 @@ describe("Earn cleanup idempotency", () => {
     await recordConfirmedEarnCleanup(input, dependencies as never);
 
     expect(batch).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmed rebalance history projection", () => {
+  test("uses the unique decision conflict boundary for replay-safe projection", async () => {
+    const dialect = new PgDialect();
+    let renderedSql = "";
+    const execute = mock(async (query: unknown) => {
+      renderedSql = dialect.sqlToQuery(query as never).sql;
+      return { rows: [{ insertedCount: 0, updatedPositionCount: 0 }] };
+    });
+
+    await syncConfirmedRebalanceHoldingEventsForVault(
+      {
+        cluster: "mainnet-beta",
+        settings: "settings",
+        vaultIndex: 1,
+        walletAddress: "wallet",
+      },
+      { client: { db: { execute } } } as never
+    );
+
+    expect(renderedSql).toMatch(
+      /on conflict \(source_rebalance_decision_id\)[\s\S]*do nothing/i
+    );
+    expect(renderedSql).toContain("latest_projected_rebalance");
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 });
 

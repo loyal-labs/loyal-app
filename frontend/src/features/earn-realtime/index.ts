@@ -9,6 +9,10 @@ export {
 } from "./types";
 export { fetchEarnAutodepositProgress } from "./fallback";
 export {
+  resolveEarnRealtimeRefreshPlan,
+  type EarnRealtimeRefreshPlan,
+} from "./invalidation";
+export {
   useEarnRealtime,
   type EarnRealtimeIdentity,
 } from "./use-earn-realtime";

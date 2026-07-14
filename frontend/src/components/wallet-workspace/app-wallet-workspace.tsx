@@ -146,6 +146,7 @@ import {
   fetchEarnAutodepositProgress,
   isEarnAutodepositTerminalState,
   mergeEarnAutodepositProgress,
+  resolveEarnRealtimeRefreshPlan,
   useEarnRealtime,
   type EarnAutodepositProgress,
   type EarnRealtimeInvalidation,
@@ -1891,42 +1892,9 @@ export function AppWalletWorkspace({
     (
       events: readonly Pick<EarnRealtimeInvalidation, "eventType" | "state">[]
     ) => {
-      let shouldRefreshEarnState = false;
-      let shouldRefreshPosition = false;
-      let shouldRefreshTransactions = false;
-      let shouldRefreshEarnings = false;
+      const refreshPlan = resolveEarnRealtimeRefreshPlan(events);
 
-      for (const event of events) {
-        if (event.eventType === EARN_REALTIME_EVENT_TYPES.autodeposit) {
-          if (event.state === "scheduled") {
-            shouldRefreshEarnState = true;
-          } else if (event.state === "pull_confirmed") {
-            shouldRefreshPosition = true;
-            shouldRefreshTransactions = true;
-          } else if (event.state === "completed") {
-            shouldRefreshEarnState = true;
-            shouldRefreshPosition = true;
-            shouldRefreshTransactions = true;
-            shouldRefreshEarnings = true;
-          } else if (
-            event.state === "failed" ||
-            event.state === "released" ||
-            event.state === "canceled"
-          ) {
-            shouldRefreshEarnState = true;
-          }
-        } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.transaction) {
-          shouldRefreshTransactions = true;
-          shouldRefreshEarnings = true;
-        } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.position) {
-          shouldRefreshPosition = true;
-          shouldRefreshEarnings = true;
-        } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.onboarding) {
-          shouldRefreshEarnState = true;
-        }
-      }
-
-      if (shouldRefreshTransactions) {
+      if (refreshPlan.transactions) {
         invalidateEarnTransactionsCache({
           settingsPda: earnRealtimeSettingsPda,
           solanaEnv: publicEnv.solanaEnv,
@@ -1934,14 +1902,14 @@ export function AppWalletWorkspace({
         });
         setEarnTransactionsRefreshKey((value) => value + 1);
       }
-      if (shouldRefreshEarnings) {
+      if (refreshPlan.earnings) {
         invalidateEarnEarningsCache();
       }
       const refreshes: Promise<unknown>[] = [];
-      if (shouldRefreshEarnState) {
+      if (refreshPlan.earnState) {
         refreshes.push(refreshEarnState());
       }
-      if (shouldRefreshPosition) {
+      if (refreshPlan.position) {
         refreshes.push(refreshActiveEarnPosition());
       }
       if (refreshes.length > 0) {
@@ -5467,6 +5435,7 @@ export function AppWalletWorkspace({
       return;
     }
 
+    const previousAutodepositConfig = autodepositConfig;
     setProposalActionError(null);
     setAutodepositConfig((current) =>
       pendingEarnAutodepositDraft.requiresSignature === false
@@ -5641,9 +5610,7 @@ export function AppWalletWorkspace({
         break;
       }
     } catch (error) {
-      setAutodepositConfig((current) =>
-        current?.state === "creating" && !current.policyAccount ? null : current
-      );
+      setAutodepositConfig(previousAutodepositConfig);
       setProposalActionError(
         error instanceof Error
           ? error.message.replaceAll("autodeposit", "Autodeposit")
@@ -5682,6 +5649,7 @@ export function AppWalletWorkspace({
       return;
     }
 
+    const previousAutodepositConfig = autodepositConfig;
     setProposalActionError(null);
     setAutodepositConfig({ ...autodepositConfig, state: "closing" });
 
@@ -5706,7 +5674,7 @@ export function AppWalletWorkspace({
       setDetailSelection("earn");
       setSelectedDetail("Earn");
     } catch (error) {
-      setAutodepositConfig({ ...autodepositConfig, state: "created" });
+      setAutodepositConfig(previousAutodepositConfig);
       setProposalActionError(
         error instanceof Error
           ? error.message.replaceAll("autodeposit", "Autodeposit")

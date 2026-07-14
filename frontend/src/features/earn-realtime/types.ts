@@ -1,9 +1,11 @@
 export const EARN_REALTIME_SCHEMA_VERSION = 1 as const;
 
 export const EARN_REALTIME_EVENT_TYPES = {
+  allowance: "earn.autodeposit.configuration.changed",
   autodeposit: "earn.autodeposit.execution.changed",
   onboarding: "earn.onboarding.changed",
   position: "earn.position.changed",
+  rebalance: "earn.rebalance.confirmed",
   transaction: "earn.transaction.recorded",
 } as const;
 
