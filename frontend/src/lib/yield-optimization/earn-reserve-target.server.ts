@@ -12,9 +12,20 @@ import { PublicKey } from "@solana/web3.js";
 
 import {
   getCurrentBestApyReserveByStablecoin,
+  getLatestReserveObservationsByReserve,
   type CurrentBestApyReserveByStablecoin,
 } from "@/lib/kamino/timescale-reserve-client.server";
 import type { UserYieldPositionRecord } from "./yield-deposit-repository.server";
+
+// A reserve this small cannot be a deliberate Earn venue — the hidden OnRe
+// USDC reserve that swallowed a user's top-ups (ASK-1764) held ~$17k and
+// later ~$37. Matches DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE used for
+// APY-ranked selection.
+const MIN_ELIGIBLE_RESERVE_TOTAL_SUPPLY_USD = 100_000;
+
+export type EarnReserveIneligibilityReason =
+  | "below_liquidity_floor"
+  | "unsampled_reserve";
 
 export type EarnUsdcReserveTarget = {
   reserve: PublicKey;
@@ -138,4 +149,76 @@ export function earnReserveTargetFromActivePosition(
     reserve: new PublicKey(position.currentReserve),
     supplyApyBps: null,
   };
+}
+
+// ASK-1764: an external rebalance execution seeded a $3 line in a HIDDEN
+// Kamino reserve; the read model adopted it as current_reserve and deposit
+// top-ups then routed $7.3k into a ~0%-APY venue. Deposit targets must be
+// reserves our indexer actually tracks (hidden reserves are never sampled)
+// with real liquidity behind them. Returns null when eligible.
+export async function findEarnReserveTargetIneligibility(args: {
+  cluster: LoyalCluster;
+  reserve: string;
+}): Promise<EarnReserveIneligibilityReason | null> {
+  if (args.cluster !== LoyalCluster.MainnetBeta) {
+    // The Timescale reserve feed only tracks mainnet reserves.
+    return null;
+  }
+
+  const observations = await getLatestReserveObservationsByReserve({
+    reserves: [args.reserve],
+  });
+  if (observations === null) {
+    // Feed not configured in this environment — never brick deposits over a
+    // config gap; the confirm-side alert still surfaces bad targets.
+    return null;
+  }
+
+  const observation = observations.find(
+    (candidate) => candidate.reserve === args.reserve
+  );
+  if (!observation) {
+    return "unsampled_reserve";
+  }
+  if (
+    observation.totalSupplyUsdEstimate <= MIN_ELIGIBLE_RESERVE_TOTAL_SUPPLY_USD
+  ) {
+    return "below_liquidity_floor";
+  }
+  return null;
+}
+
+// Deposit-routing wrapper around earnReserveTargetFromActivePosition:
+// refuses to follow a position into an ineligible reserve and lets the
+// caller fall through to the default main-market target instead.
+// ponytail: fallback is the hardcoded MAIN target, not the best eligible
+// same-market sibling — nobody currently holds an ineligible reserve, and
+// full exits unwind every market since #482.
+export async function resolveEligibleEarnDepositTarget(args: {
+  cluster: LoyalCluster;
+  logTag: string;
+  position: Pick<
+    UserYieldPositionRecord,
+    "currentLiquidityMint" | "currentMarket" | "currentReserve"
+  >;
+}): Promise<EarnUsdcReserveTarget | null> {
+  const target = earnReserveTargetFromActivePosition(args.position);
+  const ineligibility = await findEarnReserveTargetIneligibility({
+    cluster: args.cluster,
+    reserve: target.reserve.toBase58(),
+  });
+  if (!ineligibility) {
+    return target;
+  }
+
+  console.error(
+    `[${args.logTag}] refusing ineligible Earn deposit target; falling back to the default reserve`,
+    {
+      cluster: args.cluster,
+      market: target.market.toBase58(),
+      reason: ineligibility,
+      reserve: target.reserve.toBase58(),
+    }
+  );
+  return null;
 }

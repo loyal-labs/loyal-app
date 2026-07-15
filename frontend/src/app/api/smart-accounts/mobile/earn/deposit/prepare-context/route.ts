@@ -23,7 +23,7 @@ import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { hasLiveBalanceSweepTargetForWallet } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { parseEarnDepositPrepareRequestBody } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
+import { resolveEligibleEarnDepositTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
   findReconciledActiveYieldPositionForVault,
@@ -218,10 +218,16 @@ export async function POST(request: Request) {
     policy = policyResult?.routePolicy ?? null;
     const policySigner = getDeploymentPolicySignerPublicKey();
     // A top-up deposits into the reserve the position is already in (always a
-    // safe USDC reserve) — same rule as `../prepare`.
+    // safe USDC reserve) — same rule as `../prepare` — unless that reserve is
+    // ineligible (hidden/unsampled or drained); then fall back to the default
+    // reserve instead of feeding it (ASK-1764).
     const target =
       policy && activePosition
-        ? earnReserveTargetFromActivePosition(activePosition)
+        ? await resolveEligibleEarnDepositTarget({
+            cluster,
+            logTag: "mobile-earn-deposit-prepare-context",
+            position: activePosition,
+          })
         : null;
     // Stray-approval heal, fail-closed: the SPL delegate is load-bearing for
     // sweeps, so the revoke rider is requested only when the wallet provably

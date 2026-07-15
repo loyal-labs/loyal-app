@@ -19,7 +19,7 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
+import { resolveEligibleEarnDepositTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findCurrentEarnDepositOnboardingAttempt,
   findActiveYieldRoutePolicyPair,
@@ -198,7 +198,11 @@ export async function POST(request: Request) {
       : undefined;
     const target =
       policy && activePosition
-        ? earnReserveTargetFromActivePosition(activePosition)
+        ? await resolveEligibleEarnDepositTarget({
+            cluster,
+            logTag: "earn-deposit-prepare",
+            position: activePosition,
+          })
         : null;
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
