@@ -104,6 +104,7 @@ mock.module("@/lib/yield-optimization/earn-reserve-target.server", () => ({
       targetReserve: input.targetReserve,
     };
   },
+  findEarnReserveTargetIneligibility: async () => null,
 }));
 
 mock.module(
@@ -172,6 +173,7 @@ mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
   findActiveYieldRoutePolicy: async () => {
     throw new Error("findActiveYieldRoutePolicy was not expected.");
   },
+  findActiveYieldRoutePolicyPair: async () => null,
   findEarnCleanupVaultState: async () => ({
     routePolicy: {},
     setupPolicy: null,
