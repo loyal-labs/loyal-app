@@ -404,7 +404,7 @@ describe("yield deposit repository idempotency", () => {
     expect(updateCalls).toHaveLength(0);
   });
 
-  test("records a zero-balance full withdrawal without closing position or policy state", async () => {
+  function createRecordedWithdrawalDependencies() {
     const position = createPosition();
     const reserveRow = {
       amountRaw: BigInt(1000),
@@ -531,30 +531,39 @@ describe("yield deposit repository idempotency", () => {
       now: () => new Date("2026-06-02T00:00:00.000Z"),
     };
 
-    const result = await recordConfirmedYieldWithdrawal(
-      createWithdrawalInput({
+    return { dependencies, insertedValues, updateSets };
+  }
+
+  const reserveWithdrawalOverrides = {
+    accountingReserve: "reserve",
+    confirmedReserveDebitAmountRaw: BigInt(1000),
+    mode: "full" as const,
+    reserveWithdrawals: [
+      {
         accountingReserve: "reserve",
-        confirmedReserveDebitAmountRaw: BigInt(1000),
-        mode: "full",
-        reserveWithdrawals: [
-          {
-            accountingReserve: "reserve",
-            collateralAta: "collateral",
-            executionMarket: "market",
-            executionReserve: "reserve",
-            kaminoWithdrawAmountRaw: "1000",
-            liquidityMint: "usdc",
-            market: "market",
-            reserve: "reserve",
-            sourceAmountRaw: "1000",
-            sourceId: "reserve",
-            vaultCollateralAta: "collateral",
-          },
-        ],
-        sourceAmountRaw: BigInt(1000),
+        collateralAta: "collateral",
+        executionMarket: "market",
+        executionReserve: "reserve",
+        kaminoWithdrawAmountRaw: "1000",
+        liquidityMint: "usdc",
+        market: "market",
+        reserve: "reserve",
+        sourceAmountRaw: "1000",
         sourceId: "reserve",
-        sourceType: "reserve",
-      }),
+        vaultCollateralAta: "collateral",
+      },
+    ],
+    sourceAmountRaw: BigInt(1000),
+    sourceId: "reserve",
+    sourceType: "reserve" as const,
+  };
+
+  test("records a zero-balance full withdrawal without closing position or policy state", async () => {
+    const { dependencies, insertedValues, updateSets } =
+      createRecordedWithdrawalDependencies();
+
+    const result = await recordConfirmedYieldWithdrawal(
+      createWithdrawalInput(reserveWithdrawalOverrides),
       dependencies as never
     );
 
@@ -582,6 +591,39 @@ describe("yield deposit repository idempotency", () => {
         expect.objectContaining({
           active: false,
         }),
+      ])
+    );
+  });
+
+  test("classifies a non-final full-exit step as a partial withdrawal even at zero remaining balance", async () => {
+    // Multi-market exit: the read-model can be blind to the other market's
+    // funds, so a step that is not the final one must never write
+    // `withdrawal_full` (ASK-1765).
+    const { dependencies, insertedValues } =
+      createRecordedWithdrawalDependencies();
+
+    const result = await recordConfirmedYieldWithdrawal(
+      createWithdrawalInput({
+        ...reserveWithdrawalOverrides,
+        isFinalStep: false,
+        stepCount: 2,
+        stepIndex: 0,
+      }),
+      dependencies as never
+    );
+
+    expect(result.principalAmountRaw).toBe(BigInt(0));
+    expect(insertedValues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventType: "withdrawal_partial",
+          principalDeltaRaw: BigInt(-1000),
+        }),
+      ])
+    );
+    expect(insertedValues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ eventType: "withdrawal_full" }),
       ])
     );
   });

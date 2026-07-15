@@ -1399,8 +1399,13 @@ async function resolveWithdrawalSource(
     // This is an accounting event classification only. It never authorizes
     // closing the position, vault, or policies; cleanup owns that transition
     // after a minContextSlot-safe chain-wide zero proof.
+    // A non-final step of a multi-market full exit proves funds survive in
+    // another market even when the reserve read-model has no row for it
+    // (ASK-1765), so it must never claim the final-exit label — a false
+    // `withdrawal_full` zeroes reconstructed principal for good.
     isFinalExit:
       input.mode === "full" &&
+      input.isFinalStep !== false &&
       remainingReserveAmountRaw <= BigInt(0) &&
       remainingIdleRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW,
     remainingIdleAmountRaw: remainingIdleRaw + reserveVaultIdleDeltaRaw,
