@@ -193,6 +193,14 @@ signature metadata to `POST
 /api/smart-accounts/yield-optimization/deposits/confirm` or `POST
 /api/smart-accounts/yield-optimization/withdrawals/confirm`.
 
+For a top-up with `policyInitialization: "reuse"`, the browser does not need
+to provide policy citation metadata. The deposit confirmation route resolves
+that citation server-side from the active Yield Neon policy pair, or from the
+policy's on-chain creation signature when the pair is absent; it also recovers
+setup-policy metadata when applicable. This prevents a reused deposit from
+being blocked after a full Earn exit or failed confirmation while leaving
+first-deposit policy validation unchanged.
+
 Those confirmation routes validate the authenticated wallet/session, the
 configured cluster from `NEXT_PUBLIC_SOLANA_ENV`, canonical policy/vault/mint
 metadata, confirmed signature status, and confirmed slot before writing Yield
