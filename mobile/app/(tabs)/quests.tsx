@@ -1,5 +1,4 @@
-import { Redirect, useFocusEffect, useRouter } from "expo-router";
-import { ChevronRight, Lock } from "lucide-react-native";
+import { Redirect, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useWindowDimensions } from "react-native";
 import Animated, {
@@ -21,7 +20,7 @@ import {
   type SolanaWeekQuestStatus,
 } from "@/lib/solana/earn/earn-api";
 import { useWallet } from "@/lib/wallet/wallet-provider";
-import { Pressable, Text, View } from "@/tw";
+import { Text, View } from "@/tw";
 
 import AutodepositIcon from "../../assets/images/quests/autodeposit_icon_40.svg";
 import CheckIcon from "../../assets/images/quests/check_64.svg";
@@ -47,8 +46,6 @@ const COIN_EASING = Easing.bezier(0.34, 1.56, 0.64, 1);
 // Card face is 180×240 in the design (a 3:4 portrait).
 const CARD_ASPECT = 180 / 240;
 
-type TaskState = "active" | "locked" | "complete";
-
 function statusOf(
   items: SolanaWeekQuestProgressItem[] | null,
   kind: SolanaWeekQuestKind,
@@ -56,100 +53,51 @@ function statusOf(
   return items?.find((q) => q.kind === kind)?.status ?? "not_started";
 }
 
+// Round 1 ended 2026-07-15: cards are display-only — no press handler, no
+// chevron/lock affordances. Finishers still see their completed check.
 function TaskCard({
   icon,
   title,
-  state,
-  onPress,
+  complete,
 }: {
   icon: ReactNode;
   title: string;
-  state: TaskState;
-  onPress: () => void;
+  complete: boolean;
 }) {
-  const complete = state === "complete";
-  const locked = state === "locked";
-
-  const card = (
-    <View
-      style={{
-        width: "100%",
-        aspectRatio: CARD_ASPECT,
-        borderRadius: 24,
-        backgroundColor: "#f7f7f7",
-        padding: 16,
-        justifyContent: "space-between",
-        overflow: "hidden",
-      }}
-    >
-      {complete ? (
-        <View style={{ gap: 4, alignItems: "center" }}>
-          <View style={{ width: "100%", flexDirection: "row" }}>{icon}</View>
-          <CheckIcon width={64} height={64} />
-        </View>
-      ) : locked ? (
-        <View style={{ gap: 12 }}>
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-            }}
-          >
-            {icon}
-            <Lock size={24} color="rgba(60,60,67,0.3)" strokeWidth={2} />
-          </View>
-          <Text
-            style={{
-              fontFamily: "Geist_500Medium",
-              fontSize: 13,
-              lineHeight: 16,
-              color: "rgba(60,60,67,0.6)",
-              width: 128,
-            }}
-          >
-            Finish the previous task first
-          </Text>
-        </View>
-      ) : (
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "flex-start",
-          }}
-        >
-          {icon}
-          <ChevronRight size={24} color="rgba(60,60,67,0.3)" strokeWidth={2} />
-        </View>
-      )}
-      <Text
+  return (
+    <View style={{ flex: 1 }}>
+      <View
         style={{
-          fontFamily: "Geist_500Medium",
-          fontSize: 20,
-          lineHeight: 22,
-          color: complete ? "rgba(60,60,67,0.4)" : "#000",
+          width: "100%",
+          aspectRatio: CARD_ASPECT,
+          borderRadius: 24,
+          backgroundColor: "#f7f7f7",
+          padding: 16,
+          justifyContent: "space-between",
+          overflow: "hidden",
         }}
       >
-        {title}
-      </Text>
+        {complete ? (
+          <View style={{ gap: 4, alignItems: "center" }}>
+            <View style={{ width: "100%", flexDirection: "row" }}>{icon}</View>
+            <CheckIcon width={64} height={64} />
+          </View>
+        ) : (
+          <View style={{ flexDirection: "row" }}>{icon}</View>
+        )}
+        <Text
+          style={{
+            fontFamily: "Geist_500Medium",
+            fontSize: 20,
+            lineHeight: 22,
+            color: complete ? "rgba(60,60,67,0.4)" : "#000",
+          }}
+        >
+          {title}
+        </Text>
+      </View>
     </View>
   );
-
-  const inner =
-    locked || complete ? (
-      card
-    ) : (
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={title}
-      >
-        {card}
-      </Pressable>
-    );
-
-  return <View style={{ flex: 1 }}>{inner}</View>;
 }
 
 export default function QuestsScreen() {
@@ -164,7 +112,6 @@ export default function QuestsScreen() {
 
 function QuestsScreenContent() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const { width } = useWindowDimensions();
   const { publicKey } = useWallet();
 
@@ -241,20 +188,6 @@ function QuestsScreenContent() {
   const task1Complete = statusOf(items, "earn_deposit") === "reported";
   const task2Complete =
     statusOf(items, "first_autodeposit_sweep") === "reported";
-  const allComplete = task1Complete && task2Complete;
-  const task1State: TaskState = task1Complete ? "complete" : "active";
-  const task2State: TaskState = task2Complete
-    ? "complete"
-    : task1Complete
-      ? "active"
-      : "locked";
-
-  const openDeposit = useCallback(() => {
-    router.navigate({ pathname: "/(tabs)", params: { open: "deposit" } });
-  }, [router]);
-  const openAutodeposit = useCallback(() => {
-    router.navigate({ pathname: "/(tabs)", params: { open: "autodeposit" } });
-  }, [router]);
 
   return (
     <View className="flex-1" style={{ backgroundColor: "#000" }}>
@@ -318,9 +251,7 @@ function QuestsScreenContent() {
               color: "#000",
             }}
           >
-            {allComplete
-              ? "All quests\ncomplete"
-              : "Complete quests.\nGet rewards"}
+            {"Seeker Summer\nRound 1 completed"}
           </Text>
         </View>
 
@@ -338,14 +269,12 @@ function QuestsScreenContent() {
           <TaskCard
             icon={<DepositIcon width={40} height={40} />}
             title="Deposit $5 to Earn with Seeker Wallet"
-            state={task1State}
-            onPress={openDeposit}
+            complete={task1Complete}
           />
           <TaskCard
             icon={<AutodepositIcon width={40} height={40} />}
             title="Set up Autodeposit and let it make its first deposit"
-            state={task2State}
-            onPress={openAutodeposit}
+            complete={task2Complete}
           />
         </View>
       </View>
