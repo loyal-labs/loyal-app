@@ -16,7 +16,10 @@ import {
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
+import {
+  assertSafeUsdcEarnReserveMetadata,
+  findEarnReserveTargetIneligibility,
+} from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   markEarnDepositOnboardingAccountingFailed,
   markEarnDepositOnboardingComplete,
@@ -208,6 +211,28 @@ function createCanonicalDepositInput(
     market: requestInput.market,
     targetReserve: requestInput.targetReserve,
   });
+  // Best-effort alarm, never a gate: the deposit already landed on-chain, so
+  // rejecting the confirm would only make it invisible. Prepare-time routing
+  // refuses ineligible reserves; a confirm that still names one means a
+  // client bypassed prepare or the guard has a hole (ASK-1764).
+  void findEarnReserveTargetIneligibility({
+    cluster,
+    reserve: target.targetReserve,
+  })
+    .then((reason) => {
+      if (reason) {
+        console.error(
+          "[earn-deposit-confirm] confirmed deposit targets an ineligible reserve",
+          {
+            cluster,
+            market: target.market,
+            reason,
+            reserve: target.targetReserve,
+          }
+        );
+      }
+    })
+    .catch(() => undefined);
   if (
     requestInput.targetSupplyApyBps !== null &&
     requestInput.targetSupplyApyBps < BigInt(0)

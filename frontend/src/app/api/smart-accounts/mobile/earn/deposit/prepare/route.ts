@@ -27,7 +27,7 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { earnReserveTargetFromActivePosition } from "@/lib/yield-optimization/earn-reserve-target.server";
+import { resolveEligibleEarnDepositTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
   findReconciledActiveYieldPositionForVault,
@@ -249,9 +249,15 @@ export async function POST(request: Request) {
     // findBestSafeUsdcEarnReserveTarget re-picked the best fresh candidate and
     // hard-failed ~1-in-5 attempts whenever every safe USDC reserve was
     // momentarily flagged reserveLastUpdateStale in the Timescale feed.
+    // Exception (ASK-1764): an ineligible current reserve (hidden/unsampled
+    // or drained) is never followed — fall back to the default reserve.
     const target =
       policy && activePosition
-        ? earnReserveTargetFromActivePosition(activePosition)
+        ? await resolveEligibleEarnDepositTarget({
+            cluster,
+            logTag: "mobile-earn-deposit-prepare",
+            position: activePosition,
+          })
         : null;
     // Stray-approval heal, fail-closed: the SPL delegate is load-bearing for
     // sweeps, so the revoke rider is requested only when the wallet provably

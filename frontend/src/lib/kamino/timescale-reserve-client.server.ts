@@ -90,6 +90,11 @@ export type TimescaleReserveUpdateRow =
   typeof timescaleReserveUpdates.$inferSelect;
 export type TimescaleSupportedReserveRow =
   typeof timescaleSupportedReserves.$inferSelect;
+export type TimescaleReservePresenceRow = Pick<
+  TimescaleReserveUpdateRow,
+  "observedAt" | "reserve" | "totalSupplyUsdEstimate"
+>;
+
 export type TimescaleReserveApySample = Pick<
   TimescaleReserveUpdateRow,
   "observedAt" | "supplyApy"
@@ -162,6 +167,25 @@ export async function getCurrentReserveUpdatesByReserve(args: {
   const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
   try {
     return await client.getCurrentReserveUpdatesByReserve(args);
+  } finally {
+    await client.close();
+  }
+}
+
+// Returns null (not []) when the Timescale feed is not configured so
+// eligibility callers can tell "feed unavailable" from "reserve was never
+// sampled" — the latter is what marks hidden/untracked reserves ineligible.
+export async function getLatestReserveObservationsByReserve(args: {
+  reserves: readonly string[];
+}): Promise<TimescaleReservePresenceRow[] | null> {
+  const databaseUrl = getTimescaleReserveDatabaseUrl();
+  if (!databaseUrl) {
+    return null;
+  }
+
+  const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
+  try {
+    return await client.getLatestReserveObservationsByReserve(args);
   } finally {
     await client.close();
   }
@@ -439,13 +463,37 @@ export class TimescaleReserveClient {
         SELECT r.reserve, sample.observed_at, sample.supply_apy
         FROM requested_reserves r
         CROSS JOIN LATERAL (
+          -- Union the indexer stream with the curated API backfill
+          -- (kamino.reserve_apy_backfill) per branch so each side keeps its
+          -- own index-backed ORDER BY ... LIMIT 1 instead of materializing
+          -- the full sample set. Backfill covers reserves the indexer never
+          -- sampled (e.g. hidden reserves a position historically held);
+          -- earnings coverage is the only path that reads it.
           SELECT observed_at, supply_apy
-          FROM kamino.reserve_updates
-          WHERE reserve = r.reserve
-            AND reserve_last_update_stale = false
-            AND supply_apy >= 0
-            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-            AND observed_at < ${startIso}::timestamptz
+          FROM (
+            (
+              SELECT observed_at, supply_apy
+              FROM kamino.reserve_updates
+              WHERE reserve = r.reserve
+                AND reserve_last_update_stale = false
+                AND supply_apy >= 0
+                AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+                AND observed_at < ${startIso}::timestamptz
+              ORDER BY observed_at DESC
+              LIMIT 1
+            )
+            UNION ALL
+            (
+              SELECT observed_at, supply_apy
+              FROM kamino.reserve_apy_backfill
+              WHERE reserve = r.reserve
+                AND supply_apy >= 0
+                AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+                AND observed_at < ${startIso}::timestamptz
+              ORDER BY observed_at DESC
+              LIMIT 1
+            )
+          ) candidates
           ORDER BY observed_at DESC
           LIMIT 1
         ) sample
@@ -455,12 +503,30 @@ export class TimescaleReserveClient {
         FROM requested_reserves r
         CROSS JOIN LATERAL (
           SELECT observed_at, supply_apy
-          FROM kamino.reserve_updates
-          WHERE reserve = r.reserve
-            AND reserve_last_update_stale = false
-            AND supply_apy >= 0
-            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-            AND observed_at <= ${endIso}::timestamptz
+          FROM (
+            (
+              SELECT observed_at, supply_apy
+              FROM kamino.reserve_updates
+              WHERE reserve = r.reserve
+                AND reserve_last_update_stale = false
+                AND supply_apy >= 0
+                AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+                AND observed_at <= ${endIso}::timestamptz
+              ORDER BY observed_at DESC
+              LIMIT 1
+            )
+            UNION ALL
+            (
+              SELECT observed_at, supply_apy
+              FROM kamino.reserve_apy_backfill
+              WHERE reserve = r.reserve
+                AND supply_apy >= 0
+                AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+                AND observed_at <= ${endIso}::timestamptz
+              ORDER BY observed_at DESC
+              LIMIT 1
+            )
+          ) candidates
           ORDER BY observed_at DESC
           LIMIT 1
         ) sample
@@ -475,13 +541,24 @@ export class TimescaleReserveClient {
           ) AS sample_bucket,
           observed_at,
           supply_apy
-        FROM kamino.reserve_updates
-        WHERE reserve = ANY(${reserves}::text[])
-          AND reserve_last_update_stale = false
-          AND supply_apy >= 0
-          AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-          AND observed_at >= ${startIso}::timestamptz
-          AND observed_at <= ${endIso}::timestamptz
+        FROM (
+          SELECT reserve, observed_at, supply_apy
+          FROM kamino.reserve_updates
+          WHERE reserve = ANY(${reserves}::text[])
+            AND reserve_last_update_stale = false
+            AND supply_apy >= 0
+            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+            AND observed_at >= ${startIso}::timestamptz
+            AND observed_at <= ${endIso}::timestamptz
+          UNION ALL
+          SELECT reserve, observed_at, supply_apy
+          FROM kamino.reserve_apy_backfill
+          WHERE reserve = ANY(${reserves}::text[])
+            AND supply_apy >= 0
+            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+            AND observed_at >= ${startIso}::timestamptz
+            AND observed_at <= ${endIso}::timestamptz
+        ) sources
       ),
       range_samples AS (
         SELECT DISTINCT ON (reserve, sample_bucket)
@@ -544,6 +621,42 @@ export class TimescaleReserveClient {
       .orderBy(asc(reserveUpdates.reserve));
 
     return rows.map((row) => row.reserve_updates);
+  }
+
+  async getLatestReserveObservationsByReserve(args: {
+    reserves: readonly string[];
+  }): Promise<TimescaleReservePresenceRow[]> {
+    if (args.reserves.length === 0) {
+      return [];
+    }
+
+    const reserveUpdates = this.tables.reserveUpdates;
+    const latestReserveUpdates = this.tables.latestReserveUpdates;
+
+    // Deliberately no stale-flag or APY-bounds filters: presence in the
+    // indexer's latest view is the eligibility signal (a hidden reserve is
+    // never sampled at all), and a transiently stale row must not fail
+    // deposits — that flakiness is why #381 removed the old APY-ranked
+    // picker.
+    const rows = await this.db
+      .select({
+        observedAt: reserveUpdates.observedAt,
+        reserve: reserveUpdates.reserve,
+        totalSupplyUsdEstimate: reserveUpdates.totalSupplyUsdEstimate,
+      })
+      .from(reserveUpdates)
+      .innerJoin(
+        latestReserveUpdates,
+        and(
+          eq(reserveUpdates.reserve, latestReserveUpdates.reserve),
+          eq(reserveUpdates.slot, latestReserveUpdates.slot),
+          eq(reserveUpdates.observedAt, latestReserveUpdates.observedAt)
+        )
+      )
+      .where(inArray(reserveUpdates.reserve, [...new Set(args.reserves)]))
+      .orderBy(asc(reserveUpdates.reserve));
+
+    return rows;
   }
 
   async getCurrentBestApyReserveByStablecoin(args: {
