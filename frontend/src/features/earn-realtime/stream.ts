@@ -21,6 +21,36 @@ export type EarnRealtimeStreamResult =
   | { reason: "closed" }
   | { reason: "resync_required"; detail: string };
 
+export const EARN_REALTIME_SILENCE_TIMEOUT_MS = 45_000;
+
+export class EarnRealtimeHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly phase: "stream" | "token"
+  ) {
+    super(message);
+    this.name = "EarnRealtimeHttpError";
+  }
+}
+
+export class EarnRealtimeSilenceError extends Error {
+  constructor() {
+    super("Earn realtime stream heartbeat timed out.");
+    this.name = "EarnRealtimeSilenceError";
+  }
+}
+
+export function isEarnRealtimeAuthRejection(
+  error: unknown
+): error is EarnRealtimeHttpError {
+  return (
+    error instanceof EarnRealtimeHttpError &&
+    error.phase === "stream" &&
+    (error.status === 401 || error.status === 403)
+  );
+}
+
 export class EarnRealtimeTokenCache {
   private current: EarnRealtimeTokenResponse | null = null;
 
@@ -121,7 +151,14 @@ export async function requestEarnRealtimeToken(
     }
   );
   const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok || !isTokenResponse(payload)) {
+  if (!response.ok) {
+    throw new EarnRealtimeHttpError(
+      "Earn realtime is unavailable.",
+      response.status,
+      "token"
+    );
+  }
+  if (!isTokenResponse(payload)) {
     throw new Error("Earn realtime is unavailable.");
   }
   return payload;
@@ -138,13 +175,17 @@ export async function consumeEarnRealtimeStream({
   onConnected,
   onInvalidation,
   response,
+  scheduleSilenceTimeout = defaultScheduleSilenceTimeout,
   signal,
+  silenceTimeoutMs = EARN_REALTIME_SILENCE_TIMEOUT_MS,
 }: {
   cursor: string | null;
   onConnected: () => void;
   onInvalidation: (event: EarnRealtimeInvalidation) => void;
   response: EarnRealtimeTokenResponse;
+  scheduleSilenceTimeout?: ScheduleSilenceTimeout;
   signal: AbortSignal;
+  silenceTimeoutMs?: number;
 }): Promise<EarnRealtimeStreamResult> {
   const streamResponse = await fetch(response.eventsUrl, {
     cache: "no-store",
@@ -155,8 +196,14 @@ export async function consumeEarnRealtimeStream({
     },
     signal,
   });
+  if (!streamResponse.ok) {
+    throw new EarnRealtimeHttpError(
+      "Earn realtime stream was rejected.",
+      streamResponse.status,
+      "stream"
+    );
+  }
   if (
-    !streamResponse.ok ||
     !streamResponse.body ||
     !streamResponse.headers.get("content-type")?.includes("text/event-stream")
   ) {
@@ -170,7 +217,11 @@ export async function consumeEarnRealtimeStream({
   let lastEventId = cursor;
 
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readWithSilenceTimeout({
+      reader,
+      schedule: scheduleSilenceTimeout,
+      silenceTimeoutMs,
+    });
     if (done) {
       return { reason: "closed" };
     }
@@ -205,6 +256,48 @@ export async function consumeEarnRealtimeStream({
       lastEventId = message.eventId;
     }
   }
+}
+
+type ScheduleSilenceTimeout = (
+  callback: () => void,
+  delayMs: number
+) => () => void;
+
+const defaultScheduleSilenceTimeout: ScheduleSilenceTimeout = (
+  callback,
+  delayMs
+) => {
+  const timer = globalThis.setTimeout(callback, delayMs);
+  return () => globalThis.clearTimeout(timer);
+};
+
+async function readWithSilenceTimeout({
+  reader,
+  schedule,
+  silenceTimeoutMs,
+}: {
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  schedule: ScheduleSilenceTimeout;
+  silenceTimeoutMs: number;
+}): Promise<ReadableStreamReadResult<Uint8Array>> {
+  const timeoutMarker = Symbol("earn-realtime-silence-timeout");
+  let cancelTimeout: () => void = () => undefined;
+  const timeout = new Promise<typeof timeoutMarker>((resolve) => {
+    cancelTimeout = schedule(() => resolve(timeoutMarker), silenceTimeoutMs);
+  });
+  let result: ReadableStreamReadResult<Uint8Array> | typeof timeoutMarker;
+  try {
+    result = await Promise.race([reader.read(), timeout]);
+  } finally {
+    cancelTimeout();
+  }
+  if (result === timeoutMarker) {
+    void reader
+      .cancel("earn realtime heartbeat timed out")
+      .catch(() => undefined);
+    throw new EarnRealtimeSilenceError();
+  }
+  return result;
 }
 
 export function computeEarnRealtimeReconnectDelayMs(

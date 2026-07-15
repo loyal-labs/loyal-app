@@ -38,6 +38,7 @@ type EarnEarningsCacheScope = {
   revalidationKey?: string | null;
   settingsPda?: string | null;
   solanaEnv?: string;
+  strict?: boolean;
   walletAddress?: string | null;
   timezone?: string;
 };
@@ -48,6 +49,7 @@ const inflightEarnings = new Map<
   Promise<EarnEarningsRangeSetResponse>
 >();
 const latestRequestByCacheKey = new Map<string, string>();
+const dirtyEarningsCacheKeys = new Set<string>();
 const earnEarningsInvalidationListeners = new Set<
   (cacheKey?: string) => void
 >();
@@ -304,20 +306,16 @@ export function invalidateEarnEarningsCache(cacheKey?: string) {
         cachedEarnings.set(key, { ...cached, expiresAt: 0 });
       }
     }
-    for (const key of inflightEarnings.keys()) {
-      if (key === cacheKey || key.startsWith(`${cacheKey}:`)) {
-        inflightEarnings.delete(key);
-      }
-    }
     for (const key of latestRequestByCacheKey.keys()) {
       if (key === cacheKey || key.startsWith(`${cacheKey}:`)) {
-        latestRequestByCacheKey.delete(key);
+        dirtyEarningsCacheKeys.add(key);
       }
     }
   } else {
     cachedEarnings.clear();
-    inflightEarnings.clear();
-    latestRequestByCacheKey.clear();
+    for (const key of latestRequestByCacheKey.keys()) {
+      dirtyEarningsCacheKeys.add(key);
+    }
   }
 
   for (const listener of earnEarningsInvalidationListeners) {
@@ -326,7 +324,11 @@ export function invalidateEarnEarningsCache(cacheKey?: string) {
 }
 
 export function resetEarnEarningsCacheForTests() {
-  invalidateEarnEarningsCache();
+  cacheVersion += 1;
+  cachedEarnings.clear();
+  inflightEarnings.clear();
+  latestRequestByCacheKey.clear();
+  dirtyEarningsCacheKeys.clear();
 }
 
 export async function fetchEarnEarningsRangeSet(
@@ -346,94 +348,121 @@ export async function fetchEarnEarningsRangeSet(
     return cached.value;
   }
 
-  const inflightKey = `${cacheKey}:request:${scope.revalidationKey ?? "stable"}`;
-  const inflight = inflightEarnings.get(inflightKey);
-  if (inflight) {
-    return inflight;
-  }
-
+  // The server response is already verified against its source principal. A
+  // client-side principal revision must not split one canonical network read
+  // into two requests while the position refresh commits a new value.
+  const inflightKey = `${cacheKey}:request`;
   const fallbackBeforeFetch =
     cached?.value ?? readPersistentEarnEarningsCache(cacheKey, scope);
-  const comparableBeforeFetch =
-    cached &&
-    isEarnEarningsCacheRevisionCurrent(
-      cached.revalidationKey,
-      scope.revalidationKey
-    )
-      ? cached.value
-      : null;
-  const requestCacheVersion = cacheVersion;
+  const withCallerFallback = (request: Promise<EarnEarningsRangeSetResponse>) =>
+    scope.strict
+      ? request
+      : request.catch((error) => {
+          const stale =
+            cachedEarnings.get(cacheKey)?.value ?? fallbackBeforeFetch;
+          if (stale) {
+            return markPayloadStale(stale, "client_revalidation_failed");
+          }
+          throw error;
+        });
+  const inflight = inflightEarnings.get(inflightKey);
+  if (inflight) {
+    return withCallerFallback(inflight);
+  }
+
   latestRequestByCacheKey.set(cacheKey, inflightKey);
-  const request = requestEarnEarningsWithRetry(scope.timezone ?? "UTC")
-    .then((payload) => {
-      if (
-        requestCacheVersion === cacheVersion &&
-        latestRequestByCacheKey.get(cacheKey) === inflightKey
-      ) {
-        const latestCached = cachedEarnings.get(cacheKey);
-        const comparableStale =
-          latestCached &&
-          isEarnEarningsCacheRevisionCurrent(
-            latestCached.revalidationKey,
-            scope.revalidationKey
-          )
-            ? latestCached.value
-            : comparableBeforeFetch;
+  const request = (async () => {
+    let result: EarnEarningsRangeSetResponse | undefined;
+    let lastError: unknown;
+    do {
+      dirtyEarningsCacheKeys.delete(cacheKey);
+      lastError = undefined;
+      const requestCacheVersion = cacheVersion;
+      const comparableBeforeFetch = cachedEarnings.get(cacheKey);
+      try {
+        const payload = await requestEarnEarningsWithRetry(
+          scope.timezone ?? "UTC"
+        );
+        result = payload;
         if (
-          isRegressiveEarningsPayload({
-            fresh: payload,
-            stale: comparableStale,
-          })
+          requestCacheVersion === cacheVersion &&
+          latestRequestByCacheKey.get(cacheKey) === inflightKey &&
+          !dirtyEarningsCacheKeys.has(cacheKey)
         ) {
-          if (comparableStale) {
-            return markPayloadStale(
+          const latestCached = cachedEarnings.get(cacheKey);
+          const comparableStale =
+            latestCached &&
+            isEarnEarningsCacheRevisionCurrent(
+              latestCached.revalidationKey,
+              scope.revalidationKey
+            )
+              ? latestCached.value
+              : comparableBeforeFetch &&
+                isEarnEarningsCacheRevisionCurrent(
+                  comparableBeforeFetch.revalidationKey,
+                  scope.revalidationKey
+                )
+              ? comparableBeforeFetch.value
+              : null;
+          if (
+            comparableStale &&
+            isRegressiveEarningsPayload({
+              fresh: payload,
+              stale: comparableStale,
+            })
+          ) {
+            result = markPayloadStale(
               comparableStale,
               "regressive_revalidation"
             );
-          }
-        }
-
-        if (
-          isEqualRecordedEarningsWithNewerTimestamp({
-            fresh: payload,
-            stale: comparableStale,
-          })
-        ) {
-          if (comparableStale) {
-            return markPayloadStale(
+          } else if (
+            comparableStale &&
+            isEqualRecordedEarningsWithNewerTimestamp({
+              fresh: payload,
+              stale: comparableStale,
+            })
+          ) {
+            result = markPayloadStale(
               comparableStale,
               "unchanged_revalidation"
             );
+          } else {
+            const summary = summarizeEarningsPayload(payload);
+            const responseRevision =
+              summary.principalAmountRaws.length === 1
+                ? summary.principalAmountRaws[0]
+                : scope.revalidationKey ?? null;
+            cachedEarnings.set(cacheKey, {
+              expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
+              revalidationKey: responseRevision,
+              value: payload,
+            });
+            writePersistentEarnEarningsCache(cacheKey, scope, payload);
           }
         }
+      } catch (error) {
+        lastError = error;
+      }
+    } while (dirtyEarningsCacheKeys.has(cacheKey));
 
-        cachedEarnings.set(cacheKey, {
-          expiresAt: Date.now() + CLIENT_CACHE_TTL_MS,
-          revalidationKey: scope.revalidationKey ?? null,
-          value: payload,
-        });
-        writePersistentEarnEarningsCache(cacheKey, scope, payload);
-      }
-      return payload;
-    })
-    .catch((error) => {
-      const stale = cachedEarnings.get(cacheKey)?.value ?? fallbackBeforeFetch;
-      if (stale) {
-        return markPayloadStale(stale, "client_revalidation_failed");
-      }
-      throw error;
-    })
-    .finally(() => {
-      if (inflightEarnings.get(inflightKey) === request) {
-        inflightEarnings.delete(inflightKey);
-      }
-      if (latestRequestByCacheKey.get(cacheKey) === inflightKey) {
-        latestRequestByCacheKey.delete(cacheKey);
-      }
-    });
+    if (lastError !== undefined) {
+      throw lastError;
+    }
+    if (!result) {
+      throw new Error("Earnings are unavailable.");
+    }
+    return result;
+  })().finally(() => {
+    if (inflightEarnings.get(inflightKey) === request) {
+      inflightEarnings.delete(inflightKey);
+    }
+    if (latestRequestByCacheKey.get(cacheKey) === inflightKey) {
+      latestRequestByCacheKey.delete(cacheKey);
+    }
+  });
 
   inflightEarnings.set(inflightKey, request);
-  return request;
+  return withCallerFallback(request);
 }
 
 export function useEarnEarnings({
@@ -467,10 +496,7 @@ export function useEarnEarnings({
   const cached = cachedEarnings.get(scopedCacheKey);
   const cachedForRevision =
     cached &&
-    isEarnEarningsCacheRevisionCurrent(
-      cached.revalidationKey,
-      revalidationKey
-    )
+    isEarnEarningsCacheRevisionCurrent(cached.revalidationKey, revalidationKey)
       ? cached
       : null;
   const [dataState, setDataState] = useState<{
@@ -485,8 +511,7 @@ export function useEarnEarnings({
         : null) ??
       persisted,
   }));
-  const data =
-    dataState.scopeKey === scopedCacheKey ? dataState.value : null;
+  const data = dataState.scopeKey === scopedCacheKey ? dataState.value : null;
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -573,10 +598,7 @@ export function useEarnEarnings({
           scopeKey: scopedCacheKey,
           value:
             current.scopeKey === scopedCacheKey && current.value
-              ? markPayloadStale(
-                  current.value,
-                  "client_revalidation_failed"
-                )
+              ? markPayloadStale(current.value, "client_revalidation_failed")
               : null,
         }));
         setError("Earnings are unavailable.");

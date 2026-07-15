@@ -35,6 +35,15 @@ export type EarnRealtimeInvalidation = {
   scheduledSlotId?: string;
   executionId?: string;
   failureCode?: string;
+  protocolIssue?: "unsupported_state";
+};
+
+export type EarnRealtimeProtocolIssue = {
+  eventId: string;
+  eventType: string;
+  kind: "unknown_event_type" | "unsupported_state";
+  schemaVersion: typeof EARN_REALTIME_SCHEMA_VERSION;
+  state?: string;
 };
 
 export type EarnRealtimeResyncRequired = {
@@ -62,6 +71,9 @@ export type EarnAutodepositProgress = {
 
 const DECIMAL_EVENT_ID_PATTERN = /^\d+$/;
 const AUTODEPOSIT_STATES = new Set<string>(EARN_AUTODEPOSIT_PROGRESS_STATES);
+const KNOWN_EVENT_TYPES = new Set<string>(
+  Object.values(EARN_REALTIME_EVENT_TYPES)
+);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -97,13 +109,18 @@ export function parseEarnRealtimeMessage(
     return null;
   }
 
-  const state = value.state;
-  if (
-    state !== undefined &&
-    (typeof state !== "string" || !AUTODEPOSIT_STATES.has(state))
-  ) {
+  const rawState = value.state;
+  if (rawState !== undefined && typeof rawState !== "string") {
     return null;
   }
+  const state =
+    typeof rawState === "string" && AUTODEPOSIT_STATES.has(rawState)
+      ? (rawState as EarnAutodepositProgressState)
+      : undefined;
+  const protocolIssue =
+    typeof rawState === "string" && !AUTODEPOSIT_STATES.has(rawState)
+      ? "unsupported_state"
+      : undefined;
 
   const optionalString = (key: string): string | undefined =>
     typeof value[key] === "string" ? value[key] : undefined;
@@ -114,13 +131,47 @@ export function parseEarnRealtimeMessage(
     executionId: optionalString("executionId"),
     failureCode: optionalString("failureCode"),
     occurredAt: value.occurredAt,
+    protocolIssue,
     reason: optionalString("reason"),
     scheduledSlotId: optionalString("scheduledSlotId"),
     schemaVersion: EARN_REALTIME_SCHEMA_VERSION,
     scope: value.scope,
-    state: state as EarnAutodepositProgressState | undefined,
+    state,
     targetId: optionalString("targetId"),
   };
+}
+
+export function resolveEarnRealtimeProtocolIssue(
+  event: EarnRealtimeInvalidation
+): EarnRealtimeProtocolIssue | null {
+  if (!KNOWN_EVENT_TYPES.has(event.eventType)) {
+    return {
+      eventId: event.eventId,
+      eventType: event.eventType,
+      kind: "unknown_event_type",
+      schemaVersion: EARN_REALTIME_SCHEMA_VERSION,
+    };
+  }
+  if (event.protocolIssue === "unsupported_state") {
+    return {
+      eventId: event.eventId,
+      eventType: event.eventType,
+      kind: "unsupported_state",
+      schemaVersion: EARN_REALTIME_SCHEMA_VERSION,
+    };
+  }
+  if (
+    event.eventType === EARN_REALTIME_EVENT_TYPES.autodeposit &&
+    !event.state
+  ) {
+    return {
+      eventId: event.eventId,
+      eventType: event.eventType,
+      kind: "unsupported_state",
+      schemaVersion: EARN_REALTIME_SCHEMA_VERSION,
+    };
+  }
+  return null;
 }
 
 export function isEarnRealtimeResyncRequired(

@@ -115,13 +115,20 @@ import {
 import { WalletDetailView } from "@/components/wallet-sidebar/wallet-detail-view";
 import type {
   SmartAccountApprovalItem,
+  SmartAccountRefreshCommitContext,
   SmartAccountSidebarData,
   SmartAccountSignerEntry,
   VaultTransferCapability,
   VaultTransferRequest,
 } from "@/hooks/use-smart-account-sidebar-data";
-import { invalidateEarnEarningsCache } from "@/hooks/use-earn-earnings";
-import { invalidateEarnTransactionsCache } from "@/lib/yield-optimization/earn-transactions.client";
+import {
+  fetchEarnEarningsRangeSet,
+  invalidateEarnEarningsCache,
+} from "@/hooks/use-earn-earnings";
+import {
+  fetchEarnTransactions,
+  invalidateEarnTransactionsCache,
+} from "@/lib/yield-optimization/earn-transactions.client";
 import {
   isActiveEarnPosition,
   useActiveEarnPosition,
@@ -143,14 +150,26 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import {
   EARN_REALTIME_EVENT_TYPES,
+  EarnMutationReconciliationRegistry,
   fetchEarnAutodepositProgress,
   isEarnAutodepositTerminalState,
   mergeEarnAutodepositProgress,
   resolveEarnRealtimeRefreshPlan,
   useEarnRealtime,
   type EarnAutodepositProgress,
+  type EarnExpectedMutationOperation,
   type EarnRealtimeInvalidation,
 } from "@/features/earn-realtime";
+import {
+  useRealtimeResource,
+  useRealtimeSync,
+  useRealtimeSyncScope,
+  type RealtimeResourceRefreshContext,
+} from "@/features/realtime-sync";
+import {
+  resolveSmartAccountMutationRefreshPlan,
+  type SmartAccountRefreshPlan,
+} from "@/features/smart-accounts/refresh-plan";
 import { useAuthCapability } from "@/lib/auth/capability";
 import {
   readClientCache,
@@ -218,6 +237,71 @@ import {
 
 type WorkspaceAction = "receive" | "send" | "swap" | "shield";
 type WorkspaceSection = "policies" | "settings" | "wallet";
+
+const EARN_SYNC_RESOURCES = {
+  earnings: "earn.earnings",
+  state: "earn.state",
+  position: "earn.position",
+  transactions: "earn.transactions",
+} as const;
+const EARN_VAULT_ACCOUNT_INDEX = 1;
+const EARN_BALANCE_MUTATION_RESOURCES = [
+  EARN_SYNC_RESOURCES.position,
+  EARN_SYNC_RESOURCES.transactions,
+  EARN_SYNC_RESOURCES.earnings,
+] as const;
+const EARN_AUTODEPOSIT_MUTATION_RESOURCES = [
+  EARN_SYNC_RESOURCES.state,
+  EARN_SYNC_RESOURCES.transactions,
+] as const;
+const EARN_CLEANUP_MUTATION_RESOURCES = [
+  EARN_SYNC_RESOURCES.state,
+  ...EARN_BALANCE_MUTATION_RESOURCES,
+] as const;
+const EARN_POLICY_MUTATION_RESOURCES = [EARN_SYNC_RESOURCES.state] as const;
+
+function resolveEarnMutationSmartAccountPlan(args: {
+  operation: EarnExpectedMutationOperation;
+  resources: readonly string[];
+}): SmartAccountRefreshPlan | null {
+  if (
+    args.operation === "autodeposit_floor" ||
+    args.operation === "autodeposit_toggle"
+  ) {
+    return null;
+  }
+
+  const plan = resolveSmartAccountMutationRefreshPlan({
+    kind: "earn",
+    operation: args.operation,
+    accountIndex: EARN_VAULT_ACCOUNT_INDEX,
+  });
+  const groups = args.resources.includes(EARN_SYNC_RESOURCES.state)
+    ? plan.groups.filter((group) => group !== "earn")
+    : plan.groups;
+
+  return groups.length > 0 ? { ...plan, groups } : null;
+}
+
+function resolveEarnRealtimeResources(
+  event: EarnRealtimeInvalidation
+): string[] {
+  const refreshPlan = resolveEarnRealtimeRefreshPlan([event]);
+  const resources: string[] = [];
+  if (refreshPlan.transactions) {
+    resources.push(EARN_SYNC_RESOURCES.transactions);
+  }
+  if (refreshPlan.earnings) {
+    resources.push(EARN_SYNC_RESOURCES.earnings);
+  }
+  if (refreshPlan.earnState) {
+    resources.push(EARN_SYNC_RESOURCES.state);
+  }
+  if (refreshPlan.position) {
+    resources.push(EARN_SYNC_RESOURCES.position);
+  }
+  return resources;
+}
 type MobilePane = "accounts" | "activity" | "detail";
 type DetailTab = "activity" | "tokens";
 type DetailPaneTransition = "back" | "close" | "forward" | "open" | "switch";
@@ -784,11 +868,14 @@ function useMainAccountUsdcBalance(args: {
 }): {
   amount: number | null;
   amountRaw: bigint | null;
-  refresh: () => Promise<void>;
+  refresh: (isCurrent?: () => boolean) => Promise<void>;
   setAmountRaw: Dispatch<SetStateAction<bigint | null>>;
 } {
   const { connection, mint, walletAddress } = args;
   const [amountRaw, setAmountRaw] = useState<bigint | null>(null);
+  const balanceScope = `${walletAddress ?? "no-wallet"}:${mint ?? "no-mint"}`;
+  const activeBalanceScopeRef = useRef(balanceScope);
+  activeBalanceScopeRef.current = balanceScope;
 
   const readAmountRaw = useCallback(async (): Promise<bigint | null> => {
     if (!walletAddress || !mint) {
@@ -822,15 +909,25 @@ function useMainAccountUsdcBalance(args: {
     }
   }, [connection, mint, walletAddress]);
 
-  const refresh = useCallback(async () => {
-    setAmountRaw(await readAmountRaw());
-  }, [readAmountRaw]);
+  const refresh = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      if (!isCurrent()) {
+        return;
+      }
+      const requestedScope = balanceScope;
+      const nextAmountRaw = await readAmountRaw();
+      if (activeBalanceScopeRef.current === requestedScope && isCurrent()) {
+        setAmountRaw(nextAmountRaw);
+      }
+    },
+    [balanceScope, readAmountRaw]
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     void readAmountRaw().then((nextAmountRaw) => {
-      if (!cancelled) {
+      if (!cancelled && activeBalanceScopeRef.current === balanceScope) {
         setAmountRaw(nextAmountRaw);
       }
     });
@@ -838,7 +935,7 @@ function useMainAccountUsdcBalance(args: {
     return () => {
       cancelled = true;
     };
-  }, [readAmountRaw]);
+  }, [balanceScope, readAmountRaw]);
 
   return {
     amount: amountRaw === null ? null : Number(amountRaw) / 1_000_000,
@@ -1760,9 +1857,15 @@ export function AppWalletWorkspace({
   );
   const refreshWalletPortfolio = walletDesktopData.refresh;
   const refreshMainAccountUsdc = mainAccountUsdcBalance.refresh;
-  const refreshMainAccountBalances = useCallback(async () => {
-    await Promise.all([refreshWalletPortfolio(), refreshMainAccountUsdc()]);
-  }, [refreshMainAccountUsdc, refreshWalletPortfolio]);
+  const refreshMainAccountBalances = useCallback(
+    async (context?: SmartAccountRefreshCommitContext) => {
+      await Promise.all([
+        refreshWalletPortfolio(context?.isCurrent),
+        refreshMainAccountUsdc(context?.isCurrent),
+      ]);
+    },
+    [refreshMainAccountUsdc, refreshWalletPortfolio]
+  );
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
@@ -1840,6 +1943,15 @@ export function AppWalletWorkspace({
     solanaEnv: publicEnv.solanaEnv,
     walletAddress: personalWalletAddress,
   });
+  const earnEarningsRevalidationKey = isActiveEarnPosition(activeEarnPosition)
+    ? activeEarnPosition?.principalAmountRaw ?? "0"
+    : "0";
+  const earnEarningsCacheKey = [
+    publicEnv.solanaEnv,
+    personalWalletAddress ?? "anonymous",
+    smartAccountData.overview?.settingsPda ?? "no-settings",
+    "vault-1",
+  ].join(":");
   const [earnTransactionsRefreshKey, setEarnTransactionsRefreshKey] =
     useState(0);
   const [activeScheduledSweepSlotId, setActiveScheduledSweepSlotId] = useState<
@@ -1850,16 +1962,115 @@ export function AppWalletWorkspace({
   >({});
   const earnRealtimeSettingsPda = smartAccountData.overview?.settingsPda;
   const earnRealtimeVaultAddress = smartAccountData.earnVaultPubkey;
-  const refreshEarnState = smartAccountData.refreshEarnState;
+  const refreshSmartAccountGroups = smartAccountData.refreshGroups;
+  const refreshSmartAccountMutationPlan = smartAccountData.refreshMutationPlan;
+  const refreshEarnState = useCallback(
+    () =>
+      refreshSmartAccountGroups({
+        groups: ["earn"],
+        refreshAuthenticatedWallet: false,
+      }),
+    [refreshSmartAccountGroups]
+  );
+  const { invalidate: invalidateRealtimeResources } = useRealtimeSync();
+  const refreshEarnTransactions = useCallback(
+    async (context: RealtimeResourceRefreshContext) => {
+      if (!earnRealtimeSettingsPda || !personalWalletAddress) {
+        return;
+      }
+      invalidateEarnTransactionsCache({
+        settingsPda: earnRealtimeSettingsPda,
+        solanaEnv: publicEnv.solanaEnv,
+        walletAddress: personalWalletAddress,
+      });
+      await fetchEarnTransactions({
+        settingsPda: earnRealtimeSettingsPda,
+        solanaEnv: publicEnv.solanaEnv,
+        walletAddress: personalWalletAddress,
+      });
+      if (!context.isCurrent()) {
+        return;
+      }
+      setEarnTransactionsRefreshKey((value) => value + 1);
+    },
+    [earnRealtimeSettingsPda, publicEnv.solanaEnv, personalWalletAddress]
+  );
+  const refreshEarnEarnings = useCallback(
+    async (context: RealtimeResourceRefreshContext) => {
+      if (!earnRealtimeSettingsPda || !personalWalletAddress) {
+        return;
+      }
+      const timezone =
+        Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+      const scopedCacheKey = `${earnEarningsCacheKey}:${timezone}`;
+      invalidateEarnEarningsCache(scopedCacheKey);
+      await fetchEarnEarningsRangeSet(scopedCacheKey, {
+        revalidationKey: earnEarningsRevalidationKey,
+        settingsPda: earnRealtimeSettingsPda,
+        solanaEnv: publicEnv.solanaEnv,
+        strict: true,
+        timezone,
+        walletAddress: personalWalletAddress,
+      });
+      if (!context.isCurrent()) {
+        return;
+      }
+    },
+    [
+      earnEarningsCacheKey,
+      earnEarningsRevalidationKey,
+      earnRealtimeSettingsPda,
+      personalWalletAddress,
+      publicEnv.solanaEnv,
+    ]
+  );
+  useRealtimeResource(EARN_SYNC_RESOURCES.state, refreshEarnState);
+  useRealtimeResource(EARN_SYNC_RESOURCES.position, refreshActiveEarnPosition, {
+    handlesInFlightInvalidation: true,
+  });
+  useRealtimeResource(
+    EARN_SYNC_RESOURCES.transactions,
+    refreshEarnTransactions
+  );
+  useRealtimeResource(EARN_SYNC_RESOURCES.earnings, refreshEarnEarnings);
+
+  const refreshAllEarnResources = useCallback(
+    () =>
+      invalidateRealtimeResources([
+        EARN_SYNC_RESOURCES.state,
+        EARN_SYNC_RESOURCES.position,
+        EARN_SYNC_RESOURCES.transactions,
+        EARN_SYNC_RESOURCES.earnings,
+      ]),
+    [invalidateRealtimeResources]
+  );
   const invalidateEarnClientCaches = useCallback(() => {
-    invalidateEarnEarningsCache();
-    invalidateEarnTransactionsCache({
-      settingsPda: earnRealtimeSettingsPda,
-      solanaEnv: publicEnv.solanaEnv,
-      walletAddress: personalWalletAddress ?? undefined,
+    void invalidateRealtimeResources([
+      EARN_SYNC_RESOURCES.transactions,
+      EARN_SYNC_RESOURCES.earnings,
+    ]).catch((error) => {
+      console.warn("[earn-sync] failed to refresh client caches", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown sync error.",
+      });
     });
-    setEarnTransactionsRefreshKey((value) => value + 1);
-  }, [earnRealtimeSettingsPda, publicEnv.solanaEnv, personalWalletAddress]);
+  }, [invalidateRealtimeResources]);
+  const earnMutationRegistryRef =
+    useRef<EarnMutationReconciliationRegistry | null>(null);
+  if (!earnMutationRegistryRef.current) {
+    earnMutationRegistryRef.current = new EarnMutationReconciliationRegistry({
+      onFallbackError: (error, expected) => {
+        console.warn("[earn-sync] mutation fallback refresh failed", {
+          errorMessage:
+            error instanceof Error ? error.message : "Unknown sync error.",
+          operation: expected.operation,
+          signature: expected.signature,
+          targetId: expected.targetId,
+        });
+      },
+    });
+  }
+  const earnMutationSequenceRef = useRef(0);
   const applyEarnAutodepositProgress = useCallback(
     (progress: EarnAutodepositProgress) => {
       const scheduledSlotId = progress.scheduledSlotId;
@@ -1892,40 +2103,34 @@ export function AppWalletWorkspace({
     [applyEarnAutodepositProgress]
   );
   const handleEarnRealtimeInvalidationBatch = useCallback(
-    (
-      events: readonly Pick<EarnRealtimeInvalidation, "eventType" | "state">[]
-    ) => {
-      const refreshPlan = resolveEarnRealtimeRefreshPlan(events);
-
-      if (refreshPlan.transactions) {
-        invalidateEarnTransactionsCache({
-          settingsPda: earnRealtimeSettingsPda,
-          solanaEnv: publicEnv.solanaEnv,
-          walletAddress: personalWalletAddress ?? undefined,
+    async (events: readonly EarnRealtimeInvalidation[]) => {
+      const reconciliation = earnMutationRegistryRef.current?.plan(
+        events.map((event) => ({
+          event,
+          resources: resolveEarnRealtimeResources(event),
+        }))
+      );
+      const resources =
+        reconciliation?.resources ??
+        events.flatMap(resolveEarnRealtimeResources);
+      try {
+        await Promise.all([
+          resources.length > 0
+            ? invalidateRealtimeResources(resources)
+            : Promise.resolve(),
+          reconciliation?.reconcileRelated() ?? Promise.resolve(),
+        ]);
+        reconciliation?.accept(true);
+      } catch (error) {
+        reconciliation?.accept(false);
+        console.warn("[earn-sync] failed to apply realtime invalidation", {
+          errorMessage:
+            error instanceof Error ? error.message : "Unknown sync error.",
         });
-        setEarnTransactionsRefreshKey((value) => value + 1);
-      }
-      if (refreshPlan.earnings) {
-        invalidateEarnEarningsCache();
-      }
-      const refreshes: Promise<unknown>[] = [];
-      if (refreshPlan.earnState) {
-        refreshes.push(refreshEarnState());
-      }
-      if (refreshPlan.position) {
-        refreshes.push(refreshActiveEarnPosition());
-      }
-      if (refreshes.length > 0) {
-        void Promise.allSettled(refreshes);
+        throw error;
       }
     },
-    [
-      earnRealtimeSettingsPda,
-      personalWalletAddress,
-      publicEnv.solanaEnv,
-      refreshActiveEarnPosition,
-      refreshEarnState,
-    ]
+    [invalidateRealtimeResources]
   );
   const earnRealtimeIdentity = useMemo(() => {
     if (
@@ -1947,6 +2152,76 @@ export function AppWalletWorkspace({
     personalWalletAddress,
     publicEnv.solanaEnv,
   ]);
+  const earnRealtimeScope = earnRealtimeIdentity
+    ? [
+        earnRealtimeIdentity.walletAddress,
+        earnRealtimeIdentity.settingsPda,
+        earnRealtimeIdentity.earnVaultAddress,
+        earnRealtimeIdentity.solanaEnv,
+      ].join(":")
+    : null;
+  const activeEarnRealtimeScopeRef = useRef(earnRealtimeScope);
+  activeEarnRealtimeScopeRef.current = earnRealtimeScope;
+  const registerExpectedEarnMutation = useCallback(
+    ({
+      operation,
+      resources,
+      signature,
+      targetId,
+    }: {
+      operation: EarnExpectedMutationOperation;
+      resources: readonly string[];
+      signature?: string;
+      targetId?: string;
+    }) => {
+      const registry = earnMutationRegistryRef.current;
+      if (
+        !registry ||
+        activeEarnRealtimeScopeRef.current !== earnRealtimeScope
+      ) {
+        return;
+      }
+      earnMutationSequenceRef.current += 1;
+      const relatedPlan = resolveEarnMutationSmartAccountPlan({
+        operation,
+        resources,
+      });
+      // Preserve the confirmed signature as mutation identity even though the
+      // current SSE envelope cannot echo it. Only events planned after this
+      // registration are temporally causal; older events cannot cancel the
+      // mutation's one targeted fallback without an exact targetId.
+      registry.register(
+        {
+          key: [
+            earnRealtimeScope ?? "unscoped",
+            operation,
+            targetId ?? signature ?? "unidentified",
+            earnMutationSequenceRef.current,
+          ].join(":"),
+          operation,
+          reconcileRelated: relatedPlan
+            ? () => refreshSmartAccountMutationPlan(relatedPlan)
+            : undefined,
+          resources,
+          signature,
+          targetId,
+        },
+        (fallbackResources) => invalidateRealtimeResources(fallbackResources)
+      );
+    },
+    [
+      earnRealtimeScope,
+      invalidateRealtimeResources,
+      refreshSmartAccountMutationPlan,
+    ]
+  );
+  useRealtimeSyncScope(earnRealtimeScope);
+  useEffect(() => {
+    const registry = earnMutationRegistryRef.current;
+    registry?.reset();
+    earnMutationSequenceRef.current = 0;
+    return () => registry?.reset();
+  }, [earnRealtimeScope]);
   useEffect(() => {
     setActiveScheduledSweepSlotId(null);
     setAutodepositProgressBySlot({});
@@ -1956,19 +2231,8 @@ export function AppWalletWorkspace({
     identity: earnRealtimeIdentity,
     onInvalidation: handleEarnRealtimeInvalidation,
     onInvalidationBatch: handleEarnRealtimeInvalidationBatch,
-    onResyncRequired: async () => {
-      invalidateEarnTransactionsCache({
-        settingsPda: earnRealtimeSettingsPda,
-        solanaEnv: publicEnv.solanaEnv,
-        walletAddress: personalWalletAddress ?? undefined,
-      });
-      setEarnTransactionsRefreshKey((value) => value + 1);
-      invalidateEarnEarningsCache();
-      await Promise.allSettled([
-        refreshEarnState(),
-        refreshActiveEarnPosition(),
-      ]);
-    },
+    onCursorlessConnected: refreshAllEarnResources,
+    onResyncRequired: refreshAllEarnResources,
   });
   const activeAutodepositProgress = activeScheduledSweepSlotId
     ? autodepositProgressBySlot[activeScheduledSweepSlotId]
@@ -2005,12 +2269,26 @@ export function AppWalletWorkspace({
           continue;
         }
         applyEarnAutodepositProgress(progress);
-        handleEarnRealtimeInvalidationBatch([
-          {
-            eventType: EARN_REALTIME_EVENT_TYPES.autodeposit,
-            state: progress.state,
-          },
-        ]);
+        try {
+          await handleEarnRealtimeInvalidationBatch([
+            {
+              eventId: progress.eventId ?? "0",
+              eventType: EARN_REALTIME_EVENT_TYPES.autodeposit,
+              failureCode: progress.failureCode,
+              occurredAt: new Date().toISOString(),
+              scheduledSlotId: progress.scheduledSlotId,
+              schemaVersion: 1,
+              scope: earnRealtimeScope ?? "earn-fallback",
+              state: progress.state,
+            },
+          ]);
+        } catch (error) {
+          console.warn("[earn-sync] fallback invalidation failed", {
+            errorMessage:
+              error instanceof Error ? error.message : "Unknown sync error.",
+            scheduledSlotId: progress.scheduledSlotId,
+          });
+        }
         if (isEarnAutodepositTerminalState(progress.state)) {
           return;
         }
@@ -2028,6 +2306,7 @@ export function AppWalletWorkspace({
     activeScheduledSweepSlotId,
     applyEarnAutodepositProgress,
     earnRealtimeConnectionState,
+    earnRealtimeScope,
     handleEarnRealtimeInvalidationBatch,
     isActiveAutodepositTerminal,
   ]);
@@ -3095,16 +3374,6 @@ export function AppWalletWorkspace({
       ),
     [earnCurrentBalanceAmount, mainAccountDisplayUsd, smartAccountData.totalUsd]
   );
-  const earnEarningsRevalidationKey =
-    hasEarnPosition && activeEarnPosition
-      ? activeEarnPosition.principalAmountRaw
-      : "0";
-  const earnEarningsCacheKey = [
-    publicEnv.solanaEnv,
-    personalWalletAddress ?? "anonymous",
-    smartAccountData.overview?.settingsPda ?? "no-settings",
-    "vault-1",
-  ].join(":");
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -3867,7 +4136,7 @@ export function AppWalletWorkspace({
     async ({ recipientAddress }: { recipientAddress: string }) => {
       const trimmed = recipientAddress.trim();
       if (!trimmed) {
-        await smartAccountData.refreshAfterTx({});
+        await smartAccountData.refreshAfterTx({ groups: ["wallet"] });
         return;
       }
 
@@ -3877,6 +4146,7 @@ export function AppWalletWorkspace({
       if (matchedVault) {
         await smartAccountData.refreshAfterTx({
           accountIndex: matchedVault.accountIndex,
+          groups: ["vaults", "activity", "wallet"],
         });
         return;
       }
@@ -3889,12 +4159,13 @@ export function AppWalletWorkspace({
           .find((signer) => signer.address === trimmed);
       if (matchedSigner) {
         await smartAccountData.refreshAfterTx({
+          groups: ["wallet"],
           signerAddresses: [trimmed],
         });
         return;
       }
 
-      await smartAccountData.refreshAfterTx({});
+      await smartAccountData.refreshAfterTx({ groups: ["wallet"] });
     },
     [smartAccountData]
   );
@@ -4266,7 +4537,11 @@ export function AppWalletWorkspace({
                 }
               : current
           );
-          invalidateEarnClientCaches();
+          registerExpectedEarnMutation({
+            operation: "autodeposit_floor",
+            resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
+            targetId: result.target?.id,
+          });
           if (detailSelectionRef.current === "earnAutodeposit") {
             markDetailPaneTransition("back");
             setSelectedSignerId(null);
@@ -4315,9 +4590,9 @@ export function AppWalletWorkspace({
       autodepositConfig,
       canMutateAccount,
       earnDepositSources,
-      invalidateEarnClientCaches,
       markDetailPaneTransition,
       openSignIn,
+      registerExpectedEarnMutation,
       setDetailSelection,
       smartAccountData,
     ]
@@ -4448,8 +4723,12 @@ export function AppWalletWorkspace({
           }
         : current
     );
-    invalidateEarnClientCaches();
-  }, [autodepositConfig, invalidateEarnClientCaches, smartAccountData]);
+    registerExpectedEarnMutation({
+      operation: "autodeposit_toggle",
+      resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
+      targetId: result.target?.id,
+    });
+  }, [autodepositConfig, registerExpectedEarnMutation, smartAccountData]);
 
   const handleExecuteScheduledAutodepositSweep = useCallback(
     async (sweep?: LoadedEarnAutodepositScheduledSweep) => {
@@ -4888,7 +5167,6 @@ export function AppWalletWorkspace({
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
             preparedDeposit,
-            recordConfirmationAsync: true,
           });
 
           if (!result.success) {
@@ -4901,7 +5179,11 @@ export function AppWalletWorkspace({
           setEarnDepositReviewStage("deposit");
           setIsEarnDepositPolicySetupFlow(false);
           setEarnDepositPolicyStageSignatures({});
-          invalidateEarnClientCaches();
+          registerExpectedEarnMutation({
+            operation: "deposit",
+            resources: EARN_BALANCE_MUTATION_RESOURCES,
+            signature: result.signature,
+          });
           setActiveEarnPosition((current) =>
             buildPostDepositEarnPosition({
               amountRaw,
@@ -4944,10 +5226,10 @@ export function AppWalletWorkspace({
       canMutateAccount,
       ensureCanSignAccountAction,
       hasEarnPosition,
-      invalidateEarnClientCaches,
       markDetailPaneTransition,
       openSignIn,
       prepareEarnDepositInBrowser,
+      registerExpectedEarnMutation,
       setActiveEarnPosition,
       setDetailSelection,
       suppressEarnSubscriptionRefreshThroughSlot,
@@ -4979,13 +5261,12 @@ export function AppWalletWorkspace({
           setIsEarnAutoSigning(true);
           const stepCount = Math.max(1, preparedWithdraw.withdrawSteps.length);
           let latestConfirmedSlot: string | undefined;
+          let latestSignature: string | undefined;
           for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
             const result = await smartAccountData.executeEarnWithdraw({
               amountRaw,
               mode: draft.mode,
-              onConfirmationRecorded: invalidateEarnClientCaches,
               preparedWithdraw,
-              recordConfirmationAsync: stepIndex === stepCount - 1,
               stepIndex,
             });
 
@@ -4993,10 +5274,15 @@ export function AppWalletWorkspace({
               throw new Error(result.error ?? "Earn withdrawal failed.");
             }
             latestConfirmedSlot = result.confirmedSlot ?? latestConfirmedSlot;
+            latestSignature = result.signature ?? latestSignature;
           }
 
           markDetailPaneTransition("back");
-          invalidateEarnClientCaches();
+          registerExpectedEarnMutation({
+            operation: "withdraw_partial",
+            resources: EARN_BALANCE_MUTATION_RESOURCES,
+            signature: latestSignature,
+          });
           setPendingEarnWithdrawDraft(null);
           setPendingEarnWithdrawPrepared(null);
           setPendingEarnCleanupPrepared(null);
@@ -5040,9 +5326,9 @@ export function AppWalletWorkspace({
       creditMainAccountUsdcBalance,
       ensureCanSignAccountAction,
       getEarnWithdrawDraftAmountRaw,
-      invalidateEarnClientCaches,
       markDetailPaneTransition,
       prepareEarnWithdrawInBrowser,
+      registerExpectedEarnMutation,
       setActiveEarnPosition,
       setDetailSelection,
       suppressEarnSubscriptionRefreshThroughSlot,
@@ -5145,7 +5431,20 @@ export function AppWalletWorkspace({
           setIsEarnDepositPolicySetupFlow(false);
           setEarnDepositPolicyStageSignatures({});
           setEarnDepositPrepareError(null);
-          invalidateEarnClientCaches();
+          const policySignature =
+            batchResult.setupPolicySignature ?? batchResult.policySignature;
+          if (policySignature) {
+            registerExpectedEarnMutation({
+              operation: "policy_setup",
+              resources: EARN_POLICY_MUTATION_RESOURCES,
+              signature: policySignature,
+            });
+          }
+          registerExpectedEarnMutation({
+            operation: "deposit",
+            resources: EARN_BALANCE_MUTATION_RESOURCES,
+            signature: batchResult.signature,
+          });
           setActiveEarnPosition((current) => {
             return buildPostDepositEarnPosition({
               amountRaw,
@@ -5192,6 +5491,11 @@ export function AppWalletWorkspace({
                   };
             setEarnDepositPolicyStageSignatures(stageSignatures);
           }
+          registerExpectedEarnMutation({
+            operation: "policy_setup",
+            resources: EARN_POLICY_MUTATION_RESOURCES,
+            signature: result.signature,
+          });
 
           const nextReview = advanceEarnDepositReviewStage({
             draft: pendingEarnDepositDraft,
@@ -5227,7 +5531,11 @@ export function AppWalletWorkspace({
         setIsEarnDepositPolicySetupFlow(false);
         setEarnDepositPolicyStageSignatures({});
         setEarnDepositPrepareError(null);
-        invalidateEarnClientCaches();
+        registerExpectedEarnMutation({
+          operation: "deposit",
+          resources: EARN_BALANCE_MUTATION_RESOURCES,
+          signature: result.signature,
+        });
         setActiveEarnPosition((current) => {
           return buildPostDepositEarnPosition({
             amountRaw,
@@ -5272,7 +5580,7 @@ export function AppWalletWorkspace({
     setActiveEarnPosition,
     setDetailSelection,
     suppressEarnSubscriptionRefreshThroughSlot,
-    invalidateEarnClientCaches,
+    registerExpectedEarnMutation,
     smartAccountData,
   ]);
 
@@ -5318,6 +5626,12 @@ export function AppWalletWorkspace({
           }
 
           setAutodepositConfig(null);
+          registerExpectedEarnMutation({
+            operation: "autodeposit_close",
+            resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
+            signature: result.signature,
+            targetId: result.targetId,
+          });
           setIsEarnWithdrawPreparePending(true);
           const nextPreparedWithdraw = await prepareEarnWithdrawInBrowser(
             pendingEarnWithdrawDraft
@@ -5346,11 +5660,7 @@ export function AppWalletWorkspace({
           autodepositCloseAlreadyCompleted:
             pendingEarnWithdrawDraft.mode === "full",
           mode: pendingEarnWithdrawDraft.mode,
-          onConfirmationRecorded: invalidateEarnClientCaches,
           preparedWithdraw,
-          recordConfirmationAsync:
-            pendingEarnWithdrawDraft.mode === "partial" &&
-            stepIndex === preparedWithdraw.withdrawSteps.length - 1,
           stepIndex,
         });
 
@@ -5372,7 +5682,14 @@ export function AppWalletWorkspace({
         }
 
         markDetailPaneTransition("back");
-        invalidateEarnClientCaches();
+        registerExpectedEarnMutation({
+          operation:
+            pendingEarnWithdrawDraft.mode === "partial"
+              ? "withdraw_partial"
+              : "withdraw_full",
+          resources: EARN_BALANCE_MUTATION_RESOURCES,
+          signature: result.signature,
+        });
         setPendingEarnWithdrawDraft(null);
         setPendingEarnWithdrawPrepared(null);
         setPendingEarnCleanupPrepared(null);
@@ -5391,11 +5708,6 @@ export function AppWalletWorkspace({
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
-        if (pendingEarnWithdrawDraft.mode !== "partial") {
-          void refreshActiveEarnPosition().catch((error) => {
-            console.warn("[earn-position] post-withdraw refresh failed", error);
-          });
-        }
         break;
       }
     } catch (error) {
@@ -5411,12 +5723,11 @@ export function AppWalletWorkspace({
     earnWithdrawReviewStage,
     ensureCanSignAccountAction,
     getEarnWithdrawDraftAmountRaw,
-    invalidateEarnClientCaches,
     markDetailPaneTransition,
     pendingEarnWithdrawDraft,
     pendingEarnWithdrawPrepared,
     prepareEarnWithdrawInBrowser,
-    refreshActiveEarnPosition,
+    registerExpectedEarnMutation,
     creditMainAccountUsdcBalance,
     setActiveEarnPosition,
     setDetailSelection,
@@ -5447,7 +5758,6 @@ export function AppWalletWorkspace({
       }
 
       markDetailPaneTransition("back");
-      invalidateEarnClientCaches();
       setPendingEarnWithdrawDraft(null);
       setPendingEarnWithdrawPrepared(null);
       setPendingEarnCleanupPrepared(null);
@@ -5457,8 +5767,10 @@ export function AppWalletWorkspace({
       setSelectedSignerId(null);
       setDetailSelection("earnDeposit");
       setSelectedDetail("Deposit");
-      void smartAccountData.refresh({ readCache: false }).catch((error) => {
-        console.warn("[earn-cleanup] post-cleanup refresh failed", error);
+      registerExpectedEarnMutation({
+        operation: "cleanup",
+        resources: EARN_CLEANUP_MUTATION_RESOURCES,
+        signature: result.signature,
       });
     } catch (error) {
       const message =
@@ -5470,9 +5782,9 @@ export function AppWalletWorkspace({
     }
   }, [
     ensureCanSignAccountAction,
-    invalidateEarnClientCaches,
     markDetailPaneTransition,
     pendingEarnCleanupPrepared,
+    registerExpectedEarnMutation,
     setActiveEarnPosition,
     setDetailSelection,
     smartAccountData,
@@ -5563,7 +5875,11 @@ export function AppWalletWorkspace({
         setPendingEarnAutodepositSetupPrepared(null);
         setEarnAutodepositSetupReviewStage("policy");
         setIsEarnAutodepositCloseReview(false);
-        invalidateEarnClientCaches();
+        registerExpectedEarnMutation({
+          operation: "autodeposit_floor",
+          resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
+          targetId: result.target?.id,
+        });
         markDetailPaneTransition("back");
         setSelectedSignerId(null);
         setDetailSelection("earn");
@@ -5658,7 +5974,12 @@ export function AppWalletWorkspace({
         setPendingEarnAutodepositSetupPrepared(null);
         setEarnAutodepositSetupReviewStage("policy");
         setIsEarnAutodepositCloseReview(false);
-        invalidateEarnClientCaches();
+        registerExpectedEarnMutation({
+          operation: "autodeposit_setup",
+          resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
+          signature: result.signature,
+          targetId: result.targetId,
+        });
         markDetailPaneTransition("back");
         setSelectedSignerId(null);
         setDetailSelection("earn");
@@ -5680,9 +6001,9 @@ export function AppWalletWorkspace({
     autodepositConfig,
     ensureCanSignAccountAction,
     markDetailPaneTransition,
-    invalidateEarnClientCaches,
     pendingEarnAutodepositDraft,
     pendingEarnAutodepositSetupPrepared,
+    registerExpectedEarnMutation,
     setDetailSelection,
     smartAccountData,
   ]);
@@ -5724,7 +6045,12 @@ export function AppWalletWorkspace({
       setPendingEarnAutodepositDraft(null);
       setPendingEarnAutodepositClosePrepared(null);
       setIsEarnAutodepositCloseReview(false);
-      invalidateEarnClientCaches();
+      registerExpectedEarnMutation({
+        operation: "autodeposit_close",
+        resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
+        signature: result.signature,
+        targetId: result.targetId,
+      });
       markDetailPaneTransition("back");
       setSelectedSignerId(null);
       setDetailSelection("earn");
@@ -5740,9 +6066,9 @@ export function AppWalletWorkspace({
   }, [
     autodepositConfig,
     ensureCanSignAccountAction,
-    invalidateEarnClientCaches,
     markDetailPaneTransition,
     pendingEarnAutodepositClosePrepared,
+    registerExpectedEarnMutation,
     setDetailSelection,
     smartAccountData,
   ]);
@@ -6043,7 +6369,6 @@ export function AppWalletWorkspace({
     setIsSpendingLimitDraftSubmitting(true);
     setSpendingLimitDraftError(null);
     try {
-      const wasSet = spendingLimitDraft.kind === "set";
       if (spendingLimitDraft.kind === "set") {
         await smartAccountData.setSignerSpendingLimitUsd({
           accountIndex: spendingLimitDraft.accountIndex,
@@ -6060,17 +6385,6 @@ export function AppWalletWorkspace({
         });
       }
       setSpendingLimitDraft(null);
-      // RPC getProgramAccounts can lag a beat behind a brand-new policy account
-      // at "confirmed" commitment. Re-fetch overview shortly after to make the
-      // new spending limit show up without a manual page reload.
-      if (wasSet) {
-        const delays = [800, 2000];
-        for (const delay of delays) {
-          window.setTimeout(() => {
-            void smartAccountData.refresh().catch(() => undefined);
-          }, delay);
-        }
-      }
     } catch (error) {
       setSpendingLimitDraftError(
         error instanceof Error

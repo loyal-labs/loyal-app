@@ -78,7 +78,7 @@ export type WalletDesktopData = {
   earningsSummary: WalletEarningsSummary | null;
   portfolioChange24h: WalletPortfolioChange24h | null;
   loadActivity: () => Promise<void>;
-  refresh: () => Promise<void>;
+  refresh: (isCurrent?: () => boolean) => Promise<void>;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
 };
 
@@ -598,6 +598,7 @@ export function useWalletDesktopData(
   const [hasRequestedActivity, setHasRequestedActivity] = useState(false);
   const activityLoadPromiseRef = useRef<Promise<void> | null>(null);
   const ownerAddressRef = useRef<string | null>(null);
+  ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
   const [isLoading, setIsLoading] = useState(false);
   const [localRows, setLocalRows] = useState<ActivityRow[]>([]);
   const [localDetails, setLocalDetails] = useState<
@@ -726,68 +727,71 @@ export function useWalletDesktopData(
     return loadPromise;
   }, [client, ownerPublicKey]);
 
-  const refresh = useCallback(async () => {
-    if (!enabled || !ownerPublicKey) {
-      return;
-    }
+  const refresh = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      if (!enabled || !ownerPublicKey || !isCurrent()) {
+        return;
+      }
 
-    const publicKey = ownerPublicKey;
-    const address = publicKey.toBase58();
+      const publicKey = ownerPublicKey;
+      const address = publicKey.toBase58();
 
-    client.invalidateCaches({
-      portfolio: [publicKey],
-      activity: [publicKey],
-    });
+      client.invalidateCaches({
+        portfolio: [publicKey],
+        activity: [publicKey],
+      });
 
-    const tasks: Promise<unknown>[] = [];
+      const tasks: Promise<unknown>[] = [];
 
-    tasks.push(
-      client
-        .getPortfolio(publicKey, { forceRefresh: true })
-        .then(async (nextPortfolio) => {
-          const enriched = await applyEnrichment(nextPortfolio, address);
-          if (ownerAddressRef.current !== address) {
-            return;
-          }
-          applyPortfolioState({
-            portfolioSnapshot: enriched.snapshot,
-            earningsByMint: enriched.earningsByMint,
-            earningsSummary: toWalletEarningsSummary(enriched.earningsTotals),
-            walletAddress: address,
-          });
-        })
-        .catch((error) => {
-          console.error("Failed to refresh wallet portfolio", error);
-        })
-    );
-
-    if (hasRequestedActivity) {
       tasks.push(
         client
-          .getActivity(publicKey, {
-            limit: WALLET_ACTIVITY_INITIAL_LIMIT,
-            forceRefresh: true,
-          })
-          .then((history) => {
-            if (ownerAddressRef.current === address) {
-              setActivities(history.activities);
+          .getPortfolio(publicKey, { forceRefresh: true })
+          .then(async (nextPortfolio) => {
+            const enriched = await applyEnrichment(nextPortfolio, address);
+            if (ownerAddressRef.current !== address || !isCurrent()) {
+              return;
             }
+            applyPortfolioState({
+              portfolioSnapshot: enriched.snapshot,
+              earningsByMint: enriched.earningsByMint,
+              earningsSummary: toWalletEarningsSummary(enriched.earningsTotals),
+              walletAddress: address,
+            });
           })
           .catch((error) => {
-            console.error("Failed to refresh wallet activity", error);
+            console.error("Failed to refresh wallet portfolio", error);
           })
       );
-    }
 
-    await Promise.all(tasks);
-  }, [
-    applyEnrichment,
-    applyPortfolioState,
-    client,
-    enabled,
-    hasRequestedActivity,
-    ownerPublicKey,
-  ]);
+      if (hasRequestedActivity) {
+        tasks.push(
+          client
+            .getActivity(publicKey, {
+              limit: WALLET_ACTIVITY_INITIAL_LIMIT,
+              forceRefresh: true,
+            })
+            .then((history) => {
+              if (ownerAddressRef.current === address && isCurrent()) {
+                setActivities(history.activities);
+              }
+            })
+            .catch((error) => {
+              console.error("Failed to refresh wallet activity", error);
+            })
+        );
+      }
+
+      await Promise.all(tasks);
+    },
+    [
+      applyEnrichment,
+      applyPortfolioState,
+      client,
+      enabled,
+      hasRequestedActivity,
+      ownerPublicKey,
+    ]
+  );
 
   useEffect(() => {
     ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;

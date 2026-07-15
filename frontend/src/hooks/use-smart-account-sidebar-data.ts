@@ -58,6 +58,19 @@ import type {
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
+  resolveSmartAccountRefreshError,
+  resolveSmartAccountMutationRefreshPlan,
+  SmartAccountPolicyFollowUp,
+  SmartAccountRefreshOrder,
+  SmartAccountRefreshSingleflight,
+  SmartAccountScopeGeneration,
+  type SmartAccountRefreshGroup,
+  type SmartAccountRefreshOrderGroup,
+  type SmartAccountRefreshOrderToken,
+  type SmartAccountRefreshPlan,
+  type SmartAccountScopedErrors,
+} from "@/features/smart-accounts/refresh-plan";
+import {
   getClientCacheStorage,
   readClientCache,
   writeClientCache,
@@ -500,6 +513,7 @@ export type EarnAutodepositSetupRequest = {
 export type EarnAutodepositSetupResult = {
   success: boolean;
   signature?: string;
+  targetId?: string;
   authorityInitializationSignature?: string;
   policySignature?: string;
   recurringDelegationSignature?: string;
@@ -582,6 +596,7 @@ export type EarnAutodepositCloseRequest = {
 export type EarnAutodepositCloseResult = {
   success: boolean;
   signature?: string;
+  targetId?: string;
   confirmedSlot?: string;
   status?: "confirmation_record_failed" | "executed";
   error?: string;
@@ -823,6 +838,23 @@ export type VaultTransferCapability =
       mint: string;
     };
 
+export type SmartAccountRefreshGroupsRequest = {
+  groups: readonly SmartAccountRefreshGroup[];
+  accountIndexes?: readonly number[];
+  forceRefreshGroups?: readonly SmartAccountRefreshGroup[];
+  signerAddresses?: readonly string[];
+  refreshAuthenticatedWallet?: boolean;
+};
+
+export type SmartAccountRefreshCommitContext = {
+  isCurrent: () => boolean;
+};
+
+type SmartAccountDetailLoadOptions = {
+  forceRefresh?: boolean;
+  isCurrent?: () => boolean;
+};
+
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   earnAutodeposit: EarnStateResponse["autodeposit"];
@@ -862,6 +894,10 @@ export type SmartAccountSidebarData = {
     invalidateAddresses?: string[];
     readCache?: boolean;
   }) => Promise<void>;
+  /** Refresh only the authoritative groups affected by a mutation or event. */
+  refreshGroups: (request: SmartAccountRefreshGroupsRequest) => Promise<void>;
+  /** Refresh a confirmed mutation and schedule its one policy consistency read. */
+  refreshMutationPlan: (plan: SmartAccountRefreshPlan) => Promise<void>;
   refreshEarnState: () => Promise<void>;
   /**
    * Invalidate caches and re-fetch portfolio + activity after an on-chain tx.
@@ -870,6 +906,8 @@ export type SmartAccountSidebarData = {
    */
   refreshAfterTx: (args: {
     accountIndex?: number;
+    groups?: readonly SmartAccountRefreshGroup[];
+    refreshAuthenticatedWallet?: boolean;
     signerAddresses?: string[];
   }) => Promise<void>;
   approveProposal: (proposal: SmartAccountProposalSnapshot) => Promise<void>;
@@ -1210,6 +1248,41 @@ function mergePolicyOverview(
   };
 }
 
+function mergeBaseOverview(
+  overview: SmartAccountOverview,
+  base: SmartAccountOverviewBase
+): SmartAccountOverview {
+  const baseOverview = createOverviewFromBase(base);
+  const currentVaultsByIndex = new Map(
+    overview.vaults.map((vault) => [vault.accountIndex, vault])
+  );
+  const baseIndexes = new Set(base.vaults.map((vault) => vault.accountIndex));
+  const vaults = [
+    ...base.vaults.map(
+      (vault) =>
+        currentVaultsByIndex.get(vault.accountIndex) ??
+        createEmptyVaultSnapshot(vault)
+    ),
+    ...overview.vaults.filter((vault) => !baseIndexes.has(vault.accountIndex)),
+  ].sort((left, right) => left.accountIndex - right.accountIndex);
+
+  return {
+    ...overview,
+    ...baseOverview,
+    policies: overview.policies,
+    proposals: overview.proposals,
+    signers: base.signers,
+    spendingLimits: overview.spendingLimits,
+    vaults: decorateVaultsWithPolicies({
+      vaults,
+      signers: base.signers,
+      policies: overview.policies,
+      spendingLimits: overview.spendingLimits,
+    }),
+    fetchedAt: Date.now(),
+  };
+}
+
 const SMART_ACCOUNT_OVERVIEW_CACHE_VERSION = 1;
 const SMART_ACCOUNT_OVERVIEW_CACHE_PREFIX = "loyal.smartAccountOverview.v1";
 const DEFAULT_BEST_APY_RESERVES_RISK_PROFILE = "safe";
@@ -1394,7 +1467,9 @@ async function fetchSmartAccountGroup<T>(url: URL): Promise<T> {
   return payload.data;
 }
 
-async function fetchEarnState(): Promise<EarnStateResponse | null> {
+async function fetchEarnState(options?: {
+  strict?: boolean;
+}): Promise<EarnStateResponse | null> {
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/earn-state",
     {
@@ -1402,11 +1477,14 @@ async function fetchEarnState(): Promise<EarnStateResponse | null> {
     }
   );
 
-  if (response.status === 401) {
+  if (response.status === 401 && !options?.strict) {
     return null;
   }
 
   if (!response.ok) {
+    if (options?.strict) {
+      throw new Error(`Failed to load Earn state (HTTP ${response.status}).`);
+    }
     return null;
   }
 
@@ -2689,7 +2767,9 @@ export function useSmartAccountSidebarData(
     authenticatedUserTotalUsd?: number | null;
     authenticatedUserCashUsd?: number | null;
     loadVaultSnapshots?: boolean;
-    onAfterTx?: () => Promise<void> | void;
+    onAfterTx?: (
+      context: SmartAccountRefreshCommitContext
+    ) => Promise<void> | void;
   } = {}
 ): SmartAccountSidebarData {
   const {
@@ -2712,10 +2792,33 @@ export function useSmartAccountSidebarData(
   const { connection } = useConnection();
   const wallet = useWallet();
   const walletDataClient = useSolanaWalletDataClient();
-  const activeSettingsPdaRef = useRef<string | null>(user?.settingsPda ?? null);
+  const smartAccountScope = [
+    solanaEnv,
+    user?.settingsPda ?? "no-settings",
+    user?.walletAddress ?? "no-wallet",
+  ].join(":");
+  const smartAccountScopeGenerationRef =
+    useRef<SmartAccountScopeGeneration | null>(null);
+  if (!smartAccountScopeGenerationRef.current) {
+    smartAccountScopeGenerationRef.current = new SmartAccountScopeGeneration(
+      smartAccountScope
+    );
+  }
+  const smartAccountScopeGeneration = smartAccountScopeGenerationRef.current;
+  const smartAccountScopeSnapshot =
+    smartAccountScopeGeneration.update(smartAccountScope);
   const refreshRunIdRef = useRef(0);
   const earnStateRefreshRunIdRef = useRef(0);
-  activeSettingsPdaRef.current = user?.settingsPda ?? null;
+  const groupRefreshSingleflightRef = useRef<SmartAccountRefreshSingleflight>(
+    new SmartAccountRefreshSingleflight()
+  );
+  const refreshOrderRef = useRef<SmartAccountRefreshOrder>(
+    new SmartAccountRefreshOrder()
+  );
+  const policyFollowUpRef = useRef<SmartAccountPolicyFollowUp>(
+    new SmartAccountPolicyFollowUp()
+  );
+  const pendingVaultInvalidationAddressesRef = useRef<Set<string>>(new Set());
   const [overview, setOverview] = useState<SmartAccountOverview | null>(null);
   const [isBaseLoading, setIsBaseLoading] = useState(false);
   const [isVaultsLoading, setIsVaultsLoading] = useState(false);
@@ -2728,20 +2831,14 @@ export function useSmartAccountSidebarData(
   const [earnState, setEarnState] = useState<EarnStateResponse | null>(null);
   const [hasEarnStateResolved, setHasEarnStateResolved] = useState(false);
   const [isEarnStateLoading, setIsEarnStateLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [scopedErrors, setScopedErrors] = useState<{
-    base: string | null;
-    vaults: string | null;
-    policies: string | null;
-    proposals: string | null;
-    bestApyReserves: string | null;
-  }>({
+  const [scopedErrors, setScopedErrors] = useState<SmartAccountScopedErrors>({
     base: null,
     vaults: null,
     policies: null,
     proposals: null,
     bestApyReserves: null,
   });
+  const error = resolveSmartAccountRefreshError(scopedErrors);
   const [selectedVaultIndex, setSelectedVaultIndex] = useState(0);
   const [isActionPending, setIsActionPending] = useState(false);
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(
@@ -2751,7 +2848,7 @@ export function useSmartAccountSidebarData(
     useState<string | null>(null);
   const [vaultActivityByAccountIndex, setVaultActivityByAccountIndex] =
     useState<Record<number, SmartAccountVaultActivityView>>({});
-  const vaultActivityLoadPromisesRef = useRef<Map<number, Promise<void>>>(
+  const vaultActivityLoadPromisesRef = useRef<Map<string, Promise<void>>>(
     new Map()
   );
   const [signerPortfolioByAddress, setSignerPortfolioByAddress] = useState<
@@ -2783,14 +2880,47 @@ export function useSmartAccountSidebarData(
       readCache?: boolean;
     }) => {
       const requestedSettingsPda = user?.settingsPda ?? null;
-      activeSettingsPdaRef.current = requestedSettingsPda;
+      const requestedScope = smartAccountScopeSnapshot;
+      if (!smartAccountScopeGeneration.isCurrent(requestedScope)) {
+        return;
+      }
       const refreshRunId = refreshRunIdRef.current + 1;
       refreshRunIdRef.current = refreshRunId;
       const canCommit = () =>
-        activeSettingsPdaRef.current === requestedSettingsPda &&
+        smartAccountScopeGeneration.isCurrent(requestedScope) &&
         refreshRunIdRef.current === refreshRunId;
+      const orderTokens = new Map<
+        SmartAccountRefreshOrderGroup,
+        SmartAccountRefreshOrderToken
+      >();
+      for (const group of [
+        "base",
+        "policies",
+        "proposals",
+        "vaults",
+        "earn",
+        "bestApyReserves",
+      ] as const) {
+        orderTokens.set(group, refreshOrderRef.current.begin(group));
+      }
+      const canCommitGroup = (group: SmartAccountRefreshOrderGroup) => {
+        const token = orderTokens.get(group);
+        return Boolean(
+          token && canCommit() && refreshOrderRef.current.isCurrent(token)
+        );
+      };
       const commitIfCurrent = (commit: () => void) => {
         if (!canCommit()) {
+          return false;
+        }
+        commit();
+        return true;
+      };
+      const commitGroupIfCurrent = (
+        group: SmartAccountRefreshOrderGroup,
+        commit: () => void
+      ) => {
+        if (!canCommitGroup(group)) {
           return false;
         }
         commit();
@@ -2799,7 +2929,6 @@ export function useSmartAccountSidebarData(
 
       if (!requestedSettingsPda) {
         setOverview(null);
-        setError(null);
         setIsBaseLoading(false);
         setIsVaultsLoading(false);
         setIsPoliciesLoading(false);
@@ -2874,7 +3003,6 @@ export function useSmartAccountSidebarData(
         setIsProposalsLoading(false);
         setIsBestApyReservesLoading(false);
         setIsEarnStateLoading(true);
-        setError(null);
         setScopedErrors({
           base: null,
           vaults: null,
@@ -2906,7 +3034,7 @@ export function useSmartAccountSidebarData(
           const base = await fetchSmartAccountGroup<SmartAccountOverviewBase>(
             baseUrl
           );
-          if (!canCommit()) {
+          if (!canCommitGroup("base")) {
             return;
           }
           writeSmartAccountOverviewCacheGroup({
@@ -2920,19 +3048,22 @@ export function useSmartAccountSidebarData(
             cachedPayload,
             { includeVaultSnapshots: loadVaultSnapshots }
           );
-          setOverview(baseOverview);
+          setOverview((current) =>
+            current?.settingsPda === settingsPda
+              ? mergeBaseOverview(current, base)
+              : baseOverview
+          );
           setVaultActivityByAccountIndex({});
           vaultActivityLoadPromisesRef.current.clear();
         }
       } catch (nextError) {
-        if (!canCommit()) {
+        if (!canCommitGroup("base")) {
           return;
         }
         const message =
           nextError instanceof Error
             ? nextError.message
             : "Failed to load smart-account overview.";
-        setError(message);
         setScopedErrors((current) => ({
           ...current,
           base: message,
@@ -2940,11 +3071,13 @@ export function useSmartAccountSidebarData(
         if (!cachedOverview) {
           setOverview(null);
         }
-        setHasEarnStateResolved(true);
-        setIsEarnStateLoading(false);
+        if (canCommitGroup("earn")) {
+          setHasEarnStateResolved(true);
+          setIsEarnStateLoading(false);
+        }
         return;
       } finally {
-        if (canCommit()) {
+        if (canCommitGroup("base")) {
           setIsBaseLoading(false);
         }
       }
@@ -2954,15 +3087,17 @@ export function useSmartAccountSidebarData(
       }
 
       if (!baseOverview) {
-        setHasEarnStateResolved(true);
-        setIsEarnStateLoading(false);
+        if (canCommitGroup("earn")) {
+          setHasEarnStateResolved(true);
+          setIsEarnStateLoading(false);
+        }
         return;
       }
 
       const loadEarnState = async () => {
         try {
           const nextEarnState = await earnStatePromise;
-          if (!canCommit()) {
+          if (!canCommitGroup("earn")) {
             return;
           }
           setEarnState(nextEarnState);
@@ -2976,7 +3111,7 @@ export function useSmartAccountSidebarData(
               : current
           );
         } finally {
-          if (canCommit()) {
+          if (canCommitGroup("earn")) {
             setHasEarnStateResolved(true);
             setIsEarnStateLoading(false);
           }
@@ -2998,7 +3133,7 @@ export function useSmartAccountSidebarData(
           return;
         }
 
-        if (!commitIfCurrent(() => setIsVaultsLoading(true))) {
+        if (!commitGroupIfCurrent("vaults", () => setIsVaultsLoading(true))) {
           return;
         }
 
@@ -3021,7 +3156,7 @@ export function useSmartAccountSidebarData(
           const vaults = await fetchSmartAccountGroup<
             SmartAccountVaultSnapshot[]
           >(vaultsUrl);
-          if (!canCommit()) {
+          if (!canCommitGroup("vaults")) {
             return;
           }
           writeSmartAccountOverviewCacheGroup({
@@ -3036,7 +3171,7 @@ export function useSmartAccountSidebarData(
           setVaultActivityByAccountIndex({});
           vaultActivityLoadPromisesRef.current.clear();
         } catch (nextError) {
-          if (!canCommit()) {
+          if (!canCommitGroup("vaults")) {
             return;
           }
           const message =
@@ -3047,9 +3182,8 @@ export function useSmartAccountSidebarData(
             ...current,
             vaults: message,
           }));
-          setError((current) => current ?? message);
         } finally {
-          if (canCommit()) {
+          if (canCommitGroup("vaults")) {
             setIsVaultsLoading(false);
           }
         }
@@ -3066,7 +3200,9 @@ export function useSmartAccountSidebarData(
           return;
         }
 
-        if (!commitIfCurrent(() => setIsPoliciesLoading(true))) {
+        if (
+          !commitGroupIfCurrent("policies", () => setIsPoliciesLoading(true))
+        ) {
           return;
         }
 
@@ -3079,7 +3215,7 @@ export function useSmartAccountSidebarData(
             await fetchSmartAccountGroup<SmartAccountPolicyOverview>(
               policiesUrl
             );
-          if (!canCommit()) {
+          if (!canCommitGroup("policies")) {
             return;
           }
           writeSmartAccountOverviewCacheGroup({
@@ -3092,7 +3228,7 @@ export function useSmartAccountSidebarData(
             current ? mergePolicyOverview(current, policies) : current
           );
         } catch (nextError) {
-          if (!canCommit()) {
+          if (!canCommitGroup("policies")) {
             return;
           }
           const message =
@@ -3103,9 +3239,8 @@ export function useSmartAccountSidebarData(
             ...current,
             policies: message,
           }));
-          setError((current) => current ?? message);
         } finally {
-          if (canCommit()) {
+          if (canCommitGroup("policies")) {
             setIsPoliciesLoading(false);
           }
         }
@@ -3124,7 +3259,7 @@ export function useSmartAccountSidebarData(
 
         if (shouldSkipSmartAccountProposalLoad(baseOverview)) {
           const proposals: SmartAccountProposalSnapshot[] = [];
-          if (!canCommit()) {
+          if (!canCommitGroup("proposals")) {
             return;
           }
           writeSmartAccountOverviewCacheGroup({
@@ -3145,7 +3280,9 @@ export function useSmartAccountSidebarData(
           return;
         }
 
-        if (!commitIfCurrent(() => setIsProposalsLoading(true))) {
+        if (
+          !commitGroupIfCurrent("proposals", () => setIsProposalsLoading(true))
+        ) {
           return;
         }
 
@@ -3157,7 +3294,7 @@ export function useSmartAccountSidebarData(
           const proposals = await fetchSmartAccountGroup<
             SmartAccountProposalSnapshot[]
           >(proposalsUrl);
-          if (!canCommit()) {
+          if (!canCommitGroup("proposals")) {
             return;
           }
           writeSmartAccountOverviewCacheGroup({
@@ -3176,7 +3313,7 @@ export function useSmartAccountSidebarData(
               : current
           );
         } catch (nextError) {
-          if (!canCommit()) {
+          if (!canCommitGroup("proposals")) {
             return;
           }
           const message =
@@ -3187,9 +3324,8 @@ export function useSmartAccountSidebarData(
             ...current,
             proposals: message,
           }));
-          setError((current) => current ?? message);
         } finally {
-          if (canCommit()) {
+          if (canCommitGroup("proposals")) {
             setIsProposalsLoading(false);
           }
         }
@@ -3205,13 +3341,17 @@ export function useSmartAccountSidebarData(
             SMART_ACCOUNT_BEST_APY_RESERVES_TTL_MS
           )
         ) {
-          commitIfCurrent(() =>
+          commitGroupIfCurrent("bestApyReserves", () =>
             setBestApyReservesByStablecoin(cachedBestApyReserves)
           );
           return;
         }
 
-        if (!commitIfCurrent(() => setIsBestApyReservesLoading(true))) {
+        if (
+          !commitGroupIfCurrent("bestApyReserves", () =>
+            setIsBestApyReservesLoading(true)
+          )
+        ) {
           return;
         }
 
@@ -3227,7 +3367,7 @@ export function useSmartAccountSidebarData(
           const reserves = await fetchSmartAccountGroup<
             CurrentBestApyReserveByStablecoinSnapshot[]
           >(bestApyReservesUrl);
-          if (!canCommit()) {
+          if (!canCommitGroup("bestApyReserves")) {
             return;
           }
           const cacheValue: CurrentBestApyReserveByStablecoinCache = {
@@ -3243,7 +3383,7 @@ export function useSmartAccountSidebarData(
           });
           setBestApyReservesByStablecoin(cacheValue);
         } catch (nextError) {
-          if (!canCommit()) {
+          if (!canCommitGroup("bestApyReserves")) {
             return;
           }
           const message =
@@ -3255,7 +3395,7 @@ export function useSmartAccountSidebarData(
             bestApyReserves: message,
           }));
         } finally {
-          if (canCommit()) {
+          if (canCommitGroup("bestApyReserves")) {
             setIsBestApyReservesLoading(false);
           }
         }
@@ -3269,27 +3409,41 @@ export function useSmartAccountSidebarData(
         loadBestApyReserves(),
       ]);
     },
-    [loadVaultSnapshots, solanaEnv, user?.settingsPda]
+    [
+      loadVaultSnapshots,
+      smartAccountScopeGeneration,
+      smartAccountScopeSnapshot,
+      solanaEnv,
+      user?.settingsPda,
+    ]
   );
 
   const refreshEarnState = useCallback(async () => {
+    const requestedScope = smartAccountScopeSnapshot;
+    const orderToken = refreshOrderRef.current.begin("earn");
+    if (!smartAccountScopeGeneration.isCurrent(requestedScope)) {
+      return;
+    }
+    const runId = earnStateRefreshRunIdRef.current + 1;
+    earnStateRefreshRunIdRef.current = runId;
+    const canCommit = () =>
+      smartAccountScopeGeneration.isCurrent(requestedScope) &&
+      earnStateRefreshRunIdRef.current === runId &&
+      refreshOrderRef.current.isCurrent(orderToken);
     const requestedSettingsPda = user?.settingsPda ?? null;
     if (!requestedSettingsPda) {
-      setEarnState(null);
-      setHasEarnStateResolved(true);
-      setIsEarnStateLoading(false);
+      if (canCommit()) {
+        setEarnState(null);
+        setHasEarnStateResolved(true);
+        setIsEarnStateLoading(false);
+      }
       return;
     }
 
-    const runId = earnStateRefreshRunIdRef.current + 1;
-    earnStateRefreshRunIdRef.current = runId;
     setIsEarnStateLoading(true);
     try {
-      const nextEarnState = await fetchEarnState();
-      if (
-        activeSettingsPdaRef.current !== requestedSettingsPda ||
-        earnStateRefreshRunIdRef.current !== runId
-      ) {
+      const nextEarnState = await fetchEarnState({ strict: true });
+      if (!canCommit()) {
         return;
       }
       setEarnState(nextEarnState);
@@ -3299,42 +3453,69 @@ export function useSmartAccountSidebarData(
         );
       }
     } finally {
-      if (
-        activeSettingsPdaRef.current === requestedSettingsPda &&
-        earnStateRefreshRunIdRef.current === runId
-      ) {
+      if (canCommit()) {
         setHasEarnStateResolved(true);
         setIsEarnStateLoading(false);
       }
     }
-  }, [user?.settingsPda]);
+  }, [
+    smartAccountScopeGeneration,
+    smartAccountScopeSnapshot,
+    user?.settingsPda,
+  ]);
 
   useEffect(() => {
     setHasEarnStateResolved(!user?.settingsPda);
     setEarnState(null);
-  }, [solanaEnv, user?.settingsPda]);
+  }, [smartAccountScope, user?.settingsPda]);
+
+  useEffect(() => {
+    const policyFollowUp = policyFollowUpRef.current;
+    setSelectedVaultIndex(0);
+    setVaultActivityByAccountIndex({});
+    setSignerPortfolioByAddress({});
+    setIsBaseLoading(false);
+    setIsVaultsLoading(false);
+    setIsPoliciesLoading(false);
+    setIsProposalsLoading(false);
+    setIsEarnStateLoading(false);
+    vaultActivityLoadPromisesRef.current.clear();
+    signerPortfolioLoadPromisesRef.current.clear();
+    signerActivityLoadPromisesRef.current.clear();
+    groupRefreshSingleflightRef.current.clear();
+    refreshOrderRef.current.clear();
+    policyFollowUp.reset();
+    pendingVaultInvalidationAddressesRef.current.clear();
+    earnAutodepositSetupPreparePromisesRef.current.clear();
+    earnAutodepositSetupBatchPreparePromisesRef.current.clear();
+    return () => policyFollowUp.reset();
+  }, [smartAccountScope]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    setSelectedVaultIndex(0);
-    setVaultActivityByAccountIndex({});
-    vaultActivityLoadPromisesRef.current.clear();
-    earnAutodepositSetupPreparePromisesRef.current.clear();
-    earnAutodepositSetupBatchPreparePromisesRef.current.clear();
-  }, [overview?.settingsPda]);
-
   const loadVaultActivity = useCallback(
-    async (accountIndex: number, loadOptions?: { forceRefresh?: boolean }) => {
+    async (
+      accountIndex: number,
+      loadOptions?: SmartAccountDetailLoadOptions
+    ) => {
       if (!user?.settingsPda) {
         return;
       }
 
+      const requestedScope = smartAccountScopeSnapshot;
+      const isCurrent = loadOptions?.isCurrent ?? (() => true);
+      if (
+        !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+        !isCurrent()
+      ) {
+        return;
+      }
+      const promiseKey = `${requestedScope.scope}:${requestedScope.generation}:${accountIndex}`;
       const forceRefresh = loadOptions?.forceRefresh ?? false;
       const existingPromise =
-        vaultActivityLoadPromisesRef.current.get(accountIndex);
+        vaultActivityLoadPromisesRef.current.get(promiseKey);
       if (existingPromise && !forceRefresh) {
         return existingPromise;
       }
@@ -3364,6 +3545,12 @@ export function useSmartAccountSidebarData(
 
         const payload =
           (await response.json()) as SmartAccountVaultActivityRouteResponse;
+        if (
+          !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+          !isCurrent()
+        ) {
+          return;
+        }
         const vault = overview?.vaults.find(
           (entry) => entry.accountIndex === payload.accountIndex
         );
@@ -3388,31 +3575,54 @@ export function useSmartAccountSidebarData(
         }));
       })();
 
-      vaultActivityLoadPromisesRef.current.set(accountIndex, promise);
+      vaultActivityLoadPromisesRef.current.set(promiseKey, promise);
 
       try {
         await promise;
       } finally {
-        vaultActivityLoadPromisesRef.current.delete(accountIndex);
+        if (vaultActivityLoadPromisesRef.current.get(promiseKey) === promise) {
+          vaultActivityLoadPromisesRef.current.delete(promiseKey);
+        }
       }
     },
-    [overview?.vaults, user?.settingsPda]
+    [
+      overview?.vaults,
+      smartAccountScopeGeneration,
+      smartAccountScopeSnapshot,
+      user?.settingsPda,
+    ]
   );
 
   const loadSignerPortfolio = useCallback(
-    async (signerAddress: string, loadOptions?: { forceRefresh?: boolean }) => {
+    async (
+      signerAddress: string,
+      loadOptions?: SmartAccountDetailLoadOptions
+    ) => {
       if (!signerAddress) {
         return;
       }
 
+      const requestedScope = smartAccountScopeSnapshot;
+      const isCurrent = loadOptions?.isCurrent ?? (() => true);
+      if (
+        !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+        !isCurrent()
+      ) {
+        return;
+      }
+      const promiseKey = `${requestedScope.scope}:${requestedScope.generation}:${signerAddress}`;
       const forceRefresh = loadOptions?.forceRefresh ?? false;
-      const existing =
-        signerPortfolioLoadPromisesRef.current.get(signerAddress);
+      const existing = signerPortfolioLoadPromisesRef.current.get(promiseKey);
       if (existing && !forceRefresh) {
         return existing;
       }
 
       const promise = (async () => {
+        if (
+          !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+          !isCurrent()
+        )
+          return;
         setSignerPortfolioByAddress((current) => ({
           ...current,
           [signerAddress]: {
@@ -3433,6 +3643,11 @@ export function useSmartAccountSidebarData(
             stablecoinMints
           );
 
+          if (
+            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+            !isCurrent()
+          )
+            return;
           setSignerPortfolioByAddress((current) => ({
             ...current,
             [signerAddress]: {
@@ -3443,6 +3658,11 @@ export function useSmartAccountSidebarData(
             },
           }));
         } catch (err) {
+          if (
+            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+            !isCurrent()
+          )
+            return;
           setSignerPortfolioByAddress((current) => ({
             ...current,
             [signerAddress]: {
@@ -3458,25 +3678,46 @@ export function useSmartAccountSidebarData(
         }
       })();
 
-      signerPortfolioLoadPromisesRef.current.set(signerAddress, promise);
+      signerPortfolioLoadPromisesRef.current.set(promiseKey, promise);
 
       try {
         await promise;
       } finally {
-        signerPortfolioLoadPromisesRef.current.delete(signerAddress);
+        if (
+          signerPortfolioLoadPromisesRef.current.get(promiseKey) === promise
+        ) {
+          signerPortfolioLoadPromisesRef.current.delete(promiseKey);
+        }
       }
     },
-    [stablecoinMints, walletDataClient]
+    [
+      smartAccountScopeGeneration,
+      smartAccountScopeSnapshot,
+      stablecoinMints,
+      walletDataClient,
+    ]
   );
 
   const loadSignerActivity = useCallback(
-    async (signerAddress: string, loadOptions?: { forceRefresh?: boolean }) => {
+    async (
+      signerAddress: string,
+      loadOptions?: SmartAccountDetailLoadOptions
+    ) => {
       if (!signerAddress) {
         return;
       }
 
+      const requestedScope = smartAccountScopeSnapshot;
+      const isCurrent = loadOptions?.isCurrent ?? (() => true);
+      if (
+        !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+        !isCurrent()
+      ) {
+        return;
+      }
+      const promiseKey = `${requestedScope.scope}:${requestedScope.generation}:${signerAddress}`;
       const forceRefresh = loadOptions?.forceRefresh ?? false;
-      const existing = signerActivityLoadPromisesRef.current.get(signerAddress);
+      const existing = signerActivityLoadPromisesRef.current.get(promiseKey);
       if (existing && !forceRefresh) {
         return existing;
       }
@@ -3502,6 +3743,11 @@ export function useSmartAccountSidebarData(
               solPriceUsd
             );
 
+          if (
+            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+            !isCurrent()
+          )
+            return;
           setSignerPortfolioByAddress((current) => {
             const previous =
               current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW;
@@ -3517,6 +3763,11 @@ export function useSmartAccountSidebarData(
             };
           });
         } catch (err) {
+          if (
+            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+            !isCurrent()
+          )
+            return;
           setSignerPortfolioByAddress((current) => ({
             ...current,
             [signerAddress]: {
@@ -3531,41 +3782,80 @@ export function useSmartAccountSidebarData(
         }
       })();
 
-      signerActivityLoadPromisesRef.current.set(signerAddress, promise);
+      signerActivityLoadPromisesRef.current.set(promiseKey, promise);
 
       try {
         await promise;
       } finally {
-        signerActivityLoadPromisesRef.current.delete(signerAddress);
+        if (signerActivityLoadPromisesRef.current.get(promiseKey) === promise) {
+          signerActivityLoadPromisesRef.current.delete(promiseKey);
+        }
       }
     },
-    [walletDataClient]
+    [smartAccountScopeGeneration, smartAccountScopeSnapshot, walletDataClient]
   );
 
-  const refreshAfterTx = useCallback(
-    async (args: {
-      accountIndex?: number;
-      refreshAuthenticatedWallet?: boolean;
-      signerAddresses?: string[];
-    }): Promise<void> => {
+  const refreshGroups = useCallback(
+    async (request: SmartAccountRefreshGroupsRequest): Promise<void> => {
+      const settingsPda = user?.settingsPda ?? null;
+      if (!settingsPda) {
+        return;
+      }
+
+      const requestedScope = smartAccountScopeSnapshot;
+      const groups = Array.from(new Set(request.groups));
+      const groupSet = new Set(groups);
+      const forceRefreshGroups = new Set(request.forceRefreshGroups ?? []);
+      const orderTokens = new Map<
+        SmartAccountRefreshGroup,
+        SmartAccountRefreshOrderToken
+      >();
+      for (const group of groups) {
+        orderTokens.set(group, refreshOrderRef.current.begin(group));
+      }
+      const canCommit = (group: SmartAccountRefreshGroup) => {
+        const token = orderTokens.get(group);
+        return Boolean(
+          token &&
+            smartAccountScopeGeneration.isCurrent(requestedScope) &&
+            refreshOrderRef.current.isCurrent(token)
+        );
+      };
+      if (
+        !smartAccountScopeGeneration.isCurrent(requestedScope) ||
+        groups.length === 0
+      ) {
+        return;
+      }
+      const accountIndexes = Array.from(new Set(request.accountIndexes ?? []));
+      const signerAddresses = Array.from(
+        new Set((request.signerAddresses ?? []).filter(Boolean))
+      );
       const shouldRefreshAuthenticatedWallet =
-        args.refreshAuthenticatedWallet !== false;
+        groupSet.has("wallet") && request.refreshAuthenticatedWallet !== false;
       const connectedWallet = shouldRefreshAuthenticatedWallet
         ? wallet.publicKey?.toBase58() ?? null
         : null;
-      const vaultAddress =
-        args.accountIndex != null
-          ? overview?.vaults.find(
-              (entry) => entry.accountIndex === args.accountIndex
+      const shouldInvalidateVaultData =
+        groupSet.has("vaults") ||
+        groupSet.has("activity") ||
+        groupSet.has("wallet");
+      const vaultAddresses = (shouldInvalidateVaultData ? accountIndexes : [])
+        .map(
+          (accountIndex) =>
+            overview?.vaults.find(
+              (entry) => entry.accountIndex === accountIndex
             )?.address ?? null
-          : null;
-
+        )
+        .filter((value): value is string => Boolean(value));
       const invalidateAddresses = Array.from(
         new Set(
           [
-            vaultAddress,
             connectedWallet,
-            ...(args.signerAddresses ?? []),
+            ...vaultAddresses,
+            ...(groupSet.has("activity") || groupSet.has("wallet")
+              ? signerAddresses
+              : []),
           ].filter((value): value is string => Boolean(value))
         )
       );
@@ -3576,67 +3866,387 @@ export function useSmartAccountSidebarData(
           activity: invalidateAddresses,
         });
       }
-
-      await refresh({ invalidateAddresses, readCache: false });
-
-      const tasks: Promise<unknown>[] = [];
-      if (args.accountIndex != null) {
-        tasks.push(
-          loadVaultActivity(args.accountIndex, { forceRefresh: true }).catch(
-            () => undefined
-          )
-        );
+      if (groupSet.has("vaults") && canCommit("vaults")) {
+        for (const address of invalidateAddresses) {
+          pendingVaultInvalidationAddressesRef.current.add(address);
+        }
       }
 
-      const cachedSigners = signerPortfolioByAddress;
-      const reloadCandidates = new Set<string>();
-      for (const address of args.signerAddresses ?? []) {
-        if (address) reloadCandidates.add(address);
-      }
-      if (connectedWallet) reloadCandidates.add(connectedWallet);
+      const runScopedRefresh = (
+        suffix: string,
+        loader: () => Promise<void>
+      ) => {
+        const key = `${requestedScope.scope}:${requestedScope.generation}:${suffix}`;
+        return groupRefreshSingleflightRef.current.run(key, loader);
+      };
 
-      for (const address of reloadCandidates) {
-        const entry = cachedSigners[address];
-        if (!entry) continue;
-        tasks.push(
-          loadSignerPortfolio(address, { forceRefresh: true }).catch(
-            () => undefined
-          )
-        );
-        if (entry.hasLoadedActivity) {
-          tasks.push(
-            loadSignerActivity(address, { forceRefresh: true }).catch(
-              () => undefined
+      const loadBase = async () => {
+        if (!canCommit("base")) return;
+        setIsBaseLoading(true);
+        try {
+          const url = new URL(
+            "/api/smart-accounts/overview/base",
+            window.location.origin
+          );
+          const base = await fetchSmartAccountGroup<SmartAccountOverviewBase>(
+            url
+          );
+          if (!canCommit("base")) return;
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "base",
+            data: base,
+          });
+          setOverview((current) => {
+            if (current?.settingsPda === settingsPda) {
+              return mergeBaseOverview(current, base);
+            }
+            return mergeCachedGroupsOntoOverview(
+              createOverviewFromBase(base),
+              readSmartAccountOverviewCache({ settingsPda, solanaEnv }),
+              { includeVaultSnapshots: loadVaultSnapshots }
+            );
+          });
+          setScopedErrors((current) => ({ ...current, base: null }));
+        } catch (nextError) {
+          if (!canCommit("base")) return;
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load smart-account overview.";
+          setScopedErrors((current) => ({ ...current, base: message }));
+          throw nextError;
+        } finally {
+          if (canCommit("base")) setIsBaseLoading(false);
+        }
+      };
+
+      const loadPolicies = async () => {
+        if (!canCommit("policies")) return;
+        setIsPoliciesLoading(true);
+        try {
+          const url = new URL(
+            "/api/smart-accounts/overview/policies",
+            window.location.origin
+          );
+          if (forceRefreshGroups.has("policies")) {
+            url.searchParams.set("forceRefresh", "1");
+          }
+          const policies =
+            await fetchSmartAccountGroup<SmartAccountPolicyOverview>(url);
+          if (!canCommit("policies")) return;
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "policies",
+            data: policies,
+          });
+          setOverview((current) =>
+            current?.settingsPda === settingsPda
+              ? mergePolicyOverview(current, policies)
+              : current
+          );
+          setScopedErrors((current) => ({ ...current, policies: null }));
+        } catch (nextError) {
+          if (!canCommit("policies")) return;
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load smart-account policies.";
+          setScopedErrors((current) => ({ ...current, policies: message }));
+          throw nextError;
+        } finally {
+          if (canCommit("policies")) setIsPoliciesLoading(false);
+        }
+      };
+
+      const loadProposals = async () => {
+        if (!canCommit("proposals")) return;
+        setIsProposalsLoading(true);
+        try {
+          const url = new URL(
+            "/api/smart-accounts/overview/proposals",
+            window.location.origin
+          );
+          const proposals = await fetchSmartAccountGroup<
+            SmartAccountProposalSnapshot[]
+          >(url);
+          if (!canCommit("proposals")) return;
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "proposals",
+            data: proposals,
+          });
+          setOverview((current) =>
+            current?.settingsPda === settingsPda
+              ? { ...current, proposals, fetchedAt: Date.now() }
+              : current
+          );
+          setScopedErrors((current) => ({ ...current, proposals: null }));
+        } catch (nextError) {
+          if (!canCommit("proposals")) return;
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load smart-account proposals.";
+          setScopedErrors((current) => ({ ...current, proposals: message }));
+          throw nextError;
+        } finally {
+          if (canCommit("proposals")) setIsProposalsLoading(false);
+        }
+      };
+
+      const loadVaults = async () => {
+        if (!canCommit("vaults")) return;
+        setIsVaultsLoading(true);
+        let pendingInvalidationAddresses: string[] = [];
+        try {
+          pendingInvalidationAddresses = Array.from(
+            pendingVaultInvalidationAddressesRef.current
+          );
+          pendingVaultInvalidationAddressesRef.current.clear();
+          const cachedBase = readSmartAccountOverviewCache({
+            settingsPda,
+            solanaEnv,
+          })?.groups.base?.data;
+          const url = new URL(
+            "/api/smart-accounts/overview/vaults",
+            window.location.origin
+          );
+          url.searchParams.set(
+            "accountUtilization",
+            String(
+              cachedBase?.accountUtilization ??
+                Math.max(0, (overview?.vaults.length ?? 1) - 1)
             )
+          );
+          if (pendingInvalidationAddresses.length > 0) {
+            url.searchParams.set(
+              "invalidate",
+              pendingInvalidationAddresses.join(",")
+            );
+          }
+          const vaults = await fetchSmartAccountGroup<
+            SmartAccountVaultSnapshot[]
+          >(url);
+          if (!canCommit("vaults")) return;
+          writeSmartAccountOverviewCacheGroup({
+            settingsPda,
+            solanaEnv,
+            group: "vaults",
+            data: vaults,
+          });
+          setOverview((current) =>
+            current?.settingsPda === settingsPda
+              ? mergeVaultSnapshots(current, vaults)
+              : current
+          );
+          setScopedErrors((current) => ({ ...current, vaults: null }));
+        } catch (nextError) {
+          if (!canCommit("vaults")) return;
+          for (const address of pendingInvalidationAddresses) {
+            pendingVaultInvalidationAddressesRef.current.add(address);
+          }
+          const message =
+            nextError instanceof Error
+              ? nextError.message
+              : "Failed to load vault balances.";
+          setScopedErrors((current) => ({ ...current, vaults: message }));
+          throw nextError;
+        } finally {
+          if (canCommit("vaults")) setIsVaultsLoading(false);
+        }
+      };
+
+      const groupTasks = groups.flatMap((group) => {
+        if (group === "base") return runScopedRefresh(group, loadBase);
+        if (group === "policies") return runScopedRefresh(group, loadPolicies);
+        if (group === "proposals")
+          return runScopedRefresh(group, loadProposals);
+        if (group === "vaults") return runScopedRefresh(group, loadVaults);
+        if (group === "earn") return runScopedRefresh(group, refreshEarnState);
+        return [];
+      });
+
+      const detailTasks: Promise<unknown>[] = [];
+      if (groupSet.has("activity")) {
+        for (const accountIndex of accountIndexes) {
+          detailTasks.push(
+            runScopedRefresh(`activity:vault:${accountIndex}`, () =>
+              loadVaultActivity(accountIndex, {
+                forceRefresh: true,
+                isCurrent: () => canCommit("activity"),
+              })
+            )
+          );
+        }
+        for (const address of signerAddresses) {
+          const entry = signerPortfolioByAddress[address];
+          if (entry?.hasLoadedActivity) {
+            detailTasks.push(
+              runScopedRefresh(`activity:signer:${address}`, () =>
+                loadSignerActivity(address, {
+                  forceRefresh: true,
+                  isCurrent: () => canCommit("activity"),
+                })
+              )
+            );
+          }
+        }
+      }
+
+      if (groupSet.has("wallet")) {
+        const reloadCandidates = new Set(signerAddresses);
+        if (connectedWallet) reloadCandidates.add(connectedWallet);
+        for (const address of reloadCandidates) {
+          if (!signerPortfolioByAddress[address]) continue;
+          detailTasks.push(
+            runScopedRefresh(`wallet:signer:${address}`, () =>
+              loadSignerPortfolio(address, {
+                forceRefresh: true,
+                isCurrent: () => canCommit("wallet"),
+              })
+            )
+          );
+        }
+        const onAfter = shouldRefreshAuthenticatedWallet
+          ? onAfterTxRef.current
+          : null;
+        if (onAfter) {
+          detailTasks.push(
+            runScopedRefresh("wallet:authenticated", async () => {
+              if (!canCommit("wallet")) return;
+              await onAfter({ isCurrent: () => canCommit("wallet") });
+            })
           );
         }
       }
 
-      if (tasks.length > 0) {
-        await Promise.all(tasks);
-      }
-
-      const onAfter = shouldRefreshAuthenticatedWallet
-        ? onAfterTxRef.current
-        : null;
-      if (onAfter) {
-        try {
-          await onAfter();
-        } catch (err) {
-          console.error("[smart-account] onAfterTx callback failed", err);
-        }
-      }
+      await Promise.all([...groupTasks, ...detailTasks]);
     },
     [
       loadSignerActivity,
       loadSignerPortfolio,
       loadVaultActivity,
+      loadVaultSnapshots,
       overview?.vaults,
-      refresh,
+      refreshEarnState,
       signerPortfolioByAddress,
+      smartAccountScopeGeneration,
+      smartAccountScopeSnapshot,
+      solanaEnv,
+      user?.settingsPda,
       wallet.publicKey,
       walletDataClient,
     ]
+  );
+
+  const refreshMutationPlan = useCallback(
+    async (plan: SmartAccountRefreshPlan): Promise<void> => {
+      const includesPolicies = plan.groups.includes("policies");
+      const requestedScope = smartAccountScopeSnapshot;
+      if (includesPolicies) {
+        policyFollowUpRef.current.reset();
+      }
+      try {
+        await refreshGroups({
+          ...plan,
+          forceRefreshGroups: includesPolicies ? ["policies"] : [],
+        });
+      } finally {
+        if (
+          includesPolicies &&
+          smartAccountScopeGeneration.isCurrent(requestedScope)
+        ) {
+          policyFollowUpRef.current.schedule(
+            () => {
+              if (!smartAccountScopeGeneration.isCurrent(requestedScope)) {
+                return;
+              }
+              return refreshGroups({
+                forceRefreshGroups: ["policies"],
+                groups: ["policies"],
+                refreshAuthenticatedWallet: false,
+              });
+            },
+            (error) => {
+              console.warn(
+                "[smart-account] policy consistency refresh failed",
+                error
+              );
+            }
+          );
+        }
+      }
+    },
+    [refreshGroups, smartAccountScopeGeneration, smartAccountScopeSnapshot]
+  );
+
+  const refreshAfterTx = useCallback(
+    async (args: {
+      accountIndex?: number;
+      groups?: readonly SmartAccountRefreshGroup[];
+      refreshAuthenticatedWallet?: boolean;
+      signerAddresses?: string[];
+    }): Promise<void> => {
+      await refreshGroups({
+        groups: args.groups ?? ["wallet"],
+        accountIndexes:
+          args.accountIndex === undefined ? [] : [args.accountIndex],
+        signerAddresses: args.signerAddresses,
+        refreshAuthenticatedWallet: args.refreshAuthenticatedWallet,
+      });
+    },
+    [refreshGroups]
+  );
+
+  const queueMutationRefresh = useCallback(
+    (plan: SmartAccountRefreshPlan, label: string) => {
+      void refreshMutationPlan(plan).catch((err) => {
+        console.warn(`[smart-account] ${label} refresh failed`, err);
+      });
+    },
+    [refreshMutationPlan]
+  );
+
+  const patchSettingsTransactionIndex = useCallback(
+    (transactionIndex: bigint | number | string | undefined) => {
+      if (transactionIndex === undefined || !user?.settingsPda) return;
+      const nextIndex = String(transactionIndex);
+      const shouldReplace = (currentIndex: string) => {
+        try {
+          return BigInt(nextIndex) > BigInt(currentIndex);
+        } catch {
+          return nextIndex !== currentIndex;
+        }
+      };
+
+      setOverview((current) => {
+        if (!current || current.settingsPda !== user.settingsPda) {
+          return current;
+        }
+
+        return shouldReplace(current.transactionIndex)
+          ? { ...current, transactionIndex: nextIndex }
+          : current;
+      });
+
+      const cachedBase = readSmartAccountOverviewCache({
+        settingsPda: user.settingsPda,
+        solanaEnv,
+      })?.groups.base?.data;
+      if (cachedBase && shouldReplace(cachedBase.transactionIndex)) {
+        writeSmartAccountOverviewCacheGroup({
+          settingsPda: user.settingsPda,
+          solanaEnv,
+          group: "base",
+          data: { ...cachedBase, transactionIndex: nextIndex },
+        });
+      }
+    },
+    [solanaEnv, user?.settingsPda]
   );
 
   const vaultEntries = useMemo<SmartAccountVaultEntry[]>(() => {
@@ -3879,16 +4489,32 @@ export function useSmartAccountSidebarData(
           prepared,
           confirm: true,
         });
-        await refreshAfterTx({
-          accountIndex: proposal.accountIndex ?? undefined,
-          signerAddresses: proposal.creator ? [proposal.creator] : undefined,
-        });
+        const affectedSignerAddresses = Array.from(
+          new Set(
+            [proposal.creator, proposal.summary.destination].filter(
+              (address): address is string => Boolean(address)
+            )
+          )
+        );
+        queueMutationRefresh(
+          resolveSmartAccountMutationRefreshPlan({
+            kind: "proposal_action",
+            action,
+            payloadType: proposal.payloadType,
+            accountIndex: proposal.accountIndex ?? undefined,
+            signerAddresses:
+              affectedSignerAddresses.length > 0
+                ? affectedSignerAddresses
+                : undefined,
+          }),
+          "post-proposal"
+        );
       } finally {
         setIsActionPending(false);
         setPendingProposalId(null);
       }
     },
-    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
+    [connection, overview, queueMutationRefresh, user?.walletAddress, wallet]
   );
 
   const runSpendingLimitAction = useCallback(
@@ -3898,7 +4524,9 @@ export function useSmartAccountSidebarData(
         client: ReturnType<typeof createSmartAccountVaultsClient>
       ) => Promise<{
         prepared: Parameters<typeof sendPreparedWithWallet>[0]["prepared"];
+        transactionIndex?: bigint | number | string;
       }>;
+      refreshKind: "policy" | "root" | "spending_limit_use";
       requireAuthenticatedWallet?: boolean;
       affected?: { accountIndex?: number; signerAddresses?: string[] };
     }) => {
@@ -3935,7 +4563,7 @@ export function useSmartAccountSidebarData(
         connection,
         programId: new PublicKey(overview.programId),
       });
-      const { prepared } = await args.prepare(client);
+      const { prepared, transactionIndex } = await args.prepare(client);
 
       setIsActionPending(true);
       setPendingSpendingLimitActionKey(args.actionKey);
@@ -3956,18 +4584,31 @@ export function useSmartAccountSidebarData(
         setPendingSpendingLimitActionKey(null);
       }
 
-      // Refresh runs in the background so the caller (and the preview panel)
-      // doesn't sit on "Submitting…" while the overview re-fetch and RPC
-      // index lag complete. Callers that need fresh state schedule their
-      // own follow-up refreshes (see app-wallet-workspace).
-      void refreshAfterTx({
-        accountIndex: args.affected?.accountIndex,
-        signerAddresses: args.affected?.signerAddresses,
-      }).catch((err) => {
-        console.warn("[smart-account] post-tx refresh failed", err);
-      });
+      patchSettingsTransactionIndex(transactionIndex);
+      queueMutationRefresh(
+        args.refreshKind === "spending_limit_use"
+          ? resolveSmartAccountMutationRefreshPlan({
+              kind: "spending_limit_use",
+              accountIndex: args.affected?.accountIndex ?? 0,
+              signerAddresses: args.affected?.signerAddresses,
+            })
+          : resolveSmartAccountMutationRefreshPlan({
+              kind: "settings_change",
+              scope: args.refreshKind,
+              threshold: overview.threshold ?? 1,
+              signerAddresses: args.affected?.signerAddresses,
+            }),
+        "post-policy"
+      );
     },
-    [connection, overview, refreshAfterTx, user?.walletAddress, wallet]
+    [
+      connection,
+      overview,
+      patchSettingsTransactionIndex,
+      queueMutationRefresh,
+      user?.walletAddress,
+      wallet,
+    ]
   );
 
   const setSignerSpendingLimitUsd = useCallback(
@@ -4021,6 +4662,7 @@ export function useSmartAccountSidebarData(
 
       await runSpendingLimitAction({
         actionKey: `set:${args.accountIndex}:${args.signerAddress}`,
+        refreshKind: "policy",
         prepare: (client) =>
           client.prepareSetSpendingLimitPolicy({
             settingsPda: new PublicKey(overview.settingsPda),
@@ -4073,6 +4715,7 @@ export function useSmartAccountSidebarData(
 
       await runSpendingLimitAction({
         actionKey: `add-signer:${signer.toBase58()}`,
+        refreshKind: "policy",
         prepare: (client) =>
           client.prepareAddInitiateSigner({
             settingsPda: new PublicKey(overview.settingsPda),
@@ -4114,6 +4757,7 @@ export function useSmartAccountSidebarData(
 
       await runSpendingLimitAction({
         actionKey: `update-signer-permissions:${signer.toBase58()}`,
+        refreshKind: isPolicyScoped ? "policy" : "root",
         prepare: (client) =>
           isPolicyScoped
             ? client.prepareUpdatePolicySignerPermissions({
@@ -4155,6 +4799,7 @@ export function useSmartAccountSidebarData(
 
       await runSpendingLimitAction({
         actionKey: `delete:${args.accountIndex}:${args.signerAddress}`,
+        refreshKind: "policy",
         prepare: (client) =>
           client.prepareRemoveSpendingLimitPolicy({
             settingsPda: new PublicKey(overview.settingsPda),
@@ -4188,6 +4833,7 @@ export function useSmartAccountSidebarData(
 
       await runSpendingLimitAction({
         actionKey: `delete-signer:${args.accountIndex}:${args.signerAddress}`,
+        refreshKind: "policy",
         prepare: (client) =>
           client.prepareRemoveInitiateSigner({
             settingsPda: new PublicKey(overview.settingsPda),
@@ -4266,6 +4912,7 @@ export function useSmartAccountSidebarData(
 
       await runSpendingLimitAction({
         actionKey: `topup:${args.accountIndex}:${args.signerAddress}`,
+        refreshKind: "spending_limit_use",
         prepare: async (client) => ({
           prepared: await client.prepareUseSolSpendingLimitPolicy({
             settingsPda: new PublicKey(overview.settingsPda),
@@ -4462,10 +5109,15 @@ export function useSmartAccountSidebarData(
             prepared,
             confirm: true,
           });
-          await refreshAfterTx({
-            accountIndex: request.accountIndex,
-            signerAddresses: [request.recipientAddress],
-          });
+          queueMutationRefresh(
+            resolveSmartAccountMutationRefreshPlan({
+              kind: "vault_transfer",
+              execution: "spending_limit",
+              accountIndex: request.accountIndex,
+              signerAddresses: [request.recipientAddress],
+            }),
+            "post-transfer"
+          );
           return { success: true, signature, status: "executed" };
         }
 
@@ -4499,10 +5151,15 @@ export function useSmartAccountSidebarData(
         });
 
         if (capability.threshold > 1) {
-          await refreshAfterTx({
-            accountIndex: request.accountIndex,
-            signerAddresses: [request.recipientAddress],
-          });
+          queueMutationRefresh(
+            resolveSmartAccountMutationRefreshPlan({
+              kind: "vault_transfer",
+              execution: "proposed",
+              accountIndex: request.accountIndex,
+              signerAddresses: [request.recipientAddress],
+            }),
+            "post-transfer-proposal"
+          );
           return {
             success: true,
             signature: proposeSignature,
@@ -4517,6 +5174,7 @@ export function useSmartAccountSidebarData(
         const transactionIndex = BigInt(
           String(settingsAfterPropose.transactionIndex)
         );
+        patchSettingsTransactionIndex(transactionIndex);
 
         const approveOp = await client.prepareApproveProposal({
           settingsPda,
@@ -4544,10 +5202,15 @@ export function useSmartAccountSidebarData(
           confirm: true,
         });
 
-        await refreshAfterTx({
-          accountIndex: request.accountIndex,
-          signerAddresses: [request.recipientAddress],
-        });
+        queueMutationRefresh(
+          resolveSmartAccountMutationRefreshPlan({
+            kind: "vault_transfer",
+            execution: "settings",
+            accountIndex: request.accountIndex,
+            signerAddresses: [request.recipientAddress],
+          }),
+          "post-transfer"
+        );
         return {
           success: true,
           signature: executeSignature,
@@ -4572,7 +5235,8 @@ export function useSmartAccountSidebarData(
       connection,
       evaluateVaultTransferCapability,
       overview,
-      refreshAfterTx,
+      patchSettingsTransactionIndex,
+      queueMutationRefresh,
       wallet,
     ]
   );
@@ -4643,7 +5307,14 @@ export function useSmartAccountSidebarData(
         const threshold = overview.threshold ?? 1;
 
         if (threshold > 1) {
-          await refreshAfterTx({ accountIndex: request.accountIndex });
+          queueMutationRefresh(
+            resolveSmartAccountMutationRefreshPlan({
+              kind: "vault_swap",
+              execution: "proposed",
+              accountIndex: request.accountIndex,
+            }),
+            "post-swap-proposal"
+          );
           return {
             success: true,
             signature: proposeSignature,
@@ -4656,6 +5327,7 @@ export function useSmartAccountSidebarData(
         const transactionIndex = BigInt(
           String(settingsAfterPropose.transactionIndex)
         );
+        patchSettingsTransactionIndex(transactionIndex);
 
         const approveOp = await client.prepareApproveProposal({
           settingsPda,
@@ -4683,7 +5355,14 @@ export function useSmartAccountSidebarData(
           confirm: true,
         });
 
-        await refreshAfterTx({ accountIndex: request.accountIndex });
+        queueMutationRefresh(
+          resolveSmartAccountMutationRefreshPlan({
+            kind: "vault_swap",
+            execution: "executed",
+            accountIndex: request.accountIndex,
+          }),
+          "post-swap"
+        );
         return {
           success: true,
           signature: executeSignature,
@@ -4695,7 +5374,13 @@ export function useSmartAccountSidebarData(
         return { success: false, error };
       }
     },
-    [connection, overview, refreshAfterTx, wallet]
+    [
+      connection,
+      overview,
+      patchSettingsTransactionIndex,
+      queueMutationRefresh,
+      wallet,
+    ]
   );
 
   const executeEarnPolicySetup =
@@ -4811,24 +5496,12 @@ export function useSmartAccountSidebarData(
           setupPolicyConfirmedSlot,
         });
 
-        const nextEarnState = await fetchEarnState();
-        if (nextEarnState) {
-          setEarnState(nextEarnState);
-        }
-
-        void refreshAfterTx({
-          accountIndex: preparedPolicy.vault.accountIndex,
-          signerAddresses: [wallet.publicKey.toBase58()],
-        }).catch((err) => {
-          console.warn("[smart-account] post-earn-policy refresh failed", err);
-        });
-
         return {
           success: true,
           signature,
           confirmedSlot,
           status: "executed",
-          policy: nextEarnState?.policy ?? {
+          policy: {
             account: preparedPolicy.policy.account.toBase58(),
             delegatedSigners: [preparedPolicy.persistence.delegatedSigner],
             id: preparedPolicy.policy.id.toString(),
@@ -4866,15 +5539,7 @@ export function useSmartAccountSidebarData(
       } finally {
         setIsActionPending(false);
       }
-    }, [
-      connection,
-      earnState,
-      overview,
-      refreshAfterTx,
-      solanaEnv,
-      user?.walletAddress,
-      wallet,
-    ]);
+    }, [connection, earnState, solanaEnv, user?.walletAddress, wallet]);
 
   const executeEarnDepositPolicyStage = useCallback(
     async (
@@ -4961,10 +5626,6 @@ export function useSmartAccountSidebarData(
           signature: sendResult.signature,
           stage: request.stage,
         });
-        const nextEarnState = await fetchEarnState();
-        if (nextEarnState) {
-          setEarnState(nextEarnState);
-        }
 
         return {
           success: true,
@@ -5193,11 +5854,6 @@ export function useSmartAccountSidebarData(
                   setupPolicyConfirmedSlot = confirmedSlot;
                   setupPolicySignature = signature;
                 }
-
-                const nextEarnState = await fetchEarnState();
-                if (nextEarnState) {
-                  setEarnState(nextEarnState);
-                }
                 return;
               }
 
@@ -5250,11 +5906,6 @@ export function useSmartAccountSidebarData(
                 };
                 throw error;
               }
-
-              const nextEarnState = await fetchEarnState();
-              if (nextEarnState) {
-                setEarnState(nextEarnState);
-              }
             },
           });
         } catch (error) {
@@ -5293,13 +5944,6 @@ export function useSmartAccountSidebarData(
           };
         }
 
-        void refreshAfterTx({
-          accountIndex: request.preparedDeposit.vault.accountIndex,
-          refreshAuthenticatedWallet: false,
-        }).catch((err) => {
-          console.warn("[smart-account] post-earn refresh failed", err);
-        });
-
         return {
           success: true,
           signature: depositSignature,
@@ -5316,14 +5960,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [
-      connection,
-      earnState,
-      refreshAfterTx,
-      solanaEnv,
-      user?.walletAddress,
-      wallet,
-    ]
+    [connection, earnState, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnDeposit = useCallback(
@@ -5450,10 +6087,7 @@ export function useSmartAccountSidebarData(
                 request.setupPolicySignature ??
                 onboarding?.setupPolicy?.lastSeenSignature,
             });
-        if (
-          policySignatureResolution &&
-          "error" in policySignatureResolution
-        ) {
+        if (policySignatureResolution && "error" in policySignatureResolution) {
           return {
             success: false,
             error: policySignatureResolution.error,
@@ -5505,11 +6139,6 @@ export function useSmartAccountSidebarData(
             confirmedSlot,
             signature,
           });
-
-          const nextEarnState = await fetchEarnState();
-          if (nextEarnState) {
-            setEarnState(nextEarnState);
-          }
         };
 
         const shouldRecordDepositConfirmationAsync =
@@ -5533,13 +6162,6 @@ export function useSmartAccountSidebarData(
           await recordDepositConfirmation();
         }
 
-        void refreshAfterTx({
-          accountIndex: preparedDeposit.vault.accountIndex,
-          refreshAuthenticatedWallet: false,
-        }).catch((err) => {
-          console.warn("[smart-account] post-earn refresh failed", err);
-        });
-
         return {
           success: true,
           signature,
@@ -5559,7 +6181,6 @@ export function useSmartAccountSidebarData(
       connection,
       earnState,
       overview,
-      refreshAfterTx,
       solanaEnv,
       user?.smartAccountAddress,
       user?.walletAddress,
@@ -5661,10 +6282,6 @@ export function useSmartAccountSidebarData(
               signature: autodepositCloseSignature,
               confirmedSlot: autodepositCloseConfirmedSlot,
             });
-            const nextEarnState = await fetchEarnState();
-            if (nextEarnState) {
-              setEarnState(nextEarnState);
-            }
           } catch (error) {
             return {
               success: false,
@@ -5721,18 +6338,6 @@ export function useSmartAccountSidebarData(
               error
             );
           }
-
-          try {
-            const nextEarnState = await fetchEarnState();
-            if (nextEarnState) {
-              setEarnState(nextEarnState);
-            }
-          } catch (error) {
-            console.warn(
-              "[executeEarnWithdraw] post-confirm Earn state refresh failed",
-              error
-            );
-          }
         };
         const shouldRecordConfirmationAsync =
           request.mode === "partial" &&
@@ -5773,18 +6378,6 @@ export function useSmartAccountSidebarData(
           }
         }
 
-        void refreshAfterTx({
-          accountIndex: preparedWithdraw.vault.accountIndex,
-          ...(request.mode === "partial"
-            ? { refreshAuthenticatedWallet: false }
-            : { signerAddresses: [wallet.publicKey.toBase58()] }),
-        }).catch((err) => {
-          console.warn(
-            "[smart-account] post-earn-withdraw refresh failed",
-            err
-          );
-        });
-
         return {
           success: true,
           signature,
@@ -5804,7 +6397,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, refreshAfterTx, solanaEnv, user?.walletAddress, wallet]
+    [connection, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnCleanup = useCallback(
@@ -5916,13 +6509,6 @@ export function useSmartAccountSidebarData(
           };
         }
 
-        void refreshAfterTx({
-          accountIndex: preparedCleanup.vault.accountIndex,
-          signerAddresses: [wallet.publicKey.toBase58()],
-        }).catch((err) => {
-          console.warn("[smart-account] post-earn-cleanup refresh failed", err);
-        });
-
         return {
           success: true,
           signature,
@@ -5942,7 +6528,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, refreshAfterTx, solanaEnv, user?.walletAddress, wallet]
+    [connection, solanaEnv, user?.walletAddress, wallet]
   );
 
   const getEarnAutodepositPrepareContext = useCallback(() => {
@@ -6394,27 +6980,14 @@ export function useSmartAccountSidebarData(
               };
             }
 
-            const nextEarnState = await fetchEarnState();
-            if (nextEarnState) {
-              setEarnState(nextEarnState);
-            }
             const scheduledSweeps = confirmResponse.bootstrapSweep?.sweep
               ? [confirmResponse.bootstrapSweep.sweep]
-              : nextEarnState?.autodeposit?.scheduledSweeps ?? [];
-
-            void refreshAfterTx({
-              accountIndex: batchNextPreparedSetup.vault.accountIndex,
-              signerAddresses: [wallet.publicKey.toBase58()],
-            }).catch((err) => {
-              console.warn(
-                "[smart-account] post-autodeposit-setup refresh failed",
-                err
-              );
-            });
+              : [];
 
             return {
               success: true,
               signature: recurringDelegationSignature,
+              targetId: confirmResponse.target?.id,
               policySignature,
               recurringDelegationSignature,
               confirmedSlot: recurringDelegationConfirmedSlot,
@@ -6517,30 +7090,17 @@ export function useSmartAccountSidebarData(
               walletBalanceFloorRaw: request.walletBalanceFloorRaw,
             });
 
-        const nextEarnState = await fetchEarnState();
-        if (nextEarnState) {
-          setEarnState(nextEarnState);
-        }
         const scheduledSweeps =
           confirmResponse.bootstrapSweep?.sweep && completedAutodepositSetup
             ? [confirmResponse.bootstrapSweep.sweep]
             : completedAutodepositSetup
-            ? nextEarnState?.autodeposit?.scheduledSweeps ?? []
+            ? []
             : undefined;
-
-        void refreshAfterTx({
-          accountIndex: preparedSetup.vault.accountIndex,
-          signerAddresses: [wallet.publicKey.toBase58()],
-        }).catch((err) => {
-          console.warn(
-            "[smart-account] post-autodeposit-setup refresh failed",
-            err
-          );
-        });
 
         return {
           success: true,
           signature: setupSend.signature,
+          targetId: confirmResponse.target?.id,
           ...getEarnAutodepositSetupSignatureFields(
             preparedSetup,
             setupSend.signature
@@ -6565,7 +7125,6 @@ export function useSmartAccountSidebarData(
       connection,
       prepareEarnAutodepositSetup,
       prepareEarnAutodepositSetupBatch,
-      refreshAfterTx,
       solanaEnv,
       user?.walletAddress,
       wallet,
@@ -6586,15 +7145,9 @@ export function useSmartAccountSidebarData(
       setIsActionPending(true);
       try {
         const response = await postEarnAutodepositFloorUpdate(request);
-        const nextEarnState = await fetchEarnState();
-        if (nextEarnState) {
-          setEarnState(nextEarnState);
-        }
-        const scheduledSweeps =
-          nextEarnState?.autodeposit?.scheduledSweeps ??
-          (response.rebaselineSweep?.sweep
-            ? [response.rebaselineSweep.sweep]
-            : []);
+        const scheduledSweeps = response.rebaselineSweep?.sweep
+          ? [response.rebaselineSweep.sweep]
+          : [];
 
         return {
           success: true,
@@ -6623,16 +7176,7 @@ export function useSmartAccountSidebarData(
       setIsActionPending(true);
       try {
         const response = await postEarnAutodepositToggle(request);
-        const nextEarnState = await fetchEarnState();
-        if (nextEarnState) {
-          setEarnState(nextEarnState);
-        }
-        const scheduledSweeps =
-          request.active && nextEarnState?.autodeposit?.status === "active"
-            ? nextEarnState.autodeposit.scheduledSweeps ?? []
-            : [];
-
-        return { success: true, scheduledSweeps, target: response.target };
+        return { success: true, scheduledSweeps: [], target: response.target };
       } catch (err) {
         const error =
           err instanceof Error
@@ -6709,8 +7253,9 @@ export function useSmartAccountSidebarData(
           connection,
           signature: closeSend.signature,
         });
+        let confirmResponse: EarnAutodepositCloseConfirmResponse;
         try {
-          await postConfirmedEarnAutodepositClose({
+          confirmResponse = await postConfirmedEarnAutodepositClose({
             preparedClose,
             signature: closeSend.signature,
             confirmedSlot,
@@ -6728,24 +7273,10 @@ export function useSmartAccountSidebarData(
           };
         }
 
-        const nextEarnState = await fetchEarnState();
-        if (nextEarnState) {
-          setEarnState(nextEarnState);
-        }
-
-        void refreshAfterTx({
-          accountIndex: preparedClose.vault.accountIndex,
-          signerAddresses: [wallet.publicKey.toBase58()],
-        }).catch((err) => {
-          console.warn(
-            "[smart-account] post-autodeposit-close refresh failed",
-            err
-          );
-        });
-
         return {
           success: true,
           signature: closeSend.signature,
+          targetId: confirmResponse.target?.id,
           confirmedSlot,
           status: "executed",
         };
@@ -6761,7 +7292,6 @@ export function useSmartAccountSidebarData(
     [
       connection,
       prepareEarnAutodepositClose,
-      refreshAfterTx,
       solanaEnv,
       user?.walletAddress,
       wallet,
@@ -6801,6 +7331,8 @@ export function useSmartAccountSidebarData(
     approvals,
     loadVaultActivity,
     refresh,
+    refreshGroups,
+    refreshMutationPlan,
     refreshEarnState,
     refreshAfterTx,
     approveProposal: (proposal) => runProposalAction(proposal, "approve"),

@@ -444,7 +444,31 @@ export function useActiveEarnPosition({
   >([]);
   const positionRef = useRef<ActiveEarnPosition | null>(null);
   const reconcileRequestKeyRef = useRef<string | null>(null);
+  const refreshDirtyRef = useRef(false);
+  const refreshGenerationRef = useRef(0);
+  const positionScope = [
+    enabled ? "enabled" : "disabled",
+    solanaEnv,
+    walletAddress ?? "no-wallet",
+    settingsPda ?? "no-settings",
+  ].join(":");
+  const activePositionScopeRef = useRef(positionScope);
+  const refreshInFlightRef = useRef<Promise<ActiveEarnPosition | null> | null>(
+    null
+  );
+  const refreshInFlightScopeRef = useRef<string | null>(null);
   const suppressSubscriptionRefreshThroughSlotRef = useRef<bigint | null>(null);
+
+  // Advance identity synchronously during render. A response that resolves
+  // between this render and passive-effect cleanup must not commit into the
+  // newly selected wallet/settings scope (including a rapid A -> B -> A).
+  if (activePositionScopeRef.current !== positionScope) {
+    activePositionScopeRef.current = positionScope;
+    refreshGenerationRef.current += 1;
+    refreshDirtyRef.current = false;
+    refreshInFlightRef.current = null;
+    refreshInFlightScopeRef.current = null;
+  }
 
   const canUseCache = Boolean(enabled && walletAddress && settingsPda);
 
@@ -455,9 +479,15 @@ export function useActiveEarnPosition({
         | null
         | ((current: ActiveEarnPosition | null) => ActiveEarnPosition | null)
     ) => {
+      if (activePositionScopeRef.current !== positionScope) {
+        return;
+      }
       setHasResolved(true);
       setIsLoading(false);
       setPositionState((current) => {
+        if (activePositionScopeRef.current !== positionScope) {
+          return current;
+        }
         const resolved = typeof next === "function" ? next(current) : next;
         positionRef.current = resolved;
         if (walletAddress && settingsPda) {
@@ -471,7 +501,7 @@ export function useActiveEarnPosition({
         return resolved;
       });
     },
-    [settingsPda, solanaEnv, walletAddress]
+    [positionScope, settingsPda, solanaEnv, walletAddress]
   );
 
   const readRpcPosition = useCallback(
@@ -500,6 +530,9 @@ export function useActiveEarnPosition({
 
   const commitRpcPosition = useCallback(
     (next: RpcPositionRead) => {
+      if (activePositionScopeRef.current !== positionScope) {
+        return;
+      }
       if (walletAddress && settingsPda) {
         writeEarnPositionCache({
           solanaEnv,
@@ -514,11 +547,14 @@ export function useActiveEarnPosition({
       setHasResolved(true);
       setIsLoading(false);
     },
-    [settingsPda, solanaEnv, walletAddress]
+    [positionScope, settingsPda, solanaEnv, walletAddress]
   );
 
   const commitConfirmedPosition = useCallback(
     (nextPosition: ActiveEarnPosition | null) => {
+      if (activePositionScopeRef.current !== positionScope) {
+        return;
+      }
       if (
         shouldKeepCurrentPositionOverConfirmed({
           current: positionRef.current,
@@ -544,25 +580,84 @@ export function useActiveEarnPosition({
       setHasResolved(true);
       setIsLoading(false);
     },
-    [settingsPda, solanaEnv, walletAddress]
+    [positionScope, settingsPda, solanaEnv, walletAddress]
   );
 
-  const refresh = useCallback(async () => {
-    const currentPosition = positionRef.current;
-    setIsLoading(true);
-    try {
-      const next = await readRpcPosition(currentPosition);
-      if (!next) {
-        setHasResolved(true);
-        return currentPosition;
-      }
-
-      commitRpcPosition(next);
-      return next.position;
-    } finally {
-      setIsLoading(false);
+  const refresh = useCallback(() => {
+    if (activePositionScopeRef.current !== positionScope) {
+      return Promise.resolve(positionRef.current);
     }
-  }, [commitRpcPosition, readRpcPosition]);
+    if (
+      refreshInFlightRef.current &&
+      refreshInFlightScopeRef.current === positionScope
+    ) {
+      refreshDirtyRef.current = true;
+      return refreshInFlightRef.current;
+    }
+
+    const generation = refreshGenerationRef.current;
+    const run = async (): Promise<ActiveEarnPosition | null> => {
+      let result = positionRef.current;
+      let lastError: unknown;
+      setIsLoading(true);
+      try {
+        do {
+          refreshDirtyRef.current = false;
+          lastError = undefined;
+          try {
+            const next = await readRpcPosition(positionRef.current);
+            if (
+              generation !== refreshGenerationRef.current ||
+              activePositionScopeRef.current !== positionScope
+            ) {
+              return positionRef.current;
+            }
+            if (!next) {
+              setHasResolved(true);
+              result = positionRef.current;
+            } else {
+              commitRpcPosition(next);
+              result = next.position;
+            }
+          } catch (error) {
+            lastError = error;
+          }
+        } while (
+          refreshDirtyRef.current &&
+          generation === refreshGenerationRef.current &&
+          activePositionScopeRef.current === positionScope
+        );
+
+        if (
+          generation !== refreshGenerationRef.current ||
+          activePositionScopeRef.current !== positionScope
+        ) {
+          return positionRef.current;
+        }
+        if (lastError !== undefined) {
+          throw lastError;
+        }
+        return result;
+      } finally {
+        if (
+          generation === refreshGenerationRef.current &&
+          activePositionScopeRef.current === positionScope
+        ) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    const promise = run().finally(() => {
+      if (refreshInFlightRef.current === promise) {
+        refreshInFlightRef.current = null;
+        refreshInFlightScopeRef.current = null;
+      }
+    });
+    refreshInFlightRef.current = promise;
+    refreshInFlightScopeRef.current = positionScope;
+    return promise;
+  }, [commitRpcPosition, positionScope, readRpcPosition]);
 
   const suppressSubscriptionRefreshThroughSlot = useCallback(
     (slot: bigint | number | string | null | undefined) => {
@@ -642,13 +737,13 @@ export function useActiveEarnPosition({
       );
       const rpcBasePosition = cached ?? positionRef.current;
       const next = await readRpcPosition(rpcBasePosition);
-      if (cancelled) {
+      if (cancelled || activePositionScopeRef.current !== positionScope) {
         return;
       }
       if (next) {
         commitRpcPosition(next);
         const confirmedPosition = await confirmedPositionPromise;
-        if (cancelled) {
+        if (cancelled || activePositionScopeRef.current !== positionScope) {
           return;
         }
         const basePosition =
@@ -679,7 +774,7 @@ export function useActiveEarnPosition({
       }
 
       const confirmedPosition = await confirmedPositionPromise;
-      if (cancelled) {
+      if (cancelled || activePositionScopeRef.current !== positionScope) {
         return;
       }
       if (confirmedPosition !== undefined) {
@@ -692,7 +787,7 @@ export function useActiveEarnPosition({
     };
 
     loadLivePosition().catch((error) => {
-      if (cancelled) {
+      if (cancelled || activePositionScopeRef.current !== positionScope) {
         return;
       }
       console.warn(
@@ -712,6 +807,7 @@ export function useActiveEarnPosition({
     commitRpcPosition,
     enabled,
     readRpcPosition,
+    positionScope,
     settingsPda,
     solanaEnv,
     walletAddress,

@@ -1,9 +1,10 @@
 import {
-  computeEarnRealtimeReconnectDelayMs,
   consumeEarnRealtimeStream,
+  isEarnRealtimeAuthRejection,
   type EarnRealtimeStreamResult,
   type EarnRealtimeTokenResponse,
 } from "./stream";
+import { waitForEarnRealtimeRecovery } from "./recovery";
 import type { EarnRealtimeInvalidation } from "./types";
 
 type EarnRealtimeTokenCacheContract = {
@@ -29,9 +30,9 @@ export type EarnRealtimeLifecycleOptions = {
   getCursor: () => string | null;
   onConnected: () => void;
   onConnecting: (isReconnect: boolean) => void;
+  onCursorlessConnected: () => Promise<void> | void;
   onError?: (error: unknown) => void;
   onInvalidation: (event: EarnRealtimeInvalidation) => void;
-  onResyncRequired: () => Promise<void> | void;
   scheduleRenewal?: ScheduleRenewal;
   signal: AbortSignal;
   tokenCache: EarnRealtimeTokenCacheContract;
@@ -58,22 +59,7 @@ const defaultScheduleRenewal: ScheduleRenewal = (callback, delayMs) => {
 };
 
 const defaultWaitForReconnect: WaitForReconnect = (attempt, signal) =>
-  new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const finish = () => {
-      signal.removeEventListener("abort", finish);
-      globalThis.clearTimeout(timer);
-      resolve();
-    };
-    const timer = globalThis.setTimeout(
-      finish,
-      computeEarnRealtimeReconnectDelayMs(attempt)
-    );
-    signal.addEventListener("abort", finish, { once: true });
-  });
+  waitForEarnRealtimeRecovery({ attempt, signal });
 
 export async function runEarnRealtimeLifecycle({
   clearCursor,
@@ -81,9 +67,9 @@ export async function runEarnRealtimeLifecycle({
   getCursor,
   onConnected,
   onConnecting,
+  onCursorlessConnected,
   onError,
   onInvalidation,
-  onResyncRequired,
   scheduleRenewal = defaultScheduleRenewal,
   signal,
   tokenCache,
@@ -116,32 +102,67 @@ export async function runEarnRealtimeLifecycle({
           stream.abort();
         }, Math.max(1_000, tokenCache.renewalDelayMs(token)));
         let result: EarnRealtimeStreamResult;
+        const cursor = getCursor();
+        let admitted = false;
+        let streamOpen = true;
+        let admissionPromise: Promise<void> | null = null;
         try {
           result = await consumeStream({
-            cursor: getCursor(),
+            cursor,
             onConnected: () => {
-              attempt = 0;
-              onConnected();
+              if (cursor !== null) {
+                attempt = 0;
+                admitted = true;
+                onConnected();
+                return;
+              }
+
+              admissionPromise = Promise.resolve()
+                .then(onCursorlessConnected)
+                .then(() => {
+                  if (streamOpen && !stream.signal.aborted && !signal.aborted) {
+                    attempt = 0;
+                    admitted = true;
+                    onConnected();
+                  }
+                })
+                .catch((error) => {
+                  onError?.(error);
+                  stream.abort();
+                });
             },
             onInvalidation,
             response: token,
             signal: stream.signal,
           });
+          streamOpen = false;
+          stream.abort();
+          if (admissionPromise && !signal.aborted) {
+            await admissionPromise;
+          }
         } catch (error) {
+          streamOpen = false;
+          stream.abort();
+          if (admissionPromise && !signal.aborted) {
+            await admissionPromise;
+          }
           if (renewing && isAbortError(error)) {
-            attempt = 0;
+            if (admitted) attempt = 0;
             continue;
+          }
+          if (isEarnRealtimeAuthRejection(error)) {
+            tokenCache.clear();
           }
           throw error;
         } finally {
+          streamOpen = false;
+          stream.abort();
           cancelRenewal();
           unlinkStream();
         }
 
         if (result.reason === "resync_required") {
           clearCursor();
-          await onResyncRequired();
-          attempt = 0;
           continue;
         }
       } catch (error) {
@@ -153,6 +174,8 @@ export async function runEarnRealtimeLifecycle({
         }
       }
 
+      if (signal.aborted) return;
+      onConnecting(true);
       attempt += 1;
       await waitForReconnect(attempt - 1, signal);
     }

@@ -20,6 +20,10 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { createFrontendAssetProvider } from "@/lib/solana/frontend-asset-provider";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
+import {
+  resolveSmartAccountReadModelReuse,
+  SmartAccountReadModelLoadOrder,
+} from "@/features/smart-accounts/refresh-plan";
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 const walletDataClientCache = new Map<
@@ -35,6 +39,7 @@ const OVERVIEW_RATE_LIMIT_COOLDOWN_MS = 15_000;
 const OVERVIEW_COMPLETED_RESULT_TTL_MS = 2_000;
 const OVERVIEW_COMPLETED_RESULT_MAX_ENTRIES = 256;
 const overviewLoadPromisesByKey = new Map<string, Promise<unknown>>();
+const overviewLoadOrder = new SmartAccountReadModelLoadOrder();
 const overviewRateLimitCooldownUntilByKey = new Map<string, number>();
 const overviewCompletedResultsByKey = new Map<
   string,
@@ -223,6 +228,7 @@ function createSmartAccountVaultsReadClient(solanaEnv: SolanaEnv) {
 }
 
 export function clearSmartAccountReadModelCachesForTest() {
+  overviewLoadOrder.clear();
   overviewLoadPromisesByKey.clear();
   overviewRateLimitCooldownUntilByKey.clear();
   overviewCompletedResultsByKey.clear();
@@ -246,30 +252,35 @@ export async function loadSmartAccountReadModel<T>(args: {
     throw createRateLimitError(args.cacheKey, now);
   }
 
-  const existingLoad = args.bypassCache
-    ? null
-    : overviewLoadPromisesByKey.get(args.cacheKey);
-  const cachedResult = args.bypassCache
-    ? null
-    : overviewCompletedResultsByKey.get(args.cacheKey);
-  if (cachedResult) {
-    if (cachedResult.expiresAt > now) {
-      console.info("[smart-account-read-model] completed-cache-hit", {
-        cacheKey: args.cacheKey,
-        ttlMs: cachedResult.expiresAt - now,
-      });
-      return cachedResult.result as T;
-    }
-
-    overviewCompletedResultsByKey.delete(args.cacheKey);
+  const reuse = resolveSmartAccountReadModelReuse({
+    bypassCache: args.bypassCache,
+    cachedResult: overviewCompletedResultsByKey.get(args.cacheKey) as
+      | { expiresAt: number; result: T }
+      | undefined,
+    existingLoad: overviewLoadPromisesByKey.get(args.cacheKey) as
+      | Promise<T>
+      | undefined,
+    now,
+  });
+  if (reuse.kind === "completed") {
+    console.info("[smart-account-read-model] completed-cache-hit", {
+      cacheKey: args.cacheKey,
+      ttlMs: reuse.ttlMs,
+    });
+    return reuse.result;
   }
-
-  if (existingLoad) {
+  if (reuse.kind === "in-flight") {
     console.info("[smart-account-read-model] in-flight-cache-hit", {
       cacheKey: args.cacheKey,
     });
-    return existingLoad as Promise<T>;
+    return reuse.promise;
   }
+  if (reuse.expiredCompletedResult) {
+    overviewCompletedResultsByKey.delete(args.cacheKey);
+  }
+
+  const loadToken = overviewLoadOrder.begin(args.cacheKey);
+  const isCurrentLoad = () => overviewLoadOrder.isCurrent(loadToken);
 
   const loadPromise = (async () => {
     let lastError: unknown;
@@ -280,15 +291,19 @@ export async function loadSmartAccountReadModel<T>(args: {
     for (let attempt = 0; attempt <= maxAttempt; attempt += 1) {
       try {
         const result = await args.load();
-        overviewRateLimitCooldownUntilByKey.delete(args.cacheKey);
-        setCompletedOverviewResult(args.cacheKey, result);
+        if (isCurrentLoad()) {
+          overviewRateLimitCooldownUntilByKey.delete(args.cacheKey);
+          setCompletedOverviewResult(args.cacheKey, result);
+        }
         return result;
       } catch (error) {
         if (isRpcRateLimitError(error)) {
-          overviewRateLimitCooldownUntilByKey.set(
-            args.cacheKey,
-            Date.now() + OVERVIEW_RATE_LIMIT_COOLDOWN_MS
-          );
+          if (isCurrentLoad()) {
+            overviewRateLimitCooldownUntilByKey.set(
+              args.cacheKey,
+              Date.now() + OVERVIEW_RATE_LIMIT_COOLDOWN_MS
+            );
+          }
           console.info("[smart-account-read-model] load.rate-limited", {
             cacheKey: args.cacheKey,
             durationMs: Number((performance.now() - startedAt).toFixed(2)),
@@ -333,6 +348,7 @@ export async function loadSmartAccountReadModel<T>(args: {
     if (overviewLoadPromisesByKey.get(args.cacheKey) === loadPromise) {
       overviewLoadPromisesByKey.delete(args.cacheKey);
     }
+    overviewLoadOrder.finish(loadToken);
   }
 }
 
@@ -390,6 +406,7 @@ export async function fetchCurrentSmartAccountVaultSnapshots(args: {
 }
 
 export async function fetchCurrentSmartAccountPolicyOverview(args: {
+  bypassCache?: boolean;
   settingsPda: string;
 }): Promise<SmartAccountPolicyOverview> {
   const serverEnv = getServerEnv();
@@ -398,6 +415,7 @@ export async function fetchCurrentSmartAccountPolicyOverview(args: {
   const client = createSmartAccountVaultsReadClient(serverEnv.solanaEnv);
 
   return loadSmartAccountReadModel({
+    bypassCache: args.bypassCache,
     cacheKey,
     retryMissingSettings: true,
     load: () => client.fetchPolicyOverview({ settingsPda }),

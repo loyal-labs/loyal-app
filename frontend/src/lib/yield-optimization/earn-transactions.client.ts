@@ -55,6 +55,7 @@ let cache = new Map<
   { expiresAt: number; value: EarnTransactionsRouteResponse }
 >();
 let inflight = new Map<string, Promise<EarnTransactionsRouteResponse>>();
+let dirtyInflightKeys = new Set<string>();
 let cacheEpoch = 0;
 
 function getEarnTransactionsCacheKey(args: CacheKeyArgs) {
@@ -75,33 +76,49 @@ export async function fetchEarnTransactions(
   if (existing) {
     return existing;
   }
-  const requestCacheEpoch = cacheEpoch;
-
   const request: Promise<EarnTransactionsRouteResponse> = (async () => {
-    const response = await fetch("/api/smart-accounts/earn-transactions", {
-      credentials: "include",
-    });
+    let value: EarnTransactionsRouteResponse | undefined;
+    let lastError: unknown;
+    do {
+      dirtyInflightKeys.delete(key);
+      lastError = undefined;
+      const requestCacheEpoch = cacheEpoch;
+      try {
+        const response = await fetch("/api/smart-accounts/earn-transactions", {
+          credentials: "include",
+        });
 
-    if (!response.ok) {
-      const errorPayload = (await response
-        .json()
-        .catch(() => null)) as EarnTransactionsRouteErrorResponse | null;
-      console.warn("[earn-transactions] API error", {
-        error: errorPayload?.error ?? null,
-        status: response.status,
-        statusText: response.statusText,
-      });
-      const message =
-        errorPayload?.error?.message ?? "Failed to load earn transactions.";
-      throw new Error(message);
+        if (!response.ok) {
+          const errorPayload = (await response
+            .json()
+            .catch(() => null)) as EarnTransactionsRouteErrorResponse | null;
+          console.warn("[earn-transactions] API error", {
+            error: errorPayload?.error ?? null,
+            status: response.status,
+            statusText: response.statusText,
+          });
+          const message =
+            errorPayload?.error?.message ?? "Failed to load earn transactions.";
+          throw new Error(message);
+        }
+
+        value = (await response.json()) as EarnTransactionsRouteResponse;
+        if (requestCacheEpoch === cacheEpoch && !dirtyInflightKeys.has(key)) {
+          cache.set(key, {
+            expiresAt: Date.now() + EARN_TRANSACTIONS_TTL_MS,
+            value,
+          });
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    } while (dirtyInflightKeys.has(key));
+
+    if (lastError !== undefined) {
+      throw lastError;
     }
-
-    const value = (await response.json()) as EarnTransactionsRouteResponse;
-    if (requestCacheEpoch === cacheEpoch) {
-      cache.set(key, {
-        expiresAt: Date.now() + EARN_TRANSACTIONS_TTL_MS,
-        value,
-      });
+    if (!value) {
+      throw new Error("Failed to load earn transactions.");
     }
     return value;
   })().finally(() => {
@@ -119,7 +136,9 @@ export function invalidateEarnTransactionsCache(args?: Partial<CacheKeyArgs>) {
 
   if (!args?.settingsPda && !args?.solanaEnv && !args?.walletAddress) {
     cache.clear();
-    inflight.clear();
+    for (const key of inflight.keys()) {
+      dirtyInflightKeys.add(key);
+    }
     return;
   }
 
@@ -139,7 +158,7 @@ export function invalidateEarnTransactionsCache(args?: Partial<CacheKeyArgs>) {
       (!args.settingsPda || key.includes(`:${args.settingsPda}:`)) &&
       (!args.walletAddress || key.endsWith(`:${args.walletAddress}`))
     ) {
-      inflight.delete(key);
+      dirtyInflightKeys.add(key);
     }
   }
 }
@@ -147,5 +166,6 @@ export function invalidateEarnTransactionsCache(args?: Partial<CacheKeyArgs>) {
 export function resetEarnTransactionsCacheForTests() {
   cache = new Map();
   inflight = new Map();
+  dirtyInflightKeys = new Set();
   cacheEpoch = 0;
 }

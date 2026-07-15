@@ -6,12 +6,15 @@ export {
   type EarnAutodepositProgressState,
   type EarnRealtimeConnectionState,
   type EarnRealtimeInvalidation,
+  type EarnRealtimeProtocolIssue,
 } from "./types";
 export { fetchEarnAutodepositProgress } from "./fallback";
 export {
   resolveEarnRealtimeRefreshPlan,
   type EarnRealtimeRefreshPlan,
 } from "./invalidation";
+export { EarnMutationReconciliationRegistry } from "./mutation-reconciliation";
+export type { EarnExpectedMutationOperation } from "./mutation-reconciliation";
 export {
   useEarnRealtime,
   type EarnRealtimeIdentity,

@@ -6,6 +6,7 @@ import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
 import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
 import { AuthSessionProvider } from "@/contexts/auth-session-context";
 import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
+import { RealtimeSyncProvider } from "@/features/realtime-sync";
 import { FeatureFlagsProvider } from "@/providers/feature-flags-provider";
 import { AppWorkspaceShell } from "./app-workspace-shell";
 
@@ -60,8 +61,10 @@ export default function AppLayout({
             <WalletAutoReauth />
             <AnalyticsBootstrap />
             {/* Header/main nav is hidden for the wallet workspace redesign. */}
-            <AppWorkspaceShell />
-            {children}
+            <RealtimeSyncProvider>
+              <AppWorkspaceShell />
+              {children}
+            </RealtimeSyncProvider>
             <SignInModal />
           </SignInModalProvider>
         </FeatureFlagsProvider>
