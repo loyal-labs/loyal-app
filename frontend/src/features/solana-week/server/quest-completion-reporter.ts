@@ -34,6 +34,9 @@ import { getOptionalEnv } from "@/lib/core/config/shared";
 // while disabled those reports just no-op here ("disabled"), leaving the local
 // row pending.
 const ENABLED_ENV = "SOLANA_WEEK_QUESTS_ENABLED";
+// Round-end hard stop, checked before the env gate: while true, no completion
+// is ever sent to Solana (round 1 ended 2026-07-15).
+const ROUND_ENDED = true;
 // Carve-out so internal preview-build testers can exercise quests end-to-end
 // against the real backend before the public reveal: while ENABLED_ENV is off,
 // completions are still sent for these wallets (comma-separated base58). The
@@ -291,6 +294,17 @@ export async function reportQuestCompletion(args: {
   metadata?: QuestCompletionMetadata;
   env?: NodeJS.ProcessEnv;
 }): Promise<QuestCompletionResult> {
+  // Seeker Summer round 1 ended 2026-07-15: reporting to the Solana
+  // completions API is permanently off, overriding the env kill-switch and
+  // the tester carve-out. Local completion rows still record (in-app progress
+  // display keeps working); flip this back for a future round.
+  if (ROUND_ENDED) {
+    return {
+      status: "disabled",
+      reason: "Seeker Summer round 1 ended — Solana-side reporting retired",
+    };
+  }
+
   // Master kill-switch (fail-safe OFF) with a tester carve-out. Gating here
   // covers every send path at once. While skipped, the local completion row
   // stays pending, so the reconcile cron backfills it once
