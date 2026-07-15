@@ -5,10 +5,6 @@
       "schedule": "17 8 * * *"
     },
     {
-      "path": "/api/cron/solana-week-quest-completions",
-      "schedule": "0 * * * *"
-    },
-    {
       "path": "/api/cron/smart-account-reconcile",
       "schedule": "*/15 * * * *"
     },
