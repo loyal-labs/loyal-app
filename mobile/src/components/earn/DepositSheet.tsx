@@ -151,8 +151,9 @@ type DepositSheetProps = {
   // computeFirstDepositSolShortfall). Non-null disables the CTA with a top-up
   // prompt; parents pass null when this isn't the wallet's first deposit.
   firstDepositSolShortfall?: number | null;
-  // True when the wallet has no Earn position yet — shows the always-visible
-  // note that the first deposit takes ~FIRST_DEPOSIT_MIN_SOL of SOL and that
+  // True when the next deposit runs first-time setup — no position yet, or
+  // the route-policy pair is missing (torn down by a full exit) — shows the
+  // always-visible note that it takes ~FIRST_DEPOSIT_MIN_SOL of SOL and that
   // it comes back on full withdrawal.
   isFirstDeposit?: boolean;
 };
@@ -458,7 +459,7 @@ export function DepositSheet({
 
           {isFirstDeposit ? (
             <Text style={styles.solHint}>
-              Your first deposit takes ~
+              This deposit sets up your Earn account and takes ~
               {formatSolAmount(FIRST_DEPOSIT_MIN_SOL)} SOL from your wallet for
               Solana account rent — it is returned when you fully withdraw.
             </Text>

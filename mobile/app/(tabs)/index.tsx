@@ -165,6 +165,7 @@ export default function EarnScreen() {
   const {
     position,
     holdings,
+    policyMissing: earnPolicyMissing,
     hasLoaded: earnPositionLoaded,
     refreshEarnPosition,
     markEarnMutation,
@@ -232,13 +233,17 @@ export default function EarnScreen() {
   // SOL row means holdings haven't loaded, and the gate fails open until they
   // do.
   const firstDepositSolShortfall = useMemo(() => {
-    if (!earnPositionLoaded || hasDeposit) return null;
+    // A balance alone doesn't prove the cheap top-up path applies: a healed
+    // position can outlive its route-policy pair (post-full-exit orphans), and
+    // a missing pair sends even a top-up down first-time setup with its SOL
+    // cost — so gate on the policy read, not just the balance.
+    if (!earnPositionLoaded || (hasDeposit && !earnPolicyMissing)) return null;
     const sol = tokenHoldings.find(
       (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured,
     );
     if (!sol) return null;
     return computeFirstDepositSolShortfall(sol.balance);
-  }, [earnPositionLoaded, hasDeposit, tokenHoldings]);
+  }, [earnPositionLoaded, hasDeposit, earnPolicyMissing, tokenHoldings]);
   // Creating an Autodeposit also costs SOL (policy + delegation account rent) —
   // same fail-open gate. The sheet only applies it in "create" mode.
   const autodepositSolShortfall = useMemo(() => {
@@ -1087,7 +1092,9 @@ export default function EarnScreen() {
         onDeposit={handleDepositConfirmed}
         availableUsdc={usdcAvailable}
         firstDepositSolShortfall={firstDepositSolShortfall}
-        isFirstDeposit={earnPositionLoaded && !hasDeposit}
+        isFirstDeposit={
+          earnPositionLoaded && (!hasDeposit || earnPolicyMissing)
+        }
       />
 
       <WithdrawSheet

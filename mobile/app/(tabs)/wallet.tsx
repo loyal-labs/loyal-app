@@ -91,6 +91,7 @@ export default function WalletScreen() {
     useKaminoEarnings();
   const {
     position: earnPosition,
+    policyMissing: earnPolicyMissing,
     isLoading: isEarnLoading,
     hasLoaded: earnLoaded,
     refreshEarnPosition,
@@ -238,11 +239,14 @@ export default function WalletScreen() {
   // FIRST_DEPOSIT_MIN_SOL. Null while the position/balance are loading — the
   // gate fails open.
   const firstDepositSolShortfall = useMemo(() => {
-    if (!earnLoaded || earnUsd > 0) return null;
+    // A balance alone doesn't prove the cheap top-up path applies: a missing
+    // route-policy pair (post-full-exit orphans) sends even a top-up down
+    // first-time setup with its SOL cost — gate on the policy read too.
+    if (!earnLoaded || (earnUsd > 0 && !earnPolicyMissing)) return null;
     return computeFirstDepositSolShortfall(
       solBalanceLamports != null ? solBalanceLamports / 1e9 : null,
     );
-  }, [earnLoaded, earnUsd, solBalanceLamports]);
+  }, [earnLoaded, earnUsd, earnPolicyMissing, solBalanceLamports]);
 
   // Wallet USDC balance feeds the Deposit sheet's available/insufficient state.
   const usdcAvailable = useMemo(() => {
@@ -567,7 +571,7 @@ export default function WalletScreen() {
         onDeposit={handleDepositConfirmed}
         availableUsdc={usdcAvailable}
         firstDepositSolShortfall={firstDepositSolShortfall}
-        isFirstDeposit={earnLoaded && earnUsd <= 0}
+        isFirstDeposit={earnLoaded && (earnUsd <= 0 || earnPolicyMissing)}
       />
     </View>
   );

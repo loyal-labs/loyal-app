@@ -45,6 +45,12 @@ export function useEarnPosition(walletAddress: string | null) {
   // so the positions sheet can render the live split instead of the stale DB
   // withdraw-sources read.
   const [holdings, setHoldings] = useState<EarnHoldingItem[]>([]);
+  // True when the last holdings read hit the server's no-active-policy branch
+  // (observedAt === null): the route-policy pair is missing — never created,
+  // or torn down by a full exit — so the next deposit re-runs first-time setup
+  // and needs the setup SOL even if a position balance exists. Stays false on
+  // fetch failures (fail-open, like the SOL gate itself).
+  const [policyMissing, setPolicyMissing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   // Flips true once a fetch settles for the current wallet. Lets the UI tell
   // "not loaded yet" (skeleton) apart from "loaded, genuinely empty" ($0) — the
@@ -92,6 +98,7 @@ export function useEarnPosition(walletAddress: string | null) {
         if (holdingsResult.value.observedAt !== null) {
           liveTotalRaw = holdingsResult.value.currentTotalAmountRaw;
         }
+        setPolicyMissing(holdingsResult.value.observedAt === null);
         setHoldings(holdingsResult.value.holdings);
       } else {
         console.error("Failed to fetch Earn holdings", holdingsResult.reason);
@@ -119,6 +126,7 @@ export function useEarnPosition(walletAddress: string | null) {
     } else {
       setPosition(null);
       setHoldings([]);
+      setPolicyMissing(false);
       setHasLoaded(false);
     }
   }, [walletAddress, refreshEarnPosition]);
@@ -126,6 +134,7 @@ export function useEarnPosition(walletAddress: string | null) {
   return {
     position,
     holdings,
+    policyMissing,
     isLoading,
     hasLoaded,
     refreshEarnPosition,
