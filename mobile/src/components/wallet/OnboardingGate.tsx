@@ -1,5 +1,5 @@
 import { Keypair } from "@solana/web3.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet } from "react-native";
 import * as SeedVault from "expo-seed-vault";
 import Animated, {
@@ -22,6 +22,11 @@ import {
 import { WalletSetupOnboardingScreen } from "@/components/wallet/WalletSetupOnboardingScreen";
 import { connectMwaWallet, isMwaSupported } from "@/lib/wallet/mwa-signer";
 import { useWallet } from "@/lib/wallet/wallet-provider";
+import {
+  type LifecycleFlow,
+  mapLifecycleErrorCode,
+  startLifecycleFlow,
+} from "@/services/observability";
 import { Text, View } from "@/tw";
 
 type Step =
@@ -67,6 +72,30 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     useState<TransitionDirection>("forward");
   const [screenAnimationsReady, setScreenAnimationsReady] = useState(false);
 
+  // One sign-in lifecycle flow per onboarding attempt (ASK-1804). Starting a
+  // new attempt cancels the abandoned one; terminal emissions latch, so the
+  // blanket cancel never overwrites a completed/failed flow.
+  const authFlowRef = useRef<LifecycleFlow<"auth.sign_in"> | null>(null);
+  const beginAuthFlow = useCallback(
+    (
+      variant:
+        | "seed_vault"
+        | "wallet_adapter"
+        | "import_wallet"
+        | "new_wallet",
+    ) => {
+      authFlowRef.current?.cancel("intent");
+      const flow = startLifecycleFlow({
+        flowName: "auth.sign_in",
+        flowVariant: variant,
+      });
+      flow.start("intent");
+      authFlowRef.current = flow;
+      return flow;
+    },
+    [],
+  );
+
   // MWA when the binary has the native module; direct Seed Vault as the
   // legacy fallback on pre-MWA Seeker builds receiving this bundle via OTA.
   const connectMode: WalletConnectMode = isMwaSupported()
@@ -94,6 +123,8 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
 
   const handleCreateComplete = useCallback(
     (keypair: Keypair, pin: string) => {
+      authFlowRef.current?.setWalletAddress(keypair.publicKey.toBase58());
+      authFlowRef.current?.observe("challenge");
       setPendingKeypair(keypair);
       setPendingPin(pin);
       navigateToStep("biometric-setup", "forward");
@@ -103,6 +134,8 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
 
   const handleImportComplete = useCallback(
     (keypair: Keypair, pin: string) => {
+      authFlowRef.current?.setWalletAddress(keypair.publicKey.toBase58());
+      authFlowRef.current?.observe("challenge");
       setPendingKeypair(keypair);
       setPendingPin(pin);
       navigateToStep("biometric-setup", "forward");
@@ -113,11 +146,21 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const handleBiometricComplete = useCallback(async () => {
     if (!pendingKeypair || !pendingPin) return;
     setFinalizing(true);
-    if (flow === "create") {
-      await finalizeSigner(pendingKeypair, pendingPin);
-    } else {
-      // Import: keypair already stored, just unlock
-      await finalizeSigner(pendingKeypair, pendingPin, { alreadyStored: true });
+    try {
+      if (flow === "create") {
+        await finalizeSigner(pendingKeypair, pendingPin);
+      } else {
+        // Import: keypair already stored, just unlock
+        await finalizeSigner(pendingKeypair, pendingPin, {
+          alreadyStored: true,
+        });
+      }
+      authFlowRef.current?.complete("completion");
+    } catch (error) {
+      authFlowRef.current?.fail("completion", {
+        errorCode: mapLifecycleErrorCode(error),
+      });
+      throw error;
     }
   }, [flow, pendingKeypair, pendingPin, finalizeSigner]);
 
@@ -128,6 +171,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const connectSeedVault = useCallback(async () => {
     const granted = await SeedVault.requestPermission();
     if (!granted) {
+      authFlowRef.current?.fail("wallet_connect");
       setConnectWalletError(
         "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
       );
@@ -140,23 +184,33 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
         return existing[0];
       },
     );
+    authFlowRef.current?.setWalletAddress(account.publicKey);
+    authFlowRef.current?.observe("wallet_connect");
     setFinalizing(true);
     await finalizeVaultSigner(account);
+    authFlowRef.current?.complete("completion");
   }, [finalizeVaultSigner]);
 
   const connectMwa = useCallback(async () => {
     // Opens the MWA wallet chooser; the user picks the wallet app and
     // account there. Null means they cancelled or declined — no error.
     const account = await connectMwaWallet();
-    if (!account) return;
+    if (!account) {
+      authFlowRef.current?.cancel("wallet_connect");
+      return;
+    }
+    authFlowRef.current?.setWalletAddress(account.publicKey);
+    authFlowRef.current?.observe("wallet_connect");
     setFinalizing(true);
     await finalizeMwaSigner(account);
+    authFlowRef.current?.complete("completion");
   }, [finalizeMwaSigner]);
 
   const handleConnectWallet = useCallback(async () => {
     if (connectWalletPending) return;
     setConnectWalletError(null);
     setConnectWalletPending(true);
+    beginAuthFlow(connectMode === "seed-vault" ? "seed_vault" : "wallet_adapter");
     try {
       if (connectMode === "seed-vault") {
         await connectSeedVault();
@@ -164,13 +218,22 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
         await connectMwa();
       }
     } catch (e) {
+      authFlowRef.current?.fail("wallet_connect", {
+        errorCode: mapLifecycleErrorCode(e),
+      });
       const msg =
         e instanceof Error ? e.message : "Wallet connection failed";
       setConnectWalletError(msg);
     } finally {
       setConnectWalletPending(false);
     }
-  }, [connectWalletPending, connectMode, connectSeedVault, connectMwa]);
+  }, [
+    connectWalletPending,
+    connectMode,
+    connectSeedVault,
+    connectMwa,
+    beginAuthFlow,
+  ]);
 
   if (finalizing) {
     return (
@@ -216,10 +279,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
           void handleConnectWallet();
         }}
         onCreateWallet={() => {
+          beginAuthFlow("new_wallet");
           setFlow("create");
           navigateToStep("create", "forward");
         }}
         onImportWallet={() => {
+          beginAuthFlow("import_wallet");
           setFlow("import");
           navigateToStep("import", "forward");
         }}
@@ -230,6 +295,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
       <CreateWalletScreen
         onComplete={handleCreateComplete}
         onBack={() => {
+          authFlowRef.current?.cancel("intent");
           setFlow(null);
           navigateToStep("setup-onboarding", "backward");
         }}

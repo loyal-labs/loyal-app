@@ -550,9 +550,13 @@ async function runEarnAutodepositClose(
 // Trigger the pending scheduled Autodeposit sweep to run now instead of waiting
 // out its ~1h window. DB-only on the backend (it advances `eligibleAfter` so the
 // sweep worker picks it up); no on-chain signing beyond the auth signature.
+// Returns the still-open lifecycle flow: the request only advances the
+// sweep's eligibility (the worker runs it later), so "done" is when the
+// caller observes the worker's result tx — it completes the flow then, and
+// the flow's elapsedMs captures the true request→done duration.
 export async function executeEarnAutodepositScheduledSweep(args: {
   signer: Signer;
-}): Promise<void> {
+}): Promise<LifecycleFlow<"earn.autodeposit.execute_now">> {
   const flow = startLifecycleFlow({
     flowName: "earn.autodeposit.execute_now",
     flowVariant: "execute_now",
@@ -566,7 +570,7 @@ export async function executeEarnAutodepositScheduledSweep(args: {
     );
     await requestEarnAutodepositSweepExecute({ auth });
     flow.observe("request", { executeNowState: "requested" });
-    flow.complete("ui_commit");
+    return flow;
   } catch (error) {
     flow.fail("request", { errorCode: mapLifecycleErrorCode(error) });
     throw error;

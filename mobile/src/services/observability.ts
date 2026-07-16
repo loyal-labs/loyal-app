@@ -237,6 +237,11 @@ export function initObservability(): void {
 // from it is silently dropped, so keep the vocabularies below in sync.
 
 type LifecycleVariantMap = {
+  "auth.sign_in":
+    | "seed_vault"
+    | "wallet_adapter"
+    | "import_wallet"
+    | "new_wallet";
   "earn.deposit": "initial" | "top_up";
   "earn.withdrawal": "partial" | "full";
   "earn.autodeposit.configuration":
@@ -249,6 +254,12 @@ type LifecycleVariantMap = {
 };
 
 type LifecycleStageMap = {
+  "auth.sign_in":
+    | "intent"
+    | "wallet_connect"
+    | "challenge"
+    | "completion"
+    | "ui_commit";
   "earn.deposit":
     | "intent"
     | "prepare"
@@ -275,7 +286,11 @@ type LifecycleStageMap = {
     | "backend_confirm"
     | "bootstrap"
     | "ui_commit";
-  "earn.autodeposit.execute_now": "intent" | "request" | "ui_commit";
+  "earn.autodeposit.execute_now":
+    | "intent"
+    | "request"
+    | "state_observed"
+    | "ui_commit";
 };
 
 type LifecycleFlowName = keyof LifecycleVariantMap;
@@ -292,7 +307,7 @@ export type LifecycleDiagnostics = {
   chainState?: "not_submitted" | "submitted" | "confirmed" | "failed";
   cleanupRequired?: boolean;
   errorCode?: LifecycleErrorCode;
-  executeNowState?: "requested";
+  executeNowState?: "requested" | "completed";
   executionMode?: "batch" | "sequential" | "single";
   persistenceState?: "not_started" | "recorded" | "failed";
   policyMode?: "create" | "reuse";
@@ -300,6 +315,10 @@ export type LifecycleDiagnostics = {
 };
 
 export type LifecycleFlow<F extends LifecycleFlowName> = {
+  cancel: (
+    stage: LifecycleStageMap[F],
+    diagnostics?: LifecycleDiagnostics,
+  ) => void;
   complete: (
     stage: LifecycleStageMap[F],
     diagnostics?: LifecycleDiagnostics,
@@ -308,11 +327,14 @@ export type LifecycleFlow<F extends LifecycleFlowName> = {
     stage: LifecycleStageMap[F],
     diagnostics?: LifecycleDiagnostics,
   ) => void;
+  /** Sent as `x-loyal-flow-id` so server-side stages join the same flow. */
+  flowId: string;
   observe: (
     stage: LifecycleStageMap[F],
     diagnostics?: LifecycleDiagnostics,
   ) => void;
   setVariant: (variant: LifecycleVariantMap[F]) => void;
+  setWalletAddress: (walletAddress: string) => void;
   start: (
     stage: LifecycleStageMap[F],
     diagnostics?: LifecycleDiagnostics,
@@ -347,6 +369,10 @@ function generateFlowId(): string {
  * (complete/fail) latches the flow and later emissions become no-ops, so a
  * blanket `fail` in an outer catch never overwrites a more precise inner one.
  */
+// The ingest drops any envelope whose walletAddress isn't base58 — guard here
+// so one bad address never costs the whole event.
+const WALLET_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
 export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
   flowName: F;
   flowVariant: LifecycleVariantMap[F];
@@ -356,10 +382,14 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
   const startedAt = Date.now();
   let lastAt = startedAt;
   let variant: LifecycleVariantMap[F] = args.flowVariant;
+  let walletAddress =
+    args.walletAddress && WALLET_ADDRESS_PATTERN.test(args.walletAddress)
+      ? args.walletAddress
+      : undefined;
   let terminal = false;
 
   const emit = (
-    outcome: "started" | "observed" | "completed" | "failed",
+    outcome: "started" | "observed" | "completed" | "failed" | "cancelled",
     stage: LifecycleStageMap[F],
     diagnostics: LifecycleDiagnostics = {},
   ): void => {
@@ -381,10 +411,16 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
         source: "mobile_app",
         stage,
         timestamp: new Date(current).toISOString(),
-        ...(args.walletAddress ? { walletAddress: args.walletAddress } : {}),
+        ...(walletAddress ? { walletAddress } : {}),
       };
       lastAt = current;
-      if (outcome === "completed" || outcome === "failed") terminal = true;
+      if (
+        outcome === "completed" ||
+        outcome === "failed" ||
+        outcome === "cancelled"
+      ) {
+        terminal = true;
+      }
       void postJson("/api/observability/mobile/events", envelope);
     } catch {
       // Telemetry is best-effort and must never affect the flow it traces.
@@ -392,11 +428,18 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
   };
 
   return {
+    cancel: (stage, diagnostics) => emit("cancelled", stage, diagnostics),
     complete: (stage, diagnostics) => emit("completed", stage, diagnostics),
     fail: (stage, diagnostics) => emit("failed", stage, diagnostics),
+    flowId,
     observe: (stage, diagnostics) => emit("observed", stage, diagnostics),
     setVariant: (next) => {
       variant = next;
+    },
+    setWalletAddress: (next) => {
+      if (WALLET_ADDRESS_PATTERN.test(next)) {
+        walletAddress = next;
+      }
     },
     start: (stage, diagnostics) => emit("started", stage, diagnostics),
   };

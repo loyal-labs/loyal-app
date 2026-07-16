@@ -43,12 +43,17 @@ export type EarnDepositPrepareResponse = {
   preparedDeposit: WirePreparedEarnDeposit;
 };
 
-function earnHeaders(): Record<string, string> {
+function earnHeaders(flowId?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (env.vercelProtectionBypass) {
     headers["x-vercel-protection-bypass"] = env.vercelProtectionBypass;
+  }
+  // Joins server-side lifecycle stages (e.g. smart-account provisioning) to
+  // the device flow that triggered them (ASK-1804).
+  if (flowId) {
+    headers["x-loyal-flow-id"] = flowId;
   }
   return headers;
 }
@@ -105,6 +110,7 @@ export type EarnDepositPrepareContext = {
 export async function fetchEarnDepositPrepareContext(args: {
   auth: EarnAuthFields;
   amountRaw: string;
+  flowId?: string;
 }): Promise<EarnDepositPrepareContext | null> {
   let res: Response;
   try {
@@ -112,7 +118,7 @@ export async function fetchEarnDepositPrepareContext(args: {
       `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/deposit/prepare-context`,
       {
         method: "POST",
-        headers: earnHeaders(),
+        headers: earnHeaders(args.flowId),
         body: JSON.stringify({
           ...args.auth,
           amountRaw: args.amountRaw,
@@ -141,6 +147,7 @@ export async function prepareEarnDeposit(args: {
   auth: EarnAuthFields;
   amountRaw: string;
   sponsored?: boolean;
+  flowId?: string;
 }): Promise<EarnDepositPrepareResponse> {
   let res: Response;
   try {
@@ -148,7 +155,7 @@ export async function prepareEarnDeposit(args: {
       `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/deposit/prepare`,
       {
         method: "POST",
-        headers: earnHeaders(),
+        headers: earnHeaders(args.flowId),
         body: JSON.stringify({
           ...args.auth,
           amountRaw: args.amountRaw,

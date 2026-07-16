@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { Alert } from "react-native";
@@ -35,6 +36,7 @@ import {
 } from "@/lib/solana/earn/earn-scheduled-sweep";
 import { earnTransactionTimestampMs } from "@/lib/solana/earn/earn-tx-display";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
+import type { LifecycleFlow } from "@/services/observability";
 import type { Transaction } from "@/types/wallet";
 
 import {
@@ -294,6 +296,12 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   // `balance_sweep` tx lands; cleared on blur / wallet change / safety timeout.
   const [sweepMorph, setSweepMorph] = useState<SweepMorph | null>(null);
   const clearSweepMorph = useCallback(() => setSweepMorph(null), []);
+  // The execute-now lifecycle flow stays open until the worker's result tx is
+  // observed — completing it then makes elapsedMs the true request→done time.
+  // An abandoned morph (blur/timeout) simply leaves the flow unterminated.
+  const pendingSweepFlowRef = useRef<LifecycleFlow<
+    "earn.autodeposit.execute_now"
+  > | null>(null);
 
   // Trigger the pending sweep now. The endpoint only advances the sweep's
   // eligibility (the worker still runs it), so we refresh the autodeposit state
@@ -314,7 +322,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     );
     setIsExecutingSweep(true);
     try {
-      await executeEarnAutodepositScheduledSweep({ signer });
+      pendingSweepFlowRef.current = await executeEarnAutodepositScheduledSweep({
+        signer,
+      });
       if (sweeps.length > 0) {
         setSweepMorph({
           sweeps,
@@ -367,6 +377,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     );
     if (fresh) {
       setSweepMorph((m) => (m && !m.resultTx ? { ...m, resultTx: fresh } : m));
+      pendingSweepFlowRef.current?.complete("state_observed", {
+        executeNowState: "completed",
+      });
+      pendingSweepFlowRef.current = null;
       // The sweep landing is what completes quest 2, and the worker reports it
       // within seconds — check now, and once more in case the report is still
       // in flight (deliberately no cleanup: a late one-shot nudge is harmless,

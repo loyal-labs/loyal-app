@@ -216,6 +216,7 @@ async function runEarnDeposit(
       auth: prepareAuth,
       amountRaw,
       sponsored: true,
+      flowId: flow.flowId,
     });
     const preparedDeposit = prepared.preparedDeposit;
     if (!preparedDeposit.policySetupPrepared) {
@@ -303,10 +304,15 @@ async function runEarnDeposit(
   const context = await fetchEarnDepositPrepareContext({
     auth: prepareAuth,
     amountRaw,
+    flowId: flow.flowId,
   });
   if (!context) {
     // Backend predates `prepare-context` — legacy server-side prepare.
-    const prepared = await prepareEarnDeposit({ auth: prepareAuth, amountRaw });
+    const prepared = await prepareEarnDeposit({
+      auth: prepareAuth,
+      amountRaw,
+      flowId: flow.flowId,
+    });
     const stages = hydrateWireStages(prepared.preparedDeposit);
     if (!stages.policySetup) {
       flow.setVariant("top_up");
