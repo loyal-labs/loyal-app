@@ -6,10 +6,12 @@ FROM docker.io/clickhouse/clickstack-all-in-one:2.30.1@sha256:bd0bde1b1f2ca0702f
 RUN apk add --no-cache tini=0.19.0-r3 \
   && sed -i 's|^export EXPRESS_SESSION_SECRET=.*$|: "${EXPRESS_SESSION_SECRET:?EXPRESS_SESSION_SECRET is required}"\nexport EXPRESS_SESSION_SECRET|' /etc/local/entry.base.sh \
   && sed -i 's|^export CLICKHOUSE_LOG_LEVEL="error"$|export CLICKHOUSE_LOG_LEVEL="fatal"|' /etc/local/entry.base.sh \
+  && sed -i 's|<level from_env="CLICKHOUSE_LOG_LEVEL" />|<level>fatal</level>|' /etc/clickhouse-server/config.xml \
   && sed -i '/^echo "127\.0\.0\.1      ch-server" >> \/etc\/hosts$/d; /^echo "127\.0\.0\.1      db" >> \/etc\/hosts$/d' /etc/local/entry.base.sh \
   && sed -i 's|ch-server|127.0.0.1|g' /etc/local/entry.base.sh \
   && sed -i 's|mongodb://db:27017|mongodb://127.0.0.1:27017|' /etc/local/entry.base.sh \
   && grep -q '^export CLICKHOUSE_LOG_LEVEL="fatal"$' /etc/local/entry.base.sh \
+  && grep -q '<level>fatal</level>' /etc/clickhouse-server/config.xml \
   && ! grep -Eq '^export EXPRESS_SESSION_SECRET=.|ch-server|mongodb://db:' /etc/local/entry.base.sh
 
 COPY --chmod=755 scripts/entrypoint.sh /usr/local/bin/loyal-clickstack-entrypoint
