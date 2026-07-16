@@ -83,6 +83,13 @@ pass(
 );
 
 assert.deepEqual(parseBrowserLifecycleEnvelope(baseEvent(), NOW), baseEvent());
+assert.equal(
+  parseBrowserLifecycleEnvelope(
+    { ...baseEvent(), pathname: "/app?token=forbidden#wallet" },
+    NOW
+  ).pathname,
+  "/app"
+);
 for (const invalid of [
   { ...baseEvent(), flowId: "not-a-uuid" },
   { ...baseEvent(), flowId: "123e4567-e89b-12d3-a456-426614174000" },
@@ -91,7 +98,6 @@ for (const invalid of [
   { ...baseEvent(), stage: "unknown" },
   { ...baseEvent(), actorId: "actor:v1:forbidden" },
   { ...baseEvent(), arbitraryContext: { wallet: "forbidden" } },
-  { ...baseEvent(), pathname: "/app?token=forbidden" },
   { ...baseEvent(), durationMs: 900_001 },
   { ...baseEvent(), elapsedMs: 86_400_001 },
   { ...baseEvent(), timestamp: "2026-07-16T10:59:59.999Z" },
@@ -107,7 +113,7 @@ assert.doesNotThrow(() =>
   )
 );
 pass(
-  "trust-boundary parser rejects malformed UUIDs, unknown keys/combinations, query data, stale events, and numeric overflow"
+  "trust-boundary parser sanitizes pathnames and rejects malformed UUIDs, unknown keys/combinations, stale events, and numeric overflow"
 );
 
 const trackerEvents: BrowserLifecycleEnvelope[] = [];

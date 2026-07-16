@@ -1,3 +1,5 @@
+import { normalizeTelemetryPathname } from "./error-contract";
+
 export const OBSERVABILITY_LIFECYCLE_ENDPOINT = "/api/observability/events";
 
 export const MAX_LIFECYCLE_REQUEST_BYTES = 16 * 1024;
@@ -389,16 +391,11 @@ export function parseBrowserLifecycleEnvelope(
     throw new InvalidLifecycleEnvelopeError();
   }
 
-  const pathname = typeof record.pathname === "string" ? record.pathname : "";
-  if (
-    !pathname.startsWith("/") ||
-    pathname.startsWith("//") ||
-    pathname.includes("?") ||
-    pathname.includes("#") ||
-    pathname.includes("\\") ||
-    pathname.length > 256 ||
-    /[\u0000-\u001f\u007f]/.test(pathname)
-  ) {
+  const pathname =
+    typeof record.pathname === "string"
+      ? normalizeTelemetryPathname(record.pathname)
+      : null;
+  if (!pathname) {
     throw new InvalidLifecycleEnvelopeError();
   }
 
@@ -522,7 +519,7 @@ export function parseBrowserLifecycleEnvelope(
     }
   }
 
-  return record as BrowserLifecycleEnvelope;
+  return { ...record, pathname } as BrowserLifecycleEnvelope;
 }
 
 export type LifecycleTracker = {
