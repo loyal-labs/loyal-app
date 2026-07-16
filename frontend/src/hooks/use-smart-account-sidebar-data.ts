@@ -57,6 +57,7 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { captureBrowserError } from "@/features/observability/client";
 import {
   resolveSmartAccountRefreshError,
   resolveSmartAccountMutationRefreshPlan,
@@ -6147,6 +6148,7 @@ export function useSmartAccountSidebarData(
 
         if (shouldRecordDepositConfirmationAsync) {
           void recordDepositConfirmation().catch((error) => {
+            captureBrowserError(error, "earn.deposit.confirmation");
             console.warn(
               "[executeEarnDeposit] async backend confirmation failed",
               {
@@ -6171,6 +6173,7 @@ export function useSmartAccountSidebarData(
       } catch (err) {
         const error =
           err instanceof Error ? err.message : "Earn deposit failed.";
+        captureBrowserError(err, "earn.deposit.execute");
         console.error("[executeEarnDeposit] failed", err);
         return { success: false, error };
       } finally {

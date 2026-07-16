@@ -21,7 +21,7 @@ require_literal() {
   rg --fixed-strings --quiet -- "$literal" "$file" || fail "$file is missing: $literal"
 }
 
-for file in AUTH-REDIRECT-VERIFIER.md Dockerfile README.md VERIFIER.md render.yaml scripts/entrypoint.sh scripts/smoke-auth-redirect.sh scripts/smoke-live.sh scripts/smoke-local.sh; do
+for file in AUTH-REDIRECT-VERIFIER.md Dockerfile FRONTEND-ERRORS-VERIFIER.md README.md VERIFIER.md nginx.conf render.yaml scripts/entrypoint.sh scripts/smoke-auth-redirect.sh scripts/smoke-live.sh scripts/smoke-local.sh; do
   [[ -f "$project_dir/$file" ]] || fail "missing observability/$file"
 done
 pass "standalone observability module contains deployment, docs, and verifier files"
@@ -43,22 +43,84 @@ require_literal 'renderSubdomainPolicy: enabled' "$blueprint"
 require_literal 'USAGE_STATS_ENABLED' "$blueprint"
 require_literal 'CLICKSTACK_INTERNAL_SMOKE_ENABLED' "$blueprint"
 require_literal 'generateValue: true' "$blueprint"
+require_literal 'value: "8081"' "$blueprint"
+require_literal 'value: 127.0.0.1' "$blueprint"
+[[ "$(rg --count '^[[:space:]]+- type: (web|pserv|worker|cron|keyvalue)$' "$blueprint")" == "1" ]] \
+  || fail "observability Blueprint must retain exactly one service"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
 
 require_literal '2.30.1@sha256:bd0bde1b1f2ca0702fdafe269f3552e36b055d25e47692685b1a6018567a2d3c' "$project_dir/Dockerfile"
-require_literal 'HYPERDX_APP_LISTEN_HOSTNAME=0.0.0.0' "$project_dir/Dockerfile"
+require_literal 'nginx=1.30.3-r0' "$project_dir/Dockerfile"
+require_literal 'HYPERDX_APP_PORT=8081' "$project_dir/Dockerfile"
+require_literal 'HYPERDX_APP_LISTEN_HOSTNAME=127.0.0.1' "$project_dir/Dockerfile"
 require_literal 'USAGE_STATS_ENABLED=false' "$project_dir/Dockerfile"
+require_literal 'COPY nginx.conf /etc/nginx/nginx.conf' "$project_dir/Dockerfile"
+require_literal '!nginx.conf' "$project_dir/.dockerignore"
 require_literal '/var/lib/clickhouse/.clickstack' "$project_dir/scripts/entrypoint.sh"
 require_literal 'link_state_directory /data/db' "$project_dir/scripts/entrypoint.sh"
 require_literal '/var/log/clickhouse-server/clickhouse-server.err.log' "$project_dir/scripts/entrypoint.sh"
 require_literal 'tail -n 0 -F' "$project_dir/scripts/entrypoint.sh"
 require_literal 'RENDER_EXTERNAL_URL' "$project_dir/scripts/entrypoint.sh"
 require_literal 'export FRONTEND_URL=' "$project_dir/scripts/entrypoint.sh"
+require_literal 'export FRONTEND_URL="http://localhost:$PORT"' "$project_dir/scripts/entrypoint.sh"
+require_literal 'wait_for_collector_authentication' "$project_dir/scripts/entrypoint.sh"
+require_literal '401|403' "$project_dir/scripts/entrypoint.sh"
+require_literal 'nginx -t -c /etc/nginx/nginx.conf' "$project_dir/scripts/entrypoint.sh"
+require_literal "nginx -g 'daemon off;'" "$project_dir/scripts/entrypoint.sh"
 require_literal 'CLICKSTACK_SMOKE_RESULT' "$project_dir/scripts/smoke-live.sh"
+if rg --quiet 'loyal-clickstack-smoke-live[[:space:]]*&' "$project_dir/scripts/entrypoint.sh"; then
+  fail "Render security smoke must fail the container instead of running detached"
+fi
+
+require_literal 'listen 0.0.0.0:8080' "$project_dir/nginx.conf"
+require_literal 'proxy_pass http://127.0.0.1:8081' "$project_dir/nginx.conf"
+require_literal 'location = /v1/logs' "$project_dir/nginx.conf"
+require_literal 'proxy_pass http://127.0.0.1:4318/v1/logs' "$project_dir/nginx.conf"
+require_literal 'location ^~ /v1/' "$project_dir/nginx.conf"
+require_literal 'client_max_body_size 64k' "$project_dir/nginx.conf"
+require_literal 'proxy_connect_timeout 1s' "$project_dir/nginx.conf"
+require_literal 'proxy_send_timeout 5s' "$project_dir/nginx.conf"
+require_literal 'proxy_read_timeout 5s' "$project_dir/nginx.conf"
+require_literal 'proxy_hide_header Access-Control-Allow-Origin' "$project_dir/nginx.conf"
+require_literal '!-f /tmp/loyal-clickstack-collector-auth-ready' "$project_dir/nginx.conf"
+require_literal ': > "$collector_auth_ready_file"' "$project_dir/scripts/entrypoint.sh"
+[[ "$(rg --count 'client_max_body_size 64k' "$project_dir/nginx.conf")" == "1" ]] \
+  || fail "public proxy must define exactly one 64 KiB body limit"
+exact_log_line="$(rg -n --no-heading 'location = /v1/logs' "$project_dir/nginx.conf" | cut -d: -f1)"
+body_limit_line="$(rg -n --no-heading 'client_max_body_size 64k' "$project_dir/nginx.conf" | cut -d: -f1)"
+fallback_line="$(rg -n --no-heading 'location / \{' "$project_dir/nginx.conf" | cut -d: -f1)"
+if (( body_limit_line <= exact_log_line || body_limit_line >= fallback_line )); then
+  fail "64 KiB body limit must apply only to the exact log-ingestion location"
+fi
+nginx_log_format="$(awk '/log_format loyal/{capture=1} capture{print} capture && /;/{exit}' "$project_dir/nginx.conf")"
+if rg --quiet '\$request\b|\$args\b|\$http_referer|\$http_user_agent|\$http_authorization' <<<"$nginx_log_format"; then
+  fail "proxy access logs or config reference sensitive request metadata"
+fi
+if rg --quiet --ignore-case 'add_header[[:space:]]+Access-Control-Allow' "$project_dir/nginx.conf"; then
+  fail "public proxy must not add collector CORS response headers"
+fi
+if rg --quiet -- '--publish[^[:cntrl:]]*(4318|8123|9000|27017)' "$project_dir/scripts/smoke-local.sh"; then
+  fail "local smoke must not publish collector or database ports"
+fi
+pass "single public proxy exposes only the bounded authenticated log endpoint"
+
+sh -n "$project_dir/scripts/entrypoint.sh" "$project_dir/scripts/smoke-live.sh"
+bash -n "$project_dir/scripts/smoke-local.sh" "$project_dir/scripts/smoke-auth-redirect.sh"
+pass "observability shell scripts pass syntax checks"
+
 if rg --quiet --glob '!**/verify.sh' 'BEGIN [A-Z ]*PRIVATE KEY|op://|RENDER_API_KEY=' "$project_dir"; then
   fail "tracked observability files contain a forbidden credential or upstream public secret"
 fi
 pass "image is immutable and tracked files contain no obvious plaintext credential"
+
+[[ -f "$repo_root/frontend/scripts/verify-observability.ts" ]] \
+  || fail "missing focused frontend observability verifier"
+if rg --quiet 'NEXT_PUBLIC_[A-Z0-9_]*(INGESTION|OBSERVABILITY)[A-Z0-9_]*(KEY|TOKEN)' \
+  "$repo_root/frontend"; then
+  fail "frontend contains a browser-exposed observability credential name"
+fi
+bun "$repo_root/frontend/scripts/verify-observability.ts"
+pass "frontend error contract, privacy, failure, and wiring verifier passes"
 
 require_literal 'paths-ignore:' "$repo_root/.github/workflows/release-packages.yml"
 require_literal '- "observability/**"' "$repo_root/.github/workflows/release-packages.yml"
@@ -89,6 +151,7 @@ trap 'rm -rf "$tmp_repo"' EXIT
 git -C "$tmp_repo" init -q -b main
 git -C "$tmp_repo" config user.name verifier
 git -C "$tmp_repo" config user.email verifier@example.invalid
+git -C "$tmp_repo" config commit.gpgsign false
 mkdir -p "$tmp_repo"/{app,frontend,admin,dashboard,packages,sdk,observability}
 touch "$tmp_repo"/{app,frontend,admin,dashboard,packages,sdk}/.keep
 git -C "$tmp_repo" add .
@@ -124,7 +187,7 @@ pass "Render Blueprint validates"
 
 if [[ "${1:-}" == "--local" ]]; then
   "$script_dir/smoke-local.sh"
-  pass "local UI, OTLP ingestion, ClickHouse query, and volume-recreation smoke test"
+  pass "local UI, ingestion security, ClickHouse query, and volume-recreation smoke test"
   "$script_dir/smoke-auth-redirect.sh"
   pass "hosted authentication redirects, CORS, cookies, and local fallback smoke test"
 elif [[ -n "${1:-}" ]]; then

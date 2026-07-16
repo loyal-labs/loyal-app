@@ -174,7 +174,8 @@ local_status="$(curl -sS -o /dev/null -D "$tmp_dir/local-headers" -w '%{http_cod
   --data 'email=missing@example.invalid&password=not-the-password')"
 local_location="$(header_value Location "$tmp_dir/local-headers")"
 [ "$local_status" = "303" ] || fail "local failed login returned HTTP $local_status"
-[ "$local_location" = "http://localhost:8080/login?err=authFail" ] || fail "local fallback redirect changed"
+[ "$local_location" = "http://localhost:8080/login?err=authFail" ] \
+  || fail "local fallback redirect changed (got $local_location)"
 
 printf '{"status":"pass","success_redirect":"%s/","failure_redirect":"%s/login?err=authFail","cors_origin":"%s","secure_cookie":true,"local_fallback":true}\n' \
   "$external_origin" "$external_origin" "$external_origin"
