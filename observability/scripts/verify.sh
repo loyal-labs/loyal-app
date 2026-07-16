@@ -21,7 +21,7 @@ require_literal() {
   rg --fixed-strings --quiet -- "$literal" "$file" || fail "$file is missing: $literal"
 }
 
-for file in Dockerfile README.md VERIFIER.md render.yaml scripts/entrypoint.sh scripts/smoke-local.sh; do
+for file in Dockerfile README.md VERIFIER.md render.yaml scripts/entrypoint.sh scripts/smoke-live.sh scripts/smoke-local.sh; do
   [[ -f "$project_dir/$file" ]] || fail "missing observability/$file"
 done
 pass "standalone observability module contains deployment, docs, and verifier files"
@@ -41,6 +41,7 @@ require_literal 'mountPath: /var/lib/clickhouse' "$blueprint"
 require_literal 'healthCheckPath: /api/health' "$blueprint"
 require_literal 'renderSubdomainPolicy: enabled' "$blueprint"
 require_literal 'USAGE_STATS_ENABLED' "$blueprint"
+require_literal 'CLICKSTACK_INTERNAL_SMOKE_ENABLED' "$blueprint"
 require_literal 'generateValue: true' "$blueprint"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
 
@@ -51,6 +52,7 @@ require_literal '/var/lib/clickhouse/.clickstack' "$project_dir/scripts/entrypoi
 require_literal 'link_state_directory /data/db' "$project_dir/scripts/entrypoint.sh"
 require_literal '/var/log/clickhouse-server/clickhouse-server.err.log' "$project_dir/scripts/entrypoint.sh"
 require_literal 'tail -n 0 -F' "$project_dir/scripts/entrypoint.sh"
+require_literal 'CLICKSTACK_SMOKE_RESULT' "$project_dir/scripts/smoke-live.sh"
 if rg --quiet --glob '!**/verify.sh' 'BEGIN [A-Z ]*PRIVATE KEY|op://|RENDER_API_KEY=' "$project_dir"; then
   fail "tracked observability files contain a forbidden credential or upstream public secret"
 fi

@@ -13,6 +13,8 @@ extension clients.
 - One Pro instance in the dedicated `loyal-observability / test` environment.
 - Generated Render secrets for authenticated UI sessions and deterministic
   internal smoke ingestion. Secret values are never stored in this repository.
+- A gated in-container verifier that writes one unique OTLP marker on its first
+  boot, then queries the same marker without resending after later restarts.
 
 Render publishes only the web service port. ClickHouse (`8123`/`9000`), MongoDB
 (`27017`), and OTLP (`4317`/`4318`) are not public endpoints in this milestone.
@@ -64,6 +66,11 @@ Run only the static/isolation/Blueprint checks with:
    `https://<service>.onrender.com/api/health`.
 5. Run an internal OTLP marker/query from the Render shell, restart the service,
    and query the same marker again before accepting the deployment.
+
+The pilot Blueprint enables the in-container verifier so this proof does not
+depend on account-level SSH setup. Render logs emit a non-secret
+`CLICKSTACK_SMOKE_RESULT` JSON record with `stage=initial` on the first boot and
+`stage=persisted` after a restart.
 
 Render watches only `observability/**`. Existing Vercel projects already watch
 their own app/package paths, extension CI watches only its extension/package

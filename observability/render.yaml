@@ -34,6 +34,8 @@ projects:
                 value: 0.0.0.0
               - key: USAGE_STATS_ENABLED
                 value: "false"
+              - key: CLICKSTACK_INTERNAL_SMOKE_ENABLED
+                value: "true"
               - key: EXPRESS_SESSION_SECRET
                 generateValue: true
               - key: INGESTION_API_KEY

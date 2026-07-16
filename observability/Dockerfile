@@ -8,6 +8,7 @@ RUN apk add --no-cache tini=0.19.0-r3 \
   && ! grep -Eq '^export EXPRESS_SESSION_SECRET=.' /etc/local/entry.base.sh
 
 COPY --chmod=755 scripts/entrypoint.sh /usr/local/bin/loyal-clickstack-entrypoint
+COPY --chmod=755 scripts/smoke-live.sh /usr/local/bin/loyal-clickstack-smoke-live
 
 ENV PORT=8080 \
     HYPERDX_APP_PORT=8080 \

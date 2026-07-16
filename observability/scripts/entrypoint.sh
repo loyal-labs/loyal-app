@@ -49,14 +49,17 @@ link_state_directory /var/log/clickhouse-server "$clickhouse_log_state"
 # Upstream redirects each component away from stdout. Follow those files so
 # Render Logs contains ClickHouse, MongoDB, collector, and HyperDX output.
 component_logs="/var/log/clickhouse.log /var/log/clickhouse-server/clickhouse-server.log /var/log/clickhouse-server/clickhouse-server.err.log /var/log/mongod.log /var/log/otel-collector.log /var/log/app.log"
-touch $component_logs
 # Persistent database logs survive restarts. Follow only newly appended lines
 # so each Render deploy does not replay the entire historical log volume.
 tail -n 0 -F $component_logs &
 tail_pid=$!
+smoke_pid=""
 
 cleanup() {
   kill "$tail_pid" 2>/dev/null || true
+  if [ -n "$smoke_pid" ]; then
+    kill "$smoke_pid" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -64,6 +67,11 @@ trap cleanup EXIT
 # four services started by the upstream script, so databases can flush cleanly.
 bash /etc/local/entry.sh &
 stack_pid=$!
+
+if [ "${CLICKSTACK_INTERNAL_SMOKE_ENABLED:-false}" = "true" ]; then
+  /usr/local/bin/loyal-clickstack-smoke-live &
+  smoke_pid=$!
+fi
 
 set +e
 wait "$stack_pid"
