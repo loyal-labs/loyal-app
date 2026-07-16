@@ -26,6 +26,12 @@ import {
   type EarnFlowPoint,
   type EarnPositionRow,
 } from "./earn-data";
+import { CopyAddressButton } from "./copy-address-button";
+import {
+  getEarnFundingData,
+  type EarnFundingData,
+  type EarnFundingWallet,
+} from "./earn-funding-data";
 
 export const dynamic = "force-dynamic";
 
@@ -205,6 +211,204 @@ function StatCard({
   );
 }
 
+function formatSolLamports(lamports: string | null) {
+  if (!lamports) {
+    return "Unknown";
+  }
+
+  const raw = BigInt(lamports);
+  const whole = raw / BigInt(1_000_000_000);
+  const fraction = (raw % BigInt(1_000_000_000))
+    .toString()
+    .padStart(9, "0")
+    .replace(/0+$/, "");
+
+  return `${whole.toString()}.${fraction || "0"} SOL`;
+}
+
+function formatRunway(runwayHours: number | null) {
+  if (runwayHours === null) {
+    return "No spend data";
+  }
+
+  if (runwayHours < 48) {
+    return `${runwayHours.toFixed(1)}h runway`;
+  }
+
+  return `${(runwayHours / 24).toFixed(1)}d runway`;
+}
+
+function statusVariant(status: EarnFundingWallet["status"]) {
+  switch (status) {
+    case "critical":
+      return "destructive" as const;
+    case "low":
+      return "secondary" as const;
+    case "healthy":
+      return "outline" as const;
+    case "unknown":
+    default:
+      return "outline" as const;
+  }
+}
+
+function getWalletTitle(wallet: EarnFundingWallet) {
+  if (wallet.roles.length === 1) {
+    return wallet.roles[0].label;
+  }
+
+  return "Policy + deployment wallet";
+}
+
+function OperationalWalletCard({ wallet }: { wallet: EarnFundingWallet }) {
+  return (
+    <Card className="h-full">
+      <CardHeader className="gap-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <CardTitle className="text-base font-bold leading-tight">
+              {getWalletTitle(wallet)}
+            </CardTitle>
+            <CardDescription className="mt-1 text-xs">
+              Mainnet wallet
+            </CardDescription>
+          </div>
+          <Badge
+            className="shrink-0 whitespace-nowrap"
+            variant={statusVariant(wallet.status)}
+          >
+            {wallet.status}
+          </Badge>
+        </div>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <AddressLink
+            address={wallet.address}
+            aria-label={`Open ${wallet.address} on Solscan`}
+            className="min-w-0 truncate text-xs"
+            edgeLength={8}
+            solanaEnv="mainnet"
+            title={wallet.address}
+          />
+          <CopyAddressButton address={wallet.address} />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <div className="text-xs text-muted-foreground">
+            Current SOL balance
+          </div>
+          <div className="mt-1 text-xl font-semibold tabular-nums">
+            {formatSolLamports(wallet.balanceLamports)}
+          </div>
+          <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+            {wallet.balanceLamports
+              ? `${wallet.balanceLamports} lamports`
+              : "Exact lamports unavailable"}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {wallet.statusDetail}
+          </div>
+          {wallet.minimumLamports ? (
+            <div className="mt-1 text-xs text-muted-foreground">
+              Safety floor: {formatSolLamports(wallet.minimumLamports)}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0">
+            <div className="text-[11px] text-muted-foreground">24h spend</div>
+            <div className="mt-1 break-words text-sm font-medium tabular-nums">
+              {formatSolLamports(wallet.spend24hLamports)}
+            </div>
+          </div>
+          <div className="min-w-0">
+            <div className="text-[11px] text-muted-foreground">7d runway</div>
+            <div className="mt-1 break-words text-sm font-medium tabular-nums">
+              {formatRunway(wallet.runwayHours)}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {wallet.roles.map((role) => (
+            <Badge className="text-[11px]" key={role.key} variant="outline">
+              {role.label}
+            </Badge>
+          ))}
+          {wallet.mismatch ? (
+            <Badge variant="secondary">Configuration mismatch</Badge>
+          ) : null}
+        </div>
+
+        {wallet.mismatch ? (
+          <p className="break-all text-xs text-muted-foreground">
+            Configured: {wallet.configuredAddresses.join(", ") || "none"}
+            <br />
+            Observed: {wallet.observedAddresses.join(", ") || "none"}
+            <br />
+            Verify this rotation before funding.
+          </p>
+        ) : null}
+
+        <p className="text-[11px] text-muted-foreground">
+          {wallet.balanceObservedAt
+            ? `${
+                wallet.balanceError ? `${wallet.balanceError}. ` : ""
+              }Observed ${new Intl.DateTimeFormat("en-US", {
+                dateStyle: "short",
+                timeStyle: "short",
+                timeZone: "UTC",
+              }).format(new Date(wallet.balanceObservedAt))} UTC${
+                wallet.balanceSlot
+                  ? ` at slot ${wallet.balanceSlot.toLocaleString("en-US")}`
+                  : ""
+              }.`
+            : wallet.balanceError ?? "Balance observation unavailable."}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function OperationalWallets({ data }: { data: EarnFundingData }) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <h2 className="text-lg font-bold">Operational wallets</h2>
+        <p className="text-sm text-muted-foreground">
+          Public funding identities and confirmed mainnet SOL balances for
+          sponsorship, policy execution, and gasless deployment
+        </p>
+      </div>
+      {data.sourceErrors.length > 0 ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {data.sourceErrors.join(" ")}
+        </div>
+      ) : null}
+
+      {data.wallets.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {data.wallets.map((wallet) => (
+            <OperationalWalletCard key={wallet.address} wallet={wallet} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border px-3 py-4 text-sm text-muted-foreground">
+          No operational wallet addresses were configured or observed.
+        </div>
+      )}
+
+      {data.missingRoles.length > 0 ? (
+        <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+          Missing roles:{" "}
+          {data.missingRoles.map((role) => role.label).join(", ")}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function getTopPositionWarningCount(
   position: Awaited<ReturnType<typeof getEarnData>>["topPositions"][number]
 ) {
@@ -290,7 +494,10 @@ export default async function EarnPage({
 }: {
   searchParams?: Promise<EarnPageSearchParams>;
 }) {
-  const data = await getEarnData();
+  const [data, fundingData] = await Promise.all([
+    getEarnData(),
+    getEarnFundingData(),
+  ]);
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const positionSort = parsePositionSort(resolvedSearchParams);
   const sortedTopPositions = sortTopPositions(data.topPositions, positionSort);
@@ -331,6 +538,8 @@ export default async function EarnPage({
             title={formatNumber(data.activeAutodepositPolicies)}
           />
         </div>
+
+        <OperationalWallets data={fundingData} />
 
         <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
           <Card>
