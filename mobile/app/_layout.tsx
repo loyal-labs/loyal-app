@@ -3,6 +3,7 @@ import "@/global.css";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
 import { DatadogInit } from "@/components/DatadogInit";
+import { ObservabilityInit } from "@/components/ObservabilityInit";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
 import { SplashAnimation } from "@/components/SplashAnimation";
@@ -96,6 +97,7 @@ export default function RootLayout() {
         <WalletProvider>
           <SignApprovalProvider>
             <DatadogInit />
+            <ObservabilityInit />
             <PushTokenRegistrar />
             <StatusBar style="auto" />
             <WalletAuthGate />
