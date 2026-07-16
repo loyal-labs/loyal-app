@@ -23,7 +23,7 @@ The app now uses three separate database surfaces. Do not treat them as intercha
 | ------------------------------------ | ------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | App Neon database                    | App and admin runtimes         | `src/lib/core/database.ts`; shared table definitions in `../packages/db-core/src/schema.ts` | Product data: users, Telegram communities, messages, summaries, encrypted bot threads/messages, wallet auth, app smart-account records, sponsorship analytics, admin-readable app state   |
 | Yield Neon database (`loyal_yield`)  | Yield optimization server code | `../frontend/src/lib/yield-optimization/yield-neon-client.server.ts`                        | Yield control-plane data: route policies, managed vaults, vault/reserve snapshots, rebalance decisions, confirmed user yield positions, immutable confirmed deposit and withdrawal events |
-| Kamino Timescale database (`kamino`) | Kamino market-data readers     | `../frontend/src/lib/kamino/timescale-reserve-client.server.ts`                             | Read-only reserve telemetry: Kamino reserve updates and latest reserve rows used for earn forecasts and safe/no-fee target selection                                                      |
+| Kamino Timescale database (`kamino`) | Kamino market-data readers     | `../frontend/src/lib/kamino/timescale-reserve-client.server.ts`                             | Reserve telemetry: worker-owned Kamino reserve updates plus curated APY backfill rows used for earn forecasts and safe/no-fee target selection; application reads remain read-only |
 
 ### App Neon
 
@@ -43,7 +43,7 @@ The Loyal web Earn UI reads active position state through `GET /api/smart-accoun
 
 ### Kamino Timescale
 
-Use Kamino Timescale as a read-only market-data source. It answers questions such as "which safe/no-fee reserve currently has the best APY?" or "what APY range should the UI forecast?" It must not store app users, smart-account settings, policies, vaults, or deposit confirmations.
+Use Kamino Timescale as a read-only market-data source from application code. It answers questions such as "which safe/no-fee reserve currently has the best APY?" or "what APY range should the UI forecast?" APY history reads combine the worker-owned `kamino.reserve_updates` stream with reserve-only `kamino.reserve_apy_backfill` rows so earnings coverage can include reserves the indexer did not sample. The repository's operational `scripts/backfill-reserve-apy-from-kamino-api.ts` script can create and upsert those sidecar rows when run with `TIMESCALEDB_URL` and `--execute`; without that flag it performs a dry run. This operational backfill does not make Timescale an application write surface. It must not store app users, smart-account settings, policies, vaults, or deposit confirmations.
 
 ### Cross-Database Rules
 
