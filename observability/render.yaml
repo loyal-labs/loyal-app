@@ -1,0 +1,43 @@
+previews:
+  generation: off
+
+projects:
+  - name: loyal-observability
+    environments:
+      - name: test
+        services:
+          - type: web
+            name: loyal-clickstack
+            runtime: docker
+            repo: https://github.com/loyal-labs/loyal-app.git
+            branch: main
+            region: oregon
+            plan: pro
+            numInstances: 1
+            rootDir: observability
+            dockerfilePath: ./observability/Dockerfile
+            dockerContext: ./observability
+            autoDeployTrigger: checksPass
+            buildFilter:
+              paths:
+                - observability/**
+              ignoredPaths: []
+            healthCheckPath: /api/health
+            renderSubdomainPolicy: enabled
+            envVars:
+              - key: PORT
+                value: "8080"
+              - key: HYPERDX_APP_PORT
+                value: "8080"
+              - key: HYPERDX_APP_LISTEN_HOSTNAME
+                value: 0.0.0.0
+              - key: USAGE_STATS_ENABLED
+                value: "false"
+              - key: EXPRESS_SESSION_SECRET
+                generateValue: true
+              - key: INGESTION_API_KEY
+                generateValue: true
+            disk:
+              name: clickstack-data
+              mountPath: /var/lib/clickhouse
+              sizeGB: 10
