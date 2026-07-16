@@ -38,7 +38,16 @@ export const LIFECYCLE_SOURCES = [
 export type LifecycleSource = (typeof LIFECYCLE_SOURCES)[number];
 
 export const LIFECYCLE_VARIANTS = {
-  "auth.sign_in": ["interactive", "auto_reauth"],
+  // seed_vault/wallet_adapter/import_wallet/new_wallet are the mobile app's
+  // wallet-onboarding modes (Seed Vault, MWA, seed import, fresh keypair).
+  "auth.sign_in": [
+    "interactive",
+    "auto_reauth",
+    "seed_vault",
+    "wallet_adapter",
+    "import_wallet",
+    "new_wallet",
+  ],
   "auth.smart_account_provisioning": ["wallet_onboarding"],
   "earn.deposit": ["initial", "resumed", "top_up"],
   "earn.withdrawal": ["partial", "full"],

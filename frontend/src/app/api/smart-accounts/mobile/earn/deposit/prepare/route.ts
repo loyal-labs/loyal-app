@@ -13,7 +13,7 @@ import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import {
-  ensureWalletUserSmartAccount,
+  ensureWalletUserSmartAccountTraced,
   findReadyCurrentUserSmartAccount,
   isSmartAccountProvisioningError,
 } from "@/features/smart-accounts/server/service";
@@ -171,9 +171,10 @@ export async function POST(request: Request) {
           "Wallet must hold the USDC it is depositing before its Earn account can be created."
         );
       }
-      const ensured = await ensureWalletUserSmartAccount({
+      const ensured = await ensureWalletUserSmartAccountTraced({
         userId: user.id,
         walletAddress,
+        request,
       });
       settingsPda = ensured.smartAccount.settingsPda;
       smartAccountAddress = ensured.smartAccount.smartAccountAddress;
