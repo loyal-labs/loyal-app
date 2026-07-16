@@ -50,7 +50,9 @@ link_state_directory /var/log/clickhouse-server "$clickhouse_log_state"
 # Render Logs contains ClickHouse, MongoDB, collector, and HyperDX output.
 component_logs="/var/log/clickhouse.log /var/log/clickhouse-server/clickhouse-server.log /var/log/clickhouse-server/clickhouse-server.err.log /var/log/mongod.log /var/log/otel-collector.log /var/log/app.log"
 touch $component_logs
-tail -n +1 -f $component_logs &
+# Persistent database logs survive restarts. Follow only newly appended lines
+# so each Render deploy does not replay the entire historical log volume.
+tail -n 0 -F $component_logs &
 tail_pid=$!
 
 cleanup() {

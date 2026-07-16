@@ -50,6 +50,7 @@ require_literal 'USAGE_STATS_ENABLED=false' "$project_dir/Dockerfile"
 require_literal '/var/lib/clickhouse/.clickstack' "$project_dir/scripts/entrypoint.sh"
 require_literal 'link_state_directory /data/db' "$project_dir/scripts/entrypoint.sh"
 require_literal '/var/log/clickhouse-server/clickhouse-server.err.log' "$project_dir/scripts/entrypoint.sh"
+require_literal 'tail -n 0 -F' "$project_dir/scripts/entrypoint.sh"
 if rg --quiet --glob '!**/verify.sh' 'BEGIN [A-Z ]*PRIVATE KEY|op://|RENDER_API_KEY=' "$project_dir"; then
   fail "tracked observability files contain a forbidden credential or upstream public secret"
 fi
