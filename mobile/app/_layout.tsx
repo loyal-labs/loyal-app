@@ -16,6 +16,7 @@ import {
   // addNotificationResponseListener, // Summaries — kept for reinstatement
   setupNotificationHandler,
 } from "@/services/notifications";
+import { initOneSignal } from "@/services/onesignal";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -48,6 +49,7 @@ export default function RootLayout() {
   // registration happens inside <PushTokenRegistrar /> below.
   useEffect(() => {
     void setupNotificationHandler();
+    void initOneSignal();
   }, []);
 
   // Initialize Mixpanel as early as possible so identify/track from wallet

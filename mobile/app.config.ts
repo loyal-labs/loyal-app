@@ -43,6 +43,12 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: false,
     bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
+    infoPlist: {
+      UIBackgroundModes: ["remote-notification"],
+    },
+    entitlements: {
+      "aps-environment": IS_DEV ? "development" : "production",
+    },
   },
   android: {
     adaptiveIcon: {
@@ -70,6 +76,14 @@ const config: ExpoConfig = {
     favicon: "./assets/images/favicon.png",
   },
   plugins: [
+    // Must stay first in this array — later plugins otherwise break the
+    // generated iOS Notification Service Extension ("OneSignal.h not found").
+    [
+      "onesignal-expo-plugin",
+      {
+        mode: IS_DEV ? "development" : "production",
+      },
+    ],
     "expo-router",
     "expo-local-authentication",
     [

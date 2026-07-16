@@ -39,6 +39,10 @@ const TELEGRAM_USER_ID = "2131567542";
 
 const MIXPANEL_TOKEN = process.env.EXPO_PUBLIC_MIXPANEL_TOKEN ?? "";
 
+// OneSignal App ID (dashboard > Settings > Keys & IDs). No fallback on
+// purpose — OneSignal init is skipped entirely when unset.
+const ONESIGNAL_APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? "";
+
 export const env = {
   apiBaseUrl: API_BASE_URL,
   earnApiBaseUrl: EARN_API_BASE_URL,
@@ -49,4 +53,5 @@ export const env = {
   solanaRpcEndpoint: getSolanaEndpoints(SOLANA_ENV).rpcEndpoint,
   telegramUserId: TELEGRAM_USER_ID,
   mixpanelToken: MIXPANEL_TOKEN,
+  oneSignalAppId: ONESIGNAL_APP_ID,
 } as const;
