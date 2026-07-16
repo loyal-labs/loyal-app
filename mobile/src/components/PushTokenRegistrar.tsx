@@ -5,6 +5,7 @@ import {
   registerForPushNotifications,
   registerPushToken,
 } from "@/services/notifications";
+import { loginOneSignal } from "@/services/onesignal";
 
 /**
  * Re-registers the Expo push token whenever the wallet public key changes.
@@ -20,6 +21,10 @@ export function PushTokenRegistrar(): null {
     if (lastRegisteredPublicKey.current === publicKey) return;
 
     lastRegisteredPublicKey.current = publicKey;
+    // Map the OneSignal subscription to the wallet (external ID) so pushes
+    // can target it. Independent of the Expo token below — a permission or
+    // token failure there must not lose the identity mapping.
+    void loginOneSignal(publicKey);
     void (async () => {
       const token = await registerForPushNotifications();
       if (!token) {
