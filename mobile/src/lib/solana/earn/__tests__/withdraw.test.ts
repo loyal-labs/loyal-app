@@ -44,6 +44,19 @@ jest.mock("@/lib/solana/rpc/connection", () => ({
   getConnection: () => ({ rpc: true }),
 }));
 
+// Kept inert: the real module pulls expo-updates, and lifecycle telemetry is
+// fire-and-forget by contract.
+jest.mock("@/services/observability", () => ({
+  mapLifecycleErrorCode: () => "unexpected_error",
+  startLifecycleFlow: () => ({
+    complete: () => {},
+    fail: () => {},
+    observe: () => {},
+    setVariant: () => {},
+    start: () => {},
+  }),
+}));
+
 jest.mock("../autodeposit", () => ({
   executeEarnAutodepositClose: jest.fn(),
 }));

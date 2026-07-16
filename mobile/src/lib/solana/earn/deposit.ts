@@ -7,6 +7,11 @@ import { track } from "@/lib/analytics/analytics";
 import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
+import {
+  type LifecycleFlow,
+  mapLifecycleErrorCode,
+  startLifecycleFlow,
+} from "@/services/observability";
 
 import {
   confirmEarnDeposit,
@@ -62,6 +67,7 @@ async function signSendAndConfirmDeposit(args: {
   // Echoed to `deposit/confirm` verbatim — the server-prepared wire object or
   // the device-prepared serialization (identical shapes).
   wirePreparedDeposit: WirePreparedEarnDeposit;
+  flow: LifecycleFlow<"earn.deposit">;
 }): Promise<EarnDepositResult> {
   const connection = getConnection();
   const operations = [
@@ -73,6 +79,15 @@ async function signSendAndConfirmDeposit(args: {
     connection,
     signer: args.signer,
     operations,
+  }).catch((error) => {
+    args.flow.fail("wallet_submit_confirm", {
+      errorCode: mapLifecycleErrorCode(error),
+    });
+    throw error;
+  });
+  args.flow.observe("wallet_submit_confirm", {
+    chainState: "confirmed",
+    executionMode: operations.length > 1 ? "batch" : "single",
   });
   let cursor = 0;
   const policy = args.stages.policySetup ? sent[cursor++] : undefined;
@@ -85,6 +100,7 @@ async function signSendAndConfirmDeposit(args: {
   // network drops on this call remain). Each attempt is idempotent
   // server-side.
   const CONFIRM_ATTEMPTS = 3;
+  let confirmRecorded = false;
   for (let attempt = 1; attempt <= CONFIRM_ATTEMPTS; attempt += 1) {
     try {
       await withEarnAuth(
@@ -103,6 +119,7 @@ async function signSendAndConfirmDeposit(args: {
             setupPolicyConfirmedSlot: setupPolicy?.confirmedSlot,
           }),
       );
+      confirmRecorded = true;
       break;
     } catch (error) {
       if (attempt === CONFIRM_ATTEMPTS) {
@@ -115,10 +132,21 @@ async function signSendAndConfirmDeposit(args: {
       await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
     }
   }
+  args.flow.observe("backend_confirm", {
+    chainState: "confirmed",
+    ...(confirmRecorded
+      ? { persistenceState: "recorded" as const }
+      : {
+          errorCode: "backend_confirmation_failed" as const,
+          persistenceState: "failed" as const,
+          recoveryRequired: true,
+        }),
+  });
 
   // Tracked here (not in the sheets) so every deposit entry point counts once.
   track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
 
+  args.flow.complete("ui_commit");
   return { depositSignature: deposit.signature };
 }
 
@@ -151,6 +179,28 @@ export async function executeEarnDeposit(args: {
   signer: Signer;
   amountUsd: number;
 }): Promise<EarnDepositResult> {
+  const flow = startLifecycleFlow({
+    flowName: "earn.deposit",
+    flowVariant: "initial",
+    walletAddress: args.signer.publicKey.toBase58(),
+  });
+  flow.start("prepare");
+  try {
+    return await runEarnDeposit(args, flow);
+  } catch (error) {
+    // Latched to a no-op when an inner stage already failed the flow.
+    flow.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    throw error;
+  }
+}
+
+async function runEarnDeposit(
+  args: {
+    signer: Signer;
+    amountUsd: number;
+  },
+  flow: LifecycleFlow<"earn.deposit">,
+): Promise<EarnDepositResult> {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
   const walletAddress = args.signer.publicKey;
   const prepareAuth = await signEarnAuth(args.signer, "earn-deposit-prepare");
@@ -168,6 +218,12 @@ export async function executeEarnDeposit(args: {
       sponsored: true,
     });
     const preparedDeposit = prepared.preparedDeposit;
+    if (!preparedDeposit.policySetupPrepared) {
+      flow.setVariant("top_up");
+    }
+    flow.observe("prepare", {
+      policyMode: preparedDeposit.policySetupPrepared ? "create" : "reuse",
+    });
     // Which sponsor the backend derived from EARN_POLICY_SPONSOR_PK (null =
     // sponsor not configured → self-paid fallback). Kept as a plain log: the
     // fee payer of every sponsored tx, essential when debugging sponsor
@@ -190,6 +246,15 @@ export async function executeEarnDeposit(args: {
         ]
           .filter((stage) => stage != null)
           .map(hydratePreparedOperation),
+      }).catch((error) => {
+        flow.fail("wallet_submit_confirm", {
+          errorCode: mapLifecycleErrorCode(error),
+        });
+        throw error;
+      });
+      flow.observe("wallet_submit_confirm", {
+        chainState: "submitted",
+        executionMode: signed.length > 1 ? "batch" : "single",
       });
       let cursor = 0;
       const policyTransaction = preparedDeposit.policySetupPrepared
@@ -211,8 +276,18 @@ export async function executeEarnDeposit(args: {
             policyTransaction,
             setupPolicyTransaction,
           }),
-      );
+      ).catch((error) => {
+        flow.fail("backend_confirm", {
+          errorCode: mapLifecycleErrorCode(error),
+        });
+        throw error;
+      });
+      flow.observe("backend_confirm", {
+        chainState: "confirmed",
+        persistenceState: "recorded",
+      });
       track(EARN_EVENTS.earnDeposit, { amount_usd: args.amountUsd });
+      flow.complete("ui_commit");
       return { depositSignature: confirmations.deposit.signature };
     }
     return signSendAndConfirmDeposit({
@@ -221,6 +296,7 @@ export async function executeEarnDeposit(args: {
       amountUsd: args.amountUsd,
       stages: hydrateWireStages(preparedDeposit),
       wirePreparedDeposit: preparedDeposit,
+      flow,
     });
   }
 
@@ -231,15 +307,26 @@ export async function executeEarnDeposit(args: {
   if (!context) {
     // Backend predates `prepare-context` — legacy server-side prepare.
     const prepared = await prepareEarnDeposit({ auth: prepareAuth, amountRaw });
+    const stages = hydrateWireStages(prepared.preparedDeposit);
+    if (!stages.policySetup) {
+      flow.setVariant("top_up");
+    }
+    flow.observe("prepare", {
+      policyMode: stages.policySetup ? "create" : "reuse",
+    });
     return signSendAndConfirmDeposit({
       signer: args.signer,
       prepareAuth,
       amountUsd: args.amountUsd,
-      stages: hydrateWireStages(prepared.preparedDeposit),
+      stages,
       wirePreparedDeposit: prepared.preparedDeposit,
+      flow,
     });
   }
 
+  if (context.yieldRoutingPolicy) {
+    flow.setVariant("top_up");
+  }
   const client = createSmartAccountVaultsClient({
     connection: getConnection(),
     programId: new PublicKey(context.programId),
@@ -284,6 +371,9 @@ export async function executeEarnDeposit(args: {
         }
       : {}),
   });
+  flow.observe("prepare", {
+    policyMode: context.yieldRoutingPolicy ? "reuse" : "create",
+  });
   return signSendAndConfirmDeposit({
     signer: args.signer,
     prepareAuth,
@@ -294,5 +384,6 @@ export async function executeEarnDeposit(args: {
       deposit: preparedDeposit.prepared,
     },
     wirePreparedDeposit: serializePreparedEarnUsdcDeposit(preparedDeposit),
+    flow,
   });
 }

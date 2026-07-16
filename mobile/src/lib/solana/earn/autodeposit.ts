@@ -6,6 +6,11 @@ import { track } from "@/lib/analytics/analytics";
 import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
+import {
+  type LifecycleFlow,
+  mapLifecycleErrorCode,
+  startLifecycleFlow,
+} from "@/services/observability";
 
 import {
   confirmEarnAutodepositClose,
@@ -123,6 +128,38 @@ export async function executeEarnAutodepositSetup(args: {
   signer: Signer;
   thresholdUsd: number;
 }): Promise<void> {
+  const flow = startLifecycleFlow({
+    flowName: "earn.autodeposit.configuration",
+    flowVariant: "setup",
+    walletAddress: args.signer.publicKey.toBase58(),
+  });
+  flow.start("prepare");
+  try {
+    await runEarnAutodepositSetup(args, flow);
+  } catch (error) {
+    // Latched to a no-op when an inner stage already failed the flow.
+    flow.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    throw error;
+  }
+}
+
+// The SDK's chain-driven stage names, mapped onto the lifecycle contract's
+// configuration-flow stages (`initialize_subscription_authority` is the
+// one-time authority bootstrap; the approval repair recreates the delegate).
+const SETUP_STAGE_TO_LIFECYCLE = {
+  approve_token_delegate: "create_recurring_delegation",
+  create_policy: "create_policy",
+  create_recurring_delegation: "create_recurring_delegation",
+  initialize_subscription_authority: "bootstrap",
+} as const;
+
+async function runEarnAutodepositSetup(
+  args: {
+    signer: Signer;
+    thresholdUsd: number;
+  },
+  flow: LifecycleFlow<"earn.autodeposit.configuration">,
+): Promise<void> {
   const walletBalanceFloorRaw = thresholdUsdToRaw(args.thresholdUsd);
   const walletAddress = args.signer.publicKey;
   const connection = getConnection();
@@ -195,6 +232,7 @@ export async function executeEarnAutodepositSetup(args: {
     if (stages.length === 0) {
       throw new Error("Failed to prepare Autodeposit setup.");
     }
+    flow.observe("prepare");
 
     // The SDK reports the exact rent the stage accounts need. If the wallet
     // can't cover it, fail with the amount to top up instead of letting the
@@ -228,6 +266,15 @@ export async function executeEarnAutodepositSetup(args: {
       signer: args.signer,
       operations: stages.map((stage) => stage.prepared),
       sendMode: "send-all-before-confirm",
+    }).catch((error) => {
+      flow.fail("wallet_approval", {
+        errorCode: mapLifecycleErrorCode(error),
+      });
+      throw error;
+    });
+    flow.observe("wallet_approval", {
+      chainState: "confirmed",
+      executionMode: stages.length > 1 ? "batch" : "single",
     });
 
     for (let i = 0; i < stages.length; i++) {
@@ -246,6 +293,16 @@ export async function executeEarnAutodepositSetup(args: {
               walletBalanceFloorRaw,
             }),
         ),
+      ).catch((error) => {
+        flow.fail("backend_confirm", {
+          errorCode: mapLifecycleErrorCode(error),
+        });
+        throw error;
+      });
+      flow.observe(
+        SETUP_STAGE_TO_LIFECYCLE[
+          stage.stage as keyof typeof SETUP_STAGE_TO_LIFECYCLE
+        ] ?? "backend_confirm",
       );
 
       // Thread the (generated) policy seed into the next round so every stage
@@ -271,6 +328,7 @@ export async function executeEarnAutodepositSetup(args: {
         source: "setup",
         threshold_usd: args.thresholdUsd,
       });
+      flow.complete("ui_commit");
       return;
     }
   }
@@ -287,17 +345,29 @@ export async function updateEarnAutodepositThreshold(args: {
   recurringDelegation: string;
   vaultIndex: number;
 }): Promise<void> {
-  const auth = await signEarnAuth(
-    args.signer,
-    "earn-autodeposit-floor-confirm",
-  );
-  await updateEarnAutodepositFloor({
-    auth,
-    policyAccount: args.policyAccount,
-    recurringDelegation: args.recurringDelegation,
-    vaultIndex: args.vaultIndex,
-    walletBalanceFloorRaw: thresholdUsdToRaw(args.thresholdUsd),
+  const flow = startLifecycleFlow({
+    flowName: "earn.autodeposit.configuration",
+    flowVariant: "floor_update",
+    walletAddress: args.signer.publicKey.toBase58(),
   });
+  flow.start("intent");
+  try {
+    const auth = await signEarnAuth(
+      args.signer,
+      "earn-autodeposit-floor-confirm",
+    );
+    await updateEarnAutodepositFloor({
+      auth,
+      policyAccount: args.policyAccount,
+      recurringDelegation: args.recurringDelegation,
+      vaultIndex: args.vaultIndex,
+      walletBalanceFloorRaw: thresholdUsdToRaw(args.thresholdUsd),
+    });
+    flow.complete("backend_confirm");
+  } catch (error) {
+    flow.fail("backend_confirm", { errorCode: mapLifecycleErrorCode(error) });
+    throw error;
+  }
 }
 
 // Enable/disable an existing Autodeposit (the delegation stays in place; the
@@ -309,17 +379,29 @@ export async function setEarnAutodepositActive(args: {
   recurringDelegation: string;
   vaultIndex: number;
 }): Promise<void> {
-  const auth = await signEarnAuth(
-    args.signer,
-    "earn-autodeposit-toggle-confirm",
-  );
-  await toggleEarnAutodeposit({
-    auth,
-    active: args.active,
-    policyAccount: args.policyAccount,
-    recurringDelegation: args.recurringDelegation,
-    vaultIndex: args.vaultIndex,
+  const flow = startLifecycleFlow({
+    flowName: "earn.autodeposit.configuration",
+    flowVariant: args.active ? "resume" : "pause",
+    walletAddress: args.signer.publicKey.toBase58(),
   });
+  flow.start("intent");
+  try {
+    const auth = await signEarnAuth(
+      args.signer,
+      "earn-autodeposit-toggle-confirm",
+    );
+    await toggleEarnAutodeposit({
+      auth,
+      active: args.active,
+      policyAccount: args.policyAccount,
+      recurringDelegation: args.recurringDelegation,
+      vaultIndex: args.vaultIndex,
+    });
+    flow.complete("backend_confirm");
+  } catch (error) {
+    flow.fail("backend_confirm", { errorCode: mapLifecycleErrorCode(error) });
+    throw error;
+  }
   track(
     args.active
       ? EARN_EVENTS.autodepositEnabled
@@ -344,6 +426,36 @@ export async function executeEarnAutodepositClose(args: {
   recurringDelegation: string;
   source?: "deleted" | "withdraw";
 }): Promise<void> {
+  // A close nested inside a withdrawal is already traced as that flow's
+  // `autodeposit_close` stage — only a standalone delete gets its own flow.
+  const flow =
+    args.source === "withdraw"
+      ? null
+      : startLifecycleFlow({
+          flowName: "earn.autodeposit.configuration" as const,
+          flowVariant: "close",
+          walletAddress: args.signer.publicKey.toBase58(),
+        });
+  flow?.start("prepare");
+  try {
+    await runEarnAutodepositClose(args, flow);
+    flow?.complete("ui_commit");
+  } catch (error) {
+    // Latched to a no-op when an inner stage already failed the flow.
+    flow?.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    throw error;
+  }
+}
+
+async function runEarnAutodepositClose(
+  args: {
+    signer: Signer;
+    policy: string;
+    recurringDelegation: string;
+    source?: "deleted" | "withdraw";
+  },
+  flow: LifecycleFlow<"earn.autodeposit.configuration"> | null,
+): Promise<void> {
   const walletAddress = args.signer.publicKey;
   const connection = getConnection();
 
@@ -374,7 +486,13 @@ export async function executeEarnAutodepositClose(args: {
       connection,
       signer: args.signer,
       operation: preparedClose.prepared,
+    }).catch((error) => {
+      flow?.fail("wallet_approval", {
+        errorCode: mapLifecycleErrorCode(error),
+      });
+      throw error;
     });
+    flow?.observe("wallet_approval", { chainState: "confirmed" });
 
     flowAuth ??= await signEarnAuth(
       args.signer,
@@ -394,7 +512,13 @@ export async function executeEarnAutodepositClose(args: {
             confirmedSlot: sent.confirmedSlot,
           }),
       ),
-    );
+    ).catch((error) => {
+      flow?.fail("backend_confirm", {
+        errorCode: mapLifecycleErrorCode(error),
+      });
+      throw error;
+    });
+    flow?.observe("backend_confirm");
   };
 
   await closeOne(args.policy, args.recurringDelegation);
@@ -429,9 +553,22 @@ export async function executeEarnAutodepositClose(args: {
 export async function executeEarnAutodepositScheduledSweep(args: {
   signer: Signer;
 }): Promise<void> {
-  const auth = await signEarnAuth(
-    args.signer,
-    "earn-autodeposit-sweep-execute",
-  );
-  await requestEarnAutodepositSweepExecute({ auth });
+  const flow = startLifecycleFlow({
+    flowName: "earn.autodeposit.execute_now",
+    flowVariant: "execute_now",
+    walletAddress: args.signer.publicKey.toBase58(),
+  });
+  flow.start("intent");
+  try {
+    const auth = await signEarnAuth(
+      args.signer,
+      "earn-autodeposit-sweep-execute",
+    );
+    await requestEarnAutodepositSweepExecute({ auth });
+    flow.observe("request", { executeNowState: "requested" });
+    flow.complete("ui_commit");
+  } catch (error) {
+    flow.fail("request", { errorCode: mapLifecycleErrorCode(error) });
+    throw error;
+  }
 }

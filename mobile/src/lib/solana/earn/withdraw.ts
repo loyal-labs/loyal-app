@@ -8,6 +8,11 @@ import { PublicKey } from "@solana/web3.js";
 
 import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
+import {
+  type LifecycleFlow,
+  mapLifecycleErrorCode,
+  startLifecycleFlow,
+} from "@/services/observability";
 
 import { executeEarnAutodepositClose } from "./autodeposit";
 import {
@@ -292,10 +297,12 @@ async function signSendAndConfirmWithdraw(args: {
   // Echoed to `withdraw/confirm` verbatim — the server-prepared wire object
   // or the device-prepared serialization (identical shapes).
   wirePreparedWithdraw: WirePreparedEarnWithdraw;
+  flow: LifecycleFlow<"earn.withdrawal">;
 }): Promise<EarnWithdrawSendResult> {
   const connection = getConnection();
 
   // Confirms reuse the flow's prepare auth — no extra wallet prompt.
+  let confirmLost = false;
   const confirmStep = async (
     withdrawalSignature: string,
     confirmedSlot: string,
@@ -316,6 +323,7 @@ async function signSendAndConfirmWithdraw(args: {
           }),
       );
     } catch (error) {
+      confirmLost = true;
       console.warn(
         "[earn-withdraw] confirm failed; reconciler will backfill",
         error,
@@ -327,6 +335,15 @@ async function signSendAndConfirmWithdraw(args: {
     connection,
     signer: args.signer,
     operations: args.operations,
+  }).catch((error) => {
+    args.flow.fail("wallet_submit_confirm", {
+      errorCode: mapLifecycleErrorCode(error),
+    });
+    throw error;
+  });
+  args.flow.observe("wallet_submit_confirm", {
+    chainState: "confirmed",
+    executionMode: args.operations.length > 1 ? "sequential" : "single",
   });
 
   const withdrawalSignatures: string[] = [];
@@ -340,6 +357,16 @@ async function signSendAndConfirmWithdraw(args: {
       args.hasSteps ? i : undefined,
     );
   }
+  args.flow.observe("backend_confirm", {
+    chainState: "confirmed",
+    ...(confirmLost
+      ? {
+          errorCode: "backend_confirmation_failed" as const,
+          persistenceState: "failed" as const,
+          recoveryRequired: true,
+        }
+      : { persistenceState: "recorded" as const }),
+  });
 
   return { withdrawalConfirmedSlots, withdrawalSignatures };
 }
@@ -362,6 +389,30 @@ export async function executeEarnWithdraw(args: {
   // multiple sources.
   source?: EarnWithdrawSource | null;
 }): Promise<EarnWithdrawResult> {
+  const flow = startLifecycleFlow({
+    flowName: "earn.withdrawal",
+    flowVariant: args.mode === "full" ? "full" : "partial",
+    walletAddress: args.signer.publicKey.toBase58(),
+  });
+  flow.start("prepare");
+  try {
+    return await runEarnWithdraw(args, flow);
+  } catch (error) {
+    // Latched to a no-op when an inner stage already failed the flow.
+    flow.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    throw error;
+  }
+}
+
+async function runEarnWithdraw(
+  args: {
+    signer: Signer;
+    amountUsd: number;
+    mode: EarnWithdrawMode;
+    source?: EarnWithdrawSource | null;
+  },
+  flow: LifecycleFlow<"earn.withdrawal">,
+): Promise<EarnWithdrawResult> {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
   const prepareAuth = await signEarnAuth(args.signer, "earn-withdraw-prepare");
   const fetchContext = () =>
@@ -393,7 +444,14 @@ export async function executeEarnWithdraw(args: {
       policy: close.policy,
       recurringDelegation: close.recurringDelegation,
       source: "withdraw",
+    }).catch((error) => {
+      flow.fail("autodeposit_close", {
+        autodepositCloseRequired: true,
+        errorCode: mapLifecycleErrorCode(error),
+      });
+      throw error;
     });
+    flow.observe("autodeposit_close", { autodepositCloseRequired: true });
     context = await fetchContext();
   }
 
@@ -415,6 +473,7 @@ export async function executeEarnWithdraw(args: {
         closePoliciesOnFullWithdrawal: false,
       }),
     );
+    flow.observe("prepare");
     const hasSteps = preparedWithdraw.withdrawSteps.length > 0;
     const withdrawResult = await signSendAndConfirmWithdraw({
       signer: args.signer,
@@ -424,8 +483,10 @@ export async function executeEarnWithdraw(args: {
         : [preparedWithdraw.prepared],
       hasSteps,
       wirePreparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
+      flow,
     });
     if (!needsSeparateCleanup) {
+      flow.complete("ui_commit");
       return {
         withdrawalSignatures: withdrawResult.withdrawalSignatures,
       };
@@ -446,6 +507,7 @@ export async function executeEarnWithdraw(args: {
         prepareAuth,
         minContextSlot,
       });
+      flow.observe("full_exit_verify");
       const cleanupClient = createSmartAccountVaultsClient({
         connection: getConnection(),
         programId: new PublicKey(cleanupContext.programId),
@@ -486,7 +548,12 @@ export async function executeEarnWithdraw(args: {
           );
         }
       }
+      flow.observe("cleanup", { cleanupRequired: true });
     } catch (error) {
+      flow.observe("cleanup", {
+        cleanupRequired: true,
+        errorCode: mapLifecycleErrorCode(error),
+      });
       console.warn("[earn-withdraw] cleanup skipped after landed withdrawal", {
         errorMessage: error instanceof Error ? error.message : String(error),
         errorName: error instanceof Error ? error.name : typeof error,
@@ -494,6 +561,7 @@ export async function executeEarnWithdraw(args: {
         withdrawalSignatures: withdrawResult.withdrawalSignatures,
       });
     }
+    flow.complete("ui_commit");
     return {
       ...(cleanupSignature !== undefined ? { cleanupSignature } : {}),
       withdrawalSignatures: withdrawResult.withdrawalSignatures,
@@ -526,10 +594,18 @@ export async function executeEarnWithdraw(args: {
       policy: close.policy.account,
       recurringDelegation: close.subscription.recurringDelegation,
       source: "withdraw",
+    }).catch((error) => {
+      flow.fail("autodeposit_close", {
+        autodepositCloseRequired: true,
+        errorCode: mapLifecycleErrorCode(error),
+      });
+      throw error;
     });
+    flow.observe("autodeposit_close", { autodepositCloseRequired: true });
     preparedWithdraw = (await prepare()).preparedWithdraw;
   }
 
+  flow.observe("prepare");
   const steps =
     preparedWithdraw.withdrawSteps && preparedWithdraw.withdrawSteps.length > 0
       ? preparedWithdraw.withdrawSteps
@@ -542,6 +618,8 @@ export async function executeEarnWithdraw(args: {
     ),
     hasSteps: steps !== null,
     wirePreparedWithdraw: preparedWithdraw,
+    flow,
   });
+  flow.complete("ui_commit");
   return { withdrawalSignatures: withdrawResult.withdrawalSignatures };
 }

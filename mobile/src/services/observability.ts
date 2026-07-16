@@ -145,7 +145,7 @@ function isDuplicate(envelope: MobileErrorEnvelope): boolean {
   return false;
 }
 
-async function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
+async function postJson(path: string, payload: unknown): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REPORT_TIMEOUT_MS);
 
@@ -156,8 +156,8 @@ async function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
     if (env.vercelProtectionBypass) {
       headers["x-vercel-protection-bypass"] = env.vercelProtectionBypass;
     }
-    await fetch(`${env.earnApiBaseUrl}/api/observability/mobile/errors`, {
-      body: JSON.stringify(envelope),
+    await fetch(`${env.earnApiBaseUrl}${path}`, {
+      body: JSON.stringify(payload),
       headers,
       method: "POST",
       signal: controller.signal,
@@ -167,6 +167,10 @@ async function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
+  return postJson("/api/observability/mobile/errors", envelope);
 }
 
 function report(error: unknown, operation: MobileErrorOperation): void {
@@ -223,4 +227,177 @@ export function initObservability(): void {
   } catch (error) {
     console.warn("[observability] init failed", error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle flow tracing — twin of `createLifecycleTracker` in
+// `frontend/src/features/observability/lifecycle-contract.ts`, posting to the
+// mobile events ingest. Flow/variant/stage names and every diagnostics field
+// are validated server-side against that contract; an envelope that drifts
+// from it is silently dropped, so keep the vocabularies below in sync.
+
+type LifecycleVariantMap = {
+  "earn.deposit": "initial" | "top_up";
+  "earn.withdrawal": "partial" | "full";
+  "earn.autodeposit.configuration":
+    | "setup"
+    | "floor_update"
+    | "pause"
+    | "resume"
+    | "close";
+  "earn.autodeposit.execute_now": "execute_now";
+};
+
+type LifecycleStageMap = {
+  "earn.deposit":
+    | "intent"
+    | "prepare"
+    | "policy"
+    | "policy_finalize"
+    | "wallet_submit_confirm"
+    | "backend_confirm"
+    | "ui_commit";
+  "earn.withdrawal":
+    | "intent"
+    | "prepare"
+    | "autodeposit_close"
+    | "wallet_submit_confirm"
+    | "backend_confirm"
+    | "full_exit_verify"
+    | "cleanup"
+    | "ui_commit";
+  "earn.autodeposit.configuration":
+    | "intent"
+    | "prepare"
+    | "wallet_approval"
+    | "create_policy"
+    | "create_recurring_delegation"
+    | "backend_confirm"
+    | "bootstrap"
+    | "ui_commit";
+  "earn.autodeposit.execute_now": "intent" | "request" | "ui_commit";
+};
+
+type LifecycleFlowName = keyof LifecycleVariantMap;
+
+type LifecycleErrorCode =
+  | "unexpected_error"
+  | "request_failed"
+  | "unconfirmed_signature"
+  | "backend_confirmation_failed"
+  | "send_failed";
+
+export type LifecycleDiagnostics = {
+  autodepositCloseRequired?: boolean;
+  chainState?: "not_submitted" | "submitted" | "confirmed" | "failed";
+  cleanupRequired?: boolean;
+  errorCode?: LifecycleErrorCode;
+  executeNowState?: "requested";
+  executionMode?: "batch" | "sequential" | "single";
+  persistenceState?: "not_started" | "recorded" | "failed";
+  policyMode?: "create" | "reuse";
+  recoveryRequired?: boolean;
+};
+
+export type LifecycleFlow<F extends LifecycleFlowName> = {
+  complete: (
+    stage: LifecycleStageMap[F],
+    diagnostics?: LifecycleDiagnostics,
+  ) => void;
+  fail: (
+    stage: LifecycleStageMap[F],
+    diagnostics?: LifecycleDiagnostics,
+  ) => void;
+  observe: (
+    stage: LifecycleStageMap[F],
+    diagnostics?: LifecycleDiagnostics,
+  ) => void;
+  setVariant: (variant: LifecycleVariantMap[F]) => void;
+  start: (
+    stage: LifecycleStageMap[F],
+    diagnostics?: LifecycleDiagnostics,
+  ) => void;
+};
+
+/** Map a flow failure onto the contract's error-code vocabulary. */
+export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === "unconfirmed_signature") return "unconfirmed_signature";
+    return "request_failed";
+  }
+  if (error instanceof TypeError) return "request_failed";
+  return "unexpected_error";
+}
+
+function generateFlowId(): string {
+  const cryptoApi = (globalThis as { crypto?: { randomUUID?: () => string } })
+    .crypto;
+  if (cryptoApi?.randomUUID) return cryptoApi.randomUUID();
+  // v4-shaped fallback — the id only correlates events within one flow.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+    const random = Math.trunc(Math.random() * 16);
+    const value = char === "x" ? random : (random % 4) + 8;
+    return value.toString(16);
+  });
+}
+
+/**
+ * Start a traced flow. Emissions are fire-and-forget; a terminal outcome
+ * (complete/fail) latches the flow and later emissions become no-ops, so a
+ * blanket `fail` in an outer catch never overwrites a more precise inner one.
+ */
+export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
+  flowName: F;
+  flowVariant: LifecycleVariantMap[F];
+  walletAddress?: string;
+}): LifecycleFlow<F> {
+  const flowId = generateFlowId();
+  const startedAt = Date.now();
+  let lastAt = startedAt;
+  let variant: LifecycleVariantMap[F] = args.flowVariant;
+  let terminal = false;
+
+  const emit = (
+    outcome: "started" | "observed" | "completed" | "failed",
+    stage: LifecycleStageMap[F],
+    diagnostics: LifecycleDiagnostics = {},
+  ): void => {
+    try {
+      if (terminal) return;
+      const current = Date.now();
+      const envelope = {
+        ...diagnostics,
+        durationMs: Math.min(900_000, Math.max(0, current - lastAt)),
+        elapsedMs: Math.min(86_400_000, Math.max(0, current - startedAt)),
+        environment: getEnvironment(),
+        flowId,
+        flowName: args.flowName,
+        flowVariant: variant,
+        outcome,
+        pathname: currentPathname,
+        release: getRelease(),
+        runtime: "mobile",
+        source: "mobile_app",
+        stage,
+        timestamp: new Date(current).toISOString(),
+        ...(args.walletAddress ? { walletAddress: args.walletAddress } : {}),
+      };
+      lastAt = current;
+      if (outcome === "completed" || outcome === "failed") terminal = true;
+      void postJson("/api/observability/mobile/events", envelope);
+    } catch {
+      // Telemetry is best-effort and must never affect the flow it traces.
+    }
+  };
+
+  return {
+    complete: (stage, diagnostics) => emit("completed", stage, diagnostics),
+    fail: (stage, diagnostics) => emit("failed", stage, diagnostics),
+    observe: (stage, diagnostics) => emit("observed", stage, diagnostics),
+    setVariant: (next) => {
+      variant = next;
+    },
+    start: (stage, diagnostics) => emit("started", stage, diagnostics),
+  };
 }
