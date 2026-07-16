@@ -362,6 +362,50 @@ function createSerializedEarnPolicyAccount(seed = new BN(1)) {
   };
 }
 
+// Sweep policies carry subscriptions-program instruction constraints — the
+// on-chain fingerprint the autodeposit setup/close guards verify (ASK-1802).
+function createSerializedSweepPolicyAccount(seed = new BN(3)) {
+  const [data] = Policy.fromArgs({
+    bump: 255,
+    expiration: null,
+    policyState: {
+      __kind: "ProgramInteraction",
+      fields: [
+        {
+          accountIndex: 1,
+          instructionsConstraints: [
+            {
+              programId: SUBSCRIPTIONS_PROGRAM_ID,
+              accountConstraints: [],
+              dataConstraints: [],
+            },
+          ],
+          postHook: null,
+          preHook: null,
+          spendingLimits: [],
+        },
+      ],
+    },
+    rentCollector: walletAddress,
+    seed,
+    settings: settingsPda,
+    signers: [],
+    staleTransactionIndex: new BN(0),
+    start: new BN(0),
+    threshold: 1,
+    timeLock: 0,
+    transactionIndex: new BN(0),
+  }).serialize();
+
+  return {
+    data,
+    executable: false,
+    lamports: 1,
+    owner: programId,
+    rentEpoch: 0,
+  };
+}
+
 function createSerializedSettingsAccount(policySeed: BN | null = null) {
   const [data] = Settings.fromArgs({
     accountUtilization: 0,
@@ -1482,6 +1526,9 @@ describe("prepareEarnUsdcWithdraw", () => {
           rentEpoch: 0,
         };
       }
+      if (account.equals(autodepositPolicyAccount)) {
+        return createSerializedSweepPolicyAccount();
+      }
       return createSerializedEarnPolicyAccount();
     });
     const client = createSmartAccountVaultsClient({
@@ -1581,6 +1628,9 @@ describe("prepareEarnUsdcWithdraw", () => {
           owner: TOKEN_PROGRAM_ID,
           rentEpoch: 0,
         };
+      }
+      if (account.equals(autodepositPolicyAccount)) {
+        return createSerializedSweepPolicyAccount();
       }
       return createSerializedEarnPolicyAccount();
     });
@@ -1863,6 +1913,9 @@ describe("prepareEarnUsdcWithdraw", () => {
           rentEpoch: 0,
         };
       }
+      if (account.equals(autodepositPolicyAccount)) {
+        return createSerializedSweepPolicyAccount();
+      }
       return createSerializedEarnPolicyAccount();
     });
     const simulateTransaction = mock(async () => ({
@@ -1973,7 +2026,11 @@ describe("prepareEarnUsdcWithdraw", () => {
   test("splits autodeposit teardown from idle full withdraw cleanup", async () => {
     const client = createSmartAccountVaultsClient({
       connection: {
-        getAccountInfo: mock(async () => createSerializedEarnPolicyAccount()),
+        getAccountInfo: mock(async (account: PublicKey) =>
+          account.equals(autodepositPolicyAccount)
+            ? createSerializedSweepPolicyAccount()
+            : createSerializedEarnPolicyAccount()
+        ),
         getLatestBlockhash: mock(async () => ({
           blockhash: "11111111111111111111111111111111",
           lastValidBlockHeight: 1,
@@ -2522,7 +2579,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
         return createSerializedSubscriptionAuthorityAccount(BigInt(7));
       }
       if (nonSettingsLookupCount === 2) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       return null;
     });
@@ -2645,7 +2702,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
     });
     const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
       addresses.map((_, index) =>
-        index === 0 ? createSerializedEarnPolicyAccount() : null
+        index === 0 ? createSerializedSweepPolicyAccount() : null
       )
     );
     const client = createSmartAccountVaultsClient({
@@ -2694,7 +2751,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
         return createSerializedSubscriptionAuthorityAccount(BigInt(7));
       }
       if (nonSettingsLookupCount === 2) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       if (nonSettingsLookupCount === 3) {
         return createSerializedRecurringDelegationAccount();
@@ -2733,7 +2790,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
         return createSerializedSubscriptionAuthorityAccount(BigInt(7));
       }
       if (nonSettingsLookupCount === 2) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       if (nonSettingsLookupCount === 3) {
         return createSerializedRecurringDelegationAccount();
@@ -2789,7 +2846,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
         return createSerializedSubscriptionAuthorityAccount(BigInt(7));
       }
       if (nonSettingsLookupCount === 2) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       if (nonSettingsLookupCount === 3) {
         return createSerializedRecurringDelegationAccount();
@@ -2845,7 +2902,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
         return createSerializedSubscriptionAuthorityAccount(BigInt(7));
       }
       if (nonSettingsLookupCount === 2) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       if (nonSettingsLookupCount === 3) {
         return createSerializedRecurringDelegationAccount();
@@ -2896,7 +2953,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
     );
     const getAccountInfo = mock(async (address: PublicKey) => {
       if (address.equals(policyAccount)) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       if (address.equals(recurringDelegation)) {
         return createSerializedRecurringDelegationAccount();
@@ -2954,7 +3011,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
     const foreignDelegate = new PublicKey("1111111111111111111111111111111C");
     const getAccountInfo = mock(async (address: PublicKey) => {
       if (address.equals(policyAccount)) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       if (address.equals(recurringDelegation)) {
         return createSerializedRecurringDelegationAccount();
@@ -2997,7 +3054,7 @@ describe("prepareEarnUsdcAutodeposit", () => {
   test("omits the delegation revoke when the delegation was never created", async () => {
     const getAccountInfo = mock(async (address: PublicKey) => {
       if (address.equals(policyAccount)) {
-        return createSerializedEarnPolicyAccount();
+        return createSerializedSweepPolicyAccount();
       }
       return null;
     });
@@ -3021,6 +3078,36 @@ describe("prepareEarnUsdcAutodeposit", () => {
     // policy-close instruction remains.
     expect(result.prepared.instructions).toHaveLength(1);
     expectSyncExecutionUsesSettingsConsensus(result.prepared.instructions[0]);
+  });
+
+  // ASK-1802 regression: a seed collision can leave the autodeposit row
+  // pointing at the wallet's live Earn ROUTE policy; closing it stranded a
+  // user's Earn funds behind `missing_earn_policy`.
+  test("refuses to close a policy that is not an Autodeposit sweep policy", async () => {
+    const getAccountInfo = mock(async (address: PublicKey) => {
+      if (address.equals(policyAccount)) {
+        return createSerializedEarnPolicyAccount();
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    await expect(
+      client.prepareEarnUsdcAutodepositClose({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        signer: walletAddress,
+        policySigner: backendSigner,
+        policy: policyAccount,
+        recurringDelegation: new PublicKey("11111111111111111111111111111116"),
+      })
+    ).rejects.toThrow(
+      "Refusing to close a policy that is not an Autodeposit sweep policy."
+    );
   });
 
   test("builds pull execution with the backend policy signer", async () => {
