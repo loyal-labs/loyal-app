@@ -234,15 +234,26 @@ function readRequiredString(
 
 // Release/environment identify the reporting build in OTLP resource
 // attributes; restrict them to a safe identifier alphabet.
+export function normalizeResourceValue(
+  value: string,
+  maxLength: number
+): string | null {
+  const normalized = value
+    .replace(RESOURCE_VALUE_PATTERN, "_")
+    .slice(0, maxLength);
+  return normalized.length > 0 ? normalized : null;
+}
+
 function readResourceValue(
   record: Record<string, unknown>,
   key: string,
   maxLength: number
 ): string {
-  const normalized = readRequiredString(record, key)
-    .replace(RESOURCE_VALUE_PATTERN, "_")
-    .slice(0, maxLength);
-  if (normalized.length === 0) {
+  const normalized = normalizeResourceValue(
+    readRequiredString(record, key),
+    maxLength
+  );
+  if (!normalized) {
     throw new InvalidObservabilityEnvelopeError();
   }
   return normalized;

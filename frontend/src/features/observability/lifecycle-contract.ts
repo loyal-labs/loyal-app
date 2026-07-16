@@ -1,4 +1,7 @@
-import { normalizeTelemetryPathname } from "./error-contract";
+import {
+  normalizeResourceValue,
+  normalizeTelemetryPathname,
+} from "./error-contract";
 
 export const OBSERVABILITY_LIFECYCLE_ENDPOINT = "/api/observability/events";
 
@@ -30,6 +33,7 @@ export const LIFECYCLE_SOURCES = [
   "next_api",
   "sse",
   "fallback",
+  "mobile_app",
 ] as const;
 export type LifecycleSource = (typeof LIFECYCLE_SOURCES)[number];
 
@@ -238,17 +242,26 @@ export type BrowserLifecycleEnvelope = LifecycleDiagnostics & {
   flowVariant: LifecycleFlowVariant;
   outcome: LifecycleOutcome;
   pathname: string;
-  runtime: "browser" | "node";
+  runtime: "browser" | "mobile" | "node";
   source: LifecycleSource;
   stage: LifecycleFlowStage;
   timestamp: string;
+};
+
+// Mobile envelopes carry their own release/environment (the app fleet mixes
+// binary versions and OTA bundles) plus an optional wallet address the ingest
+// route folds into the same HMAC-derived actor id used for web sessions.
+export type MobileLifecycleEnvelope = BrowserLifecycleEnvelope & {
+  environment: string;
+  release: string;
+  walletAddress?: string;
 };
 
 export type NormalizedLifecycleEvent = BrowserLifecycleEnvelope & {
   actorId?: string;
   deploymentEnvironment: string;
   release: string;
-  serviceName: "loyal-frontend";
+  serviceName: "loyal-frontend" | "loyal-mobile";
 };
 
 const UUID_V4_PATTERN =
@@ -368,7 +381,11 @@ export function parseBrowserLifecycleEnvelope(
   ) {
     throw new InvalidLifecycleEnvelopeError();
   }
-  if (record.runtime !== "browser" && record.runtime !== "node") {
+  if (
+    record.runtime !== "browser" &&
+    record.runtime !== "node" &&
+    record.runtime !== "mobile"
+  ) {
     throw new InvalidLifecycleEnvelopeError();
   }
   if (
@@ -520,6 +537,52 @@ export function parseBrowserLifecycleEnvelope(
   }
 
   return { ...record, pathname } as BrowserLifecycleEnvelope;
+}
+
+const WALLET_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const MAX_RELEASE_LENGTH = 80;
+const MAX_ENVIRONMENT_LENGTH = 32;
+
+export function parseMobileLifecycleEnvelope(
+  value: unknown,
+  now = Date.now()
+): MobileLifecycleEnvelope {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new InvalidLifecycleEnvelopeError();
+  }
+  const { environment, release, walletAddress, ...rest } = value as Record<
+    string,
+    unknown
+  >;
+
+  const normalizedEnvironment =
+    typeof environment === "string"
+      ? normalizeResourceValue(environment, MAX_ENVIRONMENT_LENGTH)
+      : null;
+  const normalizedRelease =
+    typeof release === "string"
+      ? normalizeResourceValue(release, MAX_RELEASE_LENGTH)
+      : null;
+  if (!normalizedEnvironment || !normalizedRelease) {
+    throw new InvalidLifecycleEnvelopeError();
+  }
+  if (
+    walletAddress !== undefined &&
+    (typeof walletAddress !== "string" ||
+      !WALLET_ADDRESS_PATTERN.test(walletAddress))
+  ) {
+    throw new InvalidLifecycleEnvelopeError();
+  }
+  if (rest.runtime !== "mobile") {
+    throw new InvalidLifecycleEnvelopeError();
+  }
+
+  return {
+    ...parseBrowserLifecycleEnvelope(rest, now),
+    environment: normalizedEnvironment,
+    release: normalizedRelease,
+    ...(walletAddress ? { walletAddress } : {}),
+  };
 }
 
 export type LifecycleTracker = {
