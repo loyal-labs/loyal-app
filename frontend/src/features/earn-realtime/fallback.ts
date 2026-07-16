@@ -13,7 +13,11 @@ export async function fetchEarnAutodepositProgress(
   scheduledSlotId: string,
   signal: AbortSignal
 ): Promise<
-  (EarnAutodepositProgress & { state: EarnAutodepositProgressState }) | null
+  | (EarnAutodepositProgress & {
+      occurredAt: string;
+      state: EarnAutodepositProgressState;
+    })
+  | null
 > {
   if (!DECIMAL_SLOT_ID_PATTERN.test(scheduledSlotId)) {
     return null;
@@ -45,7 +49,9 @@ export async function fetchEarnAutodepositProgress(
     (value.eventId !== undefined &&
       (typeof value.eventId !== "string" ||
         !DECIMAL_SLOT_ID_PATTERN.test(value.eventId))) ||
-    (value.failureCode !== undefined && typeof value.failureCode !== "string")
+    (value.failureCode !== undefined &&
+      typeof value.failureCode !== "string") ||
+    typeof value.occurredAt !== "string"
   ) {
     return null;
   }
@@ -53,6 +59,7 @@ export async function fetchEarnAutodepositProgress(
   return {
     eventId: value.eventId as string | undefined,
     failureCode: value.failureCode as string | undefined,
+    occurredAt: value.occurredAt,
     scheduledSlotId,
     state: value.state as EarnAutodepositProgressState,
   };

@@ -138,8 +138,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   // Navigation stack: stack[0] = Layer 1, stack[1] = Layer 2
   const [viewStack, setViewStack] = useState<Exclude<SubView, null>[]>([]);
-  const [shouldLoadPopularTokens, setShouldLoadPopularTokens] =
-    useState(false);
+  const [shouldLoadPopularTokens, setShouldLoadPopularTokens] = useState(false);
   const pushView = useCallback((view: Exclude<SubView, null>) => {
     const type = typeof view === "object" && view !== null ? view.type : view;
     if (type === "swapPanel" || type === "tokenSelect") {
@@ -1581,7 +1580,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                             />
                           </div>
                         ) : (
-                          <WalletTab />
+                          <WalletTab
+                            onTurnstileConsumed={() => setCaptchaToken(null)}
+                            turnstileToken={captchaToken}
+                          />
                         )}
                       </>
                     )}

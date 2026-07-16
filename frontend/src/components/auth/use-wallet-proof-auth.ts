@@ -28,6 +28,11 @@ import {
 } from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 import { useExplicitWalletConnectIntent } from "@/components/solana/wallet-provider";
+import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import {
+  type LifecycleTracker,
+  normalizeLifecycleErrorCode,
+} from "@/features/observability/lifecycle-contract";
 
 const WALLET_CONNECTION_SETTLE_MS = 2500;
 const WALLET_SELECTION_SETTLE_MS = 7000;
@@ -137,6 +142,7 @@ export function useWalletProofAuth({
   turnstileTokenRef.current = turnstileToken;
   const onTurnstileConsumedRef = useRef(onTurnstileConsumed);
   onTurnstileConsumedRef.current = onTurnstileConsumed;
+  const lifecycleRef = useRef<LifecycleTracker | null>(null);
 
   const installedWallets = useMemo(
     () => wallets.filter((candidate) => candidate.readyState === "Installed"),
@@ -147,6 +153,20 @@ export function useWalletProofAuth({
     (error: unknown) => {
       endExplicitWalletConnect(selectedWalletNameRef.current);
       const nextError = mapWalletProofError(error);
+      const errorCode = normalizeLifecycleErrorCode(
+        error instanceof AuthApiClientError
+          ? error.code
+          : error instanceof WalletProofSignerError
+          ? error.code
+          : undefined
+      );
+      if (nextError.status === "rejected") {
+        lifecycleRef.current?.cancel("wallet_approval", {
+          errorCode: "wallet_rejected",
+        });
+      } else {
+        lifecycleRef.current?.fail("completion", { errorCode });
+      }
       dispatch({
         type: "failed",
         status: nextError.status,
@@ -194,13 +214,18 @@ export function useWalletProofAuth({
     try {
       await runWalletSiwsProofFlow({
         authApiClient,
+        lifecycle: lifecycleRef.current ?? undefined,
         onStatusChange: (status) => dispatch({ type: status }),
         signIn,
         turnstileToken: turnstileTokenRef.current,
         walletName,
       });
+      lifecycleRef.current?.observe("session_refresh", {
+        authProofKind: "siws",
+      });
       await refreshSession();
       dispatch({ type: "success" });
+      lifecycleRef.current?.complete("ui_commit", { authProofKind: "siws" });
       close();
     } catch (error) {
       siwsAttemptedForWalletRef.current = null;
@@ -250,13 +275,20 @@ export function useWalletProofAuth({
       try {
         await runWalletTransactionProofFlow({
           authApiClient,
+          lifecycle: lifecycleRef.current ?? undefined,
           onStatusChange: (status) => dispatch({ type: status }),
           signTransaction,
           turnstileToken: turnstileTokenRef.current,
           walletAddress,
         });
+        lifecycleRef.current?.observe("session_refresh", {
+          authProofKind: "transaction",
+        });
         await refreshSession();
         dispatch({ type: "success" });
+        lifecycleRef.current?.complete("ui_commit", {
+          authProofKind: "transaction",
+        });
         close();
       } catch (error) {
         verifyAttemptedForAddressRef.current = null;
@@ -285,13 +317,20 @@ export function useWalletProofAuth({
     try {
       await runWalletMessageProofFlow({
         authApiClient,
+        lifecycle: lifecycleRef.current ?? undefined,
         messageSigner: signMessage,
         onStatusChange: (status) => dispatch({ type: status }),
         turnstileToken: turnstileTokenRef.current,
         walletAddress,
       });
+      lifecycleRef.current?.observe("session_refresh", {
+        authProofKind: "message",
+      });
       await refreshSession();
       dispatch({ type: "success" });
+      lifecycleRef.current?.complete("ui_commit", {
+        authProofKind: "message",
+      });
       close();
     } catch (error) {
       verifyAttemptedForAddressRef.current = null;
@@ -423,6 +462,7 @@ export function useWalletProofAuth({
     }
 
     connectAttemptedRef.current = true;
+    lifecycleRef.current?.observe("wallet_connect");
     void connect().catch((error) => {
       connectAttemptedRef.current = false;
       handleFailure(error);
@@ -525,6 +565,12 @@ export function useWalletProofAuth({
       setWalletNameToReselect(null);
       selectedWalletNameRef.current = walletName;
       onFlowStart?.();
+      lifecycleRef.current = createBrowserLifecycleTracker({
+        flowName: "auth.sign_in",
+        flowVariant: "interactive",
+      });
+      lifecycleRef.current.start("intent");
+      lifecycleRef.current.observe("wallet_select");
 
       if (!useLedgerProof && wallet?.adapter.name === walletName && signIn) {
         beginExplicitWalletConnect(walletName);
@@ -553,6 +599,7 @@ export function useWalletProofAuth({
         }
 
         connectAttemptedRef.current = true;
+        lifecycleRef.current?.observe("wallet_connect");
         void connect().catch((error) => {
           connectAttemptedRef.current = false;
           handleFailure(error);
@@ -596,6 +643,12 @@ export function useWalletProofAuth({
 
   const startConnectedWalletVerification = useCallback(() => {
     onFlowStart?.();
+    lifecycleRef.current = createBrowserLifecycleTracker({
+      flowName: "auth.sign_in",
+      flowVariant: "interactive",
+    });
+    lifecycleRef.current.start("intent");
+    lifecycleRef.current.observe("wallet_select");
     void verifyConnectedWallet();
   }, [onFlowStart, verifyConnectedWallet]);
 

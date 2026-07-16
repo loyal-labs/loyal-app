@@ -37,6 +37,8 @@ import {
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
+import type { RequestLifecycle } from "@/features/observability/lifecycle.server";
+import { normalizeLifecycleErrorCode } from "@/features/observability/lifecycle-contract";
 
 import { trackWalletOnboardingEvent } from "./wallet-onboarding-analytics";
 import { WalletAuthError } from "./wallet-auth-errors";
@@ -429,9 +431,11 @@ export async function completeWalletOnboarding(
   input: unknown,
   args: {
     requestOrigin: string;
+    lifecycle?: RequestLifecycle;
   },
   dependencies: WalletOnboardingDependencies = defaultDependencies
 ): Promise<WalletOnboardingResult> {
+  args.lifecycle?.tracker.start("proof_verify");
   const payload = walletCompleteRequestSchema.parse(input);
   const config = dependencies.getConfig();
   const claims = await verifyWalletChallengeToken(
@@ -516,8 +520,12 @@ export async function completeWalletOnboarding(
     walletAddress = claims.walletAddress;
   }
 
+  args.lifecycle?.setVerifiedWallet(walletAddress);
+  args.lifecycle?.tracker.observe("user_resolve");
+
   const challengeHash = hashChallengeToken(payload.challengeToken);
   const processingToken = dependencies.randomUUID();
+  args.lifecycle?.tracker.observe("smart_account_lookup");
   const lease = await dependencies.beginCompletion(
     {
       challengeHash,
@@ -544,10 +552,18 @@ export async function completeWalletOnboarding(
   }
 
   if (lease.kind === "completed") {
-    return replayCompletedOnboarding({
+    args.lifecycle?.tracker.observe("completion_persist", {
+      provisioningOutcome: lease.record.provisioningOutcome ?? "existing_ready",
+    });
+    args.lifecycle?.tracker.observe("session_issue");
+    const replayed = await replayCompletedOnboarding({
       record: lease.record,
       dependencies,
     });
+    args.lifecycle?.tracker.complete("session_issue", {
+      provisioningOutcome: replayed.provisioningOutcome,
+    });
+    return replayed;
   }
 
   if (lease.kind === "failed") {
@@ -568,10 +584,19 @@ export async function completeWalletOnboarding(
     });
 
     if (observedLease.kind === "completed") {
-      return replayCompletedOnboarding({
+      args.lifecycle?.tracker.observe("completion_persist", {
+        provisioningOutcome:
+          observedLease.record.provisioningOutcome ?? "existing_ready",
+      });
+      args.lifecycle?.tracker.observe("session_issue");
+      const replayed = await replayCompletedOnboarding({
         record: observedLease.record,
         dependencies,
       });
+      args.lifecycle?.tracker.complete("session_issue", {
+        provisioningOutcome: replayed.provisioningOutcome,
+      });
+      return replayed;
     }
 
     if (observedLease.kind === "failed") {
@@ -606,9 +631,26 @@ export async function completeWalletOnboarding(
 
   try {
     userRecord = await dependencies.getOrCreateUser(principal);
+    args.lifecycle?.tracker.observe("smart_account_lookup");
     const ensureResult = await dependencies.ensureSmartAccount({
       userId: userRecord.id,
       walletAddress,
+    });
+
+    if (
+      ensureResult.provisioningOutcome === "delegated_root_signer" ||
+      ensureResult.provisioningOutcome === "reconciled_ready"
+    ) {
+      args.lifecycle?.tracker.observe("smart_account_reconcile");
+    }
+    if (ensureResult.provisioningOutcome.startsWith("sponsored_")) {
+      args.lifecycle?.tracker.observe("smart_account_reserve");
+      args.lifecycle?.tracker.observe("sponsorship_submit");
+      args.lifecycle?.tracker.observe("sponsorship_finalize");
+    }
+    args.lifecycle?.tracker.observe("signer_verify");
+    args.lifecycle?.tracker.observe("completion_persist", {
+      provisioningOutcome: ensureResult.provisioningOutcome,
     });
 
     const completedRecord = await dependencies.markCompletionCompleted(
@@ -667,7 +709,11 @@ export async function completeWalletOnboarding(
       });
     }
 
+    args.lifecycle?.tracker.observe("session_issue");
     const sessionToken = await dependencies.issueSessionToken(user);
+    args.lifecycle?.tracker.complete("session_issue", {
+      provisioningOutcome: ensureResult.provisioningOutcome,
+    });
 
     return {
       user,
@@ -677,6 +723,15 @@ export async function completeWalletOnboarding(
       sessionToken,
     };
   } catch (error) {
+    args.lifecycle?.tracker.fail("completion_persist", {
+      errorCode: normalizeLifecycleErrorCode(
+        error instanceof WalletAuthError
+          ? error.code
+          : isSmartAccountProvisioningError(error)
+          ? error.code
+          : undefined
+      ),
+    });
     if (isSmartAccountProvisioningError(error)) {
       dependencies.trackEvent(
         error.code === "smart_account_reservation_conflict"

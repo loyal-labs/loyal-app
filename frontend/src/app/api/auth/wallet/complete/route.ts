@@ -8,11 +8,19 @@ import {
 import { completeWalletAuth } from "@/features/identity/server/wallet-auth-service";
 import { isSmartAccountProvisioningError } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
+import { createRequestLifecycle } from "@/features/observability/lifecycle.server";
+import { normalizeLifecycleErrorCode } from "@/features/observability/lifecycle-contract";
 
 export async function POST(request: Request) {
+  const lifecycle = createRequestLifecycle({
+    flowName: "auth.smart_account_provisioning",
+    flowVariant: "wallet_onboarding",
+    request,
+  });
   try {
     const body = (await request.json().catch(() => ({}))) as unknown;
     const response = await completeWalletAuth(body, {
+      ...(lifecycle ? { lifecycle } : {}),
       requestOrigin:
         request.headers.get("origin") ?? new URL(request.url).origin,
     });
@@ -31,6 +39,14 @@ export async function POST(request: Request) {
 
     return nextResponse;
   } catch (error) {
+    lifecycle?.tracker.fail("proof_verify", {
+      errorCode: normalizeLifecycleErrorCode(
+        error instanceof WalletAuthError ||
+          isSmartAccountProvisioningError(error)
+          ? error.code
+          : undefined
+      ),
+    });
     if (error instanceof WalletAuthError) {
       return NextResponse.json(
         {

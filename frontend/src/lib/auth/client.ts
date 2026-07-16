@@ -39,11 +39,17 @@ export type WalletChallengeRequestWithTurnstile = WalletChallengeRequest & {
 
 export type AuthApiClient = {
   challengeWalletAuth(
-    payload: WalletChallengeRequestWithTurnstile
+    payload: WalletChallengeRequestWithTurnstile,
+    options?: { flowId?: string }
   ): Promise<WalletChallengeResponse>;
-  completeWalletAuth(payload: WalletCompleteRequest): Promise<AuthSessionUser>;
+  completeWalletAuth(
+    payload: WalletCompleteRequest,
+    options?: { flowId?: string }
+  ): Promise<AuthSessionUser>;
   getSession(): Promise<WalletSessionResponse | null>;
-  refreshSession(): Promise<WalletSessionResponse | null>;
+  refreshSession(options?: {
+    flowId?: string;
+  }): Promise<WalletSessionResponse | null>;
   logout(): Promise<void>;
 };
 
@@ -84,11 +90,15 @@ async function parseResponseBody(response: Response): Promise<unknown> {
 
 async function callLocalAuthEndpoint(
   endpoint: string,
-  init: RequestInit
+  init: RequestInit,
+  flowId?: string
 ): Promise<ApiOutcome> {
+  const headers = new Headers(init.headers);
+  if (flowId) headers.set("x-loyal-flow-id", flowId);
   const response = await fetch(endpoint, {
     ...init,
     credentials: "include",
+    headers,
   });
 
   return {
@@ -131,7 +141,7 @@ function assertSuccessfulResponse<T>(
 
 export function createAuthApiClient(): AuthApiClient {
   return {
-    async challengeWalletAuth(payload) {
+    async challengeWalletAuth(payload, options) {
       const outcome = await callLocalAuthEndpoint(
         "/api/auth/wallet/challenge",
         {
@@ -140,7 +150,8 @@ export function createAuthApiClient(): AuthApiClient {
             "content-type": "application/json",
           },
           body: JSON.stringify(payload),
-        }
+        },
+        options?.flowId
       );
 
       return assertSuccessfulResponse(outcome, walletChallengeResponseSchema, {
@@ -150,14 +161,18 @@ export function createAuthApiClient(): AuthApiClient {
       });
     },
 
-    async completeWalletAuth(payload) {
-      const outcome = await callLocalAuthEndpoint("/api/auth/wallet/complete", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
+    async completeWalletAuth(payload, options) {
+      const outcome = await callLocalAuthEndpoint(
+        "/api/auth/wallet/complete",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(payload),
         },
-        body: JSON.stringify(payload),
-      });
+        options?.flowId
+      );
       const parsed = assertSuccessfulResponse(
         outcome,
         walletCompleteResponseSchema,
@@ -201,10 +216,14 @@ export function createAuthApiClient(): AuthApiClient {
       return parsed.data;
     },
 
-    async refreshSession() {
-      const outcome = await callLocalAuthEndpoint("/api/auth/session/refresh", {
-        method: "POST",
-      });
+    async refreshSession(options) {
+      const outcome = await callLocalAuthEndpoint(
+        "/api/auth/session/refresh",
+        {
+          method: "POST",
+        },
+        options?.flowId
+      );
       if (!outcome.ok) {
         if (outcome.status === 401) {
           return null;

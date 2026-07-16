@@ -14,6 +14,9 @@ import {
   runWalletSiwsProofFlow,
 } from "@/lib/auth/wallet-proof-flow";
 import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
+import { AuthApiClientError } from "@/lib/auth/client";
+import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import { normalizeLifecycleErrorCode } from "@/features/observability/lifecycle-contract";
 
 type ReauthStatus =
   | "idle"
@@ -39,8 +42,8 @@ export function WalletAutoReauth() {
     turnstile.mode === "bypass"
       ? turnstile.verificationToken
       : turnstile.mode === "misconfigured"
-        ? "captcha-skipped"
-        : null;
+      ? "captcha-skipped"
+      : null;
 
   const attemptedAddressRef = useRef<string | null>(null);
   const failedRef = useRef(false);
@@ -79,32 +82,44 @@ export function WalletAutoReauth() {
     attemptedAddressRef.current = walletAddress;
 
     async function reauthenticate() {
+      const lifecycle = createBrowserLifecycleTracker({
+        flowName: "auth.sign_in",
+        flowVariant: "auto_reauth",
+      });
+      lifecycle.start("intent");
+      lifecycle.observe("wallet_select");
       try {
         if (signIn && wallet) {
           setStatus("awaiting_signature");
           await runWalletSiwsProofFlow({
             authApiClient,
+            lifecycle,
             onStatusChange: setStatus,
             signIn,
             turnstileToken: silentTurnstileToken ?? undefined,
             walletName: wallet.adapter.name,
           });
         } else {
+          lifecycle.observe("wallet_connect");
           await runWalletMessageProofFlow({
             authApiClient,
+            lifecycle,
             messageSigner: signMessage,
             onStatusChange: setStatus,
             turnstileToken: silentTurnstileToken ?? undefined,
             walletAddress,
           });
         }
+        lifecycle.observe("session_refresh");
         await refreshSession();
         setStatus("done");
+        lifecycle.complete("ui_commit");
       } catch (error) {
         const isSignatureRejection =
           error instanceof WalletProofSignerError &&
           error.code === "wallet_signature_rejected";
         if (isSignatureRejection) {
+          lifecycle.cancel("wallet_approval", { errorCode: "wallet_rejected" });
           failedRef.current = true;
           setStatus("idle");
           return;
@@ -114,6 +129,11 @@ export function WalletAutoReauth() {
         // are silently ignored so they don't block wallet usage.
         attemptedAddressRef.current = null;
         setStatus("idle");
+        lifecycle.fail("completion", {
+          errorCode: normalizeLifecycleErrorCode(
+            error instanceof AuthApiClientError ? error.code : undefined
+          ),
+        });
         console.warn("[wallet-auto-reauth] re-auth failed:", error);
       }
     }
@@ -194,10 +214,10 @@ export function WalletAutoReauth() {
     status === "awaiting_signature"
       ? "Please approve sign-in in your wallet"
       : status === "verifying"
-        ? "Verifying wallet\u2026"
-        : status === "done"
-          ? "All good"
-          : "Signature rejected";
+      ? "Verifying wallet\u2026"
+      : status === "done"
+      ? "All good"
+      : "Signature rejected";
 
   return (
     <div

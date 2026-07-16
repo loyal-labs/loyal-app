@@ -3,6 +3,7 @@
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import type { AuthApiClient } from "@/lib/auth/client";
+import type { LifecycleTracker } from "@/features/observability/lifecycle-contract";
 import {
   type WalletProofSignIn,
   type WalletProofSignMessage,
@@ -20,6 +21,7 @@ type WalletProofFlowArgs = {
   onStatusChange?: (status: WalletProofStatus) => void;
   turnstileToken?: string;
   walletAddress: string;
+  lifecycle?: LifecycleTracker;
 };
 
 const inFlightProofs = new Map<string, Promise<AuthSessionUser>>();
@@ -30,6 +32,7 @@ export async function runWalletMessageProofFlow({
   onStatusChange,
   turnstileToken,
   walletAddress,
+  lifecycle,
 }: WalletProofFlowArgs): Promise<AuthSessionUser> {
   const existingProof = inFlightProofs.get(walletAddress);
   if (existingProof) {
@@ -38,26 +41,35 @@ export async function runWalletMessageProofFlow({
   }
 
   const proof = (async () => {
-    const challenge = await authApiClient.challengeWalletAuth({
-      walletAddress,
-      turnstileToken,
-    });
+    lifecycle?.observe("challenge", { authProofKind: "message" });
+    const challenge = await authApiClient.challengeWalletAuth(
+      {
+        walletAddress,
+        turnstileToken,
+      },
+      { flowId: lifecycle?.flowId }
+    );
 
     if (challenge.kind === "siws" || challenge.kind === "transaction") {
       throw new Error("The auth server returned an invalid message challenge.");
     }
 
     onStatusChange?.("awaiting_signature");
+    lifecycle?.observe("wallet_approval", { authProofKind: "message" });
     const signature = await signWalletProofMessage({
       signMessage: messageSigner,
       message: challenge.message,
     });
 
     onStatusChange?.("verifying");
-    return authApiClient.completeWalletAuth({
-      challengeToken: challenge.challengeToken,
-      signature,
-    });
+    lifecycle?.observe("completion", { authProofKind: "message" });
+    return authApiClient.completeWalletAuth(
+      {
+        challengeToken: challenge.challengeToken,
+        signature,
+      },
+      { flowId: lifecycle?.flowId }
+    );
   })();
 
   inFlightProofs.set(walletAddress, proof);
@@ -77,12 +89,14 @@ export async function runWalletTransactionProofFlow({
   signTransaction,
   turnstileToken,
   walletAddress,
+  lifecycle,
 }: {
   authApiClient: AuthApiClient;
   onStatusChange?: (status: WalletProofStatus) => void;
   signTransaction: WalletProofSignTransaction;
   turnstileToken?: string;
   walletAddress: string;
+  lifecycle?: LifecycleTracker;
 }): Promise<AuthSessionUser> {
   const inFlightKey = `transaction:${walletAddress}`;
   const existingProof = inFlightProofs.get(inFlightKey);
@@ -92,11 +106,15 @@ export async function runWalletTransactionProofFlow({
   }
 
   const proof = (async () => {
-    const challenge = await authApiClient.challengeWalletAuth({
-      kind: "transaction",
-      turnstileToken,
-      walletAddress,
-    });
+    lifecycle?.observe("challenge", { authProofKind: "transaction" });
+    const challenge = await authApiClient.challengeWalletAuth(
+      {
+        kind: "transaction",
+        turnstileToken,
+        walletAddress,
+      },
+      { flowId: lifecycle?.flowId }
+    );
 
     if (challenge.kind !== "transaction") {
       throw new Error(
@@ -105,17 +123,22 @@ export async function runWalletTransactionProofFlow({
     }
 
     onStatusChange?.("awaiting_signature");
+    lifecycle?.observe("wallet_approval", { authProofKind: "transaction" });
     const signedTransaction = await signWalletProofTransaction({
       signTransaction,
       transaction: challenge.transaction,
     });
 
     onStatusChange?.("verifying");
-    return authApiClient.completeWalletAuth({
-      kind: "transaction",
-      challengeToken: challenge.challengeToken,
-      signedTransaction,
-    });
+    lifecycle?.observe("completion", { authProofKind: "transaction" });
+    return authApiClient.completeWalletAuth(
+      {
+        kind: "transaction",
+        challengeToken: challenge.challengeToken,
+        signedTransaction,
+      },
+      { flowId: lifecycle?.flowId }
+    );
   })();
 
   inFlightProofs.set(inFlightKey, proof);
@@ -135,12 +158,14 @@ export async function runWalletSiwsProofFlow({
   signIn,
   turnstileToken,
   walletName,
+  lifecycle,
 }: {
   authApiClient: AuthApiClient;
   onStatusChange?: (status: WalletProofStatus) => void;
   signIn: WalletProofSignIn;
   turnstileToken?: string;
   walletName: string;
+  lifecycle?: LifecycleTracker;
 }): Promise<AuthSessionUser> {
   const inFlightKey = `siws:${walletName}`;
   const existingProof = inFlightProofs.get(inFlightKey);
@@ -150,27 +175,36 @@ export async function runWalletSiwsProofFlow({
   }
 
   const proof = (async () => {
-    const challenge = await authApiClient.challengeWalletAuth({
-      kind: "siws",
-      turnstileToken,
-    });
+    lifecycle?.observe("challenge", { authProofKind: "siws" });
+    const challenge = await authApiClient.challengeWalletAuth(
+      {
+        kind: "siws",
+        turnstileToken,
+      },
+      { flowId: lifecycle?.flowId }
+    );
 
     if (challenge.kind !== "siws") {
       throw new Error("The auth server returned an invalid SIWS challenge.");
     }
 
     onStatusChange?.("awaiting_signature");
+    lifecycle?.observe("wallet_approval", { authProofKind: "siws" });
     const output = await signWalletProofSignIn({
       signIn,
       signInInput: challenge.signInInput,
     });
 
     onStatusChange?.("verifying");
-    return authApiClient.completeWalletAuth({
-      kind: "siws",
-      challengeToken: challenge.challengeToken,
-      output,
-    });
+    lifecycle?.observe("completion", { authProofKind: "siws" });
+    return authApiClient.completeWalletAuth(
+      {
+        kind: "siws",
+        challengeToken: challenge.challengeToken,
+        output,
+      },
+      { flowId: lifecycle?.flowId }
+    );
   })();
 
   inFlightProofs.set(inFlightKey, proof);

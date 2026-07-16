@@ -171,6 +171,13 @@ import {
   type SmartAccountRefreshPlan,
 } from "@/features/smart-accounts/refresh-plan";
 import { useAuthCapability } from "@/lib/auth/capability";
+import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import {
+  type ExecuteNowState,
+  type LifecycleTracker,
+  mapExecuteNowState,
+  normalizeLifecycleErrorCode,
+} from "@/features/observability/lifecycle-contract";
 import {
   readClientCache,
   removeClientCache,
@@ -1395,13 +1402,15 @@ function getShieldedBalancesUnlockErrorMessage(error: unknown): string {
 
 async function parseEarnAutodepositExecuteError(response: Response) {
   const payload = (await response.json().catch(() => null)) as {
-    error?: { message?: string };
+    error?: { code?: string; message?: string };
   } | null;
 
-  return (
-    payload?.error?.message ??
-    "Failed to request immediate Autodeposit execution."
-  );
+  return {
+    code: normalizeLifecycleErrorCode(payload?.error?.code),
+    message:
+      payload?.error?.message ??
+      "Failed to request immediate Autodeposit execution.",
+  };
 }
 
 function parseEarnAutodepositExecuteResponse(value: unknown): {
@@ -1414,12 +1423,22 @@ function parseEarnAutodepositExecuteResponse(value: unknown): {
       ?.slotId === "string"
       ? (value as { sweepRequest: { slotId: string } }).sweepRequest.slotId
       : null;
-  if (!slotId || !/^\d+$/.test(slotId)) {
+  if (!slotId || !/^[1-9]\d{0,19}$/.test(slotId)) {
     throw new Error(
       "Autodeposit execution returned an invalid scheduled slot."
     );
   }
   return { scheduledSlotId: slotId };
+}
+
+function isWalletCancellation(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : String(error).toLowerCase();
+  return ["reject", "denied", "declined", "cancelled", "canceled"].some(
+    (marker) => message.includes(marker)
+  );
 }
 
 type EarnDepositPolicyStageSignatures = {
@@ -1960,6 +1979,13 @@ export function AppWalletWorkspace({
   const [autodepositProgressBySlot, setAutodepositProgressBySlot] = useState<
     Record<string, EarnAutodepositProgress>
   >({});
+  const earnDepositLifecycleRef = useRef<LifecycleTracker | null>(null);
+  const earnWithdrawLifecycleRef = useRef<LifecycleTracker | null>(null);
+  const earnAutodepositLifecycleRef = useRef<LifecycleTracker | null>(null);
+  const executeNowLifecycleRef = useRef<{
+    scheduledSlotId: string | null;
+    tracker: LifecycleTracker;
+  } | null>(null);
   const earnRealtimeSettingsPda = smartAccountData.overview?.settingsPda;
   const earnRealtimeVaultAddress = smartAccountData.earnVaultPubkey;
   const refreshSmartAccountGroups = smartAccountData.refreshGroups;
@@ -2084,6 +2110,47 @@ export function AppWalletWorkspace({
     },
     []
   );
+  const recordExecuteNowProgress = useCallback(
+    (
+      progress: EarnAutodepositProgress,
+      source: "sse" | "fallback",
+      occurredAt?: string
+    ) => {
+      const active = executeNowLifecycleRef.current;
+      if (
+        !active ||
+        !active.scheduledSlotId ||
+        active.scheduledSlotId !== progress.scheduledSlotId ||
+        progress.state === "scheduled" ||
+        progress.state === "requesting"
+      ) {
+        return;
+      }
+      const state = progress.state as ExecuteNowState;
+      const mapped = mapExecuteNowState(state);
+      const diagnostics = {
+        executeNowState: state,
+        ...(state === "failed" || state === "released"
+          ? { errorCode: normalizeLifecycleErrorCode(progress.failureCode) }
+          : {}),
+        scheduledSlotId: progress.scheduledSlotId,
+      };
+      const options = {
+        source,
+        ...(occurredAt ? { timestamp: occurredAt } : {}),
+      };
+      if (mapped.outcome === "completed") {
+        active.tracker.complete(mapped.stage, diagnostics, options);
+      } else if (mapped.outcome === "failed") {
+        active.tracker.fail(mapped.stage, diagnostics, options);
+      } else if (mapped.outcome === "cancelled") {
+        active.tracker.cancel(mapped.stage, diagnostics, options);
+      } else {
+        active.tracker.observe(mapped.stage, diagnostics, options);
+      }
+    },
+    []
+  );
   const handleEarnRealtimeInvalidation = useCallback(
     (event: EarnRealtimeInvalidation) => {
       if (
@@ -2093,14 +2160,17 @@ export function AppWalletWorkspace({
       ) {
         return;
       }
-      applyEarnAutodepositProgress({
+      const progress = {
         eventId: event.eventId,
         failureCode: event.failureCode,
+        occurredAt: event.occurredAt,
         scheduledSlotId: event.scheduledSlotId,
         state: event.state,
-      });
+      };
+      applyEarnAutodepositProgress(progress);
+      recordExecuteNowProgress(progress, "sse", event.occurredAt);
     },
-    [applyEarnAutodepositProgress]
+    [applyEarnAutodepositProgress, recordExecuteNowProgress]
   );
   const handleEarnRealtimeInvalidationBatch = useCallback(
     async (events: readonly EarnRealtimeInvalidation[]) => {
@@ -2269,13 +2339,14 @@ export function AppWalletWorkspace({
           continue;
         }
         applyEarnAutodepositProgress(progress);
+        recordExecuteNowProgress(progress, "fallback", progress.occurredAt);
         try {
           await handleEarnRealtimeInvalidationBatch([
             {
               eventId: progress.eventId ?? "0",
               eventType: EARN_REALTIME_EVENT_TYPES.autodeposit,
               failureCode: progress.failureCode,
-              occurredAt: new Date().toISOString(),
+              occurredAt: progress.occurredAt,
               scheduledSlotId: progress.scheduledSlotId,
               schemaVersion: 1,
               scope: earnRealtimeScope ?? "earn-fallback",
@@ -2309,6 +2380,7 @@ export function AppWalletWorkspace({
     earnRealtimeScope,
     handleEarnRealtimeInvalidationBatch,
     isActiveAutodepositTerminal,
+    recordExecuteNowProgress,
   ]);
   const signInOpenedForConnectRef = useRef(false);
   const [isExperimentalMode, setIsExperimentalMode] = useState(false);
@@ -4511,17 +4583,29 @@ export function AppWalletWorkspace({
           return;
         }
 
+        const tracker = createBrowserLifecycleTracker({
+          flowName: "earn.autodeposit.configuration",
+          flowVariant: "floor_update",
+        });
+        earnAutodepositLifecycleRef.current = tracker;
+        tracker.start("intent");
+        tracker.observe("prepare");
         earnAutodepositFloorUpdateInFlightRef.current = true;
         setIsEarnAutodepositFloorUpdating(true);
         try {
           const result =
             await smartAccountData.executeEarnAutodepositFloorUpdate({
+              observabilityFlowId: tracker.flowId,
               policyAccount: autodepositConfig.policyAccount,
               recurringDelegation: autodepositConfig.recurringDelegation,
               walletBalanceFloorRaw: keepAmountRaw,
             });
 
           if (!result.success) {
+            tracker.fail("backend_confirm", {
+              errorCode: "record_failed",
+              persistenceState: "failed",
+            });
             setProposalActionError(
               result.error ?? "Autodeposit wallet balance floor update failed."
             );
@@ -4548,6 +4632,7 @@ export function AppWalletWorkspace({
             setDetailSelection("earn");
             setSelectedDetail("Earn");
           }
+          tracker.complete("ui_commit", { persistenceState: "recorded" });
         } finally {
           earnAutodepositFloorUpdateInFlightRef.current = false;
           setIsEarnAutodepositFloorUpdating(false);
@@ -4599,6 +4684,7 @@ export function AppWalletWorkspace({
   );
 
   const handleDismissEarnAutodepositPreview = useCallback(() => {
+    earnAutodepositLifecycleRef.current?.cancel("wallet_approval");
     setPendingEarnAutodepositDraft(null);
     setPendingEarnAutodepositSetupPrepared(null);
     setPendingEarnAutodepositClosePrepared(null);
@@ -4685,6 +4771,13 @@ export function AppWalletWorkspace({
 
     const previousState = autodepositConfig.state;
     const nextActive = previousState === "paused";
+    const tracker = createBrowserLifecycleTracker({
+      flowName: "earn.autodeposit.configuration",
+      flowVariant: nextActive ? "resume" : "pause",
+    });
+    earnAutodepositLifecycleRef.current = tracker;
+    tracker.start("intent");
+    tracker.observe("backend_confirm", { persistenceState: "not_started" });
     setProposalActionError(null);
     // Optimistic transient state: the switch flips and spins right away
     // while the DB-only toggle persists; revert on failure.
@@ -4700,11 +4793,16 @@ export function AppWalletWorkspace({
 
     const result = await smartAccountData.executeEarnAutodepositToggle({
       active: nextActive,
+      observabilityFlowId: tracker.flowId,
       policyAccount: autodepositConfig.policyAccount,
       recurringDelegation: autodepositConfig.recurringDelegation,
     });
 
     if (!result.success) {
+      tracker.fail("backend_confirm", {
+        errorCode: "record_failed",
+        persistenceState: "failed",
+      });
       setAutodepositConfig((current) =>
         current ? { ...current, state: previousState } : current
       );
@@ -4728,6 +4826,7 @@ export function AppWalletWorkspace({
       resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
       targetId: result.target?.id,
     });
+    tracker.complete("ui_commit", { persistenceState: "recorded" });
   }, [autodepositConfig, registerExpectedEarnMutation, smartAccountData]);
 
   const handleExecuteScheduledAutodepositSweep = useCallback(
@@ -4741,6 +4840,12 @@ export function AppWalletWorkspace({
 
       setIsExecutingScheduledSweep(true);
       setScheduledSweepExecuteError(null);
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "earn.autodeposit.execute_now",
+        flowVariant: "execute_now",
+      });
+      executeNowLifecycleRef.current = { scheduledSlotId: null, tracker };
+      tracker.start("intent");
       const requestedSlotId = sweep?.slotId ?? sweep?.id ?? null;
       if (requestedSlotId) {
         setActiveScheduledSweepSlotId(requestedSlotId);
@@ -4763,18 +4868,30 @@ export function AppWalletWorkspace({
             credentials: "include",
             headers: {
               "content-type": "application/json",
+              "x-loyal-flow-id": tracker.flowId,
             },
             method: "POST",
           }
         );
 
         if (!response.ok) {
-          throw new Error(await parseEarnAutodepositExecuteError(response));
+          const failure = await parseEarnAutodepositExecuteError(response);
+          tracker.fail("request", {
+            errorCode: failure.code,
+            httpStatus: response.status,
+          });
+          throw new Error(failure.message);
         }
         const { scheduledSlotId } = parseEarnAutodepositExecuteResponse(
           await response.json()
         );
         setActiveScheduledSweepSlotId(scheduledSlotId);
+        executeNowLifecycleRef.current = { scheduledSlotId, tracker };
+        tracker.observe("request", {
+          executeNowState: "requested",
+          httpStatus: response.status,
+          scheduledSlotId,
+        });
         setAutodepositProgressBySlot((current) => {
           const next = { ...current };
           if (requestedSlotId && requestedSlotId !== scheduledSlotId) {
@@ -4790,6 +4907,7 @@ export function AppWalletWorkspace({
           return next;
         });
       } catch (error) {
+        tracker.fail("request", { errorCode: "request_failed" });
         setActiveScheduledSweepSlotId(null);
         if (requestedSlotId) {
           setAutodepositProgressBySlot((current) => {
@@ -4815,6 +4933,7 @@ export function AppWalletWorkspace({
   }, [handleOpenAutodepositCloseReview]);
 
   const handleDismissEarnDepositPreview = useCallback(() => {
+    earnDepositLifecycleRef.current?.cancel("review");
     setPendingEarnDepositDraft(null);
     setPendingEarnDepositPrepared(null);
     setEarnDepositReviewStage("deposit");
@@ -4825,6 +4944,7 @@ export function AppWalletWorkspace({
   }, []);
 
   const handleDismissEarnWithdrawPreview = useCallback(() => {
+    earnWithdrawLifecycleRef.current?.cancel("prepare");
     setPendingEarnWithdrawDraft(null);
     setPendingEarnWithdrawPrepared(null);
     setPendingEarnCleanupPrepared(null);
@@ -5140,6 +5260,18 @@ export function AppWalletWorkspace({
 
       const requiresPolicySetup =
         smartAccountData.requiresEarnPolicySetupForDeposit;
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "earn.deposit",
+        flowVariant: hasEarnPosition
+          ? "top_up"
+          : smartAccountData.earnOnboarding
+          ? "resumed"
+          : "initial",
+      });
+      earnDepositLifecycleRef.current = tracker;
+      tracker.start("intent", {
+        policyMode: requiresPolicySetup ? "create" : "reuse",
+      });
       setProposalActionError(null);
       setEarnDepositPrepareError(null);
       setPendingEarnDepositPrepared(null);
@@ -5147,6 +5279,9 @@ export function AppWalletWorkspace({
 
       try {
         setIsEarnDepositPreparePending(true);
+        tracker.observe("prepare", {
+          policyMode: requiresPolicySetup ? "create" : "reuse",
+        });
         const amountRaw = parseTokenAmountLabelToRaw(
           draft.amountLabel,
           draft.tokenDecimals
@@ -5158,20 +5293,44 @@ export function AppWalletWorkspace({
           !preparedDeposit.policySetupPrepared &&
           !preparedDeposit.policyFinalizePrepared;
 
+        tracker.observe("review", {
+          policyMode: requiresPolicySetup ? "create" : "reuse",
+          reviewBypassed: shouldBypassTopUpPreview,
+        });
+
         if (shouldBypassTopUpPreview) {
           if (!ensureCanSignAccountAction()) {
             return;
           }
 
           setIsEarnAutoSigning(true);
+          tracker.observe("wallet_submit_confirm", {
+            chainState: "submitted",
+            executionMode: "single",
+            policyMode: "reuse",
+          });
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
+            observabilityFlowId: tracker.flowId,
             preparedDeposit,
           });
 
           if (!result.success) {
+            if (result.status === "confirmation_record_failed") {
+              tracker.fail("backend_confirm", {
+                chainState: "confirmed",
+                errorCode: "record_failed",
+                persistenceState: "failed",
+              });
+            }
             throw new Error(result.error ?? "Earn deposit failed.");
           }
+
+          tracker.observe("slot_resolve", { chainState: "confirmed" });
+          tracker.observe("backend_confirm", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
 
           markDetailPaneTransition("back");
           setPendingEarnDepositDraft(null);
@@ -5197,6 +5356,10 @@ export function AppWalletWorkspace({
           setSelectedSignerId(null);
           setDetailSelection("earn");
           setSelectedDetail("Earn");
+          tracker.complete("ui_commit", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
           return;
         }
 
@@ -5216,6 +5379,13 @@ export function AppWalletWorkspace({
             ? error.message
             : "Failed to prepare Earn deposit.";
         setEarnDepositPrepareError(message);
+        if (isWalletCancellation(error)) {
+          tracker.cancel("wallet_submit_confirm", {
+            errorCode: "wallet_rejected",
+          });
+        } else {
+          tracker.fail("prepare", { errorCode: "unexpected_error" });
+        }
       } finally {
         setIsEarnAutoSigning(false);
         setIsEarnDepositPreparePending(false);
@@ -5239,6 +5409,14 @@ export function AppWalletWorkspace({
 
   const handleSubmitEarnWithdrawDraft = useCallback(
     async (draft: EarnWithdrawDraft) => {
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "earn.withdrawal",
+        flowVariant: draft.mode,
+      });
+      earnWithdrawLifecycleRef.current = tracker;
+      tracker.start("intent", {
+        cleanupRequired: draft.mode === "full",
+      });
       setProposalActionError(null);
       setEarnDepositPrepareError(null);
       setPendingEarnWithdrawPrepared(null);
@@ -5247,6 +5425,9 @@ export function AppWalletWorkspace({
 
       try {
         setIsEarnWithdrawPreparePending(true);
+        tracker.observe("prepare", {
+          cleanupRequired: draft.mode === "full",
+        });
         const amountRaw = getEarnWithdrawDraftAmountRaw(draft);
         const preparedWithdraw = await prepareEarnWithdrawInBrowser(draft);
         const shouldBypassWithdrawPreview =
@@ -5263,19 +5444,39 @@ export function AppWalletWorkspace({
           let latestConfirmedSlot: string | undefined;
           let latestSignature: string | undefined;
           for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
+            tracker.observe("wallet_submit_confirm", {
+              chainState: "submitted",
+              executionMode: stepCount > 1 ? "sequential" : "single",
+              stageCount: stepCount,
+              stageIndex: stepIndex,
+            });
             const result = await smartAccountData.executeEarnWithdraw({
               amountRaw,
               mode: draft.mode,
+              observabilityFlowId: tracker.flowId,
               preparedWithdraw,
               stepIndex,
             });
 
             if (!result.success) {
+              if (result.status === "confirmation_record_failed") {
+                tracker.fail("backend_confirm", {
+                  chainState: "confirmed",
+                  errorCode: "record_failed",
+                  persistenceState: "failed",
+                });
+              }
               throw new Error(result.error ?? "Earn withdrawal failed.");
             }
             latestConfirmedSlot = result.confirmedSlot ?? latestConfirmedSlot;
             latestSignature = result.signature ?? latestSignature;
           }
+
+          tracker.observe("slot_resolve", { chainState: "confirmed" });
+          tracker.observe("backend_confirm", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
 
           markDetailPaneTransition("back");
           registerExpectedEarnMutation({
@@ -5299,6 +5500,10 @@ export function AppWalletWorkspace({
           setSelectedSignerId(null);
           setDetailSelection("earn");
           setSelectedDetail("Earn");
+          tracker.complete("ui_commit", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
           return;
         }
 
@@ -5317,6 +5522,13 @@ export function AppWalletWorkspace({
             : "Failed to prepare Earn withdrawal.";
         setProposalActionError(message);
         setEarnDepositPrepareError(message);
+        if (isWalletCancellation(error)) {
+          tracker.cancel("wallet_submit_confirm", {
+            errorCode: "wallet_rejected",
+          });
+        } else {
+          tracker.fail("prepare", { errorCode: "unexpected_error" });
+        }
       } finally {
         setIsEarnAutoSigning(false);
         setIsEarnWithdrawPreparePending(false);
@@ -5346,7 +5558,13 @@ export function AppWalletWorkspace({
 
     try {
       setIsEarnWithdrawPreparePending(true);
-      const preparedCleanup = await prepareEarnCleanupOnServer();
+      earnWithdrawLifecycleRef.current?.observe("full_exit_verify", {
+        chainState: "confirmed",
+        cleanupRequired: true,
+      });
+      const preparedCleanup = await prepareEarnCleanupOnServer({
+        observabilityFlowId: earnWithdrawLifecycleRef.current?.flowId,
+      });
       setPendingEarnCleanupPrepared(preparedCleanup);
     } catch (error) {
       const message =
@@ -5355,6 +5573,9 @@ export function AppWalletWorkspace({
           : "Failed to prepare Earn cleanup.";
       setProposalActionError(message);
       setEarnDepositPrepareError(message);
+      earnWithdrawLifecycleRef.current?.fail("full_exit_verify", {
+        errorCode: "full_exit_verification_retryable",
+      });
     } finally {
       setIsEarnWithdrawPreparePending(false);
     }
@@ -5373,6 +5594,7 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     setEarnDepositPrepareError(null);
     setIsEarnAutoSigning(true);
+    const tracker = earnDepositLifecycleRef.current;
     try {
       if (!pendingEarnDepositPrepared) {
         throw new Error(
@@ -5390,8 +5612,19 @@ export function AppWalletWorkspace({
       );
 
       if (stage === "policy" || stage === "policy-finalize") {
+        tracker?.observe(stage === "policy" ? "policy" : "policy_finalize", {
+          chainState: "not_submitted",
+          executionMode: "batch",
+          policyMode: "create",
+        });
+        tracker?.observe("wallet_submit_confirm", {
+          chainState: "submitted",
+          executionMode: "batch",
+          policyMode: "create",
+        });
         const batchResult = await smartAccountData.executeEarnDepositBatch({
           amountRaw,
+          observabilityFlowId: tracker?.flowId,
           preparedDeposit: pendingEarnDepositPrepared,
           startStage: stage,
           ...stageSignatures,
@@ -5418,11 +5651,24 @@ export function AppWalletWorkspace({
           setEarnDepositPolicyStageSignatures(stageSignatures);
 
           if (!batchResult.success) {
+            if (batchResult.status === "confirmation_record_failed") {
+              tracker?.fail("backend_confirm", {
+                chainState: "confirmed",
+                errorCode: "record_failed",
+                persistenceState: "failed",
+              });
+            }
             if (batchResult.resumeStage) {
               setEarnDepositReviewStage(batchResult.resumeStage);
             }
             throw new Error(batchResult.error ?? "Earn deposit failed.");
           }
+
+          tracker?.observe("slot_resolve", { chainState: "confirmed" });
+          tracker?.observe("backend_confirm", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
 
           markDetailPaneTransition("back");
           setPendingEarnDepositDraft(null);
@@ -5458,6 +5704,10 @@ export function AppWalletWorkspace({
           setSelectedSignerId(null);
           setDetailSelection("earn");
           setSelectedDetail("Earn");
+          tracker?.complete("ui_commit", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
           return;
         }
       }
@@ -5468,7 +5718,17 @@ export function AppWalletWorkspace({
         setSelectedDetail("Deposit");
 
         if (stage === "policy" || stage === "policy-finalize") {
+          tracker?.observe(stage === "policy" ? "policy" : "policy_finalize", {
+            chainState: "not_submitted",
+            executionMode: "sequential",
+            policyMode: "create",
+          });
+          tracker?.observe("wallet_submit_confirm", {
+            chainState: "submitted",
+            executionMode: "sequential",
+          });
           const result = await smartAccountData.executeEarnDepositPolicyStage({
+            observabilityFlowId: tracker?.flowId,
             preparedDeposit: pendingEarnDepositPrepared,
             stage,
           });
@@ -5514,15 +5774,33 @@ export function AppWalletWorkspace({
           continue;
         }
 
+        tracker?.observe("wallet_submit_confirm", {
+          chainState: "submitted",
+          executionMode: "sequential",
+        });
         const result = await smartAccountData.executeEarnDeposit({
           amountRaw,
+          observabilityFlowId: tracker?.flowId,
           ...stageSignatures,
           preparedDeposit: pendingEarnDepositPrepared,
         });
 
         if (!result.success) {
+          if (result.status === "confirmation_record_failed") {
+            tracker?.fail("backend_confirm", {
+              chainState: "confirmed",
+              errorCode: "record_failed",
+              persistenceState: "failed",
+            });
+          }
           throw new Error(result.error ?? "Earn deposit failed.");
         }
+
+        tracker?.observe("slot_resolve", { chainState: "confirmed" });
+        tracker?.observe("backend_confirm", {
+          chainState: "confirmed",
+          persistenceState: "recorded",
+        });
 
         markDetailPaneTransition("back");
         setPendingEarnDepositDraft(null);
@@ -5549,6 +5827,10 @@ export function AppWalletWorkspace({
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
+        tracker?.complete("ui_commit", {
+          chainState: "confirmed",
+          persistenceState: "recorded",
+        });
         break;
       }
     } catch (error) {
@@ -5565,6 +5847,15 @@ export function AppWalletWorkspace({
           : raw
       );
       setEarnDepositPrepareError(raw);
+      if (isWalletCancellation(error)) {
+        tracker?.cancel("wallet_submit_confirm", {
+          errorCode: "wallet_rejected",
+        });
+      } else {
+        tracker?.fail("wallet_submit_confirm", {
+          errorCode: "unexpected_error",
+        });
+      }
     } finally {
       setIsEarnAutoSigning(false);
     }
@@ -5597,6 +5888,7 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     setEarnDepositPrepareError(null);
     setIsEarnAutoSigning(true);
+    const tracker = earnWithdrawLifecycleRef.current;
     try {
       let stage = earnWithdrawReviewStage;
       let preparedWithdraw = pendingEarnWithdrawPrepared;
@@ -5608,6 +5900,15 @@ export function AppWalletWorkspace({
         setSelectedDetail("Withdraw");
 
         if (stage === "autodeposit") {
+          tracker?.observe("autodeposit_close", {
+            autodepositCloseRequired: true,
+            chainState: "not_submitted",
+          });
+          tracker?.observe("wallet_submit_confirm", {
+            autodepositCloseRequired: true,
+            chainState: "submitted",
+            executionMode: "sequential",
+          });
           const preparedClose =
             preparedWithdraw?.autodepositClosePrepared ?? null;
           if (!preparedClose) {
@@ -5615,6 +5916,7 @@ export function AppWalletWorkspace({
           }
 
           const result = await smartAccountData.executeEarnAutodepositClose({
+            observabilityFlowId: tracker?.flowId,
             policy: preparedClose.policy.account.toBase58(),
             preparedClose,
             recurringDelegation:
@@ -5622,6 +5924,13 @@ export function AppWalletWorkspace({
           });
 
           if (!result.success) {
+            if (result.status === "confirmation_record_failed") {
+              tracker?.fail("backend_confirm", {
+                chainState: "confirmed",
+                errorCode: "record_failed",
+                persistenceState: "failed",
+              });
+            }
             throw new Error(result.error ?? "Autodeposit close failed.");
           }
 
@@ -5655,8 +5964,16 @@ export function AppWalletWorkspace({
           throw new Error("Prepare the Earn withdrawal before signing.");
         }
 
+        tracker?.observe("wallet_submit_confirm", {
+          chainState: "submitted",
+          executionMode:
+            preparedWithdraw.withdrawSteps.length > 1 ? "sequential" : "single",
+          stageCount: Math.max(1, preparedWithdraw.withdrawSteps.length),
+          stageIndex: stepIndex,
+        });
         const result = await smartAccountData.executeEarnWithdraw({
           amountRaw,
+          observabilityFlowId: tracker?.flowId,
           autodepositCloseAlreadyCompleted:
             pendingEarnWithdrawDraft.mode === "full",
           mode: pendingEarnWithdrawDraft.mode,
@@ -5665,6 +5982,13 @@ export function AppWalletWorkspace({
         });
 
         if (!result.success) {
+          if (result.status === "confirmation_record_failed") {
+            tracker?.fail("backend_confirm", {
+              chainState: "confirmed",
+              errorCode: "record_failed",
+              persistenceState: "failed",
+            });
+          }
           throw new Error(result.error ?? "Earn withdrawal failed.");
         }
 
@@ -5680,6 +6004,12 @@ export function AppWalletWorkspace({
           setEarnWithdrawReviewStage(stage);
           continue;
         }
+
+        tracker?.observe("slot_resolve", { chainState: "confirmed" });
+        tracker?.observe("backend_confirm", {
+          chainState: "confirmed",
+          persistenceState: "recorded",
+        });
 
         markDetailPaneTransition("back");
         registerExpectedEarnMutation({
@@ -5708,6 +6038,18 @@ export function AppWalletWorkspace({
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
+        if (pendingEarnWithdrawDraft.mode === "full") {
+          tracker?.observe("full_exit_verify", {
+            chainState: "confirmed",
+            cleanupRequired: true,
+            persistenceState: "recorded",
+          });
+        } else {
+          tracker?.complete("ui_commit", {
+            chainState: "confirmed",
+            persistenceState: "recorded",
+          });
+        }
         break;
       }
     } catch (error) {
@@ -5715,6 +6057,15 @@ export function AppWalletWorkspace({
         error instanceof Error ? error.message : "Earn withdrawal failed.";
       setProposalActionError(message);
       setEarnDepositPrepareError(message);
+      if (isWalletCancellation(error)) {
+        tracker?.cancel("wallet_submit_confirm", {
+          errorCode: "wallet_rejected",
+        });
+      } else {
+        tracker?.fail("wallet_submit_confirm", {
+          errorCode: "unexpected_error",
+        });
+      }
     } finally {
       setIsEarnWithdrawPreparePending(false);
       setIsEarnAutoSigning(false);
@@ -5748,12 +6099,25 @@ export function AppWalletWorkspace({
     setProposalActionError(null);
     setEarnDepositPrepareError(null);
     setIsEarnAutoSigning(true);
+    const tracker = earnWithdrawLifecycleRef.current;
     try {
+      tracker?.observe("cleanup", {
+        chainState: "submitted",
+        cleanupRequired: true,
+      });
       const result = await smartAccountData.executeEarnCleanup({
+        observabilityFlowId: tracker?.flowId,
         preparedCleanup: pendingEarnCleanupPrepared,
       });
 
       if (!result.success) {
+        if (result.status === "confirmation_record_failed") {
+          tracker?.fail("cleanup", {
+            chainState: "confirmed",
+            errorCode: "record_failed",
+            persistenceState: "failed",
+          });
+        }
         throw new Error(result.error ?? "Earn cleanup failed.");
       }
 
@@ -5772,11 +6136,21 @@ export function AppWalletWorkspace({
         resources: EARN_CLEANUP_MUTATION_RESOURCES,
         signature: result.signature,
       });
+      tracker?.complete("ui_commit", {
+        chainState: "confirmed",
+        cleanupRequired: true,
+        persistenceState: "recorded",
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Earn cleanup failed.";
       setProposalActionError(message);
       setEarnDepositPrepareError(message);
+      if (isWalletCancellation(error)) {
+        tracker?.cancel("cleanup", { errorCode: "wallet_rejected" });
+      } else {
+        tracker?.fail("cleanup", { errorCode: "unexpected_error" });
+      }
     } finally {
       setIsEarnAutoSigning(false);
     }
@@ -5804,6 +6178,16 @@ export function AppWalletWorkspace({
     }
 
     const previousAutodepositConfig = autodepositConfig;
+    const tracker = createBrowserLifecycleTracker({
+      flowName: "earn.autodeposit.configuration",
+      flowVariant:
+        pendingEarnAutodepositDraft.requiresSignature === false
+          ? "floor_update"
+          : "setup",
+    });
+    earnAutodepositLifecycleRef.current = tracker;
+    tracker.start("intent");
+    tracker.observe("prepare");
     setProposalActionError(null);
     setAutodepositConfig((current) =>
       pendingEarnAutodepositDraft.requiresSignature === false
@@ -5850,8 +6234,12 @@ export function AppWalletWorkspace({
           throw new Error("Autodeposit account metadata is missing.");
         }
 
+        tracker.observe("backend_confirm", {
+          persistenceState: "not_started",
+        });
         const result = await smartAccountData.executeEarnAutodepositFloorUpdate(
           {
+            observabilityFlowId: tracker.flowId,
             policyAccount: autodepositConfig.policyAccount,
             recurringDelegation: autodepositConfig.recurringDelegation,
             walletBalanceFloorRaw,
@@ -5863,6 +6251,8 @@ export function AppWalletWorkspace({
             result.error ?? "Autodeposit wallet balance floor update failed."
           );
         }
+
+        tracker.observe("backend_confirm", { persistenceState: "recorded" });
 
         setAutodepositConfig({
           ...autodepositConfig,
@@ -5884,6 +6274,7 @@ export function AppWalletWorkspace({
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
+        tracker.complete("ui_commit", { persistenceState: "recorded" });
         return;
       }
 
@@ -5910,8 +6301,19 @@ export function AppWalletWorkspace({
         setEarnAutodepositSetupReviewStage(
           resolveEarnAutodepositSetupReviewStage(preparedSetup)
         );
+        tracker.observe(
+          preparedSetup.stage === "create_policy"
+            ? "create_policy"
+            : "create_recurring_delegation",
+          { chainState: "not_submitted" }
+        );
+        tracker.observe("wallet_approval", {
+          chainState: "submitted",
+          executionMode: "sequential",
+        });
         const result = await smartAccountData.executeEarnAutodepositSetup({
           amountRaw,
+          observabilityFlowId: tracker.flowId,
           expiryTimestamp: pendingEarnAutodepositDraft.expiryTimestamp,
           nonce: pendingEarnAutodepositDraft.nonce,
           periodLengthSeconds: pendingEarnAutodepositDraft.periodLengthSeconds,
@@ -5924,8 +6326,20 @@ export function AppWalletWorkspace({
         });
 
         if (!result.success || !result.preparedSetup) {
+          if (result.status === "confirmation_record_failed") {
+            tracker.fail("backend_confirm", {
+              chainState: "confirmed",
+              errorCode: "record_failed",
+              persistenceState: "failed",
+            });
+          }
           throw new Error(result.error ?? "Autodeposit setup failed.");
         }
+
+        tracker.observe("backend_confirm", {
+          chainState: "confirmed",
+          persistenceState: "recorded",
+        });
 
         if (result.preparedSetup.stage !== "create_recurring_delegation") {
           if (!result.nextPreparedSetup) {
@@ -5946,6 +6360,10 @@ export function AppWalletWorkspace({
         const policyAccount = result.preparedSetup.persistence.policyAccount;
         if (!policyAccount) {
           throw new Error("Autodeposit policy account was not returned.");
+        }
+
+        if (result.bootstrapSweep) {
+          tracker.observe("bootstrap", { persistenceState: "recorded" });
         }
 
         setAutodepositConfig({
@@ -5984,6 +6402,10 @@ export function AppWalletWorkspace({
         setSelectedSignerId(null);
         setDetailSelection("earn");
         setSelectedDetail("Earn");
+        tracker.complete("ui_commit", {
+          chainState: "confirmed",
+          persistenceState: "recorded",
+        });
         break;
       }
     } catch (error) {
@@ -5993,6 +6415,13 @@ export function AppWalletWorkspace({
           ? error.message.replaceAll("autodeposit", "Autodeposit")
           : "Autodeposit setup failed."
       );
+      if (isWalletCancellation(error)) {
+        tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
+      } else {
+        tracker.fail("backend_confirm", {
+          errorCode: "unexpected_error",
+        });
+      }
     } finally {
       setIsEarnAutodepositSetupConfirming(false);
       setIsEarnAutoSigning(false);
@@ -6027,19 +6456,43 @@ export function AppWalletWorkspace({
     }
 
     const previousAutodepositConfig = autodepositConfig;
+    const tracker = createBrowserLifecycleTracker({
+      flowName: "earn.autodeposit.configuration",
+      flowVariant: "close",
+    });
+    earnAutodepositLifecycleRef.current = tracker;
+    tracker.start("intent");
+    tracker.observe("prepare");
     setProposalActionError(null);
     setAutodepositConfig({ ...autodepositConfig, state: "closing" });
 
     try {
+      tracker.observe("wallet_approval", {
+        chainState: "submitted",
+        executionMode: "single",
+      });
       const result = await smartAccountData.executeEarnAutodepositClose({
+        observabilityFlowId: tracker.flowId,
         policy: autodepositConfig.policyAccount,
         recurringDelegation: autodepositConfig.recurringDelegation,
         preparedClose: pendingEarnAutodepositClosePrepared,
       });
 
       if (!result.success) {
+        if (result.status === "confirmation_record_failed") {
+          tracker.fail("backend_confirm", {
+            chainState: "confirmed",
+            errorCode: "record_failed",
+            persistenceState: "failed",
+          });
+        }
         throw new Error(result.error ?? "Autodeposit close failed.");
       }
+
+      tracker.observe("backend_confirm", {
+        chainState: "confirmed",
+        persistenceState: "recorded",
+      });
 
       setAutodepositConfig(null);
       setPendingEarnAutodepositDraft(null);
@@ -6055,6 +6508,10 @@ export function AppWalletWorkspace({
       setSelectedSignerId(null);
       setDetailSelection("earn");
       setSelectedDetail("Earn");
+      tracker.complete("ui_commit", {
+        chainState: "confirmed",
+        persistenceState: "recorded",
+      });
     } catch (error) {
       setAutodepositConfig(previousAutodepositConfig);
       setProposalActionError(
@@ -6062,6 +6519,11 @@ export function AppWalletWorkspace({
           ? error.message.replaceAll("autodeposit", "Autodeposit")
           : "Autodeposit close failed."
       );
+      if (isWalletCancellation(error)) {
+        tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
+      } else {
+        tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+      }
     }
   }, [
     autodepositConfig,

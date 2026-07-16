@@ -7,7 +7,11 @@ import {
   sanitizeTelemetryText,
   type ServerErrorOperation,
 } from "./error-contract";
-import { buildOtlpErrorPayload } from "./otlp";
+import type {
+  BrowserLifecycleEnvelope,
+  NormalizedLifecycleEvent,
+} from "./lifecycle-contract";
+import { buildOtlpErrorPayload, buildOtlpLifecyclePayload } from "./otlp";
 
 const EXPORT_TIMEOUT_MS = 1250;
 const MAX_METHOD_LENGTH = 16;
@@ -54,7 +58,7 @@ function getTelemetryConfig(): TelemetryConfig | null {
   }
 }
 
-function getRelease(): string {
+export function getObservabilityRelease(): string {
   const release =
     process.env.VERCEL_GIT_COMMIT_SHA ??
     process.env.NEXT_PUBLIC_GIT_COMMIT_HASH ??
@@ -65,7 +69,7 @@ function getRelease(): string {
   );
 }
 
-function getDeploymentEnvironment(): string {
+export function getObservabilityDeploymentEnvironment(): string {
   const environment =
     process.env.VERCEL_ENV ??
     process.env.NEXT_PUBLIC_APP_ENVIRONMENT ??
@@ -86,7 +90,7 @@ function normalizeMethod(method: string | undefined): string | undefined {
     : undefined;
 }
 
-async function exportErrorEvent(event: NormalizedErrorEvent): Promise<boolean> {
+async function exportOtlpPayload(payload: unknown): Promise<boolean> {
   const config = getTelemetryConfig();
   if (!config) {
     return false;
@@ -97,7 +101,7 @@ async function exportErrorEvent(event: NormalizedErrorEvent): Promise<boolean> {
 
   try {
     const response = await fetch(config.endpoint, {
-      body: JSON.stringify(buildOtlpErrorPayload(event)),
+      body: JSON.stringify(payload),
       cache: "no-store",
       headers: {
         authorization: config.ingestionKey,
@@ -114,12 +118,22 @@ async function exportErrorEvent(event: NormalizedErrorEvent): Promise<boolean> {
   }
 }
 
+async function exportErrorEvent(event: NormalizedErrorEvent): Promise<boolean> {
+  return exportOtlpPayload(buildOtlpErrorPayload(event));
+}
+
+async function exportLifecycleEvent(
+  event: NormalizedLifecycleEvent
+): Promise<boolean> {
+  return exportOtlpPayload(buildOtlpLifecyclePayload(event));
+}
+
 export async function reportBrowserErrorEnvelope(
   envelope: BrowserErrorEnvelope
 ): Promise<boolean> {
   try {
     return await exportErrorEvent({
-      deploymentEnvironment: getDeploymentEnvironment(),
+      deploymentEnvironment: getObservabilityDeploymentEnvironment(),
       exception: {
         message: envelope.message,
         name: envelope.name,
@@ -127,7 +141,7 @@ export async function reportBrowserErrorEnvelope(
       },
       operation: envelope.operation,
       pathname: envelope.pathname,
-      release: getRelease(),
+      release: getObservabilityRelease(),
       runtime: "browser",
       serviceName: "loyal-frontend",
       timestamp: envelope.timestamp,
@@ -163,15 +177,32 @@ export async function reportServerError(
           };
 
     return await exportErrorEvent({
-      deploymentEnvironment: getDeploymentEnvironment(),
+      deploymentEnvironment: getObservabilityDeploymentEnvironment(),
       exception: normalizedError,
       ...(method ? { method } : {}),
       operation: options.operation,
       pathname,
-      release: getRelease(),
+      release: getObservabilityRelease(),
       runtime: "node",
       serviceName: "loyal-frontend",
       timestamp: new Date().toISOString(),
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function reportBrowserLifecycleEnvelope(
+  envelope: BrowserLifecycleEnvelope,
+  actorId?: string
+): Promise<boolean> {
+  try {
+    return await exportLifecycleEvent({
+      ...envelope,
+      ...(actorId ? { actorId } : {}),
+      deploymentEnvironment: getObservabilityDeploymentEnvironment(),
+      release: getObservabilityRelease(),
+      serviceName: "loyal-frontend",
     });
   } catch {
     return false;

@@ -65,6 +65,7 @@ export type EarnRealtimeConnectionState =
 export type EarnAutodepositProgress = {
   eventId?: string;
   failureCode?: string;
+  occurredAt?: string;
   scheduledSlotId: string;
   state: EarnAutodepositProgressState | "requesting";
 };

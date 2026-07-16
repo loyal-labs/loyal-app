@@ -411,6 +411,7 @@ export type VaultSwapResult = VaultTransferResult;
 
 export type EarnDepositRequest = {
   amountRaw: bigint;
+  observabilityFlowId?: string;
   policyConfirmedSlot?: string;
   policySignature?: string;
   recordConfirmationAsync?: boolean;
@@ -451,6 +452,7 @@ export type EarnDepositBatchResult = EarnDepositResult & {
 };
 
 export type EarnDepositPolicyStageRequest = {
+  observabilityFlowId?: string;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   stage: "policy" | "policy-finalize";
 };
@@ -467,6 +469,7 @@ export type EarnWithdrawRequest = {
   amountRaw: bigint;
   autodepositCloseAlreadyCompleted?: boolean;
   mode: "partial" | "full";
+  observabilityFlowId?: string;
   onConfirmationRecorded?: () => Promise<void> | void;
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
   recordConfirmationAsync?: boolean;
@@ -488,6 +491,7 @@ export type PreparedEarnUsdcCleanup = SmartAccountPreparedEarnUsdcCleanup & {
 };
 
 export type EarnCleanupRequest = {
+  observabilityFlowId?: string;
   preparedCleanup?: PreparedEarnUsdcCleanup;
 };
 
@@ -504,6 +508,7 @@ export type EarnAutodepositSetupRequest = {
   amountRaw: bigint;
   expiryTimestamp?: bigint;
   nonce: bigint;
+  observabilityFlowId?: string;
   periodLengthSeconds?: bigint;
   policySeed?: bigint;
   startTimestamp?: bigint;
@@ -589,6 +594,7 @@ function createEarnAutodepositPrepareKey(args: {
 }
 
 export type EarnAutodepositCloseRequest = {
+  observabilityFlowId?: string;
   policy: string;
   recurringDelegation: string;
   preparedClose?: SmartAccountPreparedEarnUsdcAutodepositClose | null;
@@ -604,6 +610,7 @@ export type EarnAutodepositCloseResult = {
 };
 
 export type EarnAutodepositFloorUpdateRequest = {
+  observabilityFlowId?: string;
   policyAccount: string;
   recurringDelegation: string;
   walletBalanceFloorRaw: bigint;
@@ -619,6 +626,7 @@ export type EarnAutodepositFloorUpdateResult = {
 
 export type EarnAutodepositToggleRequest = {
   active: boolean;
+  observabilityFlowId?: string;
   policyAccount: string;
   recurringDelegation: string;
 };
@@ -1492,7 +1500,15 @@ async function fetchEarnState(options?: {
   return (await response.json()) as EarnStateResponse;
 }
 
+function observabilityJsonHeaders(flowId?: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...(flowId ? { "x-loyal-flow-id": flowId } : {}),
+  };
+}
+
 async function postConfirmedEarnDeposit(args: {
+  observabilityFlowId?: string;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   signature: string;
   confirmedSlot: string;
@@ -1508,7 +1524,7 @@ async function postConfirmedEarnDeposit(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
     }
   );
@@ -1524,6 +1540,7 @@ async function postConfirmedEarnDeposit(args: {
 }
 
 async function postConfirmedEarnAutodepositSetup(args: {
+  observabilityFlowId?: string;
   preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
   signature: string;
   confirmedSlot: string;
@@ -1535,7 +1552,7 @@ async function postConfirmedEarnAutodepositSetup(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
     }
   );
@@ -1553,6 +1570,7 @@ async function postConfirmedEarnAutodepositSetup(args: {
 }
 
 async function postConfirmedEarnAutodepositClose(args: {
+  observabilityFlowId?: string;
   preparedClose: SmartAccountPreparedEarnUsdcAutodepositClose;
   signature: string;
   confirmedSlot: string;
@@ -1563,7 +1581,7 @@ async function postConfirmedEarnAutodepositClose(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
     }
   );
@@ -1581,6 +1599,7 @@ async function postConfirmedEarnAutodepositClose(args: {
 }
 
 async function postEarnAutodepositFloorUpdate(args: {
+  observabilityFlowId?: string;
   policyAccount: string;
   recurringDelegation: string;
   walletBalanceFloorRaw: bigint;
@@ -1596,7 +1615,7 @@ async function postEarnAutodepositFloorUpdate(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
     }
   );
@@ -1616,6 +1635,7 @@ async function postEarnAutodepositFloorUpdate(args: {
 
 async function postEarnAutodepositToggle(args: {
   active: boolean;
+  observabilityFlowId?: string;
   policyAccount: string;
   recurringDelegation: string;
 }): Promise<EarnAutodepositToggleConfirmResponse> {
@@ -1630,7 +1650,7 @@ async function postEarnAutodepositToggle(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
     }
   );
@@ -1678,6 +1698,7 @@ export async function prepareEarnDepositOnServer(args: {
 export async function prepareEarnCleanupOnServer(
   args: {
     fetchImpl?: typeof fetch;
+    observabilityFlowId?: string;
   } = {}
 ): Promise<PreparedEarnUsdcCleanup> {
   const fetchImpl = args.fetchImpl ?? fetch;
@@ -1686,7 +1707,7 @@ export async function prepareEarnCleanupOnServer(
     {
       body: JSON.stringify({}),
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       method: "POST",
     }
   );
@@ -1788,6 +1809,7 @@ async function postConfirmedEarnPolicySetup(args: {
 }
 
 async function postConfirmedEarnDepositPolicyStage(args: {
+  observabilityFlowId?: string;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   signature: string;
   confirmedSlot: string;
@@ -1799,7 +1821,7 @@ async function postConfirmedEarnDepositPolicyStage(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
     }
   );
@@ -1815,6 +1837,7 @@ async function postConfirmedEarnDepositPolicyStage(args: {
 }
 
 async function postConfirmedEarnWithdraw(args: {
+  observabilityFlowId?: string;
   autodepositCloseConfirmedSlot?: string;
   autodepositCloseSignature?: string;
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
@@ -1829,7 +1852,7 @@ async function postConfirmedEarnWithdraw(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
     }
   );
@@ -1845,6 +1868,7 @@ async function postConfirmedEarnWithdraw(args: {
 }
 
 async function postConfirmedEarnCleanup(args: {
+  observabilityFlowId?: string;
   autodepositCloseConfirmedSlot?: string;
   autodepositCloseSignature?: string;
   preparedCleanup: PreparedEarnUsdcCleanup;
@@ -1856,7 +1880,7 @@ async function postConfirmedEarnCleanup(args: {
     {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify({
         autodepositCloseConfirmedSlot: args.autodepositCloseConfirmedSlot,
         autodepositCloseSignature: args.autodepositCloseSignature,
@@ -5622,6 +5646,7 @@ export function useSmartAccountSidebarData(
         });
 
         await postConfirmedEarnDepositPolicyStage({
+          observabilityFlowId: request.observabilityFlowId,
           confirmedSlot,
           preparedDeposit: request.preparedDeposit,
           signature: sendResult.signature,
@@ -5833,6 +5858,7 @@ export function useSmartAccountSidebarData(
               ) {
                 try {
                   await postConfirmedEarnDepositPolicyStage({
+                    observabilityFlowId: request.observabilityFlowId,
                     confirmedSlot,
                     preparedDeposit: request.preparedDeposit,
                     signature,
@@ -5885,6 +5911,7 @@ export function useSmartAccountSidebarData(
               depositSignature = signature;
               try {
                 await postConfirmedEarnDeposit({
+                  observabilityFlowId: request.observabilityFlowId,
                   preparedDeposit: request.preparedDeposit,
                   policyConfirmedSlot:
                     policySignatureResolution?.policyConfirmedSlot,
@@ -6125,6 +6152,7 @@ export function useSmartAccountSidebarData(
 
         const recordDepositConfirmation = async () => {
           await postConfirmedEarnDeposit({
+            observabilityFlowId: request.observabilityFlowId,
             preparedDeposit,
             policyConfirmedSlot: policySignatureResolution?.policyConfirmedSlot,
             policySignature: policySignatureResolution?.policySignature,
@@ -6281,6 +6309,7 @@ export function useSmartAccountSidebarData(
           });
           try {
             await postConfirmedEarnAutodepositClose({
+              observabilityFlowId: request.observabilityFlowId,
               preparedClose: autodepositClosePrepared,
               signature: autodepositCloseSignature,
               confirmedSlot: autodepositCloseConfirmedSlot,
@@ -6324,6 +6353,7 @@ export function useSmartAccountSidebarData(
 
         const recordWithdrawalConfirmation = async () => {
           await postConfirmedEarnWithdraw({
+            observabilityFlowId: request.observabilityFlowId,
             autodepositCloseConfirmedSlot,
             autodepositCloseSignature,
             preparedWithdraw,
@@ -6491,6 +6521,7 @@ export function useSmartAccountSidebarData(
 
         try {
           await postConfirmedEarnCleanup({
+            observabilityFlowId: request.observabilityFlowId,
             autodepositCloseConfirmedSlot,
             autodepositCloseSignature,
             preparedCleanup,
@@ -6897,6 +6928,7 @@ export function useSmartAccountSidebarData(
                   });
                   try {
                     const response = await postConfirmedEarnAutodepositSetup({
+                      observabilityFlowId: request.observabilityFlowId,
                       preparedSetup: confirmedSetup,
                       signature,
                       confirmedSlot,
@@ -7031,6 +7063,7 @@ export function useSmartAccountSidebarData(
         let confirmResponse: EarnAutodepositSetupConfirmResponse;
         try {
           confirmResponse = await postConfirmedEarnAutodepositSetup({
+            observabilityFlowId: request.observabilityFlowId,
             preparedSetup,
             signature: setupSend.signature,
             confirmedSlot,
@@ -7259,6 +7292,7 @@ export function useSmartAccountSidebarData(
         let confirmResponse: EarnAutodepositCloseConfirmResponse;
         try {
           confirmResponse = await postConfirmedEarnAutodepositClose({
+            observabilityFlowId: request.observabilityFlowId,
             preparedClose,
             signature: closeSend.signature,
             confirmedSlot,
