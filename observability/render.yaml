@@ -15,13 +15,14 @@ projects:
             plan: pro
             numInstances: 1
             rootDir: observability
-            dockerfilePath: ./observability/Dockerfile
-            dockerContext: ./observability
+            dockerfilePath: ./Dockerfile
+            dockerContext: .
             autoDeployTrigger: checksPass
             buildFilter:
               paths:
                 - observability/**
-              ignoredPaths: []
+              ignoredPaths:
+                - observability/smoke-result.json
             healthCheckPath: /api/health
             renderSubdomainPolicy: enabled
             envVars:

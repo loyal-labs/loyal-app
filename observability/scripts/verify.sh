@@ -33,10 +33,10 @@ node -e '
 pass "observability is outside the root Bun workspace graph"
 
 require_literal 'rootDir: observability' "$blueprint"
-require_literal 'dockerfilePath: ./observability/Dockerfile' "$blueprint"
-require_literal 'dockerContext: ./observability' "$blueprint"
+require_literal 'dockerfilePath: ./Dockerfile' "$blueprint"
+require_literal 'dockerContext: .' "$blueprint"
 require_literal '- observability/**' "$blueprint"
-require_literal 'ignoredPaths: []' "$blueprint"
+require_literal '- observability/smoke-result.json' "$blueprint"
 require_literal 'mountPath: /var/lib/clickhouse' "$blueprint"
 require_literal 'healthCheckPath: /api/health' "$blueprint"
 require_literal 'renderSubdomainPolicy: enabled' "$blueprint"

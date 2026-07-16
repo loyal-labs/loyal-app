@@ -68,6 +68,8 @@ Run only the static/isolation/Blueprint checks with:
 Render watches only `observability/**`. Existing Vercel projects already watch
 their own app/package paths, extension CI watches only its extension/package
 paths, and package release now ignores observability-only commits.
+`observability/smoke-result.json` is explicitly ignored by Render because it is
+a local, Git-ignored verification artifact rather than deployable input.
 
 ## Persistence and rollback
 
