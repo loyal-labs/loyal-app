@@ -10,6 +10,7 @@ import {
 } from "./error-contract";
 import type {
   BrowserLifecycleEnvelope,
+  MobileLifecycleEnvelope,
   NormalizedLifecycleEvent,
 } from "./lifecycle-contract";
 import { buildOtlpErrorPayload, buildOtlpLifecyclePayload } from "./otlp";
@@ -229,6 +230,27 @@ export async function reportBrowserLifecycleEnvelope(
       deploymentEnvironment: getObservabilityDeploymentEnvironment(),
       release: getObservabilityRelease(),
       serviceName: "loyal-frontend",
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function reportMobileLifecycleEnvelope(
+  envelope: MobileLifecycleEnvelope,
+  actorId?: string
+): Promise<boolean> {
+  try {
+    // The device reports its own release/environment; the wallet address only
+    // feeds the actor-id derivation in the route and never reaches ClickStack.
+    const { environment, release, ...event } = envelope;
+    delete event.walletAddress;
+    return await exportLifecycleEvent({
+      ...event,
+      ...(actorId ? { actorId } : {}),
+      deploymentEnvironment: environment,
+      release,
+      serviceName: "loyal-mobile",
     });
   } catch {
     return false;

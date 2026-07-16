@@ -169,7 +169,13 @@ export function buildOtlpLifecyclePayload(
                 timeUnixNano,
               },
             ],
-            scope: { name: "loyal.frontend.lifecycle", version: "1" },
+            scope: {
+              name:
+                event.serviceName === "loyal-mobile"
+                  ? "loyal.mobile.lifecycle"
+                  : "loyal.frontend.lifecycle",
+              version: "1",
+            },
           },
         ],
       },
