@@ -21,7 +21,7 @@ require_literal() {
   rg --fixed-strings --quiet -- "$literal" "$file" || fail "$file is missing: $literal"
 }
 
-for file in Dockerfile README.md VERIFIER.md render.yaml scripts/entrypoint.sh scripts/smoke-live.sh scripts/smoke-local.sh; do
+for file in AUTH-REDIRECT-VERIFIER.md Dockerfile README.md VERIFIER.md render.yaml scripts/entrypoint.sh scripts/smoke-auth-redirect.sh scripts/smoke-live.sh scripts/smoke-local.sh; do
   [[ -f "$project_dir/$file" ]] || fail "missing observability/$file"
 done
 pass "standalone observability module contains deployment, docs, and verifier files"
@@ -52,6 +52,8 @@ require_literal '/var/lib/clickhouse/.clickstack' "$project_dir/scripts/entrypoi
 require_literal 'link_state_directory /data/db' "$project_dir/scripts/entrypoint.sh"
 require_literal '/var/log/clickhouse-server/clickhouse-server.err.log' "$project_dir/scripts/entrypoint.sh"
 require_literal 'tail -n 0 -F' "$project_dir/scripts/entrypoint.sh"
+require_literal 'RENDER_EXTERNAL_URL' "$project_dir/scripts/entrypoint.sh"
+require_literal 'export FRONTEND_URL=' "$project_dir/scripts/entrypoint.sh"
 require_literal 'CLICKSTACK_SMOKE_RESULT' "$project_dir/scripts/smoke-live.sh"
 if rg --quiet --glob '!**/verify.sh' 'BEGIN [A-Z ]*PRIVATE KEY|op://|RENDER_API_KEY=' "$project_dir"; then
   fail "tracked observability files contain a forbidden credential or upstream public secret"
@@ -123,6 +125,8 @@ pass "Render Blueprint validates"
 if [[ "${1:-}" == "--local" ]]; then
   "$script_dir/smoke-local.sh"
   pass "local UI, OTLP ingestion, ClickHouse query, and volume-recreation smoke test"
+  "$script_dir/smoke-auth-redirect.sh"
+  pass "hosted authentication redirects, CORS, cookies, and local fallback smoke test"
 elif [[ -n "${1:-}" ]]; then
   fail "unknown option: $1 (expected --local or no option)"
 else

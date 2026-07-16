@@ -10,6 +10,55 @@ fi
 : "${EXPRESS_SESSION_SECRET:?EXPRESS_SESSION_SECRET is required}"
 : "${INGESTION_API_KEY:?INGESTION_API_KEY is required}"
 
+configure_render_frontend_url() {
+  [ "${RENDER:-}" = "true" ] || return 0
+
+  candidate="${FRONTEND_URL:-${RENDER_EXTERNAL_URL:-}}"
+  if [ -z "$candidate" ]; then
+    echo "Render must provide FRONTEND_URL or RENDER_EXTERNAL_URL" >&2
+    exit 66
+  fi
+
+  canonical_url="$(node -e '
+    const raw = process.argv[1];
+    let url;
+    try {
+      url = new URL(raw);
+    } catch {
+      process.exit(1);
+    }
+
+    const hostname = url.hostname.toLowerCase();
+    const isLoopback =
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname === "0.0.0.0" ||
+      hostname === "::1" ||
+      hostname === "[::1]" ||
+      hostname.startsWith("127.");
+    const hasUnexpectedParts =
+      url.username !== "" ||
+      url.password !== "" ||
+      url.search !== "" ||
+      url.hash !== "" ||
+      (url.pathname !== "" && url.pathname !== "/") ||
+      (url.port !== "" && url.port !== "443");
+
+    if (url.protocol !== "https:" || isLoopback || hasUnexpectedParts) {
+      process.exit(1);
+    }
+    process.stdout.write(url.origin);
+  ' "$candidate")" || {
+    echo "ClickStack external frontend URL must be a canonical non-loopback HTTPS origin" >&2
+    exit 66
+  }
+
+  export FRONTEND_URL="$canonical_url"
+  echo "Configured ClickStack external frontend origin from Render"
+}
+
+configure_render_frontend_url
+
 export PORT
 export HYPERDX_APP_PORT="$PORT"
 export HYPERDX_APP_LISTEN_HOSTNAME="0.0.0.0"

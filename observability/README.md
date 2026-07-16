@@ -19,6 +19,13 @@ extension clients.
 Render publishes only the web service port. ClickHouse (`8123`/`9000`), MongoDB
 (`27017`), and OTLP (`4317`/`4318`) are not public endpoints in this milestone.
 
+On Render, the wrapper derives ClickStack's `FRONTEND_URL` from Render's
+automatically injected `RENDER_EXTERNAL_URL`. HyperDX uses this origin for
+post-login redirects, CORS, and secure session-cookie scope. Render startup
+fails before serving traffic if that value is missing or is not a canonical,
+non-loopback HTTPS origin. Local Docker runs retain ClickStack's normal
+`http://localhost:8080` fallback.
+
 ## Implementation plan
 
 1. **Pilot infrastructure (this milestone):** validate the pinned image and
