@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   type BrowserErrorEnvelope,
+  type MobileErrorEnvelope,
   type NormalizedErrorEvent,
   normalizeTelemetryPathname,
   sanitizeTelemetryText,
@@ -144,6 +145,31 @@ export async function reportBrowserErrorEnvelope(
       release: getObservabilityRelease(),
       runtime: "browser",
       serviceName: "loyal-frontend",
+      timestamp: envelope.timestamp,
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function reportMobileErrorEnvelope(
+  envelope: MobileErrorEnvelope
+): Promise<boolean> {
+  try {
+    return await exportErrorEvent({
+      // The device reports its own release/environment — the app fleet mixes
+      // binary versions and OTA updates that Vercel's release can't describe.
+      deploymentEnvironment: envelope.environment,
+      exception: {
+        message: envelope.message,
+        name: envelope.name,
+        ...(envelope.stack ? { stack: envelope.stack } : {}),
+      },
+      operation: envelope.operation,
+      pathname: envelope.pathname,
+      release: envelope.release,
+      runtime: "mobile",
+      serviceName: "loyal-mobile",
       timestamp: envelope.timestamp,
     });
   } catch {

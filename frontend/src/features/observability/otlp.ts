@@ -71,7 +71,10 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
               },
             ],
             scope: {
-              name: "loyal.frontend.errors",
+              name:
+                event.serviceName === "loyal-mobile"
+                  ? "loyal.mobile.errors"
+                  : "loyal.frontend.errors",
               version: "1",
             },
           },
