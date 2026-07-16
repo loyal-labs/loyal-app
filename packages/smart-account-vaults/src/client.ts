@@ -3807,6 +3807,27 @@ function compareProposalSnapshotsByRecency(
   return left.proposalAddress.localeCompare(right.proposalAddress);
 }
 
+// An account sitting at a derived autodeposit policy PDA is only safe to
+// adopt (setup) or close when it really is a subscription-sweep policy. A
+// stale Settings read can resolve a policy seed that collides with the
+// wallet's live Earn ROUTE policy — closing that one strands the wallet's
+// Earn funds behind `missing_earn_policy` (ASK-1802). Sweep policies are
+// ProgramInteraction policies whose every instruction constraint targets the
+// subscriptions program; route policies never do.
+function isSubscriptionSweepPolicy(policy: Policy): boolean {
+  if (policy.policyState.__kind !== "ProgramInteraction") {
+    return false;
+  }
+  const interaction = policy.policyState.fields[0];
+  return (
+    interaction.accountIndex === EARN_DEPOSIT_VAULT_INDEX &&
+    interaction.instructionsConstraints.length > 0 &&
+    interaction.instructionsConstraints.every((constraint) =>
+      constraint.programId.equals(SUBSCRIPTIONS_PROGRAM_ID)
+    )
+  );
+}
+
 function resolveNextPolicySeed(settings: {
   policySeed: Parameters<typeof toBigInt>[0] | null;
 }) {
@@ -8767,6 +8788,11 @@ export function createSmartAccountVaultsClient(
   type EarnAutodepositSetupAccountState = {
     delegationAccount: AccountInfo<Buffer> | null;
     policyAccountExists: boolean;
+    // The raw policy account when this run actually read it from RPC —
+    // undefined on the account-evidence fast path (the policy was created by
+    // an earlier stage of this same flow). Lets the collision guard validate
+    // without an extra fetch.
+    policyAccountInfo?: AccountInfo<Buffer> | null;
     walletUsdcAtaAccount: AccountInfo<Buffer> | null;
     vaultUsdcAtaExists: boolean | undefined;
   };
@@ -9079,6 +9105,7 @@ export function createSmartAccountVaultsClient(
           delegationAccount:
             accountInfos.get(recurringDelegationAddress) ?? null,
           policyAccountExists: Boolean(accountInfos.get(policyAccountAddress)),
+          policyAccountInfo: accountInfos.get(policyAccountAddress) ?? null,
           walletUsdcAtaAccount:
             accountInfos.get(walletUsdcAta.toBase58()) ?? null,
           vaultUsdcAtaExists: Boolean(accountInfos.get(vaultUsdcAtaAddress)),
@@ -9113,6 +9140,24 @@ export function createSmartAccountVaultsClient(
         : readSubscriptionAuthorityInitId(authorityAccount);
     if (expectedSubscriptionAuthorityInitId === null) {
       throw new Error("Subscription authority init id is unavailable.");
+    }
+    // The stage machine treats an existing account at the derived policy PDA
+    // as "policy stage done". When a stale Settings read resolves a colliding
+    // seed, that account is the wallet's live Earn ROUTE policy — adopting it
+    // half-lands the setup and later feeds the route policy to the close
+    // flow, which destroys the wallet's Earn access (ASK-1802). Only adopt an
+    // account that verifies as a sweep policy. (Skipped on the
+    // account-evidence fast path — an earlier stage of this flow created the
+    // policy, so there is nothing foreign to adopt.)
+    if (accountState.policyAccountInfo) {
+      const [existingPolicy] = Policy.fromAccountInfo(
+        accountState.policyAccountInfo
+      );
+      if (!isSubscriptionSweepPolicy(existingPolicy)) {
+        throw new Error(
+          `Autodeposit policy seed ${policySeed} collides with an existing non-Autodeposit policy — the settings read is stale. Retry the setup.`
+        );
+      }
     }
     const policyExistsForPlanning =
       options.assumePolicyExists || accountState.policyAccountExists;
@@ -9509,6 +9554,23 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda,
       accountIndex: EARN_DEPOSIT_VAULT_INDEX,
     })[0];
+    // The close input's `policy` travels through DB/state rows that a seed
+    // collision can leave pointing at the wallet's live Earn ROUTE policy
+    // (see the setup-stage guard). Closing that policy strands the wallet's
+    // Earn funds behind `missing_earn_policy` (ASK-1802), so verify the
+    // on-chain shape first. A missing account passes through — the close
+    // then only revokes the delegation and the token approval.
+    const policyAccountInfo = await config.connection.getAccountInfo(
+      args.policy
+    );
+    if (policyAccountInfo) {
+      const [policyToClose] = Policy.fromAccountInfo(policyAccountInfo);
+      if (!isSubscriptionSweepPolicy(policyToClose)) {
+        throw new Error(
+          "Refusing to close a policy that is not an Autodeposit sweep policy."
+        );
+      }
+    }
     const closePolicy = await prepareClosePoliciesSync({
       settingsPda: args.settingsPda,
       feePayer: args.feePayer,
