@@ -9,6 +9,9 @@ const MAX_PATHNAME_LENGTH = 256;
 const MAX_RAW_FIELD_LENGTH = 12 * 1024;
 const MAX_EVENT_AGE_MS = 60 * 60 * 1000;
 const MAX_EVENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const MAX_RELEASE_LENGTH = 80;
+const MAX_ENVIRONMENT_LENGTH = 32;
+const RESOURCE_VALUE_PATTERN = /[^A-Za-z0-9._-]/g;
 
 const URL_QUERY_VALUE_PATTERN = /([?&][^=\s&#]{1,64}=)[^&#\s]*/g;
 const BEARER_VALUE_PATTERN = /\bbearer\s+[^\s,;]+/gi;
@@ -36,15 +39,37 @@ export const BROWSER_ERROR_OPERATIONS = [
 
 export type BrowserErrorOperation = (typeof BROWSER_ERROR_OPERATIONS)[number];
 
+export const MOBILE_ERROR_OPERATIONS = [
+  "mobile.global_error",
+  "mobile.fatal_error",
+  "mobile.unhandled_rejection",
+] as const;
+
+export type MobileErrorOperation = (typeof MOBILE_ERROR_OPERATIONS)[number];
+
 export type ServerErrorOperation = "next.request.error";
 
-export type ObservabilityRuntime = "browser" | "node";
+export type ObservabilityRuntime = "browser" | "mobile" | "node";
 
 export type BrowserErrorEnvelope = {
   message: string;
   name: string;
   operation: BrowserErrorOperation;
   pathname: string;
+  stack?: string;
+  timestamp: string;
+};
+
+// Mobile envelopes carry their own release/environment: the app fleet mixes
+// binary versions and OTA updates, so the server's Vercel release would be
+// meaningless for them.
+export type MobileErrorEnvelope = {
+  environment: string;
+  message: string;
+  name: string;
+  operation: MobileErrorOperation;
+  pathname: string;
+  release: string;
   stack?: string;
   timestamp: string;
 };
@@ -57,11 +82,11 @@ export type NormalizedErrorEvent = {
     stack?: string;
   };
   method?: string;
-  operation: BrowserErrorOperation | ServerErrorOperation;
+  operation: BrowserErrorOperation | MobileErrorOperation | ServerErrorOperation;
   pathname: string;
   release: string;
   runtime: ObservabilityRuntime;
-  serviceName: "loyal-frontend";
+  serviceName: "loyal-frontend" | "loyal-mobile";
   timestamp: string;
 };
 
@@ -183,6 +208,15 @@ function isAllowedBrowserOperation(
   );
 }
 
+function isAllowedMobileOperation(
+  value: unknown
+): value is MobileErrorOperation {
+  return (
+    typeof value === "string" &&
+    MOBILE_ERROR_OPERATIONS.some((operation) => operation === value)
+  );
+}
+
 function readRequiredString(
   record: Record<string, unknown>,
   key: string
@@ -198,31 +232,34 @@ function readRequiredString(
   return value;
 }
 
-export function parseBrowserErrorEnvelope(
-  value: unknown,
-  now = Date.now()
-): BrowserErrorEnvelope {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
+// Release/environment identify the reporting build in OTLP resource
+// attributes; restrict them to a safe identifier alphabet.
+function readResourceValue(
+  record: Record<string, unknown>,
+  key: string,
+  maxLength: number
+): string {
+  const normalized = readRequiredString(record, key)
+    .replace(RESOURCE_VALUE_PATTERN, "_")
+    .slice(0, maxLength);
+  if (normalized.length === 0) {
     throw new InvalidObservabilityEnvelopeError();
   }
+  return normalized;
+}
 
-  const record = value as Record<string, unknown>;
-  const allowedKeys = new Set([
-    "message",
-    "name",
-    "operation",
-    "pathname",
-    "stack",
-    "timestamp",
-  ]);
-  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
-    throw new InvalidObservabilityEnvelopeError();
-  }
+type CommonErrorEnvelopeFields = {
+  message: string;
+  name: string;
+  pathname: string;
+  stack?: string;
+  timestamp: string;
+};
 
-  if (!isAllowedBrowserOperation(record.operation)) {
-    throw new InvalidObservabilityEnvelopeError();
-  }
-
+function parseCommonErrorEnvelopeFields(
+  record: Record<string, unknown>,
+  now: number
+): CommonErrorEnvelopeFields {
   const rawTimestamp = readRequiredString(record, "timestamp");
   const timestampMs = Date.parse(rawTimestamp);
   if (
@@ -264,10 +301,79 @@ export function parseBrowserErrorEnvelope(
   return {
     message,
     name,
-    operation: record.operation,
     pathname,
     ...(stack ? { stack } : {}),
     timestamp: rawTimestamp,
+  };
+}
+
+export function parseBrowserErrorEnvelope(
+  value: unknown,
+  now = Date.now()
+): BrowserErrorEnvelope {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  const record = value as Record<string, unknown>;
+  const allowedKeys = new Set([
+    "message",
+    "name",
+    "operation",
+    "pathname",
+    "stack",
+    "timestamp",
+  ]);
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  if (!isAllowedBrowserOperation(record.operation)) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  return {
+    ...parseCommonErrorEnvelopeFields(record, now),
+    operation: record.operation,
+  };
+}
+
+export function parseMobileErrorEnvelope(
+  value: unknown,
+  now = Date.now()
+): MobileErrorEnvelope {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  const record = value as Record<string, unknown>;
+  const allowedKeys = new Set([
+    "environment",
+    "message",
+    "name",
+    "operation",
+    "pathname",
+    "release",
+    "stack",
+    "timestamp",
+  ]);
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  if (!isAllowedMobileOperation(record.operation)) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  return {
+    ...parseCommonErrorEnvelopeFields(record, now),
+    environment: readResourceValue(
+      record,
+      "environment",
+      MAX_ENVIRONMENT_LENGTH
+    ),
+    operation: record.operation,
+    release: readResourceValue(record, "release", MAX_RELEASE_LENGTH),
   };
 }
 
