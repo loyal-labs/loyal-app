@@ -187,6 +187,48 @@ function hydrateEarnWithdrawCleanupInput(
   };
 }
 
+// RN surfaces connection-level fetch failures (DNS/TLS/socket reset) as a bare
+// TypeError("Network request failed") — which used to reach the withdraw sheet
+// verbatim (ASK-1801). The prepare stages are read-only on both the backend and
+// the RPC, so retrying them is always safe; the send/confirm stages keep their
+// own semantics and are deliberately NOT wrapped.
+const NETWORK_RETRY_ATTEMPTS = 3;
+const NETWORK_RETRY_DELAY_MS = 1_000;
+
+async function withConnectionRetry<T>(
+  label: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < NETWORK_RETRY_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, NETWORK_RETRY_DELAY_MS),
+      );
+    }
+    try {
+      return await run();
+    } catch (error) {
+      // fetch rejects with TypeError only for connection-level failures;
+      // API rejections are EarnApiError and SDK/build errors are plain Error.
+      if (!(error instanceof TypeError)) {
+        throw error;
+      }
+      lastError = error;
+      console.warn(`[earn-withdraw] ${label}: network failure`, {
+        attempt: attempt + 1,
+        errorMessage: error.message,
+      });
+    }
+  }
+  console.warn(`[earn-withdraw] ${label}: giving up after network failures`, {
+    errorMessage: lastError instanceof Error ? lastError.message : String(lastError),
+  });
+  throw new EarnApiError(
+    "We couldn't reach the network to prepare the withdrawal. Your funds are safe — check your connection and try again.",
+  );
+}
+
 // The cleanup context read races the backend's RPC catching up to the
 // withdrawal slot — the route 5xxs (`context_failed`/`resolve_failed`) until
 // its node reaches `minContextSlot`. Those and network blips heal on retry;
@@ -323,13 +365,15 @@ export async function executeEarnWithdraw(args: {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
   const prepareAuth = await signEarnAuth(args.signer, "earn-withdraw-prepare");
   const fetchContext = () =>
-    withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
-      fetchEarnWithdrawPrepareContext({
-        auth,
-        amountRaw,
-        mode: args.mode,
-        source: args.source ?? null,
-      }),
+    withConnectionRetry("prepare-context", () =>
+      withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
+        fetchEarnWithdrawPrepareContext({
+          auth,
+          amountRaw,
+          mode: args.mode,
+          source: args.source ?? null,
+        }),
+      ),
     );
 
   let context = await fetchContext();
@@ -365,10 +409,12 @@ export async function executeEarnWithdraw(args: {
       context,
       args.signer.publicKey,
     );
-    const preparedWithdraw = await client.prepareEarnUsdcWithdraw({
-      ...withdrawInput,
-      closePoliciesOnFullWithdrawal: false,
-    });
+    const preparedWithdraw = await withConnectionRetry("device prepare", () =>
+      client.prepareEarnUsdcWithdraw({
+        ...withdrawInput,
+        closePoliciesOnFullWithdrawal: false,
+      }),
+    );
     const hasSteps = preparedWithdraw.withdrawSteps.length > 0;
     const withdrawResult = await signSendAndConfirmWithdraw({
       signer: args.signer,
@@ -404,8 +450,15 @@ export async function executeEarnWithdraw(args: {
         connection: getConnection(),
         programId: new PublicKey(cleanupContext.programId),
       });
-      const preparedCleanup = await cleanupClient.prepareEarnUsdcCleanup(
-        hydrateEarnWithdrawCleanupInput(cleanupContext, args.signer.publicKey),
+      const preparedCleanup = await withConnectionRetry(
+        "device cleanup prepare",
+        () =>
+          cleanupClient.prepareEarnUsdcCleanup(
+            hydrateEarnWithdrawCleanupInput(
+              cleanupContext,
+              args.signer.publicKey,
+            ),
+          ),
       );
       const [cleanupResult] = await signAndSendPreparedOperations({
         connection: getConnection(),
@@ -449,13 +502,15 @@ export async function executeEarnWithdraw(args: {
 
   // Backend predates `prepare-context` — legacy server-side prepare.
   const prepare = () =>
-    withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
-      prepareEarnWithdraw({
-        auth,
-        amountRaw,
-        mode: args.mode,
-        source: args.source ?? null,
-      }),
+    withConnectionRetry("server prepare", () =>
+      withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
+        prepareEarnWithdraw({
+          auth,
+          amountRaw,
+          mode: args.mode,
+          source: args.source ?? null,
+        }),
+      ),
     );
   let preparedWithdraw = (await prepare()).preparedWithdraw;
 
