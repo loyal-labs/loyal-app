@@ -5,6 +5,8 @@ import {
   getOrCreateCurrentUser,
 } from "@/features/chat/server/app-user";
 import type { AuthenticatedPrincipal } from "@/features/identity/server/auth-session";
+import { normalizeLifecycleErrorCode } from "@/features/observability/lifecycle-contract";
+import { createRequestLifecycle } from "@/features/observability/lifecycle.server";
 import { deriveCanonicalSmartAccountAddress } from "@/features/smart-accounts/derivation";
 import type { AppUserSmartAccountRecord } from "@/features/smart-accounts/server/repository";
 import type {
@@ -78,6 +80,43 @@ export async function ensureWalletUserSmartAccount(args: {
   walletAddress: string;
 }): Promise<EnsureUserSmartAccountResult> {
   return ensureUserSmartAccount(args, createServiceDependencies());
+}
+
+// Provisioning lifecycle twin of the web wallet-onboarding instrumentation:
+// mobile routes provision outside a browser session, so the events are
+// emitted here, joined to the caller's flow via its `x-loyal-flow-id` header
+// (no header → no lifecycle → plain ensure).
+export async function ensureWalletUserSmartAccountTraced(args: {
+  userId: string;
+  walletAddress: string;
+  request: Request;
+}): Promise<EnsureUserSmartAccountResult> {
+  const lifecycle = createRequestLifecycle({
+    flowName: "auth.smart_account_provisioning",
+    flowVariant: "wallet_onboarding",
+    request: args.request,
+  });
+  lifecycle?.setVerifiedWallet(args.walletAddress);
+  lifecycle?.tracker.start("smart_account_reserve");
+  try {
+    const ensured = await ensureWalletUserSmartAccount({
+      userId: args.userId,
+      walletAddress: args.walletAddress,
+    });
+    lifecycle?.tracker.complete("completion_persist", {
+      provisioningOutcome: ensured.provisioningOutcome,
+    });
+    return ensured;
+  } catch (error) {
+    lifecycle?.tracker.fail("sponsorship_finalize", {
+      errorCode: normalizeLifecycleErrorCode(
+        error && typeof error === "object" && "code" in error
+          ? (error as { code?: unknown }).code
+          : undefined
+      ),
+    });
+    throw error;
+  }
 }
 
 export async function ensureCurrentUserSmartAccount(args: {
