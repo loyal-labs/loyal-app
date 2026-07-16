@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowDownIcon, ArrowUpIcon } from "lucide-react";
+import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react";
 
 import {
   AddressLink,
@@ -19,6 +19,13 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -26,19 +33,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
   SafeReserveApyMonitorData,
   SafeReserveApyStatusRow,
   SafeReserveRebalanceDecisionMarker,
 } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
-import {
-  CollapsibleReasonCell,
-  SafeReserveApyChart,
-} from "../safe-reserve-apy-chart";
+import { SafeReserveApyChart } from "../safe-reserve-apy-chart";
 import type {
   EarnActiveReserveRouteRow,
   EarnRebalanceDecisionRow,
+  RebalanceAuditErrorFilter,
+  RebalanceAuditLane,
+  RebalanceAuditRange,
+  RebalanceAuditRow,
+  RebalanceAuditSource,
+  RebalanceAuditSummary,
+  RebalanceAuditView,
 } from "./rebalance-data";
 
 const USDC_DECIMALS = 6;
@@ -59,6 +71,15 @@ type SerializedRebalanceDecisionRow = Omit<
   confirmedSlot: string | null;
 };
 
+type SerializedRebalanceAuditRow = Omit<
+  RebalanceAuditRow,
+  "amountRaw" | "confirmedSlot" | "submittedSlot"
+> & {
+  amountRaw: string | null;
+  confirmedSlot: string | null;
+  submittedSlot: string | null;
+};
+
 type RebalanceApiData = {
   apyData: SafeReserveApyMonitorData;
   decisions: SerializedRebalanceDecisionRow[];
@@ -71,6 +92,28 @@ type LoadState =
   | { message: string; status: "error" };
 
 type ApySortDirection = "asc" | "desc";
+
+type AuditApiData = {
+  activePage: {
+    nextCursor: string | null;
+    rows: SerializedRebalanceAuditRow[];
+  };
+  generatedAt: string;
+  page: {
+    nextCursor: string | null;
+    rows: SerializedRebalanceAuditRow[];
+  };
+  summary: RebalanceAuditSummary;
+};
+
+type AuditLoadState =
+  | { status: "loading" }
+  | { data: AuditApiData; status: "ready" }
+  | { message: string; status: "error" };
+
+const DEFAULT_AUDIT_RANGE: RebalanceAuditRange = "24h";
+const DEFAULT_AUDIT_VIEW: RebalanceAuditView = "completed_rebalances";
+const DEFAULT_ERROR_FILTER: RebalanceAuditErrorFilter = "all";
 
 function formatCompactUsdcRaw(raw: bigint | string) {
   const parsedRaw = typeof raw === "bigint" ? raw : BigInt(raw);
@@ -140,19 +183,6 @@ function formatReason(value: string | null) {
   return value.replaceAll("_", " ");
 }
 
-function formatDecisionType(
-  value: SerializedRebalanceDecisionRow["decisionType"]
-) {
-  switch (value) {
-    case "autodeposit":
-      return "Autodeposit";
-    case "rebalance":
-      return "Rebalance";
-    default:
-      return "N/A";
-  }
-}
-
 function createReserveLabelMap(data: SafeReserveApyMonitorData) {
   return new Map(
     data.statuses.map((row) => [
@@ -176,16 +206,18 @@ function getReserveLabel(
 function toDecisionMarkers(
   rows: readonly SerializedRebalanceDecisionRow[]
 ): SafeReserveRebalanceDecisionMarker[] {
-  return rows.map((row) => ({
-    createdAt: row.createdAt,
-    estimatedEdgeBps: row.estimatedEdgeBps,
-    id: row.id,
-    sourceApyBps: row.sourceApyBps,
-    sourceReserve: row.sourceReserve,
-    status: row.status,
-    targetApyBps: row.targetApyBps,
-    targetReserve: row.targetReserve,
-  }));
+  return rows
+    .filter((row) => row.decisionType === "rebalance")
+    .map((row) => ({
+      createdAt: row.createdAt,
+      estimatedEdgeBps: row.estimatedEdgeBps,
+      id: row.id,
+      sourceApyBps: row.sourceApyBps,
+      sourceReserve: row.sourceReserve,
+      status: row.status,
+      targetApyBps: row.targetApyBps,
+      targetReserve: row.targetReserve,
+    }));
 }
 
 function CurrentReserveApyTable({
@@ -296,88 +328,398 @@ function CurrentReserveApyTable({
   );
 }
 
-function RebalanceDecisionAuditTable({
-  decisions,
+function formatAuditLane(lane: RebalanceAuditLane) {
+  switch (lane) {
+    case "rebalance":
+      return "Rebalance";
+    case "deposit":
+      return "Deposit";
+    case "needs_review":
+      return "Needs review";
+  }
+}
+
+function formatAuditSource(source: RebalanceAuditSource) {
+  switch (source) {
+    case "autodeposit":
+      return "Autodeposit";
+    case "idle_vault_deposit":
+      return "Idle-vault deposit";
+    case "manual_deposit":
+      return "User deposit";
+    case "rebalance":
+      return "Rebalance";
+    case "needs_review":
+      return "Needs review";
+  }
+}
+
+function formatAuditStatus(row: SerializedRebalanceAuditRow) {
+  return row.lane === "needs_review"
+    ? "Needs review"
+    : formatReason(row.status);
+}
+
+function formatAuditAmount(raw: string | null) {
+  return raw === null ? "No amount" : formatCompactUsdcRaw(raw);
+}
+
+function formatDuration(createdAt: string, updatedAt: string) {
+  const seconds = Math.max(
+    0,
+    Math.round((Date.parse(updatedAt) - Date.parse(createdAt)) / 1000)
+  );
+
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function formatAge(createdAt: string) {
+  const createdAtMs = Date.parse(createdAt);
+  if (!Number.isFinite(createdAtMs)) {
+    return "Age unavailable";
+  }
+
+  const seconds = Math.max(0, Math.round((Date.now() - createdAtMs) / 1000));
+  return seconds < 60
+    ? `${seconds}s`
+    : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function isStaleActive(createdAt: string) {
+  const createdAtMs = Date.parse(createdAt);
+  return Number.isFinite(createdAtMs) && Date.now() - createdAtMs > 120_000;
+}
+
+function formatAuditRoute(
+  row: SerializedRebalanceAuditRow,
+  reserveLabels: ReadonlyMap<string, string>
+) {
+  if (row.lane === "rebalance") {
+    return (
+      <div className="flex min-w-44 flex-col">
+        <span>
+          {getReserveLabel(reserveLabels, row.sourceReserve)} →{" "}
+          {getReserveLabel(reserveLabels, row.targetReserve)}
+        </span>
+        <span className="text-xs text-muted-foreground">
+          {formatBpsAsApyPercent(row.sourceApyBps)} →{" "}
+          {formatBpsAsApyPercent(row.targetApyBps)}
+        </span>
+      </div>
+    );
+  }
+
+  if (row.lane === "needs_review") {
+    return (
+      <div className="flex min-w-36 flex-col">
+        <span>{getReserveLabel(reserveLabels, row.targetReserve)}</span>
+        <span className="text-xs text-muted-foreground">
+          {row.movementKind ?? "Unknown movement kind"}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-w-36 flex-col">
+      <span>{getReserveLabel(reserveLabels, row.targetReserve)}</span>
+      <span className="text-xs text-muted-foreground">
+        {formatAuditSource(row.source)}
+      </span>
+    </div>
+  );
+}
+
+function AuditDetails({
   reserveLabels,
+  row,
 }: {
-  decisions: SerializedRebalanceDecisionRow[];
   reserveLabels: ReadonlyMap<string, string>;
+  row: SerializedRebalanceAuditRow;
+}) {
+  const reason = row.abandonReason ?? row.decisionReason;
+
+  return (
+    <details className="mt-1 max-w-[28rem] text-xs">
+      <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+        Details
+      </summary>
+      <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-2 text-muted-foreground">
+        <div className="break-words">{formatReason(reason)}</div>
+        <div>Movement {row.id}</div>
+        <div>Source {formatAuditSource(row.source)}</div>
+        <div>
+          Vault {row.vaultPubkey ?? "record unavailable"} · index{" "}
+          {row.vaultIndex ?? "unknown"}
+        </div>
+        {row.lane === "rebalance" ? (
+          <div>
+            {getReserveLabel(reserveLabels, row.sourceReserve)} →{" "}
+            {getReserveLabel(reserveLabels, row.targetReserve)}
+          </div>
+        ) : (
+          <div>
+            Target {getReserveLabel(reserveLabels, row.targetReserve)} ·{" "}
+            {row.movementKind ?? "Unknown movement kind"}
+          </div>
+        )}
+        <div>Created {formatDateTime(row.createdAt)}</div>
+        <div>Updated {formatDateTime(row.updatedAt)}</div>
+        {row.submittedSlot ? (
+          <div>Submitted slot {row.submittedSlot}</div>
+        ) : null}
+        {row.confirmedSlot ? (
+          <div>Confirmed slot {row.confirmedSlot}</div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
+
+function AuditTransactionLink({
+  label,
+  signature,
+}: {
+  label: string;
+  signature: string | null;
+}) {
+  return signature ? (
+    <span className="flex items-center gap-1 whitespace-nowrap">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <SolscanTransactionLink signature={signature} solanaEnv={SOLANA_ENV}>
+        {formatShortAddress(signature)}
+      </SolscanTransactionLink>
+    </span>
+  ) : null;
+}
+
+function AuditTransaction({ row }: { row: SerializedRebalanceAuditRow }) {
+  return row.signature || row.secondarySignature ? (
+    <div className="flex flex-col items-end gap-1">
+      <AuditTransactionLink
+        label={row.source === "autodeposit" ? "Deposit" : "Tx"}
+        signature={row.signature}
+      />
+      {row.secondarySignature && row.secondarySignature !== row.signature ? (
+        <AuditTransactionLink
+          label="Sweep"
+          signature={row.secondarySignature}
+        />
+      ) : null}
+    </div>
+  ) : (
+    <span className="text-muted-foreground">No tx</span>
+  );
+}
+
+function AuditVault({ row }: { row: SerializedRebalanceAuditRow }) {
+  return (
+    <div>
+      <div className="font-medium">
+        {row.vaultPubkey ? (
+          <AddressLink address={row.vaultPubkey} solanaEnv={SOLANA_ENV} />
+        ) : (
+          <span>Vault record missing</span>
+        )}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        index {row.vaultIndex ?? "unknown"}
+        {row.vaultId ? ` · id ${row.vaultId}` : null}
+      </div>
+    </div>
+  );
+}
+
+function RebalanceAuditTable({
+  rows,
+  reserveLabels,
+  view,
+}: {
+  reserveLabels: ReadonlyMap<string, string>;
+  rows: SerializedRebalanceAuditRow[];
+  view: RebalanceAuditView;
+}) {
+  const isErrors = view === "errors";
+  const isDeposits = view === "completed_deposits";
+  const emptyLabel = isErrors
+    ? "No errors or needs-review records in this time range."
+    : isDeposits
+    ? "No completed deposits in this time range."
+    : "No completed rebalances in this time range.";
+  const columnCount = isErrors ? 8 : isDeposits ? 7 : 6;
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{isErrors ? "Recorded at" : "Completed at"}</TableHead>
+          {isErrors ? <TableHead>Type</TableHead> : null}
+          <TableHead>Vault</TableHead>
+          {isDeposits ? <TableHead>Source</TableHead> : null}
+          <TableHead>{isDeposits ? "Target" : "Route"}</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead>{isErrors ? "Error" : "APY / Duration"}</TableHead>
+          {isErrors ? <TableHead>Status</TableHead> : null}
+          <TableHead className="text-right">Tx</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.length === 0 ? (
+          <TableRow>
+            <TableCell className="text-muted-foreground" colSpan={columnCount}>
+              {emptyLabel}
+            </TableCell>
+          </TableRow>
+        ) : (
+          rows.map((row) => (
+            <TableRow key={row.id}>
+              <TableCell className="whitespace-nowrap tabular-nums">
+                {formatDateTime(row.updatedAt)}
+              </TableCell>
+              {isErrors ? (
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <Badge
+                      variant={
+                        row.lane === "needs_review" ? "destructive" : "outline"
+                      }
+                    >
+                      {formatAuditSource(row.source)}
+                    </Badge>
+                    {row.lane === "needs_review" ? null : (
+                      <span className="text-xs text-muted-foreground">
+                        {formatAuditLane(row.lane)}
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+              ) : null}
+              <TableCell>
+                <AuditVault row={row} />
+              </TableCell>
+              {isDeposits ? (
+                <TableCell>
+                  <Badge variant="outline">
+                    {formatAuditSource(row.source)}
+                  </Badge>
+                </TableCell>
+              ) : null}
+              <TableCell>{formatAuditRoute(row, reserveLabels)}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatAuditAmount(row.amountRaw)}
+              </TableCell>
+              <TableCell>
+                {isErrors ? (
+                  <div className="max-w-[25rem] text-xs text-muted-foreground">
+                    <div className="break-words">
+                      {formatReason(row.abandonReason ?? row.decisionReason)}
+                    </div>
+                    <AuditDetails row={row} reserveLabels={reserveLabels} />
+                  </div>
+                ) : (
+                  <div className="flex flex-col tabular-nums">
+                    <span>
+                      {isDeposits
+                        ? formatBpsAsApyPercent(row.targetApyBps)
+                        : `${formatBpsAsApyPercent(
+                            row.sourceApyBps
+                          )} → ${formatBpsAsApyPercent(
+                            row.targetApyBps
+                          )} (${formatBps(row.estimatedEdgeBps)})`}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatDuration(row.createdAt, row.updatedAt)}
+                    </span>
+                  </div>
+                )}
+              </TableCell>
+              {isErrors ? (
+                <TableCell>
+                  <Badge variant="destructive">{formatAuditStatus(row)}</Badge>
+                </TableCell>
+              ) : null}
+              <TableCell className="text-right">
+                <AuditTransaction row={row} />
+              </TableCell>
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
+  );
+}
+
+function ActiveMovementTable({
+  reserveLabels,
+  rows,
+}: {
+  reserveLabels: ReadonlyMap<string, string>;
+  rows: SerializedRebalanceAuditRow[];
 }) {
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Time</TableHead>
+          <TableHead>Started</TableHead>
           <TableHead>Type</TableHead>
-          <TableHead>Current</TableHead>
-          <TableHead>Best</TableHead>
-          <TableHead className="text-right">Current APY</TableHead>
-          <TableHead className="text-right">Best APY</TableHead>
-          <TableHead className="text-right">Delta</TableHead>
-          <TableHead className="text-right">Action</TableHead>
-          <TableHead>Reason</TableHead>
+          <TableHead>Vault</TableHead>
+          <TableHead>Route / target</TableHead>
+          <TableHead className="text-right">Amount</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Age</TableHead>
           <TableHead className="text-right">Tx</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {decisions.length === 0 ? (
+        {rows.length === 0 ? (
           <TableRow>
-            <TableCell className="text-muted-foreground" colSpan={10}>
-              No rebalance decisions found.
+            <TableCell className="text-muted-foreground" colSpan={8}>
+              No in-progress rows on this page.
             </TableCell>
           </TableRow>
         ) : (
-          decisions.map((decision) => (
-            <TableRow key={decision.id}>
-              <TableCell className="whitespace-nowrap tabular-nums">
-                {formatDateTime(decision.createdAt)}
-              </TableCell>
-              <TableCell>{formatDecisionType(decision.decisionType)}</TableCell>
-              <TableCell>
-                {getReserveLabel(reserveLabels, decision.sourceReserve)}
-              </TableCell>
-              <TableCell>
-                {getReserveLabel(reserveLabels, decision.targetReserve)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {formatBpsAsApyPercent(decision.sourceApyBps)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {formatBpsAsApyPercent(decision.targetApyBps)}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {formatBps(decision.estimatedEdgeBps)}
-              </TableCell>
-              <TableCell className="text-right">
-                <Badge
-                  variant={
-                    decision.status === "confirmed" ? "outline" : "secondary"
-                  }
-                >
-                  {formatReason(decision.status)}
-                </Badge>
-              </TableCell>
-              <TableCell>
-                <CollapsibleReasonCell
-                  reason={formatReason(
-                    decision.abandonReason ?? decision.decisionReason
-                  )}
-                />
-              </TableCell>
-              <TableCell className="text-right">
-                {decision.signature ? (
-                  <SolscanTransactionLink
-                    signature={decision.signature}
-                    solanaEnv={SOLANA_ENV}
+          rows.map((row) => {
+            const stale = isStaleActive(row.createdAt);
+
+            return (
+              <TableRow key={row.id}>
+                <TableCell className="whitespace-nowrap tabular-nums">
+                  {formatDateTime(row.createdAt)}
+                </TableCell>
+                <TableCell>
+                  <Badge
+                    variant={
+                      row.lane === "needs_review" ? "destructive" : "outline"
+                    }
                   >
-                    {formatShortAddress(decision.signature)}
-                  </SolscanTransactionLink>
-                ) : (
-                  <span className="text-muted-foreground">No tx</span>
-                )}
-              </TableCell>
-            </TableRow>
-          ))
+                    {formatAuditLane(row.lane)}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <AuditVault row={row} />
+                </TableCell>
+                <TableCell>{formatAuditRoute(row, reserveLabels)}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatAuditAmount(row.amountRaw)}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={stale ? "destructive" : "secondary"}>
+                    {formatAuditStatus(row)}
+                  </Badge>
+                </TableCell>
+                <TableCell className="whitespace-nowrap tabular-nums">
+                  <span className={stale ? "font-medium text-destructive" : ""}>
+                    {formatAge(row.createdAt)}
+                  </span>
+                </TableCell>
+                <TableCell className="text-right">
+                  <AuditTransaction row={row} />
+                </TableCell>
+              </TableRow>
+            );
+          })
         )}
       </TableBody>
     </Table>
@@ -404,27 +746,443 @@ function CurrentReserveApyCard({
   );
 }
 
-function RebalanceDecisionAuditCard({
-  decisions,
+function isAuditView(value: string | null): value is RebalanceAuditView {
+  return (
+    value === "completed_rebalances" ||
+    value === "completed_deposits" ||
+    value === "errors"
+  );
+}
+
+function isAuditRange(value: string | null): value is RebalanceAuditRange {
+  return (
+    value === "24h" || value === "7d" || value === "30d" || value === "all"
+  );
+}
+
+function isErrorFilter(
+  value: string | null
+): value is RebalanceAuditErrorFilter {
+  return (
+    value === "all" ||
+    value === "rebalance" ||
+    value === "deposit" ||
+    value === "needs_review"
+  );
+}
+
+function updateAuditUrl(values: {
+  activeCursor?: string | null;
+  cursor?: string | null;
+  errorFilter: RebalanceAuditErrorFilter;
+  range: RebalanceAuditRange;
+  view: RebalanceAuditView;
+}) {
+  const params = new URLSearchParams(window.location.search);
+  params.set("auditView", values.view);
+  params.set("auditRange", values.range);
+  params.set("auditError", values.errorFilter);
+
+  if (values.cursor !== undefined) {
+    if (values.cursor) {
+      params.set("auditCursor", values.cursor);
+    } else {
+      params.delete("auditCursor");
+    }
+  }
+
+  if (values.activeCursor !== undefined) {
+    if (values.activeCursor) {
+      params.set("auditActiveCursor", values.activeCursor);
+    } else {
+      params.delete("auditActiveCursor");
+    }
+  }
+
+  const query = params.toString();
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${query ? `?${query}` : ""}`
+  );
+}
+
+function AuditSummaryStrip({
+  activePage,
+  onNextPage,
+  reserveLabels,
+  summary,
+}: {
+  activePage: AuditApiData["activePage"];
+  onNextPage: (cursor: string) => void;
+  reserveLabels: ReadonlyMap<string, string>;
+  summary: RebalanceAuditSummary;
+}) {
+  if (summary.active === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      className={
+        summary.staleActive > 0
+          ? "rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm"
+          : "rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"
+      }
+    >
+      <div>
+        <span className="font-medium">
+          {summary.active} movement{summary.active === 1 ? "" : "s"} in progress
+        </span>
+        {summary.staleActive > 0 ? (
+          <span className="text-muted-foreground">
+            {" "}
+            · {summary.staleActive} stale for more than two minutes
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-3 overflow-x-auto rounded-md border bg-background">
+        <ActiveMovementTable
+          reserveLabels={reserveLabels}
+          rows={activePage.rows}
+        />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>
+          Showing {activePage.rows.length.toLocaleString()} newest in-progress
+          rows
+        </span>
+        {activePage.nextCursor ? (
+          <Button
+            onClick={() => {
+              if (activePage.nextCursor) {
+                onNextPage(activePage.nextCursor);
+              }
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            More in progress
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function RebalanceAuditCard({
   reserveLabels,
 }: {
-  decisions: SerializedRebalanceDecisionRow[];
   reserveLabels: ReadonlyMap<string, string>;
 }) {
+  const [view, setView] = useState<RebalanceAuditView>(DEFAULT_AUDIT_VIEW);
+  const [range, setRange] = useState<RebalanceAuditRange>(DEFAULT_AUDIT_RANGE);
+  const [errorFilter, setErrorFilter] =
+    useState<RebalanceAuditErrorFilter>(DEFAULT_ERROR_FILTER);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [activeCursor, setActiveCursor] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [state, setState] = useState<AuditLoadState>({ status: "loading" });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const nextView = params.get("auditView");
+    const nextRange = params.get("auditRange");
+    const nextError = params.get("auditError");
+
+    if (isAuditView(nextView)) {
+      setView(nextView);
+    }
+    if (isAuditRange(nextRange)) {
+      setRange(nextRange);
+    }
+    if (isErrorFilter(nextError)) {
+      setErrorFilter(nextError);
+    }
+    setCursor(params.get("auditCursor"));
+    setActiveCursor(params.get("auditActiveCursor"));
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let mounted = true;
+
+    async function loadAudit() {
+      const params = new URLSearchParams({
+        errorFilter,
+        range,
+        view,
+      });
+      if (cursor) {
+        params.set("cursor", cursor);
+      }
+      if (activeCursor) {
+        params.set("activeCursor", activeCursor);
+      }
+
+      try {
+        const response = await fetch(`/api/earn/rebalance/audit?${params}`, {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Audit request failed: ${response.status}`);
+        }
+
+        const data = (await response.json()) as AuditApiData;
+        if (mounted) {
+          setState({ data, status: "ready" });
+        }
+      } catch (error) {
+        if (!mounted || controller.signal.aborted) {
+          return;
+        }
+
+        setState({
+          message:
+            error instanceof Error ? error.message : "Audit request failed.",
+          status: "error",
+        });
+      }
+    }
+
+    void loadAudit();
+    const interval = window.setInterval(() => void loadAudit(), 60_000);
+
+    return () => {
+      mounted = false;
+      controller.abort();
+      window.clearInterval(interval);
+    };
+  }, [activeCursor, cursor, errorFilter, hydrated, range, refreshToken, view]);
+
+  function selectView(nextView: RebalanceAuditView) {
+    setView(nextView);
+    setCursor(null);
+    setActiveCursor(null);
+    updateAuditUrl({
+      activeCursor: null,
+      cursor: null,
+      errorFilter,
+      range,
+      view: nextView,
+    });
+  }
+
+  function selectRange(nextRange: RebalanceAuditRange) {
+    setRange(nextRange);
+    setCursor(null);
+    setActiveCursor(null);
+    updateAuditUrl({
+      activeCursor: null,
+      cursor: null,
+      errorFilter,
+      range: nextRange,
+      view,
+    });
+  }
+
+  function selectErrorFilter(nextErrorFilter: RebalanceAuditErrorFilter) {
+    setErrorFilter(nextErrorFilter);
+    setCursor(null);
+    setActiveCursor(null);
+    updateAuditUrl({
+      activeCursor: null,
+      cursor: null,
+      errorFilter: nextErrorFilter,
+      range,
+      view,
+    });
+  }
+
+  const summary = state.status === "ready" ? state.data.summary : null;
+
   return (
     <Card className="min-w-0">
       <CardHeader>
-        <CardTitle className="font-bold">Rebalance decision audit</CardTitle>
-        <CardDescription>
-          Recent optimizer turns with the source reserve, selected target, APY
-          edge, reason, and transaction status
-        </CardDescription>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle className="font-bold">Movement audit</CardTitle>
+            <CardDescription>
+              Confirmed rebalances, user/autodeposits, idle-vault deposits,
+              persisted autodeposit failures, and needs-review records. Worker
+              failures before a decision or execution is persisted remain
+              outside this view.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Range</span>
+            <Select
+              value={range}
+              onValueChange={(value) => {
+                if (isAuditRange(value)) {
+                  selectRange(value);
+                }
+              }}
+            >
+              <SelectTrigger className="w-[7.5rem]" size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="24h">Last 24 hours</SelectItem>
+                <SelectItem value="7d">Last 7 days</SelectItem>
+                <SelectItem value="30d">Last 30 days</SelectItem>
+                <SelectItem value="all">All time</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              aria-label="Refresh movement audit"
+              onClick={() => setRefreshToken((value) => value + 1)}
+              size="sm"
+              type="button"
+              variant="outline"
+            >
+              <RefreshCwIcon aria-hidden="true" />
+              Refresh
+            </Button>
+          </div>
+        </div>
+        {state.status === "ready" ? (
+          <div className="text-xs text-muted-foreground">
+            Updated {formatDateTime(state.data.generatedAt)} · counts are
+            movement records in the selected range
+          </div>
+        ) : null}
       </CardHeader>
-      <CardContent className="min-w-0 overflow-x-auto">
-        <RebalanceDecisionAuditTable
-          decisions={decisions}
-          reserveLabels={reserveLabels}
-        />
+      <CardContent className="min-w-0 space-y-4">
+        {state.status === "loading" ? (
+          <RebalanceDecisionAuditFallback />
+        ) : state.status === "error" ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-3 text-sm">
+            {state.message}
+          </div>
+        ) : (
+          <>
+            <AuditSummaryStrip
+              activePage={state.data.activePage}
+              onNextPage={(nextCursor) => {
+                setActiveCursor(nextCursor);
+                updateAuditUrl({
+                  activeCursor: nextCursor,
+                  errorFilter,
+                  range,
+                  view,
+                });
+              }}
+              reserveLabels={reserveLabels}
+              summary={state.data.summary}
+            />
+            <Tabs
+              value={view}
+              onValueChange={(value) => {
+                if (isAuditView(value)) {
+                  selectView(value);
+                }
+              }}
+            >
+              <TabsList className="grid h-auto w-full grid-cols-1 items-stretch gap-1 bg-muted/60 p-1 sm:grid-cols-3">
+                <TabsTrigger value="completed_rebalances" className="h-10">
+                  Completed rebalances
+                  <Badge variant="outline">
+                    {state.data.summary.completedRebalances.toLocaleString()}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="completed_deposits" className="h-10">
+                  Completed deposits
+                  <Badge variant="outline">
+                    {state.data.summary.completedDeposits.toLocaleString()}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="errors" className="h-10">
+                  Errors
+                  <Badge
+                    variant={
+                      state.data.summary.errors > 0 ? "destructive" : "outline"
+                    }
+                  >
+                    {state.data.summary.errors.toLocaleString()}
+                  </Badge>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {view === "errors" ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">
+                  Error type
+                </span>
+                {(
+                  [
+                    ["all", "All", state.data.summary.errors],
+                    [
+                      "rebalance",
+                      "Rebalances",
+                      state.data.summary.rebalanceErrors,
+                    ],
+                    ["deposit", "Deposits", state.data.summary.depositErrors],
+                    [
+                      "needs_review",
+                      "Needs review",
+                      state.data.summary.needsReview,
+                    ],
+                  ] as const
+                ).map(([value, label, count]) => (
+                  <Button
+                    aria-pressed={errorFilter === value}
+                    key={value}
+                    onClick={() => selectErrorFilter(value)}
+                    size="sm"
+                    type="button"
+                    variant={errorFilter === value ? "secondary" : "ghost"}
+                  >
+                    {label} ({count.toLocaleString()})
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            <div className="overflow-x-auto">
+              <RebalanceAuditTable
+                reserveLabels={reserveLabels}
+                rows={state.data.page.rows}
+                view={view}
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
+              <span>
+                Showing {state.data.page.rows.length.toLocaleString()} newest
+                rows
+              </span>
+              <Button
+                disabled={!state.data.page.nextCursor}
+                onClick={() => {
+                  const nextCursor = state.data.page.nextCursor;
+                  if (nextCursor) {
+                    setCursor(nextCursor);
+                    updateAuditUrl({
+                      errorFilter,
+                      range,
+                      view,
+                      cursor: nextCursor,
+                    });
+                  }
+                }}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                Next page
+              </Button>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -582,10 +1340,7 @@ export function RebalanceMonitorClient() {
         data={state.data.apyData}
         decisionMarkers={toDecisionMarkers(state.data.decisions)}
       />
-      <RebalanceDecisionAuditCard
-        decisions={state.data.decisions}
-        reserveLabels={reserveLabels}
-      />
+      <RebalanceAuditCard reserveLabels={reserveLabels} />
     </div>
   );
 }
