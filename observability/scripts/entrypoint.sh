@@ -51,7 +51,8 @@ link_state_directory /var/log/clickhouse-server "$clickhouse_log_state"
 component_logs="/var/log/clickhouse.log /var/log/clickhouse-server/clickhouse-server.log /var/log/clickhouse-server/clickhouse-server.err.log /var/log/mongod.log /var/log/otel-collector.log /var/log/app.log"
 # Persistent database logs survive restarts. Follow only newly appended lines
 # so each Render deploy does not replay the entire historical log volume.
-tail -n 0 -F $component_logs &
+(tail -n 0 -F $component_logs \
+  | awk '!/^==> .* <==$/ && !/SSLHandshakeFailed|end connection/ { print; fflush() }') &
 tail_pid=$!
 smoke_pid=""
 
