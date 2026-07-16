@@ -81,9 +81,10 @@ a local, Git-ignored verification artifact rather than deployable input.
 ## Persistence and rollback
 
 ClickHouse owns `/var/lib/clickhouse`. The wrapper also places MongoDB at
-`/var/lib/clickhouse/.clickstack/mongodb` and ClickHouse's file logs at
-`/var/lib/clickhouse/.clickstack/clickhouse-logs`, allowing all persistent state
-to fit beneath Render's single disk mount.
+`/var/lib/clickhouse/.clickstack/mongodb`, allowing all database state to fit
+beneath Render's single disk mount. ClickHouse server log files remain
+ephemeral; the wrapper forwards readiness plus fatal/critical server lines to
+Render Logs without persisting Render's internal port-probe noise.
 
 To roll back code, revert the deployment commit and let the Blueprint redeploy
 the previous immutable image. Do not delete or reduce the disk. Before an image

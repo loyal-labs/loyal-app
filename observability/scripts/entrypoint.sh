@@ -17,7 +17,6 @@ export USAGE_STATS_ENABLED="false"
 
 state_root="/var/lib/clickhouse/.clickstack"
 mongo_state="$state_root/mongodb"
-clickhouse_log_state="$state_root/clickhouse-logs"
 
 link_state_directory() {
   link_path="$1"
@@ -44,20 +43,23 @@ link_state_directory() {
 }
 
 link_state_directory /data/db "$mongo_state"
-link_state_directory /var/log/clickhouse-server "$clickhouse_log_state"
 
 # Upstream redirects each component away from stdout. Follow those files so
 # Render Logs contains ClickHouse, MongoDB, collector, and HyperDX output.
-component_logs="/var/log/clickhouse.log /var/log/clickhouse-server/clickhouse-server.log /var/log/clickhouse-server/clickhouse-server.err.log /var/log/mongod.log /var/log/otel-collector.log /var/log/app.log"
-# Persistent database logs survive restarts. Follow only newly appended lines
-# so each Render deploy does not replay the entire historical log volume.
+component_logs="/var/log/clickhouse.log /var/log/mongod.log /var/log/otel-collector.log /var/log/app.log"
+clickhouse_fatal_logs="/var/log/clickhouse-server/clickhouse-server.log /var/log/clickhouse-server/clickhouse-server.err.log"
+# Follow only newly appended lines so startup never replays historical output.
 (tail -n 0 -F $component_logs \
   | awk '!/^==> .* <==$/ && !/SSLHandshakeFailed|end connection/ { print; fflush() }') &
 tail_pid=$!
+(tail -n 0 -F $clickhouse_fatal_logs \
+  | awk '/<Fatal>|<Critical>/ { print; fflush() }') &
+fatal_tail_pid=$!
 smoke_pid=""
 
 cleanup() {
   kill "$tail_pid" 2>/dev/null || true
+  kill "$fatal_tail_pid" 2>/dev/null || true
   if [ -n "$smoke_pid" ]; then
     kill "$smoke_pid" 2>/dev/null || true
   fi
