@@ -8,6 +8,7 @@ import { LandingFooter } from "@/components/landing-footer";
 import { LandingGetStarted } from "@/components/landing-get-started";
 import { LandingHeader } from "@/components/landing-header";
 import { LandingHero } from "@/components/landing-hero";
+import { LandingPhoneLottie } from "@/components/landing-phone-lottie";
 // Roadmap temporarily hidden — restore by uncommenting
 // import { LandingRoadmap } from "@/components/landing-roadmap";
 import { LandingScrollAnimations } from "@/components/landing-scroll-animations";
@@ -121,13 +122,7 @@ export default function LandingPage() {
             data-reveal-delay="1"
           >
             <div className="relative mt-6 aspect-[488/732] w-full max-w-[488px] lg:mt-0">
-              <Image
-                alt="Loyal wallet on a phone showing total balance, Earn yield chart, and stablecoin and crypto holdings"
-                className="object-contain"
-                fill
-                sizes="(min-width: 1560px) 496px, (min-width: 768px) calc((100vw - 96px) / 3), calc(100vw - 48px)"
-                src="/landing/figma/multiple-wallets-phone.png"
-              />
+              <LandingPhoneLottie />
             </div>
           </div>
         </div>
