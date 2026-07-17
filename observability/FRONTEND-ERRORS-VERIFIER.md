@@ -14,9 +14,9 @@ Run this verifier cold from `/Users/taequn/loyal/loyal-apps`. Treat this file as
 ### 2. Public ingestion boundary
 
 - Render still publishes only `0.0.0.0:$PORT` on the existing ClickStack service. HyperDX runs on a loopback-only internal port; ClickHouse, MongoDB, and collector ports remain non-public.
-- Normal HyperDX UI/API/WebSocket traffic and `/api/health` still work through the proxy. Only exact `POST /v1/logs` is proxied to the local collector; other `/v1/*` paths and non-POST methods are rejected.
-- The public log path fails closed until the collector demonstrably rejects an unauthenticated request. Missing and wrong credentials receive `401` or `403`; the configured credential is accepted. The proxy removes collector CORS response headers, applies a request-body limit no greater than 64 KiB, and uses bounded connect/read/send timeouts.
-- A local Docker smoke proves UI health, missing/wrong/correct credential behavior, method/path rejection, oversized-body rejection, absence of permissive CORS, a unique OTLP log queryable in `default.otel_logs`, and persistence of that same log after container recreation against the same volume.
+- Normal HyperDX UI/API/WebSocket traffic and `/api/health` still work through the proxy. Only exact `POST /v1/logs`, `POST /v1/metrics`, and `POST /v1/traces` are proxied to the local collector. `/v1/workflows`, every other `/v1/*` path, query-bearing requests, and non-POST methods are rejected.
+- All three public OTLP paths fail closed until the collector demonstrably rejects unauthenticated requests on all three. Missing and wrong credentials receive `401` or `403`; the configured credential is accepted. The proxy removes collector CORS response headers, applies a request-body limit no greater than 64 KiB per endpoint, and uses bounded connect/read/send timeouts.
+- A local Docker smoke proves UI health; missing/wrong/correct credential behavior; method, query, unsupported-path, and oversized-body rejection; absence of permissive CORS; valid OTLP metrics and traces canaries; a unique OTLP log queryable in `default.otel_logs`; and persistence of that same log after container recreation against the same volume.
 
 ### 3. Frontend error contract and privacy
 
@@ -38,7 +38,7 @@ Run this verifier cold from `/Users/taequn/loyal/loyal-apps`. Treat this file as
 
 - The latest Render deploy and Loyal frontend Vercel production deploy are live from the tested commit. Unrelated projects are not deployed by an observability-only change.
 - `https://loyal-clickstack.onrender.com/api/health` is healthy through the proxy; HyperDX signup/login redirects remain on the hosted origin; recent logs show no proxy or ClickStack crash loop.
-- Live missing/wrong credential, method/path, oversized-body, and CORS probes have the same safe results as local probes. Direct public connections to `4318`, ClickHouse, and MongoDB remain unavailable.
+- Live missing/wrong credential, method/query/unsupported-path, oversized-body, and CORS probes have the same safe results as local probes for logs, metrics, and traces. Valid authenticated canaries are accepted on exactly those three paths. Direct public connections to `4318`, ClickHouse, and MongoDB remain unavailable.
 - A unique synthetic event sent through the deployed same-origin frontend route returns the documented non-blocking success status and becomes queryable in ClickHouse/HyperDX within 60 seconds with the required service/release/environment/runtime/operation/exception fields. A planted forbidden marker does not appear in stored attributes or body.
 - A second unique server-format event sent through the authenticated hosted OTLP path is queryable within 60 seconds. After one controlled ClickStack restart, an existing marker remains queryable and the frontend error route resumes without configuration changes.
 - No secret value appears in Git diff, built client references, HTTP responses, verification artifacts, Render/Vercel logs captured for evidence, or the final report.
