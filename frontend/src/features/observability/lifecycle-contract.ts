@@ -213,6 +213,22 @@ const CHAIN_STATES = [
 const PERSISTENCE_STATES = ["not_started", "recorded", "failed"] as const;
 const TRANSACTION_VERSIONS = ["legacy", "v0"] as const;
 
+export const LIFECYCLE_ERROR_CLASSES = [
+  "dom_exception",
+  "error",
+  "http_response_error",
+  "non_error",
+  "response_parse_error",
+  "type_error",
+  "wallet_rejection",
+] as const;
+export type LifecycleErrorClass = (typeof LIFECYCLE_ERROR_CLASSES)[number];
+
+export const LIFECYCLE_HTTP_ROUTES = [
+  "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm",
+] as const;
+export type LifecycleHttpRoute = (typeof LIFECYCLE_HTTP_ROUTES)[number];
+
 export type LifecycleFlowVariant<
   F extends LifecycleFlowName = LifecycleFlowName
 > = (typeof LIFECYCLE_VARIANTS)[F][number];
@@ -225,9 +241,11 @@ export type LifecycleDiagnostics = {
   autodepositCloseRequired?: boolean;
   chainState?: (typeof CHAIN_STATES)[number];
   cleanupRequired?: boolean;
+  errorClass?: LifecycleErrorClass;
   errorCode?: LifecycleErrorCode;
   executeNowState?: ExecuteNowState;
   executionMode?: (typeof EXECUTION_MODES)[number];
+  httpRoute?: LifecycleHttpRoute;
   httpStatus?: number;
   instructionCount?: number;
   lookupTableUsed?: boolean;
@@ -345,12 +363,14 @@ export function parseBrowserLifecycleEnvelope(
     "cleanupRequired",
     "durationMs",
     "elapsedMs",
+    "errorClass",
     "errorCode",
     "executeNowState",
     "executionMode",
     "flowId",
     "flowName",
     "flowVariant",
+    "httpRoute",
     "httpStatus",
     "instructionCount",
     "lookupTableUsed",
@@ -425,7 +445,9 @@ export function parseBrowserLifecycleEnvelope(
     throw new InvalidLifecycleEnvelopeError();
   }
 
+  assertOptionalEnum(record.errorClass, LIFECYCLE_ERROR_CLASSES);
   assertOptionalEnum(record.errorCode, LIFECYCLE_ERROR_CODES);
+  assertOptionalEnum(record.httpRoute, LIFECYCLE_HTTP_ROUTES);
   assertOptionalEnum(record.executeNowState, EXECUTE_NOW_STATES);
   assertOptionalEnum(record.authProofKind, PROOF_KINDS);
   assertOptionalEnum(record.executionMode, EXECUTION_MODES);

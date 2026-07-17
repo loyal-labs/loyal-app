@@ -59,6 +59,13 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { captureBrowserError } from "@/features/observability/client";
 import {
+  createEarnAutodepositSetupFailure,
+  EARN_AUTODEPOSIT_SETUP_CONFIRM_ROUTE,
+  EarnAutodepositSetupHttpError,
+  type EarnAutodepositSetupFailure,
+  type EarnAutodepositSetupFailureStage,
+} from "@/features/earn-autodeposit/setup-lifecycle";
+import {
   resolveSmartAccountRefreshError,
   resolveSmartAccountMutationRefreshPlan,
   SmartAccountPolicyFollowUp,
@@ -528,6 +535,8 @@ export type EarnAutodepositSetupResult = {
   preparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup;
   nextPreparedSetup?: SmartAccountPreparedEarnUsdcAutodepositSetup | null;
   bootstrapSweep?: EarnAutodepositSetupConfirmResponse["bootstrapSweep"];
+  confirmHttpStatus?: number;
+  failure?: EarnAutodepositSetupFailure;
   scheduledSweeps?: LoadedEarnAutodepositScheduledSweep[];
   error?: string;
 };
@@ -907,7 +916,7 @@ export type SmartAccountSidebarData = {
   refreshGroups: (request: SmartAccountRefreshGroupsRequest) => Promise<void>;
   /** Refresh a confirmed mutation and schedule its one policy consistency read. */
   refreshMutationPlan: (plan: SmartAccountRefreshPlan) => Promise<void>;
-  refreshEarnState: () => Promise<void>;
+  refreshEarnState: () => Promise<EarnStateResponse | null>;
   /**
    * Invalidate caches and re-fetch portfolio + activity after an on-chain tx.
    * Pass the affected vault/signer addresses to make sure their balances
@@ -1545,10 +1554,13 @@ async function postConfirmedEarnAutodepositSetup(args: {
   signature: string;
   confirmedSlot: string;
   walletBalanceFloorRaw: bigint;
-}): Promise<EarnAutodepositSetupConfirmResponse> {
+}): Promise<{
+  httpStatus: number;
+  payload: EarnAutodepositSetupConfirmResponse;
+}> {
   const body = buildEarnAutodepositSetupConfirmRequestBody(args);
   const response = await fetch(
-    "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm",
+    EARN_AUTODEPOSIT_SETUP_CONFIRM_ROUTE,
     {
       method: "POST",
       credentials: "include",
@@ -1561,12 +1573,30 @@ async function postConfirmedEarnAutodepositSetup(args: {
     const payload = (await response
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed Autodeposit setup."
-    );
+    throw new EarnAutodepositSetupHttpError({
+      errorClass: "http_response_error",
+      errorCode: payload?.error?.code,
+      httpStatus: response.status,
+      message:
+        payload?.error?.message ??
+        "Failed to record confirmed Autodeposit setup.",
+    });
   }
 
-  return (await response.json()) as EarnAutodepositSetupConfirmResponse;
+  try {
+    return {
+      httpStatus: response.status,
+      payload: (await response.json()) as EarnAutodepositSetupConfirmResponse,
+    };
+  } catch {
+    throw new EarnAutodepositSetupHttpError({
+      errorClass: "response_parse_error",
+      errorCode: "record_failed",
+      httpStatus: response.status,
+      message:
+        "Autodeposit setup was recorded, but its response could not be read.",
+    });
+  }
 }
 
 async function postConfirmedEarnAutodepositClose(args: {
@@ -3443,51 +3473,55 @@ export function useSmartAccountSidebarData(
     ]
   );
 
-  const refreshEarnState = useCallback(async () => {
-    const requestedScope = smartAccountScopeSnapshot;
-    const orderToken = refreshOrderRef.current.begin("earn");
-    if (!smartAccountScopeGeneration.isCurrent(requestedScope)) {
-      return;
-    }
-    const runId = earnStateRefreshRunIdRef.current + 1;
-    earnStateRefreshRunIdRef.current = runId;
-    const canCommit = () =>
-      smartAccountScopeGeneration.isCurrent(requestedScope) &&
-      earnStateRefreshRunIdRef.current === runId &&
-      refreshOrderRef.current.isCurrent(orderToken);
-    const requestedSettingsPda = user?.settingsPda ?? null;
-    if (!requestedSettingsPda) {
-      if (canCommit()) {
-        setEarnState(null);
-        setHasEarnStateResolved(true);
-        setIsEarnStateLoading(false);
+  const refreshEarnState =
+    useCallback(async (): Promise<EarnStateResponse | null> => {
+      const requestedScope = smartAccountScopeSnapshot;
+      const orderToken = refreshOrderRef.current.begin("earn");
+      if (!smartAccountScopeGeneration.isCurrent(requestedScope)) {
+        return null;
       }
-      return;
-    }
+      const runId = earnStateRefreshRunIdRef.current + 1;
+      earnStateRefreshRunIdRef.current = runId;
+      const canCommit = () =>
+        smartAccountScopeGeneration.isCurrent(requestedScope) &&
+        earnStateRefreshRunIdRef.current === runId &&
+        refreshOrderRef.current.isCurrent(orderToken);
+      const requestedSettingsPda = user?.settingsPda ?? null;
+      if (!requestedSettingsPda) {
+        if (canCommit()) {
+          setEarnState(null);
+          setHasEarnStateResolved(true);
+          setIsEarnStateLoading(false);
+        }
+        return null;
+      }
 
-    setIsEarnStateLoading(true);
-    try {
-      const nextEarnState = await fetchEarnState({ strict: true });
-      if (!canCommit()) {
-        return;
+      setIsEarnStateLoading(true);
+      try {
+        const nextEarnState = await fetchEarnState({ strict: true });
+        if (!canCommit()) {
+          return null;
+        }
+        setEarnState(nextEarnState);
+        if (nextEarnState) {
+          setOverview((current) =>
+            current
+              ? mergeEarnVaultIntoOverview(current, nextEarnState)
+              : current
+          );
+        }
+        return nextEarnState;
+      } finally {
+        if (canCommit()) {
+          setHasEarnStateResolved(true);
+          setIsEarnStateLoading(false);
+        }
       }
-      setEarnState(nextEarnState);
-      if (nextEarnState) {
-        setOverview((current) =>
-          current ? mergeEarnVaultIntoOverview(current, nextEarnState) : current
-        );
-      }
-    } finally {
-      if (canCommit()) {
-        setHasEarnStateResolved(true);
-        setIsEarnStateLoading(false);
-      }
-    }
-  }, [
-    smartAccountScopeGeneration,
-    smartAccountScopeSnapshot,
-    user?.settingsPda,
-  ]);
+    }, [
+      smartAccountScopeGeneration,
+      smartAccountScopeSnapshot,
+      user?.settingsPda,
+    ]);
 
   useEffect(() => {
     setHasEarnStateResolved(!user?.settingsPda);
@@ -4091,7 +4125,10 @@ export function useSmartAccountSidebarData(
         if (group === "proposals")
           return runScopedRefresh(group, loadProposals);
         if (group === "vaults") return runScopedRefresh(group, loadVaults);
-        if (group === "earn") return runScopedRefresh(group, refreshEarnState);
+        if (group === "earn")
+          return runScopedRefresh(group, async () => {
+            await refreshEarnState();
+          });
         return [];
       });
 
@@ -6744,43 +6781,96 @@ export function useSmartAccountSidebarData(
     async (
       request: EarnAutodepositSetupRequest
     ): Promise<EarnAutodepositSetupResult> => {
+      const fail = (args: {
+        chainState?: EarnAutodepositSetupFailure["chainState"];
+        error: unknown;
+        errorCode: unknown;
+        httpStatus?: number;
+        message: string;
+        persistenceState?: EarnAutodepositSetupFailure["persistenceState"];
+        reconcileAuthoritativeState?: boolean;
+        stage: EarnAutodepositSetupFailureStage;
+      }): EarnAutodepositSetupResult => ({
+        error: args.message,
+        failure: createEarnAutodepositSetupFailure({
+          ...(args.chainState ? { chainState: args.chainState } : {}),
+          error: args.error,
+          errorCode: args.errorCode,
+          ...(args.httpStatus !== undefined
+            ? { httpStatus: args.httpStatus }
+            : {}),
+          ...(args.persistenceState
+            ? { persistenceState: args.persistenceState }
+            : {}),
+          ...(args.reconcileAuthoritativeState !== undefined
+            ? {
+                reconcileAuthoritativeState: args.reconcileAuthoritativeState,
+              }
+            : {}),
+          stage: args.stage,
+        }),
+        success: false,
+      });
+
       if (!wallet.publicKey) {
-        return {
-          success: false,
-          error: "Connect the authenticated wallet to sign this action.",
-        };
+        const message = "Connect the authenticated wallet to sign this action.";
+        return fail({
+          error: new Error(message),
+          errorCode: "wallet_unavailable",
+          message,
+          stage: "prepare",
+        });
       }
 
       if (!user?.walletAddress) {
-        return {
-          success: false,
-          error: "Connect the authenticated wallet to sign this action.",
-        };
+        const message = "Connect the authenticated wallet to sign this action.";
+        return fail({
+          error: new Error(message),
+          errorCode: "wallet_unavailable",
+          message,
+          stage: "prepare",
+        });
       }
 
       if (wallet.publicKey.toBase58() !== user.walletAddress) {
-        return {
-          success: false,
-          error: "Connected wallet does not match the authenticated wallet.",
-        };
+        const message =
+          "Connected wallet does not match the authenticated wallet.";
+        return fail({
+          error: new Error(message),
+          errorCode: "wallet_mismatch",
+          message,
+          stage: "prepare",
+        });
       }
 
       if (request.amountRaw <= BigInt(0)) {
-        return { success: false, error: "Amount must be greater than 0." };
+        const message = "Amount must be greater than 0.";
+        return fail({
+          error: new Error(message),
+          errorCode: "invalid_request",
+          message,
+          stage: "prepare",
+        });
       }
       if (request.walletBalanceFloorRaw < BigInt(0)) {
-        return {
-          success: false,
-          error: "Autodeposit wallet balance floor cannot be negative.",
-        };
+        const message = "Autodeposit wallet balance floor cannot be negative.";
+        return fail({
+          error: new Error(message),
+          errorCode: "invalid_request",
+          message,
+          stage: "prepare",
+        });
       }
 
       const walletBridge = createWalletAdapterBridge(wallet);
       if (!walletBridge) {
-        return {
-          success: false,
-          error: "Connected wallet cannot sign transactions.",
-        };
+        const message = "Connected wallet cannot sign transactions.";
+        return fail({
+          error: new Error(message),
+          errorCode: "wallet_signing_unsupported",
+          message,
+          stage: "prepare",
+        });
       }
 
       const expectedEarnCluster = resolveEarnLoyalCluster(solanaEnv);
@@ -6792,6 +6882,9 @@ export function useSmartAccountSidebarData(
       );
 
       setIsActionPending(true);
+      let failureStage: EarnAutodepositSetupFailureStage = "prepare";
+      let confirmedSetupHttpStatus: number | undefined;
+      let confirmedSetupRecorded = false;
       try {
         const preparedSetup =
           request.preparedSetup ??
@@ -6809,11 +6902,14 @@ export function useSmartAccountSidebarData(
           preparedSetup.persistence.amountPerPeriodRaw !==
           request.amountRaw.toString()
         ) {
-          return {
-            success: false,
-            error:
-              "Prepared Autodeposit amount changed. Review Autodeposit again before signing.",
-          };
+          const message =
+            "Prepared Autodeposit amount changed. Review Autodeposit again before signing.";
+          return fail({
+            error: new Error(message),
+            errorCode: "invalid_request",
+            message,
+            stage: "prepare",
+          });
         }
 
         if (
@@ -6837,9 +6933,19 @@ export function useSmartAccountSidebarData(
               walletBalanceFloorRaw: request.walletBalanceFloorRaw,
             });
           } catch (error) {
+            const failure = createEarnAutodepositSetupFailure({
+              error,
+              errorCode: "instruction_fetch_failed",
+              reconcileAuthoritativeState: false,
+              stage: "prepare",
+            });
             console.warn(
               "[executeEarnAutodepositSetup] batch prepare failed; falling back to staged setup",
-              error
+              {
+                errorClass: failure.errorClass,
+                errorCode: failure.errorCode,
+                stage: failure.stage,
+              }
             );
           }
 
@@ -6854,11 +6960,14 @@ export function useSmartAccountSidebarData(
             const batchPreparedSetup = batchPrepare.preparedSetup;
             const batchNextPreparedSetup = batchPrepare.nextPreparedSetup;
             if (!batchPreparedSetup || !batchNextPreparedSetup) {
-              return {
-                success: false,
-                error:
-                  "Autodeposit setup batch did not include a recurring delegation.",
-              };
+              const message =
+                "Autodeposit setup batch did not include a recurring delegation.";
+              return fail({
+                error: new Error(message),
+                errorCode: "instruction_validation_failed",
+                message,
+                stage: "prepare",
+              });
             }
             const batchPreparedSetups: readonly SmartAccountPreparedEarnUsdcAutodepositSetup[] =
               [batchPreparedSetup, batchNextPreparedSetup];
@@ -6872,7 +6981,12 @@ export function useSmartAccountSidebarData(
               )
               .find((error): error is string => Boolean(error));
             if (clusterError) {
-              return { success: false, error: clusterError };
+              return fail({
+                error: new Error(clusterError),
+                errorCode: "cluster_mismatch",
+                message: clusterError,
+                stage: "prepare",
+              });
             }
             const nativeSolError = getNativeSolRequirementError(
               combineSmartAccountNativeSolRequirements(
@@ -6880,7 +6994,12 @@ export function useSmartAccountSidebarData(
               )
             );
             if (nativeSolError) {
-              return { success: false, error: nativeSolError };
+              return fail({
+                error: new Error(nativeSolError),
+                errorCode: "insufficient_native_sol",
+                message: nativeSolError,
+                stage: "prepare",
+              });
             }
 
             const confirmationRecordFailureRef: {
@@ -6892,10 +7011,12 @@ export function useSmartAccountSidebarData(
               } | null;
             } = { current: null };
             let policyConfirmedSlot: string | undefined;
+            let policyConfirmHttpStatus: number | undefined;
             let policySignature: string | undefined;
             let recurringDelegationConfirmedSlot: string | undefined;
             let recurringDelegationSent = false;
             let recurringDelegationSignature: string | undefined;
+            let recurringDelegationConfirmHttpStatus: number | undefined;
             let confirmResponse:
               | EarnAutodepositSetupConfirmResponse
               | undefined;
@@ -6927,24 +7048,27 @@ export function useSmartAccountSidebarData(
                     signature,
                   });
                   try {
-                    const response = await postConfirmedEarnAutodepositSetup({
-                      observabilityFlowId: request.observabilityFlowId,
-                      preparedSetup: confirmedSetup,
-                      signature,
-                      confirmedSlot,
-                      walletBalanceFloorRaw: request.walletBalanceFloorRaw,
-                    });
+                    const { httpStatus, payload } =
+                      await postConfirmedEarnAutodepositSetup({
+                        observabilityFlowId: request.observabilityFlowId,
+                        preparedSetup: confirmedSetup,
+                        signature,
+                        confirmedSlot,
+                        walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+                      });
                     if (confirmedSetup.stage === "create_policy") {
                       policyConfirmedSlot = confirmedSlot;
+                      policyConfirmHttpStatus = httpStatus;
                       policySignature = signature;
                     } else {
                       recurringDelegationConfirmedSlot = confirmedSlot;
+                      recurringDelegationConfirmHttpStatus = httpStatus;
                       recurringDelegationSignature = signature;
                     }
                     if (
                       confirmedSetup.stage === "create_recurring_delegation"
                     ) {
-                      confirmResponse = response;
+                      confirmResponse = payload;
                     }
                   } catch (error) {
                     confirmationRecordFailureRef.current = {
@@ -6961,8 +7085,36 @@ export function useSmartAccountSidebarData(
               const confirmationRecordFailure =
                 confirmationRecordFailureRef.current;
               if (confirmationRecordFailure) {
+                const message =
+                  confirmationRecordFailure.error instanceof Error
+                    ? confirmationRecordFailure.error.message
+                    : "Failed to record confirmed Autodeposit setup.";
                 return {
-                  success: false,
+                  ...fail({
+                    chainState: "confirmed",
+                    error: confirmationRecordFailure.error,
+                    errorCode:
+                      confirmationRecordFailure.error instanceof
+                      EarnAutodepositSetupHttpError
+                        ? confirmationRecordFailure.error.errorCode
+                        : "record_failed",
+                    ...(confirmationRecordFailure.error instanceof
+                    EarnAutodepositSetupHttpError
+                      ? {
+                          httpStatus:
+                            confirmationRecordFailure.error.httpStatus,
+                        }
+                      : {}),
+                    message,
+                    persistenceState:
+                      confirmationRecordFailure.error instanceof
+                        EarnAutodepositSetupHttpError &&
+                      confirmationRecordFailure.error.httpStatus < 300
+                        ? "recorded"
+                        : "failed",
+                    reconcileAuthoritativeState: true,
+                    stage: "backend_confirm",
+                  }),
                   signature: confirmationRecordFailure.signature,
                   ...getEarnAutodepositSetupSignatureFields(
                     confirmationRecordFailure.preparedSetup,
@@ -6971,10 +7123,6 @@ export function useSmartAccountSidebarData(
                   confirmedSlot: confirmationRecordFailure.confirmedSlot,
                   status: "confirmation_record_failed",
                   preparedSetup: confirmationRecordFailure.preparedSetup,
-                  error:
-                    confirmationRecordFailure.error instanceof Error
-                      ? confirmationRecordFailure.error.message
-                      : "Failed to record confirmed Autodeposit setup.",
                 };
               }
 
@@ -6988,19 +7136,23 @@ export function useSmartAccountSidebarData(
                   signature: policySignature,
                   policySignature,
                   confirmedSlot: policyConfirmedSlot,
+                  confirmHttpStatus: policyConfirmHttpStatus,
                   status: "executed",
                   preparedSetup: batchPreparedSetup,
                   nextPreparedSetup: batchNextPreparedSetup,
                 };
               }
 
-              return {
-                success: false,
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Autodeposit setup failed.",
-              };
+              const message =
+                error instanceof Error
+                  ? error.message
+                  : "Autodeposit setup failed.";
+              return fail({
+                error,
+                errorCode: "send_failed",
+                message,
+                stage: "wallet_approval",
+              });
             }
 
             if (
@@ -7008,11 +7160,30 @@ export function useSmartAccountSidebarData(
               !recurringDelegationConfirmedSlot ||
               !recurringDelegationSignature
             ) {
-              return {
-                success: false,
-                error:
-                  "Autodeposit setup batch did not complete the recurring delegation.",
-              };
+              const message =
+                "Autodeposit setup batch did not complete the recurring delegation.";
+              return fail({
+                chainState: recurringDelegationConfirmedSlot
+                  ? "confirmed"
+                  : "submitted",
+                error: new Error(message),
+                errorCode: recurringDelegationConfirmedSlot
+                  ? "record_failed"
+                  : "chain_confirmation_failed",
+                ...(recurringDelegationConfirmHttpStatus !== undefined
+                  ? { httpStatus: recurringDelegationConfirmHttpStatus }
+                  : {}),
+                message,
+                persistenceState: recurringDelegationConfirmedSlot
+                  ? "recorded"
+                  : "not_started",
+                reconcileAuthoritativeState: Boolean(
+                  recurringDelegationConfirmedSlot
+                ),
+                stage: recurringDelegationConfirmedSlot
+                  ? "ui_commit"
+                  : "wallet_approval",
+              });
             }
 
             const scheduledSweeps = confirmResponse.bootstrapSweep?.sweep
@@ -7026,6 +7197,7 @@ export function useSmartAccountSidebarData(
               policySignature,
               recurringDelegationSignature,
               confirmedSlot: recurringDelegationConfirmedSlot,
+              confirmHttpStatus: recurringDelegationConfirmHttpStatus,
               status: "executed",
               preparedSetup: batchNextPreparedSetup,
               bootstrapSweep: confirmResponse.bootstrapSweep,
@@ -7038,9 +7210,15 @@ export function useSmartAccountSidebarData(
           preparedSetup.nativeSolRequirement
         );
         if (nativeSolError) {
-          return { success: false, error: nativeSolError };
+          return fail({
+            error: new Error(nativeSolError),
+            errorCode: "insufficient_native_sol",
+            message: nativeSolError,
+            stage: "prepare",
+          });
         }
 
+        failureStage = "wallet_approval";
         const setupSend = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "autodeposit setup",
@@ -7054,24 +7232,55 @@ export function useSmartAccountSidebarData(
             }),
         });
         if (!setupSend.success) {
-          return setupSend;
+          return fail({
+            error: new Error(setupSend.error),
+            errorCode: "cluster_mismatch",
+            message: setupSend.error,
+            stage: "prepare",
+          });
         }
         const confirmedSlot = await resolveConfirmedSignatureSlot({
           connection,
           signature: setupSend.signature,
         });
         let confirmResponse: EarnAutodepositSetupConfirmResponse;
+        failureStage = "backend_confirm";
         try {
-          confirmResponse = await postConfirmedEarnAutodepositSetup({
+          const confirmed = await postConfirmedEarnAutodepositSetup({
             observabilityFlowId: request.observabilityFlowId,
             preparedSetup,
             signature: setupSend.signature,
             confirmedSlot,
             walletBalanceFloorRaw: request.walletBalanceFloorRaw,
           });
+          confirmResponse = confirmed.payload;
+          confirmedSetupHttpStatus = confirmed.httpStatus;
+          confirmedSetupRecorded = true;
         } catch (error) {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Failed to record confirmed Autodeposit setup.";
           return {
-            success: false,
+            ...fail({
+              chainState: "confirmed",
+              error,
+              errorCode:
+                error instanceof EarnAutodepositSetupHttpError
+                  ? error.errorCode
+                  : "record_failed",
+              ...(error instanceof EarnAutodepositSetupHttpError
+                ? { httpStatus: error.httpStatus }
+                : {}),
+              message,
+              persistenceState:
+                error instanceof EarnAutodepositSetupHttpError &&
+                error.httpStatus < 300
+                  ? "recorded"
+                  : "failed",
+              reconcileAuthoritativeState: true,
+              stage: "backend_confirm",
+            }),
             signature: setupSend.signature,
             ...getEarnAutodepositSetupSignatureFields(
               preparedSetup,
@@ -7080,12 +7289,9 @@ export function useSmartAccountSidebarData(
             confirmedSlot,
             status: "confirmation_record_failed",
             preparedSetup,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to record confirmed Autodeposit setup.",
           };
         }
+        failureStage = "ui_commit";
         const completedAutodepositSetup =
           preparedSetup.stage === "create_recurring_delegation" ||
           preparedSetup.stage === "approve_token_delegate";
@@ -7142,6 +7348,7 @@ export function useSmartAccountSidebarData(
             setupSend.signature
           ),
           confirmedSlot,
+          confirmHttpStatus: confirmedSetupHttpStatus,
           status: "executed",
           preparedSetup,
           nextPreparedSetup,
@@ -7151,8 +7358,37 @@ export function useSmartAccountSidebarData(
       } catch (err) {
         const error =
           err instanceof Error ? err.message : "Autodeposit setup failed.";
-        console.error("[executeEarnAutodepositSetup] failed", err);
-        return { success: false, error };
+        const failure = createEarnAutodepositSetupFailure({
+          ...(confirmedSetupRecorded
+            ? {
+                chainState: "confirmed" as const,
+                httpRoute: EARN_AUTODEPOSIT_SETUP_CONFIRM_ROUTE,
+                persistenceState: "recorded" as const,
+                reconcileAuthoritativeState: true,
+              }
+            : {}),
+          error: err,
+          errorCode:
+            failureStage === "prepare"
+              ? "instruction_fetch_failed"
+              : failureStage === "wallet_approval"
+              ? "send_failed"
+              : failureStage === "backend_confirm"
+              ? "record_failed"
+              : "unexpected_error",
+          ...(confirmedSetupHttpStatus !== undefined
+            ? { httpStatus: confirmedSetupHttpStatus }
+            : {}),
+          stage: failureStage,
+        });
+        console.error("[executeEarnAutodepositSetup] failed", {
+          errorClass: failure.errorClass,
+          errorCode: failure.errorCode,
+          httpRoute: failure.httpRoute,
+          httpStatus: failure.httpStatus,
+          stage: failure.stage,
+        });
+        return { success: false, error, failure };
       } finally {
         setIsActionPending(false);
       }

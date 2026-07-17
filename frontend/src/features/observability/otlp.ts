@@ -103,6 +103,7 @@ export function buildOtlpLifecyclePayload(
 
   const strings: Array<[string, string | undefined]> = [
     ["loyal.actor.id", event.actorId],
+    ["loyal.error.class", event.errorClass],
     ["loyal.error.code", event.errorCode],
     ["loyal.execute_now.state", event.executeNowState],
     ["loyal.chain.state", event.chainState],
@@ -113,6 +114,7 @@ export function buildOtlpLifecyclePayload(
     ["loyal.execution.mode", event.executionMode],
     ["loyal.provisioning.outcome", event.provisioningOutcome],
     ["loyal.scheduled_slot.id", event.scheduledSlotId],
+    ["http.route", event.httpRoute],
   ];
   for (const [key, value] of strings) {
     if (value !== undefined) attributes.push(stringAttribute(key, value));

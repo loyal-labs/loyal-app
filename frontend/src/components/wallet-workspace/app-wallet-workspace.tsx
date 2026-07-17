@@ -161,6 +161,13 @@ import {
   type EarnRealtimeInvalidation,
 } from "@/features/earn-realtime";
 import {
+  createEarnAutodepositSetupFailure,
+  EARN_AUTODEPOSIT_SETUP_CONFIRM_ROUTE,
+  settleEarnAutodepositSetupFailure,
+  type EarnAutodepositSetupFailure,
+  type EarnAutodepositSetupFailureStage,
+} from "@/features/earn-autodeposit/setup-lifecycle";
+import {
   useRealtimeResource,
   useRealtimeSync,
   useRealtimeSyncScope,
@@ -6188,6 +6195,12 @@ export function AppWalletWorkspace({
     earnAutodepositLifecycleRef.current = tracker;
     tracker.start("intent");
     tracker.observe("prepare");
+    let failureStage: EarnAutodepositSetupFailureStage = "prepare";
+    let resultFailure: EarnAutodepositSetupFailure | null = null;
+    let confirmedSetupHttpStatus: number | undefined;
+    let confirmedSetupRecorded = false;
+    let confirmedSetupSignature: string | undefined;
+    let confirmedSetupTargetId: string | undefined;
     setProposalActionError(null);
     setAutodepositConfig((current) =>
       pendingEarnAutodepositDraft.requiresSignature === false
@@ -6234,6 +6247,7 @@ export function AppWalletWorkspace({
           throw new Error("Autodeposit account metadata is missing.");
         }
 
+        failureStage = "backend_confirm";
         tracker.observe("backend_confirm", {
           persistenceState: "not_started",
         });
@@ -6247,11 +6261,21 @@ export function AppWalletWorkspace({
         );
 
         if (!result.success) {
+          resultFailure = createEarnAutodepositSetupFailure({
+            error: new Error(
+              result.error ?? "Autodeposit wallet balance floor update failed."
+            ),
+            errorCode: "record_failed",
+            persistenceState: "failed",
+            reconcileAuthoritativeState: false,
+            stage: "backend_confirm",
+          });
           throw new Error(
             result.error ?? "Autodeposit wallet balance floor update failed."
           );
         }
 
+        failureStage = "ui_commit";
         tracker.observe("backend_confirm", { persistenceState: "recorded" });
 
         setAutodepositConfig({
@@ -6283,6 +6307,12 @@ export function AppWalletWorkspace({
       let preparedSetup = pendingEarnAutodepositSetupPrepared;
 
       for (;;) {
+        failureStage = "prepare";
+        resultFailure = null;
+        confirmedSetupHttpStatus = undefined;
+        confirmedSetupRecorded = false;
+        confirmedSetupSignature = undefined;
+        confirmedSetupTargetId = undefined;
         if (!preparedSetup) {
           preparedSetup = await smartAccountData.prepareEarnAutodepositSetup({
             amountRaw,
@@ -6311,6 +6341,7 @@ export function AppWalletWorkspace({
           chainState: "submitted",
           executionMode: "sequential",
         });
+        failureStage = "wallet_approval";
         const result = await smartAccountData.executeEarnAutodepositSetup({
           amountRaw,
           observabilityFlowId: tracker.flowId,
@@ -6324,20 +6355,37 @@ export function AppWalletWorkspace({
           startTimestamp: pendingEarnAutodepositDraft.startTimestamp,
           walletBalanceFloorRaw,
         });
+        confirmedSetupHttpStatus = result.confirmHttpStatus;
+        confirmedSetupSignature = result.signature;
+        confirmedSetupTargetId = result.targetId;
 
         if (!result.success || !result.preparedSetup) {
-          if (result.status === "confirmation_record_failed") {
-            tracker.fail("backend_confirm", {
-              chainState: "confirmed",
-              errorCode: "record_failed",
-              persistenceState: "failed",
+          resultFailure =
+            result.failure ??
+            createEarnAutodepositSetupFailure({
+              error: new Error(result.error ?? "Autodeposit setup failed."),
+              errorCode:
+                result.status === "confirmation_record_failed"
+                  ? "record_failed"
+                  : "unexpected_error",
+              reconcileAuthoritativeState:
+                result.status === "confirmation_record_failed",
+              stage:
+                result.status === "confirmation_record_failed"
+                  ? "backend_confirm"
+                  : failureStage,
             });
-          }
           throw new Error(result.error ?? "Autodeposit setup failed.");
         }
 
+        confirmedSetupRecorded = true;
+        failureStage = "ui_commit";
         tracker.observe("backend_confirm", {
           chainState: "confirmed",
+          httpRoute: EARN_AUTODEPOSIT_SETUP_CONFIRM_ROUTE,
+          ...(result.confirmHttpStatus !== undefined
+            ? { httpStatus: result.confirmHttpStatus }
+            : {}),
           persistenceState: "recorded",
         });
 
@@ -6409,19 +6457,72 @@ export function AppWalletWorkspace({
         break;
       }
     } catch (error) {
+      const resolvedFailure =
+        resultFailure ??
+        createEarnAutodepositSetupFailure({
+          ...(confirmedSetupRecorded
+            ? {
+                chainState: "confirmed" as const,
+                httpRoute: EARN_AUTODEPOSIT_SETUP_CONFIRM_ROUTE,
+                persistenceState: "recorded" as const,
+                reconcileAuthoritativeState: true,
+              }
+            : {}),
+          error,
+          errorCode:
+            failureStage === "prepare"
+              ? "instruction_fetch_failed"
+              : failureStage === "wallet_approval"
+              ? "send_failed"
+              : failureStage === "backend_confirm"
+              ? "record_failed"
+              : "unexpected_error",
+          ...(confirmedSetupHttpStatus !== undefined
+            ? { httpStatus: confirmedSetupHttpStatus }
+            : {}),
+          stage: failureStage,
+        });
+      const failure =
+        pendingEarnAutodepositDraft.requiresSignature === false
+          ? {
+              ...resolvedFailure,
+              reconcileAuthoritativeState: false,
+            }
+          : resolvedFailure;
+      const reconciled = await settleEarnAutodepositSetupFailure({
+        failure,
+        onReconciled: (config) => {
+          setAutodepositConfig(config);
+          setPendingEarnAutodepositDraft(null);
+          setPendingEarnAutodepositSetupPrepared(null);
+          setEarnAutodepositSetupReviewStage("policy");
+          setIsEarnAutodepositCloseReview(false);
+          registerExpectedEarnMutation({
+            operation: "autodeposit_setup",
+            resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
+            signature: confirmedSetupSignature,
+            targetId: confirmedSetupTargetId,
+          });
+          markDetailPaneTransition("back");
+          setSelectedSignerId(null);
+          setDetailSelection("earn");
+          setSelectedDetail("Earn");
+          setProposalActionError(null);
+        },
+        refreshEarnAutodeposit: async () =>
+          (await smartAccountData.refreshEarnState())?.autodeposit ?? null,
+        tracker,
+      });
+      if (reconciled) {
+        return;
+      }
+
       setAutodepositConfig(previousAutodepositConfig);
       setProposalActionError(
         error instanceof Error
           ? error.message.replaceAll("autodeposit", "Autodeposit")
           : "Autodeposit setup failed."
       );
-      if (isWalletCancellation(error)) {
-        tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
-      } else {
-        tracker.fail("backend_confirm", {
-          errorCode: "unexpected_error",
-        });
-      }
     } finally {
       setIsEarnAutodepositSetupConfirming(false);
       setIsEarnAutoSigning(false);

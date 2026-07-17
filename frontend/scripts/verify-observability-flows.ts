@@ -7,12 +7,14 @@ import { deriveObservabilityActorId } from "../src/features/observability/actor"
 import {
   createLifecycleTracker,
   EXECUTE_NOW_STATES,
+  LIFECYCLE_ERROR_CLASSES,
   LIFECYCLE_ERROR_CODES,
   LIFECYCLE_FLOW_NAMES,
   LIFECYCLE_OUTCOMES,
   LIFECYCLE_SAMPLING_RATIO,
   LIFECYCLE_SOURCES,
   LIFECYCLE_STAGES,
+  LIFECYCLE_HTTP_ROUTES,
   LIFECYCLE_VARIANTS,
   mapExecuteNowState,
   parseBrowserLifecycleEnvelope,
@@ -69,9 +71,20 @@ assert.deepEqual(LIFECYCLE_OUTCOMES, [
   "failed",
   "cancelled",
 ]);
-assert.deepEqual(LIFECYCLE_SOURCES, ["browser", "next_api", "sse", "fallback"]);
+assert.deepEqual(LIFECYCLE_SOURCES, [
+  "browser",
+  "next_api",
+  "sse",
+  "fallback",
+  "mobile_app",
+]);
 assert.equal(LIFECYCLE_SAMPLING_RATIO, 1);
+assert.equal(
+  new Set(LIFECYCLE_ERROR_CLASSES).size,
+  LIFECYCLE_ERROR_CLASSES.length
+);
 assert.equal(new Set(LIFECYCLE_ERROR_CODES).size, LIFECYCLE_ERROR_CODES.length);
+assert.equal(new Set(LIFECYCLE_HTTP_ROUTES).size, LIFECYCLE_HTTP_ROUTES.length);
 assert.equal(new Set(PROVISIONING_OUTCOMES).size, PROVISIONING_OUTCOMES.length);
 assert.equal(new Set(EXECUTE_NOW_STATES).size, EXECUTE_NOW_STATES.length);
 for (const flowName of LIFECYCLE_FLOW_NAMES) {
@@ -103,6 +116,8 @@ for (const invalid of [
   { ...baseEvent(), timestamp: "2026-07-16T10:59:59.999Z" },
   { ...baseEvent(), authProofKind: "siws" },
   { ...baseEvent(), executeNowState: "requested" },
+  { ...baseEvent(), errorClass: "raw_exception_name" },
+  { ...baseEvent(), httpRoute: "/api/wallets/raw-wallet-address" },
 ]) {
   assert.throws(() => parseBrowserLifecycleEnvelope(invalid, NOW));
 }
@@ -284,9 +299,12 @@ const diagnosticEvents: Array<BrowserLifecycleEnvelope & LifecycleDiagnostics> =
       durationMs: 1,
       elapsedMs: 2,
       executionMode: "batch",
+      errorClass: "http_response_error",
       flowName: "earn.deposit",
       flowVariant: "initial",
       httpStatus: 202,
+      httpRoute:
+        "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm",
       instructionCount: 4,
       lookupTableUsed: true,
       outcome: "failed",
@@ -364,6 +382,7 @@ for (const key of [
   "loyal.duration_ms",
   "loyal.elapsed_ms",
   "loyal.actor.id",
+  "loyal.error.class",
   "loyal.error.code",
   "loyal.execute_now.state",
   "loyal.chain.state",
@@ -383,6 +402,7 @@ for (const key of [
   "loyal.execution.mode",
   "loyal.provisioning.outcome",
   "loyal.scheduled_slot.id",
+  "http.route",
 ])
   assert.ok(storedAttributes.has(key), `missing OTLP attribute ${key}`);
 assert.deepEqual(storedAttributes.get("loyal.duration_ms"), { intValue: "10" });
