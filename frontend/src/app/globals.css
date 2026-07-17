@@ -1666,3 +1666,97 @@
     opacity: 0;
   }
 }
+
+/* transitions-dev "modal open/close": autodeposit mock sheet.
+   Radix mounts/unmounts the dialog, so the .is-open/.is-closing class pair
+   maps onto data-state="open"/"closed" keyframe animations. */
+:root {
+  --modal-open-dur: 250ms;
+  --modal-close-dur: 150ms;
+  --modal-scale: 0.96;
+  --modal-scale-close: 0.96;
+  --modal-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --sheet-open-dur: 350ms;
+  --sheet-close-dur: 250ms;
+}
+
+.t-modal[data-state="open"] {
+  animation: t-modal-in var(--modal-open-dur) var(--modal-ease) both;
+}
+.t-modal[data-state="closed"] {
+  animation: t-modal-out var(--modal-close-dur) var(--modal-ease) both;
+}
+
+@keyframes t-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--modal-scale));
+  }
+}
+@keyframes t-modal-out {
+  to {
+    opacity: 0;
+    transform: scale(var(--modal-scale-close));
+  }
+}
+
+/* Below sm the same surface is a bottom sheet: slide instead of scale. */
+@media (width < 640px) {
+  .t-modal[data-state="open"] {
+    animation: t-sheet-in var(--sheet-open-dur) var(--modal-ease) both;
+  }
+  .t-modal[data-state="closed"] {
+    animation: t-sheet-out var(--sheet-close-dur) var(--modal-ease) both;
+  }
+}
+
+@keyframes t-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes t-sheet-out {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-modal[data-state] {
+    animation: none;
+  }
+}
+
+/* Backdrop fades on the same clock as the surface so it never pops out early. */
+.t-modal-overlay[data-state="open"] {
+  animation: t-fade-in var(--modal-open-dur) var(--modal-ease) both;
+}
+.t-modal-overlay[data-state="closed"] {
+  animation: t-fade-out var(--modal-close-dur) var(--modal-ease) both;
+}
+
+@media (width < 640px) {
+  .t-modal-overlay[data-state="open"] {
+    animation-duration: var(--sheet-open-dur);
+  }
+  .t-modal-overlay[data-state="closed"] {
+    animation-duration: var(--sheet-close-dur);
+  }
+}
+
+@keyframes t-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes t-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-modal-overlay[data-state] {
+    animation: none;
+  }
+}

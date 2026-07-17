@@ -27,6 +27,7 @@ import type {
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import { openAutodepositMockSheet } from "./autodeposit-mock-sheet";
 import { getVaultIcon } from "./vault-icon";
 
 const font = "var(--font-geist-sans), sans-serif";
@@ -410,6 +411,26 @@ function AutodepositStatusCard({
   onRetry?: () => void;
   onSetUp?: () => void;
 }) {
+  const secretClickCountRef = useRef(0);
+  const secretClickLastAtRef = useRef(0);
+
+  // Hidden trigger: 5 quick taps on the coin image open the mock sheet.
+  const handleSecretIconClick = (
+    event: React.MouseEvent<HTMLImageElement>,
+  ) => {
+    event.stopPropagation();
+    const now = Date.now();
+    if (now - secretClickLastAtRef.current > 1500) {
+      secretClickCountRef.current = 0;
+    }
+    secretClickLastAtRef.current = now;
+    secretClickCountRef.current += 1;
+    if (secretClickCountRef.current >= 5) {
+      secretClickCountRef.current = 0;
+      openAutodepositMockSheet();
+    }
+  };
+
   if ((isConfigured || isPendingSetup) && !isError && !isLoading) {
     const [depositedWhole, depositedFraction] = (
       depositedLabel ?? "$0.00"
@@ -459,6 +480,7 @@ function AutodepositStatusCard({
             <img
               alt=""
               aria-hidden="true"
+              onClick={handleSecretIconClick}
               src="/wallet-workspace/earn-coin-icon.svg"
               style={{ flexShrink: 0, height: "48px", width: "48px" }}
             />
@@ -607,6 +629,7 @@ function AutodepositStatusCard({
           <img
             alt=""
             aria-hidden="true"
+            onClick={handleSecretIconClick}
             src="/wallet-workspace/earn-coin-icon.svg"
             style={{ flexShrink: 0, height: "48px", width: "48px" }}
           />
