@@ -135,13 +135,24 @@ stack_pid=$!
 nginx -g 'daemon off;' &
 nginx_pid=$!
 
+collector_auth_is_active() {
+  case "$1" in
+    401|403) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 wait_for_collector_authentication() {
   # Keep only ingestion closed until the collector proves that its own key
   # enforcement is active. HyperDX remains reachable so a fresh installation
   # can create its first user/team without an authentication bootstrap deadlock.
   auth_probe='{"resourceLogs":[]}'
-  last_status="unreachable"
+  log_status="unreachable"
+  metrics_status="unreachable"
+  traces_status="unreachable"
   attempt=0
+  metrics_auth_probe='{"resourceMetrics":[]}'
+  traces_auth_probe='{"resourceSpans":[]}'
 
   while true; do
     if ! kill -0 "$stack_pid" 2>/dev/null; then
@@ -149,17 +160,26 @@ wait_for_collector_authentication() {
       return 1
     fi
 
-    last_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
+    log_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
       -X POST 'http://127.0.0.1:4318/v1/logs' \
       -H 'Content-Type: application/json' \
       --data "$auth_probe" || true)"
-    case "$last_status" in
-      401|403)
-        : > "$collector_auth_ready_file"
-        echo "Collector authentication is active; public log ingestion is enabled"
-        return 0
-        ;;
-    esac
+    metrics_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
+      -X POST 'http://127.0.0.1:4318/v1/metrics' \
+      -H 'Content-Type: application/json' \
+      --data "$metrics_auth_probe" || true)"
+    traces_status="$(curl -sS --max-time 2 -o /dev/null -w '%{http_code}' \
+      -X POST 'http://127.0.0.1:4318/v1/traces' \
+      -H 'Content-Type: application/json' \
+      --data "$traces_auth_probe" || true)"
+
+    if collector_auth_is_active "$log_status" \
+      && collector_auth_is_active "$metrics_status" \
+      && collector_auth_is_active "$traces_status"; then
+      : > "$collector_auth_ready_file"
+      echo "Collector authentication is active; public OTLP ingestion is enabled"
+      return 0
+    fi
 
     attempt=$((attempt + 1))
     if [ $((attempt % 60)) -eq 0 ]; then
