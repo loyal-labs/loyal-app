@@ -16,17 +16,13 @@ The Loyal web frontend sends:
 - deposit, top-up, and withdrawal progress;
 - Autodeposit setup, update, pause, resume, close, and Execute Now progress.
 
-The public gateway also accepts authenticated OTLP metrics and traces from
-trusted service exporters. This does not by itself instrument a service or
-enable browser-direct telemetry. We do not yet collect mobile, extension,
-service maps, session replay, or general console logs.
+We do not yet collect mobile, extension, metrics, traces, service maps, session
+replay, or general console logs.
 
 ```text
 Browser or Next.js
   -> frontend same-origin observability route
-  -> authenticated exact POST /v1/logs
-Trusted service exporter
-  -> authenticated exact POST /v1/metrics or /v1/traces
+  -> authenticated /v1/logs
   -> nginx
   -> OpenTelemetry Collector
   -> ClickHouse
@@ -35,26 +31,6 @@ Trusted service exporter
 
 ClickHouse, MongoDB, and collector ports are private. The browser never receives
 the ingestion key. Telemetry failure must not change product behavior.
-
-## Public OTLP gateway
-
-The nginx edge exposes exactly three OTLP/HTTP ingestion paths:
-
-- `POST /v1/logs`
-- `POST /v1/metrics`
-- `POST /v1/traces`
-
-All three use the collector's same `INGESTION_API_KEY` authentication, reject
-query strings and non-`POST` methods, and limit each request body to 64 KiB.
-They remain unavailable until the startup supervisor proves that the collector
-rejects missing credentials on all three paths. `/v1/workflows` does not exist,
-and every other `/v1/*` path returns `404`.
-
-The collector remains on loopback and nginx strips collector CORS response
-headers, so these endpoints are not browser APIs. Access logs include only the
-method, path, protocol, status, and response size; they omit query strings,
-authorization, referrers, and user agents. ClickHouse, MongoDB, and collector
-ports remain private.
 
 ## Investigating a report
 
@@ -168,8 +144,7 @@ Static checks and Render Blueprint validation:
 ./observability/scripts/verify.sh
 ```
 
-Full disposable Docker security, logs/metrics/traces canary, and log-persistence
-smoke:
+Full disposable Docker persistence smoke:
 
 ```sh
 ./observability/scripts/verify.sh --local

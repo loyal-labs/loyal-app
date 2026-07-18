@@ -76,10 +76,6 @@ require_literal 'listen 0.0.0.0:8080' "$project_dir/nginx.conf"
 require_literal 'proxy_pass http://127.0.0.1:8081' "$project_dir/nginx.conf"
 require_literal 'location = /v1/logs' "$project_dir/nginx.conf"
 require_literal 'proxy_pass http://127.0.0.1:4318/v1/logs' "$project_dir/nginx.conf"
-require_literal 'location = /v1/metrics' "$project_dir/nginx.conf"
-require_literal 'proxy_pass http://127.0.0.1:4318/v1/metrics' "$project_dir/nginx.conf"
-require_literal 'location = /v1/traces' "$project_dir/nginx.conf"
-require_literal 'proxy_pass http://127.0.0.1:4318/v1/traces' "$project_dir/nginx.conf"
 require_literal 'location ^~ /v1/' "$project_dir/nginx.conf"
 require_literal 'client_max_body_size 64k' "$project_dir/nginx.conf"
 require_literal 'proxy_connect_timeout 1s' "$project_dir/nginx.conf"
@@ -88,53 +84,14 @@ require_literal 'proxy_read_timeout 5s' "$project_dir/nginx.conf"
 require_literal 'proxy_hide_header Access-Control-Allow-Origin' "$project_dir/nginx.conf"
 require_literal '!-f /tmp/loyal-clickstack-collector-auth-ready' "$project_dir/nginx.conf"
 require_literal ': > "$collector_auth_ready_file"' "$project_dir/scripts/entrypoint.sh"
-for signal in logs metrics traces; do
-  require_literal "/v1/$signal" "$project_dir/scripts/entrypoint.sh"
-done
-[[ "$(rg --count 'client_max_body_size 64k' "$project_dir/nginx.conf")" == "3" ]] \
-  || fail "public proxy must define one 64 KiB body limit per OTLP endpoint"
-[[ "$(rg --count 'location = /v1/' "$project_dir/nginx.conf")" == "3" ]] \
-  || fail "public proxy must define exactly three exact OTLP endpoint locations"
-if rg --quiet 'location = /v1/workflows' "$project_dir/nginx.conf"; then
-  fail "the nonexistent /v1/workflows path must not be proxied"
+[[ "$(rg --count 'client_max_body_size 64k' "$project_dir/nginx.conf")" == "1" ]] \
+  || fail "public proxy must define exactly one 64 KiB body limit"
+exact_log_line="$(rg -n --no-heading 'location = /v1/logs' "$project_dir/nginx.conf" | cut -d: -f1)"
+body_limit_line="$(rg -n --no-heading 'client_max_body_size 64k' "$project_dir/nginx.conf" | cut -d: -f1)"
+fallback_line="$(rg -n --no-heading 'location / \{' "$project_dir/nginx.conf" | cut -d: -f1)"
+if (( body_limit_line <= exact_log_line || body_limit_line >= fallback_line )); then
+  fail "64 KiB body limit must apply only to the exact log-ingestion location"
 fi
-for signal in logs metrics traces; do
-  location_block="$(awk -v signal="$signal" '
-    $0 ~ "location = /v1/" signal " \\{" { capture = 1 }
-    capture { print }
-    capture && /^    }$/ { exit }
-  ' "$project_dir/nginx.conf")"
-  for directive in \
-    'client_max_body_size 64k' \
-    'if ($request_method != POST)' \
-    "if (\$args != '')" \
-    '!-f /tmp/loyal-clickstack-collector-auth-ready' \
-    "proxy_pass http://127.0.0.1:4318/v1/$signal" \
-    'proxy_hide_header Access-Control-Allow-Origin'; do
-    rg --quiet --fixed-strings -- "$directive" <<<"$location_block" \
-      || fail "exact /v1/$signal location is missing '$directive'"
-  done
-done
-for directive in \
-  'if ($request_method != POST)' \
-  "if (\$args != '')" \
-  'proxy_connect_timeout 1s' \
-  'proxy_send_timeout 5s' \
-  'proxy_read_timeout 5s' \
-  'proxy_hide_header Access-Control-Allow-Origin' \
-  '!-f /tmp/loyal-clickstack-collector-auth-ready'; do
-  [[ "$(rg --count --fixed-strings -- "$directive" "$project_dir/nginx.conf")" == "3" ]] \
-    || fail "public proxy must apply '$directive' to exactly three OTLP endpoints"
-done
-for smoke_script in "$project_dir/scripts/smoke-local.sh" "$project_dir/scripts/smoke-live.sh"; do
-  require_literal '/v1/workflows' "$smoke_script"
-  require_literal 'resourceMetrics' "$smoke_script"
-  require_literal 'resourceSpans' "$smoke_script"
-  require_literal 'for signal in metrics traces' "$smoke_script"
-done
-require_literal '/v1/$signal' "$project_dir/scripts/smoke-local.sh"
-require_literal '/v1/metrics' "$project_dir/scripts/smoke-live.sh"
-require_literal '/v1/traces' "$project_dir/scripts/smoke-live.sh"
 nginx_log_format="$(awk '/log_format loyal/{capture=1} capture{print} capture && /;/{exit}' "$project_dir/nginx.conf")"
 if rg --quiet '\$request\b|\$args\b|\$http_referer|\$http_user_agent|\$http_authorization' <<<"$nginx_log_format"; then
   fail "proxy access logs or config reference sensitive request metadata"
@@ -145,7 +102,7 @@ fi
 if rg --quiet -- '--publish[^[:cntrl:]]*(4318|8123|9000|27017)' "$project_dir/scripts/smoke-local.sh"; then
   fail "local smoke must not publish collector or database ports"
 fi
-pass "single public proxy exposes only bounded authenticated logs, metrics, and traces endpoints"
+pass "single public proxy exposes only the bounded authenticated log endpoint"
 
 sh -n "$project_dir/scripts/entrypoint.sh" "$project_dir/scripts/smoke-live.sh"
 bash -n "$project_dir/scripts/smoke-local.sh" "$project_dir/scripts/smoke-auth-redirect.sh"
