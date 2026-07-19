@@ -176,6 +176,13 @@
       "when": 1781568000000,
       "tag": "0024_smart_account_root_signer_onboarding",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784503558505,
+      "tag": "0025_needy_star_brand",
+      "breakpoints": true
     }
   ]
 }

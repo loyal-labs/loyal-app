@@ -38,6 +38,11 @@ export const LOYAL_CHAT_ADMIN_COMMANDS: BotCommand[] = [
   ...LOYAL_CHAT_ADMIN_ONLY_COMMANDS,
 ];
 
+const GLOBAL_GROUP_COMMANDS: BotCommand[] = [
+  ...LOYAL_CHAT_USER_COMMANDS.filter(({ command }) => command !== "stats"),
+  ...LOYAL_CHAT_ADMIN_ONLY_COMMANDS,
+];
+
 export async function registerCommandsForLoyalChat(bot: Bot): Promise<void> {
   await bot.api.setMyCommands(LOYAL_CHAT_USER_COMMANDS, {
     scope: { type: "chat", chat_id: LOYAL_COMMUNITY_CHAT_ID },
@@ -64,7 +69,7 @@ export async function registerBotCommands(bot: Bot): Promise<void> {
   );
 
   // Commands for group chats
-  await bot.api.setMyCommands(LOYAL_CHAT_ADMIN_COMMANDS, {
+  await bot.api.setMyCommands(GLOBAL_GROUP_COMMANDS, {
     scope: { type: "all_group_chats" },
   });
 

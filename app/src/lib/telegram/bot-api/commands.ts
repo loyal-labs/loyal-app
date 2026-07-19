@@ -29,8 +29,15 @@ import { replyWithAutoCleanup } from "./helper-message-cleanup";
 import { evictActiveCommunityCache } from "./message-handlers";
 import { sendNotificationSettingsMessage } from "./notification-settings";
 import { sendStartCarousel } from "./start-carousel";
-import { formatStatsCommandMessage, type LoyalStats } from "./stats-command";
-import { loadLoyalStats } from "./stats-command.server";
+import { formatStatsCommandMessage } from "./stats-command";
+import {
+  claimStatsCommand,
+  completeStatsCommand,
+  loadLoyalStatsSnapshot,
+  type LoyalStatsSnapshotResult,
+  type StatsCommandClaim,
+  type StatsCommandCompletion,
+} from "./stats-persistence.server";
 import { sendLatestSummary } from "./summaries";
 import type { HandleSummaryCommandOptions } from "./types";
 import { sendUserSettingsMessage } from "./user-settings";
@@ -235,13 +242,71 @@ export async function handleCaCommand(
   );
 }
 
-type StatsCommandDependencies = {
-  loadStats: () => Promise<LoyalStats>;
+const STATS_COMMAND_DEADLINE_MS = 7_000;
+const STATS_COMMAND_COMPLETION_TIMEOUT_MS = 500;
+
+export type StatsCommandDependencies = {
+  claimCommand: (input: StatsCommandClaim) => Promise<boolean>;
+  completeCommand: (input: StatsCommandCompletion) => Promise<void>;
+  loadSnapshot: () => Promise<LoyalStatsSnapshotResult>;
+  now: () => number;
 };
 
 const statsCommandDependencies: StatsCommandDependencies = {
-  loadStats: loadLoyalStats,
+  claimCommand: claimStatsCommand,
+  completeCommand: completeStatsCommand,
+  loadSnapshot: loadLoyalStatsSnapshot,
+  now: Date.now,
 };
+
+function runWithTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  label: string
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs} ms`));
+    }, timeoutMs);
+
+    operation.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    );
+  });
+}
+
+function getRemainingStatsCommandTime(
+  deadlineAt: number,
+  now: () => number
+): number {
+  return Math.max(1, deadlineAt - now());
+}
+
+function getStatsCommandUpdateId(ctx: CommandContext<Context>): number | null {
+  const updateId = ctx.update.update_id;
+  return Number.isSafeInteger(updateId) && updateId >= 0 ? updateId : null;
+}
+
+function getStatsCommandLogContext(params: {
+  chatId: number;
+  dependencies: StatsCommandDependencies;
+  startedAt: number;
+  updateId: number | null;
+}) {
+  return {
+    chatId: String(params.chatId),
+    command: "/stats",
+    elapsedMs: Math.max(0, params.dependencies.now() - params.startedAt),
+    updateId: params.updateId === null ? null : String(params.updateId),
+  };
+}
 
 export async function handleStatsCommand(
   ctx: CommandContext<Context>,
@@ -253,29 +318,186 @@ export async function handleStatsCommand(
     return;
   }
 
-  let stats: LoyalStats;
-  try {
-    stats = await dependencies.loadStats();
-  } catch (error) {
-    console.error("Failed to load /stats metrics", {
-      command: "/stats",
-      error,
-      errorMessage: error instanceof Error ? error.message : String(error),
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      telegramChatId: String(chatId),
-      telegramChatType: ctx.chat?.type ?? null,
-      telegramUserId: ctx.from ? String(ctx.from.id) : null,
+  const startedAt = dependencies.now();
+  const deadlineAt = startedAt + STATS_COMMAND_DEADLINE_MS;
+  const updateId = getStatsCommandUpdateId(ctx);
+  if (updateId === null) {
+    console.error("/stats command failed", {
+      ...getStatsCommandLogContext({
+        chatId,
+        dependencies,
+        startedAt,
+        updateId,
+      }),
+      errorMessage: "Telegram update ID is missing or invalid",
+      errorName: "InvalidTelegramUpdateError",
+      outcome: "failed",
+      stage: "validate",
     });
-    await bot.api.sendMessage(
-      chatId,
-      "Loyal stats are unavailable right now. Please try again shortly."
-    );
     return;
   }
 
-  await bot.api.sendMessage(chatId, formatStatsCommandMessage(stats), {
-    parse_mode: "Markdown",
-  });
+  let claimed = false;
+  let stage = "claim";
+
+  try {
+    claimed = await runWithTimeout(
+      dependencies.claimCommand({
+        chatId,
+        telegramUserId: ctx.from?.id,
+        updateId,
+      }),
+      getRemainingStatsCommandTime(deadlineAt, dependencies.now),
+      "/stats command claim"
+    );
+
+    if (!claimed) {
+      console.info("/stats command duplicate skipped", {
+        ...getStatsCommandLogContext({
+          chatId,
+          dependencies,
+          startedAt,
+          updateId,
+        }),
+        outcome: "duplicate",
+      });
+      return;
+    }
+
+    console.info("/stats command claimed", {
+      ...getStatsCommandLogContext({
+        chatId,
+        dependencies,
+        startedAt,
+        updateId,
+      }),
+      outcome: "claimed",
+    });
+
+    stage = "load_snapshot";
+    const snapshot = await runWithTimeout(
+      dependencies.loadSnapshot(),
+      getRemainingStatsCommandTime(deadlineAt, dependencies.now),
+      "/stats snapshot load"
+    );
+
+    stage = "send";
+    const message = await runWithTimeout(
+      bot.api.sendMessage(chatId, formatStatsCommandMessage(snapshot.stats), {
+        parse_mode: "Markdown",
+      }),
+      getRemainingStatsCommandTime(deadlineAt, dependencies.now),
+      "/stats response send"
+    );
+
+    stage = "complete";
+    await runWithTimeout(
+      dependencies.completeCommand({
+        messageId: message.message_id,
+        status: "completed",
+        updateId,
+      }),
+      STATS_COMMAND_COMPLETION_TIMEOUT_MS,
+      "/stats receipt completion"
+    );
+
+    console.info("/stats command completed", {
+      ...getStatsCommandLogContext({
+        chatId,
+        dependencies,
+        startedAt,
+        updateId,
+      }),
+      messageId: message.message_id,
+      outcome: "completed",
+      snapshotAgeMs: snapshot.ageMs,
+    });
+  } catch (error) {
+    console.error("/stats command failed", {
+      ...getStatsCommandLogContext({
+        chatId,
+        dependencies,
+        startedAt,
+        updateId,
+      }),
+      error,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      outcome: "failed",
+      stage,
+    });
+
+    if (!claimed) {
+      return;
+    }
+
+    if (stage === "complete") {
+      return;
+    }
+
+    let failureMessageId: number | undefined;
+    if (stage === "load_snapshot") {
+      try {
+        const failureMessage = await runWithTimeout(
+          bot.api.sendMessage(
+            chatId,
+            "Loyal stats are unavailable right now. Please try again shortly."
+          ),
+          getRemainingStatsCommandTime(deadlineAt, dependencies.now),
+          "/stats failure response send"
+        );
+        failureMessageId = failureMessage.message_id;
+      } catch (sendError) {
+        console.error("/stats failure response send failed", {
+          ...getStatsCommandLogContext({
+            chatId,
+            dependencies,
+            startedAt,
+            updateId,
+          }),
+          error: sendError,
+          errorMessage:
+            sendError instanceof Error ? sendError.message : String(sendError),
+          errorName:
+            sendError instanceof Error ? sendError.name : "UnknownError",
+          outcome: "failed",
+          stage: "send_failure",
+        });
+      }
+    }
+
+    try {
+      await runWithTimeout(
+        dependencies.completeCommand({
+          messageId: failureMessageId,
+          status: "failed",
+          updateId,
+        }),
+        STATS_COMMAND_COMPLETION_TIMEOUT_MS,
+        "/stats failed receipt completion"
+      );
+    } catch (completionError) {
+      console.error("/stats failed receipt completion failed", {
+        ...getStatsCommandLogContext({
+          chatId,
+          dependencies,
+          startedAt,
+          updateId,
+        }),
+        error: completionError,
+        errorMessage:
+          completionError instanceof Error
+            ? completionError.message
+            : String(completionError),
+        errorName:
+          completionError instanceof Error
+            ? completionError.name
+            : "UnknownError",
+        outcome: "failed",
+        stage: "complete_failure",
+      });
+    }
+  }
 }
 
 export async function handleActivateCommunityCommand(

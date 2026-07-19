@@ -51,6 +51,14 @@ export type ThreadStatus = "active" | "archived" | "closed";
 export type SummaryVoteAction = "LIKE" | "DISLIKE";
 
 /**
+ * Delivery state for at-most-once Telegram command responses.
+ */
+export type TelegramCommandReceiptStatus =
+  | "processing"
+  | "completed"
+  | "failed";
+
+/**
  * Allowed time-based summary notification frequency options.
  */
 export type SummaryNotificationTimeHours = 24 | 48;
@@ -517,6 +525,84 @@ export const telegramHelperMessageCleanup = pgTable(
     uniqueIndex("telegram_helper_message_cleanup_chat_message_uidx").on(
       table.chatId,
       table.messageId
+    ),
+  ]
+);
+
+/**
+ * Durable claims for Telegram commands with public side effects. Telegram
+ * webhooks are delivered at least once, so a unique update ID prevents a retry
+ * from sending the same command response more than once.
+ */
+export const telegramCommandReceipts = pgTable(
+  "telegram_command_receipts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    telegramUpdateId: bigint("telegram_update_id", {
+      mode: "bigint",
+    }).notNull(),
+    command: text("command").notNull(),
+    chatId: bigint("chat_id", { mode: "bigint" }).notNull(),
+    telegramUserId: bigint("telegram_user_id", { mode: "bigint" }),
+    status: text("status")
+      .$type<TelegramCommandReceiptStatus>()
+      .default("processing")
+      .notNull(),
+    telegramMessageId: integer("telegram_message_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("telegram_command_receipts_update_uidx").on(
+      table.telegramUpdateId
+    ),
+    index("telegram_command_receipts_status_created_idx").on(
+      table.status,
+      table.createdAt
+    ),
+    check(
+      "telegram_command_receipts_status_check",
+      sql`${table.status} IN ('processing', 'completed', 'failed')`
+    ),
+  ]
+);
+
+/**
+ * Singleton read model for /stats. A cron refreshes this row from the canonical
+ * app and Yield databases so Telegram webhook handling never runs aggregates.
+ */
+export const loyalStatsSnapshots = pgTable(
+  "loyal_stats_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    snapshotKey: text("snapshot_key").default("current").notNull(),
+    totalAumRaw: bigint("total_aum_raw", { mode: "bigint" }).notNull(),
+    totalUsers: integer("total_users").notNull(),
+    totalOptimizedVolumeRaw: bigint("total_optimized_volume_raw", {
+      mode: "bigint",
+    }).notNull(),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("loyal_stats_snapshots_key_uidx").on(table.snapshotKey),
+    check(
+      "loyal_stats_snapshots_current_key_check",
+      sql`${table.snapshotKey} = 'current'`
+    ),
+    check(
+      "loyal_stats_snapshots_nonnegative_check",
+      sql`${table.totalAumRaw} >= 0 AND ${table.totalUsers} >= 0 AND ${table.totalOptimizedVolumeRaw} >= 0`
     ),
   ]
 );
@@ -1944,6 +2030,14 @@ export type TelegramHelperMessageCleanup =
   typeof telegramHelperMessageCleanup.$inferSelect;
 export type InsertTelegramHelperMessageCleanup =
   typeof telegramHelperMessageCleanup.$inferInsert;
+
+export type TelegramCommandReceipt =
+  typeof telegramCommandReceipts.$inferSelect;
+export type InsertTelegramCommandReceipt =
+  typeof telegramCommandReceipts.$inferInsert;
+
+export type LoyalStatsSnapshot = typeof loyalStatsSnapshots.$inferSelect;
+export type InsertLoyalStatsSnapshot = typeof loyalStatsSnapshots.$inferInsert;
 
 export type BusinessConnection = typeof businessConnections.$inferSelect;
 export type InsertBusinessConnection = typeof businessConnections.$inferInsert;
