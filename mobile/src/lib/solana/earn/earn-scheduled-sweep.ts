@@ -110,6 +110,18 @@ export function isScheduledSweepAwaitingExecution(
   return sweep.status === "requested" || sweep.status === "selected";
 }
 
+// Button label while a watched sweep is in flight: once the granular progress
+// poll reports the worker confirmed the pull (funds are actually moving —
+// pull_confirmed/completed), "Executing…" becomes "Depositing…". Null/other
+// states (or no progress endpoint on the backend) keep the plain label.
+export function scheduledSweepExecutingLabel(
+  progressState: string | null | undefined,
+): string {
+  return progressState === "pull_confirmed" || progressState === "completed"
+    ? "Depositing…"
+    : "Executing…";
+}
+
 // The sweep's execution window has arrived (`eligibleAfter` passed) — true the
 // moment "Execute now" is tapped, since the backend advances `eligibleAfter` to
 // now. Drives how long the Activity feed keeps polling for the row to resolve:

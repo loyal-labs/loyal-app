@@ -697,6 +697,76 @@ export async function requestEarnAutodepositSweepExecute(args: {
   return (await res.json()) as EarnAutodepositSweepExecuteResponse;
 }
 
+// Granular slot states as the worker moves a sweep through its pipeline —
+// mirrors the web `EARN_AUTODEPOSIT_PROGRESS_STATES` (earn-realtime types).
+export type EarnAutodepositSweepProgressState =
+  | "scheduled"
+  | "requested"
+  | "selected"
+  | "pull_confirmed"
+  | "completed"
+  | "failed"
+  | "canceled"
+  | "released";
+
+const EARN_SWEEP_PROGRESS_STATES = new Set<string>([
+  "scheduled",
+  "requested",
+  "selected",
+  "pull_confirmed",
+  "completed",
+  "failed",
+  "canceled",
+  "released",
+]);
+
+export type EarnAutodepositSweepProgress = {
+  scheduledSlotId: string;
+  state: EarnAutodepositSweepProgressState;
+  failureCode?: string;
+  occurredAt?: string;
+};
+
+// Read-only progress of one scheduled sweep, keyed by wallet address (no
+// signature) — the polled twin of the contract the web receives over SSE.
+// Returns null on ANY failure, including 404 from a backend that predates the
+// endpoint, so callers can quietly fall back to the coarse state polling.
+export async function fetchEarnAutodepositSweepProgress(
+  walletAddress: string,
+  slotId: string,
+): Promise<EarnAutodepositSweepProgress | null> {
+  try {
+    const res = await fetch(
+      `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute?walletAddress=${encodeURIComponent(
+        walletAddress,
+      )}&slotId=${encodeURIComponent(slotId)}`,
+      { method: "GET", headers: earnHeaders() },
+    );
+    if (!res.ok) {
+      return null;
+    }
+    const value = (await res.json()) as Record<string, unknown> | null;
+    if (
+      !value ||
+      value.scheduledSlotId !== slotId ||
+      typeof value.state !== "string" ||
+      !EARN_SWEEP_PROGRESS_STATES.has(value.state)
+    ) {
+      return null;
+    }
+    return {
+      scheduledSlotId: slotId,
+      state: value.state as EarnAutodepositSweepProgressState,
+      failureCode:
+        typeof value.failureCode === "string" ? value.failureCode : undefined,
+      occurredAt:
+        typeof value.occurredAt === "string" ? value.occurredAt : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Current on-chain Earn position read-model (balance + live APY). All amounts
 // are USDC base units (6 decimals) as strings; APY is in basis points.
 export type EarnPosition = {

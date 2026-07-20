@@ -23,8 +23,10 @@ import {
 import { executeEarnAutodepositScheduledSweep } from "@/lib/solana/earn/autodeposit";
 import {
   EarnApiError,
+  fetchEarnAutodepositSweepProgress,
   fetchEarnRefundScan,
   type EarnAutodepositScheduledSweep,
+  type EarnAutodepositSweepProgressState,
   type EarnRefundPrepareRequest,
   type EarnTransactionItem,
 } from "@/lib/solana/earn/earn-api";
@@ -85,6 +87,13 @@ type ActivityContextValue = {
   sweepMorph: SweepMorph | null;
   /** Drop the in-place sweep morph (called when the Activity screen blurs). */
   clearSweepMorph: () => void;
+  /**
+   * Granular state of the sweep currently being watched (from the progress
+   * endpoint the app burst-polls after an execute), or null when nothing is
+   * in flight / the backend predates the endpoint. Drives the row's
+   * "Executing…" → "Depositing…" label.
+   */
+  sweepProgressState: EarnAutodepositSweepProgressState | null;
   /** New wallet activity since the Wallet section was last viewed. */
   walletUnread: boolean;
   /** New Earn activity since the Earn section was last viewed. */
@@ -154,6 +163,26 @@ const MAX_SWEEP_RESULT_POLLS = 24;
 // can't hold a row out of its normal date group indefinitely if the user never
 // leaves the screen.
 const SWEEP_MORPH_MAX_MS = 120_000;
+
+// Cadence + bound for the granular progress poll (the polled twin of the
+// contract the web receives over SSE): a cheap single-row backend read, so it
+// can tick faster than the heavy state/holdings loops above. It drives the
+// row's "Executing…" → "Depositing…" label and fires the heavy refresh the
+// moment the flight ends instead of waiting out the next coarse tick. Stops
+// after a few misses so a backend that predates the endpoint costs nothing
+// (the coarse loops above keep working unchanged as the fallback).
+const SWEEP_PROGRESS_POLL_MS = 1000;
+const MAX_SWEEP_PROGRESS_POLLS = 45;
+const MAX_SWEEP_PROGRESS_MISSES = 3;
+
+// The flight is over: the worker finished (or gave the slot back) and one
+// immediate coarse refresh will resolve the row/morph.
+const SWEEP_PROGRESS_END_STATES = new Set<EarnAutodepositSweepProgressState>([
+  "completed",
+  "failed",
+  "canceled",
+  "released",
+]);
 
 // Owns the wallet + Earn activity feeds app-wide so the bottom-nav dot stays
 // live even before the Activity screen is first opened, and so the screen and
@@ -430,6 +459,86 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     setExpectingScheduledSweep(false);
   }, [publicKey]);
 
+  // Which scheduled slot to watch on the granular progress endpoint: the
+  // unresolved morph's snapshotted sweep (the slot drops out of the live
+  // pending list right after an execute), else the first due sweep. `id` IS
+  // the scheduled slot id since the slot-aggregation rework.
+  const [sweepProgressState, setSweepProgressState] =
+    useState<EarnAutodepositSweepProgressState | null>(null);
+  const dueSweepSlotId =
+    earnScheduledSweeps.find(isScheduledSweepDue)?.id ?? null;
+  const watchedSweepSlotId = sweepMorph
+    ? sweepMorph.resultTx
+      ? null
+      : (sweepMorph.sweeps[0]?.id ?? null)
+    : dueSweepSlotId;
+
+  // Burst-poll the watched sweep's granular progress. Cheap (single-row read,
+  // no RPC), so it ticks at 1s under the coarse loops above; the moment the
+  // flight ends (worker done, or the slot bounced back to "scheduled" with no
+  // surplus) it fires ONE immediate coarse refresh instead of letting the row
+  // wait out the next 2–2.5s tick. Misses (backend without the endpoint, no
+  // matching slot) stop the poll quietly — the coarse loops remain the
+  // fallback and behave exactly as before.
+  useEffect(() => {
+    if (!publicKey || !watchedSweepSlotId) {
+      setSweepProgressState(null);
+      return;
+    }
+    let cancelled = false;
+    let fetching = false;
+    let sawInFlight = false;
+    let polls = 0;
+    let misses = 0;
+    const intervalId = setInterval(() => {
+      if (fetching) {
+        return;
+      }
+      polls += 1;
+      if (polls > MAX_SWEEP_PROGRESS_POLLS) {
+        clearInterval(intervalId);
+        return;
+      }
+      fetching = true;
+      void fetchEarnAutodepositSweepProgress(publicKey, watchedSweepSlotId)
+        .then((progress) => {
+          if (cancelled) {
+            return;
+          }
+          if (!progress) {
+            misses += 1;
+            if (misses >= MAX_SWEEP_PROGRESS_MISSES) {
+              clearInterval(intervalId);
+            }
+            return;
+          }
+          misses = 0;
+          setSweepProgressState(progress.state);
+          const bouncedBack = sawInFlight && progress.state === "scheduled";
+          if (progress.state !== "scheduled") {
+            sawInFlight = true;
+          }
+          if (SWEEP_PROGRESS_END_STATES.has(progress.state) || bouncedBack) {
+            clearInterval(intervalId);
+            void refreshAutodeposit();
+            void refreshEarnTransactions();
+          }
+        })
+        .finally(() => {
+          fetching = false;
+        });
+    }, SWEEP_PROGRESS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [
+    publicKey,
+    watchedSweepSlotId,
+    refreshAutodeposit,
+    refreshEarnTransactions,
+  ]);
+
   const [earnRefunds, setEarnRefunds] = useState<EarnRefundItem[]>([]);
   const [earnLockedRefundLamports, setEarnLockedRefundLamports] = useState(0);
   const [refundingAccount, setRefundingAccount] = useState<string | null>(null);
@@ -617,6 +726,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       expectScheduledSweep,
       sweepMorph,
       clearSweepMorph,
+      sweepProgressState,
       walletUnread,
       earnUnread,
       anyUnread: walletUnread || earnUnread,
@@ -645,6 +755,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       expectScheduledSweep,
       sweepMorph,
       clearSweepMorph,
+      sweepProgressState,
       walletUnread,
       earnUnread,
       markSeen,

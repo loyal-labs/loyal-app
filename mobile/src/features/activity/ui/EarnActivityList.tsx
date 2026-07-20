@@ -16,6 +16,7 @@ import {
   formatScheduledSweepAmount,
   formatScheduledSweepTime,
   isScheduledSweepAwaitingExecution,
+  scheduledSweepExecutingLabel,
 } from "@/lib/solana/earn/earn-scheduled-sweep";
 import {
   formatEarnRowTime,
@@ -86,6 +87,7 @@ function EarnScheduledRow({
   isExecuting,
   onExecute,
   forceExecuting = false,
+  progressState = null,
 }: {
   sweep: EarnAutodepositScheduledSweep;
   isExecuting: boolean;
@@ -94,13 +96,16 @@ function EarnScheduledRow({
   // even after it drops out of the live pending list — keeps the row showing
   // "Executing…" (disabled) instead of falling back to "Execute now".
   forceExecuting?: boolean;
+  // Granular in-flight state from the progress poll (null when unavailable) —
+  // upgrades "Executing…" to "Depositing…" once the worker confirmed the pull.
+  progressState?: string | null;
 }) {
   const awaiting = forceExecuting || isScheduledSweepAwaitingExecution(sweep);
   const disabled = isExecuting || awaiting;
   const buttonLabel = isExecuting
     ? "Requesting…"
     : awaiting
-      ? "Executing…"
+      ? scheduledSweepExecutingLabel(progressState)
       : "Execute now";
 
   return (
@@ -291,9 +296,11 @@ const noop = () => {};
 function SweepMorphSection({
   morph,
   isRequesting,
+  progressState,
 }: {
   morph: SweepMorph;
   isRequesting: boolean;
+  progressState: string | null;
 }) {
   const opacity = useSharedValue(1);
   const [showResult, setShowResult] = useState(false);
@@ -338,6 +345,7 @@ function SweepMorphSection({
               isExecuting={isRequesting}
               onExecute={noop}
               forceExecuting
+              progressState={progressState}
             />
           ))}
         </View>
@@ -356,6 +364,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
     expectingScheduledSweep,
     autodepositPausedMissingPosition,
     sweepMorph,
+    sweepProgressState,
     earnRefunds,
     earnLockedRefundLamports,
     refundingAccount,
@@ -482,6 +491,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
           key={sweepMorph.startedAtMs}
           morph={sweepMorph}
           isRequesting={isExecutingSweep}
+          progressState={sweepProgressState}
         />
       ) : hasScheduled ? (
         <View>
@@ -497,6 +507,7 @@ export function EarnActivityList({ limit }: { limit: number }) {
               sweep={sweep}
               isExecuting={isExecutingSweep}
               onExecute={executeScheduledSweep}
+              progressState={sweepProgressState}
             />
           ))}
         </View>
