@@ -16,13 +16,16 @@ The Loyal web frontend sends:
 - deposit, top-up, and withdrawal progress;
 - Autodeposit setup, update, pause, resume, close, and Execute Now progress.
 
-We do not yet collect mobile, extension, metrics, traces, service maps, session
-replay, or general console logs.
+The public gateway also accepts authenticated OTLP metrics and traces from
+trusted service exporters. We do not yet collect mobile, extension, service
+maps, session replay, or general console logs.
 
 ```text
 Browser or Next.js
   -> frontend same-origin observability route
-  -> authenticated /v1/logs
+  -> authenticated POST /v1/logs
+Trusted service exporter
+  -> authenticated POST /v1/metrics or /v1/traces
   -> nginx
   -> OpenTelemetry Collector
   -> ClickHouse
@@ -144,7 +147,8 @@ Static checks and Render Blueprint validation:
 ./observability/scripts/verify.sh
 ```
 
-Full disposable Docker persistence smoke:
+Full disposable Docker startup, logs/metrics/traces canary, and log-persistence
+smoke:
 
 ```sh
 ./observability/scripts/verify.sh --local

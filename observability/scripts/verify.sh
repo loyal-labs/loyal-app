@@ -50,7 +50,8 @@ require_literal 'value: 127.0.0.1' "$blueprint"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
 
 require_literal '2.30.1@sha256:bd0bde1b1f2ca0702fdafe269f3552e36b055d25e47692685b1a6018567a2d3c' "$project_dir/Dockerfile"
-require_literal 'nginx=1.30.3-r0' "$project_dir/Dockerfile"
+require_literal 'nginx=1.30.4-r0' "$project_dir/Dockerfile"
+require_literal 'tini=0.19.0-r3' "$project_dir/Dockerfile"
 require_literal 'HYPERDX_APP_PORT=8081' "$project_dir/Dockerfile"
 require_literal 'HYPERDX_APP_LISTEN_HOSTNAME=127.0.0.1' "$project_dir/Dockerfile"
 require_literal 'USAGE_STATS_ENABLED=false' "$project_dir/Dockerfile"
@@ -76,6 +77,10 @@ require_literal 'listen 0.0.0.0:8080' "$project_dir/nginx.conf"
 require_literal 'proxy_pass http://127.0.0.1:8081' "$project_dir/nginx.conf"
 require_literal 'location = /v1/logs' "$project_dir/nginx.conf"
 require_literal 'proxy_pass http://127.0.0.1:4318/v1/logs' "$project_dir/nginx.conf"
+require_literal 'location = /v1/metrics' "$project_dir/nginx.conf"
+require_literal 'proxy_pass http://127.0.0.1:4318/v1/metrics' "$project_dir/nginx.conf"
+require_literal 'location = /v1/traces' "$project_dir/nginx.conf"
+require_literal 'proxy_pass http://127.0.0.1:4318/v1/traces' "$project_dir/nginx.conf"
 require_literal 'location ^~ /v1/' "$project_dir/nginx.conf"
 require_literal 'client_max_body_size 64k' "$project_dir/nginx.conf"
 require_literal 'proxy_connect_timeout 1s' "$project_dir/nginx.conf"
@@ -84,14 +89,28 @@ require_literal 'proxy_read_timeout 5s' "$project_dir/nginx.conf"
 require_literal 'proxy_hide_header Access-Control-Allow-Origin' "$project_dir/nginx.conf"
 require_literal '!-f /tmp/loyal-clickstack-collector-auth-ready' "$project_dir/nginx.conf"
 require_literal ': > "$collector_auth_ready_file"' "$project_dir/scripts/entrypoint.sh"
-[[ "$(rg --count 'client_max_body_size 64k' "$project_dir/nginx.conf")" == "1" ]] \
-  || fail "public proxy must define exactly one 64 KiB body limit"
-exact_log_line="$(rg -n --no-heading 'location = /v1/logs' "$project_dir/nginx.conf" | cut -d: -f1)"
-body_limit_line="$(rg -n --no-heading 'client_max_body_size 64k' "$project_dir/nginx.conf" | cut -d: -f1)"
-fallback_line="$(rg -n --no-heading 'location / \{' "$project_dir/nginx.conf" | cut -d: -f1)"
-if (( body_limit_line <= exact_log_line || body_limit_line >= fallback_line )); then
-  fail "64 KiB body limit must apply only to the exact log-ingestion location"
+for signal in logs metrics traces; do
+  require_literal "/v1/$signal" "$project_dir/scripts/entrypoint.sh"
+done
+[[ "$(rg --count 'client_max_body_size 64k' "$project_dir/nginx.conf")" == "3" ]] \
+  || fail "public proxy must define one 64 KiB body limit per OTLP endpoint"
+[[ "$(rg --count 'location = /v1/' "$project_dir/nginx.conf")" == "3" ]] \
+  || fail "public proxy must define exactly three exact OTLP endpoint locations"
+if rg --quiet 'location = /v1/workflows' "$project_dir/nginx.conf"; then
+  fail "the nonexistent /v1/workflows path must not be proxied"
 fi
+require_literal 'metrics_probe_payload=' "$project_dir/scripts/smoke-live.sh"
+require_literal 'traces_probe_payload=' "$project_dir/scripts/smoke-live.sh"
+require_literal 'for signal in metrics traces' "$project_dir/scripts/smoke-live.sh"
+require_literal 'default.otel_logs' "$project_dir/scripts/smoke-live.sh"
+require_literal 'default.otel_logs' "$project_dir/scripts/smoke-local.sh"
+require_literal 'loyal.clickstack.smoke' "$project_dir/scripts/smoke-local.sh"
+require_literal 'traceId' "$project_dir/scripts/smoke-local.sh"
+require_literal 'send_signal_canaries' "$project_dir/scripts/smoke-local.sh"
+require_literal '/v1/metrics' "$project_dir/scripts/smoke-live.sh"
+require_literal '/v1/traces' "$project_dir/scripts/smoke-live.sh"
+require_literal 'CLICKSTACK_SMOKE_HTTP_RESPONSE' "$project_dir/scripts/smoke-live.sh"
+require_literal 'CLICKSTACK_INTERNAL_SMOKE_ENABLED=true' "$project_dir/scripts/smoke-local.sh"
 nginx_log_format="$(awk '/log_format loyal/{capture=1} capture{print} capture && /;/{exit}' "$project_dir/nginx.conf")"
 if rg --quiet '\$request\b|\$args\b|\$http_referer|\$http_user_agent|\$http_authorization' <<<"$nginx_log_format"; then
   fail "proxy access logs or config reference sensitive request metadata"
@@ -102,7 +121,7 @@ fi
 if rg --quiet -- '--publish[^[:cntrl:]]*(4318|8123|9000|27017)' "$project_dir/scripts/smoke-local.sh"; then
   fail "local smoke must not publish collector or database ports"
 fi
-pass "single public proxy exposes only the bounded authenticated log endpoint"
+pass "single public proxy exposes only bounded authenticated logs, metrics, and traces endpoints"
 
 sh -n "$project_dir/scripts/entrypoint.sh" "$project_dir/scripts/smoke-live.sh"
 bash -n "$project_dir/scripts/smoke-local.sh" "$project_dir/scripts/smoke-auth-redirect.sh"
@@ -187,7 +206,7 @@ pass "Render Blueprint validates"
 
 if [[ "${1:-}" == "--local" ]]; then
   "$script_dir/smoke-local.sh"
-  pass "local UI, ingestion security, ClickHouse query, and volume-recreation smoke test"
+  pass "local production startup smoke, OTLP canaries, log query, and volume-recreation test"
   "$script_dir/smoke-auth-redirect.sh"
   pass "hosted authentication redirects, CORS, cookies, and local fallback smoke test"
 elif [[ -n "${1:-}" ]]; then
