@@ -461,7 +461,7 @@ export type EarnDepositPolicyStageResult = {
   success: boolean;
   signature?: string;
   confirmedSlot?: string;
-  status?: "executed";
+  status?: "confirmation_record_failed" | "executed";
   error?: string;
 };
 
@@ -690,6 +690,73 @@ function getDetailedWalletErrorMessage(error: unknown, fallback: string) {
   }
 
   return `${baseMessage}: ${nested}`;
+}
+
+export const EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE =
+  "Your USDC deposit is confirmed, but Earn is still updating. Refresh Earn before doing anything else so you do not deposit twice.";
+
+export const EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE =
+  "Earn setup is confirmed, but Earn is still updating. Refresh Earn, then continue this deposit. No USDC was deposited yet.";
+
+export function getEarnDepositUserErrorMessage(
+  error: unknown,
+  fallback = "Earn deposit failed."
+): string {
+  const raw = getDetailedWalletErrorMessage(error, fallback);
+  const normalized = raw.toLowerCase();
+  const transactionWasSubmitted =
+    readErrorField(error, "transactionWasSubmitted") === true ||
+    normalized.includes("was submitted, but its confirmation is unresolved");
+
+  if (transactionWasSubmitted) {
+    return "A transaction for this deposit was submitted, but confirmation is still pending. Refresh Earn before trying again so you do not submit it twice.";
+  }
+
+  if (
+    normalized.includes("blockhash not found") ||
+    normalized.includes("block height exceeded") ||
+    normalized.includes("transaction expired") ||
+    normalized.includes("blockhash expired")
+  ) {
+    return "This wallet approval expired before it was sent. Review the deposit and sign again. No USDC was deposited.";
+  }
+
+  if (
+    normalized.includes("missing policy account") ||
+    normalized.includes("expected next policy seed") ||
+    normalized.includes("policy settings seed changed") ||
+    normalized.includes("settings changed during setup resolution") ||
+    normalized.includes("settings seed has advanced") ||
+    normalized.includes("cannot safely scan earn policies") ||
+    normalized.includes("persisted earn route policy is absent") ||
+    normalized.includes("instruction constraints are not canonical") ||
+    normalized.includes("already occupied at the next settings seed")
+  ) {
+    return "Earn setup changed while this deposit was being prepared. Refresh Earn and try again. No USDC was deposited.";
+  }
+
+  if (normalized.includes("simulation failed")) {
+    return "The wallet could not verify this deposit. Refresh Earn and try again. No USDC was deposited.";
+  }
+
+  if (
+    normalized.includes("user rejected") ||
+    normalized.includes("user denied") ||
+    normalized.includes("declined") ||
+    normalized.includes("cancelled") ||
+    normalized.includes("canceled")
+  ) {
+    return "You canceled the wallet request. No USDC was deposited.";
+  }
+
+  return raw;
+}
+
+function getSubmittedTransactionSignature(error: unknown): string | null {
+  const signature = readErrorField(error, "transactionSignature");
+  return typeof signature === "string" && signature.length > 0
+    ? signature
+    : null;
 }
 
 export function validatePreparedEarnPersistenceCluster({
@@ -2457,8 +2524,17 @@ function compareProposalSnapshotsByRecency(
   return left.proposalAddress.localeCompare(right.proposalAddress);
 }
 
-function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
-  if (!wallet.publicKey || !wallet.sendTransaction) {
+function createWalletAdapterBridge(
+  wallet: ReturnType<typeof useWallet>,
+  options?: { signThenSendRaw?: boolean }
+) {
+  const shouldSignThenSendRaw = Boolean(
+    options?.signThenSendRaw && wallet.signTransaction
+  );
+  if (
+    !wallet.publicKey ||
+    (!shouldSignThenSendRaw && !wallet.sendTransaction)
+  ) {
     return null;
   }
 
@@ -2480,11 +2556,16 @@ function createWalletAdapterBridge(wallet: ReturnType<typeof useWallet>) {
           ): Promise<T[]> => wallet.signAllTransactions!(transactions),
         }
       : {}),
-    sendTransaction: (
-      transaction: Transaction | VersionedTransaction,
-      nextConnection: ReturnType<typeof useConnection>["connection"],
-      options?: SendOptions
-    ) => wallet.sendTransaction!(transaction, nextConnection, options),
+    ...(!shouldSignThenSendRaw
+      ? {
+          sendTransaction: (
+            transaction: Transaction | VersionedTransaction,
+            nextConnection: ReturnType<typeof useConnection>["connection"],
+            sendOptions?: SendOptions
+          ) =>
+            wallet.sendTransaction!(transaction, nextConnection, sendOptions),
+        }
+      : {}),
   };
 }
 
@@ -5591,7 +5672,9 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      const walletBridge = createWalletAdapterBridge(wallet);
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
       if (!walletBridge) {
         return {
           success: false,
@@ -5640,18 +5723,50 @@ export function useSmartAccountSidebarData(
           return sendResult;
         }
 
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature: sendResult.signature,
-        });
+        let confirmedSlot: string;
+        try {
+          confirmedSlot = await resolveConfirmedSignatureSlot({
+            connection,
+            signature: sendResult.signature,
+          });
+        } catch (error) {
+          captureBrowserError(error, "earn.deposit.confirmation");
+          return {
+            success: false,
+            signature: sendResult.signature,
+            status: "confirmation_record_failed",
+            error: EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+          };
+        }
 
-        await postConfirmedEarnDepositPolicyStage({
-          observabilityFlowId: request.observabilityFlowId,
-          confirmedSlot,
-          preparedDeposit: request.preparedDeposit,
-          signature: sendResult.signature,
-          stage: request.stage,
-        });
+        try {
+          await postConfirmedEarnDepositPolicyStage({
+            observabilityFlowId: request.observabilityFlowId,
+            confirmedSlot,
+            preparedDeposit: request.preparedDeposit,
+            signature: sendResult.signature,
+            stage: request.stage,
+          });
+        } catch (error) {
+          captureBrowserError(error, "earn.deposit.confirmation");
+          console.warn(
+            "[executeEarnDepositPolicyStage] confirmation record failed",
+            {
+              confirmedSlot,
+              errorMessage:
+                error instanceof Error ? error.message : "Unknown error.",
+              signature: sendResult.signature,
+              stage: request.stage,
+            }
+          );
+          return {
+            success: false,
+            signature: sendResult.signature,
+            confirmedSlot,
+            status: "confirmation_record_failed",
+            error: EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+          };
+        }
 
         return {
           success: true,
@@ -5660,14 +5775,19 @@ export function useSmartAccountSidebarData(
           status: "executed",
         };
       } catch (err) {
-        const error =
-          err instanceof Error
-            ? err.message
-            : request.stage === "policy"
+        const error = getEarnDepositUserErrorMessage(
+          err,
+          request.stage === "policy"
             ? "Earn policy setup failed."
-            : "Earn policy finalization failed.";
+            : "Earn policy finalization failed."
+        );
         console.error("[executeEarnDepositPolicyStage] failed", err);
-        return { success: false, error };
+        const signature = getSubmittedTransactionSignature(err);
+        return {
+          success: false,
+          ...(signature ? { signature } : {}),
+          error,
+        };
       } finally {
         setIsActionPending(false);
       }
@@ -5704,7 +5824,9 @@ export function useSmartAccountSidebarData(
         return { success: false, error: "Amount must be greater than 0." };
       }
 
-      const walletBridge = createWalletAdapterBridge(wallet);
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
       if (!walletBridge) {
         return {
           success: false,
@@ -5826,7 +5948,7 @@ export function useSmartAccountSidebarData(
 
         const confirmationRecordFailureRef: {
           current: {
-            confirmedSlot: string;
+            confirmedSlot?: string;
             error: unknown;
             stage: EarnDepositBatchStage;
             signature: string;
@@ -5847,10 +5969,20 @@ export function useSmartAccountSidebarData(
                 );
               }
 
-              const confirmedSlot = await resolveConfirmedSignatureSlot({
-                connection,
-                signature,
-              });
+              let confirmedSlot: string;
+              try {
+                confirmedSlot = await resolveConfirmedSignatureSlot({
+                  connection,
+                  signature,
+                });
+              } catch (error) {
+                confirmationRecordFailureRef.current = {
+                  error,
+                  stage: confirmedStage.stage,
+                  signature,
+                };
+                throw error;
+              }
 
               if (
                 confirmedStage.stage === "policy" ||
@@ -5940,26 +6072,38 @@ export function useSmartAccountSidebarData(
           const confirmationRecordFailure =
             confirmationRecordFailureRef.current;
           if (confirmationRecordFailure) {
+            if (confirmationRecordFailure.stage === "deposit") {
+              return {
+                success: true,
+                signature: confirmationRecordFailure.signature,
+                ...(confirmationRecordFailure.confirmedSlot
+                  ? { confirmedSlot: confirmationRecordFailure.confirmedSlot }
+                  : {}),
+                status: "confirmation_record_failed",
+                ...collectedSignatureFields(),
+                error: EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+              };
+            }
             return {
               success: false,
               signature: confirmationRecordFailure.signature,
-              confirmedSlot: confirmationRecordFailure.confirmedSlot,
+              ...(confirmationRecordFailure.confirmedSlot
+                ? { confirmedSlot: confirmationRecordFailure.confirmedSlot }
+                : {}),
               status: "confirmation_record_failed",
               ...collectedSignatureFields(),
               resumeStage: resolveResumeStage(),
-              error:
-                confirmationRecordFailure.error instanceof Error
-                  ? confirmationRecordFailure.error.message
-                  : "Failed to record confirmed Earn deposit stage.",
+              error: EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
             };
           }
 
+          const submittedSignature = getSubmittedTransactionSignature(error);
           return {
             success: false,
+            ...(submittedSignature ? { signature: submittedSignature } : {}),
             ...collectedSignatureFields(),
             resumeStage: resolveResumeStage(),
-            error:
-              error instanceof Error ? error.message : "Earn deposit failed.",
+            error: getEarnDepositUserErrorMessage(error),
           };
         }
 
@@ -5980,8 +6124,7 @@ export function useSmartAccountSidebarData(
           ...collectedSignatureFields(),
         };
       } catch (err) {
-        const error =
-          err instanceof Error ? err.message : "Earn deposit failed.";
+        const error = getEarnDepositUserErrorMessage(err);
         console.error("[executeEarnDepositBatch] failed", err);
         return { success: false, error };
       } finally {
@@ -6039,7 +6182,9 @@ export function useSmartAccountSidebarData(
         return { success: false, error: "Amount must be greater than 0." };
       }
 
-      const walletBridge = createWalletAdapterBridge(wallet);
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
       if (!walletBridge) {
         console.log("[executeEarnDeposit] aborted: no wallet bridge");
         return {
@@ -6141,10 +6286,26 @@ export function useSmartAccountSidebarData(
         console.log("[executeEarnDeposit] wallet send completed", {
           signature,
         });
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature,
-        });
+        let confirmedSlot: string;
+        try {
+          confirmedSlot = await resolveConfirmedSignatureSlot({
+            connection,
+            signature,
+          });
+        } catch (error) {
+          captureBrowserError(error, "earn.deposit.confirmation");
+          console.warn("[executeEarnDeposit] confirmed slot unavailable", {
+            errorMessage:
+              error instanceof Error ? error.message : "Unknown error.",
+            signature,
+          });
+          return {
+            success: true,
+            signature,
+            status: "confirmation_record_failed",
+            error: EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+          };
+        }
         console.log("[executeEarnDeposit] signature confirmed", {
           confirmedSlot,
           signature,
@@ -6189,7 +6350,24 @@ export function useSmartAccountSidebarData(
             );
           });
         } else {
-          await recordDepositConfirmation();
+          try {
+            await recordDepositConfirmation();
+          } catch (error) {
+            captureBrowserError(error, "earn.deposit.confirmation");
+            console.warn("[executeEarnDeposit] confirmation record failed", {
+              confirmedSlot,
+              errorMessage:
+                error instanceof Error ? error.message : "Unknown error.",
+              signature,
+            });
+            return {
+              success: true,
+              signature,
+              confirmedSlot,
+              status: "confirmation_record_failed",
+              error: EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+            };
+          }
         }
 
         return {
@@ -6199,11 +6377,15 @@ export function useSmartAccountSidebarData(
           status: "executed",
         };
       } catch (err) {
-        const error =
-          err instanceof Error ? err.message : "Earn deposit failed.";
+        const error = getEarnDepositUserErrorMessage(err);
         captureBrowserError(err, "earn.deposit.execute");
         console.error("[executeEarnDeposit] failed", err);
-        return { success: false, error };
+        const signature = getSubmittedTransactionSignature(err);
+        return {
+          success: false,
+          ...(signature ? { signature } : {}),
+          error,
+        };
       } finally {
         setIsActionPending(false);
       }

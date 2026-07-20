@@ -136,6 +136,9 @@ import {
   type ActiveEarnPositionHolding,
 } from "@/hooks/use-active-earn-position";
 import {
+  EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+  EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+  getEarnDepositUserErrorMessage,
   prepareEarnCleanupOnServer,
   type PreparedEarnUsdcCleanup,
   useSmartAccountSidebarData,
@@ -5012,25 +5015,18 @@ export function AppWalletWorkspace({
         onboarding.setupPolicy.lastSeenSlot
           ? onboarding.setupPolicy
           : null);
-      const shouldPrepareSetupPolicy =
-        Boolean(routePolicy) && !routeSetupPolicy;
       const yieldRoutingPolicy: EarnDepositYieldRoutingPolicy | undefined =
-        routePolicy
+        routePolicy && routeSetupPolicy
           ? {
               account: new PublicKey(routePolicy.account),
               seed: BigInt(routePolicy.seed),
-              ...(routeSetupPolicy
-                ? {
-                    setupPolicy: {
-                      account: new PublicKey(routeSetupPolicy.account),
-                      seed: BigInt(routeSetupPolicy.seed),
-                    },
-                  }
-                : {}),
-              ...(shouldPrepareSetupPolicy ? { prepareSetupPolicy: true } : {}),
+              setupPolicy: {
+                account: new PublicKey(routeSetupPolicy.account),
+                seed: BigInt(routeSetupPolicy.seed),
+              },
             }
           : undefined;
-      const target = yieldRoutingPolicy
+      const target = routePolicy
         ? resolveActiveEarnDepositTarget(activeEarnPosition)
         : null;
       const client = createSmartAccountVaultsClient({
@@ -5322,14 +5318,24 @@ export function AppWalletWorkspace({
                 errorCode: "record_failed",
                 persistenceState: "failed",
               });
+              throw new Error(EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE);
             }
             throw new Error(result.error ?? "Earn deposit failed.");
+          }
+
+          if (result.status === "confirmation_record_failed") {
+            setProposalActionError(
+              result.error ?? EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE
+            );
           }
 
           tracker.observe("slot_resolve", { chainState: "confirmed" });
           tracker.observe("backend_confirm", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState:
+              result.status === "confirmation_record_failed"
+                ? "failed"
+                : "recorded",
           });
 
           markDetailPaneTransition("back");
@@ -5358,7 +5364,10 @@ export function AppWalletWorkspace({
           setSelectedDetail("Earn");
           tracker.complete("ui_commit", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState:
+              result.status === "confirmation_record_failed"
+                ? "failed"
+                : "recorded",
           });
           return;
         }
@@ -5374,10 +5383,10 @@ export function AppWalletWorkspace({
         setIsEarnDepositPolicySetupFlow(nextReview.isPolicySetupFlow);
         setEarnDepositReviewStage(nextReview.stage);
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to prepare Earn deposit.";
+        const message = getEarnDepositUserErrorMessage(
+          error,
+          "Failed to prepare Earn deposit."
+        );
         setEarnDepositPrepareError(message);
         if (isWalletCancellation(error)) {
           tracker.cancel("wallet_submit_confirm", {
@@ -5657,6 +5666,14 @@ export function AppWalletWorkspace({
                 errorCode: "record_failed",
                 persistenceState: "failed",
               });
+              setPendingEarnDepositDraft(null);
+              setPendingEarnDepositPrepared(null);
+              setEarnDepositPolicyStageSignatures({});
+              setIsEarnDepositPolicySetupFlow(false);
+              setEarnDepositReviewStage("deposit");
+              throw new Error(
+                EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE
+              );
             }
             if (batchResult.resumeStage) {
               setEarnDepositReviewStage(batchResult.resumeStage);
@@ -5664,10 +5681,20 @@ export function AppWalletWorkspace({
             throw new Error(batchResult.error ?? "Earn deposit failed.");
           }
 
+          if (batchResult.status === "confirmation_record_failed") {
+            setProposalActionError(
+              batchResult.error ??
+                EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE
+            );
+          }
+
           tracker?.observe("slot_resolve", { chainState: "confirmed" });
           tracker?.observe("backend_confirm", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState:
+              batchResult.status === "confirmation_record_failed"
+                ? "failed"
+                : "recorded",
           });
 
           markDetailPaneTransition("back");
@@ -5706,7 +5733,10 @@ export function AppWalletWorkspace({
           setSelectedDetail("Earn");
           tracker?.complete("ui_commit", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState:
+              batchResult.status === "confirmation_record_failed"
+                ? "failed"
+                : "recorded",
           });
           return;
         }
@@ -5733,6 +5763,16 @@ export function AppWalletWorkspace({
             stage,
           });
           if (!result.success) {
+            if (result.status === "confirmation_record_failed") {
+              setPendingEarnDepositDraft(null);
+              setPendingEarnDepositPrepared(null);
+              setEarnDepositPolicyStageSignatures({});
+              setIsEarnDepositPolicySetupFlow(false);
+              setEarnDepositReviewStage("deposit");
+              throw new Error(
+                EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE
+              );
+            }
             throw new Error(result.error ?? "Earn policy approval failed.");
           }
 
@@ -5792,14 +5832,24 @@ export function AppWalletWorkspace({
               errorCode: "record_failed",
               persistenceState: "failed",
             });
+            throw new Error(EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE);
           }
           throw new Error(result.error ?? "Earn deposit failed.");
+        }
+
+        if (result.status === "confirmation_record_failed") {
+          setProposalActionError(
+            result.error ?? EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE
+          );
         }
 
         tracker?.observe("slot_resolve", { chainState: "confirmed" });
         tracker?.observe("backend_confirm", {
           chainState: "confirmed",
-          persistenceState: "recorded",
+          persistenceState:
+            result.status === "confirmation_record_failed"
+              ? "failed"
+              : "recorded",
         });
 
         markDetailPaneTransition("back");
@@ -5829,13 +5879,15 @@ export function AppWalletWorkspace({
         setSelectedDetail("Earn");
         tracker?.complete("ui_commit", {
           chainState: "confirmed",
-          persistenceState: "recorded",
+          persistenceState:
+            result.status === "confirmation_record_failed"
+              ? "failed"
+              : "recorded",
         });
         break;
       }
     } catch (error) {
-      const raw =
-        error instanceof Error ? error.message : "Earn deposit failed.";
+      const raw = getEarnDepositUserErrorMessage(error);
       const haystack = raw.toLowerCase();
       const isRentError =
         haystack.includes("insufficient funds for rent") ||
@@ -7477,6 +7529,7 @@ export function AppWalletWorkspace({
           onOpenAutodeposit={handleOpenAutodeposit}
           onWithdraw={handleOpenEarnWithdraw}
           principalAmount={earnPrincipalAmount}
+          statusMessage={proposalActionError}
         />
       );
     }

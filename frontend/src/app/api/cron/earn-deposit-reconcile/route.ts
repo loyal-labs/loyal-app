@@ -4,10 +4,10 @@ import { reconcileInvisibleEarnDeposits } from "@/lib/yield-optimization/earn-de
 
 import { validateCronAuthHeader } from "../_shared/auth";
 
-// Adopts Earn deposits that landed on-chain but whose deposit-confirm was lost
-// or rejected (no yield DB rows → the app shows nothing). This is the safety
-// net behind the confirm path — every adoption it reports is a confirm the
-// normal path lost. `?dryRun=1` scans and reports without writing.
+// Reconciles two lost-confirm stages through the canonical repository writers:
+// policy-only onboarding strands first, then deposits that landed but remain
+// invisible. Every adoption is an operational signal that the normal confirm
+// path lost an acknowledgement. `?dryRun=1` scans and reports without writing.
 export const maxDuration = 300;
 
 async function handleCronRequest(request: Request) {

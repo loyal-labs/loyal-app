@@ -2478,6 +2478,7 @@ export function EarnDetailView({
   onOpenAutodeposit,
   onWithdraw,
   principalAmount = 0,
+  statusMessage = null,
 }: {
   autodepositFloorAccountLabel?: string;
   autodepositFloorLabel?: string;
@@ -2513,6 +2514,7 @@ export function EarnDetailView({
   onOpenAutodeposit?: () => void;
   onWithdraw?: () => void;
   principalAmount?: number;
+  statusMessage?: string | null;
 }) {
   const earnForecastApy = useEarnForecastApy();
   const hasPositiveCurrentBalance =
@@ -2758,6 +2760,25 @@ export function EarnDetailView({
           )}
         </div>
       </div>
+
+      {statusMessage ? (
+        <div
+          role="status"
+          style={{
+            background: "rgba(249, 54, 60, 0.08)",
+            border: "1px solid rgba(249, 54, 60, 0.2)",
+            borderRadius: "12px",
+            color: "#A2171C",
+            fontFamily: font,
+            fontSize: "13px",
+            lineHeight: "18px",
+            margin: "8px 20px 6px",
+            padding: "10px 12px",
+          }}
+        >
+          {statusMessage}
+        </div>
+      ) : null}
 
       <div
         className="earn-detail-balance-row"

@@ -5403,12 +5403,26 @@ export function createSmartAccountVaultsClient(
     );
 
     return policyAccounts
-      .map((account) => deserializePolicyAccount(account))
-      .filter((entry) => entry.policy.settings.equals(args.settingsPda))
+      .map((account) => {
+        if (!account.account.owner.equals(smartAccountsClient.programId)) {
+          throw new Error(
+            `Policy account ${account.pubkey.toBase58()} has an unexpected owner.`
+          );
+        }
+        const entry = deserializePolicyAccount(account);
+        if (!entry.policy.settings.equals(args.settingsPda)) {
+          throw new Error(
+            `Policy account ${account.pubkey.toBase58()} belongs to an unexpected Settings account.`
+          );
+        }
+        return entry;
+      })
       .sort((left, right) =>
         toBigInt(left.policy.seed) > toBigInt(right.policy.seed) ? 1 : -1
       );
   }
+
+  type RawPolicyEntry = Awaited<ReturnType<typeof listRawPolicies>>[number];
 
   type ResolvedEarnYieldRoutingPolicy = {
     account: PublicKey;
@@ -5424,6 +5438,104 @@ export function createSmartAccountVaultsClient(
     >["persistence"];
     setupSeed?: bigint;
   };
+
+  async function fetchRawPolicyAtAddress(args: {
+    account: PublicKey;
+    label: string;
+  }): Promise<RawPolicyEntry | null> {
+    if (typeof config.connection.getAccountInfo !== "function") {
+      throw new Error(
+        `Cannot resolve ${args.label} without reading its on-chain account.`
+      );
+    }
+
+    const accountInfo = await config.connection.getAccountInfo(
+      args.account,
+      "confirmed"
+    );
+    if (!accountInfo) {
+      return null;
+    }
+    if (!accountInfo.owner.equals(smartAccountsClient.programId)) {
+      throw new Error(
+        `${args.label} ${args.account.toBase58()} has an unexpected owner.`
+      );
+    }
+
+    try {
+      return deserializePolicyAccount({
+        pubkey: args.account,
+        account: accountInfo,
+      });
+    } catch {
+      throw new Error(
+        `${
+          args.label
+        } ${args.account.toBase58()} is not a decodable policy account.`
+      );
+    }
+  }
+
+  function assertCanonicalEarnPolicy(args: {
+    entry: RawPolicyEntry;
+    expectedState: generated.PolicyCreationPayload;
+    label: string;
+    policySigner: PublicKey;
+    seed: bigint;
+    settingsPda: PublicKey;
+  }): void {
+    if (args.seed > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error(`${args.label} seed is too large for this client.`);
+    }
+    const expectedAccount = pda.getPolicyPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      policySeed: Number(args.seed),
+    })[0];
+    const policy = args.entry.policy;
+
+    if (!args.entry.address.equals(expectedAccount)) {
+      throw new Error(`${args.label} account does not match its policy seed.`);
+    }
+    if (!policy.settings.equals(args.settingsPda)) {
+      throw new Error(`${args.label} belongs to another Settings account.`);
+    }
+    if (toBigInt(policy.seed) !== args.seed) {
+      throw new Error(`${args.label} seed does not match its account.`);
+    }
+    if (policy.threshold !== 1) {
+      throw new Error(`${args.label} threshold is not canonical.`);
+    }
+    if (policy.timeLock !== 0) {
+      throw new Error(`${args.label} timelock is not canonical.`);
+    }
+    if (policy.signers.length !== 1) {
+      throw new Error(`${args.label} signer set is not canonical.`);
+    }
+
+    const [policySigner] = policy.signers;
+    if (!policySigner?.key.equals(args.policySigner)) {
+      throw new Error(`${args.label} deployment signer does not match.`);
+    }
+    if (
+      !generatedValuesEqual(
+        policySigner.permissions,
+        createPolicySigner(args.policySigner).permissions
+      )
+    ) {
+      throw new Error(`${args.label} signer permissions are not canonical.`);
+    }
+    if (
+      !generatedValuesEqual(
+        policy.policyState,
+        policyCreationPayloadToState(args.expectedState)
+      )
+    ) {
+      throw new Error(
+        `${args.label} instruction constraints are not canonical.`
+      );
+    }
+  }
 
   async function createEarnYieldRoutingPolicyOperation(args: {
     cluster: LoyalCluster;
@@ -5620,6 +5732,7 @@ export function createSmartAccountVaultsClient(
 
   async function resolveEarnYieldRoutingPolicyForCreation(args: {
     cluster: LoyalCluster;
+    expectedPolicySeed: bigint;
     feePayer: PublicKey;
     policySigner: PublicKey;
     settingsPda: PublicKey;
@@ -5635,6 +5748,11 @@ export function createSmartAccountVaultsClient(
         args.settingsPda
       );
     const nextPolicySeed = resolveNextPolicySeed(settings);
+    if (nextPolicySeed.bigint !== args.expectedPolicySeed) {
+      throw new Error(
+        "Earn policy Settings seed changed during preparation. Refresh and try again."
+      );
+    }
     const {
       finalizeOperation,
       operation,
@@ -5741,86 +5859,307 @@ export function createSmartAccountVaultsClient(
     };
   }
 
-  // A prior first-deposit attempt can land the policy-create stages and then
-  // fail before confirm records them, leaving valid policies on-chain that the
-  // read-model doesn't know about. Blindly re-creating burns policy rent on
-  // every retry, so scan the settings' policies for a reusable route+setup
-  // pair (route policy at seed N, init-obligation setup twin at N+1, both
-  // carrying the current policy signer) before creating a fresh pair.
-  async function discoverEarnYieldRoutingPolicyPairOnChain(args: {
+  // Policy creation and its control-plane confirmation cannot be atomic. The
+  // chain is therefore authoritative on every first-deposit/resume prepare:
+  // validate known deterministic PDAs directly, otherwise scan for a complete
+  // pair, and create only after authoritative reads prove the target absent.
+  async function resolveEarnYieldRoutingPolicyForPreparation(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
+    knownRoute?: {
+      account: PublicKey;
+      seed: bigint;
+    };
     policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
-  }): Promise<ResolvedEarnYieldRoutingPolicy | null> {
-    if (typeof config.connection.getProgramAccounts !== "function") {
-      return null;
+  }): Promise<ResolvedEarnYieldRoutingPolicy> {
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const currentPolicySeed =
+      settings.policySeed == null ? BigInt(0) : toBigInt(settings.policySeed);
+    const vault = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const target = resolveKaminoEarnTarget(args.cluster);
+    const universe = resolveEarnPolicyUniverse(args.cluster);
+    const expectedRouteState =
+      createEarnProgramInteractionPolicyCreationPayload({
+        target,
+        universe,
+        vaultPda: vault,
+      });
+    const expectedSetupState = createEarnInitObligationPolicyCreationPayload({
+      target,
+      universe,
+      vaultPda: vault,
+    });
+    const assertRoute = (entry: RawPolicyEntry, seed: bigint) =>
+      assertCanonicalEarnPolicy({
+        entry,
+        expectedState: expectedRouteState,
+        label: "Earn route policy",
+        policySigner: args.policySigner,
+        seed,
+        settingsPda: args.settingsPda,
+      });
+    const assertSetup = (entry: RawPolicyEntry, seed: bigint) =>
+      assertCanonicalEarnPolicy({
+        entry,
+        expectedState: expectedSetupState,
+        label: "Earn setup policy",
+        policySigner: args.policySigner,
+        seed,
+        settingsPda: args.settingsPda,
+      });
+
+    if (args.knownRoute) {
+      const routeEntry = await fetchRawPolicyAtAddress({
+        account: args.knownRoute.account,
+        label: "Earn route policy",
+      });
+      if (!routeEntry) {
+        throw new Error(
+          "The persisted Earn route policy is absent on-chain. Refresh policy state before depositing."
+        );
+      }
+      assertRoute(routeEntry, args.knownRoute.seed);
+
+      const setupSeed = args.knownRoute.seed + BigInt(1);
+      if (setupSeed > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error("Earn setup policy seed is too large for this client.");
+      }
+      const setupAccount = pda.getPolicyPda({
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+        policySeed: Number(setupSeed),
+      })[0];
+      const setupEntry = await fetchRawPolicyAtAddress({
+        account: setupAccount,
+        label: "Earn setup policy",
+      });
+      if (setupEntry) {
+        assertSetup(setupEntry, setupSeed);
+        return {
+          account: routeEntry.address,
+          seed: args.knownRoute.seed,
+          setupAccount: setupEntry.address,
+          setupSeed,
+        };
+      }
+      if (currentPolicySeed !== args.knownRoute.seed) {
+        throw new Error(
+          "Earn setup policy is absent but the Settings seed has advanced. Refresh policy state before depositing."
+        );
+      }
+      const latestSettings =
+        await smartAccountsClient.smartAccounts.queries.fetchSettings(
+          args.settingsPda
+        );
+      const latestPolicySeed =
+        latestSettings.policySeed == null
+          ? BigInt(0)
+          : toBigInt(latestSettings.policySeed);
+      if (latestPolicySeed !== args.knownRoute.seed) {
+        throw new Error(
+          "Earn policy Settings changed during setup resolution. Refresh and try again."
+        );
+      }
+      return resolveEarnYieldRoutingSetupPolicyForCreation({
+        cluster: args.cluster,
+        feePayer: args.feePayer,
+        policySeed: args.knownRoute.seed,
+        policySigner: args.policySigner,
+        settingsPda: args.settingsPda,
+        signer: args.signer,
+      });
     }
 
-    let policies: Awaited<ReturnType<typeof listRawPolicies>>;
+    if (typeof config.connection.getProgramAccounts !== "function") {
+      throw new Error(
+        "Cannot safely prepare an Earn policy without scanning on-chain policies."
+      );
+    }
+    let policies: RawPolicyEntry[];
     try {
       policies = await listRawPolicies({ settingsPda: args.settingsPda });
-    } catch {
-      // Discovery is best-effort; creation remains the fallback.
-      return null;
+    } catch (error) {
+      const detail = error instanceof Error ? ` ${error.message}` : "";
+      throw new Error(`Cannot safely scan Earn policies.${detail}`);
     }
 
-    // Earn interaction policies for the deposit vault, keyed by constraint
-    // count: the route policy carries withdraw+deposit (2), its setup twin
-    // carries only init-obligation (1). Anything else returns null.
-    const earnInteractionConstraintCount = (
-      entry: (typeof policies)[number]
-    ): number | null => {
+    const routes: RawPolicyEntry[] = [];
+    const setups: RawPolicyEntry[] = [];
+    for (const entry of policies) {
       const state = entry.policy.policyState;
+      if (state.__kind !== "ProgramInteraction") {
+        continue;
+      }
+      const interaction = state.fields[0];
+      if (interaction.accountIndex !== EARN_DEPOSIT_VAULT_INDEX) {
+        continue;
+      }
+      const constraints = interaction.instructionsConstraints;
+      const touchesKamino = constraints.some((constraint) =>
+        constraint.programId.equals(target.lendProgramId)
+      );
+      if (!touchesKamino) {
+        continue;
+      }
       if (
-        state.__kind !== "ProgramInteraction" ||
-        state.fields[0].accountIndex !== EARN_DEPOSIT_VAULT_INDEX ||
-        !entry.policy.signers.some((signer) =>
-          signer.key.equals(args.policySigner)
+        !constraints.every((constraint) =>
+          constraint.programId.equals(target.lendProgramId)
         )
       ) {
-        return null;
+        throw new Error(
+          `Earn policy ${entry.address.toBase58()} mixes incompatible instruction programs.`
+        );
       }
-      return state.fields[0].instructionsConstraints.length;
-    };
 
-    const bySeed = new Map(
-      policies.map((entry) => [toBigInt(entry.policy.seed), entry] as const)
-    );
-    const routes = policies
-      .filter((entry) => earnInteractionConstraintCount(entry) === 2)
-      .sort((left, right) =>
-        toBigInt(left.policy.seed) > toBigInt(right.policy.seed) ? -1 : 1
+      const seed = toBigInt(entry.policy.seed);
+      if (
+        generatedValuesEqual(
+          state,
+          policyCreationPayloadToState(expectedRouteState)
+        )
+      ) {
+        assertRoute(entry, seed);
+        routes.push(entry);
+        continue;
+      }
+      if (
+        generatedValuesEqual(
+          state,
+          policyCreationPayloadToState(expectedSetupState)
+        )
+      ) {
+        assertSetup(entry, seed);
+        setups.push(entry);
+        continue;
+      }
+      throw new Error(
+        `Earn policy ${entry.address.toBase58()} has non-canonical instruction constraints.`
       );
+    }
 
-    for (const route of routes) {
+    const setupBySeed = new Map(
+      setups.map((entry) => [toBigInt(entry.policy.seed), entry] as const)
+    );
+    const sortedRoutes = routes.sort((left, right) =>
+      toBigInt(left.policy.seed) > toBigInt(right.policy.seed) ? -1 : 1
+    );
+    let newestRouteWithoutSetup: RawPolicyEntry | null = null;
+    for (const route of sortedRoutes) {
       const routeSeed = toBigInt(route.policy.seed);
-      const setupEntry = bySeed.get(routeSeed + BigInt(1));
-      if (setupEntry && earnInteractionConstraintCount(setupEntry) === 1) {
+      const setupSeed = routeSeed + BigInt(1);
+      if (setupSeed > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error("Earn setup policy seed is too large for this client.");
+      }
+      const setupEntry = setupBySeed.get(setupSeed);
+      if (setupEntry) {
         return {
           account: route.address,
           seed: routeSeed,
           setupAccount: setupEntry.address,
-          setupSeed: routeSeed + BigInt(1),
+          setupSeed,
         };
       }
-      if (!setupEntry) {
-        // The route landed but its setup twin didn't — prepare only the
-        // setup stage against the existing route seed.
-        return resolveEarnYieldRoutingSetupPolicyForCreation({
-          cluster: args.cluster,
-          feePayer: args.feePayer,
-          policySeed: routeSeed,
-          policySigner: args.policySigner,
-          settingsPda: args.settingsPda,
-          signer: args.signer,
-        });
+
+      const setupAccount = pda.getPolicyPda({
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+        policySeed: Number(setupSeed),
+      })[0];
+      const accountAtSetupSeed = await fetchRawPolicyAtAddress({
+        account: setupAccount,
+        label: "Earn setup policy",
+      });
+      if (accountAtSetupSeed) {
+        throw new Error(
+          `Policy seed ${setupSeed.toString()} is occupied by an incompatible Earn setup account.`
+        );
       }
-      // Seed+1 holds an incompatible policy; try an older route candidate.
+      newestRouteWithoutSetup ??= route;
     }
 
-    return null;
+    if (newestRouteWithoutSetup) {
+      const routeSeed = toBigInt(newestRouteWithoutSetup.policy.seed);
+      if (currentPolicySeed !== routeSeed) {
+        throw new Error(
+          "Earn route policy has no setup twin and the Settings seed has advanced. Refresh policy state before depositing."
+        );
+      }
+      const latestSettings =
+        await smartAccountsClient.smartAccounts.queries.fetchSettings(
+          args.settingsPda
+        );
+      const latestPolicySeed =
+        latestSettings.policySeed == null
+          ? BigInt(0)
+          : toBigInt(latestSettings.policySeed);
+      if (latestPolicySeed !== routeSeed) {
+        throw new Error(
+          "Earn policy Settings changed during setup resolution. Refresh and try again."
+        );
+      }
+      return resolveEarnYieldRoutingSetupPolicyForCreation({
+        cluster: args.cluster,
+        feePayer: args.feePayer,
+        policySeed: routeSeed,
+        policySigner: args.policySigner,
+        settingsPda: args.settingsPda,
+        signer: args.signer,
+      });
+    }
+
+    if (setups.length > 0) {
+      throw new Error(
+        "Earn setup policy exists without its canonical route policy. Refresh policy state before depositing."
+      );
+    }
+
+    const nextPolicySeed = resolveNextPolicySeed(settings).bigint;
+    const nextSetupSeed = nextPolicySeed + BigInt(1);
+    if (nextSetupSeed > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("Earn setup policy seed is too large for this client.");
+    }
+    for (const candidate of [
+      {
+        account: pda.getPolicyPda({
+          programId: smartAccountsClient.programId,
+          settingsPda: args.settingsPda,
+          policySeed: Number(nextPolicySeed),
+        })[0],
+        label: "Earn route policy",
+      },
+      {
+        account: pda.getPolicyPda({
+          programId: smartAccountsClient.programId,
+          settingsPda: args.settingsPda,
+          policySeed: Number(nextSetupSeed),
+        })[0],
+        label: "Earn setup policy",
+      },
+    ]) {
+      if (await fetchRawPolicyAtAddress(candidate)) {
+        throw new Error(
+          `${candidate.label} account is already occupied at the next Settings seed.`
+        );
+      }
+    }
+
+    return resolveEarnYieldRoutingPolicyForCreation({
+      cluster: args.cluster,
+      expectedPolicySeed: nextPolicySeed,
+      feePayer: args.feePayer,
+      policySigner: args.policySigner,
+      settingsPda: args.settingsPda,
+      signer: args.signer,
+    });
   }
 
   async function resolveAgentPolicy(args: SmartAccountAddSignerProposalInput) {
@@ -6397,41 +6736,25 @@ export function createSmartAccountVaultsClient(
       }
     }
     const earnPolicy = shouldInitializeYieldRoutingPolicy
-      ? (await discoverEarnYieldRoutingPolicyPairOnChain({
+      ? await resolveEarnYieldRoutingPolicyForPreparation({
           cluster,
           feePayer: args.feePayer,
           policySigner: args.policySigner,
           settingsPda: args.settingsPda,
           signer: args.walletAddress,
-        })) ??
-        (await resolveEarnYieldRoutingPolicyForCreation({
-          cluster,
-          feePayer: args.feePayer,
-          policySigner: args.policySigner,
-          settingsPda: args.settingsPda,
-          signer: args.walletAddress,
-        }))
+        })
       : args.yieldRoutingPolicy
-      ? args.yieldRoutingPolicy.setupPolicy
-        ? {
+      ? await resolveEarnYieldRoutingPolicyForPreparation({
+          cluster,
+          feePayer: args.feePayer,
+          knownRoute: {
             account: args.yieldRoutingPolicy.account,
             seed: args.yieldRoutingPolicy.seed,
-            setupAccount: args.yieldRoutingPolicy.setupPolicy.account,
-            setupSeed: args.yieldRoutingPolicy.setupPolicy.seed,
-          }
-        : args.yieldRoutingPolicy.prepareSetupPolicy
-        ? await resolveEarnYieldRoutingSetupPolicyForCreation({
-            cluster,
-            feePayer: args.feePayer,
-            policySeed: args.yieldRoutingPolicy.seed,
-            policySigner: args.policySigner,
-            settingsPda: args.settingsPda,
-            signer: args.walletAddress,
-          })
-        : {
-            account: args.yieldRoutingPolicy.account,
-            seed: args.yieldRoutingPolicy.seed,
-          }
+          },
+          policySigner: args.policySigner,
+          settingsPda: args.settingsPda,
+          signer: args.walletAddress,
+        })
       : await resolveEarnYieldRoutingPolicyForExecution({
           settingsPda: args.settingsPda,
         });

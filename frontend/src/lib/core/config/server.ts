@@ -122,6 +122,15 @@ function createLoyalSmartAccountsRuntimeConfig(
   };
 }
 
+export function resolveLoyalSmartAccountsProgramIdFromEnv(
+  env: EnvSource
+): string {
+  return createLoyalSmartAccountsRuntimeConfig(
+    env,
+    resolveLoyalWebSolanaEnvFromEnv(env)
+  ).programId;
+}
+
 export function createServerEnv(env: EnvSource): ServerEnv {
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(env);
   const appEnvironment = resolveAppEnvironment(

@@ -1,28 +1,43 @@
 import "server-only";
 
 import {
+  KAMINO_USER_METADATA_SEED,
+  KAMINO_VANILLA_OBLIGATION_ID,
+  KAMINO_VANILLA_OBLIGATION_TAG,
   RiskBasket,
   Stablecoin,
+  getKaminoUsdcEarnTargetForCluster,
   getRiskBasketMarketsForCluster,
   getStablecoinMintForCluster,
+  getStablecoinMintsForCluster,
   resolveLoyalClusterForSolanaEnv,
   type LoyalCluster,
 } from "@loyal-labs/actions";
 import { appUsers, appUserSmartAccounts } from "@loyal-labs/db-core/schema";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { Policy, toBigInt } from "@loyal-labs/loyal-smart-accounts-core";
+import {
+  Permission,
+  Policy,
+  generated,
+  toBigInt,
+} from "@loyal-labs/loyal-smart-accounts-core";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import {
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import {
   Connection,
   PublicKey,
+  SYSVAR_RENT_PUBKEY,
+  SystemProgram,
   type ParsedTransactionWithMeta,
   type TokenBalance,
 } from "@solana/web3.js";
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
 
 import { reportEarnDepositQuestCompletion } from "@/features/solana-week/server/quest-completion-service";
-import { getServerEnv } from "@/lib/core/config/server";
+import { resolveLoyalSmartAccountsProgramIdFromEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getDatabase } from "@/lib/core/database";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
@@ -39,9 +54,15 @@ import {
   type EarnRpcHolding,
   type EarnRpcPolicyMetadata,
 } from "./earn-rpc-holdings.client";
-import { findActiveYieldRoutePolicyPair } from "./yield-deposit-repository.server";
 import {
+  findActiveYieldRoutePolicyPair,
+  recordConfirmedEarnDepositOnboardingPolicyStage,
+  type ConfirmedYieldRoutePolicyInput,
+} from "./yield-deposit-repository.server";
+import {
+  earnDepositOnboardingAttempts,
   getYieldOptimizationClient,
+  userYieldPositionDeposits,
   userYieldPositions,
 } from "./yield-neon-client.server";
 
@@ -78,6 +99,17 @@ export type EarnDepositReconcileOutcome = {
   reason?: string;
 };
 
+export type EarnPolicyOnlyReconcileOutcome = {
+  wallet: string;
+  settings: string;
+  status: "adopted" | "ready" | "skipped";
+  routePolicyAccount?: string;
+  routePolicySignature?: string;
+  setupPolicyAccount?: string;
+  setupPolicySignature?: string;
+  reason?: string;
+};
+
 export type EarnDepositReconcileSummary = {
   candidates: number;
   scanned: number;
@@ -86,9 +118,34 @@ export type EarnDepositReconcileSummary = {
   errors: number;
   truncated: boolean;
   dryRun: boolean;
+  policyOnlyCandidates: number;
+  policyOnlyScanned: number;
+  policyOnlyAdopted: EarnPolicyOnlyReconcileOutcome[];
+  policyOnlyReady: EarnPolicyOnlyReconcileOutcome[];
+  policyOnlySkipped: number;
+  policyOnlyErrors: number;
 };
 
 type Candidate = { walletAddress: string; settingsPda: string };
+type PolicyOnlyCandidate = {
+  delegatedSigner: string;
+  liquidityMint: string;
+  market: string | null;
+  policyAccount: string;
+  policyConfirmedSlot: bigint | null;
+  policySeed: bigint;
+  policySignature: string | null;
+  settingsPda: string;
+  setupPolicyAccount: string | null;
+  setupPolicyConfirmedSlot: bigint | null;
+  setupPolicySeed: bigint | null;
+  setupPolicySignature: string | null;
+  targetReserve: string;
+  updatedAt: Date;
+  vaultIndex: number;
+  vaultPubkey: string;
+  walletAddress: string;
+};
 
 function getConnection(solanaEnv: SolanaEnv): Connection {
   const { rpcEndpoint, websocketEndpoint } =
@@ -166,6 +223,71 @@ async function listCandidates(
       Boolean(row.walletAddress) &&
       !activeWallets.has(row.walletAddress)
   );
+}
+
+// Policy-only recovery begins from the durable partial-onboarding journal, not
+// from live holdings. Restricting this lane to route-confirmed rows makes a
+// successful repair naturally leave the next cron scan: the canonical
+// repository call advances it to setup_policy_confirmed. Unlike the high-RPC
+// invisible-deposit sweep, this bounded queue includes old strands and visits
+// the oldest first so a 72-hour app-account window cannot strand them forever.
+async function listPolicyOnlyCandidates(): Promise<PolicyOnlyCandidate[]> {
+  return getYieldOptimizationClient()
+    .db.select({
+      delegatedSigner: earnDepositOnboardingAttempts.delegatedSigner,
+      liquidityMint: earnDepositOnboardingAttempts.liquidityMint,
+      market: earnDepositOnboardingAttempts.market,
+      policyAccount: earnDepositOnboardingAttempts.policyAccount,
+      policyConfirmedSlot:
+        earnDepositOnboardingAttempts.routePolicyConfirmedSlot,
+      policySeed: earnDepositOnboardingAttempts.policySeed,
+      policySignature: earnDepositOnboardingAttempts.routePolicySignature,
+      settingsPda: earnDepositOnboardingAttempts.settings,
+      setupPolicyAccount: earnDepositOnboardingAttempts.setupPolicyAccount,
+      setupPolicyConfirmedSlot:
+        earnDepositOnboardingAttempts.setupPolicyConfirmedSlot,
+      setupPolicySeed: earnDepositOnboardingAttempts.setupPolicySeed,
+      setupPolicySignature: earnDepositOnboardingAttempts.setupPolicySignature,
+      targetReserve: earnDepositOnboardingAttempts.targetReserve,
+      updatedAt: earnDepositOnboardingAttempts.updatedAt,
+      vaultIndex: earnDepositOnboardingAttempts.vaultIndex,
+      vaultPubkey: earnDepositOnboardingAttempts.vaultPubkey,
+      walletAddress: earnDepositOnboardingAttempts.walletAddress,
+    })
+    .from(earnDepositOnboardingAttempts)
+    .leftJoin(
+      userYieldPositionDeposits,
+      and(
+        eq(
+          userYieldPositionDeposits.settings,
+          earnDepositOnboardingAttempts.settings
+        ),
+        eq(
+          userYieldPositionDeposits.vaultIndex,
+          earnDepositOnboardingAttempts.vaultIndex
+        ),
+        eq(
+          userYieldPositionDeposits.vaultPubkey,
+          earnDepositOnboardingAttempts.vaultPubkey
+        ),
+        eq(
+          userYieldPositionDeposits.policyAccount,
+          earnDepositOnboardingAttempts.policyAccount
+        ),
+        eq(
+          userYieldPositionDeposits.policySeed,
+          earnDepositOnboardingAttempts.policySeed
+        )
+      )
+    )
+    .where(
+      and(
+        eq(earnDepositOnboardingAttempts.status, "route_policy_confirmed"),
+        isNull(earnDepositOnboardingAttempts.depositSignature),
+        isNull(userYieldPositionDeposits.id)
+      )
+    )
+    .orderBy(asc(earnDepositOnboardingAttempts.updatedAt));
 }
 
 // --- deposit-tx proof helpers (mirror earn-deposit-confirm.server's
@@ -315,6 +437,253 @@ async function discoverDepositTransaction(args: {
   return vaultOnlyFallback;
 }
 
+type DecodedPolicy = ReturnType<typeof Policy.fromAccountInfo>[0];
+
+function publicKeysEqual(
+  actual: readonly PublicKey[],
+  expected: readonly PublicKey[]
+): boolean {
+  return (
+    actual.length === expected.length &&
+    actual.every((key, index) => key.equals(expected[index]!))
+  );
+}
+
+function matchesPubkeyAccountConstraints(
+  instruction: generated.InstructionConstraint,
+  expected: ReadonlyArray<{
+    accountIndex: number;
+    owner?: PublicKey;
+    pubkeys: readonly PublicKey[];
+  }>
+): boolean {
+  if (instruction.accountConstraints.length !== expected.length) {
+    return false;
+  }
+  return expected.every((specification) => {
+    const constraint = instruction.accountConstraints.find(
+      (candidate) => candidate.accountIndex === specification.accountIndex
+    );
+    if (
+      !constraint ||
+      constraint.accountConstraint.__kind !== "Pubkey" ||
+      !publicKeysEqual(
+        constraint.accountConstraint.fields[0],
+        specification.pubkeys
+      )
+    ) {
+      return false;
+    }
+    if (specification.owner) {
+      return constraint.owner?.equals(specification.owner) === true;
+    }
+    return constraint.owner === null;
+  });
+}
+
+function matchesDataSliceEquals(
+  instruction: generated.InstructionConstraint,
+  expected: readonly number[]
+): boolean {
+  const [constraint] = instruction.dataConstraints;
+  return (
+    instruction.dataConstraints.length === 1 &&
+    constraint !== undefined &&
+    toBigInt(constraint.dataOffset) === BigInt(0) &&
+    constraint.operator === generated.DataOperator.Equals &&
+    constraint.dataValue.__kind === "U8Slice" &&
+    Buffer.from(constraint.dataValue.fields[0]).equals(Buffer.from(expected))
+  );
+}
+
+function canonicalPolicyBaseMismatch(args: {
+  expectedSeed: bigint;
+  expectedSettings: PublicKey;
+  expectedSigner: PublicKey;
+  policy: DecodedPolicy;
+}): string | null {
+  if (!args.policy.settings.equals(args.expectedSettings)) {
+    return "settings_mismatch";
+  }
+  if (toBigInt(args.policy.seed) !== args.expectedSeed) {
+    return "seed_mismatch";
+  }
+  if (args.policy.threshold !== 1) {
+    return "threshold_mismatch";
+  }
+  if (args.policy.timeLock !== 0) {
+    return "timelock_mismatch";
+  }
+  if (
+    args.policy.signers.length !== 1 ||
+    !args.policy.signers[0]?.key.equals(args.expectedSigner)
+  ) {
+    return "signer_mismatch";
+  }
+  const expectedPermissions =
+    Permission.Initiate | Permission.Vote | Permission.Execute;
+  if (args.policy.signers[0].permissions.mask !== expectedPermissions) {
+    return "signer_permissions_mismatch";
+  }
+  return null;
+}
+
+function canonicalEarnPolicyStateMismatch(args: {
+  cluster: LoyalCluster;
+  policy: DecodedPolicy;
+  stage: "route" | "setup";
+  vault: PublicKey;
+}): string | null {
+  const state = args.policy.policyState;
+  if (state.__kind !== "ProgramInteraction") {
+    return "policy_state_mismatch";
+  }
+  const [interaction] = state.fields;
+  if (
+    interaction.accountIndex !== EARN_VAULT_INDEX ||
+    interaction.preHook !== null ||
+    interaction.postHook !== null ||
+    interaction.spendingLimits.length !== 0
+  ) {
+    return "policy_interaction_mismatch";
+  }
+
+  const target = getKaminoUsdcEarnTargetForCluster(args.cluster);
+  const markets = getRiskBasketMarketsForCluster(args.cluster, RiskBasket.Safe);
+  const stableMints = getStablecoinMintsForCluster(args.cluster);
+
+  if (args.stage === "route") {
+    const [withdraw, deposit] = interaction.instructionsConstraints;
+    if (
+      interaction.instructionsConstraints.length !== 2 ||
+      !withdraw ||
+      !deposit
+    ) {
+      return "route_constraint_count_mismatch";
+    }
+    if (
+      !withdraw.programId.equals(target.lendProgramId) ||
+      !matchesPubkeyAccountConstraints(withdraw, [
+        { accountIndex: 0, pubkeys: [args.vault] },
+        { accountIndex: 2, pubkeys: markets },
+      ]) ||
+      !matchesDataSliceEquals(withdraw, target.withdrawDiscriminator)
+    ) {
+      return "route_withdraw_constraint_mismatch";
+    }
+    if (
+      !deposit.programId.equals(target.lendProgramId) ||
+      !matchesPubkeyAccountConstraints(deposit, [
+        { accountIndex: 0, pubkeys: [args.vault] },
+        { accountIndex: 2, pubkeys: markets },
+        {
+          accountIndex: 5,
+          owner: TOKEN_PROGRAM_ID,
+          pubkeys: stableMints,
+        },
+      ]) ||
+      !matchesDataSliceEquals(deposit, target.depositDiscriminator)
+    ) {
+      return "route_deposit_constraint_mismatch";
+    }
+    return null;
+  }
+
+  const [setup] = interaction.instructionsConstraints;
+  if (interaction.instructionsConstraints.length !== 1 || !setup) {
+    return "setup_constraint_count_mismatch";
+  }
+  const obligations = markets.map(
+    (market) =>
+      PublicKey.findProgramAddressSync(
+        [
+          Uint8Array.of(KAMINO_VANILLA_OBLIGATION_TAG),
+          Uint8Array.of(KAMINO_VANILLA_OBLIGATION_ID),
+          args.vault.toBytes(),
+          market.toBytes(),
+          PublicKey.default.toBytes(),
+          PublicKey.default.toBytes(),
+        ],
+        target.lendProgramId
+      )[0]
+  );
+  const userMetadata = PublicKey.findProgramAddressSync(
+    [KAMINO_USER_METADATA_SEED, args.vault.toBytes()],
+    target.lendProgramId
+  )[0];
+  const dataPrefix = [
+    ...target.initObligationDiscriminator,
+    KAMINO_VANILLA_OBLIGATION_TAG,
+    KAMINO_VANILLA_OBLIGATION_ID,
+  ];
+  if (
+    !setup.programId.equals(target.lendProgramId) ||
+    !matchesPubkeyAccountConstraints(setup, [
+      { accountIndex: 0, pubkeys: [args.vault] },
+      { accountIndex: 1, pubkeys: [args.vault] },
+      { accountIndex: 2, pubkeys: obligations },
+      { accountIndex: 3, pubkeys: markets },
+      { accountIndex: 4, pubkeys: [PublicKey.default] },
+      { accountIndex: 5, pubkeys: [PublicKey.default] },
+      { accountIndex: 6, pubkeys: [userMetadata] },
+      { accountIndex: 7, pubkeys: [SYSVAR_RENT_PUBKEY] },
+      { accountIndex: 8, pubkeys: [SystemProgram.programId] },
+    ]) ||
+    !matchesDataSliceEquals(setup, dataPrefix)
+  ) {
+    return "setup_constraint_mismatch";
+  }
+  return null;
+}
+
+async function validateCreationCitation(args: {
+  connection: Connection;
+  expectedRecordedSignature: string | null;
+  expectedRecordedSlot: bigint | null;
+  policyAccount: PublicKey;
+  recovered: { signature: string; slot: string };
+  wallet: PublicKey;
+}): Promise<string | null> {
+  const recoveredSlot = BigInt(args.recovered.slot);
+  if (
+    args.expectedRecordedSignature !== null &&
+    args.expectedRecordedSignature !== args.recovered.signature
+  ) {
+    return "recorded_signature_mismatch";
+  }
+  if (
+    args.expectedRecordedSlot !== null &&
+    args.expectedRecordedSlot !== recoveredSlot
+  ) {
+    return "recorded_slot_mismatch";
+  }
+  const transaction = await args.connection.getParsedTransaction(
+    args.recovered.signature,
+    { commitment: "confirmed", maxSupportedTransactionVersion: 0 }
+  );
+  if (
+    !transaction ||
+    transaction.meta?.err ||
+    BigInt(transaction.slot) !== recoveredSlot
+  ) {
+    return "creation_transaction_unavailable";
+  }
+  const accountKeys = transaction.transaction.message.accountKeys;
+  if (
+    !accountKeys.some((account) => account.pubkey.equals(args.policyAccount))
+  ) {
+    return "creation_transaction_policy_mismatch";
+  }
+  if (
+    !accountKeys.some(
+      (account) => account.signer && account.pubkey.equals(args.wallet)
+    )
+  ) {
+    return "creation_transaction_wallet_mismatch";
+  }
+  return null;
+}
+
 type DiscoveredPolicyPair = {
   routeAccount: PublicKey;
   routeSeed: bigint;
@@ -427,6 +796,213 @@ async function discoverPolicyPairOnChain(args: {
   };
 }
 
+async function reconcilePolicyOnlyCandidate(args: {
+  candidate: PolicyOnlyCandidate;
+  cluster: LoyalCluster;
+  connection: Connection;
+  dryRun: boolean;
+  programId: PublicKey;
+  solanaEnv: SolanaEnv;
+}): Promise<EarnPolicyOnlyReconcileOutcome> {
+  const { candidate } = args;
+  const base = {
+    settings: candidate.settingsPda,
+    wallet: candidate.walletAddress,
+  };
+  const skip = (reason: string): EarnPolicyOnlyReconcileOutcome => ({
+    ...base,
+    status: "skipped",
+    reason,
+  });
+
+  let settingsPda: PublicKey;
+  let wallet: PublicKey;
+  let delegatedSigner: PublicKey;
+  try {
+    settingsPda = new PublicKey(candidate.settingsPda);
+    wallet = new PublicKey(candidate.walletAddress);
+    delegatedSigner = new PublicKey(candidate.delegatedSigner);
+  } catch {
+    return skip("invalid_onboarding_public_key");
+  }
+  if (
+    candidate.vaultIndex !== EARN_VAULT_INDEX ||
+    candidate.policySeed <= BigInt(0) ||
+    candidate.policySeed >= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return skip("invalid_onboarding_policy_metadata");
+  }
+
+  const vault = deriveEarnVaultPda({
+    programId: args.programId,
+    settingsPda,
+  });
+  if (candidate.vaultPubkey !== vault.toBase58()) {
+    return skip("vault_mismatch");
+  }
+  const routeSeed = candidate.policySeed;
+  const setupSeed = routeSeed + BigInt(1);
+  const routeAccount = pda.getPolicyPda({
+    programId: args.programId,
+    settingsPda,
+    policySeed: Number(routeSeed),
+  })[0];
+  const setupAccount = pda.getPolicyPda({
+    programId: args.programId,
+    settingsPda,
+    policySeed: Number(setupSeed),
+  })[0];
+  if (candidate.policyAccount !== routeAccount.toBase58()) {
+    return skip("route_policy_account_mismatch");
+  }
+  if (
+    (candidate.setupPolicySeed !== null &&
+      candidate.setupPolicySeed !== setupSeed) ||
+    (candidate.setupPolicyAccount !== null &&
+      candidate.setupPolicyAccount !== setupAccount.toBase58())
+  ) {
+    return skip("setup_policy_metadata_mismatch");
+  }
+
+  const target = getKaminoUsdcEarnTargetForCluster(args.cluster);
+  if (
+    candidate.targetReserve !== target.reserve.toBase58() ||
+    candidate.market !== target.market.toBase58() ||
+    candidate.liquidityMint !== target.liquidityMint.toBase58()
+  ) {
+    return skip("earn_target_mismatch");
+  }
+
+  const [routeInfo, setupInfo] = await args.connection.getMultipleAccountsInfo(
+    [routeAccount, setupAccount],
+    { commitment: "confirmed" }
+  );
+  if (!routeInfo || !setupInfo) {
+    return skip(!routeInfo ? "route_policy_missing" : "setup_policy_missing");
+  }
+  if (
+    !routeInfo.owner.equals(args.programId) ||
+    !setupInfo.owner.equals(args.programId)
+  ) {
+    return skip("policy_owner_mismatch");
+  }
+
+  let routePolicy: DecodedPolicy;
+  let setupPolicy: DecodedPolicy;
+  try {
+    [routePolicy] = Policy.fromAccountInfo(routeInfo);
+    [setupPolicy] = Policy.fromAccountInfo(setupInfo);
+  } catch {
+    return skip("policy_decode_failed");
+  }
+  const routeBaseMismatch = canonicalPolicyBaseMismatch({
+    expectedSeed: routeSeed,
+    expectedSettings: settingsPda,
+    expectedSigner: delegatedSigner,
+    policy: routePolicy,
+  });
+  if (routeBaseMismatch) {
+    return skip(`route_policy_${routeBaseMismatch}`);
+  }
+  const setupBaseMismatch = canonicalPolicyBaseMismatch({
+    expectedSeed: setupSeed,
+    expectedSettings: settingsPda,
+    expectedSigner: delegatedSigner,
+    policy: setupPolicy,
+  });
+  if (setupBaseMismatch) {
+    return skip(`setup_policy_${setupBaseMismatch}`);
+  }
+  const routeStateMismatch = canonicalEarnPolicyStateMismatch({
+    cluster: args.cluster,
+    policy: routePolicy,
+    stage: "route",
+    vault,
+  });
+  if (routeStateMismatch) {
+    return skip(routeStateMismatch);
+  }
+  const setupStateMismatch = canonicalEarnPolicyStateMismatch({
+    cluster: args.cluster,
+    policy: setupPolicy,
+    stage: "setup",
+    vault,
+  });
+  if (setupStateMismatch) {
+    return skip(setupStateMismatch);
+  }
+
+  const routeCreation = await resolvePolicyCreationSignatureFromChain({
+    cluster: args.solanaEnv,
+    policyAccount: routeAccount.toBase58(),
+  });
+  const setupCreation = await resolvePolicyCreationSignatureFromChain({
+    cluster: args.solanaEnv,
+    policyAccount: setupAccount.toBase58(),
+  });
+  if (!routeCreation || !setupCreation) {
+    return skip("policy_creation_signature_not_found");
+  }
+  const routeCitationMismatch = await validateCreationCitation({
+    connection: args.connection,
+    expectedRecordedSignature: candidate.policySignature,
+    expectedRecordedSlot: candidate.policyConfirmedSlot,
+    policyAccount: routeAccount,
+    recovered: routeCreation,
+    wallet,
+  });
+  if (routeCitationMismatch) {
+    return skip(`route_policy_${routeCitationMismatch}`);
+  }
+  const setupCitationMismatch = await validateCreationCitation({
+    connection: args.connection,
+    expectedRecordedSignature: candidate.setupPolicySignature,
+    expectedRecordedSlot: candidate.setupPolicyConfirmedSlot,
+    policyAccount: setupAccount,
+    recovered: setupCreation,
+    wallet,
+  });
+  if (setupCitationMismatch) {
+    return skip(`setup_policy_${setupCitationMismatch}`);
+  }
+
+  const input: ConfirmedYieldRoutePolicyInput = {
+    cluster: args.cluster,
+    confirmedSlot: BigInt(routeCreation.slot),
+    delegatedSigner: delegatedSigner.toBase58(),
+    liquidityMint: target.liquidityMint.toBase58(),
+    market: target.market.toBase58(),
+    policyAccount: routeAccount.toBase58(),
+    policyConfirmedSlot: BigInt(routeCreation.slot),
+    policyId: routeSeed,
+    policySeed: routeSeed,
+    policySignature: routeCreation.signature,
+    settings: settingsPda.toBase58(),
+    setupPolicyAccount: setupAccount.toBase58(),
+    setupPolicyConfirmedSlot: BigInt(setupCreation.slot),
+    setupPolicyId: setupSeed,
+    setupPolicySeed: setupSeed,
+    setupPolicySignature: setupCreation.signature,
+    targetReserve: target.reserve.toBase58(),
+    vaultIndex: EARN_VAULT_INDEX,
+    vaultPubkey: vault.toBase58(),
+    walletAddress: wallet.toBase58(),
+  };
+  const evidence = {
+    ...base,
+    routePolicyAccount: routeAccount.toBase58(),
+    routePolicySignature: routeCreation.signature,
+    setupPolicyAccount: setupAccount.toBase58(),
+    setupPolicySignature: setupCreation.signature,
+  };
+  if (args.dryRun) {
+    return { ...evidence, status: "ready" };
+  }
+
+  await recordConfirmedEarnDepositOnboardingPolicyStage(input, "setup_policy");
+  return { ...evidence, status: "adopted" };
+}
+
 async function reconcileWallet(args: {
   candidate: Candidate;
   connection: Connection;
@@ -485,7 +1061,9 @@ async function reconcileWallet(args: {
     return skip(`target_liquidity_mint_not_usdc: ${target.liquidityMint}`);
   }
   if (!target.market || !args.safeMarkets.has(target.market)) {
-    return skip(`target_market_not_in_safe_universe: ${target.market ?? "null"}`);
+    return skip(
+      `target_market_not_in_safe_universe: ${target.market ?? "null"}`
+    );
   }
 
   // 3. Already adopted? (Policy rows present ⇒ the read paths see the wallet.)
@@ -608,14 +1186,18 @@ async function reconcileWallet(args: {
 export async function reconcileInvisibleEarnDeposits(args?: {
   dryRun?: boolean;
   fullScan?: boolean;
+  policyOnly?: boolean;
   timeBudgetMs?: number;
 }): Promise<EarnDepositReconcileSummary> {
   const dryRun = args?.dryRun ?? false;
   const fullScan = args?.fullScan ?? false;
+  const policyOnly = args?.policyOnly ?? false;
   const deadline = Date.now() + (args?.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-  const programId = new PublicKey(getServerEnv().loyalSmartAccounts.programId);
+  const programId = new PublicKey(
+    resolveLoyalSmartAccountsProgramIdFromEnv(process.env)
+  );
   const usdcMint = getStablecoinMintForCluster(
     cluster,
     Stablecoin.USDC
@@ -628,7 +1210,10 @@ export async function reconcileInvisibleEarnDeposits(args?: {
   const scanPolicy = buildScanPolicyMetadata(cluster);
   const connection = getConnection(solanaEnv);
 
-  const candidates = await listCandidates(solanaEnv, fullScan);
+  const [candidates, policyOnlyCandidates] = await Promise.all([
+    policyOnly ? Promise.resolve([]) : listCandidates(solanaEnv, fullScan),
+    listPolicyOnlyCandidates(),
+  ]);
   const summary: EarnDepositReconcileSummary = {
     candidates: candidates.length,
     scanned: 0,
@@ -637,7 +1222,75 @@ export async function reconcileInvisibleEarnDeposits(args?: {
     errors: 0,
     truncated: false,
     dryRun,
+    policyOnlyCandidates: policyOnlyCandidates.length,
+    policyOnlyScanned: 0,
+    policyOnlyAdopted: [],
+    policyOnlyReady: [],
+    policyOnlySkipped: 0,
+    policyOnlyErrors: 0,
   };
+
+  const policyOnlyQueue = [...policyOnlyCandidates];
+  const policyOnlyWorker = async () => {
+    for (;;) {
+      if (Date.now() >= deadline) {
+        summary.truncated = true;
+        return;
+      }
+      const candidate = policyOnlyQueue.shift();
+      if (!candidate) {
+        return;
+      }
+      try {
+        const outcome = await reconcilePolicyOnlyCandidate({
+          candidate,
+          cluster,
+          connection,
+          dryRun,
+          programId,
+          solanaEnv,
+        });
+        if (outcome.status === "adopted") {
+          // This is a lost setup-policy confirmation, not a deposit adoption.
+          // Keep it loud: repeat occurrences indicate the staged-confirm path
+          // is losing acknowledgements again.
+          console.error(
+            "[earn-deposit-reconcile] adopted policy-only onboarding strand",
+            { ...outcome }
+          );
+          summary.policyOnlyAdopted.push(outcome);
+        } else if (outcome.status === "ready") {
+          console.info(
+            "[earn-deposit-reconcile] policy-only onboarding strand ready",
+            { ...outcome }
+          );
+          summary.policyOnlyReady.push(outcome);
+        } else {
+          summary.policyOnlySkipped += 1;
+          console.warn(
+            "[earn-deposit-reconcile] skipped policy-only onboarding strand",
+            { ...outcome }
+          );
+        }
+      } catch (error) {
+        summary.policyOnlyErrors += 1;
+        console.error("[earn-deposit-reconcile] policy-only wallet failed", {
+          errorMessage:
+            error instanceof Error ? error.message : "Unknown reconcile error.",
+          settings: candidate.settingsPda,
+          wallet: candidate.walletAddress,
+        });
+      }
+      summary.policyOnlyScanned += 1;
+    }
+  };
+  await Promise.all(
+    Array.from({ length: SCAN_CONCURRENCY }, () => policyOnlyWorker())
+  );
+
+  if (policyOnly) {
+    return summary;
+  }
 
   const queue = [...candidates];
   const worker = async () => {
@@ -683,9 +1336,7 @@ export async function reconcileInvisibleEarnDeposits(args?: {
       summary.scanned += 1;
     }
   };
-  await Promise.all(
-    Array.from({ length: SCAN_CONCURRENCY }, () => worker())
-  );
+  await Promise.all(Array.from({ length: SCAN_CONCURRENCY }, () => worker()));
 
   if (summary.truncated) {
     console.warn("[earn-deposit-reconcile] time budget hit before full scan", {

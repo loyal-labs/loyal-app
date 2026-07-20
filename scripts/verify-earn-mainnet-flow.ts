@@ -57,6 +57,7 @@ import {
 import {
   compilePreparedOperation,
   generated,
+  Policy,
   Settings,
 } from "../sdk/loyal-smart-accounts-core/src/index.ts";
 import { pda, PROGRAM_ADDRESS } from "../sdk/loyal-smart-accounts/src/index.ts";
@@ -67,15 +68,16 @@ mock.module("server-only", () => ({}));
 // Usage:
 // EARN_VERIFY_OFFLINE_POLICY=1 NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=initial-deposit-from-clean EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts
 //
-// op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=full-withdraw-cleanup EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
-// op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=top-up-partial-smoke EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
-// op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=same-mint-frontend-sdk-live EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
+// op run --env-file=.env.mainnet.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=policy-resume-readiness EARN_VERIFY_DRY_RUN=1 EARN_VERIFY_WALLET_ADDRESS=DPGXnygHY5VpYqi8ceUK3rTNX8nKZ5N8fD3Hyd8pPFSS EARN_SETTINGS_PDA=EXKgiSsCERMNAAS46wvFkqUTMGb9FXvHYpfjryjLfLSr EARN_FIRST_DEPOSIT_RAW=700000000 bun scripts/verify-earn-mainnet-flow.ts'
+// op run --env-file=.env.mainnet.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=full-withdraw-cleanup EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
+// op run --env-file=.env.mainnet.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=top-up-partial-smoke EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
+// op run --env-file=.env.mainnet.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=same-mint-frontend-sdk-live EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts'
 // NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=rpc-holdings-withdrawal-preview EARN_VERIFY_DRY_RUN=1 bun scripts/verify-earn-mainnet-flow.ts
 //
 // Approved live lifecycle:
-// op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=initial-deposit-then-withdraw-cleanup bun scripts/verify-earn-mainnet-flow.ts'
-// op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=same-mint-frontend-sdk-live bun scripts/verify-earn-mainnet-flow.ts'
-// op run --env-file=.env.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=source-lifecycle-withdrawals bun scripts/verify-earn-mainnet-flow.ts'
+// op run --env-file=.env.mainnet.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_PHASE=initial-deposit-then-withdraw-cleanup bun scripts/verify-earn-mainnet-flow.ts'
+// op run --env-file=.env.mainnet.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=same-mint-frontend-sdk-live bun scripts/verify-earn-mainnet-flow.ts'
+// op run --env-file=.env.mainnet.1password -- sh -c 'NEXT_PUBLIC_SOLANA_ENV=mainnet EARN_VERIFY_FRONTEND_BASE_URL=http://localhost:3000 EARN_VERIFY_PHASE=source-lifecycle-withdrawals bun scripts/verify-earn-mainnet-flow.ts'
 //
 // Keep SOLANA_TESTING_PK and database/RPC secrets inside the op run subprocess.
 // Remove EARN_VERIFY_DRY_RUN only for an approved live lifecycle run. Dry-run
@@ -87,6 +89,8 @@ type VerifyPhase =
   | "full-withdraw-cleanup"
   | "initial-deposit-from-clean"
   | "initial-deposit-then-withdraw-cleanup"
+  | "policy-only-reconcile-dry-run"
+  | "policy-resume-readiness"
   | "rpc-holdings-withdrawal-preview"
   | "same-mint-frontend-sdk-live"
   | "source-lifecycle-withdrawals"
@@ -353,6 +357,8 @@ function assertVerifyPhase(phase: string): asserts phase is VerifyPhase {
     phase !== "full-withdraw-cleanup" &&
     phase !== "initial-deposit-from-clean" &&
     phase !== "initial-deposit-then-withdraw-cleanup" &&
+    phase !== "policy-only-reconcile-dry-run" &&
+    phase !== "policy-resume-readiness" &&
     phase !== "rpc-holdings-withdrawal-preview" &&
     phase !== "same-mint-frontend-sdk-live" &&
     phase !== "source-lifecycle-withdrawals" &&
@@ -891,8 +897,19 @@ function assertPreparedPolicyCreateUsesSafeUniverse(args: {
   expectedStableMints?: readonly string[];
   prepared: SmartAccountPreparedEarnUsdcYieldRoutingPolicy["prepared"];
 }) {
+  const policyCreate = readPreparedPolicyCreate(args.prepared);
+  assertPolicyPayloadUsesSafeUniverse({
+    expectedStableMints: args.expectedStableMints,
+    label: "PolicyCreate",
+    payload: policyCreate.policyCreationPayload,
+  });
+}
+
+function readPreparedPolicyCreate(
+  prepared: SmartAccountPreparedEarnUsdcYieldRoutingPolicy["prepared"]
+) {
   const [decoded] = generated.executeSettingsTransactionSyncStruct.deserialize(
-    Buffer.from(args.prepared.instructions[0]?.data ?? [])
+    Buffer.from(prepared.instructions[0]?.data ?? [])
   );
   const policyCreate = decoded.args.actions.find(
     (action) => action.__kind === "PolicyCreate"
@@ -900,11 +917,7 @@ function assertPreparedPolicyCreateUsesSafeUniverse(args: {
   if (!policyCreate || policyCreate.__kind !== "PolicyCreate") {
     throw new Error("Expected a PolicyCreate action.");
   }
-  assertPolicyPayloadUsesSafeUniverse({
-    expectedStableMints: args.expectedStableMints,
-    label: "PolicyCreate",
-    payload: policyCreate.policyCreationPayload,
-  });
+  return policyCreate;
 }
 
 function assertPreparedSetupPolicyCreateUsesInitObligation(
@@ -1849,6 +1862,39 @@ async function simulatePreparedUnsigned(args: {
   return simulation.value.logs ?? [];
 }
 
+async function simulatePreparedUnsignedWithFreshBlockhash(args: {
+  connection: Connection;
+  prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"];
+}) {
+  const latest = await args.connection.getLatestBlockhashAndContext(
+    "confirmed"
+  );
+  const transaction = compilePreparedOperation({
+    blockhash: latest.value.blockhash,
+    prepared: args.prepared,
+  });
+  const simulation = await args.connection.simulateTransaction(transaction, {
+    commitment: "confirmed",
+    minContextSlot: latest.context.slot,
+    sigVerify: false,
+  });
+
+  if (simulation.value.err) {
+    throw new Error(
+      `Readiness unsigned simulation failed: ${JSON.stringify(
+        simulation.value.err
+      )}\n${(simulation.value.logs ?? []).join("\n")}`
+    );
+  }
+
+  return {
+    blockhashContextSlot: latest.context.slot,
+    lastValidBlockHeight: latest.value.lastValidBlockHeight,
+    logTail: (simulation.value.logs ?? []).slice(-12),
+    unitsConsumed: simulation.value.unitsConsumed ?? null,
+  };
+}
+
 async function simulatePreparedPrefixTokenBalance(args: {
   connection: Connection;
   prepared: SmartAccountPreparedEarnUsdcDeposit["prepared"];
@@ -2391,6 +2437,541 @@ function assertNoPositionActive(
   }
 }
 
+function requirePolicyResumePublicKey(name: string): PublicKey {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is required for policy-resume-readiness.`);
+  }
+  return new PublicKey(value);
+}
+
+function normalizeGeneratedValue(value: unknown): unknown {
+  if (value instanceof PublicKey) {
+    return value.toBase58();
+  }
+  if (BN.isBN(value)) {
+    return value.toString();
+  }
+  if (value instanceof Uint8Array) {
+    return [...value];
+  }
+  if (Array.isArray(value)) {
+    return value.map(normalizeGeneratedValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, normalizeGeneratedValue(nested)])
+    );
+  }
+  return value;
+}
+
+function assertKnownEarnPolicyAccount(args: {
+  account: NonNullable<Awaited<ReturnType<Connection["getAccountInfo"]>>>;
+  accountAddress: PublicKey;
+  expectedConstraintCount: 1 | 2;
+  expectedState: generated.PolicyCreationPayload;
+  expectedSeed: bigint;
+  policySigner: PublicKey;
+  settingsPda: PublicKey;
+}) {
+  if (!args.account.owner.equals(PROGRAM_ID)) {
+    throw new Error(
+      `Policy ${args.accountAddress.toBase58()} has unexpected owner ${args.account.owner.toBase58()}.`
+    );
+  }
+
+  const [policy] = Policy.fromAccountInfo(args.account);
+  const seed = BigInt(policy.seed.toString());
+  if (!policy.settings.equals(args.settingsPda)) {
+    throw new Error(`Policy seed ${seed} belongs to another Settings account.`);
+  }
+  if (seed !== args.expectedSeed) {
+    throw new Error(
+      `Policy ${args.accountAddress.toBase58()} has seed ${seed}, expected ${
+        args.expectedSeed
+      }.`
+    );
+  }
+  if (policy.threshold !== 1 || policy.timeLock !== 0) {
+    throw new Error(
+      `Policy seed ${seed} must have threshold 1 and timelock 0.`
+    );
+  }
+  if (
+    policy.signers.length !== 1 ||
+    !policy.signers[0]!.key.equals(args.policySigner) ||
+    policy.signers[0]!.permissions.mask !== 7
+  ) {
+    throw new Error(
+      `Policy seed ${seed} does not have the canonical deployment signer.`
+    );
+  }
+  if (policy.policyState.__kind !== "ProgramInteraction") {
+    throw new Error(`Policy seed ${seed} is not ProgramInteraction.`);
+  }
+  const interaction = policy.policyState.fields[0];
+  if (interaction.accountIndex !== 1) {
+    throw new Error(`Policy seed ${seed} does not target Earn vault index 1.`);
+  }
+  if (
+    interaction.instructionsConstraints.length !== args.expectedConstraintCount
+  ) {
+    throw new Error(
+      `Policy seed ${seed} has ${interaction.instructionsConstraints.length} instruction constraints, expected ${args.expectedConstraintCount}.`
+    );
+  }
+  if (
+    interaction.preHook !== null ||
+    interaction.postHook !== null ||
+    interaction.spendingLimits.length !== 0
+  ) {
+    throw new Error(`Policy seed ${seed} has unexpected hooks or limits.`);
+  }
+  if (
+    interaction.instructionsConstraints.some(
+      (constraint) => !constraint.programId.equals(EARN_TARGET.lendProgramId)
+    )
+  ) {
+    throw new Error(`Policy seed ${seed} targets a non-canonical program.`);
+  }
+  if (
+    JSON.stringify(normalizeGeneratedValue(policy.policyState)) !==
+    JSON.stringify(normalizeGeneratedValue(args.expectedState))
+  ) {
+    throw new Error(
+      `Policy seed ${seed} does not match the canonical Earn instruction constraints.`
+    );
+  }
+
+  return {
+    account: args.accountAddress.toBase58(),
+    accountIndex: interaction.accountIndex,
+    constraintCount: interaction.instructionsConstraints.length,
+    canonicalConstraintsMatch: true,
+    constraintShape: interaction.instructionsConstraints.map((constraint) => ({
+      accountConstraintCount: constraint.accountConstraints.length,
+      dataConstraintCount: constraint.dataConstraints.length,
+      programId: constraint.programId.toBase58(),
+    })),
+    owner: args.account.owner.toBase58(),
+    seed: seed.toString(),
+    signer: policy.signers[0]!.key.toBase58(),
+    signerPermissionsMask: policy.signers[0]!.permissions.mask,
+    state: policy.policyState.__kind,
+    threshold: policy.threshold,
+    timeLock: policy.timeLock,
+  };
+}
+
+function assertProjectedPolicy(args: {
+  expectedAccount: PublicKey;
+  expectedSeed: bigint;
+  label: string;
+  policySigner: PublicKey;
+  policyValue: unknown;
+  vaultPubkey: PublicKey;
+  walletAddress: PublicKey;
+}) {
+  const policy = asRecord(args.policyValue);
+  if (!policy) {
+    throw new Error(`Yield Neon ${args.label} policy is missing.`);
+  }
+  if (
+    policy.policyAccount !== args.expectedAccount.toBase58() ||
+    getRawAmountField(policy, "policySeed") !== args.expectedSeed ||
+    policy.authority !== args.walletAddress.toBase58() ||
+    policy.vaultIndex !== 1 ||
+    policy.vaultPubkey !== args.vaultPubkey.toBase58() ||
+    policy.threshold !== 1 ||
+    policy.active !== true
+  ) {
+    throw new Error(`Yield Neon ${args.label} policy projection is invalid.`);
+  }
+  const delegatedSigners = policy.delegatedSigners;
+  if (
+    !Array.isArray(delegatedSigners) ||
+    delegatedSigners.length !== 1 ||
+    delegatedSigners[0] !== args.policySigner.toBase58()
+  ) {
+    throw new Error(
+      `Yield Neon ${args.label} policy signer projection is invalid.`
+    );
+  }
+
+  return {
+    active: true,
+    account: args.expectedAccount.toBase58(),
+    confirmedSlot:
+      getRawAmountField(policy, "lastSeenSlot")?.toString() ?? null,
+    seed: args.expectedSeed.toString(),
+    signer: args.policySigner.toBase58(),
+  };
+}
+
+async function runPolicyResumeReadiness(): Promise<void> {
+  const evidence: Record<string, unknown> = {
+    cluster: LoyalCluster.MainnetBeta,
+    dryRun: true,
+    env: SOLANA_ENV,
+    evidencePath: EVIDENCE_PATH,
+    phase: "policy-resume-readiness",
+    sendsTransactions: false,
+    status: "failed",
+    writesDatabase: false,
+  };
+
+  try {
+    if (!DRY_RUN) {
+      throw new Error(
+        "policy-resume-readiness is read-only. Set EARN_VERIFY_DRY_RUN=1."
+      );
+    }
+    const walletAddress = requirePolicyResumePublicKey(
+      "EARN_VERIFY_WALLET_ADDRESS"
+    );
+    const policySigner = requirePolicyResumePublicKey(
+      "EARN_YIELD_ROUTER_PUBLIC_KEY"
+    );
+    const connection = new Connection(RPC_URL, {
+      commitment: "confirmed",
+      confirmTransactionInitialTimeout: 90_000,
+    });
+    const routeSeed = 1n;
+    const setupSeed = 2n;
+    const routePolicyAccount = pda.getPolicyPda({
+      policySeed: Number(routeSeed),
+      programId: PROGRAM_ID,
+      settingsPda: SETTINGS_PDA,
+    })[0];
+    const setupPolicyAccount = pda.getPolicyPda({
+      policySeed: Number(setupSeed),
+      programId: PROGRAM_ID,
+      settingsPda: SETTINGS_PDA,
+    })[0];
+    const chainSnapshot = await connection.getMultipleAccountsInfoAndContext(
+      [SETTINGS_PDA, routePolicyAccount, setupPolicyAccount],
+      { commitment: "confirmed" }
+    );
+    const [settingsAccount, routeAccount, setupAccount] = chainSnapshot.value;
+    if (!settingsAccount || !routeAccount || !setupAccount) {
+      throw new Error(
+        "Settings or the known seed-1/seed-2 Earn policy account is absent."
+      );
+    }
+    if (!settingsAccount.owner.equals(PROGRAM_ID)) {
+      throw new Error("Settings account has an unexpected owner.");
+    }
+    const [settings] = Settings.fromAccountInfo(settingsAccount);
+    const currentPolicySeed = settings.policySeed
+      ? BigInt(settings.policySeed.toString())
+      : 0n;
+    if (currentPolicySeed < setupSeed) {
+      throw new Error(
+        `Settings policy seed ${currentPolicySeed} is behind known setup seed ${setupSeed}.`
+      );
+    }
+    const canonicalClient = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: async (address: PublicKey) =>
+          address.equals(SETTINGS_PDA)
+            ? createSerializedSettingsAccount(null)
+            : null,
+      } as never,
+      programId: PROGRAM_ID,
+    });
+    const canonicalPolicy =
+      await canonicalClient.prepareEarnUsdcYieldRoutingPolicy({
+        cluster: LoyalCluster.MainnetBeta,
+        feePayer: walletAddress,
+        settingsPda: SETTINGS_PDA,
+        signer: policySigner,
+        walletAddress,
+      });
+    if (
+      canonicalPolicy.policy.seed !== routeSeed ||
+      canonicalPolicy.setupPolicy.seed !== setupSeed ||
+      !canonicalPolicy.finalizePrepared
+    ) {
+      throw new Error("Could not build canonical seed-1/seed-2 policy pair.");
+    }
+    const expectedRouteState = readPreparedPolicyCreate(
+      canonicalPolicy.prepared
+    ).policyCreationPayload;
+    const expectedSetupState = readPreparedPolicyCreate(
+      canonicalPolicy.finalizePrepared
+    ).policyCreationPayload;
+    const routeChain = assertKnownEarnPolicyAccount({
+      account: routeAccount,
+      accountAddress: routePolicyAccount,
+      expectedConstraintCount: 2,
+      expectedSeed: routeSeed,
+      expectedState: expectedRouteState,
+      policySigner,
+      settingsPda: SETTINGS_PDA,
+    });
+    const setupChain = assertKnownEarnPolicyAccount({
+      account: setupAccount,
+      accountAddress: setupPolicyAccount,
+      expectedConstraintCount: 1,
+      expectedSeed: setupSeed,
+      expectedState: expectedSetupState,
+      policySigner,
+      settingsPda: SETTINGS_PDA,
+    });
+    evidence.chain = {
+      contextSlot: chainSnapshot.context.slot,
+      routePolicy: routeChain,
+      settings: SETTINGS_PDA.toBase58(),
+      settingsPolicySeed: currentPolicySeed.toString(),
+      setupPolicy: setupChain,
+    };
+
+    const schema = await import(
+      "../frontend/src/lib/yield-optimization/yield-neon-client.server.ts"
+    );
+    const yieldClient = schema.getYieldOptimizationClient();
+    const vaultPubkey = pda.getSmartAccountPda({
+      accountIndex: 1,
+      programId: PROGRAM_ID,
+      settingsPda: SETTINGS_PDA,
+    })[0];
+    const vaultUsdcAta = getAssociatedTokenAddressSync(
+      EARN_TARGET.liquidityMint,
+      vaultPubkey,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const walletUsdcAta = getAssociatedTokenAddressSync(
+      EARN_TARGET.liquidityMint,
+      walletAddress,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const state = await loadState({
+      connection,
+      policyAccount: routePolicyAccount,
+      schema,
+      setupPolicyAccount,
+      vaultPubkey,
+      vaultUsdcAta,
+      walletAddress,
+      walletUsdcAta,
+      yieldClient,
+    });
+    const managedVault = asRecord(state.db.managedVault);
+    if (
+      !managedVault ||
+      managedVault.settings !== SETTINGS_PDA.toBase58() ||
+      managedVault.vaultIndex !== 1 ||
+      managedVault.vaultPubkey !== vaultPubkey.toBase58() ||
+      managedVault.active !== true ||
+      typeof managedVault.activePolicyId !== "bigint" ||
+      typeof managedVault.setupPolicyId !== "bigint"
+    ) {
+      throw new Error("Yield Neon managed-vault projection is incomplete.");
+    }
+    const routeProjection = assertProjectedPolicy({
+      expectedAccount: routePolicyAccount,
+      expectedSeed: routeSeed,
+      label: "route",
+      policySigner,
+      policyValue: state.db.routePolicy,
+      vaultPubkey,
+      walletAddress,
+    });
+    const setupProjection = assertProjectedPolicy({
+      expectedAccount: setupPolicyAccount,
+      expectedSeed: setupSeed,
+      label: "setup",
+      policySigner,
+      policyValue: state.db.setupPolicy,
+      vaultPubkey,
+      walletAddress,
+    });
+    const onboarding =
+      await yieldClient.db.query.earnDepositOnboardingAttempts.findFirst({
+        orderBy: [desc(schema.earnDepositOnboardingAttempts.updatedAt)],
+        where: and(
+          eq(
+            schema.earnDepositOnboardingAttempts.settings,
+            SETTINGS_PDA.toBase58()
+          ),
+          eq(schema.earnDepositOnboardingAttempts.vaultIndex, 1),
+          eq(
+            schema.earnDepositOnboardingAttempts.vaultPubkey,
+            vaultPubkey.toBase58()
+          ),
+          eq(
+            schema.earnDepositOnboardingAttempts.walletAddress,
+            walletAddress.toBase58()
+          )
+        ),
+      });
+    if (
+      !onboarding ||
+      onboarding.policyAccount !== routePolicyAccount.toBase58() ||
+      onboarding.policySeed !== routeSeed ||
+      onboarding.routePolicyDbId !== managedVault.activePolicyId ||
+      onboarding.setupPolicyAccount !== setupPolicyAccount.toBase58() ||
+      onboarding.setupPolicySeed !== setupSeed ||
+      onboarding.setupPolicyDbId !== managedVault.setupPolicyId ||
+      !onboarding.routePolicySignature ||
+      onboarding.routePolicyConfirmedSlot === null ||
+      !onboarding.setupPolicySignature ||
+      onboarding.setupPolicyConfirmedSlot === null ||
+      (onboarding.status !== "setup_policy_confirmed" &&
+        onboarding.status !== "complete")
+    ) {
+      throw new Error("Yield Neon policy onboarding projection is incomplete.");
+    }
+    evidence.yieldNeon = {
+      activePositionPresent: asRecord(state.db.position)?.status === "active",
+      confirmedDepositRows: state.db.deposits.length,
+      managedVault: {
+        active: true,
+        routePolicyLinked: true,
+        setupPolicyLinked: true,
+        vaultIndex: 1,
+        vaultPubkey: vaultPubkey.toBase58(),
+      },
+      onboarding: {
+        routePolicyCitationRecorded: true,
+        routePolicyRecorded: true,
+        setupPolicyCitationRecorded: true,
+        setupPolicyRecorded: true,
+        status: onboarding.status,
+      },
+      routePolicy: routeProjection,
+      setupPolicy: setupProjection,
+    };
+
+    const client = createSmartAccountVaultsClient({
+      connection,
+      programId: PROGRAM_ID,
+    });
+    const prepared = await client.prepareEarnUsdcDeposit({
+      amountRaw: FIRST_DEPOSIT_RAW,
+      cluster: LoyalCluster.MainnetBeta,
+      feePayer: walletAddress,
+      initializeYieldRoutingPolicy: true,
+      policySigner,
+      settingsPda: SETTINGS_PDA,
+      walletAddress,
+    });
+    if (
+      prepared.persistence.policyInitialization !== "reuse" ||
+      prepared.policy.seed !== routeSeed ||
+      prepared.policy.account.toBase58() !== routePolicyAccount.toBase58() ||
+      prepared.setupPolicy?.seed !== setupSeed ||
+      prepared.setupPolicy.account.toBase58() !== setupPolicyAccount.toBase58()
+    ) {
+      throw new Error(
+        "Deposit preparation did not reuse the known seed-1/seed-2 pair."
+      );
+    }
+    if (prepared.policySetupPrepared || prepared.policyFinalizePrepared) {
+      throw new Error(
+        "Readiness preparation unexpectedly included a policy operation."
+      );
+    }
+    const policyRentItems = prepared.nativeSolRequirement.items.filter(
+      (item) => item.kind === "policy_rent"
+    );
+    if (policyRentItems.length !== 0) {
+      throw new Error(
+        "Readiness preparation unexpectedly included policy rent."
+      );
+    }
+    if (prepared.prepared.operation !== "earnUsdcDeposit") {
+      throw new Error(
+        "Readiness did not prepare exactly one deposit operation."
+      );
+    }
+    assertSafePolicyUniverse(prepared.persistence);
+    evidence.preparation = {
+      amountRaw: FIRST_DEPOSIT_RAW.toString(),
+      depositOperationCount: 1,
+      instructionCount: prepared.prepared.instructions.length,
+      nativeSolPolicyRentItemCount: policyRentItems.length,
+      policyFinalizePrepared: false,
+      policyInitialization: prepared.persistence.policyInitialization,
+      policySetupPrepared: false,
+      routePolicyAccount: prepared.policy.account.toBase58(),
+      routePolicySeed: prepared.policy.seed.toString(),
+      setupPolicyAccount: prepared.setupPolicy.account.toBase58(),
+      setupPolicySeed: prepared.setupPolicy.seed.toString(),
+    };
+    evidence.simulation = await simulatePreparedUnsignedWithFreshBlockhash({
+      connection,
+      prepared: prepared.prepared,
+    });
+    evidence.status = "success";
+    await writeEvidence(evidence);
+    console.log("[earn-mainnet] PASS policy resume readiness");
+    console.log(`[earn-mainnet] evidence ${EVIDENCE_PATH}`);
+  } catch (error) {
+    evidence.error =
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error);
+    await writeEvidence(evidence);
+    throw error;
+  }
+}
+
+async function runPolicyOnlyReconcileDryRun(): Promise<void> {
+  const evidence: Record<string, unknown> = {
+    cluster: LoyalCluster.MainnetBeta,
+    dryRun: true,
+    env: SOLANA_ENV,
+    evidencePath: EVIDENCE_PATH,
+    phase: "policy-only-reconcile-dry-run",
+    sendsTransactions: false,
+    status: "failed",
+    writesDatabase: false,
+  };
+
+  try {
+    if (!DRY_RUN) {
+      throw new Error(
+        "policy-only-reconcile-dry-run is read-only. Set EARN_VERIFY_DRY_RUN=1."
+      );
+    }
+    const { reconcileInvisibleEarnDeposits } = await import(
+      "../frontend/src/lib/yield-optimization/earn-deposit-reconcile.server.ts"
+    );
+    const summary = await reconcileInvisibleEarnDeposits({
+      dryRun: true,
+      policyOnly: true,
+    });
+    evidence.summary = summary;
+    if (summary.policyOnlyErrors > 0 || summary.truncated) {
+      throw new Error(
+        `Policy-only reconciliation dry-run was incomplete: ${summary.policyOnlyErrors} errors; truncated=${summary.truncated}.`
+      );
+    }
+    if (summary.policyOnlyAdopted.length > 0) {
+      throw new Error(
+        "Policy-only reconciliation dry-run unexpectedly reported a database adoption."
+      );
+    }
+    evidence.status = "success";
+    await writeEvidence(evidence);
+    console.log("[earn-mainnet] PASS policy-only reconciliation dry-run");
+    console.log(`[earn-mainnet] evidence ${EVIDENCE_PATH}`);
+  } catch (error) {
+    evidence.error =
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error);
+    await writeEvidence(evidence);
+    throw error;
+  }
+}
+
 async function assertNoVerifierFailures(args: {
   settings: string;
   verifyUserYieldPositions: () => Promise<Array<{ settings: string }>>;
@@ -2578,7 +3159,10 @@ async function runRpcHoldingsWithdrawalPreview(): Promise<void> {
     ],
     cwd,
   });
-  assertHasMatches(browserPrepareEvidence, "browser withdrawal prepare evidence");
+  assertHasMatches(
+    browserPrepareEvidence,
+    "browser withdrawal prepare evidence"
+  );
 
   await writeEvidence({
     cluster: LoyalCluster.MainnetBeta,
@@ -2637,6 +3221,16 @@ async function main() {
 
   if (VERIFY_PHASE === "rpc-holdings-withdrawal-preview") {
     await runRpcHoldingsWithdrawalPreview();
+    return;
+  }
+
+  if (VERIFY_PHASE === "policy-resume-readiness") {
+    await runPolicyResumeReadiness();
+    return;
+  }
+
+  if (VERIFY_PHASE === "policy-only-reconcile-dry-run") {
+    await runPolicyOnlyReconcileDryRun();
     return;
   }
 

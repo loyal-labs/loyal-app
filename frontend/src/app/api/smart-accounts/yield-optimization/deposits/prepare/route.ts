@@ -49,8 +49,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -181,21 +180,21 @@ export async function POST(request: Request) {
       connection: getConnection(solanaEnv),
       programId,
     });
-    const yieldRoutingPolicy = policy
-      ? {
-          account: new PublicKey(policy.policyAccount),
-          seed: policy.policySeed,
-          ...(setupPolicy
-            ? {
-                setupPolicy: {
-                  account: new PublicKey(setupPolicy.policyAccount),
-                  seed: setupPolicy.policySeed,
-                },
-              }
-            : {}),
-          ...(resumeRouteOnly ? { prepareSetupPolicy: true } : {}),
-        }
-      : undefined;
+    const yieldRoutingPolicy =
+      policy && !resumeRouteOnly
+        ? {
+            account: new PublicKey(policy.policyAccount),
+            seed: policy.policySeed,
+            ...(setupPolicy
+              ? {
+                  setupPolicy: {
+                    account: new PublicKey(setupPolicy.policyAccount),
+                    seed: setupPolicy.policySeed,
+                  },
+                }
+              : {}),
+          }
+        : undefined;
     const target =
       policy && activePosition
         ? await resolveEligibleEarnDepositTarget({
@@ -208,7 +207,7 @@ export async function POST(request: Request) {
       amountRaw,
       cluster,
       feePayer: new PublicKey(principal.walletAddress),
-      initializeYieldRoutingPolicy: !policy,
+      initializeYieldRoutingPolicy: !yieldRoutingPolicy,
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
