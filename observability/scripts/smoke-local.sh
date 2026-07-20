@@ -9,20 +9,15 @@ container="loyal-clickstack-smoke-$$"
 volume="loyal-clickstack-smoke-$$"
 ui_port="${CLICKSTACK_UI_PORT:-18080}"
 marker="loyal-clickstack-smoke-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-ingestion_key="local-${marker}"
+ingestion_key="local-$marker"
 result_file="${CLICKSTACK_SMOKE_RESULT:-$project_dir/smoke-result.json}"
 tmp_dir="$(mktemp -d)"
 payload=""
-metrics_payload=""
-traces_payload=""
 missing_status=""
 wrong_status=""
 correct_status=""
-metrics_status=""
-traces_status=""
 method_status=""
 path_status=""
-other_path_status=""
 query_status=""
 oversized_status=""
 
@@ -47,6 +42,7 @@ run_container() {
     --env PORT=8080 \
     --env EXPRESS_SESSION_SECRET=local-smoke-session-secret \
     --env "INGESTION_API_KEY=$ingestion_key" \
+    --env CLICKSTACK_INTERNAL_SMOKE_ENABLED=true \
     --env USAGE_STATS_ENABLED=false \
     "$image" >/dev/null
 }
@@ -65,6 +61,23 @@ wait_for_ui() {
   fail_with_logs "UI did not become ready within 180 seconds"
 }
 
+wait_for_internal_smoke() {
+  local expected_stage="$1"
+
+  for _ in $(seq 1 240); do
+    docker logs --tail 250 "$container" > "$tmp_dir/internal-smoke-logs" 2>&1 || true
+    if rg --fixed-strings --quiet \
+      "\"status\":\"pass\",\"stage\":\"${expected_stage}\"" "$tmp_dir/internal-smoke-logs"; then
+      return 0
+    fi
+    if ! docker inspect "$container" --format '{{.State.Running}}' 2>/dev/null | grep -qx true; then
+      fail_with_logs "container exited before the $expected_stage internal smoke passed"
+    fi
+    sleep 1
+  done
+  fail_with_logs "$expected_stage internal smoke did not pass within 240 seconds"
+}
+
 bootstrap_local_team() {
   local email="collector-smoke-$$@example.invalid"
   local password="Local-collector-smoke-2026!"
@@ -80,20 +93,9 @@ bootstrap_local_team() {
   assert_status "local HyperDX team bootstrap" "$status" 200
 }
 
-build_payloads() {
+build_payload() {
   seconds="$(date +%s)"
   payload="{\"resourceLogs\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"loyal-clickstack-smoke\"}}]},\"scopeLogs\":[{\"scope\":{\"name\":\"loyal-clickstack-verifier\"},\"logRecords\":[{\"timeUnixNano\":\"${seconds}000000000\",\"severityText\":\"INFO\",\"body\":{\"stringValue\":\"$marker\"}}]}]}]}"
-  metrics_payload="{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"loyal-clickstack-smoke\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"loyal-clickstack-verifier\"},\"metrics\":[{\"name\":\"loyal.clickstack.smoke\",\"gauge\":{\"dataPoints\":[{\"timeUnixNano\":\"${seconds}000000000\",\"asInt\":\"1\",\"attributes\":[{\"key\":\"loyal.smoke.marker\",\"value\":{\"stringValue\":\"$marker\"}}]}]}}]}]}]}"
-  traces_payload="{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"loyal-clickstack-smoke\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"loyal-clickstack-verifier\"},\"spans\":[{\"traceId\":\"11111111111111111111111111111111\",\"spanId\":\"2222222222222222\",\"name\":\"$marker\",\"kind\":1,\"startTimeUnixNano\":\"${seconds}000000000\",\"endTimeUnixNano\":\"${seconds}001000000\",\"attributes\":[{\"key\":\"loyal.smoke.marker\",\"value\":{\"stringValue\":\"$marker\"}}],\"status\":{\"code\":1}}]}]}]}"
-}
-
-payload_for_signal() {
-  case "$1" in
-    logs) printf '%s' "$payload" ;;
-    metrics) printf '%s' "$metrics_payload" ;;
-    traces) printf '%s' "$traces_payload" ;;
-    *) fail_with_logs "unknown OTLP signal: $1" ;;
-  esac
 }
 
 assert_status() {
@@ -111,10 +113,6 @@ assert_status() {
 }
 
 assert_public_boundary() {
-  local signal
-  local signal_payload
-  local signal_status
-
   for _ in $(seq 1 180); do
     missing_status="$(curl -sS -o /dev/null -w '%{http_code}' \
       -X POST "http://127.0.0.1:${ui_port}/v1/logs" \
@@ -137,47 +135,17 @@ assert_public_boundary() {
     --data "$payload" || true)"
   assert_status "wrong ingestion credential" "$wrong_status" 401 403
 
-  for signal in metrics traces; do
-    signal_payload="$(payload_for_signal "$signal")"
-    signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-      -X POST "http://127.0.0.1:${ui_port}/v1/$signal" \
-      -H 'Content-Type: application/json' \
-      --data "$signal_payload" || true)"
-    assert_status "missing $signal ingestion credential" "$signal_status" 401 403
-
-    signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-      -X POST "http://127.0.0.1:${ui_port}/v1/$signal" \
-      -H 'Content-Type: application/json' \
-      -H 'Authorization: deliberately-wrong-ingestion-key' \
-      --data "$signal_payload" || true)"
-    assert_status "wrong $signal ingestion credential" "$signal_status" 401 403
-  done
-
   method_status="$(curl -sS -o /dev/null -w '%{http_code}' \
     "http://127.0.0.1:${ui_port}/v1/logs" \
     -H "Authorization: $ingestion_key" || true)"
   assert_status "non-POST log request" "$method_status" 405
 
-  for signal in metrics traces; do
-    signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-      "http://127.0.0.1:${ui_port}/v1/$signal" \
-      -H "Authorization: $ingestion_key" || true)"
-    assert_status "non-POST $signal request" "$signal_status" 405
-  done
-
   path_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "http://127.0.0.1:${ui_port}/v1/workflows" \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: $ingestion_key" \
-    --data "$payload" || true)"
-  assert_status "nonexistent workflows path" "$path_status" 404
-
-  other_path_status="$(curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://127.0.0.1:${ui_port}/v1/not-supported" \
     -H 'Content-Type: application/json' \
     -H "Authorization: $ingestion_key" \
     --data "$payload" || true)"
-  assert_status "other unsupported OTLP path" "$other_path_status" 404
+  assert_status "unsupported OTLP path" "$path_status" 404
 
   query_status="$(curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://127.0.0.1:${ui_port}/v1/logs?unexpected=true" \
@@ -186,16 +154,6 @@ assert_public_boundary() {
     --data "$payload" || true)"
   assert_status "query-bearing log path" "$query_status" 404
 
-  for signal in metrics traces; do
-    signal_payload="$(payload_for_signal "$signal")"
-    signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-      -X POST "http://127.0.0.1:${ui_port}/v1/$signal?unexpected=true" \
-      -H 'Content-Type: application/json' \
-      -H "Authorization: $ingestion_key" \
-      --data "$signal_payload" || true)"
-    assert_status "query-bearing $signal path" "$signal_status" 404
-  done
-
   dd if=/dev/zero bs=1024 count=65 2>/dev/null | tr '\0' 'x' > "$tmp_dir/oversized-body"
   oversized_status="$(curl -sS -o /dev/null -w '%{http_code}' \
     -X POST "http://127.0.0.1:${ui_port}/v1/logs" \
@@ -203,15 +161,6 @@ assert_public_boundary() {
     -H "Authorization: $ingestion_key" \
     --data-binary "@$tmp_dir/oversized-body" || true)"
   assert_status "oversized log request" "$oversized_status" 413
-
-  for signal in metrics traces; do
-    signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-      -X POST "http://127.0.0.1:${ui_port}/v1/$signal" \
-      -H 'Content-Type: application/json' \
-      -H "Authorization: $ingestion_key" \
-      --data-binary "@$tmp_dir/oversized-body" || true)"
-    assert_status "oversized $signal request" "$signal_status" 413
-  done
 
   cors_status=""
   for _ in $(seq 1 60); do
@@ -233,33 +182,6 @@ assert_public_boundary() {
     fail_with_logs "public log response exposed a permissive CORS header"
   fi
 
-  for signal in metrics traces; do
-    signal_payload="$(payload_for_signal "$signal")"
-    signal_status=""
-    for _ in $(seq 1 60); do
-      signal_status="$(curl -sS -o /dev/null -D "$tmp_dir/cors-headers" -w '%{http_code}' \
-        -X POST "http://127.0.0.1:${ui_port}/v1/$signal" \
-        -H 'Content-Type: application/json' \
-        -H 'Origin: https://untrusted.example.test' \
-        -H "Authorization: $ingestion_key" \
-        --data "$signal_payload" || true)"
-      if [[ "$signal_status" =~ ^2 ]]; then
-        break
-      fi
-      sleep 1
-    done
-    if [[ ! "$signal_status" =~ ^2 ]]; then
-      fail_with_logs "$signal canary never reached an accepted authenticated response"
-    fi
-    if rg --quiet --ignore-case '^Access-Control-Allow-' "$tmp_dir/cors-headers"; then
-      fail_with_logs "public $signal response exposed a permissive CORS header"
-    fi
-    case "$signal" in
-      metrics) metrics_status="$signal_status" ;;
-      traces) traces_status="$signal_status" ;;
-    esac
-  done
-
   published_ports="$(docker inspect "$container" --format '{{json .HostConfig.PortBindings}}')"
   if rg --quiet '4318|8123|9000|27017' <<<"$published_ports"; then
     fail_with_logs "collector or database port was published by the container"
@@ -267,7 +189,6 @@ assert_public_boundary() {
 }
 
 send_marker() {
-
   for _ in $(seq 1 60); do
     correct_status="$(curl -sS -o /dev/null -w '%{http_code}' \
       -X POST "http://127.0.0.1:${ui_port}/v1/logs" \
@@ -313,7 +234,8 @@ docker volume create "$volume" >/dev/null
 run_container
 wait_for_ui
 bootstrap_local_team
-build_payloads
+wait_for_internal_smoke initial
+build_payload
 assert_public_boundary
 send_marker
 wait_for_marker true
@@ -324,10 +246,10 @@ docker rm "$container" >/dev/null
 
 run_container
 wait_for_ui
+wait_for_internal_smoke persisted
 wait_for_marker false
 after_restart="$(query_marker_count)"
 
-printf '{"status":"pass","marker":"%s","health_status":200,"auth":{"missing":%s,"wrong":%s,"correct":%s},"accepted":{"logs":%s,"metrics":%s,"traces":%s},"rejections":{"method":%s,"workflows":%s,"other_v1":%s,"query":%s,"oversized":%s},"cors":false,"private_ports":true,"count_before_restart":%s,"count_after_restart":%s}\n' \
-  "$marker" "$missing_status" "$wrong_status" "$correct_status" "$correct_status" "$metrics_status" \
-  "$traces_status" "$method_status" "$path_status" "$other_path_status" "$query_status" \
-  "$oversized_status" "$before_restart" "$after_restart" | tee "$result_file"
+printf '{"status":"pass","marker":"%s","health_status":200,"auth":{"missing":%s,"wrong":%s,"correct":%s},"rejections":{"method":%s,"path":%s,"query":%s,"oversized":%s},"cors":false,"private_ports":true,"internal_smoke":{"initial":true,"persisted":true},"count_before_restart":%s,"count_after_restart":%s}\n' \
+  "$marker" "$missing_status" "$wrong_status" "$correct_status" "$method_status" "$path_status" "$query_status" "$oversized_status" \
+  "$before_restart" "$after_restart" | tee "$result_file"

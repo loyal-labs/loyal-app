@@ -3,7 +3,7 @@ FROM docker.io/clickhouse/clickstack-all-in-one:2.30.1@sha256:bd0bde1b1f2ca0702f
 # The upstream authenticated image hardcodes a public session secret. Replace
 # that assignment with a runtime requirement and use tini to forward Render's
 # shutdown signal to every process in the all-in-one container.
-RUN apk add --no-cache nginx=1.30.3-r0 tini=0.19.0-r3 \
+RUN apk add --no-cache nginx=1.30.4-r0 tini=0.19.0-r3 \
   && sed -i 's|^export EXPRESS_SESSION_SECRET=.*$|: "${EXPRESS_SESSION_SECRET:?EXPRESS_SESSION_SECRET is required}"\nexport EXPRESS_SESSION_SECRET|' /etc/local/entry.base.sh \
   && sed -i 's|^export CLICKHOUSE_LOG_LEVEL="error"$|export CLICKHOUSE_LOG_LEVEL="fatal"|' /etc/local/entry.base.sh \
   && sed -i 's|<level from_env="CLICKHOUSE_LOG_LEVEL" />|<level>fatal</level>|' /etc/clickhouse-server/config.xml \

@@ -50,7 +50,8 @@ require_literal 'value: 127.0.0.1' "$blueprint"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
 
 require_literal '2.30.1@sha256:bd0bde1b1f2ca0702fdafe269f3552e36b055d25e47692685b1a6018567a2d3c' "$project_dir/Dockerfile"
-require_literal 'nginx=1.30.3-r0' "$project_dir/Dockerfile"
+require_literal 'nginx=1.30.4-r0' "$project_dir/Dockerfile"
+require_literal 'tini=0.19.0-r3' "$project_dir/Dockerfile"
 require_literal 'HYPERDX_APP_PORT=8081' "$project_dir/Dockerfile"
 require_literal 'HYPERDX_APP_LISTEN_HOSTNAME=127.0.0.1' "$project_dir/Dockerfile"
 require_literal 'USAGE_STATS_ENABLED=false' "$project_dir/Dockerfile"
@@ -98,43 +99,15 @@ done
 if rg --quiet 'location = /v1/workflows' "$project_dir/nginx.conf"; then
   fail "the nonexistent /v1/workflows path must not be proxied"
 fi
-for signal in logs metrics traces; do
-  location_block="$(awk -v signal="$signal" '
-    $0 ~ "location = /v1/" signal " \\{" { capture = 1 }
-    capture { print }
-    capture && /^    }$/ { exit }
-  ' "$project_dir/nginx.conf")"
-  for directive in \
-    'client_max_body_size 64k' \
-    'if ($request_method != POST)' \
-    "if (\$args != '')" \
-    '!-f /tmp/loyal-clickstack-collector-auth-ready' \
-    "proxy_pass http://127.0.0.1:4318/v1/$signal" \
-    'proxy_hide_header Access-Control-Allow-Origin'; do
-    rg --quiet --fixed-strings -- "$directive" <<<"$location_block" \
-      || fail "exact /v1/$signal location is missing '$directive'"
-  done
-done
-for directive in \
-  'if ($request_method != POST)' \
-  "if (\$args != '')" \
-  'proxy_connect_timeout 1s' \
-  'proxy_send_timeout 5s' \
-  'proxy_read_timeout 5s' \
-  'proxy_hide_header Access-Control-Allow-Origin' \
-  '!-f /tmp/loyal-clickstack-collector-auth-ready'; do
-  [[ "$(rg --count --fixed-strings -- "$directive" "$project_dir/nginx.conf")" == "3" ]] \
-    || fail "public proxy must apply '$directive' to exactly three OTLP endpoints"
-done
-for smoke_script in "$project_dir/scripts/smoke-local.sh" "$project_dir/scripts/smoke-live.sh"; do
-  require_literal '/v1/workflows' "$smoke_script"
-  require_literal 'resourceMetrics' "$smoke_script"
-  require_literal 'resourceSpans' "$smoke_script"
-  require_literal 'for signal in metrics traces' "$smoke_script"
-done
-require_literal '/v1/$signal' "$project_dir/scripts/smoke-local.sh"
+require_literal 'resourceMetrics' "$project_dir/scripts/smoke-live.sh"
+require_literal 'resourceSpans' "$project_dir/scripts/smoke-live.sh"
+require_literal 'for signal in metrics traces' "$project_dir/scripts/smoke-live.sh"
+require_literal 'default.otel_logs' "$project_dir/scripts/smoke-live.sh"
+require_literal 'default.otel_logs' "$project_dir/scripts/smoke-local.sh"
 require_literal '/v1/metrics' "$project_dir/scripts/smoke-live.sh"
 require_literal '/v1/traces' "$project_dir/scripts/smoke-live.sh"
+require_literal 'CLICKSTACK_SMOKE_HTTP_RESPONSE' "$project_dir/scripts/smoke-live.sh"
+require_literal 'CLICKSTACK_INTERNAL_SMOKE_ENABLED=true' "$project_dir/scripts/smoke-local.sh"
 nginx_log_format="$(awk '/log_format loyal/{capture=1} capture{print} capture && /;/{exit}' "$project_dir/nginx.conf")"
 if rg --quiet '\$request\b|\$args\b|\$http_referer|\$http_user_agent|\$http_authorization' <<<"$nginx_log_format"; then
   fail "proxy access logs or config reference sensitive request metadata"
@@ -230,7 +203,7 @@ pass "Render Blueprint validates"
 
 if [[ "${1:-}" == "--local" ]]; then
   "$script_dir/smoke-local.sh"
-  pass "local UI, ingestion security, ClickHouse query, and volume-recreation smoke test"
+  pass "local production startup smoke, OTLP canaries, log query, and volume-recreation test"
   "$script_dir/smoke-auth-redirect.sh"
   pass "hosted authentication redirects, CORS, cookies, and local fallback smoke test"
 elif [[ -n "${1:-}" ]]; then

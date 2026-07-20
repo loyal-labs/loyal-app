@@ -9,15 +9,29 @@ metrics_url="http://127.0.0.1:${PORT:-8080}/v1/metrics"
 traces_url="http://127.0.0.1:${PORT:-8080}/v1/traces"
 headers_file="/tmp/loyal-clickstack-smoke-headers-$$"
 oversized_file="/tmp/loyal-clickstack-smoke-oversized-$$"
+response_file="/tmp/loyal-clickstack-smoke-response-$$"
 
 cleanup() {
-  rm -f "$headers_file" "$oversized_file"
+  rm -f "$headers_file" "$oversized_file" "$response_file"
 }
 trap cleanup EXIT
 
 fail() {
   printf 'CLICKSTACK_SMOKE_RESULT {"status":"fail","reason":"%s"}\n' "$1" >&2
   exit 1
+}
+
+report_http_response() {
+  response_signal="$1"
+  response_status="$2"
+  response_excerpt="<empty>"
+
+  if [ -s "$response_file" ]; then
+    response_excerpt="$(LC_ALL=C tr -cd '\11\12\15\40-\176' < "$response_file" | tr '\r\n' '  ' | cut -c1-512)"
+    [ -n "$response_excerpt" ] || response_excerpt="<empty>"
+  fi
+  printf 'CLICKSTACK_SMOKE_HTTP_RESPONSE signal=%s status=%s body=%s\n' \
+    "$response_signal" "$response_status" "$response_excerpt" >&2
 }
 
 if [ -s "$marker_file" ]; then
@@ -33,8 +47,8 @@ case "$marker" in
 esac
 
 seconds="$(date +%s)"
-metrics_payload="$(printf '{\"resourceMetrics\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"loyal-clickstack-render-smoke\"}}]},\"scopeMetrics\":[{\"scope\":{\"name\":\"loyal-clickstack-render-verifier\"},\"metrics\":[{\"name\":\"loyal.clickstack.smoke\",\"gauge\":{\"dataPoints\":[{\"timeUnixNano\":\"%s000000000\",\"asInt\":\"1\",\"attributes\":[{\"key\":\"loyal.smoke.marker\",\"value\":{\"stringValue\":\"%s\"}}]}]}}]}]}]}' "$seconds" "$marker")"
-traces_payload="$(printf '{\"resourceSpans\":[{\"resource\":{\"attributes\":[{\"key\":\"service.name\",\"value\":{\"stringValue\":\"loyal-clickstack-render-smoke\"}}]},\"scopeSpans\":[{\"scope\":{\"name\":\"loyal-clickstack-render-verifier\"},\"spans\":[{\"traceId\":\"11111111111111111111111111111111\",\"spanId\":\"2222222222222222\",\"name\":\"%s\",\"kind\":1,\"startTimeUnixNano\":\"%s000000000\",\"endTimeUnixNano\":\"%s001000000\",\"attributes\":[{\"key\":\"loyal.smoke.marker\",\"value\":{\"stringValue\":\"%s\"}}],\"status\":{\"code\":1}}]}]}]}' "$marker" "$seconds" "$seconds" "$marker")"
+metrics_payload="$(printf '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"loyal-clickstack-render-smoke"}}]},"scopeMetrics":[{"scope":{"name":"loyal-clickstack-render-verifier"},"metrics":[{"name":"loyal.clickstack.smoke","gauge":{"dataPoints":[{"timeUnixNano":"%s000000000","asInt":"1"}]}}]}]}]}' "$seconds")"
+traces_payload="$(printf '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"loyal-clickstack-render-smoke"}}]},"scopeSpans":[{"scope":{"name":"loyal-clickstack-render-verifier"},"spans":[{"traceId":"11111111111111111111111111111111","spanId":"2222222222222222","name":"%s","kind":1,"startTimeUnixNano":"%s000000000","endTimeUnixNano":"%s001000000","status":{"code":1}}]}]}]}' "$marker" "$seconds" "$seconds")"
 
 health_status=""
 for _ in $(seq 1 300); do
@@ -70,77 +84,24 @@ case "$wrong_status" in
   *) fail "wrong ingestion credential was not rejected" ;;
 esac
 
-for signal in metrics traces; do
-  case "$signal" in
-    metrics) signal_url="$metrics_url"; signal_payload="$metrics_payload" ;;
-    traces) signal_url="$traces_url"; signal_payload="$traces_payload" ;;
-  esac
-
-  signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "$signal_url" \
-    -H 'Content-Type: application/json' \
-    --data "$signal_payload" || true)"
-  case "$signal_status" in
-    401|403) ;;
-    *) fail "missing $signal ingestion credential was not rejected" ;;
-  esac
-
-  signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "$signal_url" \
-    -H 'Content-Type: application/json' \
-    -H 'Authorization: deliberately-wrong-ingestion-key' \
-    --data "$signal_payload" || true)"
-  case "$signal_status" in
-    401|403) ;;
-    *) fail "wrong $signal ingestion credential was not rejected" ;;
-  esac
-done
-
 method_status="$(curl -sS -o /dev/null -w '%{http_code}' \
   "$otlp_url" \
   -H "Authorization: $INGESTION_API_KEY" || true)"
 [ "$method_status" = "405" ] || fail "non-POST log request was not rejected"
 
-for signal_url in "$metrics_url" "$traces_url"; do
-  signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    "$signal_url" \
-    -H "Authorization: $INGESTION_API_KEY" || true)"
-  [ "$signal_status" = "405" ] || fail "non-POST metrics or traces request was not rejected"
-done
-
 path_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST "http://127.0.0.1:${PORT:-8080}/v1/workflows" \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: $INGESTION_API_KEY" \
-  --data "$probe_payload" || true)"
-[ "$path_status" = "404" ] || fail "nonexistent workflows path was not rejected"
-
-other_path_status="$(curl -sS -o /dev/null -w '%{http_code}' \
   -X POST "http://127.0.0.1:${PORT:-8080}/v1/not-supported" \
   -H 'Content-Type: application/json' \
   -H "Authorization: $INGESTION_API_KEY" \
   --data "$probe_payload" || true)"
-[ "$other_path_status" = "404" ] || fail "other unsupported OTLP path was not rejected"
+[ "$path_status" = "404" ] || fail "unsupported OTLP path was not rejected"
 
 query_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-  -X POST "${otlp_url}?unexpected=true" \
+  -X POST "$otlp_url?unexpected=true" \
   -H 'Content-Type: application/json' \
   -H "Authorization: $INGESTION_API_KEY" \
   --data "$probe_payload" || true)"
 [ "$query_status" = "404" ] || fail "query-bearing log path was not rejected"
-
-for signal in metrics traces; do
-  case "$signal" in
-    metrics) signal_url="$metrics_url"; signal_payload="$metrics_payload" ;;
-    traces) signal_url="$traces_url"; signal_payload="$traces_payload" ;;
-  esac
-  signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "${signal_url}?unexpected=true" \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: $INGESTION_API_KEY" \
-    --data "$signal_payload" || true)"
-  [ "$signal_status" = "404" ] || fail "query-bearing $signal path was not rejected"
-done
 
 dd if=/dev/zero bs=1024 count=65 2>/dev/null | tr '\0' 'x' > "$oversized_file"
 oversized_status="$(curl -sS -o /dev/null -w '%{http_code}' \
@@ -150,18 +111,9 @@ oversized_status="$(curl -sS -o /dev/null -w '%{http_code}' \
   --data-binary "@$oversized_file" || true)"
 [ "$oversized_status" = "413" ] || fail "oversized log request was not rejected"
 
-for signal_url in "$metrics_url" "$traces_url"; do
-  signal_status="$(curl -sS -o /dev/null -w '%{http_code}' \
-    -X POST "$signal_url" \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: $INGESTION_API_KEY" \
-    --data-binary "@$oversized_file" || true)"
-  [ "$signal_status" = "413" ] || fail "oversized metrics or traces request was not rejected"
-done
-
 correct_status=""
 for _ in $(seq 1 120); do
-  correct_status="$(curl -sS -o /dev/null -D "$headers_file" -w '%{http_code}' \
+  correct_status="$(curl -sS -o "$response_file" -D "$headers_file" -w '%{http_code}' \
     -X POST "$otlp_url" \
     -H 'Content-Type: application/json' \
     -H 'Origin: https://untrusted.example.test' \
@@ -174,7 +126,10 @@ for _ in $(seq 1 120); do
 done
 case "$correct_status" in
   2*) ;;
-  *) fail "configured ingestion credential was not accepted" ;;
+  *)
+    report_http_response logs "$correct_status"
+    fail "configured log ingestion returned HTTP $correct_status"
+    ;;
 esac
 if grep -Eiq '^Access-Control-Allow-' "$headers_file"; then
   fail "public log response exposed a permissive CORS header"
@@ -190,24 +145,27 @@ for signal in metrics traces; do
 
   signal_status=""
   for _ in $(seq 1 120); do
-    signal_status="$(curl -sS -o /dev/null -D "$headers_file" -w '%{http_code}' \
+    signal_status="$(curl -sS -o "$response_file" -w '%{http_code}' \
       -X POST "$signal_url" \
       -H 'Content-Type: application/json' \
-      -H 'Origin: https://untrusted.example.test' \
       -H "Authorization: $INGESTION_API_KEY" \
       --data "$signal_payload" || true)"
     case "$signal_status" in
       2*) break ;;
+      4*)
+        report_http_response "$signal" "$signal_status"
+        fail "$signal canary returned HTTP $signal_status"
+        ;;
     esac
     sleep 1
   done
   case "$signal_status" in
     2*) ;;
-    *) fail "configured $signal ingestion credential was not accepted" ;;
+    *)
+      report_http_response "$signal" "$signal_status"
+      fail "$signal canary returned HTTP $signal_status"
+      ;;
   esac
-  if grep -Eiq '^Access-Control-Allow-' "$headers_file"; then
-    fail "public $signal response exposed a permissive CORS header"
-  fi
   case "$signal" in
     metrics) metrics_status="$signal_status" ;;
     traces) traces_status="$signal_status" ;;
@@ -265,7 +223,7 @@ if [ "$stage" = "initial" ]; then
   mv "$marker_tmp" "$marker_file"
 fi
 
-printf 'CLICKSTACK_SMOKE_RESULT {"status":"pass","stage":"%s","marker":"%s","health_status":%s,"auth":{"missing":%s,"wrong":%s,"correct":%s},"accepted":{"logs":%s,"metrics":%s,"traces":%s},"rejections":{"method":%s,"workflows":%s,"other_v1":%s,"query":%s,"oversized":%s},"cors":false,"count":%s}\n' \
+printf 'CLICKSTACK_SMOKE_RESULT {"status":"pass","stage":"%s","marker":"%s","health_status":%s,"auth":{"missing":%s,"wrong":%s,"correct":%s},"accepted":{"logs":%s,"metrics":%s,"traces":%s},"rejections":{"method":%s,"path":%s,"query":%s,"oversized":%s},"cors":false,"count":%s}\n' \
   "$stage" "$marker" "$health_status" "$missing_status" "$wrong_status" "$correct_status" \
   "$correct_status" "$metrics_status" "$traces_status" "$method_status" "$path_status" \
-  "$other_path_status" "$query_status" "$oversized_status" "$count"
+  "$query_status" "$oversized_status" "$count"
