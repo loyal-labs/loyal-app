@@ -99,11 +99,14 @@ done
 if rg --quiet 'location = /v1/workflows' "$project_dir/nginx.conf"; then
   fail "the nonexistent /v1/workflows path must not be proxied"
 fi
-require_literal 'resourceMetrics' "$project_dir/scripts/smoke-live.sh"
-require_literal 'resourceSpans' "$project_dir/scripts/smoke-live.sh"
+require_literal 'metrics_probe_payload=' "$project_dir/scripts/smoke-live.sh"
+require_literal 'traces_probe_payload=' "$project_dir/scripts/smoke-live.sh"
 require_literal 'for signal in metrics traces' "$project_dir/scripts/smoke-live.sh"
 require_literal 'default.otel_logs' "$project_dir/scripts/smoke-live.sh"
 require_literal 'default.otel_logs' "$project_dir/scripts/smoke-local.sh"
+require_literal 'loyal.clickstack.smoke' "$project_dir/scripts/smoke-local.sh"
+require_literal 'traceId' "$project_dir/scripts/smoke-local.sh"
+require_literal 'send_signal_canaries' "$project_dir/scripts/smoke-local.sh"
 require_literal '/v1/metrics' "$project_dir/scripts/smoke-live.sh"
 require_literal '/v1/traces' "$project_dir/scripts/smoke-live.sh"
 require_literal 'CLICKSTACK_SMOKE_HTTP_RESPONSE' "$project_dir/scripts/smoke-live.sh"

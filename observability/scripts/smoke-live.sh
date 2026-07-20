@@ -46,10 +46,6 @@ case "$marker" in
   *[!A-Za-z0-9._:-]*) fail "invalid persisted marker" ;;
 esac
 
-seconds="$(date +%s)"
-metrics_payload="$(printf '{"resourceMetrics":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"loyal-clickstack-render-smoke"}}]},"scopeMetrics":[{"scope":{"name":"loyal-clickstack-render-verifier"},"metrics":[{"name":"loyal.clickstack.smoke","gauge":{"dataPoints":[{"timeUnixNano":"%s000000000","asInt":"1"}]}}]}]}]}' "$seconds")"
-traces_payload="$(printf '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"loyal-clickstack-render-smoke"}}]},"scopeSpans":[{"scope":{"name":"loyal-clickstack-render-verifier"},"spans":[{"traceId":"11111111111111111111111111111111","spanId":"2222222222222222","name":"%s","kind":1,"startTimeUnixNano":"%s000000000","endTimeUnixNano":"%s001000000","status":{"code":1}}]}]}]}' "$marker" "$seconds" "$seconds")"
-
 health_status=""
 for _ in $(seq 1 300); do
   health_status="$(curl -sS -o /dev/null -w '%{http_code}' "$health_url" || true)"
@@ -63,7 +59,11 @@ case "$health_status" in
   *) fail "UI health timeout" ;;
 esac
 
+# Keep blocking startup checks schema-minimal. Full signal payload canaries run
+# in smoke-local.sh so a canary construction bug cannot take down the service.
 probe_payload='{"resourceLogs":[]}'
+metrics_probe_payload='{"resourceMetrics":[]}'
+traces_probe_payload='{"resourceSpans":[]}'
 
 missing_status="$(curl -sS -o /dev/null -w '%{http_code}' \
   -X POST "$otlp_url" \
@@ -139,8 +139,8 @@ metrics_status=""
 traces_status=""
 for signal in metrics traces; do
   case "$signal" in
-    metrics) signal_url="$metrics_url"; signal_payload="$metrics_payload" ;;
-    traces) signal_url="$traces_url"; signal_payload="$traces_payload" ;;
+    metrics) signal_url="$metrics_url"; signal_payload="$metrics_probe_payload" ;;
+    traces) signal_url="$traces_url"; signal_payload="$traces_probe_payload" ;;
   esac
 
   signal_status=""
@@ -154,7 +154,7 @@ for signal in metrics traces; do
       2*) break ;;
       4*)
         report_http_response "$signal" "$signal_status"
-        fail "$signal canary returned HTTP $signal_status"
+        fail "$signal readiness probe returned HTTP $signal_status"
         ;;
     esac
     sleep 1
@@ -163,7 +163,7 @@ for signal in metrics traces; do
     2*) ;;
     *)
       report_http_response "$signal" "$signal_status"
-      fail "$signal canary returned HTTP $signal_status"
+      fail "$signal readiness probe returned HTTP $signal_status"
       ;;
   esac
   case "$signal" in

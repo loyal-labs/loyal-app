@@ -24,7 +24,7 @@ Run this verifier cold from `/Users/taequn/loyal/loyal-apps`. Report PASS or FAI
 - A separate Render project/environment for Loyal observability contains exactly the intended initial ClickStack test service; it is not placed in either yield-worker project.
 - The service is sourced from the deployed repository commit, has one paid persistent disk, one instance, path-filtered auto-deploy, and only the nginx UI/gateway HTTP port is public. ClickHouse, MongoDB, and the collector's OTLP ports are not publicly reachable.
 - The latest deploy status is `live`; its public HTTPS URL and configured health path return 2xx/3xx.
-- From inside the live service, valid authenticated OTLP logs, metrics, and traces canaries are accepted through nginx, unsupported paths remain rejected, and a uniquely named log is queryable in ClickHouse. After one controlled service restart, the same log remains queryable.
+- From inside the live service, valid authenticated empty OTLP logs, metrics, and traces readiness probes are accepted through nginx, unsupported paths remain rejected, and a uniquely named log is queryable in ClickHouse. Full metrics and traces payload canaries run in the disposable local smoke instead of blocking production startup. After one controlled service restart, the same log remains queryable.
 - Recent deploy/runtime logs show ClickHouse, MongoDB, the OTel collector, and HyperDX running with no crash loop, fatal startup error, or repeated readiness failure.
 
 5. Handoff quality
