@@ -258,8 +258,8 @@ export type BrowserLifecycleEnvelope = LifecycleDiagnostics & {
 };
 
 // Mobile envelopes carry their own release/environment (the app fleet mixes
-// binary versions and OTA bundles) plus an optional wallet address the ingest
-// route folds into the same HMAC-derived actor id used for web sessions.
+// binary versions and OTA bundles) plus an optional wallet address that the
+// ingest route forwards verbatim, the same way web sessions report theirs.
 export type MobileLifecycleEnvelope = BrowserLifecycleEnvelope & {
   environment: string;
   release: string;
@@ -267,10 +267,10 @@ export type MobileLifecycleEnvelope = BrowserLifecycleEnvelope & {
 };
 
 export type NormalizedLifecycleEvent = BrowserLifecycleEnvelope & {
-  actorId?: string;
   deploymentEnvironment: string;
   release: string;
   serviceName: "loyal-frontend" | "loyal-mobile";
+  walletAddress?: string;
 };
 
 const UUID_V4_PATTERN =

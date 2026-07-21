@@ -1,15 +1,11 @@
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
-import { deriveObservabilityActorId } from "@/features/observability/actor";
 import {
   InvalidLifecycleEnvelopeError,
   MAX_LIFECYCLE_REQUEST_BYTES,
   parseBrowserLifecycleEnvelope,
 } from "@/features/observability/lifecycle-contract";
 import { consumeBrowserLifecycleRateLimit } from "@/features/observability/rate-limit.server";
-import {
-  getObservabilityDeploymentEnvironment,
-  reportBrowserLifecycleEnvelope,
-} from "@/features/observability/server";
+import { reportBrowserLifecycleEnvelope } from "@/features/observability/server";
 
 export const runtime = "nodejs";
 
@@ -68,18 +64,14 @@ async function readJsonBody(request: Request): Promise<unknown> {
   }
 }
 
-async function resolveActorId(request: Request): Promise<string | undefined> {
+// The wallet is taken from the verified session, never from the request body,
+// so a caller cannot attribute its events to somebody else's address.
+async function resolveWalletAddress(
+  request: Request
+): Promise<string | undefined> {
   try {
     const principal = await resolveAuthenticatedPrincipalFromRequest(request);
-    if (!principal) return undefined;
-    const secret = process.env.OBSERVABILITY_ACTOR_HMAC_SECRET ?? "";
-    return (
-      deriveObservabilityActorId({
-        deploymentEnvironment: getObservabilityDeploymentEnvironment(),
-        secret,
-        walletAddress: principal.walletAddress,
-      }) ?? undefined
-    );
+    return principal?.walletAddress || undefined;
   } catch {
     return undefined;
   }
@@ -98,8 +90,8 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const envelope = parseBrowserLifecycleEnvelope(await readJsonBody(request));
-    const actorId = await resolveActorId(request);
-    await reportBrowserLifecycleEnvelope(envelope, actorId);
+    const walletAddress = await resolveWalletAddress(request);
+    await reportBrowserLifecycleEnvelope(envelope, walletAddress);
     return jsonResponse({ accepted: true }, 202);
   } catch (error) {
     if (error instanceof RangeError) {

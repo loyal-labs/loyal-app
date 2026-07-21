@@ -221,12 +221,12 @@ export async function reportServerError(
 
 export async function reportBrowserLifecycleEnvelope(
   envelope: BrowserLifecycleEnvelope,
-  actorId?: string
+  walletAddress?: string
 ): Promise<boolean> {
   try {
     return await exportLifecycleEvent({
       ...envelope,
-      ...(actorId ? { actorId } : {}),
+      ...(walletAddress ? { walletAddress } : {}),
       deploymentEnvironment: getObservabilityDeploymentEnvironment(),
       release: getObservabilityRelease(),
       serviceName: "loyal-frontend",
@@ -238,16 +238,17 @@ export async function reportBrowserLifecycleEnvelope(
 
 export async function reportMobileLifecycleEnvelope(
   envelope: MobileLifecycleEnvelope,
-  actorId?: string
+  walletAddress?: string
 ): Promise<boolean> {
   try {
-    // The device reports its own release/environment; the wallet address only
-    // feeds the actor-id derivation in the route and never reaches ClickStack.
+    // The device reports its own release/environment. An explicit wallet
+    // argument wins over the envelope's so the route stays the single place
+    // that decides which address is trusted.
     const { environment, release, ...event } = envelope;
-    delete event.walletAddress;
+    const resolvedWallet = walletAddress ?? event.walletAddress;
     return await exportLifecycleEvent({
       ...event,
-      ...(actorId ? { actorId } : {}),
+      ...(resolvedWallet ? { walletAddress: resolvedWallet } : {}),
       deploymentEnvironment: environment,
       release,
       serviceName: "loyal-mobile",
