@@ -77,32 +77,36 @@ Useful fields:
 | `loyal.flow.name`    | Sign-in, deposit, withdrawal, Autodeposit, and so on |
 | `loyal.flow.stage`   | Last recorded step                                   |
 | `loyal.flow.outcome` | Started, observed, completed, failed, or cancelled   |
+| `loyal.wallet.address` | Wallet address (authenticated events)              |
 | `loyal.error.code`   | Stable failure category                              |
 | `loyal.elapsed_ms`   | Total attempt duration                               |
 | `service.version`    | Frontend release                                     |
 
-## Wallets and actor IDs
+## Wallet addresses
 
-Raw wallets are never sent to ClickStack. For an authenticated lifecycle event,
-the frontend server creates a pseudonymous ID using the wallet, deployment
-environment, and `OBSERVABILITY_ACTOR_HMAC_SECRET`:
+Authenticated lifecycle events carry the user's wallet address in plaintext as
+`LogAttributes['loyal.wallet.address']`. Search HyperDX for a known wallet
+directly:
 
-```text
-actor:v1:<64 lowercase hex characters>
+```sql
+LogAttributes['loyal.wallet.address'] = '<wallet>'
 ```
 
-It is stored on the event as `LogAttributes['loyal.actor.id']`. It is not stored
-in a separate mapping table and cannot be reversed into a wallet.
+On the web the address comes from the verified session on the server, never
+from the request body, so a caller cannot attribute events to someone else's
+wallet. Mobile clients send their own address in the envelope, validated as
+base58 before export.
 
-Starting from a known wallet requires a trusted server-side tool to derive the
-same actor ID before searching HyperDX. That tool does not exist yet. Do not
-paste wallet addresses into HyperDX.
+Because wallet addresses are public on-chain identifiers, anyone with HyperDX
+access can now link a stored event to an on-chain identity and to that wallet's
+full transaction history. Treat dashboard access accordingly.
 
 ## Privacy rules
 
-Never send wallet or account addresses, balances, amounts, signatures, Solana
-slots, transactions, instructions, proofs, request/response bodies or headers,
-cookies, tokens, query strings, chat content, or arbitrary context.
+Never send balances, amounts, signatures, Solana slots, transactions,
+instructions, proofs, request/response bodies or headers, cookies, tokens,
+query strings, chat content, or arbitrary context. Wallet addresses are the one
+deliberate exception.
 
 The frontend uses fixed schemas, strips query strings, redacts secret-like
 values, rejects unknown lifecycle fields, rate-limits browser ingestion, and
@@ -117,7 +121,7 @@ Start with:
 - deposit/withdrawal failures;
 - on-chain confirmed but persistence failed;
 - Execute Now failures;
-- lookup by flow ID or actor ID.
+- lookup by flow ID or wallet address.
 
 Create alerts only after observing normal traffic. The first high-confidence
 alert should be `loyal.recovery.required=true`.
@@ -135,7 +139,6 @@ Vercel `loyal-frontend`, production and server-only:
 
 - `OBSERVABILITY_OTLP_ENDPOINT`
 - `OBSERVABILITY_INGESTION_API_KEY`
-- `OBSERVABILITY_ACTOR_HMAC_SECRET`
 
 Never print these values or use a `NEXT_PUBLIC_` prefix.
 

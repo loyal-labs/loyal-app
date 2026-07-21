@@ -2,7 +2,6 @@ import "server-only";
 
 import { after } from "next/server";
 
-import { deriveObservabilityActorId } from "./actor";
 import {
   createLifecycleTracker,
   isCanonicalUuidV4,
@@ -10,10 +9,7 @@ import {
   type LifecycleFlowVariant,
   type LifecycleTracker,
 } from "./lifecycle-contract";
-import {
-  getObservabilityDeploymentEnvironment,
-  reportBrowserLifecycleEnvelope,
-} from "./server";
+import { reportBrowserLifecycleEnvelope } from "./server";
 
 export type RequestLifecycle = {
   setVerifiedWallet: (walletAddress: string) => void;
@@ -28,12 +24,12 @@ export function createRequestLifecycle(args: {
   const flowId = args.request.headers.get("x-loyal-flow-id")?.trim();
   if (!isCanonicalUuidV4(flowId)) return null;
 
-  let actorId: string | undefined;
+  let walletAddress: string | undefined;
   const tracker = createLifecycleTracker({
     emit: (event) => {
-      const eventActorId = actorId;
+      const eventWalletAddress = walletAddress;
       after(async () => {
-        await reportBrowserLifecycleEnvelope(event, eventActorId);
+        await reportBrowserLifecycleEnvelope(event, eventWalletAddress);
       });
     },
     flowId,
@@ -45,13 +41,8 @@ export function createRequestLifecycle(args: {
   });
 
   return {
-    setVerifiedWallet: (walletAddress) => {
-      actorId =
-        deriveObservabilityActorId({
-          deploymentEnvironment: getObservabilityDeploymentEnvironment(),
-          secret: process.env.OBSERVABILITY_ACTOR_HMAC_SECRET ?? "",
-          walletAddress,
-        }) ?? undefined;
+    setVerifiedWallet: (verifiedWalletAddress) => {
+      walletAddress = verifiedWalletAddress.trim() || undefined;
     },
     tracker,
   };

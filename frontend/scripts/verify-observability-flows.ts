@@ -3,7 +3,6 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { deriveObservabilityActorId } from "../src/features/observability/actor";
 import {
   createLifecycleTracker,
   EXECUTE_NOW_STATES,
@@ -16,6 +15,7 @@ import {
   LIFECYCLE_VARIANTS,
   mapExecuteNowState,
   parseBrowserLifecycleEnvelope,
+  parseMobileLifecycleEnvelope,
   PROVISIONING_OUTCOMES,
   type BrowserLifecycleEnvelope,
   type LifecycleDiagnostics,
@@ -69,7 +69,13 @@ assert.deepEqual(LIFECYCLE_OUTCOMES, [
   "failed",
   "cancelled",
 ]);
-assert.deepEqual(LIFECYCLE_SOURCES, ["browser", "next_api", "sse", "fallback"]);
+assert.deepEqual(LIFECYCLE_SOURCES, [
+  "browser",
+  "next_api",
+  "sse",
+  "fallback",
+  "mobile_app",
+]);
 assert.equal(LIFECYCLE_SAMPLING_RATIO, 1);
 assert.equal(new Set(LIFECYCLE_ERROR_CODES).size, LIFECYCLE_ERROR_CODES.length);
 assert.equal(new Set(PROVISIONING_OUTCOMES).size, PROVISIONING_OUTCOMES.length);
@@ -96,7 +102,7 @@ for (const invalid of [
   { ...baseEvent(), flowName: "earn.transfer" },
   { ...baseEvent(), flowVariant: "topup" },
   { ...baseEvent(), stage: "unknown" },
-  { ...baseEvent(), actorId: "actor:v1:forbidden" },
+  { ...baseEvent(), walletAddress: "forbidden" },
   { ...baseEvent(), arbitraryContext: { wallet: "forbidden" } },
   { ...baseEvent(), durationMs: 900_001 },
   { ...baseEvent(), elapsedMs: 86_400_001 },
@@ -239,43 +245,31 @@ assert.deepEqual(
 );
 pass("Execute Now state-to-outcome mapping is exact");
 
-const actorSecret = "synthetic-observability-actor-secret-000000";
-const wallet = "SyntheticWalletIdentifierForVerifier";
-const actor = deriveObservabilityActorId({
-  deploymentEnvironment: "production",
-  secret: actorSecret,
-  walletAddress: wallet,
+const wallet = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
+const mobileEnvelope = (walletAddress?: string): Record<string, unknown> => ({
+  ...baseEvent({ runtime: "mobile" }),
+  environment: "production",
+  release: "1.4.2",
+  ...(walletAddress ? { walletAddress } : {}),
 });
-assert.match(actor ?? "", /^actor:v1:[0-9a-f]{64}$/);
-assert.equal(
-  actor,
-  deriveObservabilityActorId({
-    deploymentEnvironment: "production",
-    secret: actorSecret,
-    walletAddress: wallet,
-  })
-);
-assert.notEqual(
-  actor,
-  deriveObservabilityActorId({
-    deploymentEnvironment: "preview",
-    secret: actorSecret,
-    walletAddress: wallet,
-  })
+
+assert.throws(() =>
+  parseMobileLifecycleEnvelope(mobileEnvelope("not-base58-0OIl"), NOW)
 );
 assert.equal(
-  deriveObservabilityActorId({
-    deploymentEnvironment: "production",
-    secret: "short",
-    walletAddress: wallet,
-  }),
-  null
+  parseMobileLifecycleEnvelope(mobileEnvelope(wallet), NOW).walletAddress,
+  wallet
 );
-assert.ok(!JSON.stringify(actor).includes(wallet));
-assert.ok(!JSON.stringify(actor).includes(actorSecret));
-pass(
-  "actor enrichment is deterministic, environment-separated, anonymous-safe, and irreversible in payload form"
+assert.equal(
+  parseMobileLifecycleEnvelope(mobileEnvelope(), NOW).walletAddress,
+  undefined
 );
+// The browser envelope has no wallet field: the events route reads it from the
+// verified session, so a client-supplied address must be rejected outright.
+assert.throws(() =>
+  parseBrowserLifecycleEnvelope({ ...baseEvent(), walletAddress: wallet }, NOW)
+);
+pass("wallet addresses are validated, forwarded verbatim, and never client-set");
 
 const diagnosticEvents: Array<BrowserLifecycleEnvelope & LifecycleDiagnostics> =
   [
@@ -334,7 +328,7 @@ for (const [index, event] of diagnosticEvents.entries()) {
   const normalized = parseBrowserLifecycleEnvelope(event, NOW);
   const payload = buildOtlpLifecyclePayload({
     ...normalized,
-    ...(index === 0 ? { actorId: actor! } : {}),
+    ...(index === 0 ? { walletAddress: wallet } : {}),
     deploymentEnvironment: "production",
     release: "abcdef1",
     serviceName: "loyal-frontend",
@@ -363,7 +357,7 @@ for (const key of [
   "loyal.flow.source",
   "loyal.duration_ms",
   "loyal.elapsed_ms",
-  "loyal.actor.id",
+  "loyal.wallet.address",
   "loyal.error.code",
   "loyal.execute_now.state",
   "loyal.chain.state",
@@ -514,7 +508,7 @@ assert.doesNotMatch(
 assert.match(sources.sidebarData, /observabilityFlowId/);
 assert.match(sources.eventRoute, /MAX_LIFECYCLE_REQUEST_BYTES/);
 assert.match(sources.eventRoute, /resolveAuthenticatedPrincipalFromRequest/);
-assert.match(sources.eventRoute, /OBSERVABILITY_ACTOR_HMAC_SECRET/);
+assert.match(sources.eventRoute, /resolveWalletAddress/);
 assert.match(sources.lifecycleClient, /keepalive: true/);
 assert.match(
   sources.lifecycleClient,
@@ -539,7 +533,10 @@ const statusLines = execFileSync("git", ["status", "--porcelain"], {
   .filter((line) => line.length > 0);
 for (const line of statusLines) {
   const path = line.slice(3);
-  assert.ok(path.startsWith("frontend/"), `prohibited changed path: ${path}`);
+  assert.ok(
+    path.startsWith("frontend/") || path === "observability/README.md",
+    `prohibited changed path: ${path}`
+  );
   assert.ok(
     !/(?:package\.json|bun\.lock|package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(
       path

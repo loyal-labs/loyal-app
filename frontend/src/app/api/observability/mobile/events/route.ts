@@ -1,14 +1,10 @@
-import { deriveObservabilityActorId } from "@/features/observability/actor";
 import {
   InvalidLifecycleEnvelopeError,
   MAX_LIFECYCLE_REQUEST_BYTES,
   parseMobileLifecycleEnvelope,
 } from "@/features/observability/lifecycle-contract";
 import { consumeBrowserLifecycleRateLimit } from "@/features/observability/rate-limit.server";
-import {
-  getObservabilityDeploymentEnvironment,
-  reportMobileLifecycleEnvelope,
-} from "@/features/observability/server";
+import { reportMobileLifecycleEnvelope } from "@/features/observability/server";
 
 export const runtime = "nodejs";
 
@@ -64,25 +60,6 @@ async function readJsonBody(request: Request): Promise<unknown> {
   }
 }
 
-// Same HMAC derivation as the browser events route, keyed on THIS
-// deployment's environment (not the envelope's), so the same wallet resolves
-// to the same actor id whether it reports from web or mobile.
-function resolveActorId(walletAddress: string | undefined): string | undefined {
-  if (!walletAddress) return undefined;
-  try {
-    const secret = process.env.OBSERVABILITY_ACTOR_HMAC_SECRET ?? "";
-    return (
-      deriveObservabilityActorId({
-        deploymentEnvironment: getObservabilityDeploymentEnvironment(),
-        secret,
-        walletAddress,
-      }) ?? undefined
-    );
-  } catch {
-    return undefined;
-  }
-}
-
 export async function POST(request: Request): Promise<Response> {
   if (!isNativeAppRequest(request)) {
     return jsonResponse({ error: "forbidden" }, 403);
@@ -96,8 +73,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const envelope = parseMobileLifecycleEnvelope(await readJsonBody(request));
-    const actorId = resolveActorId(envelope.walletAddress);
-    await reportMobileLifecycleEnvelope(envelope, actorId);
+    await reportMobileLifecycleEnvelope(envelope, envelope.walletAddress);
     return jsonResponse({ accepted: true }, 202);
   } catch (error) {
     if (error instanceof RangeError) {
