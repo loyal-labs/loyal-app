@@ -74,6 +74,14 @@ const siteJsonLd = {
   ],
 };
 
+// Env-tinted favicon: red in prod, yellow on Vercel previews, gray in local dev.
+const faviconPath =
+  process.env.VERCEL_ENV === "production"
+    ? "/icon.svg"
+    : process.env.VERCEL_ENV === "preview"
+      ? "/icon-preview.svg"
+      : "/icon-dev.svg";
+
 export const metadata: Metadata = {
   title: "Loyal: Solana Wallet That Earns Yield Automatically",
   description:
@@ -83,8 +91,8 @@ export const metadata: Metadata = {
     canonical: "/",
   },
   icons: {
-    icon: "/icon.svg",
-    shortcut: "/icon.svg",
+    icon: faviconPath,
+    shortcut: faviconPath,
     apple: "/apple-touch-icon.png",
   },
   openGraph: {
