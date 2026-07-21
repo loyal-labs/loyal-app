@@ -516,6 +516,10 @@ export type EarnAutodepositScheduledSweep = {
   classification: string;
   confidence: string;
   eligibleAfter: string;
+  // ISO time the "Execute now" acceleration becomes available (the recurring
+  // delegation window opening) — drives the web's "Available in Xs" button
+  // countdown. Absent/null on older backends or when already available.
+  executeNowAvailableAt?: string | null;
   id: string;
   originalAmountRaw: string;
   reason: string;

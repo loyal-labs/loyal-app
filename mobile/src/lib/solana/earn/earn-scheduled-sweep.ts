@@ -110,16 +110,66 @@ export function isScheduledSweepAwaitingExecution(
   return sweep.status === "requested" || sweep.status === "selected";
 }
 
-// Button label while a watched sweep is in flight: once the granular progress
-// poll reports the worker confirmed the pull (funds are actually moving —
-// pull_confirmed/completed), "Executing…" becomes "Depositing…". Null/other
-// states (or no progress endpoint on the backend) keep the plain label.
-export function scheduledSweepExecutingLabel(
+// Subtitle + button copy for a sweep's in-flight/retry states, mirroring the
+// web pane's `getAutodepositProgressLabel`/`getAutodepositProgressButtonLabel`
+// exactly. Prefers the granular progress-poll state; falls back to the slot
+// status so labels still upgrade ("Queued", "Preparing…") against a backend
+// without the progress endpoint. Null fields mean "nothing special" — the row
+// falls back to the scheduled time / "Executing…" / "Execute now".
+export function getScheduledSweepStatusLabels(
+  sweep: EarnAutodepositScheduledSweep,
   progressState: string | null | undefined,
-): string {
-  return progressState === "pull_confirmed" || progressState === "completed"
-    ? "Depositing…"
-    : "Executing…";
+): { subtitle: string | null; button: string | null } {
+  switch (progressState) {
+    case "requested":
+      return { subtitle: "Queued", button: "Queued" };
+    case "selected":
+      return { subtitle: "Preparing deposit", button: "Preparing…" };
+    case "pull_confirmed":
+      return { subtitle: "Funds moved — depositing", button: "Depositing…" };
+    case "completed":
+      return { subtitle: "Autodeposit complete", button: "Complete" };
+    case "failed":
+      return { subtitle: "Autodeposit failed", button: "Try again" };
+    case "canceled":
+      return { subtitle: "Autodeposit canceled", button: "Try again" };
+    case "released":
+      return { subtitle: "Ready to retry", button: "Try again" };
+    default:
+      break;
+  }
+  switch (sweep.status) {
+    case "requested":
+      return { subtitle: "Queued", button: "Queued" };
+    case "selected":
+      return { subtitle: "Preparing deposit", button: "Preparing…" };
+    case "failed":
+    case "released":
+      return { subtitle: "Retry needed", button: "Try again" };
+    default:
+      return { subtitle: null, button: null };
+  }
+}
+
+// "Available in 32s" while the recurring delegation window hasn't opened yet
+// (Execute now can't accelerate before it) — mirrors the web's
+// `getLoadedScheduledSweepExecuteNowAvailableAtMs` + countdown label.
+export function getScheduledSweepExecuteNowAvailableAtMs(
+  sweep: EarnAutodepositScheduledSweep,
+): number | null {
+  if (!sweep.executeNowAvailableAt) {
+    return null;
+  }
+  const availableAtMs = new Date(sweep.executeNowAvailableAt).getTime();
+  return Number.isFinite(availableAtMs) ? availableAtMs : null;
+}
+
+export function formatScheduledSweepAvailableIn(
+  availableAtMs: number,
+  nowMs: number,
+): string | null {
+  const remainingSeconds = Math.ceil((availableAtMs - nowMs) / 1000);
+  return remainingSeconds > 0 ? `Available in ${remainingSeconds}s` : null;
 }
 
 // The sweep's execution window has arrived (`eligibleAfter` passed) — true the

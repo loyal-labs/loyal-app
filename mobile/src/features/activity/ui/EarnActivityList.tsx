@@ -14,9 +14,11 @@ import type {
 } from "@/lib/solana/earn/earn-api";
 import {
   formatScheduledSweepAmount,
+  formatScheduledSweepAvailableIn,
   formatScheduledSweepTime,
+  getScheduledSweepExecuteNowAvailableAtMs,
+  getScheduledSweepStatusLabels,
   isScheduledSweepAwaitingExecution,
-  scheduledSweepExecutingLabel,
 } from "@/lib/solana/earn/earn-scheduled-sweep";
 import {
   formatEarnRowTime,
@@ -101,12 +103,44 @@ function EarnScheduledRow({
   progressState?: string | null;
 }) {
   const awaiting = forceExecuting || isScheduledSweepAwaitingExecution(sweep);
-  const disabled = isExecuting || awaiting;
+
+  // "Available in Xs" countdown until the delegation window opens (mirrors the
+  // web button). Ticks once a second only while a future availableAt exists,
+  // and stops itself once the window opens.
+  const availableAtMs = getScheduledSweepExecuteNowAvailableAtMs(sweep);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (availableAtMs === null || availableAtMs <= Date.now()) {
+      return;
+    }
+    const intervalId = setInterval(() => {
+      setNowMs(Date.now());
+      if (Date.now() >= availableAtMs) {
+        clearInterval(intervalId);
+      }
+    }, 1000);
+    return () => clearInterval(intervalId);
+  }, [availableAtMs]);
+  const availableInLabel =
+    availableAtMs === null
+      ? null
+      : formatScheduledSweepAvailableIn(availableAtMs, nowMs);
+
+  const statusLabels = getScheduledSweepStatusLabels(sweep, progressState);
+  // "Try again" stays tappable; active/complete progress states lock the
+  // button like the web (isProgressActive/isProgressComplete).
+  const progressLocked =
+    progressState === "requested" ||
+    progressState === "selected" ||
+    progressState === "pull_confirmed" ||
+    progressState === "completed";
+  const disabled =
+    isExecuting || awaiting || progressLocked || availableInLabel !== null;
   const buttonLabel = isExecuting
     ? "Requesting…"
-    : awaiting
-      ? scheduledSweepExecutingLabel(progressState)
-      : "Execute now";
+    : (availableInLabel ??
+      statusLabels.button ??
+      (awaiting ? "Executing…" : "Execute now"));
 
   return (
     <View className="flex-row items-start px-4 py-2.5">
@@ -114,7 +148,8 @@ function EarnScheduledRow({
       <View className="ml-3 flex-1">
         <Text className="text-[17px] font-medium text-black">Autodeposit</Text>
         <Text className="text-[15px]" style={{ color: SECONDARY }}>
-          {formatScheduledSweepTime(sweep.eligibleAfter)}
+          {statusLabels.subtitle ??
+            formatScheduledSweepTime(sweep.eligibleAfter)}
         </Text>
         <Pressable
           accessibilityRole="button"
