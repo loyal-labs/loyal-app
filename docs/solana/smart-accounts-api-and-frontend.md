@@ -227,6 +227,15 @@ all live full-withdrawal targets. Mobile full exits use the same separate cleanu
 and zero-proof phases; the legacy mobile `prepare` routes remain available for
 app versions that predate on-device preparation.
 
+Mobile Autodeposit execution uses `POST
+/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute` to advance a scheduled
+sweep. The same route provides a read-only progress fallback for native clients:
+`GET /api/smart-accounts/mobile/earn/autodeposit/sweeps/execute?walletAddress=<address>&slotId=<slot>`
+returns the scheduled slot, current progress state, timestamps, event id, and
+any failure code; clients can poll it after Execute for states such as
+`requested`, `selected`, `pull_confirmed`, `completed`, or a failure/cancellation
+state. Progress responses are not cached.
+
 The frontend reads active Earn state from `GET
 /api/smart-accounts/yield-optimization/position`. That route returns the active aggregate row from
 `loyal_yield.user_yield_positions` for the authenticated wallet, configured
@@ -251,6 +260,7 @@ display the current principal, and set the withdrawal maximum.
 | Mobile withdrawal context | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
 | Mobile cleanup context   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts` |
 | Mobile cleanup confirm   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts` |
+| Mobile Autodeposit progress | `frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute/route.ts` |
 | Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
 | Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
 
