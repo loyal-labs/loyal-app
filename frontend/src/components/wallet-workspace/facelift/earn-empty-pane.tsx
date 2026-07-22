@@ -41,7 +41,7 @@ export function EarnEmptyPane({
   ];
 
   return (
-    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center overflow-clip rounded-3xl bg-white">
+    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
       <header className="flex w-full items-center p-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
           <h1 className="whitespace-nowrap font-semibold text-[24px] text-black leading-7">
@@ -126,7 +126,9 @@ export function EarnEmptyPane({
         })()}
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center">
+      {/* On mobile the dog clips to the rounded bottom above the tab bar
+          (Figma 4693:69958); the white body makes the corners read clean. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           alt=""

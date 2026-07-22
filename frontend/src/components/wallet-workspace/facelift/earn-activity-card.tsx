@@ -432,7 +432,9 @@ export function EarnActivityCard({
   const [activeTab, setActiveTab] = useState<ActivityTab>("Transactions");
 
   return (
-    <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white">
+    // On mobile the card grows to meet the sticky action bar and drops its
+    // bottom rounding (Figma 4693:70498).
+    <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:flex-1 max-[795px]:rounded-b-none">
       <div className="flex w-full items-center px-2 pt-2">
         {ACTIVITY_TABS.map((tab) => {
           const isActive = activeTab === tab;

@@ -19,8 +19,16 @@ import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position"
 const ASSET_BASE = "/wallet-workspace/facelift";
 const MIN_DEPOSIT_USD = 1;
 
-// Figma 4693:65815 (empty / below minimum) + 4693:65625 (valid amount).
-export function DepositPane({ onBack }: { onBack: () => void }) {
+// Figma 4693:65815 (empty / below minimum) + 4693:65625 (valid amount) +
+// 4693:70280 (mobile: full-bleed, chart button in the header opens the chart
+// sheet, system num keyboard under the focused amount input).
+export function DepositPane({
+  onBack,
+  onOpenChart,
+}: {
+  onBack: () => void;
+  onOpenChart: () => void;
+}) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
   const apy = useEarnForecastApy();
@@ -47,7 +55,7 @@ export function DepositPane({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white">
+    <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
       <header className="flex w-full items-center p-2">
         <div className="pr-3">
           <button
@@ -68,6 +76,20 @@ export function DepositPane({ onBack }: { onBack: () => void }) {
         <h1 className="min-w-0 flex-1 truncate py-2 font-semibold text-[20px] text-black leading-6">
           Deposit
         </h1>
+        <button
+          aria-label="Open chart"
+          className="hidden size-11 shrink-0 items-center justify-center rounded-3xl max-[795px]:flex"
+          onClick={onOpenChart}
+          type="button"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-6"
+            src={`${ASSET_BASE}/icon-chart.svg`}
+          />
+        </button>
       </header>
 
       <div className="flex min-h-0 w-full flex-1 flex-col">

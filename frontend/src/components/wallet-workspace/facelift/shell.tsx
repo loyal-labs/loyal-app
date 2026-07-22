@@ -11,6 +11,7 @@ import { DepositPane } from "@/components/wallet-workspace/facelift/deposit-pane
 import { EarnChartPane } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
+import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
@@ -22,7 +23,10 @@ type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
 // fluid middle panel, 400px right panel. Panes are intentionally not resizable.
 // Below 1204px the right pane would force the dog under its 420px natural size,
 // so it hides (Figma 4693:65423) and the middle header shows a chart button
-// that opens the expanded chart overlay instead.
+// that opens the expanded chart overlay instead. Below 796px the sidebar goes
+// too: screens run full-bleed with a bottom tab bar (Figma 4693:69948 et al.),
+// and only the Earn screen with a position keeps the gray card background
+// (Figma 4693:70364).
 export function WorkspaceFaceliftShell() {
   const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [middleView, setMiddleView] = useState<MiddleView>("earn");
@@ -34,45 +38,61 @@ export function WorkspaceFaceliftShell() {
   // resolving for a signed-in smart account.
   const isPositionLoading =
     isSignedIn && Boolean(earnData.settingsPda) && !earnData.hasResolvedPosition;
+  const isEarnRootView = activeMiddleView === "earn";
+  const isMobileGrayBackground = isEarnRootView && earnData.hasPosition;
 
   return (
     <BalanceVisibilityProvider>
       <div className="flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
         <HiddenBalanceFilterDefs />
         <FaceliftSidebar earnBalanceUsd={earnData.earnBalanceUsd} />
-        <div className="flex h-full min-w-0 flex-1 gap-2 p-2">
-          {activeMiddleView === "withdraw" ? (
-            <WithdrawPane data={earnData} onBack={() => setMiddleView("earn")} />
-          ) : activeMiddleView === "autodeposit" ? (
-            <AutodepositPane
-              data={earnData}
-              onBack={() => setMiddleView("earn")}
-            />
-          ) : activeMiddleView === "deposit" ? (
-            <DepositPane onBack={() => setMiddleView("earn")} />
-          ) : earnData.hasPosition ? (
-            <EarnPositionPane
-              data={earnData}
-              onDeposit={() => setMiddleView("deposit")}
-              onOpenAutodeposit={() => setMiddleView("autodeposit")}
-              onWithdraw={() => setMiddleView("withdraw")}
-            />
-          ) : isPositionLoading ? (
-            <section className="flex h-full min-w-0 flex-1 animate-pulse rounded-3xl bg-white" />
-          ) : (
-            <EarnEmptyPane
-              onDeposit={() => setMiddleView("deposit")}
-              onOpenChart={() => setIsChartExpanded(true)}
-            />
-          )}
-          {activeMiddleView === "withdraw" ||
-          activeMiddleView === "autodeposit" ? null : (
-            <EarnChartPane
-              earnData={earnData}
-              isExpanded={isChartExpanded}
-              onExpandedChange={setIsChartExpanded}
-            />
-          )}
+        <div
+          className={`flex h-full min-w-0 flex-1 flex-col ${
+            isMobileGrayBackground ? "" : "max-[795px]:bg-white"
+          }`}
+        >
+          <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
+            {activeMiddleView === "withdraw" ? (
+              <WithdrawPane
+                data={earnData}
+                onBack={() => setMiddleView("earn")}
+              />
+            ) : activeMiddleView === "autodeposit" ? (
+              <AutodepositPane
+                data={earnData}
+                onBack={() => setMiddleView("earn")}
+              />
+            ) : activeMiddleView === "deposit" ? (
+              <DepositPane
+                onBack={() => setMiddleView("earn")}
+                onOpenChart={() => setIsChartExpanded(true)}
+              />
+            ) : earnData.hasPosition ? (
+              <EarnPositionPane
+                data={earnData}
+                onDeposit={() => setMiddleView("deposit")}
+                onOpenAutodeposit={() => setMiddleView("autodeposit")}
+                onOpenChart={() => setIsChartExpanded(true)}
+                onWithdraw={() => setMiddleView("withdraw")}
+              />
+            ) : isPositionLoading ? (
+              <section className="flex h-full min-w-0 flex-1 animate-pulse rounded-3xl bg-white max-[795px]:rounded-none" />
+            ) : (
+              <EarnEmptyPane
+                onDeposit={() => setMiddleView("deposit")}
+                onOpenChart={() => setIsChartExpanded(true)}
+              />
+            )}
+            {activeMiddleView === "withdraw" ||
+            activeMiddleView === "autodeposit" ? null : (
+              <EarnChartPane
+                earnData={earnData}
+                isExpanded={isChartExpanded}
+                onExpandedChange={setIsChartExpanded}
+              />
+            )}
+          </div>
+          {isEarnRootView ? <MobileTabBar /> : null}
         </div>
       </div>
     </BalanceVisibilityProvider>

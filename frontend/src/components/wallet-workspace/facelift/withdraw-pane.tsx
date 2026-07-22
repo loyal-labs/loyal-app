@@ -185,7 +185,7 @@ export function WithdrawPane({
 
   return (
     <>
-      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white">
+      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
         <header className="flex w-full items-center p-2">
           <div className="pr-3">
             <button
@@ -238,11 +238,11 @@ export function WithdrawPane({
               <>
                 <button
                   aria-label="Close position select"
-                  className="fixed inset-0 z-10 cursor-default min-[1204px]:hidden"
+                  className="fixed inset-0 z-10 cursor-default min-[1204px]:hidden max-[795px]:hidden"
                   onClick={() => setIsSheetOpen(false)}
                   type="button"
                 />
-                <div className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] min-[1204px]:hidden">
+                <div className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] min-[1204px]:hidden max-[795px]:hidden">
                   {options.map((option) => (
                     <SourceOptionRow
                       isSelected={option.key === selectedOption.key}
@@ -252,6 +252,50 @@ export function WithdrawPane({
                       rounded="rounded-lg"
                     />
                   ))}
+                </div>
+                {/* Mobile: the source select is a bottom sheet instead of the
+                    anchored dropdown (Figma 4693:71494). */}
+                <div
+                  className="fixed inset-0 z-50 hidden flex-col justify-end bg-white/60 pt-8 backdrop-blur-[4px] max-[795px]:flex"
+                  onClick={() => setIsSheetOpen(false)}
+                >
+                  <div
+                    aria-modal="true"
+                    className="flex w-full flex-col rounded-t-3xl bg-white shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+                    onClick={(event) => event.stopPropagation()}
+                    role="dialog"
+                  >
+                    <header className="flex w-full items-center p-2">
+                      <h2 className="min-w-0 flex-1 truncate py-2.5 pl-2 font-semibold text-[20px] text-black leading-6">
+                        Positions
+                      </h2>
+                      <button
+                        aria-label="Close position select"
+                        className="flex size-11 shrink-0 items-center justify-center rounded-3xl"
+                        onClick={() => setIsSheetOpen(false)}
+                        type="button"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          alt=""
+                          aria-hidden="true"
+                          className="size-6"
+                          src={`${ASSET_BASE}/icon-cross.svg`}
+                        />
+                      </button>
+                    </header>
+                    <div className="flex w-full flex-col py-2">
+                      {options.map((option) => (
+                        <SourceOptionRow
+                          isSelected={option.key === selectedOption.key}
+                          key={option.key}
+                          onSelect={() => selectSource(option.key)}
+                          option={option}
+                          rounded="rounded-none"
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </>
             ) : null}

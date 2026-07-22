@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="36" viewBox="0 0 44 36" fill="none">
+<g id="Mascot">
+<g id="Mascot_2">
+<path id="Vector" d="M7.07241 34.3097L0.00115967 16.9462H19.3621V1.8877L27.967 16.9462L30.1182 1.8877L43.6431 38.6121L7.07241 34.3097Z" fill="#F9363C"/>
+<path id="Teeth BG" d="M26.08 28.1409L27.6825 33.4092L5.93758 31.5207L3.54413 25.6436L26.08 28.1409Z" fill="white"/>
+<g id="Mask group">
+<mask id="mask0_4098_19416" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="3" y="25" width="25" height="9">
+<path id="Teeth Mask" d="M26.0806 28.1409L27.683 33.4092L5.93813 31.5207L3.54468 25.6436L26.0806 28.1409Z" fill="white"/>
+</mask>
+<g mask="url(#mask0_4098_19416)">
+<path id="Teeth" d="M5.00078 29.5989L8.71915 27.9955L13.2854 30.6527L16.6117 29.0264L22.4467 31.6093L27.3299 29.6505" stroke="black" stroke-width="1.29073"/>
+</g>
+</g>
+<g id="Eye">
+<path id="Vector_2" d="M24.0756 19.2294C27.635 19.4159 30.3894 22.0678 30.2277 25.1526L17.3381 24.4771C17.4997 21.3923 20.5162 19.0428 24.0756 19.2294Z" fill="white"/>
+<g id="Eye Mask">
+<mask id="mask1_4098_19416" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="17" y="19" width="14" height="7">
+<path id="Mask" d="M24.0743 19.2294C27.6337 19.4159 30.3881 22.0678 30.2264 25.1526L17.3368 24.4771C17.4985 21.3923 20.515 19.0428 24.0743 19.2294Z" fill="white"/>
+</mask>
+<g mask="url(#mask1_4098_19416)">
+<circle id="Vector_3" cx="24.8693" cy="24.1254" r="2.90415" transform="rotate(3 24.8693 24.1254)" fill="black"/>
+</g>
+</g>
+</g>
+</g>
+</g>
+</svg>

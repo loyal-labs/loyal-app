@@ -27,6 +27,65 @@ function InfoContent() {
   );
 }
 
+// "How Autodeposit works" as an overlay: card next to the sidebar below
+// 1204px (Figma 4693:69792), bottom sheet on mobile (Figma 4693:71793).
+// Also reachable from the Earn screen's mobile "?" (Figma 4693:70364).
+export function AutodepositInfoOverlay({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] min-[1204px]:hidden max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
+      onClick={onClose}
+    >
+      <div
+        aria-modal="true"
+        className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <header className="flex w-full items-center p-2">
+          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+            How Autodeposit works
+          </h2>
+          <button
+            aria-label="Close info"
+            className="flex size-11 shrink-0 items-center justify-center rounded-3xl"
+            onClick={onClose}
+            type="button"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              className="size-6"
+              src={`${ASSET_BASE}/icon-cross.svg`}
+            />
+          </button>
+        </header>
+        <InfoContent />
+        <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
+          <button
+            className="flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5"
+            onClick={onClose}
+            type="button"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Figma 4693:69332 (create, wide) / 4693:75306 (edit: Delete + Confirm) /
 // 4693:75556 (edit, unchanged: "No changes yet") / 4693:69662+69792 (narrow:
 // ? in the header opens the info panel as an overlay). Create/Confirm/Delete
@@ -68,22 +127,9 @@ export function AutodepositPane({
     }
   };
 
-  useEffect(() => {
-    if (!isInfoOpen) {
-      return;
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsInfoOpen(false);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isInfoOpen]);
-
   return (
     <>
-      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white">
+      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
         <header className="flex w-full items-center p-2">
           <div className="pr-3">
             <button
@@ -271,38 +317,7 @@ export function AutodepositPane({
       </aside>
 
       {isInfoOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] min-[1204px]:hidden"
-          onClick={() => setIsInfoOpen(false)}
-        >
-          <div
-            aria-modal="true"
-            className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <header className="flex w-full items-center p-2">
-              <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
-                How Autodeposit works
-              </h2>
-              <button
-                aria-label="Close info"
-                className="flex size-11 shrink-0 items-center justify-center rounded-3xl"
-                onClick={() => setIsInfoOpen(false)}
-                type="button"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6"
-                  src={`${ASSET_BASE}/icon-cross.svg`}
-                />
-              </button>
-            </header>
-            <InfoContent />
-          </div>
-        </div>
+        <AutodepositInfoOverlay onClose={() => setIsInfoOpen(false)} />
       ) : null}
     </>
   );

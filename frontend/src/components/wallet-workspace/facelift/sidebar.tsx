@@ -135,7 +135,7 @@ export function FaceliftSidebar({
   };
 
   return (
-    <aside className="flex h-full w-[360px] shrink-0 flex-col overflow-clip p-2">
+    <aside className="flex h-full w-[360px] shrink-0 flex-col overflow-clip p-2 max-[795px]:hidden">
       <div className="relative flex w-full shrink-0 items-center gap-2.5">
         <button
           className="flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
