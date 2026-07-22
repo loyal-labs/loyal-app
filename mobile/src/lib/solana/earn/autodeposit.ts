@@ -16,12 +16,15 @@ import {
   confirmEarnAutodepositClose,
   confirmEarnAutodepositSetup,
   EarnApiError,
+  type EarnAuthFields,
+  type EarnSessionAuth,
   fetchEarnAutodepositState,
   requestEarnAutodepositSweepExecute,
   toggleEarnAutodeposit,
   updateEarnAutodepositFloor,
 } from "./earn-api";
-import { signEarnAuth, withEarnAuth } from "./earn-auth";
+import { type EarnAuthPurpose, signEarnAuth, withEarnAuth } from "./earn-auth";
+import { clearEarnSession, getEarnSessionToken } from "./earn-session";
 import {
   signAndSendPreparedOperation,
   signAndSendPreparedOperations,
@@ -76,6 +79,41 @@ async function withUnconfirmedRetry<T>(run: () => Promise<T>): Promise<T> {
       );
     }
   }
+}
+
+// The token was rejected (expired/invalid), or the deployed backend predates
+// bearer support and choked on a body without auth fields — either way, drop
+// the cached session and fall back to the signed path.
+const SESSION_FALLBACK_CODES = new Set([
+  "invalid_mobile_session",
+  "invalid_mobile_auth",
+]);
+
+// Runs a DB-only Autodeposit call with the cached mobile Earn session when one
+// exists (no wallet prompt); otherwise — or when the server rejects the token —
+// falls back to a freshly signed auth message, which also re-mints a session
+// for next time via signEarnAuth's opportunistic mint.
+async function withEarnSessionOrAuth<T>(
+  signer: Signer,
+  purpose: EarnAuthPurpose,
+  call: (auth: EarnAuthFields | EarnSessionAuth) => Promise<T>,
+): Promise<T> {
+  const sessionToken = await getEarnSessionToken(signer.publicKey.toBase58());
+  if (sessionToken) {
+    try {
+      return await call({ sessionToken });
+    } catch (error) {
+      if (
+        !(error instanceof EarnApiError) ||
+        error.code === undefined ||
+        !SESSION_FALLBACK_CODES.has(error.code)
+      ) {
+        throw error;
+      }
+      await clearEarnSession();
+    }
+  }
+  return call(await signEarnAuth(signer, purpose));
 }
 
 // Deployment inputs for the device-side SDK prepare, resolved from the
@@ -352,17 +390,18 @@ export async function updateEarnAutodepositThreshold(args: {
   });
   flow.start("intent");
   try {
-    const auth = await signEarnAuth(
+    await withEarnSessionOrAuth(
       args.signer,
       "earn-autodeposit-floor-confirm",
+      (auth) =>
+        updateEarnAutodepositFloor({
+          auth,
+          policyAccount: args.policyAccount,
+          recurringDelegation: args.recurringDelegation,
+          vaultIndex: args.vaultIndex,
+          walletBalanceFloorRaw: thresholdUsdToRaw(args.thresholdUsd),
+        }),
     );
-    await updateEarnAutodepositFloor({
-      auth,
-      policyAccount: args.policyAccount,
-      recurringDelegation: args.recurringDelegation,
-      vaultIndex: args.vaultIndex,
-      walletBalanceFloorRaw: thresholdUsdToRaw(args.thresholdUsd),
-    });
     flow.complete("backend_confirm");
   } catch (error) {
     flow.fail("backend_confirm", { errorCode: mapLifecycleErrorCode(error) });
@@ -386,17 +425,18 @@ export async function setEarnAutodepositActive(args: {
   });
   flow.start("intent");
   try {
-    const auth = await signEarnAuth(
+    await withEarnSessionOrAuth(
       args.signer,
       "earn-autodeposit-toggle-confirm",
+      (auth) =>
+        toggleEarnAutodeposit({
+          auth,
+          active: args.active,
+          policyAccount: args.policyAccount,
+          recurringDelegation: args.recurringDelegation,
+          vaultIndex: args.vaultIndex,
+        }),
     );
-    await toggleEarnAutodeposit({
-      auth,
-      active: args.active,
-      policyAccount: args.policyAccount,
-      recurringDelegation: args.recurringDelegation,
-      vaultIndex: args.vaultIndex,
-    });
     flow.complete("backend_confirm");
   } catch (error) {
     flow.fail("backend_confirm", { errorCode: mapLifecycleErrorCode(error) });
@@ -564,11 +604,11 @@ export async function executeEarnAutodepositScheduledSweep(args: {
   });
   flow.start("intent");
   try {
-    const auth = await signEarnAuth(
+    await withEarnSessionOrAuth(
       args.signer,
       "earn-autodeposit-sweep-execute",
+      (auth) => requestEarnAutodepositSweepExecute({ auth }),
     );
-    await requestEarnAutodepositSweepExecute({ auth });
     flow.observe("request", { executeNowState: "requested" });
     return flow;
   } catch (error) {

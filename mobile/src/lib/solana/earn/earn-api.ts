@@ -23,6 +23,26 @@ export type EarnAuthFields = {
   issuedAt: string;
 };
 
+// Bearer alternative for the DB-only Autodeposit endpoints: a cached mobile
+// Earn session token (see earn-session.ts) instead of a per-request
+// wallet-signed message — no wallet prompt.
+export type EarnSessionAuth = { sessionToken: string };
+
+// Splits either credential kind into request parts: signed auth fields spread
+// into the body (the historical contract); a session token rides the
+// Authorization header with no body auth fields.
+function earnAuthParts(auth: EarnAuthFields | EarnSessionAuth): {
+  headers: Record<string, string>;
+  bodyFields: Record<string, string>;
+} {
+  return "sessionToken" in auth
+    ? {
+        bodyFields: {},
+        headers: { Authorization: `Bearer ${auth.sessionToken}` },
+      }
+    : { bodyFields: { ...auth }, headers: {} };
+}
+
 // The serialized prepared deposit. Only the fields mobile needs to sign+send are
 // typed; the whole object is echoed back to `confirm` opaquely.
 export type WirePreparedEarnDeposit = {
@@ -43,7 +63,7 @@ export type EarnDepositPrepareResponse = {
   preparedDeposit: WirePreparedEarnDeposit;
 };
 
-function earnHeaders(flowId?: string): Record<string, string> {
+export function earnHeaders(flowId?: string): Record<string, string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -600,19 +620,20 @@ export async function confirmEarnAutodepositSetup(args: {
 }
 
 export async function updateEarnAutodepositFloor(args: {
-  auth: EarnAuthFields;
+  auth: EarnAuthFields | EarnSessionAuth;
   policyAccount: string;
   recurringDelegation: string;
   vaultIndex: number;
   walletBalanceFloorRaw: string;
 }): Promise<void> {
   const { auth, ...rest } = args;
+  const { headers, bodyFields } = earnAuthParts(auth);
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/floor/confirm`,
     {
       method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({ ...auth, ...rest }),
+      headers: { ...earnHeaders(), ...headers },
+      body: JSON.stringify({ ...bodyFields, ...rest }),
     },
   );
   if (!res.ok) {
@@ -621,19 +642,20 @@ export async function updateEarnAutodepositFloor(args: {
 }
 
 export async function toggleEarnAutodeposit(args: {
-  auth: EarnAuthFields;
+  auth: EarnAuthFields | EarnSessionAuth;
   active: boolean;
   policyAccount: string;
   recurringDelegation: string;
   vaultIndex: number;
 }): Promise<void> {
   const { auth, ...rest } = args;
+  const { headers, bodyFields } = earnAuthParts(auth);
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/toggle/confirm`,
     {
       method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({ ...auth, ...rest }),
+      headers: { ...earnHeaders(), ...headers },
+      body: JSON.stringify({ ...bodyFields, ...rest }),
     },
   );
   if (!res.ok) {
@@ -685,14 +707,15 @@ export type EarnAutodepositSweepExecuteResponse = {
 // wallet's active policy (no body params beyond the signed auth). Mirrors the
 // web `yield-optimization/autodeposit/sweeps/execute` route.
 export async function requestEarnAutodepositSweepExecute(args: {
-  auth: EarnAuthFields;
+  auth: EarnAuthFields | EarnSessionAuth;
 }): Promise<EarnAutodepositSweepExecuteResponse> {
+  const { headers, bodyFields } = earnAuthParts(args.auth);
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute`,
     {
       method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({ ...args.auth }),
+      headers: { ...earnHeaders(), ...headers },
+      body: JSON.stringify(bodyFields),
     },
   );
   if (!res.ok) {

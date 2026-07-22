@@ -253,8 +253,10 @@ describe("executeEarnWithdraw", () => {
 
   test("returns the cleanup signature when cleanup confirm fails", async () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    // Code-less EarnApiError = terminal (non-EarnApiError failures are treated
+    // as network errors and retried; see retryEarnApiCall).
     confirmEarnWithdrawCleanup.mockRejectedValueOnce(
-      new Error("Failed to confirm Earn account cleanup."),
+      new MockEarnApiError("Failed to confirm Earn account cleanup."),
     );
 
     const result = await executeEarnWithdraw({

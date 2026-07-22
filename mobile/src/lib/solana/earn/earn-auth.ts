@@ -4,6 +4,7 @@ import { Buffer } from "buffer";
 import type { Signer } from "@/lib/wallet/signer";
 
 import { EarnApiError, type EarnAuthFields } from "./earn-api";
+import { maybeMintEarnSession } from "./earn-session";
 
 export type EarnAuthPurpose =
   | "earn-deposit-prepare"
@@ -45,7 +46,12 @@ export async function signEarnAuth(
   const issuedAt = new Date().toISOString();
   const message = buildEarnAuthMessage({ purpose, walletAddress, issuedAt });
   const signature = await signer.signMessage(Buffer.from(message, "utf8"));
-  return { walletAddress, signature: bs58.encode(signature), issuedAt };
+  const fields = { walletAddress, signature: bs58.encode(signature), issuedAt };
+  // Piggyback a mobile Earn session mint on the signature the user just made
+  // (best-effort, background) so later DB-only Autodeposit calls skip the
+  // wallet prompt entirely.
+  maybeMintEarnSession(fields);
+  return fields;
 }
 
 // Auth-failure codes worth one retry with a freshly signed message: the reused
