@@ -39,8 +39,10 @@ export async function fetchWithTimeout(
   try {
     return await fetch(input, { ...rest, signal: controller.signal });
   } catch (error) {
+    // Hermes has no DOMException global — referencing it throws
+    // "Property 'DOMException' doesn't exist", so match aborts by name.
     if (
-      error instanceof DOMException &&
+      error instanceof Error &&
       error.name === "AbortError" &&
       !externalSignal?.aborted
     ) {

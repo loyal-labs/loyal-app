@@ -13,6 +13,7 @@ import {
   startLifecycleFlow,
 } from "@/services/observability";
 
+import { withConnectionRetry } from "./connection-retry";
 import {
   confirmEarnDeposit,
   confirmEarnDepositSponsored,
@@ -33,6 +34,9 @@ import {
 } from "./wire";
 
 const USDC_DECIMALS = 6;
+
+const DEPOSIT_NETWORK_MESSAGE =
+  "We couldn't reach the network to prepare the deposit. No funds moved — check your connection and try again.";
 
 function usdToUsdcRaw(amountUsd: number): string {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
@@ -212,12 +216,17 @@ async function runEarnDeposit(
   // back to the self-paid flow when the backend returns no sponsor (flag off
   // server-side, older deploy, or sponsor key unconfigured).
   if (env.earnSponsoredDeposits) {
-    const prepared = await prepareEarnDeposit({
-      auth: prepareAuth,
-      amountRaw,
-      sponsored: true,
-      flowId: flow.flowId,
-    });
+    const prepared = await withConnectionRetry(
+      "deposit sponsored prepare",
+      DEPOSIT_NETWORK_MESSAGE,
+      () =>
+        prepareEarnDeposit({
+          auth: prepareAuth,
+          amountRaw,
+          sponsored: true,
+          flowId: flow.flowId,
+        }),
+    );
     const preparedDeposit = prepared.preparedDeposit;
     if (!preparedDeposit.policySetupPrepared) {
       flow.setVariant("top_up");
@@ -301,18 +310,28 @@ async function runEarnDeposit(
     });
   }
 
-  const context = await fetchEarnDepositPrepareContext({
-    auth: prepareAuth,
-    amountRaw,
-    flowId: flow.flowId,
-  });
+  const context = await withConnectionRetry(
+    "deposit prepare-context",
+    DEPOSIT_NETWORK_MESSAGE,
+    () =>
+      fetchEarnDepositPrepareContext({
+        auth: prepareAuth,
+        amountRaw,
+        flowId: flow.flowId,
+      }),
+  );
   if (!context) {
     // Backend predates `prepare-context` — legacy server-side prepare.
-    const prepared = await prepareEarnDeposit({
-      auth: prepareAuth,
-      amountRaw,
-      flowId: flow.flowId,
-    });
+    const prepared = await withConnectionRetry(
+      "deposit server prepare",
+      DEPOSIT_NETWORK_MESSAGE,
+      () =>
+        prepareEarnDeposit({
+          auth: prepareAuth,
+          amountRaw,
+          flowId: flow.flowId,
+        }),
+    );
     const stages = hydrateWireStages(prepared.preparedDeposit);
     if (!stages.policySetup) {
       flow.setVariant("top_up");
@@ -337,46 +356,53 @@ async function runEarnDeposit(
     connection: getConnection(),
     programId: new PublicKey(context.programId),
   });
-  const preparedDeposit = await client.prepareEarnUsdcDeposit({
-    amountRaw: BigInt(amountRaw),
-    cluster: normalizeLoyalCluster(context.cluster),
-    feePayer: walletAddress,
-    initializeYieldRoutingPolicy: !context.yieldRoutingPolicy,
-    policySigner: new PublicKey(context.policySigner),
-    revokeStrayUsdcDelegate: context.revokeStrayUsdcDelegate,
-    settingsPda: new PublicKey(context.settingsPda),
-    walletAddress,
-    ...(context.target
-      ? {
-          target: {
-            liquidityMint: new PublicKey(context.target.liquidityMint),
-            market: new PublicKey(context.target.market),
-            reserve: new PublicKey(context.target.reserve),
-            supplyApyBps: context.target.supplyApyBps
-              ? BigInt(context.target.supplyApyBps)
-              : null,
-          },
-        }
-      : {}),
-    ...(context.yieldRoutingPolicy
-      ? {
-          yieldRoutingPolicy: {
-            account: new PublicKey(context.yieldRoutingPolicy.account),
-            seed: BigInt(context.yieldRoutingPolicy.seed),
-            ...(context.yieldRoutingPolicy.setupPolicy
-              ? {
-                  setupPolicy: {
-                    account: new PublicKey(
-                      context.yieldRoutingPolicy.setupPolicy.account,
-                    ),
-                    seed: BigInt(context.yieldRoutingPolicy.setupPolicy.seed),
-                  },
-                }
-              : {}),
-          },
-        }
-      : {}),
-  });
+  const preparedDeposit = await withConnectionRetry(
+    "deposit device prepare",
+    DEPOSIT_NETWORK_MESSAGE,
+    () =>
+      client.prepareEarnUsdcDeposit({
+        amountRaw: BigInt(amountRaw),
+        cluster: normalizeLoyalCluster(context.cluster),
+        feePayer: walletAddress,
+        initializeYieldRoutingPolicy: !context.yieldRoutingPolicy,
+        policySigner: new PublicKey(context.policySigner),
+        revokeStrayUsdcDelegate: context.revokeStrayUsdcDelegate,
+        settingsPda: new PublicKey(context.settingsPda),
+        walletAddress,
+        ...(context.target
+          ? {
+              target: {
+                liquidityMint: new PublicKey(context.target.liquidityMint),
+                market: new PublicKey(context.target.market),
+                reserve: new PublicKey(context.target.reserve),
+                supplyApyBps: context.target.supplyApyBps
+                  ? BigInt(context.target.supplyApyBps)
+                  : null,
+              },
+            }
+          : {}),
+        ...(context.yieldRoutingPolicy
+          ? {
+              yieldRoutingPolicy: {
+                account: new PublicKey(context.yieldRoutingPolicy.account),
+                seed: BigInt(context.yieldRoutingPolicy.seed),
+                ...(context.yieldRoutingPolicy.setupPolicy
+                  ? {
+                      setupPolicy: {
+                        account: new PublicKey(
+                          context.yieldRoutingPolicy.setupPolicy.account,
+                        ),
+                        seed: BigInt(
+                          context.yieldRoutingPolicy.setupPolicy.seed,
+                        ),
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+      }),
+  );
   flow.observe("prepare", {
     policyMode: context.yieldRoutingPolicy ? "reuse" : "create",
   });

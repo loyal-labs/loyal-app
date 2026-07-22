@@ -15,6 +15,7 @@ import {
 } from "@/services/observability";
 
 import { executeEarnAutodepositClose } from "./autodeposit";
+import { withConnectionRetry } from "./connection-retry";
 import {
   confirmEarnWithdraw,
   confirmEarnWithdrawCleanup,
@@ -148,7 +149,9 @@ function hydrateEarnWithdrawInput(
       ...(wire.yieldRoutingPolicy.setupPolicy
         ? {
             setupPolicy: {
-              account: new PublicKey(wire.yieldRoutingPolicy.setupPolicy.account),
+              account: new PublicKey(
+                wire.yieldRoutingPolicy.setupPolicy.account,
+              ),
               seed: BigInt(wire.yieldRoutingPolicy.setupPolicy.seed),
             },
           }
@@ -192,73 +195,71 @@ function hydrateEarnWithdrawCleanupInput(
   };
 }
 
-// RN surfaces connection-level fetch failures (DNS/TLS/socket reset) as a bare
-// TypeError("Network request failed") — which used to reach the withdraw sheet
-// verbatim (ASK-1801). The prepare stages are read-only on both the backend and
-// the RPC, so retrying them is always safe; the send/confirm stages keep their
-// own semantics and are deliberately NOT wrapped.
-const NETWORK_RETRY_ATTEMPTS = 3;
-const NETWORK_RETRY_DELAY_MS = 1_000;
-
-async function withConnectionRetry<T>(
-  label: string,
-  run: () => Promise<T>,
-): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < NETWORK_RETRY_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, NETWORK_RETRY_DELAY_MS),
-      );
-    }
-    try {
-      return await run();
-    } catch (error) {
-      // fetch rejects with TypeError only for connection-level failures;
-      // API rejections are EarnApiError and SDK/build errors are plain Error.
-      if (!(error instanceof TypeError)) {
-        throw error;
-      }
-      lastError = error;
-      console.warn(`[earn-withdraw] ${label}: network failure`, {
-        attempt: attempt + 1,
-        errorMessage: error.message,
-      });
-    }
-  }
-  console.warn(`[earn-withdraw] ${label}: giving up after network failures`, {
-    errorMessage: lastError instanceof Error ? lastError.message : String(lastError),
-  });
-  throw new EarnApiError(
-    "We couldn't reach the network to prepare the withdrawal. Your funds are safe — check your connection and try again.",
-  );
-}
+const WITHDRAW_NETWORK_MESSAGE =
+  "We couldn't reach the network to prepare the withdrawal. Your funds are safe — check your connection and try again.";
 
 // The cleanup context read races the backend's RPC catching up to the
 // withdrawal slot — the route 5xxs (`context_failed`/`resolve_failed`) until
 // its node reaches `minContextSlot`. Those and network blips heal on retry;
-// 4xx codes (missing endpoint, genuine leftover sources) never do.
+// 4xx codes (missing endpoint, genuine leftover sources) never do. The user
+// is already on the success screen here, so the budget is generous: giving up
+// strands the rent refund until the earn-cleanup-reconcile cron adopts it.
 const RETRYABLE_CLEANUP_CONTEXT_CODES = new Set([
   "context_failed",
   "resolve_failed",
 ]);
-const CLEANUP_CONTEXT_ATTEMPTS = 3;
-const CLEANUP_CONTEXT_RETRY_DELAY_MS = 1_200;
+const CLEANUP_CONTEXT_ATTEMPTS = 8;
+const CLEANUP_CONTEXT_RETRY_DELAY_MS = 2_500;
+
+// The cleanup confirm 503s (`full_exit_verification_retryable`) while the
+// backend's RPC catches up to the cleanup slot for its zero proof. A dropped
+// confirm leaves the position row active-at-$0 (a ghost) until the reconcile
+// cron adopts it, so retry here first.
+const RETRYABLE_CLEANUP_CONFIRM_CODES = new Set([
+  "full_exit_verification_retryable",
+]);
+const CLEANUP_CONFIRM_ATTEMPTS = 4;
+const CLEANUP_CONFIRM_RETRY_DELAY_MS = 3_000;
+
+// Retries `run` on network errors and the listed backend codes; an
+// `EarnApiError` outside `retryableCodes` (or with no code) throws through.
+async function retryEarnApiCall<T>(args: {
+  attempts: number;
+  delayMs: number;
+  retryableCodes: Set<string>;
+  run: () => Promise<T>;
+}): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < args.attempts; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, args.delayMs));
+    }
+    try {
+      return await args.run();
+    } catch (error) {
+      if (
+        error instanceof EarnApiError &&
+        (error.code === undefined || !args.retryableCodes.has(error.code))
+      ) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
 
 async function fetchCleanupContextWithRetry(args: {
   signer: Signer;
   prepareAuth: EarnAuthFields;
   minContextSlot: string;
 }): Promise<EarnWithdrawCleanupPrepareContext> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < CLEANUP_CONTEXT_ATTEMPTS; attempt++) {
-    if (attempt > 0) {
-      await new Promise((resolve) =>
-        setTimeout(resolve, CLEANUP_CONTEXT_RETRY_DELAY_MS),
-      );
-    }
-    try {
-      return await withEarnAuth(
+  return retryEarnApiCall({
+    attempts: CLEANUP_CONTEXT_ATTEMPTS,
+    delayMs: CLEANUP_CONTEXT_RETRY_DELAY_MS,
+    retryableCodes: RETRYABLE_CLEANUP_CONTEXT_CODES,
+    run: () =>
+      withEarnAuth(
         args.signer,
         args.prepareAuth,
         "earn-withdraw-prepare",
@@ -267,19 +268,8 @@ async function fetchCleanupContextWithRetry(args: {
             auth,
             minContextSlot: args.minContextSlot,
           }),
-      );
-    } catch (error) {
-      if (
-        error instanceof EarnApiError &&
-        (error.code === undefined ||
-          !RETRYABLE_CLEANUP_CONTEXT_CODES.has(error.code))
-      ) {
-        throw error;
-      }
-      lastError = error;
-    }
-  }
-  throw lastError;
+      ),
+  });
 }
 
 // Shared back half: sign every step in one wallet prompt (Seed Vault batches
@@ -416,7 +406,7 @@ async function runEarnWithdraw(
   const amountRaw = usdToUsdcRaw(args.amountUsd);
   const prepareAuth = await signEarnAuth(args.signer, "earn-withdraw-prepare");
   const fetchContext = () =>
-    withConnectionRetry("prepare-context", () =>
+    withConnectionRetry("prepare-context", WITHDRAW_NETWORK_MESSAGE, () =>
       withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
         fetchEarnWithdrawPrepareContext({
           auth,
@@ -467,11 +457,14 @@ async function runEarnWithdraw(
       context,
       args.signer.publicKey,
     );
-    const preparedWithdraw = await withConnectionRetry("device prepare", () =>
-      client.prepareEarnUsdcWithdraw({
-        ...withdrawInput,
-        closePoliciesOnFullWithdrawal: false,
-      }),
+    const preparedWithdraw = await withConnectionRetry(
+      "device prepare",
+      WITHDRAW_NETWORK_MESSAGE,
+      () =>
+        client.prepareEarnUsdcWithdraw({
+          ...withdrawInput,
+          closePoliciesOnFullWithdrawal: false,
+        }),
     );
     flow.observe("prepare");
     const hasSteps = preparedWithdraw.withdrawSteps.length > 0;
@@ -514,6 +507,7 @@ async function runEarnWithdraw(
       });
       const preparedCleanup = await withConnectionRetry(
         "device cleanup prepare",
+        WITHDRAW_NETWORK_MESSAGE,
         () =>
           cleanupClient.prepareEarnUsdcCleanup(
             hydrateEarnWithdrawCleanupInput(
@@ -530,17 +524,23 @@ async function runEarnWithdraw(
       cleanupSignature = cleanupResult?.signature;
       if (cleanupResult) {
         try {
-          await withEarnAuth(
-            args.signer,
-            prepareAuth,
-            "earn-withdraw-confirm",
-            (auth) =>
-              confirmEarnWithdrawCleanup({
-                auth,
-                cleanupSignature: cleanupResult.signature,
-                confirmedSlot: cleanupResult.confirmedSlot,
-              }),
-          );
+          await retryEarnApiCall({
+            attempts: CLEANUP_CONFIRM_ATTEMPTS,
+            delayMs: CLEANUP_CONFIRM_RETRY_DELAY_MS,
+            retryableCodes: RETRYABLE_CLEANUP_CONFIRM_CODES,
+            run: () =>
+              withEarnAuth(
+                args.signer,
+                prepareAuth,
+                "earn-withdraw-confirm",
+                (auth) =>
+                  confirmEarnWithdrawCleanup({
+                    auth,
+                    cleanupSignature: cleanupResult.signature,
+                    confirmedSlot: cleanupResult.confirmedSlot,
+                  }),
+              ),
+          });
         } catch (error) {
           console.warn(
             "[earn-withdraw] cleanup confirm failed; backend will reconcile",
@@ -570,7 +570,7 @@ async function runEarnWithdraw(
 
   // Backend predates `prepare-context` — legacy server-side prepare.
   const prepare = () =>
-    withConnectionRetry("server prepare", () =>
+    withConnectionRetry("server prepare", WITHDRAW_NETWORK_MESSAGE, () =>
       withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
         prepareEarnWithdraw({
           auth,
