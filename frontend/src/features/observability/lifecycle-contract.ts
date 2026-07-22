@@ -629,6 +629,20 @@ export type LifecycleEmitOptions = {
   timestamp?: string;
 };
 
+// crypto.randomUUID only exists in secure contexts (https/localhost); on
+// http LAN dev hosts it is undefined and would crash every flow that starts a
+// tracker. getRandomValues is available everywhere, so derive a canonical v4.
+function fallbackRandomUuidV4(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0")
+  ).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function createLifecycleTracker(args: {
   emit: (event: BrowserLifecycleEnvelope) => void;
   flowId?: string;
@@ -641,7 +655,12 @@ export function createLifecycleTracker(args: {
   source?: LifecycleSource;
 }): LifecycleTracker {
   const now = args.now ?? Date.now;
-  const randomUUID = args.randomUUID ?? (() => crypto.randomUUID());
+  const randomUUID =
+    args.randomUUID ??
+    (() =>
+      typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : fallbackRandomUuidV4());
   const flowId = args.flowId ?? randomUUID();
   if (!isCanonicalUuidV4(flowId)) throw new InvalidLifecycleEnvelopeError();
   const createdAt = now();
