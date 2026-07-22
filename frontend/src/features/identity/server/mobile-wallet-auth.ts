@@ -21,19 +21,26 @@ import {
 const MOBILE_AUTH_MAX_AGE_MS = 5 * 60 * 1000;
 const MOBILE_AUTH_MAX_FUTURE_SKEW_MS = 60 * 1000;
 
+// Runtime list so the session mint route can accept a signature scoped to ANY
+// Earn purpose (every purpose proves control of the same wallet key; the
+// scoping exists to stop cross-endpoint replay, not to grade trust).
+export const MOBILE_WALLET_AUTH_PURPOSES = [
+  "earn-deposit-prepare",
+  "earn-deposit-confirm",
+  "earn-withdraw-prepare",
+  "earn-withdraw-confirm",
+  "earn-autodeposit-setup-prepare",
+  "earn-autodeposit-setup-confirm",
+  "earn-autodeposit-floor-confirm",
+  "earn-autodeposit-toggle-confirm",
+  "earn-autodeposit-close-prepare",
+  "earn-autodeposit-close-confirm",
+  "earn-autodeposit-sweep-execute",
+  "earn-refund-prepare",
+] as const;
+
 export type MobileWalletAuthPurpose =
-  | "earn-deposit-prepare"
-  | "earn-deposit-confirm"
-  | "earn-withdraw-prepare"
-  | "earn-withdraw-confirm"
-  | "earn-autodeposit-setup-prepare"
-  | "earn-autodeposit-setup-confirm"
-  | "earn-autodeposit-floor-confirm"
-  | "earn-autodeposit-toggle-confirm"
-  | "earn-autodeposit-close-prepare"
-  | "earn-autodeposit-close-confirm"
-  | "earn-autodeposit-sweep-execute"
-  | "earn-refund-prepare";
+  (typeof MOBILE_WALLET_AUTH_PURPOSES)[number];
 
 export type MobileWalletAuthFields = {
   walletAddress: string;

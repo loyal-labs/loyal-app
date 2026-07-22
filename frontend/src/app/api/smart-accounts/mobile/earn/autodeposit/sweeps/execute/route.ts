@@ -10,7 +10,7 @@ import {
   EARN_REALTIME_SCHEMA_VERSION,
   type EarnAutodepositProgressState,
 } from "@/features/earn-realtime/types";
-import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
+import { authenticateMobileEarnRequest } from "@/features/identity/server/mobile-earn-session";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
@@ -252,9 +252,10 @@ export async function POST(request: Request) {
 
   let walletAddress: string;
   try {
-    ({ walletAddress } = await authenticateMobileWalletRequest({
+    ({ walletAddress } = await authenticateMobileEarnRequest({
       body,
       purpose: "earn-autodeposit-sweep-execute",
+      request,
     }));
   } catch (error) {
     if (error instanceof WalletAuthError) {
