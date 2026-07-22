@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -76,7 +77,7 @@ const EARN_CHART_BASELINE = 392;
 const EARN_CHART_TOP = 8;
 const MIN_DEPOSIT_USDC = 0.5;
 const EARN_BALANCE_DECIMALS = 6;
-const EARN_BALANCE_SAMPLE_MS = 250;
+export const EARN_BALANCE_SAMPLE_MS = 250;
 const USDC_RAW_SCALE = BigInt(1_000_000);
 const USDC_DISPLAY_DUST_TOLERANCE = 1.5 / Number(USDC_RAW_SCALE);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
@@ -885,7 +886,7 @@ function DepositButton({
   );
 }
 
-function EarnGrowingBalance({
+export function EarnGrowingBalance({
   baseAmount,
   isHidden = false,
 }: {
@@ -941,8 +942,8 @@ function EarnGrowingBalance({
 // Figma spec) so the in-progress day always reads as the full-height cap.
 const EARNINGS_BAR_MAX_FRACTION = 295 / 300;
 const EARNINGS_BAR_MIN_HEIGHT_PX = 4;
-const EARNINGS_LIFETIME_RANGE_ID = "ALL" satisfies EarningsRangeId;
-const EARNINGS_DAILY_RANGE_ID = "30D" satisfies EarningsRangeId;
+export const EARNINGS_LIFETIME_RANGE_ID = "ALL" satisfies EarningsRangeId;
+export const EARNINGS_DAILY_RANGE_ID = "30D" satisfies EarningsRangeId;
 const EARNINGS_BAR_COLOR = "rgba(52, 199, 89, 0.6)";
 const EARNINGS_BAR_HOVER_COLOR = "rgba(52, 199, 89, 0.16)";
 const EARNINGS_TODAY_BAR_BORDER_COLOR = "rgba(0, 0, 0, 0.24)";
@@ -1060,7 +1061,7 @@ function getEarningsFractionDigits(value: number) {
   return 2;
 }
 
-function splitEarningsHeaderValue(value: number): {
+export function splitEarningsHeaderValue(value: number): {
   fraction: string;
   whole: string;
 } {
@@ -1074,7 +1075,7 @@ function splitEarningsHeaderValue(value: number): {
   return { fraction, whole };
 }
 
-function formatMaxDailyEarningsLabel(value: number) {
+export function formatMaxDailyEarningsLabel(value: number) {
   if (!Number.isFinite(value) || value < 0.01) {
     return "<$0.01";
   }
@@ -1084,7 +1085,7 @@ function formatMaxDailyEarningsLabel(value: number) {
   })}`;
 }
 
-function formatSignedEarningsAmount(value: number) {
+export function formatSignedEarningsAmount(value: number) {
   if (!Number.isFinite(value)) {
     return "+$0.00";
   }
@@ -1111,7 +1112,7 @@ const EARN_CHART_TABS: readonly {
 // Indeterminate ring spinner that echoes the landing -> app splash loader (faint
 // track + accent arc), minus the dog logo. Shown while the Earned chart is still
 // fetching its bars.
-function EarningsChartLoader() {
+export function EarningsChartLoader() {
   const SIZE = 56;
   const STROKE = 5;
   const radius = (SIZE - STROKE) / 2;
@@ -1720,7 +1721,7 @@ function EarningsBlock({
   );
 }
 
-function AutodepositToggle({
+export function AutodepositToggle({
   disabled = false,
   isOn,
   isPending = false,
@@ -4701,7 +4702,10 @@ function formatHistoricalApyValue(apyPercent: number, mutedFraction: boolean) {
   );
 }
 
-function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
+export function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
+  // Unique per instance so simultaneously mounted charts (e.g. compact pane +
+  // expanded overlay) don't resolve each other's reveal clip rects.
+  const revealClipId = `historical-chart-reveal-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const apyHistory = useEarnForecastApyHistory();
   const samples = useMemo(() => {
     const fetchedSamples = toHistoricalApySamples(apyHistory);
@@ -5045,7 +5049,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
               <defs>
                 <clipPath
                   clipPathUnits="userSpaceOnUse"
-                  id="historical-chart-reveal-clip"
+                  id={revealClipId}
                 >
                   <rect
                     className="historical-chart-reveal-rect"
@@ -5056,7 +5060,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                   />
                 </clipPath>
               </defs>
-              <g clipPath="url(#historical-chart-reveal-clip)">
+              <g clipPath={`url(#${revealClipId})`}>
                 {plotLines.map((line) => (
                   <path
                     d={line.d}
@@ -5145,7 +5149,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
 // resting state draws the Loyal line solid and benchmarks dashed with dots at
 // the line endpoints; hovering turns every line solid, veils the future side
 // with 60% white, and moves the dashed cursor line + dots to the hovered date.
-function ForecastChart({
+export function ForecastChart({
   apy = FALLBACK_EARN_APY,
   isBalanceHidden = false,
   mainUsdcReserveApyBps = 559,
@@ -5156,6 +5160,9 @@ function ForecastChart({
   mainUsdcReserveApyBps?: number;
   principal?: number;
 }) {
+  // Unique per instance so simultaneously mounted charts (e.g. compact pane +
+  // expanded overlay) don't resolve each other's reveal clip rects.
+  const revealClipId = `forecast-tab-reveal-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const points = useMemo(
     () =>
       buildEarnComparisonPoints(principal, apy, {
@@ -5465,7 +5472,7 @@ function ForecastChart({
               <defs>
                 <clipPath
                   clipPathUnits="userSpaceOnUse"
-                  id="forecast-tab-reveal-clip"
+                  id={revealClipId}
                 >
                   <rect
                     className="forecast-chart-reveal-rect"
@@ -5476,7 +5483,7 @@ function ForecastChart({
                   />
                 </clipPath>
               </defs>
-              <g clipPath="url(#forecast-tab-reveal-clip)">
+              <g clipPath={`url(#${revealClipId})`}>
                 <g
                   className="forecast-chart-mode"
                   style={{ opacity: isHovering ? 0 : 1 }}

@@ -1,12 +1,12 @@
 "use client";
 
 import { AutodepositMockSheet } from "@/components/wallet-sidebar/autodeposit-mock-sheet";
-import { AppWalletWorkspace } from "@/components/wallet-workspace/app-wallet-workspace";
+import { WorkspaceFaceliftShell } from "@/components/wallet-workspace/facelift/shell";
 
 export function AppWorkspaceShell() {
   return (
     <>
-      <AppWalletWorkspace />
+      <WorkspaceFaceliftShell />
       <AutodepositMockSheet />
     </>
   );
