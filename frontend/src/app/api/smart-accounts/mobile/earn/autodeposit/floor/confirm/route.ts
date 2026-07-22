@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
-import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
+import { authenticateMobileEarnRequest } from "@/features/identity/server/mobile-earn-session";
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import {
@@ -73,9 +73,10 @@ export async function POST(request: Request) {
 
   let walletAddress: string;
   try {
-    ({ walletAddress } = await authenticateMobileWalletRequest({
+    ({ walletAddress } = await authenticateMobileEarnRequest({
       body,
       purpose: "earn-autodeposit-floor-confirm",
+      request,
     }));
   } catch (error) {
     if (error instanceof WalletAuthError) {
