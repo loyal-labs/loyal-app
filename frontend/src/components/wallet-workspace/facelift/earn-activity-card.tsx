@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import {
+  hiddenBalanceStyle,
+  useBalanceVisibility,
+} from "@/components/wallet-workspace/facelift/balance-visibility";
+import {
   formatEarnTransactionTimestamp,
   formatScheduledSweepAmount,
   formatScheduledSweepTime,
@@ -54,7 +58,7 @@ function UsdcCoinImage() {
 }
 
 // Same fallback rules as the old pane's CompoundIcon, at the redesign's 44px.
-function DualIcon({
+export function DualIcon({
   backSrc = null,
   frontSrc = null,
   isWithdraw = false,
@@ -136,6 +140,7 @@ function ScheduledSweepRow({
   sweep: LoadedEarnAutodepositScheduledSweep;
 }) {
   const amountLabel = formatScheduledSweepAmount(sweep.remainingAmountRaw);
+  const { isBalanceHidden } = useBalanceVisibility();
 
   return (
     <div className="flex w-full flex-col rounded-2xl">
@@ -153,7 +158,10 @@ function ScheduledSweepRow({
             </p>
           </div>
           <div className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
-            <p className="whitespace-nowrap text-[16px] text-black leading-5 text-right">
+            <p
+              className="whitespace-nowrap text-[16px] text-black leading-5 text-right"
+              style={hiddenBalanceStyle(isBalanceHidden)}
+            >
               {amountLabel}
             </p>
             <RouteLabel destination="Earn" source="Main" />
@@ -176,6 +184,7 @@ function ScheduledSweepRow({
 }
 
 function TransactionRow({ item }: { item: EarnTransactionItem }) {
+  const { isBalanceHidden } = useBalanceVisibility();
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
   const backSrc =
@@ -212,7 +221,10 @@ function TransactionRow({ item }: { item: EarnTransactionItem }) {
       <div className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
         <p
           className="whitespace-nowrap text-[16px] leading-5 text-right"
-          style={{ color: getEarnTransactionAmountColor({ kind: item.kind }) }}
+          style={{
+            color: getEarnTransactionAmountColor({ kind: item.kind }),
+            ...hiddenBalanceStyle(isBalanceHidden),
+          }}
         >
           {item.amount}
         </p>
@@ -341,6 +353,7 @@ function PositionsTab({
 }: {
   holdings: ActiveEarnPositionHolding[];
 }) {
+  const { isBalanceHidden } = useBalanceVisibility();
   const visibleHoldings = holdings.filter((holding) => {
     try {
       return BigInt(holding.amountRaw) > BigInt(0);
@@ -380,7 +393,10 @@ function PositionsTab({
               <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                 {label}
               </span>
-              <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+              <p
+                className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
+                style={hiddenBalanceStyle(isBalanceHidden)}
+              >
                 {amount.balanceWhole}
                 <span className="text-[rgba(60,60,67,0.4)]">
                   {amount.balanceFraction}

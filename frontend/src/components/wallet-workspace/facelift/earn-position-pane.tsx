@@ -4,6 +4,10 @@ import {
   AutodepositToggle,
   EarnGrowingBalance,
 } from "@/components/wallet-sidebar/earn-detail-view";
+import {
+  hiddenBalanceStyle,
+  useBalanceVisibility,
+} from "@/components/wallet-workspace/facelift/balance-visibility";
 import { EarnActivityCard } from "@/components/wallet-workspace/facelift/earn-activity-card";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
@@ -17,12 +21,17 @@ const ASSET_BASE = "/wallet-workspace/facelift";
 export function EarnPositionPane({
   data,
   onDeposit,
+  onOpenAutodeposit,
+  onWithdraw,
 }: {
   data: EarnPositionData;
   onDeposit: () => void;
+  onOpenAutodeposit: () => void;
+  onWithdraw: () => void;
 }) {
   const apy = useEarnForecastApy();
   const autodeposit = data.autodepositConfig;
+  const { isBalanceHidden } = useBalanceVisibility();
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
@@ -41,9 +50,9 @@ export function EarnPositionPane({
             />
           </div>
           <div className="flex shrink-0 items-start gap-2 pl-3">
-            {/* ponytail: withdraw flow not redesigned yet — button unwired */}
             <button
               className="flex items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5"
+              onClick={onWithdraw}
               type="button"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -93,37 +102,50 @@ export function EarnPositionPane({
                 src={`${ASSET_BASE}/icon-question.svg`}
               />
             </div>
-            <EarnGrowingBalance baseAmount={data.earnBalanceUsd} />
+            <span style={hiddenBalanceStyle(isBalanceHidden, "lg")}>
+              <EarnGrowingBalance
+                baseAmount={data.earnBalanceUsd}
+                isHidden={isBalanceHidden}
+              />
+            </span>
           </div>
         </div>
 
-        {autodeposit ? (
-          <div className="w-full p-2">
-            <div className="flex w-full items-center rounded-2xl px-4">
-              <div className="py-2 pr-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-11 shrink-0"
-                  src={`${ASSET_BASE}/autodeposit-icon.svg`}
-                />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
-                  Autodeposit
-                </p>
-                <p className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-                  {`Anything above ${formatAutodepositUsdLabel(autodeposit.keepAmount)}`}
-                </p>
-              </div>
+        <div className="w-full p-2">
+          <div className="flex w-full items-center rounded-2xl px-4">
+            <div className="py-2 pr-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-11 shrink-0"
+                src={`${ASSET_BASE}/autodeposit-icon.svg`}
+              />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
+              <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+                Autodeposit
+              </p>
+              <p
+                className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]"
+                style={
+                  autodeposit ? hiddenBalanceStyle(isBalanceHidden) : undefined
+                }
+              >
+                {autodeposit
+                  ? `Anything above ${formatAutodepositUsdLabel(autodeposit.keepAmount)}`
+                  : "Start earning the moment your money arrives"}
+              </p>
+            </div>
+            {autodeposit ? (
               <div className="flex items-center justify-end gap-1 pl-3">
-                {/* ponytail: autodeposit settings + toggle actions still live
-                    in the old workspace's inline callbacks — display-only
-                    until write actions are wired. */}
+                {/* ponytail: the toggle action still lives in the old
+                    workspace's inline callbacks — display-only until write
+                    actions are wired. */}
                 <button
                   aria-label="Autodeposit settings"
                   className="flex size-11 items-center justify-center rounded-[20px]"
+                  onClick={onOpenAutodeposit}
                   type="button"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -139,9 +161,19 @@ export function EarnPositionPane({
                   isPending={autodeposit.state === "creating"}
                 />
               </div>
-            </div>
+            ) : (
+              <div className="pl-3">
+                <button
+                  className="min-w-16 rounded-full bg-[#f9363c] px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4"
+                  onClick={onOpenAutodeposit}
+                  type="button"
+                >
+                  Set up
+                </button>
+              </div>
+            )}
           </div>
-        ) : null}
+        </div>
       </section>
 
       <EarnActivityCard

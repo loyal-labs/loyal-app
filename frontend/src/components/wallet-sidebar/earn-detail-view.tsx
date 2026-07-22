@@ -4702,7 +4702,13 @@ function formatHistoricalApyValue(apyPercent: number, mutedFraction: boolean) {
   );
 }
 
-export function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
+export function HistoricalApyChart({
+  axisTickCount = 2,
+  rangeId,
+}: {
+  axisTickCount?: number;
+  rangeId: EarningsRangeId;
+}) {
   // Unique per instance so simultaneously mounted charts (e.g. compact pane +
   // expanded overlay) don't resolve each other's reveal clip rects.
   const revealClipId = `historical-chart-reveal-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
@@ -5134,12 +5140,19 @@ export function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
           width: "100%",
         }}
       >
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
-          {HISTORICAL_AXIS_DATE_FORMAT.format(startedAtMs)}
-        </span>
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
-          {HISTORICAL_AXIS_DATE_FORMAT.format(endedAtMs)}
-        </span>
+        {Array.from({ length: Math.max(axisTickCount, 2) }, (_, index) => {
+          const tickCount = Math.max(axisTickCount, 2);
+          const progress = index / (tickCount - 1);
+          const tickMs = startedAtMs + progress * (endedAtMs - startedAtMs);
+          return (
+            <span
+              key={index}
+              style={{ color: secondary, whiteSpace: "nowrap" }}
+            >
+              {HISTORICAL_AXIS_DATE_FORMAT.format(tickMs)}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -5227,6 +5240,10 @@ export function ForecastChart({
   const chartWidth = chartSize.width;
   const chartHeight = chartSize.height;
   const hasChartArea = chartWidth > 2 && chartHeight > 2;
+  // The 28px nowrap money values need ~440px across three columns; narrower
+  // hosts (e.g. the 400px workspace chart pane) get the compact summary that
+  // the <=760px viewport media query alone can't detect.
+  const isCompactSummary = chartWidth > 0 && chartWidth < 440;
   // 1px inset on every side keeps the 2px round-cap strokes from clipping.
   const xForIndex = (index: number) =>
     1 + (index / Math.max(points.length - 1, 1)) * (chartWidth - 2);
@@ -5332,10 +5349,26 @@ export function ForecastChart({
             min-width: 0;
           }
         }
+        .forecast-chart-summary--compact {
+          gap: 12px !important;
+        }
+        .forecast-chart-summary--compact
+          .forecast-chart-summary-item[data-primary="true"] {
+          flex: 0 0 auto !important;
+        }
+        .forecast-chart-summary--compact
+          .forecast-chart-summary-value[data-primary="true"] {
+          font-size: 24px !important;
+          line-height: 28px !important;
+        }
       `}</style>
 
       <div
-        className="forecast-chart-summary"
+        className={
+          isCompactSummary
+            ? "forecast-chart-summary forecast-chart-summary--compact"
+            : "forecast-chart-summary"
+        }
         style={{
           alignItems: "flex-end",
           display: "flex",
@@ -5349,6 +5382,7 @@ export function ForecastChart({
           return (
             <div
               className="forecast-chart-summary-item"
+              data-primary={isPrimary ? "true" : undefined}
               key={series.key}
               style={{
                 display: "flex",

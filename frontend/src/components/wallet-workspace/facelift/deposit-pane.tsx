@@ -3,6 +3,10 @@
 import { useMemo, useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
+import {
+  hiddenBalanceStyle,
+  useBalanceVisibility,
+} from "@/components/wallet-workspace/facelift/balance-visibility";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import {
@@ -20,6 +24,7 @@ export function DepositPane({ onBack }: { onBack: () => void }) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
   const apy = useEarnForecastApy();
+  const { isBalanceHidden } = useBalanceVisibility();
   const [amount, setAmount] = useState("");
 
   const usdcUsd = useMemo(() => {
@@ -123,7 +128,10 @@ export function DepositPane({ onBack }: { onBack: () => void }) {
               <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                 from USDC balance
               </span>
-              <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+              <p
+                className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
+                style={hiddenBalanceStyle(isBalanceHidden)}
+              >
                 {usdcBalance.balanceWhole}
                 <span className="text-[rgba(60,60,67,0.4)]">
                   {usdcBalance.balanceFraction}

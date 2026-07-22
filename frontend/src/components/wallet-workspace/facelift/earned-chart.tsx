@@ -12,6 +12,10 @@ import {
   formatSignedEarningsAmount,
   splitEarningsHeaderValue,
 } from "@/components/wallet-sidebar/earn-detail-view";
+import {
+  hiddenBalanceStyle,
+  useBalanceVisibility,
+} from "@/components/wallet-workspace/facelift/balance-visibility";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useEarnEarnings } from "@/hooks/use-earn-earnings";
@@ -37,6 +41,7 @@ const BAR_MIN_HEIGHT_PX = 4;
 export function EarnedChart({ data }: { data: EarnPositionData }) {
   const publicEnv = usePublicEnv();
   const earnForecastApy = useEarnForecastApy();
+  const { isBalanceHidden } = useBalanceVisibility();
   const hasPositiveCurrentBalance = data.hasPosition && data.earnBalanceUsd > 0;
   const earnEarningsRevalidationKey = data.position?.principalAmountRaw ?? "0";
   const earnEarningsCacheKey = [
@@ -193,7 +198,10 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         <p className="truncate text-[16px] leading-5 text-[#8a8a8e]">
           {headerSubtitle}
         </p>
-        <p className="font-semibold text-[40px] text-black leading-[48px]">
+        <p
+          className="font-semibold text-[40px] text-black leading-[48px]"
+          style={hiddenBalanceStyle(isBalanceHidden, "lg")}
+        >
           {earningsUnavailable ? (
             "Unavailable"
           ) : showEarningsLoader ? (
@@ -209,7 +217,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
 
       <div className="flex w-full justify-between pb-2 text-[13px] leading-4 text-[#8a8a8e]">
         <span>{hoveredDateRowLabel}</span>
-        <span>
+        <span style={hiddenBalanceStyle(isBalanceHidden)}>
           {earningsUnavailable || showEarningsLoader
             ? ""
             : formatMaxDailyEarningsLabel(maxDailyEarnedUsd)}

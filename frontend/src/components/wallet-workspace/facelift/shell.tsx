@@ -2,15 +2,21 @@
 
 import { useState } from "react";
 
+import { AutodepositPane } from "@/components/wallet-workspace/facelift/autodeposit-pane";
+import {
+  BalanceVisibilityProvider,
+  HiddenBalanceFilterDefs,
+} from "@/components/wallet-workspace/facelift/balance-visibility";
 import { DepositPane } from "@/components/wallet-workspace/facelift/deposit-pane";
 import { EarnChartPane } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
+import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 
-type MiddleView = "earn" | "deposit";
+type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
 
 // Figma 4693:64818 — fixed 3-pane workspace: 360px sidebar on the gray shell,
 // fluid middle panel, 400px right panel. Panes are intentionally not resizable.
@@ -30,30 +36,45 @@ export function WorkspaceFaceliftShell() {
     isSignedIn && Boolean(earnData.settingsPda) && !earnData.hasResolvedPosition;
 
   return (
-    <div className="flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
-      <FaceliftSidebar />
-      <div className="flex h-full min-w-0 flex-1 gap-2 p-2">
-        {activeMiddleView === "deposit" ? (
-          <DepositPane onBack={() => setMiddleView("earn")} />
-        ) : earnData.hasPosition ? (
-          <EarnPositionPane
-            data={earnData}
-            onDeposit={() => setMiddleView("deposit")}
-          />
-        ) : isPositionLoading ? (
-          <section className="flex h-full min-w-0 flex-1 animate-pulse rounded-3xl bg-white" />
-        ) : (
-          <EarnEmptyPane
-            onDeposit={() => setMiddleView("deposit")}
-            onOpenChart={() => setIsChartExpanded(true)}
-          />
-        )}
-        <EarnChartPane
-          earnData={earnData}
-          isExpanded={isChartExpanded}
-          onExpandedChange={setIsChartExpanded}
-        />
+    <BalanceVisibilityProvider>
+      <div className="flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
+        <HiddenBalanceFilterDefs />
+        <FaceliftSidebar earnBalanceUsd={earnData.earnBalanceUsd} />
+        <div className="flex h-full min-w-0 flex-1 gap-2 p-2">
+          {activeMiddleView === "withdraw" ? (
+            <WithdrawPane data={earnData} onBack={() => setMiddleView("earn")} />
+          ) : activeMiddleView === "autodeposit" ? (
+            <AutodepositPane
+              data={earnData}
+              onBack={() => setMiddleView("earn")}
+            />
+          ) : activeMiddleView === "deposit" ? (
+            <DepositPane onBack={() => setMiddleView("earn")} />
+          ) : earnData.hasPosition ? (
+            <EarnPositionPane
+              data={earnData}
+              onDeposit={() => setMiddleView("deposit")}
+              onOpenAutodeposit={() => setMiddleView("autodeposit")}
+              onWithdraw={() => setMiddleView("withdraw")}
+            />
+          ) : isPositionLoading ? (
+            <section className="flex h-full min-w-0 flex-1 animate-pulse rounded-3xl bg-white" />
+          ) : (
+            <EarnEmptyPane
+              onDeposit={() => setMiddleView("deposit")}
+              onOpenChart={() => setIsChartExpanded(true)}
+            />
+          )}
+          {activeMiddleView === "withdraw" ||
+          activeMiddleView === "autodeposit" ? null : (
+            <EarnChartPane
+              earnData={earnData}
+              isExpanded={isChartExpanded}
+              onExpandedChange={setIsChartExpanded}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </BalanceVisibilityProvider>
   );
 }

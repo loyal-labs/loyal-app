@@ -7,6 +7,7 @@ import {
   ForecastChart,
   HistoricalApyChart,
 } from "@/components/wallet-sidebar/earn-detail-view";
+import { useBalanceVisibility } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { EarnedChart } from "@/components/wallet-workspace/facelift/earned-chart";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
@@ -50,24 +51,40 @@ function ChartBody({
   activeTab,
   apy,
   earnData,
+  isExpanded = false,
   mainUsdcReserveApyBps,
 }: {
   activeTab: ChartTab;
   apy: EarnForecastApy;
   earnData: EarnPositionData;
+  isExpanded?: boolean;
   mainUsdcReserveApyBps: number;
 }) {
+  const { isBalanceHidden } = useBalanceVisibility();
+  // Same source the old workspace feeds the forecast: the live position
+  // balance once one exists, the marketing principal otherwise.
+  const forecastPrincipal =
+    earnData.hasPosition && earnData.earnBalanceUsd > 0
+      ? earnData.earnBalanceUsd
+      : FORECAST_PRINCIPAL_USD;
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col px-6 pt-2 pb-6">
       {activeTab === "Earned" ? (
         <EarnedChart data={earnData} />
       ) : activeTab === "APY" ? (
-        <HistoricalApyChart rangeId="30D" />
+        // The wide overlay fits the design's 8 date ticks (Figma 4693:65002);
+        // the compact pane keeps just the start/end pair.
+        <HistoricalApyChart
+          axisTickCount={isExpanded ? 8 : 2}
+          rangeId="30D"
+        />
       ) : (
         <ForecastChart
           apy={apy}
+          isBalanceHidden={isBalanceHidden && earnData.hasPosition}
+          key={forecastPrincipal}
           mainUsdcReserveApyBps={mainUsdcReserveApyBps}
-          principal={FORECAST_PRINCIPAL_USD}
+          principal={forecastPrincipal}
         />
       )}
     </div>
@@ -166,7 +183,10 @@ export function EarnChartPane({
         >
           <div
             aria-modal="true"
-            className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
+            // Below 1204px (no compact pane) the overlay is the right-pane
+            // sized card pinned to the right edge (Figma 4693:88126); at full
+            // width it covers the middle + right panes (Figma 4693:64989).
+            className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[1203px]:ml-auto max-[1203px]:w-[400px]"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
           >
@@ -197,6 +217,7 @@ export function EarnChartPane({
               activeTab={activeTab}
               apy={apy}
               earnData={earnData}
+              isExpanded
               mainUsdcReserveApyBps={mainUsdcReserveApyBps}
             />
           </div>
