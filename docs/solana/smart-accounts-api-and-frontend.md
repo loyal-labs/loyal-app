@@ -217,6 +217,15 @@ the wallet-signed cleanup to `POST
 re-proves zero balances and policy closure before finalizing the full exit; when
 Autodeposit is active, its close transaction is confirmed as part of this flow.
 
+To recover an active Earn position when a full withdrawal is recorded but the
+client cleanup or its confirmation was lost, the scheduled `GET`/`POST
+/api/cron/earn-cleanup-reconcile` route scans active Earn vault index `1`
+positions and re-proves zero balances at the recorded withdrawal slot before
+finalizing eligible ghost rows through the canonical cleanup writer. It requires
+`Authorization: Bearer <CRON_SECRET>`, runs every ten minutes at `7,17,27,37,47,57
+* * * *` from `frontend/vercel.json`, and supports `?dryRun=1` for a no-write
+scan or `?limit=N` to override the per-run candidate cap.
+
 Mobile clients prepare Earn instructions on-device. After mobile-wallet
 authentication, `POST
 /api/smart-accounts/mobile/earn/deposit/prepare-context` and `POST
@@ -256,6 +265,8 @@ display the current principal, and set the withdrawal maximum.
 | Withdrawal confirm route | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts` |
 | Withdrawal cleanup prepare | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts` |
 | Withdrawal cleanup confirm | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts` |
+| Cleanup reconciliation cron | `frontend/src/app/api/cron/earn-cleanup-reconcile/route.ts` |
+| Cleanup reconciliation logic | `frontend/src/lib/yield-optimization/earn-cleanup-reconcile.server.ts` |
 | Mobile deposit context   | `frontend/src/app/api/smart-accounts/mobile/earn/deposit/prepare-context/route.ts`    |
 | Mobile withdrawal context | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
 | Mobile cleanup context   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts` |
