@@ -6,6 +6,7 @@ import { Platform, TurboModuleRegistry } from "react-native";
 
 import { env } from "@/config/env";
 
+import { WalletRejectedError } from "./rejection";
 import type { Signer } from "./signer";
 import {
   clearMwaAccount,
@@ -269,11 +270,11 @@ export class MwaSigner implements Signer {
       });
     } catch (error) {
       if (isSessionCancellation(error)) {
-        throw new Error(SIGNING_CANCELLED_MESSAGE);
+        throw new WalletRejectedError(SIGNING_CANCELLED_MESSAGE);
       }
       if (hasErrorCode(error, -3)) {
         // ERROR_NOT_SIGNED: the user tapped decline in the wallet app.
-        throw new Error(SIGNING_DECLINED_MESSAGE);
+        throw new WalletRejectedError(SIGNING_DECLINED_MESSAGE);
       }
       throw error;
     }

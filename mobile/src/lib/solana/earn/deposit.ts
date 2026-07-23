@@ -9,7 +9,6 @@ import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 import {
   type LifecycleFlow,
-  mapLifecycleErrorCode,
   startLifecycleFlow,
 } from "@/services/observability";
 
@@ -84,9 +83,7 @@ async function signSendAndConfirmDeposit(args: {
     signer: args.signer,
     operations,
   }).catch((error) => {
-    args.flow.fail("wallet_submit_confirm", {
-      errorCode: mapLifecycleErrorCode(error),
-    });
+    args.flow.failFrom("wallet_submit_confirm", error);
     throw error;
   });
   args.flow.observe("wallet_submit_confirm", {
@@ -193,7 +190,7 @@ export async function executeEarnDeposit(args: {
     return await runEarnDeposit(args, flow);
   } catch (error) {
     // Latched to a no-op when an inner stage already failed the flow.
-    flow.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    flow.failFrom("prepare", error);
     throw error;
   }
 }
@@ -257,9 +254,7 @@ async function runEarnDeposit(
           .filter((stage) => stage != null)
           .map(hydratePreparedOperation),
       }).catch((error) => {
-        flow.fail("wallet_submit_confirm", {
-          errorCode: mapLifecycleErrorCode(error),
-        });
+        flow.failFrom("wallet_submit_confirm", error);
         throw error;
       });
       flow.observe("wallet_submit_confirm", {
@@ -287,9 +282,7 @@ async function runEarnDeposit(
             setupPolicyTransaction,
           }),
       ).catch((error) => {
-        flow.fail("backend_confirm", {
-          errorCode: mapLifecycleErrorCode(error),
-        });
+        flow.failFrom("backend_confirm", error);
         throw error;
       });
       flow.observe("backend_confirm", {

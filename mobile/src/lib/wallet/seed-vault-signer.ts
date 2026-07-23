@@ -2,6 +2,7 @@ import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import * as SeedVault from "expo-seed-vault";
 import { Buffer } from "buffer";
 
+import { WalletRejectedError } from "./rejection";
 import type { Signer } from "./signer";
 import { clearVaultAccount, storeVaultAccount } from "./vault-account-storage";
 
@@ -16,13 +17,25 @@ const MAX_SIGNING_REQUESTS_PER_PROMPT = 3;
 // the app; the SDK surfaces it as "sign… failed with result=1002".
 const INVALID_AUTH_TOKEN_RESULT = /\bresult=1002\b/;
 
+// Activity.RESULT_CANCELED. The vault's system UI returns it when the user
+// dismisses the biometric/PIN sheet or taps deny, and the SDK surfaces it
+// through the same "…failed with result=<code>" message as 1002 above.
+const USER_DECLINED_RESULT = /\bresult=0\b/;
+
 const RECONNECT_MESSAGE =
   "Seed Vault authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.";
+
+const DECLINED_MESSAGE =
+  "The signing request was declined in Seed Vault. Try again and approve the prompt.";
 
 function isInvalidAuthTokenError(error: unknown): boolean {
   return (
     error instanceof Error && INVALID_AUTH_TOKEN_RESULT.test(error.message)
   );
+}
+
+function isUserDeclinedError(error: unknown): boolean {
+  return error instanceof Error && USER_DECLINED_RESULT.test(error.message);
 }
 
 // The vault signs the message bytes, not the full serialized transaction
@@ -121,6 +134,9 @@ export class SeedVaultSigner implements Signer {
     try {
       return await op();
     } catch (error) {
+      if (isUserDeclinedError(error)) {
+        throw new WalletRejectedError(DECLINED_MESSAGE);
+      }
       if (!isInvalidAuthTokenError(error)) throw error;
       if (await this.refreshAuthToken()) {
         try {

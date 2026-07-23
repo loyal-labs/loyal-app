@@ -1,0 +1,101 @@
+// Guards the telemetry wire contract for wallet rejections (ASK-1859): a user
+// declining a prompt must reach the ingest as outcome "cancelled" (severity
+// INFO), not "failed" (ERROR, which pages on-call). Nothing in the type system
+// or lint catches a regression here — both outcomes are valid strings — so the
+// emitted envelope is asserted directly.
+
+import { WalletRejectedError } from "@/lib/wallet/rejection";
+import { UserRejectedSigningError } from "@/lib/wallet/sign-approval/with-confirmation";
+import { mapLifecycleErrorCode, startLifecycleFlow } from "../observability";
+
+// Hoisted above the imports by babel-plugin-jest-hoist.
+jest.mock("expo-updates", () => ({
+  channel: "production",
+  runtimeVersion: "1.0.0",
+  updateId: undefined,
+}));
+jest.mock("@/config/env", () => ({
+  env: { earnApiBaseUrl: "https://example.test" },
+}));
+
+type Envelope = { outcome: string; stage: string; errorCode?: string };
+
+function captureEnvelopes(): Envelope[] {
+  const sent: Envelope[] = [];
+  global.fetch = jest.fn(async (_url: unknown, init: unknown) => {
+    sent.push(JSON.parse((init as { body: string }).body) as Envelope);
+    return { ok: true, json: async () => ({}) } as unknown as Response;
+  }) as unknown as typeof fetch;
+  return sent;
+}
+
+function newFlow() {
+  return startLifecycleFlow({
+    flowName: "earn.withdrawal",
+    flowVariant: "partial",
+  });
+}
+
+describe("wallet rejection classification", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("maps every wallet-rejection source to wallet_rejected", () => {
+    expect(mapLifecycleErrorCode(new WalletRejectedError())).toBe("wallet_rejected");
+    expect(mapLifecycleErrorCode(new UserRejectedSigningError())).toBe("wallet_rejected");
+  });
+
+  it("still maps ordinary and coded failures to their own codes", () => {
+    expect(mapLifecycleErrorCode(new Error("boom"))).toBe("unexpected_error");
+    expect(mapLifecycleErrorCode(new TypeError("network"))).toBe("request_failed");
+    expect(mapLifecycleErrorCode({ code: "unconfirmed_signature" })).toBe(
+      "unconfirmed_signature",
+    );
+  });
+
+  it("emits cancelled, not failed, when the user declines the prompt", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("prepare", new WalletRejectedError());
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      outcome: "cancelled",
+      stage: "prepare",
+      errorCode: "wallet_rejected",
+    });
+  });
+
+  it("still emits failed for a genuine error", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("prepare", new Error("RPC exploded"));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      outcome: "failed",
+      stage: "prepare",
+      errorCode: "unexpected_error",
+    });
+  });
+
+  it("preserves caller diagnostics while reclassifying the outcome", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("autodeposit_close", new WalletRejectedError(), {
+      autodepositCloseRequired: true,
+    });
+
+    expect(sent[0]).toMatchObject({
+      outcome: "cancelled",
+      autodepositCloseRequired: true,
+      errorCode: "wallet_rejected",
+    });
+  });
+
+  it("latches: a cancelled flow ignores a later blanket fail", async () => {
+    const sent = captureEnvelopes();
+    const flow = newFlow();
+    flow.failFrom("wallet_submit_confirm", new WalletRejectedError());
+    flow.failFrom("prepare", new Error("outer catch"));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ outcome: "cancelled" });
+  });
+});

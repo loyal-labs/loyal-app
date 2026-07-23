@@ -8,7 +8,6 @@ import { getConnection } from "@/lib/solana/rpc/connection";
 import type { Signer } from "@/lib/wallet/signer";
 import {
   type LifecycleFlow,
-  mapLifecycleErrorCode,
   startLifecycleFlow,
 } from "@/services/observability";
 
@@ -176,7 +175,7 @@ export async function executeEarnAutodepositSetup(args: {
     await runEarnAutodepositSetup(args, flow);
   } catch (error) {
     // Latched to a no-op when an inner stage already failed the flow.
-    flow.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    flow.failFrom("prepare", error);
     throw error;
   }
 }
@@ -305,9 +304,7 @@ async function runEarnAutodepositSetup(
       operations: stages.map((stage) => stage.prepared),
       sendMode: "send-all-before-confirm",
     }).catch((error) => {
-      flow.fail("wallet_approval", {
-        errorCode: mapLifecycleErrorCode(error),
-      });
+      flow.failFrom("wallet_approval", error);
       throw error;
     });
     flow.observe("wallet_approval", {
@@ -332,9 +329,7 @@ async function runEarnAutodepositSetup(
             }),
         ),
       ).catch((error) => {
-        flow.fail("backend_confirm", {
-          errorCode: mapLifecycleErrorCode(error),
-        });
+        flow.failFrom("backend_confirm", error);
         throw error;
       });
       flow.observe(
@@ -404,7 +399,7 @@ export async function updateEarnAutodepositThreshold(args: {
     );
     flow.complete("backend_confirm");
   } catch (error) {
-    flow.fail("backend_confirm", { errorCode: mapLifecycleErrorCode(error) });
+    flow.failFrom("backend_confirm", error);
     throw error;
   }
 }
@@ -439,7 +434,7 @@ export async function setEarnAutodepositActive(args: {
     );
     flow.complete("backend_confirm");
   } catch (error) {
-    flow.fail("backend_confirm", { errorCode: mapLifecycleErrorCode(error) });
+    flow.failFrom("backend_confirm", error);
     throw error;
   }
   track(
@@ -482,7 +477,7 @@ export async function executeEarnAutodepositClose(args: {
     flow?.complete("ui_commit");
   } catch (error) {
     // Latched to a no-op when an inner stage already failed the flow.
-    flow?.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    flow?.failFrom("prepare", error);
     throw error;
   }
 }
@@ -527,9 +522,7 @@ async function runEarnAutodepositClose(
       signer: args.signer,
       operation: preparedClose.prepared,
     }).catch((error) => {
-      flow?.fail("wallet_approval", {
-        errorCode: mapLifecycleErrorCode(error),
-      });
+      flow?.failFrom("wallet_approval", error);
       throw error;
     });
     flow?.observe("wallet_approval", { chainState: "confirmed" });
@@ -553,9 +546,7 @@ async function runEarnAutodepositClose(
           }),
       ),
     ).catch((error) => {
-      flow?.fail("backend_confirm", {
-        errorCode: mapLifecycleErrorCode(error),
-      });
+      flow?.failFrom("backend_confirm", error);
       throw error;
     });
     flow?.observe("backend_confirm");
@@ -612,7 +603,7 @@ export async function executeEarnAutodepositScheduledSweep(args: {
     flow.observe("request", { executeNowState: "requested" });
     return flow;
   } catch (error) {
-    flow.fail("request", { errorCode: mapLifecycleErrorCode(error) });
+    flow.failFrom("request", error);
     throw error;
   }
 }

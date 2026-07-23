@@ -24,7 +24,6 @@ import { connectMwaWallet, isMwaSupported } from "@/lib/wallet/mwa-signer";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import {
   type LifecycleFlow,
-  mapLifecycleErrorCode,
   startLifecycleFlow,
 } from "@/services/observability";
 import { Text, View } from "@/tw";
@@ -157,9 +156,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
       }
       authFlowRef.current?.complete("completion");
     } catch (error) {
-      authFlowRef.current?.fail("completion", {
-        errorCode: mapLifecycleErrorCode(error),
-      });
+      authFlowRef.current?.failFrom("completion", error);
       throw error;
     }
   }, [flow, pendingKeypair, pendingPin, finalizeSigner]);
@@ -218,9 +215,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
         await connectMwa();
       }
     } catch (e) {
-      authFlowRef.current?.fail("wallet_connect", {
-        errorCode: mapLifecycleErrorCode(e),
-      });
+      authFlowRef.current?.failFrom("wallet_connect", e);
       const msg =
         e instanceof Error ? e.message : "Wallet connection failed";
       setConnectWalletError(msg);
