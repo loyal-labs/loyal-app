@@ -4,6 +4,7 @@ import {
   type BrowserErrorOperation,
   createBrowserErrorEnvelope,
   createErrorDeduplicator,
+  isThirdPartyExtensionError,
   OBSERVABILITY_ERROR_ENDPOINT,
 } from "./error-contract";
 import {
@@ -113,6 +114,9 @@ export function captureBrowserError(
 ): void {
   try {
     const envelope = createBrowserErrorEnvelope(error, operation);
+    if (isThirdPartyExtensionError(envelope.operation, envelope.stack)) {
+      return;
+    }
     if (errorDeduplicator.isDuplicate(envelope)) {
       return;
     }

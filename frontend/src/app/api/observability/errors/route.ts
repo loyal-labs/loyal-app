@@ -1,5 +1,6 @@
 import {
   InvalidObservabilityEnvelopeError,
+  isThirdPartyExtensionError,
   MAX_OBSERVABILITY_REQUEST_BYTES,
   parseBrowserErrorEnvelope,
 } from "@/features/observability/error-contract";
@@ -83,6 +84,11 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const envelope = parseBrowserErrorEnvelope(await readJsonBody(request));
+    // Browsers running a cached bundle still post extension noise; drop it here
+    // too, and acknowledge so the client never treats telemetry as a failure.
+    if (isThirdPartyExtensionError(envelope.operation, envelope.stack)) {
+      return jsonResponse({ accepted: true }, 202);
+    }
     await reportBrowserErrorEnvelope(envelope);
     return jsonResponse({ accepted: true }, 202);
   } catch (error) {
