@@ -98,4 +98,30 @@ describe("wallet rejection classification", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ outcome: "cancelled" });
   });
+
+  // A multi-step flow prompts per step (MWA signs each in its own session), so
+  // declining step 2 leaves step 1 confirmed on-chain with no backend record.
+  // Silencing that to INFO would hide real, recoverable money movement.
+  it("stays failed when the decline came after a step already landed", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom(
+      "wallet_submit_confirm",
+      new WalletRejectedError("declined", ["sig1"]),
+    );
+
+    expect(sent[0]).toMatchObject({
+      outcome: "failed",
+      errorCode: "wallet_rejected",
+    });
+  });
+
+  it("treats a decline with no landed steps as a clean cancellation", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom(
+      "wallet_submit_confirm",
+      new WalletRejectedError("declined", []),
+    );
+
+    expect(sent[0]).toMatchObject({ outcome: "cancelled" });
+  });
 });

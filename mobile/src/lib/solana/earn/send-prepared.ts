@@ -7,6 +7,10 @@ import {
 } from "@solana/web3.js";
 import { Buffer } from "buffer";
 
+import {
+  WalletRejectedError,
+  withLandedSignatures,
+} from "@/lib/wallet/rejection";
 import type { Signer } from "@/lib/wallet/signer";
 
 import type { HydratedPreparedOperation } from "./wire";
@@ -268,12 +272,26 @@ export async function signAndSendPreparedOperations(args: {
   if (signer.kind === "mwa" && operations.length > 1) {
     const sent: SentTransaction[] = [];
     for (const operation of operations) {
-      const [confirmed] = await signAndSendPreparedOperations({
-        connection,
-        signer,
-        operations: [operation],
-      });
-      sent.push(confirmed);
+      try {
+        const [confirmed] = await signAndSendPreparedOperations({
+          connection,
+          signer,
+          operations: [operation],
+        });
+        sent.push(confirmed);
+      } catch (error) {
+        // Each stage is its own wallet session, so the user can approve stage 1
+        // and decline stage 2. That is not a clean cancellation: stage 1 is
+        // already on-chain and no confirm has run for it, so tag the rejection
+        // with what landed and let telemetry keep treating it as a failure.
+        if (sent.length > 0 && error instanceof WalletRejectedError) {
+          throw withLandedSignatures(
+            error,
+            sent.map((tx) => tx.signature),
+          );
+        }
+        throw error;
+      }
     }
     return sent;
   }

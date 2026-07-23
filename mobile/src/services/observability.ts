@@ -12,7 +12,7 @@
 import * as Updates from "expo-updates";
 
 import { env } from "@/config/env";
-import { isWalletRejection } from "@/lib/wallet/rejection";
+import { hasLandedProgress, isWalletRejection } from "@/lib/wallet/rejection";
 
 type MobileErrorOperation =
   | "mobile.global_error"
@@ -449,7 +449,12 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
     fail: (stage, diagnostics) => emit("failed", stage, diagnostics),
     failFrom: (stage, error, diagnostics) => {
       const errorCode = mapLifecycleErrorCode(error);
-      emit(errorCode === "wallet_rejected" ? "cancelled" : "failed", stage, {
+      // Only a decline that changed nothing on-chain is a clean cancellation.
+      // Declining after an earlier step landed leaves confirmed-but-unrecorded
+      // state, which has to stay at ERROR so on-call still sees it.
+      const cancelled =
+        errorCode === "wallet_rejected" && !hasLandedProgress(error);
+      emit(cancelled ? "cancelled" : "failed", stage, {
         ...diagnostics,
         errorCode,
       });

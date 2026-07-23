@@ -7,6 +7,7 @@ import {
 import { PublicKey } from "@solana/web3.js";
 
 import { getConnection } from "@/lib/solana/rpc/connection";
+import { isWalletRejection } from "@/lib/wallet/rejection";
 import type { Signer } from "@/lib/wallet/signer";
 import {
   type LifecycleFlow,
@@ -237,6 +238,11 @@ async function retryEarnApiCall<T>(args: {
     try {
       return await args.run();
     } catch (error) {
+      // `run` can re-sign a stale auth message, which re-prompts the wallet.
+      // Retrying a decline would just re-prompt a user who already said no.
+      if (isWalletRejection(error)) {
+        throw error;
+      }
       if (
         error instanceof EarnApiError &&
         (error.code === undefined || !args.retryableCodes.has(error.code))

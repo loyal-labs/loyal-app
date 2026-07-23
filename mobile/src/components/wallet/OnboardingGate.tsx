@@ -21,6 +21,8 @@ import {
 } from "@/components/wallet/onboarding-slides";
 import { WalletSetupOnboardingScreen } from "@/components/wallet/WalletSetupOnboardingScreen";
 import { connectMwaWallet, isMwaSupported } from "@/lib/wallet/mwa-signer";
+import { WalletRejectedError } from "@/lib/wallet/rejection";
+import { isSeedVaultUserDecline } from "@/lib/wallet/seed-vault-signer";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import {
   type LifecycleFlow,
@@ -168,7 +170,11 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const connectSeedVault = useCallback(async () => {
     const granted = await SeedVault.requestPermission();
     if (!granted) {
-      authFlowRef.current?.fail("wallet_connect");
+      // Denying the OS permission dialog is a user decision, not a fault —
+      // same treatment as backing out of the MWA chooser below.
+      authFlowRef.current?.cancel("wallet_connect", {
+        errorCode: "wallet_rejected",
+      });
       setConnectWalletError(
         "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
       );
@@ -177,8 +183,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     const account = await SeedVault.authorizeExistingSeed().catch(
       async (authorizeError) => {
         const existing = await SeedVault.listAuthorizedSeeds();
-        if (existing.length === 0) throw authorizeError;
-        return existing[0];
+        if (existing.length > 0) return existing[0];
+        // Backing out of the vault's seed picker reaches us as a bare activity
+        // result; classify it so it lands as cancelled, not unexpected_error.
+        throw isSeedVaultUserDecline(authorizeError)
+          ? new WalletRejectedError("Seed Vault connection was cancelled.")
+          : authorizeError;
       },
     );
     authFlowRef.current?.setWalletAddress(account.publicKey);

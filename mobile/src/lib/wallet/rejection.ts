@@ -9,13 +9,42 @@
 // instead of matching error messages.
 
 export class WalletRejectedError extends Error {
-  constructor(message = "The signing request was declined.") {
+  /**
+   * Transactions that already landed on-chain before the decline. Non-empty
+   * only for multi-prompt flows (MWA signs each step in its own session), where
+   * declining a later step leaves earlier steps confirmed and unrecorded. Such
+   * a decline is NOT a clean cancellation — see `hasLandedProgress`.
+   */
+  readonly landedSignatures: readonly string[];
+
+  constructor(
+    message = "The signing request was declined.",
+    landedSignatures: readonly string[] = [],
+  ) {
     super(message);
     this.name = "WalletRejectedError";
+    this.landedSignatures = landedSignatures;
   }
 }
 
 /** True when `error` came from the user declining or dismissing a wallet prompt. */
 export function isWalletRejection(error: unknown): boolean {
   return error instanceof WalletRejectedError;
+}
+
+/**
+ * True when the user declined *after* part of the flow already landed on-chain.
+ * Those cases must stay loud: money moved and no confirm recorded it, so they
+ * need the same on-call attention as a hard failure.
+ */
+export function hasLandedProgress(error: unknown): boolean {
+  return error instanceof WalletRejectedError && error.landedSignatures.length > 0;
+}
+
+/** Re-raise a rejection carrying the steps that landed before the decline. */
+export function withLandedSignatures(
+  error: WalletRejectedError,
+  landedSignatures: readonly string[],
+): WalletRejectedError {
+  return new WalletRejectedError(error.message, landedSignatures);
 }

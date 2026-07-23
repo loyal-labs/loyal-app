@@ -34,7 +34,12 @@ function isInvalidAuthTokenError(error: unknown): boolean {
   );
 }
 
-function isUserDeclinedError(error: unknown): boolean {
+/**
+ * True when a vault call failed because the user dismissed or denied its
+ * system UI. Exported so non-signer vault calls (the connect-time seed picker
+ * in OnboardingGate) can classify a back-out the same way.
+ */
+export function isSeedVaultUserDecline(error: unknown): boolean {
   return error instanceof Error && USER_DECLINED_RESULT.test(error.message);
 }
 
@@ -134,7 +139,7 @@ export class SeedVaultSigner implements Signer {
     try {
       return await op();
     } catch (error) {
-      if (isUserDeclinedError(error)) {
+      if (isSeedVaultUserDecline(error)) {
         throw new WalletRejectedError(DECLINED_MESSAGE);
       }
       if (!isInvalidAuthTokenError(error)) throw error;
