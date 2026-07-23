@@ -245,6 +245,18 @@ any failure code; clients can poll it after Execute for states such as
 `requested`, `selected`, `pull_confirmed`, `completed`, or a failure/cancellation
 state. Progress responses are not cached.
 
+To avoid a wallet prompt for each DB-only Autodeposit control, a mobile client
+can exchange one supported Earn-purpose wallet signature for a 30-day
+mobile-scoped bearer session:
+
+- `POST /api/smart-accounts/mobile/earn/session` accepts the existing mobile
+  wallet-auth body and returns `{ token, expiresAt }` with a `no-store` response.
+- Send `Authorization: Bearer <token>` to the sweep execute, floor confirm, and
+  toggle confirm routes. Requests without the header continue to use their
+  purpose-scoped wallet signature body.
+- A present but invalid or expired token returns `401 invalid_mobile_session`.
+  The token is scoped to mobile Earn and is separate from the web session.
+
 The frontend reads active Earn state from `GET
 /api/smart-accounts/yield-optimization/position`. That route returns the active aggregate row from
 `loyal_yield.user_yield_positions` for the authenticated wallet, configured
@@ -271,7 +283,11 @@ display the current principal, and set the withdrawal maximum.
 | Mobile withdrawal context | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
 | Mobile cleanup context   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts` |
 | Mobile cleanup confirm   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts` |
+| Mobile Earn session mint | `frontend/src/app/api/smart-accounts/mobile/earn/session/route.ts` |
+| Mobile Earn session auth | `frontend/src/features/identity/server/mobile-earn-session.ts` |
 | Mobile Autodeposit progress | `frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute/route.ts` |
+| Mobile Autodeposit floor | `frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/floor/confirm/route.ts` |
+| Mobile Autodeposit toggle | `frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/toggle/confirm/route.ts` |
 | Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
 | Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
 
