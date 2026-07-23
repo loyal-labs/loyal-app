@@ -7,6 +7,7 @@ import {
   hiddenBalanceStyle,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -22,7 +23,9 @@ function InfoContent() {
     <div className="flex min-h-0 w-full flex-1 items-center justify-center p-2">
       {/* ponytail: the design's info panel is still a placeholder — swap in
           real copy when it lands in Figma. */}
-      <p className="text-center text-[16px] leading-5 text-[#8a8a8e]">Content</p>
+      <p className="text-center text-[16px] leading-5 text-[#8a8a8e]">
+        Content
+      </p>
     </div>
   );
 }
@@ -58,7 +61,7 @@ export function AutodepositInfoOverlay({ onClose }: { onClose: () => void }) {
           </h2>
           <button
             aria-label="Close info"
-            className="flex size-11 shrink-0 items-center justify-center rounded-3xl"
+            className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
             onClick={onClose}
             type="button"
           >
@@ -74,7 +77,7 @@ export function AutodepositInfoOverlay({ onClose }: { onClose: () => void }) {
         <InfoContent />
         <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
           <button
-            className="flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5"
+            className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
             onClick={onClose}
             type="button"
           >
@@ -88,8 +91,9 @@ export function AutodepositInfoOverlay({ onClose }: { onClose: () => void }) {
 
 // Figma 4693:69332 (create, wide) / 4693:75306 (edit: Delete + Confirm) /
 // 4693:75556 (edit, unchanged: "No changes yet") / 4693:69662+69792 (narrow:
-// ? in the header opens the info panel as an overlay). Create/Confirm/Delete
-// actions are not wired yet — display-only per the screen-by-screen plan.
+// ? in the header opens the info panel as an overlay). Create/Confirm run
+// through data.actions.saveAutodeposit (floor-only edits are a signature-less
+// rebaseline, like the OG); Delete is the two-click close flow.
 export function AutodepositPane({
   data,
   onBack,
@@ -98,6 +102,7 @@ export function AutodepositPane({
   onBack: () => void;
 }) {
   const autodeposit = data.autodepositConfig;
+  const { actions } = data;
   const isEdit = Boolean(autodeposit);
   const initialAmount = autodeposit
     ? sanitizeBucksAmountInput(
@@ -108,6 +113,33 @@ export function AutodepositPane({
   const [amount, setAmount] = useState(initialAmount);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const { isBalanceHidden } = useBalanceVisibility();
+  // Delete is two-click, mirroring the OG's close-review screen: the first
+  // click flips the rule to "closing" (and pre-prepares the close tx), the
+  // second signs it. Backing out dismisses like the OG's review dismiss.
+  const isDeleteArmed = autodeposit?.state === "closing";
+  const isSaving = actions.isAutodepositPending;
+  const handleDelete = async () => {
+    if (!isDeleteArmed) {
+      actions.requestAutodepositClose();
+      return;
+    }
+    const didClose = await actions.confirmAutodepositClose();
+    if (didClose) {
+      onBack();
+    }
+  };
+  const handleBack = () => {
+    if (isDeleteArmed) {
+      actions.dismissAutodepositClose();
+    }
+    onBack();
+  };
+  const handleSave = async () => {
+    const didSave = await actions.saveAutodeposit(amount || "0");
+    if (didSave) {
+      onBack();
+    }
+  };
 
   const stablecoinsUsd = useStablecoinsUsd();
   const stablecoinsBalance = splitUsdBalance(stablecoinsUsd);
@@ -134,8 +166,8 @@ export function AutodepositPane({
           <div className="pr-3">
             <button
               aria-label="Back"
-              className="flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
-              onClick={onBack}
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              onClick={handleBack}
               type="button"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -153,7 +185,7 @@ export function AutodepositPane({
             </h1>
             <button
               aria-label="How Autodeposit works"
-              className="flex size-6 shrink-0 items-center justify-center min-[1204px]:hidden"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
               onClick={() => setIsInfoOpen(true)}
               type="button"
             >
@@ -168,9 +200,10 @@ export function AutodepositPane({
           </div>
           {isEdit ? (
             <div className="flex items-start pl-3">
-              {/* ponytail: delete action not wired yet — button is a no-op */}
               <button
-                className="flex items-center justify-center gap-2 rounded-full bg-[rgba(249,54,60,0.08)] p-2.5"
+                className="t-hover flex items-center justify-center gap-2 rounded-full bg-[rgba(249,54,60,0.08)] p-2.5 enabled:hover:-translate-y-0.5 enabled:hover:bg-[rgba(249,54,60,0.14)] enabled:active:translate-y-0 disabled:opacity-60"
+                disabled={isSaving}
+                onClick={() => void handleDelete()}
                 type="button"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -181,7 +214,9 @@ export function AutodepositPane({
                   src={`${ASSET_BASE}/icon-trash-red.svg`}
                 />
                 <span className="whitespace-nowrap pr-2.5 font-medium text-[#f9363c] text-[16px] leading-5">
-                  Delete
+                  <TextSwap
+                    text={isDeleteArmed ? "Confirm delete" : "Delete"}
+                  />
                 </span>
               </button>
             </div>
@@ -289,19 +324,37 @@ export function AutodepositPane({
         </div>
 
         <div className="w-full bg-white px-4 pt-2 pb-4">
-          {hasChanges ? (
-            // ponytail: create/update transaction not wired yet — no-op
-            <button
-              className="flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5"
-              type="button"
-            >
-              {isEdit ? "Confirm" : "Create Autodeposit"}
-            </button>
-          ) : (
-            <div className="flex h-12 w-full items-center justify-center rounded-full bg-black/[0.04] font-medium text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
-              No changes yet
-            </div>
-          )}
+          {actions.autodepositError ? (
+            <p className="px-4 pb-2 text-[13px] leading-4 text-[#f9363c]">
+              {actions.autodepositError}
+            </p>
+          ) : null}
+          {/* One persistent pill so the label swaps in place (transitions.dev
+              text states swap); disabled stands in for the old inert div. */}
+          <button
+            className={`t-hover flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 ${
+              hasChanges
+                ? "bg-black text-white enabled:hover:-translate-y-0.5 enabled:hover:bg-[#171717] enabled:active:translate-y-0"
+                : "bg-black/[0.04] text-[rgba(60,60,67,0.6)]"
+            }`}
+            disabled={!hasChanges || isSaving}
+            onClick={() => void handleSave()}
+            type="button"
+          >
+            <TextSwap
+              text={
+                isSaving
+                  ? isDeleteArmed
+                    ? "Deleting…"
+                    : "Saving…"
+                  : hasChanges
+                  ? isEdit
+                    ? "Confirm"
+                    : "Create Autodeposit"
+                  : "No changes yet"
+              }
+            />
+          </button>
         </div>
       </section>
 

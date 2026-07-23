@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import {
   hiddenBalanceStyle,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import {
+  StaggerLine,
+  StaggerReveal,
+} from "@/components/wallet-workspace/facelift/stagger-reveal";
 import {
   formatEarnTransactionTimestamp,
   formatScheduledSweepAmount,
@@ -172,7 +183,7 @@ function ScheduledSweepRow({
         {/* ponytail: execute-now action still lives in the old workspace's
             inline callbacks — disabled until write actions are wired. */}
         <button
-          className="flex h-9 items-center justify-center rounded-full bg-black/[0.04] px-4 font-medium text-[14px] text-black leading-5 disabled:opacity-50"
+          className="t-hover flex h-9 items-center justify-center rounded-full bg-black/[0.04] px-4 font-medium text-[14px] text-black leading-5 enabled:hover:bg-black/[0.08] disabled:opacity-50"
           disabled
           type="button"
         >
@@ -238,10 +249,12 @@ function TransactionRow({ item }: { item: EarnTransactionItem }) {
 }
 
 function TransactionsTab({
+  refreshKey,
   scheduledSweeps,
   settingsPda,
   walletAddress,
 }: {
+  refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
   walletAddress: string | null;
@@ -278,6 +291,9 @@ function TransactionsTab({
     isAuthenticated,
     isHydrated,
     publicEnv.solanaEnv,
+    // Bumped by the realtime stack after a confirmed Earn mutation so the
+    // list refetches (the client cache was invalidated just before).
+    refreshKey,
     settingsPda,
     walletAddress,
   ]);
@@ -294,32 +310,38 @@ function TransactionsTab({
   return (
     <div className="flex w-full flex-col px-2 pb-2">
       {shouldShowScheduledSweepsSection(scheduledSweeps) ? (
-        <>
-          <div className="flex w-full items-start px-4 pt-1">
-            <div className="flex min-w-0 flex-1 items-center gap-1 pt-3 pb-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-5"
-                src={`${ASSET_BASE}/icon-clock.svg`}
-              />
-              <p className="min-w-0 flex-1 text-[16px] leading-5 tracking-[-0.176px] text-[rgba(60,60,67,0.6)]">
-                Scheduled
-              </p>
+        <StaggerReveal className="flex w-full flex-col">
+          <StaggerLine index={0}>
+            <div className="flex w-full items-start px-4 pt-1">
+              <div className="flex min-w-0 flex-1 items-center gap-1 pt-3 pb-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="size-5"
+                  src={`${ASSET_BASE}/icon-clock.svg`}
+                />
+                <p className="min-w-0 flex-1 text-[16px] leading-5 tracking-[-0.176px] text-[rgba(60,60,67,0.6)]">
+                  Scheduled
+                </p>
+              </div>
             </div>
-          </div>
-          {scheduledSweeps.map((sweep) => (
-            <ScheduledSweepRow key={sweep.id} sweep={sweep} />
+          </StaggerLine>
+          {scheduledSweeps.map((sweep, index) => (
+            <StaggerLine index={index + 1} key={sweep.id}>
+              <ScheduledSweepRow sweep={sweep} />
+            </StaggerLine>
           ))}
-        </>
+        </StaggerReveal>
       ) : null}
 
       {items === null && !hasError ? (
-        <div className="flex flex-col gap-2 px-4 py-3">
+        // transitions.dev skeleton pulse (t-skel-rows rides the recipe's
+        // pulse clock); the loaded rows below reveal with the texts stagger.
+        <div className="t-skel-rows flex flex-col gap-2 px-4 py-3">
           {[0, 1, 2].map((index) => (
             <div
-              className="h-[60px] w-full animate-pulse rounded-2xl bg-black/[0.04]"
+              className="h-[60px] w-full rounded-2xl bg-black/[0.04]"
               key={index}
             />
           ))}
@@ -336,23 +358,32 @@ function TransactionsTab({
         </p>
       ) : null}
 
-      {groups.map((group) => (
-        <div className="flex w-full flex-col" key={group.date}>
-          <GroupHeader label={group.date} />
-          {group.items.map((item) => (
-            <TransactionRow item={item} key={item.id} />
-          ))}
-        </div>
-      ))}
+      {items !== null && groups.length > 0 ? (
+        // Mounts only once the fetch lands, so the stagger plays right as the
+        // skeleton rows leave.
+        <StaggerReveal className="flex w-full flex-col">
+          {(() => {
+            let lineIndex = 0;
+            return groups.map((group) => (
+              <div className="flex w-full flex-col" key={group.date}>
+                <StaggerLine index={lineIndex++}>
+                  <GroupHeader label={group.date} />
+                </StaggerLine>
+                {group.items.map((item) => (
+                  <StaggerLine index={lineIndex++} key={item.id}>
+                    <TransactionRow item={item} />
+                  </StaggerLine>
+                ))}
+              </div>
+            ));
+          })()}
+        </StaggerReveal>
+      ) : null}
     </div>
   );
 }
 
-function PositionsTab({
-  holdings,
-}: {
-  holdings: ActiveEarnPositionHolding[];
-}) {
+function PositionsTab({ holdings }: { holdings: ActiveEarnPositionHolding[] }) {
   const { isBalanceHidden } = useBalanceVisibility();
   const visibleHoldings = holdings.filter((holding) => {
     try {
@@ -363,13 +394,13 @@ function PositionsTab({
   });
 
   return (
-    <div className="flex w-full flex-col p-2">
+    <StaggerReveal className="flex w-full flex-col p-2">
       {visibleHoldings.length === 0 ? (
         <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
           No positions.
         </p>
       ) : null}
-      {visibleHoldings.map((holding) => {
+      {visibleHoldings.map((holding, holdingIndex) => {
         const label =
           holding.kind === "idle"
             ? `${holding.label} ${holding.marketName}`
@@ -378,94 +409,207 @@ function PositionsTab({
           rawTokenAmountToNumber(holding.amountRaw, 6)
         );
         return (
-          <div
-            className="group flex w-full items-center rounded-2xl px-4 hover:bg-black/[0.04]"
-            key={`${holding.kind}:${holding.reserve ?? holding.market ?? label}`}
+          <StaggerLine
+            index={holdingIndex}
+            key={`${holding.kind}:${
+              holding.reserve ?? holding.market ?? label
+            }`}
           >
-            <div className="flex items-center py-2 pr-3">
-              <DualIcon
-                frontSrc={resolveEarnTransactionMarketIcon({
-                  market: holding.market,
-                })}
-              />
-            </div>
-            <div className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
-              <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-                {label}
-              </span>
-              <p
-                className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-                style={hiddenBalanceStyle(isBalanceHidden)}
-              >
-                {amount.balanceWhole}
-                <span className="text-[rgba(60,60,67,0.4)]">
-                  {amount.balanceFraction}
+            <div className="group t-hover flex w-full items-center rounded-2xl px-4 hover:bg-black/[0.04]">
+              <div className="flex items-center py-2 pr-3">
+                <DualIcon
+                  frontSrc={resolveEarnTransactionMarketIcon({
+                    market: holding.market,
+                  })}
+                />
+              </div>
+              <div className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
+                <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  {label}
                 </span>
-              </p>
+                <p
+                  className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
+                  style={hiddenBalanceStyle(isBalanceHidden)}
+                >
+                  {amount.balanceWhole}
+                  <span className="text-[rgba(60,60,67,0.4)]">
+                    {amount.balanceFraction}
+                  </span>
+                </p>
+              </div>
+              <div className="hidden pl-3 group-hover:flex">
+                <button
+                  className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                  type="button"
+                >
+                  Withdraw
+                </button>
+              </div>
             </div>
-            <div className="hidden pl-3 group-hover:flex">
-              <button
-                className="min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4"
-                type="button"
-              >
-                Withdraw
-              </button>
-            </div>
-          </div>
+          </StaggerLine>
         );
       })}
-    </div>
+    </StaggerReveal>
   );
 }
 
 export function EarnActivityCard({
   holdings,
+  refreshKey,
   scheduledSweeps,
   settingsPda,
   walletAddress,
 }: {
   holdings: ActiveEarnPositionHolding[];
+  refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
   walletAddress: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<ActivityTab>("Transactions");
 
+  // The card's height is content-driven (auto), which CSS alone can't tween
+  // when tabs swap — so the switch measures the outgoing height at click,
+  // then tweens to the incoming content's height on the t-resize clock
+  // (transitions.dev card resize) and releases back to auto.
+  const tabContentRef = useRef<HTMLDivElement>(null);
+  const outgoingHeightRef = useRef<number | null>(null);
+  const resizeTimerRef = useRef<number | null>(null);
+
+  const selectTab = (tab: ActivityTab) => {
+    if (tab !== activeTab) {
+      outgoingHeightRef.current = tabContentRef.current?.offsetHeight ?? null;
+      setActiveTab(tab);
+    }
+  };
+
+  useLayoutEffect(() => {
+    const el = tabContentRef.current;
+    const fromHeight = outgoingHeightRef.current;
+    outgoingHeightRef.current = null;
+    if (!el || fromHeight === null) {
+      return;
+    }
+    el.style.height = "";
+    const toHeight = el.offsetHeight;
+    if (fromHeight === toHeight) {
+      return;
+    }
+    if (resizeTimerRef.current !== null) {
+      window.clearTimeout(resizeTimerRef.current);
+    }
+    el.style.height = `${fromHeight}px`;
+    void el.offsetHeight;
+    el.style.height = `${toHeight}px`;
+    const dur =
+      Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--resize-dur"
+        )
+      ) || 300;
+    resizeTimerRef.current = window.setTimeout(() => {
+      resizeTimerRef.current = null;
+      el.style.height = "";
+    }, dur);
+  }, [activeTab]);
+
+  useEffect(
+    () => () => {
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+      }
+    },
+    []
+  );
+
+  // Same measure-and-tween mechanics as the chart tabs' sliding pill
+  // (transitions.dev tabs sliding), skinned as the red underline. First paint
+  // and resizes write the position with transitions suspended.
+  const tabBarRef = useRef<HTMLDivElement>(null);
+  const underlineRef = useRef<HTMLSpanElement>(null);
+  const hasPaintedTabs = useRef(false);
+  const moveUnderlineToActiveTab = useCallback((animate: boolean) => {
+    const bar = tabBarRef.current;
+    const underline = underlineRef.current;
+    const active = bar?.querySelector<HTMLButtonElement>(
+      '[aria-selected="true"]'
+    );
+    if (!(bar && underline && active)) {
+      return;
+    }
+    // 12px inset matches the old per-button underline's inset-x-3.
+    const write = () => {
+      underline.style.transform = `translateX(${active.offsetLeft + 12}px)`;
+      underline.style.width = `${active.offsetWidth - 24}px`;
+    };
+    if (animate) {
+      write();
+      return;
+    }
+    const previousTransition = underline.style.transition;
+    underline.style.transition = "none";
+    write();
+    void underline.offsetWidth;
+    underline.style.transition = previousTransition;
+  }, []);
+
+  useLayoutEffect(() => {
+    moveUnderlineToActiveTab(hasPaintedTabs.current);
+    hasPaintedTabs.current = true;
+  }, [activeTab, moveUnderlineToActiveTab]);
+
+  useEffect(() => {
+    const handleResize = () => moveUnderlineToActiveTab(false);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [moveUnderlineToActiveTab]);
+
   return (
     // On mobile the card grows to meet the sticky action bar and drops its
     // bottom rounding (Figma 4693:70498).
     <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:flex-1 max-[795px]:rounded-b-none">
-      <div className="flex w-full items-center px-2 pt-2">
+      <div
+        className="relative flex w-full items-center px-2 pt-2"
+        ref={tabBarRef}
+        role="tablist"
+      >
+        <span
+          aria-hidden="true"
+          className="t-tabs-underline"
+          ref={underlineRef}
+        />
         {ACTIVITY_TABS.map((tab) => {
           const isActive = activeTab === tab;
           return (
             <button
-              className={`relative flex h-11 items-center justify-center px-4 font-medium text-[16px] leading-5 tracking-[-0.176px] ${
+              aria-selected={isActive}
+              className={`t-hover relative flex h-11 items-center justify-center px-4 font-medium text-[16px] leading-5 tracking-[-0.176px] ${
                 isActive
                   ? "text-black"
                   : "rounded-3xl text-[rgba(60,60,67,0.6)] hover:bg-black/[0.04] hover:text-black"
               }`}
               key={tab}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => selectTab(tab)}
+              role="tab"
               type="button"
             >
               {tab}
-              {isActive ? (
-                <span className="absolute inset-x-3 bottom-0 h-[3px] rounded-t-[4px] rounded-b-[1px] bg-[#f9363c]" />
-              ) : null}
             </button>
           );
         })}
       </div>
-      {activeTab === "Transactions" ? (
-        <TransactionsTab
-          scheduledSweeps={scheduledSweeps}
-          settingsPda={settingsPda}
-          walletAddress={walletAddress}
-        />
-      ) : (
-        <PositionsTab holdings={holdings} />
-      )}
+      <div className="t-resize w-full overflow-clip" ref={tabContentRef}>
+        {activeTab === "Transactions" ? (
+          <TransactionsTab
+            refreshKey={refreshKey}
+            scheduledSweeps={scheduledSweeps}
+            settingsPda={settingsPda}
+            walletAddress={walletAddress}
+          />
+        ) : (
+          <PositionsTab holdings={holdings} />
+        )}
+      </div>
     </section>
   );
 }

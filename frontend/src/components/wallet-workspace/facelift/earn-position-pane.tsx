@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import {
   AutodepositToggle,
-  EarnGrowingBalance,
+  splitEarnBalanceDisplay,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import { AutodepositInfoOverlay } from "@/components/wallet-workspace/facelift/autodeposit-pane";
 import {
@@ -13,8 +13,12 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { EarnActivityCard } from "@/components/wallet-workspace/facelift/earn-activity-card";
 import { EarnChartCard } from "@/components/wallet-workspace/facelift/earn-chart-pane";
+import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
+import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
-import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { formatAutodepositUsdLabel } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 
@@ -37,10 +41,29 @@ export function EarnPositionPane({
   onOpenChart: () => void;
   onWithdraw: () => void;
 }) {
-  const apy = useEarnForecastApy();
+  const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const autodeposit = data.autodepositConfig;
   const { isBalanceHidden } = useBalanceVisibility();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+
+  // Same toggle-state mapping as the old workspace's autodeposit card:
+  // while toggling the knob optimistically shows the target position and the
+  // hook reverts the state on failure.
+  const autodepositState = autodeposit?.state ?? null;
+  const isAutodepositToggling =
+    autodepositState === "pausing" || autodepositState === "resuming";
+  const autodepositLabel = autodeposit
+    ? autodepositState === "pausing"
+      ? "Pausing…"
+      : autodepositState === "resuming"
+      ? "Resuming…"
+      : autodepositState === "paused"
+      ? "Paused"
+      : `Anything above ${formatAutodepositUsdLabel(autodeposit.keepAmount)}`
+    : "Start earning the moment your money arrives";
+  const autodepositLabelHasAmount = Boolean(
+    autodeposit && !isAutodepositToggling && autodepositState !== "paused"
+  );
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
@@ -51,17 +74,16 @@ export function EarnPositionPane({
               <h1 className="whitespace-nowrap font-semibold text-[24px] text-black leading-7">
                 Earn
               </h1>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
-                src={`${ASSET_BASE}/icon-question.svg`}
+              {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
+              <InfoTooltip
+                iconClassName="size-6"
+                placement="bottom"
+                text="Earn yield on your idle USDC"
               />
             </div>
             <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
               <button
-                className="flex items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5"
+                className="t-hover flex items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5 hover:-translate-y-0.5 hover:bg-black/[0.08] active:translate-y-0"
                 onClick={onWithdraw}
                 type="button"
               >
@@ -77,7 +99,7 @@ export function EarnPositionPane({
                 </span>
               </button>
               <button
-                className="flex items-center justify-center gap-2 rounded-full bg-black p-2.5"
+                className="t-hover flex items-center justify-center gap-2 rounded-full bg-black p-2.5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
                 onClick={onDeposit}
                 type="button"
               >
@@ -101,23 +123,41 @@ export function EarnPositionPane({
                 <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
                   {"Balance · "}
                   <span className="text-[#34c759]">
-                    {formatEarnApyLabel(apy.apyBps)}
+                    <ApyRevealText
+                      isRevealed={isApyLoaded}
+                      segments={[{ text: formatEarnApyLabel(apy.apyBps) }]}
+                    />
                   </span>
                 </p>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-5"
-                  src={`${ASSET_BASE}/icon-question.svg`}
-                />
+                <InfoTooltip text="Your balance grows at the current APY" />
               </div>
-              <span style={hiddenBalanceStyle(isBalanceHidden, "lg")}>
-                <EarnGrowingBalance
-                  baseAmount={data.earnBalanceUsd}
-                  isHidden={isBalanceHidden}
-                />
-              </span>
+              {(() => {
+                // Same display EarnGrowingBalance renders (its NumberFlow
+                // timings are zeroed anyway), with pop-in digits; mobile font
+                // clamp mirrors its ≤760px media query.
+                const balance = splitEarnBalanceDisplay(data.earnBalanceUsd);
+                return (
+                  <p
+                    className="whitespace-nowrap font-semibold text-[40px] leading-[46px] [font-variant-numeric:tabular-nums] max-[760px]:text-[clamp(30px,9.5vw,40px)] max-[760px]:leading-[1.08]"
+                    style={{
+                      color: isBalanceHidden ? "#BBBBC0" : "#000",
+                      ...hiddenBalanceStyle(isBalanceHidden, "lg"),
+                    }}
+                  >
+                    <PopDigits
+                      segments={[
+                        { text: balance.whole },
+                        {
+                          color: isBalanceHidden
+                            ? "#BBBBC0"
+                            : "rgba(60, 60, 67, 0.4)",
+                          text: balance.fraction,
+                        },
+                      ]}
+                    />
+                  </p>
+                );
+              })()}
             </div>
           </div>
 
@@ -139,22 +179,19 @@ export function EarnPositionPane({
                 <p
                   className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]"
                   style={
-                    autodeposit ? hiddenBalanceStyle(isBalanceHidden) : undefined
+                    autodepositLabelHasAmount
+                      ? hiddenBalanceStyle(isBalanceHidden)
+                      : undefined
                   }
                 >
-                  {autodeposit
-                    ? `Anything above ${formatAutodepositUsdLabel(autodeposit.keepAmount)}`
-                    : "Start earning the moment your money arrives"}
+                  <TextSwap text={autodepositLabel} />
                 </p>
               </div>
               {autodeposit ? (
                 <div className="flex items-center justify-end gap-1 pl-3">
-                  {/* ponytail: the toggle action still lives in the old
-                      workspace's inline callbacks — display-only until write
-                      actions are wired. */}
                   <button
                     aria-label="Autodeposit settings"
-                    className="flex size-11 items-center justify-center rounded-[20px]"
+                    className="t-hover flex size-11 items-center justify-center rounded-[20px] hover:bg-black/[0.04]"
                     onClick={onOpenAutodeposit}
                     type="button"
                   >
@@ -167,15 +204,26 @@ export function EarnPositionPane({
                     />
                   </button>
                   <AutodepositToggle
-                    isOn={autodeposit.state === "created"}
-                    isPending={autodeposit.state === "creating"}
+                    disabled={
+                      autodeposit.state === "creating" || isAutodepositToggling
+                    }
+                    isOn={
+                      isAutodepositToggling
+                        ? autodeposit.state === "resuming"
+                        : autodeposit.state !== "creating" &&
+                          autodeposit.state !== "paused"
+                    }
+                    isPending={
+                      isAutodepositToggling || autodeposit.state === "creating"
+                    }
+                    onToggle={data.toggleAutodeposit}
                   />
                 </div>
               ) : (
                 <div className="flex items-center gap-1 pl-3">
                   <button
                     aria-label="How Autodeposit works"
-                    className="hidden size-11 items-center justify-center rounded-[20px] max-[795px]:flex"
+                    className="t-hover hidden size-11 items-center justify-center rounded-[20px] hover:bg-black/[0.04] max-[795px]:flex"
                     onClick={() => setIsInfoOpen(true)}
                     type="button"
                   >
@@ -188,7 +236,7 @@ export function EarnPositionPane({
                     />
                   </button>
                   <button
-                    className="min-w-16 rounded-full bg-[#f9363c] px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4"
+                    className="t-hover min-w-16 rounded-full bg-[#f9363c] px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 hover:-translate-y-0.5 hover:bg-[#e62f35] active:translate-y-0"
                     onClick={onOpenAutodeposit}
                     type="button"
                   >
@@ -197,6 +245,11 @@ export function EarnPositionPane({
                 </div>
               )}
             </div>
+            {data.autodepositToggleError ? (
+              <p className="px-4 pt-1 pb-2 text-[13px] leading-4 text-[#f9363c]">
+                {data.autodepositToggleError}
+              </p>
+            ) : null}
           </div>
         </section>
 
@@ -212,6 +265,7 @@ export function EarnPositionPane({
 
         <EarnActivityCard
           holdings={data.position?.holdings ?? []}
+          refreshKey={data.actions.earnTransactionsRefreshKey}
           scheduledSweeps={data.scheduledSweeps}
           settingsPda={data.settingsPda}
           walletAddress={data.walletAddress}
@@ -222,7 +276,7 @@ export function EarnPositionPane({
       <div className="hidden w-full shrink-0 bg-white px-4 py-2 max-[795px]:block">
         <div className="flex w-full gap-2">
           <button
-            className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black"
+            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black hover:bg-[#171717]"
             onClick={onDeposit}
             type="button"
           >
@@ -238,7 +292,7 @@ export function EarnPositionPane({
             </span>
           </button>
           <button
-            className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black/[0.04]"
+            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black/[0.04] hover:bg-black/[0.08]"
             onClick={onWithdraw}
             type="button"
           >

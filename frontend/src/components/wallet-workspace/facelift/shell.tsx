@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
+import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { AutodepositPane } from "@/components/wallet-workspace/facelift/autodeposit-pane";
 import {
   BalanceVisibilityProvider,
@@ -19,6 +20,46 @@ import { useAuthCapability } from "@/lib/auth/capability";
 
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
 
+// transitions.dev "panel reveal": the earn pane slides up into the region
+// with a cross-blur when it mounts (boot-loader handoff, returning from
+// deposit/withdraw). Rendered closed, flipped open after a forced reflow so
+// the transition plays; is-settled then clears the transform so the wrapper
+// stops being a containing block for the pane's fixed overlays.
+function EarnPaneReveal({ children }: { children: ReactNode }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) {
+      return;
+    }
+    void el.offsetHeight;
+    el.dataset.open = "true";
+    const openDur =
+      Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue(
+          "--panel-open-dur"
+        )
+      ) || 400;
+    const timer = window.setTimeout(
+      () => el.classList.add("is-settled"),
+      openDur
+    );
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return (
+    <div
+      className="t-panel-slide flex h-full min-w-0 flex-1 flex-col"
+      data-open="false"
+      ref={wrapRef}
+      style={{ ["--panel-translate-y" as never]: "24px" }}
+    >
+      {children}
+    </div>
+  );
+}
+
 // Figma 4693:64818 — fixed 3-pane workspace: 360px sidebar on the gray shell,
 // fluid middle panel, 400px right panel. Panes are intentionally not resizable.
 // Below 1204px the right pane would force the dog under its 420px natural size,
@@ -30,22 +71,39 @@ type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
 export function WorkspaceFaceliftShell() {
   const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [middleView, setMiddleView] = useState<MiddleView>("earn");
-  const { isSignedIn } = useAuthCapability();
+  const { isHydrated, isSignedIn } = useAuthCapability();
   const earnData = useEarnPositionData();
   // Deposit requires a session; fall back to the Earn state on sign-out.
   const activeMiddleView: MiddleView = isSignedIn ? middleView : "earn";
-  // Avoid flashing the zero-state headline while the position is still
-  // resolving for a signed-in smart account.
+  // Avoid flashing the zero-state headline on reload: loading covers auth
+  // hydration, the smart-account overview fetch (settingsPda === undefined —
+  // hasResolvedPosition reads true while the position fetch is disabled, so
+  // it can't be trusted before the overview lands), and the position fetch
+  // itself. A quiet white pane stands in; the real pane panel-reveals in.
   const isPositionLoading =
-    isSignedIn && Boolean(earnData.settingsPda) && !earnData.hasResolvedPosition;
+    !isHydrated ||
+    (isSignedIn &&
+      (earnData.settingsPda === undefined || !earnData.hasResolvedPosition));
   const isEarnRootView = activeMiddleView === "earn";
-  const isMobileGrayBackground = isEarnRootView && earnData.hasPosition;
+  const isMobileGrayBackground =
+    isEarnRootView && earnData.hasPosition && !isPositionLoading;
 
   return (
     <BalanceVisibilityProvider>
       <div className="flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
         <HiddenBalanceFilterDefs />
-        <FaceliftSidebar earnBalanceUsd={earnData.earnBalanceUsd} />
+        {/* Wrong-wallet guard for Earn actions — same prompt the old
+            workspace mounts (ensureCanSignAccountAction opens it). */}
+        <WalletReconnectPrompt
+          expectedWalletAddress={earnData.actions.authenticatedWalletAddress}
+          onClose={earnData.actions.closeReconnectPrompt}
+          onReady={earnData.actions.closeReconnectPrompt}
+          open={earnData.actions.isReconnectPromptOpen}
+        />
+        <FaceliftSidebar
+          earnBalanceUsd={earnData.earnBalanceUsd}
+          isEarnBalanceLoading={isPositionLoading}
+        />
         <div
           className={`flex h-full min-w-0 flex-1 flex-col ${
             isMobileGrayBackground ? "" : "max-[795px]:bg-white"
@@ -64,24 +122,29 @@ export function WorkspaceFaceliftShell() {
               />
             ) : activeMiddleView === "deposit" ? (
               <DepositPane
+                data={earnData}
                 onBack={() => setMiddleView("earn")}
                 onOpenChart={() => setIsChartExpanded(true)}
               />
-            ) : earnData.hasPosition ? (
-              <EarnPositionPane
-                data={earnData}
-                onDeposit={() => setMiddleView("deposit")}
-                onOpenAutodeposit={() => setMiddleView("autodeposit")}
-                onOpenChart={() => setIsChartExpanded(true)}
-                onWithdraw={() => setMiddleView("withdraw")}
-              />
             ) : isPositionLoading ? (
-              <section className="flex h-full min-w-0 flex-1 animate-pulse rounded-3xl bg-white max-[795px]:rounded-none" />
+              <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-white max-[795px]:rounded-none" />
+            ) : earnData.hasPosition ? (
+              <EarnPaneReveal>
+                <EarnPositionPane
+                  data={earnData}
+                  onDeposit={() => setMiddleView("deposit")}
+                  onOpenAutodeposit={() => setMiddleView("autodeposit")}
+                  onOpenChart={() => setIsChartExpanded(true)}
+                  onWithdraw={() => setMiddleView("withdraw")}
+                />
+              </EarnPaneReveal>
             ) : (
-              <EarnEmptyPane
-                onDeposit={() => setMiddleView("deposit")}
-                onOpenChart={() => setIsChartExpanded(true)}
-              />
+              <EarnPaneReveal>
+                <EarnEmptyPane
+                  onDeposit={() => setMiddleView("deposit")}
+                  onOpenChart={() => setIsChartExpanded(true)}
+                />
+              </EarnPaneReveal>
             )}
             {activeMiddleView === "withdraw" ||
             activeMiddleView === "autodeposit" ? null : (

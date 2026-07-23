@@ -2,40 +2,40 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
+import {
+  deriveEarnWithdrawMode,
+  sanitizeBucksAmountInput,
+  type EarnWithdrawDraft,
+  type EarnWithdrawSourceOption,
+} from "@/components/wallet-sidebar/earn-detail-view";
 import {
   hiddenBalanceStyle,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import { DualIcon } from "@/components/wallet-workspace/facelift/earn-activity-card";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
-import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
-import { rawTokenAmountToNumber } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 const ALL_POSITIONS_KEY = "all";
 
-function holdingKey(holding: ActiveEarnPositionHolding) {
-  return `${holding.kind}:${holding.reserve ?? holding.market ?? holding.label}`;
-}
-
-function holdingLabel(holding: ActiveEarnPositionHolding) {
-  return holding.kind === "idle"
-    ? `${holding.label} ${holding.marketName}`
-    : `${holding.marketName} USDC`;
-}
-
-function holdingUsd(holding: ActiveEarnPositionHolding) {
-  return rawTokenAmountToNumber(holding.amountRaw, 6);
+// Display label matching the facelift rows: "Main Kamino USDC" for reserves
+// (the OG source label is "<market> reserve"), the OG label for idle vaults.
+function sourceDisplayLabel(source: EarnWithdrawSourceOption) {
+  return source.type === "reserve"
+    ? `${source.label.replace(/ reserve$/, "")} USDC`
+    : source.label;
 }
 
 type WithdrawSourceOption = {
   icon: ReactNode;
   key: string;
   label: string;
+  source: EarnWithdrawSourceOption | null;
   usd: number;
 };
 
@@ -54,7 +54,7 @@ function SourceOptionRow({
   const { isBalanceHidden } = useBalanceVisibility();
   return (
     <button
-      className={`flex w-full items-center px-4 text-left hover:bg-black/[0.04] ${rounded}`}
+      className={`t-hover flex w-full items-center px-4 text-left hover:bg-black/[0.04] ${rounded}`}
       onClick={onSelect}
       type="button"
     >
@@ -91,7 +91,9 @@ function SourceOptionRow({
 // Figma 4693:66727 (positions pane, empty amount) + 4693:66028 (valid amount)
 // + 4693:66297 (narrow: source select becomes a dropdown action-sheet).
 // Renders the middle Withdraw card and, on wide viewports, the Positions
-// selector card in place of the chart pane. Withdraw itself is not wired yet.
+// selector card in place of the chart pane. Withdrawals run through
+// data.actions (OG protocol); after a full exit the pane flips into the
+// rent-cleanup phase ("Close policies").
 export function WithdrawPane({
   data,
   onBack,
@@ -110,17 +112,9 @@ export function WithdrawPane({
     ? `${data.walletAddress.slice(0, 4)}…${data.walletAddress.slice(-4)}`
     : "";
 
-  const visibleHoldings = useMemo(
-    () =>
-      (data.position?.holdings ?? []).filter((holding) => {
-        try {
-          return BigInt(holding.amountRaw) > BigInt(0);
-        } catch {
-          return false;
-        }
-      }),
-    [data.position?.holdings]
-  );
+  // OG-eligible sources (kamino-only when any kamino holding exists), built
+  // by the same helper the old workspace's withdraw view uses.
+  const sources = data.actions.withdrawSources;
   const options = useMemo<WithdrawSourceOption[]>(
     () => [
       {
@@ -135,29 +129,58 @@ export function WithdrawPane({
         ),
         key: ALL_POSITIONS_KEY,
         label: "All Earn positions",
+        source: null,
         usd: data.earnBalanceUsd,
       },
-      ...visibleHoldings.map((holding) => ({
+      ...sources.map((source) => ({
         icon: (
           <DualIcon
             frontSrc={resolveEarnTransactionMarketIcon({
-              market: holding.market,
+              market: source.market,
             })}
           />
         ),
-        key: holdingKey(holding),
-        label: holdingLabel(holding),
-        usd: holdingUsd(holding),
+        key: source.id,
+        label: sourceDisplayLabel(source),
+        source,
+        usd: source.balance,
       })),
     ],
-    [data.earnBalanceUsd, visibleHoldings]
+    [data.earnBalanceUsd, sources]
   );
   const selectedOption =
     options.find((option) => option.key === selectedKey) ?? options[0];
   const fromBalance = splitUsdBalance(selectedOption.usd);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
-  const canWithdraw = amountUsd > 0 && amountUsd <= selectedOption.usd;
+  // Same mode derivation as the old workspace: compared against the floored
+  // TOTAL of all sources, so the visible max registers as a full exit.
+  const withdrawMode = deriveEarnWithdrawMode({ amount: amountUsd, sources });
+  const fullExitSources = useMemo(
+    () => sources.filter((source) => source.type === "reserve"),
+    [sources]
+  );
+  // Resolve the draft source: a picked row maps 1:1; "All Earn positions"
+  // resolves to the first reserve for a full exit, else the first source that
+  // covers the amount. ponytail: OG has no aggregate row — partial multi-
+  // source withdrawals still draw from one source, same as the OG picker.
+  const draftSource =
+    selectedOption.source ??
+    (withdrawMode === "full"
+      ? fullExitSources[0] ?? sources[0] ?? null
+      : sources.find((source) => source.balance >= amountUsd) ?? null);
+  const withdrawValidationError =
+    sources.length === 0
+      ? "No withdrawable Earn source"
+      : !Number.isFinite(amountUsd) || amountUsd <= 0
+      ? "Enter amount"
+      : amountUsd > selectedOption.usd || !draftSource
+      ? "Insufficient balance"
+      : null;
+  const canWithdraw = withdrawValidationError === null;
+  const isSubmitting = data.actions.isWithdrawPending;
+  const isCleanupOnly =
+    data.actions.hasCleanupCandidate && sources.length === 0;
 
   const handleAmountChange = (rawValue: string) => {
     const sanitized = sanitizeBucksAmountInput(rawValue, amount);
@@ -168,6 +191,34 @@ export function WithdrawPane({
   const selectSource = (key: string) => {
     setSelectedKey(key);
     setIsSheetOpen(false);
+  };
+  const handleSubmit = async () => {
+    if (!draftSource) {
+      return;
+    }
+    const draft: EarnWithdrawDraft = {
+      amount: amountUsd,
+      amountLabel: amount,
+      destination: data.actions.depositSource,
+      fullExitSources,
+      mode: withdrawMode,
+      source: draftSource,
+      symbol: "USDC",
+      tokenDecimals: 6,
+    };
+    const didWithdraw = await data.actions.submitWithdraw(draft);
+    if (didWithdraw && draft.mode === "partial") {
+      onBack();
+    }
+    // A full exit stays here: the pane flips into cleanup-only mode so the
+    // rent-refund phase ("Close policies") is one click away, like the OG's
+    // re-opened withdraw view.
+  };
+  const handleCleanup = async () => {
+    const didCleanup = await data.actions.runCleanup();
+    if (didCleanup) {
+      onBack();
+    }
   };
 
   useEffect(() => {
@@ -190,7 +241,7 @@ export function WithdrawPane({
           <div className="pr-3">
             <button
               aria-label="Back"
-              className="flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
               onClick={onBack}
               type="button"
             >
@@ -235,24 +286,30 @@ export function WithdrawPane({
 
           <div className="relative flex h-36 w-full flex-col gap-1 p-2">
             {isSheetOpen ? (
-              <>
-                <button
-                  aria-label="Close position select"
-                  className="fixed inset-0 z-10 cursor-default min-[1204px]:hidden max-[795px]:hidden"
-                  onClick={() => setIsSheetOpen(false)}
-                  type="button"
+              <button
+                aria-label="Close position select"
+                className="fixed inset-0 z-10 cursor-default min-[1204px]:hidden max-[795px]:hidden"
+                onClick={() => setIsSheetOpen(false)}
+                type="button"
+              />
+            ) : null}
+            <DropdownReveal
+              className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] min-[1204px]:hidden max-[795px]:hidden"
+              isOpen={isSheetOpen}
+              origin="bottom-center"
+            >
+              {options.map((option) => (
+                <SourceOptionRow
+                  isSelected={option.key === selectedOption.key}
+                  key={option.key}
+                  onSelect={() => selectSource(option.key)}
+                  option={option}
+                  rounded="rounded-lg"
                 />
-                <div className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] min-[1204px]:hidden max-[795px]:hidden">
-                  {options.map((option) => (
-                    <SourceOptionRow
-                      isSelected={option.key === selectedOption.key}
-                      key={option.key}
-                      onSelect={() => selectSource(option.key)}
-                      option={option}
-                      rounded="rounded-lg"
-                    />
-                  ))}
-                </div>
+              ))}
+            </DropdownReveal>
+            {isSheetOpen ? (
+              <>
                 {/* Mobile: the source select is a bottom sheet instead of the
                     anchored dropdown (Figma 4693:71494). */}
                 <div
@@ -271,7 +328,7 @@ export function WithdrawPane({
                       </h2>
                       <button
                         aria-label="Close position select"
-                        className="flex size-11 shrink-0 items-center justify-center rounded-3xl"
+                        className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
                         onClick={() => setIsSheetOpen(false)}
                         type="button"
                       >
@@ -301,7 +358,7 @@ export function WithdrawPane({
             ) : null}
 
             <div
-              className={`flex w-full items-center rounded-2xl px-4 ${
+              className={`t-hover flex w-full items-center rounded-2xl px-4 ${
                 isSheetOpen ? "max-[1203px]:bg-black/[0.04]" : ""
               }`}
             >
@@ -315,25 +372,29 @@ export function WithdrawPane({
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
                   <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-                    {`from ${selectedOption.label}`}
+                    <TextSwap text={`from ${selectedOption.label}`} />
                   </span>
                   <span
                     className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
                     style={hiddenBalanceStyle(isBalanceHidden)}
                   >
-                    {fromBalance.balanceWhole}
+                    <TextSwap text={fromBalance.balanceWhole} />
                     <span className="text-[rgba(60,60,67,0.4)]">
-                      {fromBalance.balanceFraction}
+                      <TextSwap text={fromBalance.balanceFraction} />
                     </span>
                   </span>
                 </span>
               </button>
               <div className="pl-3">
                 <button
-                  className="min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4"
+                  className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
                   onClick={() => {
                     if (selectedOption.usd > 0) {
-                      handleAmountChange(selectedOption.usd.toFixed(2));
+                      // Floor to cents so the label never rounds above the
+                      // real balance (full exits withdraw the exact raw).
+                      handleAmountChange(
+                        (Math.floor(selectedOption.usd * 100) / 100).toFixed(2)
+                      );
                     }
                   }}
                   type="button"
@@ -343,7 +404,7 @@ export function WithdrawPane({
               </div>
               <button
                 aria-label="Select position"
-                className="flex items-center pl-3 min-[1204px]:hidden"
+                className="t-hover -my-2.5 -mr-2.5 ml-0.5 flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
                 onClick={() => setIsSheetOpen((open) => !open)}
                 type="button"
               >
@@ -388,18 +449,54 @@ export function WithdrawPane({
         </div>
 
         <div className="w-full bg-white px-4 pt-2 pb-4">
-          {canWithdraw ? (
-            // ponytail: withdraw transaction not wired yet — button is a no-op
+          {data.actions.withdrawError ? (
+            <p className="px-4 pb-2 text-[13px] leading-4 text-[#f9363c]">
+              {data.actions.withdrawError}
+            </p>
+          ) : null}
+          {isCleanupOnly ? (
+            <>
+              {/* Phase 2 of a full exit (slot-pinned zero proof happens
+                  server-side in the prepare): close the empty Earn accounts
+                  and reclaim their SOL rent. */}
+              <p className="px-4 pb-2 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                Your funds are withdrawn. Close the empty Earn accounts to
+                reclaim their SOL rent.
+              </p>
+              <button
+                className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 enabled:hover:-translate-y-0.5 enabled:hover:bg-[#171717] enabled:active:translate-y-0"
+                disabled={data.actions.isCleanupPending}
+                onClick={() => void handleCleanup()}
+                type="button"
+              >
+                <TextSwap
+                  text={
+                    data.actions.isCleanupPending
+                      ? "Closing…"
+                      : "Close policies"
+                  }
+                />
+              </button>
+            </>
+          ) : (
             <button
-              className="flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5"
+              className={`t-hover flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 ${
+                canWithdraw
+                  ? "bg-black text-white enabled:hover:-translate-y-0.5 enabled:hover:bg-[#171717] enabled:active:translate-y-0"
+                  : "bg-[rgba(249,54,60,0.08)] text-[#f9363c]"
+              }`}
+              disabled={!canWithdraw || isSubmitting}
+              onClick={() => void handleSubmit()}
               type="button"
             >
-              Withdraw
+              <TextSwap
+                text={
+                  isSubmitting
+                    ? "Withdrawing…"
+                    : withdrawValidationError ?? "Withdraw"
+                }
+              />
             </button>
-          ) : (
-            <div className="flex h-12 w-full items-center justify-center rounded-full bg-[rgba(249,54,60,0.08)] font-medium text-[#f9363c] text-[16px] leading-5">
-              Enter amount
-            </div>
           )}
         </div>
       </section>

@@ -7,8 +7,12 @@ import {
   hiddenBalanceStyle,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
+import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { usePublicEnv } from "@/contexts/public-env-context";
-import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import {
   splitUsdBalance,
   useWalletDesktopData,
@@ -23,34 +27,52 @@ const MIN_DEPOSIT_USD = 1;
 // 4693:70280 (mobile: full-bleed, chart button in the header opens the chart
 // sheet, system num keyboard under the focused amount input).
 export function DepositPane({
+  data: earnData,
   onBack,
   onOpenChart,
 }: {
+  data: EarnPositionData;
   onBack: () => void;
   onOpenChart: () => void;
 }) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
-  const apy = useEarnForecastApy();
+  const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const { isBalanceHidden } = useBalanceVisibility();
   const [amount, setAmount] = useState("");
+  const { actions } = earnData;
 
-  const usdcUsd = useMemo(() => {
+  const positionsUsdcUsd = useMemo(() => {
     const usdcMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
     const position = data.positions.find(
       (candidate) => candidate.asset.mint === usdcMint
     );
     return position?.totalValueUsd ?? 0;
   }, [data.positions, publicEnv.solanaEnv]);
+  // Same funding balance the old workspace shows: live wallet USDC ATA read,
+  // portfolio-position value as the fallback while it loads.
+  const usdcUsd = actions.mainUsdcAmount ?? positionsUsdcUsd;
   const usdcBalance = splitUsdBalance(usdcUsd);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
-  const isValidAmount = amountUsd >= MIN_DEPOSIT_USD;
+  const isBelowMinimum = amountUsd < MIN_DEPOSIT_USD;
+  const isInsufficient = !isBelowMinimum && amountUsd > usdcUsd;
+  const isValidAmount = !isBelowMinimum && !isInsufficient;
+  const isSubmitting = actions.isDepositPending;
 
   const handleAmountChange = (rawValue: string) => {
     const sanitized = sanitizeBucksAmountInput(rawValue, amount);
     if (sanitized !== null) {
       setAmount(sanitized);
+    }
+  };
+  const handleSubmit = async () => {
+    const didDeposit = await actions.submitDeposit({
+      amountLabel: amount,
+      forecastApyBps: apy.apyBps,
+    });
+    if (didDeposit) {
+      onBack();
     }
   };
 
@@ -60,7 +82,7 @@ export function DepositPane({
         <div className="pr-3">
           <button
             aria-label="Back"
-            className="flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
             onClick={onBack}
             type="button"
           >
@@ -78,7 +100,7 @@ export function DepositPane({
         </h1>
         <button
           aria-label="Open chart"
-          className="hidden size-11 shrink-0 items-center justify-center rounded-3xl max-[795px]:flex"
+          className="t-hover hidden size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04] max-[795px]:flex"
           onClick={onOpenChart}
           type="button"
         >
@@ -162,7 +184,7 @@ export function DepositPane({
             </div>
             <div className="pl-3">
               <button
-                className="min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4"
+                className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
                 onClick={() => {
                   if (usdcUsd > 0) {
                     handleAmountChange(usdcUsd.toFixed(2));
@@ -190,18 +212,31 @@ export function DepositPane({
                 to Earn
               </span>
               <span className="flex items-center">
-                <span className="inline-flex items-center gap-1 rounded-lg bg-[rgba(52,199,89,0.14)] px-2 py-0.5">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="h-5 w-3"
-                    src="/wallet-workspace/earn-flash.svg"
-                  />
-                  <span className="whitespace-nowrap font-medium text-[#34c759] text-[16px] leading-5 tracking-[0.06px]">
-                    {formatEarnApyLabel(apy.apyBps)}
+                {/* Skeleton the badge until the real APY lands, then reveal
+                    + pop — the fallback APY would otherwise flash. */}
+                <SkeletonReveal
+                  isRevealed={isApyLoaded}
+                  skeletonClassName="rounded-lg bg-black/[0.06]"
+                >
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-[rgba(52,199,89,0.14)] px-2 py-0.5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="h-5 w-3"
+                      src="/wallet-workspace/earn-flash.svg"
+                    />
+                    <span className="whitespace-nowrap font-medium text-[#34c759] text-[16px] leading-5 tracking-[0.06px]">
+                      {isApyLoaded ? (
+                        <PopDigits
+                          segments={[{ text: formatEarnApyLabel(apy.apyBps) }]}
+                        />
+                      ) : (
+                        formatEarnApyLabel(apy.apyBps)
+                      )}
+                    </span>
                   </span>
-                </span>
+                </SkeletonReveal>
               </span>
             </div>
           </div>
@@ -211,18 +246,35 @@ export function DepositPane({
       </div>
 
       <div className="w-full bg-white px-4 pt-2 pb-4">
-        {isValidAmount ? (
-          <button
-            className="flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5"
-            type="button"
-          >
-            Deposit
-          </button>
-        ) : (
-          <div className="flex h-12 w-full items-center justify-center rounded-full bg-[rgba(249,54,60,0.08)] font-medium text-[#f9363c] text-[16px] leading-5">
-            {`Minimum deposit is $${MIN_DEPOSIT_USD}`}
-          </div>
-        )}
+        {actions.depositError ? (
+          <p className="px-4 pb-2 text-[13px] leading-4 text-[#f9363c]">
+            {actions.depositError}
+          </p>
+        ) : null}
+        {/* One persistent pill so the label swaps in place (transitions.dev
+            text states swap); disabled stands in for the old inert div. */}
+        <button
+          className={`t-hover flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 ${
+            isValidAmount
+              ? "bg-black text-white enabled:hover:-translate-y-0.5 enabled:hover:bg-[#171717] enabled:active:translate-y-0"
+              : "bg-[rgba(249,54,60,0.08)] text-[#f9363c]"
+          }`}
+          disabled={!isValidAmount || isSubmitting}
+          onClick={() => void handleSubmit()}
+          type="button"
+        >
+          <TextSwap
+            text={
+              isSubmitting
+                ? "Depositing…"
+                : isInsufficient
+                ? "Insufficient balance"
+                : isValidAmount
+                ? "Deposit"
+                : `Minimum deposit is $${MIN_DEPOSIT_USD}`
+            }
+          />
+        </button>
       </div>
     </section>
   );
