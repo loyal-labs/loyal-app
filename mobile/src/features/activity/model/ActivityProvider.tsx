@@ -20,7 +20,10 @@ import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
-import { executeEarnAutodepositScheduledSweep } from "@/lib/solana/earn/autodeposit";
+import {
+  executeEarnAutodepositClose,
+  executeEarnAutodepositScheduledSweep,
+} from "@/lib/solana/earn/autodeposit";
 import {
   EarnApiError,
   fetchEarnAutodepositSweepProgress,
@@ -117,6 +120,15 @@ type ActivityContextValue = {
   refundingAccount: string | null;
   /** Prepare, sign and send one refund, then rescan. */
   executeRefund: (item: EarnRefundItem) => Promise<void>;
+  /**
+   * The locked-rent row can offer "Delete Autodeposit": the Autodeposit is
+   * paused (not running, not mid-setup) and both close accounts are known.
+   */
+  canDeleteLockedRefundAutodeposit: boolean;
+  /** True while the locked-rent row's Autodeposit delete is in flight. */
+  deletingAutodeposit: boolean;
+  /** Confirm, then close the paused Autodeposit so its reserved rent refunds. */
+  deleteAutodepositForRefund: () => void;
 };
 
 // One refundable row in the Earn feed: a dead policy, a revoked recurring
@@ -650,6 +662,75 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     [signer, state, refundingAccount, refreshEarnRefunds],
   );
 
+  // Escape hatch for the locked-rent row: the Earn tab's Delete control only
+  // renders once a deposit exists, so a wallet whose position is closed — the
+  // very state that strands this rent — can't reach it. This runs the same
+  // on-device close (the close tx itself returns the rent). Offered only for a
+  // paused Autodeposit; a running one is managed from the Earn tab.
+  const canDeleteLockedRefundAutodeposit =
+    autodeposit != null &&
+    !autodeposit.active &&
+    autodeposit.status !== "pending" &&
+    autodeposit.recurringDelegation != null;
+  const [deletingAutodeposit, setDeletingAutodeposit] = useState(false);
+
+  const deleteAutodepositForRefund = useCallback(() => {
+    if (
+      !canDeleteLockedRefundAutodeposit ||
+      !autodeposit?.recurringDelegation ||
+      !signer ||
+      !isWalletUnlocked(state) ||
+      deletingAutodeposit
+    ) {
+      return;
+    }
+    const { policyAccount, recurringDelegation } = autodeposit;
+    Alert.alert(
+      "Delete Autodeposit?",
+      "This removes Autodeposit and returns its reserved SOL to your wallet.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            setDeletingAutodeposit(true);
+            void (async () => {
+              try {
+                await executeEarnAutodepositClose({
+                  signer,
+                  policy: policyAccount,
+                  recurringDelegation,
+                });
+                // The close tx already refunded the rent — clear the row now,
+                // then rescan (the chain read can lag a beat behind).
+                setEarnLockedRefundLamports(0);
+                void refreshAutodepositState();
+                void refreshEarnRefunds();
+              } catch (error) {
+                console.warn("[earn-refunds] autodeposit delete failed", error);
+                Alert.alert(
+                  "Delete didn't complete",
+                  "Autodeposit wasn't deleted this time. Please wait 1 minute and try again.",
+                );
+              } finally {
+                setDeletingAutodeposit(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }, [
+    canDeleteLockedRefundAutodeposit,
+    autodeposit,
+    signer,
+    state,
+    deletingAutodeposit,
+    refreshAutodepositState,
+    refreshEarnRefunds,
+  ]);
+
   const newestWalletTs = useMemo(() => {
     let newest = 0;
     for (const tx of walletTransactions) {
@@ -736,6 +817,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       refreshEarnRefunds,
       refundingAccount,
       executeRefund,
+      canDeleteLockedRefundAutodeposit,
+      deletingAutodeposit,
+      deleteAutodepositForRefund,
     }),
     [
       publicKey,
@@ -764,6 +848,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       refreshEarnRefunds,
       refundingAccount,
       executeRefund,
+      canDeleteLockedRefundAutodeposit,
+      deletingAutodeposit,
+      deleteAutodepositForRefund,
     ],
   );
 

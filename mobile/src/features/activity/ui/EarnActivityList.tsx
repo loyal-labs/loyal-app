@@ -270,11 +270,23 @@ function EarnRefundRow({
   );
 }
 
-// Rent the refund scan reports as blocked by the wallet's Autodeposit. Not
-// actionable here — it becomes refundable the moment the Autodeposit is
-// deleted — but showing it stops "my SOL is stuck" reports for rent that is
-// one delete away.
-function EarnLockedRefundRow({ lamports }: { lamports: number }) {
+// Rent the refund scan reports as blocked by the wallet's Autodeposit — it
+// becomes refundable the moment the Autodeposit is deleted. When that close
+// can run from here (paused Autodeposit), the row offers Delete directly: the
+// Earn tab's own Delete control only renders once a deposit exists, so for
+// the position-closed wallets this rent strands on, this row is the only
+// reachable surface.
+function EarnLockedRefundRow({
+  lamports,
+  canDelete,
+  isDeleting,
+  onDelete,
+}: {
+  lamports: number;
+  canDelete: boolean;
+  isDeleting: boolean;
+  onDelete: () => void;
+}) {
   return (
     <View className="flex-row items-start px-4 py-2.5">
       <EarnTxCompoundIcon item={{ kind: "withdraw" }} />
@@ -283,6 +295,21 @@ function EarnLockedRefundRow({ lamports }: { lamports: number }) {
         <Text className="text-[15px]" style={{ color: SECONDARY }}>
           Held while Autodeposit is set up. Delete Autodeposit to refund it.
         </Text>
+        {canDelete ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={isDeleting}
+            onPress={onDelete}
+            style={({ pressed }) => [
+              styles.executeButton,
+              (pressed || isDeleting) && styles.executeButtonMuted,
+            ]}
+          >
+            <Text className="text-[14px] font-medium text-white">
+              {isDeleting ? "Deleting…" : "Delete Autodeposit"}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
       <View className="ml-3 items-end">
         <Text className="text-[17px] text-black">
@@ -404,6 +431,9 @@ export function EarnActivityList({ limit }: { limit: number }) {
     earnLockedRefundLamports,
     refundingAccount,
     executeRefund,
+    canDeleteLockedRefundAutodeposit,
+    deletingAutodeposit,
+    deleteAutodepositForRefund,
   } = useActivity();
   // While a morph is in progress it owns the top slot (the executed sweeps), so
   // suppress the live "Scheduled" section to avoid rendering the same row twice.
@@ -516,7 +546,12 @@ export function EarnActivityList({ limit }: { limit: number }) {
             />
           ))}
           {hasLockedRefunds ? (
-            <EarnLockedRefundRow lamports={earnLockedRefundLamports} />
+            <EarnLockedRefundRow
+              lamports={earnLockedRefundLamports}
+              canDelete={canDeleteLockedRefundAutodeposit}
+              isDeleting={deletingAutodeposit}
+              onDelete={deleteAutodepositForRefund}
+            />
           ) : null}
         </View>
       ) : null}
