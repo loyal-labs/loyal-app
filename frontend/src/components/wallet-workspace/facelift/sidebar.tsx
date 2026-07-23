@@ -15,6 +15,7 @@ import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
@@ -108,6 +109,7 @@ export function FaceliftSidebar({
   // disconnect must stay clickable in that half-connected limbo to clear it.
   const canDisconnect = isAuthenticated || isWalletConnected;
   const { isBalanceHidden, toggleBalanceHidden } = useBalanceVisibility();
+  const { open: openSignIn } = useSignInModal();
   const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false);
 
   useEffect(() => {
@@ -174,63 +176,17 @@ export function FaceliftSidebar({
 
   return (
     <aside className="flex h-full w-[360px] shrink-0 flex-col overflow-clip p-2 max-[795px]:hidden">
-      <div className="relative flex w-full shrink-0 items-center gap-2.5">
-        <button
-          className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
-          onClick={() => setIsWalletMenuOpen((open) => !open)}
-          type="button"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="mr-3 size-11 shrink-0"
-            src={`${ASSET_BASE}/wallet-logo.svg`}
-          />
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="whitespace-nowrap text-[16px] text-black leading-5">
-              <SkeletonReveal
-                isRevealed={isAddressRevealed}
-                skeletonClassName="rounded-md bg-black/[0.06]"
-              >
-                <TextSwap text={addressLabel} />
-              </SkeletonReveal>
-            </span>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt="Copy address"
-              className="size-5 shrink-0 cursor-pointer"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleCopyAddress();
-              }}
-              src={`${ASSET_BASE}/icon-copy.svg`}
-            />
-          </span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="ml-3 size-6 shrink-0"
-            src={`${ASSET_BASE}/icon-chevron-down.svg`}
-          />
-        </button>
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-1 pl-3">
-          {/* ponytail: settings + activity destinations come with later
-              screens — buttons unwired for now. */}
-          <button
-            aria-label="Settings"
-            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
-            type="button"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
-              src={`${ASSET_BASE}/icon-gear.svg`}
-            />
-          </button>
+      {/* Figma 4768:102489 — logo on top, wallet chip moved to the bottom. */}
+      <div className="flex h-[60px] w-full shrink-0 items-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt="Loyal"
+          className="ml-4 h-6 w-14"
+          src={`${ASSET_BASE}/logotype.svg`}
+        />
+        <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
+          {/* ponytail: activity destination comes with later screens —
+              button unwired for now. */}
           <button
             aria-label="Activity"
             className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
@@ -245,33 +201,6 @@ export function FaceliftSidebar({
             />
           </button>
         </div>
-
-        {isWalletMenuOpen ? (
-          <button
-            aria-label="Close wallet menu"
-            className="fixed inset-0 z-20 cursor-default"
-            onClick={() => setIsWalletMenuOpen(false)}
-            type="button"
-          />
-        ) : null}
-        {/* Same frosted sheet treatment as the withdraw source select. */}
-        <DropdownReveal
-          className="absolute top-[calc(100%+4px)] left-0 z-30 flex w-60 flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px]"
-          isOpen={isWalletMenuOpen}
-        >
-          <button
-            className="t-hover flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-black leading-5 enabled:hover:bg-black/[0.04] disabled:text-[#d8d8d9]"
-            disabled={!canDisconnect}
-            onClick={() => {
-              setIsWalletMenuOpen(false);
-              handleDisconnect();
-            }}
-            type="button"
-          >
-            <LogOut size={20} strokeWidth={1.8} />
-            Disconnect
-          </button>
-        </DropdownReveal>
       </div>
 
       <div className="w-full py-2">
@@ -431,8 +360,6 @@ export function FaceliftSidebar({
         </button>
       </nav>
 
-      {/* Design nests the rail in a py-2 section inside the p-2 sidebar, so
-          the last row ends 16px above the bottom edge. */}
       <div className="flex w-full flex-col py-2">
         {SIDEBAR_LINKS.map((link) => (
           <a
@@ -457,6 +384,132 @@ export function FaceliftSidebar({
           </a>
         ))}
       </div>
+
+      {/* Figma 4768:102489 — bottom rail: wallet chip left, Receive +
+          Settings right; the wallet menu now grows upward from the chip.
+          Signed out it collapses to a single Connect-account trigger with
+          the og sidebar's Main Account image. */}
+      {isHydrated && !isSignedIn ? (
+        <div className="flex w-full shrink-0 items-center">
+          <button
+            className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+            onClick={openSignIn}
+            type="button"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              className="mr-3 size-11 shrink-0 rounded-[11px]"
+              src="/agents/Agent-01.svg"
+            />
+            <span className="whitespace-nowrap text-[16px] text-black leading-5">
+              Connect account
+            </span>
+          </button>
+        </div>
+      ) : (
+        <div className="relative flex w-full shrink-0 items-center">
+          <button
+            className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+            onClick={() => setIsWalletMenuOpen((open) => !open)}
+            type="button"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              className="mr-3 size-11 shrink-0"
+              src={`${ASSET_BASE}/wallet-logo.svg`}
+            />
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="whitespace-nowrap text-[16px] text-black leading-5">
+                <SkeletonReveal
+                  isRevealed={isAddressRevealed}
+                  skeletonClassName="rounded-md bg-black/[0.06]"
+                >
+                  <TextSwap text={addressLabel} />
+                </SkeletonReveal>
+              </span>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt="Copy address"
+                className="size-6 shrink-0 cursor-pointer"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleCopyAddress();
+                }}
+                src={`${ASSET_BASE}/icon-copy.svg`}
+              />
+            </span>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              className="ml-2 size-6 shrink-0"
+              src={`${ASSET_BASE}/icon-chevron-down.svg`}
+            />
+          </button>
+          <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
+            {/* ponytail: receive + settings destinations come with later
+              screens — buttons unwired for now. */}
+            <button
+              aria-label="Receive"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-6"
+                src={`${ASSET_BASE}/icon-qr.svg`}
+              />
+            </button>
+            <button
+              aria-label="Settings"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-6"
+                src={`${ASSET_BASE}/icon-gear.svg`}
+              />
+            </button>
+          </div>
+
+          {isWalletMenuOpen ? (
+            <button
+              aria-label="Close wallet menu"
+              className="fixed inset-0 z-20 cursor-default"
+              onClick={() => setIsWalletMenuOpen(false)}
+              type="button"
+            />
+          ) : null}
+          {/* Same frosted sheet treatment as the withdraw source select. */}
+          <DropdownReveal
+            className="absolute bottom-[calc(100%+4px)] left-0 z-30 flex w-60 flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px]"
+            isOpen={isWalletMenuOpen}
+            origin="bottom-left"
+          >
+            <button
+              className="t-hover flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-black leading-5 enabled:hover:bg-black/[0.04] disabled:text-[#d8d8d9]"
+              disabled={!canDisconnect}
+              onClick={() => {
+                setIsWalletMenuOpen(false);
+                handleDisconnect();
+              }}
+              type="button"
+            >
+              <LogOut size={20} strokeWidth={1.8} />
+              Disconnect
+            </button>
+          </DropdownReveal>
+        </div>
+      )}
     </aside>
   );
 }
