@@ -57,14 +57,15 @@ export function formatPlainTelegramMessage(
     return fullMessage;
   }
 
-  const availableMainLength = Math.max(
-    0,
-    TELEGRAM_MESSAGE_LIMIT - suffix.length - 1
-  );
-  return `${sliceWholeCodePoints(main, availableMainLength)}…${suffix}`.slice(
-    0,
-    TELEGRAM_MESSAGE_LIMIT
-  );
+  // A partial URL is worse than none: it looks clickable, resolves nowhere, and
+  // hides the alert title behind it. When the link cannot fit whole, drop it and
+  // keep the text; otherwise reserve it in full and truncate only the text.
+  if (suffix.length + 1 > TELEGRAM_MESSAGE_LIMIT) {
+    return `${sliceWholeCodePoints(main, TELEGRAM_MESSAGE_LIMIT - 1)}…`;
+  }
+
+  const availableMainLength = TELEGRAM_MESSAGE_LIMIT - suffix.length - 1;
+  return `${sliceWholeCodePoints(main, availableMainLength)}…${suffix}`;
 }
 
 function formatPrettyMessage(

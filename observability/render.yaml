@@ -93,7 +93,9 @@ projects:
                 sync: false
               - key: COOLDOWN_SECONDS
                 value: "3600"
+              # Must match the saved search `select`, in order. Mirrors the
+              # columns the running relay is configured with today.
               - key: ALERT_COLUMNS
-                value: Timestamp,ServiceName,SeverityText,env,flow,stage,error_code,message
+                value: Timestamp,ServiceName,SeverityText,Body,env,flow,stage,error_code,exception_type,exception_message
               - key: TRACE_LOGS
                 value: "false"

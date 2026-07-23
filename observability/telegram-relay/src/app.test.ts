@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   createRequestHandler,
   createTelegramSender,
+  formatPlainTelegramMessage,
   formatTelegramMessage,
   loadConfig,
   validatePayload,
@@ -167,6 +168,21 @@ describe("payload and formatting", () => {
     const message = format({ ...payload, body: "x".repeat(10_000) });
     expect(message.text.length).toBeLessThanOrEqual(4096);
     expect(message.text.endsWith(payload.link)).toBe(true);
+  });
+
+  test("never emits a partially truncated link", () => {
+    const link = `https://clickstack.example/search?q=${"a".repeat(4000)}`;
+    const text = formatPlainTelegramMessage({
+      ...payload,
+      title: "Errors in loyal-frontend",
+      body: "x".repeat(2000),
+      link,
+    });
+
+    expect(text.length).toBeLessThanOrEqual(4096);
+    // Either the whole link survives or none of it does; a clipped URL looks
+    // clickable and resolves nowhere.
+    expect(text.includes(link) || !text.includes("https://")).toBe(true);
   });
 
   test("never truncates a message onto a split surrogate pair", () => {
@@ -368,6 +384,21 @@ describe("Telegram sender", () => {
     );
 
     await expect(send(payload)).rejects.toThrow("HTTP 400");
+  });
+
+  test("rejects an HTTP 200 that Telegram did not acknowledge", async () => {
+    const send = createTelegramSender(
+      senderConfig,
+      async () =>
+        new Response(
+          JSON.stringify({ ok: false, description: "chat not found" }),
+          { status: 200 }
+        )
+    );
+
+    // Accepting this would record a cooldown and acknowledge ClickStack,
+    // dropping the alert for a full cooldown window.
+    await expect(send(payload)).rejects.toThrow("did not acknowledge");
   });
 
   test("resends unformatted text when Telegram rejects the HTML entities", async () => {

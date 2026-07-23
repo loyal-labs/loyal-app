@@ -45,9 +45,21 @@ require_literal 'CLICKSTACK_INTERNAL_SMOKE_ENABLED' "$blueprint"
 require_literal 'generateValue: true' "$blueprint"
 require_literal 'value: "8081"' "$blueprint"
 require_literal 'value: 127.0.0.1' "$blueprint"
-[[ "$(rg --count '^[[:space:]]+- type: (web|pserv|worker|cron|keyvalue)$' "$blueprint")" == "1" ]] \
-  || fail "observability Blueprint must retain exactly one service"
+[[ "$(rg --count '^[[:space:]]+- type: (web|pserv|worker|cron|keyvalue)$' "$blueprint")" == "2" ]] \
+  || fail "observability Blueprint must retain exactly two services"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
+
+# Telegram relay. Cooldown state is in-process, so a second instance
+# double-posts every alert. Render reserves port 10000 on the private network
+# and supports healthCheckPath on web services only.
+require_literal 'name: loyal-clickstack-telegram-relay' "$blueprint"
+require_literal 'rootDir: observability/telegram-relay' "$blueprint"
+require_literal 'value: "3000"' "$blueprint"
+rg --quiet 'healthCheckPath: /healthz' "$blueprint" \
+  && fail "private services do not support healthCheckPath"
+[[ "$(rg --after-context=20 'name: loyal-clickstack-telegram-relay' "$blueprint" | rg --count 'numInstances: 1')" == "1" ]] \
+  || fail "telegram relay must stay pinned to numInstances: 1"
+pass "Telegram relay pins single instance, non-reserved port, and no health check"
 
 require_literal '2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1' "$project_dir/Dockerfile"
 require_literal 'nginx=1.30.4-r0' "$project_dir/Dockerfile"

@@ -127,8 +127,13 @@ an operator.
 Configure a generic webhook destination pointing at the relay's private address
 inside the `loyal-observability` environment:
 
+Do not guess the hostname. Render generates a suffix for private-service
+hostnames (their own example is `elasticsearch-2j3e:9200`), so copy the real
+value from the relay service's **Connect -> Internal** panel in the Render
+dashboard. It looks like:
+
 ```text
-http://loyal-clickstack-telegram-relay:3000/webhooks/clickstack
+http://loyal-clickstack-telegram-relay-XXXX:3000/webhooks/clickstack
 ```
 
 Port `3000` rather than Render's usual `10000`: Render reserves `10000`,

@@ -154,8 +154,9 @@ export function createTelegramSender(
       response = await post({ text: formatPlainTelegramMessage(payload) });
     }
 
+    const responseText = await response.text();
+
     if (!response.ok) {
-      const responseText = await response.text();
       throw new Error(
         `Telegram returned HTTP ${response.status}: ${responseText.slice(
           0,
@@ -163,7 +164,41 @@ export function createTelegramSender(
         )}`
       );
     }
+
+    // The JSON `ok` field is the authoritative result, not the status code:
+    // Telegram can answer HTTP 200 with {"ok":false,...}. Accepting that as
+    // delivered would record a cooldown and acknowledge ClickStack, dropping
+    // the alert silently for a full cooldown window.
+    if (!isTelegramAcknowledgement(responseText)) {
+      throw new Error(
+        `Telegram did not acknowledge the message: ${responseText.slice(
+          0,
+          300
+        )}`
+      );
+    }
   };
+}
+
+/**
+ * Fails closed on unparseable bodies. A false negative costs a duplicate
+ * message after ClickStack retries; a false positive loses the alert.
+ */
+function isTelegramAcknowledgement(responseText: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(responseText);
+    return isRecord(parsed) && parsed.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The bot token is embedded in the request URL, so any error that quotes the
+ * URL - fetch connection errors especially - would carry it into the logs.
+ */
+export function redactBotToken(text: string): string {
+  return text.replace(/bot\d+:[\w-]+/g, "bot<redacted>");
 }
 
 function parseRetryAfterMs(responseText: string): number | null {
@@ -278,12 +313,22 @@ export function createRequestHandler(
       trace("request_completed", { outcome: result.outcome });
       return jsonResponse({ ok: true, outcome: result.outcome });
     } catch (error) {
+      // These logs are the only record of a delivery failure: the relay does
+      // not export to ClickStack. Without the message a timeout, a rate limit,
+      // and an invalid chat ID are indistinguishable here.
       console.error(
         JSON.stringify({
           event: "telegram_delivery_failed",
           eventId: payload.eventId,
           state: payload.state,
           errorName: error instanceof Error ? error.name : "UnknownError",
+          errorMessage: redactBotToken(
+            error instanceof Error ? error.message : String(error)
+          ).slice(0, 500),
+          errorStack:
+            error instanceof Error && error.stack
+              ? redactBotToken(error.stack).slice(0, 1000)
+              : undefined,
         })
       );
       trace("request_failed", {
