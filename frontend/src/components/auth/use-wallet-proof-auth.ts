@@ -1,6 +1,20 @@
 "use client";
 
 import type { WalletName } from "@solana/wallet-adapter-base";
+import {
+  WalletConnectionError,
+  WalletDisconnectedError,
+  WalletError,
+  WalletLoadError,
+  WalletNotConnectedError,
+  WalletNotReadyError,
+  WalletSignInError,
+  WalletSignMessageError,
+  WalletSignTransactionError,
+  WalletTimeoutError,
+  WalletWindowBlockedError,
+  WalletWindowClosedError,
+} from "@solana/wallet-adapter-base";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   useCallback,
@@ -30,6 +44,8 @@ import { WalletProofSignerError } from "@/lib/auth/wallet-proof-signer";
 import { useExplicitWalletConnectIntent } from "@/components/solana/wallet-provider";
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
 import {
+  type LifecycleErrorCode,
+  type LifecycleFlowStage,
   type LifecycleTracker,
   normalizeLifecycleErrorCode,
 } from "@/features/observability/lifecycle-contract";
@@ -37,11 +53,11 @@ import {
 const WALLET_CONNECTION_SETTLE_MS = 2500;
 const WALLET_SELECTION_SETTLE_MS = 7000;
 
-function isRejectedWalletRequest(error: unknown): boolean {
+function hasRejectionWording(value: unknown): boolean {
   const message =
-    error instanceof Error
-      ? error.message.toLowerCase()
-      : String(error).toLowerCase();
+    value instanceof Error
+      ? value.message.toLowerCase()
+      : String(value ?? "").toLowerCase();
 
   return (
     message.includes("rejected") ||
@@ -50,6 +66,68 @@ function isRejectedWalletRequest(error: unknown): boolean {
     message.includes("canceled") ||
     message.includes("user denied")
   );
+}
+
+// Wallet adapters disagree on how a dismissed prompt surfaces: some throw
+// `WalletWindowClosedError`, others a generic `WalletConnectionError` whose
+// wording is the only signal, and several nest the provider's own error under
+// `WalletError.error`. Check the class first and fall back to wording on both
+// the wrapper and the nested cause — matching wording alone used to classify a
+// closed popup as a hard failure (ASK-1857).
+function isRejectedWalletRequest(error: unknown): boolean {
+  if (error instanceof WalletWindowClosedError) {
+    return true;
+  }
+
+  if (error instanceof WalletError) {
+    return hasRejectionWording(error) || hasRejectionWording(error.error);
+  }
+
+  return hasRejectionWording(error);
+}
+
+// Maps a wallet-adapter failure onto the lifecycle vocabulary so connect-time
+// problems stop collapsing into `unexpected_error`. Returns undefined for
+// anything that is not a wallet-adapter error, leaving the caller's own
+// normalization in charge.
+function classifyWalletAdapterError(
+  error: unknown
+): LifecycleErrorCode | undefined {
+  if (!(error instanceof WalletError)) {
+    return undefined;
+  }
+
+  if (error instanceof WalletTimeoutError) {
+    return "wallet_connection_timeout";
+  }
+
+  // Not installed, disabled, or still injecting; and a blocked popup is the
+  // same dead end from the user's side — the browser suppressed the prompt.
+  if (
+    error instanceof WalletNotReadyError ||
+    error instanceof WalletLoadError ||
+    error instanceof WalletWindowBlockedError
+  ) {
+    return "wallet_unavailable";
+  }
+
+  if (
+    error instanceof WalletConnectionError ||
+    error instanceof WalletNotConnectedError ||
+    error instanceof WalletDisconnectedError
+  ) {
+    return "wallet_connection_timeout";
+  }
+
+  if (
+    error instanceof WalletSignInError ||
+    error instanceof WalletSignMessageError ||
+    error instanceof WalletSignTransactionError
+  ) {
+    return "invalid_wallet_signature";
+  }
+
+  return "wallet_unavailable";
 }
 
 function mapWalletProofError(error: unknown): {
@@ -149,23 +227,36 @@ export function useWalletProofAuth({
     [wallets]
   );
 
+  // `stage` is where the flow actually died. It defaults to `completion` only
+  // for the proof-flow callers, which have already emitted `challenge` and
+  // `wallet_approval` themselves; every pre-proof caller passes its own stage
+  // so a connect failure is not reported as a completion failure (ASK-1857).
   const handleFailure = useCallback(
-    (error: unknown) => {
+    (
+      error: unknown,
+      options?: { stage?: LifecycleFlowStage; errorCode?: LifecycleErrorCode }
+    ) => {
       endExplicitWalletConnect(selectedWalletNameRef.current);
       const nextError = mapWalletProofError(error);
-      const errorCode = normalizeLifecycleErrorCode(
-        error instanceof AuthApiClientError
-          ? error.code
-          : error instanceof WalletProofSignerError
-          ? error.code
-          : undefined
-      );
+      const errorCode =
+        options?.errorCode ??
+        normalizeLifecycleErrorCode(
+          error instanceof AuthApiClientError
+            ? error.code
+            : error instanceof WalletProofSignerError
+            ? error.code
+            : classifyWalletAdapterError(error)
+        );
       if (nextError.status === "rejected") {
-        lifecycleRef.current?.cancel("wallet_approval", {
+        // Without an explicit stage this is a proof-flow caller, where a
+        // rejection is always the signature prompt.
+        lifecycleRef.current?.cancel(options?.stage ?? "wallet_approval", {
           errorCode: "wallet_rejected",
         });
       } else {
-        lifecycleRef.current?.fail("completion", { errorCode });
+        lifecycleRef.current?.fail(options?.stage ?? "completion", {
+          errorCode,
+        });
       }
       dispatch({
         type: "failed",
@@ -193,7 +284,10 @@ export function useWalletProofAuth({
 
   const verifySelectedWalletWithSiws = useCallback(async () => {
     if (!wallet) {
-      handleFailure(new Error("Wallet is not selected."));
+      handleFailure(new Error("Wallet is not selected."), {
+        stage: "wallet_select",
+        errorCode: "wallet_unavailable",
+      });
       return;
     }
 
@@ -202,7 +296,8 @@ export function useWalletProofAuth({
         new WalletProofSignerError(
           "This wallet does not support Sign In With Solana.",
           "wallet_signing_unsupported"
-        )
+        ),
+        { stage: "wallet_connect" }
       );
       return;
     }
@@ -253,7 +348,10 @@ export function useWalletProofAuth({
     }
 
     if (!connected || !publicKey) {
-      handleFailure(new Error("Wallet is not connected."));
+      handleFailure(new Error("Wallet is not connected."), {
+        stage: "wallet_connect",
+        errorCode: "wallet_unavailable",
+      });
       return;
     }
 
@@ -265,7 +363,8 @@ export function useWalletProofAuth({
           new WalletProofSignerError(
             "This wallet does not support transaction signing.",
             "wallet_signing_unsupported"
-          )
+          ),
+          { stage: "wallet_connect" }
         );
         return;
       }
@@ -307,7 +406,8 @@ export function useWalletProofAuth({
         new WalletProofSignerError(
           "This wallet does not support message signing.",
           "wallet_signing_unsupported"
-        )
+        ),
+        { stage: "wallet_connect" }
       );
       return;
     }
@@ -456,7 +556,8 @@ export function useWalletProofAuth({
       handleFailure(
         new Error(
           `Could not refresh ${selectedWalletName}. Disconnect it in the extension, then try again.`
-        )
+        ),
+        { stage: "wallet_connect", errorCode: "wallet_unavailable" }
       );
       return;
     }
@@ -465,7 +566,7 @@ export function useWalletProofAuth({
     lifecycleRef.current?.observe("wallet_connect");
     void connect().catch((error) => {
       connectAttemptedRef.current = false;
-      handleFailure(error);
+      handleFailure(error, { stage: "wallet_connect" });
     });
   }, [
     connect,
@@ -522,7 +623,8 @@ export function useWalletProofAuth({
         handleFailure(
           new Error(
             `Could not select ${selectedWalletName}. Refresh detected wallets, or choose another wallet.`
-          )
+          ),
+          { stage: "wallet_select", errorCode: "wallet_selection_timeout" }
         );
         return;
       }
@@ -541,7 +643,8 @@ export function useWalletProofAuth({
           staleAdapterRecoveryAttemptedRef.current
             ? `Could not refresh ${selectedWalletName}. Disconnect it in the extension, then try again.`
             : `Could not start ${selectedWalletName}. Unlock the extension, refresh detected wallets, or choose another wallet.`
-        )
+        ),
+        { stage: "wallet_connect", errorCode: "wallet_connection_timeout" }
       );
     }, settleDelay);
 
@@ -602,7 +705,7 @@ export function useWalletProofAuth({
         lifecycleRef.current?.observe("wallet_connect");
         void connect().catch((error) => {
           connectAttemptedRef.current = false;
-          handleFailure(error);
+          handleFailure(error, { stage: "wallet_connect" });
         });
         return;
       }
