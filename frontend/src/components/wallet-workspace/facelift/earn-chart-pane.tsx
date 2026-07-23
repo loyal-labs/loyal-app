@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   deriveMainUsdcReserveForecastApyBps,
@@ -9,9 +16,9 @@ import {
 } from "@/components/wallet-sidebar/earn-detail-view";
 import { useBalanceVisibility } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { EarnedChart } from "@/components/wallet-workspace/facelift/earned-chart";
+import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useIsNarrowViewport } from "@/components/wallet-workspace/facelift/use-is-narrow-viewport";
-import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history";
 import type { EarnForecastApy } from "@/lib/kamino/earn-forecast.shared";
 
@@ -21,6 +28,10 @@ const FORECAST_PRINCIPAL_USD = 6000;
 
 type ChartTab = (typeof CHART_TABS)[number];
 
+// transitions.dev "Tabs sliding" (frontend/transitions/tabs-sliding.md): the
+// white active pill is one absolutely-positioned span that tweens between the
+// measured offset/width of the selected tab. First paint and resizes write
+// the position with transitions suspended so the pill snaps, never flies in.
 function ChartTabs({
   activeTab,
   onSelect,
@@ -30,15 +41,54 @@ function ChartTabs({
   onSelect: (tab: ChartTab) => void;
   tabs: readonly ChartTab[];
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const pillRef = useRef<HTMLSpanElement>(null);
+  const hasPainted = useRef(false);
+
+  const movePillToActiveTab = useCallback((animate: boolean) => {
+    const bar = barRef.current;
+    const pill = pillRef.current;
+    const active = bar?.querySelector<HTMLButtonElement>(
+      '[aria-selected="true"]'
+    );
+    if (!(bar && pill && active)) {
+      return;
+    }
+    if (animate) {
+      pill.style.transform = `translateX(${active.offsetLeft}px)`;
+      pill.style.width = `${active.offsetWidth}px`;
+      return;
+    }
+    const previousTransition = pill.style.transition;
+    pill.style.transition = "none";
+    pill.style.transform = `translateX(${active.offsetLeft}px)`;
+    pill.style.width = `${active.offsetWidth}px`;
+    void pill.offsetWidth;
+    pill.style.transition = previousTransition;
+  }, []);
+
+  // Re-measure when the tab set changes too (Earned appears with a position).
+  useLayoutEffect(() => {
+    movePillToActiveTab(hasPainted.current);
+    hasPainted.current = true;
+  }, [activeTab, movePillToActiveTab, tabs.length]);
+
+  useEffect(() => {
+    const handleResize = () => movePillToActiveTab(false);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [movePillToActiveTab]);
+
   return (
-    <div className="inline-flex items-center gap-1 rounded-full bg-black/[0.04] p-1">
+    <div className="t-tabs" ref={barRef} role="tablist">
+      <span aria-hidden="true" className="t-tabs-pill" ref={pillRef} />
       {tabs.map((tab) => (
         <button
-          className={`rounded-full px-4 py-2 font-medium text-[14px] text-black leading-5 ${
-            activeTab === tab ? "bg-white" : ""
-          }`}
+          aria-selected={activeTab === tab}
+          className="t-tab whitespace-nowrap font-medium text-[14px] leading-5"
           key={tab}
           onClick={() => onSelect(tab)}
+          role="tab"
           type="button"
         >
           {tab}
@@ -52,12 +102,14 @@ function ChartBody({
   activeTab,
   apy,
   earnData,
+  isApyLoaded,
   isExpanded = false,
   mainUsdcReserveApyBps,
 }: {
   activeTab: ChartTab;
   apy: EarnForecastApy;
   earnData: EarnPositionData;
+  isApyLoaded: boolean;
   isExpanded?: boolean;
   mainUsdcReserveApyBps: number;
 }) {
@@ -77,12 +129,14 @@ function ChartBody({
         // The wide overlay fits the design's 8 date ticks (Figma 4693:65002);
         // the compact pane and the mobile sheet keep the start/end pair.
         <HistoricalApyChart
+          apyDataRevealed={isApyLoaded}
           axisTickCount={isExpanded && !isNarrowViewport ? 8 : 2}
           rangeId="30D"
         />
       ) : (
         <ForecastChart
           apy={apy}
+          apyDataRevealed={isApyLoaded}
           isBalanceHidden={isBalanceHidden && earnData.hasPosition}
           key={forecastPrincipal}
           mainUsdcReserveApyBps={mainUsdcReserveApyBps}
@@ -125,12 +179,13 @@ export function EarnChartCard({
     selectedTab && visibleTabs.includes(selectedTab)
       ? selectedTab
       : hasEarnedTab
-        ? "Earned"
-        : "APY";
-  const apy = useEarnForecastApy();
+      ? "Earned"
+      : "APY";
+  // Forecast + history ride the same cached summary fetch, so one loaded
+  // flag gates every APY-fed number in the chart pane.
+  const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const apyHistory = useEarnForecastApyHistory();
-  const mainUsdcReserveApyBps =
-    deriveMainUsdcReserveForecastApyBps(apyHistory);
+  const mainUsdcReserveApyBps = deriveMainUsdcReserveForecastApyBps(apyHistory);
 
   return (
     <section
@@ -150,7 +205,7 @@ export function EarnChartCard({
         </div>
         <button
           aria-label={actionAriaLabel}
-          className="flex size-11 shrink-0 items-center justify-center rounded-3xl"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
           onClick={onAction}
           type="button"
         >
@@ -167,6 +222,7 @@ export function EarnChartCard({
         activeTab={activeTab}
         apy={apy}
         earnData={earnData}
+        isApyLoaded={isApyLoaded}
         isExpanded={isExpanded}
         mainUsdcReserveApyBps={mainUsdcReserveApyBps}
       />
@@ -208,8 +264,10 @@ export function EarnChartPane({
         actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
         earnData={earnData}
         onAction={() => onExpandedChange(true)}
+        // t-resize (transitions.dev card resize) tweens the full-height ↔
+        // 527px Earned hug instead of snapping.
         sectionClassName={(activeTab) =>
-          `hidden w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex ${
+          `t-resize hidden w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex ${
             activeTab === "Earned" ? "h-[527px] self-start" : "h-full"
           }`
         }
@@ -239,7 +297,7 @@ export function EarnChartPane({
               footer={
                 <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
                   <button
-                    className="flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5"
+                    className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
                     onClick={() => onExpandedChange(false)}
                     type="button"
                   >

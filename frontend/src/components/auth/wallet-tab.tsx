@@ -1,9 +1,11 @@
 "use client";
 
-import { AlertCircle, ArrowUpRight, LoaderCircle } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertCircle, ArrowUpRight } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
+import { MatrixLoader } from "@/components/wallet-workspace/facelift/matrix-loader";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useWalletProofAuth } from "./use-wallet-proof-auth";
 
 const MOBILE_WALLETS = [
@@ -70,25 +72,60 @@ function LedgerModeToggle({
   disabled: boolean;
   onChange: (checked: boolean) => void;
 }) {
+  const labelId = useId();
+  const descriptionId = useId();
+  // transitions-dev "checkbox check": the box fills, then the checkmark draws
+  // via stroke-dashoffset. The recipe wants aria-checked on the .t-check
+  // button itself, so the row is a plain div that forwards clicks (the
+  // button's own clicks — mouse or Space/Enter — bubble up to it too).
   return (
-    <label className="flex items-start gap-3 rounded-2xl bg-[#f5f5f5] px-4 py-3 text-left text-neutral-900 text-sm">
-      <input
-        checked={checked}
-        className="mt-1 h-4 w-4 accent-neutral-950"
+    <div
+      className={`flex items-start gap-3 rounded-2xl bg-[#f5f5f5] px-4 py-3 text-left text-neutral-900 text-sm ${
+        disabled ? "opacity-60" : "cursor-pointer"
+      }`}
+      onClick={() => {
+        if (!disabled) {
+          onChange(!checked);
+        }
+      }}
+    >
+      <button
+        aria-checked={checked}
+        aria-describedby={descriptionId}
+        aria-labelledby={labelId}
+        className="t-check mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-white shadow-[inset_0_0_0_1.5px_#d4d4d4] aria-checked:bg-neutral-950 aria-checked:shadow-[inset_0_0_0_1.5px_#0a0a0a]"
         disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        type="checkbox"
-      />
+        role="checkbox"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          className="h-2.5 w-2.5"
+          fill="none"
+          viewBox="0 0 10.1668 10.1668"
+        >
+          <path
+            d="M1 5.52L3.92 9.17L9.17 1"
+            stroke="#ffffff"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.8}
+          />
+        </svg>
+      </button>
       <span className="min-w-0">
-        <span className="block font-medium">
+        <span className="block font-medium" id={labelId}>
           I use Ledger or hardware wallet
         </span>
-        <span className="mt-0.5 block text-neutral-500 text-xs">
+        <span
+          className="mt-0.5 block text-neutral-500 text-xs"
+          id={descriptionId}
+        >
           Approves a login verification transaction. Loyal will not broadcast
           it.
         </span>
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -166,11 +203,9 @@ export function WalletTab({
 
     return (
       <div className="flex flex-col items-center gap-4 rounded-[28px] bg-[#f5f5f5] px-5 py-8 text-center">
-        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white">
-          <LoaderCircle className="h-6 w-6 animate-spin text-neutral-950" />
-        </span>
+        <MatrixLoader />
         <p className="max-w-[320px] text-neutral-500 text-sm">
-          {statusMessage}
+          <TextSwap text={statusMessage} />
         </p>
         <button
           className="rounded-full px-4 py-2 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
@@ -229,9 +264,13 @@ export function WalletTab({
             onClick={startConnectedWalletVerification}
             type="button"
           >
-            {useLedgerProof
-              ? "Verify Ledger Wallet"
-              : "Verify Connected Wallet"}
+            <TextSwap
+              text={
+                useLedgerProof
+                  ? "Verify Ledger Wallet"
+                  : "Verify Connected Wallet"
+              }
+            />
           </button>
           <button
             className="h-12 rounded-full px-4 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"

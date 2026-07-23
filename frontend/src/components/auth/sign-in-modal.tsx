@@ -1,15 +1,18 @@
 "use client";
 
-import { Check, Copy, LogOut, Unplug } from "lucide-react";
+import { Check, Copy, LogOut, Unplug, XIcon } from "lucide-react";
 import Image from "next/image";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useState } from "react";
 
 import {
   Dialog,
-  DialogContent,
+  DialogClose,
   DialogDescription,
   DialogHeader,
+  DialogOverlay,
+  DialogPortal,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuthCapability } from "@/lib/auth/capability";
@@ -122,37 +125,49 @@ export function SignInModal() {
     [close]
   );
 
+  // transitions-dev "modal open/close": the raw Radix content carries the
+  // t-modal hooks (like autodeposit-mock-sheet) instead of shadcn's
+  // DialogContent, whose baked-in animate-in/out classes would fight the
+  // recipe keyframes. t-modal-center keeps the scale below 640px too — this
+  // surface stays centered on mobile, it never becomes a bottom sheet.
   return (
     <Dialog onOpenChange={handleOpenChange} open={isOpen}>
-      <DialogContent className="gap-0 overflow-hidden rounded-[32px] border border-black/10 bg-white p-0 text-neutral-950 shadow-[0_24px_70px_rgba(0,0,0,0.2)] sm:max-w-[480px] [&_[data-slot=dialog-close]]:right-5 [&_[data-slot=dialog-close]]:top-5 [&_[data-slot=dialog-close]]:flex [&_[data-slot=dialog-close]]:h-11 [&_[data-slot=dialog-close]]:w-11 [&_[data-slot=dialog-close]]:items-center [&_[data-slot=dialog-close]]:justify-center [&_[data-slot=dialog-close]]:rounded-full [&_[data-slot=dialog-close]]:bg-black/[0.04] [&_[data-slot=dialog-close]]:text-neutral-500 [&_[data-slot=dialog-close]]:opacity-100 [&_[data-slot=dialog-close]]:transition [&_[data-slot=dialog-close]]:hover:bg-black/[0.08] [&_[data-slot=dialog-close]]:hover:text-neutral-900">
-        {hasAuthSession ? (
-          <>
-            <DialogHeader className="px-6 pt-6 pb-5 text-left">
-              <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
-                Account
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                Signed in
-              </DialogDescription>
-            </DialogHeader>
-            <ConnectedView />
-          </>
-        ) : (
-          <>
-            <DialogHeader className="px-6 pt-6 pb-5 text-left">
-              <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
-                Sign In
-              </DialogTitle>
-              <DialogDescription className="text-neutral-500">
-                Choose your preferred sign-in method.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="px-6 pb-6">
-              <WalletSignIn />
-            </div>
-          </>
-        )}
-      </DialogContent>
+      <DialogPortal>
+        <DialogOverlay className="t-modal-overlay" />
+        <DialogPrimitive.Content className="t-modal t-modal-center fixed top-[50%] left-[50%] z-[70] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] overflow-hidden rounded-[32px] border border-black/10 bg-white text-neutral-950 shadow-[0_24px_70px_rgba(0,0,0,0.2)] outline-none sm:max-w-[480px]">
+          {hasAuthSession ? (
+            <>
+              <DialogHeader className="px-6 pt-6 pb-5 text-left">
+                <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
+                  Account
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                  Signed in
+                </DialogDescription>
+              </DialogHeader>
+              <ConnectedView />
+            </>
+          ) : (
+            <>
+              <DialogHeader className="px-6 pt-6 pb-5 text-left">
+                <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
+                  Sign In
+                </DialogTitle>
+                <DialogDescription className="text-neutral-500">
+                  Choose your preferred sign-in method.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="px-6 pb-6">
+                <WalletSignIn />
+              </div>
+            </>
+          )}
+          <DialogClose className="absolute top-5 right-5 flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.04] text-neutral-500 transition hover:bg-black/[0.08] hover:text-neutral-900">
+            <XIcon className="size-4" />
+            <span className="sr-only">Close</span>
+          </DialogClose>
+        </DialogPrimitive.Content>
+      </DialogPortal>
     </Dialog>
   );
 }

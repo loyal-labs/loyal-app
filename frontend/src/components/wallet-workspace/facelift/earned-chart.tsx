@@ -16,6 +16,8 @@ import {
   hiddenBalanceStyle,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useEarnEarnings } from "@/hooks/use-earn-earnings";
@@ -142,7 +144,9 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   );
   let headerSubtitle: ReactNode;
   if (!hoveredBarEntry) {
-    headerSubtitle = earningsStale ? "Updating earnings…" : "Earned past 30 days";
+    headerSubtitle = earningsStale
+      ? "Updating earnings…"
+      : "Earned past 30 days";
   } else if (hoveredApyBps !== null) {
     headerSubtitle = `with ${formatEarnApyPercent(hoveredApyBps)} APY`;
   } else if (hoveredBarEntry.isCurrent) {
@@ -204,13 +208,22 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         >
           {earningsUnavailable ? (
             "Unavailable"
-          ) : showEarningsLoader ? (
-            "Loading…"
           ) : (
-            <>
-              {`$${headerValue.whole}`}
-              <span className="text-[#b1b1b4]">{`.${headerValue.fraction}`}</span>
-            </>
+            <SkeletonReveal isRevealed={!showEarningsLoader}>
+              {showEarningsLoader ? (
+                // Invisible placeholder sizes the skeleton bar like a real
+                // six-decimal earnings value.
+                "$0.000000"
+              ) : (
+                <PopDigits
+                  popOnChange={false}
+                  segments={[
+                    { text: `$${headerValue.whole}` },
+                    { color: "#b1b1b4", text: `.${headerValue.fraction}` },
+                  ]}
+                />
+              )}
+            </SkeletonReveal>
           )}
         </p>
       </div>
@@ -232,7 +245,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
           <div className="flex h-full flex-1 flex-col items-center justify-center gap-2 text-[13px] leading-4 text-[#8a8a8e]">
             <span>Earnings are temporarily unavailable.</span>
             <button
-              className="rounded-full bg-black/[0.04] px-3 py-1.5 text-black"
+              className="t-hover rounded-full bg-black/[0.04] px-3 py-1.5 text-black hover:bg-black/[0.08]"
               onClick={refreshEarnings}
               type="button"
             >
@@ -289,7 +302,9 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
             );
           })
         )}
-        {dailyBars.length === 0 && !showEarningsLoader && !earningsUnavailable ? (
+        {dailyBars.length === 0 &&
+        !showEarningsLoader &&
+        !earningsUnavailable ? (
           <div className="flex h-full flex-1 items-center justify-center text-[13px] leading-4 text-[#8a8a8e]">
             No earnings yet
           </div>

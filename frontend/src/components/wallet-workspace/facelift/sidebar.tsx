@@ -8,9 +8,15 @@ import {
   hiddenBalanceStyle,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
+import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
+import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useAuthSession } from "@/contexts/auth-session-context";
+import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
-import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import {
   splitUsdBalance,
   useWalletDesktopData,
@@ -51,11 +57,13 @@ function SplitAmount({
   fraction,
   fractionColor = "rgba(60, 60, 67, 0.4)",
   isHidden = false,
+  isRevealed,
   whole,
 }: {
   fraction: string;
   fractionColor?: string;
   isHidden?: boolean;
+  isRevealed: boolean;
   whole: string;
 }) {
   return (
@@ -63,20 +71,37 @@ function SplitAmount({
       className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
       style={hiddenBalanceStyle(isHidden)}
     >
-      {whole}
-      <span style={{ color: fractionColor }}>{fraction}</span>
+      <SkeletonReveal
+        isRevealed={isRevealed}
+        skeletonClassName="rounded-md bg-black/[0.06]"
+      >
+        {isRevealed ? (
+          <PopDigits
+            segments={[
+              { text: whole },
+              { color: fractionColor, text: fraction },
+            ]}
+          />
+        ) : (
+          // Invisible placeholder sizes the skeleton bar.
+          `${whole}${fraction}`
+        )}
+      </SkeletonReveal>
     </p>
   );
 }
 
 export function FaceliftSidebar({
   earnBalanceUsd,
+  isEarnBalanceLoading,
 }: {
   earnBalanceUsd: number;
+  isEarnBalanceLoading: boolean;
 }) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
-  const earnApy = useEarnForecastApy();
+  const { apy: earnApy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
+  const { isHydrated, isSignedIn } = useAuthCapability();
   const { isAuthenticated, logout } = useAuthSession();
   const { connected: isWalletConnected, disconnect } = useWallet();
   // The adapter can auto-reconnect without an auth session (stale dev state);
@@ -128,6 +153,19 @@ export function FaceliftSidebar({
     ? `${data.walletAddress.slice(0, 4)}…${data.walletAddress.slice(-4)}`
     : "No account";
 
+  // Skeleton every non-final value on boot instead of animating through
+  // intermediate states: hydration gates the address; the wallet fetch gates
+  // stablecoins/crypto; the position resolve gates earn; Total needs BOTH
+  // (it used to pop three times: 0 → wallet-only → wallet+earn). Signed-out
+  // zeros after hydration ARE final, so they reveal immediately.
+  const isAddressRevealed =
+    isHydrated && (!isSignedIn || data.walletAddress !== null);
+  const isWalletDataRevealed =
+    isHydrated &&
+    (!isSignedIn || (data.walletAddress !== null && !data.isLoading));
+  const isEarnBalanceRevealed = !isEarnBalanceLoading;
+  const isTotalRevealed = isWalletDataRevealed && isEarnBalanceRevealed;
+
   const handleCopyAddress = () => {
     if (data.walletAddress) {
       void navigator.clipboard.writeText(data.walletAddress).catch(() => {});
@@ -138,7 +176,7 @@ export function FaceliftSidebar({
     <aside className="flex h-full w-[360px] shrink-0 flex-col overflow-clip p-2 max-[795px]:hidden">
       <div className="relative flex w-full shrink-0 items-center gap-2.5">
         <button
-          className="flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+          className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
           onClick={() => setIsWalletMenuOpen((open) => !open)}
           type="button"
         >
@@ -151,7 +189,12 @@ export function FaceliftSidebar({
           />
           <span className="flex min-w-0 items-center gap-1">
             <span className="whitespace-nowrap text-[16px] text-black leading-5">
-              {addressLabel}
+              <SkeletonReveal
+                isRevealed={isAddressRevealed}
+                skeletonClassName="rounded-md bg-black/[0.06]"
+              >
+                <TextSwap text={addressLabel} />
+              </SkeletonReveal>
             </span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -177,7 +220,7 @@ export function FaceliftSidebar({
               screens — buttons unwired for now. */}
           <button
             aria-label="Settings"
-            className="flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
             type="button"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -190,7 +233,7 @@ export function FaceliftSidebar({
           </button>
           <button
             aria-label="Activity"
-            className="flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
             type="button"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -204,30 +247,31 @@ export function FaceliftSidebar({
         </div>
 
         {isWalletMenuOpen ? (
-          <>
-            <button
-              aria-label="Close wallet menu"
-              className="fixed inset-0 z-20 cursor-default"
-              onClick={() => setIsWalletMenuOpen(false)}
-              type="button"
-            />
-            {/* Same frosted sheet treatment as the withdraw source select. */}
-            <div className="absolute top-[calc(100%+4px)] left-0 z-30 flex w-60 flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px]">
-              <button
-                className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-black leading-5 enabled:hover:bg-black/[0.04] disabled:text-[#d8d8d9]"
-                disabled={!canDisconnect}
-                onClick={() => {
-                  setIsWalletMenuOpen(false);
-                  handleDisconnect();
-                }}
-                type="button"
-              >
-                <LogOut size={20} strokeWidth={1.8} />
-                Disconnect
-              </button>
-            </div>
-          </>
+          <button
+            aria-label="Close wallet menu"
+            className="fixed inset-0 z-20 cursor-default"
+            onClick={() => setIsWalletMenuOpen(false)}
+            type="button"
+          />
         ) : null}
+        {/* Same frosted sheet treatment as the withdraw source select. */}
+        <DropdownReveal
+          className="absolute top-[calc(100%+4px)] left-0 z-30 flex w-60 flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px]"
+          isOpen={isWalletMenuOpen}
+        >
+          <button
+            className="t-hover flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-black leading-5 enabled:hover:bg-black/[0.04] disabled:text-[#d8d8d9]"
+            disabled={!canDisconnect}
+            onClick={() => {
+              setIsWalletMenuOpen(false);
+              handleDisconnect();
+            }}
+            type="button"
+          >
+            <LogOut size={20} strokeWidth={1.8} />
+            Disconnect
+          </button>
+        </DropdownReveal>
       </div>
 
       <div className="w-full py-2">
@@ -236,26 +280,37 @@ export function FaceliftSidebar({
             <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
               Total balance
             </p>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-5"
-              src={`${ASSET_BASE}/icon-question.svg`}
-            />
+            {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
+            <InfoTooltip text="Wallet and Earn balances combined" />
           </div>
           <div className="flex items-center gap-3">
             <p
               className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]"
               style={hiddenBalanceStyle(isBalanceHidden, "lg")}
             >
-              {totalBalance.balanceWhole}
-              <span className="text-[rgba(60,60,67,0.4)]">
-                {totalBalance.balanceFraction}
-              </span>
+              <SkeletonReveal
+                isRevealed={isTotalRevealed}
+                skeletonClassName="rounded-lg bg-black/[0.06]"
+              >
+                {isTotalRevealed ? (
+                  <PopDigits
+                    segments={[
+                      { text: totalBalance.balanceWhole },
+                      {
+                        color: "rgba(60, 60, 67, 0.4)",
+                        text: totalBalance.balanceFraction,
+                      },
+                    ]}
+                  />
+                ) : (
+                  // Invisible placeholder sizes the skeleton bar.
+                  `${totalBalance.balanceWhole}${totalBalance.balanceFraction}`
+                )}
+              </SkeletonReveal>
             </p>
             <button
               aria-label={isBalanceHidden ? "Show balance" : "Hide balance"}
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
               onClick={toggleBalanceHidden}
               type="button"
             >
@@ -288,23 +343,40 @@ export function FaceliftSidebar({
               <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                 Earn
               </span>
-              <span className="inline-flex items-center gap-0.5 rounded-md bg-[rgba(52,199,89,0.14)] px-1 py-px">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="h-3 w-2"
-                  src="/wallet-workspace/earn-flash.svg"
-                />
-                <span className="whitespace-nowrap pt-px font-medium text-[#34c759] text-[11px] leading-[13px] tracking-[0.06px]">
-                  {formatEarnApyLabel(earnApy.apyBps)}
+              {/* Skeleton the whole pill until the real APY lands, then
+                  reveal + pop the digits (the hook's fallback APY is a
+                  hardcoded number that would otherwise flash and re-pop). */}
+              <SkeletonReveal
+                isRevealed={isApyLoaded}
+                skeletonClassName="rounded-md bg-black/[0.06]"
+              >
+                <span className="inline-flex items-center gap-0.5 rounded-md bg-[rgba(52,199,89,0.14)] px-1 py-px">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="h-3 w-2"
+                    src="/wallet-workspace/earn-flash.svg"
+                  />
+                  <span className="whitespace-nowrap pt-px font-medium text-[#34c759] text-[11px] leading-[13px] tracking-[0.06px]">
+                    {isApyLoaded ? (
+                      <PopDigits
+                        segments={[
+                          { text: formatEarnApyLabel(earnApy.apyBps) },
+                        ]}
+                      />
+                    ) : (
+                      formatEarnApyLabel(earnApy.apyBps)
+                    )}
+                  </span>
                 </span>
-              </span>
+              </SkeletonReveal>
             </span>
             <SplitAmount
               fraction={earnBalance.balanceFraction}
               fractionColor="#b1b1b4"
               isHidden={isBalanceHidden}
+              isRevealed={isEarnBalanceRevealed}
               whole={earnBalance.balanceWhole}
             />
           </span>
@@ -328,6 +400,7 @@ export function FaceliftSidebar({
             <SplitAmount
               fraction={stablecoinsBalance.balanceFraction}
               isHidden={isBalanceHidden}
+              isRevealed={isWalletDataRevealed}
               whole={stablecoinsBalance.balanceWhole}
             />
           </span>
@@ -351,6 +424,7 @@ export function FaceliftSidebar({
             <SplitAmount
               fraction={cryptoBalance.balanceFraction}
               isHidden={isBalanceHidden}
+              isRevealed={isWalletDataRevealed}
               whole={cryptoBalance.balanceWhole}
             />
           </span>
@@ -362,7 +436,7 @@ export function FaceliftSidebar({
       <div className="flex w-full flex-col py-2">
         {SIDEBAR_LINKS.map((link) => (
           <a
-            className="flex w-full items-center rounded-2xl px-4 hover:bg-black/[0.04]"
+            className="t-hover flex w-full items-center rounded-2xl px-4 hover:bg-black/[0.04]"
             href={link.href}
             key={link.label}
             rel="noreferrer"

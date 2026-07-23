@@ -23,6 +23,7 @@ import {
 } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
+import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import {
   Tooltip,
   TooltipContent,
@@ -387,6 +388,17 @@ function splitBucksAmountParts(value: string) {
   }
 
   return { fraction: value.slice(dotIndex), whole: value.slice(0, dotIndex) };
+}
+
+function forecastMoneySegments(value: number, mutedFraction = false) {
+  const [whole, fraction = "00"] = formatMoney(value).split(".");
+  return [
+    { text: `$${whole}` },
+    {
+      color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : undefined,
+      text: `.${fraction}`,
+    },
+  ];
 }
 
 function formatForecastMoney(value: number, mutedFraction = false) {
@@ -884,6 +896,21 @@ function DepositButton({
       </button>
     </>
   );
+}
+
+// Facelift-only: the exact display EarnGrowingBalance renders (dust-snapped,
+// 6 decimals, grouped, $-prefixed), split so the redesigned pane can pop the
+// digits with a muted fraction. Keep in sync with the NumberFlow format below.
+export function splitEarnBalanceDisplay(baseAmount: number): {
+  fraction: string;
+  whole: string;
+} {
+  const formatted = snapDollarDisplayDust(baseAmount).toLocaleString("en-US", {
+    maximumFractionDigits: EARN_BALANCE_DECIMALS,
+    minimumFractionDigits: EARN_BALANCE_DECIMALS,
+  });
+  const [whole, fraction] = formatted.split(".");
+  return { fraction: `.${fraction}`, whole: `$${whole}` };
 }
 
 export function EarnGrowingBalance({
@@ -1732,11 +1759,25 @@ export function AutodepositToggle({
   isPending?: boolean;
   onToggle?: () => void;
 }) {
+  // transitions-dev "toggle": .is-init gates the bounce keyframes so the off
+  // animation doesn't play at mount — armed once isOn first changes, which
+  // covers both click-driven and server-driven flips.
+  const [isInit, setIsInit] = useState(false);
+  const previousIsOn = useRef(isOn);
+  useEffect(() => {
+    if (previousIsOn.current !== isOn) {
+      setIsInit(true);
+    }
+    previousIsOn.current = isOn;
+  }, [isOn]);
+
   return (
     <button
       aria-busy={isPending}
       aria-checked={isOn}
       aria-label={isOn ? "Pause Autodeposit" : "Resume Autodeposit"}
+      className={`t-toggle${isInit ? " is-init" : ""}`}
+      data-on={isOn}
       disabled={disabled}
       onClick={onToggle}
       role="switch"
@@ -1750,12 +1791,13 @@ export function AutodepositToggle({
         flexShrink: 0,
         height: "31px",
         padding: "2px",
-        transition: "background 0.2s ease",
         width: "51px",
       }}
       type="button"
     >
+      {/* Thumb travel (20px) lives in the t-toggle CSS in globals.css. */}
       <span
+        className="t-toggle-thumb"
         style={{
           alignItems: "center",
           background: "#fff",
@@ -1764,9 +1806,6 @@ export function AutodepositToggle({
           display: "inline-flex",
           height: "27px",
           justifyContent: "center",
-          // 51px track - 2x2px padding - 27px knob = 20px of travel.
-          transform: isOn ? "translateX(20px)" : "translateX(0)",
-          transition: "transform 0.2s ease",
           width: "27px",
         }}
       >
@@ -4688,24 +4727,28 @@ const HISTORICAL_MAIN_USDC_FALLBACK_APY_PERCENT =
   (EARN_COMPARISON_SERIES.find((series) => series.key === "mainUsdcReserve")
     ?.fixedApyBps ?? 559) / 100;
 
-function formatHistoricalApyValue(apyPercent: number, mutedFraction: boolean) {
+function historicalApyValueSegments(
+  apyPercent: number,
+  mutedFraction: boolean
+) {
   const [whole, fraction = "00"] = apyPercent.toFixed(2).split(".");
-  return (
-    <>
-      {whole}
-      <span
-        style={{ color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : "inherit" }}
-      >
-        .{fraction}%
-      </span>
-    </>
-  );
+  return [
+    { text: whole },
+    {
+      color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : undefined,
+      text: `.${fraction}%`,
+    },
+  ];
 }
 
 export function HistoricalApyChart({
+  apyDataRevealed,
   axisTickCount = 2,
   rangeId,
 }: {
+  // Facelift-only: skeleton the header values until the APY summary loads
+  // (undefined keeps the legacy render byte-identical).
+  apyDataRevealed?: boolean;
   axisTickCount?: number;
   rangeId: EarningsRangeId;
 }) {
@@ -4969,7 +5012,13 @@ export function HistoricalApyChart({
                   whiteSpace: "nowrap",
                 }}
               >
-                {formatHistoricalApyValue(series.apyPercent, !isPrimary)}
+                <ApyRevealText
+                  isRevealed={apyDataRevealed}
+                  segments={historicalApyValueSegments(
+                    series.apyPercent,
+                    !isPrimary
+                  )}
+                />
               </p>
               <span
                 style={{
@@ -5164,11 +5213,15 @@ export function HistoricalApyChart({
 // with 60% white, and moves the dashed cursor line + dots to the hovered date.
 export function ForecastChart({
   apy = FALLBACK_EARN_APY,
+  apyDataRevealed,
   isBalanceHidden = false,
   mainUsdcReserveApyBps = 559,
   principal = 1000,
 }: {
   apy?: EarnForecastApy;
+  // Facelift-only: skeleton the summary values until the APY summary loads
+  // (undefined keeps the legacy render byte-identical).
+  apyDataRevealed?: boolean;
   isBalanceHidden?: boolean;
   mainUsdcReserveApyBps?: number;
   principal?: number;
@@ -5410,10 +5463,13 @@ export function ForecastChart({
                   whiteSpace: "nowrap",
                 }}
               >
-                {formatForecastMoney(
-                  focusPoint.values[series.key],
-                  !isBalanceHidden
-                )}
+                <ApyRevealText
+                  isRevealed={apyDataRevealed}
+                  segments={forecastMoneySegments(
+                    focusPoint.values[series.key],
+                    !isBalanceHidden
+                  )}
+                />
               </p>
               <span
                 style={{
@@ -5446,9 +5502,17 @@ export function ForecastChart({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {`${series.label} (${formatEarnApyPercent(
-                    series.apyBps
-                  )} APY)`}
+                  <ApyRevealText
+                    isRevealed={apyDataRevealed}
+                    segments={[
+                      {
+                        text: `${series.label} (${formatEarnApyPercent(
+                          series.apyBps
+                        )} APY)`,
+                      },
+                    ]}
+                    withPop={false}
+                  />
                 </span>
               </span>
             </div>

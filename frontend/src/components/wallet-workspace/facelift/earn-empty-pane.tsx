@@ -1,7 +1,10 @@
 "use client";
 
+import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
+import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
-import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { useAuthCapability } from "@/lib/auth/capability";
 import {
   formatEarnApyLabel,
@@ -10,6 +13,13 @@ import {
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 const HEADLINE_PRINCIPAL_USD = 6000;
+
+// White-on-dark CTAs: the base dims a touch so the pure-white shimmer band
+// has contrast to sweep against (transitions.dev shimmer-text).
+const CTA_SHIMMER_STYLE = {
+  ["--shimmer-base" as never]: "rgba(255, 255, 255, 0.8)",
+  ["--shimmer-highlight" as never]: "#ffffff",
+};
 
 function formatHeadlineUsd(value: number): string {
   return `$${Math.round(value).toLocaleString("en-US")}`;
@@ -22,22 +32,29 @@ export function EarnEmptyPane({
   onDeposit: () => void;
   onOpenChart: () => void;
 }) {
-  const apy = useEarnForecastApy();
+  const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { open: openSignIn } = useSignInModal();
   const target =
     HEADLINE_PRINCIPAL_USD * getEarnForecastTargetMultiplier(apy.apyBps);
 
-  const headlineWords: { emphasized?: boolean; text: string }[] = [
+  // The target and APY words derive from the fetched APY; they skeleton until
+  // it lands, then reveal with a digit pop (the fallback APY is hardcoded and
+  // would otherwise flash and silently update).
+  const headlineWords: {
+    apyDependent?: boolean;
+    emphasized?: boolean;
+    text: string;
+  }[] = [
     { text: "Turn" },
     { emphasized: true, text: formatHeadlineUsd(HEADLINE_PRINCIPAL_USD) },
     { text: "into" },
-    { emphasized: true, text: formatHeadlineUsd(target) },
+    { apyDependent: true, emphasized: true, text: formatHeadlineUsd(target) },
     { text: "in" },
     { text: "a" },
     { text: "year" },
     { text: "with" },
-    { text: formatEarnApyLabel(apy.apyBps) },
+    { apyDependent: true, text: formatEarnApyLabel(apy.apyBps) },
   ];
 
   return (
@@ -47,17 +64,16 @@ export function EarnEmptyPane({
           <h1 className="whitespace-nowrap font-semibold text-[24px] text-black leading-7">
             Earn
           </h1>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
-            src={`${ASSET_BASE}/icon-question.svg`}
+          {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
+          <InfoTooltip
+            iconClassName="size-6"
+            placement="bottom"
+            text="Earn yield on your idle USDC"
           />
         </div>
         <button
           aria-label="Open chart"
-          className="flex size-11 shrink-0 items-center justify-center rounded-3xl min-[1204px]:hidden"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
           onClick={onOpenChart}
           type="button"
         >
@@ -77,14 +93,35 @@ export function EarnEmptyPane({
             className="flex flex-wrap content-center items-center justify-center gap-x-1.5 gap-y-0.5 font-bold text-[40px] uppercase leading-none tracking-[-0.4px]"
             style={{ fontFeatureSettings: '"case" 1' }}
           >
-            {headlineWords.map((word, index) => (
-              <span
-                className={word.emphasized ? "text-black" : "text-[#8a8a8e]"}
-                key={`${word.text}-${index}`}
-              >
-                {word.text}
-              </span>
-            ))}
+            {headlineWords.map((word, index) => {
+              const colorClassName = word.emphasized
+                ? "text-black"
+                : "text-[#8a8a8e]";
+              if (!word.apyDependent) {
+                return (
+                  <span className={colorClassName} key={index}>
+                    {word.text}
+                  </span>
+                );
+              }
+              // Index keys keep the skeleton wrap mounted when the word's
+              // text changes at load — a remount would skip the cross-fade.
+              return (
+                <SkeletonReveal
+                  isRevealed={isApyLoaded}
+                  key={index}
+                  skeletonClassName="rounded-[8px] bg-black/[0.06]"
+                >
+                  <span className={colorClassName}>
+                    {isApyLoaded ? (
+                      <PopDigits segments={[{ text: word.text }]} />
+                    ) : (
+                      word.text
+                    )}
+                  </span>
+                </SkeletonReveal>
+              );
+            })}
           </p>
         </div>
 
@@ -97,17 +134,23 @@ export function EarnEmptyPane({
           if (!isSignedIn) {
             return (
               <button
-                className="flex h-14 items-center justify-center rounded-full bg-[#f9363c] px-8 font-medium text-[20px] text-white leading-6"
+                className="t-hover flex h-14 items-center justify-center rounded-full bg-[#f9363c] px-8 font-medium text-[20px] leading-6 hover:-translate-y-0.5 hover:bg-[#e62f35] active:translate-y-0"
                 onClick={openSignIn}
                 type="button"
               >
-                Connect wallet
+                <span
+                  className="t-shimmer"
+                  data-text="Connect wallet"
+                  style={CTA_SHIMMER_STYLE}
+                >
+                  Connect wallet
+                </span>
               </button>
             );
           }
           return (
             <button
-              className="flex h-14 items-center justify-center gap-2 rounded-full bg-black px-6 text-white"
+              className="t-hover flex h-14 items-center justify-center gap-2 rounded-full bg-black px-6 text-white hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
               onClick={onDeposit}
               type="button"
             >
@@ -118,7 +161,11 @@ export function EarnEmptyPane({
                 className="size-6"
                 src={`${ASSET_BASE}/icon-plus.svg`}
               />
-              <span className="whitespace-nowrap pr-2.5 font-medium text-[20px] leading-6">
+              <span
+                className="t-shimmer whitespace-nowrap pr-2.5 font-medium text-[20px] leading-6"
+                data-text="Deposit"
+                style={CTA_SHIMMER_STYLE}
+              >
                 Deposit
               </span>
             </button>
