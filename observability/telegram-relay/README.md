@@ -1,0 +1,229 @@
+# ClickStack Telegram relay
+
+A small Bun service that sits between ClickStack and Telegram:
+
+```text
+ClickStack -> relay -> Telegram Bot API
+```
+
+It sends the first non-`OK` state immediately and suppresses repeated events
+with the same ClickStack `eventId` for 60 minutes by default. `OK` recoveries
+are acknowledged and otherwise ignored, so the chat only carries live failures
+and a flapping alert stays capped at one message per cooldown. ClickStack test
+and transitional states such as `INSUFFICIENT_DATA` are accepted and use the
+normal cooldown path.
+
+- Render service: `loyal-clickstack-telegram-relay` (private service)
+- Blueprint: [`../render.yaml`](../render.yaml)
+- Deployed alongside `loyal-clickstack` in the `loyal-observability` project
+
+## State is in-process, so this runs one instance
+
+Cooldown and idempotency state lives in memory (`ExpiringCache` in
+[`src/relay.ts`](./src/relay.ts)). There is no Redis and no database.
+
+Two consequences, both deliberate:
+
+- **`numInstances` must stay at `1`.** Two instances do not share cooldowns and
+  would double-post every alert. The Blueprint pins this.
+- **A restart clears cooldowns.** After a deploy, currently-firing alerts may be
+  posted once more. For a service whose job is to be noisy about problems this
+  is an acceptable trade, and it avoids paying for a shared store.
+
+Moving this state to a shared store is only needed to run more than one
+instance; it buys no throughput. If that day comes, the store should be owned by
+this blueprint (a dedicated database, not the App or Yield Neon product
+databases), the claim must be taken *before* sending with a short lease that is
+extended to the full cooldown only after Telegram accepts, and store errors must
+fail **open** — a duplicate message is better than a swallowed alert.
+
+## Runtime behavior
+
+- Exact `OK` returns HTTP 200 with outcome `resolved` and does nothing else.
+  Nothing is posted to Telegram, and the `eventId` cooldown is left running: a
+  flapping alert resolves and re-fires on every evaluation interval, so clearing
+  the cooldown on recovery would post that event on every cycle.
+- Every other string state is accepted and uses the alert cooldown path.
+- ClickStack's `TEST WEBHOOK` currently uses `INSUFFICIENT_DATA`; it is accepted.
+- The first event for an `eventId` is sent immediately.
+- Further non-`OK` events for that `eventId` return HTTP 200 without Telegram
+  delivery until the cooldown expires. Only elapsed time clears it.
+- An exact delivery retry with the same `Idempotency-Key` also returns HTTP 200.
+- Telegram delivery failure returns HTTP 502 and does not poison either cache.
+- A Telegram `429` with a short `retry_after` is waited out and retried once
+  in-process; a long `retry_after` returns HTTP 502 for ClickStack to retry.
+- `title` must contain non-whitespace text, so a delivered message is never
+  empty. `body` is capped at 8192 characters, comfortably inside
+  `MAX_BODY_BYTES` even for multi-byte text.
+
+## Alert formatting
+
+ClickStack renders an alert body as a short preamble plus a fenced CSV block of
+matched rows. That block has no header line: it is exactly the saved search
+`select`, in order, one quoted field per column. The relay parses it and renders
+labelled Telegram HTML instead of forwarding the raw CSV.
+
+Because the CSV carries no column names, `ALERT_COLUMNS` must list the same
+columns in the same order as the saved search `select`. For a search selecting
+
+```text
+Timestamp, ServiceName, SeverityText,
+ResourceAttributes['deployment.environment.name'] AS env,
+LogAttributes['loyal.flow.name'] AS flow,
+LogAttributes['loyal.flow.stage'] AS stage,
+LogAttributes['loyal.error.code'] AS error_code,
+LogAttributes['exception.message'] AS message
+```
+
+set:
+
+```text
+ALERT_COLUMNS=Timestamp,ServiceName,SeverityText,env,flow,stage,error_code,message
+```
+
+`Timestamp`, `ServiceName`, `SeverityText`, and `Body` are recognized by name
+and rendered as the row headline; every other column becomes a `name: value`
+line. Empty fields are dropped, so a column that is null for one event costs
+nothing. Timestamps render as `HH:MM:SS UTC`.
+
+Formatting is best-effort and never blocks delivery. The relay falls back to the
+verbatim ClickStack text when the body has no CSV block, when the CSV is
+malformed, or when the field count disagrees with `ALERT_COLUMNS`. If Telegram
+rejects the HTML with a `400`, the relay logs `telegram_formatting_rejected` and
+resends the same alert as plain text.
+
+At most 8 rows are rendered, and fewer if they would exceed Telegram's 4096
+character limit; the remainder is summarized as `and N more row(s)` above the
+search link.
+
+## Configuration
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `CLICKSTACK_WEBHOOK_SECRET` | yes | - | Bearer token accepted from ClickStack |
+| `TELEGRAM_BOT_TOKEN` | yes | - | Telegram Bot API token, stored only by this relay |
+| `TELEGRAM_CHAT_ID` | yes | - | Destination chat or channel ID |
+| `HOST` | no | `127.0.0.1` | Listen address. Must be `0.0.0.0` on Render |
+| `PORT` | no | `3000` | Listen port |
+| `COOLDOWN_SECONDS` | no | `3600` | Alert suppression interval per `eventId` |
+| `IDEMPOTENCY_TTL_SECONDS` | no | `86400` | Exact delivery deduplication interval |
+| `MAX_CACHE_ENTRIES` | no | `10000` | Per-cache memory bound |
+| `MAX_BODY_BYTES` | no | `65536` | Maximum request body accepted by Bun |
+| `ALERT_COLUMNS` | no | `Timestamp,ServiceName,SeverityText,Body` | Saved search `select` columns, in order, used to label alert rows |
+| `TRACE_LOGS` | no | `false` | Structured request and validation diagnostics |
+
+`CLICKSTACK_WEBHOOK_SECRET` uses `generateValue: true` in the Blueprint, so
+Render generates it. Read it from the Render dashboard and paste it into the
+ClickStack webhook header; it never needs to exist anywhere else.
+`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are `sync: false` and must be set by
+an operator.
+
+## ClickStack webhook
+
+Configure a generic webhook destination pointing at the relay's private address
+inside the `loyal-observability` environment:
+
+```text
+http://loyal-clickstack-telegram-relay:10000/webhooks/clickstack
+```
+
+Set these headers:
+
+```json
+{
+  "Authorization": "Bearer YOUR_CLICKSTACK_WEBHOOK_SECRET",
+  "Content-Type": "application/json"
+}
+```
+
+ClickStack adds its own `Idempotency-Key` header. The relay requires it and uses
+it to acknowledge an exact webhook retry without posting twice.
+
+Use this body:
+
+```json
+{
+  "eventId": "{{eventId}}",
+  "state": "{{state}}",
+  "title": "{{title}}",
+  "body": "{{body}}",
+  "link": "{{link}}",
+  "startTime": {{startTime}},
+  "endTime": {{endTime}}
+}
+```
+
+The relay responds with HTTP 200 for both suppressed alerts and exact
+duplicates. A Telegram delivery failure returns HTTP 502 without recording a
+cooldown or idempotency entry, allowing ClickStack to retry safely.
+
+## Local development
+
+```sh
+bun install
+op run --env-file=/path/to/your.1password.env -- bun run dev
+curl http://127.0.0.1:3000/healthz
+```
+
+`.env.example` contains placeholders only. Do not save real secrets in the
+project. Generate a webhook secret for local use with:
+
+```sh
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+```
+
+To exercise the real ClickStack webhook path from a laptop, expose the local
+port with a tunnel (`ngrok http 3000`) and point a scratch webhook destination
+at `https://YOUR-TUNNEL.example/webhooks/clickstack`.
+
+## Validation
+
+```sh
+bun run check          # typecheck + tests + build
+```
+
+This package sits outside the root Bun workspace and is not covered by any CI
+workflow, so run `bun run check` here when changing the relay. Root
+`bun run lint` (prettier) does cover these files.
+
+## Trace logging
+
+Trace logs are disabled by default. Enable them temporarily when diagnosing a
+rejected ClickStack webhook by setting `TRACE_LOGS=true`. Each request then
+emits structured JSON diagnostics:
+
+```json
+{
+  "event": "clickstack_webhook_trace",
+  "traceEvent": "request_rejected",
+  "reason": "invalid_payload",
+  "issues": [
+    "startTime must be a finite number (received string)",
+    "endTime must be a finite number (received string)"
+  ]
+}
+```
+
+Trace logs never include authorization headers, Telegram tokens, idempotency key
+values, or the webhook body. Disable them again after debugging.
+
+Common HTTP 400 causes are a missing `Idempotency-Key`, invalid JSON, quoted
+numeric timestamps, or a field with the wrong JSON type. Arbitrary string values
+for `state`, including `INSUFFICIENT_DATA`, are valid.
+
+## Security notes
+
+- Never put the Telegram bot token in ClickStack; only this relay needs it.
+- Use a separate random `CLICKSTACK_WEBHOOK_SECRET` for the relay Bearer header.
+- The relay emits plain JSON logs to stdout and does not export to ClickStack.
+  Its own failures are visible only in Render logs — deliberately, so the
+  alerting path does not depend on the system it alerts about.
+- Trace logs contain field names, validation reasons, `eventId`, state, and
+  timestamps, but never request bodies or authentication values.
+
+## Routes
+
+- `POST /webhooks/clickstack` - authenticated ClickStack webhook
+- `GET /healthz` - process and in-memory cache health. Unauthenticated, so the
+  reported counts are read without sweeping the caches and may briefly include
+  expired entries that a periodic timer has not yet reclaimed.
