@@ -39,6 +39,18 @@ export const BROWSER_ERROR_OPERATIONS = [
 
 export type BrowserErrorOperation = (typeof BROWSER_ERROR_OPERATIONS)[number];
 
+// The two ambient window listeners observe every script on the page, including
+// wallet extensions injected into the document. Crashes those extensions cause
+// among themselves are not Loyal failures and must not reach the error alert.
+const AMBIENT_BROWSER_ERROR_OPERATIONS: readonly BrowserErrorOperation[] = [
+  "browser.window.error",
+  "browser.unhandled_rejection",
+];
+
+const EXTENSION_FRAME_PATTERN =
+  /\b(?:chrome|moz|safari-web|safari|ms-browser)-extension:\/\//i;
+const FIRST_PARTY_FRAME_PATTERN = /\bhttps?:\/\//i;
+
 export const MOBILE_ERROR_OPERATIONS = [
   "mobile.global_error",
   "mobile.fatal_error",
@@ -197,6 +209,24 @@ export function createBrowserErrorEnvelope(
     pathname: pathname ?? "/",
     timestamp: (options.now ?? new Date()).toISOString(),
   };
+}
+
+// True when a stack is made up solely of browser-extension frames, meaning no
+// Loyal code took part in the failure. Only ambient listeners are filtered:
+// an explicit operation such as `earn.deposit.execute` reporting a wallet
+// provider error is a real signal even though the stack points at the wallet.
+export function isThirdPartyExtensionError(
+  operation: BrowserErrorOperation,
+  stack: string | undefined
+): boolean {
+  if (!stack || !AMBIENT_BROWSER_ERROR_OPERATIONS.includes(operation)) {
+    return false;
+  }
+
+  return (
+    EXTENSION_FRAME_PATTERN.test(stack) &&
+    !FIRST_PARTY_FRAME_PATTERN.test(stack)
+  );
 }
 
 function isAllowedBrowserOperation(
