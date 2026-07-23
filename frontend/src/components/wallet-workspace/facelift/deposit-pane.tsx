@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
 import {
-  hiddenBalanceStyle,
+  ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
@@ -138,23 +138,27 @@ export function DepositPane({
             </label>
           </div>
 
-          <div className="w-full px-2">
-            <div className="flex w-full items-start px-4">
-              <div className="flex items-center py-1 pr-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6"
-                  src={`${ASSET_BASE}/icon-circle-info.svg`}
-                />
+          {/* Rent disclaimer only concerns the FIRST deposit — an existing
+              position's accounts already paid it. */}
+          {earnData.hasPosition ? null : (
+            <div className="w-full px-2">
+              <div className="flex w-full items-start px-4">
+                <div className="flex items-center py-1 pr-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="size-6"
+                    src={`${ASSET_BASE}/icon-circle-info.svg`}
+                  />
+                </div>
+                <p className="min-w-0 max-w-[400px] flex-1 py-2 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  Your first deposit takes ~0.06 SOL from your wallet for Solana
+                  account rent — it is returned when you fully withdraw.
+                </p>
               </div>
-              <p className="min-w-0 max-w-[400px] flex-1 py-2 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-                Your first deposit takes ~0.06 SOL from your wallet for Solana
-                account rent — it is returned when you fully withdraw.
-              </p>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="relative flex h-36 w-full flex-col gap-1 overflow-clip p-2">
@@ -172,13 +176,16 @@ export function DepositPane({
               <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                 from USDC balance
               </span>
-              <p
-                className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-                style={hiddenBalanceStyle(isBalanceHidden)}
-              >
-                {usdcBalance.balanceWhole}
+              <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                <ScrambleText
+                  isHidden={isBalanceHidden}
+                  text={usdcBalance.balanceWhole}
+                />
                 <span className="text-[rgba(60,60,67,0.4)]">
-                  {usdcBalance.balanceFraction}
+                  <ScrambleText
+                    isHidden={isBalanceHidden}
+                    text={usdcBalance.balanceFraction}
+                  />
                 </span>
               </p>
             </div>

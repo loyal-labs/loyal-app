@@ -9,7 +9,8 @@ import {
   type EarnWithdrawSourceOption,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
-  hiddenBalanceStyle,
+  maskBalanceText,
+  ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
@@ -22,7 +23,6 @@ import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
 import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
-const ALL_POSITIONS_KEY = "all";
 
 // Display label matching the facelift rows: "Main Kamino USDC" for reserves
 // (the OG source label is "<market> reserve"), the OG label for idle vaults.
@@ -64,13 +64,13 @@ function SourceOptionRow({
         <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
           {option.label}
         </span>
-        <span
-          className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-          style={hiddenBalanceStyle(isBalanceHidden)}
-        >
-          {amount.balanceWhole}
+        <span className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+          <ScrambleText isHidden={isBalanceHidden} text={amount.balanceWhole} />
           <span className="text-[rgba(60,60,67,0.4)]">
-            {amount.balanceFraction}
+            <ScrambleText
+              isHidden={isBalanceHidden}
+              text={amount.balanceFraction}
+            />
           </span>
         </span>
       </span>
@@ -103,7 +103,8 @@ export function WithdrawPane({
   onBack: () => void;
 }) {
   const [amount, setAmount] = useState("");
-  const [selectedKey, setSelectedKey] = useState(ALL_POSITIONS_KEY);
+  // Defaults to the first eligible source (options[0] fallback below).
+  const [selectedKey, setSelectedKey] = useState("");
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const { isBalanceHidden } = useBalanceVisibility();
 
@@ -117,23 +118,8 @@ export function WithdrawPane({
   // by the same helper the old workspace's withdraw view uses.
   const sources = data.actions.withdrawSources;
   const options = useMemo<WithdrawSourceOption[]>(
-    () => [
-      {
-        icon: (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-11"
-            src={`${ASSET_BASE}/earn-icon.svg`}
-          />
-        ),
-        key: ALL_POSITIONS_KEY,
-        label: "All Earn positions",
-        source: null,
-        usd: data.earnBalanceUsd,
-      },
-      ...sources.map((source) => ({
+    () =>
+      sources.map((source) => ({
         icon: (
           <DualIcon
             frontSrc={resolveEarnTransactionMarketIcon({
@@ -146,12 +132,12 @@ export function WithdrawPane({
         source,
         usd: source.balance,
       })),
-    ],
-    [data.earnBalanceUsd, sources]
+    [sources]
   );
+  // Null while no sources exist (cleanup-only phase after a full exit).
   const selectedOption =
-    options.find((option) => option.key === selectedKey) ?? options[0];
-  const fromBalance = splitUsdBalance(selectedOption.usd);
+    options.find((option) => option.key === selectedKey) ?? options[0] ?? null;
+  const fromBalance = splitUsdBalance(selectedOption?.usd ?? 0);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
   // Same mode derivation as the old workspace: compared against the floored
@@ -161,21 +147,14 @@ export function WithdrawPane({
     () => sources.filter((source) => source.type === "reserve"),
     [sources]
   );
-  // Resolve the draft source: a picked row maps 1:1; "All Earn positions"
-  // resolves to the first reserve for a full exit, else the first source that
-  // covers the amount. ponytail: OG has no aggregate row — partial multi-
-  // source withdrawals still draw from one source, same as the OG picker.
-  const draftSource =
-    selectedOption.source ??
-    (withdrawMode === "full"
-      ? fullExitSources[0] ?? sources[0] ?? null
-      : sources.find((source) => source.balance >= amountUsd) ?? null);
+  // A picked row maps 1:1 to its source, same as the OG picker.
+  const draftSource = selectedOption?.source ?? null;
   const withdrawValidationError =
     sources.length === 0
       ? "No withdrawable Earn source"
       : !Number.isFinite(amountUsd) || amountUsd <= 0
       ? "Enter amount"
-      : amountUsd > selectedOption.usd || !draftSource
+      : amountUsd > (selectedOption?.usd ?? 0) || !draftSource
       ? "Insufficient balance"
       : null;
   const canWithdraw = withdrawValidationError === null;
@@ -301,7 +280,7 @@ export function WithdrawPane({
             >
               {options.map((option) => (
                 <SourceOptionRow
-                  isSelected={option.key === selectedOption.key}
+                  isSelected={option.key === selectedOption?.key}
                   key={option.key}
                   onSelect={() => selectSource(option.key)}
                   option={option}
@@ -340,7 +319,7 @@ export function WithdrawPane({
               <div className="flex w-full flex-col py-2">
                 {options.map((option) => (
                   <SourceOptionRow
-                    isSelected={option.key === selectedOption.key}
+                    isSelected={option.key === selectedOption?.key}
                     key={option.key}
                     onSelect={() => selectSource(option.key)}
                     option={option}
@@ -361,19 +340,44 @@ export function WithdrawPane({
                 type="button"
               >
                 <span className="flex items-center py-2 pr-3">
-                  {selectedOption.icon}
+                  {/* Cleanup-only phase has no sources; keep a sane cell. */}
+                  {selectedOption?.icon ?? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="size-11"
+                      src={`${ASSET_BASE}/earn-icon.svg`}
+                    />
+                  )}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
                   <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-                    <TextSwap text={`from ${selectedOption.label}`} />
+                    <TextSwap
+                      text={`from ${selectedOption?.label ?? "Earn"}`}
+                    />
                   </span>
-                  <span
-                    className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-                    style={hiddenBalanceStyle(isBalanceHidden)}
-                  >
-                    <TextSwap text={fromBalance.balanceWhole} />
+                  <span className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                    {/* Hiding masks through TextSwap's own swap animation
+                        (churning it would thrash the swap). */}
+                    <TextSwap
+                      text={
+                        isBalanceHidden
+                          ? maskBalanceText(fromBalance.balanceWhole, "whole")
+                          : fromBalance.balanceWhole
+                      }
+                    />
                     <span className="text-[rgba(60,60,67,0.4)]">
-                      <TextSwap text={fromBalance.balanceFraction} />
+                      <TextSwap
+                        text={
+                          isBalanceHidden
+                            ? maskBalanceText(
+                                fromBalance.balanceFraction,
+                                "fraction"
+                              )
+                            : fromBalance.balanceFraction
+                        }
+                      />
                     </span>
                   </span>
                 </span>
@@ -382,11 +386,12 @@ export function WithdrawPane({
                 <button
                   className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
                   onClick={() => {
-                    if (selectedOption.usd > 0) {
+                    const usd = selectedOption?.usd ?? 0;
+                    if (usd > 0) {
                       // Floor to cents so the label never rounds above the
                       // real balance (full exits withdraw the exact raw).
                       handleAmountChange(
-                        (Math.floor(selectedOption.usd * 100) / 100).toFixed(2)
+                        (Math.floor(usd * 100) / 100).toFixed(2)
                       );
                     }
                   }}
@@ -425,13 +430,16 @@ export function WithdrawPane({
                 <span className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                   {`to Stablecoins · ${addressLabel}`}
                 </span>
-                <p
-                  className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-                  style={hiddenBalanceStyle(isBalanceHidden)}
-                >
-                  {stablecoinsBalance.balanceWhole}
+                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                  <ScrambleText
+                    isHidden={isBalanceHidden}
+                    text={stablecoinsBalance.balanceWhole}
+                  />
                   <span className="text-[rgba(60,60,67,0.4)]">
-                    {stablecoinsBalance.balanceFraction}
+                    <ScrambleText
+                      isHidden={isBalanceHidden}
+                      text={stablecoinsBalance.balanceFraction}
+                    />
                   </span>
                 </p>
               </div>
@@ -505,7 +513,7 @@ export function WithdrawPane({
         <div className="flex w-full flex-col p-2">
           {options.map((option) => (
             <SourceOptionRow
-              isSelected={option.key === selectedOption.key}
+              isSelected={option.key === selectedOption?.key}
               key={option.key}
               onSelect={() => selectSource(option.key)}
               option={option}

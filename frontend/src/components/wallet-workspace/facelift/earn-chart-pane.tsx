@@ -142,6 +142,7 @@ function ChartBody({
           key={forecastPrincipal}
           mainUsdcReserveApyBps={mainUsdcReserveApyBps}
           principal={forecastPrincipal}
+          scrambleHiddenValues
         />
       )}
     </div>

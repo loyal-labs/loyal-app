@@ -2,10 +2,10 @@
 
 import { useWallet } from "@solana/wallet-adapter-react";
 import { LogOut } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  hiddenBalanceStyle,
+  ScrambledPopDigits,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
@@ -68,16 +68,14 @@ function SplitAmount({
   whole: string;
 }) {
   return (
-    <p
-      className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-      style={hiddenBalanceStyle(isHidden)}
-    >
+    <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
       <SkeletonReveal
         isRevealed={isRevealed}
         skeletonClassName="rounded-md bg-black/[0.06]"
       >
         {isRevealed ? (
-          <PopDigits
+          <ScrambledPopDigits
+            isHidden={isHidden}
             segments={[
               { text: whole },
               { color: fractionColor, text: fraction },
@@ -168,9 +166,51 @@ export function FaceliftSidebar({
   const isEarnBalanceRevealed = !isEarnBalanceLoading;
   const isTotalRevealed = isWalletDataRevealed && isEarnBalanceRevealed;
 
+  // Copied feedback: the copy icon swaps to a check, then back.
+  const [isCopied, setIsCopied] = useState(false);
+  const copiedTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (copiedTimerRef.current !== null) {
+        window.clearTimeout(copiedTimerRef.current);
+      }
+    },
+    []
+  );
+  const showCopied = () => {
+    setIsCopied(true);
+    if (copiedTimerRef.current !== null) {
+      window.clearTimeout(copiedTimerRef.current);
+    }
+    copiedTimerRef.current = window.setTimeout(() => {
+      copiedTimerRef.current = null;
+      setIsCopied(false);
+    }, 1500);
+  };
+
   const handleCopyAddress = () => {
-    if (data.walletAddress) {
-      void navigator.clipboard.writeText(data.walletAddress).catch(() => {});
+    const address = data.walletAddress;
+    if (!address) {
+      return;
+    }
+    if (navigator.clipboard) {
+      void navigator.clipboard
+        .writeText(address)
+        .then(showCopied)
+        .catch(() => {});
+      return;
+    }
+    // Insecure contexts (private-network dev hosts) have no clipboard API.
+    const textarea = document.createElement("textarea");
+    textarea.value = address;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    const didCopy = document.execCommand("copy");
+    textarea.remove();
+    if (didCopy) {
+      showCopied();
     }
   };
 
@@ -213,16 +253,14 @@ export function FaceliftSidebar({
             <InfoTooltip text="Wallet and Earn balances combined" />
           </div>
           <div className="flex items-center gap-3">
-            <p
-              className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]"
-              style={hiddenBalanceStyle(isBalanceHidden, "lg")}
-            >
+            <p className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]">
               <SkeletonReveal
                 isRevealed={isTotalRevealed}
                 skeletonClassName="rounded-lg bg-black/[0.06]"
               >
                 {isTotalRevealed ? (
-                  <PopDigits
+                  <ScrambledPopDigits
+                    isHidden={isBalanceHidden}
                     segments={[
                       { text: totalBalance.balanceWhole },
                       {
@@ -419,8 +457,8 @@ export function FaceliftSidebar({
             <img
               alt=""
               aria-hidden="true"
-              className="mr-3 size-11 shrink-0"
-              src={`${ASSET_BASE}/wallet-logo.svg`}
+              className="mr-3 size-11 shrink-0 rounded-[11px]"
+              src="/agents/Agent-01.svg"
             />
             <span className="flex min-w-0 items-center gap-1">
               <span className="whitespace-nowrap text-[16px] text-black leading-5">
@@ -431,16 +469,31 @@ export function FaceliftSidebar({
                   <TextSwap text={addressLabel} />
                 </SkeletonReveal>
               </span>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt="Copy address"
-                className="size-6 shrink-0 cursor-pointer"
+              {/* transitions.dev icon swap: copy ↔ check while isCopied. */}
+              <span
+                className="t-icon-swap size-6 shrink-0 cursor-pointer"
+                data-state={isCopied ? "b" : "a"}
                 onClick={(event) => {
                   event.stopPropagation();
                   handleCopyAddress();
                 }}
-                src={`${ASSET_BASE}/icon-copy.svg`}
-              />
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt="Copy address"
+                  className="t-icon size-6"
+                  data-icon="a"
+                  src={`${ASSET_BASE}/icon-copy.svg`}
+                />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="t-icon size-6"
+                  data-icon="b"
+                  src={`${ASSET_BASE}/icon-check.svg`}
+                />
+              </span>
             </span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

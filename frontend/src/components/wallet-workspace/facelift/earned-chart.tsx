@@ -13,10 +13,10 @@ import {
   splitEarningsHeaderValue,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
-  hiddenBalanceStyle,
+  ScrambledPopDigits,
+  ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
-import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -202,10 +202,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         <p className="truncate text-[16px] leading-5 text-[#8a8a8e]">
           {headerSubtitle}
         </p>
-        <p
-          className="font-semibold text-[40px] text-black leading-[48px]"
-          style={hiddenBalanceStyle(isBalanceHidden, "lg")}
-        >
+        <p className="font-semibold text-[40px] text-black leading-[48px]">
           {earningsUnavailable ? (
             "Unavailable"
           ) : (
@@ -215,7 +212,8 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
                 // six-decimal earnings value.
                 "$0.000000"
               ) : (
-                <PopDigits
+                <ScrambledPopDigits
+                  isHidden={isBalanceHidden}
                   popOnChange={false}
                   segments={[
                     { text: `$${headerValue.whole}` },
@@ -230,10 +228,15 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
 
       <div className="flex w-full justify-between pb-2 text-[13px] leading-4 text-[#8a8a8e]">
         <span>{hoveredDateRowLabel}</span>
-        <span style={hiddenBalanceStyle(isBalanceHidden)}>
-          {earningsUnavailable || showEarningsLoader
-            ? ""
-            : formatMaxDailyEarningsLabel(maxDailyEarnedUsd)}
+        <span>
+          <ScrambleText
+            isHidden={isBalanceHidden}
+            text={
+              earningsUnavailable || showEarningsLoader
+                ? ""
+                : formatMaxDailyEarningsLabel(maxDailyEarnedUsd)
+            }
+          />
         </span>
       </div>
 

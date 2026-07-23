@@ -23,6 +23,7 @@ import {
 } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
+import { maskBalanceText } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import {
   Tooltip,
@@ -4754,7 +4755,10 @@ export function HistoricalApyChart({
 }) {
   // Unique per instance so simultaneously mounted charts (e.g. compact pane +
   // expanded overlay) don't resolve each other's reveal clip rects.
-  const revealClipId = `historical-chart-reveal-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const revealClipId = `historical-chart-reveal-clip-${useId().replace(
+    /[^a-zA-Z0-9_-]/g,
+    ""
+  )}`;
   const apyHistory = useEarnForecastApyHistory();
   const samples = useMemo(() => {
     const fetchedSamples = toHistoricalApySamples(apyHistory);
@@ -5102,10 +5106,7 @@ export function HistoricalApyChart({
               width="100%"
             >
               <defs>
-                <clipPath
-                  clipPathUnits="userSpaceOnUse"
-                  id={revealClipId}
-                >
+                <clipPath clipPathUnits="userSpaceOnUse" id={revealClipId}>
                   <rect
                     className="historical-chart-reveal-rect"
                     height={chartHeight}
@@ -5217,6 +5218,7 @@ export function ForecastChart({
   isBalanceHidden = false,
   mainUsdcReserveApyBps = 559,
   principal = 1000,
+  scrambleHiddenValues = false,
 }: {
   apy?: EarnForecastApy;
   // Facelift-only: skeleton the summary values until the APY summary loads
@@ -5225,10 +5227,22 @@ export function ForecastChart({
   isBalanceHidden?: boolean;
   mainUsdcReserveApyBps?: number;
   principal?: number;
+  // Facelift-only: hidden values mask to ASCII scramble instead of the
+  // legacy pixelate/blur filter (default keeps the OG views unchanged).
+  scrambleHiddenValues?: boolean;
 }) {
+  const hiddenValueFilter =
+    isBalanceHidden && !scrambleHiddenValues ? "url(#rs-pixelate-sm)" : "none";
+  const maskIfHidden = (text: string, seed: string) =>
+    isBalanceHidden && scrambleHiddenValues
+      ? maskBalanceText(text, seed)
+      : text;
   // Unique per instance so simultaneously mounted charts (e.g. compact pane +
   // expanded overlay) don't resolve each other's reveal clip rects.
-  const revealClipId = `forecast-tab-reveal-clip-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const revealClipId = `forecast-tab-reveal-clip-${useId().replace(
+    /[^a-zA-Z0-9_-]/g,
+    ""
+  )}`;
   const points = useMemo(
     () =>
       buildEarnComparisonPoints(principal, apy, {
@@ -5454,7 +5468,7 @@ export function ForecastChart({
                     : isPrimary
                     ? "#000"
                     : "#3C3C43",
-                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  filter: hiddenValueFilter,
                   fontFamily: font,
                   fontSize: isPrimary ? "28px" : "16px",
                   fontWeight: 600,
@@ -5468,7 +5482,13 @@ export function ForecastChart({
                   segments={forecastMoneySegments(
                     focusPoint.values[series.key],
                     !isBalanceHidden
-                  )}
+                  ).map((segment, segmentIndex) => ({
+                    ...segment,
+                    text: maskIfHidden(
+                      segment.text,
+                      `${series.key}:${segmentIndex}`
+                    ),
+                  }))}
                 />
               </p>
               <span
@@ -5537,11 +5557,11 @@ export function ForecastChart({
         <span
           style={{
             color: secondary,
-            filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+            filter: hiddenValueFilter,
             whiteSpace: "nowrap",
           }}
         >
-          {`$${formatMoney(scaleMax)}`}
+          {maskIfHidden(`$${formatMoney(scaleMax)}`, "scale-max")}
         </span>
       </div>
 
@@ -5568,10 +5588,7 @@ export function ForecastChart({
               width="100%"
             >
               <defs>
-                <clipPath
-                  clipPathUnits="userSpaceOnUse"
-                  id={revealClipId}
-                >
+                <clipPath clipPathUnits="userSpaceOnUse" id={revealClipId}>
                   <rect
                     className="forecast-chart-reveal-rect"
                     height={chartHeight}

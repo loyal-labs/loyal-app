@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
 import {
-  hiddenBalanceStyle,
+  ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
@@ -287,13 +287,16 @@ export function AutodepositPane({
                 <span className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                   {`from Stablecoins · ${addressLabel}`}
                 </span>
-                <p
-                  className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-                  style={hiddenBalanceStyle(isBalanceHidden)}
-                >
-                  {stablecoinsBalance.balanceWhole}
+                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                  <ScrambleText
+                    isHidden={isBalanceHidden}
+                    text={stablecoinsBalance.balanceWhole}
+                  />
                   <span className="text-[rgba(60,60,67,0.4)]">
-                    {stablecoinsBalance.balanceFraction}
+                    <ScrambleText
+                      isHidden={isBalanceHidden}
+                      text={stablecoinsBalance.balanceFraction}
+                    />
                   </span>
                 </p>
               </div>
@@ -313,13 +316,16 @@ export function AutodepositPane({
                 <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                   to Earn
                 </span>
-                <p
-                  className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-                  style={hiddenBalanceStyle(isBalanceHidden)}
-                >
-                  {earnBalance.balanceWhole}
+                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                  <ScrambleText
+                    isHidden={isBalanceHidden}
+                    text={earnBalance.balanceWhole}
+                  />
                   <span className="text-[rgba(60,60,67,0.4)]">
-                    {earnBalance.balanceFraction}
+                    <ScrambleText
+                      isHidden={isBalanceHidden}
+                      text={earnBalance.balanceFraction}
+                    />
                   </span>
                 </p>
               </div>
