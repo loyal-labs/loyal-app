@@ -1,4 +1,4 @@
-FROM docker.io/clickhouse/clickstack-all-in-one:2.30.1@sha256:bd0bde1b1f2ca0702fdafe269f3552e36b055d25e47692685b1a6018567a2d3c
+FROM docker.io/clickhouse/clickstack-all-in-one:2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1
 
 # The upstream authenticated image hardcodes a public session secret. Replace
 # that assignment with a runtime requirement and use tini to forward Render's

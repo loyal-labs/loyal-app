@@ -49,7 +49,7 @@ require_literal 'value: 127.0.0.1' "$blueprint"
   || fail "observability Blueprint must retain exactly one service"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
 
-require_literal '2.30.1@sha256:bd0bde1b1f2ca0702fdafe269f3552e36b055d25e47692685b1a6018567a2d3c' "$project_dir/Dockerfile"
+require_literal '2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1' "$project_dir/Dockerfile"
 require_literal 'nginx=1.30.4-r0' "$project_dir/Dockerfile"
 require_literal 'tini=0.19.0-r3' "$project_dir/Dockerfile"
 require_literal 'HYPERDX_APP_PORT=8081' "$project_dir/Dockerfile"
@@ -99,6 +99,12 @@ done
 if rg --quiet 'location = /v1/workflows' "$project_dir/nginx.conf"; then
   fail "the nonexistent /v1/workflows path must not be proxied"
 fi
+# Non-upgrade requests must resolve to an empty value so nginx omits the
+# Connection header entirely.
+require_literal "    '' '';" "$project_dir/nginx.conf"
+require_literal \
+  'proxy_set_header Connection $connection_upgrade;' \
+  "$project_dir/nginx.conf"
 require_literal 'metrics_probe_payload=' "$project_dir/scripts/smoke-live.sh"
 require_literal 'traces_probe_payload=' "$project_dir/scripts/smoke-live.sh"
 require_literal 'for signal in metrics traces' "$project_dir/scripts/smoke-live.sh"
