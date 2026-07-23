@@ -12,11 +12,11 @@ COPY src ./src
 
 USER bun
 
-# Render reserves 10000, 18012, 18013 and 19099 on the private network, so the
-# relay has to listen somewhere else.
+# Render's default service port, and the one it advertises as this service's
+# internal address. Render reserves only 18012, 18013 and 19099.
 ENV HOST=0.0.0.0 \
-    PORT=3000
+    PORT=10000
 
-EXPOSE 3000
+EXPOSE 10000
 
 CMD ["bun", "src/index.ts"]

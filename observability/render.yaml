@@ -5,6 +5,10 @@ projects:
   - name: loyal-observability
     environments:
       - name: test
+        # Render defaults this to `disabled` when omitted, so leaving it out
+        # silently downgrades the environment on the next Blueprint sync.
+        networking:
+          isolation: enabled
         services:
           - type: web
             name: loyal-clickstack
@@ -79,10 +83,13 @@ projects:
               # reach over the private network.
               - key: HOST
                 value: 0.0.0.0
-              # Render reserves 10000, 18012, 18013 and 19099 on the private
-              # network, so the relay cannot listen on any of them.
+              # Render's default service port. Keep it aligned with the
+              # internal address Render advertises under Connect -> Internal,
+              # or the address an operator copies from there points at a port
+              # nothing is listening on. Render reserves only 18012, 18013
+              # and 19099.
               - key: PORT
-                value: "3000"
+                value: "10000"
               # Read the generated value from the Render dashboard and paste it
               # into the ClickStack webhook's Authorization header.
               - key: CLICKSTACK_WEBHOOK_SECRET
