@@ -17,6 +17,10 @@ normal cooldown path.
 - Blueprint: [`../render.yaml`](../render.yaml)
 - Deployed alongside `loyal-clickstack` in the `loyal-observability` project
 
+Render supports health checks on web services only, so the Blueprint declares no
+`healthCheckPath`. `GET /healthz` still works and is the quickest liveness probe
+from a shell on the ClickStack service.
+
 ## State is in-process, so this runs one instance
 
 Cooldown and idempotency state lives in memory (`ExpiringCache` in
@@ -124,8 +128,12 @@ Configure a generic webhook destination pointing at the relay's private address
 inside the `loyal-observability` environment:
 
 ```text
-http://loyal-clickstack-telegram-relay:10000/webhooks/clickstack
+http://loyal-clickstack-telegram-relay:3000/webhooks/clickstack
 ```
+
+Port `3000` rather than Render's usual `10000`: Render reserves `10000`,
+`18012`, `18013` and `19099` on the private network, so a service listening on
+one of them is unreachable from its peers.
 
 Set these headers:
 

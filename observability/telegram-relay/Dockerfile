@@ -1,5 +1,6 @@
 # Pinned to the Bun release this repo standardizes on (root `packageManager`).
-FROM oven/bun:1.3.11-debian AS runtime
+# The 1.3.x line publishes no `-debian` variant; `-slim` is the Debian build.
+FROM oven/bun:1.3.11-slim AS runtime
 
 WORKDIR /app
 
@@ -11,9 +12,11 @@ COPY src ./src
 
 USER bun
 
+# Render reserves 10000, 18012, 18013 and 19099 on the private network, so the
+# relay has to listen somewhere else.
 ENV HOST=0.0.0.0 \
-    PORT=10000
+    PORT=3000
 
-EXPOSE 10000
+EXPOSE 3000
 
 CMD ["bun", "src/index.ts"]
