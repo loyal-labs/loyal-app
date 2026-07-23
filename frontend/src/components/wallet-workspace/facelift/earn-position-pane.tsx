@@ -8,7 +8,8 @@ import {
 } from "@/components/wallet-sidebar/earn-detail-view";
 import { AutodepositInfoOverlay } from "@/components/wallet-workspace/facelift/autodeposit-pane";
 import {
-  hiddenBalanceStyle,
+  maskBalanceText,
+  ScrambledPopDigits,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { EarnActivityCard } from "@/components/wallet-workspace/facelift/earn-activity-card";
@@ -17,7 +18,6 @@ import {
   type ChartTab,
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
-import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
@@ -148,10 +148,10 @@ export function EarnPositionPane({
                     className="whitespace-nowrap font-semibold text-[40px] leading-[46px] [font-variant-numeric:tabular-nums] max-[760px]:text-[clamp(30px,9.5vw,40px)] max-[760px]:leading-[1.08]"
                     style={{
                       color: isBalanceHidden ? "#BBBBC0" : "#000",
-                      ...hiddenBalanceStyle(isBalanceHidden, "lg"),
                     }}
                   >
-                    <PopDigits
+                    <ScrambledPopDigits
+                      isHidden={isBalanceHidden}
                       segments={[
                         { text: balance.whole },
                         {
@@ -183,15 +183,18 @@ export function EarnPositionPane({
                 <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
                   Autodeposit
                 </p>
-                <p
-                  className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]"
-                  style={
-                    autodepositLabelHasAmount
-                      ? hiddenBalanceStyle(isBalanceHidden)
-                      : undefined
-                  }
-                >
-                  <TextSwap text={autodepositLabel} />
+                {/* No truncate: the setup teaser must wrap on narrow screens
+                    instead of clipping mid-word. */}
+                <p className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  {/* Hiding masks the amount-bearing label through TextSwap's
+                      own swap animation (churning it would thrash the swap). */}
+                  <TextSwap
+                    text={
+                      autodepositLabelHasAmount && isBalanceHidden
+                        ? maskBalanceText(autodepositLabel)
+                        : autodepositLabel
+                    }
+                  />
                 </p>
               </div>
               {autodeposit ? (
@@ -273,6 +276,12 @@ export function EarnPositionPane({
         />
 
         <EarnActivityCard
+          executeNow={{
+            error: data.actions.executeNowError,
+            isPending: data.actions.isExecuteNowPending,
+            progressBySlot: data.actions.autodepositProgressBySlot,
+            run: data.actions.executeScheduledSweep,
+          }}
           holdings={data.position?.holdings ?? []}
           refreshKey={data.actions.earnTransactionsRefreshKey}
           scheduledSweeps={data.scheduledSweeps}

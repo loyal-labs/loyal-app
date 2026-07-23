@@ -44,6 +44,8 @@ import {
   EARN_SYNC_RESOURCES,
   getEarnWithdrawDraftAmountRaw,
   isWalletCancellation,
+  parseEarnAutodepositExecuteError,
+  parseEarnAutodepositExecuteResponse,
   parseTokenAmountLabelToRaw,
   resolveActiveEarnDepositTarget,
   resolveEarnMutationSmartAccountPlan,
@@ -56,12 +58,23 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import {
+  EARN_REALTIME_EVENT_TYPES,
   EarnMutationReconciliationRegistry,
+  fetchEarnAutodepositProgress,
+  isEarnAutodepositTerminalState,
+  mergeEarnAutodepositProgress,
   useEarnRealtime,
+  type EarnAutodepositProgress,
   type EarnExpectedMutationOperation,
+  type EarnRealtimeInvalidation,
 } from "@/features/earn-realtime";
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
-import type { LifecycleTracker } from "@/features/observability/lifecycle-contract";
+import {
+  mapExecuteNowState,
+  normalizeLifecycleErrorCode,
+  type ExecuteNowState,
+  type LifecycleTracker,
+} from "@/features/observability/lifecycle-contract";
 import {
   useRealtimeResource,
   useRealtimeSync,
@@ -82,7 +95,10 @@ import {
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
-import type { LoadedEarnAutodepositConfig } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import type {
+  LoadedEarnAutodepositConfig,
+  LoadedEarnAutodepositScheduledSweep,
+} from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import { hasEarnCleanupCandidate } from "@/lib/yield-optimization/earn-cleanup-ui-state";
 import {
   fetchEarnTransactions,
@@ -122,8 +138,14 @@ export type EarnActions = {
   depositError: string | null;
   depositSource: EarnDepositSourceOption;
   dismissAutodepositClose: () => void;
+  autodepositProgressBySlot: Readonly<Record<string, EarnAutodepositProgress>>;
   earnTransactionsRefreshKey: number;
+  executeNowError: string | null;
+  executeScheduledSweep: (
+    sweep: LoadedEarnAutodepositScheduledSweep
+  ) => Promise<boolean>;
   hasCleanupCandidate: boolean;
+  isExecuteNowPending: boolean;
   isAutodepositPending: boolean;
   isCleanupPending: boolean;
   isDepositPending: boolean;
@@ -218,6 +240,20 @@ export function useEarnActions(deps: {
   const [isWithdrawPending, setIsWithdrawPending] = useState(false);
   const [isCleanupPending, setIsCleanupPending] = useState(false);
   const [isAutodepositPending, setIsAutodepositPending] = useState(false);
+  const [isExecuteNowPending, setIsExecuteNowPending] = useState(false);
+  const [executeNowError, setExecuteNowError] = useState<string | null>(null);
+  // Per-slot execute-now progress (app-wallet-workspace.tsx:1899-1906,
+  // 2558-2561): drives the sweep row's state labels and the fallback poll.
+  const [activeScheduledSweepSlotId, setActiveScheduledSweepSlotId] = useState<
+    string | null
+  >(null);
+  const [autodepositProgressBySlot, setAutodepositProgressBySlot] = useState<
+    Record<string, EarnAutodepositProgress>
+  >({});
+  const executeNowLifecycleRef = useRef<{
+    scheduledSlotId: string | null;
+    tracker: LifecycleTracker;
+  } | null>(null);
   const withdrawTrackerRef = useRef<LifecycleTracker | null>(null);
   const autodepositTrackerRef = useRef<LifecycleTracker | null>(null);
   const autodepositClosePreparedRef =
@@ -470,16 +506,175 @@ export function useEarnActions(deps: {
     earnMutationSequenceRef.current = 0;
     return () => registry?.reset();
   }, [earnRealtimeScope]);
-  useEarnRealtime({
+  // Execute-now progress plumbing (app-wallet-workspace.tsx:2018-2302): SSE
+  // autodeposit events update the per-slot progress map + lifecycle tracker;
+  // when SSE is not connected a bounded fallback poll fetches progress and
+  // feeds it through the same invalidation batch so the UI refreshes live.
+  const applyEarnAutodepositProgress = useCallback(
+    (progress: EarnAutodepositProgress) => {
+      const scheduledSlotId = progress.scheduledSlotId;
+      setAutodepositProgressBySlot((current) => ({
+        ...current,
+        [scheduledSlotId]: mergeEarnAutodepositProgress(
+          current[scheduledSlotId],
+          progress
+        ),
+      }));
+    },
+    []
+  );
+  const recordExecuteNowProgress = useCallback(
+    (
+      progress: EarnAutodepositProgress,
+      source: "sse" | "fallback",
+      occurredAt?: string
+    ) => {
+      const active = executeNowLifecycleRef.current;
+      if (
+        !active ||
+        !active.scheduledSlotId ||
+        active.scheduledSlotId !== progress.scheduledSlotId ||
+        progress.state === "scheduled" ||
+        progress.state === "requesting"
+      ) {
+        return;
+      }
+      const state = progress.state as ExecuteNowState;
+      const mapped = mapExecuteNowState(state);
+      const diagnostics = {
+        executeNowState: state,
+        ...(state === "failed" || state === "released"
+          ? { errorCode: normalizeLifecycleErrorCode(progress.failureCode) }
+          : {}),
+        scheduledSlotId: progress.scheduledSlotId,
+      };
+      const options = {
+        source,
+        ...(occurredAt ? { timestamp: occurredAt } : {}),
+      };
+      if (mapped.outcome === "completed") {
+        active.tracker.complete(mapped.stage, diagnostics, options);
+      } else if (mapped.outcome === "failed") {
+        active.tracker.fail(mapped.stage, diagnostics, options);
+      } else if (mapped.outcome === "cancelled") {
+        active.tracker.cancel(mapped.stage, diagnostics, options);
+      } else {
+        active.tracker.observe(mapped.stage, diagnostics, options);
+      }
+    },
+    []
+  );
+  const handleEarnRealtimeInvalidation = useCallback(
+    (event: EarnRealtimeInvalidation) => {
+      if (
+        event.eventType !== EARN_REALTIME_EVENT_TYPES.autodeposit ||
+        !event.scheduledSlotId ||
+        !event.state
+      ) {
+        return;
+      }
+      const progress = {
+        eventId: event.eventId,
+        failureCode: event.failureCode,
+        occurredAt: event.occurredAt,
+        scheduledSlotId: event.scheduledSlotId,
+        state: event.state,
+      };
+      applyEarnAutodepositProgress(progress);
+      recordExecuteNowProgress(progress, "sse", event.occurredAt);
+    },
+    [applyEarnAutodepositProgress, recordExecuteNowProgress]
+  );
+  useEffect(() => {
+    setActiveScheduledSweepSlotId(null);
+    setAutodepositProgressBySlot({});
+  }, [earnRealtimeIdentity]);
+  const earnRealtimeConnectionState = useEarnRealtime({
     enabled: isHydrated && hasSmartAccountSession,
     identity: earnRealtimeIdentity,
-    // ponytail: sweep-progress streaming feeds the deferred Execute-now UI —
-    // the batch handler below does all invalidation work.
-    onInvalidation: () => {},
+    onInvalidation: handleEarnRealtimeInvalidation,
     onInvalidationBatch: handleEarnRealtimeInvalidationBatch,
     onCursorlessConnected: refreshAllEarnResources,
     onResyncRequired: refreshAllEarnResources,
   });
+  const activeAutodepositProgress = activeScheduledSweepSlotId
+    ? autodepositProgressBySlot[activeScheduledSweepSlotId]
+    : undefined;
+  const isActiveAutodepositTerminal = Boolean(
+    activeAutodepositProgress &&
+      isEarnAutodepositTerminalState(activeAutodepositProgress.state)
+  );
+  useEffect(() => {
+    if (
+      !activeScheduledSweepSlotId ||
+      earnRealtimeConnectionState === "connected" ||
+      isActiveAutodepositTerminal
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let timer: number | null = null;
+    const controller = new AbortController();
+    const run = async () => {
+      for (const delayMs of [4_000, 8_000, 16_000, 30_000]) {
+        await new Promise<void>((resolve) => {
+          timer = window.setTimeout(resolve, delayMs);
+        });
+        if (cancelled) {
+          return;
+        }
+        const progress = await fetchEarnAutodepositProgress(
+          activeScheduledSweepSlotId,
+          controller.signal
+        ).catch(() => null);
+        if (cancelled || !progress) {
+          continue;
+        }
+        applyEarnAutodepositProgress(progress);
+        recordExecuteNowProgress(progress, "fallback", progress.occurredAt);
+        try {
+          await handleEarnRealtimeInvalidationBatch([
+            {
+              eventId: progress.eventId ?? "0",
+              eventType: EARN_REALTIME_EVENT_TYPES.autodeposit,
+              failureCode: progress.failureCode,
+              occurredAt: progress.occurredAt,
+              scheduledSlotId: progress.scheduledSlotId,
+              schemaVersion: 1,
+              scope: earnRealtimeScope ?? "earn-fallback",
+              state: progress.state,
+            },
+          ]);
+        } catch (error) {
+          console.warn("[earn-sync] fallback invalidation failed", {
+            errorMessage:
+              error instanceof Error ? error.message : "Unknown sync error.",
+            scheduledSlotId: progress.scheduledSlotId,
+          });
+        }
+        if (isEarnAutodepositTerminalState(progress.state)) {
+          return;
+        }
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [
+    activeScheduledSweepSlotId,
+    applyEarnAutodepositProgress,
+    earnRealtimeConnectionState,
+    earnRealtimeScope,
+    handleEarnRealtimeInvalidationBatch,
+    isActiveAutodepositTerminal,
+    recordExecuteNowProgress,
+  ]);
 
   // ---- Deposit source (app-wallet-workspace.tsx earnDepositSources "main") --
   const depositSource = useMemo<EarnDepositSourceOption>(() => {
@@ -1824,18 +2019,119 @@ export function useEarnActions(deps: {
     smartAccountData,
   ]);
 
+  // Execute a scheduled sweep immediately (app-wallet-workspace.tsx:
+  // 4750-4847). Signature-less server request; per-slot progress then arrives
+  // over SSE or the fallback poll above, which also refreshes the earn
+  // resources so the row resolves into the executed transaction live.
+  const executeScheduledSweep = useCallback(
+    async (sweep: LoadedEarnAutodepositScheduledSweep) => {
+      if (autodepositFloorInFlightRef.current || isExecuteNowPending) {
+        return false;
+      }
+      setIsExecuteNowPending(true);
+      setExecuteNowError(null);
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "earn.autodeposit.execute_now",
+        flowVariant: "execute_now",
+      });
+      executeNowLifecycleRef.current = { scheduledSlotId: null, tracker };
+      tracker.start("intent");
+      const requestedSlotId = sweep.slotId ?? sweep.id ?? null;
+      if (requestedSlotId) {
+        setActiveScheduledSweepSlotId(requestedSlotId);
+        setAutodepositProgressBySlot((current) => ({
+          ...current,
+          [requestedSlotId]: {
+            scheduledSlotId: requestedSlotId,
+            state: "requesting",
+          },
+        }));
+      }
+      try {
+        const response = await fetch(
+          "/api/smart-accounts/yield-optimization/autodeposit/sweeps/execute",
+          {
+            body: JSON.stringify({ slotId: sweep.slotId ?? sweep.id ?? null }),
+            credentials: "include",
+            headers: {
+              "content-type": "application/json",
+              "x-loyal-flow-id": tracker.flowId,
+            },
+            method: "POST",
+          }
+        );
+        if (!response.ok) {
+          const failure = await parseEarnAutodepositExecuteError(response);
+          tracker.fail("request", {
+            errorCode: failure.code,
+            httpStatus: response.status,
+          });
+          throw new Error(failure.message);
+        }
+        const { scheduledSlotId } = parseEarnAutodepositExecuteResponse(
+          await response.json()
+        );
+        setActiveScheduledSweepSlotId(scheduledSlotId);
+        executeNowLifecycleRef.current = { scheduledSlotId, tracker };
+        tracker.observe("request", {
+          executeNowState: "requested",
+          httpStatus: response.status,
+          scheduledSlotId,
+        });
+        setAutodepositProgressBySlot((current) => {
+          const next = { ...current };
+          if (requestedSlotId && requestedSlotId !== scheduledSlotId) {
+            delete next[requestedSlotId];
+          }
+          next[scheduledSlotId] = mergeEarnAutodepositProgress(
+            current[scheduledSlotId],
+            {
+              scheduledSlotId,
+              state: "requested",
+            }
+          );
+          return next;
+        });
+        return true;
+      } catch (error) {
+        tracker.fail("request", { errorCode: "request_failed" });
+        setActiveScheduledSweepSlotId(null);
+        if (requestedSlotId) {
+          setAutodepositProgressBySlot((current) => {
+            const next = { ...current };
+            delete next[requestedSlotId];
+            return next;
+          });
+        }
+        setExecuteNowError(
+          error instanceof Error
+            ? error.message.replaceAll("autodeposit", "Autodeposit")
+            : "Failed to request immediate Autodeposit execution."
+        );
+        return false;
+      } finally {
+        setIsExecuteNowPending(false);
+      }
+    },
+    [isExecuteNowPending]
+  );
+
   return {
     authenticatedWalletAddress,
+    autodepositProgressBySlot,
     closeReconnectPrompt,
     confirmAutodepositClose,
     depositError,
     depositSource,
     dismissAutodepositClose,
     earnTransactionsRefreshKey,
+    executeNowError,
+    executeScheduledSweep,
     hasCleanupCandidate: cleanupCandidate,
     isAutodepositPending,
     isCleanupPending,
     isDepositPending,
+    isExecuteNowPending,
     isReconnectPromptOpen,
     isWithdrawPending,
     mainUsdcAmount: mainUsdc.amount,

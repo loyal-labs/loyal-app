@@ -13,7 +13,7 @@ import {
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import {
-  hiddenBalanceStyle,
+  ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import {
@@ -30,11 +30,15 @@ import {
   resolveEarnTransactionDisplayTimeZone,
   shouldShowScheduledSweepsSection,
 } from "@/components/wallet-workspace/earn-transactions-pane";
+import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
+import type { EarnAutodepositProgress } from "@/features/earn-realtime";
 import {
+  formatLoadedScheduledSweepAvailableIn,
+  getLoadedScheduledSweepExecuteNowAvailableAtMs,
   rawTokenAmountToNumber,
   type LoadedEarnAutodepositScheduledSweep,
 } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
@@ -147,13 +151,92 @@ function GroupHeader({ label }: { label: string }) {
   );
 }
 
+export type ExecuteNowControls = {
+  error: string | null;
+  isPending: boolean;
+  progressBySlot: Readonly<Record<string, EarnAutodepositProgress>>;
+  run: (sweep: LoadedEarnAutodepositScheduledSweep) => Promise<boolean>;
+};
+
+// earn-transactions-pane.tsx:726-780 — sweep button copy per execute-now
+// progress state, and the persisted-retry check. Unlike the OG the subtitle
+// keeps the schedule time — status shows ONLY in the button (user request).
+function isPersistedScheduledSweepRetryable(
+  sweep: LoadedEarnAutodepositScheduledSweep
+): boolean {
+  return sweep.status === "failed" || sweep.status === "released";
+}
+
+function getAutodepositProgressButtonLabel(
+  progress: EarnAutodepositProgress | undefined
+): string | null {
+  switch (progress?.state) {
+    case "requesting":
+      return "Requesting...";
+    case "requested":
+      return "Queued";
+    case "selected":
+      return "Preparing...";
+    case "pull_confirmed":
+      return "Depositing...";
+    case "completed":
+      return "Complete";
+    case "failed":
+    case "released":
+    case "canceled":
+      return "Try again";
+    default:
+      return null;
+  }
+}
+
+// OG behavior (earn-transactions-pane.tsx ScheduledTransactionRow) in the
+// facelift row styling: countdown until execute-now unlocks, per-slot
+// progress labels while the sweep runs, retry states after failure.
 function ScheduledSweepRow({
+  executeNow,
+  nowMs,
   sweep,
 }: {
+  executeNow: ExecuteNowControls;
+  nowMs: number;
   sweep: LoadedEarnAutodepositScheduledSweep;
 }) {
   const amountLabel = formatScheduledSweepAmount(sweep.remainingAmountRaw);
   const { isBalanceHidden } = useBalanceVisibility();
+  const progress = executeNow.progressBySlot[sweep.slotId ?? sweep.id];
+  const progressButtonLabel = getAutodepositProgressButtonLabel(progress);
+  const isProgressActive = Boolean(
+    progress &&
+      ["requesting", "requested", "selected", "pull_confirmed"].includes(
+        progress.state
+      )
+  );
+  const isProgressComplete = progress?.state === "completed";
+  const isProgressRetryable = Boolean(
+    progress && ["failed", "released", "canceled"].includes(progress.state)
+  );
+  const isRetryable = isPersistedScheduledSweepRetryable(sweep);
+  const executeNowAvailableAtMs =
+    getLoadedScheduledSweepExecuteNowAvailableAtMs(sweep);
+  const availableInLabel =
+    executeNowAvailableAtMs === null
+      ? null
+      : formatLoadedScheduledSweepAvailableIn(executeNowAvailableAtMs, nowMs);
+  const isWaitingForDelegation = availableInLabel !== null;
+  const isButtonDisabled =
+    executeNow.isPending ||
+    isProgressActive ||
+    isProgressComplete ||
+    isWaitingForDelegation;
+  const buttonLabel =
+    progressButtonLabel ??
+    availableInLabel ??
+    (executeNow.isPending
+      ? "Requesting..."
+      : isRetryable || isProgressRetryable
+      ? "Try again"
+      : "Execute now");
 
   return (
     <div className="flex w-full flex-col rounded-2xl">
@@ -171,26 +254,28 @@ function ScheduledSweepRow({
             </p>
           </div>
           <div className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
-            <p
-              className="whitespace-nowrap text-[16px] text-black leading-5 text-right"
-              style={hiddenBalanceStyle(isBalanceHidden)}
-            >
-              {amountLabel}
+            <p className="whitespace-nowrap text-[16px] text-black leading-5 text-right">
+              <ScrambleText isHidden={isBalanceHidden} text={amountLabel} />
             </p>
             <RouteLabel destination="Earn" source="Main" />
           </div>
         </div>
       </div>
-      <div className="flex w-full items-start px-4 pt-1 pb-2">
-        {/* ponytail: execute-now action still lives in the old workspace's
-            inline callbacks — disabled until write actions are wired. */}
+      <div className="flex w-full flex-col items-start px-4 pt-1 pb-2">
         <button
+          aria-busy={isProgressActive}
           className="t-hover flex h-9 items-center justify-center rounded-full bg-black/[0.04] px-4 font-medium text-[14px] text-black leading-5 enabled:hover:bg-black/[0.08] disabled:opacity-50"
-          disabled
+          disabled={isButtonDisabled}
+          onClick={() => void executeNow.run(sweep)}
           type="button"
         >
-          Execute now
+          <TextSwap text={buttonLabel} />
         </button>
+        {executeNow.error && !isProgressActive ? (
+          <p className="pt-2 text-[13px] leading-4 text-[#f9363c]">
+            {executeNow.error}
+          </p>
+        ) : null}
       </div>
     </div>
   );
@@ -236,10 +321,9 @@ function TransactionRow({ item }: { item: EarnTransactionItem }) {
           className="whitespace-nowrap text-[16px] leading-5 text-right"
           style={{
             color: getEarnTransactionAmountColor({ kind: item.kind }),
-            ...hiddenBalanceStyle(isBalanceHidden),
           }}
         >
-          {item.amount}
+          <ScrambleText isHidden={isBalanceHidden} text={item.amount} />
         </p>
         <RouteLabel
           destination={item.destination.label}
@@ -282,11 +366,13 @@ function NewRowReveal({ children }: { children: ReactNode }) {
 }
 
 function TransactionsTab({
+  executeNow,
   refreshKey,
   scheduledSweeps,
   settingsPda,
   walletAddress,
 }: {
+  executeNow: ExecuteNowControls;
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
@@ -296,6 +382,26 @@ function TransactionsTab({
   const { isAuthenticated, isHydrated } = useAuthSession();
   const [items, setItems] = useState<EarnTransactionItem[] | null>(null);
   const [hasError, setHasError] = useState(false);
+
+  // Countdown clock for execute-now availability (earn-transactions-pane.tsx:
+  // 1654-1698): ticks every second only while a sweep is still locked.
+  const [scheduledSweepNowMs, setScheduledSweepNowMs] = useState(() =>
+    Date.now()
+  );
+  useEffect(() => {
+    const hasFutureExecuteNow = scheduledSweeps.some((sweep) => {
+      const availableAtMs =
+        getLoadedScheduledSweepExecuteNowAvailableAtMs(sweep);
+      return availableAtMs !== null && availableAtMs > Date.now();
+    });
+    if (!hasFutureExecuteNow) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      setScheduledSweepNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [scheduledSweeps]);
 
   useEffect(() => {
     if (!(isAuthenticated && isHydrated && settingsPda && walletAddress)) {
@@ -384,7 +490,11 @@ function TransactionsTab({
           </StaggerLine>
           {scheduledSweeps.map((sweep, index) => (
             <StaggerLine index={index + 1} key={sweep.id}>
-              <ScheduledSweepRow sweep={sweep} />
+              <ScheduledSweepRow
+                executeNow={executeNow}
+                nowMs={scheduledSweepNowMs}
+                sweep={sweep}
+              />
             </StaggerLine>
           ))}
         </StaggerReveal>
@@ -494,13 +604,16 @@ function PositionsTab({ holdings }: { holdings: ActiveEarnPositionHolding[] }) {
                 <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
                   {label}
                 </span>
-                <p
-                  className="whitespace-nowrap font-semibold text-[20px] text-black leading-6"
-                  style={hiddenBalanceStyle(isBalanceHidden)}
-                >
-                  {amount.balanceWhole}
+                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                  <ScrambleText
+                    isHidden={isBalanceHidden}
+                    text={amount.balanceWhole}
+                  />
                   <span className="text-[rgba(60,60,67,0.4)]">
-                    {amount.balanceFraction}
+                    <ScrambleText
+                      isHidden={isBalanceHidden}
+                      text={amount.balanceFraction}
+                    />
                   </span>
                 </p>
               </div>
@@ -521,12 +634,14 @@ function PositionsTab({ holdings }: { holdings: ActiveEarnPositionHolding[] }) {
 }
 
 export function EarnActivityCard({
+  executeNow,
   holdings,
   refreshKey,
   scheduledSweeps,
   settingsPda,
   walletAddress,
 }: {
+  executeNow: ExecuteNowControls;
   holdings: ActiveEarnPositionHolding[];
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
@@ -569,10 +684,35 @@ export function EarnActivityCard({
     void el.offsetHeight;
     el.style.height = `${toHeight}px`;
     const dur = readCssDurationMs("--resize-dur", 300);
-    resizeTimerRef.current = window.setTimeout(() => {
-      resizeTimerRef.current = null;
-      el.style.height = "";
-    }, dur);
+    // Async content (the transactions fetch) can land mid-tween, so the
+    // pinned height retargets to the new content height instead of stalling
+    // at the skeleton's and snapping on release.
+    const observer = new ResizeObserver(() => {
+      const content = el.firstElementChild as HTMLElement | null;
+      if (!content) {
+        return;
+      }
+      const next = content.offsetHeight;
+      if (Math.abs(next - Number.parseFloat(el.style.height)) > 1) {
+        el.style.height = `${next}px`;
+        schedule();
+      }
+    });
+    const schedule = () => {
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current);
+      }
+      resizeTimerRef.current = window.setTimeout(() => {
+        resizeTimerRef.current = null;
+        observer.disconnect();
+        el.style.height = "";
+      }, dur);
+    };
+    if (el.firstElementChild) {
+      observer.observe(el.firstElementChild);
+    }
+    schedule();
+    return () => observer.disconnect();
   }, [activeTab]);
 
   useEffect(
@@ -663,6 +803,7 @@ export function EarnActivityCard({
       <div className="t-resize w-full overflow-clip" ref={tabContentRef}>
         {activeTab === "Transactions" ? (
           <TransactionsTab
+            executeNow={executeNow}
             refreshKey={refreshKey}
             scheduledSweeps={scheduledSweeps}
             settingsPda={settingsPda}

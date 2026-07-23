@@ -29,6 +29,7 @@ import {
   type EarnExpectedMutationOperation,
   type EarnRealtimeInvalidation,
 } from "@/features/earn-realtime";
+import { normalizeLifecycleErrorCode } from "@/features/observability/lifecycle-contract";
 import {
   resolveSmartAccountMutationRefreshPlan,
   type SmartAccountRefreshPlan,
@@ -241,6 +242,39 @@ export function toEarnWithdrawVaultsSource(
     reserve: parseEarnWithdrawPublicKey(source.reserve, "Kamino reserve"),
     type: "reserve",
   };
+}
+
+// app-wallet-workspace.tsx:1321-1332
+export async function parseEarnAutodepositExecuteError(response: Response) {
+  const payload = (await response.json().catch(() => null)) as {
+    error?: { code?: string; message?: string };
+  } | null;
+
+  return {
+    code: normalizeLifecycleErrorCode(payload?.error?.code),
+    message:
+      payload?.error?.message ??
+      "Failed to request immediate Autodeposit execution.",
+  };
+}
+
+// app-wallet-workspace.tsx:1334-1350
+export function parseEarnAutodepositExecuteResponse(value: unknown): {
+  scheduledSlotId: string;
+} {
+  const slotId =
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { sweepRequest?: { slotId?: unknown } }).sweepRequest
+      ?.slotId === "string"
+      ? (value as { sweepRequest: { slotId: string } }).sweepRequest.slotId
+      : null;
+  if (!slotId || !/^[1-9]\d{0,19}$/.test(slotId)) {
+    throw new Error(
+      "Autodeposit execution returned an invalid scheduled slot."
+    );
+  }
+  return { scheduledSlotId: slotId };
 }
 
 // app-wallet-workspace.tsx:1448-1472
