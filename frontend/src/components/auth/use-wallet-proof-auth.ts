@@ -87,9 +87,14 @@ function isRejectedWalletRequest(error: unknown): boolean {
 }
 
 // Maps a wallet-adapter failure onto the lifecycle vocabulary so connect-time
-// problems stop collapsing into `unexpected_error`. Returns undefined for
-// anything that is not a wallet-adapter error, leaving the caller's own
-// normalization in charge.
+// problems stop collapsing into `unexpected_error`.
+//
+// Every branch must name what actually happened. An adapter that threw
+// immediately is not a timeout, and a wallet that could not produce a
+// signature is not an invalid signature — emitting either would make the
+// dashboard confidently wrong, which is worse than the `unexpected_error` this
+// replaces. Anything we cannot name returns undefined so the caller's
+// normalization records `unexpected_error` honestly.
 function classifyWalletAdapterError(
   error: unknown
 ): LifecycleErrorCode | undefined {
@@ -97,12 +102,14 @@ function classifyWalletAdapterError(
     return undefined;
   }
 
+  // The adapter's own timeout. Our settle watchdogs pass their code
+  // explicitly, so this is the only inferred timeout.
   if (error instanceof WalletTimeoutError) {
     return "wallet_connection_timeout";
   }
 
-  // Not installed, disabled, or still injecting; and a blocked popup is the
-  // same dead end from the user's side — the browser suppressed the prompt.
+  // Not installed, disabled, or still injecting — the wallet is genuinely not
+  // reachable. A browser-blocked popup is the same dead end.
   if (
     error instanceof WalletNotReadyError ||
     error instanceof WalletLoadError ||
@@ -111,23 +118,26 @@ function classifyWalletAdapterError(
     return "wallet_unavailable";
   }
 
+  // Resolved, but refused or dropped the connection. Not a timeout.
   if (
     error instanceof WalletConnectionError ||
     error instanceof WalletNotConnectedError ||
     error instanceof WalletDisconnectedError
   ) {
-    return "wallet_connection_timeout";
+    return "wallet_connection_failed";
   }
 
+  // The wallet failed to sign. Not `invalid_wallet_signature`, which is
+  // reserved for a signature the backend verified and rejected.
   if (
     error instanceof WalletSignInError ||
     error instanceof WalletSignMessageError ||
     error instanceof WalletSignTransactionError
   ) {
-    return "invalid_wallet_signature";
+    return "wallet_signing_failed";
   }
 
-  return "wallet_unavailable";
+  return undefined;
 }
 
 function mapWalletProofError(error: unknown): {
@@ -284,9 +294,11 @@ export function useWalletProofAuth({
 
   const verifySelectedWalletWithSiws = useCallback(async () => {
     if (!wallet) {
+      // Our own state guard — no wallet is selected yet. Says nothing about
+      // whether the wallet itself is reachable.
       handleFailure(new Error("Wallet is not selected."), {
         stage: "wallet_select",
-        errorCode: "wallet_unavailable",
+        errorCode: "state_not_ready",
       });
       return;
     }
@@ -348,9 +360,10 @@ export function useWalletProofAuth({
     }
 
     if (!connected || !publicKey) {
+      // Same: a state guard, not evidence the wallet refused or is missing.
       handleFailure(new Error("Wallet is not connected."), {
         stage: "wallet_connect",
-        errorCode: "wallet_unavailable",
+        errorCode: "state_not_ready",
       });
       return;
     }
@@ -553,11 +566,13 @@ export function useWalletProofAuth({
         return;
       }
 
+      // The adapter reports connected while the hook does not, and recovery
+      // was already attempted — a desynced adapter, not an absent wallet.
       handleFailure(
         new Error(
           `Could not refresh ${selectedWalletName}. Disconnect it in the extension, then try again.`
         ),
-        { stage: "wallet_connect", errorCode: "wallet_unavailable" }
+        { stage: "wallet_connect", errorCode: "state_not_ready" }
       );
       return;
     }

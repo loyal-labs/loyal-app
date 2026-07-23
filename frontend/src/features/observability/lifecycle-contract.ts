@@ -131,6 +131,14 @@ export const LIFECYCLE_ERROR_CODES = [
   "turnstile_verification_failed",
   "wallet_selection_timeout",
   "wallet_connection_timeout",
+  // The adapter refused or dropped the connection outright. Distinct from
+  // `wallet_connection_timeout`, which means one of our settle watchdogs
+  // elapsed while the adapter never resolved either way.
+  "wallet_connection_failed",
+  // The wallet could not produce a signature. Distinct from
+  // `invalid_wallet_signature`, which means a signature was produced and the
+  // backend rejected it during verification.
+  "wallet_signing_failed",
   "wallet_signing_unsupported",
   "wallet_rejected",
   "invalid_wallet_origin",
