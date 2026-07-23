@@ -133,12 +133,12 @@ value from the relay service's **Connect -> Internal** panel in the Render
 dashboard. It looks like:
 
 ```text
-http://loyal-clickstack-telegram-relay-XXXX:3000/webhooks/clickstack
+http://loyal-clickstack-telegram-relay:10000/webhooks/clickstack
 ```
 
-Port `3000` rather than Render's usual `10000`: Render reserves `10000`,
-`18012`, `18013` and `19099` on the private network, so a service listening on
-one of them is unreachable from its peers.
+The relay listens on Render's default port `10000` specifically so the address
+copied from that panel works as-is. Render reserves only `18012`, `18013` and
+`19099`.
 
 Set these headers:
 

@@ -50,11 +50,14 @@ require_literal 'value: 127.0.0.1' "$blueprint"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
 
 # Telegram relay. Cooldown state is in-process, so a second instance
-# double-posts every alert. Render reserves port 10000 on the private network
-# and supports healthCheckPath on web services only.
+# double-posts every alert. The listen port must match the internal address
+# Render advertises, and healthCheckPath is a web-service-only field.
+# Render treats an omitted networking.isolation as `disabled`, so a Blueprint
+# that stays silent downgrades the environment on the next sync.
+require_literal 'isolation: enabled' "$blueprint"
 require_literal 'name: loyal-clickstack-telegram-relay' "$blueprint"
 require_literal 'rootDir: observability/telegram-relay' "$blueprint"
-require_literal 'value: "3000"' "$blueprint"
+require_literal 'value: "10000"' "$blueprint"
 rg --quiet 'healthCheckPath: /healthz' "$blueprint" \
   && fail "private services do not support healthCheckPath"
 [[ "$(rg --after-context=20 'name: loyal-clickstack-telegram-relay' "$blueprint" | rg --count 'numInstances: 1')" == "1" ]] \
