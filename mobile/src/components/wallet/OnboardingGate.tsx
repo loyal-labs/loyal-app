@@ -170,11 +170,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const connectSeedVault = useCallback(async () => {
     const granted = await SeedVault.requestPermission();
     if (!granted) {
-      // Denying the OS permission dialog is a user decision, not a fault —
-      // same treatment as backing out of the MWA chooser below.
-      authFlowRef.current?.cancel("wallet_connect", {
-        errorCode: "wallet_rejected",
-      });
+      // Deliberately a failure, not a cancel: this boolean is false for a
+      // fresh denial, a permanent "don't ask again" (no dialog shown), a
+      // missing manifest permission, and policy blocks alike. Silencing it
+      // would hide a packaging bug that breaks connect for every user. The
+      // MWA chooser below can cancel because it has a real cancel signal.
+      authFlowRef.current?.fail("wallet_connect");
       setConnectWalletError(
         "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
       );
