@@ -23,7 +23,7 @@ custom-panic = []
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl = "0.32.1"
-ephemeral-rollups-sdk = { version = "0.8.0", features = ["anchor", "access-control"] }
+ephemeral-rollups-sdk = { version = "0.16.2", features = ["anchor-compat", "access-control"] }
 solana-hash = "2.3.0"
 solana-sha256-hasher = "2.3.0"
 telegram-verification = { path = "../telegram-verification", features = ["cpi"] }
