@@ -14,6 +14,7 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import { DualIcon } from "@/components/wallet-workspace/facelift/earn-activity-card";
+import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
@@ -308,54 +309,46 @@ export function WithdrawPane({
                 />
               ))}
             </DropdownReveal>
-            {isSheetOpen ? (
-              <>
-                {/* Mobile: the source select is a bottom sheet instead of the
-                    anchored dropdown (Figma 4693:71494). */}
-                <div
-                  className="fixed inset-0 z-50 hidden flex-col justify-end bg-white/60 pt-8 backdrop-blur-[4px] max-[795px]:flex"
+            {/* Mobile: the source select is a bottom sheet instead of the
+                anchored dropdown (Figma 4693:71494); it rises on the
+                panel-reveal clock like a native sheet. */}
+            <SheetReveal
+              isOpen={isSheetOpen}
+              onClose={() => setIsSheetOpen(false)}
+              scrimClassName="fixed inset-0 z-50 hidden flex-col justify-end bg-white/60 pt-8 backdrop-blur-[4px] max-[795px]:flex"
+              sheetClassName="flex w-full flex-col rounded-t-3xl bg-white shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+            >
+              <header className="flex w-full items-center p-2">
+                <h2 className="min-w-0 flex-1 truncate py-2.5 pl-2 font-semibold text-[20px] text-black leading-6">
+                  Positions
+                </h2>
+                <button
+                  aria-label="Close position select"
+                  className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
                   onClick={() => setIsSheetOpen(false)}
+                  type="button"
                 >
-                  <div
-                    aria-modal="true"
-                    className="flex w-full flex-col rounded-t-3xl bg-white shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
-                    onClick={(event) => event.stopPropagation()}
-                    role="dialog"
-                  >
-                    <header className="flex w-full items-center p-2">
-                      <h2 className="min-w-0 flex-1 truncate py-2.5 pl-2 font-semibold text-[20px] text-black leading-6">
-                        Positions
-                      </h2>
-                      <button
-                        aria-label="Close position select"
-                        className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
-                        onClick={() => setIsSheetOpen(false)}
-                        type="button"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          alt=""
-                          aria-hidden="true"
-                          className="size-6"
-                          src={`${ASSET_BASE}/icon-cross.svg`}
-                        />
-                      </button>
-                    </header>
-                    <div className="flex w-full flex-col py-2">
-                      {options.map((option) => (
-                        <SourceOptionRow
-                          isSelected={option.key === selectedOption.key}
-                          key={option.key}
-                          onSelect={() => selectSource(option.key)}
-                          option={option}
-                          rounded="rounded-none"
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : null}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="size-6"
+                    src={`${ASSET_BASE}/icon-cross.svg`}
+                  />
+                </button>
+              </header>
+              <div className="flex w-full flex-col py-2">
+                {options.map((option) => (
+                  <SourceOptionRow
+                    isSelected={option.key === selectedOption.key}
+                    key={option.key}
+                    onSelect={() => selectSource(option.key)}
+                    option={option}
+                    rounded="rounded-none"
+                  />
+                ))}
+              </div>
+            </SheetReveal>
 
             <div
               className={`t-hover flex w-full items-center rounded-2xl px-4 ${

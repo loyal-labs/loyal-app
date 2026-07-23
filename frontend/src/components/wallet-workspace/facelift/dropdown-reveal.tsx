@@ -2,6 +2,8 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
+import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
+
 type DropdownOrigin =
   | "top-left"
   | "top-center"
@@ -45,12 +47,7 @@ export function DropdownReveal({
     }
     el.classList.remove("is-open");
     el.classList.add("is-closing");
-    const closeMs =
-      Number.parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue(
-          "--dropdown-close-dur"
-        )
-      ) || 150;
+    const closeMs = readCssDurationMs("--dropdown-close-dur", 150);
     const timer = window.setTimeout(() => {
       el.classList.remove("is-closing");
       setIsMounted(false);

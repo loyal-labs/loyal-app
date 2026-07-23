@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
+import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
+
 // transitions.dev "text states swap" (frontend/transitions/text-states-swap.md):
 // when `text` changes, the old text exits up with blur, then the new text
 // enters from below. flushSync commits the new text between the exit and
@@ -23,12 +25,7 @@ export function TextSwap({
     if (!el || el.textContent === text) {
       return;
     }
-    const dur =
-      Number.parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue(
-          "--text-swap-dur"
-        )
-      ) || 150;
+    const dur = readCssDurationMs("--text-swap-dur", 150);
     el.classList.add("is-exit");
     const timer = window.setTimeout(() => {
       flushSync(() => setDisplayText(text));

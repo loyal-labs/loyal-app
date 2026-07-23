@@ -12,7 +12,10 @@ import {
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { EarnActivityCard } from "@/components/wallet-workspace/facelift/earn-activity-card";
-import { EarnChartCard } from "@/components/wallet-workspace/facelift/earn-chart-pane";
+import {
+  EarnChartCard,
+  type ChartTab,
+} from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
@@ -33,13 +36,17 @@ export function EarnPositionPane({
   onDeposit,
   onOpenAutodeposit,
   onOpenChart,
+  onSelectChartTab,
   onWithdraw,
+  selectedChartTab,
 }: {
   data: EarnPositionData;
   onDeposit: () => void;
   onOpenAutodeposit: () => void;
   onOpenChart: () => void;
+  onSelectChartTab: (tab: ChartTab) => void;
   onWithdraw: () => void;
+  selectedChartTab: ChartTab | null;
 }) {
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const autodeposit = data.autodepositConfig;
@@ -260,7 +267,9 @@ export function EarnPositionPane({
           actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
           earnData={data}
           onAction={onOpenChart}
+          onSelectTab={onSelectChartTab}
           sectionClassName="hidden h-[406px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:flex"
+          selectedTab={selectedChartTab}
         />
 
         <EarnActivityCard
@@ -310,9 +319,10 @@ export function EarnPositionPane({
         </div>
       </div>
 
-      {isInfoOpen ? (
-        <AutodepositInfoOverlay onClose={() => setIsInfoOpen(false)} />
-      ) : null}
+      <AutodepositInfoOverlay
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+      />
     </div>
   );
 }

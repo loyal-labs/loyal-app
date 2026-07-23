@@ -7,9 +7,11 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
+import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import {
   hiddenBalanceStyle,
   useBalanceVisibility,
@@ -248,6 +250,37 @@ function TransactionRow({ item }: { item: EarnTransactionItem }) {
   );
 }
 
+// A row arriving after the initial load (a just-confirmed mutation) pushes
+// the list down and reveals: the slot grows 0fr → 1fr on the resize clock
+// (accordion mechanics, frontend/transitions/accordion.md) while the row
+// replays the texts-reveal rise. Mounted closed + pre-reveal, flipped after
+// a forced reflow.
+function NewRowReveal({ children }: { children: ReactNode }) {
+  const growRef = useRef<HTMLDivElement>(null);
+  const lineRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const grow = growRef.current;
+    const line = lineRef.current;
+    if (!(grow && line)) {
+      return;
+    }
+    void grow.offsetHeight;
+    grow.classList.add("is-open");
+    line.classList.remove("is-entering");
+  }, []);
+
+  return (
+    <div className="t-row-grow" ref={growRef}>
+      <div>
+        <div className="t-stagger-line is-entering" ref={lineRef}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TransactionsTab({
   refreshKey,
   scheduledSweeps,
@@ -306,6 +339,28 @@ function TransactionsTab({
       ),
     [items]
   );
+
+  // Wrapper choice per row must stay stable across re-renders, so each key's
+  // reveal kind is decided once, when it first appears: rows in the first
+  // loaded batch ride the group's mount stagger; rows appearing on later
+  // refetches grow into the list via NewRowReveal instead.
+  const hasRenderedRowsRef = useRef(false);
+  const revealKindsRef = useRef(new Map<string, "insert" | "stagger">());
+  useEffect(() => {
+    if (groups.length > 0) {
+      hasRenderedRowsRef.current = true;
+    }
+  }, [groups]);
+  const resolveRevealKind = (key: string): "insert" | "stagger" => {
+    const kinds = revealKindsRef.current;
+    const existing = kinds.get(key);
+    if (existing) {
+      return existing;
+    }
+    const kind = hasRenderedRowsRef.current ? "insert" : "stagger";
+    kinds.set(key, kind);
+    return kind;
+  };
 
   return (
     <div className="flex w-full flex-col px-2 pb-2">
@@ -366,14 +421,26 @@ function TransactionsTab({
             let lineIndex = 0;
             return groups.map((group) => (
               <div className="flex w-full flex-col" key={group.date}>
-                <StaggerLine index={lineIndex++}>
-                  <GroupHeader label={group.date} />
-                </StaggerLine>
-                {group.items.map((item) => (
-                  <StaggerLine index={lineIndex++} key={item.id}>
-                    <TransactionRow item={item} />
+                {resolveRevealKind(`h:${group.date}`) === "insert" ? (
+                  <NewRowReveal>
+                    <GroupHeader label={group.date} />
+                  </NewRowReveal>
+                ) : (
+                  <StaggerLine index={lineIndex++}>
+                    <GroupHeader label={group.date} />
                   </StaggerLine>
-                ))}
+                )}
+                {group.items.map((item) =>
+                  resolveRevealKind(item.id) === "insert" ? (
+                    <NewRowReveal key={item.id}>
+                      <TransactionRow item={item} />
+                    </NewRowReveal>
+                  ) : (
+                    <StaggerLine index={lineIndex++} key={item.id}>
+                      <TransactionRow item={item} />
+                    </StaggerLine>
+                  )
+                )}
               </div>
             ));
           })()}
@@ -501,12 +568,7 @@ export function EarnActivityCard({
     el.style.height = `${fromHeight}px`;
     void el.offsetHeight;
     el.style.height = `${toHeight}px`;
-    const dur =
-      Number.parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue(
-          "--resize-dur"
-        )
-      ) || 300;
+    const dur = readCssDurationMs("--resize-dur", 300);
     resizeTimerRef.current = window.setTimeout(() => {
       resizeTimerRef.current = null;
       el.style.height = "";

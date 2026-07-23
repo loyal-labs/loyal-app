@@ -15,6 +15,7 @@ import {
   HistoricalApyChart,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import { useBalanceVisibility } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import { EarnedChart } from "@/components/wallet-workspace/facelift/earned-chart";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
@@ -26,7 +27,7 @@ const ASSET_BASE = "/wallet-workspace/facelift";
 const CHART_TABS = ["Forecast", "APY", "Earned"] as const;
 const FORECAST_PRINCIPAL_USD = 6000;
 
-type ChartTab = (typeof CHART_TABS)[number];
+export type ChartTab = (typeof CHART_TABS)[number];
 
 // transitions.dev "Tabs sliding" (frontend/transitions/tabs-sliding.md): the
 // white active pill is one absolutely-positioned span that tweens between the
@@ -157,7 +158,9 @@ export function EarnChartCard({
   footer,
   isExpanded = false,
   onAction,
+  onSelectTab,
   sectionClassName,
+  selectedTab,
 }: {
   actionAriaLabel: string;
   actionIconSrc: string;
@@ -165,12 +168,15 @@ export function EarnChartCard({
   footer?: ReactNode;
   isExpanded?: boolean;
   onAction: () => void;
+  // Tab choice lives in the shell so the compact pane, the mobile inline
+  // card and the enlarged overlay all show the same tab.
+  onSelectTab: (tab: ChartTab) => void;
   sectionClassName: string | ((activeTab: ChartTab) => string);
+  selectedTab: ChartTab | null;
 }) {
   // The Earned tab only exists once a position holds a balance (Figma
   // 4693:67592); it becomes the default view when it appears, unless the
   // user already picked a tab by hand.
-  const [selectedTab, setSelectedTab] = useState<ChartTab | null>(null);
   const hasEarnedTab = earnData.hasPosition;
   const visibleTabs: readonly ChartTab[] = hasEarnedTab
     ? CHART_TABS
@@ -199,7 +205,7 @@ export function EarnChartCard({
         <div className="min-w-0 flex-1">
           <ChartTabs
             activeTab={activeTab}
-            onSelect={setSelectedTab}
+            onSelect={onSelectTab}
             tabs={visibleTabs}
           />
         </div>
@@ -231,14 +237,165 @@ export function EarnChartCard({
   );
 }
 
+// Figma 4693:64989 — enlarged chart covers the middle + right panes; the
+// scrim blurs the rest of the page. On mobile it becomes a bottom sheet on a
+// white scrim (Figma 4693:70200 / 4693:71231).
+// Motion: the scrim cross-fades on the modal recipe's backdrop clock, and at
+// ≥1204px the overlay card mounts congruent with the compact right-pane card
+// then enlarges leftward on the t-resize clock (transitions.dev card resize).
+// Kept mounted while closing so the fade-out plays before unmount.
+function ExpandedChartOverlay({
+  earnData,
+  isOpen,
+  onClose,
+  onSelectTab,
+  selectedTab,
+}: {
+  earnData: EarnPositionData;
+  isOpen: boolean;
+  onClose: () => void;
+  onSelectTab: (tab: ChartTab) => void;
+  selectedTab: ChartTab | null;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const slideRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<number | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+  if (isOpen && !isMounted) {
+    setIsMounted(true);
+  }
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const slide = slideRef.current;
+    const dialog = dialogRef.current;
+    if (!(container && slide && dialog)) {
+      return;
+    }
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    const isSlideViewport = window.matchMedia("(max-width: 1203px)").matches;
+    if (isOpen) {
+      container.dataset.state = "open";
+      // Below 1204px the surface rises (and slides back down on close) on
+      // the panel-reveal keyframes — bottom sheet on mobile, right-pinned
+      // card in between. At ≥1204px the attribute never lands, so nothing
+      // rises there: the congruent width tween below owns that entrance.
+      if (isSlideViewport) {
+        slide.dataset.state = "open";
+      }
+      if (window.matchMedia("(min-width: 1204px)").matches) {
+        dialog.style.width = "";
+        dialog.style.marginLeft = "";
+        const targetWidth = dialog.offsetWidth;
+        dialog.style.width = "400px";
+        dialog.style.marginLeft = "auto";
+        void dialog.offsetWidth;
+        dialog.style.width = `${targetWidth}px`;
+        const resizeDur = readCssDurationMs("--resize-dur", 300);
+        timerRef.current = window.setTimeout(() => {
+          timerRef.current = null;
+          dialog.style.width = "";
+          dialog.style.marginLeft = "";
+        }, resizeDur);
+      }
+      return;
+    }
+    container.dataset.state = "closed";
+    if (isSlideViewport) {
+      slide.dataset.state = "closed";
+    }
+    // Read after the state flip so the computed duration reflects the
+    // closed-state (and viewport-specific) animation; on mobile the sheet's
+    // slide-down (panel clock) can outlast the scrim fade.
+    const scrimDur =
+      Number.parseFloat(getComputedStyle(container).animationDuration) * 1000 ||
+      150;
+    const panelDur = isSlideViewport
+      ? readCssDurationMs("--panel-close-dur", 350)
+      : 0;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      setIsMounted(false);
+    }, Math.max(scrimDur, panelDur));
+  }, [isOpen, isMounted]);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+    },
+    []
+  );
+
+  if (!isMounted) {
+    return null;
+  }
+  return (
+    <div
+      className="t-modal-overlay fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
+      data-state="open"
+      onClick={onClose}
+      ref={containerRef}
+    >
+      {/* Sub-1204 sheet rise lives on this wrapper — never on the dialog
+          itself, whose t-resize transition list it would clobber. No
+          data-state at rest: the keyframes only run once the effect stamps
+          it, which it never does at ≥1204px. */}
+      <div className="t-sheet-panel flex h-full w-full min-w-0" ref={slideRef}>
+        <div
+          aria-modal="true"
+          // Below 1204px (no compact pane) the overlay is the right-pane
+          // sized card pinned to the right edge (Figma 4693:88126); at full
+          // width it covers the middle + right panes (Figma 4693:64989).
+          className="t-resize flex h-full w-full min-w-0 max-[1203px]:ml-auto max-[1203px]:w-[400px] max-[795px]:ml-0 max-[795px]:w-full"
+          onClick={(event) => event.stopPropagation()}
+          ref={dialogRef}
+          role="dialog"
+        >
+          <EarnChartCard
+            actionAriaLabel="Close expanded chart"
+            actionIconSrc={`${ASSET_BASE}/icon-cross.svg`}
+            earnData={earnData}
+            footer={
+              <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
+                <button
+                  className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
+                  onClick={onClose}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+            }
+            isExpanded
+            onAction={onClose}
+            onSelectTab={onSelectTab}
+            sectionClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+            selectedTab={selectedTab}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function EarnChartPane({
   earnData,
   isExpanded,
   onExpandedChange,
+  onSelectTab,
+  selectedTab,
 }: {
   earnData: EarnPositionData;
   isExpanded: boolean;
   onExpandedChange: (isExpanded: boolean) => void;
+  onSelectTab: (tab: ChartTab) => void;
+  selectedTab: ChartTab | null;
 }) {
   useEffect(() => {
     if (!isExpanded) {
@@ -264,6 +421,8 @@ export function EarnChartPane({
         actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
         earnData={earnData}
         onAction={() => onExpandedChange(true)}
+        onSelectTab={onSelectTab}
+        selectedTab={selectedTab}
         // t-resize (transitions.dev card resize) tweens the full-height ↔
         // 527px Earned hug instead of snapping.
         sectionClassName={(activeTab) =>
@@ -273,45 +432,13 @@ export function EarnChartPane({
         }
       />
 
-      {isExpanded ? (
-        // Figma 4693:64989 — enlarged chart covers the middle + right panes;
-        // the scrim blurs the rest of the page. On mobile it becomes a bottom
-        // sheet on a white scrim (Figma 4693:70200 / 4693:71231).
-        <div
-          className="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
-          onClick={() => onExpandedChange(false)}
-        >
-          <div
-            aria-modal="true"
-            // Below 1204px (no compact pane) the overlay is the right-pane
-            // sized card pinned to the right edge (Figma 4693:88126); at full
-            // width it covers the middle + right panes (Figma 4693:64989).
-            className="flex h-full w-full min-w-0 max-[1203px]:ml-auto max-[1203px]:w-[400px] max-[795px]:ml-0 max-[795px]:w-full"
-            onClick={(event) => event.stopPropagation()}
-            role="dialog"
-          >
-            <EarnChartCard
-              actionAriaLabel="Close expanded chart"
-              actionIconSrc={`${ASSET_BASE}/icon-cross.svg`}
-              earnData={earnData}
-              footer={
-                <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
-                  <button
-                    className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
-                    onClick={() => onExpandedChange(false)}
-                    type="button"
-                  >
-                    Close
-                  </button>
-                </div>
-              }
-              isExpanded
-              onAction={() => onExpandedChange(false)}
-              sectionClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
-            />
-          </div>
-        </div>
-      ) : null}
+      <ExpandedChartOverlay
+        earnData={earnData}
+        isOpen={isExpanded}
+        onClose={() => onExpandedChange(false)}
+        onSelectTab={onSelectTab}
+        selectedTab={selectedTab}
+      />
     </>
   );
 }

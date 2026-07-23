@@ -7,6 +7,7 @@ import {
   hiddenBalanceStyle,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
@@ -31,10 +32,20 @@ function InfoContent() {
 }
 
 // "How Autodeposit works" as an overlay: card next to the sidebar below
-// 1204px (Figma 4693:69792), bottom sheet on mobile (Figma 4693:71793).
+// 1204px (Figma 4693:69792), bottom sheet on mobile (Figma 4693:71793) —
+// where it rises on the panel-reveal clock like a native sheet.
 // Also reachable from the Earn screen's mobile "?" (Figma 4693:70364).
-export function AutodepositInfoOverlay({ onClose }: { onClose: () => void }) {
+export function AutodepositInfoOverlay({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
   useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
@@ -42,50 +53,45 @@ export function AutodepositInfoOverlay({ onClose }: { onClose: () => void }) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  }, [isOpen, onClose]);
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] min-[1204px]:hidden max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
-      onClick={onClose}
+    <SheetReveal
+      isOpen={isOpen}
+      onClose={onClose}
+      scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] min-[1204px]:hidden max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
+      sheetClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
     >
-      <div
-        aria-modal="true"
-        className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <header className="flex w-full items-center p-2">
-          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
-            How Autodeposit works
-          </h2>
-          <button
-            aria-label="Close info"
-            className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
-            onClick={onClose}
-            type="button"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
-              src={`${ASSET_BASE}/icon-cross.svg`}
-            />
-          </button>
-        </header>
-        <InfoContent />
-        <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
-          <button
-            className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </div>
+      <header className="flex w-full items-center p-2">
+        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+          How Autodeposit works
+        </h2>
+        <button
+          aria-label="Close info"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+          onClick={onClose}
+          type="button"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-6"
+            src={`${ASSET_BASE}/icon-cross.svg`}
+          />
+        </button>
+      </header>
+      <InfoContent />
+      <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
+        <button
+          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
+          onClick={onClose}
+          type="button"
+        >
+          Close
+        </button>
       </div>
-    </div>
+    </SheetReveal>
   );
 }
 
@@ -369,9 +375,10 @@ export function AutodepositPane({
         <InfoContent />
       </aside>
 
-      {isInfoOpen ? (
-        <AutodepositInfoOverlay onClose={() => setIsInfoOpen(false)} />
-      ) : null}
+      <AutodepositInfoOverlay
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+      />
     </>
   );
 }

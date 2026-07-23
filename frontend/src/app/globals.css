@@ -2383,6 +2383,46 @@
   }
 }
 
+/* Facelift adaptation — the panel reveal as keyframes for the sheet
+   overlays (withdraw source select, autodeposit info, expanded charts):
+   fill-mode `both` on a data-state flip plays regardless of prior computed
+   state — the same proven mechanism as the modal recipe's close. The scrim
+   rides the modal recipe's fade keyframes on the panel clock. */
+.t-sheet-scrim[data-state="open"] {
+  animation: t-fade-in var(--panel-open-dur) var(--panel-ease) both;
+}
+.t-sheet-scrim[data-state="closed"] {
+  animation: t-fade-out var(--panel-close-dur) var(--panel-ease) both;
+}
+.t-sheet-panel[data-state="open"] {
+  animation: t-sheet-panel-in var(--panel-open-dur) var(--panel-ease) both;
+}
+.t-sheet-panel[data-state="closed"] {
+  animation: t-sheet-panel-out var(--panel-close-dur) var(--panel-ease) both;
+}
+
+@keyframes t-sheet-panel-in {
+  from {
+    transform: translateY(var(--panel-translate-y));
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+  }
+}
+@keyframes t-sheet-panel-out {
+  to {
+    transform: translateY(var(--panel-translate-y));
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-sheet-scrim[data-state],
+  .t-sheet-panel[data-state] {
+    animation: none;
+  }
+}
+
 /* transitions.dev — Menu dropdown (frontend/transitions/menu-dropdown.md).
    Anchored popovers (sidebar wallet menu, withdraw source select) grow from
    their trigger with a softer scale-down on close. */
@@ -2455,6 +2495,127 @@
 
 @media (prefers-reduced-motion: reduce) {
   .t-hover {
+    transition: none !important;
+  }
+}
+
+/* transitions.dev — Page side-by-side (frontend/transitions/page-side-by-side.md).
+   The middle pane slides between the Earn root (page 1) and the action
+   screens — deposit / withdraw / autodeposit (page 2). */
+:root {
+  --page-slide-dur: 250ms;
+  --page-fade-dur: 250ms;
+  --page-slide-distance: 8px;
+  --page-blur: 3px;
+  --page-stagger: 200ms;
+  --page-exit-enabled: 1;
+  --page-slide-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --page-fade-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Below the sidebar breakpoint the panes are full-bleed: blurring a whole
+   viewport-sized surface is heavy enough that the blur holds through the
+   slide and only snaps off at the settle cleanup — so small screens run the
+   recipe as slide + fade only. */
+@media (width < 796px) {
+  :root {
+    --page-blur: 0px;
+  }
+}
+
+.t-page-slide {
+  position: relative;
+}
+.t-page-slide .t-page[data-page-id="1"] {
+  --t-page-from-x: calc(var(--page-slide-distance) * -1);
+}
+.t-page-slide .t-page[data-page-id="2"] {
+  --t-page-from-x: var(--page-slide-distance);
+}
+.t-page-slide .t-page {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.t-page-slide[data-page="1"] .t-page[data-page-id="1"],
+.t-page-slide[data-page="2"] .t-page[data-page-id="2"] {
+  pointer-events: auto;
+}
+
+/* Facelift adaptation, per the recipe's "animate the page sections, not the
+   container" guidance: the motion lives on each page's direct children so
+   multi-pane screens (withdraw/autodeposit mid + right panes) stagger the
+   second pane by --page-stagger in both directions. The wrapper keeps only
+   positioning + pointer-events. */
+.t-page-slide .t-page > * {
+  opacity: 0;
+  transform: translateX(
+    calc(var(--t-page-from-x, 0px) * var(--page-exit-enabled))
+  );
+  filter: blur(calc(var(--page-blur) * var(--page-exit-enabled)));
+  transition: opacity var(--page-fade-dur) var(--page-fade-ease),
+    transform var(--page-slide-dur) var(--page-slide-ease),
+    filter var(--page-slide-dur) var(--page-slide-ease);
+  will-change: opacity, transform, filter;
+}
+.t-page-slide .t-page > :nth-child(2) {
+  transition-delay: var(--page-stagger);
+}
+.t-page-slide[data-page="1"] .t-page[data-page-id="1"] > *,
+.t-page-slide[data-page="2"] .t-page[data-page-id="2"] > * {
+  opacity: 1;
+  transform: translateX(0);
+  filter: blur(0);
+}
+
+/* Facelift adaptations: page 1 (the Earn root) stays in normal flow so it
+   keeps sizing the middle pane; the action page overlays it. Once a slide
+   settles, the active page's sections drop transform/filter/will-change so
+   they stop being containing blocks — the action panes anchor fixed overlays
+   (mobile sheets, scrims) to the viewport. Must follow the active-state
+   rule: it ties its specificity and wins on source order. */
+.t-page-slide .t-page[data-page-id="1"] {
+  position: relative;
+  inset: auto;
+}
+.t-page-slide[data-page] .t-page.is-settled > * {
+  transform: none;
+  filter: none;
+  will-change: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-page-slide .t-page > * {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation — a transaction arriving after a mutation pushes the
+   list down and reveals: the accordion recipe's 0fr → 1fr track
+   (frontend/transitions/accordion.md) grows the row's slot on the resize
+   clock while the row replays the texts-reveal rise. is-entering holds a
+   line at its pre-reveal state even inside an already-shown .t-stagger
+   group (ties the is-shown rule's specificity, wins on source order). */
+.t-row-grow {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--resize-dur) var(--resize-ease);
+}
+.t-row-grow > * {
+  overflow: hidden;
+  min-height: 0;
+}
+.t-row-grow.is-open {
+  grid-template-rows: 1fr;
+}
+.t-stagger .t-stagger-line.is-entering {
+  opacity: 0;
+  transform: translateY(var(--stagger-distance));
+  filter: blur(var(--stagger-blur));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-row-grow {
     transition: none !important;
   }
 }
