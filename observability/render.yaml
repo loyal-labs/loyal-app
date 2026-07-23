@@ -23,6 +23,7 @@ projects:
                 - observability/**
               ignoredPaths:
                 - observability/smoke-result.json
+                - observability/telegram-relay/**
             healthCheckPath: /api/health
             renderSubdomainPolicy: enabled
             envVars:
@@ -44,3 +45,57 @@ projects:
               name: clickstack-data
               mountPath: /var/lib/clickhouse
               sizeGB: 10
+
+          # Relays ClickStack alert webhooks to Telegram. Private service: it is
+          # reached only over this environment's private network, so the webhook
+          # endpoint is never exposed publicly and the Bearer token is defense in
+          # depth rather than the only control.
+          - type: pserv
+            name: loyal-clickstack-telegram-relay
+            runtime: docker
+            repo: https://github.com/loyal-labs/loyal-app.git
+            branch: main
+            region: oregon
+            plan: starter
+            # Cooldown and idempotency state is in-process. A second instance
+            # would double-post alerts, so this must stay at 1 until the state
+            # moves to a shared store.
+            numInstances: 1
+            rootDir: observability/telegram-relay
+            dockerfilePath: ./Dockerfile
+            dockerContext: .
+            autoDeployTrigger: checksPass
+            buildFilter:
+              paths:
+                - observability/telegram-relay/**
+            # No healthCheckPath: Render supports health checks on web services
+            # only. GET /healthz still exists and can be curled from ClickStack.
+            #
+            # Give the process time to drain in-flight webhooks on SIGTERM so a
+            # deploy cannot drop an alert mid-delivery.
+            maxShutdownDelaySeconds: 30
+            envVars:
+              # Bun defaults to 127.0.0.1, which the ClickStack container cannot
+              # reach over the private network.
+              - key: HOST
+                value: 0.0.0.0
+              # Render reserves 10000, 18012, 18013 and 19099 on the private
+              # network, so the relay cannot listen on any of them.
+              - key: PORT
+                value: "3000"
+              # Read the generated value from the Render dashboard and paste it
+              # into the ClickStack webhook's Authorization header.
+              - key: CLICKSTACK_WEBHOOK_SECRET
+                generateValue: true
+              - key: TELEGRAM_BOT_TOKEN
+                sync: false
+              - key: TELEGRAM_CHAT_ID
+                sync: false
+              - key: COOLDOWN_SECONDS
+                value: "3600"
+              # Must match the saved search `select`, in order. Mirrors the
+              # columns the running relay is configured with today.
+              - key: ALERT_COLUMNS
+                value: Timestamp,ServiceName,SeverityText,Body,env,flow,stage,error_code,exception_type,exception_message
+              - key: TRACE_LOGS
+                value: "false"
