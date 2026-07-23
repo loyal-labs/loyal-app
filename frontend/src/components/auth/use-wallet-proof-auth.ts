@@ -516,7 +516,8 @@ export function useWalletProofAuth({
             new WalletProofSignerError(
               "This wallet does not support transaction signing.",
               "wallet_signing_unsupported"
-            )
+            ),
+            { stage: "wallet_connect" }
           );
           return;
         }
@@ -537,7 +538,8 @@ export function useWalletProofAuth({
           new WalletProofSignerError(
             "This wallet does not support message signing.",
             "wallet_signing_unsupported"
-          )
+          ),
+          { stage: "wallet_connect" }
         );
         return;
       }
