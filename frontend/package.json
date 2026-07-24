@@ -14,6 +14,7 @@
     "start": "next start",
     "lint": "next lint",
     "smart-accounts:reconcile": "bun run src/features/smart-accounts/server/run-reconciler.ts",
+    "verify:shielded-balance": "bun scripts/verify-shielded-balance-reconciliation.ts",
     "ultracite": "bunx ultracite check",
     "fix-lint": "next lint --fix",
     "commit": "cz"

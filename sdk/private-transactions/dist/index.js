@@ -2019,6 +2019,32 @@ async function readDelegatedDepositsOnBase(baseConnection, user) {
   }
   return result;
 }
+function mergeDepositEnumerationSources(args) {
+  const byPda = new Map;
+  const ingest = (deposits, preferOverwrite) => {
+    for (const deposit of deposits) {
+      const key = deposit.address.toBase58();
+      if (!preferOverwrite && byPda.has(key))
+        continue;
+      byPda.set(key, deposit);
+    }
+  };
+  ingest(args.baseUndelegated, false);
+  if (args.ephemeral.status === "succeeded") {
+    ingest(args.ephemeral.deposits, true);
+  } else {
+    ingest(args.baseDelegated, true);
+  }
+  return Array.from(byPda.values());
+}
+function normalizeAnchorDeposits(results) {
+  return results.map(({ publicKey, account }) => ({
+    user: account.user,
+    tokenMint: account.tokenMint,
+    amount: BigInt(account.amount.toString()),
+    address: publicKey
+  }));
+}
 async function enumerateDepositsByUser(args) {
   const userFilter = [
     {
@@ -2035,44 +2061,26 @@ async function enumerateDepositsByUser(args) {
     readDelegatedDepositsOnBase(args.baseConnection, args.user),
     ephemeralProgram ? ephemeralProgram.account.deposit.all(userFilter) : Promise.resolve([])
   ]);
-  const byPda = new Map;
-  const ingestAnchor = (results, preferOverwrite) => {
-    for (const { publicKey, account } of results) {
-      const key = publicKey.toBase58();
-      if (!preferOverwrite && byPda.has(key))
-        continue;
-      byPda.set(key, {
-        user: account.user,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: publicKey
-      });
-    }
-  };
-  const ingestRaw = (results, preferOverwrite) => {
-    for (const data of results) {
-      const key = data.address.toBase58();
-      if (!preferOverwrite && byPda.has(key))
-        continue;
-      byPda.set(key, data);
-    }
-  };
-  if (baseUndelegatedResult.status === "fulfilled") {
-    ingestAnchor(baseUndelegatedResult.value, false);
-  } else {
+  if (baseUndelegatedResult.status === "rejected") {
     console.warn("[enumerateDepositsByUser] base undelegated enumeration failed", baseUndelegatedResult.reason);
   }
-  if (baseDelegatedResult.status === "fulfilled") {
-    ingestRaw(baseDelegatedResult.value, true);
-  } else {
+  if (baseDelegatedResult.status === "rejected") {
     console.warn("[enumerateDepositsByUser] base delegated enumeration failed", baseDelegatedResult.reason);
   }
-  if (ephemeralResult.status === "fulfilled" && ephemeralProgram) {
-    ingestAnchor(ephemeralResult.value, true);
-  } else if (ephemeralProgram && ephemeralResult.status === "rejected") {
+  if (ephemeralProgram && ephemeralResult.status === "rejected") {
     console.warn("[enumerateDepositsByUser] ephemeral enumeration failed", ephemeralResult.reason);
   }
-  return Array.from(byPda.values());
+  const baseUndelegated = baseUndelegatedResult.status === "fulfilled" ? normalizeAnchorDeposits(baseUndelegatedResult.value) : [];
+  const baseDelegated = baseDelegatedResult.status === "fulfilled" ? baseDelegatedResult.value : [];
+  const ephemeral = !ephemeralProgram ? { status: "unavailable" } : ephemeralResult.status === "fulfilled" ? {
+    status: "succeeded",
+    deposits: normalizeAnchorDeposits(ephemeralResult.value)
+  } : { status: "failed" };
+  return mergeDepositEnumerationSources({
+    baseUndelegated,
+    baseDelegated,
+    ephemeral
+  });
 }
 
 // src/kamino.ts

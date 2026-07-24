@@ -16,6 +16,7 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { WALLET_PORTFOLIO_FALLBACK_REFRESH_MS } from "@/features/shielded-balance/reconciliation";
 import {
   readClientCache,
   writeClientCache,
@@ -910,7 +911,10 @@ export function useWalletDesktopData(
             }
           );
         },
-        { emitInitial: false, fallbackRefreshMs: 0 }
+        {
+          emitInitial: false,
+          fallbackRefreshMs: WALLET_PORTFOLIO_FALLBACK_REFRESH_MS,
+        }
       )
       .then((unsubscribe) => {
         unsubscribePortfolio = unsubscribe;

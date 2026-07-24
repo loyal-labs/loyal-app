@@ -566,13 +566,13 @@ export function ShieldContent({
           });
 
     if (result.success) {
-      setPhase("success");
       setAmount("");
-      void Promise.resolve()
-        .then(() => onSuccess?.())
-        .catch((error) => {
-          console.warn("Failed to refresh balances after shield", error);
-        });
+      try {
+        await onSuccess?.();
+      } catch (error) {
+        console.warn("Failed to refresh balances after shield", error);
+      }
+      setPhase("success");
     } else {
       setErrorMessage(result.error);
       setPhase("error");

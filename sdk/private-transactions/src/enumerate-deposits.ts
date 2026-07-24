@@ -111,6 +111,64 @@ async function readDelegatedDepositsOnBase(
   return result;
 }
 
+export type EphemeralDepositEnumeration =
+  | {
+      status: "succeeded";
+      deposits: DepositData[];
+    }
+  | {
+      status: "failed" | "unavailable";
+    };
+
+/**
+ * Merge normalized deposit reads without presenting a delegated base snapshot
+ * as live when the ephemeral enumeration succeeded.
+ *
+ * A successful ephemeral enumeration is authoritative for the complete set of
+ * delegated deposits. In particular, an empty result means a previously
+ * delegated account no longer exists there after a full unshield. The base
+ * delegated copy remains useful only when the live source cannot be queried.
+ */
+export function mergeDepositEnumerationSources(args: {
+  baseUndelegated: DepositData[];
+  baseDelegated: DepositData[];
+  ephemeral: EphemeralDepositEnumeration;
+}): DepositData[] {
+  const byPda = new Map<string, DepositData>();
+
+  const ingest = (deposits: DepositData[], preferOverwrite: boolean) => {
+    for (const deposit of deposits) {
+      const key = deposit.address.toBase58();
+      if (!preferOverwrite && byPda.has(key)) continue;
+      byPda.set(key, deposit);
+    }
+  };
+
+  ingest(args.baseUndelegated, false);
+
+  if (args.ephemeral.status === "succeeded") {
+    ingest(args.ephemeral.deposits, true);
+  } else {
+    ingest(args.baseDelegated, true);
+  }
+
+  return Array.from(byPda.values());
+}
+
+function normalizeAnchorDeposits(
+  results: Array<{
+    publicKey: PublicKey;
+    account: { user: PublicKey; tokenMint: PublicKey; amount: BN };
+  }>
+): DepositData[] {
+  return results.map(({ publicKey, account }) => ({
+    user: account.user,
+    tokenMint: account.tokenMint,
+    amount: BigInt(account.amount.toString()),
+    address: publicKey,
+  }));
+}
+
 /**
  * Enumerate every Deposit account belonging to `user` across the base program
  * and (optionally) the ephemeral program. Read-only — no signer required.
@@ -121,7 +179,8 @@ async function readDelegatedDepositsOnBase(
  *      bytes are still readable on base. Required when no authenticated
  *      ephemeral connection is available (e.g. browser wallet UI).
  *   3. Ephemeral, owned by the deposit program — delegated deposits with the
- *      live balance (Anchor). Wins over (2) for the same PDA when present.
+ *      live balance (Anchor). A successful read replaces (2) as the
+ *      authoritative delegated set, including when the set is empty.
  *
  * Used by wallet UIs to discover shielded holdings even when the user has no
  * matching base-chain token balance — e.g. after fully shielding an SPL mint,
@@ -157,64 +216,45 @@ export async function enumerateDepositsByUser(args: {
           ),
     ]);
 
-  const byPda = new Map<string, DepositData>();
-
-  const ingestAnchor = (
-    results: Array<{
-      publicKey: PublicKey;
-      account: { user: PublicKey; tokenMint: PublicKey; amount: BN };
-    }>,
-    preferOverwrite: boolean
-  ) => {
-    for (const { publicKey, account } of results) {
-      const key = publicKey.toBase58();
-      if (!preferOverwrite && byPda.has(key)) continue;
-      byPda.set(key, {
-        user: account.user,
-        tokenMint: account.tokenMint,
-        amount: BigInt(account.amount.toString()),
-        address: publicKey,
-      });
-    }
-  };
-
-  const ingestRaw = (results: DepositData[], preferOverwrite: boolean) => {
-    for (const data of results) {
-      const key = data.address.toBase58();
-      if (!preferOverwrite && byPda.has(key)) continue;
-      byPda.set(key, data);
-    }
-  };
-
-  if (baseUndelegatedResult.status === "fulfilled") {
-    ingestAnchor(baseUndelegatedResult.value, /* preferOverwrite */ false);
-  } else {
+  if (baseUndelegatedResult.status === "rejected") {
     console.warn(
       "[enumerateDepositsByUser] base undelegated enumeration failed",
       baseUndelegatedResult.reason
     );
   }
 
-  // Base-delegated reads have stale amounts vs. ephemeral, but they are
-  // recoverable without auth — pick them up before ephemeral so ephemeral
-  // (when present) overwrites with the live value.
-  if (baseDelegatedResult.status === "fulfilled") {
-    ingestRaw(baseDelegatedResult.value, /* preferOverwrite */ true);
-  } else {
+  if (baseDelegatedResult.status === "rejected") {
     console.warn(
       "[enumerateDepositsByUser] base delegated enumeration failed",
       baseDelegatedResult.reason
     );
   }
 
-  if (ephemeralResult.status === "fulfilled" && ephemeralProgram) {
-    ingestAnchor(ephemeralResult.value, /* preferOverwrite */ true);
-  } else if (ephemeralProgram && ephemeralResult.status === "rejected") {
+  if (ephemeralProgram && ephemeralResult.status === "rejected") {
     console.warn(
       "[enumerateDepositsByUser] ephemeral enumeration failed",
       ephemeralResult.reason
     );
   }
 
-  return Array.from(byPda.values());
+  const baseUndelegated =
+    baseUndelegatedResult.status === "fulfilled"
+      ? normalizeAnchorDeposits(baseUndelegatedResult.value)
+      : [];
+  const baseDelegated =
+    baseDelegatedResult.status === "fulfilled" ? baseDelegatedResult.value : [];
+  const ephemeral: EphemeralDepositEnumeration = !ephemeralProgram
+    ? { status: "unavailable" }
+    : ephemeralResult.status === "fulfilled"
+    ? {
+        status: "succeeded",
+        deposits: normalizeAnchorDeposits(ephemeralResult.value),
+      }
+    : { status: "failed" };
+
+  return mergeDepositEnumerationSources({
+    baseUndelegated,
+    baseDelegated,
+    ephemeral,
+  });
 }
