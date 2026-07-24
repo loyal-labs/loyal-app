@@ -14,7 +14,10 @@ import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
-import type { PortfolioFreshness } from "@/lib/wallet/portfolio-refresh-state";
+import {
+  shouldRenderPortfolioEmptyState,
+  type PortfolioFreshness,
+} from "@/lib/wallet/portfolio-refresh-state";
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
 import { SpendingLimitSection } from "./spending-limit-section";
@@ -160,6 +163,8 @@ export function WalletDetailView({
     () => buildLoyalPlaceholderRow(loyalPriceUsd),
     [loyalPriceUsd]
   );
+  const showEmptyPortfolioState =
+    shouldRenderPortfolioEmptyState(balanceStatus);
 
   const copyAddress = async () => {
     if (!address) return;
@@ -940,28 +945,32 @@ export function WalletDetailView({
                 />
               ))}
 
-            {activeTab === "cash" && cashTokenRows.length === 0 && (
-              <div
-                style={{
-                  padding: "12px",
-                  textAlign: "left",
-                  fontFamily: font,
-                  fontSize: "14px",
-                  color: secondary,
-                  width: "100%",
-                }}
-              >
-                No cash yet
-              </div>
-            )}
+            {showEmptyPortfolioState &&
+              activeTab === "cash" &&
+              cashTokenRows.length === 0 && (
+                <div
+                  style={{
+                    padding: "12px",
+                    textAlign: "left",
+                    fontFamily: font,
+                    fontSize: "14px",
+                    color: secondary,
+                    width: "100%",
+                  }}
+                >
+                  No cash yet
+                </div>
+              )}
 
-            {activeTab === "investment" && investmentTokenRows.length === 0 && (
-              <TokenRowItem
-                isBalanceHidden={isBalanceHidden}
-                onDetail={onTokenDetail}
-                token={loyalPlaceholderRow}
-              />
-            )}
+            {showEmptyPortfolioState &&
+              activeTab === "investment" &&
+              investmentTokenRows.length === 0 && (
+                <TokenRowItem
+                  isBalanceHidden={isBalanceHidden}
+                  onDetail={onTokenDetail}
+                  token={loyalPlaceholderRow}
+                />
+              )}
           </div>
         </div>
       </div>

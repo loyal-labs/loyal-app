@@ -36,6 +36,41 @@ function getErrorMessage(error: unknown): string {
   return "Unknown error";
 }
 
+function getNestedErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const cause =
+      "cause" in error
+        ? getNestedErrorText((error as Error & { cause?: unknown }).cause)
+        : "";
+    return `${error.name} ${error.message} ${cause}`.trim();
+  }
+
+  return typeof error === "string" ? error : "";
+}
+
+export function isRetryableUnshieldError(error: unknown): boolean {
+  const errorText = getNestedErrorText(error);
+  if (/user rejected/i.test(errorText)) {
+    return false;
+  }
+
+  const transientPatterns = [
+    /failed to fetch|fetch failed/i,
+    /network(?:error| request failed)/i,
+    /socket (?:closed|hang up|not connected)/i,
+    /\b(?:econnreset|econnrefused|enotfound|err_socket_not_connected|err_connection_refused)\b/i,
+    /cors/i,
+    /connection (?:closed|refused|reset|timed out)/i,
+    /\btimeout(?:error)?\b|\btimed out\b/i,
+    /websocket .*failed/i,
+    /rpc .*?(?:transport|unavailable|timeout)/i,
+    /(?:http|status) (?:408|425|429|500|502|503|504)\b/i,
+    /too many requests|service unavailable|gateway timeout/i,
+  ];
+
+  return transientPatterns.some((pattern) => pattern.test(errorText));
+}
+
 async function runStage<T>(
   stage: UnshieldAttemptStage,
   description: string,

@@ -158,6 +158,7 @@ export async function enumerateDepositsByUser(args: {
     ]);
 
   const byPda = new Map<string, DepositData>();
+  const failures: Array<{ source: string; reason: unknown }> = [];
 
   const ingestAnchor = (
     results: Array<{
@@ -189,6 +190,10 @@ export async function enumerateDepositsByUser(args: {
   if (baseUndelegatedResult.status === "fulfilled") {
     ingestAnchor(baseUndelegatedResult.value, /* preferOverwrite */ false);
   } else {
+    failures.push({
+      source: "base undelegated",
+      reason: baseUndelegatedResult.reason,
+    });
     console.warn(
       "[enumerateDepositsByUser] base undelegated enumeration failed",
       baseUndelegatedResult.reason
@@ -201,6 +206,10 @@ export async function enumerateDepositsByUser(args: {
   if (baseDelegatedResult.status === "fulfilled") {
     ingestRaw(baseDelegatedResult.value, /* preferOverwrite */ true);
   } else {
+    failures.push({
+      source: "base delegated",
+      reason: baseDelegatedResult.reason,
+    });
     console.warn(
       "[enumerateDepositsByUser] base delegated enumeration failed",
       baseDelegatedResult.reason
@@ -210,10 +219,23 @@ export async function enumerateDepositsByUser(args: {
   if (ephemeralResult.status === "fulfilled" && ephemeralProgram) {
     ingestAnchor(ephemeralResult.value, /* preferOverwrite */ true);
   } else if (ephemeralProgram && ephemeralResult.status === "rejected") {
+    failures.push({
+      source: "ephemeral",
+      reason: ephemeralResult.reason,
+    });
     console.warn(
       "[enumerateDepositsByUser] ephemeral enumeration failed",
       ephemeralResult.reason
     );
+  }
+
+  if (failures.length > 0) {
+    const sourceNames = failures.map(({ source }) => source).join(", ");
+    const error = new Error(
+      `Could not enumerate complete private deposits; failed sources: ${sourceNames}`
+    );
+    (error as Error & { cause?: unknown }).cause = failures[0]?.reason;
+    throw error;
   }
 
   return Array.from(byPda.values());

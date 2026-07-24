@@ -230,19 +230,14 @@ export function createSolanaWalletDataClient(
     const loader = (async () => {
       const assetSnapshot = await assetProvider.getAssetSnapshot(owner);
       const secureBalances: SecureBalanceMap = config.secureBalanceProvider
-        ? await config
-            .secureBalanceProvider({
-              owner,
-              env,
-              tokenMints: assetSnapshot.assets.map(
-                (assetBalance) => new PublicKey(assetBalance.asset.mint)
-              ),
-              assetBalances: assetSnapshot.assets,
-            })
-            .catch((error) => {
-              logger.warn?.("Failed to fetch secure balances", error);
-              return new Map<string, bigint>();
-            })
+        ? await config.secureBalanceProvider({
+            owner,
+            env,
+            tokenMints: assetSnapshot.assets.map(
+              (assetBalance) => new PublicKey(assetBalance.asset.mint)
+            ),
+            assetBalances: assetSnapshot.assets,
+          })
         : new Map<string, bigint>();
 
       const shieldedOnly = await resolveShieldedOnlyAssets({

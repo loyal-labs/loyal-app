@@ -28,10 +28,12 @@ import {
   type FrontendPrivateClientSigner,
 } from "@/lib/solana/private-client-cache";
 import {
+  isRetryableUnshieldError,
   readDepositAmountFailClosed,
   runConfirmedUnshieldAttempt,
   UnshieldAttemptError,
 } from "@/lib/solana/unshield-recovery";
+import { runShieldAttemptWithOptionalAccounting } from "@/lib/solana/shield-recovery";
 
 function cleanSolanaErrorMessage(message: string): string {
   const logsIndex = message.indexOf("Logs:");
@@ -39,24 +41,6 @@ function cleanSolanaErrorMessage(message: string): string {
     return message.slice(0, logsIndex).trim();
   }
   return message;
-}
-
-function getNestedErrorText(error: unknown): string {
-  if (error instanceof Error) {
-    const cause =
-      "cause" in error
-        ? getNestedErrorText((error as Error & { cause?: unknown }).cause)
-        : "";
-    return `${error.name} ${error.message} ${cause}`.trim();
-  }
-
-  return typeof error === "string" ? error : "";
-}
-
-function isTransientSolanaConnectionError(error: unknown): boolean {
-  return /failed to fetch|network|socket|cors|connection|timeout/i.test(
-    getNestedErrorText(error)
-  );
 }
 
 function getLastSignature(
@@ -158,25 +142,33 @@ export function useShield() {
           publicEnv.solanaEnv
         );
         const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
-        const collateralSharesBefore = isTrackedKaminoToken
-          ? await getDepositAmount({ client, tokenMint, user })
-          : BigInt(0);
-
-        const plan = await client.buildShieldTokensTransactionPlan({
-          tokenMint,
-          amount: rawAmount,
-          user,
-          payer: user,
-        });
-        const executionResult = await client.executeShieldTokensTransactionPlan(
-          {
-            plan,
-          }
-        );
+        const { accountingBaseline, executionResult } =
+          await runShieldAttemptWithOptionalAccounting({
+            readAccountingBaseline: isTrackedKaminoToken
+              ? () => getDepositAmount({ client, tokenMint, user })
+              : undefined,
+            buildPlan: () =>
+              client.buildShieldTokensTransactionPlan({
+                tokenMint,
+                amount: rawAmount,
+                user,
+                payer: user,
+              }),
+            executePlan: (plan) =>
+              client.executeShieldTokensTransactionPlan({
+                plan,
+              }),
+            onAccountingReadError: (readError) => {
+              console.warn(
+                "Could not read Kamino USDC shield basis before execution; basis reconciliation will be skipped",
+                readError
+              );
+            },
+          });
 
         // Persist Kamino principal basis for tracked USDC so the "earned"
         // split on the portfolio can be computed without manual seeding.
-        if (isTrackedKaminoToken) {
+        if (isTrackedKaminoToken && accountingBaseline !== null) {
           try {
             const collateralSharesAfter = await getDepositAmount({
               client,
@@ -184,7 +176,7 @@ export function useShield() {
               user,
             });
             const addedCollateralSharesAmountRaw =
-              collateralSharesAfter - collateralSharesBefore;
+              collateralSharesAfter - accountingBaseline;
 
             if (addedCollateralSharesAmountRaw > BigInt(0)) {
               recordKaminoUsdcShield({
@@ -350,10 +342,11 @@ export function useShield() {
         }
         const userRejected =
           err instanceof Error && /user rejected/i.test(err.message);
+        const retryable = isRetryableUnshieldError(err);
         let errorMessage = "Unshield failed";
         if (userRejected) {
           errorMessage = "Transaction was rejected in your wallet.";
-        } else if (isTransientSolanaConnectionError(err)) {
+        } else if (retryable) {
           errorMessage =
             "Loyal could not confirm the unshield. Check your connection and try again; retry reads the live shielded balance first.";
         } else if (err instanceof Error) {
@@ -375,7 +368,7 @@ export function useShield() {
         return {
           success: false,
           error: errorMessage,
-          retryable: !userRejected,
+          retryable,
         };
       }
     },

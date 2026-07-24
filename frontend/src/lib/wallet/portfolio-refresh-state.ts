@@ -64,3 +64,9 @@ export function getPortfolioBalanceDisplay(
     ? { balanceFraction: "", balanceWhole: "$—" }
     : confirmed;
 }
+
+export function shouldRenderPortfolioEmptyState(
+  freshness: PortfolioFreshness
+): boolean {
+  return freshness !== "unavailable";
+}
