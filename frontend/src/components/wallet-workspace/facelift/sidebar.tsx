@@ -132,6 +132,39 @@ export function FaceliftSidebar({
     void Promise.allSettled([logout(), disconnect()]);
   };
 
+  // Unseen-activity badge: activity is a lazy fetch, so kick it once the
+  // wallet lands; "seen" is the newest row timestamp at the last Activity
+  // visit, persisted per wallet. ponytail: the Activity page fetches through
+  // its own hook instance — both read the same client cache, so the newest
+  // row here is close enough to mark seen from.
+  const loadActivity = data.loadActivity;
+  useEffect(() => {
+    if (data.walletAddress) {
+      void loadActivity();
+    }
+  }, [data.walletAddress, loadActivity]);
+  const latestActivityAt = data.allActivityRows[0]?.rawTimestamp ?? 0;
+  const activitySeenKey = data.walletAddress
+    ? `loyal:activity-seen:${data.walletAddress}`
+    : null;
+  const [activitySeenAt, setActivitySeenAt] = useState(0);
+  useEffect(() => {
+    if (!activitySeenKey) {
+      setActivitySeenAt(0);
+      return;
+    }
+    const stored = Number(localStorage.getItem(activitySeenKey) ?? "0");
+    setActivitySeenAt(Number.isFinite(stored) ? stored : 0);
+  }, [activitySeenKey]);
+  useEffect(() => {
+    if (activePage === "activity" && activitySeenKey && latestActivityAt > 0) {
+      localStorage.setItem(activitySeenKey, String(latestActivityAt));
+      setActivitySeenAt(latestActivityAt);
+    }
+  }, [activePage, activitySeenKey, latestActivityAt]);
+  const hasUnseenActivity =
+    activePage !== "activity" && latestActivityAt > activitySeenAt;
+
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),
     [publicEnv.solanaEnv]
@@ -230,11 +263,14 @@ export function FaceliftSidebar({
           src={`${ASSET_BASE}/logotype.svg`}
         />
         <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
-          {/* ponytail: activity destination comes with later screens —
-              button unwired for now. */}
           <button
             aria-label="Activity"
-            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className={`t-hover relative flex size-11 items-center justify-center rounded-3xl ${
+              activePage === "activity"
+                ? "bg-black/[0.04]"
+                : "hover:bg-black/[0.04]"
+            }`}
+            onClick={() => onSelectPage("activity")}
             type="button"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -244,6 +280,14 @@ export function FaceliftSidebar({
               className="size-6"
               src={`${ASSET_BASE}/icon-clock-history.svg`}
             />
+            {/* transitions.dev notification badge: pops in when wallet
+                activity newer than the last Activity visit lands. */}
+            <span
+              className="t-badge t-badge-activity"
+              data-open={hasUnseenActivity ? "true" : "false"}
+            >
+              <span className="t-badge-dot size-1.5 rounded-full bg-[#f9363c]" />
+            </span>
           </button>
         </div>
       </div>

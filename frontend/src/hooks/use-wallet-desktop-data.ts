@@ -72,6 +72,9 @@ export type WalletDesktopData = {
   investmentTokenRows: TokenRow[];
   activityRows: ActivityRow[];
   allActivityRows: ActivityRow[];
+  // Raw activities backing the rows — swap entries keep both token legs,
+  // which the mapped ActivityRow shape drops.
+  walletActivities: WalletActivity[];
   transactionDetails: Record<string, TransactionDetail>;
   positions: PortfolioPosition[];
   balanceHistory: BalanceHistoryPoint[];
@@ -1372,6 +1375,7 @@ export function useWalletDesktopData(
     investmentTokenRows,
     activityRows: mergedActivityData.rows.slice(0, 5),
     allActivityRows: mergedActivityData.rows,
+    walletActivities: activities,
     transactionDetails: mergedActivityData.details,
     positions,
     balanceHistory,

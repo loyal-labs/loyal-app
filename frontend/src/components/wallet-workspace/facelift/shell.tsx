@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
+import { ActivityPage } from "@/components/wallet-workspace/facelift/activity-page";
 import { AutodepositPane } from "@/components/wallet-workspace/facelift/autodeposit-pane";
 import {
   BalanceVisibilityProvider,
@@ -26,7 +27,7 @@ import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 
-export type WorkspacePage = "crypto" | "stables" | "earn";
+export type WorkspacePage = "crypto" | "stables" | "activity" | "earn";
 
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
 
@@ -98,7 +99,12 @@ export function WorkspaceFaceliftShell() {
             isMobileGrayBackground ? "" : "max-[795px]:bg-white"
           }`}
         >
-          {activePage !== "earn" ? (
+          {activePage === "activity" ? (
+            <ActivityPage
+              onSelectEarn={() => handleSelectPage("earn")}
+              onSelectWallet={() => handleSelectPage("crypto")}
+            />
+          ) : activePage !== "earn" ? (
             <CryptoPage
               onEarn={() => {
                 // The stables Earn buttons jump straight to the deposit
