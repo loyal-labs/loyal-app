@@ -5,6 +5,7 @@ export type OtlpAttribute = {
   key: string;
   value:
     | { boolValue: boolean }
+    | { doubleValue: number }
     | { intValue: string }
     | { stringValue: string };
 };
@@ -15,6 +16,10 @@ function stringAttribute(key: string, value: string): OtlpAttribute {
 
 function intAttribute(key: string, value: number): OtlpAttribute {
   return { key, value: { intValue: String(value) } };
+}
+
+function doubleAttribute(key: string, value: number): OtlpAttribute {
+  return { key, value: { doubleValue: value } };
 }
 
 function boolAttribute(key: string, value: boolean): OtlpAttribute {
@@ -41,6 +46,72 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
   }
   if (event.method) {
     attributes.push(stringAttribute("http.request.method", event.method));
+  }
+  if (event.clientBuildId) {
+    attributes.push(
+      stringAttribute("loyal.client.build_id", event.clientBuildId)
+    );
+  }
+  if (event.pageSessionId) {
+    attributes.push(
+      stringAttribute("loyal.page_session.id", event.pageSessionId)
+    );
+  }
+  if (event.ingestRelease) {
+    attributes.push(
+      stringAttribute("loyal.ingest.release", event.ingestRelease)
+    );
+  }
+
+  const diagnostics = event.browserDiagnostics;
+  if (diagnostics) {
+    attributes.push(stringAttribute("loyal.chunk.url", diagnostics.chunkUrl));
+    attributes.push(boolAttribute("network.online", diagnostics.networkOnline));
+
+    const strings: Array<[string, string | undefined]> = [
+      [
+        "network.connection.effective_type",
+        diagnostics.connectionEffectiveType,
+      ],
+      ["document.visibility_state", diagnostics.documentVisibilityState],
+    ];
+    for (const [key, value] of strings) {
+      if (value !== undefined) {
+        attributes.push(stringAttribute(key, value));
+      }
+    }
+
+    const integers: Array<[string, number | undefined]> = [
+      ["network.connection.rtt_ms", diagnostics.connectionRttMs],
+      ["loyal.resource.decoded_body_size", diagnostics.resourceDecodedBodySize],
+      ["loyal.resource.encoded_body_size", diagnostics.resourceEncodedBodySize],
+      ["loyal.resource.response_status", diagnostics.resourceResponseStatus],
+      ["loyal.resource.transfer_size", diagnostics.resourceTransferSize],
+    ];
+    for (const [key, value] of integers) {
+      if (value !== undefined) {
+        attributes.push(intAttribute(key, value));
+      }
+    }
+
+    const doubles: Array<[string, number | undefined]> = [
+      ["network.connection.downlink_mbps", diagnostics.connectionDownlinkMbps],
+      ["loyal.resource.duration_ms", diagnostics.resourceDurationMs],
+    ];
+    for (const [key, value] of doubles) {
+      if (value !== undefined) {
+        attributes.push(doubleAttribute(key, value));
+      }
+    }
+
+    if (diagnostics.connectionSaveData !== undefined) {
+      attributes.push(
+        boolAttribute(
+          "network.connection.save_data",
+          diagnostics.connectionSaveData
+        )
+      );
+    }
   }
 
   const timeUnixNano = toUnixNano(event.timestamp);

@@ -189,7 +189,8 @@ const globalBoundary = read("src/app/global-error.tsx");
 const earnSource = read("src/hooks/use-smart-account-sidebar-data.ts");
 
 assert.match(clientSource, /catch \{[\s\S]*best-effort/);
-assert.match(clientSource, /void postBrowserError\(envelope\)\.catch/);
+assert.match(clientSource, /const reportPromise = postBrowserError\(envelope\)/);
+assert.match(clientSource, /void browserErrorProcessor\.process/);
 assert.match(clientSource, /__loyalObservabilityListenersInstalled__/);
 assert.match(clientSource, /"error"/);
 assert.match(clientSource, /"unhandledrejection"/);

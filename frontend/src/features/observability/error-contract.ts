@@ -11,7 +11,16 @@ const MAX_EVENT_AGE_MS = 60 * 60 * 1000;
 const MAX_EVENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MAX_RELEASE_LENGTH = 80;
 const MAX_ENVIRONMENT_LENGTH = 32;
+const MAX_CHUNK_URL_LENGTH = 1024;
+const MAX_CONNECTION_DOWNLINK_MBPS = 100_000;
+const MAX_CONNECTION_RTT_MS = 10 * 60 * 1000;
+const MAX_RESOURCE_DURATION_MS = 60 * 60 * 1000;
+const MAX_RESOURCE_SIZE_BYTES = 2_147_483_647;
 const RESOURCE_VALUE_PATTERN = /[^A-Za-z0-9._-]/g;
+const PAGE_SESSION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CONNECTION_EFFECTIVE_TYPES = new Set(["slow-2g", "2g", "3g", "4g"]);
+const DOCUMENT_VISIBILITY_STATES = new Set(["hidden", "visible"]);
 
 const URL_QUERY_VALUE_PATTERN = /([?&][^=\s&#]{1,64}=)[^&#\s]*/g;
 const BEARER_VALUE_PATTERN = /\bbearer\s+[^\s,;]+/gi;
@@ -63,10 +72,28 @@ export type ServerErrorOperation = "next.request.error";
 
 export type ObservabilityRuntime = "browser" | "mobile" | "node";
 
+export type BrowserErrorDiagnostics = {
+  chunkUrl: string;
+  connectionDownlinkMbps?: number;
+  connectionEffectiveType?: string;
+  connectionRttMs?: number;
+  connectionSaveData?: boolean;
+  documentVisibilityState?: string;
+  networkOnline: boolean;
+  resourceDecodedBodySize?: number;
+  resourceDurationMs?: number;
+  resourceEncodedBodySize?: number;
+  resourceResponseStatus?: number;
+  resourceTransferSize?: number;
+};
+
 export type BrowserErrorEnvelope = {
+  clientBuildId?: string;
+  diagnostics?: BrowserErrorDiagnostics;
   message: string;
   name: string;
   operation: BrowserErrorOperation;
+  pageSessionId?: string;
   pathname: string;
   stack?: string;
   timestamp: string;
@@ -87,14 +114,21 @@ export type MobileErrorEnvelope = {
 };
 
 export type NormalizedErrorEvent = {
+  browserDiagnostics?: BrowserErrorDiagnostics;
+  clientBuildId?: string;
   deploymentEnvironment: string;
   exception: {
     message: string;
     name: string;
     stack?: string;
   };
+  ingestRelease?: string;
   method?: string;
-  operation: BrowserErrorOperation | MobileErrorOperation | ServerErrorOperation;
+  operation:
+    | BrowserErrorOperation
+    | MobileErrorOperation
+    | ServerErrorOperation;
+  pageSessionId?: string;
   pathname: string;
   release: string;
   runtime: ObservabilityRuntime;
@@ -193,7 +227,10 @@ export function createBrowserErrorEnvelope(
   error: unknown,
   operation: BrowserErrorOperation,
   options: {
+    clientBuildId?: string;
+    diagnostics?: BrowserErrorDiagnostics;
     now?: Date;
+    pageSessionId?: string;
     pathname?: string;
   } = {}
 ): BrowserErrorEnvelope {
@@ -202,10 +239,30 @@ export function createBrowserErrorEnvelope(
     options.pathname ??
       (typeof window === "undefined" ? "/" : window.location.pathname)
   );
+  const clientBuildId = options.clientBuildId
+    ? normalizeResourceValue(options.clientBuildId, MAX_RELEASE_LENGTH)
+    : null;
+  const pageSessionId =
+    options.pageSessionId && isBrowserPageSessionId(options.pageSessionId)
+      ? options.pageSessionId
+      : null;
+  let diagnostics: BrowserErrorDiagnostics | undefined;
+  try {
+    diagnostics = options.diagnostics
+      ? parseBrowserErrorDiagnostics(options.diagnostics)
+      : undefined;
+  } catch {
+    // Optional browser APIs may expose future values. Keep the core error
+    // report and recovery path even when a diagnostic cannot be normalized.
+  }
+  const hasClientContext = Boolean(clientBuildId && pageSessionId);
 
   return {
     ...normalizedError,
+    ...(hasClientContext && clientBuildId ? { clientBuildId } : {}),
+    ...(hasClientContext && diagnostics ? { diagnostics } : {}),
     operation,
+    ...(hasClientContext && pageSessionId ? { pageSessionId } : {}),
     pathname: pathname ?? "/",
     timestamp: (options.now ?? new Date()).toISOString(),
   };
@@ -289,6 +346,193 @@ function readResourceValue(
   return normalized;
 }
 
+export function isBrowserPageSessionId(value: string): boolean {
+  return PAGE_SESSION_ID_PATTERN.test(value);
+}
+
+export function normalizeBrowserChunkUrl(value: string): string | null {
+  if (value.length === 0 || value.length > MAX_CHUNK_URL_LENGTH) {
+    return null;
+  }
+
+  try {
+    const url = new URL(value);
+    const isLocalHttp =
+      url.protocol === "http:" &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost");
+    if (
+      (url.protocol !== "https:" && !isLocalHttp) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      !url.pathname.startsWith("/_next/static/chunks/") ||
+      !url.pathname.endsWith(".js")
+    ) {
+      return null;
+    }
+
+    const normalized = url.toString();
+    return normalized.length <= MAX_CHUNK_URL_LENGTH ? normalized : null;
+  } catch {
+    return null;
+  }
+}
+
+function readOptionalBoolean(
+  record: Record<string, unknown>,
+  key: string
+): boolean | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+  return value;
+}
+
+function readOptionalBoundedNumber(
+  record: Record<string, unknown>,
+  key: string,
+  max: number,
+  integer = false
+): number | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > max ||
+    (integer && !Number.isInteger(value))
+  ) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+  return value;
+}
+
+function readOptionalAllowedString(
+  record: Record<string, unknown>,
+  key: string,
+  allowed: ReadonlySet<string>
+): string | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string" || !allowed.has(value)) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+  return value;
+}
+
+function parseBrowserErrorDiagnostics(value: unknown): BrowserErrorDiagnostics {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  const record = value as Record<string, unknown>;
+  const allowedKeys = new Set([
+    "chunkUrl",
+    "connectionDownlinkMbps",
+    "connectionEffectiveType",
+    "connectionRttMs",
+    "connectionSaveData",
+    "documentVisibilityState",
+    "networkOnline",
+    "resourceDecodedBodySize",
+    "resourceDurationMs",
+    "resourceEncodedBodySize",
+    "resourceResponseStatus",
+    "resourceTransferSize",
+  ]);
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  const chunkUrl = normalizeBrowserChunkUrl(
+    readRequiredString(record, "chunkUrl")
+  );
+  if (!chunkUrl || typeof record.networkOnline !== "boolean") {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+
+  const connectionDownlinkMbps = readOptionalBoundedNumber(
+    record,
+    "connectionDownlinkMbps",
+    MAX_CONNECTION_DOWNLINK_MBPS
+  );
+  const connectionEffectiveType = readOptionalAllowedString(
+    record,
+    "connectionEffectiveType",
+    CONNECTION_EFFECTIVE_TYPES
+  );
+  const connectionRttMs = readOptionalBoundedNumber(
+    record,
+    "connectionRttMs",
+    MAX_CONNECTION_RTT_MS,
+    true
+  );
+  const connectionSaveData = readOptionalBoolean(record, "connectionSaveData");
+  const documentVisibilityState = readOptionalAllowedString(
+    record,
+    "documentVisibilityState",
+    DOCUMENT_VISIBILITY_STATES
+  );
+  const resourceDecodedBodySize = readOptionalBoundedNumber(
+    record,
+    "resourceDecodedBodySize",
+    MAX_RESOURCE_SIZE_BYTES,
+    true
+  );
+  const resourceDurationMs = readOptionalBoundedNumber(
+    record,
+    "resourceDurationMs",
+    MAX_RESOURCE_DURATION_MS
+  );
+  const resourceEncodedBodySize = readOptionalBoundedNumber(
+    record,
+    "resourceEncodedBodySize",
+    MAX_RESOURCE_SIZE_BYTES,
+    true
+  );
+  const resourceResponseStatus = readOptionalBoundedNumber(
+    record,
+    "resourceResponseStatus",
+    599,
+    true
+  );
+  const resourceTransferSize = readOptionalBoundedNumber(
+    record,
+    "resourceTransferSize",
+    MAX_RESOURCE_SIZE_BYTES,
+    true
+  );
+
+  return {
+    chunkUrl,
+    ...(connectionDownlinkMbps !== undefined ? { connectionDownlinkMbps } : {}),
+    ...(connectionEffectiveType ? { connectionEffectiveType } : {}),
+    ...(connectionRttMs !== undefined ? { connectionRttMs } : {}),
+    ...(connectionSaveData !== undefined ? { connectionSaveData } : {}),
+    ...(documentVisibilityState ? { documentVisibilityState } : {}),
+    networkOnline: record.networkOnline,
+    ...(resourceDecodedBodySize !== undefined
+      ? { resourceDecodedBodySize }
+      : {}),
+    ...(resourceDurationMs !== undefined ? { resourceDurationMs } : {}),
+    ...(resourceEncodedBodySize !== undefined
+      ? { resourceEncodedBodySize }
+      : {}),
+    ...(resourceResponseStatus !== undefined ? { resourceResponseStatus } : {}),
+    ...(resourceTransferSize !== undefined ? { resourceTransferSize } : {}),
+  };
+}
+
 type CommonErrorEnvelopeFields = {
   message: string;
   name: string;
@@ -358,9 +602,12 @@ export function parseBrowserErrorEnvelope(
 
   const record = value as Record<string, unknown>;
   const allowedKeys = new Set([
+    "clientBuildId",
+    "diagnostics",
     "message",
     "name",
     "operation",
+    "pageSessionId",
     "pathname",
     "stack",
     "timestamp",
@@ -373,9 +620,68 @@ export function parseBrowserErrorEnvelope(
     throw new InvalidObservabilityEnvelopeError();
   }
 
+  const hasClientContext =
+    record.clientBuildId !== undefined ||
+    record.pageSessionId !== undefined ||
+    record.diagnostics !== undefined;
+  let clientBuildId: string | undefined;
+  let pageSessionId: string | undefined;
+  let diagnostics: BrowserErrorDiagnostics | undefined;
+  if (hasClientContext) {
+    clientBuildId = readResourceValue(
+      record,
+      "clientBuildId",
+      MAX_RELEASE_LENGTH
+    );
+    pageSessionId = readRequiredString(record, "pageSessionId");
+    if (!isBrowserPageSessionId(pageSessionId)) {
+      throw new InvalidObservabilityEnvelopeError();
+    }
+    diagnostics =
+      record.diagnostics === undefined
+        ? undefined
+        : parseBrowserErrorDiagnostics(record.diagnostics);
+  }
+
   return {
     ...parseCommonErrorEnvelopeFields(record, now),
+    ...(clientBuildId ? { clientBuildId } : {}),
+    ...(diagnostics ? { diagnostics } : {}),
     operation: record.operation,
+    ...(pageSessionId ? { pageSessionId } : {}),
+  };
+}
+
+export function createNormalizedBrowserErrorEvent(
+  envelope: BrowserErrorEnvelope,
+  context: {
+    deploymentEnvironment: string;
+    ingestRelease: string;
+  }
+): NormalizedErrorEvent {
+  return {
+    ...(envelope.diagnostics
+      ? { browserDiagnostics: envelope.diagnostics }
+      : {}),
+    ...(envelope.clientBuildId
+      ? { clientBuildId: envelope.clientBuildId }
+      : {}),
+    deploymentEnvironment: context.deploymentEnvironment,
+    exception: {
+      message: envelope.message,
+      name: envelope.name,
+      ...(envelope.stack ? { stack: envelope.stack } : {}),
+    },
+    ingestRelease: context.ingestRelease,
+    operation: envelope.operation,
+    ...(envelope.pageSessionId
+      ? { pageSessionId: envelope.pageSessionId }
+      : {}),
+    pathname: envelope.pathname,
+    release: envelope.clientBuildId ?? context.ingestRelease,
+    runtime: "browser",
+    serviceName: "loyal-frontend",
+    timestamp: envelope.timestamp,
   };
 }
 

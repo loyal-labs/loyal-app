@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   type BrowserErrorEnvelope,
+  createNormalizedBrowserErrorEvent,
   type MobileErrorEnvelope,
   type NormalizedErrorEvent,
   normalizeTelemetryPathname,
@@ -134,20 +135,12 @@ export async function reportBrowserErrorEnvelope(
   envelope: BrowserErrorEnvelope
 ): Promise<boolean> {
   try {
-    return await exportErrorEvent({
-      deploymentEnvironment: getObservabilityDeploymentEnvironment(),
-      exception: {
-        message: envelope.message,
-        name: envelope.name,
-        ...(envelope.stack ? { stack: envelope.stack } : {}),
-      },
-      operation: envelope.operation,
-      pathname: envelope.pathname,
-      release: getObservabilityRelease(),
-      runtime: "browser",
-      serviceName: "loyal-frontend",
-      timestamp: envelope.timestamp,
-    });
+    return await exportErrorEvent(
+      createNormalizedBrowserErrorEvent(envelope, {
+        deploymentEnvironment: getObservabilityDeploymentEnvironment(),
+        ingestRelease: getObservabilityRelease(),
+      })
+    );
   } catch {
     return false;
   }
