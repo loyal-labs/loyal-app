@@ -27,7 +27,6 @@ import {
   type CryptoPaneVariant,
   type CryptoRowActions,
 } from "@/components/wallet-workspace/facelift/crypto-pane";
-import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import {
   MiddlePaneSlide,
   PaneReveal,
@@ -195,14 +194,12 @@ function ShieldUnlockOverlay({
 // the workspace monolith's personal-wallet slice; the stables Earn buttons
 // jump to the Earn page's deposit screen.
 export function CryptoPage({
+  onBack,
   onEarn,
-  onSelectEarn,
-  onSelectWallet,
   page,
 }: {
+  onBack: () => void;
   onEarn: () => void;
-  onSelectEarn: () => void;
-  onSelectWallet: () => void;
   page: CryptoPaneVariant;
 }) {
   const publicEnv = usePublicEnv();
@@ -776,6 +773,7 @@ export function CryptoPage({
               balanceFraction={pageBalance.balanceFraction}
               balanceWhole={pageBalance.balanceWhole}
               isBalanceRevealed={isWalletDataRevealed}
+              onBack={onBack}
               onEarn={onEarn}
               onSend={() => openAction({ type: "sendPanel" })}
               onShield={handleShield}
@@ -801,13 +799,6 @@ export function CryptoPage({
           </aside>
         ) : null}
       </div>
-      {actionView === null ? (
-        <MobileTabBar
-          activeTab="wallet"
-          onSelectEarn={onSelectEarn}
-          onSelectWallet={onSelectWallet}
-        />
-      ) : null}
       <ShieldUnlockOverlay
         error={unlockError}
         isOpen={isUnlockOpen}

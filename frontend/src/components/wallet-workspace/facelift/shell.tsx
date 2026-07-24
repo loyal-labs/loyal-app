@@ -24,10 +24,18 @@ import {
 } from "@/components/wallet-workspace/facelift/pane-transitions";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
+import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-home-page";
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 
-export type WorkspacePage = "crypto" | "stables" | "activity" | "earn";
+// "wallet" is the mobile-only wallet home (the tab bar's Wallet tab); the
+// sidebar navigates straight to crypto/stables instead.
+export type WorkspacePage =
+  | "crypto"
+  | "stables"
+  | "activity"
+  | "earn"
+  | "wallet";
 
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
 
@@ -99,21 +107,23 @@ export function WorkspaceFaceliftShell() {
             isMobileGrayBackground ? "" : "max-[795px]:bg-white"
           }`}
         >
-          {activePage === "activity" ? (
-            <ActivityPage
-              onSelectEarn={() => handleSelectPage("earn")}
-              onSelectWallet={() => handleSelectPage("crypto")}
+          {activePage === "wallet" ? (
+            <WalletHomePage
+              earnBalanceUsd={earnData.earnBalanceUsd}
+              isEarnBalanceLoading={isPositionLoading}
+              onSelectPage={handleSelectPage}
             />
+          ) : activePage === "activity" ? (
+            <ActivityPage onSelectPage={handleSelectPage} />
           ) : activePage !== "earn" ? (
             <CryptoPage
+              onBack={() => handleSelectPage("wallet")}
               onEarn={() => {
                 // The stables Earn buttons jump straight to the deposit
                 // screen, not the Earn root.
                 setActivePage("earn");
                 setMiddleView("deposit");
               }}
-              onSelectEarn={() => handleSelectPage("earn")}
-              onSelectWallet={() => handleSelectPage("crypto")}
               page={activePage}
             />
           ) : (
@@ -179,11 +189,7 @@ export function WorkspaceFaceliftShell() {
                 )}
               </div>
               {isEarnRootView ? (
-                <MobileTabBar
-                  activeTab="earn"
-                  onSelectEarn={() => handleSelectPage("earn")}
-                  onSelectWallet={() => handleSelectPage("crypto")}
-                />
+                <MobileTabBar activeTab="earn" onSelect={handleSelectPage} />
               ) : null}
             </>
           )}

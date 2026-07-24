@@ -256,6 +256,7 @@ export function CryptoPane({
   balanceFraction,
   balanceWhole,
   isBalanceRevealed,
+  onBack,
   onEarn,
   onSend,
   onShield,
@@ -267,6 +268,7 @@ export function CryptoPane({
   balanceFraction: string;
   balanceWhole: string;
   isBalanceRevealed: boolean;
+  onBack: () => void;
   onEarn?: () => void;
   onSend: () => void;
   onShield: () => void;
@@ -282,12 +284,30 @@ export function CryptoPane({
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-white max-[795px]:rounded-none">
         <header className="flex w-full shrink-0 items-center p-2">
-          <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4">
+          {/* Mobile (Figma 4813:365930 / 4813:366091) — a pushed screen: back
+              arrow to the wallet home, no header pills. */}
+          <div className="hidden shrink-0 items-center pr-3 max-[795px]:flex">
+            <button
+              aria-label="Back"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              onClick={onBack}
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-6"
+                src={`${ASSET_BASE}/icon-arrow-left.svg`}
+              />
+            </button>
+          </div>
+          <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4 max-[795px]:pl-0">
             <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
               {isStables ? "Stablecoins" : "Crypto"}
             </h1>
           </div>
-          <div className="flex shrink-0 items-start gap-2 pl-3">
+          <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
             <HeaderPill
               hideLabel
               icon="icon-shield.svg"
@@ -387,6 +407,59 @@ export function CryptoPane({
           })}
         </div>
       </section>
+
+      {/* Mobile action bar (Figma 4813:366048 / 4813:366180) — the header
+          pills' actions pinned under the list; same trio on both variants. */}
+      <div className="hidden w-full shrink-0 gap-2 bg-white px-4 pt-2 pb-4 max-[795px]:flex">
+        <button
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black p-2.5"
+          onClick={onSwap}
+          type="button"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-6"
+            src={`${ASSET_BASE}/icon-swap-repeat.svg`}
+          />
+          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-white leading-5">
+            Swap
+          </span>
+        </button>
+        <button
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-[#f5f5f5] p-2.5"
+          onClick={onSend}
+          type="button"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-6"
+            src={`${ASSET_BASE}/icon-arrow-up-circle.svg`}
+          />
+          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
+            Send
+          </span>
+        </button>
+        <button
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5"
+          onClick={onShield}
+          type="button"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-6"
+            src={`${ASSET_BASE}/icon-shield.svg`}
+          />
+          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
+            Shield
+          </span>
+        </button>
+      </div>
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   ScrambledPopDigits,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
@@ -55,7 +56,7 @@ const SIDEBAR_LINKS = [
   },
 ] as const;
 
-function SplitAmount({
+export function SplitAmount({
   fraction,
   fractionColor = "rgba(60, 60, 67, 0.4)",
   isHidden = false,
@@ -231,25 +232,11 @@ export function FaceliftSidebar({
     if (!address) {
       return;
     }
-    if (navigator.clipboard) {
-      void navigator.clipboard
-        .writeText(address)
-        .then(showCopied)
-        .catch(() => {});
-      return;
-    }
-    // Insecure contexts (private-network dev hosts) have no clipboard API.
-    const textarea = document.createElement("textarea");
-    textarea.value = address;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.append(textarea);
-    textarea.select();
-    const didCopy = document.execCommand("copy");
-    textarea.remove();
-    if (didCopy) {
-      showCopied();
-    }
+    void copyTextToClipboard(address).then((didCopy) => {
+      if (didCopy) {
+        showCopied();
+      }
+    });
   };
 
   return (

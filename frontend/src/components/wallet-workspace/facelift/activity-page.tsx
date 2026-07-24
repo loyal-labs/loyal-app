@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { TransactionDetailView } from "@/components/wallet-sidebar/transaction-detail-view";
 import type {
@@ -13,6 +13,8 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
+import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
+import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import {
   StaggerLine,
   StaggerReveal,
@@ -195,16 +197,21 @@ function ActivityCell({
 // points to the Earn page instead. Right pane (4813:340199) shows the OG
 // transaction detail for the selected row, or the select-prompt placeholder.
 export function ActivityPage({
-  onSelectEarn,
-  onSelectWallet,
+  onSelectPage,
 }: {
-  onSelectEarn: () => void;
-  onSelectWallet: () => void;
+  onSelectPage: (page: WorkspacePage) => void;
 }) {
   const data = useWalletDesktopData({});
   const { isBalanceHidden } = useBalanceVisibility();
   const [selectedDetail, setSelectedDetail] =
     useState<TransactionDetail | null>(null);
+  // Keeps the last detail rendered through the sheet's close animation so
+  // deselecting doesn't slide out an empty sheet.
+  const lastDetailRef = useRef<TransactionDetail | null>(null);
+  if (selectedDetail) {
+    lastDetailRef.current = selectedDetail;
+  }
+  const sheetDetail = selectedDetail ?? lastDetailRef.current;
 
   // Activity is a lazy fetch — kick it on mount (no-op while signed out;
   // reruns when the wallet lands because loadActivity's identity changes).
@@ -275,14 +282,14 @@ export function ActivityPage({
           <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-white max-[795px]:rounded-none">
             <header className="flex w-full shrink-0 items-center p-2">
               <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4">
-                <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6 max-[795px]:text-[24px] max-[795px]:leading-7">
                   Activity
                 </h1>
               </div>
               <div className="flex shrink-0 items-start pl-3">
                 <button
                   className="t-hover flex items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5 hover:-translate-y-0.5 hover:bg-black/[0.08] active:translate-y-0"
-                  onClick={onSelectEarn}
+                  onClick={() => onSelectPage("earn")}
                   type="button"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -371,11 +378,27 @@ export function ActivityPage({
           </aside>
         )}
       </div>
-      <MobileTabBar
-        activeTab="wallet"
-        onSelectEarn={onSelectEarn}
-        onSelectWallet={onSelectWallet}
-      />
+      <MobileTabBar activeTab="activity" onSelect={onSelectPage} />
+      {/* Below 1204px the right pane is gone, so the same selection opens the
+          detail as the chart-enlarge sheet (Figma 4813:366475): a 400px
+          right-pinned card on the dark scrim, a full bottom sheet on the
+          white one below 796px. On desktop the scrim is display:none, so the
+          mounted sheet is inert while the aside shows the detail. */}
+      <SheetReveal
+        isOpen={selectedDetail !== null}
+        onClose={() => setSelectedDetail(null)}
+        scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+        sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      >
+        {sheetDetail ? (
+          <TransactionDetailView
+            detail={sheetDetail}
+            dismissIcon="close"
+            key={sheetDetail.activity.id}
+            onBack={() => setSelectedDetail(null)}
+          />
+        ) : null}
+      </SheetReveal>
     </>
   );
 }
