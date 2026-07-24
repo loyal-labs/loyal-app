@@ -11,10 +11,15 @@ Self-hosted ClickStack for investigating Loyal production issues.
 
 The Loyal web frontend sends:
 
-- uncaught browser, React, and Next.js errors;
+- first-party uncaught browser, React, and Next.js errors;
 - sign-in and smart-account provisioning progress;
 - deposit, top-up, and withdrawal progress;
 - Autodeposit setup, update, pause, resume, close, and Execute Now progress.
+
+Ambient browser errors with extension-scheme stack frames and no first-party
+frame are discarded before ingestion. Explicit operation reports, including
+wallet-provider failures surfaced through Loyal call sites, remain eligible for
+collection.
 
 The public gateway also accepts authenticated OTLP metrics and traces from
 trusted service exporters. We do not yet collect mobile, extension, service
@@ -170,7 +175,11 @@ Never run a local frontend production build.
 
 ## Deploy and rollback
 
-- `observability/**` changes deploy only `loyal-clickstack` on Render.
+- `observability/**` changes deploy `loyal-clickstack` on Render, except for
+  `observability/telegram-relay/**`, which the ClickStack service's build filter
+  ignores.
+- `observability/telegram-relay/**` changes deploy only
+  `loyal-clickstack-telegram-relay` on Render.
 - `frontend/**` changes deploy only the Loyal frontend on Vercel.
 - `observability/smoke-result.json` is ignored.
 
@@ -183,7 +192,8 @@ an application-consistent export.
 
 ## Current limits
 
-- One Render Pro service and one 10 GB persistent disk.
+- One Render Pro ClickStack service, one Starter Telegram relay service, and one
+  10 GB persistent disk.
 - ClickHouse, HyperDX, MongoDB, collector, and nginx share one failure boundary.
 - No high availability or zero-downtime deploys.
 - No tested backup/restore runbook or explicit retention TTL.
