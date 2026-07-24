@@ -24,6 +24,10 @@ import {
 } from "lucide-react";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import {
+  resolveWalletActionSwapToken,
+  type WalletActionTokenScope,
+} from "@loyal-labs/wallet-core/lib";
+import {
   createSmartAccountVaultsClient,
   SOL_SPENDING_LIMIT_MINT,
   type SmartAccountEarnUsdcDepositInput,
@@ -570,19 +574,6 @@ function initialActionTransition(
     type === "shieldTokenSelect"
     ? "forward"
     : "open";
-}
-
-function tokenRowToSwapToken(token: TokenRow): SwapToken {
-  const mint = token.id?.replace(/-secured$/, "");
-
-  return {
-    balance: Number.parseFloat(token.amount.replace(/,/g, "")) || 0,
-    icon: token.icon,
-    isSecured: token.isSecured,
-    mint,
-    price: Number.parseFloat(token.price.replace(/[$,]/g, "")) || 0,
-    symbol: token.symbol,
-  };
 }
 
 function shortCommandAddress(address: string | null | undefined): string {
@@ -4122,10 +4113,16 @@ export function AppWalletWorkspace({
   );
 
   const getTokenActions = useCallback(
-    (token: TokenRow): TokenRowActions | undefined => {
+    (
+      token: TokenRow,
+      scope: WalletActionTokenScope
+    ): TokenRowActions | undefined => {
       const isLoyal = token.id === LOYL_TOKEN.mint || token.symbol === "LOYAL";
       const isSecured = token.isSecured === true;
-      const swapToken = tokenRowToSwapToken(token);
+      const swapToken = resolveWalletActionSwapToken(token, scope, {
+        personal: shieldSourceTokens,
+        vault: vaultDerivedTokens,
+      });
 
       if (isSecured) {
         return {
@@ -4181,8 +4178,22 @@ export function AppWalletWorkspace({
       hasUnlockedShieldedBalances,
       openActionView,
       openShieldedBalancesUnlockReview,
+      shieldSourceTokens,
       unlockShieldedBalancesFromReusableAuth,
+      vaultDerivedTokens,
     ]
+  );
+  const getPersonalTokenActions = useCallback(
+    (token: TokenRow) => getTokenActions(token, "personal"),
+    [getTokenActions]
+  );
+  const getSignerTokenActions = useCallback(
+    (token: TokenRow) => getTokenActions(token, "signer"),
+    [getTokenActions]
+  );
+  const getVaultTokenActions = useCallback(
+    (token: TokenRow) => getTokenActions(token, "vault"),
+    [getTokenActions]
   );
 
   const handleTokenDetail = useCallback(
@@ -7704,7 +7715,7 @@ export function AppWalletWorkspace({
                   `update-signer-permissions:${selectedAgent.address}`
               : false
           }
-          getTokenActions={getTokenActions}
+          getTokenActions={getPersonalTokenActions}
           onActivityTabOpen={() => {
             if (!selectedMockRootSigner && canLoadPersonalAccount) {
               void walletDesktopData.loadActivity();
@@ -7882,7 +7893,7 @@ export function AppWalletWorkspace({
           transactionDetails={signerView?.transactionDetails ?? {}}
           activityRows={signerView?.activityRows ?? []}
           vaultAccountIndex={selectedVaultAccountIndex}
-          getTokenActions={getTokenActions}
+          getTokenActions={getSignerTokenActions}
           initialTab={detailInitialTab}
           onActivityTabOpen={() => {
             void smartAccountData
@@ -7929,7 +7940,7 @@ export function AppWalletWorkspace({
           }
           tokenRows={selectedVault.tokenRows}
           transactionDetails={selectedVault.transactionDetails}
-          getTokenActions={getTokenActions}
+          getTokenActions={getVaultTokenActions}
           initialTab={detailInitialTab}
           onActivityTabOpen={() => {
             void smartAccountData

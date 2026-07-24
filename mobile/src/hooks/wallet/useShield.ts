@@ -4,7 +4,6 @@ import {
   MAGIC_PROGRAM_ID,
   type LoyalPrivateTransactionsClient as LoyalPrivateTransactionsClientType,
   type ShieldFlowExecutionResult,
-  shieldTokens,
 } from "@loyal-labs/private-transactions";
 import { PublicKey } from "@solana/web3.js";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -413,14 +412,16 @@ export function useShield(): {
           (await client.getEphemeralDeposit(user, tokenMint))?.amount ??
           BigInt(0);
 
-        const signature = await shieldTokens({
+        const plan = await client.buildShieldTokensTransactionPlan({
           user,
           payer: user,
           tokenMint,
           amount: rawAmount,
-          baseProgram: client.baseProgram,
-          perProgram: client.ephemeralProgram,
         });
+        const executionResult = await client.executeShieldTokensTransactionPlan(
+          { plan }
+        );
+        const signature = getLastSignature(executionResult);
 
         // Everything past this point is post-commit bookkeeping. The
         // shield already succeeded on-chain, so any failure must be
@@ -439,7 +440,7 @@ export function useShield(): {
                 await recordKaminoUsdcShield({
                   publicKey: signer.publicKey.toBase58(),
                   solanaEnv,
-                  addedPrincipalLiquidityAmountRaw: rawAmount,
+                  addedPrincipalLiquidityAmountRaw: executionResult.amount,
                   addedCollateralSharesAmountRaw,
                 });
               } catch (err) {

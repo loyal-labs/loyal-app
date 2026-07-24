@@ -1,4 +1,4 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, type Commitment } from "@solana/web3.js";
 import { type KaminoModifyBalanceAccounts } from "./constants";
 import type { KaminoPositionYieldInfo, KaminoReserveSnapshot } from "./types";
 export declare function parseKaminoReserveSnapshotFromAccountData(args: {
@@ -11,6 +11,16 @@ export declare function calculateKaminoShareAmountForLiquidityAmountRaw(args: {
     snapshot: KaminoReserveSnapshot;
     liquidityAmountRaw: bigint | number;
     rounding?: "floor" | "ceil";
+}): bigint;
+/**
+ * Mirrors Kamino's deposit rounding: collateral shares round down, then the
+ * liquidity consumed for those shares rounds up. The returned liquidity is a
+ * fixed point for the snapshot, so the requested and consumed raw amounts
+ * agree when the shield instruction checks them.
+ */
+export declare function calculateKaminoDepositableLiquidityAmountRaw(args: {
+    snapshot: KaminoReserveSnapshot;
+    requestedLiquidityAmountRaw: bigint | number;
 }): bigint;
 export declare function calculateKaminoTrackedLiquidityCostBasisRaw(args: {
     currentShareAmountRaw: bigint | number;
@@ -41,4 +51,5 @@ export declare function fetchKaminoReserveSnapshot(args: {
     connection: Connection;
     tokenMint: PublicKey;
     kaminoAccounts?: KaminoModifyBalanceAccounts;
+    commitment?: Commitment;
 }): Promise<KaminoReserveSnapshot | null>;

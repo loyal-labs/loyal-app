@@ -1,4 +1,4 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey, type Commitment } from "@solana/web3.js";
 
 import {
   getKaminoModifyBalanceAccountsForTokenMint,
@@ -189,6 +189,44 @@ export function calculateKaminoShareAmountForLiquidityAmountRaw(args: {
     : numerator / args.snapshot.totalLiquiditySupplyScaled;
 }
 
+/**
+ * Mirrors Kamino's deposit rounding: collateral shares round down, then the
+ * liquidity consumed for those shares rounds up. The returned liquidity is a
+ * fixed point for the snapshot, so the requested and consumed raw amounts
+ * agree when the shield instruction checks them.
+ */
+export function calculateKaminoDepositableLiquidityAmountRaw(args: {
+  snapshot: KaminoReserveSnapshot;
+  requestedLiquidityAmountRaw: bigint | number;
+}): bigint {
+  const requestedLiquidityAmount = toRawBigInt(
+    args.requestedLiquidityAmountRaw
+  );
+  if (requestedLiquidityAmount <= 0n) {
+    return 0n;
+  }
+
+  if (
+    args.snapshot.collateralSupplyRaw === 0n ||
+    args.snapshot.totalLiquiditySupplyScaled === 0n
+  ) {
+    return requestedLiquidityAmount;
+  }
+
+  const collateralAmount = calculateKaminoShareAmountForLiquidityAmountRaw({
+    snapshot: args.snapshot,
+    liquidityAmountRaw: requestedLiquidityAmount,
+  });
+  if (collateralAmount <= 0n) {
+    return 0n;
+  }
+
+  return divCeil(
+    collateralAmount * args.snapshot.totalLiquiditySupplyScaled,
+    args.snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE
+  );
+}
+
 export function calculateKaminoTrackedLiquidityCostBasisRaw(args: {
   currentShareAmountRaw: bigint | number;
   trackedShareAmountRaw?: bigint | number | null;
@@ -323,6 +361,7 @@ export async function fetchKaminoReserveSnapshot(args: {
   connection: Connection;
   tokenMint: PublicKey;
   kaminoAccounts?: KaminoModifyBalanceAccounts;
+  commitment?: Commitment;
 }): Promise<KaminoReserveSnapshot | null> {
   const kaminoAccounts =
     args.kaminoAccounts ??
@@ -333,7 +372,7 @@ export async function fetchKaminoReserveSnapshot(args: {
 
   const accountInfo = await args.connection.getAccountInfo(
     kaminoAccounts.reserve,
-    "confirmed"
+    args.commitment ?? "confirmed"
   );
   if (!accountInfo) {
     throw new Error(

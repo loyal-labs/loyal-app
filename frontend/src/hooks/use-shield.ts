@@ -163,7 +163,7 @@ export function useShield() {
               recordKaminoUsdcShield({
                 publicKey: user.toBase58(),
                 solanaEnv: publicEnv.solanaEnv,
-                addedPrincipalLiquidityAmountRaw: rawAmount,
+                addedPrincipalLiquidityAmountRaw: executionResult.amount,
                 addedCollateralSharesAmountRaw,
               });
             } catch (persistError) {

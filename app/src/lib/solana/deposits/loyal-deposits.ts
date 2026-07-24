@@ -223,7 +223,7 @@ export async function shieldTokens(params: {
         await recordKaminoUsdcShield({
           publicKey: keypair.publicKey.toBase58(),
           solanaEnv,
-          addedPrincipalLiquidityAmountRaw: BigInt(amount),
+          addedPrincipalLiquidityAmountRaw: executionResult.amount,
           addedCollateralSharesAmountRaw,
         });
       } catch (error) {

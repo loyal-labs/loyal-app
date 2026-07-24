@@ -12,6 +12,7 @@ import { prettyStringify } from "./utils";
 import type { RpcOptions } from "./types";
 
 const MULTIPLE_ACCOUNTS_CHUNK_SIZE = 10;
+export const DEFAULT_TRANSACTION_COMMITMENT: Commitment = "confirmed";
 
 function describeAccountInfo(
   accountInfo: AccountInfo<Buffer> | null | undefined
@@ -387,7 +388,8 @@ export async function sendAndConfirmWithDiagnostics(params: {
   // lockstep at whatever the caller specified, defaulting to
   // "confirmed".
   const preflightCommitment: Commitment =
-    (rpcOptions?.preflightCommitment as Commitment) ?? "confirmed";
+    (rpcOptions?.preflightCommitment as Commitment) ??
+    DEFAULT_TRANSACTION_COMMITMENT;
   const confirmCommitment: Commitment = preflightCommitment;
 
   // Stamp blockhash + feePayer ourselves so we control what gets

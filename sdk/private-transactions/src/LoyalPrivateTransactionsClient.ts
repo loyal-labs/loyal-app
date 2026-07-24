@@ -68,6 +68,7 @@ import type {
   ShieldFlowFeeEstimate,
   ShieldFlowPlan,
   ShieldFlowTransactionPlan,
+  RpcOptions,
   ShieldTokensClientParams,
   UnshieldTokensClientParams,
   CreatePermissionParams,
@@ -110,6 +111,21 @@ import { closeUsernameDepositIx } from "./instructions/closeUsernameDeposit";
 const KAMINO_API_BASE_URL = "https://api.kamino.finance";
 const KAMINO_MAINNET_ENV = "mainnet-beta";
 const KAMINO_DEVNET_ENV = "devnet";
+
+export function resolveShieldFlowTransactionRpcOptions(params: {
+  baseCommitment?: Commitment;
+  cluster: ShieldFlowTransactionPlan["cluster"];
+  rpcOptions?: RpcOptions;
+}): RpcOptions | undefined {
+  if (params.cluster !== "base" || !params.baseCommitment) {
+    return params.rpcOptions;
+  }
+
+  return {
+    ...params.rpcOptions,
+    preflightCommitment: params.baseCommitment,
+  };
+}
 
 type KaminoReserveMetricsResponseItem = {
   reserve: string;
@@ -528,6 +544,8 @@ export class LoyalPrivateTransactionsClient {
     params: BuildShieldFlowTransactionPlanParams
   ): Promise<ShieldFlowPlan> {
     const amount = normalizeBigInt(params.amount);
+    let baseCommitment: Commitment | undefined;
+    let effectiveAmount = amount;
     const payer = params.payer ?? params.user;
     const validator = params.validator ?? this.getExpectedErValidator();
     const magicProgram = params.magicProgram ?? MAGIC_PROGRAM_ID;
@@ -540,12 +558,15 @@ export class LoyalPrivateTransactionsClient {
         payer,
         tokenMint: params.tokenMint,
         amount,
+        commitment: params.commitment,
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
         magicProgram,
         magicContext,
       });
+      baseCommitment = shieldPlan.context.commitment;
+      effectiveAmount = shieldPlan.context.amount;
 
       if (shieldPlan.preUndelegateTransaction) {
         transactions.push(
@@ -613,7 +634,8 @@ export class LoyalPrivateTransactionsClient {
       user: params.user,
       payer,
       tokenMint: params.tokenMint,
-      amount,
+      amount: effectiveAmount,
+      baseCommitment,
       transactions,
     };
   }
@@ -744,11 +766,16 @@ export class LoyalPrivateTransactionsClient {
 
       let signature: string;
       try {
+        const rpcOptions = resolveShieldFlowTransactionRpcOptions({
+          baseCommitment: params.plan.baseCommitment,
+          cluster: transactionPlan.cluster,
+          rpcOptions: params.rpcOptions,
+        });
         signature = await sendAndConfirmWithDiagnostics({
           label: transactionPlan.label,
           provider,
           tx,
-          rpcOptions: params.rpcOptions,
+          rpcOptions,
           extraContext: {
             kind: params.plan.kind,
             user: params.plan.user,

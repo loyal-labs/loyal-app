@@ -1,6 +1,7 @@
-import { Connection, Transaction, type Signer } from "@solana/web3.js";
+import { type Commitment, Connection, Transaction, type Signer } from "@solana/web3.js";
 import type { Provider } from "@coral-xyz/anchor";
 import type { RpcOptions } from "./types";
+export declare const DEFAULT_TRANSACTION_COMMITMENT: Commitment;
 export declare function logFailedTransactionDiagnostics(params: {
     label: string;
     connection: Connection;

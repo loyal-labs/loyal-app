@@ -51,6 +51,7 @@ export interface BuildShieldFlowTransactionPlanParams {
   user: PublicKey;
   tokenMint: PublicKey;
   amount: number | bigint;
+  commitment?: Commitment;
   payer?: PublicKey;
   validator?: PublicKey;
   magicProgram?: PublicKey;
@@ -163,6 +164,7 @@ export interface ShieldFlowPlan {
   payer: PublicKey;
   tokenMint: PublicKey;
   amount: bigint;
+  baseCommitment?: Commitment;
   transactions: ShieldFlowTransactionPlan[];
 }
 

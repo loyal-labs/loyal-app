@@ -1,11 +1,20 @@
 import { describe, expect, it } from "bun:test";
-import { Keypair } from "@solana/web3.js";
+import { NATIVE_MINT } from "@solana/spl-token";
+import { type Connection, Keypair } from "@solana/web3.js";
 
-import { LoyalPrivateTransactionsClient } from "../index";
+import {
+  LoyalPrivateTransactionsClient,
+  parseKaminoReserveSnapshotFromAccountData,
+} from "../index";
+import {
+  resolveShieldFlowTransactionRpcOptions,
+} from "../src/LoyalPrivateTransactionsClient";
+import { resolveShieldTokensAmount } from "../src/actions/shieldTokens";
 import {
   getKaminoModifyBalanceAccountsForTokenMint,
   USDC_MINT_MAINNET,
 } from "../src/constants";
+import { calculateKaminoDepositableLiquidityAmountRaw } from "../src/kamino";
 
 const KAMINO_RESERVE_DISCRIMINATOR = Buffer.from([
   43, 242, 204, 202, 26, 247, 59, 127,
@@ -172,5 +181,117 @@ describe("Kamino shielded balance quotes", () => {
       });
 
     expect(collateralSharesAmountRaw).toBe(100_000_000n);
+  });
+
+  it("selects a fixed-point liquidity amount for Kamino shielding", async () => {
+    const tokenMint = USDC_MINT_MAINNET;
+    const kaminoAccounts =
+      getKaminoModifyBalanceAccountsForTokenMint(tokenMint);
+
+    if (!kaminoAccounts) {
+      throw new Error("Expected mainnet Kamino accounts to be configured");
+    }
+
+    const accountData = buildReserveAccountData({
+      liquidityAvailableAmountRaw: 103_000_031n,
+      collateralMintSupplyRaw: 100_000_000n,
+      liquidityDecimals: 6n,
+    });
+    let requestedCommitment: string | undefined;
+    const connection = {
+      getAccountInfo: async (
+        pubkey: { toBase58: () => string },
+        commitment?: string
+      ) => {
+        requestedCommitment = commitment;
+        if (pubkey.toBase58() !== kaminoAccounts.reserve.toBase58()) {
+          throw new Error(`Unexpected reserve ${pubkey.toBase58()}`);
+        }
+
+        return {
+          data: accountData,
+        };
+      },
+    } as unknown as Connection;
+
+    const amount = await resolveShieldTokensAmount({
+      connection,
+      tokenMint,
+      requestedAmount: 1_172_300n,
+    });
+    const snapshot = parseKaminoReserveSnapshotFromAccountData({
+      data: accountData,
+      reserve: kaminoAccounts.reserve,
+      tokenMint,
+    });
+
+    expect(amount).toBe(1_172_299n);
+    expect(requestedCommitment).toBe("confirmed");
+    expect(
+      calculateKaminoDepositableLiquidityAmountRaw({
+        snapshot,
+        requestedLiquidityAmountRaw: amount,
+      })
+    ).toBe(amount);
+  });
+
+  it("leaves shield amounts unchanged for tokens without a Kamino reserve", async () => {
+    const connection = {
+      getAccountInfo: async () => {
+        throw new Error("Non-Kamino shielding must not fetch a reserve");
+      },
+    } as unknown as Connection;
+
+    expect(
+      await resolveShieldTokensAmount({
+        connection,
+        tokenMint: Keypair.generate().publicKey,
+        requestedAmount: 1_172_300n,
+      })
+    ).toBe(1_172_300n);
+  });
+
+  it("leaves native SOL shield amounts unchanged without fetching a reserve", async () => {
+    const connection = {
+      getAccountInfo: async () => {
+        throw new Error("Native SOL shielding must not fetch a reserve");
+      },
+    } as unknown as Connection;
+
+    expect(
+      await resolveShieldTokensAmount({
+        connection,
+        tokenMint: NATIVE_MINT,
+        requestedAmount: 50_000n,
+      })
+    ).toBe(50_000n);
+  });
+
+  it("pins base preflight to the commitment used for the shield quote", () => {
+    expect(
+      resolveShieldFlowTransactionRpcOptions({
+        baseCommitment: "confirmed",
+        cluster: "base",
+        rpcOptions: {
+          maxRetries: 2,
+          preflightCommitment: "processed",
+        },
+      })
+    ).toEqual({
+      maxRetries: 2,
+      preflightCommitment: "confirmed",
+    });
+
+    expect(
+      resolveShieldFlowTransactionRpcOptions({
+        baseCommitment: "confirmed",
+        cluster: "ephemeral",
+        rpcOptions: {
+          preflightCommitment: "processed",
+        },
+      })
+    ).toEqual({
+      preflightCommitment: "processed",
+    });
   });
 });

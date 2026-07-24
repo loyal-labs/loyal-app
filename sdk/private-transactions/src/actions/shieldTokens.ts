@@ -2,6 +2,8 @@ import { NATIVE_MINT } from "@solana/spl-token";
 import {
   Transaction,
   type AccountInfo,
+  type Commitment,
+  type Connection,
   type PublicKey,
   type TransactionInstruction,
 } from "@solana/web3.js";
@@ -32,7 +34,14 @@ import { closeWsolAta, wrapSolToWsolIx } from "../wsol";
 import type { TelegramPrivateTransfer } from "../idl/telegram_private_transfer";
 import type { Program } from "@coral-xyz/anchor";
 import { waitForAccountOwnerChange } from "../utils";
-import { sendAndConfirmWithDiagnostics } from "../transaction-debug";
+import {
+  DEFAULT_TRANSACTION_COMMITMENT,
+  sendAndConfirmWithDiagnostics,
+} from "../transaction-debug";
+import {
+  calculateKaminoDepositableLiquidityAmountRaw,
+  fetchKaminoReserveSnapshot,
+} from "../kamino";
 import { modifyBalanceIx } from "../instructions/modifyBalance";
 import { initializeDepositIx } from "../instructions/initializeDeposit";
 import { createPermissionIx } from "../instructions/createPermission";
@@ -59,6 +68,9 @@ export type ShieldTokensInstructionPlan = {
   checks: InstructionCheck[];
   needsUndelegate: boolean;
   context: {
+    amount: bigint;
+    commitment: Commitment;
+    requestedAmount: bigint;
     isNativeSol: boolean;
     validator: PublicKey;
     depositPda: PublicKey;
@@ -73,6 +85,35 @@ export type ShieldTokensTransactionPlan = {
   baseTransaction: LabeledTransactionPlan;
   context: ShieldTokensInstructionPlan["context"];
 };
+
+export async function resolveShieldTokensAmount(params: {
+  connection: Connection;
+  tokenMint: PublicKey;
+  requestedAmount: bigint;
+  commitment?: Commitment;
+}): Promise<bigint> {
+  const commitment = params.commitment ?? DEFAULT_TRANSACTION_COMMITMENT;
+  const snapshot = await fetchKaminoReserveSnapshot({
+    commitment,
+    connection: params.connection,
+    tokenMint: params.tokenMint,
+  });
+  if (!snapshot) {
+    return params.requestedAmount;
+  }
+
+  const amount = calculateKaminoDepositableLiquidityAmountRaw({
+    snapshot,
+    requestedLiquidityAmountRaw: params.requestedAmount,
+  });
+  if (amount <= 0n) {
+    throw new Error(
+      "USDC shield amount is too small to mint Kamino collateral shares"
+    );
+  }
+
+  return amount;
+}
 
 export function labelTransactionInstructions(
   prefix: string,
@@ -95,11 +136,14 @@ export async function buildShieldTokensInstructionPlan(params: {
   payer: PublicKey;
   tokenMint: PublicKey;
   amount: bigint;
+  commitment?: Commitment;
   baseProgram: Program<TelegramPrivateTransfer>;
   perProgram: Program<TelegramPrivateTransfer>;
   validator?: PublicKey;
 }): Promise<ShieldTokensInstructionPlan> {
-  const { user, payer, tokenMint, amount, baseProgram, perProgram } = params;
+  const { user, payer, tokenMint, baseProgram, perProgram } = params;
+  const requestedAmount = params.amount;
+  const commitment = params.commitment ?? DEFAULT_TRANSACTION_COMMITMENT;
 
   const baseConnection = baseProgram.provider.connection;
   const perRpcEndpoint = perProgram.provider.connection.rpcEndpoint;
@@ -110,11 +154,19 @@ export async function buildShieldTokensInstructionPlan(params: {
   const [depositPda] = findDepositPda(user, tokenMint);
   const [permissionPda] = findPermissionPda(depositPda);
 
-  const accountInfos = await getMultipleAccountsInfoWithRetry(
-    baseConnection,
-    [depositPda, permissionPda],
-    "base-getMultipleAccountsInfo"
-  );
+  const [accountInfos, amount] = await Promise.all([
+    getMultipleAccountsInfoWithRetry(
+      baseConnection,
+      [depositPda, permissionPda],
+      "base-getMultipleAccountsInfo"
+    ),
+    resolveShieldTokensAmount({
+      connection: baseConnection,
+      tokenMint,
+      requestedAmount,
+      commitment,
+    }),
+  ]);
   const depositAccountInfo = accountInfos[0] ?? null;
   const permissionAccountInfo = accountInfos[1] ?? null;
   const needsUndelegate =
@@ -245,6 +297,9 @@ export async function buildShieldTokensInstructionPlan(params: {
     checks,
     needsUndelegate,
     context: {
+      amount,
+      commitment,
+      requestedAmount,
       isNativeSol,
       validator,
       depositPda,
@@ -260,6 +315,7 @@ export async function buildShieldTokensTransactionPlan(params: {
   payer: PublicKey;
   tokenMint: PublicKey;
   amount: bigint;
+  commitment?: Commitment;
   baseProgram: Program<TelegramPrivateTransfer>;
   perProgram: Program<TelegramPrivateTransfer>;
   validator?: PublicKey;
@@ -338,6 +394,7 @@ export async function shieldTokens(params: {
     payer,
     tokenMint,
     amount,
+    commitment: rpcOptions?.preflightCommitment,
     baseProgram,
     perProgram,
     validator: params.validator,
@@ -346,6 +403,7 @@ export async function shieldTokens(params: {
   });
   const {
     context: {
+      amount: effectiveAmount,
       validator,
       depositPda,
       permissionPda,
@@ -392,7 +450,9 @@ export async function shieldTokens(params: {
         user,
         payer,
         tokenMint,
-        amount,
+        amount: effectiveAmount,
+        commitment: plan.context.commitment,
+        requestedAmount: amount,
         isNativeSol,
         validator,
         depositPda,

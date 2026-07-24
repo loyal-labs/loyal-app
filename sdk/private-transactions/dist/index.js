@@ -2243,6 +2243,23 @@ function calculateKaminoShareAmountForLiquidityAmountRaw(args) {
   const numerator = liquidityAmount * args.snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE;
   return args.rounding === "ceil" ? divCeil(numerator, args.snapshot.totalLiquiditySupplyScaled) : numerator / args.snapshot.totalLiquiditySupplyScaled;
 }
+function calculateKaminoDepositableLiquidityAmountRaw(args) {
+  const requestedLiquidityAmount = toRawBigInt(args.requestedLiquidityAmountRaw);
+  if (requestedLiquidityAmount <= 0n) {
+    return 0n;
+  }
+  if (args.snapshot.collateralSupplyRaw === 0n || args.snapshot.totalLiquiditySupplyScaled === 0n) {
+    return requestedLiquidityAmount;
+  }
+  const collateralAmount = calculateKaminoShareAmountForLiquidityAmountRaw({
+    snapshot: args.snapshot,
+    liquidityAmountRaw: requestedLiquidityAmount
+  });
+  if (collateralAmount <= 0n) {
+    return 0n;
+  }
+  return divCeil(collateralAmount * args.snapshot.totalLiquiditySupplyScaled, args.snapshot.collateralSupplyRaw * KAMINO_FRACTION_SCALE);
+}
 function calculateKaminoCollateralExchangeRateSfFromAmounts(args) {
   const collateralAmount = toRawBigInt(args.collateralAmount);
   const liquidityAmount = toRawBigInt(args.liquidityAmount);
@@ -2271,7 +2288,7 @@ async function fetchKaminoReserveSnapshot(args) {
   if (!kaminoAccounts) {
     return null;
   }
-  const accountInfo = await args.connection.getAccountInfo(kaminoAccounts.reserve, "confirmed");
+  const accountInfo = await args.connection.getAccountInfo(kaminoAccounts.reserve, args.commitment ?? "confirmed");
   if (!accountInfo) {
     throw new Error(`Kamino reserve ${kaminoAccounts.reserve.toBase58()} was not found`);
   }
@@ -2912,6 +2929,7 @@ import {
   SendTransactionError
 } from "@solana/web3.js";
 var MULTIPLE_ACCOUNTS_CHUNK_SIZE2 = 10;
+var DEFAULT_TRANSACTION_COMMITMENT = "confirmed";
 function describeAccountInfo(accountInfo) {
   if (!accountInfo) {
     return {
@@ -3103,7 +3121,7 @@ async function sendAndConfirmWithDiagnostics(params) {
   if (!wallet) {
     throw new Error(`[${label}] Provider has no wallet`);
   }
-  const preflightCommitment = rpcOptions?.preflightCommitment ?? "confirmed";
+  const preflightCommitment = rpcOptions?.preflightCommitment ?? DEFAULT_TRANSACTION_COMMITMENT;
   const confirmCommitment = preflightCommitment;
   const blockhashInfo = await connection.getLatestBlockhash(preflightCommitment);
   if (!tx.feePayer)
@@ -3413,6 +3431,25 @@ async function undelegateDeposit(baseProgram, perProgram, params) {
 }
 
 // src/actions/shieldTokens.ts
+async function resolveShieldTokensAmount(params) {
+  const commitment = params.commitment ?? DEFAULT_TRANSACTION_COMMITMENT;
+  const snapshot = await fetchKaminoReserveSnapshot({
+    commitment,
+    connection: params.connection,
+    tokenMint: params.tokenMint
+  });
+  if (!snapshot) {
+    return params.requestedAmount;
+  }
+  const amount = calculateKaminoDepositableLiquidityAmountRaw({
+    snapshot,
+    requestedLiquidityAmountRaw: params.requestedAmount
+  });
+  if (amount <= 0n) {
+    throw new Error("USDC shield amount is too small to mint Kamino collateral shares");
+  }
+  return amount;
+}
 function labelTransactionInstructions(prefix, instructions) {
   const labels = [
     `${prefix}:createAssociatedTokenAccount`,
@@ -3425,14 +3462,24 @@ function labelTransactionInstructions(prefix, instructions) {
   }));
 }
 async function buildShieldTokensInstructionPlan(params) {
-  const { user, payer, tokenMint, amount, baseProgram, perProgram } = params;
+  const { user, payer, tokenMint, baseProgram, perProgram } = params;
+  const requestedAmount = params.amount;
+  const commitment = params.commitment ?? DEFAULT_TRANSACTION_COMMITMENT;
   const baseConnection = baseProgram.provider.connection;
   const perRpcEndpoint = perProgram.provider.connection.rpcEndpoint;
   const isNativeSol = tokenMint.equals(NATIVE_MINT2);
   const validator = params.validator ?? getErValidatorForRpcEndpoint(perRpcEndpoint);
   const [depositPda] = findDepositPda(user, tokenMint);
   const [permissionPda] = findPermissionPda(depositPda);
-  const accountInfos = await getMultipleAccountsInfoWithRetry(baseConnection, [depositPda, permissionPda], "base-getMultipleAccountsInfo");
+  const [accountInfos, amount] = await Promise.all([
+    getMultipleAccountsInfoWithRetry(baseConnection, [depositPda, permissionPda], "base-getMultipleAccountsInfo"),
+    resolveShieldTokensAmount({
+      connection: baseConnection,
+      tokenMint,
+      requestedAmount,
+      commitment
+    })
+  ]);
   const depositAccountInfo = accountInfos[0] ?? null;
   const permissionAccountInfo = accountInfos[1] ?? null;
   const needsUndelegate = depositAccountInfo?.owner.equals(DELEGATION_PROGRAM_ID) ?? false;
@@ -3543,6 +3590,9 @@ async function buildShieldTokensInstructionPlan(params) {
     checks,
     needsUndelegate,
     context: {
+      amount,
+      commitment,
+      requestedAmount,
       isNativeSol,
       validator,
       depositPda,
@@ -3608,6 +3658,7 @@ async function shieldTokens(params) {
     payer,
     tokenMint,
     amount,
+    commitment: rpcOptions?.preflightCommitment,
     baseProgram,
     perProgram,
     validator: params.validator,
@@ -3616,6 +3667,7 @@ async function shieldTokens(params) {
   });
   const {
     context: {
+      amount: effectiveAmount,
       validator,
       depositPda,
       permissionPda,
@@ -3648,7 +3700,9 @@ async function shieldTokens(params) {
         user,
         payer,
         tokenMint,
-        amount,
+        amount: effectiveAmount,
+        commitment: plan.context.commitment,
+        requestedAmount: amount,
         isNativeSol,
         validator,
         depositPda,
@@ -4069,6 +4123,15 @@ async function closeUsernameDepositIx(program, params) {
 var KAMINO_API_BASE_URL = "https://api.kamino.finance";
 var KAMINO_MAINNET_ENV = "mainnet-beta";
 var KAMINO_DEVNET_ENV = "devnet";
+function resolveShieldFlowTransactionRpcOptions(params) {
+  if (params.cluster !== "base" || !params.baseCommitment) {
+    return params.rpcOptions;
+  }
+  return {
+    ...params.rpcOptions,
+    preflightCommitment: params.baseCommitment
+  };
+}
 function prettyStringify2(obj) {
   const json = JSON.stringify(obj, (_key, value) => {
     if (value instanceof PublicKey7)
@@ -4288,6 +4351,8 @@ class LoyalPrivateTransactionsClient {
   }
   async buildShieldFlowTransactionPlan(params) {
     const amount = normalizeBigInt(params.amount);
+    let baseCommitment;
+    let effectiveAmount = amount;
     const payer = params.payer ?? params.user;
     const validator = params.validator ?? this.getExpectedErValidator();
     const magicProgram = params.magicProgram ?? MAGIC_PROGRAM_ID;
@@ -4299,12 +4364,15 @@ class LoyalPrivateTransactionsClient {
         payer,
         tokenMint: params.tokenMint,
         amount,
+        commitment: params.commitment,
         baseProgram: this.baseProgram,
         perProgram: this.ephemeralProgram,
         validator,
         magicProgram,
         magicContext
       });
+      baseCommitment = shieldPlan.context.commitment;
+      effectiveAmount = shieldPlan.context.amount;
       if (shieldPlan.preUndelegateTransaction) {
         transactions.push(toShieldFlowTransactionPlan({
           ...shieldPlan.preUndelegateTransaction,
@@ -4359,7 +4427,8 @@ class LoyalPrivateTransactionsClient {
       user: params.user,
       payer,
       tokenMint: params.tokenMint,
-      amount,
+      amount: effectiveAmount,
+      baseCommitment,
       transactions
     };
   }
@@ -4434,11 +4503,16 @@ class LoyalPrivateTransactionsClient {
       const tx = new Transaction7().add(...transactionPlan.instructions.map(({ ix }) => ix));
       let signature;
       try {
+        const rpcOptions = resolveShieldFlowTransactionRpcOptions({
+          baseCommitment: params.plan.baseCommitment,
+          cluster: transactionPlan.cluster,
+          rpcOptions: params.rpcOptions
+        });
         signature = await sendAndConfirmWithDiagnostics({
           label: transactionPlan.label,
           provider,
           tx,
-          rpcOptions: params.rpcOptions,
+          rpcOptions,
           extraContext: {
             kind: params.plan.kind,
             user: params.plan.user,

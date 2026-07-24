@@ -1,4 +1,4 @@
-import { type AccountInfo, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { type AccountInfo, type Commitment, type Connection, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { FeeEstimateCluster, InstructionCheck, RpcOptions } from "../types";
 import type { TelegramPrivateTransfer } from "../idl/telegram_private_transfer";
 import type { Program } from "@coral-xyz/anchor";
@@ -19,6 +19,9 @@ export type ShieldTokensInstructionPlan = {
     checks: InstructionCheck[];
     needsUndelegate: boolean;
     context: {
+        amount: bigint;
+        commitment: Commitment;
+        requestedAmount: bigint;
         isNativeSol: boolean;
         validator: PublicKey;
         depositPda: PublicKey;
@@ -32,12 +35,19 @@ export type ShieldTokensTransactionPlan = {
     baseTransaction: LabeledTransactionPlan;
     context: ShieldTokensInstructionPlan["context"];
 };
+export declare function resolveShieldTokensAmount(params: {
+    connection: Connection;
+    tokenMint: PublicKey;
+    requestedAmount: bigint;
+    commitment?: Commitment;
+}): Promise<bigint>;
 export declare function labelTransactionInstructions(prefix: string, instructions: TransactionInstruction[]): LabeledTransactionInstruction[];
 export declare function buildShieldTokensInstructionPlan(params: {
     user: PublicKey;
     payer: PublicKey;
     tokenMint: PublicKey;
     amount: bigint;
+    commitment?: Commitment;
     baseProgram: Program<TelegramPrivateTransfer>;
     perProgram: Program<TelegramPrivateTransfer>;
     validator?: PublicKey;
@@ -47,6 +57,7 @@ export declare function buildShieldTokensTransactionPlan(params: {
     payer: PublicKey;
     tokenMint: PublicKey;
     amount: bigint;
+    commitment?: Commitment;
     baseProgram: Program<TelegramPrivateTransfer>;
     perProgram: Program<TelegramPrivateTransfer>;
     validator?: PublicKey;
