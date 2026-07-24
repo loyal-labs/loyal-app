@@ -147,6 +147,9 @@ export class SeedVaultSigner implements Signer {
         try {
           return await op();
         } catch (retryError) {
+          if (isSeedVaultUserDecline(retryError)) {
+            throw new WalletRejectedError(DECLINED_MESSAGE);
+          }
           if (!isInvalidAuthTokenError(retryError)) throw retryError;
         }
       }
