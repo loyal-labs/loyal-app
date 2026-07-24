@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { ActivityPage } from "@/components/wallet-workspace/facelift/activity-page";
@@ -39,6 +39,15 @@ export type WorkspacePage =
 
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
 
+const PAGE_STORAGE_KEY = "loyal:workspace-page";
+const WORKSPACE_PAGES: WorkspacePage[] = [
+  "crypto",
+  "stables",
+  "activity",
+  "earn",
+  "wallet",
+];
+
 // Figma 4693:64818 — fixed 3-pane workspace: 360px sidebar on the gray shell,
 // fluid middle panel, 400px right panel. Panes are intentionally not resizable.
 // Below 1204px the right pane would force the dog under its 420px natural size,
@@ -53,12 +62,28 @@ export function WorkspaceFaceliftShell() {
   // inline card, enlarged overlay) — enlarging must not reset the tab.
   const [chartTab, setChartTab] = useState<ChartTab | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("earn");
+  // Reload lands on the last visited page. Restored in an effect (not the
+  // initializer) so the client's first render matches the server HTML; the
+  // page then persists on every change — the write-"earn"-then-restore churn
+  // on mount settles to the stored value.
+  useEffect(() => {
+    const stored = localStorage.getItem(PAGE_STORAGE_KEY) as WorkspacePage;
+    if (WORKSPACE_PAGES.includes(stored) && stored !== "earn") {
+      setActivePage(stored);
+    }
+  }, []);
+  useEffect(() => {
+    localStorage.setItem(PAGE_STORAGE_KEY, activePage);
+  }, [activePage]);
   const [middleView, setMiddleView] = useState<MiddleView>("earn");
   // Set when a positions-tab row's Withdraw pill opened the screen — the
   // withdraw pane preselects that source; header Withdraw clears it.
   const [withdrawSourceKey, setWithdrawSourceKey] = useState<string | null>(
     null
   );
+  // Mirrored from the sidebar (which owns the unseen-activity computation)
+  // so the mobile tab bar's clock shows the same badge.
+  const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const { isHydrated, isSignedIn } = useAuthCapability();
   const earnData = useEarnPositionData();
   const handleSelectPage = (page: WorkspacePage) => {
@@ -101,6 +126,7 @@ export function WorkspaceFaceliftShell() {
           earnBalanceUsd={earnData.earnBalanceUsd}
           isEarnBalanceLoading={isPositionLoading}
           onSelectPage={handleSelectPage}
+          onUnseenActivityChange={setHasUnseenActivity}
         />
         <div
           className={`flex h-full min-w-0 flex-1 flex-col ${
@@ -112,6 +138,7 @@ export function WorkspaceFaceliftShell() {
               earnBalanceUsd={earnData.earnBalanceUsd}
               isEarnBalanceLoading={isPositionLoading}
               onSelectPage={handleSelectPage}
+              showActivityBadge={hasUnseenActivity}
             />
           ) : activePage === "activity" ? (
             <ActivityPage onSelectPage={handleSelectPage} />
@@ -189,7 +216,11 @@ export function WorkspaceFaceliftShell() {
                 )}
               </div>
               {isEarnRootView ? (
-                <MobileTabBar activeTab="earn" onSelect={handleSelectPage} />
+                <MobileTabBar
+                  activeTab="earn"
+                  onSelect={handleSelectPage}
+                  showActivityBadge={hasUnseenActivity}
+                />
               ) : null}
             </>
           )}

@@ -2704,6 +2704,12 @@
   top: 8px;
   right: 8px;
 }
+/* Mobile tab bar clock: anchored to the 28px icon itself, so the dot sits
+   just off its top-right corner like the sidebar variant. */
+.t-badge.t-badge-tab {
+  top: -2px;
+  right: -2px;
+}
 
 .t-badge-dot {
   display: block;
@@ -2730,5 +2736,191 @@
   .t-badge-dot {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* transitions.dev — Success check (10-success-check.md).
+   The swap success screen's check fades in, rotates upright, settles with a
+   Y-bob and draws its check stroke. Mounted with data-state="in" so the
+   keyframes play on insertion (same pattern as the sheet panels). */
+:root {
+  --check-opacity-dur: 500ms;
+  --check-rotate-dur: 500ms;
+  --check-rotate-from: 80deg;
+  --check-bob-dur: 500ms;
+  --check-y-amount: 40px;
+  --check-blur-dur: 500ms;
+  --check-blur-from: 10px;
+  --check-path-dur: 500ms;
+  --check-path-delay: 80ms;
+  --check-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-opacity: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-rotate: cubic-bezier(0.22, 1, 0.36, 1);
+  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --check-ease-path: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-success-check {
+  display: inline-block;
+  transform-origin: center;
+  opacity: 0;
+  will-change: transform, opacity, filter;
+}
+.t-success-check svg {
+  display: block;
+  overflow: visible;
+}
+/* 35 = getTotalLength() of the swap check path (M20 33l8 8 16-16 ≈ 33.9),
+   rounded up per the recipe's calibration note. */
+.t-success-check svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+
+.t-success-check[data-state="in"] {
+  animation: t-check-fade var(--check-opacity-dur) var(--check-ease-opacity)
+      forwards,
+    t-check-rotate var(--check-rotate-dur) var(--check-ease-rotate) forwards,
+    t-check-blur var(--check-blur-dur) var(--check-ease-out) forwards,
+    t-check-bob var(--check-bob-dur) var(--check-ease-bob) forwards;
+}
+.t-success-check[data-state="in"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path)
+    var(--check-path-delay, 0ms) forwards;
+}
+
+@keyframes t-check-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes t-check-rotate {
+  from {
+    transform: rotate(var(--check-rotate-from));
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+@keyframes t-check-blur {
+  from {
+    filter: blur(var(--check-blur-from));
+  }
+  to {
+    filter: blur(0);
+  }
+}
+@keyframes t-check-bob {
+  from {
+    translate: 0 var(--check-y-amount);
+  }
+  to {
+    translate: 0 0;
+  }
+}
+@keyframes t-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-success-check {
+    animation: none !important;
+    opacity: 1;
+  }
+  .t-success-check svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/* Facelift adaptation — the "Swapping..." ellipsis as three staggered
+   blinking dots (the shimmer recipe's in-progress moment, without the
+   gradient machinery a three-dot glyph doesn't need). */
+:root {
+  --dots-dur: 1.4s;
+  --dots-stagger: 200ms;
+}
+
+.t-loading-dots span {
+  animation: t-dot-blink var(--dots-dur) ease-in-out infinite;
+}
+.t-loading-dots span:nth-child(2) {
+  animation-delay: var(--dots-stagger);
+}
+.t-loading-dots span:nth-child(3) {
+  animation-delay: calc(var(--dots-stagger) * 2);
+}
+
+@keyframes t-dot-blink {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-loading-dots span {
+    animation: none !important;
+  }
+}
+
+/* Facelift original in the transitions.dev idiom (the library ships no
+   confetti recipe): particles fly out from the element center on per-particle
+   --confetti-x/-y/-rot/-delay inline props, spinning and fading on the house
+   ease. `forwards` keeps them hidden before their delay and after the burst. */
+:root {
+  --confetti-dur: 900ms;
+  --confetti-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.t-confetti i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: t-confetti-burst var(--confetti-dur) var(--confetti-ease)
+    var(--confetti-delay, 0ms) forwards;
+  will-change: transform, opacity;
+}
+
+@keyframes t-confetti-burst {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotate(0deg)
+      scale(var(--confetti-scale, 1));
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(
+        calc(var(--confetti-x) - 50%),
+        calc(var(--confetti-y) - 50%)
+      )
+      rotate(var(--confetti-rot)) scale(calc(var(--confetti-scale, 1) * 0.7));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-confetti i {
+    animation: none !important;
   }
 }

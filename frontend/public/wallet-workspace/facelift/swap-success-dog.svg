@@ -1,0 +1,40 @@
+<svg width="420" height="420" viewBox="0 0 420 420" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Front-Dog" clip-path="url(#clip0_4098_19416)">
+<path id="Head" d="M100.598 172.2L0 0V420H420V0L318.561 172.2H100.598Z" fill="#F9363C"/>
+<path id="Vector" d="M76.6504 312.9H345.45L308.175 525L125.475 525.047L76.6504 312.9Z" fill="url(#paint0_linear_4098_19416)"/>
+<g id="Eyes">
+<g id="Eye">
+<g id="Eye Mask">
+<path id="Eye mask" d="M99.75 249.9C140.343 249.9 173.25 278.106 173.25 312.9H26.25C26.25 278.106 59.1571 249.9 99.75 249.9Z" fill="white"/>
+<g id="Frame 2147237905" clip-path="url(#clip1_4098_19416)">
+<ellipse id="Pupil" cx="99.7504" cy="305.55" rx="33.6" ry="33.6" fill="black"/>
+</g>
+</g>
+</g>
+<g id="Eye_2">
+<g id="Eye Mask_2">
+<path id="Eye mask_2" d="M320.25 249.9C360.843 249.9 393.75 278.106 393.75 312.9H246.75C246.75 278.106 279.657 249.9 320.25 249.9Z" fill="white"/>
+<g id="Frame 2147237904" clip-path="url(#clip2_4098_19416)">
+<ellipse id="Pupil_2" cx="320.25" cy="305.55" rx="33.6" ry="33.6" fill="black"/>
+</g>
+</g>
+</g>
+</g>
+<path id="Nose" d="M260.4 401.1H225.75V462L194.25 463.05V401.1H163.8L139.65 358.05L280.35 354.9L260.4 401.1Z" fill="black"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_4098_19416" x1="211.05" y1="312.9" x2="211.05" y2="531.3" gradientUnits="userSpaceOnUse">
+<stop stop-opacity="0"/>
+<stop offset="0.36295" stop-opacity="0.1"/>
+</linearGradient>
+<clipPath id="clip0_4098_19416">
+<rect width="420" height="420" fill="white"/>
+</clipPath>
+<clipPath id="clip1_4098_19416">
+<rect width="67.2" height="40.95" fill="white" transform="translate(66.1504 271.95)"/>
+</clipPath>
+<clipPath id="clip2_4098_19416">
+<rect width="67.2" height="40.95" fill="white" transform="translate(286.65 271.95)"/>
+</clipPath>
+</defs>
+</svg>

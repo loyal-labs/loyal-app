@@ -103,3 +103,66 @@ export function SheetReveal({
     document.body
   );
 }
+
+// The same rise/slide-down mechanism for panes that live INSIDE the
+// workspace layout (no portal, no scrim) — the caller keeps the layout slot
+// reserved so only the panel surface animates (swap's token selector aside).
+export function InlineSheetReveal({
+  children,
+  className,
+  isOpen,
+}: {
+  children: ReactNode;
+  className: string;
+  isOpen: boolean;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<number | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+  if (isOpen && !isMounted) {
+    setIsMounted(true);
+  }
+
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (isOpen) {
+      panel.dataset.state = "open";
+      return;
+    }
+    panel.dataset.state = "closed";
+    const closeDur = readCssDurationMs("--panel-close-dur", 350);
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      setIsMounted(false);
+    }, closeDur);
+  }, [isOpen, isMounted]);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+      }
+    },
+    []
+  );
+
+  if (!isMounted) {
+    return null;
+  }
+  return (
+    <div
+      className={`t-sheet-panel ${className}`}
+      data-state="open"
+      ref={panelRef}
+    >
+      {children}
+    </div>
+  );
+}

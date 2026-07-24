@@ -5,20 +5,13 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { SendContent } from "@/components/wallet-sidebar/send-content";
-import {
-  ShieldContent,
-  SwapShieldTabs,
-} from "@/components/wallet-sidebar/shield-content";
-import { SwapContent } from "@/components/wallet-sidebar/swap-content";
 import { TokenSelectView } from "@/components/wallet-sidebar/token-select-view";
 import {
   LOYL_TOKEN,
   swapTokens as fallbackSwapTokens,
 } from "@/components/wallet-sidebar/types";
 import type {
-  FormButtonProps,
   SubView,
-  SwapMode,
   SwapToken,
   TokenRow,
 } from "@/components/wallet-sidebar/types";
@@ -31,7 +24,19 @@ import {
   MiddlePaneSlide,
   PaneReveal,
 } from "@/components/wallet-workspace/facelift/pane-transitions";
-import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
+import {
+  InlineSheetReveal,
+  SheetReveal,
+} from "@/components/wallet-workspace/facelift/sheet-reveal";
+import {
+  ShieldAssetPane,
+  ShieldInfoOverlay,
+  ShieldPane,
+} from "@/components/wallet-workspace/facelift/shield-pane";
+import {
+  SwapPane,
+  SwapTokenSelectPane,
+} from "@/components/wallet-workspace/facelift/swap-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -54,11 +59,6 @@ type ActionView = Exclude<SubView, null>;
 
 function viewType(view: SubView) {
   return typeof view === "object" && view !== null ? view.type : view;
-}
-
-function shouldLoadPopularTokensForView(view: ActionView) {
-  const type = viewType(view);
-  return type === "swapPanel" || type === "tokenSelect";
 }
 
 function tokenRowToSwapToken(token: TokenRow): SwapToken {
@@ -188,11 +188,11 @@ function ShieldUnlockOverlay({
 }
 
 // Crypto screen (Figma 4813:338843) and, via page="stables", the Stablecoins
-// one (4813:339437): the root token list plus the OG action flows —
-// SendContent / SwapContent / ShieldContent and their token-select subviews —
-// mounted as the page-slide action screen. All handler logic is ported from
-// the workspace monolith's personal-wallet slice; the stables Earn buttons
-// jump to the Earn page's deposit screen.
+// one (4813:339437): the root token list plus the action flows — the
+// redesigned Swap and Shield screens, and the OG SendContent with its
+// token-select subview — mounted as the page-slide action screen. All handler
+// logic is ported from the workspace monolith's personal-wallet slice; the
+// stables Earn buttons jump to the Earn page's deposit screen.
 export function CryptoPage({
   onBack,
   onEarn,
@@ -270,7 +270,6 @@ export function CryptoPage({
 
   // --- action flow state (ported from the monolith's personal-wallet slice) ---
   const [viewStack, setViewStack] = useState<ActionView[]>([]);
-  const [swapMode, setSwapMode] = useState<SwapMode>("swap");
   const [sendToken, setSendToken] = useState<SwapToken>(fallbackSwapTokens[0]);
   const [swapFromToken, setSwapFromToken] = useState<SwapToken>(
     fallbackSwapTokens[0]
@@ -279,19 +278,37 @@ export function CryptoPage({
   const [shieldToken, setShieldToken] = useState<SwapToken>(
     fallbackSwapTokens[0]
   );
-  const [shieldDirection, setShieldDirection] = useState<"shield" | "unshield">(
-    "shield"
-  );
-  const [swapFormActive, setSwapFormActive] = useState(false);
-  const [shieldFormActive, setShieldFormActive] = useState(false);
-  const [swapButtonProps, setSwapButtonProps] =
-    useState<FormButtonProps | null>(null);
-  const [shieldButtonProps, setShieldButtonProps] =
-    useState<FormButtonProps | null>(null);
   const [shouldLoadPopularTokens, setShouldLoadPopularTokens] = useState(false);
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
     enabled: shouldLoadPopularTokens,
   });
+
+  // --- redesigned Swap screen (Figma 4819:414629) ---
+  const [isSwapOpen, setIsSwapOpen] = useState(false);
+  const [swapSelectSide, setSwapSelectSide] = useState<"from" | "to" | null>(
+    null
+  );
+  // Keeps the selector content rendered through the overlay's close slide.
+  const swapSelectSideRef = useRef<"from" | "to">("to");
+  if (swapSelectSide) {
+    swapSelectSideRef.current = swapSelectSide;
+  }
+  const overlaySelectSide = swapSelectSide ?? swapSelectSideRef.current;
+
+  // --- redesigned Shield screen (Figma 4822:416013) ---
+  const [isShieldOpen, setIsShieldOpen] = useState(false);
+  // <1204 only: the asset selector as an overlay (the aside is hidden there).
+  const [isShieldSelectOpen, setIsShieldSelectOpen] = useState(false);
+  const [isShieldInfoOpen, setIsShieldInfoOpen] = useState(false);
+  // Mirrors ShieldPane's step: the selector panes hide once a submit starts
+  // and stay hidden on the result screens.
+  const [isShieldFormActive, setIsShieldFormActive] = useState(true);
+  const handleShieldFormActiveChange = useCallback((isFormActive: boolean) => {
+    setIsShieldFormActive(isFormActive);
+    if (!isFormActive) {
+      setIsShieldSelectOpen(false);
+    }
+  }, []);
 
   const derivedTokens = useMemo<SwapToken[]>(() => {
     const positions = data.positions;
@@ -340,10 +357,24 @@ export function CryptoPage({
         })),
     [data.positions]
   );
-  const shieldSourceTokens = useMemo(
-    () => [...derivedTokens, ...securedTokens],
-    [derivedTokens, securedTokens]
-  );
+  // Shielded variants sit right under their public sibling (grouped per
+  // token), not in a bucket at the end; orphans without a public row follow.
+  const shieldSourceTokens = useMemo(() => {
+    const securedByMint = new Map(
+      securedTokens.map((token) => [token.mint, token])
+    );
+    const grouped: SwapToken[] = [];
+    for (const token of derivedTokens) {
+      grouped.push(token);
+      const secured = token.mint ? securedByMint.get(token.mint) : undefined;
+      if (secured) {
+        grouped.push(secured);
+        securedByMint.delete(token.mint);
+      }
+    }
+    grouped.push(...securedByMint.values());
+    return grouped;
+  }, [derivedTokens, securedTokens]);
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -354,17 +385,6 @@ export function CryptoPage({
 
     return [...derivedTokens, ...extras];
   }, [derivedTokens, popularTokens]);
-  const shieldSecuredBalance = useMemo(() => {
-    if (!shieldToken.mint) {
-      return 0;
-    }
-
-    const position = data.positions.find(
-      (entry) => entry.asset.mint === shieldToken.mint
-    );
-
-    return position?.securedBalance ?? 0;
-  }, [data.positions, shieldToken.mint]);
 
   // Seed the flow tokens once the wallet's real tokens land.
   const prevHadTokensRef = useRef(false);
@@ -386,9 +406,6 @@ export function CryptoPage({
   }, [derivedTokens]);
 
   const pushView = useCallback((view: ActionView) => {
-    if (shouldLoadPopularTokensForView(view)) {
-      setShouldLoadPopularTokens(true);
-    }
     setViewStack((current) => [...current, view]);
   }, []);
 
@@ -401,14 +418,77 @@ export function CryptoPage({
   }, []);
 
   const openAction = useCallback((view: ActionView) => {
-    if (shouldLoadPopularTokensForView(view)) {
-      setShouldLoadPopularTokens(true);
-    }
-    if (typeof view === "object" && view.type === "swapPanel") {
-      setSwapMode(view.mode ?? "swap");
-    }
     setViewStack([view]);
   }, []);
+
+  // Ref mirrors so the swap open/select callbacks read the latest pair
+  // without re-creating per selection.
+  const swapFromTokenRef = useRef(swapFromToken);
+  swapFromTokenRef.current = swapFromToken;
+  const swapToTokenRef = useRef(swapToToken);
+  swapToTokenRef.current = swapToToken;
+
+  const openSwap = useCallback((from?: SwapToken) => {
+    setShouldLoadPopularTokens(true);
+    if (from) {
+      setSwapFromToken(from);
+      // Opening from a row that already sits on the receive side would pair
+      // a token with itself — hand the receive side the previous from.
+      setSwapToToken((current) =>
+        current.symbol === from.symbol ? swapFromTokenRef.current : current
+      );
+    }
+    setViewStack([]);
+    setSwapSelectSide(null);
+    setIsShieldOpen(false);
+    setIsShieldSelectOpen(false);
+    setIsSwapOpen(true);
+  }, []);
+
+  const closeSwap = useCallback(() => {
+    setIsSwapOpen(false);
+    setSwapSelectSide(null);
+  }, []);
+
+  const closeShield = useCallback(() => {
+    setIsShieldOpen(false);
+    setIsShieldSelectOpen(false);
+    setIsShieldInfoOpen(false);
+  }, []);
+
+  // OG handleTokenSelect collision rule: picking the token already on the
+  // other side swaps the pair instead of duplicating it.
+  const handleSwapTokenSelect = useCallback(
+    (side: "from" | "to", token: SwapToken) => {
+      if (side === "from") {
+        setSwapToToken((currentTo) =>
+          currentTo.symbol === token.symbol
+            ? swapFromTokenRef.current
+            : currentTo
+        );
+        setSwapFromToken(token);
+      } else {
+        setSwapFromToken((currentFrom) =>
+          currentFrom.symbol === token.symbol
+            ? swapToTokenRef.current
+            : currentFrom
+        );
+        setSwapToToken(token);
+      }
+      setSwapSelectSide(null);
+    },
+    []
+  );
+
+  // Portfolio names for the selector rows — SwapToken itself only carries a
+  // symbol; popular/searched tokens fall back to the ticker.
+  const tokenNameByMint = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const position of data.positions) {
+      map[position.asset.mint] = position.asset.name;
+    }
+    return map;
+  }, [data.positions]);
 
   const tryUnlockFromReusableAuth = useCallback(() => {
     if (!(connectedWalletAddress && unlockKey)) {
@@ -514,31 +594,22 @@ export function CryptoPage({
     wallet.signTransaction,
   ]);
 
-  const handleSwapModeChange = useCallback((mode: SwapMode) => {
-    setSwapMode(mode);
-  }, []);
-
-  const handleTokenSelect = useCallback(
-    (token: SwapToken) => {
-      const topView = viewStack[viewStack.length - 1];
-
-      if (typeof topView === "object" && topView?.type === "tokenSelect") {
-        if (topView.field === "from") {
-          if (token.symbol === swapToToken.symbol) {
-            setSwapToToken(swapFromToken);
-          }
-
-          setSwapFromToken(token);
-        } else {
-          if (token.symbol === swapFromToken.symbol) {
-            setSwapFromToken(swapToToken);
-          }
-
-          setSwapToToken(token);
+  // Direction is derived from the selected asset (shielded → unshield), so
+  // opening just needs the unlock gate + the source token.
+  const openShield = useCallback(
+    (token?: SwapToken) => {
+      requireShieldedUnlock(() => {
+        if (token) {
+          setShieldToken(token);
         }
-      }
+        setViewStack([]);
+        setIsSwapOpen(false);
+        setSwapSelectSide(null);
+        setIsShieldFormActive(true);
+        setIsShieldOpen(true);
+      });
     },
-    [swapFromToken, swapToToken, viewStack]
+    [requireShieldedUnlock]
   );
 
   // Wrapped so flow callbacks' own arguments never leak into refresh's
@@ -557,37 +628,20 @@ export function CryptoPage({
       setSendToken(tokenRowToSwapToken(row));
       openAction({ type: "sendPanel" });
     },
-    onShield: (row) => {
-      const token = tokenRowToSwapToken(row);
-      requireShieldedUnlock(() => {
-        setShieldToken(token);
-        setShieldDirection("shield");
-        openAction({ type: "swapPanel", mode: "shield" });
-      });
-    },
+    // Shield and Unshield land on the same screen — the row token's secured
+    // flag picks the direction.
+    onShield: (row) => openShield(tokenRowToSwapToken(row)),
     onSwap: (row) => {
       const mint = row.id?.replace(/-secured$/, "");
       const base =
         derivedTokens.find((token) => token.mint === mint) ??
         tokenRowToSwapToken(row);
-      setSwapFromToken(base);
-      openAction({ type: "swapPanel", mode: "swap" });
+      openSwap(base);
     },
-    onUnshield: (row) => {
-      const token = tokenRowToSwapToken(row);
-      requireShieldedUnlock(() => {
-        setShieldToken(token);
-        setShieldDirection("unshield");
-        openAction({ type: "swapPanel", mode: "shield" });
-      });
-    },
+    onUnshield: (row) => openShield(tokenRowToSwapToken(row)),
   };
 
-  const handleShield = () =>
-    requireShieldedUnlock(() => {
-      setShieldDirection("shield");
-      openAction({ type: "swapPanel", mode: "shield" });
-    });
+  const handleShield = () => openShield();
 
   const actionView = viewStack[viewStack.length - 1] ?? null;
   const actionType = actionView === null ? null : viewType(actionView);
@@ -595,21 +649,6 @@ export function CryptoPage({
   const renderActionView = () => {
     if (actionView === null) {
       return null;
-    }
-
-    if (typeof actionView === "object" && actionView.type === "tokenSelect") {
-      const field = actionView.field;
-      return (
-        <TokenSelectView
-          currentToken={field === "from" ? swapFromToken : swapToToken}
-          onBack={popView}
-          onClose={closeAction}
-          onSearch={field === "to" ? searchTokens : undefined}
-          onSelect={handleTokenSelect}
-          title={field === "from" ? "You Swap" : "You Receive"}
-          tokens={field === "to" ? swapTargetTokens : derivedTokens}
-        />
-      );
     }
 
     if (actionType === "sendTokenSelect") {
@@ -621,38 +660,6 @@ export function CryptoPage({
           onSelect={setSendToken}
           title="Send"
           tokens={derivedTokens}
-        />
-      );
-    }
-
-    if (actionType === "shieldTokenSelect") {
-      return (
-        <TokenSelectView
-          currentToken={shieldToken}
-          isTokenSelected={(token) =>
-            token.mint === shieldToken.mint &&
-            (token.isSecured
-              ? shieldDirection === "unshield"
-              : shieldDirection === "shield")
-          }
-          onBack={popView}
-          onClose={closeAction}
-          onSelect={(token) => {
-            const nextDirection = token.isSecured ? "unshield" : "shield";
-            const baseToken =
-              derivedTokens.find(
-                (nextToken) => nextToken.mint === token.mint
-              ) ??
-              data.positions
-                .filter((position) => position.asset.mint === token.mint)
-                .map(portfolioPositionToSwapToken)[0] ??
-              token;
-
-            setShieldToken(baseToken);
-            setShieldDirection(nextDirection);
-          }}
-          title="Select token"
-          tokens={shieldSourceTokens}
         />
       );
     }
@@ -671,86 +678,6 @@ export function CryptoPage({
       );
     }
 
-    if (actionType === "swapPanel") {
-      // The monolith's swap/shield pair: both stay mounted and slide
-      // horizontally while the tabs switch modes.
-      const showTabs = swapMode === "swap" ? swapFormActive : shieldFormActive;
-      const buttonProps =
-        swapMode === "swap" ? swapButtonProps : shieldButtonProps;
-
-      return (
-        <div className="flex h-full min-h-0 flex-1 flex-col">
-          {showTabs ? (
-            <SwapShieldTabs
-              mode={swapMode}
-              onClose={closeAction}
-              onModeChange={handleSwapModeChange}
-            />
-          ) : null}
-          <div className="relative min-h-0 flex-1 overflow-hidden">
-            <div
-              className="absolute inset-0 flex flex-col transition-transform duration-[350ms] ease-[cubic-bezier(0.25,0.1,0.25,1)] will-change-transform"
-              style={{
-                transform:
-                  swapMode === "swap" ? "translateX(0)" : "translateX(-100%)",
-              }}
-            >
-              <SwapContent
-                fromToken={swapFromToken}
-                hideFormChrome
-                onClose={closeAction}
-                onDone={closeAction}
-                onFormActiveChange={setSwapFormActive}
-                onFormButtonChange={setSwapButtonProps}
-                onFromTokenChange={setSwapFromToken}
-                onNavigate={pushView}
-                onSuccess={refreshWallet}
-                onSwapModeChange={handleSwapModeChange}
-                onToTokenChange={setSwapToToken}
-                swapMode={swapMode}
-                toToken={swapToToken}
-              />
-            </div>
-            <div
-              className="absolute inset-0 flex flex-col transition-transform duration-[350ms] ease-[cubic-bezier(0.25,0.1,0.25,1)] will-change-transform"
-              style={{
-                transform:
-                  swapMode === "shield" ? "translateX(0)" : "translateX(100%)",
-              }}
-            >
-              <ShieldContent
-                hideFormChrome
-                initialDirection={shieldDirection}
-                onClose={closeAction}
-                onDone={closeAction}
-                onFormActiveChange={setShieldFormActive}
-                onFormButtonChange={setShieldButtonProps}
-                onNavigate={pushView}
-                onSuccess={refreshWallet}
-                onSwapModeChange={handleSwapModeChange}
-                onTokenChange={setShieldToken}
-                securedBalance={shieldSecuredBalance}
-                swapMode={swapMode}
-                token={shieldToken}
-              />
-            </div>
-          </div>
-          {buttonProps ? (
-            <div className="px-5 py-4">
-              <button
-                className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 hover:bg-[#171717] disabled:bg-[#cccdcd]"
-                disabled={buttonProps.disabled}
-                onClick={buttonProps.onClick}
-                type="button"
-              >
-                {buttonProps.label}
-              </button>
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-
     return null;
   };
 
@@ -765,6 +692,34 @@ export function CryptoPage({
                   {renderActionView()}
                 </div>
               </section>
+            ) : isSwapOpen ? (
+              <SwapPane
+                activeSelectSide={swapSelectSide}
+                fromToken={swapFromToken}
+                onBack={closeSwap}
+                onDone={closeSwap}
+                onFlipTokens={() => {
+                  setSwapFromToken(swapToToken);
+                  setSwapToToken(swapFromToken);
+                }}
+                onRequestSelect={(side) =>
+                  setSwapSelectSide((current) =>
+                    current === side ? null : side
+                  )
+                }
+                onSuccess={refreshWallet}
+                toToken={swapToToken}
+              />
+            ) : isShieldOpen ? (
+              <ShieldPane
+                onBack={closeShield}
+                onDone={closeShield}
+                onFormActiveChange={handleShieldFormActiveChange}
+                onOpenInfo={() => setIsShieldInfoOpen(true)}
+                onOpenSelect={() => setIsShieldSelectOpen(true)}
+                onSuccess={refreshWallet}
+                token={shieldToken}
+              />
             ) : null
           }
         >
@@ -777,7 +732,7 @@ export function CryptoPage({
               onEarn={onEarn}
               onSend={() => openAction({ type: "sendPanel" })}
               onShield={handleShield}
-              onSwap={() => openAction({ type: "swapPanel", mode: "swap" })}
+              onSwap={() => openSwap()}
               rowActions={rowActions}
               tokenRows={
                 page === "stables"
@@ -788,7 +743,55 @@ export function CryptoPage({
             />
           </PaneReveal>
         </MiddlePaneSlide>
-        {actionView === null ? (
+        {actionView !== null ? null : isSwapOpen ? (
+          // Swap's right pane: a reserved 400px slot (Figma 4813:403499
+          // keeps it empty) the selector panel-reveals into and out of;
+          // switching sides replays the content reveal on the open panel.
+          <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
+            <InlineSheetReveal
+              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
+              isOpen={swapSelectSide !== null}
+            >
+              <PaneReveal key={overlaySelectSide}>
+                <SwapTokenSelectPane
+                  nameByMint={tokenNameByMint}
+                  onClose={() => setSwapSelectSide(null)}
+                  onSearch={
+                    overlaySelectSide === "to" ? searchTokens : undefined
+                  }
+                  onSelect={(token) =>
+                    handleSwapTokenSelect(overlaySelectSide, token)
+                  }
+                  side={overlaySelectSide}
+                  tokens={
+                    overlaySelectSide === "from"
+                      ? derivedTokens
+                      : swapTargetTokens
+                  }
+                />
+              </PaneReveal>
+            </InlineSheetReveal>
+          </div>
+        ) : isShieldOpen ? (
+          // Shield's right pane (Figma 4822:417305): the asset selector rides
+          // the form — it slides out while a submit runs and on the result
+          // screens (the 400px slot stays reserved so the middle never jumps).
+          <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
+            <InlineSheetReveal
+              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
+              isOpen={isShieldFormActive}
+            >
+              <PaneReveal>
+                <ShieldAssetPane
+                  nameByMint={tokenNameByMint}
+                  onSelect={setShieldToken}
+                  selectedToken={shieldToken}
+                  tokens={shieldSourceTokens}
+                />
+              </PaneReveal>
+            </InlineSheetReveal>
+          </div>
+        ) : (
           // ponytail: the Figma right pane is a "🛠 Token page" placeholder —
           // the token detail screen ships with a later design.
           <aside className="hidden h-full w-[400px] shrink-0 flex-col items-center justify-center overflow-clip rounded-3xl bg-white min-[1204px]:flex">
@@ -797,8 +800,55 @@ export function CryptoPage({
               Token page
             </p>
           </aside>
-        ) : null}
+        )}
       </div>
+      {/* Below 1204px the selector opens as the right-pinned card over the
+          dark scrim (Figma 4819:413827) — the chart-enlarge geometry; on
+          desktop the scrim is display:none while the aside shows it. */}
+      <SheetReveal
+        isOpen={isSwapOpen && swapSelectSide !== null}
+        onClose={() => setSwapSelectSide(null)}
+        scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      >
+        <PaneReveal key={overlaySelectSide}>
+          <SwapTokenSelectPane
+            nameByMint={tokenNameByMint}
+            onClose={() => setSwapSelectSide(null)}
+            onSearch={overlaySelectSide === "to" ? searchTokens : undefined}
+            onSelect={(token) =>
+              handleSwapTokenSelect(overlaySelectSide, token)
+            }
+            side={overlaySelectSide}
+            tokens={
+              overlaySelectSide === "from" ? derivedTokens : swapTargetTokens
+            }
+          />
+        </PaneReveal>
+      </SheetReveal>
+      {/* Shield's <1204 selector: same geometry, opened from the source
+          asset cell (the aside is hidden below 1204). */}
+      <SheetReveal
+        isOpen={isShieldOpen && isShieldSelectOpen}
+        onClose={() => setIsShieldSelectOpen(false)}
+        scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      >
+        <ShieldAssetPane
+          nameByMint={tokenNameByMint}
+          onClose={() => setIsShieldSelectOpen(false)}
+          onSelect={(token) => {
+            setShieldToken(token);
+            setIsShieldSelectOpen(false);
+          }}
+          selectedToken={shieldToken}
+          tokens={shieldSourceTokens}
+        />
+      </SheetReveal>
+      <ShieldInfoOverlay
+        isOpen={isShieldInfoOpen}
+        onClose={() => setIsShieldInfoOpen(false)}
+      />
       <ShieldUnlockOverlay
         error={unlockError}
         isOpen={isUnlockOpen}

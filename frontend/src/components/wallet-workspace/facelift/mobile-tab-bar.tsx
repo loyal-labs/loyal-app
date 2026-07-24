@@ -9,9 +9,11 @@ const ASSET_BASE = "/wallet-workspace/facelift";
 export function MobileTabBar({
   activeTab,
   onSelect,
+  showActivityBadge = false,
 }: {
   activeTab: "activity" | "earn" | "wallet";
   onSelect: (tab: "activity" | "earn" | "wallet") => void;
+  showActivityBadge?: boolean;
 }) {
   return (
     <div className="w-full shrink-0 bg-white px-4 min-[796px]:hidden">
@@ -65,17 +67,26 @@ export function MobileTabBar({
           onClick={() => onSelect("activity")}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-7"
-            src={`${ASSET_BASE}/${
-              activeTab === "activity"
-                ? "icon-tab-clock-black.svg"
-                : "icon-clock-history.svg"
-            }`}
-          />
+          <span className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              aria-hidden="true"
+              className="size-7"
+              src={`${ASSET_BASE}/${
+                activeTab === "activity"
+                  ? "icon-tab-clock-black.svg"
+                  : "icon-clock-history.svg"
+              }`}
+            />
+            {/* Same unseen-activity badge the sidebar clock shows. */}
+            <span
+              className="t-badge t-badge-tab"
+              data-open={showActivityBadge ? "true" : "false"}
+            >
+              <span className="t-badge-dot size-1.5 rounded-full bg-[#f9363c]" />
+            </span>
+          </span>
         </button>
       </div>
     </div>

@@ -97,11 +97,13 @@ export function FaceliftSidebar({
   earnBalanceUsd,
   isEarnBalanceLoading,
   onSelectPage,
+  onUnseenActivityChange,
 }: {
   activePage: WorkspacePage;
   earnBalanceUsd: number;
   isEarnBalanceLoading: boolean;
   onSelectPage: (page: WorkspacePage) => void;
+  onUnseenActivityChange?: (hasUnseen: boolean) => void;
 }) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
@@ -165,6 +167,11 @@ export function FaceliftSidebar({
   }, [activePage, activitySeenKey, latestActivityAt]);
   const hasUnseenActivity =
     activePage !== "activity" && latestActivityAt > activitySeenAt;
+  // The sidebar stays mounted (CSS-hidden) below 796px, so it keeps owning
+  // the unseen state; the shell mirrors it for the mobile tab bar's badge.
+  useEffect(() => {
+    onUnseenActivityChange?.(hasUnseenActivity);
+  }, [hasUnseenActivity, onUnseenActivityChange]);
 
   const stablecoinMints = useMemo(
     () => getStablecoinMintSetForSolanaEnv(publicEnv.solanaEnv),

@@ -39,10 +39,12 @@ export function WalletHomePage({
   earnBalanceUsd,
   isEarnBalanceLoading,
   onSelectPage,
+  showActivityBadge,
 }: {
   earnBalanceUsd: number;
   isEarnBalanceLoading: boolean;
   onSelectPage: (page: WorkspacePage) => void;
+  showActivityBadge: boolean;
 }) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
@@ -373,7 +375,11 @@ export function WalletHomePage({
           </section>
         </PaneReveal>
       </div>
-      <MobileTabBar activeTab="wallet" onSelect={onSelectPage} />
+      <MobileTabBar
+        activeTab="wallet"
+        onSelect={onSelectPage}
+        showActivityBadge={showActivityBadge}
+      />
     </>
   );
 }
