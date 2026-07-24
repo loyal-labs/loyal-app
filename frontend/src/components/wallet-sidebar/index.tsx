@@ -28,6 +28,7 @@ import {
   trackWalletSidebarTabOpen,
 } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import { getPortfolioBalanceDisplay } from "@/lib/wallet/portfolio-refresh-state";
 
 import { AllActivityView } from "./all-activity-view";
 import { AllApprovalsView } from "./all-approvals-view";
@@ -90,6 +91,10 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
         props.walletDesktopData.totalUsd + props.smartAccountData.totalUsd
       ),
     [props.walletDesktopData.totalUsd, props.smartAccountData.totalUsd]
+  );
+  const totalBalanceDisplay = getPortfolioBalanceDisplay(
+    props.walletDesktopData.portfolioStatus,
+    totalBalance
   );
 
   // Turnstile captcha gate for sign-in tab
@@ -1302,8 +1307,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
             >
               {displayTab === "portfolio" && (
                 <PortfolioContent
-                  balanceFraction={totalBalance.balanceFraction}
-                  balanceWhole={totalBalance.balanceWhole}
+                  balanceFraction={totalBalanceDisplay.balanceFraction}
+                  balanceWhole={totalBalanceDisplay.balanceWhole}
                   isBalanceHidden={props.isBalanceHidden}
                   isLoading={
                     props.walletDesktopData.isLoading &&
@@ -1332,8 +1337,12 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                     handleSwapModeChange("shield");
                     pushView({ type: "swapPanel", mode: "shield" });
                   }}
+                  onWalletBalanceRetry={() => {
+                    void props.walletDesktopData.refresh();
+                  }}
                   onOpenVault={openVaultAccount}
                   onOpenAgent={openAgentPage}
+                  walletBalanceStatus={props.walletDesktopData.portfolioStatus}
                 />
               )}
               {displayTab === "receive" && (

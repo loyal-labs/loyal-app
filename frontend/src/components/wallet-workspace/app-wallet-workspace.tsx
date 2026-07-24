@@ -193,6 +193,7 @@ import {
   getStablecoinMintSetForSolanaEnv,
   sumPublicStablecoinParValueUsd,
 } from "@/lib/wallet/stablecoin-classification";
+import { getPortfolioBalanceDisplay } from "@/lib/wallet/portfolio-refresh-state";
 import {
   getFrontendPrivateClient,
   hasReusableFrontendPrivateClientAuth,
@@ -3448,6 +3449,10 @@ export function AppWalletWorkspace({
           earnCurrentBalanceAmount
       ),
     [earnCurrentBalanceAmount, mainAccountDisplayUsd, smartAccountData.totalUsd]
+  );
+  const totalBalanceDisplay = getPortfolioBalanceDisplay(
+    walletDesktopData.portfolioStatus,
+    totalBalance
   );
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
@@ -7589,16 +7594,21 @@ export function AppWalletWorkspace({
         : "00";
       const canUseWalletDetailData =
         canLoadPersonalAccount && !selectedMockRootSigner;
-      const walletDetailBalanceWhole =
-        selectedMockRootSigner?.balanceWhole ??
-        (isMainAccountDetail
-          ? mainAccountDisplayBalance.balanceWhole
-          : walletFallbackBalanceWhole);
-      const walletDetailBalanceFraction =
-        selectedMockRootSigner?.balanceFraction ??
-        (isMainAccountDetail
-          ? mainAccountDisplayBalance.balanceFraction
-          : walletFallbackBalanceFraction);
+      const walletDetailBalance = getPortfolioBalanceDisplay(
+        canUseWalletDetailData ? walletDesktopData.portfolioStatus : "current",
+        {
+          balanceFraction:
+            selectedMockRootSigner?.balanceFraction ??
+            (isMainAccountDetail
+              ? mainAccountDisplayBalance.balanceFraction
+              : walletFallbackBalanceFraction),
+          balanceWhole:
+            selectedMockRootSigner?.balanceWhole ??
+            (isMainAccountDetail
+              ? mainAccountDisplayBalance.balanceWhole
+              : walletFallbackBalanceWhole),
+        }
+      );
       const walletDetailTokenRows = canUseWalletDetailData
         ? personalWalletAllTokenRows
         : [];
@@ -7619,8 +7629,13 @@ export function AppWalletWorkspace({
         <WalletDetailView
           address={walletDetailAddress}
           activityRows={walletDetailActivityRows}
-          balanceFraction={walletDetailBalanceFraction}
-          balanceWhole={walletDetailBalanceWhole}
+          balanceFraction={walletDetailBalance.balanceFraction}
+          balanceStatus={
+            canUseWalletDetailData
+              ? walletDesktopData.portfolioStatus
+              : undefined
+          }
+          balanceWhole={walletDetailBalance.balanceWhole}
           cashTokenRows={walletDetailCashTokenRows}
           icon={walletDetailIcon}
           initialTab={detailInitialTab}
@@ -7650,6 +7665,7 @@ export function AppWalletWorkspace({
           onOpenShield={() => {
             handleOpenMainAccountShield();
           }}
+          onRetryBalance={refreshMainAccountBalances}
           onOpenSwap={() => {
             openActionView(
               { type: "swapPanel", mode: "swap" },
@@ -8583,8 +8599,8 @@ export function AppWalletWorkspace({
             ) : (
               <PortfolioContent
                 approvals={smartAccountData.approvals}
-                balanceFraction={totalBalance.balanceFraction}
-                balanceWhole={totalBalance.balanceWhole}
+                balanceFraction={totalBalanceDisplay.balanceFraction}
+                balanceWhole={totalBalanceDisplay.balanceWhole}
                 earnDepositLabel={canMutateAccount ? "Deposit" : "Connect"}
                 earnBalance={earnCurrentBalanceAmount}
                 hasEarnPolicy={hasEarnPolicy}
@@ -8613,6 +8629,9 @@ export function AppWalletWorkspace({
                 onOpenSend={() => handleRailAction("send")}
                 onOpenShield={() => handleRailAction("shield")}
                 onOpenSwap={() => handleRailAction("swap")}
+                onWalletBalanceRetry={() => {
+                  void refreshMainAccountBalances();
+                }}
                 onOpenEarnDeposit={
                   canMutateAccount ? handleOpenEarnDeposit : openSignIn
                 }
@@ -8664,6 +8683,7 @@ export function AppWalletWorkspace({
                 smartAccountError={smartAccountData.error}
                 topInset={47}
                 vaultEntries={smartAccountData.vaultEntries}
+                walletBalanceStatus={walletDesktopData.portfolioStatus}
                 portfolioChange24h={
                   canLoadPersonalAccount
                     ? walletDesktopData.portfolioChange24h

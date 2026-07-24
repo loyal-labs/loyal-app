@@ -36,6 +36,13 @@ import {
   getStablecoinMintSetForSolanaEnv,
   isStablecoinMint,
 } from "@/lib/wallet/stablecoin-classification";
+import {
+  createPortfolioRefreshState,
+  getPortfolioFreshness,
+  markPortfolioRefreshFailed,
+  markPortfolioRefreshSucceeded,
+  type PortfolioFreshness,
+} from "@/lib/wallet/portfolio-refresh-state";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 
@@ -77,6 +84,8 @@ export type WalletDesktopData = {
   balanceHistory: BalanceHistoryPoint[];
   earningsSummary: WalletEarningsSummary | null;
   portfolioChange24h: WalletPortfolioChange24h | null;
+  portfolioError: string | null;
+  portfolioStatus: PortfolioFreshness;
   loadActivity: () => Promise<void>;
   refresh: (isCurrent?: () => boolean) => Promise<void>;
   addLocalActivity: (row: ActivityRow, detail: TransactionDetail) => void;
@@ -586,8 +595,10 @@ export function useWalletDesktopData(
       return null;
     }
   }, [wallet.publicKey, walletAddress]);
-  const [portfolioSnapshot, setPortfolioSnapshot] =
-    useState<PortfolioSnapshot | null>(null);
+  const [portfolioRefreshState, setPortfolioRefreshState] = useState(() =>
+    createPortfolioRefreshState<PortfolioSnapshot>()
+  );
+  const portfolioSnapshot = portfolioRefreshState.snapshot;
   const [earningsByMint, setEarningsByMint] = useState<
     ReadonlyMap<string, KaminoEarnings>
   >(EMPTY_EARNINGS_BY_MINT);
@@ -613,7 +624,9 @@ export function useWalletDesktopData(
       walletAddress: string;
       persist?: boolean;
     }) => {
-      setPortfolioSnapshot(args.portfolioSnapshot);
+      setPortfolioRefreshState(
+        markPortfolioRefreshSucceeded(args.portfolioSnapshot)
+      );
       setEarningsByMint(args.earningsByMint);
       setEarningsSummary(args.earningsSummary);
 
@@ -760,6 +773,11 @@ export function useWalletDesktopData(
           })
           .catch((error) => {
             console.error("Failed to refresh wallet portfolio", error);
+            if (ownerAddressRef.current === address && isCurrent()) {
+              setPortfolioRefreshState((current) =>
+                markPortfolioRefreshFailed(current, error)
+              );
+            }
           })
       );
 
@@ -802,7 +820,7 @@ export function useWalletDesktopData(
 
   useEffect(() => {
     if (!ownerPublicKey) {
-      setPortfolioSnapshot(null);
+      setPortfolioRefreshState(createPortfolioRefreshState());
       setEarningsByMint(EMPTY_EARNINGS_BY_MINT);
       setEarningsSummary(null);
       setActivities([]);
@@ -828,7 +846,7 @@ export function useWalletDesktopData(
         persist: false,
       });
     } else {
-      setPortfolioSnapshot(null);
+      setPortfolioRefreshState(createPortfolioRefreshState());
       setEarningsByMint(EMPTY_EARNINGS_BY_MINT);
       setEarningsSummary(null);
     }
@@ -863,6 +881,9 @@ export function useWalletDesktopData(
       .catch((error) => {
         console.error("Failed to load wallet desktop data", error);
         if (!cancelled) {
+          setPortfolioRefreshState((current) =>
+            markPortfolioRefreshFailed(current, error)
+          );
           setIsLoading(false);
         }
       });
@@ -917,6 +938,11 @@ export function useWalletDesktopData(
       })
       .catch((error) => {
         console.error("Failed to subscribe to wallet portfolio", error);
+        if (!closed) {
+          setPortfolioRefreshState((current) =>
+            markPortfolioRefreshFailed(current, error)
+          );
+        }
       });
 
     if (hasRequestedActivity) {
@@ -1339,6 +1365,10 @@ export function useWalletDesktopData(
   ]);
 
   const balance = splitUsdBalance(totals.totalUsd);
+  const portfolioStatus = getPortfolioFreshness(
+    portfolioRefreshState,
+    isLoading
+  );
   const walletLabel = walletAddress
     ? `${
         { mainnet: "Mainnet", devnet: "Devnet", localnet: "Localnet" }[
@@ -1377,6 +1407,8 @@ export function useWalletDesktopData(
     balanceHistory,
     earningsSummary,
     portfolioChange24h,
+    portfolioError: portfolioRefreshState.error,
+    portfolioStatus,
     loadActivity,
     refresh,
     addLocalActivity,

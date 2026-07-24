@@ -7,12 +7,14 @@ import {
   Check,
   ChevronRight,
   Copy,
+  RefreshCw,
   Repeat2,
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 import { useLoyalPriceUsd } from "@/hooks/use-loyal-price";
+import type { PortfolioFreshness } from "@/lib/wallet/portfolio-refresh-state";
 import { AccessLevelIcon, type AccessLevel } from "./agent-page-view";
 import { buildLoyalPlaceholderRow } from "./loyal-placeholder";
 import { SpendingLimitSection } from "./spending-limit-section";
@@ -76,6 +78,7 @@ export function WalletDetailView({
   icon,
   balanceWhole,
   balanceFraction,
+  balanceStatus = "current",
   isBalanceHidden,
   cashTokenRows,
   investmentTokenRows,
@@ -83,6 +86,7 @@ export function WalletDetailView({
   onOpenSend,
   onOpenSwap,
   onOpenShield,
+  onRetryBalance,
   onRemoveSigner,
   getTokenActions,
   onTokenDetail,
@@ -101,6 +105,7 @@ export function WalletDetailView({
   icon: string;
   balanceWhole: string;
   balanceFraction: string;
+  balanceStatus?: PortfolioFreshness;
   isBalanceHidden: boolean;
   tokenRows: TokenRow[];
   cashTokenRows: TokenRow[];
@@ -112,6 +117,7 @@ export function WalletDetailView({
   onOpenSend: () => void;
   onOpenSwap: () => void;
   onOpenShield: () => void;
+  onRetryBalance?: () => Promise<void> | void;
   onRemoveSigner?: () => void;
   getTokenActions?: (token: TokenRow) => TokenRowActions | undefined;
   onTokenDetail?: (token: TokenRow) => void;
@@ -407,6 +413,61 @@ export function WalletDetailView({
             </div>
           </div>
         </div>
+
+        {(balanceStatus === "stale" || balanceStatus === "unavailable") && (
+          <div
+            aria-live="polite"
+            style={{
+              alignItems: "center",
+              background: "rgba(249, 159, 54, 0.12)",
+              borderRadius: "12px",
+              display: "flex",
+              gap: "10px",
+              justifyContent: "space-between",
+              margin: "0 20px 8px",
+              padding: "10px 12px",
+            }}
+          >
+            <span
+              style={{
+                color: "rgba(60, 60, 67, 0.72)",
+                fontFamily: font,
+                fontSize: "13px",
+                lineHeight: "16px",
+              }}
+            >
+              {balanceStatus === "stale"
+                ? "Balances may be out of date."
+                : "Balances are temporarily unavailable."}
+            </span>
+            {onRetryBalance && (
+              <button
+                aria-label="Retry balance refresh"
+                onClick={() => {
+                  void onRetryBalance();
+                }}
+                style={{
+                  alignItems: "center",
+                  background: "transparent",
+                  border: "none",
+                  color: "#000",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  flexShrink: 0,
+                  fontFamily: font,
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  gap: "5px",
+                  padding: "4px",
+                }}
+                type="button"
+              >
+                <RefreshCw aria-hidden="true" size={14} strokeWidth={2} />
+                Retry
+              </button>
+            )}
+          </div>
+        )}
 
         <div
           style={{

@@ -450,6 +450,7 @@ export function ShieldContent({
   const [isMaxSelected, setIsMaxSelected] = useState(false);
   const [phase, setPhase] = useState<ShieldPhase>("form");
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  const [isRetryableError, setIsRetryableError] = useState(false);
   const [resultAmount, setResultAmount] = useState("");
   const [resultUsd, setResultUsd] = useState("");
 
@@ -527,6 +528,7 @@ export function ShieldContent({
 
   useEffect(() => {
     setIsMaxSelected(false);
+    setIsRetryableError(false);
   }, [direction, token.mint]);
 
   const handleConfirm = useCallback(async () => {
@@ -540,6 +542,7 @@ export function ShieldContent({
       })}`
     );
     setErrorMessage(undefined);
+    setIsRetryableError(false);
     setPhase("processing");
 
     const params = {
@@ -575,6 +578,9 @@ export function ShieldContent({
         });
     } else {
       setErrorMessage(result.error);
+      setIsRetryableError(
+        direction === "unshield" && result.retryable !== false
+      );
       setPhase("error");
     }
   }, [
@@ -591,6 +597,17 @@ export function ShieldContent({
     usdValue,
     isMaxSelected,
   ]);
+
+  const handleRetry = useCallback(() => {
+    setErrorMessage(undefined);
+    setIsRetryableError(false);
+    setPhase("form");
+    void Promise.resolve()
+      .then(() => onSuccess?.())
+      .catch((error) => {
+        console.warn("Failed to refresh balances before retry", error);
+      });
+  }, [onSuccess]);
 
   // Report form button props to parent when chrome is managed externally
   useEffect(() => {
@@ -929,9 +946,35 @@ export function ShieldContent({
                 Transaction Details
               </button>
             )}
+            {!isSuccess && isRetryableError && (
+              <button
+                className="shield-done-btn"
+                onClick={handleRetry}
+                style={{
+                  width: "100%",
+                  padding: "12px 16px",
+                  borderRadius: "9999px",
+                  background: "#000",
+                  border: "none",
+                  cursor: "pointer",
+                  fontFamily: font,
+                  fontSize: "16px",
+                  fontWeight: 400,
+                  lineHeight: "20px",
+                  color: "#fff",
+                  textAlign: "center",
+                  transition: "background 0.15s ease",
+                }}
+                type="button"
+              >
+                Try again
+              </button>
+            )}
             <button
               className={
-                isSuccess ? "shield-done-secondary-btn" : "shield-done-btn"
+                isSuccess || isRetryableError
+                  ? "shield-done-secondary-btn"
+                  : "shield-done-btn"
               }
               onClick={() => {
                 setPhase("form");
@@ -941,14 +984,17 @@ export function ShieldContent({
                 width: "100%",
                 padding: "12px 16px",
                 borderRadius: "9999px",
-                background: isSuccess ? "rgba(0, 0, 0, 0.04)" : "#000",
+                background:
+                  isSuccess || isRetryableError
+                    ? "rgba(0, 0, 0, 0.04)"
+                    : "#000",
                 border: "none",
                 cursor: "pointer",
                 fontFamily: font,
                 fontSize: "16px",
                 fontWeight: 400,
                 lineHeight: "20px",
-                color: isSuccess ? "#000" : "#fff",
+                color: isSuccess || isRetryableError ? "#000" : "#fff",
                 textAlign: "center",
                 transition: "background 0.15s ease",
               }}

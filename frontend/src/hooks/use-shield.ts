@@ -1,5 +1,6 @@
 import {
   type ShieldFlowExecutionResult,
+  findDepositPda,
   LoyalPrivateTransactionsClient,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
@@ -26,6 +27,11 @@ import {
   invalidateFrontendPrivateClientForError,
   type FrontendPrivateClientSigner,
 } from "@/lib/solana/private-client-cache";
+import {
+  readDepositAmountFailClosed,
+  runConfirmedUnshieldAttempt,
+  UnshieldAttemptError,
+} from "@/lib/solana/unshield-recovery";
 
 function cleanSolanaErrorMessage(message: string): string {
   const logsIndex = message.indexOf("Logs:");
@@ -33,6 +39,24 @@ function cleanSolanaErrorMessage(message: string): string {
     return message.slice(0, logsIndex).trim();
   }
   return message;
+}
+
+function getNestedErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const cause =
+      "cause" in error
+        ? getNestedErrorText((error as Error & { cause?: unknown }).cause)
+        : "";
+    return `${error.name} ${error.message} ${cause}`.trim();
+  }
+
+  return typeof error === "string" ? error : "";
+}
+
+function isTransientSolanaConnectionError(error: unknown): boolean {
+  return /failed to fetch|network|socket|cors|connection|timeout/i.test(
+    getNestedErrorText(error)
+  );
 }
 
 function getLastSignature(
@@ -47,18 +71,21 @@ async function getDepositAmount(params: {
   user: PublicKey;
 }): Promise<bigint> {
   const { client, tokenMint, user } = params;
-  const [ephemeralDeposit, baseDeposit] = await Promise.all([
-    client.getEphemeralDeposit(user, tokenMint).catch(() => null),
-    client.getBaseDeposit(user, tokenMint).catch(() => null),
-  ]);
+  const [depositPda] = findDepositPda(user, tokenMint);
 
-  return ephemeralDeposit?.amount ?? baseDeposit?.amount ?? BigInt(0);
+  return readDepositAmountFailClosed({
+    readEphemeral: () =>
+      client.ephemeralProgram.account.deposit.fetchNullable(depositPda),
+    readBase: () =>
+      client.baseProgram.account.deposit.fetchNullable(depositPda),
+  });
 }
 
 export type ShieldResult = {
   signature?: string;
   success: boolean;
   error?: string;
+  retryable?: boolean;
 };
 
 export function useShield() {
@@ -150,28 +177,28 @@ export function useShield() {
         // Persist Kamino principal basis for tracked USDC so the "earned"
         // split on the portfolio can be computed without manual seeding.
         if (isTrackedKaminoToken) {
-          const collateralSharesAfter = await getDepositAmount({
-            client,
-            tokenMint,
-            user,
-          });
-          const addedCollateralSharesAmountRaw =
-            collateralSharesAfter - collateralSharesBefore;
+          try {
+            const collateralSharesAfter = await getDepositAmount({
+              client,
+              tokenMint,
+              user,
+            });
+            const addedCollateralSharesAmountRaw =
+              collateralSharesAfter - collateralSharesBefore;
 
-          if (addedCollateralSharesAmountRaw > BigInt(0)) {
-            try {
+            if (addedCollateralSharesAmountRaw > BigInt(0)) {
               recordKaminoUsdcShield({
                 publicKey: user.toBase58(),
                 solanaEnv: publicEnv.solanaEnv,
                 addedPrincipalLiquidityAmountRaw: rawAmount,
                 addedCollateralSharesAmountRaw,
               });
-            } catch (persistError) {
-              console.warn(
-                "Failed to persist Kamino USDC shield basis",
-                persistError
-              );
             }
+          } catch (persistError) {
+            console.warn(
+              "Failed to reconcile Kamino USDC shield basis",
+              persistError
+            );
           }
         }
 
@@ -248,66 +275,71 @@ export function useShield() {
         const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
         const wantsMax = params.isMax === true;
 
-        const collateralSharesBefore = isTrackedKaminoToken
-          ? await getDepositAmount({ client, tokenMint, user })
-          : BigInt(0);
-
         const requestedRawAmount = rawAmount;
-        const quotedShares =
-          isTrackedKaminoToken && !wantsMax
-            ? await client.getKaminoCollateralSharesForLiquidityAmount({
-                tokenMint,
-                liquidityAmountRaw: requestedRawAmount,
-              })
-            : null;
-        const planAmount = computeUnshieldModifyAmount({
-          currentDepositRaw: collateralSharesBefore,
-          isMax: wantsMax,
-          isTrackedKaminoToken,
-          kaminoQuotedShares: quotedShares,
-          requestedRawAmount,
-        });
+        let collateralSharesBefore = BigInt(0);
+        const attempt = await runConfirmedUnshieldAttempt({
+          resolveAmount: async () => {
+            collateralSharesBefore = isTrackedKaminoToken
+              ? await getDepositAmount({ client, tokenMint, user })
+              : BigInt(0);
+            const quotedShares =
+              isTrackedKaminoToken && !wantsMax
+                ? await client.getKaminoCollateralSharesForLiquidityAmount({
+                    tokenMint,
+                    liquidityAmountRaw: requestedRawAmount,
+                  })
+                : null;
 
-        const plan = await client.buildUnshieldTokensTransactionPlan({
-          tokenMint,
-          amount: planAmount,
-          user,
-          payer: user,
-          magicProgram: MAGIC_PROGRAM_ID,
-          magicContext: MAGIC_CONTEXT_ID,
+            return computeUnshieldModifyAmount({
+              currentDepositRaw: collateralSharesBefore,
+              isMax: wantsMax,
+              isTrackedKaminoToken,
+              kaminoQuotedShares: quotedShares,
+              requestedRawAmount,
+            });
+          },
+          buildPlan: (amount) =>
+            client.buildUnshieldTokensTransactionPlan({
+              tokenMint,
+              amount,
+              user,
+              payer: user,
+              magicProgram: MAGIC_PROGRAM_ID,
+              magicContext: MAGIC_CONTEXT_ID,
+            }),
+          executePlan: (plan) =>
+            client.executeUnshieldTokensTransactionPlan({
+              plan,
+            }),
         });
-        const executionResult =
-          await client.executeUnshieldTokensTransactionPlan({
-            plan,
-          });
 
         if (isTrackedKaminoToken) {
-          const collateralSharesAfter = await getDepositAmount({
-            client,
-            tokenMint,
-            user,
-          });
-          const burnedCollateralSharesAmountRaw =
-            collateralSharesBefore - collateralSharesAfter;
+          try {
+            const collateralSharesAfter = await getDepositAmount({
+              client,
+              tokenMint,
+              user,
+            });
+            const burnedCollateralSharesAmountRaw =
+              collateralSharesBefore - collateralSharesAfter;
 
-          if (burnedCollateralSharesAmountRaw > BigInt(0)) {
-            try {
+            if (burnedCollateralSharesAmountRaw > BigInt(0)) {
               recordKaminoUsdcUnshield({
                 publicKey: user.toBase58(),
                 solanaEnv: publicEnv.solanaEnv,
                 burnedCollateralSharesAmountRaw,
               });
-            } catch (persistError) {
-              console.warn(
-                "Failed to persist Kamino USDC unshield basis",
-                persistError
-              );
             }
+          } catch (persistError) {
+            console.warn(
+              "Failed to reconcile Kamino USDC unshield basis",
+              persistError
+            );
           }
         }
 
         setLoading(false);
-        return { success: true, signature: getLastSignature(executionResult) };
+        return { success: true, signature: attempt.signature };
       } catch (err) {
         if (wallet.publicKey) {
           invalidateFrontendPrivateClientForError({
@@ -316,15 +348,35 @@ export function useShield() {
             error: err,
           });
         }
+        const userRejected =
+          err instanceof Error && /user rejected/i.test(err.message);
         let errorMessage = "Unshield failed";
-        if (err instanceof Error) {
-          errorMessage = err.message.includes("User rejected")
-            ? "Transaction was rejected in your wallet."
-            : cleanSolanaErrorMessage(err.message);
+        if (userRejected) {
+          errorMessage = "Transaction was rejected in your wallet.";
+        } else if (isTransientSolanaConnectionError(err)) {
+          errorMessage =
+            "Loyal could not confirm the unshield. Check your connection and try again; retry reads the live shielded balance first.";
+        } else if (err instanceof Error) {
+          errorMessage = cleanSolanaErrorMessage(err.message);
+        }
+        if (wallet.publicKey) {
+          console.error("[wallet-unshield] attempt failed", {
+            errorMessage,
+            errorName: err instanceof Error ? err.name : "UnknownError",
+            isMax: params.isMax === true,
+            stage: err instanceof UnshieldAttemptError ? err.stage : "unknown",
+            tokenMint: params.tokenMint ?? null,
+            tokenSymbol: params.tokenSymbol,
+            walletAddress: wallet.publicKey.toBase58(),
+          });
         }
         setError(errorMessage);
         setLoading(false);
-        return { success: false, error: errorMessage };
+        return {
+          success: false,
+          error: errorMessage,
+          retryable: !userRejected,
+        };
       }
     },
     [

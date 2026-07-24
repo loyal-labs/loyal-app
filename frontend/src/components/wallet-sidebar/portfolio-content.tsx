@@ -27,6 +27,10 @@ import type {
 import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import {
+  getPortfolioBalanceDisplay,
+  type PortfolioFreshness,
+} from "@/lib/wallet/portfolio-refresh-state";
 import { openAutodepositMockSheet } from "./autodeposit-mock-sheet";
 import { getVaultIcon } from "./vault-icon";
 
@@ -67,15 +71,15 @@ function getSmartAccountErrorCopy(error: string | null | undefined) {
   };
 }
 
-function SmartAccountInlineError({
-  error,
+function InlineRefreshNotice({
+  body,
   onRetry,
+  title,
 }: {
-  error: string | null | undefined;
+  body: string;
   onRetry?: () => void;
+  title: string;
 }) {
-  const copy = getSmartAccountErrorCopy(error);
-
   return (
     <div
       style={{
@@ -115,7 +119,7 @@ function SmartAccountInlineError({
               margin: 0,
             }}
           >
-            {copy.title}
+            {title}
           </p>
           <p
             style={{
@@ -126,7 +130,7 @@ function SmartAccountInlineError({
               margin: "4px 0 0",
             }}
           >
-            {copy.body}
+            {body}
           </p>
         </div>
       </div>
@@ -152,6 +156,24 @@ function SmartAccountInlineError({
         </button>
       ) : null}
     </div>
+  );
+}
+
+function SmartAccountInlineError({
+  error,
+  onRetry,
+}: {
+  error: string | null | undefined;
+  onRetry?: () => void;
+}) {
+  const copy = getSmartAccountErrorCopy(error);
+
+  return (
+    <InlineRefreshNotice
+      body={copy.body}
+      onRetry={onRetry}
+      title={copy.title}
+    />
   );
 }
 
@@ -1136,16 +1158,23 @@ function MockRootSignerRow({
 }
 
 function MainAccountRow({
+  balanceStatus,
   isBalanceHidden,
   isSelected,
   onOpen,
   signer,
 }: {
+  balanceStatus: PortfolioFreshness;
   isBalanceHidden: boolean;
   isSelected: boolean;
   onOpen: () => void;
   signer: SmartAccountSignerEntry;
 }) {
+  const balanceDisplay = getPortfolioBalanceDisplay(balanceStatus, {
+    balanceFraction: signer.balanceFraction,
+    balanceWhole: signer.balanceWhole,
+  });
+
   return (
     <button
       className="portfolio-account-row"
@@ -1203,14 +1232,16 @@ function MainAccountRow({
               display: "block",
             }}
           >
-            {signer.balanceWhole}
-            <span
-              style={{
-                color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
-              }}
-            >
-              {signer.balanceFraction}
-            </span>
+            {balanceDisplay.balanceWhole}
+            {balanceStatus !== "unavailable" && (
+              <span
+                style={{
+                  color: isBalanceHidden ? "#BBBBC0" : "rgba(60, 60, 67, 0.4)",
+                }}
+              >
+                {balanceDisplay.balanceFraction}
+              </span>
+            )}
           </span>
         </div>
         <div
@@ -1283,6 +1314,7 @@ export function PortfolioContent({
   onOpenAddSigner,
   onOpenMockRootSigner,
   onSmartAccountRetry,
+  onWalletBalanceRetry,
   portfolioChange24h = null,
   earningsSummary = null,
   earnDepositLabel = "Deposit",
@@ -1308,6 +1340,7 @@ export function PortfolioContent({
   showMainAccountOnly = false,
   mockRootSigners = [],
   topInset = 0,
+  walletBalanceStatus = "current",
 }: {
   balanceFraction: string;
   balanceWhole: string;
@@ -1337,6 +1370,7 @@ export function PortfolioContent({
   onOpenAddSigner?: (accountIndex: number) => void;
   onOpenMockRootSigner?: (signer: MockRootSignerEntry) => void;
   onSmartAccountRetry?: () => void;
+  onWalletBalanceRetry?: () => void;
   portfolioChange24h?: WalletPortfolioChange24h | null;
   earningsSummary?: WalletEarningsSummary | null;
   earnDepositLabel?: string;
@@ -1360,6 +1394,7 @@ export function PortfolioContent({
   showMainAccountOnly?: boolean;
   mockRootSigners?: MockRootSignerEntry[];
   topInset?: number;
+  walletBalanceStatus?: PortfolioFreshness;
 }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -2056,6 +2091,22 @@ export function PortfolioContent({
         <div
           style={{ display: "flex", flexDirection: "column", padding: "8px" }}
         >
+          {walletBalanceStatus === "stale" ||
+          walletBalanceStatus === "unavailable" ? (
+            <InlineRefreshNotice
+              body={
+                walletBalanceStatus === "stale"
+                  ? "Showing your last confirmed wallet balances."
+                  : "Wallet balances are temporarily unavailable."
+              }
+              onRetry={onWalletBalanceRetry}
+              title={
+                walletBalanceStatus === "stale"
+                  ? "Balances may be out of date"
+                  : "Could not load balances"
+              }
+            />
+          ) : null}
           {onOpenEarn ? (
             <EarnPortfolioRow
               balance={earnBalance}
@@ -2103,6 +2154,7 @@ export function PortfolioContent({
                       style={{ display: "flex", flexDirection: "column" }}
                     >
                       <MainAccountRow
+                        balanceStatus={walletBalanceStatus}
                         isBalanceHidden={isBalanceHidden}
                         isSelected={selectedSignerId === mainSigner.id}
                         onOpen={() => onOpenAgent(mainSigner)}
