@@ -589,7 +589,7 @@ export function ShieldContent({
           .then((results) => {
             if (
               results.length > 0 &&
-              results.every((result) => result.status !== "completed")
+              !results.some((result) => result.status === "completed")
             ) {
               console.warn(
                 "Balance refresh recovery remained unavailable after Max unshield"

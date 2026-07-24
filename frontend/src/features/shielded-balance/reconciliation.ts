@@ -5,6 +5,11 @@ const DEFAULT_READ_TIMEOUT_MS = 3_000;
 const DEFAULT_POST_ACTION_REFRESH_TIMEOUT_MS = 5_000;
 const DEFAULT_POST_ACTION_RECOVERY_DELAYS_MS = [1_000, 4_000] as const;
 
+const defaultWait = (delayMs: number): Promise<void> =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+
 export type SecuredBalanceReconciliationResult =
   | {
       status: "reconciled";
@@ -109,12 +114,7 @@ export async function reconcileSecuredBalance(args: {
     throw new Error("Secured balance reconciliation requires an attempt.");
   }
 
-  const wait =
-    args.wait ??
-    ((delayMs: number) =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, delayMs);
-      }));
+  const wait = args.wait ?? defaultWait;
   const readTimeoutMs = args.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS;
   let observedAmountRaw: bigint | null = null;
 
@@ -149,33 +149,6 @@ export async function reconcileSecuredBalance(args: {
     status: "pending",
     attempts: retryDelaysMs.length,
     observedAmountRaw,
-  };
-}
-
-export async function executeMaxUnshieldWithReconciliation<T>(args: {
-  executeTransaction: () => Promise<T>;
-  readAmountRaw: () => Promise<bigint>;
-  retryDelaysMs?: readonly number[];
-  readTimeoutMs?: number;
-  wait?: (delayMs: number) => Promise<void>;
-}): Promise<{
-  confirmedAmountRaw: bigint;
-  executionResult: T;
-  reconciliation: SecuredBalanceReconciliationResult;
-}> {
-  const executionResult = await args.executeTransaction();
-  const reconciliation = await reconcileSecuredBalance({
-    expectedAmountRaw: BigInt(0),
-    readAmountRaw: args.readAmountRaw,
-    retryDelaysMs: args.retryDelaysMs,
-    readTimeoutMs: args.readTimeoutMs,
-    wait: args.wait,
-  });
-
-  return {
-    confirmedAmountRaw: BigInt(0),
-    executionResult,
-    reconciliation,
   };
 }
 
@@ -227,12 +200,7 @@ export async function recoverPostActionRefresh(args: {
 
   const retryDelaysMs =
     args.retryDelaysMs ?? DEFAULT_POST_ACTION_RECOVERY_DELAYS_MS;
-  const wait =
-    args.wait ??
-    ((delayMs: number) =>
-      new Promise<void>((resolve) => {
-        setTimeout(resolve, delayMs);
-      }));
+  const wait = args.wait ?? defaultWait;
   const results: PostActionRefreshResult[] = [];
 
   for (const delayMs of retryDelaysMs) {

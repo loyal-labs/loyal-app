@@ -16,7 +16,7 @@ import type { DepositData } from "../../sdk/private-transactions/src/types";
 import * as shieldedBalanceReconciliation from "../src/features/shielded-balance/reconciliation";
 import {
   createLatestPortfolioRequestGuard,
-  executeMaxUnshieldWithReconciliation,
+  reconcileSecuredBalance,
   recoverPostActionRefresh,
   settlePostActionRefresh,
   WALLET_PORTFOLIO_FALLBACK_REFRESH_MS,
@@ -105,13 +105,9 @@ async function main() {
     "PASS authoritative zero, positive live balance, and failed-read fallback"
   );
 
-  let transactionCount = 0;
   let readAttempt = 0;
-  const retryResult = await executeMaxUnshieldWithReconciliation({
-    executeTransaction: async () => {
-      transactionCount += 1;
-      return { signature: "confirmed-max-unshield" };
-    },
+  const retryResult = await reconcileSecuredBalance({
+    expectedAmountRaw: BigInt(0),
     readAmountRaw: async () => {
       readAttempt += 1;
       if (readAttempt === 1) throw new Error("temporary RPC failure");
@@ -121,36 +117,28 @@ async function main() {
     retryDelaysMs: [0, 1, 1, 1],
     wait: async () => {},
   });
-  assert.equal(transactionCount, 1);
-  assert.deepEqual(retryResult.reconciliation, {
+  assert.deepEqual(retryResult, {
     attempts: 3,
     observedAmountRaw: BigInt(0),
     status: "reconciled",
   });
-  assert.equal(retryResult.confirmedAmountRaw, BigInt(0));
 
-  let hungTransactionCount = 0;
   const hungStartedAt = Date.now();
-  const hungResult = await executeMaxUnshieldWithReconciliation({
-    executeTransaction: async () => {
-      hungTransactionCount += 1;
-      return { signature: "confirmed-max-unshield-during-outage" };
-    },
+  const hungResult = await reconcileSecuredBalance({
+    expectedAmountRaw: BigInt(0),
     readAmountRaw: () => new Promise<bigint>(() => {}),
     readTimeoutMs: 5,
     retryDelaysMs: [0, 0, 0],
     wait: async () => {},
   });
-  assert.equal(hungTransactionCount, 1);
-  assert.equal(hungResult.reconciliation.status, "pending");
-  assert.equal(hungResult.reconciliation.attempts, 3);
-  assert.equal(hungResult.confirmedAmountRaw, BigInt(0));
+  assert.equal(hungResult.status, "pending");
+  assert.equal(hungResult.attempts, 3);
   assert.ok(
     Date.now() - hungStartedAt < 100,
     "hung reconciliation reads must not hold the confirmed MAX flow open"
   );
   console.log(
-    "PASS production MAX orchestration retries reads, terminates outages, and sends exactly once"
+    "PASS MAX reconciliation retries reads and terminates outages within a bounded read budget"
   );
 
   const refreshStartedAt = Date.now();
