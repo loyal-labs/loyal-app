@@ -83,7 +83,9 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    const envelope = parseBrowserErrorEnvelope(await readJsonBody(request));
+    const envelope = parseBrowserErrorEnvelope(await readJsonBody(request), {
+      expectedChunkOrigin: new URL(request.url).origin,
+    });
     // Browsers running a cached bundle still post extension noise; drop it here
     // too, and acknowledge so the client never treats telemetry as a failure.
     if (isThirdPartyExtensionError(envelope.operation, envelope.stack)) {

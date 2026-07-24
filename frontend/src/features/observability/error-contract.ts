@@ -99,6 +99,11 @@ export type BrowserErrorEnvelope = {
   timestamp: string;
 };
 
+export type ParseBrowserErrorEnvelopeOptions = {
+  expectedChunkOrigin: string;
+  now?: number;
+};
+
 // Mobile envelopes carry their own release/environment: the app fleet mixes
 // binary versions and OTA updates, so the server's Vercel release would be
 // meaningless for them.
@@ -379,6 +384,15 @@ export function normalizeBrowserChunkUrl(value: string): string | null {
   }
 }
 
+function isUrlFromOrigin(value: string, expectedOrigin: string): boolean {
+  try {
+    const origin = new URL(expectedOrigin).origin;
+    return origin !== "null" && new URL(value).origin === origin;
+  } catch {
+    return false;
+  }
+}
+
 function readOptionalBoolean(
   record: Record<string, unknown>,
   key: string
@@ -594,7 +608,7 @@ function parseCommonErrorEnvelopeFields(
 
 export function parseBrowserErrorEnvelope(
   value: unknown,
-  now = Date.now()
+  options: ParseBrowserErrorEnvelopeOptions
 ): BrowserErrorEnvelope {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new InvalidObservabilityEnvelopeError();
@@ -641,10 +655,16 @@ export function parseBrowserErrorEnvelope(
       record.diagnostics === undefined
         ? undefined
         : parseBrowserErrorDiagnostics(record.diagnostics);
+    if (
+      diagnostics &&
+      !isUrlFromOrigin(diagnostics.chunkUrl, options.expectedChunkOrigin)
+    ) {
+      throw new InvalidObservabilityEnvelopeError();
+    }
   }
 
   return {
-    ...parseCommonErrorEnvelopeFields(record, now),
+    ...parseCommonErrorEnvelopeFields(record, options.now ?? Date.now()),
     ...(clientBuildId ? { clientBuildId } : {}),
     ...(diagnostics ? { diagnostics } : {}),
     operation: record.operation,

@@ -1,10 +1,23 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const CLIENT_BUILD_ID = "clientabc123";
+const SERVER_ROUTE_PROBE_FLAG = "--server-route-probe";
+const FIRST_PARTY_ORIGIN = "https://askloyal.com";
 const CHUNK_URL =
   "https://askloyal.com/_next/static/chunks/app/global-error-3a07882f87777428.js";
+const EXTERNAL_CHUNK_URL =
+  "https://cdn.example.test/_next/static/chunks/4219.js";
+const PREVIEW_ORIGIN = "https://preview.example.test";
+const PREVIEW_CHUNK_URL = `${PREVIEW_ORIGIN}/_next/static/chunks/4219.js`;
+const FIRST_PAGE_SESSION_ID = "11111111-1111-4111-8111-111111111111";
+const SECOND_PAGE_SESSION_ID = "22222222-2222-4222-8222-222222222222";
+const THIRD_PAGE_SESSION_ID = "33333333-3333-4333-8333-333333333333";
 const PAGE_SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+type ClientModule = typeof import("../src/features/observability/client");
 
 type StorageLike = {
   getItem: (key: string) => string | null;
@@ -27,56 +40,57 @@ function pass(message: string): void {
   console.info(`PASS: ${message}`);
 }
 
-async function verify(): Promise<void> {
-  process.env.NEXT_PUBLIC_GIT_COMMIT_HASH = CLIENT_BUILD_ID;
-
-  const calls: string[] = [];
-  const postedBodies: unknown[] = [];
-  const sessionStorage = new MemoryStorage();
-  const listeners = new Map<string, (event: unknown) => void>();
-  let activeStorage: StorageLike = sessionStorage;
-
-  const verifierWindow = {
-    addEventListener: (name: string, listener: (event: unknown) => void) => {
-      listeners.set(name, listener);
+function installBrowserDocument(options: {
+  calls: string[];
+  postedBodies: unknown[];
+  randomUUID: string;
+  storage: StorageLike;
+}): void {
+  const document = { visibilityState: "visible" };
+  const navigator = {
+    connection: {
+      downlink: 4.25,
+      effectiveType: "4g",
+      rtt: 80,
+      saveData: false,
     },
+    onLine: true,
+  };
+  const performance = {
+    getEntriesByName: (name: string) =>
+      name === CHUNK_URL
+        ? [
+            {
+              decodedBodySize: 20_480,
+              duration: 142.5,
+              encodedBodySize: 10_240,
+              name,
+              responseStatus: 504,
+              transferSize: 10_540,
+            },
+          ]
+        : [],
+  };
+  const verifierWindow = {
+    addEventListener: () => undefined,
     clearTimeout: globalThis.clearTimeout.bind(globalThis),
-    crypto: globalThis.crypto,
-    document: { visibilityState: "visible" },
+    crypto: {
+      getRandomValues: globalThis.crypto.getRandomValues.bind(
+        globalThis.crypto
+      ),
+      randomUUID: () => options.randomUUID,
+    },
+    document,
     location: {
-      origin: "https://askloyal.com",
+      origin: FIRST_PARTY_ORIGIN,
       pathname: "/",
       reload: () => {
-        calls.push("reload");
+        options.calls.push("reload");
       },
     },
-    navigator: {
-      connection: {
-        downlink: 4.25,
-        effectiveType: "4g",
-        rtt: 80,
-        saveData: false,
-      },
-      onLine: true,
-    },
-    performance: {
-      getEntriesByName: (name: string) =>
-        name === CHUNK_URL
-          ? [
-              {
-                decodedBodySize: 20_480,
-                duration: 142.5,
-                encodedBodySize: 10_240,
-                name,
-                responseStatus: 504,
-                transferSize: 10_540,
-              },
-            ]
-          : [],
-    },
-    get sessionStorage() {
-      return activeStorage;
-    },
+    navigator,
+    performance,
+    sessionStorage: options.storage,
     setTimeout: globalThis.setTimeout.bind(globalThis),
   };
 
@@ -86,26 +100,111 @@ async function verify(): Promise<void> {
   });
   Object.defineProperty(globalThis, "document", {
     configurable: true,
-    value: verifierWindow.document,
+    value: document,
   });
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
-    value: verifierWindow.navigator,
+    value: navigator,
   });
   Object.defineProperty(globalThis, "performance", {
     configurable: true,
-    value: verifierWindow.performance,
+    value: performance,
   });
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
     value: async (_input: unknown, init?: { body?: unknown }) => {
-      calls.push("report");
-      postedBodies.push(JSON.parse(String(init?.body)) as unknown);
+      options.calls.push("report");
+      options.postedBodies.push(JSON.parse(String(init?.body)) as unknown);
       return new Response(null, { status: 202 });
     },
   });
+}
 
-  const client = await import("../src/features/observability/client");
+async function verifyServerRouteProbe(): Promise<void> {
+  process.env.OBSERVABILITY_INGESTION_API_KEY = "";
+  process.env.OBSERVABILITY_OTLP_ENDPOINT = "";
+  const { POST } = await import("../src/app/api/observability/errors/route");
+  const baseEnvelope = {
+    clientBuildId: CLIENT_BUILD_ID,
+    diagnostics: {
+      chunkUrl: PREVIEW_CHUNK_URL,
+      networkOnline: true,
+    },
+    message: "Loading chunk 4219 failed.",
+    name: "ChunkLoadError",
+    operation: "browser.unhandled_rejection",
+    pageSessionId: FIRST_PAGE_SESSION_ID,
+    pathname: "/",
+    timestamp: new Date().toISOString(),
+  };
+  const postEnvelope = (origin: string, envelope: unknown) =>
+    POST(
+      new Request(`${origin}/api/observability/errors`, {
+        body: JSON.stringify(envelope),
+        headers: {
+          "content-type": "application/json",
+          origin,
+          "sec-fetch-site": "same-origin",
+        },
+        method: "POST",
+      })
+    );
+
+  const firstPartyResponse = await postEnvelope(PREVIEW_ORIGIN, baseEnvelope);
+  assert.equal(firstPartyResponse.status, 202);
+  const externalResponse = await postEnvelope(FIRST_PARTY_ORIGIN, {
+    ...baseEnvelope,
+    diagnostics: {
+      ...baseEnvelope.diagnostics,
+      chunkUrl: EXTERNAL_CHUNK_URL,
+    },
+  });
+  assert.equal(externalResponse.status, 400);
+  console.info("SERVER_ROUTE_PROBE_RESULT: PASS");
+}
+
+function runServerRouteProbe(): void {
+  const probe = spawnSync(
+    process.execPath,
+    [
+      "--conditions=react-server",
+      fileURLToPath(import.meta.url),
+      SERVER_ROUTE_PROBE_FLAG,
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        OBSERVABILITY_INGESTION_API_KEY: "",
+        OBSERVABILITY_OTLP_ENDPOINT: "",
+      },
+    }
+  );
+  assert.equal(
+    probe.status,
+    0,
+    `server route probe failed:\n${probe.stdout}${probe.stderr}`
+  );
+  assert.match(probe.stdout, /SERVER_ROUTE_PROBE_RESULT: PASS/);
+}
+
+async function verify(): Promise<void> {
+  process.env.NEXT_PUBLIC_GIT_COMMIT_HASH = CLIENT_BUILD_ID;
+
+  const calls: string[] = [];
+  const postedBodies: unknown[] = [];
+  const sessionStorage = new MemoryStorage();
+  installBrowserDocument({
+    calls,
+    postedBodies,
+    randomUUID: FIRST_PAGE_SESSION_ID,
+    storage: sessionStorage,
+  });
+
+  const client = (await import(
+    // @ts-ignore -- Bun keys static resource queries as separate modules.
+    "../src/features/observability/client?verifierDocument=first"
+  )) as ClientModule;
   const errorContract = await import(
     "../src/features/observability/error-contract"
   );
@@ -130,8 +229,7 @@ async function verify(): Promise<void> {
   chunkError.name = "ChunkLoadError";
 
   const externalChunkError = new Error(
-    "Loading chunk 4219 failed.\n" +
-      "(error: https://cdn.example.test/_next/static/chunks/4219.js)"
+    `Loading chunk 4219 failed.\n(error: ${EXTERNAL_CHUNK_URL})`
   );
   externalChunkError.name = "ChunkLoadError";
   await client
@@ -157,6 +255,7 @@ async function verify(): Promise<void> {
   const firstEnvelope = postedBodies[0] as Record<string, unknown>;
   assert.equal(firstEnvelope.clientBuildId, CLIENT_BUILD_ID);
   assert.match(String(firstEnvelope.pageSessionId), PAGE_SESSION_ID_PATTERN);
+  assert.equal(firstEnvelope.pageSessionId, FIRST_PAGE_SESSION_ID);
   assert.deepEqual(firstEnvelope.diagnostics, {
     chunkUrl: CHUNK_URL,
     connectionDownlinkMbps: 4.25,
@@ -176,9 +275,26 @@ async function verify(): Promise<void> {
     "client build, random page session, network, and resource diagnostics are captured"
   );
 
-  // A hard reload creates a fresh in-memory processor, but sessionStorage
-  // survives. This models the same browser tab after the recovery reload.
-  const reloadedDocumentProcessor = client.createBrowserErrorProcessor();
+  // A hard reload replaces both the document globals and the client module.
+  // Only sessionStorage survives. The second random UUID is deliberately
+  // different so this equality fails if the stored ID cannot be recovered.
+  installBrowserDocument({
+    calls,
+    postedBodies,
+    randomUUID: SECOND_PAGE_SESSION_ID,
+    storage: sessionStorage,
+  });
+  const reloadedClient = (await import(
+    // @ts-ignore -- This must be a fresh module after the simulated reload.
+    "../src/features/observability/client?verifierDocument=reloaded"
+  )) as ClientModule;
+  assert.notEqual(
+    reloadedClient.createBrowserErrorProcessor,
+    client.createBrowserErrorProcessor,
+    "cache-busted import did not create a fresh client module"
+  );
+  const reloadedDocumentProcessor =
+    reloadedClient.createBrowserErrorProcessor();
   await reloadedDocumentProcessor.process(
     chunkError,
     "browser.unhandled_rejection"
@@ -189,11 +305,15 @@ async function verify(): Promise<void> {
     (postedBodies[1] as Record<string, unknown>).pageSessionId,
     firstEnvelope.pageSessionId
   );
+  assert.notEqual(
+    (postedBodies[1] as Record<string, unknown>).pageSessionId,
+    SECOND_PAGE_SESSION_ID
+  );
   pass(
-    "repeat failure in the same page session remains observable without another reload"
+    "fresh module and document recover the stored page session without another reload"
   );
 
-  activeStorage = {
+  const throwingStorage: StorageLike = {
     getItem: () => {
       throw new Error("storage unavailable");
     },
@@ -201,7 +321,18 @@ async function verify(): Promise<void> {
       throw new Error("storage unavailable");
     },
   };
-  const storageFailureProcessor = client.createBrowserErrorProcessor();
+  installBrowserDocument({
+    calls,
+    postedBodies,
+    randomUUID: THIRD_PAGE_SESSION_ID,
+    storage: throwingStorage,
+  });
+  const storageFailureClient = (await import(
+    // @ts-ignore -- Isolate module state for the storage-failure document.
+    "../src/features/observability/client?verifierDocument=storage-failure"
+  )) as ClientModule;
+  const storageFailureProcessor =
+    storageFailureClient.createBrowserErrorProcessor();
   await storageFailureProcessor.process(
     chunkError,
     "browser.unhandled_rejection"
@@ -209,11 +340,21 @@ async function verify(): Promise<void> {
   assert.equal(calls.filter((call) => call === "reload").length, 1);
   assert.equal(postedBodies.length, 3);
 
-  activeStorage = {
+  const nonPersistentStorage: StorageLike = {
     getItem: () => null,
     setItem: () => undefined,
   };
-  await client
+  installBrowserDocument({
+    calls,
+    postedBodies,
+    randomUUID: THIRD_PAGE_SESSION_ID,
+    storage: nonPersistentStorage,
+  });
+  const nonPersistentClient = (await import(
+    // @ts-ignore -- Isolate module state for the non-persistent document.
+    "../src/features/observability/client?verifierDocument=no-retention"
+  )) as ClientModule;
+  await nonPersistentClient
     .createBrowserErrorProcessor()
     .process(chunkError, "browser.unhandled_rejection");
   assert.equal(calls.filter((call) => call === "reload").length, 1);
@@ -222,9 +363,18 @@ async function verify(): Promise<void> {
     "reload recovery fails closed when its persistent guard throws or cannot retain writes"
   );
 
-  activeStorage = sessionStorage;
+  installBrowserDocument({
+    calls,
+    postedBodies,
+    randomUUID: SECOND_PAGE_SESSION_ID,
+    storage: sessionStorage,
+  });
+  const ordinaryClient = (await import(
+    // @ts-ignore -- Isolate module state for the ordinary-error document.
+    "../src/features/observability/client?verifierDocument=ordinary"
+  )) as ClientModule;
   const ordinaryError = new Error("ordinary application failure");
-  const ordinaryProcessor = client.createBrowserErrorProcessor();
+  const ordinaryProcessor = ordinaryClient.createBrowserErrorProcessor();
   await ordinaryProcessor.process(ordinaryError, "browser.window.error");
   assert.equal(calls.filter((call) => call === "reload").length, 1);
   assert.equal(postedBodies.length, 5);
@@ -240,47 +390,91 @@ async function verify(): Promise<void> {
     "ordinary errors never reload and extension-only ambient errors stay filtered"
   );
 
-  const parsed = errorContract.parseBrowserErrorEnvelope(firstEnvelope);
+  const parseOptions = {
+    expectedChunkOrigin: FIRST_PARTY_ORIGIN,
+    now: new Date(String(firstEnvelope.timestamp)).getTime(),
+  };
+  const parsed = errorContract.parseBrowserErrorEnvelope(
+    firstEnvelope,
+    parseOptions
+  );
   assert.deepEqual(parsed, firstEnvelope);
 
   assert.throws(
     () =>
-      errorContract.parseBrowserErrorEnvelope({
-        ...firstEnvelope,
-        pageSessionId: "not-a-random-session-id",
-      }),
+      errorContract.parseBrowserErrorEnvelope(
+        {
+          ...firstEnvelope,
+          pageSessionId: "not-a-random-session-id",
+        },
+        parseOptions
+      ),
     /Invalid observability error envelope/
   );
   assert.throws(
     () =>
-      errorContract.parseBrowserErrorEnvelope({
-        ...firstEnvelope,
-        diagnostics: {
-          ...(firstEnvelope.diagnostics as Record<string, unknown>),
-          resourceTransferSize: Number.MAX_SAFE_INTEGER,
+      errorContract.parseBrowserErrorEnvelope(
+        {
+          ...firstEnvelope,
+          diagnostics: {
+            ...(firstEnvelope.diagnostics as Record<string, unknown>),
+            resourceTransferSize: Number.MAX_SAFE_INTEGER,
+          },
         },
-      }),
+        parseOptions
+      ),
     /Invalid observability error envelope/
   );
   assert.throws(
     () =>
-      errorContract.parseBrowserErrorEnvelope({
-        ...firstEnvelope,
-        diagnostics: {
-          ...(firstEnvelope.diagnostics as Record<string, unknown>),
-          secretContext: "must-not-pass",
+      errorContract.parseBrowserErrorEnvelope(
+        {
+          ...firstEnvelope,
+          diagnostics: {
+            ...(firstEnvelope.diagnostics as Record<string, unknown>),
+            secretContext: "must-not-pass",
+          },
         },
-      }),
+        parseOptions
+      ),
     /Invalid observability error envelope/
   );
   pass(
     "untrusted session and diagnostic fields are strictly validated and bounded"
   );
 
-  const normalized = errorContract.createNormalizedBrowserErrorEvent(parsed, {
+  const normalizationContext = {
     deploymentEnvironment: "production",
     ingestRelease: "serverdef456",
-  });
+  };
+  assert.throws(
+    () =>
+      errorContract.createNormalizedBrowserErrorEvent(
+        errorContract.parseBrowserErrorEnvelope(
+          {
+            ...firstEnvelope,
+            diagnostics: {
+              ...(firstEnvelope.diagnostics as Record<string, unknown>),
+              chunkUrl: EXTERNAL_CHUNK_URL,
+            },
+          },
+          parseOptions
+        ),
+        normalizationContext
+      ),
+    /Invalid observability error envelope/
+  );
+  pass("server parser rejects external chunk diagnostics before normalization");
+
+  runServerRouteProbe();
+  pass(
+    "same-origin relay derives each request origin and rejects external chunk telemetry"
+  );
+
+  const normalized = errorContract.createNormalizedBrowserErrorEvent(
+    parsed,
+    normalizationContext
+  );
   assert.equal(normalized.release, CLIENT_BUILD_ID);
   const serializedPayload = JSON.stringify(buildOtlpErrorPayload(normalized));
   for (const expected of [
@@ -309,7 +503,10 @@ async function verify(): Promise<void> {
     pageSessionId: _pageSessionId,
     ...legacyEnvelope
   } = firstEnvelope;
-  const parsedLegacy = errorContract.parseBrowserErrorEnvelope(legacyEnvelope);
+  const parsedLegacy = errorContract.parseBrowserErrorEnvelope(
+    legacyEnvelope,
+    parseOptions
+  );
   const normalizedLegacy = errorContract.createNormalizedBrowserErrorEvent(
     parsedLegacy,
     {
@@ -324,7 +521,11 @@ async function verify(): Promise<void> {
 }
 
 try {
-  await verify();
+  if (process.argv.includes(SERVER_ROUTE_PROBE_FLAG)) {
+    await verifyServerRouteProbe();
+  } else {
+    await verify();
+  }
 } catch (error) {
   console.error(error);
   console.error("VERDICT: FAIL");
