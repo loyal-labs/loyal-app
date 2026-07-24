@@ -92,11 +92,21 @@ describe("wallet rejection classification", () => {
   it("latches: a cancelled flow ignores a later blanket fail", async () => {
     const sent = captureEnvelopes();
     const flow = newFlow();
+    flow.start("prepare");
     flow.failFrom("wallet_submit_confirm", new WalletRejectedError());
     flow.failFrom("prepare", new Error("outer catch"));
 
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ outcome: "cancelled" });
+    expect(sent).toHaveLength(2);
+    expect(
+      sent.filter(({ outcome }) =>
+        ["cancelled", "completed", "failed"].includes(outcome),
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        outcome: "cancelled",
+        errorCode: "wallet_rejected",
+      }),
+    ]);
   });
 
   // A multi-step flow prompts per step (MWA signs each in its own session), so

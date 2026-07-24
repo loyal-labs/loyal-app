@@ -1,5 +1,12 @@
 import { PublicKey } from "@solana/web3.js";
 
+// web3.js initializes its WebSocket client eagerly, but these tests only use
+// PublicKey. Keep Jest from evaluating rpc-websockets' ESM-only nested uuid.
+jest.mock("rpc-websockets", () => ({
+  CommonClient: class CommonClient {},
+  WebSocket: jest.fn(),
+}));
+
 const prepareEarnUsdcWithdraw = jest.fn();
 const prepareEarnUsdcCleanup = jest.fn();
 const createSmartAccountVaultsClient = jest.fn(() => ({
@@ -99,6 +106,8 @@ jest.mock("../wire", () => ({
 // workspace-package mocks that cannot be referenced before their declarations.
 // eslint-disable-next-line import/first
 import { executeEarnWithdraw } from "../withdraw";
+// eslint-disable-next-line import/first
+import { WalletRejectedError } from "@/lib/wallet/rejection";
 
 const address = PublicKey.default.toBase58();
 const withdrawOperation = { operation: "withdraw" };
@@ -292,6 +301,26 @@ describe("executeEarnWithdraw", () => {
       cleanupSignature: "cleanup-signature",
       withdrawalSignatures: ["withdraw-signature"],
     });
+  });
+
+  test("does not retry cleanup after the user rejects a wallet prompt", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    fetchEarnWithdrawCleanupPrepareContext.mockRejectedValueOnce(
+      new WalletRejectedError(),
+    );
+
+    const result = await executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "full",
+      signer,
+    });
+
+    expect(fetchEarnWithdrawCleanupPrepareContext).toHaveBeenCalledTimes(1);
+    expect(signAndSendPreparedOperations).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      withdrawalSignatures: ["withdraw-signature"],
+    });
+    warn.mockRestore();
   });
 
   test("keeps partial withdrawals single-phase", async () => {
