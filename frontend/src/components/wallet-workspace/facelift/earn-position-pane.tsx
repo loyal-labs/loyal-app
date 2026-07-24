@@ -45,7 +45,7 @@ export function EarnPositionPane({
   onOpenAutodeposit: () => void;
   onOpenChart: () => void;
   onSelectChartTab: (tab: ChartTab) => void;
-  onWithdraw: () => void;
+  onWithdraw: (sourceKey?: string) => void;
   selectedChartTab: ChartTab | null;
 }) {
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
@@ -91,7 +91,7 @@ export function EarnPositionPane({
             <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
               <button
                 className="t-hover flex items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5 hover:-translate-y-0.5 hover:bg-black/[0.08] active:translate-y-0"
-                onClick={onWithdraw}
+                onClick={() => onWithdraw()}
                 type="button"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -283,6 +283,7 @@ export function EarnPositionPane({
             run: data.actions.executeScheduledSweep,
           }}
           holdings={data.position?.holdings ?? []}
+          onWithdrawSource={onWithdraw}
           refreshKey={data.actions.earnTransactionsRefreshKey}
           scheduledSweeps={data.scheduledSweeps}
           settingsPda={data.settingsPda}
@@ -311,7 +312,7 @@ export function EarnPositionPane({
           </button>
           <button
             className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black/[0.04] hover:bg-black/[0.08]"
-            onClick={onWithdraw}
+            onClick={() => onWithdraw()}
             type="button"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}

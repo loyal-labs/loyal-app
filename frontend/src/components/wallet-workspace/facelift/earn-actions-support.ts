@@ -699,6 +699,22 @@ export function buildPostDepositEarnPosition(args: {
   };
 }
 
+// The withdraw source option id for a holding — lets the positions list open
+// the withdraw screen preselecting the hovered row.
+export function getWithdrawSourceKeyForHolding(
+  holding: ActiveEarnPositionHolding
+): string {
+  const tokenAccount =
+    typeof holding.provenance.tokenAccount === "string"
+      ? holding.provenance.tokenAccount
+      : null;
+  const sourceId =
+    holding.kind === "idle"
+      ? tokenAccount ?? holding.liquidityMint
+      : holding.reserve ?? holding.liquidityMint;
+  return `${holding.kind}:${sourceId}`;
+}
+
 // earn-detail-view.tsx:1868-1914 (module-private there)
 export function createWithdrawSourceOptions(
   holdings: ActiveEarnPositionHolding[] | undefined
@@ -729,7 +745,7 @@ export function createWithdrawSourceOptions(
     return {
       amountRaw: holding.amountRaw,
       balance: Number(BigInt(holding.amountRaw)) / 1_000_000,
-      id: `${holding.kind}:${sourceId}`,
+      id: getWithdrawSourceKeyForHolding(holding),
       icon: resolveEarnTransactionMarketIcon({ market: holding.market }),
       label:
         holding.kind === "idle"

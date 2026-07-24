@@ -12,6 +12,7 @@ import {
 
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
 import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
+import { getWithdrawSourceKeyForHolding } from "@/components/wallet-workspace/facelift/earn-actions-support";
 import {
   ScrambleText,
   useBalanceVisibility,
@@ -560,7 +561,13 @@ function TransactionsTab({
   );
 }
 
-function PositionsTab({ holdings }: { holdings: ActiveEarnPositionHolding[] }) {
+function PositionsTab({
+  holdings,
+  onWithdrawSource,
+}: {
+  holdings: ActiveEarnPositionHolding[];
+  onWithdrawSource: (sourceKey: string) => void;
+}) {
   const { isBalanceHidden } = useBalanceVisibility();
   const visibleHoldings = holdings.filter((holding) => {
     try {
@@ -617,9 +624,14 @@ function PositionsTab({ holdings }: { holdings: ActiveEarnPositionHolding[] }) {
                   </span>
                 </p>
               </div>
-              <div className="hidden pl-3 group-hover:flex">
+              {/* Reveal rides a short delay so quick pointer passes don't
+                  flash the pill; un-hover drops the delay and hides at once. */}
+              <div className="pointer-events-none flex pl-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
                 <button
                   className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                  onClick={() =>
+                    onWithdrawSource(getWithdrawSourceKeyForHolding(holding))
+                  }
                   type="button"
                 >
                   Withdraw
@@ -636,6 +648,7 @@ function PositionsTab({ holdings }: { holdings: ActiveEarnPositionHolding[] }) {
 export function EarnActivityCard({
   executeNow,
   holdings,
+  onWithdrawSource,
   refreshKey,
   scheduledSweeps,
   settingsPda,
@@ -643,6 +656,7 @@ export function EarnActivityCard({
 }: {
   executeNow: ExecuteNowControls;
   holdings: ActiveEarnPositionHolding[];
+  onWithdrawSource: (sourceKey: string) => void;
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
@@ -810,7 +824,10 @@ export function EarnActivityCard({
             walletAddress={walletAddress}
           />
         ) : (
-          <PositionsTab holdings={holdings} />
+          <PositionsTab
+            holdings={holdings}
+            onWithdrawSource={onWithdrawSource}
+          />
         )}
       </div>
     </section>

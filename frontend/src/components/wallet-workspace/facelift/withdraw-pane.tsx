@@ -97,14 +97,17 @@ function SourceOptionRow({
 // rent-cleanup phase ("Close policies").
 export function WithdrawPane({
   data,
+  initialSourceKey,
   onBack,
 }: {
   data: EarnPositionData;
+  initialSourceKey?: string | null;
   onBack: () => void;
 }) {
   const [amount, setAmount] = useState("");
-  // Defaults to the first eligible source (options[0] fallback below).
-  const [selectedKey, setSelectedKey] = useState("");
+  // Preselects the positions-row source that opened the screen; otherwise
+  // defaults to the first eligible source (options[0] fallback below).
+  const [selectedKey, setSelectedKey] = useState(initialSourceKey ?? "");
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const { isBalanceHidden } = useBalanceVisibility();
 
