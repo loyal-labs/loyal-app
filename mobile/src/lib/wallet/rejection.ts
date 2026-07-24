@@ -46,5 +46,10 @@ export function withLandedSignatures(
   error: WalletRejectedError,
   landedSignatures: readonly string[],
 ): WalletRejectedError {
-  return new WalletRejectedError(error.message, landedSignatures);
+  const tagged = new WalletRejectedError(error.message, landedSignatures);
+  // Keep the subclass name and original stack so logs still point at the
+  // wallet backend that raised the decline.
+  tagged.name = error.name;
+  tagged.stack = error.stack;
+  return tagged;
 }
