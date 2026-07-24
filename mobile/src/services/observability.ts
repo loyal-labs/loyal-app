@@ -12,6 +12,7 @@
 import * as Updates from "expo-updates";
 
 import { env } from "@/config/env";
+import { hasLandedProgress, isWalletRejection } from "@/lib/wallet/rejection";
 
 type MobileErrorOperation =
   | "mobile.global_error"
@@ -300,7 +301,8 @@ type LifecycleErrorCode =
   | "request_failed"
   | "unconfirmed_signature"
   | "backend_confirmation_failed"
-  | "send_failed";
+  | "send_failed"
+  | "wallet_rejected";
 
 export type LifecycleDiagnostics = {
   autodepositCloseRequired?: boolean;
@@ -327,6 +329,17 @@ export type LifecycleFlow<F extends LifecycleFlowName> = {
     stage: LifecycleStageMap[F],
     diagnostics?: LifecycleDiagnostics,
   ) => void;
+  /**
+   * Terminate the flow from a caught error, classifying it first: a user
+   * declining a wallet prompt latches as `cancelled` (ingested at INFO),
+   * everything else as `failed` (ERROR). Prefer this over `fail` in catch
+   * blocks so no call site has to remember the distinction.
+   */
+  failFrom: (
+    stage: LifecycleStageMap[F],
+    error: unknown,
+    diagnostics?: LifecycleDiagnostics,
+  ) => void;
   /** Sent as `x-loyal-flow-id` so server-side stages join the same flow. */
   flowId: string;
   observe: (
@@ -343,6 +356,9 @@ export type LifecycleFlow<F extends LifecycleFlowName> = {
 
 /** Map a flow failure onto the contract's error-code vocabulary. */
 export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
+  // Checked before the `code` probe below: a rejection is a user decision, and
+  // the wallet error it wraps may carry an unrelated transport-level code.
+  if (isWalletRejection(error)) return "wallet_rejected";
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
     if (code === "unconfirmed_signature") return "unconfirmed_signature";
@@ -431,6 +447,18 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
     cancel: (stage, diagnostics) => emit("cancelled", stage, diagnostics),
     complete: (stage, diagnostics) => emit("completed", stage, diagnostics),
     fail: (stage, diagnostics) => emit("failed", stage, diagnostics),
+    failFrom: (stage, error, diagnostics) => {
+      const errorCode = mapLifecycleErrorCode(error);
+      // Only a decline that changed nothing on-chain is a clean cancellation.
+      // Declining after an earlier step landed leaves confirmed-but-unrecorded
+      // state, which has to stay at ERROR so on-call still sees it.
+      const cancelled =
+        errorCode === "wallet_rejected" && !hasLandedProgress(error);
+      emit(cancelled ? "cancelled" : "failed", stage, {
+        ...diagnostics,
+        errorCode,
+      });
+    },
     flowId,
     observe: (stage, diagnostics) => emit("observed", stage, diagnostics),
     setVariant: (next) => {

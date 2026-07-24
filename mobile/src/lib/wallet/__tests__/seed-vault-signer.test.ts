@@ -14,6 +14,14 @@ import {
   TransactionMessage,
 } from "@solana/web3.js";
 
+// web3.js loads its WebSocket client eagerly, but these signer tests never use
+// RPC. Jest hoists this mock ahead of the web3 import so it does not evaluate
+// the ESM-only uuid dependency nested under rpc-websockets.
+jest.mock("rpc-websockets", () => ({
+  CommonClient: class CommonClient {},
+  WebSocket: jest.fn(),
+}));
+
 const mockSignMessage = jest.fn<Promise<Uint8Array>, [unknown]>();
 const mockSignTransaction = jest.fn<Promise<Uint8Array>, [unknown]>();
 const mockSignTransactions = jest.fn<Promise<Uint8Array[]>, [unknown]>();
@@ -39,6 +47,8 @@ jest.mock("../vault-account-storage", () => ({
 
 // eslint-disable-next-line import/first
 import { SeedVaultSigner } from "../seed-vault-signer";
+// eslint-disable-next-line import/first
+import { WalletRejectedError } from "../rejection";
 
 const authToken = "42";
 const derivationPath = "m/44'/501'/0'/0'";
@@ -47,6 +57,7 @@ const address = kp.publicKey.toBase58();
 
 const invalidAuthTokenError = () =>
   new Error("signMessages failed with result=1002");
+const walletDeclineError = () => new Error("signMessages failed with result=0");
 
 beforeEach(() => {
   mockSignMessage.mockReset();
@@ -216,6 +227,38 @@ describe("SeedVaultSigner", () => {
       (mockSignMessage.mock.calls[1][0] as { authToken: string }).authToken,
     ).toBe("77");
     expect(signer.authToken).toBe("77");
+    expect(mockStoreVaultAccount).toHaveBeenCalledWith({
+      authToken: "77",
+      derivationPath,
+      publicKey: address,
+    });
+    expect(mockClearVaultAccount).not.toHaveBeenCalled();
+  });
+
+  it("maps a direct vault decline to WalletRejectedError", async () => {
+    const signer = new SeedVaultSigner(authToken, derivationPath, address);
+    mockSignMessage.mockRejectedValueOnce(walletDeclineError());
+
+    await expect(
+      signer.signMessage(new Uint8Array([0])),
+    ).rejects.toBeInstanceOf(WalletRejectedError);
+    expect(mockListAuthorizedSeeds).not.toHaveBeenCalled();
+    expect(mockClearVaultAccount).not.toHaveBeenCalled();
+  });
+
+  it("maps a decline after auth-token recovery to WalletRejectedError", async () => {
+    const signer = new SeedVaultSigner(authToken, derivationPath, address);
+    mockSignMessage
+      .mockRejectedValueOnce(invalidAuthTokenError())
+      .mockRejectedValueOnce(walletDeclineError());
+    mockListAuthorizedSeeds.mockResolvedValueOnce([
+      { authToken: "77", derivationPath, publicKey: address },
+    ]);
+
+    await expect(
+      signer.signMessage(new Uint8Array([0])),
+    ).rejects.toBeInstanceOf(WalletRejectedError);
+    expect(mockSignMessage).toHaveBeenCalledTimes(2);
     expect(mockStoreVaultAccount).toHaveBeenCalledWith({
       authToken: "77",
       derivationPath,

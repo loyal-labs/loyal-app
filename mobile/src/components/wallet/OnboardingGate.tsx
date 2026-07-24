@@ -21,10 +21,11 @@ import {
 } from "@/components/wallet/onboarding-slides";
 import { WalletSetupOnboardingScreen } from "@/components/wallet/WalletSetupOnboardingScreen";
 import { connectMwaWallet, isMwaSupported } from "@/lib/wallet/mwa-signer";
+import { WalletRejectedError } from "@/lib/wallet/rejection";
+import { isSeedVaultUserDecline } from "@/lib/wallet/seed-vault-signer";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import {
   type LifecycleFlow,
-  mapLifecycleErrorCode,
   startLifecycleFlow,
 } from "@/services/observability";
 import { Text, View } from "@/tw";
@@ -157,9 +158,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
       }
       authFlowRef.current?.complete("completion");
     } catch (error) {
-      authFlowRef.current?.fail("completion", {
-        errorCode: mapLifecycleErrorCode(error),
-      });
+      authFlowRef.current?.failFrom("completion", error);
       throw error;
     }
   }, [flow, pendingKeypair, pendingPin, finalizeSigner]);
@@ -171,6 +170,11 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const connectSeedVault = useCallback(async () => {
     const granted = await SeedVault.requestPermission();
     if (!granted) {
+      // Deliberately a failure, not a cancel: this boolean is false for a
+      // fresh denial, a permanent "don't ask again" (no dialog shown), a
+      // missing manifest permission, and policy blocks alike. Silencing it
+      // would hide a packaging bug that breaks connect for every user. The
+      // MWA chooser below can cancel because it has a real cancel signal.
       authFlowRef.current?.fail("wallet_connect");
       setConnectWalletError(
         "Seed Vault access is required. Grant the permission in Settings → Apps → Loyal → Permissions.",
@@ -180,8 +184,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     const account = await SeedVault.authorizeExistingSeed().catch(
       async (authorizeError) => {
         const existing = await SeedVault.listAuthorizedSeeds();
-        if (existing.length === 0) throw authorizeError;
-        return existing[0];
+        if (existing.length > 0) return existing[0];
+        // Backing out of the vault's seed picker reaches us as a bare activity
+        // result; classify it so it lands as cancelled, not unexpected_error.
+        throw isSeedVaultUserDecline(authorizeError)
+          ? new WalletRejectedError("Seed Vault connection was cancelled.")
+          : authorizeError;
       },
     );
     authFlowRef.current?.setWalletAddress(account.publicKey);
@@ -218,9 +226,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
         await connectMwa();
       }
     } catch (e) {
-      authFlowRef.current?.fail("wallet_connect", {
-        errorCode: mapLifecycleErrorCode(e),
-      });
+      authFlowRef.current?.failFrom("wallet_connect", e);
       const msg =
         e instanceof Error ? e.message : "Wallet connection failed";
       setConnectWalletError(msg);

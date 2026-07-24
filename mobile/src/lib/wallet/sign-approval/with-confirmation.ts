@@ -1,7 +1,8 @@
+import { WalletRejectedError } from "../rejection";
 import type { Signer } from "../signer";
 import type { SignApprovalContextValue } from "./types";
 
-export class UserRejectedSigningError extends Error {
+export class UserRejectedSigningError extends WalletRejectedError {
   constructor(message = "User rejected signing request.") {
     super(message);
     this.name = "UserRejectedSigningError";

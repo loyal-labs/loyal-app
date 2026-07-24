@@ -7,6 +7,7 @@ import {
 import { PublicKey } from "@solana/web3.js";
 
 import { getConnection } from "@/lib/solana/rpc/connection";
+import { isWalletRejection } from "@/lib/wallet/rejection";
 import type { Signer } from "@/lib/wallet/signer";
 import {
   type LifecycleFlow,
@@ -237,6 +238,11 @@ async function retryEarnApiCall<T>(args: {
     try {
       return await args.run();
     } catch (error) {
+      // `run` can re-sign a stale auth message, which re-prompts the wallet.
+      // Retrying a decline would just re-prompt a user who already said no.
+      if (isWalletRejection(error)) {
+        throw error;
+      }
       if (
         error instanceof EarnApiError &&
         (error.code === undefined || !args.retryableCodes.has(error.code))
@@ -326,9 +332,7 @@ async function signSendAndConfirmWithdraw(args: {
     signer: args.signer,
     operations: args.operations,
   }).catch((error) => {
-    args.flow.fail("wallet_submit_confirm", {
-      errorCode: mapLifecycleErrorCode(error),
-    });
+    args.flow.failFrom("wallet_submit_confirm", error);
     throw error;
   });
   args.flow.observe("wallet_submit_confirm", {
@@ -389,7 +393,7 @@ export async function executeEarnWithdraw(args: {
     return await runEarnWithdraw(args, flow);
   } catch (error) {
     // Latched to a no-op when an inner stage already failed the flow.
-    flow.fail("prepare", { errorCode: mapLifecycleErrorCode(error) });
+    flow.failFrom("prepare", error);
     throw error;
   }
 }
@@ -435,9 +439,8 @@ async function runEarnWithdraw(
       recurringDelegation: close.recurringDelegation,
       source: "withdraw",
     }).catch((error) => {
-      flow.fail("autodeposit_close", {
+      flow.failFrom("autodeposit_close", error, {
         autodepositCloseRequired: true,
-        errorCode: mapLifecycleErrorCode(error),
       });
       throw error;
     });
@@ -595,9 +598,8 @@ async function runEarnWithdraw(
       recurringDelegation: close.subscription.recurringDelegation,
       source: "withdraw",
     }).catch((error) => {
-      flow.fail("autodeposit_close", {
+      flow.failFrom("autodeposit_close", error, {
         autodepositCloseRequired: true,
-        errorCode: mapLifecycleErrorCode(error),
       });
       throw error;
     });
