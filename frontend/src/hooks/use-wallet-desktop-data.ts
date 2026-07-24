@@ -18,6 +18,7 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
   createLatestPortfolioRequestGuard,
+  settleLatestPortfolioRequest,
   WALLET_PORTFOLIO_FALLBACK_REFRESH_MS,
 } from "@/features/shielded-balance/reconciliation";
 import {
@@ -757,22 +758,33 @@ export function useWalletDesktopData(
           .getPortfolio(publicKey, { forceRefresh: true })
           .then(async (nextPortfolio) => {
             const enriched = await applyEnrichment(nextPortfolio, address);
-            if (
-              ownerAddressRef.current !== address ||
-              !isCurrent() ||
-              !portfolioRequestGuard.isCurrent(requestId)
-            ) {
-              return;
-            }
-            applyPortfolioState({
-              portfolioSnapshot: enriched.snapshot,
-              earningsByMint: enriched.earningsByMint,
-              earningsSummary: toWalletEarningsSummary(enriched.earningsTotals),
-              walletAddress: address,
+            settleLatestPortfolioRequest({
+              requestGuard: portfolioRequestGuard,
+              requestId,
+              isScopeCurrent: () =>
+                ownerAddressRef.current === address && isCurrent(),
+              commit: () => {
+                applyPortfolioState({
+                  portfolioSnapshot: enriched.snapshot,
+                  earningsByMint: enriched.earningsByMint,
+                  earningsSummary: toWalletEarningsSummary(
+                    enriched.earningsTotals
+                  ),
+                  walletAddress: address,
+                });
+              },
+              setLoading: setIsLoading,
             });
           })
           .catch((error) => {
             console.error("Failed to refresh wallet portfolio", error);
+            settleLatestPortfolioRequest({
+              requestGuard: portfolioRequestGuard,
+              requestId,
+              isScopeCurrent: () =>
+                ownerAddressRef.current === address && isCurrent(),
+              setLoading: setIsLoading,
+            });
           })
       );
 
@@ -868,19 +880,31 @@ export function useWalletDesktopData(
           return;
         }
 
-        applyPortfolioState({
-          portfolioSnapshot: enriched.snapshot,
-          earningsByMint: enriched.earningsByMint,
-          earningsSummary: toWalletEarningsSummary(enriched.earningsTotals),
-          walletAddress: address,
+        settleLatestPortfolioRequest({
+          requestGuard: portfolioRequestGuard,
+          requestId,
+          isScopeCurrent: () =>
+            !cancelled && ownerAddressRef.current === address,
+          commit: () => {
+            applyPortfolioState({
+              portfolioSnapshot: enriched.snapshot,
+              earningsByMint: enriched.earningsByMint,
+              earningsSummary: toWalletEarningsSummary(enriched.earningsTotals),
+              walletAddress: address,
+            });
+          },
+          setLoading: setIsLoading,
         });
-        setIsLoading(false);
       })
       .catch((error) => {
         console.error("Failed to load wallet desktop data", error);
-        if (!cancelled && portfolioRequestGuard.isCurrent(requestId)) {
-          setIsLoading(false);
-        }
+        settleLatestPortfolioRequest({
+          requestGuard: portfolioRequestGuard,
+          requestId,
+          isScopeCurrent: () =>
+            !cancelled && ownerAddressRef.current === address,
+          setLoading: setIsLoading,
+        });
       });
 
     return () => {
@@ -916,16 +940,22 @@ export function useWalletDesktopData(
           const requestId = portfolioRequestGuard.begin();
           void applyEnrichment(snapshot, subscriptionAddress).then(
             (enriched) => {
-              if (closed || !portfolioRequestGuard.isCurrent(requestId)) {
-                return;
-              }
-              applyPortfolioState({
-                portfolioSnapshot: enriched.snapshot,
-                earningsByMint: enriched.earningsByMint,
-                earningsSummary: toWalletEarningsSummary(
-                  enriched.earningsTotals
-                ),
-                walletAddress: subscriptionAddress,
+              settleLatestPortfolioRequest({
+                requestGuard: portfolioRequestGuard,
+                requestId,
+                isScopeCurrent: () =>
+                  !closed && ownerAddressRef.current === subscriptionAddress,
+                commit: () => {
+                  applyPortfolioState({
+                    portfolioSnapshot: enriched.snapshot,
+                    earningsByMint: enriched.earningsByMint,
+                    earningsSummary: toWalletEarningsSummary(
+                      enriched.earningsTotals
+                    ),
+                    walletAddress: subscriptionAddress,
+                  });
+                },
+                setLoading: setIsLoading,
               });
             }
           );

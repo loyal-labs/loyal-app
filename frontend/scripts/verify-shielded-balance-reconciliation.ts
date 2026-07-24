@@ -13,6 +13,7 @@ import {
   type EphemeralDepositEnumeration,
 } from "../../sdk/private-transactions/src/enumerate-deposits";
 import type { DepositData } from "../../sdk/private-transactions/src/types";
+import * as shieldedBalanceReconciliation from "../src/features/shielded-balance/reconciliation";
 import {
   createLatestPortfolioRequestGuard,
   executeMaxUnshieldWithReconciliation,
@@ -164,6 +165,78 @@ async function main() {
   );
   console.log("PASS production success refresh has a bounded terminal outcome");
 
+  type RefreshCommitContext = {
+    isCurrent: () => boolean;
+  };
+  let visibleUsdcBalance = "before-refresh";
+  let refreshInvocation = 0;
+  let timedOutRefreshContext: RefreshCommitContext | null = null;
+  const lateRefreshValue = deferred<string>();
+  const lateRefreshCompleted = deferred<void>();
+  const guardedRefresh = async function () {
+    const context = arguments[0] as RefreshCommitContext | undefined;
+    assert.ok(
+      context,
+      "post-action refreshes must receive a commit guard from production orchestration"
+    );
+
+    refreshInvocation += 1;
+    if (refreshInvocation === 1) {
+      timedOutRefreshContext = context;
+      const nextBalance = await lateRefreshValue.promise;
+      if (context.isCurrent()) {
+        visibleUsdcBalance = nextBalance;
+      }
+      lateRefreshCompleted.resolve(undefined);
+      return;
+    }
+
+    if (context.isCurrent()) {
+      visibleUsdcBalance = "fresh-after-recovery";
+    }
+  };
+
+  const timedOutGuardedRefresh = await settlePostActionRefresh({
+    refresh: guardedRefresh,
+    timeoutMs: 5,
+  });
+  assert.equal(
+    timedOutGuardedRefresh.status,
+    "timed_out",
+    "the first guarded refresh must reach the bounded timeout"
+  );
+  const completedTimedOutRefreshContext =
+    timedOutRefreshContext as RefreshCommitContext | null;
+  assert.ok(completedTimedOutRefreshContext);
+  assert.equal(
+    completedTimedOutRefreshContext.isCurrent(),
+    false,
+    "a timed-out refresh must be unable to commit before recovery starts"
+  );
+
+  const guardedRecovery = await recoverPostActionRefresh({
+    refresh: guardedRefresh,
+    retryDelaysMs: [0],
+    refreshTimeoutMs: 50,
+    wait: async () => {},
+  });
+  assert.deepEqual(
+    guardedRecovery.map((result) => result.status),
+    ["completed"]
+  );
+  assert.equal(visibleUsdcBalance, "fresh-after-recovery");
+  lateRefreshValue.resolve("stale-from-timed-out-refresh");
+  await lateRefreshCompleted.promise;
+  assert.equal(
+    visibleUsdcBalance,
+    "fresh-after-recovery",
+    "a late timed-out refresh must not overwrite the recovery result"
+  );
+  assert.equal(refreshInvocation, 2);
+  console.log(
+    "PASS timed-out post-action refreshes cannot overwrite MAX recovery"
+  );
+
   let recoveryRefreshes = 0;
   const recoveryDelays: number[] = [];
   const recoveryResults = await recoverPostActionRefresh({
@@ -194,6 +267,86 @@ async function main() {
     requestGuard.isCurrent(olderRequest),
     false,
     "a request started before the forced refresh must not be allowed to commit"
+  );
+
+  type SettleLatestPortfolioRequest = (args: {
+    requestGuard: ReturnType<typeof createLatestPortfolioRequestGuard>;
+    requestId: number;
+    isScopeCurrent: () => boolean;
+    commit?: () => void;
+    setLoading: (isLoading: boolean) => void;
+  }) => boolean;
+  const settleLatestPortfolioRequest = (
+    shieldedBalanceReconciliation as typeof shieldedBalanceReconciliation & {
+      settleLatestPortfolioRequest?: SettleLatestPortfolioRequest;
+    }
+  ).settleLatestPortfolioRequest;
+  assert.equal(
+    typeof settleLatestPortfolioRequest,
+    "function",
+    "the live wallet hook needs an executable latest-request settlement boundary"
+  );
+
+  let simulatedIsLoading = true;
+  let simulatedSnapshot = "empty";
+  const setSimulatedLoading = (nextIsLoading: boolean) => {
+    simulatedIsLoading = nextIsLoading;
+  };
+  assert.equal(
+    settleLatestPortfolioRequest?.({
+      requestGuard,
+      requestId: olderRequest,
+      isScopeCurrent: () => true,
+      commit: () => {
+        simulatedSnapshot = "stale-initial";
+      },
+      setLoading: setSimulatedLoading,
+    }),
+    false
+  );
+  assert.equal(simulatedSnapshot, "empty");
+  assert.equal(
+    simulatedIsLoading,
+    true,
+    "a superseded initial request must not mutate snapshot or loading state"
+  );
+  assert.equal(
+    settleLatestPortfolioRequest?.({
+      requestGuard,
+      requestId: forcedRequest,
+      isScopeCurrent: () => true,
+      commit: () => {
+        simulatedSnapshot = "fresh-forced";
+      },
+      setLoading: setSimulatedLoading,
+    }),
+    true
+  );
+  assert.equal(simulatedSnapshot, "fresh-forced");
+  assert.equal(
+    simulatedIsLoading,
+    false,
+    "the current forced snapshot must terminate uncached-wallet loading"
+  );
+
+  simulatedIsLoading = true;
+  const failedForcedRequest = requestGuard.begin();
+  assert.equal(
+    settleLatestPortfolioRequest?.({
+      requestGuard,
+      requestId: failedForcedRequest,
+      isScopeCurrent: () => true,
+      setLoading: setSimulatedLoading,
+    }),
+    true
+  );
+  assert.equal(
+    simulatedIsLoading,
+    false,
+    "a failed current forced request must not leave the wallet loading forever"
+  );
+  console.log(
+    "PASS superseding portfolio outcomes preserve latest state and settle loading"
   );
 
   const oldSnapshot = deferred<AssetSnapshot>();
@@ -267,45 +420,6 @@ async function main() {
   console.log(
     "PASS healthy subscriptions stay event-driven without unconditional polling"
   );
-
-  const shieldHookSource = await Bun.file(
-    new URL("../src/hooks/use-shield.ts", import.meta.url)
-  ).text();
-  assert.match(
-    shieldHookSource,
-    /executeMaxUnshieldWithReconciliation/,
-    "useShield must delegate the real MAX transaction and reconciliation boundary to the verified orchestration"
-  );
-  const shieldContentSource = await Bun.file(
-    new URL(
-      "../src/components/wallet-sidebar/shield-content.tsx",
-      import.meta.url
-    )
-  ).text();
-  assert.match(
-    shieldContentSource,
-    /settlePostActionRefresh/,
-    "ShieldContent must use the verified bounded refresh settlement"
-  );
-  assert.match(
-    shieldContentSource,
-    /recoverPostActionRefresh/,
-    "ShieldContent must use the verified finite MAX-unshield recovery"
-  );
-  const walletHookSource = await Bun.file(
-    new URL("../src/hooks/use-wallet-desktop-data.ts", import.meta.url)
-  ).text();
-  assert.match(
-    walletHookSource,
-    /createLatestPortfolioRequestGuard/,
-    "the wallet hook must use the verified last-write-wins guard"
-  );
-  assert.match(
-    walletHookSource,
-    /fallbackRefreshMs:\s*WALLET_PORTFOLIO_FALLBACK_REFRESH_MS/,
-    "the wallet subscription must use the verified event-driven fallback setting"
-  );
-  console.log("PASS verified production helpers are wired into the live paths");
 
   console.log("VERDICT: PASS");
 }

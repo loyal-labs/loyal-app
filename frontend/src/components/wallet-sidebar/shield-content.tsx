@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  type PostActionRefresh,
   recoverPostActionRefresh,
   settlePostActionRefresh,
 } from "@/features/shielded-balance/reconciliation";
@@ -433,7 +434,7 @@ export function ShieldContent({
 }: {
   onClose: () => void;
   onDone: () => void;
-  onSuccess?: () => Promise<void> | void;
+  onSuccess?: PostActionRefresh;
   onNavigate: (view: Exclude<SubView, null>) => void;
   onBack?: () => void;
   token: SwapToken;

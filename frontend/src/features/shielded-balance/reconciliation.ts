@@ -28,6 +28,14 @@ export type PostActionRefreshResult =
   | { status: "failed"; error: unknown }
   | { status: "timed_out" };
 
+export type PostActionRefreshCommitContext = {
+  isCurrent: () => boolean;
+};
+
+export type PostActionRefresh = (
+  context: PostActionRefreshCommitContext
+) => Promise<void> | void;
+
 export function createLatestPortfolioRequestGuard(): LatestPortfolioRequestGuard {
   let latestRequestId = 0;
 
@@ -41,6 +49,25 @@ export function createLatestPortfolioRequestGuard(): LatestPortfolioRequestGuard
     },
     isCurrent: (requestId) => requestId === latestRequestId,
   };
+}
+
+export function settleLatestPortfolioRequest(args: {
+  requestGuard: LatestPortfolioRequestGuard;
+  requestId: number;
+  isScopeCurrent: () => boolean;
+  commit?: () => void;
+  setLoading: (isLoading: boolean) => void;
+}): boolean {
+  if (!args.isScopeCurrent() || !args.requestGuard.isCurrent(args.requestId)) {
+    return false;
+  }
+
+  try {
+    args.commit?.();
+  } finally {
+    args.setLoading(false);
+  }
+  return true;
 }
 
 function readWithTimeout(
@@ -153,7 +180,7 @@ export async function executeMaxUnshieldWithReconciliation<T>(args: {
 }
 
 export async function settlePostActionRefresh(args: {
-  refresh?: () => Promise<void> | void;
+  refresh?: PostActionRefresh;
   timeoutMs?: number;
 }): Promise<PostActionRefreshResult> {
   if (!args.refresh) {
@@ -166,8 +193,12 @@ export async function settlePostActionRefresh(args: {
   }
 
   let timeout: ReturnType<typeof setTimeout> | null = null;
+  let isCurrent = true;
+  const context: PostActionRefreshCommitContext = {
+    isCurrent: () => isCurrent,
+  };
   const refreshResult: Promise<PostActionRefreshResult> = Promise.resolve()
-    .then(args.refresh)
+    .then(() => args.refresh?.(context))
     .then((): PostActionRefreshResult => ({ status: "completed" }))
     .catch(
       (error: unknown): PostActionRefreshResult => ({ status: "failed", error })
@@ -177,6 +208,7 @@ export async function settlePostActionRefresh(args: {
   });
 
   return Promise.race([refreshResult, timeoutResult]).finally(() => {
+    isCurrent = false;
     if (timeout) {
       clearTimeout(timeout);
     }
@@ -184,7 +216,7 @@ export async function settlePostActionRefresh(args: {
 }
 
 export async function recoverPostActionRefresh(args: {
-  refresh?: () => Promise<void> | void;
+  refresh?: PostActionRefresh;
   retryDelaysMs?: readonly number[];
   refreshTimeoutMs?: number;
   wait?: (delayMs: number) => Promise<void>;
