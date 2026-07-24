@@ -165,6 +165,7 @@ export function createSolanaWalletDataClient(
     string,
     Promise<PortfolioSnapshot>
   >();
+  const portfolioRequestGenerations = new Map<string, number>();
   const activityCache = new Map<string, CachedActivity>();
   const inflightActivityRequests = new Map<string, Promise<ActivityPage>>();
 
@@ -227,6 +228,9 @@ export function createSolanaWalletDataClient(
       return inflight;
     }
 
+    const requestGeneration =
+      (portfolioRequestGenerations.get(ownerKey) ?? 0) + 1;
+    portfolioRequestGenerations.set(ownerKey, requestGeneration);
     const loader = (async () => {
       const assetSnapshot = await assetProvider.getAssetSnapshot(owner);
       const secureBalances: SecureBalanceMap = config.secureBalanceProvider
@@ -260,10 +264,12 @@ export function createSolanaWalletDataClient(
         fallbackSolPriceUsd: options.fallbackSolPriceUsd,
       });
 
-      portfolioCache.set(ownerKey, {
-        snapshot,
-        fetchedAt: Date.now(),
-      });
+      if (portfolioRequestGenerations.get(ownerKey) === requestGeneration) {
+        portfolioCache.set(ownerKey, {
+          snapshot,
+          fetchedAt: Date.now(),
+        });
+      }
 
       return snapshot;
     })();
@@ -285,6 +291,7 @@ export function createSolanaWalletDataClient(
     options: SubscribePortfolioOptions = {}
   ): Promise<() => Promise<void>> => {
     const owner = parsePublicKey(publicKey);
+    const ownerKey = owner.toBase58();
     const emitInitial = options.emitInitial ?? true;
     const fallbackRefreshMs =
       options.fallbackRefreshMs ?? DEFAULT_PORTFOLIO_FALLBACK_REFRESH_MS;
@@ -306,11 +313,17 @@ export function createSolanaWalletDataClient(
       isRefreshing = true;
 
       try {
-        const snapshot = await getPortfolio(owner, {
+        const portfolioPromise = getPortfolio(owner, {
           forceRefresh,
           fallbackSolPriceUsd: options.fallbackSolPriceUsd,
         });
-        if (!closed) {
+        const requestGeneration =
+          portfolioRequestGenerations.get(ownerKey) ?? 0;
+        const snapshot = await portfolioPromise;
+        if (
+          !closed &&
+          portfolioRequestGenerations.get(ownerKey) === requestGeneration
+        ) {
           onPortfolio(snapshot);
         }
       } catch (error) {
@@ -516,6 +529,10 @@ export function createSolanaWalletDataClient(
       for (const address of options.portfolio) {
         const ownerKey = parsePublicKey(address).toBase58();
         portfolioCache.delete(ownerKey);
+        portfolioRequestGenerations.set(
+          ownerKey,
+          (portfolioRequestGenerations.get(ownerKey) ?? 0) + 1
+        );
       }
     }
 

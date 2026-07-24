@@ -16,7 +16,10 @@ import type {
 } from "@/components/wallet-sidebar/types";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
-import { WALLET_PORTFOLIO_FALLBACK_REFRESH_MS } from "@/features/shielded-balance/reconciliation";
+import {
+  createLatestPortfolioRequestGuard,
+  WALLET_PORTFOLIO_FALLBACK_REFRESH_MS,
+} from "@/features/shielded-balance/reconciliation";
 import {
   readClientCache,
   writeClientCache,
@@ -598,6 +601,10 @@ export function useWalletDesktopData(
   const [activities, setActivities] = useState<WalletActivity[]>([]);
   const [hasRequestedActivity, setHasRequestedActivity] = useState(false);
   const activityLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const portfolioRequestGuard = useMemo(
+    () => createLatestPortfolioRequestGuard(),
+    []
+  );
   const ownerAddressRef = useRef<string | null>(null);
   ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
   const [isLoading, setIsLoading] = useState(false);
@@ -736,6 +743,7 @@ export function useWalletDesktopData(
 
       const publicKey = ownerPublicKey;
       const address = publicKey.toBase58();
+      const requestId = portfolioRequestGuard.begin();
 
       client.invalidateCaches({
         portfolio: [publicKey],
@@ -749,7 +757,11 @@ export function useWalletDesktopData(
           .getPortfolio(publicKey, { forceRefresh: true })
           .then(async (nextPortfolio) => {
             const enriched = await applyEnrichment(nextPortfolio, address);
-            if (ownerAddressRef.current !== address || !isCurrent()) {
+            if (
+              ownerAddressRef.current !== address ||
+              !isCurrent() ||
+              !portfolioRequestGuard.isCurrent(requestId)
+            ) {
               return;
             }
             applyPortfolioState({
@@ -791,15 +803,17 @@ export function useWalletDesktopData(
       enabled,
       hasRequestedActivity,
       ownerPublicKey,
+      portfolioRequestGuard,
     ]
   );
 
   useEffect(() => {
+    portfolioRequestGuard.invalidate();
     ownerAddressRef.current = ownerPublicKey?.toBase58() ?? null;
     setActivities([]);
     setHasRequestedActivity(false);
     activityLoadPromiseRef.current = null;
-  }, [ownerPublicKey]);
+  }, [ownerPublicKey, portfolioRequestGuard]);
 
   useEffect(() => {
     if (!ownerPublicKey) {
@@ -812,6 +826,7 @@ export function useWalletDesktopData(
     }
 
     let cancelled = false;
+    const requestId = portfolioRequestGuard.begin();
 
     const publicKey = ownerPublicKey;
     const address = publicKey.toBase58();
@@ -844,12 +859,12 @@ export function useWalletDesktopData(
     void client
       .getPortfolio(publicKey)
       .then(async (nextPortfolio) => {
-        if (cancelled) {
+        if (cancelled || !portfolioRequestGuard.isCurrent(requestId)) {
           return;
         }
 
         const enriched = await applyEnrichment(nextPortfolio, address);
-        if (cancelled) {
+        if (cancelled || !portfolioRequestGuard.isCurrent(requestId)) {
           return;
         }
 
@@ -863,7 +878,7 @@ export function useWalletDesktopData(
       })
       .catch((error) => {
         console.error("Failed to load wallet desktop data", error);
-        if (!cancelled) {
+        if (!cancelled && portfolioRequestGuard.isCurrent(requestId)) {
           setIsLoading(false);
         }
       });
@@ -877,6 +892,7 @@ export function useWalletDesktopData(
     applyEnrichment,
     applyPortfolioState,
     enabled,
+    portfolioRequestGuard,
     publicEnv.solanaEnv,
   ]);
 
@@ -897,9 +913,12 @@ export function useWalletDesktopData(
         subscriptionPublicKey,
         (snapshot) => {
           if (closed) return;
+          const requestId = portfolioRequestGuard.begin();
           void applyEnrichment(snapshot, subscriptionAddress).then(
             (enriched) => {
-              if (closed) return;
+              if (closed || !portfolioRequestGuard.isCurrent(requestId)) {
+                return;
+              }
               applyPortfolioState({
                 portfolioSnapshot: enriched.snapshot,
                 earningsByMint: enriched.earningsByMint,
@@ -985,6 +1004,7 @@ export function useWalletDesktopData(
     applyPortfolioState,
     enabled,
     hasRequestedActivity,
+    portfolioRequestGuard,
   ]);
 
   // Fetch LOYAL token price for the always-visible placeholder row.

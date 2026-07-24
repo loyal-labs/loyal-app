@@ -4,6 +4,10 @@ import { ArrowLeft, ChevronRight, X } from "lucide-react";
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  recoverPostActionRefresh,
+  settlePostActionRefresh,
+} from "@/features/shielded-balance/reconciliation";
 import { useShield } from "@/hooks/use-shield";
 
 import {
@@ -567,12 +571,37 @@ export function ShieldContent({
 
     if (result.success) {
       setAmount("");
-      try {
-        await onSuccess?.();
-      } catch (error) {
-        console.warn("Failed to refresh balances after shield", error);
+      const refreshResult = await settlePostActionRefresh({
+        refresh: onSuccess,
+      });
+      if (refreshResult.status === "failed") {
+        console.warn(
+          "Failed to refresh balances after shield",
+          refreshResult.error
+        );
+      } else if (refreshResult.status === "timed_out") {
+        console.warn("Timed out refreshing balances after shield");
       }
       setPhase("success");
+      if (direction === "unshield" && isMaxSelected) {
+        void recoverPostActionRefresh({ refresh: onSuccess })
+          .then((results) => {
+            if (
+              results.length > 0 &&
+              results.every((result) => result.status !== "completed")
+            ) {
+              console.warn(
+                "Balance refresh recovery remained unavailable after Max unshield"
+              );
+            }
+          })
+          .catch((error) => {
+            console.warn(
+              "Failed to schedule balance refresh recovery after Max unshield",
+              error
+            );
+          });
+      }
     } else {
       setErrorMessage(result.error);
       setPhase("error");

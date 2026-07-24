@@ -16,7 +16,7 @@ import { PublicKey } from "@solana/web3.js";
 import { useCallback, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import { reconcileSecuredBalance } from "@/features/shielded-balance/reconciliation";
+import { executeMaxUnshieldWithReconciliation } from "@/features/shielded-balance/reconciliation";
 import { trackWalletShieldCompleted } from "@/lib/core/analytics";
 import {
   recordKaminoUsdcShield,
@@ -292,13 +292,12 @@ export function useShield() {
           magicProgram: MAGIC_PROGRAM_ID,
           magicContext: MAGIC_CONTEXT_ID,
         });
-        const executionResult =
-          await client.executeUnshieldTokensTransactionPlan({
-            plan,
-          });
-        const maxUnshieldReconciliation = wantsMax
-          ? await reconcileSecuredBalance({
-              expectedAmountRaw: BigInt(0),
+        const maxUnshieldExecution = wantsMax
+          ? await executeMaxUnshieldWithReconciliation({
+              executeTransaction: () =>
+                client.executeUnshieldTokensTransactionPlan({
+                  plan,
+                }),
               readAmountRaw: () =>
                 getAuthoritativeEphemeralDepositAmount({
                   client,
@@ -307,6 +306,13 @@ export function useShield() {
                 }),
             })
           : null;
+        const executionResult = maxUnshieldExecution
+          ? maxUnshieldExecution.executionResult
+          : await client.executeUnshieldTokensTransactionPlan({
+              plan,
+            });
+        const maxUnshieldReconciliation =
+          maxUnshieldExecution?.reconciliation ?? null;
 
         if (maxUnshieldReconciliation?.status === "pending") {
           console.warn(
@@ -319,14 +325,13 @@ export function useShield() {
         }
 
         if (isTrackedKaminoToken) {
-          const collateralSharesAfter =
-            maxUnshieldReconciliation?.status === "reconciled"
-              ? maxUnshieldReconciliation.observedAmountRaw
-              : await getDepositAmount({
-                  client,
-                  tokenMint,
-                  user,
-                });
+          const collateralSharesAfter = maxUnshieldExecution
+            ? maxUnshieldExecution.confirmedAmountRaw
+            : await getDepositAmount({
+                client,
+                tokenMint,
+                user,
+              });
           const burnedCollateralSharesAmountRaw =
             collateralSharesBefore - collateralSharesAfter;
 

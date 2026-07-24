@@ -3,7 +3,27 @@ import { PublicKey } from "@solana/web3.js";
 
 import { USDC_MINT, WALLET_ADDRESS } from "../__fixtures__/asset-fixtures";
 import { createSolanaWalletDataClient } from "../client";
-import type { ActivityProvider, AssetProvider } from "../types";
+import type { ActivityProvider, AssetProvider, AssetSnapshot } from "../types";
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve: ((value: T) => void) | null = null;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+
+  return {
+    promise,
+    resolve: (value) => {
+      if (!resolve) {
+        throw new Error("Deferred promise was not initialized.");
+      }
+      resolve(value);
+    },
+  };
+}
 
 describe("createSolanaWalletDataClient", () => {
   test("caches portfolio snapshots and merges secure balances", async () => {
@@ -72,6 +92,105 @@ describe("createSolanaWalletDataClient", () => {
     expect(firstUsdc?.securedBalance).toBe(0.5);
     expect(firstUsdc?.totalBalance).toBe(2.5);
     expect(second.totals.totalUsd).toBe(102.5);
+  });
+
+  test("does not let an older portfolio request overwrite a forced refresh", async () => {
+    const oldSnapshot = deferred<AssetSnapshot>();
+    let assetCalls = 0;
+    const makeSnapshot = (nativeBalanceLamports: number): AssetSnapshot => ({
+      owner: WALLET_ADDRESS,
+      nativeBalanceLamports,
+      fetchedAt: Date.now(),
+      assets: [],
+    });
+    const assetProvider: AssetProvider = {
+      getBalance: async () => 0,
+      getAssetSnapshot: async () => {
+        assetCalls += 1;
+        return assetCalls === 1
+          ? oldSnapshot.promise
+          : makeSnapshot(2_000_000_000);
+      },
+      subscribeAssetChanges: async () => async () => undefined,
+    };
+    const client = createSolanaWalletDataClient({
+      env: "devnet",
+      assetProvider,
+      activityProvider: {
+        getActivity: async () => ({ activities: [] }),
+        subscribeActivity: async () => async () => undefined,
+      },
+    });
+
+    const staleRequest = client.getPortfolio(WALLET_ADDRESS);
+    await Promise.resolve();
+    const freshSnapshot = await client.getPortfolio(WALLET_ADDRESS, {
+      forceRefresh: true,
+    });
+    oldSnapshot.resolve(makeSnapshot(1_000_000_000));
+
+    expect(freshSnapshot.nativeBalanceLamports).toBe(2_000_000_000);
+    expect((await staleRequest).nativeBalanceLamports).toBe(1_000_000_000);
+    expect(
+      (await client.getPortfolio(WALLET_ADDRESS)).nativeBalanceLamports
+    ).toBe(2_000_000_000);
+    expect(assetCalls).toBe(2);
+  });
+
+  test("does not emit a subscription snapshot superseded by a forced refresh", async () => {
+    const oldSnapshot = deferred<AssetSnapshot>();
+    let assetCalls = 0;
+    let emitAssetChange: (() => void) | null = null;
+    const emittedBalances: number[] = [];
+    const makeSnapshot = (nativeBalanceLamports: number): AssetSnapshot => ({
+      owner: WALLET_ADDRESS,
+      nativeBalanceLamports,
+      fetchedAt: Date.now(),
+      assets: [],
+    });
+    const client = createSolanaWalletDataClient({
+      env: "devnet",
+      assetProvider: {
+        getBalance: async () => 0,
+        getAssetSnapshot: async () => {
+          assetCalls += 1;
+          return assetCalls === 1
+            ? oldSnapshot.promise
+            : makeSnapshot(2_000_000_000);
+        },
+        subscribeAssetChanges: async (_owner, onChange) => {
+          emitAssetChange = onChange;
+          return async () => undefined;
+        },
+      },
+      activityProvider: {
+        getActivity: async () => ({ activities: [] }),
+        subscribeActivity: async () => async () => undefined,
+      },
+    });
+    const unsubscribe = await client.subscribePortfolio(
+      WALLET_ADDRESS,
+      (snapshot) => {
+        emittedBalances.push(snapshot.nativeBalanceLamports);
+      },
+      { emitInitial: false, fallbackRefreshMs: 0 }
+    );
+    if (!emitAssetChange) {
+      throw new Error("Asset subscription callback was not registered.");
+    }
+
+    emitAssetChange();
+    await Promise.resolve();
+    const freshSnapshot = await client.getPortfolio(WALLET_ADDRESS, {
+      forceRefresh: true,
+    });
+    oldSnapshot.resolve(makeSnapshot(1_000_000_000));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await unsubscribe();
+
+    expect(freshSnapshot.nativeBalanceLamports).toBe(2_000_000_000);
+    expect(emittedBalances).toEqual([]);
+    expect(assetCalls).toBe(2);
   });
 
   test("surfaces shielded-only mints by resolving descriptors via the asset provider", async () => {
