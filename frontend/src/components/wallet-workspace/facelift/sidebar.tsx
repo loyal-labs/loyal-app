@@ -11,6 +11,7 @@ import {
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
@@ -91,11 +92,15 @@ function SplitAmount({
 }
 
 export function FaceliftSidebar({
+  activePage,
   earnBalanceUsd,
   isEarnBalanceLoading,
+  onSelectPage,
 }: {
+  activePage: WorkspacePage;
   earnBalanceUsd: number;
   isEarnBalanceLoading: boolean;
+  onSelectPage: (page: WorkspacePage) => void;
 }) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
@@ -295,7 +300,10 @@ export function FaceliftSidebar({
 
       <nav className="flex w-full flex-1 flex-col py-2">
         <button
-          className="flex w-full items-center rounded-2xl bg-black/[0.04] px-4 text-left"
+          className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+            activePage === "earn" ? "bg-black/[0.04]" : "hover:bg-black/[0.04]"
+          }`}
+          onClick={() => onSelectPage("earn")}
           type="button"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -350,7 +358,12 @@ export function FaceliftSidebar({
         </button>
 
         <button
-          className="flex w-full items-center rounded-2xl px-4 text-left"
+          className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+            activePage === "stables"
+              ? "bg-black/[0.04]"
+              : "hover:bg-black/[0.04]"
+          }`}
+          onClick={() => onSelectPage("stables")}
           type="button"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -374,7 +387,12 @@ export function FaceliftSidebar({
         </button>
 
         <button
-          className="flex w-full items-center rounded-2xl px-4 text-left"
+          className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+            activePage === "crypto"
+              ? "bg-black/[0.04]"
+              : "hover:bg-black/[0.04]"
+          }`}
+          onClick={() => onSelectPage("crypto")}
           type="button"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}

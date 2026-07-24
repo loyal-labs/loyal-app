@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useState } from "react";
 
 import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { AutodepositPane } from "@/components/wallet-workspace/facelift/autodeposit-pane";
@@ -14,7 +8,7 @@ import {
   BalanceVisibilityProvider,
   HiddenBalanceFilterDefs,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
-import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
+import { CryptoPage } from "@/components/wallet-workspace/facelift/crypto-page";
 import { DepositPane } from "@/components/wallet-workspace/facelift/deposit-pane";
 import {
   EarnChartPane,
@@ -23,148 +17,18 @@ import {
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
+import {
+  MiddlePaneSlide,
+  PaneReveal,
+} from "@/components/wallet-workspace/facelift/pane-transitions";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 
+export type WorkspacePage = "crypto" | "stables" | "earn";
+
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
-
-// transitions.dev "panel reveal": the earn pane slides up into the region
-// with a cross-blur when it mounts (boot-loader handoff; the earn root now
-// stays mounted under the action screens, so returns ride the page slide).
-// Rendered closed, flipped open after a forced reflow so the transition
-// plays; is-settled then clears the transform so the wrapper stops being a
-// containing block for the pane's fixed overlays.
-function EarnPaneReveal({ children }: { children: ReactNode }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const el = wrapRef.current;
-    if (!el) {
-      return;
-    }
-    void el.offsetHeight;
-    el.dataset.open = "true";
-    const openDur = readCssDurationMs("--panel-open-dur", 400);
-    const timer = window.setTimeout(
-      () => el.classList.add("is-settled"),
-      openDur
-    );
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  return (
-    <div
-      className="t-panel-slide flex h-full min-w-0 flex-1 flex-col"
-      data-open="false"
-      ref={wrapRef}
-      style={{ ["--panel-translate-y" as never]: "24px" }}
-    >
-      {children}
-    </div>
-  );
-}
-
-// transitions.dev "page side-by-side" (frontend/transitions/page-side-by-side.md):
-// the Earn root (page 1) and the action screens — deposit/withdraw/autodeposit
-// (page 2) — slide between each other. Page 2 mounts in its exit-right state,
-// flips in after a forced reflow, and unmounts once the exit completes; the
-// settled page drops its transform so fixed overlays inside (mobile sheets)
-// anchor to the viewport — same escape EarnPaneReveal uses.
-function MiddlePaneSlide({
-  actionPane,
-  children,
-}: {
-  actionPane: ReactNode | null;
-  children: ReactNode;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const rootPageRef = useRef<HTMLDivElement>(null);
-  const actionPageRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<number | null>(null);
-  const [isActionMounted, setIsActionMounted] = useState(false);
-  const lastActionPaneRef = useRef<ReactNode>(null);
-  const isActionOpen = actionPane !== null;
-  if (isActionOpen) {
-    lastActionPaneRef.current = actionPane;
-  }
-  if (isActionOpen && !isActionMounted) {
-    setIsActionMounted(true);
-  }
-
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!(container && isActionMounted)) {
-      return;
-    }
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    // The second pane of multi-pane action screens lags by --page-stagger,
-    // so settling/unmounting waits for the delayed transition too.
-    const slideDur =
-      readCssDurationMs("--page-slide-dur", 250) +
-      readCssDurationMs("--page-stagger", 0);
-    if (isActionOpen) {
-      rootPageRef.current?.classList.remove("is-settled");
-      void container.offsetHeight;
-      container.dataset.page = "2";
-      timerRef.current = window.setTimeout(() => {
-        timerRef.current = null;
-        actionPageRef.current?.classList.add("is-settled");
-      }, slideDur);
-      return;
-    }
-    actionPageRef.current?.classList.remove("is-settled");
-    container.dataset.page = "1";
-    timerRef.current = window.setTimeout(() => {
-      timerRef.current = null;
-      rootPageRef.current?.classList.add("is-settled");
-      lastActionPaneRef.current = null;
-      setIsActionMounted(false);
-    }, slideDur);
-  }, [isActionOpen, isActionMounted]);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-      }
-    },
-    []
-  );
-
-  return (
-    <div
-      className="t-page-slide flex h-full min-w-0 flex-1"
-      data-page="1"
-      ref={containerRef}
-    >
-      <div
-        className="t-page is-settled flex min-w-0 flex-1"
-        data-page-id="1"
-        ref={rootPageRef}
-      >
-        {/* Plain inner wrapper receives the child-motion styles so they
-            never collide with EarnPaneReveal's own t-panel-slide transform. */}
-        <div className="flex min-w-0 flex-1">{children}</div>
-      </div>
-      {isActionMounted ? (
-        // gap-2 restores the shell row's gap for the action panes' sibling
-        // sections (withdraw/autodeposit render two panes themselves).
-        <div
-          className="t-page flex gap-2 max-[795px]:gap-0"
-          data-page-id="2"
-          ref={actionPageRef}
-        >
-          {isActionOpen ? actionPane : lastActionPaneRef.current}
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 // Figma 4693:64818 — fixed 3-pane workspace: 360px sidebar on the gray shell,
 // fluid middle panel, 400px right panel. Panes are intentionally not resizable.
@@ -179,9 +43,20 @@ export function WorkspaceFaceliftShell() {
   // One shared tab choice for every chart card (compact right pane, mobile
   // inline card, enlarged overlay) — enlarging must not reset the tab.
   const [chartTab, setChartTab] = useState<ChartTab | null>(null);
+  const [activePage, setActivePage] = useState<WorkspacePage>("earn");
   const [middleView, setMiddleView] = useState<MiddleView>("earn");
+  // Set when a positions-tab row's Withdraw pill opened the screen — the
+  // withdraw pane preselects that source; header Withdraw clears it.
+  const [withdrawSourceKey, setWithdrawSourceKey] = useState<string | null>(
+    null
+  );
   const { isHydrated, isSignedIn } = useAuthCapability();
   const earnData = useEarnPositionData();
+  const handleSelectPage = (page: WorkspacePage) => {
+    setActivePage(page);
+    // Leaving Earn abandons any in-progress action screen.
+    setMiddleView("earn");
+  };
   // Deposit requires a session; fall back to the Earn state on sign-out.
   const activeMiddleView: MiddleView = isSignedIn ? middleView : "earn";
   // Avoid flashing the zero-state headline on reload: loading covers auth
@@ -195,7 +70,10 @@ export function WorkspaceFaceliftShell() {
       (earnData.settingsPda === undefined || !earnData.hasResolvedPosition));
   const isEarnRootView = activeMiddleView === "earn";
   const isMobileGrayBackground =
-    isEarnRootView && earnData.hasPosition && !isPositionLoading;
+    activePage === "earn" &&
+    isEarnRootView &&
+    earnData.hasPosition &&
+    !isPositionLoading;
 
   return (
     <BalanceVisibilityProvider>
@@ -210,71 +88,99 @@ export function WorkspaceFaceliftShell() {
           open={earnData.actions.isReconnectPromptOpen}
         />
         <FaceliftSidebar
+          activePage={activePage}
           earnBalanceUsd={earnData.earnBalanceUsd}
           isEarnBalanceLoading={isPositionLoading}
+          onSelectPage={handleSelectPage}
         />
         <div
           className={`flex h-full min-w-0 flex-1 flex-col ${
             isMobileGrayBackground ? "" : "max-[795px]:bg-white"
           }`}
         >
-          <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
-            <MiddlePaneSlide
-              actionPane={
-                activeMiddleView === "withdraw" ? (
-                  <WithdrawPane
-                    data={earnData}
-                    onBack={() => setMiddleView("earn")}
+          {activePage !== "earn" ? (
+            <CryptoPage
+              onEarn={() => {
+                // The stables Earn buttons jump straight to the deposit
+                // screen, not the Earn root.
+                setActivePage("earn");
+                setMiddleView("deposit");
+              }}
+              onSelectEarn={() => handleSelectPage("earn")}
+              onSelectWallet={() => handleSelectPage("crypto")}
+              page={activePage}
+            />
+          ) : (
+            <>
+              <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
+                <MiddlePaneSlide
+                  actionPane={
+                    activeMiddleView === "withdraw" ? (
+                      <WithdrawPane
+                        data={earnData}
+                        initialSourceKey={withdrawSourceKey}
+                        onBack={() => setMiddleView("earn")}
+                      />
+                    ) : activeMiddleView === "autodeposit" ? (
+                      <AutodepositPane
+                        data={earnData}
+                        onBack={() => setMiddleView("earn")}
+                      />
+                    ) : activeMiddleView === "deposit" ? (
+                      <DepositPane
+                        data={earnData}
+                        onBack={() => setMiddleView("earn")}
+                        onOpenChart={() => setIsChartExpanded(true)}
+                      />
+                    ) : null
+                  }
+                >
+                  {isPositionLoading ? (
+                    <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-white max-[795px]:rounded-none" />
+                  ) : earnData.hasPosition ? (
+                    <PaneReveal>
+                      <EarnPositionPane
+                        data={earnData}
+                        onDeposit={() => setMiddleView("deposit")}
+                        onOpenAutodeposit={() => setMiddleView("autodeposit")}
+                        onOpenChart={() => setIsChartExpanded(true)}
+                        onSelectChartTab={setChartTab}
+                        onWithdraw={(sourceKey) => {
+                          setWithdrawSourceKey(sourceKey ?? null);
+                          setMiddleView("withdraw");
+                        }}
+                        selectedChartTab={chartTab}
+                      />
+                    </PaneReveal>
+                  ) : (
+                    <PaneReveal>
+                      <EarnEmptyPane
+                        onDeposit={() => setMiddleView("deposit")}
+                        onOpenChart={() => setIsChartExpanded(true)}
+                      />
+                    </PaneReveal>
+                  )}
+                </MiddlePaneSlide>
+                {activeMiddleView === "withdraw" ||
+                activeMiddleView === "autodeposit" ? null : (
+                  <EarnChartPane
+                    earnData={earnData}
+                    isExpanded={isChartExpanded}
+                    onExpandedChange={setIsChartExpanded}
+                    onSelectTab={setChartTab}
+                    selectedTab={chartTab}
                   />
-                ) : activeMiddleView === "autodeposit" ? (
-                  <AutodepositPane
-                    data={earnData}
-                    onBack={() => setMiddleView("earn")}
-                  />
-                ) : activeMiddleView === "deposit" ? (
-                  <DepositPane
-                    data={earnData}
-                    onBack={() => setMiddleView("earn")}
-                    onOpenChart={() => setIsChartExpanded(true)}
-                  />
-                ) : null
-              }
-            >
-              {isPositionLoading ? (
-                <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-white max-[795px]:rounded-none" />
-              ) : earnData.hasPosition ? (
-                <EarnPaneReveal>
-                  <EarnPositionPane
-                    data={earnData}
-                    onDeposit={() => setMiddleView("deposit")}
-                    onOpenAutodeposit={() => setMiddleView("autodeposit")}
-                    onOpenChart={() => setIsChartExpanded(true)}
-                    onSelectChartTab={setChartTab}
-                    onWithdraw={() => setMiddleView("withdraw")}
-                    selectedChartTab={chartTab}
-                  />
-                </EarnPaneReveal>
-              ) : (
-                <EarnPaneReveal>
-                  <EarnEmptyPane
-                    onDeposit={() => setMiddleView("deposit")}
-                    onOpenChart={() => setIsChartExpanded(true)}
-                  />
-                </EarnPaneReveal>
-              )}
-            </MiddlePaneSlide>
-            {activeMiddleView === "withdraw" ||
-            activeMiddleView === "autodeposit" ? null : (
-              <EarnChartPane
-                earnData={earnData}
-                isExpanded={isChartExpanded}
-                onExpandedChange={setIsChartExpanded}
-                onSelectTab={setChartTab}
-                selectedTab={chartTab}
-              />
-            )}
-          </div>
-          {isEarnRootView ? <MobileTabBar /> : null}
+                )}
+              </div>
+              {isEarnRootView ? (
+                <MobileTabBar
+                  activeTab="earn"
+                  onSelectEarn={() => handleSelectPage("earn")}
+                  onSelectWallet={() => handleSelectPage("crypto")}
+                />
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </BalanceVisibilityProvider>
