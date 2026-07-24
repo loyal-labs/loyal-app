@@ -1,13 +1,24 @@
-import { execSync } from "child_process";
+import { execSync } from "node:child_process";
 import type { NextConfig } from "next";
 
+const FULL_GIT_COMMIT_PATTERN = /^[0-9a-f]{40}$/;
+
+function normalizeGitCommit(value: string | undefined): string | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && FULL_GIT_COMMIT_PATTERN.test(normalized)
+    ? normalized
+    : undefined;
+}
+
 function getGitInfo() {
-  const vercelCommit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7);
+  const vercelCommit = normalizeGitCommit(process.env.VERCEL_GIT_COMMIT_SHA);
   const vercelBranch = process.env.VERCEL_GIT_COMMIT_REF;
 
   try {
     const commitHash =
-      vercelCommit || execSync("git rev-parse --short HEAD").toString().trim();
+      vercelCommit ??
+      normalizeGitCommit(execSync("git rev-parse HEAD").toString()) ??
+      "unknown";
     const gitBranch = execSync("git rev-parse --abbrev-ref HEAD")
       .toString()
       .trim();

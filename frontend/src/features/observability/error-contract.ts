@@ -1,3 +1,11 @@
+import {
+  type BrowserChunkDiagnostics,
+  isBrowserChunkUrlFromOrigin,
+  isBrowserClientBuildId,
+  isBrowserPageSessionId,
+  normalizeBrowserChunkDiagnostics,
+} from "./chunk-load-contract";
+
 export const OBSERVABILITY_ERROR_ENDPOINT = "/api/observability/errors";
 
 export const MAX_OBSERVABILITY_REQUEST_BYTES = 16 * 1024;
@@ -11,16 +19,7 @@ const MAX_EVENT_AGE_MS = 60 * 60 * 1000;
 const MAX_EVENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MAX_RELEASE_LENGTH = 80;
 const MAX_ENVIRONMENT_LENGTH = 32;
-const MAX_CHUNK_URL_LENGTH = 1024;
-const MAX_CONNECTION_DOWNLINK_MBPS = 100_000;
-const MAX_CONNECTION_RTT_MS = 10 * 60 * 1000;
-const MAX_RESOURCE_DURATION_MS = 60 * 60 * 1000;
-const MAX_RESOURCE_SIZE_BYTES = 2_147_483_647;
 const RESOURCE_VALUE_PATTERN = /[^A-Za-z0-9._-]/g;
-const PAGE_SESSION_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const CONNECTION_EFFECTIVE_TYPES = new Set(["slow-2g", "2g", "3g", "4g"]);
-const DOCUMENT_VISIBILITY_STATES = new Set(["hidden", "visible"]);
 
 const URL_QUERY_VALUE_PATTERN = /([?&][^=\s&#]{1,64}=)[^&#\s]*/g;
 const BEARER_VALUE_PATTERN = /\bbearer\s+[^\s,;]+/gi;
@@ -72,20 +71,7 @@ export type ServerErrorOperation = "next.request.error";
 
 export type ObservabilityRuntime = "browser" | "mobile" | "node";
 
-export type BrowserErrorDiagnostics = {
-  chunkUrl: string;
-  connectionDownlinkMbps?: number;
-  connectionEffectiveType?: string;
-  connectionRttMs?: number;
-  connectionSaveData?: boolean;
-  documentVisibilityState?: string;
-  networkOnline: boolean;
-  resourceDecodedBodySize?: number;
-  resourceDurationMs?: number;
-  resourceEncodedBodySize?: number;
-  resourceResponseStatus?: number;
-  resourceTransferSize?: number;
-};
+export type BrowserErrorDiagnostics = BrowserChunkDiagnostics;
 
 export type BrowserErrorEnvelope = {
   clientBuildId?: string;
@@ -127,7 +113,6 @@ export type NormalizedErrorEvent = {
     name: string;
     stack?: string;
   };
-  ingestRelease?: string;
   method?: string;
   operation:
     | BrowserErrorOperation
@@ -244,22 +229,17 @@ export function createBrowserErrorEnvelope(
     options.pathname ??
       (typeof window === "undefined" ? "/" : window.location.pathname)
   );
-  const clientBuildId = options.clientBuildId
-    ? normalizeResourceValue(options.clientBuildId, MAX_RELEASE_LENGTH)
-    : null;
+  const clientBuildId =
+    options.clientBuildId && isBrowserClientBuildId(options.clientBuildId)
+      ? options.clientBuildId
+      : null;
   const pageSessionId =
     options.pageSessionId && isBrowserPageSessionId(options.pageSessionId)
       ? options.pageSessionId
       : null;
-  let diagnostics: BrowserErrorDiagnostics | undefined;
-  try {
-    diagnostics = options.diagnostics
-      ? parseBrowserErrorDiagnostics(options.diagnostics)
-      : undefined;
-  } catch {
-    // Optional browser APIs may expose future values. Keep the core error
-    // report and recovery path even when a diagnostic cannot be normalized.
-  }
+  const diagnostics = options.diagnostics
+    ? normalizeBrowserChunkDiagnostics(options.diagnostics) ?? undefined
+    : undefined;
   const hasClientContext = Boolean(clientBuildId && pageSessionId);
 
   return {
@@ -349,202 +329,6 @@ function readResourceValue(
     throw new InvalidObservabilityEnvelopeError();
   }
   return normalized;
-}
-
-export function isBrowserPageSessionId(value: string): boolean {
-  return PAGE_SESSION_ID_PATTERN.test(value);
-}
-
-export function normalizeBrowserChunkUrl(value: string): string | null {
-  if (value.length === 0 || value.length > MAX_CHUNK_URL_LENGTH) {
-    return null;
-  }
-
-  try {
-    const url = new URL(value);
-    const isLocalHttp =
-      url.protocol === "http:" &&
-      (url.hostname === "127.0.0.1" || url.hostname === "localhost");
-    if (
-      (url.protocol !== "https:" && !isLocalHttp) ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      !url.pathname.startsWith("/_next/static/chunks/") ||
-      !url.pathname.endsWith(".js")
-    ) {
-      return null;
-    }
-
-    const normalized = url.toString();
-    return normalized.length <= MAX_CHUNK_URL_LENGTH ? normalized : null;
-  } catch {
-    return null;
-  }
-}
-
-function isUrlFromOrigin(value: string, expectedOrigin: string): boolean {
-  try {
-    const origin = new URL(expectedOrigin).origin;
-    return origin !== "null" && new URL(value).origin === origin;
-  } catch {
-    return false;
-  }
-}
-
-function readOptionalBoolean(
-  record: Record<string, unknown>,
-  key: string
-): boolean | undefined {
-  const value = record[key];
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "boolean") {
-    throw new InvalidObservabilityEnvelopeError();
-  }
-  return value;
-}
-
-function readOptionalBoundedNumber(
-  record: Record<string, unknown>,
-  key: string,
-  max: number,
-  integer = false
-): number | undefined {
-  const value = record[key];
-  if (value === undefined) {
-    return undefined;
-  }
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0 ||
-    value > max ||
-    (integer && !Number.isInteger(value))
-  ) {
-    throw new InvalidObservabilityEnvelopeError();
-  }
-  return value;
-}
-
-function readOptionalAllowedString(
-  record: Record<string, unknown>,
-  key: string,
-  allowed: ReadonlySet<string>
-): string | undefined {
-  const value = record[key];
-  if (value === undefined) {
-    return undefined;
-  }
-  if (typeof value !== "string" || !allowed.has(value)) {
-    throw new InvalidObservabilityEnvelopeError();
-  }
-  return value;
-}
-
-function parseBrowserErrorDiagnostics(value: unknown): BrowserErrorDiagnostics {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new InvalidObservabilityEnvelopeError();
-  }
-
-  const record = value as Record<string, unknown>;
-  const allowedKeys = new Set([
-    "chunkUrl",
-    "connectionDownlinkMbps",
-    "connectionEffectiveType",
-    "connectionRttMs",
-    "connectionSaveData",
-    "documentVisibilityState",
-    "networkOnline",
-    "resourceDecodedBodySize",
-    "resourceDurationMs",
-    "resourceEncodedBodySize",
-    "resourceResponseStatus",
-    "resourceTransferSize",
-  ]);
-  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
-    throw new InvalidObservabilityEnvelopeError();
-  }
-
-  const chunkUrl = normalizeBrowserChunkUrl(
-    readRequiredString(record, "chunkUrl")
-  );
-  if (!chunkUrl || typeof record.networkOnline !== "boolean") {
-    throw new InvalidObservabilityEnvelopeError();
-  }
-
-  const connectionDownlinkMbps = readOptionalBoundedNumber(
-    record,
-    "connectionDownlinkMbps",
-    MAX_CONNECTION_DOWNLINK_MBPS
-  );
-  const connectionEffectiveType = readOptionalAllowedString(
-    record,
-    "connectionEffectiveType",
-    CONNECTION_EFFECTIVE_TYPES
-  );
-  const connectionRttMs = readOptionalBoundedNumber(
-    record,
-    "connectionRttMs",
-    MAX_CONNECTION_RTT_MS,
-    true
-  );
-  const connectionSaveData = readOptionalBoolean(record, "connectionSaveData");
-  const documentVisibilityState = readOptionalAllowedString(
-    record,
-    "documentVisibilityState",
-    DOCUMENT_VISIBILITY_STATES
-  );
-  const resourceDecodedBodySize = readOptionalBoundedNumber(
-    record,
-    "resourceDecodedBodySize",
-    MAX_RESOURCE_SIZE_BYTES,
-    true
-  );
-  const resourceDurationMs = readOptionalBoundedNumber(
-    record,
-    "resourceDurationMs",
-    MAX_RESOURCE_DURATION_MS
-  );
-  const resourceEncodedBodySize = readOptionalBoundedNumber(
-    record,
-    "resourceEncodedBodySize",
-    MAX_RESOURCE_SIZE_BYTES,
-    true
-  );
-  const resourceResponseStatus = readOptionalBoundedNumber(
-    record,
-    "resourceResponseStatus",
-    599,
-    true
-  );
-  const resourceTransferSize = readOptionalBoundedNumber(
-    record,
-    "resourceTransferSize",
-    MAX_RESOURCE_SIZE_BYTES,
-    true
-  );
-
-  return {
-    chunkUrl,
-    ...(connectionDownlinkMbps !== undefined ? { connectionDownlinkMbps } : {}),
-    ...(connectionEffectiveType ? { connectionEffectiveType } : {}),
-    ...(connectionRttMs !== undefined ? { connectionRttMs } : {}),
-    ...(connectionSaveData !== undefined ? { connectionSaveData } : {}),
-    ...(documentVisibilityState ? { documentVisibilityState } : {}),
-    networkOnline: record.networkOnline,
-    ...(resourceDecodedBodySize !== undefined
-      ? { resourceDecodedBodySize }
-      : {}),
-    ...(resourceDurationMs !== undefined ? { resourceDurationMs } : {}),
-    ...(resourceEncodedBodySize !== undefined
-      ? { resourceEncodedBodySize }
-      : {}),
-    ...(resourceResponseStatus !== undefined ? { resourceResponseStatus } : {}),
-    ...(resourceTransferSize !== undefined ? { resourceTransferSize } : {}),
-  };
 }
 
 type CommonErrorEnvelopeFields = {
@@ -642,11 +426,10 @@ export function parseBrowserErrorEnvelope(
   let pageSessionId: string | undefined;
   let diagnostics: BrowserErrorDiagnostics | undefined;
   if (hasClientContext) {
-    clientBuildId = readResourceValue(
-      record,
-      "clientBuildId",
-      MAX_RELEASE_LENGTH
-    );
+    clientBuildId = readRequiredString(record, "clientBuildId");
+    if (!isBrowserClientBuildId(clientBuildId)) {
+      throw new InvalidObservabilityEnvelopeError();
+    }
     pageSessionId = readRequiredString(record, "pageSessionId");
     if (!isBrowserPageSessionId(pageSessionId)) {
       throw new InvalidObservabilityEnvelopeError();
@@ -654,10 +437,16 @@ export function parseBrowserErrorEnvelope(
     diagnostics =
       record.diagnostics === undefined
         ? undefined
-        : parseBrowserErrorDiagnostics(record.diagnostics);
+        : normalizeBrowserChunkDiagnostics(record.diagnostics) ?? undefined;
+    if (record.diagnostics !== undefined && !diagnostics) {
+      throw new InvalidObservabilityEnvelopeError();
+    }
     if (
       diagnostics &&
-      !isUrlFromOrigin(diagnostics.chunkUrl, options.expectedChunkOrigin)
+      !isBrowserChunkUrlFromOrigin(
+        diagnostics.chunkUrl,
+        options.expectedChunkOrigin
+      )
     ) {
       throw new InvalidObservabilityEnvelopeError();
     }
@@ -676,7 +465,7 @@ export function createNormalizedBrowserErrorEvent(
   envelope: BrowserErrorEnvelope,
   context: {
     deploymentEnvironment: string;
-    ingestRelease: string;
+    serverRelease: string;
   }
 ): NormalizedErrorEvent {
   return {
@@ -692,13 +481,12 @@ export function createNormalizedBrowserErrorEvent(
       name: envelope.name,
       ...(envelope.stack ? { stack: envelope.stack } : {}),
     },
-    ingestRelease: context.ingestRelease,
     operation: envelope.operation,
     ...(envelope.pageSessionId
       ? { pageSessionId: envelope.pageSessionId }
       : {}),
     pathname: envelope.pathname,
-    release: envelope.clientBuildId ?? context.ingestRelease,
+    release: context.serverRelease,
     runtime: "browser",
     serviceName: "loyal-frontend",
     timestamp: envelope.timestamp,

@@ -6,8 +6,8 @@ import {
   type MobileErrorEnvelope,
   type NormalizedErrorEvent,
   normalizeTelemetryPathname,
-  sanitizeTelemetryText,
   type ServerErrorOperation,
+  sanitizeTelemetryText,
 } from "./error-contract";
 import type {
   BrowserLifecycleEnvelope,
@@ -138,7 +138,7 @@ export async function reportBrowserErrorEnvelope(
     return await exportErrorEvent(
       createNormalizedBrowserErrorEvent(envelope, {
         deploymentEnvironment: getObservabilityDeploymentEnvironment(),
-        ingestRelease: getObservabilityRelease(),
+        serverRelease: getObservabilityRelease(),
       })
     );
   } catch {

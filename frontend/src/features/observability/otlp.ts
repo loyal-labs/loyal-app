@@ -57,34 +57,22 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
       stringAttribute("loyal.page_session.id", event.pageSessionId)
     );
   }
-  if (event.ingestRelease) {
-    attributes.push(
-      stringAttribute("loyal.ingest.release", event.ingestRelease)
-    );
-  }
-
   const diagnostics = event.browserDiagnostics;
   if (diagnostics) {
     attributes.push(stringAttribute("loyal.chunk.url", diagnostics.chunkUrl));
     attributes.push(boolAttribute("network.online", diagnostics.networkOnline));
 
-    const strings: Array<[string, string | undefined]> = [
-      [
-        "network.connection.effective_type",
-        diagnostics.connectionEffectiveType,
-      ],
-      ["document.visibility_state", diagnostics.documentVisibilityState],
-    ];
-    for (const [key, value] of strings) {
-      if (value !== undefined) {
-        attributes.push(stringAttribute(key, value));
-      }
+    if (diagnostics.connectionEffectiveType !== undefined) {
+      attributes.push(
+        stringAttribute(
+          "network.connection.effective_type",
+          diagnostics.connectionEffectiveType
+        )
+      );
     }
 
     const integers: Array<[string, number | undefined]> = [
       ["network.connection.rtt_ms", diagnostics.connectionRttMs],
-      ["loyal.resource.decoded_body_size", diagnostics.resourceDecodedBodySize],
-      ["loyal.resource.encoded_body_size", diagnostics.resourceEncodedBodySize],
       ["loyal.resource.response_status", diagnostics.resourceResponseStatus],
       ["loyal.resource.transfer_size", diagnostics.resourceTransferSize],
     ];
@@ -94,21 +82,11 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
       }
     }
 
-    const doubles: Array<[string, number | undefined]> = [
-      ["network.connection.downlink_mbps", diagnostics.connectionDownlinkMbps],
-      ["loyal.resource.duration_ms", diagnostics.resourceDurationMs],
-    ];
-    for (const [key, value] of doubles) {
-      if (value !== undefined) {
-        attributes.push(doubleAttribute(key, value));
-      }
-    }
-
-    if (diagnostics.connectionSaveData !== undefined) {
+    if (diagnostics.resourceDurationMs !== undefined) {
       attributes.push(
-        boolAttribute(
-          "network.connection.save_data",
-          diagnostics.connectionSaveData
+        doubleAttribute(
+          "loyal.resource.duration_ms",
+          diagnostics.resourceDurationMs
         )
       );
     }

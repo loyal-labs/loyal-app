@@ -12,6 +12,8 @@ Self-hosted ClickStack for investigating Loyal production issues.
 The Loyal web frontend sends:
 
 - uncaught browser, React, and Next.js errors;
+- first-party chunk-load failures with bounded build, page-session, network, and
+  resource diagnostics;
 - sign-in and smart-account provisioning progress;
 - deposit, top-up, and withdrawal progress;
 - Autodeposit setup, update, pause, resume, close, and Execute Now progress.
@@ -71,16 +73,30 @@ Interpretation:
 
 Useful fields:
 
-| Field                | Purpose                                              |
-| -------------------- | ---------------------------------------------------- |
-| `loyal.flow.id`      | One attempt's tracking ID                            |
-| `loyal.flow.name`    | Sign-in, deposit, withdrawal, Autodeposit, and so on |
-| `loyal.flow.stage`   | Last recorded step                                   |
-| `loyal.flow.outcome` | Started, observed, completed, failed, or cancelled   |
-| `loyal.wallet.address` | Wallet address (authenticated events)              |
-| `loyal.error.code`   | Stable failure category                              |
-| `loyal.elapsed_ms`   | Total attempt duration                               |
-| `service.version`    | Frontend release                                     |
+| Field                               | Purpose                                                  |
+| ----------------------------------- | -------------------------------------------------------- |
+| `loyal.flow.id`                     | One attempt's tracking ID                                |
+| `loyal.flow.name`                   | Sign-in, deposit, withdrawal, Autodeposit, and so on     |
+| `loyal.flow.stage`                  | Last recorded step                                       |
+| `loyal.flow.outcome`                | Started, observed, completed, failed, or cancelled       |
+| `loyal.wallet.address`              | Wallet address (authenticated events)                    |
+| `loyal.error.code`                  | Stable failure category                                  |
+| `loyal.elapsed_ms`                  | Total attempt duration                                   |
+| `service.version`                   | Server-side Vercel deployment that ingested the event    |
+| `loyal.client.build_id`             | Full Git SHA compiled into the reporting browser bundle  |
+| `loyal.page_session.id`             | Random UUID scoped to one browser tab session            |
+| `loyal.chunk.url`                   | Same-origin Next.js chunk URL, without query or fragment |
+| `network.online`                    | Browser online state when the chunk failure was observed |
+| `network.connection.effective_type` | Browser-reported connection class, when available        |
+| `network.connection.rtt_ms`         | Browser-reported round-trip time, when available         |
+| `loyal.resource.response_status`    | Resource Timing response status, when available          |
+| `loyal.resource.duration_ms`        | Resource Timing duration, when available                 |
+| `loyal.resource.transfer_size`      | Resource Timing transfer size, when available            |
+
+`service.version` remains server-authoritative. Use
+`loyal.client.build_id` to distinguish a stale browser bundle from the Vercel
+deployment that received its report. The page-session UUID is random and
+contains no user identifier.
 
 ## Wallet addresses
 
@@ -160,6 +176,7 @@ smoke:
 Frontend checks:
 
 ```sh
+bun run --cwd frontend verify:chunk-load-recovery
 bun frontend/scripts/verify-observability.ts
 bun frontend/scripts/verify-observability-flows.ts
 ./node_modules/.bin/tsc --noEmit --project frontend/tsconfig.json --pretty false
