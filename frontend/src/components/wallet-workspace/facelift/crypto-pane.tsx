@@ -16,6 +16,7 @@ export type CryptoPaneVariant = "crypto" | "stables";
 
 export type CryptoRowActions = {
   onEarn?: (token: TokenRow) => void;
+  onSelect?: (token: TokenRow) => void;
   onSend: (token: TokenRow) => void;
   onShield: (token: TokenRow) => void;
   onSwap: (token: TokenRow) => void;
@@ -23,7 +24,13 @@ export type CryptoRowActions = {
 };
 
 // $9,884.55 → black whole + gray fraction, scrambled while hidden.
-function SplitUsd({ isHidden, value }: { isHidden: boolean; value: string }) {
+export function SplitUsd({
+  isHidden,
+  value,
+}: {
+  isHidden: boolean;
+  value: string;
+}) {
   const dotIndex = value.lastIndexOf(".");
   const whole = dotIndex >= 0 ? value.slice(0, dotIndex) : value;
   const fraction = dotIndex >= 0 ? value.slice(dotIndex) : "";
@@ -140,7 +147,12 @@ function TokenCell({
 }) {
   const isStables = variant === "stables";
   return (
-    <div className="group relative flex w-full items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-black/[0.04]">
+    // Row click selects the token for the detail right pane; the action
+    // pills' clicks bubbling into the selection is intentional.
+    <div
+      className="group relative flex w-full cursor-pointer items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-black/[0.04]"
+      onClick={() => actions.onSelect?.(row)}
+    >
       {isPairFirst ? (
         <span
           aria-hidden="true"

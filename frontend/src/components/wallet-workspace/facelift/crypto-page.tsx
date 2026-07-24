@@ -37,6 +37,7 @@ import {
   SwapPane,
   SwapTokenSelectPane,
 } from "@/components/wallet-workspace/facelift/swap-pane";
+import { TokenDetailPane } from "@/components/wallet-workspace/facelift/token-detail-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -309,6 +310,16 @@ export function CryptoPage({
       setIsShieldSelectOpen(false);
     }
   }, []);
+
+  // --- token detail right pane (Figma 4826:439625) ---
+  // Row click selects (and opens the <1204 sheet); a page switch resets to
+  // that page's default token.
+  const [detailToken, setDetailToken] = useState<SwapToken | null>(null);
+  const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
+  useEffect(() => {
+    setDetailToken(null);
+    setIsDetailSheetOpen(false);
+  }, [page]);
 
   const derivedTokens = useMemo<SwapToken[]>(() => {
     const positions = data.positions;
@@ -620,10 +631,83 @@ export function CryptoPage({
     [refreshWalletData]
   );
 
+  // Detail pane inputs: the wallet position (when held) supplies the
+  // public/shielded split and the app-pipeline price the list rows use.
+  const pageTokenRows =
+    page === "stables" ? data.cashTokenRows : data.investmentTokenRows;
+  const firstPageRow = pageTokenRows[0];
+  // LOYAL anchors the crypto default, USDC the stables one; the page's first
+  // row covers wallets whose derived list is missing those entries.
+  const detailDefault =
+    (page === "stables"
+      ? derivedTokens.find((token) => token.symbol === "USDC")
+      : derivedTokens.find((token) => token.mint === LOYL_TOKEN.mint)) ??
+    (firstPageRow ? tokenRowToSwapToken(firstPageRow) : null);
+  const detailBase = detailToken ?? detailDefault;
+  const detailMint = detailBase?.mint ?? null;
+  const detailPosition = detailMint
+    ? data.positions.find((position) => position.asset.mint === detailMint) ??
+      null
+    : null;
+  const detailPublicBalance =
+    detailPosition?.publicBalance ??
+    (detailBase?.isSecured ? 0 : detailBase?.balance ?? 0);
+  const detailSecuredBalance =
+    detailPosition?.securedBalance ??
+    (detailBase?.isSecured ? detailBase.balance : 0);
+  const detailPrice = detailPosition?.priceUsd ?? detailBase?.price ?? 0;
+  // Shared by the desktop aside and the <1204 sheet; actions leave the
+  // detail context, so they always drop the sheet first.
+  const openDetailSwap = () => {
+    if (!detailBase) {
+      return;
+    }
+    setIsDetailSheetOpen(false);
+    openSwap({ ...detailBase, balance: detailPublicBalance, isSecured: false });
+  };
+  const openDetailSend = () => {
+    if (!detailBase) {
+      return;
+    }
+    setIsDetailSheetOpen(false);
+    setSendToken({
+      ...detailBase,
+      balance: detailPublicBalance,
+      isSecured: false,
+    });
+    openAction({ type: "sendPanel" });
+  };
+  const openDetailShield = () => {
+    if (!detailBase) {
+      return;
+    }
+    setIsDetailSheetOpen(false);
+    openShield({
+      ...detailBase,
+      balance: detailPublicBalance,
+      isSecured: false,
+    });
+  };
+  const openDetailUnshield = () => {
+    if (!detailBase) {
+      return;
+    }
+    setIsDetailSheetOpen(false);
+    openShield({
+      ...detailBase,
+      balance: detailSecuredBalance,
+      isSecured: true,
+    });
+  };
+
   const rowActions: CryptoRowActions = {
     // ponytail: the deposit pane picks its own source token, so row-level
     // Earn lands on the same screen as the header button.
     onEarn: () => onEarn(),
+    onSelect: (row) => {
+      setDetailToken(tokenRowToSwapToken(row));
+      setIsDetailSheetOpen(true);
+    },
     onSend: (row) => {
       setSendToken(tokenRowToSwapToken(row));
       openAction({ type: "sendPanel" });
@@ -791,15 +875,30 @@ export function CryptoPage({
               </PaneReveal>
             </InlineSheetReveal>
           </div>
-        ) : (
-          // ponytail: the Figma right pane is a "🛠 Token page" placeholder —
-          // the token detail screen ships with a later design.
-          <aside className="hidden h-full w-[400px] shrink-0 flex-col items-center justify-center overflow-clip rounded-3xl bg-white min-[1204px]:flex">
-            <p className="text-center font-medium text-[#8a8a8e] text-[16px] leading-5">
-              <span className="font-bold">{"🛠 "}</span>
-              Token page
-            </p>
+        ) : detailBase && detailMint ? (
+          // Token detail pane (Figma 4826:439625); re-keyed per mint so
+          // switching tokens replays the panel reveal.
+          <aside className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
+            <PaneReveal key={detailMint}>
+              <div className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white">
+                <TokenDetailPane
+                  icon={detailBase.icon}
+                  mint={detailMint}
+                  name={detailPosition?.asset.name ?? detailBase.symbol}
+                  onSend={openDetailSend}
+                  onShield={openDetailShield}
+                  onSwap={openDetailSwap}
+                  onUnshield={openDetailUnshield}
+                  price={detailPrice}
+                  publicBalance={detailPublicBalance}
+                  securedBalance={detailSecuredBalance}
+                  symbol={detailBase.symbol}
+                />
+              </div>
+            </PaneReveal>
           </aside>
+        ) : (
+          <aside className="hidden h-full w-[400px] shrink-0 rounded-3xl bg-white min-[1204px]:block" />
         )}
       </div>
       {/* Below 1204px the selector opens as the right-pinned card over the
@@ -845,6 +944,32 @@ export function CryptoPage({
           tokens={shieldSourceTokens}
         />
       </SheetReveal>
+      {/* Token detail sheet (Figma 4826:440136) — row taps below 1204px open
+          the pane in the token-selector sheet geometry; the desktop aside
+          covers ≥1204 so the scrim hides there. */}
+      {detailBase && detailMint ? (
+        <SheetReveal
+          isOpen={isDetailSheetOpen}
+          onClose={() => setIsDetailSheetOpen(false)}
+          scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+          sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+        >
+          <TokenDetailPane
+            icon={detailBase.icon}
+            mint={detailMint}
+            name={detailPosition?.asset.name ?? detailBase.symbol}
+            onClose={() => setIsDetailSheetOpen(false)}
+            onSend={openDetailSend}
+            onShield={openDetailShield}
+            onSwap={openDetailSwap}
+            onUnshield={openDetailUnshield}
+            price={detailPrice}
+            publicBalance={detailPublicBalance}
+            securedBalance={detailSecuredBalance}
+            symbol={detailBase.symbol}
+          />
+        </SheetReveal>
+      ) : null}
       <ShieldInfoOverlay
         isOpen={isShieldInfoOpen}
         onClose={() => setIsShieldInfoOpen(false)}

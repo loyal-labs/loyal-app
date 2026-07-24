@@ -10,6 +10,11 @@ export type TokenDetailChartPoint = {
   priceUsd: number;
 };
 
+// CoinGecko market_chart `days` values the chart range tabs map to.
+export const TOKEN_CHART_DAYS = ["1", "7", "30", "365", "max"] as const;
+
+export type TokenChartDays = (typeof TOKEN_CHART_DAYS)[number];
+
 export type TokenDetailResponse = {
   mint: string;
   token: {
@@ -107,6 +112,11 @@ const tokenDetailCache = new Map<string, TokenDetailCacheEntry>();
 const tokenDetailInflight = new Map<string, Promise<TokenDetailResponse>>();
 const tokenMarketCache = new Map<string, TokenMarketCacheEntry>();
 const tokenMarketInflight = new Map<string, Promise<TokenMarketResponse>>();
+const tokenChartCache = new Map<
+  string,
+  { expiresAt: number; value: TokenDetailChartPoint[] }
+>();
+const tokenChartInflight = new Map<string, Promise<TokenDetailChartPoint[]>>();
 
 function getCoinGeckoHeaders(): HeadersInit {
   const apiKey =
@@ -250,14 +260,17 @@ async function fetchCoinGeckoTokenInfo(
   };
 }
 
-async function fetchCoinGeckoCoinChart(coingeckoCoinId: string): Promise<{
+async function fetchCoinGeckoCoinChart(
+  coingeckoCoinId: string,
+  days: TokenChartDays = "1"
+): Promise<{
   points: TokenDetailChartPoint[];
   volumeUsd24h: number | null;
 }> {
   const response = await fetchCoinGeckoJson<{
     prices?: [number, number][];
     total_volumes?: [number, number][];
-  }>(`/coins/${coingeckoCoinId}/market_chart?vs_currency=usd&days=1`);
+  }>(`/coins/${coingeckoCoinId}/market_chart?vs_currency=usd&days=${days}`);
 
   const points = (response.prices ?? []).map(([timestamp, priceUsd]) => ({
     timestamp,
@@ -273,11 +286,17 @@ async function fetchCoinGeckoCoinChart(coingeckoCoinId: string): Promise<{
 }
 
 async function fetchCoinGeckoPoolOhlcv(
-  poolId: string
+  poolId: string,
+  timeframe: "hour" | "day" = "hour",
+  limit?: number
 ): Promise<TokenDetailChartPoint[]> {
   const response = await fetchCoinGeckoJson<{
     data?: { attributes?: { ohlcv_list?: number[][] } };
-  }>(`/onchain/networks/${SOLANA_NETWORK}/pools/${poolId}/ohlcv/hour`);
+  }>(
+    `/onchain/networks/${SOLANA_NETWORK}/pools/${poolId}/ohlcv/${timeframe}${
+      limit ? `?limit=${limit}` : ""
+    }`
+  );
 
   return (response.data?.attributes?.ohlcv_list ?? [])
     .filter(
@@ -482,6 +501,75 @@ export async function fetchTokenDetailByMint(
   });
 
   tokenDetailInflight.set(mint, request);
+  return request;
+}
+
+// Pool OHLCV fallback granularity per range (used when the token has no
+// CoinGecko coin id — market_chart picks granularity from `days` on its own).
+const POOL_OHLCV_BY_DAYS: Record<
+  TokenChartDays,
+  { limit: number; timeframe: "hour" | "day" }
+> = {
+  "1": { limit: 24, timeframe: "hour" },
+  "7": { limit: 168, timeframe: "hour" },
+  "30": { limit: 30, timeframe: "day" },
+  "365": { limit: 365, timeframe: "day" },
+  max: { limit: 1000, timeframe: "day" },
+};
+
+export async function fetchTokenChartByMint(
+  mint: string,
+  days: TokenChartDays
+): Promise<TokenDetailChartPoint[]> {
+  assertCoinGeckoApiKeyConfigured();
+
+  const cacheKey = `${mint}:${days}`;
+  const cached = tokenChartCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  const inflight = tokenChartInflight.get(cacheKey);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = (async () => {
+    const token = await getSettledValue(fetchCoinGeckoTokenData(mint));
+    if (!token) {
+      return [];
+    }
+
+    let chart: TokenDetailChartPoint[] = [];
+
+    if (token.coingeckoCoinId) {
+      const result = await getSettledValue(
+        fetchCoinGeckoCoinChart(token.coingeckoCoinId, days)
+      );
+      chart = result?.points ?? [];
+    }
+
+    if (chart.length === 0 && token.topPoolIds.length > 0) {
+      const { limit, timeframe } = POOL_OHLCV_BY_DAYS[days];
+      chart =
+        (await getSettledValue(
+          fetchCoinGeckoPoolOhlcv(token.topPoolIds[0], timeframe, limit)
+        )) ?? [];
+    }
+
+    if (chart.length > 0) {
+      tokenChartCache.set(cacheKey, {
+        expiresAt: Date.now() + TOKEN_DETAIL_CACHE_TTL_MS,
+        value: chart,
+      });
+    }
+
+    return chart;
+  })().finally(() => {
+    tokenChartInflight.delete(cacheKey);
+  });
+
+  tokenChartInflight.set(cacheKey, request);
   return request;
 }
 
