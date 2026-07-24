@@ -482,6 +482,7 @@ pub mod telegram_private_transfer {
             vec![&ctx.accounts.deposit.to_account_info()],
             &ctx.accounts.magic_context,
             &ctx.accounts.magic_program,
+            None,
         )?;
         Ok(())
     }
@@ -511,6 +512,7 @@ pub mod telegram_private_transfer {
             vec![&ctx.accounts.deposit.to_account_info()],
             &ctx.accounts.magic_context,
             &ctx.accounts.magic_program,
+            None,
         )?;
         Ok(())
     }
