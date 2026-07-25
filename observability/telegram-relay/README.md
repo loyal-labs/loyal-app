@@ -116,6 +116,11 @@ accept the duplicate messages.
 - A recap that Telegram rejects keeps its window and its counters and is retried
   on the next sweep, up to five times before it is dropped with an
   `alert_digest_dropped` log.
+- An escalation that Telegram rejects is logged as `alert_escalation_failed` and
+  does not fail the webhook. The delivery is already counted, and ClickStack's
+  retry carries the same `Idempotency-Key`, so bubbling the failure would be
+  answered as a duplicate without resending. The escalation slot is left unused
+  instead, so the next over-threshold delivery retries it.
 - A Telegram `429` with a short `retry_after` is waited out and retried once
   in-process; a long `retry_after` returns HTTP 502 for ClickStack to retry.
 - `title` must contain non-whitespace text, so a delivered message is never

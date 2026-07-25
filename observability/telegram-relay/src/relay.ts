@@ -289,12 +289,21 @@ export class AlertRelay {
         accumulate(window, payload, analysis, now);
         this.rememberIdempotencyKey(idempotencyKey, now);
 
+        // The escalation is an extra notification inside an already-open
+        // window, not part of ingest. Failing the webhook for it would be
+        // worse than useless: the delivery is already counted, and ClickStack's
+        // retry carries the same Idempotency-Key, so it would be answered as a
+        // duplicate without ever resending the escalation. Swallowing the
+        // failure and leaving `escalations` untouched makes the next
+        // over-threshold delivery try again.
         if (!this.inRestartGrace(now) && this.shouldEscalate(window)) {
-          window.escalations += 1;
-          await this.sender(payload, {
-            kind: "escalation",
-            window: summarize(window),
-            silent: false,
+          await reportFailure("alert_escalation_failed", async () => {
+            await this.sender(payload, {
+              kind: "escalation",
+              window: summarize(window),
+              silent: false,
+            });
+            window.escalations += 1;
           });
         }
 

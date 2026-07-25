@@ -450,6 +450,44 @@ describe("AlertRelay windows", () => {
     expect(sent[0]?.silent).toBe(true);
   });
 
+  test("retries an escalation Telegram rejected on the next delivery", async () => {
+    let now = 1_000;
+    let telegramAvailable = true;
+    const kinds: AlertMessageKind[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        if (context.kind === "escalation" && !telegramAvailable) {
+          throw new Error("Telegram unavailable");
+        }
+        kinds.push(context.kind);
+      },
+      () => now,
+      { analyze, escalationMultiplier: 3 }
+    );
+    // One matched line opens the window, so escalation is due at three events.
+    const payload = csvPayload("loyal-mobile", [
+      row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
+    ]);
+
+    await relay.handle(payload, "delivery-1");
+    now += 1_000;
+    await relay.handle(payload, "delivery-2");
+
+    telegramAvailable = false;
+    now += 1_000;
+    // A failed escalation must not fail the webhook: the delivery is already
+    // counted, and ClickStack's retry would be answered as a duplicate.
+    expect(await relay.handle(payload, "delivery-3")).toEqual({
+      outcome: "suppressed",
+    });
+    expect(kinds).toEqual(["new"]);
+
+    telegramAvailable = true;
+    now += 1_000;
+    await relay.handle(payload, "delivery-4");
+    expect(kinds).toEqual(["new", "escalation"]);
+  });
+
   test("restores unexpired windows from a snapshot", async () => {
     const now = 1_000;
     const kinds: AlertMessageKind[] = [];
