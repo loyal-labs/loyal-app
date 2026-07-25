@@ -234,6 +234,17 @@ export type LifecycleDiagnostics = {
   chainState?: (typeof CHAIN_STATES)[number];
   cleanupRequired?: boolean;
   errorCode?: LifecycleErrorCode;
+  /**
+   * The originating system's own short error token, for when `errorCode` is a
+   * category that several distinct causes collapse into — a mobile wallet
+   * adapter code such as `EUNSPECIFIED` or `ERROR_SESSION_TIMEOUT`, say. Names
+   * the cause without minting a lifecycle code per vendor error.
+   *
+   * A machine token, never prose: it is sanitized to `[A-Za-z0-9._-]` and
+   * truncated, so free text arrives mangled, and anything resembling a
+   * message, address or secret must not be put here.
+   */
+  errorDetail?: string;
   executeNowState?: ExecuteNowState;
   executionMode?: (typeof EXECUTION_MODES)[number];
   httpStatus?: number;
@@ -338,6 +349,25 @@ function assertOptionalBoolean(
   }
 }
 
+const MAX_ERROR_DETAIL_LENGTH = 64;
+
+/**
+ * Reduce a reported error token to a bounded `[A-Za-z0-9._-]` string, or
+ * undefined when nothing usable remains. Sanitizing (rather than rejecting)
+ * keeps a malformed detail from costing the event it annotates, and the
+ * character class means prose accidentally sent here cannot smuggle a message,
+ * address or secret into telemetry intact.
+ */
+function normalizeErrorDetail(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  return (
+    normalizeResourceValue(value, MAX_ERROR_DETAIL_LENGTH)?.replace(
+      /^_+|_+$/g,
+      ""
+    ) || undefined
+  );
+}
+
 export function parseBrowserLifecycleEnvelope(
   value: unknown,
   now = Date.now()
@@ -354,6 +384,7 @@ export function parseBrowserLifecycleEnvelope(
     "durationMs",
     "elapsedMs",
     "errorCode",
+    "errorDetail",
     "executeNowState",
     "executionMode",
     "flowId",
@@ -434,6 +465,12 @@ export function parseBrowserLifecycleEnvelope(
   }
 
   assertOptionalEnum(record.errorCode, LIFECYCLE_ERROR_CODES);
+  // Sanitized rather than rejected: this field only ever adds detail, so a
+  // value that normalizes away must never cost the whole event.
+  const errorDetail =
+    record.errorDetail === undefined
+      ? undefined
+      : normalizeErrorDetail(record.errorDetail);
   assertOptionalEnum(record.executeNowState, EXECUTE_NOW_STATES);
   assertOptionalEnum(record.authProofKind, PROOF_KINDS);
   assertOptionalEnum(record.executionMode, EXECUTION_MODES);
@@ -553,7 +590,9 @@ export function parseBrowserLifecycleEnvelope(
     }
   }
 
-  return { ...record, pathname } as BrowserLifecycleEnvelope;
+  // `errorDetail` always overwrites the raw value; undefined when it was
+  // absent or normalized away, which downstream treats as "not set".
+  return { ...record, pathname, errorDetail } as BrowserLifecycleEnvelope;
 }
 
 const WALLET_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
