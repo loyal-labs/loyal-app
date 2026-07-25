@@ -298,7 +298,7 @@ describe("AlertRelay windows", () => {
     const digests = sent.filter((context) => context.kind === "digest");
     expect(digests).toHaveLength(1);
     expect(digests[0]?.window?.suppressedAlerts).toBe(3);
-    expect(digests[0]?.window?.eventCount).toBe(20);
+    expect(digests[0]?.window?.eventCount).toBe(5);
     expect(digests[0]?.window?.uniqueValues.wallet).toBe(2);
     expect(relay.stats().windows).toBe(0);
 
@@ -308,7 +308,7 @@ describe("AlertRelay windows", () => {
       context: digests[0] as AlertContext,
     }).text;
     expect(text).toContain("3 alert(s) suppressed");
-    // Only 8 of the 20 matched lines were readable, so the wallet spread has
+    // Only 2 of the 5 matched lines were readable, so the wallet spread has
     // to be presented as a floor rather than a total.
     expect(text).toContain("≥2 unique wallets");
   });
@@ -464,8 +464,14 @@ describe("AlertRelay windows", () => {
       () => now,
       { analyze, escalationMultiplier: 3 }
     );
-    // One matched line opens the window, so escalation is due at three events.
+    // One matched line opens the window, so escalation is due when a single
+    // evaluation grows to three events.
     const payload = csvPayload("loyal-mobile", [
+      row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
+    ]);
+    const burst = csvPayload("loyal-mobile", [
+      row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
+      row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
       row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
     ]);
 
@@ -477,15 +483,65 @@ describe("AlertRelay windows", () => {
     now += 1_000;
     // A failed escalation must not fail the webhook: the delivery is already
     // counted, and ClickStack's retry would be answered as a duplicate.
-    expect(await relay.handle(payload, "delivery-3")).toEqual({
+    expect(await relay.handle(burst, "delivery-3")).toEqual({
       outcome: "suppressed",
     });
     expect(kinds).toEqual(["new"]);
 
     telegramAvailable = true;
     now += 1_000;
-    await relay.handle(payload, "delivery-4");
+    await relay.handle(burst, "delivery-4");
     expect(kinds).toEqual(["new", "escalation"]);
+  });
+
+  test("does not escalate unchanged evaluation replays", async () => {
+    let now = 1_000;
+    const kinds: AlertMessageKind[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        kinds.push(context.kind);
+      },
+      () => now,
+      { analyze, escalationMultiplier: 3 }
+    );
+    const payload = csvPayload("loyal-mobile", [
+      row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
+    ]);
+
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      await relay.handle(payload, `delivery-${attempt}`);
+      now += 1_000;
+    }
+
+    expect(kinds).toEqual(["new"]);
+    expect(relay.exportState(now).windows[0]?.eventCount).toBe(1);
+  });
+
+  test("does not escalate steady volume across evaluation ranges", async () => {
+    let now = 1_000;
+    const kinds: AlertMessageKind[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        kinds.push(context.kind);
+      },
+      () => now,
+      { analyze, escalationMultiplier: 3 }
+    );
+
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      await relay.handle(
+        csvPayload(
+          "loyal-mobile",
+          [row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a")],
+          { startTime: attempt, endTime: attempt + 1 }
+        ),
+        `delivery-${attempt}`
+      );
+      now += 1_000;
+    }
+
+    expect(kinds).toEqual(["new"]);
+    expect(relay.exportState(now).windows[0]?.eventCount).toBe(10);
   });
 
   test("restores unexpired windows from a snapshot", async () => {
@@ -515,5 +571,6 @@ describe("AlertRelay windows", () => {
       outcome: "suppressed",
     });
     expect(kinds).toEqual([]);
+    expect(restored.exportState(now).windows[0]?.eventCount).toBe(1);
   });
 });

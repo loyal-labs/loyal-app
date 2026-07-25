@@ -31,7 +31,7 @@ readable at a glance.
 | Icon | Kind | When |
 | --- | --- | --- |
 | 🚨 | alert | First delivery for a signature. Opens a window. Notifies. |
-| 📈 | escalation | Volume inside an open window grew by `ESCALATION_MULTIPLIER`. At most twice per window. Notifies. |
+| 📈 | escalation | One evaluation's volume grew by `ESCALATION_MULTIPLIER` from the opening evaluation. At most twice per window. Notifies. |
 | 🔕 | recap | The window closed having suppressed at least one delivery. Silent. |
 | ♻️ | restart recap | The grace period after a restart ended with alerts still firing. Silent. |
 
@@ -39,6 +39,8 @@ A window that suppressed nothing closes without a message, so **silence after
 an alert means it happened once**. The alert and the recap both carry the
 matched-line count, and the recap adds the number of suppressed deliveries, the
 first and last timestamps, a per-bucket sparkline and the peak bucket.
+Identical deliveries for one ClickStack evaluation range count once; if that
+snapshot grows, only the increase is added.
 
 ## Counting distinct values
 
@@ -109,7 +111,8 @@ accept the duplicate messages.
 - ClickStack's `TEST WEBHOOK` currently uses `INSUFFICIENT_DATA`; it is accepted.
 - The first delivery for a signature is sent immediately.
 - Further non-`OK` deliveries for that signature return HTTP 200 without
-  Telegram delivery until the window expires, and increment its counters.
+  Telegram delivery until the window expires. Delivery counts still increase,
+  but matched lines are deduplicated by evaluation range.
 - An exact delivery retry with the same `Idempotency-Key` also returns HTTP 200.
 - Telegram delivery failure returns HTTP 502 and leaves no window behind, so
   ClickStack's retry is treated as a first delivery rather than a repeat.

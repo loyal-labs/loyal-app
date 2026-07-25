@@ -57,7 +57,7 @@ export interface WindowSummary {
   expiresAt: number;
   firstEventAt: number;
   lastEventAt: number;
-  /** Matched log lines, as reported by ClickStack, summed over the window. */
+  /** Matched log lines across distinct ClickStack evaluation ranges. */
   eventCount: number;
   /** Webhook deliveries that were answered without posting to Telegram. */
   suppressedAlerts: number;
@@ -141,6 +141,10 @@ interface AlertWindow {
   firstEventAt: number;
   lastEventAt: number;
   eventCount: number;
+  /** Highest matched-line snapshot seen for each ClickStack evaluation range. */
+  evaluationCounts: Map<string, number>;
+  /** Highest matched-line count reported by one evaluation. */
+  peakEvaluationEventCount: number;
   /** Events in the delivery that opened the window, the escalation baseline. */
   openingEventCount: number;
   suppressedAlerts: number;
@@ -483,7 +487,8 @@ export class AlertRelay {
 
     const baseline = Math.max(window.openingEventCount, 1);
     return (
-      window.eventCount >= baseline * multiplier ** (window.escalations + 1)
+      window.peakEvaluationEventCount >=
+      baseline * multiplier ** (window.escalations + 1)
     );
   }
 
@@ -626,6 +631,8 @@ function openWindow(
     firstEventAt: now,
     lastEventAt: now,
     eventCount: 0,
+    evaluationCounts: new Map(),
+    peakEvaluationEventCount: 0,
     openingEventCount: Math.max(analysis.eventCount, 1),
     suppressedAlerts: 0,
     sampledRows: 0,
@@ -657,30 +664,45 @@ function record(
   now: number
 ): void {
   const events = Math.max(analysis.eventCount, 1);
+  const key = evaluationKey(payload);
+  const previousEvents = window.evaluationCounts.get(key) ?? 0;
+  const addedEvents = Math.max(events - previousEvents, 0);
 
   window.payload = payload;
   window.lastEventAt = now;
-  window.eventCount += events;
-  window.sampledRows += analysis.signatures.length;
-  window.buckets[bucketIndex(window, now)] += events;
+  window.evaluationCounts.set(key, Math.max(previousEvents, events));
+  window.peakEvaluationEventCount = Math.max(
+    window.peakEvaluationEventCount,
+    events
+  );
+  window.eventCount += addedEvents;
+  window.buckets[bucketIndex(window, now)] += addedEvents;
 
-  for (const signature of analysis.signatures) {
-    const existing = window.signatures.get(signature.key);
-    if (existing) {
-      existing.count += 1;
-      continue;
+  // The row block is part of the same evaluation snapshot. Reprocessing it
+  // would inflate signature/sample statistics just like re-adding its count.
+  if (addedEvents > 0) {
+    window.sampledRows += analysis.signatures.length;
+
+    for (const signature of analysis.signatures) {
+      const existing = window.signatures.get(signature.key);
+      if (existing) {
+        existing.count += 1;
+        continue;
+      }
+      if (window.signatures.size >= MAX_TRACKED_SIGNATURES) {
+        continue;
+      }
+      window.signatures.set(signature.key, {
+        count: 1,
+        service: signature.service,
+        severity: signature.severity,
+        headline: signature.headline,
+      });
     }
-    if (window.signatures.size >= MAX_TRACKED_SIGNATURES) {
-      continue;
-    }
-    window.signatures.set(signature.key, {
-      count: 1,
-      service: signature.service,
-      severity: signature.severity,
-      headline: signature.headline,
-    });
   }
 
+  // Keep the union even when ClickStack returns a different truncated row
+  // sample for the same evaluation range and matched-line count.
   for (const [label, values] of Object.entries(analysis.uniqueValues)) {
     let seen = window.uniqueValues.get(label);
     if (!seen) {
@@ -694,6 +716,10 @@ function record(
       seen.add(value);
     }
   }
+}
+
+function evaluationKey(payload: ClickStackWebhookPayload): string {
+  return `${payload.startTime}:${payload.endTime}`;
 }
 
 function bucketMsOf(window: AlertWindow): number {
@@ -752,6 +778,10 @@ export interface PersistedWindow {
   lastEventAt: number;
   eventCount: number;
   openingEventCount: number;
+  /** Optional only for snapshots written before evaluation deduplication. */
+  evaluationCounts?: [string, number][];
+  /** Optional only for snapshots written before evaluation deduplication. */
+  peakEvaluationEventCount?: number;
   suppressedAlerts: number;
   sampledRows: number;
   signatures: (SignatureState & { key: string })[];
@@ -781,6 +811,8 @@ function serializeWindow(window: AlertWindow): PersistedWindow {
     lastEventAt: window.lastEventAt,
     eventCount: window.eventCount,
     openingEventCount: window.openingEventCount,
+    evaluationCounts: [...window.evaluationCounts],
+    peakEvaluationEventCount: window.peakEvaluationEventCount,
     suppressedAlerts: window.suppressedAlerts,
     sampledRows: window.sampledRows,
     signatures: [...window.signatures].map(([key, state]) => ({
@@ -804,6 +836,12 @@ function deserializeWindow(saved: PersistedWindow): AlertWindow {
     uniqueValues.set(label, new Set(values));
   }
 
+  const evaluationCounts = new Map<string, number>(
+    saved.evaluationCounts ?? [
+      [evaluationKey(saved.payload), saved.eventCount],
+    ]
+  );
+
   return {
     key: saved.key,
     payload: saved.payload,
@@ -813,6 +851,9 @@ function deserializeWindow(saved: PersistedWindow): AlertWindow {
     lastEventAt: saved.lastEventAt,
     eventCount: saved.eventCount,
     openingEventCount: saved.openingEventCount,
+    evaluationCounts,
+    peakEvaluationEventCount:
+      saved.peakEvaluationEventCount ?? Math.max(saved.openingEventCount, 1),
     suppressedAlerts: saved.suppressedAlerts,
     sampledRows: saved.sampledRows,
     signatures,

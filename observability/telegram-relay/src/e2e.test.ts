@@ -324,7 +324,7 @@ describe("relay end to end", () => {
     expect(opening.text).toContain("wallet: <code>7XkWalletAaa</code>");
     expect(opening.text.endsWith("to=1784955060000")).toBe(true);
 
-    // --- Repeats are counted, not posted ---------------------------------
+    // --- Repeats are tracked, not recounted or posted --------------------
     system.advance(MINUTE);
     expect(await outcomeOf(await system.post(payload, "d-2"))).toBe(
       "suppressed"
@@ -369,7 +369,7 @@ describe("relay end to end", () => {
     expect(escalation.silent).toBe(false);
     expect(escalation.text).toContain('📈 Escalating · Alert for "Errors"');
     expect(escalation.text).toContain(
-      `98 events since ${clockString(START)} UTC`
+      `80 events since ${clockString(START)} UTC`
     );
     expect(escalation.text).toContain("3 alert(s) suppressed so far");
 
@@ -390,7 +390,7 @@ describe("relay end to end", () => {
     expect(digest.at).toBe(expiresAt);
     expect(digest.silent).toBe(true);
     expect(digest.text).toContain('🔕 Alert for "Errors" · recap of 1h');
-    expect(digest.text).toContain("98 events · 3 alert(s) suppressed");
+    expect(digest.text).toContain("80 events · 3 alert(s) suppressed");
     expect(digest.text).toContain("≥2 unique wallets");
     expect(digest.text).toContain(
       `${clockString(START)} → ${clockString(START + 4 * MINUTE)} UTC`
@@ -554,6 +554,11 @@ describe("relay end to end", () => {
       group: "loyal-mobile",
       rows: [withdrawalRows[0]!],
     });
+    const burst = alert({
+      group: "loyal-mobile",
+      rows: [withdrawalRows[0]!],
+      lines: 3,
+    });
 
     expect(await outcomeOf(await system.post(payload, "d-1"))).toBe("sent");
     system.advance(MINUTE);
@@ -566,21 +571,19 @@ describe("relay end to end", () => {
     // retry would carry the same Idempotency-Key and be answered as a
     // duplicate without ever resending.
     system.advance(MINUTE);
-    expect((await system.post(payload, "d-3")).status).toBe(200);
+    expect((await system.post(burst, "d-3")).status).toBe(200);
     expect(
       system.calls.filter((call) => call.text.includes("Escalating")).length
     ).toBe(1);
 
     // The unused escalation slot means the next delivery retries it.
     system.advance(MINUTE);
-    expect(await outcomeOf(await system.post(payload, "d-4"))).toBe(
-      "suppressed"
-    );
+    expect(await outcomeOf(await system.post(burst, "d-4"))).toBe("suppressed");
     const escalations = system.calls.filter((call) =>
       call.text.includes("Escalating")
     );
     expect(escalations).toHaveLength(2);
-    expect(escalations[1]?.text).toContain("4 events since");
+    expect(escalations[1]?.text).toContain("3 events since");
 
     // The recap survives its own rejection and is retried on the next sweep
     // with every counter intact.
@@ -594,7 +597,7 @@ describe("relay end to end", () => {
       call.text.includes("recap of")
     );
     expect(digests).toHaveLength(2);
-    expect(digests[1]?.text).toContain("4 events · 3 alert(s) suppressed");
+    expect(digests[1]?.text).toContain("3 events · 3 alert(s) suppressed");
     expect(system.relay.stats().windows).toBe(0);
 
     verifyInvariants(system);
@@ -607,7 +610,7 @@ describe("relay end to end", () => {
     const payload = alert({ group: "loyal-mobile", rows: withdrawalRows });
 
     // Twenty webhooks land at the same instant. Exactly one may be posted; the
-    // rest must be counted rather than raced into duplicate messages.
+    // rest must be suppressed without recounting the same evaluation.
     const outcomes = await Promise.all(
       (
         await Promise.all(
@@ -666,7 +669,7 @@ describe("relay end to end", () => {
     );
     expect(after.calls).toHaveLength(0);
 
-    // The window still closes carrying what both processes counted.
+    // The window still closes carrying both processes' suppressed deliveries.
     after.advanceTo(START + after.config.cooldownMs);
     await after.sweep();
     expect(after.calls).toHaveLength(1);
