@@ -153,7 +153,13 @@ function toWalletSessionFailure(
   ) {
     return "timeout";
   }
-  if (code === "ERROR_SESSION_CLOSED") return "connection_failed";
+  // Association teardown. `transact` awaits `endSession()` in a `finally`, so
+  // a rejection there replaces the outcome of the call it was cleaning up —
+  // even a successful one. Session-layer by definition, and leaving it out
+  // would report the very `request_failed` this classification exists to stop.
+  if (code === "ERROR_SESSION_CLOSED" || code === "Failed to end session") {
+    return "connection_failed";
+  }
   if (code === "EUNSPECIFIED") {
     return sessionEstablished ? "signing_failed" : "connection_failed";
   }

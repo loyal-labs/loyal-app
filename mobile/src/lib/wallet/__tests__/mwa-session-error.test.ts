@@ -128,6 +128,19 @@ describe("MWA session error classification", () => {
     );
   });
 
+  // `transact` awaits endSession() in a `finally`, so a teardown rejection
+  // replaces whatever the call itself returned — including a success. Left
+  // unclassified it lands back on `request_failed`.
+  it("reports a failed session teardown as connection_failed", async () => {
+    mockTransact.mockImplementation(async () => {
+      throw codedError("Failed to end session");
+    });
+
+    expect(await failureOf(signer().signMessage(new Uint8Array([1])))).toMatchObject(
+      { failure: "connection_failed" },
+    );
+  });
+
   // Same catch-all code as the unreachable case — only the session flag tells
   // them apart, and confusing them would point triage at the wrong system.
   it("reports a post-connect failure as signing_failed", async () => {
