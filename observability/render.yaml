@@ -100,15 +100,19 @@ projects:
                 sync: false
               - key: COOLDOWN_SECONDS
                 value: "3600"
-              # Must match the saved search `select`, in order. Mirrors the
-              # columns the running relay is configured with today.
+              # Must match the saved search `select`, in order. A mismatch is
+              # not fatal but costs the formatting: the relay falls back to
+              # forwarding ClickStack's raw CSV. The `wallet` column is added
+              # to the "Errors" saved search (6a5fb723dcc64beb0ded6cca) as
+              # LogAttributes['loyal.wallet.address'] AS wallet, so deploy this
+              # and flip the saved search together.
               - key: ALERT_COLUMNS
-                value: Timestamp,ServiceName,SeverityText,Body,env,flow,stage,error_code,exception_type,exception_message
-              # Counted as "N unique wallets" rather than listed per row. Add
-              # the column to ALERT_COLUMNS and the saved search `select` first,
-              # or there is nothing to count.
+                value: Timestamp,ServiceName,SeverityText,Body,env,flow,stage,error_code,exception_type,exception_message,wallet
+              # Counted as "N unique wallets" rather than listed per row: 50
+              # errors from one wallet is a stuck user, 50 from 50 wallets is
+              # an outage.
               - key: CARDINALITY_COLUMNS
-                value: ""
+                value: wallet
               # Render replaces this instance on every deploy and ClickStack
               # replays every live alert seconds later. Holding those for two
               # minutes turns that burst into a single restart recap. Windows
