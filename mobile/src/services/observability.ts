@@ -13,6 +13,10 @@ import * as Updates from "expo-updates";
 
 import { env } from "@/config/env";
 import { hasLandedProgress, isWalletRejection } from "@/lib/wallet/rejection";
+import {
+  isWalletSessionError,
+  type WalletSessionFailure,
+} from "@/lib/wallet/wallet-session-error";
 
 type MobileErrorOperation =
   | "mobile.global_error"
@@ -296,13 +300,20 @@ type LifecycleStageMap = {
 
 type LifecycleFlowName = keyof LifecycleVariantMap;
 
+// Every value here must exist in the backend's LIFECYCLE_ERROR_CODES
+// (frontend/src/features/observability/lifecycle-contract.ts) — the ingest
+// drops the whole envelope on an unknown code, so a typo costs the event.
 type LifecycleErrorCode =
   | "unexpected_error"
   | "request_failed"
   | "unconfirmed_signature"
   | "backend_confirmation_failed"
   | "send_failed"
-  | "wallet_rejected";
+  | "wallet_rejected"
+  | "wallet_unavailable"
+  | "wallet_connection_failed"
+  | "wallet_connection_timeout"
+  | "wallet_signing_failed";
 
 export type LifecycleDiagnostics = {
   autodepositCloseRequired?: boolean;
@@ -311,6 +322,12 @@ export type LifecycleDiagnostics = {
   errorCode?: LifecycleErrorCode;
   executeNowState?: "requested" | "completed";
   executionMode?: "batch" | "sequential" | "single";
+  /**
+   * Status the backend actually answered with. Its presence is the signal that
+   * separates a real server failure from `request_failed` raised without any
+   * response — a dead connection, or a wallet error that never left the device.
+   */
+  httpStatus?: number;
   persistenceState?: "not_started" | "recorded" | "failed";
   policyMode?: "create" | "reuse";
   recoveryRequired?: boolean;
@@ -354,11 +371,25 @@ export type LifecycleFlow<F extends LifecycleFlowName> = {
   ) => void;
 };
 
+const WALLET_SESSION_ERROR_CODES: Record<
+  WalletSessionFailure,
+  LifecycleErrorCode
+> = {
+  connection_failed: "wallet_connection_failed",
+  signing_failed: "wallet_signing_failed",
+  timeout: "wallet_connection_timeout",
+  unavailable: "wallet_unavailable",
+};
+
 /** Map a flow failure onto the contract's error-code vocabulary. */
 export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
-  // Checked before the `code` probe below: a rejection is a user decision, and
-  // the wallet error it wraps may carry an unrelated transport-level code.
+  // Both wallet checks run before the `code` probe below: a rejection is a user
+  // decision and a dead wallet session never reached the network, yet both
+  // carry a `code` and so would otherwise report as `request_failed` (ASK-1872).
   if (isWalletRejection(error)) return "wallet_rejected";
+  if (isWalletSessionError(error)) {
+    return WALLET_SESSION_ERROR_CODES[error.failure];
+  }
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
     if (code === "unconfirmed_signature") return "unconfirmed_signature";
@@ -366,6 +397,25 @@ export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
   }
   if (error instanceof TypeError) return "request_failed";
   return "unexpected_error";
+}
+
+/**
+ * The HTTP status an API error carried, when the backend actually answered.
+ * Duck-typed rather than imported so telemetry stays independent of the Earn
+ * API client. Absent for network-level failures, which is the point: a
+ * `request_failed` with no status never got a response.
+ */
+function httpStatusOf(error: unknown): number | undefined {
+  if (!error || typeof error !== "object" || !("status" in error)) {
+    return undefined;
+  }
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" &&
+    Number.isInteger(status) &&
+    status >= 100 &&
+    status <= 599
+    ? status
+    : undefined;
 }
 
 function generateFlowId(): string {
@@ -454,9 +504,11 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
       // state, which has to stay at ERROR so on-call still sees it.
       const cancelled =
         errorCode === "wallet_rejected" && !hasLandedProgress(error);
+      const httpStatus = httpStatusOf(error);
       emit(cancelled ? "cancelled" : "failed", stage, {
         ...diagnostics,
         errorCode,
+        ...(httpStatus !== undefined ? { httpStatus } : {}),
       });
     },
     flowId,

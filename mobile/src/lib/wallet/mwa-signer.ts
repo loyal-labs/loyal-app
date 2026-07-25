@@ -13,6 +13,7 @@ import {
   storeMwaAccount,
   type StoredMwaAccount,
 } from "./mwa-account-storage";
+import { WalletSessionError } from "./wallet-session-error";
 
 // Wallets verify this identity by resolving `uri` against the Digital Asset
 // Links statement at https://askloyal.com/.well-known/assetlinks.json, which
@@ -37,6 +38,18 @@ const SIGNING_CANCELLED_MESSAGE =
 
 const SIGNING_DECLINED_MESSAGE =
   "The request was declined in your wallet app. Try again and approve each prompt.";
+
+const WALLET_UNREACHABLE_MESSAGE =
+  "Couldn't reach your wallet app. Open it once so it's running, then try again.";
+
+const WALLET_TIMEOUT_MESSAGE =
+  "Your wallet app didn't respond in time. Try again with it already open.";
+
+const WALLET_SIGNING_FAILED_MESSAGE =
+  "Your wallet app couldn't sign the request. Try again, and update the wallet app if this keeps happening.";
+
+const WALLET_NOT_FOUND_MESSAGE =
+  "No compatible Solana wallet app was found. Install Phantom or Solflare and try again.";
 
 /**
  * True only when the binary actually contains the MWA native module. The
@@ -64,12 +77,32 @@ function hasErrorCode(error: unknown, code: string | number): boolean {
   );
 }
 
+function errorCodeOf(error: unknown): string | number | undefined {
+  if (!(error instanceof Error)) return undefined;
+  return (error as { code?: string | number }).code;
+}
+
+// Backing out of the wallet chooser rejects with a *sentence* as the code:
+// the native module calls `promise.reject(String, Throwable)`, whose first
+// argument RN uses as the code (SolanaMobileWalletAdapterModule.kt). Matching
+// the message too keeps this working if that string is ever reworded.
+const ASSOCIATION_CANCELLED_TEXT = "Local association cancelled by user";
+
 // The user backing out of the wallet's association or authorization UI is a
 // choice, not a failure.
 function isUserCancellation(error: unknown): boolean {
   return (
     hasErrorCode(error, "ERROR_ASSOCIATION_CANCELLED") ||
-    hasErrorCode(error, -1) // ERROR_AUTHORIZATION_FAILED
+    hasErrorCode(error, -1) || // ERROR_AUTHORIZATION_FAILED
+    isAssociationCancellation(error)
+  );
+}
+
+function isAssociationCancellation(error: unknown): boolean {
+  const code = errorCodeOf(error);
+  return (
+    (typeof code === "string" && code.includes(ASSOCIATION_CANCELLED_TEXT)) ||
+    (error instanceof Error && error.message.includes(ASSOCIATION_CANCELLED_TEXT))
   );
 }
 
@@ -80,7 +113,41 @@ function isUserCancellation(error: unknown): boolean {
 function isSessionCancellation(error: unknown): boolean {
   return (
     hasErrorCode(error, "ERROR_ASSOCIATION_CANCELLED") ||
+    isAssociationCancellation(error) ||
     (error instanceof Error && error.message.includes("CancellationException"))
+  );
+}
+
+/**
+ * Classify a non-cancellation MWA rejection so telemetry can name the actual
+ * failure. `sessionEstablished` disambiguates the module's catch-all
+ * `EUNSPECIFIED`: before the session opens it means the wallet app never
+ * connected back; after, it means the wallet failed the signing call itself.
+ */
+function toWalletSessionError(
+  error: unknown,
+  sessionEstablished: boolean,
+): WalletSessionError {
+  const code = errorCodeOf(error);
+  if (code === "ERROR_WALLET_NOT_FOUND") {
+    return new WalletSessionError("unavailable", WALLET_NOT_FOUND_MESSAGE, code);
+  }
+  // "Timed out waiting for local association to be ready" (10s association
+  // wait) and "Timed out waiting for response" (90s in-session wait).
+  if (typeof code === "string" && code.startsWith("Timed out waiting")) {
+    return new WalletSessionError("timeout", WALLET_TIMEOUT_MESSAGE, code);
+  }
+  if (sessionEstablished) {
+    return new WalletSessionError(
+      "signing_failed",
+      WALLET_SIGNING_FAILED_MESSAGE,
+      code,
+    );
+  }
+  return new WalletSessionError(
+    "connection_failed",
+    WALLET_UNREACHABLE_MESSAGE,
+    code,
   );
 }
 
@@ -136,10 +203,10 @@ export async function connectMwaWallet(): Promise<StoredMwaAccount | null> {
     });
   } catch (error) {
     if (isUserCancellation(error)) return null;
-    if (hasErrorCode(error, "ERROR_WALLET_NOT_FOUND")) {
-      throw new Error(
-        "No compatible Solana wallet app was found. Install Phantom or Solflare and try again.",
-      );
+    // Connecting is a single session, so any coded rejection here happened
+    // before it opened.
+    if (errorCodeOf(error) !== undefined) {
+      throw toWalletSessionError(error, false);
     }
     throw error;
   }
@@ -263,8 +330,13 @@ export class MwaSigner implements Signer {
     op: (wallet: Web3MobileWallet) => Promise<T>,
   ): Promise<T> {
     const { transact } = await getMwa();
+    // Set once the wallet session is open — `transact` only runs the callback
+    // after `startSession` resolves. Tells a wallet that never connected apart
+    // from one that connected and then failed the signing call.
+    let sessionEstablished = false;
     try {
       return await transact(async (wallet) => {
+        sessionEstablished = true;
         await this.reauthorize(wallet);
         return op(wallet);
       });
@@ -275,6 +347,12 @@ export class MwaSigner implements Signer {
       if (hasErrorCode(error, -3)) {
         // ERROR_NOT_SIGNED: the user tapped decline in the wallet app.
         throw new WalletRejectedError(SIGNING_DECLINED_MESSAGE);
+      }
+      // `reauthorize` raises its own plain-Error instructions (reconnect), and
+      // our signature checks raise plain Errors too — only coded rejections
+      // from the native module are wallet-session failures.
+      if (errorCodeOf(error) !== undefined) {
+        throw toWalletSessionError(error, sessionEstablished);
       }
       throw error;
     }
