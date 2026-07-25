@@ -1,15 +1,21 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseBrowserLifecycleEnvelope } from "./lifecycle-contract";
+import {
+  LIFECYCLE_ERROR_DETAILS,
+  parseBrowserLifecycleEnvelope,
+} from "./lifecycle-contract";
 
 // `errorDetail` names the cause behind a broad `errorCode` (ASK-1872): mobile
 // wallet failures all collapse into a handful of categories, and this is what
-// distinguishes `EUNSPECIFIED` from `ERROR_SESSION_TIMEOUT` inside one of them.
+// tells them apart inside one of them.
 //
-// Two invariants the type system cannot hold. The envelope parser rejects
-// unknown keys outright, so a client sending this before the field exists
-// loses the whole event — and because it only ever *adds* detail, a malformed
-// value must be dropped rather than take the event down with it.
+// Two invariants the type system cannot hold, both of which cost more than the
+// field is worth if they break. It is an enum, so no string a client holds can
+// reach the exported `loyal.error.detail` attribute — a character filter would
+// not do, since base58 addresses, JWTs and API keys are built entirely from
+// token-safe characters. And an unrecognized value is dropped rather than
+// rejected, because the field only annotates an event and must never cost the
+// event it describes.
 
 function envelope(overrides: Record<string, unknown> = {}) {
   return {
@@ -33,48 +39,41 @@ describe("lifecycle errorDetail", () => {
     const parsed = parseBrowserLifecycleEnvelope(
       envelope({
         errorCode: "wallet_connection_failed",
-        errorDetail: "EUNSPECIFIED",
+        errorDetail: "mwa_unspecified",
       })
     );
 
-    expect(parsed.errorDetail).toBe("EUNSPECIFIED");
+    expect(parsed.errorDetail).toBe("mwa_unspecified");
     expect(parsed.errorCode).toBe("wallet_connection_failed");
   });
 
-  test("keeps the tokens real wallet codes are made of", () => {
-    expect(
-      parseBrowserLifecycleEnvelope(
-        envelope({ errorDetail: "ERROR_SESSION_TIMEOUT" })
-      ).errorDetail
-    ).toBe("ERROR_SESSION_TIMEOUT");
-    expect(
-      parseBrowserLifecycleEnvelope(envelope({ errorDetail: "-100" }))
-        .errorDetail
-    ).toBe("-100");
+  test("accepts every declared token", () => {
+    for (const detail of LIFECYCLE_ERROR_DETAILS) {
+      expect(
+        parseBrowserLifecycleEnvelope(envelope({ errorDetail: detail }))
+          .errorDetail
+      ).toBe(detail);
+    }
   });
 
-  // The character class is the guard against prose — and anything hiding in
-  // it — reaching telemetry intact.
-  test("mangles prose instead of storing it verbatim", () => {
-    const parsed = parseBrowserLifecycleEnvelope(
-      envelope({ errorDetail: "user 5CjK@mail failed at 10:31" })
-    );
-
-    expect(parsed.errorDetail).not.toContain("@");
-    expect(parsed.errorDetail).not.toContain(" ");
-  });
-
-  test("truncates rather than storing an unbounded string", () => {
-    const parsed = parseBrowserLifecycleEnvelope(
-      envelope({ errorDetail: "E".repeat(500) })
-    );
-
-    expect(parsed.errorDetail!.length).toBeLessThanOrEqual(64);
+  // The whole reason this is an enum: every one of these is built from
+  // characters a sanitizer would have waved through intact.
+  test.each([
+    ["a wallet address", "BGtzTW2yczjR7FCpSvKfcjxCw811Rdori8aY96ZJdQ51"],
+    ["a JWT", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1"],
+    // Shaped like an API key without matching a real provider's pattern —
+    // secret scanners flag the genuine article even in a test fixture.
+    ["an API key", "EXAMPLE_NOT_A_REAL_KEY_0123456789abcdefghij"],
+    ["a raw vendor code", "EUNSPECIFIED"],
+  ])("never stores %s", (_label, errorDetail) => {
+    expect(
+      parseBrowserLifecycleEnvelope(envelope({ errorDetail })).errorDetail
+    ).toBeUndefined();
   });
 
   // Each of these would otherwise cost the entire event.
   test.each([
-    ["a value that normalizes away", "   "],
+    ["an unknown token", "mwa_something_new"],
     ["a non-string value", 42],
     ["null", null],
   ])("drops %s without failing the envelope", (_label, errorDetail) => {
