@@ -104,5 +104,17 @@ projects:
               # columns the running relay is configured with today.
               - key: ALERT_COLUMNS
                 value: Timestamp,ServiceName,SeverityText,Body,env,flow,stage,error_code,exception_type,exception_message
+              # Counted as "N unique wallets" rather than listed per row. Add
+              # the column to ALERT_COLUMNS and the saved search `select` first,
+              # or there is nothing to count.
+              - key: CARDINALITY_COLUMNS
+                value: ""
+              # Render replaces this instance on every deploy and ClickStack
+              # replays every live alert seconds later. Holding those for two
+              # minutes turns that burst into a single restart recap. Windows
+              # themselves are not persisted: STATE_FILE needs a mounted disk,
+              # which would also make deploys stop-then-start.
+              - key: RESTART_GRACE_SECONDS
+                value: "120"
               - key: TRACE_LOGS
                 value: "false"

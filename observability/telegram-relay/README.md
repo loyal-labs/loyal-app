@@ -6,12 +6,14 @@ A small Bun service that sits between ClickStack and Telegram:
 ClickStack -> relay -> Telegram Bot API
 ```
 
-It sends the first non-`OK` state immediately and suppresses repeated events
-with the same ClickStack `eventId` for 60 minutes by default. `OK` recoveries
-are acknowledged and otherwise ignored, so the chat only carries live failures
-and a flapping alert stays capped at one message per cooldown. ClickStack test
-and transitional states such as `INSUFFICIENT_DATA` are accepted and use the
-normal cooldown path.
+It sends the first non-`OK` state immediately and then holds that signature
+quiet for 60 minutes by default, counting everything it holds back. When the
+window closes it posts one recap of what was suppressed, so a chat message
+never stands for an unknown number of failures. `OK` recoveries are
+acknowledged and otherwise ignored, so the chat only carries live failures and
+a flapping alert stays capped at one message per window. ClickStack test and
+transitional states such as `INSUFFICIENT_DATA` are accepted and use the normal
+window path.
 
 - Render service: `loyal-clickstack-telegram-relay` (private service)
 - Blueprint: [`../render.yaml`](../render.yaml)
@@ -21,39 +23,99 @@ Render supports health checks on web services only, so the Blueprint declares no
 `healthCheckPath`. `GET /healthz` still works and is the quickest liveness probe
 from a shell on the ClickStack service.
 
+## Message types
+
+The relay posts four kinds of message, each with its own icon so the type is
+readable at a glance.
+
+| Icon | Kind | When |
+| --- | --- | --- |
+| 🚨 | alert | First delivery for a signature. Opens a window. Notifies. |
+| 📈 | escalation | Volume inside an open window grew by `ESCALATION_MULTIPLIER`. At most twice per window. Notifies. |
+| 🔕 | recap | The window closed having suppressed at least one delivery. Silent. |
+| ♻️ | restart recap | The grace period after a restart ended with alerts still firing. Silent. |
+
+A window that suppressed nothing closes without a message, so **silence after
+an alert means it happened once**. The alert and the recap both carry the
+matched-line count, and the recap adds the number of suppressed deliveries, the
+first and last timestamps, a per-bucket sparkline and the peak bucket.
+
+## Counting distinct values
+
+`CARDINALITY_COLUMNS` names columns whose distinct values are worth counting
+rather than listing — `wallet` is the useful one, because 50 errors from one
+wallet is a stuck user and 50 errors from 50 wallets is an outage.
+
+```text
+ALERT_COLUMNS=Timestamp,ServiceName,SeverityText,Body,env,flow,stage,error_code,wallet
+CARDINALITY_COLUMNS=wallet
+```
+
+The column must also appear in `ALERT_COLUMNS`, since that is what names the
+CSV positions. Counts render as `4 unique wallets`, or `≥4 unique wallets` when
+ClickStack truncated the row block: the relay can only count the rows it was
+sent, and the matched-line count in the title is usually larger. The prefix is
+not decoration — treat the number as a floor.
+
+## One incident, one message
+
+ClickStack groups alerts by service but sends a row block that is **not**
+filtered to the group, so a single worker crash arrives as several deliveries
+with different `eventId`s and identical rows. The relay therefore keys windows
+on the normalized row signatures (service, severity, and the message with
+addresses, hashes and numbers collapsed) rather than on `eventId`. Deliveries
+that describe the same rows share one window and produce one message.
+
+A delivery with no readable row block falls back to keying on `eventId`, which
+is exactly the previous behavior.
+
 ## State is in-process, so this runs one instance
 
-Cooldown and idempotency state lives in memory (`ExpiringCache` in
-[`src/relay.ts`](./src/relay.ts)). There is no Redis and no database.
+Window and idempotency state lives in memory (`src/relay.ts`). There is no
+Redis and no database.
 
-Two consequences, both deliberate:
-
-- **`numInstances` must stay at `1`.** Two instances do not share cooldowns and
+- **`numInstances` must stay at `1`.** Two instances do not share windows and
   would double-post every alert. The Blueprint pins this.
-- **A restart clears cooldowns.** After a deploy, currently-firing alerts may be
-  posted once more. For a service whose job is to be noisy about problems this
-  is an acceptable trade, and it avoids paying for a shared store.
+- **A restart clears windows.** Render redeploys several times a day, and
+  ClickStack replays every live alert within seconds of each one. Two
+  mechanisms cover this, in order of preference:
+  - `STATE_FILE` — path on a mounted disk. Windows are written there on every
+    sweep and on `SIGTERM`, and restored on boot, so a deploy changes nothing
+    an operator can see. Requires adding a `disk:` to the service in
+    [`../render.yaml`](../render.yaml); note that Render deploys a service with
+    a disk by stopping the old instance first.
+  - `RESTART_GRACE_SECONDS` — always on, default 120. For this long after boot
+    the relay holds new alerts instead of posting them, then posts a single ♻️
+    recap listing everything that was already firing. Without a state file this
+    turns a post-deploy burst of ten messages into one.
 
-Moving this state to a shared store is only needed to run more than one
-instance; it buys no throughput. If that day comes, the store should be owned by
-this blueprint (a dedicated database, not the App or Yield Neon product
-databases), the claim must be taken *before* sending with a short lease that is
-extended to the full cooldown only after Telegram accepts, and store errors must
-fail **open** — a duplicate message is better than a swallowed alert.
+Pending recaps are lost if the process is killed without draining. That costs a
+recap, never an alert.
+
+A third option, rebuilding windows by querying ClickStack for signatures that
+were already firing before boot, is deliberately **not** implemented: the relay
+has no working query credential today (`HYPERDX_ACCESS_KEY` is ingest-only),
+and the alerting path must not depend on the system it alerts about. If it is
+added later it has to fail open — on a query error, start with empty state and
+accept the duplicate messages.
 
 ## Runtime behavior
 
 - Exact `OK` returns HTTP 200 with outcome `resolved` and does nothing else.
-  Nothing is posted to Telegram, and the `eventId` cooldown is left running: a
-  flapping alert resolves and re-fires on every evaluation interval, so clearing
-  the cooldown on recovery would post that event on every cycle.
-- Every other string state is accepted and uses the alert cooldown path.
+  Nothing is posted to Telegram, and the window is left running: a flapping
+  alert resolves and re-fires on every evaluation interval, so closing the
+  window on recovery would post that event on every cycle.
+- Every other string state is accepted and uses the alert window path.
 - ClickStack's `TEST WEBHOOK` currently uses `INSUFFICIENT_DATA`; it is accepted.
-- The first event for an `eventId` is sent immediately.
-- Further non-`OK` events for that `eventId` return HTTP 200 without Telegram
-  delivery until the cooldown expires. Only elapsed time clears it.
+- The first delivery for a signature is sent immediately.
+- Further non-`OK` deliveries for that signature return HTTP 200 without
+  Telegram delivery until the window expires, and increment its counters.
 - An exact delivery retry with the same `Idempotency-Key` also returns HTTP 200.
-- Telegram delivery failure returns HTTP 502 and does not poison either cache.
+- Telegram delivery failure returns HTTP 502 and leaves no window behind, so
+  ClickStack's retry is treated as a first delivery rather than a repeat.
+- A recap that Telegram rejects keeps its window and its counters and is retried
+  on the next sweep, up to five times before it is dropped with an
+  `alert_digest_dropped` log.
 - A Telegram `429` with a short `retry_after` is waited out and retried once
   in-process; a long `retry_after` returns HTTP 502 for ClickStack to retry.
 - `title` must contain non-whitespace text, so a delivered message is never
@@ -109,11 +171,18 @@ search link.
 | `TELEGRAM_CHAT_ID` | yes | - | Destination chat or channel ID |
 | `HOST` | no | `127.0.0.1` | Listen address. Must be `0.0.0.0` on Render |
 | `PORT` | no | `3000` | Listen port |
-| `COOLDOWN_SECONDS` | no | `3600` | Alert suppression interval per `eventId` |
+| `COOLDOWN_SECONDS` | no | `3600` | Length of the window a signature is held quiet |
 | `IDEMPOTENCY_TTL_SECONDS` | no | `86400` | Exact delivery deduplication interval |
 | `MAX_CACHE_ENTRIES` | no | `10000` | Per-cache memory bound |
 | `MAX_BODY_BYTES` | no | `65536` | Maximum request body accepted by Bun |
 | `ALERT_COLUMNS` | no | `Timestamp,ServiceName,SeverityText,Body` | Saved search `select` columns, in order, used to label alert rows |
+| `CARDINALITY_COLUMNS` | no | empty | Columns counted as `N unique <column>` instead of listed |
+| `DIGEST_ENABLED` | no | `true` | Post a recap when a window closes having suppressed something |
+| `DIGEST_SILENT` | no | `true` | Deliver recaps with `disable_notification` |
+| `ESCALATION_MULTIPLIER` | no | `10` | Break the window when volume grows this many times. `0` disables |
+| `RESTART_GRACE_SECONDS` | no | `120` | Hold alerts this long after boot and post one restart recap. `0` disables |
+| `SWEEP_INTERVAL_SECONDS` | no | `60` | How often closed windows are checked for recaps |
+| `STATE_FILE` | no | empty | Path to persist windows across restarts. Needs a mounted disk |
 | `TRACE_LOGS` | no | `false` | Structured request and validation diagnostics |
 
 `CLICKSTACK_WEBHOOK_SECRET` uses `generateValue: true` in the Blueprint, so
@@ -166,9 +235,10 @@ Use this body:
 }
 ```
 
-The relay responds with HTTP 200 for both suppressed alerts and exact
-duplicates. A Telegram delivery failure returns HTTP 502 without recording a
-cooldown or idempotency entry, allowing ClickStack to retry safely.
+The relay responds with HTTP 200 for suppressed alerts, exact duplicates and
+alerts held during the restart grace period (outcomes `suppressed`, `duplicate`
+and `deferred`). A Telegram delivery failure returns HTTP 502 without opening a
+window or recording an idempotency entry, allowing ClickStack to retry safely.
 
 ## Local development
 
@@ -237,6 +307,7 @@ for `state`, including `INSUFFICIENT_DATA`, are valid.
 ## Routes
 
 - `POST /webhooks/clickstack` - authenticated ClickStack webhook
-- `GET /healthz` - process and in-memory cache health. Unauthenticated, so the
-  reported counts are read without sweeping the caches and may briefly include
-  expired entries that a periodic timer has not yet reclaimed.
+- `GET /healthz` - process and in-memory cache health, reporting open
+  `windows`, `idempotencyKeys` and `pendingDigests`. Unauthenticated, so the
+  counts are read without sweeping the caches and may briefly include expired
+  entries that the sweep has not yet reclaimed.

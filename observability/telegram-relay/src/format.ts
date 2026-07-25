@@ -1,4 +1,10 @@
-import type { ClickStackWebhookPayload } from "./relay.ts";
+import type {
+  AlertAnalysis,
+  AlertContext,
+  ClickStackWebhookPayload,
+  SignatureInput,
+  WindowSummary,
+} from "./relay.ts";
 
 export const TELEGRAM_MESSAGE_LIMIT = 4096;
 
@@ -17,6 +23,12 @@ export const DEFAULT_ALERT_COLUMNS = [
  */
 export interface FormatOptions {
   alertColumns: string[];
+  /**
+   * Columns whose distinct values are worth counting, such as a wallet
+   * address. Rendered as "N unique <column>" rather than as a value list.
+   */
+  cardinalityColumns?: string[];
+  context?: AlertContext;
 }
 
 export interface FormattedMessage {
@@ -28,13 +40,28 @@ export interface FormattedMessage {
 const MAX_RENDERED_ROWS = 8;
 /** Headroom for the "and N more" footer while rows are being fitted. */
 const FOOTER_RESERVE = 48;
+/** Signature lines listed under a digest before the rest is summarized. */
+const MAX_DIGEST_SIGNATURES = 6;
+const SPARKLINE = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 
 export function formatTelegramMessage(
   payload: ClickStackWebhookPayload,
   options: FormatOptions
 ): FormattedMessage {
+  const context = options.context;
+
+  if (context?.kind === "restart" && context.windows?.length) {
+    return formatRestartRecap(payload, context.windows);
+  }
+  if (context?.kind === "digest" && context.window) {
+    return formatDigest(context.window);
+  }
+  if (context?.kind === "escalation" && context.window) {
+    return formatEscalation(context.window);
+  }
+
   return (
-    formatPrettyMessage(payload, options.alertColumns) ?? {
+    formatPrettyMessage(payload, options) ?? {
       text: formatPlainTelegramMessage(payload),
     }
   );
@@ -68,10 +95,118 @@ export function formatPlainTelegramMessage(
   return `${sliceWholeCodePoints(main, availableMainLength)}…${suffix}`;
 }
 
+/**
+ * Everything the relay needs to count a delivery: how many lines matched, what
+ * each row is about, and the distinct values of the cardinality columns.
+ */
+export function analyzeAlert(
+  payload: ClickStackWebhookPayload,
+  options: Pick<FormatOptions, "alertColumns" | "cardinalityColumns">
+): AlertAnalysis {
+  const parsed = parseAlertBody(payload.body);
+  const rows =
+    parsed &&
+    parsed.rows.every((row) => row.length === options.alertColumns.length)
+      ? parsed.rows
+      : [];
+
+  const signatures: SignatureInput[] = [];
+  const uniqueValues: Record<string, string[]> = {};
+  const cardinality = new Set(
+    (options.cardinalityColumns ?? []).map((column) => column.trim())
+  );
+
+  for (const row of rows) {
+    const fields = readFields(row, options.alertColumns);
+    signatures.push(signatureOf(fields));
+
+    for (const field of fields) {
+      if (!cardinality.has(field.label) || !field.value) {
+        continue;
+      }
+      const values = uniqueValues[field.label] ?? [];
+      values.push(field.value);
+      uniqueValues[field.label] = values;
+    }
+  }
+
+  return {
+    eventCount: matchedLineCount(payload) ?? rows.length,
+    signatures,
+    uniqueValues,
+  };
+}
+
+/**
+ * ClickStack puts the matched-line count in the title and repeats it in the
+ * body preamble. It is authoritative even when the row block that follows has
+ * been truncated, so it is the only honest event count available.
+ */
+function matchedLineCount(payload: ClickStackWebhookPayload): number | null {
+  const fromTitle = /(\d+)\s+lines?\s+found/i.exec(payload.title);
+  if (fromTitle?.[1]) {
+    return Number(fromTitle[1]);
+  }
+  const fromBody = /(\d+)\s+lines?\s+found/i.exec(payload.body);
+  return fromBody?.[1] ? Number(fromBody[1]) : null;
+}
+
+interface RowField {
+  label: string;
+  role: ColumnRole;
+  value: string;
+}
+
+function readFields(row: string[], columns: string[]): RowField[] {
+  return columns.map((column, index) => ({
+    label: column.trim(),
+    role: roleOf(column),
+    value: (row[index] ?? "").trim(),
+  }));
+}
+
+function fieldValue(fields: RowField[], role: ColumnRole): string {
+  return (
+    fields.find((field) => field.role === role && field.value)?.value ?? ""
+  );
+}
+
+function signatureOf(fields: RowField[]): SignatureInput {
+  const service = fieldValue(fields, "service");
+  const severity = fieldValue(fields, "severity");
+  const headline =
+    fieldValue(fields, "headline") ||
+    fields.find((field) => field.role === "detail" && field.value)?.value ||
+    "";
+
+  return {
+    key: `${service}|${severity}|${normalizeHeadline(headline)}`,
+    service,
+    severity,
+    headline,
+  };
+}
+
+/**
+ * Two messages describing the same failure differ only in identifiers, so
+ * addresses, hashes and numbers are collapsed before they are compared.
+ */
+export function normalizeHeadline(headline: string): string {
+  return headline
+    .replace(/https?:\/\/\S+/g, "<url>")
+    .replace(/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g, "<address>")
+    .replace(/\b[\da-f]{8,}\b/gi, "<hex>")
+    .replace(/\d+/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 function formatPrettyMessage(
   payload: ClickStackWebhookPayload,
-  columns: string[]
+  options: FormatOptions
 ): FormattedMessage | null {
+  const columns = options.alertColumns;
   if (columns.length === 0) {
     return null;
   }
@@ -95,9 +230,11 @@ function formatPrettyMessage(
     return null;
   }
 
+  const window = options.context?.window;
   const header = [
-    `<b>${escapeHtml(payload.title.trim())}</b>`,
+    `<b>🚨 ${escapeHtml(alertName(payload.title))}</b>`,
     ...parsed.summaryLines.map((line) => `<i>${escapeHtml(line)}</i>`),
+    ...(window ? [`<i>${escapeHtml(openingStats(window))}</i>`] : []),
   ].join("\n");
   const link = payload.link.trim();
   const suffix = link ? `\n\n${escapeHtml(link)}` : "";
@@ -124,6 +261,218 @@ function formatPrettyMessage(
     text: `${header}\n\n${rendered.join("\n\n")}${footer}${suffix}`,
     parseMode: "HTML",
   };
+}
+
+/** "12 events · ≥4 unique wallet · muted 60m" under the first message. */
+function openingStats(window: WindowSummary): string {
+  const parts = [countLabel(window.eventCount, "event")];
+  parts.push(...cardinalityLabels(window));
+  parts.push(`muted ${formatDuration(window.expiresAt - window.openedAt)}`);
+  return parts.join(" · ");
+}
+
+function formatDigest(window: WindowSummary): FormattedMessage {
+  const [top, ...rest] = window.signatures;
+  const lines = [
+    `<b>🔕 ${escapeHtml(alertName(window.title))} · recap of ${escapeHtml(
+      formatDuration(window.expiresAt - window.openedAt)
+    )}</b>`,
+  ];
+
+  if (top) {
+    lines.push(`<b>${escapeHtml(top.headline)}</b>`);
+  }
+  if (window.services.length > 0) {
+    lines.push(escapeHtml(window.services.join(" · ")));
+  }
+
+  const stats = [
+    countLabel(window.eventCount, "event"),
+    `${window.suppressedAlerts} alert(s) suppressed`,
+  ];
+  stats.push(...cardinalityLabels(window));
+  lines.push("", `<i>${escapeHtml(stats.join(" · "))}</i>`);
+
+  const sparkline = renderSparkline(window.buckets);
+  if (sparkline) {
+    lines.push(
+      `<i>${escapeHtml(
+        `${formatClock(window.firstEventAt)} → ${formatClock(
+          window.lastEventAt
+        )} UTC`
+      )} ${sparkline} ${escapeHtml(
+        `peak ${window.buckets[window.peakBucket] ?? 0}/${formatDuration(
+          window.bucketMs
+        )}`
+      )}</i>`
+    );
+  }
+
+  if (rest.length > 0) {
+    lines.push("", "<i>Also in this window:</i>");
+    for (const signature of rest.slice(0, MAX_DIGEST_SIGNATURES)) {
+      lines.push(
+        `· ×${signature.count} ${escapeHtml(truncate(signature.headline, 120))}`
+      );
+    }
+    const omitted = rest.length - MAX_DIGEST_SIGNATURES;
+    if (omitted > 0) {
+      lines.push(`<i>and ${omitted} more signature(s)</i>`);
+    }
+  }
+
+  return withLink(lines, window.link);
+}
+
+function formatEscalation(window: WindowSummary): FormattedMessage {
+  const [top] = window.signatures;
+  const lines = [
+    `<b>📈 Escalating · ${escapeHtml(alertName(window.title))}</b>`,
+  ];
+  if (top) {
+    lines.push(`<b>${escapeHtml(top.headline)}</b>`);
+  }
+  if (window.services.length > 0) {
+    lines.push(escapeHtml(window.services.join(" · ")));
+  }
+
+  const stats = [
+    `${window.eventCount} events since ${formatClock(window.openedAt)} UTC`,
+    `${window.suppressedAlerts} alert(s) suppressed so far`,
+  ];
+  stats.push(...cardinalityLabels(window));
+  lines.push("", `<i>${escapeHtml(stats.join(" · "))}</i>`);
+
+  return withLink(lines, window.link);
+}
+
+/**
+ * One message for the whole post-restart burst. ClickStack re-sends every live
+ * alert within seconds of a deploy, and the team has already seen them all.
+ */
+function formatRestartRecap(
+  payload: ClickStackWebhookPayload,
+  windows: WindowSummary[]
+): FormattedMessage {
+  const events = windows.reduce(
+    (total, window) => total + window.eventCount,
+    0
+  );
+  const lines = [
+    `<b>♻️ Relay restarted · ${windows.length} alert(s) still firing</b>`,
+    `<i>${escapeHtml(
+      `${countLabel(events, "event")} held instead of reposting each alert`
+    )}</i>`,
+    "",
+  ];
+
+  for (const window of windows.slice(0, MAX_RENDERED_ROWS)) {
+    const [top] = window.signatures;
+    const service = window.services[0] ?? "";
+    const headline = top?.headline ?? alertName(window.title);
+    lines.push(
+      `· ×${window.eventCount} ${escapeHtml(
+        [service, truncate(headline, 110)].filter(Boolean).join(" — ")
+      )}`
+    );
+  }
+
+  const omitted = windows.length - MAX_RENDERED_ROWS;
+  if (omitted > 0) {
+    lines.push(`<i>and ${omitted} more alert(s)</i>`);
+  }
+
+  return withLink(lines, windows[0]?.link ?? payload.link);
+}
+
+function withLink(lines: string[], link: string): FormattedMessage {
+  const trimmedLink = link.trim();
+  const suffix = trimmedLink ? `\n\n${escapeHtml(trimmedLink)}` : "";
+  const body = lines.join("\n");
+  const budget = TELEGRAM_MESSAGE_LIMIT - suffix.length - 1;
+
+  return {
+    text:
+      body.length <= budget
+        ? `${body}${suffix}`
+        : `${sliceWholeCodePoints(body, budget)}…${suffix}`,
+    parseMode: "HTML",
+  };
+}
+
+/**
+ * ClickStack truncates the row block it sends, so distinct values counted from
+ * those rows are a floor, not a total. Say so rather than implying precision
+ * the relay does not have.
+ */
+function cardinalityLabels(window: WindowSummary): string[] {
+  const approximate = window.sampledRows < window.eventCount;
+  return Object.entries(window.uniqueValues)
+    .filter(([, count]) => count > 0)
+    .map(
+      ([label, count]) =>
+        `${approximate ? "≥" : ""}${count} unique ${pluralize(label, count)}`
+    );
+}
+
+function countLabel(count: number, noun: string): string {
+  return `${count} ${pluralize(noun, count)}`;
+}
+
+function pluralize(noun: string, count: number): string {
+  return count === 1 || noun.endsWith("s") ? noun : `${noun}s`;
+}
+
+/**
+ * Strips ClickStack's matched-line suffix and its leading siren, leaving just
+ * the alert name. Each message type supplies its own icon, so keeping the
+ * original would double them up.
+ */
+export function alertName(title: string): string {
+  return title
+    .replace(/\s*-\s*\d+\s+lines?\s+found\s*$/i, "")
+    .replace(/^[^\p{L}\p{N}"']+/u, "")
+    .trim();
+}
+
+function renderSparkline(buckets: number[]): string {
+  const peak = Math.max(...buckets);
+  if (peak <= 0) {
+    return "";
+  }
+  return buckets
+    .map((value) => {
+      const index = Math.min(
+        Math.floor((value / peak) * (SPARKLINE.length - 1)),
+        SPARKLINE.length - 1
+      );
+      return SPARKLINE[index];
+    })
+    .join("");
+}
+
+function formatDuration(ms: number): string {
+  const minutes = Math.max(Math.round(ms / 60_000), 0);
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h${rest}m`;
+}
+
+function formatClock(epochMs: number): string {
+  const parsed = new Date(epochMs);
+  if (Number.isNaN(parsed.getTime())) {
+    return "";
+  }
+  return parsed.toISOString().slice(11, 19);
+}
+
+function truncate(value: string, maxLength: number): string {
+  return value.length <= maxLength
+    ? value
+    : `${sliceWholeCodePoints(value, maxLength - 1)}…`;
 }
 
 interface ParsedAlertBody {
@@ -248,19 +597,12 @@ function roleOf(column: string): ColumnRole {
 }
 
 function renderRow(row: string[], columns: string[]): string {
-  const fields = columns.map((column, index) => ({
-    label: column.trim(),
-    role: roleOf(column),
-    value: (row[index] ?? "").trim(),
-  }));
-  const valueOf = (role: ColumnRole) =>
-    fields.find((field) => field.role === role && field.value)?.value ?? "";
-
-  const severity = valueOf("severity");
+  const fields = readFields(row, columns);
+  const severity = fieldValue(fields, "severity");
   const head = [
     severity ? `${severityIcon(severity)} <b>${escapeHtml(severity)}</b>` : "",
-    formatTimestamp(valueOf("time")),
-    valueOf("service"),
+    formatTimestamp(fieldValue(fields, "time")),
+    fieldValue(fields, "service"),
   ]
     .filter(Boolean)
     .map((part, index) => (index === 0 && severity ? part : escapeHtml(part)))
@@ -271,7 +613,7 @@ function renderRow(row: string[], columns: string[]): string {
     lines.push(head);
   }
 
-  const headline = valueOf("headline");
+  const headline = fieldValue(fields, "headline");
   if (headline) {
     lines.push(`<b>${escapeHtml(headline)}</b>`);
   }
