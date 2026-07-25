@@ -1124,14 +1124,19 @@ export async function confirmEarnDepositSponsored(
     }
     return payload.sponsoredConfirmations;
   }
+  // Both throws carry `res.status`: the backend did answer, and telemetry
+  // reads a missing status as "no response was ever received".
   if (!res.ok) {
     throw new EarnApiError(
       payload?.error?.message ?? "Failed to execute sponsored Earn deposit.",
       payload?.error?.code,
+      res.status,
     );
   }
   throw new EarnApiError(
     "Sponsored Earn deposit response is missing confirmations.",
+    undefined,
+    res.status,
   );
 }
 

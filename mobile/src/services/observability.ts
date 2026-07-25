@@ -406,10 +406,10 @@ export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
  * `request_failed` with no status never got a response.
  */
 function httpStatusOf(error: unknown): number | undefined {
-  if (!error || typeof error !== "object" || !("status" in error)) {
-    return undefined;
-  }
-  const status = (error as { status?: unknown }).status;
+  if (!error || typeof error !== "object") return undefined;
+  const { status } = error as { status?: unknown };
+  // Range-checked against the ingest's own bounds: an out-of-range value would
+  // fail envelope validation and cost the entire event, not just this field.
   return typeof status === "number" &&
     Number.isInteger(status) &&
     status >= 100 &&

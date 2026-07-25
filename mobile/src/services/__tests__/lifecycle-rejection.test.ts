@@ -152,38 +152,29 @@ describe("wallet session classification", () => {
 
   it("maps each session failure to its own code, not request_failed", () => {
     expect(
-      mapLifecycleErrorCode(
-        new WalletSessionError("connection_failed", "unreachable"),
-      ),
+      mapLifecycleErrorCode(new WalletSessionError("connection_failed")),
     ).toBe("wallet_connection_failed");
-    expect(
-      mapLifecycleErrorCode(new WalletSessionError("timeout", "slow")),
-    ).toBe("wallet_connection_timeout");
-    expect(
-      mapLifecycleErrorCode(new WalletSessionError("unavailable", "none")),
-    ).toBe("wallet_unavailable");
-    expect(
-      mapLifecycleErrorCode(new WalletSessionError("signing_failed", "nope")),
-    ).toBe("wallet_signing_failed");
+    expect(mapLifecycleErrorCode(new WalletSessionError("timeout"))).toBe(
+      "wallet_connection_timeout",
+    );
+    expect(mapLifecycleErrorCode(new WalletSessionError("unavailable"))).toBe(
+      "wallet_unavailable",
+    );
+    expect(mapLifecycleErrorCode(new WalletSessionError("signing_failed"))).toBe(
+      "wallet_signing_failed",
+    );
   });
 
   // The native module's own codes must not leak through the generic probe.
   it("classifies by failure even when the wallet code looks transport-level", () => {
-    const error = new WalletSessionError(
-      "connection_failed",
-      "unreachable",
-      "EUNSPECIFIED",
-    );
+    const error = new WalletSessionError("connection_failed", "EUNSPECIFIED");
 
     expect(mapLifecycleErrorCode(error)).toBe("wallet_connection_failed");
   });
 
   it("emits failed with the session code and no httpStatus", async () => {
     const sent = captureEnvelopes();
-    newFlow().failFrom(
-      "prepare",
-      new WalletSessionError("connection_failed", "unreachable"),
-    );
+    newFlow().failFrom("prepare", new WalletSessionError("connection_failed"));
 
     expect(sent[0]).toMatchObject({
       outcome: "failed",

@@ -29,21 +29,41 @@ export type WalletSessionFailure =
   /** The session opened; the wallet errored while producing the signature. */
   | "signing_failed";
 
+// What the user is told, per failure. Owned here so the advice can never drift
+// from the reason: telling someone to update a wallet app that simply was not
+// running sends them down the wrong path.
+const WALLET_SESSION_MESSAGES: Record<WalletSessionFailure, string> = {
+  connection_failed:
+    "Couldn't reach your wallet app. Open it once so it's running, then try again.",
+  signing_failed:
+    "Your wallet app couldn't sign the request. Try again, and update the wallet app if this keeps happening.",
+  timeout:
+    "Your wallet app didn't respond in time. Try again with it already open.",
+  unavailable:
+    "No compatible Solana wallet app was found. Install Phantom or Solflare and try again.",
+};
+
 export class WalletSessionError extends Error {
   readonly failure: WalletSessionFailure;
   /**
    * The wallet backend's own code, kept for local logs only. Telemetry cannot
-   * carry it: the ingest rejects envelopes with unknown keys, so the failure
-   * discriminant above is what reaches ClickStack.
+   * carry it yet: the ingest rejects envelopes with unknown keys, so until the
+   * backend contract gains a field for it the failure discriminant above is
+   * what reaches ClickStack.
    */
   readonly walletCode?: string | number;
 
   constructor(
     failure: WalletSessionFailure,
-    message: string,
     walletCode?: string | number,
+    // The native rejection this replaces. The message is user-facing copy, so
+    // without this the original message and stack would be lost to debugging.
+    cause?: unknown,
   ) {
-    super(message);
+    super(
+      WALLET_SESSION_MESSAGES[failure],
+      cause === undefined ? undefined : { cause },
+    );
     this.name = "WalletSessionError";
     this.failure = failure;
     this.walletCode = walletCode;

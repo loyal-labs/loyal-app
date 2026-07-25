@@ -170,4 +170,43 @@ describe("MWA session error classification", () => {
 
     expect(await failureOf(signer().signMessage(new Uint8Array([1])))).toBe(raw);
   });
+
+  // The protocol's numeric codes are deterministic app/config bugs, not wallet
+  // trouble: -2 and -5 mean we sent something malformed, -100 means our
+  // asset-links identity does not match. Folding them into a `wallet_*` code
+  // would hide our own bugs once alerting excludes that family, and would tell
+  // users to update a wallet that is behaving correctly.
+  it.each([
+    [-2, "ERROR_INVALID_PAYLOADS"],
+    [-5, "ERROR_TOO_MANY_PAYLOADS"],
+    [-100, "ERROR_ATTEST_ORIGIN_ANDROID"],
+  ])("leaves protocol error %i (%s) alertable", async (code) => {
+    const raw = codedError(code);
+    failAfterSession(raw);
+
+    expect(await failureOf(signer().signMessage(new Uint8Array([1])))).toBe(raw);
+  });
+
+  // Same rule before the session opens — our own misconfiguration must not be
+  // reported as an unreachable wallet.
+  it.each(["ERROR_ASSOCIATION_PORT_OUT_OF_RANGE", "ERROR_FORBIDDEN_WALLET_BASE_URL"])(
+    "leaves configuration error %s alertable",
+    async (code) => {
+      const raw = codedError(code);
+      failBeforeSession(raw);
+
+      expect(await failureOf(signer().signMessage(new Uint8Array([1])))).toBe(raw);
+    },
+  );
+
+  // User-facing copy replaces the native message, so the original has to stay
+  // reachable or local debugging loses it entirely.
+  it("keeps the native rejection as the cause", async () => {
+    const raw = codedError("EUNSPECIFIED", "connect failed");
+    failBeforeSession(raw);
+
+    const error = await failureOf(signer().signMessage(new Uint8Array([1])));
+
+    expect((error as Error).cause).toBe(raw);
+  });
 });
