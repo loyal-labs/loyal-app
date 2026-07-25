@@ -274,6 +274,21 @@ This package sits outside the root Bun workspace and is not covered by any CI
 workflow, so run `bun run check` here when changing the relay. Root
 `bun run lint` (prettier) does cover these files.
 
+[`src/e2e.test.ts`](./src/e2e.test.ts) is the one to keep green when changing
+behavior. It drives real webhook requests through the HTTP handler, the real
+analyzer, formatter and Telegram sender, and captures the result at the
+Telegram Bot API boundary, asserting the exact message text. Everything is
+driven by an injected clock and a no-op `sleep`, so window boundaries, the
+restart grace period and the `retry_after` backoff are exercised without a
+real timer.
+
+Two properties there are easy to break silently and are covered deliberately:
+twenty concurrent deliveries for one signature must produce exactly one
+message, and a sweep racing a delivery must not double-post a recap. The
+`verifyInvariants` helper additionally checks every message the relay emitted
+in a run for balanced HTML, escaped ampersands, the 4096-character limit and
+send ordering against the fake clock.
+
 ## Trace logging
 
 Trace logs are disabled by default. Enable them temporarily when diagnosing a
