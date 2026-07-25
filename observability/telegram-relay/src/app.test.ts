@@ -8,7 +8,11 @@ import {
   loadConfig,
   validatePayload,
 } from "./app.ts";
-import { AlertRelay, type ClickStackWebhookPayload } from "./relay.ts";
+import {
+  type AlertContext,
+  AlertRelay,
+  type ClickStackWebhookPayload,
+} from "./relay.ts";
 
 const payload: ClickStackWebhookPayload = {
   eventId: "alert-errors-service-loyal-mobile",
@@ -319,6 +323,7 @@ describe("Telegram sender", () => {
     telegramChatId: "chat",
     alertColumns: defaultColumns,
   };
+  const newAlert: AlertContext = { kind: "new", silent: false };
   const formattedPayload: ClickStackWebhookPayload = {
     ...payload,
     body: [
@@ -348,7 +353,7 @@ describe("Telegram sender", () => {
       }
     );
 
-    await send(payload);
+    await send(payload, newAlert);
     expect(attempts).toBe(2);
     expect(slept).toEqual([2000]);
   });
@@ -367,7 +372,7 @@ describe("Telegram sender", () => {
       async () => undefined
     );
 
-    await expect(send(payload)).rejects.toThrow("rate limited");
+    await expect(send(payload, newAlert)).rejects.toThrow("rate limited");
     expect(attempts).toBe(1);
   });
 
@@ -383,7 +388,7 @@ describe("Telegram sender", () => {
         )
     );
 
-    await expect(send(payload)).rejects.toThrow("HTTP 400");
+    await expect(send(payload, newAlert)).rejects.toThrow("HTTP 400");
   });
 
   test("rejects an HTTP 200 that Telegram did not acknowledge", async () => {
@@ -398,7 +403,9 @@ describe("Telegram sender", () => {
 
     // Accepting this would record a cooldown and acknowledge ClickStack,
     // dropping the alert for a full cooldown window.
-    await expect(send(payload)).rejects.toThrow("did not acknowledge");
+    await expect(send(payload, newAlert)).rejects.toThrow(
+      "did not acknowledge"
+    );
   });
 
   test("resends unformatted text when Telegram rejects the HTML entities", async () => {
@@ -414,7 +421,7 @@ describe("Telegram sender", () => {
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     });
 
-    await send(formattedPayload);
+    await send(formattedPayload, newAlert);
 
     expect(bodies).toHaveLength(2);
     expect(bodies[0]?.parse_mode).toBe("HTML");
