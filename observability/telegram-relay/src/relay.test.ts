@@ -138,9 +138,17 @@ describe("AlertRelay", () => {
     }
     expect(sent).toHaveLength(1);
 
-    // Once the window closes the event is allowed through again. Closing is
-    // silent: what it swallowed is reported by the daily recap, not here.
+    // A signature stays quiet for the rest of the reporting period, not just
+    // for the cooldown: an hour later it is still suppressed.
     now += 60 * 60 * 1000;
+    expect(await relay.handle(alertPayload, "alert-an-hour-later")).toEqual({
+      outcome: "suppressed",
+    });
+    expect(sent).toHaveLength(1);
+
+    // Past the recap it is allowed through again. Closing is silent: what the
+    // window swallowed is reported by the daily recap, not here.
+    now = RECAP_AT + 1_000;
     expect(await relay.handle(alertPayload, "alert-after-cooldown")).toEqual({
       outcome: "sent",
     });
@@ -148,7 +156,7 @@ describe("AlertRelay", () => {
     expect(sent.every((message) => message.state === "ALERT")).toBe(true);
   });
 
-  test("sends again after cooldown expiration", async () => {
+  test("announces a lasting incident once per reporting period", async () => {
     let now = 1_000;
     let sendCount = 0;
     const relay = createRelay(
@@ -161,9 +169,35 @@ describe("AlertRelay", () => {
     await relay.handle(alertPayload, "delivery-1");
     now += 60 * 60 * 1000 + 1;
     expect(await relay.handle(alertPayload, "delivery-2")).toEqual({
+      outcome: "suppressed",
+    });
+
+    now = RECAP_AT + 1;
+    expect(await relay.handle(alertPayload, "delivery-3")).toEqual({
       outcome: "sent",
     });
     expect(sendCount).toBe(2);
+  });
+
+  test("holds an alert that opens just before a recap into the next period", async () => {
+    let now = RECAP_AT - 60_000;
+    let sendCount = 0;
+    const relay = createRelay(
+      async () => {
+        sendCount += 1;
+      },
+      () => now
+    );
+
+    await relay.handle(alertPayload, "delivery-1");
+
+    // The recap is a minute away, so aligning to it would let this alert fire
+    // again almost at once. The cooldown floor rolls it to the next period.
+    now = RECAP_AT + 60_000;
+    expect(await relay.handle(alertPayload, "delivery-2")).toEqual({
+      outcome: "suppressed",
+    });
+    expect(sendCount).toBe(1);
   });
 
   test("does not poison caches when Telegram delivery fails", async () => {
@@ -294,15 +328,11 @@ describe("AlertRelay windows", () => {
       });
     }
 
-    // Closing the window posts nothing at all now.
-    now += 60 * 60 * 1000;
-    await relay.sweep(now);
-    expect(sent.map((context) => context.kind)).toEqual(["new"]);
-    expect(relay.stats().windows).toBe(0);
-
-    // The counters survive the window and surface in the scheduled recap.
+    // Closing the window posts nothing at all: the counters it carried surface
+    // in the scheduled recap, which comes due on the same sweep.
     now = RECAP_AT;
     await relay.sweep(now);
+    expect(relay.stats().windows).toBe(0);
     // A second sweep must not repeat a recap that already went out.
     await relay.sweep(now);
 
@@ -464,10 +494,10 @@ describe("AlertRelay windows", () => {
       "delivery-1"
     );
 
-    now += 60 * 60 * 1000 + 1;
+    now = RECAP_AT + 1;
     await relay.sweep(now);
 
-    expect(kinds).toEqual(["new"]);
+    expect(kinds).toEqual(["new", "daily"]);
     expect(relay.stats().windows).toBe(0);
   });
 

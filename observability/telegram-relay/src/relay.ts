@@ -53,6 +53,12 @@ export interface DailySummary {
   until: number;
   /** Matched log lines over the period, deduplicated per evaluation range. */
   eventCount: number;
+  /**
+   * Rows the relay could actually read over the period. Below `eventCount`
+   * whenever ClickStack truncated a row block, which makes every per-row
+   * statistic a lower bound rather than a total.
+   */
+  sampledRows: number;
   /** Webhook deliveries ClickStack made over the period. */
   deliveries: number;
   /** Alerts posted to the chat over the period, recaps excluded. */
@@ -189,6 +195,7 @@ interface DailySignatureState extends SignatureState {
 interface DailyTally {
   since: number;
   eventCount: number;
+  sampledRows: number;
   deliveries: number;
   alertsPosted: number;
   signatures: Map<string, DailySignatureState>;
@@ -202,6 +209,7 @@ function emptyTally(since: number): DailyTally {
   return {
     since,
     eventCount: 0,
+    sampledRows: 0,
     deliveries: 0,
     alertsPosted: 0,
     signatures: new Map(),
@@ -355,7 +363,14 @@ export class AlertRelay {
 
         const window = this.windows.get(key);
         if (!window) {
-          const opened = openWindow(key, payload, analysis, now, this.options);
+          const opened = openWindow(
+            key,
+            payload,
+            analysis,
+            now,
+            this.options,
+            this.nextRecapAt
+          );
 
           if (this.inRestartGrace(now)) {
             opened.deferred = true;
@@ -811,18 +826,39 @@ function fnv1a(input: string): string {
   return hash.toString(16).padStart(8, "0");
 }
 
+/**
+ * A signature stays quiet until the next recap, so an incident that lasts all
+ * day is announced once and its volume is reported once, rather than being
+ * re-announced every hour. `cooldownMs` is the floor: an error that first
+ * fires minutes before a recap would otherwise be free to alert again almost
+ * immediately, so the window rolls to the following period instead.
+ */
+function windowExpiry(
+  now: number,
+  options: AlertRelayOptions,
+  recapAt: number
+): number {
+  const floor = now + options.cooldownMs;
+  let expiresAt = recapAt;
+  while (expiresAt < floor) {
+    expiresAt += DAY_MS;
+  }
+  return expiresAt;
+}
+
 function openWindow(
   key: string,
   payload: ClickStackWebhookPayload,
   analysis: AlertAnalysis,
   now: number,
-  options: AlertRelayOptions
+  options: AlertRelayOptions,
+  recapAt: number
 ): AlertWindow {
   const window: AlertWindow = {
     key,
     payload,
     openedAt: now,
-    expiresAt: now + options.cooldownMs,
+    expiresAt: windowExpiry(now, options, recapAt),
     firstEventAt: now,
     lastEventAt: now,
     eventCount: 0,
@@ -928,6 +964,7 @@ function recordDaily(
   addedEvents: number
 ): void {
   daily.eventCount += addedEvents;
+  daily.sampledRows += analysis.signatures.length;
 
   for (const signature of analysis.signatures) {
     const existing = daily.signatures.get(signature.key);
@@ -979,6 +1016,7 @@ function summarizeDaily(daily: DailyTally, until: number): DailySummary {
     since: daily.since,
     until,
     eventCount: daily.eventCount,
+    sampledRows: daily.sampledRows,
     deliveries: daily.deliveries,
     alertsPosted: daily.alertsPosted,
     signatures: signatures.map((signature) => ({
@@ -1080,6 +1118,7 @@ export interface PersistedWindow {
 export interface PersistedTally {
   since: number;
   eventCount: number;
+  sampledRows?: number;
   deliveries: number;
   alertsPosted: number;
   signatures: (DailySignatureState & { key: string })[];
@@ -1107,6 +1146,7 @@ function serializeTally(daily: DailyTally): PersistedTally {
   return {
     since: daily.since,
     eventCount: daily.eventCount,
+    sampledRows: daily.sampledRows,
     deliveries: daily.deliveries,
     alertsPosted: daily.alertsPosted,
     signatures: [...daily.signatures].map(([key, state]) => ({
@@ -1128,6 +1168,7 @@ function deserializeTally(saved: PersistedTally): DailyTally {
   return {
     since: saved.since,
     eventCount: saved.eventCount,
+    sampledRows: saved.sampledRows ?? 0,
     deliveries: saved.deliveries,
     alertsPosted: saved.alertsPosted,
     signatures: new Map(

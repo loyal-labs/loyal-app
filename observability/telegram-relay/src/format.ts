@@ -324,15 +324,19 @@ function formatDailyRecap(daily: DailySummary): FormattedMessage {
   return { text: lines.join("\n"), parseMode: "HTML" };
 }
 
-/** "3 unique wallets" across the whole reporting period. */
+/**
+ * "≥3 unique wallets" across the whole reporting period. The floor marker
+ * matters as much here as on an alert: ClickStack truncates row blocks, so a
+ * period can match far more lines than the relay was ever able to read.
+ */
 function dailyCardinalityLabels(daily: DailySummary): string[] {
-  const labels: string[] = [];
-  for (const [label, count] of Object.entries(daily.uniqueValues)) {
-    if (count > 0) {
-      labels.push(countLabel(count, `unique ${label}`));
-    }
-  }
-  return labels;
+  const approximate = daily.sampledRows < daily.eventCount;
+  return Object.entries(daily.uniqueValues)
+    .filter(([, count]) => count > 0)
+    .map(
+      ([label, count]) =>
+        `${approximate ? "≥" : ""}${count} unique ${pluralize(label, count)}`
+    );
 }
 
 function formatEscalation(window: WindowSummary): FormattedMessage {

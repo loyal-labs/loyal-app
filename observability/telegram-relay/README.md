@@ -7,9 +7,11 @@ ClickStack -> relay -> Telegram Bot API
 ```
 
 It sends the first non-`OK` state immediately and then holds that signature
-quiet for 60 minutes by default, counting everything it holds back. The window
-closes silently; what it counted is reported once a day, in a single recap
-listing every distinct error and how often it fired. `OK` recoveries are
+quiet until the next daily recap, counting everything it holds back. An
+incident that lasts all day is therefore announced once and its volume is
+reported once, rather than being re-announced every hour. The window closes
+silently; what it counted is reported in a single recap listing every distinct
+error and how often it fired. `OK` recoveries are
 acknowledged and otherwise ignored, so the chat only carries live failures and
 a flapping alert stays capped at one message per window. ClickStack test and
 transitional states such as `INSUFFICIENT_DATA` are accepted and use the normal
@@ -34,6 +36,13 @@ readable at a glance.
 | 📈   | escalation    | One evaluation's volume grew by `ESCALATION_MULTIPLIER` from the opening evaluation. At most twice per window. Notifies. |
 | 📊   | daily recap   | Once a day at `DAILY_RECAP_AT`, if anything fired since the last one. Silent.                                            |
 | ♻️   | restart recap | The grace period after a restart ended with alerts still firing. Silent.                                                 |
+
+A window runs to the next recap rather than to the cooldown, so a signature
+gets one 🚨 per reporting period. The cost is deliberate: an error that clears
+and genuinely recurs later the same day is not announced again, and is seen
+first in the recap. 📈 stays the mid-period signal for an incident that is
+getting worse, since it is measured against the opening evaluation rather than
+against the clock.
 
 Windows never post anything when they close, so **silence after an alert means
 nothing new is worth interrupting anyone for**. The daily recap is where volume
@@ -194,27 +203,27 @@ search link.
 
 ## Configuration
 
-| Variable                    | Required | Default                                   | Purpose                                                                   |
-| --------------------------- | -------- | ----------------------------------------- | ------------------------------------------------------------------------- |
-| `CLICKSTACK_WEBHOOK_SECRET` | yes      | -                                         | Bearer token accepted from ClickStack                                     |
-| `TELEGRAM_BOT_TOKEN`        | yes      | -                                         | Telegram Bot API token, stored only by this relay                         |
-| `TELEGRAM_CHAT_ID`          | yes      | -                                         | Destination chat or channel ID                                            |
-| `HOST`                      | no       | `127.0.0.1`                               | Listen address. Must be `0.0.0.0` on Render                               |
-| `PORT`                      | no       | `3000`                                    | Listen port                                                               |
-| `COOLDOWN_SECONDS`          | no       | `3600`                                    | Length of the window a signature is held quiet                            |
-| `IDEMPOTENCY_TTL_SECONDS`   | no       | `86400`                                   | Exact delivery deduplication interval                                     |
-| `MAX_CACHE_ENTRIES`         | no       | `10000`                                   | Per-cache memory bound                                                    |
-| `MAX_BODY_BYTES`            | no       | `65536`                                   | Maximum request body accepted by Bun                                      |
-| `ALERT_COLUMNS`             | no       | `Timestamp,ServiceName,SeverityText,Body` | Saved search `select` columns, in order, used to label alert rows         |
-| `CARDINALITY_COLUMNS`       | no       | empty                                     | Columns counted as `N unique <column>` instead of listed                  |
-| `DAILY_RECAP_ENABLED`       | no       | `true`                                    | Post the once-a-day recap                                                 |
-| `DAILY_RECAP_AT`            | no       | `06:00`                                   | UTC time of day, `HH:MM`, at which the recap is posted                    |
-| `RECAP_SILENT`              | no       | `true`                                    | Deliver recaps with `disable_notification`                                |
-| `ESCALATION_MULTIPLIER`     | no       | `10`                                      | Break the window when volume grows this many times. `0` disables          |
-| `RESTART_GRACE_SECONDS`     | no       | `120`                                     | Hold alerts this long after boot and post one restart recap. `0` disables |
-| `SWEEP_INTERVAL_SECONDS`    | no       | `60`                                      | How often windows are closed and the recap schedule is checked            |
-| `STATE_FILE`                | no       | empty                                     | Path to persist windows across restarts. Needs a mounted disk             |
-| `TRACE_LOGS`                | no       | `false`                                   | Structured request and validation diagnostics                             |
+| Variable                    | Required | Default                                   | Purpose                                                                                                                                                          |
+| --------------------------- | -------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLICKSTACK_WEBHOOK_SECRET` | yes      | -                                         | Bearer token accepted from ClickStack                                                                                                                            |
+| `TELEGRAM_BOT_TOKEN`        | yes      | -                                         | Telegram Bot API token, stored only by this relay                                                                                                                |
+| `TELEGRAM_CHAT_ID`          | yes      | -                                         | Destination chat or channel ID                                                                                                                                   |
+| `HOST`                      | no       | `127.0.0.1`                               | Listen address. Must be `0.0.0.0` on Render                                                                                                                      |
+| `PORT`                      | no       | `3000`                                    | Listen port                                                                                                                                                      |
+| `COOLDOWN_SECONDS`          | no       | `3600`                                    | Minimum length of the quiet window. A signature is held until the next recap; this floor stops an alert that fires just before one from re-firing right after it |
+| `IDEMPOTENCY_TTL_SECONDS`   | no       | `86400`                                   | Exact delivery deduplication interval                                                                                                                            |
+| `MAX_CACHE_ENTRIES`         | no       | `10000`                                   | Per-cache memory bound                                                                                                                                           |
+| `MAX_BODY_BYTES`            | no       | `65536`                                   | Maximum request body accepted by Bun                                                                                                                             |
+| `ALERT_COLUMNS`             | no       | `Timestamp,ServiceName,SeverityText,Body` | Saved search `select` columns, in order, used to label alert rows                                                                                                |
+| `CARDINALITY_COLUMNS`       | no       | empty                                     | Columns counted as `N unique <column>` instead of listed                                                                                                         |
+| `DAILY_RECAP_ENABLED`       | no       | `true`                                    | Post the once-a-day recap                                                                                                                                        |
+| `DAILY_RECAP_AT`            | no       | `06:00`                                   | UTC time of day, `HH:MM`, at which the recap is posted                                                                                                           |
+| `RECAP_SILENT`              | no       | `true`                                    | Deliver recaps with `disable_notification`                                                                                                                       |
+| `ESCALATION_MULTIPLIER`     | no       | `10`                                      | Break the window when volume grows this many times. `0` disables                                                                                                 |
+| `RESTART_GRACE_SECONDS`     | no       | `120`                                     | Hold alerts this long after boot and post one restart recap. `0` disables                                                                                        |
+| `SWEEP_INTERVAL_SECONDS`    | no       | `60`                                      | How often windows are closed and the recap schedule is checked                                                                                                   |
+| `STATE_FILE`                | no       | empty                                     | Path to persist windows across restarts. Needs a mounted disk                                                                                                    |
+| `TRACE_LOGS`                | no       | `false`                                   | Structured request and validation diagnostics                                                                                                                    |
 
 `CLICKSTACK_WEBHOOK_SECRET` uses `generateValue: true` in the Blueprint, so
 Render generates it. Read it from the Render dashboard and paste it into the

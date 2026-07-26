@@ -98,6 +98,11 @@ projects:
                 sync: false
               - key: TELEGRAM_CHAT_ID
                 sync: false
+              # Minimum length of the quiet window, not its usual length: a
+              # signature is held until the next daily recap, so a lasting
+              # incident is announced once per period instead of hourly. This
+              # floor only matters for an alert that first fires shortly
+              # before a recap, which rolls to the following period.
               - key: COOLDOWN_SECONDS
                 value: "3600"
               # Windows close silently. Everything they counted is reported
