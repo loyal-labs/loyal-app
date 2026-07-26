@@ -459,6 +459,53 @@ describe("AlertRelay windows", () => {
     expect(recap?.daily?.eventCount).toBe(1);
   });
 
+  test("marks a wallet count the relay stopped retaining as a floor", async () => {
+    let now = 1_000;
+    const sent: AlertContext[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        sent.push(context);
+      },
+      () => now,
+      { analyze }
+    );
+
+    // More distinct wallets than the relay keeps. The count it can report is
+    // then a floor, and presenting it as a total would turn a bounded set into
+    // a confident, wrong number.
+    for (let batch = 0; batch < 12; batch += 1) {
+      const rows = Array.from({ length: 50 }, (_unused, index) =>
+        row(
+          "loyal-mobile",
+          "earn.withdrawal.prepare.failed",
+          `wallet-${batch * 50 + index}`
+        )
+      );
+      await relay.handle(
+        csvPayload("loyal-mobile", rows, {
+          startTime: batch,
+          endTime: batch + 1,
+        }),
+        `delivery-${batch}`
+      );
+      now += 60_000;
+    }
+
+    now = RECAP_AT;
+    await relay.sweep(now);
+
+    const recap = sent.find((context) => context.kind === "daily");
+    expect(recap?.daily?.uniqueValues.wallet).toBe(500);
+    expect(recap?.daily?.cappedValues).toContain("wallet");
+
+    const text = formatTelegramMessage(csvPayload("loyal-mobile", []), {
+      alertColumns: CSV_COLUMNS,
+      cardinalityColumns: ["wallet"],
+      context: recap as AlertContext,
+    }).text;
+    expect(text).toContain("\u2265500 unique wallets");
+  });
+
   test("posts no recap for a period in which nothing fired", async () => {
     let now = 1_000;
     const kinds: AlertMessageKind[] = [];

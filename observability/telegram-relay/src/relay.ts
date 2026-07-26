@@ -67,6 +67,8 @@ export interface DailySummary {
   /** Signatures dropped from `signatures` because the tally is bounded. */
   omittedSignatures: number;
   uniqueValues: Record<string, number>;
+  /** Columns whose value set hit its cap, so their count is a floor. */
+  cappedValues: string[];
 }
 
 export type TelegramSender = (
@@ -102,6 +104,12 @@ export interface WindowSummary {
   sampledRows: number;
   signatures: SignatureSummary[];
   uniqueValues: Record<string, number>;
+  /**
+   * Columns whose value set hit its cap, so their count is a floor. Separate
+   * from the truncation `sampledRows` reveals: a column can be capped even
+   * when every row ClickStack sent was read.
+   */
+  cappedValues: string[];
   buckets: number[];
   peakBucket: number;
   bucketMs: number;
@@ -200,6 +208,8 @@ interface DailyTally {
   alertsPosted: number;
   signatures: Map<string, DailySignatureState>;
   uniqueValues: Map<string, Set<string>>;
+  /** Cardinality columns whose distinct-value set hit its cap. */
+  cappedValues: Set<string>;
   omittedSignatures: Set<string>;
   /** Most recent delivery counted, used as the recap's link target. */
   lastPayload?: ClickStackWebhookPayload;
@@ -214,6 +224,7 @@ function emptyTally(since: number): DailyTally {
     alertsPosted: 0,
     signatures: new Map(),
     uniqueValues: new Map(),
+    cappedValues: new Set(),
     omittedSignatures: new Set(),
   };
 }
@@ -236,6 +247,8 @@ interface AlertWindow {
   sampledRows: number;
   signatures: Map<string, SignatureState>;
   uniqueValues: Map<string, Set<string>>;
+  /** Cardinality columns whose distinct-value set hit its cap. */
+  cappedValues: Set<string>;
   buckets: number[];
   escalations: number;
   flushAttempts: number;
@@ -869,6 +882,7 @@ function openWindow(
     sampledRows: 0,
     signatures: new Map(),
     uniqueValues: new Map(),
+    cappedValues: new Set(),
     buckets: new Array<number>(BUCKET_COUNT).fill(0),
     escalations: 0,
     flushAttempts: 0,
@@ -935,21 +949,43 @@ function record(
 
   // Keep the union even when ClickStack returns a different truncated row
   // sample for the same evaluation range and matched-line count.
-  for (const [label, values] of Object.entries(analysis.uniqueValues)) {
-    let seen = window.uniqueValues.get(label);
+  mergeBoundedValues(
+    window.uniqueValues,
+    window.cappedValues,
+    analysis.uniqueValues
+  );
+
+  return addedEvents;
+}
+
+/**
+ * Merges distinct values into bounded sets, recording every column that had to
+ * drop one. A column that hit the cap can only be reported as a floor: saying
+ * "500 unique wallets" when the 501st was thrown away is a wrong number, not a
+ * rounded one.
+ */
+function mergeBoundedValues(
+  target: Map<string, Set<string>>,
+  capped: Set<string>,
+  incoming: Record<string, string[]>
+): void {
+  for (const [label, values] of Object.entries(incoming)) {
+    let seen = target.get(label);
     if (!seen) {
       seen = new Set<string>();
-      window.uniqueValues.set(label, seen);
+      target.set(label, seen);
     }
     for (const value of values) {
+      if (seen.has(value)) {
+        continue;
+      }
       if (seen.size >= MAX_TRACKED_VALUES) {
-        break;
+        capped.add(label);
+        continue;
       }
       seen.add(value);
     }
   }
-
-  return addedEvents;
 }
 
 /**
@@ -988,19 +1024,11 @@ function recordDaily(
     });
   }
 
-  for (const [label, values] of Object.entries(analysis.uniqueValues)) {
-    let seen = daily.uniqueValues.get(label);
-    if (!seen) {
-      seen = new Set<string>();
-      daily.uniqueValues.set(label, seen);
-    }
-    for (const value of values) {
-      if (seen.size >= MAX_TRACKED_VALUES) {
-        break;
-      }
-      seen.add(value);
-    }
-  }
+  mergeBoundedValues(
+    daily.uniqueValues,
+    daily.cappedValues,
+    analysis.uniqueValues
+  );
 }
 
 function summarizeDaily(daily: DailyTally, until: number): DailySummary {
@@ -1028,6 +1056,7 @@ function summarizeDaily(daily: DailyTally, until: number): DailySummary {
     })),
     omittedSignatures: daily.omittedSignatures.size,
     uniqueValues,
+    cappedValues: [...daily.cappedValues],
   };
 }
 
@@ -1086,6 +1115,7 @@ function summarize(window: AlertWindow): WindowSummary {
     sampledRows: window.sampledRows,
     signatures,
     uniqueValues,
+    cappedValues: [...window.cappedValues],
     buckets: [...window.buckets],
     peakBucket: window.buckets.indexOf(Math.max(...window.buckets)),
     bucketMs: bucketMsOf(window),
@@ -1111,6 +1141,7 @@ export interface PersistedWindow {
   sampledRows: number;
   signatures: (SignatureState & { key: string })[];
   uniqueValues: Record<string, string[]>;
+  cappedValues?: string[];
   buckets: number[];
   escalations: number;
 }
@@ -1123,6 +1154,7 @@ export interface PersistedTally {
   alertsPosted: number;
   signatures: (DailySignatureState & { key: string })[];
   uniqueValues: Record<string, string[]>;
+  cappedValues?: string[];
   omittedSignatures: string[];
   lastPayload?: ClickStackWebhookPayload;
 }
@@ -1154,6 +1186,7 @@ function serializeTally(daily: DailyTally): PersistedTally {
       ...state,
     })),
     uniqueValues,
+    cappedValues: [...daily.cappedValues],
     omittedSignatures: [...daily.omittedSignatures],
     lastPayload: daily.lastPayload,
   };
@@ -1175,6 +1208,7 @@ function deserializeTally(saved: PersistedTally): DailyTally {
       (saved.signatures ?? []).map(({ key, ...state }) => [key, state])
     ),
     uniqueValues,
+    cappedValues: new Set(saved.cappedValues ?? []),
     omittedSignatures: new Set(saved.omittedSignatures ?? []),
     lastPayload: saved.lastPayload,
   };
@@ -1204,6 +1238,7 @@ function serializeWindow(window: AlertWindow): PersistedWindow {
       ...state,
     })),
     uniqueValues,
+    cappedValues: [...window.cappedValues],
     buckets: [...window.buckets],
     escalations: window.escalations,
   };
@@ -1240,6 +1275,7 @@ function deserializeWindow(saved: PersistedWindow): AlertWindow {
     sampledRows: saved.sampledRows,
     signatures,
     uniqueValues,
+    cappedValues: new Set(saved.cappedValues ?? []),
     buckets: [...saved.buckets],
     escalations: saved.escalations,
     flushAttempts: 0,

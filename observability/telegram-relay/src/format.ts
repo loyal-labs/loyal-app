@@ -330,13 +330,11 @@ function formatDailyRecap(daily: DailySummary): FormattedMessage {
  * period can match far more lines than the relay was ever able to read.
  */
 function dailyCardinalityLabels(daily: DailySummary): string[] {
-  const approximate = daily.sampledRows < daily.eventCount;
-  return Object.entries(daily.uniqueValues)
-    .filter(([, count]) => count > 0)
-    .map(
-      ([label, count]) =>
-        `${approximate ? "≥" : ""}${count} unique ${pluralize(label, count)}`
-    );
+  return renderCardinality(
+    daily.uniqueValues,
+    daily.cappedValues,
+    daily.sampledRows < daily.eventCount
+  );
 }
 
 function formatEscalation(window: WindowSummary): FormattedMessage {
@@ -421,12 +419,31 @@ function withLink(lines: string[], link: string): FormattedMessage {
  * the relay does not have.
  */
 function cardinalityLabels(window: WindowSummary): string[] {
-  const approximate = window.sampledRows < window.eventCount;
-  return Object.entries(window.uniqueValues)
+  return renderCardinality(
+    window.uniqueValues,
+    window.cappedValues,
+    window.sampledRows < window.eventCount
+  );
+}
+
+/**
+ * A count is a floor when ClickStack truncated the rows it sent, and also when
+ * the relay itself stopped retaining distinct values. Both have to show, or a
+ * capped column reads as an exact total.
+ */
+function renderCardinality(
+  uniqueValues: Record<string, number>,
+  cappedValues: string[],
+  truncated: boolean
+): string[] {
+  const capped = new Set(cappedValues);
+  return Object.entries(uniqueValues)
     .filter(([, count]) => count > 0)
     .map(
       ([label, count]) =>
-        `${approximate ? "≥" : ""}${count} unique ${pluralize(label, count)}`
+        `${
+          truncated || capped.has(label) ? "≥" : ""
+        }${count} unique ${pluralize(label, count)}`
     );
 }
 

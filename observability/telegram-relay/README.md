@@ -50,6 +50,12 @@ is reported: it lists each distinct error with its frequency, the service, and
 the first and last time it was seen, above a header carrying the total events,
 how many alerts were posted, and the cardinality counts.
 
+A cardinality count is shown as `≥N` whenever it can only be a floor: either
+ClickStack truncated the rows it sent, or the relay itself stopped retaining
+distinct values for that column at its cap. Both are load-bearing now that a
+period spans a day, since a cap that a one-hour window would never approach is
+reachable across one.
+
 The recap counts every signature, including ones that fired once and never
 repeated — those never produce a second chat message, so the recap is the only
 place they are ever tallied. Identical deliveries for one ClickStack evaluation
