@@ -6,6 +6,7 @@ import {
   type AlertMessageKind,
   AlertRelay,
   type ClickStackWebhookPayload,
+  type PersistedState,
   type TelegramSender,
 } from "./relay.ts";
 
@@ -354,6 +355,80 @@ describe("AlertRelay windows", () => {
     );
   });
 
+  test("counts a delivery once when its alert had to be retried", async () => {
+    let now = 1_000;
+    let telegramAvailable = false;
+    const sent: AlertContext[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        if (context.kind === "new" && !telegramAvailable) {
+          throw new Error("Telegram unavailable");
+        }
+        sent.push(context);
+      },
+      () => now,
+      { analyze }
+    );
+    const payload = csvPayload("loyal-mobile", [
+      row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
+    ]);
+
+    // The alert fails, so no window is registered and ClickStack retries under
+    // a fresh key. The tally must not count the same delivery twice just
+    // because the message needed two attempts.
+    await expect(relay.handle(payload, "delivery-1")).rejects.toThrow(
+      "Telegram unavailable"
+    );
+    telegramAvailable = true;
+    now += 1_000;
+    expect(await relay.handle(payload, "delivery-2")).toEqual({
+      outcome: "sent",
+    });
+
+    now = RECAP_AT;
+    await relay.sweep(now);
+
+    const recap = sent.find((context) => context.kind === "daily");
+    expect(recap?.daily?.eventCount).toBe(1);
+    expect(recap?.daily?.signatures[0]?.count).toBe(1);
+    expect(recap?.daily?.alertsPosted).toBe(1);
+  });
+
+  test("keeps a tally whose recap came due while the process was down", async () => {
+    let now = 1_000;
+    const before = createRelay(
+      async () => undefined,
+      () => now,
+      { analyze }
+    );
+    await before.handle(
+      csvPayload("loyal-mobile", [
+        row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
+      ]),
+      "delivery-1"
+    );
+    const snapshot = JSON.parse(
+      JSON.stringify(before.exportState(now))
+    ) as PersistedState;
+
+    // The relay comes back after the scheduled time. Dropping the tally here
+    // would silently lose a whole period of counting.
+    const sent: AlertContext[] = [];
+    now = RECAP_AT + 60_000;
+    const after = createRelay(
+      async (_payload, context) => {
+        sent.push(context);
+      },
+      () => now,
+      { analyze, startedAt: now }
+    );
+    after.importState(snapshot, now);
+    await after.sweep(now);
+
+    const recap = sent.find((context) => context.kind === "daily");
+    expect(recap?.daily?.eventCount).toBe(1);
+  });
+
   test("posts no recap for a period in which nothing fired", async () => {
     let now = 1_000;
     const kinds: AlertMessageKind[] = [];
@@ -426,8 +501,11 @@ describe("AlertRelay windows", () => {
     telegramAvailable = false;
     await relay.sweep(now);
     expect(recaps).toHaveLength(0);
-    // The tally is still open, so nothing it counted has been lost.
-    expect(relay.stats().dailyEvents).toBe(1);
+    // The closed period moved into the pending recap rather than being lost,
+    // and the live tally started clean so later deliveries are not swept into
+    // a period that has already been reported.
+    expect(relay.stats().pendingRecapEvents).toBe(1);
+    expect(relay.stats().dailyEvents).toBe(0);
 
     telegramAvailable = true;
     await relay.sweep(now);
@@ -435,7 +513,8 @@ describe("AlertRelay windows", () => {
     expect(recaps[0]?.daily?.eventCount).toBe(1);
     expect(recaps[0]?.daily?.deliveries).toBe(2);
 
-    // Once delivered the tally resets rather than double-reporting tomorrow.
+    // Nothing is left over to double-report tomorrow.
+    expect(relay.stats().pendingRecapEvents).toBe(0);
     expect(relay.stats().dailyEvents).toBe(0);
   });
 

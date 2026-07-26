@@ -17,6 +17,10 @@
  *   bun scripts/simulate.ts --recap-at 09:00     # move the daily recap (UTC)
  *   bun scripts/simulate.ts --quiet              # counts only, no message bodies
  *
+ * Known gap: only `ALERT` deliveries are replayed. Production also sends `OK`
+ * when a condition clears, which the relay answers without posting, so the
+ * message counts here are unaffected by the omission.
+ *
  * ClickStack access: the script reuses the MCP endpoint configured for Claude
  * Code (`~/.claude.json` -> mcpServers.clickstack), or CLICKSTACK_MCP_URL and
  * CLICKSTACK_MCP_TOKEN when set. The token is never printed or written out.
@@ -477,13 +481,41 @@ function csvField(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+/** ClickStack renders its range as "Jul 25 4:50:00 AM", not as ISO. */
 function formatRange(start: number, end: number): string {
-  const render = (value: number) =>
-    new Date(value)
-      .toISOString()
-      .replace("T", " ")
-      .replace(/\.\d+Z$/, "");
+  const render = (value: number) => {
+    const date = new Date(value);
+    const month = date.toLocaleString("en-US", {
+      month: "short",
+      timeZone: "UTC",
+    });
+    const clock = date.toLocaleString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+      timeZone: "UTC",
+    });
+    return `${month} ${date.getUTCDate()} ${clock}`;
+  };
   return `Time Range (UTC): [${render(start)} - ${render(end)})`;
+}
+
+/**
+ * ClickStack's `eventId` is a stable hash per alert and group: production logs
+ * show one id repeated across every delivery of an incident, including the
+ * `OK` that closes it. Making it unique per delivery here would change what is
+ * being simulated — the relay falls back to `eventId` for its dedup key when a
+ * row block will not parse, and a per-delivery id would open a fresh window
+ * every minute on exactly the payloads that are hardest to read.
+ */
+function eventIdFor(group: string): string {
+  let hash = 0x811c9dc5;
+  for (const character of `Errors:${group}`) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0").repeat(5);
 }
 
 /** A webhook body shaped exactly like ClickStack's generic destination. */
@@ -492,7 +524,7 @@ function toWebhookPayload(evaluation: Evaluation): ClickStackWebhookPayload {
   const csv = evaluation.rows.map((row) => row.fields.map(csvField).join(","));
 
   return {
-    eventId: `sim-${evaluation.rangeStart}-${evaluation.group}`,
+    eventId: eventIdFor(evaluation.group),
     state: "ALERT",
     title: `🚨 Alert for "Errors" - ${matchedLines} lines found`,
     body: [
@@ -597,6 +629,8 @@ async function simulate(
     }
 
     clock = evaluation.deliveredAt;
+    // The idempotency key is per delivery, unlike `eventId`, so a repeated
+    // range is recognised as a retry rather than as a duplicate incident.
     await relay.handle(
       toWebhookPayload(evaluation),
       `sim-${evaluation.rangeStart}-${evaluation.group}`

@@ -127,6 +127,17 @@ accept the duplicate messages.
 - An exact delivery retry with the same `Idempotency-Key` also returns HTTP 200.
 - Telegram delivery failure returns HTTP 502 and leaves no window behind, so
   ClickStack's retry is treated as a first delivery rather than a repeat.
+- A closed period whose recap Telegram rejects is held separately from the live
+  tally, so the retry re-sends the period that came due instead of a period that
+  kept growing under it, and deliveries arriving mid-send are counted against
+  the next period rather than dropped. `GET /healthz` reports it as
+  `pendingRecapEvents`.
+- A delivery is folded into the tally only once its alert has been accepted. A
+  delivery whose alert Telegram rejected is not counted, because ClickStack
+  will send it again under a fresh key and it would otherwise count twice.
+- A snapshot whose recap deadline passed while the process was down still posts,
+  late, on the first sweep after boot. Only snapshots older than a full period
+  are discarded.
 - A recap that Telegram rejects keeps its tally and its counters and is retried
   on the next sweep, up to five times before it is dropped with an
   `daily_recap_dropped` log.

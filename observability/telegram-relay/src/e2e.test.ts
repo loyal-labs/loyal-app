@@ -614,7 +614,9 @@ describe("relay end to end", () => {
     system.advanceTo(recapAfter(START, system.config.dailyRecapAtMinutes));
     expect(system.relay.stats().dailyEvents).toBe(3);
     await system.sweep();
-    expect(system.relay.stats().dailyEvents).toBe(3);
+    // Held as a pending recap, not lost and not left to grow in the live
+    // tally, so the retry re-sends the period that actually came due.
+    expect(system.relay.stats().pendingRecapEvents).toBe(3);
     await system.sweep();
 
     const recaps = system.calls.filter((call) =>
@@ -625,7 +627,7 @@ describe("relay end to end", () => {
     // The opening alert and the escalation that succeeded. The escalation
     // Telegram rejected is not counted as posted.
     expect(recaps[1]?.text).toContain("2 alert(s) posted");
-    expect(system.relay.stats().dailyEvents).toBe(0);
+    expect(system.relay.stats().pendingRecapEvents).toBe(0);
 
     verifyInvariants(system);
   });
