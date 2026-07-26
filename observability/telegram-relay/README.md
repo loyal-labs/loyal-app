@@ -7,9 +7,9 @@ ClickStack -> relay -> Telegram Bot API
 ```
 
 It sends the first non-`OK` state immediately and then holds that signature
-quiet for 60 minutes by default, counting everything it holds back. When the
-window closes it posts one recap of what was suppressed, so a chat message
-never stands for an unknown number of failures. `OK` recoveries are
+quiet for 60 minutes by default, counting everything it holds back. The window
+closes silently; what it counted is reported once a day, in a single recap
+listing every distinct error and how often it fired. `OK` recoveries are
 acknowledged and otherwise ignored, so the chat only carries live failures and
 a flapping alert stays capped at one message per window. ClickStack test and
 transitional states such as `INSUFFICIENT_DATA` are accepted and use the normal
@@ -28,19 +28,29 @@ from a shell on the ClickStack service.
 The relay posts four kinds of message, each with its own icon so the type is
 readable at a glance.
 
-| Icon | Kind | When |
-| --- | --- | --- |
-| 🚨 | alert | First delivery for a signature. Opens a window. Notifies. |
-| 📈 | escalation | One evaluation's volume grew by `ESCALATION_MULTIPLIER` from the opening evaluation. At most twice per window. Notifies. |
-| 🔕 | recap | The window closed having suppressed at least one delivery. Silent. |
-| ♻️ | restart recap | The grace period after a restart ended with alerts still firing. Silent. |
+| Icon | Kind          | When                                                                                                                     |
+| ---- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| 🚨   | alert         | First delivery for a signature. Opens a window. Notifies.                                                                |
+| 📈   | escalation    | One evaluation's volume grew by `ESCALATION_MULTIPLIER` from the opening evaluation. At most twice per window. Notifies. |
+| 📊   | daily recap   | Once a day at `DAILY_RECAP_AT`, if anything fired since the last one. Silent.                                            |
+| ♻️   | restart recap | The grace period after a restart ended with alerts still firing. Silent.                                                 |
 
-A window that suppressed nothing closes without a message, so **silence after
-an alert means it happened once**. The alert and the recap both carry the
-matched-line count, and the recap adds the number of suppressed deliveries, the
-first and last timestamps, a per-bucket sparkline and the peak bucket.
-Identical deliveries for one ClickStack evaluation range count once; if that
-snapshot grows, only the increase is added.
+Windows never post anything when they close, so **silence after an alert means
+nothing new is worth interrupting anyone for**. The daily recap is where volume
+is reported: it lists each distinct error with its frequency, the service, and
+the first and last time it was seen, above a header carrying the total events,
+how many alerts were posted, and the cardinality counts.
+
+The recap counts every signature, including ones that fired once and never
+repeated — those never produce a second chat message, so the recap is the only
+place they are ever tallied. Identical deliveries for one ClickStack evaluation
+range count once; if that snapshot grows, only the increase is added.
+
+There was previously a per-window recap on window close. It was removed because
+it was mostly noise: measured against a week of production logs, half of those
+recaps summarized a single suppressed delivery, restating what their own
+opening alert had already said, and arriving up to an hour later. Use
+`scripts/simulate.ts` to re-measure before changing this.
 
 ## Counting distinct values
 
@@ -81,9 +91,9 @@ Redis and no database.
 - **A restart clears windows.** Render redeploys several times a day, and
   ClickStack replays every live alert within seconds of each one. Two
   mechanisms cover this, in order of preference:
-  - `STATE_FILE` — path on a mounted disk. Windows are written there on every
-    sweep and on `SIGTERM`, and restored on boot, so a deploy changes nothing
-    an operator can see. Requires adding a `disk:` to the service in
+  - `STATE_FILE` — path on a mounted disk. Windows and the running daily tally
+    are written there on every sweep and on `SIGTERM`, and restored on boot, so
+    a deploy changes nothing an operator can see. Requires adding a `disk:` in
     [`../render.yaml`](../render.yaml); note that Render deploys a service with
     a disk by stopping the old instance first.
   - `RESTART_GRACE_SECONDS` — always on, default 120. For this long after boot
@@ -91,8 +101,9 @@ Redis and no database.
     recap listing everything that was already firing. Without a state file this
     turns a post-deploy burst of ten messages into one.
 
-Pending recaps are lost if the process is killed without draining. That costs a
-recap, never an alert.
+Without `STATE_FILE`, each deploy restarts the daily tally, so the next recap
+covers only the time since the last deploy. That costs counts in one recap,
+never an alert. This is the main reason to mount a disk.
 
 A third option, rebuilding windows by querying ClickStack for signatures that
 were already firing before boot, is deliberately **not** implemented: the relay
@@ -116,9 +127,9 @@ accept the duplicate messages.
 - An exact delivery retry with the same `Idempotency-Key` also returns HTTP 200.
 - Telegram delivery failure returns HTTP 502 and leaves no window behind, so
   ClickStack's retry is treated as a first delivery rather than a repeat.
-- A recap that Telegram rejects keeps its window and its counters and is retried
+- A recap that Telegram rejects keeps its tally and its counters and is retried
   on the next sweep, up to five times before it is dropped with an
-  `alert_digest_dropped` log.
+  `daily_recap_dropped` log.
 - An escalation that Telegram rejects is logged as `alert_escalation_failed` and
   does not fail the webhook. The delivery is already counted, and ClickStack's
   retry carries the same `Idempotency-Key`, so bubbling the failure would be
@@ -172,26 +183,27 @@ search link.
 
 ## Configuration
 
-| Variable | Required | Default | Purpose |
-| --- | --- | --- | --- |
-| `CLICKSTACK_WEBHOOK_SECRET` | yes | - | Bearer token accepted from ClickStack |
-| `TELEGRAM_BOT_TOKEN` | yes | - | Telegram Bot API token, stored only by this relay |
-| `TELEGRAM_CHAT_ID` | yes | - | Destination chat or channel ID |
-| `HOST` | no | `127.0.0.1` | Listen address. Must be `0.0.0.0` on Render |
-| `PORT` | no | `3000` | Listen port |
-| `COOLDOWN_SECONDS` | no | `3600` | Length of the window a signature is held quiet |
-| `IDEMPOTENCY_TTL_SECONDS` | no | `86400` | Exact delivery deduplication interval |
-| `MAX_CACHE_ENTRIES` | no | `10000` | Per-cache memory bound |
-| `MAX_BODY_BYTES` | no | `65536` | Maximum request body accepted by Bun |
-| `ALERT_COLUMNS` | no | `Timestamp,ServiceName,SeverityText,Body` | Saved search `select` columns, in order, used to label alert rows |
-| `CARDINALITY_COLUMNS` | no | empty | Columns counted as `N unique <column>` instead of listed |
-| `DIGEST_ENABLED` | no | `true` | Post a recap when a window closes having suppressed something |
-| `DIGEST_SILENT` | no | `true` | Deliver recaps with `disable_notification` |
-| `ESCALATION_MULTIPLIER` | no | `10` | Break the window when volume grows this many times. `0` disables |
-| `RESTART_GRACE_SECONDS` | no | `120` | Hold alerts this long after boot and post one restart recap. `0` disables |
-| `SWEEP_INTERVAL_SECONDS` | no | `60` | How often closed windows are checked for recaps |
-| `STATE_FILE` | no | empty | Path to persist windows across restarts. Needs a mounted disk |
-| `TRACE_LOGS` | no | `false` | Structured request and validation diagnostics |
+| Variable                    | Required | Default                                   | Purpose                                                                   |
+| --------------------------- | -------- | ----------------------------------------- | ------------------------------------------------------------------------- |
+| `CLICKSTACK_WEBHOOK_SECRET` | yes      | -                                         | Bearer token accepted from ClickStack                                     |
+| `TELEGRAM_BOT_TOKEN`        | yes      | -                                         | Telegram Bot API token, stored only by this relay                         |
+| `TELEGRAM_CHAT_ID`          | yes      | -                                         | Destination chat or channel ID                                            |
+| `HOST`                      | no       | `127.0.0.1`                               | Listen address. Must be `0.0.0.0` on Render                               |
+| `PORT`                      | no       | `3000`                                    | Listen port                                                               |
+| `COOLDOWN_SECONDS`          | no       | `3600`                                    | Length of the window a signature is held quiet                            |
+| `IDEMPOTENCY_TTL_SECONDS`   | no       | `86400`                                   | Exact delivery deduplication interval                                     |
+| `MAX_CACHE_ENTRIES`         | no       | `10000`                                   | Per-cache memory bound                                                    |
+| `MAX_BODY_BYTES`            | no       | `65536`                                   | Maximum request body accepted by Bun                                      |
+| `ALERT_COLUMNS`             | no       | `Timestamp,ServiceName,SeverityText,Body` | Saved search `select` columns, in order, used to label alert rows         |
+| `CARDINALITY_COLUMNS`       | no       | empty                                     | Columns counted as `N unique <column>` instead of listed                  |
+| `DAILY_RECAP_ENABLED`       | no       | `true`                                    | Post the once-a-day recap                                                 |
+| `DAILY_RECAP_AT`            | no       | `06:00`                                   | UTC time of day, `HH:MM`, at which the recap is posted                    |
+| `RECAP_SILENT`              | no       | `true`                                    | Deliver recaps with `disable_notification`                                |
+| `ESCALATION_MULTIPLIER`     | no       | `10`                                      | Break the window when volume grows this many times. `0` disables          |
+| `RESTART_GRACE_SECONDS`     | no       | `120`                                     | Hold alerts this long after boot and post one restart recap. `0` disables |
+| `SWEEP_INTERVAL_SECONDS`    | no       | `60`                                      | How often windows are closed and the recap schedule is checked            |
+| `STATE_FILE`                | no       | empty                                     | Path to persist windows across restarts. Needs a mounted disk             |
+| `TRACE_LOGS`                | no       | `false`                                   | Structured request and validation diagnostics                             |
 
 `CLICKSTACK_WEBHOOK_SECRET` uses `generateValue: true` in the Blueprint, so
 Render generates it. Read it from the Render dashboard and paste it into the
@@ -287,10 +299,36 @@ real timer.
 
 Two properties there are easy to break silently and are covered deliberately:
 twenty concurrent deliveries for one signature must produce exactly one
-message, and a sweep racing a delivery must not double-post a recap. The
-`verifyInvariants` helper additionally checks every message the relay emitted
-in a run for balanced HTML, escaped ampersands, the 4096-character limit and
-send ordering against the fake clock.
+message, and sweeps racing each other must not double-post the daily recap.
+The second one is not theoretical — it caught a real double-post while the
+recap was being written, because `nextRecapAt` only advances once the send
+resolves. The `verifyInvariants` helper additionally checks every message the
+relay emitted in a run for balanced HTML, escaped ampersands, the
+4096-character limit and send ordering against the fake clock.
+
+## Measuring against production
+
+[`scripts/simulate.ts`](./scripts/simulate.ts) replays real ClickStack error
+logs through the real relay and prints the messages the chat would have
+received. Nothing is reimplemented: it reconstructs ClickStack's per-minute
+evaluations and webhook bodies, then feeds them to `AlertRelay` with the
+production analyzer, formatter and sender, capturing at the Telegram boundary.
+
+```sh
+bun scripts/simulate.ts                                  # last 24h
+bun scripts/simulate.ts --hours 168 --quiet              # a week, counts only
+bun scripts/simulate.ts --cooldown 21600                 # try a 6h window
+bun scripts/simulate.ts --recap-at 09:00                 # move the recap
+```
+
+It reads ClickStack through the MCP endpoint configured for Claude Code
+(`~/.claude.json`), or `CLICKSTACK_MCP_URL` and `CLICKSTACK_MCP_TOKEN`. That
+endpoint silently trims large results, so the script checks the trim flag and
+halves the range until each slice comes back whole — an untrimmed fetch is the
+difference between a reality check and an unrepresentative sample.
+
+Use it before changing any noise-related default. The removal of the per-window
+recap was decided this way.
 
 ## Trace logging
 
@@ -331,6 +369,7 @@ for `state`, including `INSUFFICIENT_DATA`, are valid.
 
 - `POST /webhooks/clickstack` - authenticated ClickStack webhook
 - `GET /healthz` - process and in-memory cache health, reporting open
-  `windows`, `idempotencyKeys` and `pendingDigests`. Unauthenticated, so the
+  `windows`, `idempotencyKeys`, `dailySignatures`, `dailyEvents` and
+  `nextRecapAt`. Unauthenticated, so the
   counts are read without sweeping the caches and may briefly include expired
   entries that the sweep has not yet reclaimed.

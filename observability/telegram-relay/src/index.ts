@@ -28,15 +28,16 @@ const relay = new AlertRelay(createTelegramSender(config), {
   idempotencyTtlMs: config.idempotencyTtlMs,
   maxCacheEntries: config.maxCacheEntries,
   analyze: createAlertAnalyzer(config),
-  digestEnabled: config.digestEnabled,
+  dailyRecapEnabled: config.dailyRecapEnabled,
+  dailyRecapAtMinutes: config.dailyRecapAtMinutes,
   escalationMultiplier: config.escalationMultiplier,
   restartGraceMs: config.restartGraceMs,
 });
 
 const restored = await restoreState(config, relay);
 
-// Sweeping posts the digests that closed windows owe, so it is not optional
-// bookkeeping the way the old cache eviction was.
+// Sweeping posts the restart and daily recaps when they come due, so it is not
+// optional bookkeeping the way the old cache eviction was.
 const sweepTimer = setInterval(() => {
   void sweep();
 }, config.sweepIntervalMs);

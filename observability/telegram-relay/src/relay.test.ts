@@ -19,6 +19,13 @@ const alertPayload: ClickStackWebhookPayload = {
   endTime: 2,
 };
 
+/**
+ * These tests start the clock just after the epoch, so the first scheduled
+ * recap is 06:00 UTC on the relay's first day. Advancing `now` to this is what
+ * makes the daily recap due.
+ */
+const RECAP_AT = 6 * 60 * 60 * 1000;
+
 function createRelay(
   sender: TelegramSender,
   now: () => number,
@@ -130,17 +137,13 @@ describe("AlertRelay", () => {
     }
     expect(sent).toHaveLength(1);
 
-    // Once the window closes the event is allowed through again, preceded by
-    // the recap of what the window swallowed.
+    // Once the window closes the event is allowed through again. Closing is
+    // silent: what it swallowed is reported by the daily recap, not here.
     now += 60 * 60 * 1000;
     expect(await relay.handle(alertPayload, "alert-after-cooldown")).toEqual({
       outcome: "sent",
     });
-    expect(sent.map((message) => message.kind)).toEqual([
-      "new",
-      "digest",
-      "new",
-    ]);
+    expect(sent.map((message) => message.kind)).toEqual(["new", "new"]);
     expect(sent.every((message) => message.state === "ALERT")).toBe(true);
   });
 
@@ -290,27 +293,82 @@ describe("AlertRelay windows", () => {
       });
     }
 
+    // Closing the window posts nothing at all now.
     now += 60 * 60 * 1000;
     await relay.sweep(now);
-    // A second sweep must not repeat a digest that already went out.
+    expect(sent.map((context) => context.kind)).toEqual(["new"]);
+    expect(relay.stats().windows).toBe(0);
+
+    // The counters survive the window and surface in the scheduled recap.
+    now = RECAP_AT;
+    await relay.sweep(now);
+    // A second sweep must not repeat a recap that already went out.
     await relay.sweep(now);
 
-    const digests = sent.filter((context) => context.kind === "digest");
-    expect(digests).toHaveLength(1);
-    expect(digests[0]?.window?.suppressedAlerts).toBe(3);
-    expect(digests[0]?.window?.eventCount).toBe(5);
-    expect(digests[0]?.window?.uniqueValues.wallet).toBe(2);
-    expect(relay.stats().windows).toBe(0);
+    const recaps = sent.filter((context) => context.kind === "daily");
+    expect(recaps).toHaveLength(1);
+    expect(recaps[0]?.daily?.eventCount).toBe(5);
+    expect(recaps[0]?.daily?.deliveries).toBe(4);
+    expect(recaps[0]?.daily?.alertsPosted).toBe(1);
+    expect(recaps[0]?.daily?.uniqueValues.wallet).toBe(2);
 
     const text = formatTelegramMessage(payload, {
       alertColumns: CSV_COLUMNS,
       cardinalityColumns: ["wallet"],
-      context: digests[0] as AlertContext,
+      context: recaps[0] as AlertContext,
     }).text;
-    expect(text).toContain("3 alert(s) suppressed");
-    // Only 2 of the 5 matched lines were readable, so the wallet spread has
-    // to be presented as a floor rather than a total.
-    expect(text).toContain("≥2 unique wallets");
+    expect(text).toContain("📊 Error recap");
+    expect(text).toContain("5 events");
+    expect(text).toContain("1 alert(s) posted");
+    expect(text).toContain("2 unique wallets");
+    // The frequency of the individual error, which is the point of the recap.
+    expect(text).toContain("<b>×2</b> queue transition failed");
+  });
+
+  test("counts an error that never repeated, so it still reaches the recap", async () => {
+    let now = 1_000;
+    const sent: AlertContext[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        sent.push(context);
+      },
+      () => now,
+      { analyze }
+    );
+
+    await relay.handle(
+      csvPayload("loyal-mobile", [
+        row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
+      ]),
+      "delivery-1"
+    );
+
+    now = RECAP_AT;
+    await relay.sweep(now);
+
+    const recap = sent.find((context) => context.kind === "daily");
+    expect(recap?.daily?.signatures).toHaveLength(1);
+    expect(recap?.daily?.signatures[0]?.count).toBe(1);
+    expect(recap?.daily?.signatures[0]?.headline).toBe(
+      "earn.withdrawal.prepare.failed"
+    );
+  });
+
+  test("posts no recap for a period in which nothing fired", async () => {
+    let now = 1_000;
+    const kinds: AlertMessageKind[] = [];
+    const relay = createRelay(
+      async (_payload, context) => {
+        kinds.push(context.kind);
+      },
+      () => now,
+      { analyze }
+    );
+
+    now = RECAP_AT;
+    await relay.sweep(now);
+
+    expect(kinds).toEqual([]);
   });
 
   test("closes a window silently when it suppressed nothing", async () => {
@@ -338,19 +396,19 @@ describe("AlertRelay windows", () => {
     expect(relay.stats().windows).toBe(0);
   });
 
-  test("retries a rejected digest with its counters intact", async () => {
+  test("retries a rejected recap with its counters intact", async () => {
     let now = 1_000;
     let telegramAvailable = true;
-    const digests: AlertContext[] = [];
+    const recaps: AlertContext[] = [];
     const relay = createRelay(
       async (_payload, context) => {
-        if (context.kind !== "digest") {
+        if (context.kind !== "daily") {
           return;
         }
         if (!telegramAvailable) {
           throw new Error("Telegram unavailable");
         }
-        digests.push(context);
+        recaps.push(context);
       },
       () => now,
       { analyze }
@@ -361,18 +419,24 @@ describe("AlertRelay windows", () => {
 
     await relay.handle(payload, "delivery-1");
     now += 1_000;
+    // Same evaluation range redelivered: two deliveries, but one event.
     await relay.handle(payload, "delivery-2");
 
-    now += 60 * 60 * 1000;
+    now = RECAP_AT;
     telegramAvailable = false;
     await relay.sweep(now);
-    expect(digests).toHaveLength(0);
-    expect(relay.stats().pendingDigests).toBe(1);
+    expect(recaps).toHaveLength(0);
+    // The tally is still open, so nothing it counted has been lost.
+    expect(relay.stats().dailyEvents).toBe(1);
 
     telegramAvailable = true;
     await relay.sweep(now);
-    expect(digests).toHaveLength(1);
-    expect(digests[0]?.window?.suppressedAlerts).toBe(1);
+    expect(recaps).toHaveLength(1);
+    expect(recaps[0]?.daily?.eventCount).toBe(1);
+    expect(recaps[0]?.daily?.deliveries).toBe(2);
+
+    // Once delivered the tally resets rather than double-reporting tomorrow.
+    expect(relay.stats().dailyEvents).toBe(0);
   });
 
   test("collapses one incident that ClickStack split across groups", async () => {

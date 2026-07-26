@@ -100,6 +100,13 @@ projects:
                 sync: false
               - key: COOLDOWN_SECONDS
                 value: "3600"
+              # Windows close silently. Everything they counted is reported
+              # once a day instead, as one message listing each distinct error
+              # with how often it fired. 06:00 UTC is 11:00 for the team.
+              # Without a mounted disk and STATE_FILE, a deploy resets the
+              # running tally, so the next recap covers only the time since.
+              - key: DAILY_RECAP_AT
+                value: "06:00"
               # Must match the saved search `select`, in order. A mismatch is
               # not fatal but costs the formatting: the relay falls back to
               # forwarding ClickStack's raw CSV. The `wallet` column is added
