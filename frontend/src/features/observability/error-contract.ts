@@ -1,3 +1,11 @@
+import {
+  type BrowserChunkDiagnostics,
+  isBrowserChunkUrlFromOrigin,
+  isBrowserClientBuildId,
+  isBrowserPageSessionId,
+  normalizeBrowserChunkDiagnostics,
+} from "./chunk-load-contract";
+
 export const OBSERVABILITY_ERROR_ENDPOINT = "/api/observability/errors";
 
 export const MAX_OBSERVABILITY_REQUEST_BYTES = 16 * 1024;
@@ -63,13 +71,23 @@ export type ServerErrorOperation = "next.request.error";
 
 export type ObservabilityRuntime = "browser" | "mobile" | "node";
 
+export type BrowserErrorDiagnostics = BrowserChunkDiagnostics;
+
 export type BrowserErrorEnvelope = {
+  clientBuildId?: string;
+  diagnostics?: BrowserErrorDiagnostics;
   message: string;
   name: string;
   operation: BrowserErrorOperation;
+  pageSessionId?: string;
   pathname: string;
   stack?: string;
   timestamp: string;
+};
+
+export type ParseBrowserErrorEnvelopeOptions = {
+  expectedChunkOrigin: string;
+  now?: number;
 };
 
 // Mobile envelopes carry their own release/environment: the app fleet mixes
@@ -87,6 +105,8 @@ export type MobileErrorEnvelope = {
 };
 
 export type NormalizedErrorEvent = {
+  browserDiagnostics?: BrowserErrorDiagnostics;
+  clientBuildId?: string;
   deploymentEnvironment: string;
   exception: {
     message: string;
@@ -94,7 +114,11 @@ export type NormalizedErrorEvent = {
     stack?: string;
   };
   method?: string;
-  operation: BrowserErrorOperation | MobileErrorOperation | ServerErrorOperation;
+  operation:
+    | BrowserErrorOperation
+    | MobileErrorOperation
+    | ServerErrorOperation;
+  pageSessionId?: string;
   pathname: string;
   release: string;
   runtime: ObservabilityRuntime;
@@ -193,7 +217,10 @@ export function createBrowserErrorEnvelope(
   error: unknown,
   operation: BrowserErrorOperation,
   options: {
+    clientBuildId?: string;
+    diagnostics?: BrowserErrorDiagnostics;
     now?: Date;
+    pageSessionId?: string;
     pathname?: string;
   } = {}
 ): BrowserErrorEnvelope {
@@ -202,10 +229,25 @@ export function createBrowserErrorEnvelope(
     options.pathname ??
       (typeof window === "undefined" ? "/" : window.location.pathname)
   );
+  const clientBuildId =
+    options.clientBuildId && isBrowserClientBuildId(options.clientBuildId)
+      ? options.clientBuildId
+      : null;
+  const pageSessionId =
+    options.pageSessionId && isBrowserPageSessionId(options.pageSessionId)
+      ? options.pageSessionId
+      : null;
+  const diagnostics = options.diagnostics
+    ? normalizeBrowserChunkDiagnostics(options.diagnostics) ?? undefined
+    : undefined;
+  const hasClientContext = Boolean(clientBuildId && pageSessionId);
 
   return {
     ...normalizedError,
+    ...(hasClientContext && clientBuildId ? { clientBuildId } : {}),
+    ...(hasClientContext && diagnostics ? { diagnostics } : {}),
     operation,
+    ...(hasClientContext && pageSessionId ? { pageSessionId } : {}),
     pathname: pathname ?? "/",
     timestamp: (options.now ?? new Date()).toISOString(),
   };
@@ -350,7 +392,7 @@ function parseCommonErrorEnvelopeFields(
 
 export function parseBrowserErrorEnvelope(
   value: unknown,
-  now = Date.now()
+  options: ParseBrowserErrorEnvelopeOptions
 ): BrowserErrorEnvelope {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new InvalidObservabilityEnvelopeError();
@@ -358,9 +400,12 @@ export function parseBrowserErrorEnvelope(
 
   const record = value as Record<string, unknown>;
   const allowedKeys = new Set([
+    "clientBuildId",
+    "diagnostics",
     "message",
     "name",
     "operation",
+    "pageSessionId",
     "pathname",
     "stack",
     "timestamp",
@@ -373,9 +418,94 @@ export function parseBrowserErrorEnvelope(
     throw new InvalidObservabilityEnvelopeError();
   }
 
+  const clientContext = readBrowserClientContext(
+    record,
+    options.expectedChunkOrigin
+  );
+
   return {
-    ...parseCommonErrorEnvelopeFields(record, now),
+    ...parseCommonErrorEnvelopeFields(record, options.now ?? Date.now()),
+    ...(clientContext.clientBuildId
+      ? { clientBuildId: clientContext.clientBuildId }
+      : {}),
+    ...(clientContext.diagnostics
+      ? { diagnostics: clientContext.diagnostics }
+      : {}),
     operation: record.operation,
+    ...(clientContext.pageSessionId
+      ? { pageSessionId: clientContext.pageSessionId }
+      : {}),
+  };
+}
+
+/**
+ * The chunk-load context is diagnostic enrichment, not the report itself.
+ * Rejecting the whole envelope over it would drop the very ChunkLoadError we
+ * need, so anything that fails validation is dropped and the error still
+ * reaches ClickStack. Required envelope fields stay strictly validated.
+ */
+function readBrowserClientContext(
+  record: Record<string, unknown>,
+  expectedChunkOrigin: string
+): {
+  clientBuildId?: string;
+  diagnostics?: BrowserErrorDiagnostics;
+  pageSessionId?: string;
+} {
+  const { clientBuildId, diagnostics: rawDiagnostics, pageSessionId } = record;
+  if (
+    typeof clientBuildId !== "string" ||
+    !isBrowserClientBuildId(clientBuildId) ||
+    typeof pageSessionId !== "string" ||
+    !isBrowserPageSessionId(pageSessionId)
+  ) {
+    return {};
+  }
+
+  const diagnostics =
+    rawDiagnostics === undefined
+      ? undefined
+      : normalizeBrowserChunkDiagnostics(rawDiagnostics) ?? undefined;
+
+  return {
+    clientBuildId,
+    ...(diagnostics &&
+    isBrowserChunkUrlFromOrigin(diagnostics.chunkUrl, expectedChunkOrigin)
+      ? { diagnostics }
+      : {}),
+    pageSessionId,
+  };
+}
+
+export function createNormalizedBrowserErrorEvent(
+  envelope: BrowserErrorEnvelope,
+  context: {
+    deploymentEnvironment: string;
+    serverRelease: string;
+  }
+): NormalizedErrorEvent {
+  return {
+    ...(envelope.diagnostics
+      ? { browserDiagnostics: envelope.diagnostics }
+      : {}),
+    ...(envelope.clientBuildId
+      ? { clientBuildId: envelope.clientBuildId }
+      : {}),
+    deploymentEnvironment: context.deploymentEnvironment,
+    exception: {
+      message: envelope.message,
+      name: envelope.name,
+      ...(envelope.stack ? { stack: envelope.stack } : {}),
+    },
+    operation: envelope.operation,
+    ...(envelope.pageSessionId
+      ? { pageSessionId: envelope.pageSessionId }
+      : {}),
+    pathname: envelope.pathname,
+    release: context.serverRelease,
+    runtime: "browser",
+    serviceName: "loyal-frontend",
+    timestamp: envelope.timestamp,
   };
 }
 

@@ -5,6 +5,7 @@ export type OtlpAttribute = {
   key: string;
   value:
     | { boolValue: boolean }
+    | { doubleValue: number }
     | { intValue: string }
     | { stringValue: string };
 };
@@ -15,6 +16,10 @@ function stringAttribute(key: string, value: string): OtlpAttribute {
 
 function intAttribute(key: string, value: number): OtlpAttribute {
   return { key, value: { intValue: String(value) } };
+}
+
+function doubleAttribute(key: string, value: number): OtlpAttribute {
+  return { key, value: { doubleValue: value } };
 }
 
 function boolAttribute(key: string, value: boolean): OtlpAttribute {
@@ -41,6 +46,59 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
   }
   if (event.method) {
     attributes.push(stringAttribute("http.request.method", event.method));
+  }
+  if (event.clientBuildId) {
+    attributes.push(
+      stringAttribute("loyal.client.build_id", event.clientBuildId)
+    );
+  }
+  if (event.pageSessionId) {
+    attributes.push(
+      stringAttribute("loyal.page_session.id", event.pageSessionId)
+    );
+  }
+  const diagnostics = event.browserDiagnostics;
+  if (diagnostics) {
+    attributes.push(stringAttribute("loyal.chunk.url", diagnostics.chunkUrl));
+    attributes.push(boolAttribute("network.online", diagnostics.networkOnline));
+
+    if (diagnostics.recoveryAction !== undefined) {
+      attributes.push(
+        stringAttribute(
+          "loyal.chunk.recovery_action",
+          diagnostics.recoveryAction
+        )
+      );
+    }
+
+    if (diagnostics.connectionEffectiveType !== undefined) {
+      attributes.push(
+        stringAttribute(
+          "network.connection.effective_type",
+          diagnostics.connectionEffectiveType
+        )
+      );
+    }
+
+    const integers: Array<[string, number | undefined]> = [
+      ["network.connection.rtt_ms", diagnostics.connectionRttMs],
+      ["loyal.resource.response_status", diagnostics.resourceResponseStatus],
+      ["loyal.resource.transfer_size", diagnostics.resourceTransferSize],
+    ];
+    for (const [key, value] of integers) {
+      if (value !== undefined) {
+        attributes.push(intAttribute(key, value));
+      }
+    }
+
+    if (diagnostics.resourceDurationMs !== undefined) {
+      attributes.push(
+        doubleAttribute(
+          "loyal.resource.duration_ms",
+          diagnostics.resourceDurationMs
+        )
+      );
+    }
   }
 
   const timeUnixNano = toUnixNano(event.timestamp);

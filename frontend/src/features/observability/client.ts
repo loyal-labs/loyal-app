@@ -1,9 +1,17 @@
 "use client";
 
+import type { BrowserChunkRecoveryAction } from "./chunk-load-contract";
 import {
+  inspectBrowserChunkLoadError,
+  planBrowserChunkRecovery,
+  recoverBrowserChunkLoadErrorOnce,
+} from "./chunk-load-recovery";
+import {
+  type BrowserErrorEnvelope,
   type BrowserErrorOperation,
   createBrowserErrorEnvelope,
   createErrorDeduplicator,
+  type ErrorDeduplicator,
   isThirdPartyExtensionError,
   OBSERVABILITY_ERROR_ENDPOINT,
 } from "./error-contract";
@@ -17,7 +25,11 @@ import {
 } from "./lifecycle-contract";
 
 const CLIENT_REPORT_TIMEOUT_MS = 1250;
-const errorDeduplicator = createErrorDeduplicator();
+const CLIENT_BUILD_ID = process.env.NEXT_PUBLIC_GIT_COMMIT_HASH ?? "unknown";
+
+export type BrowserErrorProcessor = {
+  process: (error: unknown, operation: BrowserErrorOperation) => Promise<void>;
+};
 
 declare global {
   interface Window {
@@ -25,9 +37,7 @@ declare global {
   }
 }
 
-async function postBrowserError(
-  envelope: ReturnType<typeof createBrowserErrorEnvelope>
-): Promise<void> {
+async function postBrowserError(envelope: BrowserErrorEnvelope): Promise<void> {
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(),
@@ -108,20 +118,72 @@ export function lifecycleFlowHeaders(flowId: string): HeadersInit {
   return { "x-loyal-flow-id": flowId };
 }
 
+function withChunkRecoveryAction(
+  envelope: BrowserErrorEnvelope,
+  recoveryAction: BrowserChunkRecoveryAction
+): BrowserErrorEnvelope {
+  return envelope.diagnostics
+    ? { ...envelope, diagnostics: { ...envelope.diagnostics, recoveryAction } }
+    : envelope;
+}
+
+export function createBrowserErrorProcessor(
+  options: {
+    deduplicator?: ErrorDeduplicator;
+  } = {}
+): BrowserErrorProcessor {
+  const deduplicator = options.deduplicator ?? createErrorDeduplicator();
+
+  return {
+    process: async (error, operation) => {
+      try {
+        const chunkFailure = inspectBrowserChunkLoadError(
+          error,
+          CLIENT_BUILD_ID
+        );
+        const captured = createBrowserErrorEnvelope(error, operation, {
+          ...(chunkFailure?.telemetry ?? {}),
+        });
+        if (isThirdPartyExtensionError(captured.operation, captured.stack)) {
+          return;
+        }
+        if (deduplicator.isDuplicate(captured)) {
+          return;
+        }
+
+        // Planned only after the drop checks: a suppressed duplicate must not
+        // consume one of the bounded recovery attempts.
+        const action = chunkFailure
+          ? planBrowserChunkRecovery(chunkFailure.chunkUrl)
+          : undefined;
+        const envelope = action
+          ? withChunkRecoveryAction(captured, action)
+          : captured;
+
+        const reportPromise = postBrowserError(envelope);
+        if (
+          action &&
+          (await recoverBrowserChunkLoadErrorOnce(reportPromise, action))
+        ) {
+          return;
+        }
+
+        await reportPromise;
+      } catch {
+        // Error capture and recovery must never affect the user flow.
+      }
+    },
+  };
+}
+
+const browserErrorProcessor = createBrowserErrorProcessor();
+
 export function captureBrowserError(
   error: unknown,
   operation: BrowserErrorOperation
 ): void {
   try {
-    const envelope = createBrowserErrorEnvelope(error, operation);
-    if (isThirdPartyExtensionError(envelope.operation, envelope.stack)) {
-      return;
-    }
-    if (errorDeduplicator.isDuplicate(envelope)) {
-      return;
-    }
-
-    void postBrowserError(envelope).catch(() => undefined);
+    void browserErrorProcessor.process(error, operation).catch(() => undefined);
   } catch {
     // Error capture itself is never allowed to throw.
   }

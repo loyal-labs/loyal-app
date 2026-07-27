@@ -28,6 +28,10 @@ const forbidden = {
 };
 
 const now = new Date("2026-07-15T20:00:00.000Z");
+const browserEnvelopeOptions = {
+  expectedChunkOrigin: "https://askloyal.com",
+  now: now.getTime(),
+};
 const rawError = new Error(
   `Request failed at https://api.example.test/path?token=${forbidden.query}` +
     ` Authorization: Bearer ${forbidden.bearer}` +
@@ -56,15 +60,17 @@ for (const marker of Object.values(forbidden)) {
     `sanitized envelope retained forbidden marker ${marker}`
   );
 }
-pass("normalization strips query/hash, redacts sensitive identifiers, and truncates fields");
+pass(
+  "normalization strips query/hash, redacts sensitive identifiers, and truncates fields"
+);
 
-const parsed = parseBrowserErrorEnvelope(envelope, now.getTime());
+const parsed = parseBrowserErrorEnvelope(envelope, browserEnvelopeOptions);
 assert.deepEqual(parsed, envelope);
 assert.throws(
   () =>
     parseBrowserErrorEnvelope(
       { ...envelope, arbitraryContext: { secret: forbidden.apiKey } },
-      now.getTime()
+      browserEnvelopeOptions
     ),
   /Invalid observability error envelope/
 );
@@ -72,7 +78,7 @@ assert.throws(
   () =>
     parseBrowserErrorEnvelope(
       { ...envelope, operation: "arbitrary.operation" },
-      now.getTime()
+      browserEnvelopeOptions
     ),
   /Invalid observability error envelope/
 );
@@ -80,7 +86,7 @@ assert.throws(
   () =>
     parseBrowserErrorEnvelope(
       { ...envelope, timestamp: "2026-07-15T18:00:00.000Z" },
-      now.getTime()
+      browserEnvelopeOptions
     ),
   /Invalid observability error envelope/
 );
@@ -124,7 +130,10 @@ for (const required of [
   "severityNumber",
   "timeUnixNano",
 ]) {
-  assert.ok(serializedPayload.includes(required), `OTLP payload lacks ${required}`);
+  assert.ok(
+    serializedPayload.includes(required),
+    `OTLP payload lacks ${required}`
+  );
 }
 for (const marker of Object.values(forbidden)) {
   assert.ok(
@@ -132,7 +141,9 @@ for (const marker of Object.values(forbidden)) {
     `OTLP payload retained forbidden marker ${marker}`
   );
 }
-pass("OTLP payload contains fixed resource/error fields and no forbidden markers");
+pass(
+  "OTLP payload contains fixed resource/error fields and no forbidden markers"
+);
 
 const listeners = new Map<string, (event: unknown) => void>();
 let fetchAttempts = 0;
@@ -174,14 +185,14 @@ listeners.get("unhandledrejection")?.({
 });
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(fetchAttempts, 3);
-pass("client capture and both global listeners stay non-throwing when transport fails");
+pass(
+  "client capture and both global listeners stay non-throwing when transport fails"
+);
 
 const clientSource = read("src/features/observability/client.ts");
 const serverSource = read("src/features/observability/server.ts");
 const routeSource = read("src/app/api/observability/errors/route.ts");
-const rateLimitSource = read(
-  "src/features/observability/rate-limit.server.ts"
-);
+const rateLimitSource = read("src/features/observability/rate-limit.server.ts");
 const serverInstrumentation = read("src/instrumentation.ts");
 const clientInstrumentation = read("src/instrumentation-client.ts");
 const appBoundary = read("src/app/error.tsx");
@@ -189,7 +200,11 @@ const globalBoundary = read("src/app/global-error.tsx");
 const earnSource = read("src/hooks/use-smart-account-sidebar-data.ts");
 
 assert.match(clientSource, /catch \{[\s\S]*best-effort/);
-assert.match(clientSource, /void postBrowserError\(envelope\)\.catch/);
+assert.match(
+  clientSource,
+  /const reportPromise = postBrowserError\(envelope\)/
+);
+assert.match(clientSource, /void browserErrorProcessor\.process/);
 assert.match(clientSource, /__loyalObservabilityListenersInstalled__/);
 assert.match(clientSource, /"error"/);
 assert.match(clientSource, /"unhandledrejection"/);
@@ -203,7 +218,9 @@ assert.ok(Number(timeoutMatch[1]) <= 1500);
 assert.match(serverSource, /catch \{\s*return false;/);
 assert.doesNotMatch(serverSource, /NEXT_PUBLIC_[A-Z_]*(?:KEY|TOKEN)/);
 assert.match(serverSource, /authorization: config\.ingestionKey/);
-pass("server export is <=1500 ms, fail-open, and keeps credentials server-only");
+pass(
+  "server export is <=1500 ms, fail-open, and keeps credentials server-only"
+);
 
 assert.match(routeSource, /isSameOriginRequest/);
 assert.match(routeSource, /application\/json/);
@@ -213,14 +230,13 @@ assert.match(routeSource, /return jsonResponse\(\{ accepted: true \}, 202\)/);
 assert.match(rateLimitSource, /MAX_REPORTS_PER_WINDOW\s*=\s*20/);
 assert.match(rateLimitSource, /MAX_TRACKED_SOURCES\s*=\s*1024/);
 assert.match(rateLimitSource, /createHash\("sha256"\)/);
-pass("same-origin relay enforces JSON, actual bytes, bounded hashed-source rate limiting, and 202 fail-open semantics");
+pass(
+  "same-origin relay enforces JSON, actual bytes, bounded hashed-source rate limiting, and 202 fail-open semantics"
+);
 
 assert.match(serverInstrumentation, /reportServerError/);
 assert.match(serverInstrumentation, /context\.routePath \?\? request\.path/);
-assert.doesNotMatch(
-  serverInstrumentation,
-  /request\.(?:headers|body|cookies)/
-);
+assert.doesNotMatch(serverInstrumentation, /request\.(?:headers|body|cookies)/);
 assert.match(appBoundary, /"react\.error_boundary"/);
 assert.match(appBoundary, /onClick=\{reset\}/);
 assert.match(globalBoundary, /"react\.global_error_boundary"/);
@@ -258,4 +274,4 @@ for (const prohibited of [
 }
 pass("observability wiring does not serialize prohibited app context");
 
-console.info("OBSERVABILITY_FRONTEND_VERIFIER_RESULT {\"status\":\"pass\"}");
+console.info('OBSERVABILITY_FRONTEND_VERIFIER_RESULT {"status":"pass"}');
