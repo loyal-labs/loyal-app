@@ -11,6 +11,7 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { CryptoPage } from "@/components/wallet-workspace/facelift/crypto-page";
 import { DepositPane } from "@/components/wallet-workspace/facelift/deposit-pane";
+import { EarnApprovalSheet } from "@/components/wallet-workspace/facelift/earn-approval-sheet";
 import {
   EarnChartPane,
   type ChartTab,
@@ -139,6 +140,9 @@ export function WorkspaceFaceliftShell() {
           onReady={earnData.actions.closeReconnectPrompt}
           open={earnData.actions.isReconnectPromptOpen}
         />
+        {/* OG-style approval review for Earn deposit/withdraw/autodeposit —
+            flows park between prepare and sign until the user responds. */}
+        <EarnApprovalSheet approval={earnData.actions.pendingApproval} />
         <FaceliftSidebar
           activePage={activePage}
           earnBalanceUsd={earnData.earnBalanceUsd}

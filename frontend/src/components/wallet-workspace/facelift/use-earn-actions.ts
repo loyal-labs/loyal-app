@@ -20,7 +20,9 @@ import {
   type SetStateAction,
 } from "react";
 
+import type { ApprovalReviewDisplayItem } from "@/components/wallet-sidebar/approval-review-content";
 import type {
+  EarnAutodepositDraft,
   EarnDepositDraft,
   EarnDepositSourceOption,
   EarnWithdrawDraft,
@@ -28,6 +30,10 @@ import type {
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
   advanceEarnDepositReviewStage,
+  buildEarnAutodepositCloseReviewItem,
+  buildEarnAutodepositSetupReviewItem,
+  buildEarnDepositReviewItem,
+  buildEarnWithdrawReviewItem,
   createSubmittedEarnDepositReviewState,
   getNextEarnWithdrawReviewStage,
   type EarnWithdrawReviewStage,
@@ -152,6 +158,7 @@ export type EarnActions = {
   isReconnectPromptOpen: boolean;
   isWithdrawPending: boolean;
   mainUsdcAmount: number | null;
+  pendingApproval: PendingEarnApproval | null;
   requestAutodepositClose: () => void;
   runCleanup: () => Promise<boolean>;
   saveAutodeposit: (keepAmountLabel: string) => Promise<boolean>;
@@ -165,11 +172,20 @@ export type EarnActions = {
   withdrawSources: EarnWithdrawSourceOption[];
 };
 
+// The OG right-pane review restored as a modal gate: a flow parks here after
+// prepare and awaits the user's Approve/Reject before signing.
+export type PendingEarnApproval = {
+  approve: () => void;
+  item: ApprovalReviewDisplayItem;
+  reject: () => void;
+};
+
 // The old workspace's Earn mutation orchestration (app-wallet-workspace.tsx
 // handlers) rebuilt for the facelift panes. Every executor call, precondition,
 // optimistic update, observability event and refresh registration mirrors the
 // monolith; the one structural change is that the review overlay's
-// "Continue" clicks are auto-chained — the wallet still prompts per signature.
+// per-stage "Continue" clicks are auto-chained after a single up-front
+// approval gate — the wallet still prompts per signature.
 export function useEarnActions(deps: {
   autodepositConfig: EarnAutodepositConfigView | null;
   hasPosition: boolean;
@@ -217,6 +233,28 @@ export function useEarnActions(deps: {
     Boolean(authenticatedWalletAddress) &&
     connectedWalletAddress === authenticatedWalletAddress;
   const [isReconnectPromptOpen, setIsReconnectPromptOpen] = useState(false);
+
+  // Approval gate: flows await the resolved promise between prepare and
+  // sign; the shell renders the sheet from this state.
+  const [pendingApproval, setPendingApproval] =
+    useState<PendingEarnApproval | null>(null);
+  const requestApproval = useCallback(
+    (item: ApprovalReviewDisplayItem) =>
+      new Promise<boolean>((resolve) => {
+        setPendingApproval({
+          approve: () => {
+            setPendingApproval(null);
+            resolve(true);
+          },
+          item,
+          reject: () => {
+            setPendingApproval(null);
+            resolve(false);
+          },
+        });
+      }),
+    []
+  );
   const ensureCanSignAccountAction = useCallback(() => {
     if (!authenticatedWalletAddress) {
       openSignIn();
@@ -965,8 +1003,24 @@ export function useEarnActions(deps: {
           !preparedDeposit.policyFinalizePrepared;
         tracker.observe("review", {
           policyMode: requiresPolicySetup ? "create" : "reuse",
-          reviewBypassed: shouldBypassTopUpPreview,
+          reviewBypassed: false,
         });
+
+        // Every deposit gates on the approval sheet — including top-ups the
+        // OG used to fast-path (shouldBypassTopUpPreview still picks the
+        // single-execute path below).
+        const approved = await requestApproval(
+          buildEarnDepositReviewItem({
+            draft,
+            isPolicySetupFlow: requiresPolicySetup,
+            preparedDeposit,
+            showBatchTransactions: Boolean(wallet.signAllTransactions),
+          })
+        );
+        if (!approved) {
+          tracker.cancel("review", { errorCode: "wallet_rejected" });
+          return false;
+        }
 
         if (!ensureCanSignAccountAction()) {
           return false;
@@ -1208,9 +1262,11 @@ export function useEarnActions(deps: {
       openSignIn,
       prepareEarnDepositInBrowser,
       registerExpectedEarnMutation,
+      requestApproval,
       setPosition,
       smartAccountData,
       suppressPositionRefreshThroughSlot,
+      wallet.signAllTransactions,
     ]
   );
 
@@ -1240,6 +1296,26 @@ export function useEarnActions(deps: {
         const shouldBypassWithdrawPreview =
           draft.mode === "partial" &&
           !preparedWithdraw.autodepositClosePrepared;
+
+        // Every withdrawal gates on the approval sheet — including simple
+        // partials the OG used to fast-path (shouldBypassWithdrawPreview
+        // still picks the unstaged execution path below).
+        const approved = await requestApproval(
+          buildEarnWithdrawReviewItem({
+            draft,
+            hasAutodepositTeardown: Boolean(
+              preparedWithdraw.autodepositClosePrepared
+            ),
+            preparedWithdraw,
+          })
+        );
+        if (!approved) {
+          tracker.cancel("wallet_submit_confirm", {
+            errorCode: "wallet_rejected",
+          });
+          withdrawTrackerRef.current = null;
+          return false;
+        }
 
         if (!ensureCanSignAccountAction()) {
           return false;
@@ -1460,6 +1536,7 @@ export function useEarnActions(deps: {
       ensureCanSignAccountAction,
       prepareEarnWithdrawInBrowser,
       registerExpectedEarnMutation,
+      requestApproval,
       setAutodepositOverride,
       setPosition,
       smartAccountData,
@@ -1719,6 +1796,29 @@ export function useEarnActions(deps: {
       autodepositTrackerRef.current = tracker;
       tracker.start("intent");
       tracker.observe("prepare");
+
+      const setupReviewDraft: EarnAutodepositDraft = {
+        amount: Number(amountLabel.replace(/,/g, "")) || 0,
+        amountLabel,
+        amountChanged,
+        keepAmount: normalizedKeepAmount,
+        keepAmountChanged,
+        keepAmountLabel: keepAmountLabel || "0",
+        nonce: draftNonce,
+        requiresSignature: true,
+        source,
+        symbol: "USDC",
+        tokenDecimals: source.decimals,
+      };
+      const setupApproved = await requestApproval(
+        buildEarnAutodepositSetupReviewItem({ draft: setupReviewDraft })
+      );
+      if (!setupApproved) {
+        tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
+        autodepositTrackerRef.current = null;
+        return false;
+      }
+
       setAutodepositOverride({
         config: previousConfig
           ? { ...previousConfig, state: "creating" }
@@ -1879,6 +1979,7 @@ export function useEarnActions(deps: {
       ensureCanSignAccountAction,
       openSignIn,
       registerExpectedEarnMutation,
+      requestApproval,
       setAutodepositOverride,
       smartAccountData,
     ]
@@ -1953,6 +2054,19 @@ export function useEarnActions(deps: {
     autodepositTrackerRef.current = tracker;
     tracker.start("intent");
     tracker.observe("prepare");
+
+    const closeApproved = await requestApproval(
+      buildEarnAutodepositCloseReviewItem({
+        amountLabel: config.amount,
+        preparedClose: autodepositClosePreparedRef.current,
+      })
+    );
+    if (!closeApproved) {
+      tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
+      autodepositTrackerRef.current = null;
+      return false;
+    }
+
     setAutodepositError(null);
     setAutodepositOverride({ config: { ...config, state: "closing" } });
     setIsAutodepositPending(true);
@@ -2015,6 +2129,7 @@ export function useEarnActions(deps: {
     autodepositConfig,
     ensureCanSignAccountAction,
     registerExpectedEarnMutation,
+    requestApproval,
     setAutodepositOverride,
     smartAccountData,
   ]);
@@ -2135,6 +2250,7 @@ export function useEarnActions(deps: {
     isReconnectPromptOpen,
     isWithdrawPending,
     mainUsdcAmount: mainUsdc.amount,
+    pendingApproval,
     requestAutodepositClose,
     runCleanup,
     saveAutodeposit,
