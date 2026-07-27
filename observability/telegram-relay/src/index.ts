@@ -30,14 +30,12 @@ const relay = new AlertRelay(createTelegramSender(config), {
   analyze: createAlertAnalyzer(config),
   dailyRecapEnabled: config.dailyRecapEnabled,
   dailyRecapAtMinutes: config.dailyRecapAtMinutes,
-  escalationMultiplier: config.escalationMultiplier,
-  restartGraceMs: config.restartGraceMs,
 });
 
 const restored = await restoreState(config, relay);
 
-// Sweeping posts the restart and daily recaps when they come due, so it is not
-// optional bookkeeping the way the old cache eviction was.
+// Sweeping posts the daily recap when it comes due, so it is not optional
+// bookkeeping the way the old cache eviction was.
 const sweepTimer = setInterval(() => {
   void sweep();
 }, config.sweepIntervalMs);
@@ -49,9 +47,9 @@ async function sweep(): Promise<void> {
 }
 
 /**
- * Window state is in-process, so a deploy would otherwise re-alert everything
- * that is still firing. With no `STATE_FILE` the relay falls back to the
- * restart grace period, which folds that burst into a single message.
+ * Window state is in-process, so without `STATE_FILE` a deploy re-alerts
+ * everything that is still firing: ClickStack replays every live alert within
+ * seconds, and an empty window map treats each replay as a first delivery.
  */
 async function restoreState(
   serverConfig: ServerConfig,
@@ -124,7 +122,6 @@ console.info(
     url: server.url.toString(),
     webhookPath: "/webhooks/clickstack",
     cooldownSeconds: config.cooldownMs / 1000,
-    restartGraceSeconds: config.restartGraceMs / 1000,
     restoredWindows: restored,
   })
 );

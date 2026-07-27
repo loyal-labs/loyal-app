@@ -14,8 +14,8 @@ import { AlertRelay, type PersistedState } from "./relay.ts";
  * sender, and is captured at the Telegram Bot API boundary. Nothing between
  * those two ends is stubbed.
  *
- * Time is injected everywhere. Windows, the idempotency TTL and the restart
- * grace period all read the fake clock, so a code path that reached for
+ * Time is injected everywhere. Windows, the idempotency TTL and the recap
+ * schedule all read the fake clock, so a code path that reached for
  * `Date.now()` would render timestamps these assertions do not expect, and
  * `sleep` is a no-op recorder so a backoff cannot hide behind a slow test.
  */
@@ -69,10 +69,6 @@ function createSystem(options: SystemOptions = {}) {
     TELEGRAM_CHAT_ID: "-1001234567890",
     ALERT_COLUMNS: ALERT_COLUMNS.join(","),
     CARDINALITY_COLUMNS: "wallet",
-    // A fresh process is a restart, so the shipped default holds the first
-    // alerts for two minutes. Tests opt into that explicitly; everything else
-    // starts past it so the assertions are about the behavior under test.
-    RESTART_GRACE_SECONDS: "0",
     ...options.env,
   });
 
@@ -111,8 +107,6 @@ function createSystem(options: SystemOptions = {}) {
     analyze: createAlertAnalyzer(config),
     dailyRecapEnabled: config.dailyRecapEnabled,
     dailyRecapAtMinutes: config.dailyRecapAtMinutes,
-    escalationMultiplier: config.escalationMultiplier,
-    restartGraceMs: config.restartGraceMs,
     startedAt: startAt,
   });
 
@@ -248,10 +242,6 @@ function recapAfter(from: number, atMinutes: number): number {
   return candidate > from ? candidate : candidate + 24 * 60 * MINUTE;
 }
 
-function clockString(epochMs: number): string {
-  return new Date(epochMs).toISOString().slice(11, 19);
-}
-
 /**
  * Invariants that must hold for every message the relay emits, checked across
  * the whole run rather than per assertion. These catch what a content-only
@@ -369,8 +359,9 @@ describe("relay end to end", () => {
     ).toBe("suppressed");
     expect(system.calls).toHaveLength(1);
 
-    // --- Escalation breaks the window when volume explodes ---------------
-    // The opening delivery reported 6 events, so ×10 is due past 60.
+    // --- Volume exploding is counted, not announced ----------------------
+    // The opening delivery reported 6 events; 80 is the same incident getting
+    // worse, and it stays inside the window until the recap reports it.
     system.advance(MINUTE);
     expect(
       await outcomeOf(
@@ -380,15 +371,7 @@ describe("relay end to end", () => {
         )
       )
     ).toBe("suppressed");
-
-    expect(system.calls).toHaveLength(2);
-    const escalation = system.calls[1]!;
-    expect(escalation.silent).toBe(false);
-    expect(escalation.text).toContain('📈 Escalating · Alert for "Errors"');
-    expect(escalation.text).toContain(
-      `80 events since ${clockString(START)} UTC`
-    );
-    expect(escalation.text).toContain("3 alert(s) suppressed so far");
+    expect(system.calls).toHaveLength(1);
 
     // --- The incident stays quiet for the rest of the period -------------
     // The window runs to the recap, not to the cooldown, so an hour in the
@@ -401,13 +384,13 @@ describe("relay end to end", () => {
     expect(await outcomeOf(await system.post(payload, "d-4"))).toBe(
       "suppressed"
     );
-    expect(system.calls).toHaveLength(2);
+    expect(system.calls).toHaveLength(1);
     expect(system.relay.stats().windows).toBe(1);
 
     // --- The window closes on its boundary, and says nothing -------------
     system.advanceTo(expiresAt - 1);
     await system.sweep();
-    expect(system.calls).toHaveLength(2);
+    expect(system.calls).toHaveLength(1);
     expect(system.relay.stats().windows).toBe(1);
 
     // --- One scheduled recap carries the whole period --------------------
@@ -417,14 +400,14 @@ describe("relay end to end", () => {
     await system.sweep();
 
     expect(system.relay.stats().windows).toBe(0);
-    expect(system.calls).toHaveLength(3);
-    const recap = system.calls[2]!;
+    expect(system.calls).toHaveLength(2);
+    const recap = system.calls[1]!;
     expect(recap.silent).toBe(true);
     expect(recap.text).toContain("📊 Error recap · last");
     // 80 from the burst; the repeated deliveries of an evaluation range
     // ClickStack had already reported are not counted again.
     expect(recap.text).toContain("80 events");
-    expect(recap.text).toContain("2 alert(s) posted");
+    expect(recap.text).toContain("1 alert(s) posted");
     expect(recap.text).toContain("≥2 unique wallets");
     expect(recap.text).toContain("<b>×4</b> earn.withdrawal.prepare.failed");
     expect(system.relay.stats().dailyEvents).toBe(0);
@@ -432,15 +415,17 @@ describe("relay end to end", () => {
     // --- The next period announces it again, once ------------------------
     system.advance(MINUTE);
     expect(await outcomeOf(await system.post(payload, "d-5"))).toBe("sent");
-    expect(system.calls).toHaveLength(4);
+    expect(system.calls).toHaveLength(3);
 
     verifyInvariants(system);
   });
 
-  test("folds a redeploy burst into one silent recap", async () => {
-    const system = createSystem({ env: { RESTART_GRACE_SECONDS: "120" } });
+  test("re-announces every live signature after a restart without a snapshot", async () => {
+    const system = createSystem();
 
     // ClickStack replays every live alert seconds after the relay comes up.
+    // With no window state there is nothing to suppress against, so each
+    // distinct signature is a first delivery and is posted.
     expect(
       await outcomeOf(
         await system.post(
@@ -448,7 +433,7 @@ describe("relay end to end", () => {
           "r-1"
         )
       )
-    ).toBe("deferred");
+    ).toBe("sent");
 
     system.advance(5_000);
     expect(
@@ -466,30 +451,12 @@ describe("relay end to end", () => {
           "r-2"
         )
       )
-    ).toBe("deferred");
+    ).toBe("sent");
 
-    // Still inside the grace period: nothing has been posted.
-    await system.sweep();
-    expect(system.calls).toHaveLength(0);
+    expect(system.calls).toHaveLength(2);
+    expect(system.calls.every((call) => call.silent)).toBe(false);
 
-    system.advance(2 * MINUTE);
-    await system.sweep();
-    await system.sweep();
-
-    expect(system.calls).toHaveLength(1);
-    const recap = system.calls[0]!;
-    expect(recap.silent).toBe(true);
-    expect(recap.text).toContain(
-      "♻️ Relay restarted · 2 alert(s) still firing"
-    );
-    expect(recap.text).toContain(
-      "loyal-mobile — earn.withdrawal.prepare.failed"
-    );
-    expect(recap.text).toContain(
-      "fleet rebalance vault position refresh failed"
-    );
-
-    // Both signatures stay muted afterwards rather than alerting again.
+    // Each is muted from then on rather than alerting on every replay.
     system.advance(MINUTE);
     expect(
       await outcomeOf(
@@ -499,7 +466,7 @@ describe("relay end to end", () => {
         )
       )
     ).toBe("suppressed");
-    expect(system.calls).toHaveLength(1);
+    expect(system.calls).toHaveLength(2);
 
     verifyInvariants(system);
   });
@@ -558,16 +525,10 @@ describe("relay end to end", () => {
     expect(await outcomeOf(await falseAck.post(payload, "d-2"))).toBe("sent");
   });
 
-  test("keeps counters when an escalation or recap is rejected", async () => {
-    let failEscalation = true;
+  test("keeps counters when the recap is rejected", async () => {
     let failRecap = true;
     const system = createSystem({
-      env: { ESCALATION_MULTIPLIER: "3" },
       reply: ({ text }) => {
-        if (text.includes("Escalating") && failEscalation) {
-          failEscalation = false;
-          return { status: 500, body: { ok: false } };
-        }
         if (text.includes("Error recap") && failRecap) {
           failRecap = false;
           return { status: 500, body: { ok: false } };
@@ -590,25 +551,8 @@ describe("relay end to end", () => {
     expect(await outcomeOf(await system.post(payload, "d-2"))).toBe(
       "suppressed"
     );
-
-    // The escalation is due here and Telegram refuses it. The webhook must
-    // still be acknowledged: the delivery is already counted, so ClickStack's
-    // retry would carry the same Idempotency-Key and be answered as a
-    // duplicate without ever resending.
     system.advance(MINUTE);
-    expect((await system.post(burst, "d-3")).status).toBe(200);
-    expect(
-      system.calls.filter((call) => call.text.includes("Escalating")).length
-    ).toBe(1);
-
-    // The unused escalation slot means the next delivery retries it.
-    system.advance(MINUTE);
-    expect(await outcomeOf(await system.post(burst, "d-4"))).toBe("suppressed");
-    const escalations = system.calls.filter((call) =>
-      call.text.includes("Escalating")
-    );
-    expect(escalations).toHaveLength(2);
-    expect(escalations[1]?.text).toContain("3 events since");
+    expect(await outcomeOf(await system.post(burst, "d-3"))).toBe("suppressed");
 
     // The recap survives its own rejection and is retried on the next sweep
     // with every counter intact.
@@ -625,18 +569,15 @@ describe("relay end to end", () => {
     );
     expect(recaps).toHaveLength(2);
     expect(recaps[1]?.text).toContain("3 events");
-    // The opening alert and the escalation that succeeded. The escalation
-    // Telegram rejected is not counted as posted.
-    expect(recaps[1]?.text).toContain("2 alert(s) posted");
+    // The opening alert is the only message the period produced.
+    expect(recaps[1]?.text).toContain("1 alert(s) posted");
     expect(system.relay.stats().pendingRecapEvents).toBe(0);
 
     verifyInvariants(system);
   });
 
   test("serializes concurrent deliveries for one signature", async () => {
-    // Escalation is off here so the count below is about the race alone: the
-    // burst would otherwise legitimately cross the ×10 threshold as well.
-    const system = createSystem({ env: { ESCALATION_MULTIPLIER: "0" } });
+    const system = createSystem();
     const payload = alert({ group: "loyal-mobile", rows: withdrawalRows });
 
     // Twenty webhooks land at the same instant. Exactly one may be posted; the
@@ -692,7 +633,6 @@ describe("relay end to end", () => {
 
     const after = createSystem({
       startAt: START + MINUTE,
-      env: { RESTART_GRACE_SECONDS: "0" },
     });
     expect(after.relay.importState(snapshot)).toBe(1);
 
@@ -732,7 +672,6 @@ describe("relay end to end", () => {
     // The relay was down for longer than a whole window.
     const after = createSystem({
       startAt: START + 2 * before.config.cooldownMs,
-      env: { RESTART_GRACE_SECONDS: "0" },
     });
     expect(after.relay.importState(before.relay.exportState())).toBe(0);
     expect(await outcomeOf(await after.post(payload, "d-2"))).toBe("sent");

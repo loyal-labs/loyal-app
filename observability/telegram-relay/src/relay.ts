@@ -10,31 +10,23 @@ export interface ClickStackWebhookPayload {
   endTime: number;
 }
 
-export type RelayOutcome =
-  | "sent"
-  | "suppressed"
-  | "duplicate"
-  | "resolved"
-  | "deferred";
+export type RelayOutcome = "sent" | "suppressed" | "duplicate" | "resolved";
 
 export interface RelayResult {
   outcome: RelayOutcome;
 }
 
-export type AlertMessageKind = "new" | "escalation" | "daily" | "restart";
+export type AlertMessageKind = "new" | "daily";
 
 /**
- * Everything the sender needs beyond the raw payload. `new` and `escalation`
- * carry the live window, `daily` the tally for the reporting period, and
- * `restart` the set of signatures that were already firing when the process
- * came up.
+ * Everything the sender needs beyond the raw payload. `new` carries the window
+ * it just opened, `daily` the tally for the reporting period.
  */
 export interface AlertContext {
   kind: AlertMessageKind;
   window?: WindowSummary;
-  windows?: WindowSummary[];
   daily?: DailySummary;
-  /** Recaps are informational; they must not buzz every phone in the chat. */
+  /** The recap is informational; it must not buzz every phone in the chat. */
   silent: boolean;
 }
 
@@ -150,17 +142,7 @@ export interface AlertRelayOptions {
   dailyRecapEnabled?: boolean;
   /** Minutes past UTC midnight at which the daily recap is posted. */
   dailyRecapAtMinutes?: number;
-  /**
-   * Break the cooldown when volume grows by this factor, so an escalating
-   * incident is not invisible for a whole window. `0` disables escalation.
-   */
-  escalationMultiplier?: number;
-  /**
-   * ClickStack re-fires every live alert seconds after the relay restarts. For
-   * this long after boot, hold those alerts and post one recap instead of one
-   * message per signature.
-   */
-  restartGraceMs?: number;
+  /** Start of the first reporting period. Defaults to process start. */
   startedAt?: number;
   /** Cap on how many sweeps will retry a recap that Telegram rejected. */
   maxFlushAttempts?: number;
@@ -180,7 +162,6 @@ const MAX_DAILY_SIGNATURES = 200;
 /** Distinct values retained per cardinality column, purely to bound memory. */
 const MAX_TRACKED_VALUES = 500;
 const BUCKET_COUNT = 6;
-const MAX_ESCALATIONS_PER_WINDOW = 2;
 const DEFAULT_MAX_FLUSH_ATTEMPTS = 5;
 
 interface SignatureState {
@@ -239,10 +220,6 @@ interface AlertWindow {
   eventCount: number;
   /** Highest matched-line snapshot seen for each ClickStack evaluation range. */
   evaluationCounts: Map<string, number>;
-  /** Highest matched-line count reported by one evaluation. */
-  peakEvaluationEventCount: number;
-  /** Events in the delivery that opened the window, the escalation baseline. */
-  openingEventCount: number;
   suppressedAlerts: number;
   sampledRows: number;
   signatures: Map<string, SignatureState>;
@@ -250,10 +227,7 @@ interface AlertWindow {
   /** Cardinality columns whose distinct-value set hit its cap. */
   cappedValues: Set<string>;
   buckets: number[];
-  escalations: number;
   flushAttempts: number;
-  /** Opened during the restart grace period and not yet recapped. */
-  deferred: boolean;
 }
 
 class ExpiringCache {
@@ -316,7 +290,6 @@ export class AlertRelay {
   private readonly now: () => number;
   private readonly analyze: AlertAnalyzer;
   private readonly startedAt: number;
-  private restartRecapDone: boolean;
   private daily: DailyTally;
   private nextRecapAt: number;
   private recapAttempts = 0;
@@ -336,7 +309,6 @@ export class AlertRelay {
     this.now = options.now ?? Date.now;
     this.analyze = options.analyze ?? emptyAnalysis;
     this.startedAt = options.startedAt ?? this.now();
-    this.restartRecapDone = (options.restartGraceMs ?? 0) <= 0;
     this.daily = emptyTally(this.startedAt);
     this.nextRecapAt = nextRecapTime(this.startedAt, this.recapAtMinutes());
   }
@@ -370,7 +342,7 @@ export class AlertRelay {
         // Closing is silent now, but it still has to happen before the alert
         // that reopens the key, or the reopened window would inherit a
         // cooldown that has already expired.
-        if (existing && existing.expiresAt <= now && !existing.deferred) {
+        if (existing && existing.expiresAt <= now) {
           this.closeWindow(existing);
         }
 
@@ -384,15 +356,6 @@ export class AlertRelay {
             this.options,
             this.nextRecapAt
           );
-
-          if (this.inRestartGrace(now)) {
-            opened.deferred = true;
-            this.windows.set(key, opened);
-            this.countDelivery(payload, analysis, now, opened.eventCount);
-            this.trimWindows(now);
-            this.rememberIdempotencyKey(idempotencyKey, now);
-            return { outcome: "deferred" as const };
-          }
 
           // Registered only once Telegram has accepted. A failed send must
           // leave no window behind, or the retry would be suppressed as a
@@ -416,44 +379,21 @@ export class AlertRelay {
         this.countDelivery(payload, analysis, now, addedEvents);
         this.rememberIdempotencyKey(idempotencyKey, now);
 
-        // The escalation is an extra notification inside an already-open
-        // window, not part of ingest. Failing the webhook for it would be
-        // worse than useless: the delivery is already counted, and ClickStack's
-        // retry carries the same Idempotency-Key, so it would be answered as a
-        // duplicate without ever resending the escalation. Swallowing the
-        // failure and leaving `escalations` untouched makes the next
-        // over-threshold delivery try again.
-        if (!this.inRestartGrace(now) && this.shouldEscalate(window)) {
-          await reportFailure("alert_escalation_failed", async () => {
-            await this.sender(payload, {
-              kind: "escalation",
-              window: summarize(window),
-              silent: false,
-            });
-            window.escalations += 1;
-            this.daily.alertsPosted += 1;
-          });
-        }
-
         return { outcome: "suppressed" as const };
       });
     });
   }
 
   /**
-   * Posts whatever is due: the restart recap once the grace period is over,
-   * and the daily recap once its scheduled time has passed. Closing expired
+   * Posts the daily recap once its scheduled time has passed. Closing expired
    * windows is silent. A failed recap is retried on the next sweep rather than
    * dropping the counters it carries.
    */
   async sweep(now = this.now()): Promise<void> {
     this.idempotencyKeys.evictExpired(now);
-    await reportFailure("restart_recap_failed", () =>
-      this.flushRestartRecap(now)
-    );
 
     for (const [key, window] of [...this.windows]) {
-      if (window.expiresAt > now || window.deferred) {
+      if (window.expiresAt > now) {
         continue;
       }
       await this.withLock(this.eventLocks, key, async () => {
@@ -553,41 +493,6 @@ export class AlertRelay {
     }
 
     return restored;
-  }
-
-  private inRestartGrace(now: number): boolean {
-    const grace = this.options.restartGraceMs ?? 0;
-    return grace > 0 && now < this.startedAt + grace;
-  }
-
-  private async flushRestartRecap(now: number): Promise<void> {
-    if (this.restartRecapDone || this.inRestartGrace(now)) {
-      return;
-    }
-
-    const deferred = [...this.windows.values()].filter(
-      (window) => window.deferred
-    );
-    if (deferred.length === 0) {
-      this.restartRecapDone = true;
-      return;
-    }
-
-    const newest = deferred.reduce((latest, window) =>
-      window.lastEventAt >= latest.lastEventAt ? window : latest
-    );
-    await this.sender(newest.payload, {
-      kind: "restart",
-      windows: deferred.map(summarize),
-      silent: true,
-    });
-
-    // Cleared only once Telegram has accepted, so a failed recap is retried on
-    // the next sweep instead of leaving the post-deploy burst unreported.
-    this.restartRecapDone = true;
-    for (const window of deferred) {
-      window.deferred = false;
-    }
   }
 
   /**
@@ -702,23 +607,10 @@ export class AlertRelay {
     }
   }
 
-  private shouldEscalate(window: AlertWindow): boolean {
-    const multiplier = this.options.escalationMultiplier ?? 0;
-    if (multiplier <= 1 || window.escalations >= MAX_ESCALATIONS_PER_WINDOW) {
-      return false;
-    }
-
-    const baseline = Math.max(window.openingEventCount, 1);
-    return (
-      window.peakEvaluationEventCount >=
-      baseline * multiplier ** (window.escalations + 1)
-    );
-  }
-
   /**
-   * Windows are bounded like the other caches. Closed windows that owe nothing
-   * go first, so a flood of new signatures cannot evict one still holding an
-   * unsent digest.
+   * Windows are bounded like the other caches. Expired windows that suppressed
+   * nothing go first, so a flood of new signatures evicts the cheapest entries
+   * before it starts unmuting live incidents.
    */
   private trimWindows(now: number): void {
     if (this.windows.size <= this.options.maxCacheEntries) {
@@ -876,17 +768,13 @@ function openWindow(
     lastEventAt: now,
     eventCount: 0,
     evaluationCounts: new Map(),
-    peakEvaluationEventCount: 0,
-    openingEventCount: Math.max(analysis.eventCount, 1),
     suppressedAlerts: 0,
     sampledRows: 0,
     signatures: new Map(),
     uniqueValues: new Map(),
     cappedValues: new Set(),
     buckets: new Array<number>(BUCKET_COUNT).fill(0),
-    escalations: 0,
     flushAttempts: 0,
-    deferred: false,
   };
   record(window, payload, analysis, now);
   return window;
@@ -917,10 +805,6 @@ function record(
   window.payload = payload;
   window.lastEventAt = now;
   window.evaluationCounts.set(key, Math.max(previousEvents, events));
-  window.peakEvaluationEventCount = Math.max(
-    window.peakEvaluationEventCount,
-    events
-  );
   window.eventCount += addedEvents;
   window.buckets[bucketIndex(window, now)] += addedEvents;
 
@@ -1122,7 +1006,13 @@ function summarize(window: AlertWindow): WindowSummary {
   };
 }
 
-const STATE_VERSION = 2;
+/**
+ * Bumped when the shape below changes. `importState` drops a snapshot written
+ * by any other version, which costs one deploy's worth of duplicate alerts and
+ * one reporting period's counts — cheaper than reading fields that no longer
+ * mean what they did.
+ */
+const STATE_VERSION = 3;
 
 export interface PersistedWindow {
   key: string;
@@ -1132,18 +1022,13 @@ export interface PersistedWindow {
   firstEventAt: number;
   lastEventAt: number;
   eventCount: number;
-  openingEventCount: number;
-  /** Optional only for snapshots written before evaluation deduplication. */
-  evaluationCounts?: [string, number][];
-  /** Optional only for snapshots written before evaluation deduplication. */
-  peakEvaluationEventCount?: number;
+  evaluationCounts: [string, number][];
   suppressedAlerts: number;
   sampledRows: number;
   signatures: (SignatureState & { key: string })[];
   uniqueValues: Record<string, string[]>;
   cappedValues?: string[];
   buckets: number[];
-  escalations: number;
 }
 
 export interface PersistedTally {
@@ -1228,9 +1113,7 @@ function serializeWindow(window: AlertWindow): PersistedWindow {
     firstEventAt: window.firstEventAt,
     lastEventAt: window.lastEventAt,
     eventCount: window.eventCount,
-    openingEventCount: window.openingEventCount,
     evaluationCounts: [...window.evaluationCounts],
-    peakEvaluationEventCount: window.peakEvaluationEventCount,
     suppressedAlerts: window.suppressedAlerts,
     sampledRows: window.sampledRows,
     signatures: [...window.signatures].map(([key, state]) => ({
@@ -1240,7 +1123,6 @@ function serializeWindow(window: AlertWindow): PersistedWindow {
     uniqueValues,
     cappedValues: [...window.cappedValues],
     buckets: [...window.buckets],
-    escalations: window.escalations,
   };
 }
 
@@ -1255,10 +1137,6 @@ function deserializeWindow(saved: PersistedWindow): AlertWindow {
     uniqueValues.set(label, new Set(values));
   }
 
-  const evaluationCounts = new Map<string, number>(
-    saved.evaluationCounts ?? [[evaluationKey(saved.payload), saved.eventCount]]
-  );
-
   return {
     key: saved.key,
     payload: saved.payload,
@@ -1267,18 +1145,13 @@ function deserializeWindow(saved: PersistedWindow): AlertWindow {
     firstEventAt: saved.firstEventAt,
     lastEventAt: saved.lastEventAt,
     eventCount: saved.eventCount,
-    openingEventCount: saved.openingEventCount,
-    evaluationCounts,
-    peakEvaluationEventCount:
-      saved.peakEvaluationEventCount ?? Math.max(saved.openingEventCount, 1),
+    evaluationCounts: new Map(saved.evaluationCounts ?? []),
     suppressedAlerts: saved.suppressedAlerts,
     sampledRows: saved.sampledRows,
     signatures,
     uniqueValues,
     cappedValues: new Set(saved.cappedValues ?? []),
     buckets: [...saved.buckets],
-    escalations: saved.escalations,
     flushAttempts: 0,
-    deferred: false,
   };
 }

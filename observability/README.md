@@ -191,8 +191,8 @@ signature is posted immediately; repeats of it are held until the next daily
 recap at 06:00 UTC, which lists every distinct error with how often it fired.
 A lasting incident is therefore announced once and counted once a day rather
 than re-announced every hour, and silence after an alert means nothing new is
-worth interrupting anyone for. Volume that grows sharply mid-period still
-breaks through as an escalation. See
+worth interrupting anyone for — including an incident that gets worse, whose
+growing volume is reported in the recap rather than mid-period. See
 [`telegram-relay/README.md`](./telegram-relay/README.md).
 
 The saved search `select` and the relay's `ALERT_COLUMNS` are one contract

@@ -49,14 +49,8 @@ export function formatTelegramMessage(
 ): FormattedMessage {
   const context = options.context;
 
-  if (context?.kind === "restart" && context.windows?.length) {
-    return formatRestartRecap(payload, context.windows);
-  }
   if (context?.kind === "daily" && context.daily) {
     return formatDailyRecap(context.daily);
-  }
-  if (context?.kind === "escalation" && context.window) {
-    return formatEscalation(context.window);
   }
 
   return (
@@ -335,82 +329,6 @@ function dailyCardinalityLabels(daily: DailySummary): string[] {
     daily.cappedValues,
     daily.sampledRows < daily.eventCount
   );
-}
-
-function formatEscalation(window: WindowSummary): FormattedMessage {
-  const [top] = window.signatures;
-  const lines = [
-    `<b>📈 Escalating · ${escapeHtml(alertName(window.title))}</b>`,
-  ];
-  if (top) {
-    lines.push(`<b>${escapeHtml(top.headline)}</b>`);
-  }
-  if (window.services.length > 0) {
-    lines.push(escapeHtml(window.services.join(" · ")));
-  }
-
-  const stats = [
-    `${window.eventCount} events since ${formatClock(window.openedAt)} UTC`,
-    `${window.suppressedAlerts} alert(s) suppressed so far`,
-  ];
-  stats.push(...cardinalityLabels(window));
-  lines.push("", `<i>${escapeHtml(stats.join(" · "))}</i>`);
-
-  return withLink(lines, window.link);
-}
-
-/**
- * One message for the whole post-restart burst. ClickStack re-sends every live
- * alert within seconds of a deploy, and the team has already seen them all.
- */
-function formatRestartRecap(
-  payload: ClickStackWebhookPayload,
-  windows: WindowSummary[]
-): FormattedMessage {
-  const events = windows.reduce(
-    (total, window) => total + window.eventCount,
-    0
-  );
-  const lines = [
-    `<b>♻️ Relay restarted · ${windows.length} alert(s) still firing</b>`,
-    `<i>${escapeHtml(
-      `${countLabel(events, "event")} held instead of reposting each alert`
-    )}</i>`,
-    "",
-  ];
-
-  for (const window of windows.slice(0, MAX_RENDERED_ROWS)) {
-    const [top] = window.signatures;
-    const service = window.services[0] ?? "";
-    const headline = top?.headline ?? alertName(window.title);
-    lines.push(
-      `· ×${window.eventCount} ${escapeHtml(
-        [service, truncate(headline, 110)].filter(Boolean).join(" — ")
-      )}`
-    );
-  }
-
-  const omitted = windows.length - MAX_RENDERED_ROWS;
-  if (omitted > 0) {
-    lines.push(`<i>and ${omitted} more alert(s)</i>`);
-  }
-
-  return withLink(lines, windows[0]?.link ?? payload.link);
-}
-
-function withLink(lines: string[], link: string): FormattedMessage {
-  const trimmedLink = link.trim();
-  const suffix = trimmedLink ? `\n\n${escapeHtml(trimmedLink)}` : "";
-  const body = lines.join("\n");
-  const budget = TELEGRAM_MESSAGE_LIMIT - suffix.length - 1;
-
-  return {
-    text:
-      body.length <= budget
-        ? `${body}${suffix}`
-        : `${sliceWholeCodePoints(body, budget)}…${suffix}`,
-    parseMode: "HTML",
-  };
 }
 
 /**

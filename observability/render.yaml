@@ -133,11 +133,9 @@ projects:
               - key: CARDINALITY_COLUMNS
                 value: wallet
               # Render replaces this instance on every deploy and ClickStack
-              # replays every live alert seconds later. Holding those for two
-              # minutes turns that burst into a single restart recap. Windows
-              # themselves are not persisted: STATE_FILE needs a mounted disk,
-              # which would also make deploys stop-then-start.
-              - key: RESTART_GRACE_SECONDS
-                value: "120"
+              # replays every live alert seconds later, so a deploy re-announces
+              # whatever is still firing. STATE_FILE is what fixes that, and it
+              # needs a mounted disk, which would also make deploys
+              # stop-then-start.
               - key: TRACE_LOGS
                 value: "false"

@@ -27,22 +27,26 @@ from a shell on the ClickStack service.
 
 ## Message types
 
-The relay posts four kinds of message, each with its own icon so the type is
+The relay posts two kinds of message, each with its own icon so the type is
 readable at a glance.
 
-| Icon | Kind          | When                                                                                                                     |
-| ---- | ------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 🚨   | alert         | First delivery for a signature. Opens a window. Notifies.                                                                |
-| 📈   | escalation    | One evaluation's volume grew by `ESCALATION_MULTIPLIER` from the opening evaluation. At most twice per window. Notifies. |
-| 📊   | daily recap   | Once a day at `DAILY_RECAP_AT`, if anything fired since the last one. Silent.                                            |
-| ♻️   | restart recap | The grace period after a restart ended with alerts still firing. Silent.                                                 |
+| Icon | Kind        | When                                                                          |
+| ---- | ----------- | ----------------------------------------------------------------------------- |
+| 🚨   | alert       | First delivery for a signature. Opens a window. Notifies.                     |
+| 📊   | daily recap | Once a day at `DAILY_RECAP_AT`, if anything fired since the last one. Silent. |
 
 A window runs to the next recap rather than to the cooldown, so a signature
-gets one 🚨 per reporting period. The cost is deliberate: an error that clears
-and genuinely recurs later the same day is not announced again, and is seen
-first in the recap. 📈 stays the mid-period signal for an incident that is
-getting worse, since it is measured against the opening evaluation rather than
-against the clock.
+gets one 🚨 per reporting period. The cost is deliberate, and it is paid twice:
+an error that clears and genuinely recurs later the same day is not announced
+again, and neither is an incident whose volume grows tenfold mid-period. Both
+are seen first in the recap.
+
+There was previously a 📈 escalation for exactly that second case, breaking the
+window when one evaluation's volume grew by a configured multiple of the
+opening evaluation. It was removed along with the per-window digest: a
+notification whose only content is "the thing you were already told about is
+bigger now" carries no action the opening alert did not, and threshold-crossing
+on a noisy signal is how a chat gets retrained to ignore 🚨.
 
 Windows never post anything when they close, so **silence after an alert means
 nothing new is worth interrupting anyone for**. The daily recap is where volume
@@ -104,21 +108,26 @@ Redis and no database.
 - **`numInstances` must stay at `1`.** Two instances do not share windows and
   would double-post every alert. The Blueprint pins this.
 - **A restart clears windows.** Render redeploys several times a day, and
-  ClickStack replays every live alert within seconds of each one. Two
-  mechanisms cover this, in order of preference:
-  - `STATE_FILE` — path on a mounted disk. Windows and the running daily tally
-    are written there on every sweep and on `SIGTERM`, and restored on boot, so
-    a deploy changes nothing an operator can see. Requires adding a `disk:` in
-    [`../render.yaml`](../render.yaml); note that Render deploys a service with
-    a disk by stopping the old instance first.
-  - `RESTART_GRACE_SECONDS` — always on, default 120. For this long after boot
-    the relay holds new alerts instead of posting them, then posts a single ♻️
-    recap listing everything that was already firing. Without a state file this
-    turns a post-deploy burst of ten messages into one.
+  ClickStack replays every live alert within seconds of each one. With an empty
+  window map each replay is a first delivery, so every signature that is still
+  firing is announced again. `STATE_FILE` is the only thing that prevents it: a
+  path on a mounted disk, where windows and the running daily tally are written
+  on every sweep and on `SIGTERM` and restored on boot, so a deploy changes
+  nothing an operator can see. Requires adding a `disk:` in
+  [`../render.yaml`](../render.yaml); note that Render deploys a service with a
+  disk by stopping the old instance first.
 
-Without `STATE_FILE`, each deploy restarts the daily tally, so the next recap
-covers only the time since the last deploy. That costs counts in one recap,
-never an alert. This is the main reason to mount a disk.
+There was previously a `RESTART_GRACE_SECONDS` fallback that held new alerts for
+two minutes after boot and then posted one ♻️ recap of everything already
+firing. It was removed with the escalation: it bought a quieter deploy by
+delaying every genuinely new alert that landed in the same two minutes, which is
+the wrong trade for the one path that must never be slow, and it only ever
+existed because no disk was mounted.
+
+Without `STATE_FILE`, each deploy also restarts the daily tally, so the next
+recap covers only the time since the last deploy. That costs counts in one
+recap, never an alert. Between that and the redeploy burst, mounting a disk is
+the one outstanding improvement to this service.
 
 A third option, rebuilding windows by querying ClickStack for signatures that
 were already firing before boot, is deliberately **not** implemented: the relay
@@ -156,11 +165,6 @@ accept the duplicate messages.
 - A recap that Telegram rejects keeps its tally and its counters and is retried
   on the next sweep, up to five times before it is dropped with an
   `daily_recap_dropped` log.
-- An escalation that Telegram rejects is logged as `alert_escalation_failed` and
-  does not fail the webhook. The delivery is already counted, and ClickStack's
-  retry carries the same `Idempotency-Key`, so bubbling the failure would be
-  answered as a duplicate without resending. The escalation slot is left unused
-  instead, so the next over-threshold delivery retries it.
 - A Telegram `429` with a short `retry_after` is waited out and retried once
   in-process; a long `retry_after` returns HTTP 502 for ClickStack to retry.
 - `title` must contain non-whitespace text, so a delivered message is never
@@ -245,9 +249,7 @@ search link.
 | `CARDINALITY_COLUMNS`       | no       | empty                                     | Columns counted as `N unique <column>` instead of listed                                                                                                         |
 | `DAILY_RECAP_ENABLED`       | no       | `true`                                    | Post the once-a-day recap                                                                                                                                        |
 | `DAILY_RECAP_AT`            | no       | `06:00`                                   | UTC time of day, `HH:MM`, at which the recap is posted                                                                                                           |
-| `RECAP_SILENT`              | no       | `true`                                    | Deliver recaps with `disable_notification`                                                                                                                       |
-| `ESCALATION_MULTIPLIER`     | no       | `10`                                      | Break the window when volume grows this many times. `0` disables                                                                                                 |
-| `RESTART_GRACE_SECONDS`     | no       | `120`                                     | Hold alerts this long after boot and post one restart recap. `0` disables                                                                                        |
+| `RECAP_SILENT`              | no       | `true`                                    | Deliver the recap with `disable_notification`                                                                                                                    |
 | `SWEEP_INTERVAL_SECONDS`    | no       | `60`                                      | How often windows are closed and the recap schedule is checked                                                                                                   |
 | `STATE_FILE`                | no       | empty                                     | Path to persist windows across restarts. Needs a mounted disk                                                                                                    |
 | `TRACE_LOGS`                | no       | `false`                                   | Structured request and validation diagnostics                                                                                                                    |
@@ -302,10 +304,10 @@ Use this body:
 }
 ```
 
-The relay responds with HTTP 200 for suppressed alerts, exact duplicates and
-alerts held during the restart grace period (outcomes `suppressed`, `duplicate`
-and `deferred`). A Telegram delivery failure returns HTTP 502 without opening a
-window or recording an idempotency entry, allowing ClickStack to retry safely.
+The relay responds with HTTP 200 for suppressed alerts and exact duplicates
+(outcomes `suppressed` and `duplicate`). A Telegram delivery failure returns
+HTTP 502 without opening a window or recording an idempotency entry, allowing
+ClickStack to retry safely.
 
 ## Local development
 
@@ -341,8 +343,8 @@ behavior. It drives real webhook requests through the HTTP handler, the real
 analyzer, formatter and Telegram sender, and captures the result at the
 Telegram Bot API boundary, asserting the exact message text. Everything is
 driven by an injected clock and a no-op `sleep`, so window boundaries, the
-restart grace period and the `retry_after` backoff are exercised without a
-real timer.
+recap schedule and the `retry_after` backoff are exercised without a real
+timer.
 
 Two properties there are easy to break silently and are covered deliberately:
 twenty concurrent deliveries for one signature must produce exactly one

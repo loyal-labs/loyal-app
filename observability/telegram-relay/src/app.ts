@@ -45,8 +45,6 @@ export interface ServerConfig {
   /** Minutes past UTC midnight at which the daily recap is posted. */
   dailyRecapAtMinutes: number;
   recapSilent: boolean;
-  escalationMultiplier: number;
-  restartGraceMs: number;
   sweepIntervalMs: number;
   stateFile: string;
   traceLogs: boolean;
@@ -88,14 +86,6 @@ export function loadConfig(
       "DAILY_RECAP_AT"
     ),
     recapSilent: booleanValue(env.RECAP_SILENT, true, "RECAP_SILENT"),
-    escalationMultiplier: wholeNumber(
-      env.ESCALATION_MULTIPLIER,
-      10,
-      "ESCALATION_MULTIPLIER"
-    ),
-    restartGraceMs:
-      wholeNumber(env.RESTART_GRACE_SECONDS, 120, "RESTART_GRACE_SECONDS") *
-      1000,
     sweepIntervalMs:
       positiveInteger(
         env.SWEEP_INTERVAL_SECONDS,
@@ -508,28 +498,6 @@ function positiveInteger(
   const value = Number(trimmed);
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer`);
-  }
-  return value;
-}
-
-/** Like `positiveInteger`, but `0` is meaningful: it disables the feature. */
-function wholeNumber(
-  raw: string | undefined,
-  fallback: number,
-  name: string
-): number {
-  if (raw === undefined || raw.trim() === "") {
-    return fallback;
-  }
-
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) {
-    throw new Error(`${name} must be zero or a positive integer`);
-  }
-
-  const value = Number(trimmed);
-  if (!Number.isSafeInteger(value)) {
-    throw new Error(`${name} must be zero or a positive integer`);
   }
   return value;
 }

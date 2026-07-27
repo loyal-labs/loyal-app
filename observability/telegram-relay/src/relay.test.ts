@@ -628,64 +628,18 @@ describe("AlertRelay windows", () => {
     expect(kinds).toEqual(["new"]);
   });
 
-  test("folds the post-restart burst into a single recap", async () => {
+  test("stays quiet while a signature keeps firing", async () => {
     let now = 1_000;
-    const sent: AlertContext[] = [];
-    const relay = createRelay(
-      async (_payload, context) => {
-        sent.push(context);
-      },
-      () => now,
-      { analyze, restartGraceMs: 120_000, startedAt: 1_000 }
-    );
-
-    // ClickStack replays every live alert within seconds of a deploy.
-    expect(
-      await relay.handle(
-        csvPayload("loyal-mobile", [
-          row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
-        ]),
-        "delivery-1"
-      )
-    ).toEqual({ outcome: "deferred" });
-    now += 5_000;
-    expect(
-      await relay.handle(
-        csvPayload("loyal-fleet-route-reconciler", [
-          row("loyal-fleet-route-reconciler", "sweep refresh failed", ""),
-        ]),
-        "delivery-2"
-      )
-    ).toEqual({ outcome: "deferred" });
-
-    await relay.sweep(now);
-    expect(sent).toHaveLength(0);
-
-    now = 1_000 + 120_001;
-    await relay.sweep(now);
-    await relay.sweep(now);
-
-    expect(sent.map((context) => context.kind)).toEqual(["restart"]);
-    expect(sent[0]?.windows).toHaveLength(2);
-    expect(sent[0]?.silent).toBe(true);
-  });
-
-  test("retries an escalation Telegram rejected on the next delivery", async () => {
-    let now = 1_000;
-    let telegramAvailable = true;
     const kinds: AlertMessageKind[] = [];
     const relay = createRelay(
       async (_payload, context) => {
-        if (context.kind === "escalation" && !telegramAvailable) {
-          throw new Error("Telegram unavailable");
-        }
         kinds.push(context.kind);
       },
       () => now,
-      { analyze, escalationMultiplier: 3 }
+      { analyze }
     );
-    // One matched line opens the window, so escalation is due when a single
-    // evaluation grows to three events.
+    // A burst ten times the opening volume is still one incident, and the
+    // window is what keeps it to one message. The recap reports the volume.
     const payload = csvPayload("loyal-mobile", [
       row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
     ]);
@@ -698,23 +652,15 @@ describe("AlertRelay windows", () => {
     await relay.handle(payload, "delivery-1");
     now += 1_000;
     await relay.handle(payload, "delivery-2");
-
-    telegramAvailable = false;
     now += 1_000;
-    // A failed escalation must not fail the webhook: the delivery is already
-    // counted, and ClickStack's retry would be answered as a duplicate.
     expect(await relay.handle(burst, "delivery-3")).toEqual({
       outcome: "suppressed",
     });
-    expect(kinds).toEqual(["new"]);
 
-    telegramAvailable = true;
-    now += 1_000;
-    await relay.handle(burst, "delivery-4");
-    expect(kinds).toEqual(["new", "escalation"]);
+    expect(kinds).toEqual(["new"]);
   });
 
-  test("does not escalate unchanged evaluation replays", async () => {
+  test("does not recount unchanged evaluation replays", async () => {
     let now = 1_000;
     const kinds: AlertMessageKind[] = [];
     const relay = createRelay(
@@ -722,7 +668,7 @@ describe("AlertRelay windows", () => {
         kinds.push(context.kind);
       },
       () => now,
-      { analyze, escalationMultiplier: 3 }
+      { analyze }
     );
     const payload = csvPayload("loyal-mobile", [
       row("loyal-mobile", "earn.withdrawal.prepare.failed", "wallet-a"),
@@ -737,7 +683,7 @@ describe("AlertRelay windows", () => {
     expect(relay.exportState(now).windows[0]?.eventCount).toBe(1);
   });
 
-  test("does not escalate steady volume across evaluation ranges", async () => {
+  test("counts steady volume across evaluation ranges without reposting", async () => {
     let now = 1_000;
     const kinds: AlertMessageKind[] = [];
     const relay = createRelay(
@@ -745,7 +691,7 @@ describe("AlertRelay windows", () => {
         kinds.push(context.kind);
       },
       () => now,
-      { analyze, escalationMultiplier: 3 }
+      { analyze }
     );
 
     for (let attempt = 1; attempt <= 10; attempt += 1) {
