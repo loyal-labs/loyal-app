@@ -225,30 +225,51 @@ export function inspectBrowserChunkLoadError(
   };
 }
 
-function readReloadGuard(): ReloadGuardRecord | undefined {
+// Session storage is attacker- and corruption-reachable, so a stored guard is
+// either provably within the budget or not usable as a budget at all. Anything
+// malformed must fail closed rather than silently restart the allowance.
+type ReloadGuardState =
+  | { kind: "absent" }
+  | { kind: "invalid" }
+  | { kind: "present"; record: ReloadGuardRecord };
+
+function readReloadGuard(): ReloadGuardState {
   const raw = window.sessionStorage.getItem(RELOAD_GUARD_STORAGE_KEY);
   if (!raw) {
-    return undefined;
+    return { kind: "absent" };
   }
 
   try {
     const parsed = JSON.parse(raw) as Partial<ReloadGuardRecord>;
-    return typeof parsed?.at === "number" &&
-      Number.isFinite(parsed.at) &&
-      typeof parsed.chunkUrl === "string" &&
-      typeof parsed.count === "number" &&
-      Number.isInteger(parsed.count)
-      ? { at: parsed.at, chunkUrl: parsed.chunkUrl, count: parsed.count }
-      : undefined;
+    if (
+      typeof parsed?.at !== "number" ||
+      !Number.isFinite(parsed.at) ||
+      typeof parsed.chunkUrl !== "string" ||
+      typeof parsed.count !== "number" ||
+      !Number.isInteger(parsed.count) ||
+      parsed.count < 1 ||
+      parsed.count > MAX_RELOADS_PER_COOLDOWN
+    ) {
+      return { kind: "invalid" };
+    }
+    return {
+      kind: "present",
+      record: { at: parsed.at, chunkUrl: parsed.chunkUrl, count: parsed.count },
+    };
   } catch {
-    return undefined;
+    return { kind: "invalid" };
   }
 }
 
-function claimReload(chunkUrl: string): boolean {
+function claimReload(chunkUrl: string): BrowserChunkRecoveryAction {
   try {
+    const guard = readReloadGuard();
+    if (guard.kind === "invalid") {
+      return "unavailable";
+    }
+
     const now = Date.now();
-    const previous = readReloadGuard();
+    const previous = guard.kind === "present" ? guard.record : undefined;
     const active =
       previous &&
       now - previous.at >= 0 &&
@@ -259,7 +280,7 @@ function claimReload(chunkUrl: string): boolean {
       active &&
       (active.chunkUrl === chunkUrl || active.count >= MAX_RELOADS_PER_COOLDOWN)
     ) {
-      return false;
+      return "guarded";
     }
 
     const next: ReloadGuardRecord = {
@@ -271,12 +292,17 @@ function claimReload(chunkUrl: string): boolean {
       RELOAD_GUARD_STORAGE_KEY,
       JSON.stringify(next)
     );
-    // Some privacy modes accept the write and drop it; without a durable guard
-    // a reload could loop, so recovery fails closed.
+    // Some privacy modes accept the write and drop it; without a guard that
+    // reads back exactly as written, a reload could loop.
     const persisted = readReloadGuard();
-    return persisted?.at === next.at && persisted.chunkUrl === next.chunkUrl;
+    return persisted.kind === "present" &&
+      persisted.record.at === next.at &&
+      persisted.record.chunkUrl === next.chunkUrl &&
+      persisted.record.count === next.count
+      ? "reload"
+      : "unavailable";
   } catch {
-    return false;
+    return "unavailable";
   }
 }
 
@@ -292,18 +318,7 @@ export function planBrowserChunkRecovery(
   if (window.navigator.onLine === false) {
     return "offline";
   }
-  if (!claimReload(chunkUrl)) {
-    return readReloadGuardAvailability() ? "guarded" : "unavailable";
-  }
-  return "reload";
-}
-
-function readReloadGuardAvailability(): boolean {
-  try {
-    return readReloadGuard() !== undefined;
-  } catch {
-    return false;
-  }
+  return claimReload(chunkUrl);
 }
 
 export async function recoverBrowserChunkLoadErrorOnce(

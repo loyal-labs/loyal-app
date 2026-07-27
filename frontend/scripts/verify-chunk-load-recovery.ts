@@ -321,6 +321,46 @@ async function verify(): Promise<void> {
   );
   pass("a later distinct chunk stays recoverable, but attempts stay bounded");
 
+  // Session storage is corruptible and same-origin writable. A malformed guard
+  // must not be readable as budget: a negative count would otherwise sit below
+  // the ceiling forever and reload on every distinct chunk.
+  for (const [tag, stored] of [
+    [
+      "negative-count",
+      { at: Date.now(), chunkUrl: CHUNK_URL, count: -9007199254740991 },
+    ],
+    ["overflow-count", { at: Date.now(), chunkUrl: CHUNK_URL, count: 99 }],
+    ["fractional-count", { at: Date.now(), chunkUrl: CHUNK_URL, count: 1.5 }],
+    ["missing-count", { at: Date.now(), chunkUrl: CHUNK_URL }],
+    ["not-json", "{"],
+  ] satisfies Array<[string, unknown]>) {
+    const corruptStorage = new MemoryStorage();
+    corruptStorage.values.set(
+      "loyal.observability.chunk-reload-guard",
+      typeof stored === "string" ? stored : JSON.stringify(stored)
+    );
+    const corrupt = installBrowser({
+      randomUUID: SESSION_IDS[2],
+      storage: corruptStorage,
+    });
+    await (await loadClient(`corrupt-${tag}`))
+      .createBrowserErrorProcessor()
+      .process(chunkError(OTHER_CHUNK_URL), "browser.unhandled_rejection");
+    assert.deepEqual(corrupt.calls, ["report"], tag);
+    assert.equal(
+      (corrupt.bodies[0].diagnostics as Record<string, unknown>).recoveryAction,
+      "unavailable",
+      tag
+    );
+    // Failing closed must not quietly hand back a fresh budget either.
+    assert.equal(
+      corruptStorage.values.get("loyal.observability.chunk-reload-guard"),
+      typeof stored === "string" ? stored : JSON.stringify(stored),
+      tag
+    );
+  }
+  pass("a malformed reload guard fails closed and never restarts the budget");
+
   const offline = installBrowser({
     offline: true,
     randomUUID: SESSION_IDS[2],
