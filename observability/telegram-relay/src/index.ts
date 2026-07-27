@@ -41,8 +41,31 @@ const relay = new AlertRelay(createTelegramSender(config), {
 });
 
 const stateStore = createStateStore(config);
-const savedState = await stateStore.load();
-const restored = savedState ? relay.importState(savedState) : 0;
+const restored = await restoreState();
+
+/**
+ * Belt and braces around the boot restore. `importState` already skips the
+ * pieces of a snapshot it cannot read, but this is top-level module scope: an
+ * escape here kills the process before it binds a port, and Render would
+ * restart it into the same bad row indefinitely. Starting with empty state
+ * costs duplicate messages once.
+ */
+async function restoreState(): Promise<number> {
+  try {
+    const savedState = await stateStore.load();
+    return savedState ? relay.importState(savedState) : 0;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "state_restore_failed",
+        errorMessage: redactSecrets(
+          error instanceof Error ? error.message : String(error)
+        ).slice(0, 300),
+      })
+    );
+    return 0;
+  }
+}
 
 // Sweeping posts the restart and daily recaps when they come due, so it is not
 // optional bookkeeping the way the old cache eviction was.

@@ -793,4 +793,46 @@ describe("AlertRelay windows", () => {
     expect(kinds).toEqual([]);
     expect(restored.exportState(now).windows[0]?.eventCount).toBe(1);
   });
+
+  test("a malformed snapshot restores nothing instead of throwing", async () => {
+    // This runs at boot. A throw would kill the process before it binds a
+    // port, and Render would restart it into the same bad row forever, so a
+    // snapshot that cannot be read has to degrade to an empty start.
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const relay = createRelay(
+      async () => undefined,
+      () => now
+    );
+
+    const malformed = [
+      // Truncated column: the whole windows array is gone.
+      { version: 2, savedAt: now, windows: undefined },
+      // Wrong type where an array is expected.
+      { version: 2, savedAt: now, windows: {} },
+      // A window missing the fields deserialization walks.
+      {
+        version: 2,
+        savedAt: now,
+        windows: [{ key: "k", expiresAt: now + 60_000 }],
+      },
+      // A tally that is due but unreadable.
+      {
+        version: 2,
+        savedAt: now,
+        windows: [],
+        daily: { since: now } as never,
+        nextRecapAt: now,
+      },
+    ] as unknown as PersistedState[];
+
+    for (const state of malformed) {
+      expect(relay.importState(state, now)).toBe(0);
+    }
+
+    // Still usable afterwards: a bad snapshot must not leave the relay in a
+    // state where it stops alerting.
+    expect(await relay.handle(alertPayload, "delivery-1")).toEqual({
+      outcome: "sent",
+    });
+  });
 });

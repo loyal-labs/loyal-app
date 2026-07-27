@@ -520,18 +520,32 @@ export class AlertRelay {
   /**
    * Restores windows saved before a restart. Entries that have already expired
    * are dropped, so a stale snapshot cannot mute a signature indefinitely.
+   *
+   * Total: this runs during boot against bytes the process did not write and
+   * cannot re-validate — a half-written file, a row from a build whose shape
+   * has since changed, a truncated JSON column. A throw here would take the
+   * relay down before it binds a port, so every piece is restored
+   * independently and a malformed one is skipped. Losing a window costs a
+   * duplicate message; losing the process costs every alert until someone
+   * notices.
    */
   importState(state: PersistedState, now = this.now()): number {
-    if (state.version !== STATE_VERSION) {
+    if (!state || state.version !== STATE_VERSION) {
       return 0;
     }
 
     let restored = 0;
-    for (const saved of state.windows) {
-      if (saved.expiresAt <= now || this.windows.has(saved.key)) {
+    for (const saved of Array.isArray(state.windows) ? state.windows : []) {
+      if (!saved || saved.expiresAt <= now || this.windows.has(saved.key)) {
         continue;
       }
-      this.windows.set(saved.key, deserializeWindow(saved));
+      const window = recover("state_window_restore_failed", () =>
+        deserializeWindow(saved)
+      );
+      if (!window) {
+        continue;
+      }
+      this.windows.set(saved.key, window);
       restored += 1;
     }
 
@@ -541,15 +555,24 @@ export class AlertRelay {
     // older than a full period is discarded, since nobody could place its
     // counts against a date by then.
     if (state.daily && state.nextRecapAt && now - state.nextRecapAt < DAY_MS) {
-      this.daily = deserializeTally(state.daily);
-      this.nextRecapAt = state.nextRecapAt;
+      const saved = state.daily;
+      const daily = recover("state_tally_restore_failed", () =>
+        deserializeTally(saved)
+      );
+      if (daily) {
+        this.daily = daily;
+        this.nextRecapAt = state.nextRecapAt;
+      }
     }
 
     if (state.pendingRecap && now - state.pendingRecap.until < DAY_MS) {
-      this.pendingRecap = {
-        tally: deserializeTally(state.pendingRecap.tally),
-        until: state.pendingRecap.until,
-      };
+      const saved = state.pendingRecap;
+      const tally = recover("state_pending_recap_restore_failed", () =>
+        deserializeTally(saved.tally)
+      );
+      if (tally) {
+        this.pendingRecap = { tally, until: saved.until };
+      }
     }
 
     return restored;
@@ -781,6 +804,28 @@ function emptyAnalysis(): AlertAnalysis {
  * The sweep runs on a timer with nobody to return an error to, so a failed
  * send is logged and swallowed. State is left untouched for the next tick.
  */
+/**
+ * Synchronous counterpart to `reportFailure`, for restoring one piece of a
+ * snapshot. Returns `null` instead of throwing so the caller can skip that
+ * piece and keep the rest.
+ */
+function recover<T>(event: string, action: () => T): T | null {
+  try {
+    return action();
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event,
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorMessage: redactBotToken(
+          error instanceof Error ? error.message : String(error)
+        ).slice(0, 300),
+      })
+    );
+    return null;
+  }
+}
+
 async function reportFailure(
   event: string,
   action: () => Promise<void>

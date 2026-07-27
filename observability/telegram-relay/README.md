@@ -161,6 +161,13 @@ keeps accepting webhooks and posting alerts from memory. The alerting path must
 not depend on storage being healthy, for the same reason it does not export its
 own logs to ClickStack.
 
+Restoring is piece by piece for the same reason. The snapshot is read at boot,
+before the port is bound, so a window that cannot be deserialized is skipped
+(`state_window_restore_failed`) instead of aborting the restore, and a snapshot
+that cannot be read at all starts the relay empty instead of stopping it. A
+relay that refuses to boot would be restarted into the same bad row
+indefinitely — the one failure mode worse than duplicate messages.
+
 A further option, rebuilding windows by querying ClickStack for signatures that
 were already firing before boot, is deliberately **not** implemented: the relay
 has no working query credential today (`HYPERDX_ACCESS_KEY` is ingest-only),
