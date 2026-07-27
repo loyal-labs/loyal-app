@@ -1,5 +1,6 @@
 "use client";
 
+import { DogLottie } from "@/components/wallet-workspace/facelift/dog-lottie";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
@@ -176,12 +177,9 @@ export function EarnEmptyPane({
       {/* On mobile the dog clips to the rounded bottom above the tab bar
           (Figma 4693:69958); the white body makes the corners read clean. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          aria-hidden="true"
+        <DogLottie
           className="aspect-square w-full max-h-[420px] max-w-[420px]"
-          src={`${ASSET_BASE}/front-dog.svg`}
+          variant="playful"
         />
       </div>
     </section>

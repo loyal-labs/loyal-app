@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 
+import { DogLottie } from "@/components/wallet-workspace/facelift/dog-lottie";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { openTrackedLink } from "@/lib/core/analytics";
 import { getExplorerTxUrl } from "@/lib/solana/explorer";
@@ -89,12 +90,7 @@ export function ActionSuccessBody({
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          className="w-full max-w-[420px]"
-          src={`${ASSET_BASE}/swap-success-dog.svg`}
-        />
+        <DogLottie className="aspect-square w-full max-w-[420px]" variant="calm" />
       </div>
       <div className="relative flex w-full flex-col items-center gap-4 p-8">
         <span className="relative">
@@ -158,8 +154,10 @@ export function ActionSuccessBody({
   );
 }
 
-// Figma 4813:407564 — failed X with the error pinned above the pane bottom;
-// Back returns to the form for a retry.
+// Figma 4813:407564 — failed X with the error under it and the dog rising
+// from the pane bottom (same layout as success — the message moved in-flow so
+// it stays on white instead of over the red dog); Back returns to the form
+// for a retry.
 export function ActionErrorBody({
   message,
   onBack,
@@ -168,8 +166,14 @@ export function ActionErrorBody({
   onBack: () => void;
 }) {
   return (
-    <div className="relative flex w-full flex-1 flex-col items-center justify-center pb-[68px]">
-      <div className="flex w-full flex-col items-center gap-4 p-8">
+    <div className="relative flex w-full flex-1 flex-col items-center pt-8 pb-[68px]">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center"
+      >
+        <DogLottie className="aspect-square w-full max-w-[420px]" variant="calm" />
+      </div>
+      <div className="relative flex w-full flex-col items-center gap-4 p-8">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           alt=""
@@ -180,21 +184,19 @@ export function ActionErrorBody({
         <p className="text-center font-semibold text-[28px] text-black leading-8 tracking-[-0.28px]">
           Failed
         </p>
+        {message ? (
+          <p className="max-w-[400px] truncate text-center text-[16px] leading-5 tracking-[-0.16px] text-[#f9363c]">
+            {message}
+          </p>
+        ) : null}
       </div>
       <button
-        className="t-hover flex h-12 items-center justify-center rounded-full bg-black px-5 font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+        className="t-hover relative flex h-12 items-center justify-center rounded-full bg-black px-5 font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
         onClick={onBack}
         type="button"
       >
         Back
       </button>
-      {message ? (
-        <div className="absolute inset-x-0 bottom-0 flex justify-center px-6 pb-[58px]">
-          <p className="max-w-[400px] truncate text-center text-[16px] leading-5 tracking-[-0.16px] text-[#f9363c]">
-            {message}
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 }
