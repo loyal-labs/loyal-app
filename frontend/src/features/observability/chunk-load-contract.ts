@@ -6,21 +6,37 @@ const CLIENT_BUILD_ID_PATTERN = /^[0-9a-f]{40}$/;
 const PAGE_SESSION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const CONNECTION_EFFECTIVE_TYPES = new Set(["slow-2g", "2g", "3g", "4g"]);
+// Recorded before the report leaves the browser so ClickStack can separate a
+// failure we tried to recover from one we deliberately left alone.
+const RECOVERY_ACTIONS = new Set([
+  "guarded",
+  "offline",
+  "reload",
+  "unavailable",
+]);
 const DIAGNOSTIC_KEYS = new Set([
   "chunkUrl",
   "connectionEffectiveType",
   "connectionRttMs",
   "networkOnline",
+  "recoveryAction",
   "resourceDurationMs",
   "resourceResponseStatus",
   "resourceTransferSize",
 ]);
+
+export type BrowserChunkRecoveryAction =
+  | "guarded"
+  | "offline"
+  | "reload"
+  | "unavailable";
 
 export type BrowserChunkDiagnostics = {
   chunkUrl: string;
   connectionEffectiveType?: string;
   connectionRttMs?: number;
   networkOnline: boolean;
+  recoveryAction?: BrowserChunkRecoveryAction;
   resourceDurationMs?: number;
   resourceResponseStatus?: number;
   resourceTransferSize?: number;
@@ -127,6 +143,15 @@ export function normalizeBrowserChunkDiagnostics(
       return null;
     }
 
+    const recoveryAction = record.recoveryAction;
+    if (
+      recoveryAction !== undefined &&
+      (typeof recoveryAction !== "string" ||
+        !RECOVERY_ACTIONS.has(recoveryAction))
+    ) {
+      return null;
+    }
+
     const connectionRttMs = readOptionalNumber(
       record,
       "connectionRttMs",
@@ -156,6 +181,9 @@ export function normalizeBrowserChunkDiagnostics(
       ...(connectionEffectiveType ? { connectionEffectiveType } : {}),
       ...(connectionRttMs !== undefined ? { connectionRttMs } : {}),
       networkOnline: record.networkOnline,
+      ...(recoveryAction
+        ? { recoveryAction: recoveryAction as BrowserChunkRecoveryAction }
+        : {}),
       ...(resourceDurationMs !== undefined ? { resourceDurationMs } : {}),
       ...(resourceResponseStatus !== undefined
         ? { resourceResponseStatus }

@@ -2,16 +2,29 @@
 
 import {
   type BrowserChunkDiagnostics,
+  type BrowserChunkRecoveryAction,
   isBrowserClientBuildId,
   isBrowserPageSessionId,
   normalizeBrowserChunkUrl,
 } from "./chunk-load-contract";
 
 const CLIENT_REPORT_GRACE_MS = 250;
+// A tab left open across several deploys must stay recoverable, so the guard
+// ages out instead of latching for the whole tab lifetime. Retrying the exact
+// chunk a reload already failed to fix is what would loop, so that stays
+// blocked for the full window regardless of the remaining attempt budget.
+const RELOAD_COOLDOWN_MS = 10 * 60 * 1000;
+const MAX_RELOADS_PER_COOLDOWN = 2;
 const PAGE_SESSION_ID_STORAGE_KEY = "loyal.observability.page-session-id";
-const RELOAD_GUARD_STORAGE_KEY = "loyal.observability.chunk-reload-attempted";
+const RELOAD_GUARD_STORAGE_KEY = "loyal.observability.chunk-reload-guard";
 const CHUNK_URL_CANDIDATE_PATTERN =
   /https?:\/\/[^\s)"']+|\/_next\/static\/chunks\/[^\s)"']+/g;
+
+type ReloadGuardRecord = {
+  at: number;
+  chunkUrl: string;
+  count: number;
+};
 
 type BrowserNetworkInformation = {
   effectiveType?: string;
@@ -212,22 +225,92 @@ export function inspectBrowserChunkLoadError(
   };
 }
 
-function claimReload(): boolean {
+function readReloadGuard(): ReloadGuardRecord | undefined {
+  const raw = window.sessionStorage.getItem(RELOAD_GUARD_STORAGE_KEY);
+  if (!raw) {
+    return undefined;
+  }
+
   try {
-    if (window.sessionStorage.getItem(RELOAD_GUARD_STORAGE_KEY) === "1") {
+    const parsed = JSON.parse(raw) as Partial<ReloadGuardRecord>;
+    return typeof parsed?.at === "number" &&
+      Number.isFinite(parsed.at) &&
+      typeof parsed.chunkUrl === "string" &&
+      typeof parsed.count === "number" &&
+      Number.isInteger(parsed.count)
+      ? { at: parsed.at, chunkUrl: parsed.chunkUrl, count: parsed.count }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function claimReload(chunkUrl: string): boolean {
+  try {
+    const now = Date.now();
+    const previous = readReloadGuard();
+    const active =
+      previous &&
+      now - previous.at >= 0 &&
+      now - previous.at <= RELOAD_COOLDOWN_MS
+        ? previous
+        : undefined;
+    if (
+      active &&
+      (active.chunkUrl === chunkUrl || active.count >= MAX_RELOADS_PER_COOLDOWN)
+    ) {
       return false;
     }
-    window.sessionStorage.setItem(RELOAD_GUARD_STORAGE_KEY, "1");
-    return window.sessionStorage.getItem(RELOAD_GUARD_STORAGE_KEY) === "1";
+
+    const next: ReloadGuardRecord = {
+      at: now,
+      chunkUrl,
+      count: (active?.count ?? 0) + 1,
+    };
+    window.sessionStorage.setItem(
+      RELOAD_GUARD_STORAGE_KEY,
+      JSON.stringify(next)
+    );
+    // Some privacy modes accept the write and drop it; without a durable guard
+    // a reload could loop, so recovery fails closed.
+    const persisted = readReloadGuard();
+    return persisted?.at === next.at && persisted.chunkUrl === next.chunkUrl;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Decides — synchronously, before the report is built — whether this failure
+ * will be recovered, so the reported envelope carries the outcome.
+ */
+export function planBrowserChunkRecovery(
+  chunkUrl: string
+): BrowserChunkRecoveryAction {
+  // Reloading an offline browser swaps a broken page for the browser's own
+  // network error page, which is strictly worse and cannot recover on its own.
+  if (window.navigator.onLine === false) {
+    return "offline";
+  }
+  if (!claimReload(chunkUrl)) {
+    return readReloadGuardAvailability() ? "guarded" : "unavailable";
+  }
+  return "reload";
+}
+
+function readReloadGuardAvailability(): boolean {
+  try {
+    return readReloadGuard() !== undefined;
   } catch {
     return false;
   }
 }
 
 export async function recoverBrowserChunkLoadErrorOnce(
-  reportPromise: Promise<void>
+  reportPromise: Promise<void>,
+  action: BrowserChunkRecoveryAction
 ): Promise<boolean> {
-  if (!claimReload()) {
+  if (action !== "reload") {
     return false;
   }
 

@@ -92,6 +92,7 @@ Useful fields:
 | `loyal.client.build_id`             | Full Git SHA compiled into the reporting browser bundle  |
 | `loyal.page_session.id`             | Random UUID scoped to one browser tab session            |
 | `loyal.chunk.url`                   | Same-origin Next.js chunk URL, without query or fragment |
+| `loyal.chunk.recovery_action`       | What recovery did: see the table below                   |
 | `network.online`                    | Browser online state when the chunk failure was observed |
 | `network.connection.effective_type` | Browser-reported connection class, when available        |
 | `network.connection.rtt_ms`         | Browser-reported round-trip time, when available         |
@@ -103,6 +104,37 @@ Useful fields:
 `loyal.client.build_id` to distinguish a stale browser bundle from the Vercel
 deployment that received its report. The page-session UUID is random and
 contains no user identifier.
+
+### Chunk-load recovery
+
+Every chunk failure is reported before recovery runs, so `ChunkLoadError`
+volume alone does not measure the fix. `loyal.chunk.recovery_action` records the
+decision, taken before the report leaves the browser:
+
+| Value         | Meaning                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------- |
+| `reload`      | A hard reload was performed after this report                                                       |
+| `guarded`     | Skipped: this chunk already failed a reload, or the attempt budget for the cooldown window is spent |
+| `offline`     | Skipped: the browser was offline, so a reload would only surface its network error page             |
+| `unavailable` | Skipped: `sessionStorage` could not retain the guard, so recovery failed closed                     |
+
+At most two reloads run per ten-minute window per tab, and never twice for the
+same chunk URL. The signal that recovery worked is a `reload` with no further
+`ChunkLoadError` for the same `loyal.page_session.id`:
+
+```sql
+SELECT LogAttributes['loyal.chunk.recovery_action'] AS action,
+       uniqExact(LogAttributes['loyal.page_session.id']) AS sessions,
+       count() AS events
+FROM otel_logs
+WHERE Timestamp >= now() - INTERVAL 7 DAY
+  AND LogAttributes['exception.type'] = 'ChunkLoadError'
+GROUP BY action
+ORDER BY events DESC;
+```
+
+Note that `ChunkLoadError` is excluded from the `Errors` alert saved search;
+query it directly rather than expecting it to page.
 
 ## Wallet addresses
 

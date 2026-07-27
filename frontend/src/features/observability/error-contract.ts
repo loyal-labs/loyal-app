@@ -418,46 +418,62 @@ export function parseBrowserErrorEnvelope(
     throw new InvalidObservabilityEnvelopeError();
   }
 
-  const hasClientContext =
-    record.clientBuildId !== undefined ||
-    record.pageSessionId !== undefined ||
-    record.diagnostics !== undefined;
-  let clientBuildId: string | undefined;
-  let pageSessionId: string | undefined;
-  let diagnostics: BrowserErrorDiagnostics | undefined;
-  if (hasClientContext) {
-    clientBuildId = readRequiredString(record, "clientBuildId");
-    if (!isBrowserClientBuildId(clientBuildId)) {
-      throw new InvalidObservabilityEnvelopeError();
-    }
-    pageSessionId = readRequiredString(record, "pageSessionId");
-    if (!isBrowserPageSessionId(pageSessionId)) {
-      throw new InvalidObservabilityEnvelopeError();
-    }
-    diagnostics =
-      record.diagnostics === undefined
-        ? undefined
-        : normalizeBrowserChunkDiagnostics(record.diagnostics) ?? undefined;
-    if (record.diagnostics !== undefined && !diagnostics) {
-      throw new InvalidObservabilityEnvelopeError();
-    }
-    if (
-      diagnostics &&
-      !isBrowserChunkUrlFromOrigin(
-        diagnostics.chunkUrl,
-        options.expectedChunkOrigin
-      )
-    ) {
-      throw new InvalidObservabilityEnvelopeError();
-    }
-  }
+  const clientContext = readBrowserClientContext(
+    record,
+    options.expectedChunkOrigin
+  );
 
   return {
     ...parseCommonErrorEnvelopeFields(record, options.now ?? Date.now()),
-    ...(clientBuildId ? { clientBuildId } : {}),
-    ...(diagnostics ? { diagnostics } : {}),
+    ...(clientContext.clientBuildId
+      ? { clientBuildId: clientContext.clientBuildId }
+      : {}),
+    ...(clientContext.diagnostics
+      ? { diagnostics: clientContext.diagnostics }
+      : {}),
     operation: record.operation,
-    ...(pageSessionId ? { pageSessionId } : {}),
+    ...(clientContext.pageSessionId
+      ? { pageSessionId: clientContext.pageSessionId }
+      : {}),
+  };
+}
+
+/**
+ * The chunk-load context is diagnostic enrichment, not the report itself.
+ * Rejecting the whole envelope over it would drop the very ChunkLoadError we
+ * need, so anything that fails validation is dropped and the error still
+ * reaches ClickStack. Required envelope fields stay strictly validated.
+ */
+function readBrowserClientContext(
+  record: Record<string, unknown>,
+  expectedChunkOrigin: string
+): {
+  clientBuildId?: string;
+  diagnostics?: BrowserErrorDiagnostics;
+  pageSessionId?: string;
+} {
+  const { clientBuildId, diagnostics: rawDiagnostics, pageSessionId } = record;
+  if (
+    typeof clientBuildId !== "string" ||
+    !isBrowserClientBuildId(clientBuildId) ||
+    typeof pageSessionId !== "string" ||
+    !isBrowserPageSessionId(pageSessionId)
+  ) {
+    return {};
+  }
+
+  const diagnostics =
+    rawDiagnostics === undefined
+      ? undefined
+      : normalizeBrowserChunkDiagnostics(rawDiagnostics) ?? undefined;
+
+  return {
+    clientBuildId,
+    ...(diagnostics &&
+    isBrowserChunkUrlFromOrigin(diagnostics.chunkUrl, expectedChunkOrigin)
+      ? { diagnostics }
+      : {}),
+    pageSessionId,
   };
 }
 

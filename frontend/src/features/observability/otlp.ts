@@ -62,6 +62,15 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
     attributes.push(stringAttribute("loyal.chunk.url", diagnostics.chunkUrl));
     attributes.push(boolAttribute("network.online", diagnostics.networkOnline));
 
+    if (diagnostics.recoveryAction !== undefined) {
+      attributes.push(
+        stringAttribute(
+          "loyal.chunk.recovery_action",
+          diagnostics.recoveryAction
+        )
+      );
+    }
+
     if (diagnostics.connectionEffectiveType !== undefined) {
       attributes.push(
         stringAttribute(

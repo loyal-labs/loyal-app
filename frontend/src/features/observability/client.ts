@@ -1,7 +1,9 @@
 "use client";
 
+import type { BrowserChunkRecoveryAction } from "./chunk-load-contract";
 import {
   inspectBrowserChunkLoadError,
+  planBrowserChunkRecovery,
   recoverBrowserChunkLoadErrorOnce,
 } from "./chunk-load-recovery";
 import {
@@ -116,6 +118,15 @@ export function lifecycleFlowHeaders(flowId: string): HeadersInit {
   return { "x-loyal-flow-id": flowId };
 }
 
+function withChunkRecoveryAction(
+  envelope: BrowserErrorEnvelope,
+  recoveryAction: BrowserChunkRecoveryAction
+): BrowserErrorEnvelope {
+  return envelope.diagnostics
+    ? { ...envelope, diagnostics: { ...envelope.diagnostics, recoveryAction } }
+    : envelope;
+}
+
 export function createBrowserErrorProcessor(
   options: {
     deduplicator?: ErrorDeduplicator;
@@ -130,20 +141,29 @@ export function createBrowserErrorProcessor(
           error,
           CLIENT_BUILD_ID
         );
-        const envelope = createBrowserErrorEnvelope(error, operation, {
+        const captured = createBrowserErrorEnvelope(error, operation, {
           ...(chunkFailure?.telemetry ?? {}),
         });
-        if (isThirdPartyExtensionError(envelope.operation, envelope.stack)) {
+        if (isThirdPartyExtensionError(captured.operation, captured.stack)) {
           return;
         }
-        if (deduplicator.isDuplicate(envelope)) {
+        if (deduplicator.isDuplicate(captured)) {
           return;
         }
 
+        // Planned only after the drop checks: a suppressed duplicate must not
+        // consume one of the bounded recovery attempts.
+        const action = chunkFailure
+          ? planBrowserChunkRecovery(chunkFailure.chunkUrl)
+          : undefined;
+        const envelope = action
+          ? withChunkRecoveryAction(captured, action)
+          : captured;
+
         const reportPromise = postBrowserError(envelope);
         if (
-          chunkFailure &&
-          (await recoverBrowserChunkLoadErrorOnce(reportPromise))
+          action &&
+          (await recoverBrowserChunkLoadErrorOnce(reportPromise, action))
         ) {
           return;
         }

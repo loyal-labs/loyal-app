@@ -6,6 +6,8 @@ const CLIENT_BUILD_ID = "0123456789abcdef0123456789abcdef01234567";
 const SERVER_BUILD_ID = "89abcdef0123456789abcdef0123456789abcdef";
 const ORIGIN = "https://askloyal.com";
 const CHUNK_URL = `${ORIGIN}/_next/static/chunks/app/global-error-3a07882f87777428.js`;
+const OTHER_CHUNK_URL = `${ORIGIN}/_next/static/chunks/9665-1bf556edfa8bf17f.js`;
+const THIRD_CHUNK_URL = `${ORIGIN}/_next/static/chunks/3304-0cb5029d0b17ec4f.js`;
 const EXTERNAL_CHUNK_URL =
   "https://cdn.example.test/_next/static/chunks/4219.js";
 const SESSION_IDS = [
@@ -42,6 +44,7 @@ function chunkError(url = CHUNK_URL): Error {
 }
 
 function installBrowser(options: {
+  offline?: boolean;
   randomUUID: string;
   stallReport?: boolean;
   storage?: StorageLike;
@@ -69,7 +72,7 @@ function installBrowser(options: {
     },
     navigator: {
       connection: { effectiveType: "4g", rtt: 80 },
-      onLine: true,
+      onLine: !options.offline,
     },
     performance: {
       getEntriesByName: (name: string) =>
@@ -159,6 +162,8 @@ async function verifyServerRouteProbe(): Promise<void> {
     );
 
   assert.equal((await post(previewOrigin, envelope)).status, 202);
+  // A foreign chunk URL must cost the report its diagnostics, not the whole
+  // ChunkLoadError: dropping the event would erase the signal we ship this for.
   assert.equal(
     (
       await post(ORIGIN, {
@@ -169,6 +174,11 @@ async function verifyServerRouteProbe(): Promise<void> {
         },
       })
     ).status,
+    202
+  );
+  assert.equal(
+    (await post(ORIGIN, { ...envelope, operation: "arbitrary.operation" }))
+      .status,
     400
   );
   console.info("SERVER_ROUTE_PROBE_RESULT: PASS");
@@ -258,6 +268,7 @@ async function verify(): Promise<void> {
     connectionEffectiveType: "4g",
     connectionRttMs: 80,
     networkOnline: true,
+    recoveryAction: "reload",
     resourceDurationMs: 142.5,
     resourceResponseStatus: 504,
     resourceTransferSize: 10_540,
@@ -273,7 +284,56 @@ async function verify(): Promise<void> {
     .process(chunkError(), "browser.unhandled_rejection");
   assert.deepEqual(reloaded.calls, ["report"]);
   assert.equal(reloaded.bodies[0].pageSessionId, SESSION_IDS[0]);
-  pass("the reload guard and random page-session ID survive a new document");
+  assert.equal(
+    (reloaded.bodies[0].diagnostics as Record<string, unknown>).recoveryAction,
+    "guarded"
+  );
+  pass("re-failing the same chunk after a reload is reported, never retried");
+
+  // The old guard latched for the whole tab lifetime, so a long-lived tab was
+  // stuck broken after any later deploy. A different chunk stays recoverable.
+  const secondChunk = installBrowser({
+    randomUUID: SESSION_IDS[1],
+    storage: sessionStorage,
+  });
+  await (await loadClient("second-chunk"))
+    .createBrowserErrorProcessor()
+    .process(chunkError(OTHER_CHUNK_URL), "browser.unhandled_rejection");
+  assert.deepEqual(secondChunk.calls, ["report", "reload"]);
+  assert.equal(
+    (secondChunk.bodies[0].diagnostics as Record<string, unknown>)
+      .recoveryAction,
+    "reload"
+  );
+
+  const thirdChunk = installBrowser({
+    randomUUID: SESSION_IDS[1],
+    storage: sessionStorage,
+  });
+  await (await loadClient("third-chunk"))
+    .createBrowserErrorProcessor()
+    .process(chunkError(THIRD_CHUNK_URL), "browser.unhandled_rejection");
+  assert.deepEqual(thirdChunk.calls, ["report"]);
+  assert.equal(
+    (thirdChunk.bodies[0].diagnostics as Record<string, unknown>)
+      .recoveryAction,
+    "guarded"
+  );
+  pass("a later distinct chunk stays recoverable, but attempts stay bounded");
+
+  const offline = installBrowser({
+    offline: true,
+    randomUUID: SESSION_IDS[2],
+  });
+  await (await loadClient("offline"))
+    .createBrowserErrorProcessor()
+    .process(chunkError(), "browser.unhandled_rejection");
+  assert.deepEqual(offline.calls, ["report"]);
+  assert.equal(
+    (offline.bodies[0].diagnostics as Record<string, unknown>).recoveryAction,
+    "offline"
+  );
+  pass("an offline browser is reported, not reloaded into its own error page");
 
   const stalled = installBrowser({
     randomUUID: SESSION_IDS[2],
@@ -313,6 +373,11 @@ async function verify(): Promise<void> {
       .createBrowserErrorProcessor()
       .process(chunkError(), "browser.unhandled_rejection");
     assert.deepEqual(unavailable.calls, ["report"]);
+    assert.equal(
+      (unavailable.bodies[0].diagnostics as Record<string, unknown>)
+        .recoveryAction,
+      "unavailable"
+    );
   }
   pass("recovery fails closed when sessionStorage cannot retain the guard");
 
@@ -341,39 +406,62 @@ async function verify(): Promise<void> {
     parseOptions
   );
   assert.deepEqual(parsed, firstEnvelope);
-  const assertRejected = (overrides: Record<string, unknown>) =>
-    assert.throws(
-      () =>
-        contract.parseBrowserErrorEnvelope(
-          { ...firstEnvelope, ...overrides },
-          parseOptions
-        ),
-      /Invalid observability error envelope/
+  // Every one of these used to throw, which turned a bad diagnostic field into
+  // a 400 and lost the ChunkLoadError itself. The enrichment is dropped, the
+  // error survives, and nothing unvalidated reaches OTLP.
+  const assertDegraded = (overrides: Record<string, unknown>) => {
+    const degraded = contract.parseBrowserErrorEnvelope(
+      { ...firstEnvelope, ...overrides },
+      parseOptions
     );
-  assertRejected({ clientBuildId: "clientabc123" });
-  assertRejected({ pageSessionId: "not-a-random-session-id" });
-  assertRejected({
-    diagnostics: {
+    assert.equal(degraded.message, firstEnvelope.message);
+    assert.equal(degraded.name, firstEnvelope.name);
+    return degraded;
+  };
+  for (const overrides of [
+    { clientBuildId: "clientabc123" },
+    { pageSessionId: "not-a-random-session-id" },
+  ]) {
+    const degraded = assertDegraded(overrides);
+    assert.equal(degraded.clientBuildId, undefined);
+    assert.equal(degraded.pageSessionId, undefined);
+    assert.equal(degraded.diagnostics, undefined);
+  }
+  for (const diagnostics of [
+    {
       ...(firstEnvelope.diagnostics as Record<string, unknown>),
       resourceTransferSize: Number.MAX_SAFE_INTEGER,
     },
-  });
-  assertRejected({
-    diagnostics: {
+    {
       ...(firstEnvelope.diagnostics as Record<string, unknown>),
       secretContext: "must-not-pass",
     },
-  });
-  assertRejected({
-    diagnostics: {
+    {
+      ...(firstEnvelope.diagnostics as Record<string, unknown>),
+      recoveryAction: "delete-everything",
+    },
+    {
       ...(firstEnvelope.diagnostics as Record<string, unknown>),
       chunkUrl: EXTERNAL_CHUNK_URL,
     },
-  });
-  pass("build, session, origin, and diagnostic fields are strictly bounded");
+  ]) {
+    const degraded = assertDegraded({ diagnostics });
+    assert.equal(degraded.diagnostics, undefined);
+    assert.equal(degraded.clientBuildId, CLIENT_BUILD_ID);
+  }
+  // Required fields stay strict — degradation is scoped to the enrichment.
+  assert.throws(
+    () =>
+      contract.parseBrowserErrorEnvelope(
+        { ...firstEnvelope, operation: "arbitrary.operation" },
+        parseOptions
+      ),
+    /Invalid observability error envelope/
+  );
+  pass("bad chunk enrichment is dropped while the error itself still reports");
 
   runServerRouteProbe();
-  pass("the relay derives request origin and rejects external chunk telemetry");
+  pass("the relay derives request origin and drops external chunk telemetry");
 
   const normalized = contract.createNormalizedBrowserErrorEvent(parsed, {
     deploymentEnvironment: "production",
@@ -386,6 +474,7 @@ async function verify(): Promise<void> {
     `"loyal.client.build_id","value":{"stringValue":"${CLIENT_BUILD_ID}"}`,
     `"loyal.page_session.id","value":{"stringValue":"${SESSION_IDS[0]}"}`,
     `"loyal.chunk.url","value":{"stringValue":"${CHUNK_URL}"}`,
+    '"loyal.chunk.recovery_action","value":{"stringValue":"reload"}',
     '"network.online","value":{"boolValue":true}',
     '"network.connection.rtt_ms","value":{"intValue":"80"}',
     '"loyal.resource.response_status","value":{"intValue":"504"}',
