@@ -87,8 +87,6 @@ interface Options {
   cooldownSeconds: number;
   maxRows: number;
   quiet: boolean;
-  simulateRestart: boolean;
-  escalationMultiplier: number;
   dailyRecapEnabled: boolean;
   dailyRecapAt: string;
 }
@@ -131,8 +129,6 @@ function parseArgs(argv: string[]): Options {
     cooldownSeconds: Number(flags.get("cooldown") ?? 3600),
     maxRows: Number(flags.get("max-rows") ?? DEFAULT_MAX_ROWS_PER_ALERT),
     quiet: bare.has("quiet"),
-    simulateRestart: bare.has("simulate-restart"),
-    escalationMultiplier: Number(flags.get("escalation-multiplier") ?? 10),
     dailyRecapEnabled: !bare.has("no-recap"),
     dailyRecapAt: flags.get("recap-at") ?? "06:00",
   };
@@ -561,10 +557,8 @@ function simulationConfig(options: Options): ServerConfig {
     ALERT_COLUMNS: ALERT_COLUMNS.join(","),
     CARDINALITY_COLUMNS: CARDINALITY_COLUMNS.join(","),
     COOLDOWN_SECONDS: String(options.cooldownSeconds),
-    ESCALATION_MULTIPLIER: String(options.escalationMultiplier),
     DAILY_RECAP_ENABLED: String(options.dailyRecapEnabled),
     DAILY_RECAP_AT: options.dailyRecapAt,
-    RESTART_GRACE_SECONDS: options.simulateRestart ? "120" : "0",
   });
 }
 
@@ -611,8 +605,6 @@ async function simulate(
     maxCacheEntries: config.maxCacheEntries,
     dailyRecapEnabled: config.dailyRecapEnabled,
     dailyRecapAtMinutes: config.dailyRecapAtMinutes,
-    escalationMultiplier: config.escalationMultiplier,
-    restartGraceMs: config.restartGraceMs,
     analyze: createAlertAnalyzer(config),
     now: () => clock,
     startedAt: clock,
@@ -674,11 +666,9 @@ function report(
     )}d)`
   );
   console.log(
-    `Settings cooldown=${options.cooldownSeconds}s escalation=x${
-      options.escalationMultiplier
-    } recap=${
+    `Settings cooldown=${options.cooldownSeconds}s recap=${
       options.dailyRecapEnabled ? `${options.dailyRecapAt} UTC` : "off"
-    } restart=${options.simulateRestart}`
+    }`
   );
   console.log("=".repeat(72));
 
