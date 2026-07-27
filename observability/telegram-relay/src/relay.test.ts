@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import { analyzeAlert, formatTelegramMessage } from "./format.ts";
 import {
@@ -896,5 +896,79 @@ describe("AlertRelay windows", () => {
     await relay.handle(alertPayload, "delivery-2");
     const expiresAt = relay.exportState(now).windows[0]?.expiresAt ?? 0;
     expect(expiresAt).toBeLessThanOrEqual(now + 2 * 86_400_000);
+  });
+
+  test("reports every deadline it refuses, since each one drops state", async () => {
+    // Rejecting silently trades one invisible failure for another: the tally
+    // resets and the only symptom is a recap covering the wrong period. These
+    // logs are the sole evidence the row was corrupt rather than merely stale.
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const far = now + 5 * 365 * 86_400_000;
+    const errors: string[] = [];
+    const logged = spyOn(console, "error").mockImplementation((line) => {
+      errors.push(String(line));
+    });
+
+    try {
+      const source = createRelay(
+        async () => undefined,
+        () => now
+      );
+      await source.handle(alertPayload, "delivery-1");
+
+      const poisoned = source.exportState(now);
+      const window = poisoned.windows[0];
+      if (!window) {
+        throw new Error("expected a window to poison");
+      }
+      window.expiresAt = far;
+      poisoned.nextRecapAt = far;
+      poisoned.pendingRecap = { tally: poisoned.daily as never, until: far };
+
+      createRelay(
+        async () => undefined,
+        () => now
+      ).importState(poisoned, now);
+    } finally {
+      logged.mockRestore();
+    }
+
+    const events = errors.map((line) => JSON.parse(line).event);
+    expect(events).toEqual([
+      "state_window_rejected",
+      "state_recap_deadline_rejected",
+      "state_pending_recap_rejected",
+    ]);
+  });
+
+  test("stays quiet when a snapshot is merely too old to date", async () => {
+    // The contrast that makes the rejection logs worth reading: an aged-out
+    // tally is the designed behavior and must not look like a fault.
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const errors: string[] = [];
+    const logged = spyOn(console, "error").mockImplementation((line) => {
+      errors.push(String(line));
+    });
+
+    try {
+      const source = createRelay(
+        async () => undefined,
+        () => now
+      );
+      await source.handle(alertPayload, "delivery-1");
+      const aged = source.exportState(now);
+      aged.windows = [];
+      // Plausible, just far enough in the past that its counts cannot be dated.
+      aged.nextRecapAt = now - 2 * 86_400_000;
+
+      createRelay(
+        async () => undefined,
+        () => now
+      ).importState(aged, now);
+    } finally {
+      logged.mockRestore();
+    }
+
+    expect(errors).toEqual([]);
   });
 });

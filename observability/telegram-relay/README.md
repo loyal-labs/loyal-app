@@ -174,9 +174,23 @@ signatures, and a corrupt one mutes them for exactly as long as it claims —
 silently, and across every later deploy, since each restore writes the bad
 value straight back out. Anything further ahead than this relay could have
 written itself (the cooldown plus a day for a window, a day for the recap
-schedule) is rejected and logged as `state_window_rejected`. `nextRecapAt` is
-the dangerous one: it is the expiry every _subsequently opened_ window
-inherits, so a bad value there mutes signatures the snapshot never mentioned.
+schedule) is rejected. `nextRecapAt` is the dangerous one: it is the expiry
+every _subsequently opened_ window inherits, so a bad value there mutes
+signatures the snapshot never mentioned.
+
+Each rejection is logged, because each one silently drops suppression state and
+the visible symptom — counters reset, or a recap covering the wrong period — is
+the same as several harmless things:
+
+| Event                           | What was dropped                           |
+| ------------------------------- | ------------------------------------------ |
+| `state_window_rejected`         | One window, which stops suppressing        |
+| `state_recap_deadline_rejected` | The running daily tally and recap schedule |
+| `state_pending_recap_rejected`  | A closed period whose recap was never sent |
+
+Dropping a snapshot for being **too old** is not logged: that is the designed
+behavior for counts nobody could date any more, and it is the contrast that
+makes the entries above worth acting on.
 
 A further option, rebuilding windows by querying ClickStack for signatures that
 were already firing before boot, is deliberately **not** implemented: the relay

@@ -552,14 +552,9 @@ export class AlertRelay {
         continue;
       }
       if (!isRestorableWindow(saved, latestExpiry)) {
-        console.error(
-          JSON.stringify({
-            event: "state_window_rejected",
-            key: typeof saved.key === "string" ? saved.key : "<invalid>",
-            expiresAt: saved.expiresAt,
-            latestExpiry,
-          })
-        );
+        rejectDeadline("state_window_rejected", saved.expiresAt, latestExpiry, {
+          key: typeof saved.key === "string" ? saved.key : "<invalid>",
+        });
         continue;
       }
       const window = recover("state_window_restore_failed", () =>
@@ -582,33 +577,50 @@ export class AlertRelay {
     // what every window opened after this point expires at, so a corrupt value
     // in the future does not just mute the restored signatures — it mutes
     // every signature the relay sees from now on.
-    if (
-      state.daily &&
-      state.nextRecapAt &&
-      now - state.nextRecapAt < DAY_MS &&
-      isPlausibleDeadline(state.nextRecapAt, now + DAY_MS)
-    ) {
-      const saved = state.daily;
-      const daily = recover("state_tally_restore_failed", () =>
-        deserializeTally(saved)
-      );
-      if (daily) {
-        this.daily = daily;
-        this.nextRecapAt = state.nextRecapAt;
+    //
+    // Dropping for age is quiet because it is the designed behavior; dropping
+    // for corruption is not, and it costs the whole tally, so it is reported.
+    // An operator who sees a recap covering the wrong period needs to be able
+    // to tell "the snapshot was too old to date" from "the row was garbage",
+    // and only one of those is worth investigating the database over.
+    const latestDeadline = now + DAY_MS;
+
+    if (state.daily && state.nextRecapAt) {
+      if (!isPlausibleDeadline(state.nextRecapAt, latestDeadline)) {
+        rejectDeadline(
+          "state_recap_deadline_rejected",
+          state.nextRecapAt,
+          latestDeadline,
+          { dropped: "daily_tally" }
+        );
+      } else if (now - state.nextRecapAt < DAY_MS) {
+        const saved = state.daily;
+        const daily = recover("state_tally_restore_failed", () =>
+          deserializeTally(saved)
+        );
+        if (daily) {
+          this.daily = daily;
+          this.nextRecapAt = state.nextRecapAt;
+        }
       }
     }
 
-    if (
-      state.pendingRecap &&
-      now - state.pendingRecap.until < DAY_MS &&
-      isPlausibleDeadline(state.pendingRecap.until, now + DAY_MS)
-    ) {
+    if (state.pendingRecap) {
       const saved = state.pendingRecap;
-      const tally = recover("state_pending_recap_restore_failed", () =>
-        deserializeTally(saved.tally)
-      );
-      if (tally) {
-        this.pendingRecap = { tally, until: saved.until };
+      if (!isPlausibleDeadline(saved.until, latestDeadline)) {
+        rejectDeadline(
+          "state_pending_recap_rejected",
+          saved.until,
+          latestDeadline,
+          { dropped: "pending_recap" }
+        );
+      } else if (now - saved.until < DAY_MS) {
+        const tally = recover("state_pending_recap_restore_failed", () =>
+          deserializeTally(saved.tally)
+        );
+        if (tally) {
+          this.pendingRecap = { tally, until: saved.until };
+        }
       }
     }
 
@@ -849,6 +861,29 @@ function emptyAnalysis(): AlertAnalysis {
  */
 function isPlausibleDeadline(value: number, latest: number): boolean {
   return Number.isFinite(value) && value <= latest;
+}
+
+/**
+ * Reports a deadline refused for being outside what this relay could have
+ * written. Every one of these silently costs suppression state — a window, the
+ * daily tally, a pending recap — so none of them may pass unlogged: the symptom
+ * an operator sees is counters that reset or a recap covering the wrong period,
+ * with nothing else to explain it.
+ */
+function rejectDeadline(
+  event: string,
+  deadline: unknown,
+  latestAccepted: number,
+  context: Record<string, string> = {}
+): void {
+  console.error(
+    JSON.stringify({
+      event,
+      ...context,
+      deadline: typeof deadline === "number" ? deadline : String(deadline),
+      latestAccepted,
+    })
+  );
 }
 
 /**
