@@ -621,6 +621,7 @@ export function SwapTokenSelectPane({
   onSearch,
   onSelect,
   side,
+  title,
   tokens,
 }: {
   nameByMint: Record<string, string>;
@@ -628,6 +629,8 @@ export function SwapTokenSelectPane({
   onSearch?: (query: string) => Promise<SwapToken[]>;
   onSelect: (token: SwapToken) => void;
   side: "from" | "to";
+  /** Overrides the swap-side header copy (e.g. Send's "Select asset"). */
+  title?: string;
   tokens: SwapToken[];
 }) {
   const [search, setSearch] = useState("");
@@ -683,7 +686,7 @@ export function SwapTokenSelectPane({
       <header className="flex w-full shrink-0 items-center p-2">
         <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4 max-[795px]:pl-2">
           <h2 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
-            {side === "from" ? "You swap" : "You receive"}
+            {title ?? (side === "from" ? "You swap" : "You receive")}
           </h2>
         </div>
         <div className="flex shrink-0 items-center pl-3">

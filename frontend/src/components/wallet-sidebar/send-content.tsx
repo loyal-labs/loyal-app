@@ -30,7 +30,7 @@ const font = "var(--font-geist-sans), sans-serif";
 const secondary = "rgba(60, 60, 67, 0.6)";
 const red = "#F9363C";
 
-function isValidSolanaAddress(value: string): boolean {
+export function isValidSolanaAddress(value: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value);
 }
 
@@ -52,7 +52,7 @@ function isTelegramUsername(value: string): boolean {
   );
 }
 
-function truncateAddress(addr: string): string {
+export function truncateAddress(addr: string): string {
   if (addr.length <= 10) return addr;
   return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
 }

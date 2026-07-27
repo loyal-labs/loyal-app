@@ -4,8 +4,6 @@ import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { SendContent } from "@/components/wallet-sidebar/send-content";
-import { TokenSelectView } from "@/components/wallet-sidebar/token-select-view";
 import {
   LOYL_TOKEN,
   swapTokens as fallbackSwapTokens,
@@ -24,6 +22,11 @@ import {
   MiddlePaneSlide,
   PaneReveal,
 } from "@/components/wallet-workspace/facelift/pane-transitions";
+import {
+  SendPane,
+  SendRecipientPane,
+  useSendRecentRecipients,
+} from "@/components/wallet-workspace/facelift/send-pane";
 import {
   InlineSheetReveal,
   SheetReveal,
@@ -190,10 +193,10 @@ function ShieldUnlockOverlay({
 
 // Crypto screen (Figma 4813:338843) and, via page="stables", the Stablecoins
 // one (4813:339437): the root token list plus the action flows — the
-// redesigned Swap and Shield screens, and the OG SendContent with its
-// token-select subview — mounted as the page-slide action screen. All handler
-// logic is ported from the workspace monolith's personal-wallet slice; the
-// stables Earn buttons jump to the Earn page's deposit screen.
+// redesigned Send, Swap, and Shield screens — mounted as the page-slide
+// action screen. All handler logic is ported from the workspace monolith's
+// personal-wallet slice; the stables Earn buttons jump to the Earn page's
+// deposit screen.
 export function CryptoPage({
   onBack,
   onEarn,
@@ -283,6 +286,29 @@ export function CryptoPage({
   const { tokens: popularTokens, search: searchTokens } = usePopularTokens({
     enabled: shouldLoadPopularTokens,
   });
+
+  // --- redesigned Send screen (Figma 4852:38932) ---
+  const [sendRecipient, setSendRecipient] = useState<string | null>(null);
+  // Which selector occupies Send's right pane; null = the empty reserved slot.
+  const [sendSelect, setSendSelect] = useState<"asset" | "recipient" | null>(
+    null
+  );
+  // Keeps the selector content rendered through the pane's close slide.
+  const sendSelectRef = useRef<"asset" | "recipient">("recipient");
+  if (sendSelect) {
+    sendSelectRef.current = sendSelect;
+  }
+  const overlaySendSelect = sendSelect ?? sendSelectRef.current;
+  // Mirrors SendPane's step: selectors hide once a submit starts.
+  const [isSendFormActive, setIsSendFormActive] = useState(true);
+  const handleSendFormActiveChange = useCallback((isFormActive: boolean) => {
+    setIsSendFormActive(isFormActive);
+    if (!isFormActive) {
+      setSendSelect(null);
+    }
+  }, []);
+  const { recents: sendRecents, recordSend: recordSendRecent } =
+    useSendRecentRecipients(data.walletAddress);
 
   // --- redesigned Swap screen (Figma 4819:414629) ---
   const [isSwapOpen, setIsSwapOpen] = useState(false);
@@ -416,14 +442,6 @@ export function CryptoPage({
     prevHadTokensRef.current = hasTokens;
   }, [derivedTokens]);
 
-  const pushView = useCallback((view: ActionView) => {
-    setViewStack((current) => [...current, view]);
-  }, []);
-
-  const popView = useCallback(() => {
-    setViewStack((current) => current.slice(0, -1));
-  }, []);
-
   const closeAction = useCallback(() => {
     setViewStack([]);
   }, []);
@@ -431,6 +449,21 @@ export function CryptoPage({
   const openAction = useCallback((view: ActionView) => {
     setViewStack([view]);
   }, []);
+
+  // Every Send entry lands on a fresh form: no carried-over recipient, the
+  // right pane back to its empty reserved slot.
+  const openSend = useCallback(
+    (token?: SwapToken) => {
+      if (token) {
+        setSendToken(token);
+      }
+      setSendRecipient(null);
+      setSendSelect(null);
+      setIsSendFormActive(true);
+      openAction({ type: "sendPanel" });
+    },
+    [openAction]
+  );
 
   // Ref mirrors so the swap open/select callbacks read the latest pair
   // without re-creating per selection.
@@ -670,12 +703,11 @@ export function CryptoPage({
       return;
     }
     setIsDetailSheetOpen(false);
-    setSendToken({
+    openSend({
       ...detailBase,
       balance: detailPublicBalance,
       isSecured: false,
     });
-    openAction({ type: "sendPanel" });
   };
   const openDetailShield = () => {
     if (!detailBase) {
@@ -708,10 +740,7 @@ export function CryptoPage({
       setDetailToken(tokenRowToSwapToken(row));
       setIsDetailSheetOpen(true);
     },
-    onSend: (row) => {
-      setSendToken(tokenRowToSwapToken(row));
-      openAction({ type: "sendPanel" });
-    },
+    onSend: (row) => openSend(tokenRowToSwapToken(row)),
     // Shield and Unshield land on the same screen — the row token's secured
     // flag picks the direction.
     onShield: (row) => openShield(tokenRowToSwapToken(row)),
@@ -729,53 +758,59 @@ export function CryptoPage({
 
   const actionView = viewStack[viewStack.length - 1] ?? null;
   const actionType = actionView === null ? null : viewType(actionView);
+  const isSendOpen = actionType === "sendPanel";
 
-  const renderActionView = () => {
-    if (actionView === null) {
-      return null;
-    }
-
-    if (actionType === "sendTokenSelect") {
-      return (
-        <TokenSelectView
-          currentToken={sendToken}
-          onBack={popView}
-          onClose={closeAction}
-          onSelect={setSendToken}
-          title="Send"
-          tokens={derivedTokens}
-        />
-      );
-    }
-
-    if (actionType === "sendPanel") {
-      return (
-        <SendContent
-          addLocalActivity={data.addLocalActivity}
-          allowPrivateSend
-          onClose={closeAction}
-          onDone={closeAction}
-          onNavigate={pushView}
-          onSuccess={refreshWallet}
-          token={sendToken}
-        />
-      );
-    }
-
-    return null;
-  };
+  // Shared by the desktop aside and the <1204 sheet — one selector, two
+  // geometries (same split as swap's token selector).
+  const renderSendSelectPane = () =>
+    overlaySendSelect === "asset" ? (
+      <SwapTokenSelectPane
+        nameByMint={tokenNameByMint}
+        onClose={() => setSendSelect(null)}
+        onSelect={(token) => {
+          setSendToken(token);
+          setSendSelect(null);
+        }}
+        side="from"
+        title="Select asset"
+        tokens={shieldSourceTokens}
+      />
+    ) : (
+      <SendRecipientPane
+        onClose={() => setSendSelect(null)}
+        onSelect={(address) => {
+          setSendRecipient(address);
+          setSendSelect(null);
+        }}
+        recents={sendRecents}
+      />
+    );
 
   return (
     <>
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
         <MiddlePaneSlide
           actionPane={
-            actionView !== null ? (
-              <section className="flex h-full w-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
-                <div className="mx-auto flex h-full min-h-0 w-full max-w-[480px] flex-col">
-                  {renderActionView()}
-                </div>
-              </section>
+            isSendOpen ? (
+              <SendPane
+                onBack={closeAction}
+                onDone={closeAction}
+                onFormActiveChange={handleSendFormActiveChange}
+                onOpenAssetSelect={() =>
+                  setSendSelect((current) =>
+                    current === "asset" ? null : "asset"
+                  )
+                }
+                onOpenRecipientSelect={() =>
+                  setSendSelect((current) =>
+                    current === "recipient" ? null : "recipient"
+                  )
+                }
+                onSuccess={refreshWallet}
+                recipient={sendRecipient}
+                recordRecent={recordSendRecent}
+                token={sendToken}
+              />
             ) : isSwapOpen ? (
               <SwapPane
                 activeSelectSide={swapSelectSide}
@@ -814,7 +849,7 @@ export function CryptoPage({
               isBalanceRevealed={isWalletDataRevealed}
               onBack={onBack}
               onEarn={onEarn}
-              onSend={() => openAction({ type: "sendPanel" })}
+              onSend={() => openSend()}
               onShield={handleShield}
               onSwap={() => openSwap()}
               rowActions={rowActions}
@@ -827,7 +862,21 @@ export function CryptoPage({
             />
           </PaneReveal>
         </MiddlePaneSlide>
-        {actionView !== null ? null : isSwapOpen ? (
+        {isSendOpen ? (
+          // Send's right pane (Figma 4852:39600 / 4852:39997): the reserved
+          // 400px slot hosts either the asset selector or the recipient
+          // pane; both slide out while a submit runs and on result screens.
+          <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
+            <InlineSheetReveal
+              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
+              isOpen={sendSelect !== null && isSendFormActive}
+            >
+              <PaneReveal key={overlaySendSelect}>
+                {renderSendSelectPane()}
+              </PaneReveal>
+            </InlineSheetReveal>
+          </div>
+        ) : actionView !== null ? null : isSwapOpen ? (
           // Swap's right pane: a reserved 400px slot (Figma 4813:403499
           // keeps it empty) the selector panel-reveals into and out of;
           // switching sides replays the content reveal on the open panel.
@@ -924,6 +973,15 @@ export function CryptoPage({
             }
           />
         </PaneReveal>
+      </SheetReveal>
+      {/* Send's <1204 selector/recipient pane: same geometry as swap's. */}
+      <SheetReveal
+        isOpen={isSendOpen && sendSelect !== null && isSendFormActive}
+        onClose={() => setSendSelect(null)}
+        scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      >
+        <PaneReveal key={overlaySendSelect}>{renderSendSelectPane()}</PaneReveal>
       </SheetReveal>
       {/* Shield's <1204 selector: same geometry, opened from the source
           asset cell (the aside is hidden below 1204). */}
