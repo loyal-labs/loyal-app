@@ -1249,6 +1249,18 @@ export const appWalletAuthCompletions = pgTable(
 );
 
 /**
+ * Single-use keys for the Cap captcha (challenge nonces + redeem tokens).
+ * Rows are consumed by delete-on-read; expiry is enforced at read time.
+ */
+export const appCaptchaKeys = pgTable("app_captcha_keys", {
+  key: text("key").primaryKey(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+/**
  * Persisted chat sessions per app user.
  */
 export const appChats = pgTable(

@@ -99,13 +99,13 @@ function mapWalletProofError(error: unknown): {
 
 export function useWalletProofAuth({
   onFlowStart,
-  onTurnstileConsumed,
-  turnstileToken,
+  onCaptchaConsumed,
+  captchaToken,
   useLedgerProof = false,
 }: {
   onFlowStart?: () => void;
-  onTurnstileConsumed?: () => void;
-  turnstileToken?: string;
+  onCaptchaConsumed?: () => void;
+  captchaToken?: string;
   useLedgerProof?: boolean;
 }) {
   const authApiClient = useAuthApiClient();
@@ -138,10 +138,10 @@ export function useWalletProofAuth({
   const verifyAttemptedForAddressRef = useRef<string | null>(null);
   const [walletNameToReselect, setWalletNameToReselect] =
     useState<WalletName | null>(null);
-  const turnstileTokenRef = useRef(turnstileToken);
-  turnstileTokenRef.current = turnstileToken;
-  const onTurnstileConsumedRef = useRef(onTurnstileConsumed);
-  onTurnstileConsumedRef.current = onTurnstileConsumed;
+  const captchaTokenRef = useRef(captchaToken);
+  captchaTokenRef.current = captchaToken;
+  const onCaptchaConsumedRef = useRef(onCaptchaConsumed);
+  onCaptchaConsumedRef.current = onCaptchaConsumed;
   const lifecycleRef = useRef<LifecycleTracker | null>(null);
 
   const installedWallets = useMemo(
@@ -217,7 +217,7 @@ export function useWalletProofAuth({
         lifecycle: lifecycleRef.current ?? undefined,
         onStatusChange: (status) => dispatch({ type: status }),
         signIn,
-        turnstileToken: turnstileTokenRef.current,
+        captchaToken: captchaTokenRef.current,
         walletName,
       });
       lifecycleRef.current?.observe("session_refresh", {
@@ -232,9 +232,9 @@ export function useWalletProofAuth({
       handleFailure(error);
     } finally {
       endExplicitWalletConnect(selectedWalletNameRef.current);
-      // The Turnstile token is single-use once the challenge consumes it, so
+      // The captcha token is single-use once the challenge consumes it, so
       // ask the modal to issue a fresh one before any subsequent attempt.
-      onTurnstileConsumedRef.current?.();
+      onCaptchaConsumedRef.current?.();
     }
   }, [
     authApiClient,
@@ -278,7 +278,7 @@ export function useWalletProofAuth({
           lifecycle: lifecycleRef.current ?? undefined,
           onStatusChange: (status) => dispatch({ type: status }),
           signTransaction,
-          turnstileToken: turnstileTokenRef.current,
+          captchaToken: captchaTokenRef.current,
           walletAddress,
         });
         lifecycleRef.current?.observe("session_refresh", {
@@ -295,9 +295,9 @@ export function useWalletProofAuth({
         handleFailure(error);
       } finally {
         endExplicitWalletConnect(selectedWalletNameRef.current);
-        // The Turnstile token is single-use once the challenge consumes it, so
+        // The captcha token is single-use once the challenge consumes it, so
         // ask the modal to issue a fresh one before any subsequent attempt.
-        onTurnstileConsumedRef.current?.();
+        onCaptchaConsumedRef.current?.();
       }
       return;
     }
@@ -320,7 +320,7 @@ export function useWalletProofAuth({
         lifecycle: lifecycleRef.current ?? undefined,
         messageSigner: signMessage,
         onStatusChange: (status) => dispatch({ type: status }),
-        turnstileToken: turnstileTokenRef.current,
+        captchaToken: captchaTokenRef.current,
         walletAddress,
       });
       lifecycleRef.current?.observe("session_refresh", {
@@ -337,9 +337,9 @@ export function useWalletProofAuth({
       handleFailure(error);
     } finally {
       endExplicitWalletConnect(selectedWalletNameRef.current);
-      // The Turnstile token is single-use once the challenge consumes it, so
+      // The captcha token is single-use once the challenge consumes it, so
       // ask the modal to issue a fresh one before any subsequent attempt.
-      onTurnstileConsumedRef.current?.();
+      onCaptchaConsumedRef.current?.();
     }
   }, [
     authApiClient,

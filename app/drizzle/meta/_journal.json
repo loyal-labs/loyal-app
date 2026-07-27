@@ -183,6 +183,13 @@
       "when": 1784503558505,
       "tag": "0025_needy_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785154497624,
+      "tag": "0026_famous_hannibal_king",
+      "breakpoints": true
     }
   ]
 }

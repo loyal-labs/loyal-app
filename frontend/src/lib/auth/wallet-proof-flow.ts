@@ -19,7 +19,7 @@ type WalletProofFlowArgs = {
   authApiClient: AuthApiClient;
   messageSigner: WalletProofSignMessage | undefined;
   onStatusChange?: (status: WalletProofStatus) => void;
-  turnstileToken?: string;
+  captchaToken?: string;
   walletAddress: string;
   lifecycle?: LifecycleTracker;
 };
@@ -30,7 +30,7 @@ export async function runWalletMessageProofFlow({
   authApiClient,
   messageSigner,
   onStatusChange,
-  turnstileToken,
+  captchaToken,
   walletAddress,
   lifecycle,
 }: WalletProofFlowArgs): Promise<AuthSessionUser> {
@@ -45,7 +45,7 @@ export async function runWalletMessageProofFlow({
     const challenge = await authApiClient.challengeWalletAuth(
       {
         walletAddress,
-        turnstileToken,
+        captchaToken,
       },
       { flowId: lifecycle?.flowId }
     );
@@ -87,14 +87,14 @@ export async function runWalletTransactionProofFlow({
   authApiClient,
   onStatusChange,
   signTransaction,
-  turnstileToken,
+  captchaToken,
   walletAddress,
   lifecycle,
 }: {
   authApiClient: AuthApiClient;
   onStatusChange?: (status: WalletProofStatus) => void;
   signTransaction: WalletProofSignTransaction;
-  turnstileToken?: string;
+  captchaToken?: string;
   walletAddress: string;
   lifecycle?: LifecycleTracker;
 }): Promise<AuthSessionUser> {
@@ -110,7 +110,7 @@ export async function runWalletTransactionProofFlow({
     const challenge = await authApiClient.challengeWalletAuth(
       {
         kind: "transaction",
-        turnstileToken,
+        captchaToken,
         walletAddress,
       },
       { flowId: lifecycle?.flowId }
@@ -156,14 +156,14 @@ export async function runWalletSiwsProofFlow({
   authApiClient,
   onStatusChange,
   signIn,
-  turnstileToken,
+  captchaToken,
   walletName,
   lifecycle,
 }: {
   authApiClient: AuthApiClient;
   onStatusChange?: (status: WalletProofStatus) => void;
   signIn: WalletProofSignIn;
-  turnstileToken?: string;
+  captchaToken?: string;
   walletName: string;
   lifecycle?: LifecycleTracker;
 }): Promise<AuthSessionUser> {
@@ -179,7 +179,7 @@ export async function runWalletSiwsProofFlow({
     const challenge = await authApiClient.challengeWalletAuth(
       {
         kind: "siws",
-        turnstileToken,
+        captchaToken,
       },
       { flowId: lifecycle?.flowId }
     );

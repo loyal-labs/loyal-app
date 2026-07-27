@@ -128,7 +128,7 @@ export const LIFECYCLE_ERROR_CODES = [
   "unexpected_error",
   "invalid_request",
   "unauthenticated",
-  "turnstile_verification_failed",
+  "captcha_verification_failed",
   "wallet_selection_timeout",
   "wallet_connection_timeout",
   "wallet_signing_unsupported",

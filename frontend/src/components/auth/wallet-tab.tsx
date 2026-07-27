@@ -130,13 +130,13 @@ function LedgerModeToggle({
 }
 
 export function WalletTab({
+  captchaToken,
+  onCaptchaConsumed,
   onFlowStart,
-  onTurnstileConsumed,
-  turnstileToken,
 }: {
+  captchaToken?: string | null;
+  onCaptchaConsumed?: () => void;
   onFlowStart?: () => void;
-  onTurnstileConsumed?: () => void;
-  turnstileToken?: string | null;
 }) {
   const [useLedgerProof, setUseLedgerProof] = useState(false);
   const [showWalletSelection, setShowWalletSelection] = useState(false);
@@ -149,13 +149,13 @@ export function WalletTab({
     retry,
     startConnectedWalletVerification,
   } = useWalletProofAuth({
+    captchaToken: captchaToken ?? undefined,
+    onCaptchaConsumed,
     onFlowStart,
-    onTurnstileConsumed,
-    turnstileToken: turnstileToken ?? undefined,
     useLedgerProof,
   });
 
-  const isVerified = Boolean(turnstileToken);
+  const isVerified = Boolean(captchaToken);
 
   const isMobile = useIsMobile();
 

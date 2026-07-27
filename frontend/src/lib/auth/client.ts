@@ -33,13 +33,13 @@ export class AuthApiClientError extends Error {
   }
 }
 
-export type WalletChallengeRequestWithTurnstile = WalletChallengeRequest & {
-  turnstileToken?: string;
+export type WalletChallengeRequestWithCaptcha = WalletChallengeRequest & {
+  captchaToken?: string;
 };
 
 export type AuthApiClient = {
   challengeWalletAuth(
-    payload: WalletChallengeRequestWithTurnstile,
+    payload: WalletChallengeRequestWithCaptcha,
     options?: { flowId?: string }
   ): Promise<WalletChallengeResponse>;
   completeWalletAuth(

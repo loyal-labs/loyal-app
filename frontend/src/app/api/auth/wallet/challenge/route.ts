@@ -2,20 +2,19 @@ import { NextResponse } from "next/server";
 
 import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { createWalletAuthChallenge } from "@/features/identity/server/wallet-auth-service";
-import { verifyTurnstileToken } from "@/features/identity/server/turnstile-verification";
+import { verifyCaptchaToken } from "@/features/identity/server/cap-captcha";
 
-function splitTurnstileToken(body: unknown): {
-  turnstileToken: string | undefined;
+function splitCaptchaToken(body: unknown): {
+  captchaToken: string | undefined;
   challengeBody: unknown;
 } {
   if (typeof body !== "object" || body === null) {
-    return { turnstileToken: undefined, challengeBody: body };
+    return { captchaToken: undefined, challengeBody: body };
   }
 
-  const { turnstileToken, ...rest } = body as Record<string, unknown>;
+  const { captchaToken, ...rest } = body as Record<string, unknown>;
   return {
-    turnstileToken:
-      typeof turnstileToken === "string" ? turnstileToken : undefined,
+    captchaToken: typeof captchaToken === "string" ? captchaToken : undefined,
     challengeBody: rest,
   };
 }
@@ -23,19 +22,14 @@ function splitTurnstileToken(body: unknown): {
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as unknown;
-    const { turnstileToken, challengeBody } = splitTurnstileToken(body);
+    const { captchaToken, challengeBody } = splitCaptchaToken(body);
 
-    const verification = await verifyTurnstileToken({
-      token: turnstileToken,
-      remoteIp:
-        request.headers.get("cf-connecting-ip") ??
-        request.headers.get("x-forwarded-for"),
-    });
+    const verification = await verifyCaptchaToken({ token: captchaToken });
     if (!verification.ok) {
       return NextResponse.json(
         {
           error: {
-            code: "turnstile_verification_failed",
+            code: "captcha_verification_failed",
             message: "Captcha verification failed. Please try again.",
           },
         },
