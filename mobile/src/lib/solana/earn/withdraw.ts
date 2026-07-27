@@ -259,6 +259,7 @@ async function fetchCleanupContextWithRetry(args: {
   signer: Signer;
   prepareAuth: EarnAuthFields;
   minContextSlot: string;
+  flowId: string;
 }): Promise<EarnWithdrawCleanupPrepareContext> {
   return retryEarnApiCall({
     attempts: CLEANUP_CONTEXT_ATTEMPTS,
@@ -272,6 +273,7 @@ async function fetchCleanupContextWithRetry(args: {
         (auth) =>
           fetchEarnWithdrawCleanupPrepareContext({
             auth,
+            flowId: args.flowId,
             minContextSlot: args.minContextSlot,
           }),
       ),
@@ -415,6 +417,7 @@ async function runEarnWithdraw(
         fetchEarnWithdrawPrepareContext({
           auth,
           amountRaw,
+          flowId: flow.flowId,
           mode: args.mode,
           source: args.source ?? null,
         }),
@@ -499,6 +502,7 @@ async function runEarnWithdraw(
     let cleanupSignature: string | undefined;
     try {
       const cleanupContext = await fetchCleanupContextWithRetry({
+        flowId: flow.flowId,
         signer: args.signer,
         prepareAuth,
         minContextSlot,

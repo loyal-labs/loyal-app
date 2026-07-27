@@ -79,14 +79,19 @@ export function earnHeaders(flowId?: string): Record<string, string> {
 }
 
 // Carries the backend's error `code` so flows can react to specific failures
-// (e.g. re-sign a fresh auth message on `stale_mobile_auth`).
+// (e.g. re-sign a fresh auth message on `stale_mobile_auth`), plus the response
+// `status` when one arrived. Telemetry reports `status` as `httpStatus`, which
+// is what separates a real backend failure from an error raised with no
+// response at all (ASK-1872).
 export class EarnApiError extends Error {
   readonly code?: string;
+  readonly status?: number;
 
-  constructor(message: string, code?: string) {
+  constructor(message: string, code?: string, status?: number) {
     super(message);
     this.name = "EarnApiError";
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -97,6 +102,7 @@ async function throwEarnError(res: Response, fallback: string): Promise<never> {
   throw new EarnApiError(
     payload?.error?.message ?? fallback,
     payload?.error?.code,
+    res.status,
   );
 }
 
@@ -338,12 +344,13 @@ export async function fetchEarnWithdrawPrepareContext(args: {
   amountRaw: string;
   mode: EarnWithdrawMode;
   source?: EarnWithdrawSource;
+  flowId?: string;
 }): Promise<EarnWithdrawPrepareContext | null> {
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/prepare-context`,
     {
       method: "POST",
-      headers: earnHeaders(),
+      headers: earnHeaders(args.flowId),
       body: JSON.stringify({
         ...args.auth,
         amountRaw: args.amountRaw,
@@ -383,12 +390,13 @@ export type EarnWithdrawCleanupPrepareContext = {
 export async function fetchEarnWithdrawCleanupPrepareContext(args: {
   auth: EarnAuthFields;
   minContextSlot: string;
+  flowId?: string;
 }): Promise<EarnWithdrawCleanupPrepareContext> {
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context`,
     {
       method: "POST",
-      headers: earnHeaders(),
+      headers: earnHeaders(args.flowId),
       body: JSON.stringify({
         ...args.auth,
         minContextSlot: args.minContextSlot,
@@ -1116,14 +1124,19 @@ export async function confirmEarnDepositSponsored(
     }
     return payload.sponsoredConfirmations;
   }
+  // Both throws carry `res.status`: the backend did answer, and telemetry
+  // reads a missing status as "no response was ever received".
   if (!res.ok) {
     throw new EarnApiError(
       payload?.error?.message ?? "Failed to execute sponsored Earn deposit.",
       payload?.error?.code,
+      res.status,
     );
   }
   throw new EarnApiError(
     "Sponsored Earn deposit response is missing confirmations.",
+    undefined,
+    res.status,
   );
 }
 

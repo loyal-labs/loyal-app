@@ -13,6 +13,10 @@ import {
   storeMwaAccount,
   type StoredMwaAccount,
 } from "./mwa-account-storage";
+import {
+  WalletSessionError,
+  type WalletSessionFailure,
+} from "./wallet-session-error";
 
 // Wallets verify this identity by resolving `uri` against the Digital Asset
 // Links statement at https://askloyal.com/.well-known/assetlinks.json, which
@@ -64,11 +68,33 @@ function hasErrorCode(error: unknown, code: string | number): boolean {
   );
 }
 
+function errorCodeOf(error: unknown): string | number | undefined {
+  if (!(error instanceof Error)) return undefined;
+  return (error as { code?: string | number }).code;
+}
+
+// Backing out of the wallet chooser rejects with a *sentence* as the code:
+// the native module calls `promise.reject(String, Throwable)`, whose first
+// argument RN uses as the code (SolanaMobileWalletAdapterModule.kt). Matching
+// the message too keeps this working if that string is ever reworded.
+const ASSOCIATION_CANCELLED_TEXT = "Local association cancelled by user";
+
+// Backing out of the association UI, in either shape the native module reports
+// it: the symbolic code, or the sentence-as-code above.
+function isAssociationCancellation(error: unknown): boolean {
+  const code = errorCodeOf(error);
+  return (
+    code === "ERROR_ASSOCIATION_CANCELLED" ||
+    (typeof code === "string" && code.includes(ASSOCIATION_CANCELLED_TEXT)) ||
+    (error instanceof Error && error.message.includes(ASSOCIATION_CANCELLED_TEXT))
+  );
+}
+
 // The user backing out of the wallet's association or authorization UI is a
 // choice, not a failure.
 function isUserCancellation(error: unknown): boolean {
   return (
-    hasErrorCode(error, "ERROR_ASSOCIATION_CANCELLED") ||
+    isAssociationCancellation(error) ||
     hasErrorCode(error, -1) // ERROR_AUTHORIZATION_FAILED
   );
 }
@@ -79,9 +105,65 @@ function isUserCancellation(error: unknown): boolean {
 // than a coded protocol error.
 function isSessionCancellation(error: unknown): boolean {
   return (
-    hasErrorCode(error, "ERROR_ASSOCIATION_CANCELLED") ||
+    isAssociationCancellation(error) ||
     (error instanceof Error && error.message.includes("CancellationException"))
   );
+}
+
+/**
+ * Classify an MWA rejection that belongs to the *session layer* — the wallet
+ * app being absent, unreachable, or dropping the connection. Returns null for
+ * anything else so it keeps its own identity.
+ *
+ * Deliberately an allowlist. The protocol's numeric codes describe deterministic
+ * app or configuration bugs — `-2` ERROR_INVALID_PAYLOADS and `-5`
+ * ERROR_TOO_MANY_PAYLOADS mean we sent something malformed, `-100`
+ * ERROR_ATTEST_ORIGIN_ANDROID means our asset-links/signing identity does not
+ * match — and the string codes include our own misconfiguration
+ * (`ERROR_ASSOCIATION_PORT_OUT_OF_RANGE`, `ERROR_FORBIDDEN_WALLET_BASE_URL`).
+ * Folding those into a `wallet_*` code would hide our own bugs the moment
+ * alerting excludes that family, and would tell users to update a wallet app
+ * that is behaving correctly.
+ *
+ * `sessionEstablished` splits the module's catch-all `EUNSPECIFIED`: before the
+ * session opens it means the wallet never connected back; after, the wallet
+ * dropped the call itself.
+ */
+function toWalletSessionError(
+  error: unknown,
+  sessionEstablished: boolean,
+): WalletSessionError | null {
+  const code = errorCodeOf(error);
+  const failure = toWalletSessionFailure(code, sessionEstablished);
+  if (!failure) return null;
+  return new WalletSessionError(failure, code, error);
+}
+
+function toWalletSessionFailure(
+  code: string | number | undefined,
+  sessionEstablished: boolean,
+): WalletSessionFailure | null {
+  if (code === "ERROR_WALLET_NOT_FOUND") return "unavailable";
+  // `ERROR_SESSION_TIMEOUT`, plus the module's own uncoded waits: "Timed out
+  // waiting for local association to be ready" (10s) and "Timed out waiting
+  // for response" (90s).
+  if (
+    code === "ERROR_SESSION_TIMEOUT" ||
+    (typeof code === "string" && code.startsWith("Timed out waiting"))
+  ) {
+    return "timeout";
+  }
+  // Association teardown. `transact` awaits `endSession()` in a `finally`, so
+  // a rejection there replaces the outcome of the call it was cleaning up —
+  // even a successful one. Session-layer by definition, and leaving it out
+  // would report the very `request_failed` this classification exists to stop.
+  if (code === "ERROR_SESSION_CLOSED" || code === "Failed to end session") {
+    return "connection_failed";
+  }
+  if (code === "EUNSPECIFIED") {
+    return sessionEstablished ? "signing_failed" : "connection_failed";
+  }
+  return null;
 }
 
 type TweetNaclVerify = (
@@ -136,12 +218,9 @@ export async function connectMwaWallet(): Promise<StoredMwaAccount | null> {
     });
   } catch (error) {
     if (isUserCancellation(error)) return null;
-    if (hasErrorCode(error, "ERROR_WALLET_NOT_FOUND")) {
-      throw new Error(
-        "No compatible Solana wallet app was found. Install Phantom or Solflare and try again.",
-      );
-    }
-    throw error;
+    // Connecting is a single session, so a session-layer rejection here
+    // happened before it opened. Protocol errors keep their own identity.
+    throw toWalletSessionError(error, false) ?? error;
   }
 }
 
@@ -263,8 +342,13 @@ export class MwaSigner implements Signer {
     op: (wallet: Web3MobileWallet) => Promise<T>,
   ): Promise<T> {
     const { transact } = await getMwa();
+    // Set once the wallet session is open — `transact` only runs the callback
+    // after `startSession` resolves. Tells a wallet that never connected apart
+    // from one that connected and then failed the signing call.
+    let sessionEstablished = false;
     try {
       return await transact(async (wallet) => {
+        sessionEstablished = true;
         await this.reauthorize(wallet);
         return op(wallet);
       });
@@ -276,7 +360,10 @@ export class MwaSigner implements Signer {
         // ERROR_NOT_SIGNED: the user tapped decline in the wallet app.
         throw new WalletRejectedError(SIGNING_DECLINED_MESSAGE);
       }
-      throw error;
+      // Only session-layer rejections become wallet-session failures. Protocol
+      // errors, `reauthorize`'s reconnect instructions and our signature checks
+      // all keep their own identity so they stay alertable.
+      throw toWalletSessionError(error, sessionEstablished) ?? error;
     }
   }
 

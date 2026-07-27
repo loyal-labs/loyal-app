@@ -6,6 +6,7 @@
 
 import { WalletRejectedError } from "@/lib/wallet/rejection";
 import { UserRejectedSigningError } from "@/lib/wallet/sign-approval/with-confirmation";
+import { WalletSessionError } from "@/lib/wallet/wallet-session-error";
 import { mapLifecycleErrorCode, startLifecycleFlow } from "../observability";
 
 // Hoisted above the imports by babel-plugin-jest-hoist.
@@ -18,7 +19,12 @@ jest.mock("@/config/env", () => ({
   env: { earnApiBaseUrl: "https://example.test" },
 }));
 
-type Envelope = { outcome: string; stage: string; errorCode?: string };
+type Envelope = {
+  outcome: string;
+  stage: string;
+  errorCode?: string;
+  httpStatus?: number;
+};
 
 function captureEnvelopes(): Envelope[] {
   const sent: Envelope[] = [];
@@ -133,5 +139,81 @@ describe("wallet rejection classification", () => {
     );
 
     expect(sent[0]).toMatchObject({ outcome: "cancelled" });
+  });
+});
+
+// A wallet session that never opened is not a request failure (ASK-1872). MWA
+// rejects with a coded error, which the `code` probe used to collapse into
+// `request_failed` — an alert naming an HTTP failure for a flow that never
+// reached the network. Every code below must exist in the backend's
+// LIFECYCLE_ERROR_CODES; the ingest drops envelopes carrying an unknown one.
+describe("wallet session classification", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("maps each session failure to its own code, not request_failed", () => {
+    expect(
+      mapLifecycleErrorCode(new WalletSessionError("connection_failed")),
+    ).toBe("wallet_connection_failed");
+    expect(mapLifecycleErrorCode(new WalletSessionError("timeout"))).toBe(
+      "wallet_connection_timeout",
+    );
+    expect(mapLifecycleErrorCode(new WalletSessionError("unavailable"))).toBe(
+      "wallet_unavailable",
+    );
+    expect(mapLifecycleErrorCode(new WalletSessionError("signing_failed"))).toBe(
+      "wallet_signing_failed",
+    );
+  });
+
+  // The native module's own codes must not leak through the generic probe.
+  it("classifies by failure even when the wallet code looks transport-level", () => {
+    const error = new WalletSessionError("connection_failed", "EUNSPECIFIED");
+
+    expect(mapLifecycleErrorCode(error)).toBe("wallet_connection_failed");
+  });
+
+  it("emits failed with the session code and no httpStatus", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("prepare", new WalletSessionError("connection_failed"));
+
+    expect(sent[0]).toMatchObject({
+      outcome: "failed",
+      stage: "prepare",
+      errorCode: "wallet_connection_failed",
+    });
+    expect(sent[0].httpStatus).toBeUndefined();
+  });
+});
+
+// `httpStatus` is what separates a backend that answered from an error raised
+// with no response at all — the distinction this alert lacked.
+describe("http status reporting", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("reports the status when the backend answered", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("prepare", { code: "context_failed", status: 502 });
+
+    expect(sent[0]).toMatchObject({
+      outcome: "failed",
+      errorCode: "request_failed",
+      httpStatus: 502,
+    });
+  });
+
+  it("omits it when the request never got a response", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("prepare", { code: undefined });
+
+    expect(sent[0]).toMatchObject({ errorCode: "request_failed" });
+    expect(sent[0]).not.toHaveProperty("httpStatus");
+  });
+
+  // Out-of-range values would make the ingest reject the whole envelope.
+  it("drops a status the ingest would refuse", async () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("prepare", { code: "weird", status: 0 });
+
+    expect(sent[0]).not.toHaveProperty("httpStatus");
   });
 });
