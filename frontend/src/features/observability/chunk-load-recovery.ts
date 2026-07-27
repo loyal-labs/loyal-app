@@ -235,7 +235,10 @@ type ReloadGuardState =
 
 function readReloadGuard(): ReloadGuardState {
   const raw = window.sessionStorage.getItem(RELOAD_GUARD_STORAGE_KEY);
-  if (!raw) {
+  // Only a missing key is an absent guard. An empty or otherwise unparsable
+  // value is corrupt state, and treating it as absent would hand back a fresh
+  // reload budget — the same fail-open a malformed count would cause.
+  if (raw === null) {
     return { kind: "absent" };
   }
 

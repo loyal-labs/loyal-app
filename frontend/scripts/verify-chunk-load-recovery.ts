@@ -333,6 +333,10 @@ async function verify(): Promise<void> {
     ["fractional-count", { at: Date.now(), chunkUrl: CHUNK_URL, count: 1.5 }],
     ["missing-count", { at: Date.now(), chunkUrl: CHUNK_URL }],
     ["not-json", "{"],
+    ["empty-string", ""],
+    ["whitespace", "   "],
+    ["json-null", "null"],
+    ["json-array", "[]"],
   ] satisfies Array<[string, unknown]>) {
     const corruptStorage = new MemoryStorage();
     corruptStorage.values.set(
