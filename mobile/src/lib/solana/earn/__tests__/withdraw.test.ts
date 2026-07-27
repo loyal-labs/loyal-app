@@ -32,10 +32,23 @@ jest.mock(
   { virtual: true },
 );
 
+// Mirrors the real KaminoUpstreamError; connection-retry.ts instanceof-checks
+// it to decide whether a device-prepare failure is worth retrying.
+class MockKaminoUpstreamError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "KaminoUpstreamError";
+    this.status = status;
+  }
+}
+
 jest.mock(
   "@loyal-labs/smart-account-vaults",
   () => ({
     createSmartAccountVaultsClient,
+    KaminoUpstreamError: MockKaminoUpstreamError,
   }),
   { virtual: true },
 );
