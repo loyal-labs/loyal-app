@@ -835,4 +835,66 @@ describe("AlertRelay windows", () => {
       outcome: "sent",
     });
   });
+
+  test("rejects a restored window that would mute a signature for years", async () => {
+    // The dangerous corruption is the kind that parses. A window carrying an
+    // absurd expiry restores fine and then suppresses that signature for as
+    // long as it claims, silently, across every later deploy.
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const sent: AlertMessageKind[] = [];
+    const source = createRelay(
+      async () => undefined,
+      () => now
+    );
+    await source.handle(alertPayload, "delivery-1");
+
+    const poisoned = source.exportState(now);
+    const window = poisoned.windows[0];
+    if (!window) {
+      throw new Error("expected a window to poison");
+    }
+    window.expiresAt = now + 5 * 365 * 86_400_000;
+
+    const relay = createRelay(
+      async (_payload, context) => {
+        sent.push(context.kind);
+      },
+      () => now
+    );
+    expect(relay.importState(poisoned, now)).toBe(0);
+
+    // The signature has to be announceable again, not muted until 2031.
+    expect(await relay.handle(alertPayload, "delivery-2")).toEqual({
+      outcome: "sent",
+    });
+    expect(sent).toEqual(["new"]);
+  });
+
+  test("rejects a restored recap deadline that would mute every later alert", async () => {
+    // Worse than a poisoned window: `nextRecapAt` is what every window opened
+    // afterwards expires at, so an absurd value mutes signatures this snapshot
+    // never even mentioned.
+    const now = Date.parse("2026-01-01T09:00:00Z");
+    const source = createRelay(
+      async () => undefined,
+      () => now
+    );
+    await source.handle(alertPayload, "delivery-1");
+
+    const poisoned = source.exportState(now);
+    poisoned.windows = [];
+    poisoned.nextRecapAt = now + 5 * 365 * 86_400_000;
+
+    const relay = createRelay(
+      async () => undefined,
+      () => now
+    );
+    relay.importState(poisoned, now);
+
+    // A window opened now must still expire on a real schedule. Reading it
+    // back through the snapshot is the only view of its deadline.
+    await relay.handle(alertPayload, "delivery-2");
+    const expiresAt = relay.exportState(now).windows[0]?.expiresAt ?? 0;
+    expect(expiresAt).toBeLessThanOrEqual(now + 2 * 86_400_000);
+  });
 });

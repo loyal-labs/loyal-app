@@ -519,24 +519,47 @@ export class AlertRelay {
 
   /**
    * Restores windows saved before a restart. Entries that have already expired
-   * are dropped, so a stale snapshot cannot mute a signature indefinitely.
+   * are dropped, and so are entries claiming to run longer than this relay
+   * could have made them, so no snapshot can mute a signature indefinitely.
    *
-   * Total: this runs during boot against bytes the process did not write and
-   * cannot re-validate — a half-written file, a row from a build whose shape
-   * has since changed, a truncated JSON column. A throw here would take the
-   * relay down before it binds a port, so every piece is restored
-   * independently and a malformed one is skipped. Losing a window costs a
-   * duplicate message; losing the process costs every alert until someone
-   * notices.
+   * This runs during boot against bytes the process did not write and cannot
+   * re-validate — a half-written file, a row from a build whose shape has since
+   * changed, a truncated JSON column. Two things can go wrong with such a
+   * snapshot and they need different answers: reading it can throw, which would
+   * kill the relay before it binds a port, so each piece is restored
+   * independently and a failure skips only that piece; and reading it can
+   * succeed with values that are wrong, which is worse, because a bad deadline
+   * suppresses live errors in silence. Both resolve toward alerting.
    */
   importState(state: PersistedState, now = this.now()): number {
     if (!state || state.version !== STATE_VERSION) {
       return 0;
     }
 
+    // Not throwing is only half of reading untrusted state. The deadlines in a
+    // snapshot are what mute signatures, and a corrupt one mutes them for as
+    // long as it says — silently, and across every later deploy, because each
+    // restore writes the bad value back out. So every deadline is also checked
+    // against the furthest future this relay could itself have written. A
+    // rejected deadline costs one duplicate alert; an accepted bad one costs
+    // every alert for that signature until a human notices the silence.
+    const latestExpiry = now + this.options.cooldownMs + DAY_MS;
+
     let restored = 0;
     for (const saved of Array.isArray(state.windows) ? state.windows : []) {
+      // Expired and already-held windows are the ordinary cases, not faults.
       if (!saved || saved.expiresAt <= now || this.windows.has(saved.key)) {
+        continue;
+      }
+      if (!isRestorableWindow(saved, latestExpiry)) {
+        console.error(
+          JSON.stringify({
+            event: "state_window_rejected",
+            key: typeof saved.key === "string" ? saved.key : "<invalid>",
+            expiresAt: saved.expiresAt,
+            latestExpiry,
+          })
+        );
         continue;
       }
       const window = recover("state_window_restore_failed", () =>
@@ -554,7 +577,17 @@ export class AlertRelay {
     // the recap late, which beats losing the period entirely. Only a snapshot
     // older than a full period is discarded, since nobody could place its
     // counts against a date by then.
-    if (state.daily && state.nextRecapAt && now - state.nextRecapAt < DAY_MS) {
+    //
+    // The forward bound matters more than the backward one. `nextRecapAt` is
+    // what every window opened after this point expires at, so a corrupt value
+    // in the future does not just mute the restored signatures — it mutes
+    // every signature the relay sees from now on.
+    if (
+      state.daily &&
+      state.nextRecapAt &&
+      now - state.nextRecapAt < DAY_MS &&
+      isPlausibleDeadline(state.nextRecapAt, now + DAY_MS)
+    ) {
       const saved = state.daily;
       const daily = recover("state_tally_restore_failed", () =>
         deserializeTally(saved)
@@ -565,7 +598,11 @@ export class AlertRelay {
       }
     }
 
-    if (state.pendingRecap && now - state.pendingRecap.until < DAY_MS) {
+    if (
+      state.pendingRecap &&
+      now - state.pendingRecap.until < DAY_MS &&
+      isPlausibleDeadline(state.pendingRecap.until, now + DAY_MS)
+    ) {
       const saved = state.pendingRecap;
       const tally = recover("state_pending_recap_restore_failed", () =>
         deserializeTally(saved.tally)
@@ -804,6 +841,35 @@ function emptyAnalysis(): AlertAnalysis {
  * The sweep runs on a timer with nobody to return an error to, so a failed
  * send is logged and swallowed. State is left untouched for the next tick.
  */
+/**
+ * A deadline out of a snapshot is only usable if this relay could have written
+ * it. `windowExpiry` never looks further ahead than the first recap at or after
+ * `now + cooldownMs`, so nothing legitimate lands past `latest`; a value beyond
+ * it is corruption that would mute a signature for as long as it claims.
+ */
+function isPlausibleDeadline(value: number, latest: number): boolean {
+  return Number.isFinite(value) && value <= latest;
+}
+
+/**
+ * Whether a persisted window can be trusted enough to suppress alerts with.
+ * `expiresAt` is the field that does the suppressing, so it is bounded rather
+ * than merely parsed; `key` and `payload` are checked because a window missing
+ * either survives deserialization and only fails later, inside a recap.
+ */
+function isRestorableWindow(
+  saved: PersistedWindow,
+  latestExpiry: number
+): boolean {
+  return (
+    typeof saved.key === "string" &&
+    saved.key !== "" &&
+    typeof saved.payload === "object" &&
+    saved.payload !== null &&
+    isPlausibleDeadline(saved.expiresAt, latestExpiry)
+  );
+}
+
 /**
  * Synchronous counterpart to `reportFailure`, for restoring one piece of a
  * snapshot. Returns `null` instead of throwing so the caller can skip that

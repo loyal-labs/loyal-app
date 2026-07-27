@@ -168,6 +168,16 @@ that cannot be read at all starts the relay empty instead of stopping it. A
 relay that refuses to boot would be restarted into the same bad row
 indefinitely — the one failure mode worse than duplicate messages.
 
+Deadlines out of a snapshot are also **bounded**, which matters more than the
+parsing does. A window's `expiresAt` and the stored `nextRecapAt` are what mute
+signatures, and a corrupt one mutes them for exactly as long as it claims —
+silently, and across every later deploy, since each restore writes the bad
+value straight back out. Anything further ahead than this relay could have
+written itself (the cooldown plus a day for a window, a day for the recap
+schedule) is rejected and logged as `state_window_rejected`. `nextRecapAt` is
+the dangerous one: it is the expiry every _subsequently opened_ window
+inherits, so a bad value there mutes signatures the snapshot never mentioned.
+
 A further option, rebuilding windows by querying ClickStack for signatures that
 were already firing before boot, is deliberately **not** implemented: the relay
 has no working query credential today (`HYPERDX_ACCESS_KEY` is ingest-only),
