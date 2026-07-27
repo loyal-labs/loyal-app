@@ -61,20 +61,6 @@ type CapWidgetContentProps = CapWidgetProps & {
 };
 
 export function CapWidgetContent({ captcha, onVerify }: CapWidgetContentProps) {
-  if (captcha.mode === "bypass") {
-    return (
-      <div className="flex justify-center py-3">
-        <button
-          className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-4 py-2 font-medium text-amber-900 text-sm transition hover:bg-amber-100"
-          onClick={() => onVerify(captcha.verificationToken)}
-          type="button"
-        >
-          Continue with local verification bypass
-        </button>
-      </div>
-    );
-  }
-
   if (captcha.mode === "misconfigured") {
     return (
       <div className="py-3 text-center text-amber-700 text-sm">
@@ -83,11 +69,9 @@ export function CapWidgetContent({ captcha, onVerify }: CapWidgetContentProps) {
     );
   }
 
-  return (
-    <div className="flex justify-center py-3">
-      <CapWidgetElement onVerify={onVerify} />
-    </div>
-  );
+  // Sized and styled globally (globals.css `cap-widget` block) — a
+  // full-width h-12 row matching the facelift card language.
+  return <CapWidgetElement onVerify={onVerify} />;
 }
 
 export function CapWidget({ onVerify }: CapWidgetProps) {

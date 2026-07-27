@@ -96,9 +96,9 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const captchaMode = publicEnv.captcha.mode;
 
-  // Auto-resolve only for misconfigured environments. In bypass (local dev)
-  // mode we keep the widget visible so the developer can click the bypass
-  // button — it confirms the captcha is wired into the login flow.
+  // Auto-resolve only for misconfigured environments (no CAP_SECRET); in
+  // widget mode every env — localhost and previews included — runs the real
+  // captcha, since Cap is same-origin with no domain allowlist.
   useEffect(() => {
     if (captchaMode === "misconfigured" && captchaToken === null) {
       setCaptchaToken("captcha-skipped");

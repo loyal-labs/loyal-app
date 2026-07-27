@@ -2501,6 +2501,73 @@
   }
 }
 
+/* transitions.dev — Accordion expand (panel-only subset, no header/chevron).
+   Collapses the sign-in captcha block once verification passes, instead of
+   snapping it out of the layout. grid-template-rows 0fr ↔ 1fr animates any
+   content height with no JS measuring; the inner element clips overflow. */
+:root {
+  --acc-expand: 250ms;
+  --acc-collapse: 250ms;
+  --acc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-acc-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel {
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acc-expand) var(--acc-ease);
+}
+.t-acc-panel-inner {
+  overflow: hidden;
+  opacity: 0;
+  filter: blur(2px);
+  transition: opacity var(--acc-collapse) var(--acc-ease),
+    filter var(--acc-collapse) var(--acc-ease);
+}
+.t-acc[data-open="true"] .t-acc-panel-inner {
+  opacity: 1;
+  filter: blur(0);
+  transition: opacity var(--acc-expand) var(--acc-ease),
+    filter var(--acc-expand) var(--acc-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-acc-panel,
+  .t-acc-panel-inner {
+    transition: none !important;
+  }
+}
+
+/* Cap captcha widget (wallet sign-in) — aligned with the facelift language:
+   quiet neutral fill, borderless, 16px radius, h-12 row, inherited sans. */
+cap-widget {
+  display: block;
+  width: 100%;
+  /* Opaque equivalent of the facelift's bg-black/[0.04] on white — the
+     widget's label fade gradients paint with this var, so a translucent
+     value renders as grey smudges inside the row. */
+  --cap-background: #f5f5f5;
+  --cap-border-color: transparent;
+  --cap-border-radius: 16px;
+  --cap-widget-width: 100%;
+  --cap-widget-height: 48px;
+  --cap-widget-padding: 12px;
+  --cap-gap: 12px;
+  --cap-color: #0a0a0a;
+  --cap-checkbox-size: 24px;
+  --cap-checkbox-border: 1px solid rgba(60, 60, 67, 0.29);
+  --cap-checkbox-border-radius: 8px;
+  --cap-checkbox-background: #ffffff;
+  --cap-checkbox-margin: 0px;
+  --cap-font: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  --cap-spinner-color: #0a0a0a;
+  --cap-spinner-background-color: rgba(0, 0, 0, 0.08);
+  --cap-spinner-thickness: 3px;
+}
+
 /* transitions.dev — Page side-by-side (frontend/transitions/page-side-by-side.md).
    The middle pane slides between the Earn root (page 1) and the action
    screens — deposit / withdraw / autodeposit (page 2). */

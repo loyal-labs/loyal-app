@@ -11,7 +11,6 @@ import {
 
 export type { AppEnvironment } from "./shared";
 
-const LOCAL_CAPTCHA_BYPASS_TOKEN = "local-bypass";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const APP_URL_ENV_NAME = "NEXT_PUBLIC_APP_URL";
 const CAP_SECRET_ENV_NAME = "CAP_SECRET";
@@ -23,7 +22,6 @@ const USERCENTRICS_SETTINGS_ID_ENV_NAME =
   "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
 export type CaptchaConfig =
-  | { mode: "bypass"; verificationToken: string }
   | { mode: "widget" }
   | { mode: "misconfigured"; reason: string };
 
@@ -52,18 +50,13 @@ const DEFAULT_MIXPANEL_PROXY_PATH = "/ingest";
 
 // Resolved server-side (root layout) and passed down via PublicEnvProvider,
 // so the mode can key off the server-only CAP_SECRET — only the mode string
-// ever reaches the client.
+// ever reaches the client. Cap runs same-origin with no domain allowlist, so
+// unlike Turnstile the real widget works on localhost and Vercel previews —
+// no local bypass mode needed.
 function resolveCaptchaConfig(
   env: EnvSource,
   appEnvironment: AppEnvironment
 ): CaptchaConfig {
-  if (appEnvironment === "local") {
-    return {
-      mode: "bypass",
-      verificationToken: LOCAL_CAPTCHA_BYPASS_TOKEN,
-    };
-  }
-
   if (getOptionalEnv(env, CAP_SECRET_ENV_NAME)) {
     return { mode: "widget" };
   }

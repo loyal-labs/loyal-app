@@ -10,22 +10,14 @@ import {
   type ValidateChallengeResult,
 } from "capjs-core";
 
-import {
-  getOptionalEnv,
-  resolveAppEnvironment,
-  type EnvSource,
-} from "@/lib/core/config/shared";
+import { getOptionalEnv, type EnvSource } from "@/lib/core/config/shared";
 
 import {
   consumeCaptchaKey,
   putCaptchaKey,
 } from "./captcha-key-store";
 
-const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const CAP_SECRET_ENV_NAME = "CAP_SECRET";
-
-/** Must match LOCAL_CAPTCHA_BYPASS_TOKEN in lib/core/config/public.ts. */
-const LOCAL_BYPASS_TOKEN = "local-bypass";
 
 /** Binds challenges to the wallet sign-in flow on both generate and validate. */
 const CHALLENGE_SCOPE = "wallet-signin";
@@ -92,14 +84,14 @@ function deriveCapTokenKey(token: string): string | null {
  * Server-side enforcement for the Cap captcha. Mirrors the client mode
  * resolution in `lib/core/config/public.ts`:
  *
- * - `local` → bypass mode: the bypass token must be present (so the step is
- *   still required) but no verification is made.
  * - `CAP_SECRET` set → enforce: the redeem token is consumed from the
  *   single-use store. Missing, forged, expired, replayed tokens and an
- *   unreachable store all fail closed.
- * - no secret (non-local) → misconfigured: verification is skipped (parity
- *   with the client, which auto-skips when Cap is not configured), logged
- *   loudly so it is noticed.
+ *   unreachable store all fail closed. Cap runs same-origin with no domain
+ *   allowlist, so this holds for localhost and Vercel previews too — there
+ *   is no local bypass.
+ * - no secret → misconfigured: verification is skipped (parity with the
+ *   client, which auto-skips when Cap is not configured), logged loudly so
+ *   it is noticed.
  *
  * The mode is resolved from server env only — a client-supplied token can
  * never downgrade it.
@@ -109,16 +101,6 @@ export async function verifyCaptchaToken(
   dependencies: { env?: EnvSource } = {}
 ): Promise<CaptchaVerification> {
   const env = dependencies.env ?? process.env;
-  const appEnvironment = resolveAppEnvironment(
-    getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
-  );
-
-  if (appEnvironment === "local") {
-    return args.token === LOCAL_BYPASS_TOKEN
-      ? { ok: true }
-      : { ok: false, reason: "missing_captcha_token" };
-  }
-
   const secret = getCapSecret(env);
   if (!secret) {
     console.warn("[cap] verification skipped — CAP_SECRET is not set");

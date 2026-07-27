@@ -151,10 +151,10 @@ export function SignInModal() {
             <>
               <DialogHeader className="px-6 pt-6 pb-5 text-left">
                 <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
-                  Sign In
+                  Connect
                 </DialogTitle>
-                <DialogDescription className="text-neutral-500">
-                  Choose your preferred sign-in method.
+                <DialogDescription className="sr-only">
+                  Complete verification, then choose your sign-in method.
                 </DialogDescription>
               </DialogHeader>
               <div className="px-6 pb-6">
