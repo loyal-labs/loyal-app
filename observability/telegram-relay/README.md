@@ -203,14 +203,26 @@ malformed, or when the field count disagrees with `ALERT_COLUMNS`. If Telegram
 rejects the HTML with a `400`, the relay logs `telegram_formatting_rejected` and
 resends the same alert as plain text.
 
-That fallback covers a count mismatch only, and is not a safety net for the
-column list in general. Values are read by position, so a `select` that renames
-or reorders columns without changing how many there are is undetectable here:
-the relay would attach every value to the wrong label, and — because the
-service, severity and headline it keys windows on are picked out by column name
-— derive signatures and cardinality counts from the wrong fields, all while
-producing a message that looks well-formed. Treat a same-width edit to the
-saved search as the dangerous one.
+That fallback keeps alerts flowing, but it is not a safe mode for a column list
+that has drifted. `analyzeAlert` applies the same width check, so a count
+mismatch leaves it with no parsed rows at all, and everything derived from rows
+degrades with it:
+
+- windows key on `eventId` instead of row signatures, so the several
+  deliveries ClickStack sends for one incident each post their own alert;
+- `CARDINALITY_COLUMNS` counts disappear, since there are no fields to count;
+- the daily recap is skipped every period — `flushDailyRecap` returns early when
+  the tally holds no signatures, so the schedule advances silently and nothing
+  is reported.
+
+A rename or reorder that keeps the count is not detected at all. Values are read
+by position, so the relay attaches every value to the wrong label and — because
+the service, severity and headline it keys windows on are picked out by column
+name — derives signatures and cardinality counts from the wrong fields, while
+producing a message that looks well-formed.
+
+Neither case is cosmetic. Change `ALERT_COLUMNS` and the saved search `select`
+in the same deploy, and check the next recap actually arrives.
 
 At most 8 rows are rendered, and fewer if they would exceed Telegram's 4096
 character limit; the remainder is summarized as `and N more row(s)` above the

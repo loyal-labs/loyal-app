@@ -149,13 +149,22 @@ breaks through as an escalation. See
 
 The saved search `select` and the relay's `ALERT_COLUMNS` are one contract
 written in two places: ClickStack sends matched rows as a headerless CSV block,
-so the column list and its order are all the relay has to label them by. Only a
-change in the **number** of columns is caught — the relay then forwards the raw
-block instead of mislabelling it. Renaming or reordering columns without
-changing their count is not caught: every value is read by position, so the
-relay would label fields with the wrong names and derive its signature and
-cardinality counts from the wrong fields, while the message still looks
-correct. Change the two together, in the same order.
+so the column list and its order are all the relay has to label them by, and
+drift is expensive in both directions.
+
+A change in the **number** of columns is detected, but detection only means the
+relay stops trusting the rows. Alerts still reach Telegram as the raw
+ClickStack block, and everything downstream of parsing degrades: windows fall
+back to keying on `eventId`, so one incident posts several alerts instead of
+one, cardinality counts disappear, and the daily recap is skipped entirely
+because it has no signatures to list.
+
+A rename or reorder that keeps the count is not detected at all. Every value is
+read by position, so the relay labels fields with the wrong names and derives
+its signatures and cardinality counts from the wrong fields, while the message
+still looks well-formed.
+
+Change the two together, in the same order.
 
 Add an alert only after watching normal traffic for that signal, and re-measure
 the resulting chat volume against real logs with
