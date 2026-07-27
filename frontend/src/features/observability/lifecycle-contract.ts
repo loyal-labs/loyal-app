@@ -185,6 +185,25 @@ export const LIFECYCLE_ERROR_CODES = [
 ] as const;
 export type LifecycleErrorCode = (typeof LIFECYCLE_ERROR_CODES)[number];
 
+// Underlying causes behind a broad `errorCode`. Every value is a token this
+// repo defines — never a string forwarded from a vendor SDK — so nothing a
+// client holds can reach `loyal.error.detail`. Emitters map their native error
+// onto one of these; add a token here when a new cause needs telling apart.
+//
+// `mwa_*` are Mobile Wallet Adapter session failures, whose native codes are
+// EUNSPECIFIED (the module's catch-all), ERROR_WALLET_NOT_FOUND,
+// ERROR_SESSION_TIMEOUT, ERROR_SESSION_CLOSED, "Timed out waiting for local
+// association to be ready", and "Failed to end session".
+export const LIFECYCLE_ERROR_DETAILS = [
+  "mwa_unspecified",
+  "mwa_wallet_not_found",
+  "mwa_session_timeout",
+  "mwa_association_timeout",
+  "mwa_session_closed",
+  "mwa_end_session_failed",
+] as const;
+export type LifecycleErrorDetail = (typeof LIFECYCLE_ERROR_DETAILS)[number];
+
 export const EXECUTE_NOW_STATES = [
   "requested",
   "selected",
@@ -234,6 +253,18 @@ export type LifecycleDiagnostics = {
   chainState?: (typeof CHAIN_STATES)[number];
   cleanupRequired?: boolean;
   errorCode?: LifecycleErrorCode;
+  /**
+   * Which underlying cause produced `errorCode`, for codes that several
+   * distinct causes collapse into — every mobile wallet-session failure, for
+   * instance. Names the cause without minting a lifecycle code per vendor
+   * error.
+   *
+   * An enum, not a string: clients map their native error onto one of the
+   * tokens below and anything else is dropped. Character-level sanitizing
+   * would not do — base58 addresses, JWTs and API keys consist entirely of
+   * token-safe characters, so a free-text field would export them intact.
+   */
+  errorDetail?: LifecycleErrorDetail;
   executeNowState?: ExecuteNowState;
   executionMode?: (typeof EXECUTION_MODES)[number];
   httpStatus?: number;
@@ -338,6 +369,19 @@ function assertOptionalBoolean(
   }
 }
 
+/**
+ * Keep a reported detail only when it is one of our own tokens, else drop it.
+ *
+ * Dropping (rather than rejecting the envelope) because the field only ever
+ * annotates an event, so an unrecognized value must not cost the event it
+ * describes. Matching against the enum (rather than sanitizing characters)
+ * because base58 addresses, JWTs and API keys are made entirely of token-safe
+ * characters and would survive any character filter intact.
+ */
+function normalizeErrorDetail(value: unknown): LifecycleErrorDetail | undefined {
+  return includes(LIFECYCLE_ERROR_DETAILS, value) ? value : undefined;
+}
+
 export function parseBrowserLifecycleEnvelope(
   value: unknown,
   now = Date.now()
@@ -354,6 +398,7 @@ export function parseBrowserLifecycleEnvelope(
     "durationMs",
     "elapsedMs",
     "errorCode",
+    "errorDetail",
     "executeNowState",
     "executionMode",
     "flowId",
@@ -434,6 +479,7 @@ export function parseBrowserLifecycleEnvelope(
   }
 
   assertOptionalEnum(record.errorCode, LIFECYCLE_ERROR_CODES);
+  const errorDetail = normalizeErrorDetail(record.errorDetail);
   assertOptionalEnum(record.executeNowState, EXECUTE_NOW_STATES);
   assertOptionalEnum(record.authProofKind, PROOF_KINDS);
   assertOptionalEnum(record.executionMode, EXECUTION_MODES);
@@ -553,7 +599,9 @@ export function parseBrowserLifecycleEnvelope(
     }
   }
 
-  return { ...record, pathname } as BrowserLifecycleEnvelope;
+  // `errorDetail` always overwrites the raw value; undefined when it was
+  // absent or normalized away, which downstream treats as "not set".
+  return { ...record, pathname, errorDetail } as BrowserLifecycleEnvelope;
 }
 
 const WALLET_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
