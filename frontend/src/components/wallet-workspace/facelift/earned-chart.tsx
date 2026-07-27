@@ -170,6 +170,21 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
           height: 100%;
           min-width: 0;
           padding: 0;
+          position: relative;
+        }
+        /* Full-height column track behind the bar — hover feedback stays
+           visible even when the day's bar is tiny or absent. */
+        .earned-bar-track {
+          background: rgba(0, 0, 0, 0.04);
+          border-radius: 4px;
+          inset: 0;
+          opacity: 0;
+          pointer-events: none;
+          position: absolute;
+          transition: opacity 0.18s ease;
+        }
+        .earned-bar:hover .earned-bar-track {
+          opacity: 1;
         }
         .earned-bar-fill {
           border-radius: 4px;
@@ -279,6 +294,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
                 }}
                 type="button"
               >
+                <span aria-hidden="true" className="earned-bar-track" />
                 <span
                   aria-hidden="true"
                   className="earned-bar-fill"
