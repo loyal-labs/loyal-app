@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { ActivityPage } from "@/components/wallet-workspace/facelift/activity-page";
@@ -62,19 +62,37 @@ export function WorkspaceFaceliftShell() {
   // inline card, enlarged overlay) — enlarging must not reset the tab.
   const [chartTab, setChartTab] = useState<ChartTab | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("earn");
-  // Reload lands on the last visited page. Restored in an effect (not the
-  // initializer) so the client's first render matches the server HTML; the
-  // page then persists on every change — the write-"earn"-then-restore churn
-  // on mount settles to the stored value.
+  const { isHydrated, isSignedIn } = useAuthCapability();
+  // Reload lands on the last visited page — signed-in only; a disconnected
+  // wallet always lands on Earn. Restored in an effect (not the initializer)
+  // so the client's first render matches the server HTML, and only after auth
+  // hydration (the pre-hydration render is the quiet white pane anyway). The
+  // once-ref keeps a later sign-in from yanking the user back to the stored
+  // page mid-session.
+  const hasRestoredPageRef = useRef(false);
   useEffect(() => {
+    if (!isHydrated || hasRestoredPageRef.current) {
+      return;
+    }
+    hasRestoredPageRef.current = true;
+    if (!isSignedIn) {
+      return;
+    }
     const stored = localStorage.getItem(PAGE_STORAGE_KEY) as WorkspacePage;
     if (WORKSPACE_PAGES.includes(stored) && stored !== "earn") {
       setActivePage(stored);
     }
-  }, []);
+  }, [isHydrated, isSignedIn]);
   useEffect(() => {
     localStorage.setItem(PAGE_STORAGE_KEY, activePage);
   }, [activePage]);
+  // Signing out mid-session snaps back to Earn — the only page that works
+  // without a wallet (its empty pane carries the Connect wallet CTA).
+  useEffect(() => {
+    if (isHydrated && !isSignedIn && activePage !== "earn") {
+      setActivePage("earn");
+    }
+  }, [activePage, isHydrated, isSignedIn]);
   const [middleView, setMiddleView] = useState<MiddleView>("earn");
   // Set when a positions-tab row's Withdraw pill opened the screen — the
   // withdraw pane preselects that source; header Withdraw clears it.
@@ -84,10 +102,10 @@ export function WorkspaceFaceliftShell() {
   // Mirrored from the sidebar (which owns the unseen-activity computation)
   // so the mobile tab bar's clock shows the same badge.
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
-  const { isHydrated, isSignedIn } = useAuthCapability();
   const earnData = useEarnPositionData();
   const handleSelectPage = (page: WorkspacePage) => {
-    setActivePage(page);
+    // Disconnected wallets live on Earn — every other page needs a session.
+    setActivePage(isSignedIn ? page : "earn");
     // Leaving Earn abandons any in-progress action screen.
     setMiddleView("earn");
   };
