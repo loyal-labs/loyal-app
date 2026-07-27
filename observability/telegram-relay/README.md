@@ -203,6 +203,15 @@ malformed, or when the field count disagrees with `ALERT_COLUMNS`. If Telegram
 rejects the HTML with a `400`, the relay logs `telegram_formatting_rejected` and
 resends the same alert as plain text.
 
+That fallback covers a count mismatch only, and is not a safety net for the
+column list in general. Values are read by position, so a `select` that renames
+or reorders columns without changing how many there are is undetectable here:
+the relay would attach every value to the wrong label, and — because the
+service, severity and headline it keys windows on are picked out by column name
+— derive signatures and cardinality counts from the wrong fields, all while
+producing a message that looks well-formed. Treat a same-width edit to the
+saved search as the dangerous one.
+
 At most 8 rows are rendered, and fewer if they would exceed Telegram's 4096
 character limit; the remainder is summarized as `and N more row(s)` above the
 search link.
