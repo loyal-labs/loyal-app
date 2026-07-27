@@ -1,18 +1,22 @@
 import { timingSafeEqual } from "node:crypto";
 
 import {
+  analyzeAlert,
   DEFAULT_ALERT_COLUMNS,
   type FormattedMessage,
   formatPlainTelegramMessage,
   formatTelegramMessage,
 } from "./format.ts";
+import { redactBotToken } from "./redact.ts";
 import {
+  type AlertAnalyzer,
   AlertRelay,
   type ClickStackWebhookPayload,
   type TelegramSender,
 } from "./relay.ts";
 
 export { formatPlainTelegramMessage, formatTelegramMessage } from "./format.ts";
+export { redactBotToken } from "./redact.ts";
 
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
 /** Longest `retry_after` we absorb in-process before handing the retry back. */
@@ -36,6 +40,15 @@ export interface ServerConfig {
   maxCacheEntries: number;
   maxBodyBytes: number;
   alertColumns: string[];
+  cardinalityColumns: string[];
+  dailyRecapEnabled: boolean;
+  /** Minutes past UTC midnight at which the daily recap is posted. */
+  dailyRecapAtMinutes: number;
+  recapSilent: boolean;
+  escalationMultiplier: number;
+  restartGraceMs: number;
+  sweepIntervalMs: number;
+  stateFile: string;
   traceLogs: boolean;
 }
 
@@ -63,6 +76,33 @@ export function loadConfig(
     ),
     maxBodyBytes: positiveInteger(env.MAX_BODY_BYTES, 65536, "MAX_BODY_BYTES"),
     alertColumns: alertColumns(env.ALERT_COLUMNS),
+    cardinalityColumns: columnList(env.CARDINALITY_COLUMNS),
+    dailyRecapEnabled: booleanValue(
+      env.DAILY_RECAP_ENABLED,
+      true,
+      "DAILY_RECAP_ENABLED"
+    ),
+    dailyRecapAtMinutes: clockMinutes(
+      env.DAILY_RECAP_AT,
+      6 * 60,
+      "DAILY_RECAP_AT"
+    ),
+    recapSilent: booleanValue(env.RECAP_SILENT, true, "RECAP_SILENT"),
+    escalationMultiplier: wholeNumber(
+      env.ESCALATION_MULTIPLIER,
+      10,
+      "ESCALATION_MULTIPLIER"
+    ),
+    restartGraceMs:
+      wholeNumber(env.RESTART_GRACE_SECONDS, 120, "RESTART_GRACE_SECONDS") *
+      1000,
+    sweepIntervalMs:
+      positiveInteger(
+        env.SWEEP_INTERVAL_SECONDS,
+        60,
+        "SWEEP_INTERVAL_SECONDS"
+      ) * 1000,
+    stateFile: env.STATE_FILE?.trim() ?? "",
     traceLogs: booleanValue(env.TRACE_LOGS, false, "TRACE_LOGS"),
   };
 }
@@ -77,14 +117,18 @@ function alertColumns(raw: string | undefined): string[] {
     return DEFAULT_ALERT_COLUMNS;
   }
 
-  const columns = raw
-    .split(",")
-    .map((column) => column.trim())
-    .filter(Boolean);
+  const columns = columnList(raw);
   if (columns.length === 0) {
     throw new Error("ALERT_COLUMNS must list at least one column name");
   }
   return columns;
+}
+
+function columnList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((column) => column.trim())
+    .filter(Boolean);
 }
 
 /** Only the call signature, so tests can inject a plain function. */
@@ -94,11 +138,12 @@ export function createTelegramSender(
   config: Pick<
     ServerConfig,
     "telegramBotToken" | "telegramChatId" | "alertColumns"
-  >,
+  > &
+    Partial<Pick<ServerConfig, "cardinalityColumns" | "recapSilent">>,
   fetchImpl: FetchLike = fetch,
   sleep: (ms: number) => Promise<void> = defaultSleep
 ): TelegramSender {
-  const post = (message: FormattedMessage) =>
+  const post = (message: FormattedMessage, silent: boolean) =>
     fetchImpl(
       `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`,
       {
@@ -110,15 +155,21 @@ export function createTelegramSender(
           text: message.text,
           ...(message.parseMode ? { parse_mode: message.parseMode } : {}),
           disable_web_page_preview: true,
+          ...(silent ? { disable_notification: true } : {}),
         }),
       }
     );
 
-  return async (payload) => {
+  return async (payload, context) => {
+    // Recaps carry no new failure, so they land without a notification unless
+    // an operator turns that off.
+    const silent = context.silent && (config.recapSilent ?? true);
     const message = formatTelegramMessage(payload, {
       alertColumns: config.alertColumns,
+      cardinalityColumns: config.cardinalityColumns,
+      context,
     });
-    let response = await post(message);
+    let response = await post(message, silent);
 
     // All alerts land in one chat, so bursts across distinct eventIds hit
     // Telegram's per-chat rate limit. Absorb one short backoff here rather
@@ -131,7 +182,7 @@ export function createTelegramSender(
         retryAfterMs <= TELEGRAM_MAX_RETRY_AFTER_MS
       ) {
         await sleep(retryAfterMs);
-        response = await post(message);
+        response = await post(message, silent);
       } else {
         throw new Error(
           `Telegram rate limited the relay (HTTP 429): ${responseText.slice(
@@ -151,7 +202,10 @@ export function createTelegramSender(
           eventId: payload.eventId,
         })
       );
-      response = await post({ text: formatPlainTelegramMessage(payload) });
+      response = await post(
+        { text: formatPlainTelegramMessage(payload) },
+        silent
+      );
     }
 
     const responseText = await response.text();
@@ -193,14 +247,6 @@ function isTelegramAcknowledgement(responseText: string): boolean {
   }
 }
 
-/**
- * The bot token is embedded in the request URL, so any error that quotes the
- * URL - fetch connection errors especially - would carry it into the logs.
- */
-export function redactBotToken(text: string): string {
-  return text.replace(/bot\d+:[\w-]+/g, "bot<redacted>");
-}
-
 function parseRetryAfterMs(responseText: string): number | null {
   try {
     const parsed: unknown = JSON.parse(responseText);
@@ -219,6 +265,21 @@ function parseRetryAfterMs(responseText: string): number | null {
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Reads counts, row signatures and high-cardinality values out of a delivery.
+ * The relay stays free of CSV knowledge; this is the only place that knows how
+ * a ClickStack alert body is shaped.
+ */
+export function createAlertAnalyzer(
+  config: Pick<ServerConfig, "alertColumns" | "cardinalityColumns">
+): AlertAnalyzer {
+  return (payload) =>
+    analyzeAlert(payload, {
+      alertColumns: config.alertColumns,
+      cardinalityColumns: config.cardinalityColumns,
+    });
 }
 
 export function createRequestHandler(
@@ -449,6 +510,47 @@ function positiveInteger(
     throw new Error(`${name} must be a positive integer`);
   }
   return value;
+}
+
+/** Like `positiveInteger`, but `0` is meaningful: it disables the feature. */
+function wholeNumber(
+  raw: string | undefined,
+  fallback: number,
+  name: string
+): number {
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`${name} must be zero or a positive integer`);
+  }
+
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`${name} must be zero or a positive integer`);
+  }
+  return value;
+}
+
+/** "HH:MM" in UTC, as minutes past midnight. */
+function clockMinutes(
+  raw: string | undefined,
+  fallback: number,
+  name: string
+): number {
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
+  const hours = Number(match?.[1]);
+  const minutes = Number(match?.[2]);
+  if (!match || hours > 23 || minutes > 59) {
+    throw new Error(`${name} must be a UTC time of day as HH:MM`);
+  }
+  return hours * 60 + minutes;
 }
 
 function booleanValue(
