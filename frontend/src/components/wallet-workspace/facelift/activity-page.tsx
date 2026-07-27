@@ -148,7 +148,7 @@ function ActivityCell({
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
         <span className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
-          {swap ? "Swapped" : ROW_TITLES[row.type]}
+          {swap ? "Swapped" : row.titleOverride ?? ROW_TITLES[row.type]}
         </span>
         {swap ? (
           <span className="flex items-center gap-1">
@@ -167,11 +167,12 @@ function ActivityCell({
           </span>
         ) : (
           <span className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-            {isShieldType
-              ? symbol
-              : `${row.type === "received" ? "from" : "to"} ${truncateAddress(
-                  row.counterparty
-                )}`}
+            {row.subtitle ??
+              (isShieldType
+                ? symbol
+                : `${row.type === "received" ? "from" : "to"} ${truncateAddress(
+                    row.counterparty
+                  )}`)}
           </span>
         )}
       </span>

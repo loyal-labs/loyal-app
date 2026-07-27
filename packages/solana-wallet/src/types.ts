@@ -91,7 +91,9 @@ export type ProgramActionType =
   | "delegate"
   | "delegate_username_deposit"
   | "undelegate"
-  | "undelegate_username_deposit";
+  | "undelegate_username_deposit"
+  | "earn_deposit"
+  | "earn_withdraw";
 
 export type WalletActivityStatus = "success" | "failed";
 

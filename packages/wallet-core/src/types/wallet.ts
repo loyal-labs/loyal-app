@@ -41,6 +41,10 @@ export interface ActivityRow {
   isPrivate?: boolean;
   /** Epoch milliseconds for sort order — absent in legacy localStorage rows */
   rawTimestamp?: number;
+  /** Replaces the type-derived row title (e.g. "Earn Deposit"). */
+  titleOverride?: string;
+  /** Replaces the default "to/from <counterparty>" subtitle (e.g. "Network fee"). */
+  subtitle?: string;
 }
 
 export interface TransactionDetail {

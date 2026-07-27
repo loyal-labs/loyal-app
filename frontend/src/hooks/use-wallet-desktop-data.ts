@@ -268,7 +268,7 @@ function getActivityDisplay(
             typeof position?.priceUsd === "number"
               ? parseFloat(activity.token.amount) * position.priceUsd
               : null,
-          counterparty: activity.action,
+          counterparty: activity.counterparty ?? activity.action,
         };
       }
 
@@ -280,7 +280,7 @@ function getActivityDisplay(
           typeof solPriceUsd === "number"
             ? (activity.amountLamports / 1_000_000_000) * solPriceUsd
             : null,
-        counterparty: activity.action,
+        counterparty: activity.counterparty ?? activity.action,
       };
     }
     case "sol_transfer":
@@ -377,6 +377,16 @@ function mapActivityToRowAndDetail(
       ? "received"
       : "sent";
 
+  // Earn (Kamino) operations read as the operation itself, not a generic
+  // send: "Earn Deposit — Network fee" instead of "Sent to Unknown". Fee-only
+  // legs (autodeposit machinery) carry no token change, so the row's SOL
+  // amount is just the network fee.
+  const earnActivity =
+    activity.type === "program_action" &&
+    (activity.action === "earn_deposit" || activity.action === "earn_withdraw")
+      ? activity
+      : null;
+
   const row: ActivityRow = {
     id: activity.signature,
     type: rowType,
@@ -391,6 +401,15 @@ function mapActivityToRowAndDetail(
         ? "/hero-new/Unshield.svg"
         : display.icon,
     rawTimestamp: activity.timestamp ?? undefined,
+    ...(earnActivity
+      ? {
+          titleOverride:
+            earnActivity.action === "earn_deposit"
+              ? "Earn Deposit"
+              : "Earn Withdrawal",
+          ...(earnActivity.token ? {} : { subtitle: "Network fee" }),
+        }
+      : {}),
   };
 
   return {
