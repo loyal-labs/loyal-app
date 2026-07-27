@@ -51,6 +51,20 @@ export type ThreadStatus = "active" | "archived" | "closed";
 export type SummaryVoteAction = "LIKE" | "DISLIKE";
 
 /**
+ * Snapshot payload of `telegram_relay_state.state`.
+ *
+ * Deliberately opaque. The shape belongs to `PersistedState` in
+ * `observability/telegram-relay/src/relay.ts`, which the relay versions itself
+ * and discards on mismatch. Mirroring its fields here would buy no safety —
+ * the relay cannot import this package — and would drift silently every time
+ * a window gains a counter.
+ */
+export type TelegramRelayStateSnapshot = {
+  version: number;
+  savedAt: number;
+} & Record<string, unknown>;
+
+/**
  * Delivery state for at-most-once Telegram command responses.
  */
 export type TelegramCommandReceiptStatus =
@@ -1763,6 +1777,60 @@ export const libraryArticles = pgTable(
   ]
 );
 
+/**
+ * Durable state for the ClickStack -> Telegram alert relay
+ * (`observability/telegram-relay`). One row per relay deployment, holding the
+ * snapshot the relay would otherwise keep only in memory: open alert windows
+ * and the running daily tally. Restoring it on boot is what stops a Render
+ * redeploy from re-posting every alert that is still firing and from resetting
+ * the daily recap's counters.
+ *
+ * Two deliberate notes on this table:
+ *
+ * - It is the one table here that is not app product state. The relay's own
+ *   docs argue its store should belong to the observability Blueprint rather
+ *   than the App Neon database; it lives here because that is where the
+ *   migration chain already runs. Nothing in the app reads or writes it.
+ * - The relay cannot import this package. Its Render service builds from
+ *   `rootDir: observability/telegram-relay`, so the monorepo is outside its
+ *   Docker context and it issues hand-written SQL against these exact column
+ *   names. Renaming a column here breaks the relay at runtime, not at build
+ *   time — change `observability/telegram-relay/src/state-store.ts` with it.
+ */
+export const telegramRelayState = pgTable(
+  "telegram_relay_state",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Identifies the relay deployment, so environments cannot share a row. */
+    stateKey: text("state_key").notNull(),
+    /**
+     * The relay's own `STATE_VERSION`. It discards a snapshot whose version it
+     * does not recognize, which is how the payload shape below is allowed to
+     * change without a migration.
+     */
+    stateVersion: integer("state_version").notNull(),
+    state: jsonb("state").$type<TelegramRelayStateSnapshot>().notNull(),
+    /** Relay clock at snapshot time; distinct from the row's `updatedAt`. */
+    savedAt: timestamp("saved_at", { withTimezone: true }).notNull(),
+    /**
+     * Instance currently allowed to write this row. Render overlaps the old and
+     * new instance during a deploy, and the lease is what stops the one being
+     * shut down from writing its snapshot over the one that just booted.
+     */
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("telegram_relay_state_state_key_uidx").on(table.stateKey),
+  ]
+);
+
 // ============================================================================
 // RELATIONS (for type-safe queries with Drizzle)
 // ============================================================================
@@ -2157,3 +2225,6 @@ export type InsertLibrarySection = typeof librarySections.$inferInsert;
 
 export type LibraryArticle = typeof libraryArticles.$inferSelect;
 export type InsertLibraryArticle = typeof libraryArticles.$inferInsert;
+
+export type TelegramRelayState = typeof telegramRelayState.$inferSelect;
+export type InsertTelegramRelayState = typeof telegramRelayState.$inferInsert;

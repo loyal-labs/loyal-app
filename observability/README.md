@@ -315,9 +315,10 @@ an application-consistent export.
   and one 10 GB persistent disk.
 - ClickHouse, HyperDX, MongoDB, collector, and nginx share one failure boundary.
 - The relay runs one instance and keeps window and recap state in memory, with
-  no mounted disk. A restart loses the running daily tally; a 120-second grace
-  period after boot collapses the alert burst ClickStack replays into a single
-  message.
+  no mounted disk. It snapshots that state to the `telegram_relay_state` row
+  when `STATE_DATABASE_URL` is set, so a deploy keeps the running daily tally;
+  without it a restart loses the tally. Either way a 120-second grace period
+  after boot collapses the alert burst ClickStack replays into a single message.
 - No high availability or zero-downtime deploys.
 - No tested backup/restore runbook or explicit retention TTL.
 - No disk-capacity alert or ingestion SLO.

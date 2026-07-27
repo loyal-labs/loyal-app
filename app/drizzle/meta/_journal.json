@@ -183,6 +183,13 @@
       "when": 1784503558505,
       "tag": "0025_needy_star_brand",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785169128601,
+      "tag": "0026_absurd_the_professor",
+      "breakpoints": true
     }
   ]
 }

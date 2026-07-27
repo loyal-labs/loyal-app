@@ -49,13 +49,16 @@ export interface ServerConfig {
   restartGraceMs: number;
   sweepIntervalMs: number;
   stateFile: string;
+  stateDatabaseUrl: string;
+  stateKey: string;
+  stateLeaseSeconds: number;
   traceLogs: boolean;
 }
 
 export function loadConfig(
   env: Record<string, string | undefined>
 ): ServerConfig {
-  return {
+  const config: ServerConfig = {
     host: env.HOST?.trim() || "127.0.0.1",
     port: positiveInteger(env.PORT, 3000, "PORT"),
     clickStackWebhookSecret: required(env, "CLICKSTACK_WEBHOOK_SECRET"),
@@ -103,8 +106,29 @@ export function loadConfig(
         "SWEEP_INTERVAL_SECONDS"
       ) * 1000,
     stateFile: env.STATE_FILE?.trim() ?? "",
+    stateDatabaseUrl: env.STATE_DATABASE_URL?.trim() ?? "",
+    stateKey: env.STATE_KEY?.trim() || "clickstack-telegram-relay",
+    stateLeaseSeconds: positiveInteger(
+      env.STATE_LEASE_SECONDS,
+      300,
+      "STATE_LEASE_SECONDS"
+    ),
     traceLogs: booleanValue(env.TRACE_LOGS, false, "TRACE_LOGS"),
   };
+
+  // The lease is renewed by the snapshot write, which only happens on a sweep.
+  // A lease shorter than that interval expires between its own renewals, so
+  // every instance would look abandoned and the guard would protect nothing.
+  if (
+    config.stateDatabaseUrl &&
+    config.stateLeaseSeconds * 1000 <= config.sweepIntervalMs
+  ) {
+    throw new Error(
+      "STATE_LEASE_SECONDS must exceed SWEEP_INTERVAL_SECONDS, or the write lease expires between snapshots"
+    );
+  }
+
+  return config;
 }
 
 /**

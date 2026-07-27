@@ -98,34 +98,75 @@ is exactly the previous behavior.
 
 ## State is in-process, so this runs one instance
 
-Window and idempotency state lives in memory (`src/relay.ts`). There is no
-Redis and no database.
+Window and idempotency state lives in memory (`src/relay.ts`). Between restarts
+it can be snapshotted, but at runtime nothing is shared.
 
 - **`numInstances` must stay at `1`.** Two instances do not share windows and
-  would double-post every alert. The Blueprint pins this.
+  would double-post every alert. The Blueprint pins this. Persisting state does
+  not change that: the snapshot is written once per sweep, far too coarse to
+  coordinate two processes deciding what to post right now.
 - **A restart clears windows.** Render redeploys several times a day, and
-  ClickStack replays every live alert within seconds of each one. Two
+  ClickStack replays every live alert within seconds of each one. Three
   mechanisms cover this, in order of preference:
-  - `STATE_FILE` — path on a mounted disk. Windows and the running daily tally
-    are written there on every sweep and on `SIGTERM`, and restored on boot, so
-    a deploy changes nothing an operator can see. Requires adding a `disk:` in
-    [`../render.yaml`](../render.yaml); note that Render deploys a service with
-    a disk by stopping the old instance first.
+  - `STATE_DATABASE_URL` — a row in `telegram_relay_state`. Windows and the
+    running daily tally are written on every sweep and on `SIGTERM`, and
+    restored on boot, so a deploy changes nothing an operator can see. No disk,
+    so Render can keep overlapping the old and new instance during a deploy.
+  - `STATE_FILE` — path on a mounted disk. Same snapshot, no network
+    dependency, but it requires adding a `disk:` in
+    [`../render.yaml`](../render.yaml), and Render deploys a service with a disk
+    by stopping the old instance first.
   - `RESTART_GRACE_SECONDS` — always on, default 120. For this long after boot
     the relay holds new alerts instead of posting them, then posts a single ♻️
-    recap listing everything that was already firing. Without a state file this
-    turns a post-deploy burst of ten messages into one.
+    recap listing everything that was already firing. With no snapshot at all
+    this turns a post-deploy burst of ten messages into one.
 
-Without `STATE_FILE`, each deploy restarts the daily tally, so the next recap
-covers only the time since the last deploy. That costs counts in one recap,
-never an alert. This is the main reason to mount a disk.
+With neither snapshot configured, each deploy restarts the daily tally, so the
+next recap covers only the time since the last deploy. That costs counts in one
+recap, never an alert.
 
-A third option, rebuilding windows by querying ClickStack for signatures that
+### The state table
+
+The schema lives in [`packages/db-core/src/schema.ts`](../../packages/db-core/src/schema.ts)
+(`telegram_relay_state`) and ships through the app's Drizzle migration chain,
+because that is where migrations already run. It is the one table there that is
+not app product state, and nothing in the app reads or writes it.
+
+This service cannot import that package: its Render `rootDir` is
+`observability/telegram-relay`, so the monorepo is outside its Docker build
+context. [`src/state-store.ts`](./src/state-store.ts) therefore names those
+columns in hand-written SQL. **A column rename in `db-core` breaks this relay at
+runtime, not at build time.** Change both together.
+
+### The write lease
+
+Render runs the old and new instance concurrently while a deploy rolls over.
+Without a guard the instance being shut down writes its final `SIGTERM` snapshot
+_after_ the replacement has already booted and started counting, and the
+replacement then reads that write on its next restart. `lease_owner` and
+`lease_expires_at` prevent it: a snapshot write only lands if the row is
+unclaimed, expired, or already owned by the writer, and the lease is handed back
+explicitly at shutdown.
+
+One gap this does not close: the new instance loads at boot, which is before the
+old instance's final write, so the counts the old instance accumulated in its
+last seconds are lost when the new instance takes the lease and overwrites the
+row. Merging two live tallies is more machinery than the loss justifies — it
+costs counts in one recap, never an alert.
+
+Every store operation fails **open**. An unreachable database, a rejected lease
+claim, and a corrupt snapshot are all logged (`state_persist_failed`,
+`state_lease_held`, `state_restore_failed`) and otherwise ignored; the relay
+keeps accepting webhooks and posting alerts from memory. The alerting path must
+not depend on storage being healthy, for the same reason it does not export its
+own logs to ClickStack.
+
+A further option, rebuilding windows by querying ClickStack for signatures that
 were already firing before boot, is deliberately **not** implemented: the relay
 has no working query credential today (`HYPERDX_ACCESS_KEY` is ingest-only),
 and the alerting path must not depend on the system it alerts about. If it is
-added later it has to fail open — on a query error, start with empty state and
-accept the duplicate messages.
+added later it has to fail open too — on a query error, start with empty state
+and accept the duplicate messages.
 
 ## Runtime behavior
 
@@ -249,14 +290,22 @@ search link.
 | `ESCALATION_MULTIPLIER`     | no       | `10`                                      | Break the window when volume grows this many times. `0` disables                                                                                                 |
 | `RESTART_GRACE_SECONDS`     | no       | `120`                                     | Hold alerts this long after boot and post one restart recap. `0` disables                                                                                        |
 | `SWEEP_INTERVAL_SECONDS`    | no       | `60`                                      | How often windows are closed and the recap schedule is checked                                                                                                   |
+| `STATE_DATABASE_URL`        | no       | empty                                     | Neon connection string for the durable state row. Takes precedence over `STATE_FILE`                                                                             |
+| `STATE_KEY`                 | no       | `clickstack-telegram-relay`               | Row this deployment owns. Two environments sharing a database need different values                                                                              |
+| `STATE_LEASE_SECONDS`       | no       | `300`                                     | How long a write claim survives without a snapshot. Must exceed `SWEEP_INTERVAL_SECONDS`                                                                         |
 | `STATE_FILE`                | no       | empty                                     | Path to persist windows across restarts. Needs a mounted disk                                                                                                    |
 | `TRACE_LOGS`                | no       | `false`                                   | Structured request and validation diagnostics                                                                                                                    |
 
 `CLICKSTACK_WEBHOOK_SECRET` uses `generateValue: true` in the Blueprint, so
 Render generates it. Read it from the Render dashboard and paste it into the
 ClickStack webhook header; it never needs to exist anywhere else.
-`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are `sync: false` and must be set by
-an operator.
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` and `STATE_DATABASE_URL` are
+`sync: false` and must be set by an operator.
+
+`STATE_LEASE_SECONDS` is validated against `SWEEP_INTERVAL_SECONDS` at boot and
+the process refuses to start if it is not larger. The snapshot write is what
+renews the lease, so a lease shorter than the interval between snapshots expires
+between its own renewals and every instance looks abandoned.
 
 ## ClickStack webhook
 

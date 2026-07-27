@@ -4,10 +4,16 @@ FROM oven/bun:1.3.11-slim AS runtime
 
 WORKDIR /app
 
-# The relay has no runtime dependencies, so there is no install step and no
-# lockfile in the image: the source is the artifact. `.dockerignore` keeps
-# `src/*.test.ts` out of the build context.
-COPY package.json tsconfig.json ./
+# One runtime dependency: the Neon HTTP driver used for the durable state row.
+# `--frozen-lockfile` makes an out-of-date `bun.lock` fail the build instead of
+# quietly resolving a different version than the one that was tested.
+# `--production` keeps the TypeScript toolchain out of the image; the source is
+# still the artifact, since Bun runs the `.ts` files directly.
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+# `.dockerignore` keeps `src/*.test.ts` out of the build context.
+COPY tsconfig.json ./
 COPY src ./src
 
 USER bun

@@ -62,8 +62,9 @@ projects:
             region: oregon
             plan: starter
             # Cooldown and idempotency state is in-process. A second instance
-            # would double-post alerts, so this must stay at 1 until the state
-            # moves to a shared store.
+            # would double-post alerts. STATE_DATABASE_URL does not lift this:
+            # the snapshot is written once per sweep, far too coarse to
+            # coordinate two processes deciding what to post right now.
             numInstances: 1
             rootDir: observability/telegram-relay
             dockerfilePath: ./Dockerfile
@@ -98,6 +99,24 @@ projects:
                 sync: false
               - key: TELEGRAM_CHAT_ID
                 sync: false
+              # Neon connection string for the `telegram_relay_state` row that
+              # carries open windows and the running daily tally across a
+              # deploy. Set by an operator; without it the relay falls back to
+              # RESTART_GRACE_SECONDS and starts each deploy with an empty
+              # tally. Every read and write fails open, so an outage here costs
+              # duplicate messages and never a missed alert.
+              - key: STATE_DATABASE_URL
+                sync: false
+              # One row per deployment. Change this before pointing a second
+              # environment at the same database, or the two overwrite each
+              # other's windows.
+              - key: STATE_KEY
+                value: clickstack-telegram-relay
+              # Must exceed SWEEP_INTERVAL_SECONDS (default 60): the snapshot
+              # write is what renews the lease, so a shorter one expires
+              # between its own renewals. Startup refuses it otherwise.
+              - key: STATE_LEASE_SECONDS
+                value: "300"
               # Minimum length of the quiet window, not its usual length: a
               # signature is held until the next daily recap, so a lasting
               # incident is announced once per period instead of hourly. This
@@ -108,8 +127,8 @@ projects:
               # Windows close silently. Everything they counted is reported
               # once a day instead, as one message listing each distinct error
               # with how often it fired. 06:00 UTC is 11:00 for the team.
-              # Without a mounted disk and STATE_FILE, a deploy resets the
-              # running tally, so the next recap covers only the time since.
+              # Without STATE_DATABASE_URL, a deploy resets the running tally,
+              # so the next recap covers only the time since.
               - key: DAILY_RECAP_AT
                 value: "06:00"
               # Must match the saved search `select`, in order. Drift is
@@ -134,9 +153,9 @@ projects:
                 value: wallet
               # Render replaces this instance on every deploy and ClickStack
               # replays every live alert seconds later. Holding those for two
-              # minutes turns that burst into a single restart recap. Windows
-              # themselves are not persisted: STATE_FILE needs a mounted disk,
-              # which would also make deploys stop-then-start.
+              # minutes turns that burst into a single restart recap. It stays
+              # on with STATE_DATABASE_URL set: the snapshot may be missing,
+              # stale, or unreadable, and this is what covers that.
               - key: RESTART_GRACE_SECONDS
                 value: "120"
               - key: TRACE_LOGS

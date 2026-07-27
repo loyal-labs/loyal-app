@@ -5,5 +5,7 @@ node_modules
 .env.*
 !.env.example
 src/*.test.ts
+scripts
 README.md
-bun.lock
+# `bun.lock` is deliberately NOT ignored: the image installs the Neon driver
+# with `--frozen-lockfile`, which needs it in the build context.

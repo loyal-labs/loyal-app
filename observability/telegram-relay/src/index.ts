@@ -5,8 +5,14 @@ import {
   loadConfig,
   type ServerConfig,
 } from "./app.ts";
-import { redactBotToken } from "./redact.ts";
-import { AlertRelay, type PersistedState } from "./relay.ts";
+import { redactSecrets } from "./redact.ts";
+import { AlertRelay } from "./relay.ts";
+import {
+  createDatabaseStateStore,
+  createFileStateStore,
+  createNullStateStore,
+  type StateStore,
+} from "./state-store.ts";
 
 function readConfig() {
   try {
@@ -34,7 +40,9 @@ const relay = new AlertRelay(createTelegramSender(config), {
   restartGraceMs: config.restartGraceMs,
 });
 
-const restored = await restoreState(config, relay);
+const stateStore = createStateStore(config);
+const savedState = await stateStore.load();
+const restored = savedState ? relay.importState(savedState) : 0;
 
 // Sweeping posts the restart and daily recaps when they come due, so it is not
 // optional bookkeeping the way the old cache eviction was.
@@ -45,70 +53,51 @@ sweepTimer.unref();
 
 async function sweep(): Promise<void> {
   await relay.sweep();
-  await persistState(config, relay);
+  await stateStore.save(relay.exportState());
 }
 
 /**
  * Window state is in-process, so a deploy would otherwise re-alert everything
- * that is still firing. With no `STATE_FILE` the relay falls back to the
- * restart grace period, which folds that burst into a single message.
+ * that is still firing and reset the daily tally. A shared table survives that
+ * without pinning the service to a disk; a file works but makes Render stop the
+ * old instance before starting the new one. With neither, the relay falls back
+ * to the restart grace period, which at least folds the burst into one message.
  */
-async function restoreState(
-  serverConfig: ServerConfig,
-  target: AlertRelay
-): Promise<number> {
-  if (!serverConfig.stateFile) {
-    return 0;
-  }
-
-  try {
-    const file = Bun.file(serverConfig.stateFile);
-    if (!(await file.exists())) {
-      return 0;
+function createStateStore(serverConfig: ServerConfig): StateStore {
+  if (serverConfig.stateDatabaseUrl) {
+    try {
+      return databaseStateStore(serverConfig);
+    } catch (error) {
+      // The driver validates the connection string when it is constructed, and
+      // a malformed one would otherwise take the process down at boot. A relay
+      // that will not start posts nothing at all, which is far worse than one
+      // running without a snapshot — so this fails open like every other store
+      // operation, loudly enough to be found in the deploy logs.
+      console.error(
+        JSON.stringify({
+          event: "state_store_unavailable",
+          errorMessage: redactSecrets(
+            error instanceof Error ? error.message : String(error)
+          ).slice(0, 300),
+        })
+      );
+      return createNullStateStore();
     }
-    const state = (await file.json()) as PersistedState;
-    return target.importState(state);
-  } catch (error) {
-    // A corrupt or unreadable snapshot must never stop the relay from
-    // accepting alerts; it only costs the duplicate messages it would have
-    // prevented.
-    console.error(
-      JSON.stringify({
-        event: "state_restore_failed",
-        errorMessage: errorText(error),
-      })
-    );
-    return 0;
   }
+
+  if (serverConfig.stateFile) {
+    return createFileStateStore(serverConfig.stateFile);
+  }
+
+  return createNullStateStore();
 }
 
-async function persistState(
-  serverConfig: ServerConfig,
-  source: AlertRelay
-): Promise<void> {
-  if (!serverConfig.stateFile) {
-    return;
-  }
-
-  try {
-    await Bun.write(
-      serverConfig.stateFile,
-      JSON.stringify(source.exportState())
-    );
-  } catch (error) {
-    console.error(
-      JSON.stringify({
-        event: "state_persist_failed",
-        errorMessage: errorText(error),
-      })
-    );
-  }
-}
-
-function errorText(error: unknown): string {
-  return redactBotToken(
-    error instanceof Error ? error.message : String(error)
-  ).slice(0, 300);
+function databaseStateStore(serverConfig: ServerConfig): StateStore {
+  return createDatabaseStateStore({
+    databaseUrl: serverConfig.stateDatabaseUrl,
+    stateKey: serverConfig.stateKey,
+    leaseSeconds: serverConfig.stateLeaseSeconds,
+  });
 }
 
 const server = Bun.serve({
@@ -125,6 +114,7 @@ console.info(
     webhookPath: "/webhooks/clickstack",
     cooldownSeconds: config.cooldownMs / 1000,
     restartGraceSeconds: config.restartGraceMs / 1000,
+    stateStore: stateStore.kind,
     restoredWindows: restored,
   })
 );
@@ -147,8 +137,10 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   await server.stop(false);
 
   // Written after the drain so the snapshot includes whatever those last
-  // requests accumulated.
-  await persistState(config, relay);
+  // requests accumulated, and the lease is dropped straight afterwards so the
+  // replacement instance can start writing without waiting it out.
+  await stateStore.save(relay.exportState());
+  await stateStore.release();
 
   console.info(JSON.stringify({ event: "server_stopped", signal }));
   process.exit(0);
