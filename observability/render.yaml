@@ -98,12 +98,31 @@ projects:
                 sync: false
               - key: TELEGRAM_CHAT_ID
                 sync: false
+              # Minimum length of the quiet window, not its usual length: a
+              # signature is held until the next daily recap, so a lasting
+              # incident is announced once per period instead of hourly. This
+              # floor only matters for an alert that first fires shortly
+              # before a recap, which rolls to the following period.
               - key: COOLDOWN_SECONDS
                 value: "3600"
-              # Must match the saved search `select`, in order. A mismatch is
-              # not fatal but costs the formatting: the relay falls back to
-              # forwarding ClickStack's raw CSV. The `wallet` column is added
-              # to the "Errors" saved search (6a5fb723dcc64beb0ded6cca) as
+              # Windows close silently. Everything they counted is reported
+              # once a day instead, as one message listing each distinct error
+              # with how often it fired. 06:00 UTC is 11:00 for the team.
+              # Without a mounted disk and STATE_FILE, a deploy resets the
+              # running tally, so the next recap covers only the time since.
+              - key: DAILY_RECAP_AT
+                value: "06:00"
+              # Must match the saved search `select`, in order. Drift is
+              # expensive either way. A differing column count is detected, but
+              # it costs more than the formatting: with no parsed rows the
+              # relay keys windows on eventId instead of row signatures, so one
+              # incident posts several alerts, cardinality counts disappear,
+              # and the daily recap is skipped for want of signatures to list.
+              # A rename or reorder that keeps the count is not detected at all
+              # — values are read by position, so rows are mislabelled and
+              # signatures and cardinality counts come from the wrong fields.
+              # The `wallet` column is added to the "Errors" saved search
+              # (6a5fb723dcc64beb0ded6cca) as
               # LogAttributes['loyal.wallet.address'] AS wallet, so deploy this
               # and flip the saved search together.
               - key: ALERT_COLUMNS

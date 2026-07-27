@@ -41,8 +41,10 @@ export interface ServerConfig {
   maxBodyBytes: number;
   alertColumns: string[];
   cardinalityColumns: string[];
-  digestEnabled: boolean;
-  digestSilent: boolean;
+  dailyRecapEnabled: boolean;
+  /** Minutes past UTC midnight at which the daily recap is posted. */
+  dailyRecapAtMinutes: number;
+  recapSilent: boolean;
   escalationMultiplier: number;
   restartGraceMs: number;
   sweepIntervalMs: number;
@@ -75,8 +77,17 @@ export function loadConfig(
     maxBodyBytes: positiveInteger(env.MAX_BODY_BYTES, 65536, "MAX_BODY_BYTES"),
     alertColumns: alertColumns(env.ALERT_COLUMNS),
     cardinalityColumns: columnList(env.CARDINALITY_COLUMNS),
-    digestEnabled: booleanValue(env.DIGEST_ENABLED, true, "DIGEST_ENABLED"),
-    digestSilent: booleanValue(env.DIGEST_SILENT, true, "DIGEST_SILENT"),
+    dailyRecapEnabled: booleanValue(
+      env.DAILY_RECAP_ENABLED,
+      true,
+      "DAILY_RECAP_ENABLED"
+    ),
+    dailyRecapAtMinutes: clockMinutes(
+      env.DAILY_RECAP_AT,
+      6 * 60,
+      "DAILY_RECAP_AT"
+    ),
+    recapSilent: booleanValue(env.RECAP_SILENT, true, "RECAP_SILENT"),
     escalationMultiplier: wholeNumber(
       env.ESCALATION_MULTIPLIER,
       10,
@@ -128,7 +139,7 @@ export function createTelegramSender(
     ServerConfig,
     "telegramBotToken" | "telegramChatId" | "alertColumns"
   > &
-    Partial<Pick<ServerConfig, "cardinalityColumns" | "digestSilent">>,
+    Partial<Pick<ServerConfig, "cardinalityColumns" | "recapSilent">>,
   fetchImpl: FetchLike = fetch,
   sleep: (ms: number) => Promise<void> = defaultSleep
 ): TelegramSender {
@@ -152,7 +163,7 @@ export function createTelegramSender(
   return async (payload, context) => {
     // Recaps carry no new failure, so they land without a notification unless
     // an operator turns that off.
-    const silent = context.silent && (config.digestSilent ?? true);
+    const silent = context.silent && (config.recapSilent ?? true);
     const message = formatTelegramMessage(payload, {
       alertColumns: config.alertColumns,
       cardinalityColumns: config.cardinalityColumns,
@@ -521,6 +532,25 @@ function wholeNumber(
     throw new Error(`${name} must be zero or a positive integer`);
   }
   return value;
+}
+
+/** "HH:MM" in UTC, as minutes past midnight. */
+function clockMinutes(
+  raw: string | undefined,
+  fallback: number,
+  name: string
+): number {
+  if (raw === undefined || raw.trim() === "") {
+    return fallback;
+  }
+
+  const match = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
+  const hours = Number(match?.[1]);
+  const minutes = Number(match?.[2]);
+  if (!match || hours > 23 || minutes > 59) {
+    throw new Error(`${name} must be a UTC time of day as HH:MM`);
+  }
+  return hours * 60 + minutes;
 }
 
 function booleanValue(

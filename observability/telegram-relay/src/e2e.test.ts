@@ -109,7 +109,8 @@ function createSystem(options: SystemOptions = {}) {
     maxCacheEntries: config.maxCacheEntries,
     now: () => now,
     analyze: createAlertAnalyzer(config),
-    digestEnabled: config.digestEnabled,
+    dailyRecapEnabled: config.dailyRecapEnabled,
+    dailyRecapAtMinutes: config.dailyRecapAtMinutes,
     escalationMultiplier: config.escalationMultiplier,
     restartGraceMs: config.restartGraceMs,
     startedAt: startAt,
@@ -231,6 +232,22 @@ async function outcomeOf(response: Response): Promise<string> {
   return String(body.outcome);
 }
 
+/**
+ * The next occurrence of a UTC minute-of-day after `from`, computed here
+ * rather than imported so the schedule assertion does not simply restate the
+ * implementation it is checking.
+ */
+function recapAfter(from: number, atMinutes: number): number {
+  const day = new Date(from);
+  const midnight = Date.UTC(
+    day.getUTCFullYear(),
+    day.getUTCMonth(),
+    day.getUTCDate()
+  );
+  const candidate = midnight + atMinutes * 60_000;
+  return candidate > from ? candidate : candidate + 24 * 60 * MINUTE;
+}
+
 function clockString(epochMs: number): string {
   return new Date(epochMs).toISOString().slice(11, 19);
 }
@@ -317,7 +334,7 @@ describe("relay end to end", () => {
     expect(opening.text).not.toContain("lines found");
     expect(opening.text).toContain('Group: "ServiceName:loyal-mobile"');
     expect(opening.text).toContain(
-      "<i>6 events · ≥2 unique wallets · muted 1h</i>"
+      "<i>6 events · ≥2 unique wallets · muted 1h10m</i>"
     );
     expect(opening.text).toContain("🔴 <b>error</b> · 04:50:44 UTC");
     expect(opening.text).toContain("error_code: <code>request_failed</code>");
@@ -373,41 +390,49 @@ describe("relay end to end", () => {
     );
     expect(escalation.text).toContain("3 alert(s) suppressed so far");
 
-    // --- The window closes on its exact boundary -------------------------
-    const expiresAt = START + system.config.cooldownMs;
+    // --- The incident stays quiet for the rest of the period -------------
+    // The window runs to the recap, not to the cooldown, so an hour in the
+    // signature is still muted rather than re-announced.
+    const expiresAt = recapAfter(START, system.config.dailyRecapAtMinutes);
+    expect(expiresAt).toBeGreaterThan(START + system.config.cooldownMs);
 
+    system.advanceTo(START + system.config.cooldownMs + MINUTE);
+    await system.sweep();
+    expect(await outcomeOf(await system.post(payload, "d-4"))).toBe(
+      "suppressed"
+    );
+    expect(system.calls).toHaveLength(2);
+    expect(system.relay.stats().windows).toBe(1);
+
+    // --- The window closes on its boundary, and says nothing -------------
     system.advanceTo(expiresAt - 1);
     await system.sweep();
     expect(system.calls).toHaveLength(2);
+    expect(system.relay.stats().windows).toBe(1);
 
+    // --- One scheduled recap carries the whole period --------------------
     system.advanceTo(expiresAt);
     await system.sweep();
     // A second sweep at the same instant must not repeat the recap.
     await system.sweep();
 
+    expect(system.relay.stats().windows).toBe(0);
     expect(system.calls).toHaveLength(3);
-    const digest = system.calls[2]!;
-    expect(digest.at).toBe(expiresAt);
-    expect(digest.silent).toBe(true);
-    expect(digest.text).toContain('🔕 Alert for "Errors" · recap of 1h');
-    expect(digest.text).toContain("80 events · 3 alert(s) suppressed");
-    expect(digest.text).toContain("≥2 unique wallets");
-    expect(digest.text).toContain(
-      `${clockString(START)} → ${clockString(START + 4 * MINUTE)} UTC`
-    );
-    expect(system.relay.stats().windows).toBe(0);
+    const recap = system.calls[2]!;
+    expect(recap.silent).toBe(true);
+    expect(recap.text).toContain("📊 Error recap · last");
+    // 80 from the burst; the repeated deliveries of an evaluation range
+    // ClickStack had already reported are not counted again.
+    expect(recap.text).toContain("80 events");
+    expect(recap.text).toContain("2 alert(s) posted");
+    expect(recap.text).toContain("≥2 unique wallets");
+    expect(recap.text).toContain("<b>×4</b> earn.withdrawal.prepare.failed");
+    expect(system.relay.stats().dailyEvents).toBe(0);
 
-    // --- A fresh window after the recap ----------------------------------
+    // --- The next period announces it again, once ------------------------
     system.advance(MINUTE);
-    expect(await outcomeOf(await system.post(payload, "d-4"))).toBe("sent");
+    expect(await outcomeOf(await system.post(payload, "d-5"))).toBe("sent");
     expect(system.calls).toHaveLength(4);
-
-    // Nothing repeated inside it, so it closes without a word. Silence after
-    // an alert is the signal that it happened once.
-    system.advance(system.config.cooldownMs + 1);
-    await system.sweep();
-    expect(system.calls).toHaveLength(4);
-    expect(system.relay.stats().windows).toBe(0);
 
     verifyInvariants(system);
   });
@@ -535,7 +560,7 @@ describe("relay end to end", () => {
 
   test("keeps counters when an escalation or recap is rejected", async () => {
     let failEscalation = true;
-    let failDigest = true;
+    let failRecap = true;
     const system = createSystem({
       env: { ESCALATION_MULTIPLIER: "3" },
       reply: ({ text }) => {
@@ -543,8 +568,8 @@ describe("relay end to end", () => {
           failEscalation = false;
           return { status: 500, body: { ok: false } };
         }
-        if (text.includes("recap of") && failDigest) {
-          failDigest = false;
+        if (text.includes("Error recap") && failRecap) {
+          failRecap = false;
           return { status: 500, body: { ok: false } };
         }
         return undefined;
@@ -587,18 +612,23 @@ describe("relay end to end", () => {
 
     // The recap survives its own rejection and is retried on the next sweep
     // with every counter intact.
-    system.advance(system.config.cooldownMs);
-    expect(system.relay.stats().pendingDigests).toBe(1);
+    system.advanceTo(recapAfter(START, system.config.dailyRecapAtMinutes));
+    expect(system.relay.stats().dailyEvents).toBe(3);
     await system.sweep();
-    expect(system.relay.stats().pendingDigests).toBe(1);
+    // Held as a pending recap, not lost and not left to grow in the live
+    // tally, so the retry re-sends the period that actually came due.
+    expect(system.relay.stats().pendingRecapEvents).toBe(3);
     await system.sweep();
 
-    const digests = system.calls.filter((call) =>
-      call.text.includes("recap of")
+    const recaps = system.calls.filter((call) =>
+      call.text.includes("Error recap")
     );
-    expect(digests).toHaveLength(2);
-    expect(digests[1]?.text).toContain("3 events · 3 alert(s) suppressed");
-    expect(system.relay.stats().windows).toBe(0);
+    expect(recaps).toHaveLength(2);
+    expect(recaps[1]?.text).toContain("3 events");
+    // The opening alert and the escalation that succeeded. The escalation
+    // Telegram rejected is not counted as posted.
+    expect(recaps[1]?.text).toContain("2 alert(s) posted");
+    expect(system.relay.stats().pendingRecapEvents).toBe(0);
 
     verifyInvariants(system);
   });
@@ -628,16 +658,19 @@ describe("relay end to end", () => {
     expect(system.calls).toHaveLength(1);
 
     // Sweeps racing a further delivery must not double-post the recap.
-    system.advance(system.config.cooldownMs);
+    system.advanceTo(recapAfter(START, system.config.dailyRecapAtMinutes));
     await Promise.all([
       system.sweep(),
       system.sweep(),
       system.post(payload, "race-late"),
     ]);
 
-    const digests = system.calls.filter((call) => call.silent);
-    expect(digests).toHaveLength(1);
-    expect(digests[0]?.text).toContain("19 alert(s) suppressed");
+    const recaps = system.calls.filter((call) => call.silent);
+    expect(recaps).toHaveLength(1);
+    // The twenty racing deliveries all reported the same evaluation range, so
+    // the recap counts the events once rather than twenty times.
+    expect(recaps[0]?.text).toContain("2 events");
+    expect(recaps[0]?.text).toContain("1 alert(s) posted");
 
     verifyInvariants(system);
   });
@@ -669,12 +702,24 @@ describe("relay end to end", () => {
     );
     expect(after.calls).toHaveLength(0);
 
-    // The window still closes carrying both processes' suppressed deliveries.
+    // The window closes silently, and the tally the snapshot carried across
+    // the restart is what the scheduled recap reports.
     after.advanceTo(START + after.config.cooldownMs);
+    await after.sweep();
+    expect(after.calls).toHaveLength(0);
+
+    after.advanceTo(recapAfter(START, after.config.dailyRecapAtMinutes));
     await after.sweep();
     expect(after.calls).toHaveLength(1);
     expect(after.calls[0]?.silent).toBe(true);
-    expect(after.calls[0]?.text).toContain("2 alert(s) suppressed");
+    expect(after.calls[0]?.text).toContain("📊 Error recap");
+    // Everything the pre-restart process counted is still in the recap: the
+    // events, the frequency, and the alert it posted before going down.
+    expect(after.calls[0]?.text).toContain("2 events");
+    expect(after.calls[0]?.text).toContain("1 alert(s) posted");
+    expect(after.calls[0]?.text).toContain(
+      "<b>×2</b> earn.withdrawal.prepare.failed"
+    );
 
     verifyInvariants(after);
   });

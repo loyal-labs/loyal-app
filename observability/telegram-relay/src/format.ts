@@ -2,6 +2,7 @@ import type {
   AlertAnalysis,
   AlertContext,
   ClickStackWebhookPayload,
+  DailySummary,
   SignatureInput,
   WindowSummary,
 } from "./relay.ts";
@@ -40,8 +41,6 @@ export interface FormattedMessage {
 const MAX_RENDERED_ROWS = 8;
 /** Headroom for the "and N more" footer while rows are being fitted. */
 const FOOTER_RESERVE = 48;
-/** Signature lines listed under a digest before the rest is summarized. */
-const MAX_DIGEST_SIGNATURES = 6;
 const SPARKLINE = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
 
 export function formatTelegramMessage(
@@ -53,8 +52,8 @@ export function formatTelegramMessage(
   if (context?.kind === "restart" && context.windows?.length) {
     return formatRestartRecap(payload, context.windows);
   }
-  if (context?.kind === "digest" && context.window) {
-    return formatDigest(context.window);
+  if (context?.kind === "daily" && context.daily) {
+    return formatDailyRecap(context.daily);
   }
   if (context?.kind === "escalation" && context.window) {
     return formatEscalation(context.window);
@@ -271,57 +270,71 @@ function openingStats(window: WindowSummary): string {
   return parts.join(" · ");
 }
 
-function formatDigest(window: WindowSummary): FormattedMessage {
-  const [top, ...rest] = window.signatures;
+/**
+ * The one scheduled message: every signature seen since the last recap, with
+ * how often it fired. This is the only place a non-repeating error is ever
+ * counted, so it lists frequencies rather than summarizing a single incident.
+ */
+function formatDailyRecap(daily: DailySummary): FormattedMessage {
+  const span = formatDuration(daily.until - daily.since);
   const lines = [
-    `<b>🔕 ${escapeHtml(alertName(window.title))} · recap of ${escapeHtml(
-      formatDuration(window.expiresAt - window.openedAt)
-    )}</b>`,
+    `<b>📊 Error recap · last ${escapeHtml(span)}</b>`,
+    `<i>${escapeHtml(
+      [
+        countLabel(daily.eventCount, "event"),
+        `${daily.signatures.length} distinct error(s)`,
+        `${daily.alertsPosted} alert(s) posted`,
+        ...dailyCardinalityLabels(daily),
+      ].join(" · ")
+    )}</i>`,
+    "",
   ];
 
-  if (top) {
-    lines.push(`<b>${escapeHtml(top.headline)}</b>`);
-  }
-  if (window.services.length > 0) {
-    lines.push(escapeHtml(window.services.join(" · ")));
-  }
+  const rendered: string[] = [];
+  let used = lines.join("\n").length;
+  let shown = 0;
 
-  const stats = [
-    countLabel(window.eventCount, "event"),
-    `${window.suppressedAlerts} alert(s) suppressed`,
-  ];
-  stats.push(...cardinalityLabels(window));
-  lines.push("", `<i>${escapeHtml(stats.join(" · "))}</i>`);
+  for (const signature of daily.signatures) {
+    // One line per signature, so an embedded newline (a stack trace, a chunk
+    // load error carrying its URL) must not break the layout.
+    const line = `<b>×${signature.count}</b> ${escapeHtml(
+      truncate(signature.headline.replace(/\s+/g, " ").trim(), 110)
+    )}${
+      signature.service ? `\n<i>${escapeHtml(signature.service)} · ` : "\n<i>"
+    }${escapeHtml(
+      `${formatClock(signature.firstAt)}–${formatClock(signature.lastAt)} UTC`
+    )}</i>`;
 
-  const sparkline = renderSparkline(window.buckets);
-  if (sparkline) {
-    lines.push(
-      `<i>${escapeHtml(
-        `${formatClock(window.firstEventAt)} → ${formatClock(
-          window.lastEventAt
-        )} UTC`
-      )} ${sparkline} ${escapeHtml(
-        `peak ${window.buckets[window.peakBucket] ?? 0}/${formatDuration(
-          window.bucketMs
-        )}`
-      )}</i>`
-    );
-  }
-
-  if (rest.length > 0) {
-    lines.push("", "<i>Also in this window:</i>");
-    for (const signature of rest.slice(0, MAX_DIGEST_SIGNATURES)) {
-      lines.push(
-        `· ×${signature.count} ${escapeHtml(truncate(signature.headline, 120))}`
-      );
+    if (used + line.length + FOOTER_RESERVE > TELEGRAM_MESSAGE_LIMIT) {
+      break;
     }
-    const omitted = rest.length - MAX_DIGEST_SIGNATURES;
-    if (omitted > 0) {
-      lines.push(`<i>and ${omitted} more signature(s)</i>`);
-    }
+    rendered.push(line);
+    used += line.length + 1;
+    shown += 1;
   }
 
-  return withLink(lines, window.link);
+  lines.push(...rendered);
+
+  const omitted =
+    daily.signatures.length - shown + Math.max(daily.omittedSignatures, 0);
+  if (omitted > 0) {
+    lines.push("", `<i>and ${omitted} more distinct error(s)</i>`);
+  }
+
+  return { text: lines.join("\n"), parseMode: "HTML" };
+}
+
+/**
+ * "≥3 unique wallets" across the whole reporting period. The floor marker
+ * matters as much here as on an alert: ClickStack truncates row blocks, so a
+ * period can match far more lines than the relay was ever able to read.
+ */
+function dailyCardinalityLabels(daily: DailySummary): string[] {
+  return renderCardinality(
+    daily.uniqueValues,
+    daily.cappedValues,
+    daily.sampledRows < daily.eventCount
+  );
 }
 
 function formatEscalation(window: WindowSummary): FormattedMessage {
@@ -406,12 +419,31 @@ function withLink(lines: string[], link: string): FormattedMessage {
  * the relay does not have.
  */
 function cardinalityLabels(window: WindowSummary): string[] {
-  const approximate = window.sampledRows < window.eventCount;
-  return Object.entries(window.uniqueValues)
+  return renderCardinality(
+    window.uniqueValues,
+    window.cappedValues,
+    window.sampledRows < window.eventCount
+  );
+}
+
+/**
+ * A count is a floor when ClickStack truncated the rows it sent, and also when
+ * the relay itself stopped retaining distinct values. Both have to show, or a
+ * capped column reads as an exact total.
+ */
+function renderCardinality(
+  uniqueValues: Record<string, number>,
+  cappedValues: string[],
+  truncated: boolean
+): string[] {
+  const capped = new Set(cappedValues);
+  return Object.entries(uniqueValues)
     .filter(([, count]) => count > 0)
     .map(
       ([label, count]) =>
-        `${approximate ? "≥" : ""}${count} unique ${pluralize(label, count)}`
+        `${
+          truncated || capped.has(label) ? "≥" : ""
+        }${count} unique ${pluralize(label, count)}`
     );
 }
 

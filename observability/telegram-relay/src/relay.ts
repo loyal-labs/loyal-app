@@ -21,19 +21,54 @@ export interface RelayResult {
   outcome: RelayOutcome;
 }
 
-export type AlertMessageKind = "new" | "escalation" | "digest" | "restart";
+export type AlertMessageKind = "new" | "escalation" | "daily" | "restart";
 
 /**
  * Everything the sender needs beyond the raw payload. `new` and `escalation`
- * carry the live window, `digest` the window being closed, and `restart` the
- * set of signatures that were already firing when the process came up.
+ * carry the live window, `daily` the tally for the reporting period, and
+ * `restart` the set of signatures that were already firing when the process
+ * came up.
  */
 export interface AlertContext {
   kind: AlertMessageKind;
   window?: WindowSummary;
   windows?: WindowSummary[];
+  daily?: DailySummary;
   /** Recaps are informational; they must not buzz every phone in the chat. */
   silent: boolean;
+}
+
+/** One error signature's frequency over the reporting period. */
+export interface DailySignatureSummary {
+  count: number;
+  service: string;
+  headline: string;
+  firstAt: number;
+  lastAt: number;
+}
+
+export interface DailySummary {
+  /** Start of the period being reported. */
+  since: number;
+  until: number;
+  /** Matched log lines over the period, deduplicated per evaluation range. */
+  eventCount: number;
+  /**
+   * Rows the relay could actually read over the period. Below `eventCount`
+   * whenever ClickStack truncated a row block, which makes every per-row
+   * statistic a lower bound rather than a total.
+   */
+  sampledRows: number;
+  /** Webhook deliveries ClickStack made over the period. */
+  deliveries: number;
+  /** Alerts posted to the chat over the period, recaps excluded. */
+  alertsPosted: number;
+  signatures: DailySignatureSummary[];
+  /** Signatures dropped from `signatures` because the tally is bounded. */
+  omittedSignatures: number;
+  uniqueValues: Record<string, number>;
+  /** Columns whose value set hit its cap, so their count is a floor. */
+  cappedValues: string[];
 }
 
 export type TelegramSender = (
@@ -69,6 +104,12 @@ export interface WindowSummary {
   sampledRows: number;
   signatures: SignatureSummary[];
   uniqueValues: Record<string, number>;
+  /**
+   * Columns whose value set hit its cap, so their count is a floor. Separate
+   * from the truncation `sampledRows` reveals: a column can be capped even
+   * when every row ClickStack sent was read.
+   */
+  cappedValues: string[];
   buckets: number[];
   peakBucket: number;
   bucketMs: number;
@@ -100,8 +141,15 @@ export interface AlertRelayOptions {
   maxCacheEntries: number;
   now?: () => number;
   analyze?: AlertAnalyzer;
-  /** Post a recap when a window closes having suppressed anything. */
-  digestEnabled?: boolean;
+  /**
+   * Post one recap per day listing every signature and how often it fired.
+   * Windows themselves always close silently: a per-window recap repeated what
+   * its own opening alert had already said, and half of them summarized a
+   * single suppressed delivery.
+   */
+  dailyRecapEnabled?: boolean;
+  /** Minutes past UTC midnight at which the daily recap is posted. */
+  dailyRecapAtMinutes?: number;
   /**
    * Break the cooldown when volume grows by this factor, so an escalating
    * incident is not invisible for a whole window. `0` disables escalation.
@@ -118,8 +166,17 @@ export interface AlertRelayOptions {
   maxFlushAttempts?: number;
 }
 
-/** Keeps a digest readable when a storm produces hundreds of distinct rows. */
+const DEFAULT_DAILY_RECAP_AT_MINUTES = 6 * 60;
+const DAY_MS = 86_400_000;
+
+/** Keeps a window readable when a storm produces hundreds of distinct rows. */
 const MAX_TRACKED_SIGNATURES = 20;
+/**
+ * A day sees far more distinct signatures than one window, and the recap is
+ * the only place they are reported now, so the daily tally is allowed to hold
+ * many more of them than a window is.
+ */
+const MAX_DAILY_SIGNATURES = 200;
 /** Distinct values retained per cardinality column, purely to bound memory. */
 const MAX_TRACKED_VALUES = 500;
 const BUCKET_COUNT = 6;
@@ -131,6 +188,45 @@ interface SignatureState {
   service: string;
   severity: string;
   headline: string;
+}
+
+interface DailySignatureState extends SignatureState {
+  firstAt: number;
+  lastAt: number;
+}
+
+/**
+ * Counts every signature seen since the last recap, independently of windows.
+ * Windows exist to decide what to post right now; this exists to report what
+ * happened, so an error that never repeated still shows up with a count of 1.
+ */
+interface DailyTally {
+  since: number;
+  eventCount: number;
+  sampledRows: number;
+  deliveries: number;
+  alertsPosted: number;
+  signatures: Map<string, DailySignatureState>;
+  uniqueValues: Map<string, Set<string>>;
+  /** Cardinality columns whose distinct-value set hit its cap. */
+  cappedValues: Set<string>;
+  omittedSignatures: Set<string>;
+  /** Most recent delivery counted, used as the recap's link target. */
+  lastPayload?: ClickStackWebhookPayload;
+}
+
+function emptyTally(since: number): DailyTally {
+  return {
+    since,
+    eventCount: 0,
+    sampledRows: 0,
+    deliveries: 0,
+    alertsPosted: 0,
+    signatures: new Map(),
+    uniqueValues: new Map(),
+    cappedValues: new Set(),
+    omittedSignatures: new Set(),
+  };
 }
 
 interface AlertWindow {
@@ -151,6 +247,8 @@ interface AlertWindow {
   sampledRows: number;
   signatures: Map<string, SignatureState>;
   uniqueValues: Map<string, Set<string>>;
+  /** Cardinality columns whose distinct-value set hit its cap. */
+  cappedValues: Set<string>;
   buckets: number[];
   escalations: number;
   flushAttempts: number;
@@ -219,6 +317,16 @@ export class AlertRelay {
   private readonly analyze: AlertAnalyzer;
   private readonly startedAt: number;
   private restartRecapDone: boolean;
+  private daily: DailyTally;
+  private nextRecapAt: number;
+  private recapAttempts = 0;
+  private recapInFlight = false;
+  /**
+   * A period that has closed but whose recap Telegram has not accepted yet.
+   * Held separately from the live tally so a retry re-sends the period that
+   * came due rather than a period that keeps growing underneath it.
+   */
+  private pendingRecap: { tally: DailyTally; until: number } | null = null;
 
   constructor(
     private readonly sender: TelegramSender,
@@ -229,6 +337,8 @@ export class AlertRelay {
     this.analyze = options.analyze ?? emptyAnalysis;
     this.startedAt = options.startedAt ?? this.now();
     this.restartRecapDone = (options.restartGraceMs ?? 0) <= 0;
+    this.daily = emptyTally(this.startedAt);
+    this.nextRecapAt = nextRecapTime(this.startedAt, this.recapAtMinutes());
   }
 
   async handle(
@@ -257,20 +367,28 @@ export class AlertRelay {
       return this.withLock(this.eventLocks, key, async () => {
         const existing = this.windows.get(key);
 
-        // A window whose digest is still owed is flushed before the alert that
-        // reopens it, so the recap can never arrive after the message it
-        // summarizes.
+        // Closing is silent now, but it still has to happen before the alert
+        // that reopens the key, or the reopened window would inherit a
+        // cooldown that has already expired.
         if (existing && existing.expiresAt <= now && !existing.deferred) {
-          await this.flushWindow(existing);
+          this.closeWindow(existing);
         }
 
         const window = this.windows.get(key);
         if (!window) {
-          const opened = openWindow(key, payload, analysis, now, this.options);
+          const opened = openWindow(
+            key,
+            payload,
+            analysis,
+            now,
+            this.options,
+            this.nextRecapAt
+          );
 
           if (this.inRestartGrace(now)) {
             opened.deferred = true;
             this.windows.set(key, opened);
+            this.countDelivery(payload, analysis, now, opened.eventCount);
             this.trimWindows(now);
             this.rememberIdempotencyKey(idempotencyKey, now);
             return { outcome: "deferred" as const };
@@ -278,19 +396,24 @@ export class AlertRelay {
 
           // Registered only once Telegram has accepted. A failed send must
           // leave no window behind, or the retry would be suppressed as a
-          // repeat of a message that was never delivered.
+          // repeat of a message that was never delivered. The daily tally is
+          // folded in on the same terms: counting before the send would count
+          // the delivery again when ClickStack retries it under a fresh key.
           await this.sender(payload, {
             kind: "new",
             window: summarize(opened),
             silent: false,
           });
           this.windows.set(key, opened);
+          this.countDelivery(payload, analysis, now, opened.eventCount);
+          this.daily.alertsPosted += 1;
           this.trimWindows(now);
           this.rememberIdempotencyKey(idempotencyKey, now);
           return { outcome: "sent" as const };
         }
 
-        accumulate(window, payload, analysis, now);
+        const addedEvents = accumulate(window, payload, analysis, now);
+        this.countDelivery(payload, analysis, now, addedEvents);
         this.rememberIdempotencyKey(idempotencyKey, now);
 
         // The escalation is an extra notification inside an already-open
@@ -308,6 +431,7 @@ export class AlertRelay {
               silent: false,
             });
             window.escalations += 1;
+            this.daily.alertsPosted += 1;
           });
         }
 
@@ -318,8 +442,9 @@ export class AlertRelay {
 
   /**
    * Posts whatever is due: the restart recap once the grace period is over,
-   * then a digest for every window that has closed. A failed send is retried
-   * on the next sweep rather than dropping the counters it carries.
+   * and the daily recap once its scheduled time has passed. Closing expired
+   * windows is silent. A failed recap is retried on the next sweep rather than
+   * dropping the counters it carries.
    */
   async sweep(now = this.now()): Promise<void> {
     this.idempotencyKeys.evictExpired(now);
@@ -331,18 +456,16 @@ export class AlertRelay {
       if (window.expiresAt > now || window.deferred) {
         continue;
       }
-      // One undeliverable digest must not hold up the rest of the sweep; it is
-      // retried on the next tick with its counters intact.
-      await reportFailure("alert_digest_failed", () =>
-        this.withLock(this.eventLocks, key, async () => {
-          // `handle` may have flushed and replaced this window while the sweep
-          // waited for the lock.
-          if (this.windows.get(key) === window) {
-            await this.flushWindow(window);
-          }
-        })
-      );
+      await this.withLock(this.eventLocks, key, async () => {
+        // `handle` may have closed and replaced this window while the sweep
+        // waited for the lock.
+        if (this.windows.get(key) === window) {
+          this.closeWindow(window);
+        }
+      });
     }
+
+    await reportFailure("daily_recap_failed", () => this.flushDailyRecap(now));
   }
 
   /**
@@ -353,19 +476,19 @@ export class AlertRelay {
   stats(): {
     windows: number;
     idempotencyKeys: number;
-    pendingDigests: number;
+    dailySignatures: number;
+    dailyEvents: number;
+    nextRecapAt: number;
+    /** Events sitting in a recap Telegram has not accepted yet. */
+    pendingRecapEvents: number;
   } {
-    let pendingDigests = 0;
-    for (const window of this.windows.values()) {
-      if (window.suppressedAlerts > 0) {
-        pendingDigests += 1;
-      }
-    }
-
     return {
       windows: this.windows.size,
       idempotencyKeys: this.idempotencyKeys.size,
-      pendingDigests,
+      dailySignatures: this.daily.signatures.size,
+      dailyEvents: this.daily.eventCount,
+      nextRecapAt: this.nextRecapAt,
+      pendingRecapEvents: this.pendingRecap?.tally.eventCount ?? 0,
     };
   }
 
@@ -377,7 +500,21 @@ export class AlertRelay {
         windows.push(serializeWindow(window));
       }
     }
-    return { version: STATE_VERSION, savedAt: now, windows };
+    return {
+      version: STATE_VERSION,
+      savedAt: now,
+      windows,
+      daily: serializeTally(this.daily),
+      nextRecapAt: this.nextRecapAt,
+      ...(this.pendingRecap
+        ? {
+            pendingRecap: {
+              tally: serializeTally(this.pendingRecap.tally),
+              until: this.pendingRecap.until,
+            },
+          }
+        : {}),
+    };
   }
 
   /**
@@ -397,6 +534,24 @@ export class AlertRelay {
       this.windows.set(saved.key, deserializeWindow(saved));
       restored += 1;
     }
+
+    // The tally is what a deploy would otherwise erase. A deadline that passed
+    // while the process was down is kept, not dropped: the next sweep posts
+    // the recap late, which beats losing the period entirely. Only a snapshot
+    // older than a full period is discarded, since nobody could place its
+    // counts against a date by then.
+    if (state.daily && state.nextRecapAt && now - state.nextRecapAt < DAY_MS) {
+      this.daily = deserializeTally(state.daily);
+      this.nextRecapAt = state.nextRecapAt;
+    }
+
+    if (state.pendingRecap && now - state.pendingRecap.until < DAY_MS) {
+      this.pendingRecap = {
+        tally: deserializeTally(state.pendingRecap.tally),
+        until: state.pendingRecap.until,
+      };
+    }
+
     return restored;
   }
 
@@ -435,47 +590,115 @@ export class AlertRelay {
     }
   }
 
-  private async flushWindow(window: AlertWindow): Promise<void> {
-    const digestable =
-      (this.options.digestEnabled ?? true) && window.suppressedAlerts > 0;
+  /**
+   * A window's only job is to keep the chat quiet while an incident repeats.
+   * Everything it counted has already been folded into the daily tally at
+   * ingest, so closing it posts nothing.
+   */
+  private closeWindow(window: AlertWindow): void {
+    this.windows.delete(window.key);
+  }
 
-    // Silence is the signal that nothing repeated: a window that suppressed
-    // nothing closes without a message.
-    if (!digestable) {
-      this.windows.delete(window.key);
+  /**
+   * Folds an accepted delivery into the reporting period. Separate from the
+   * window bookkeeping because a delivery whose alert Telegram rejected is not
+   * accepted: it will arrive again, and must be counted then, not twice.
+   */
+  private countDelivery(
+    payload: ClickStackWebhookPayload,
+    analysis: AlertAnalysis,
+    now: number,
+    addedEvents: number
+  ): void {
+    this.daily.deliveries += 1;
+    this.daily.lastPayload = payload;
+    if (addedEvents > 0) {
+      recordDaily(this.daily, analysis, now, addedEvents);
+    }
+  }
+
+  private recapAtMinutes(): number {
+    return this.options.dailyRecapAtMinutes ?? DEFAULT_DAILY_RECAP_AT_MINUTES;
+  }
+
+  private async flushDailyRecap(now: number): Promise<void> {
+    // `pendingRecap` is swapped in synchronously below, but the send that
+    // follows is not: without this flag two sweeps overlapping on the timer
+    // would both reach the same unsent recap and post it twice.
+    if (this.recapInFlight) {
       return;
     }
 
+    if (!this.pendingRecap) {
+      if (now < this.nextRecapAt) {
+        return;
+      }
+
+      // Closing the period is synchronous, so a delivery arriving while the
+      // recap is in flight is counted against the next period instead of
+      // being dropped when the tally is replaced.
+      const tally = this.daily;
+      const until = this.nextRecapAt;
+      this.daily = emptyTally(until);
+      this.nextRecapAt = nextRecapTime(now, this.recapAtMinutes());
+      this.recapAttempts = 0;
+
+      // Nothing fired: the schedule still advances, but silence is the report.
+      if (
+        (this.options.dailyRecapEnabled ?? true) === false ||
+        tally.signatures.size === 0 ||
+        !tally.lastPayload
+      ) {
+        return;
+      }
+
+      this.pendingRecap = { tally, until };
+    }
+
+    const pending = this.pendingRecap;
+    const payload = pending.tally.lastPayload;
+    if (!payload) {
+      this.pendingRecap = null;
+      return;
+    }
+
+    this.recapInFlight = true;
     try {
-      await this.sender(window.payload, {
-        kind: "digest",
-        window: summarize(window),
+      await this.sender(payload, {
+        kind: "daily",
+        daily: summarizeDaily(pending.tally, pending.until),
         silent: true,
       });
-      this.windows.delete(window.key);
+      this.pendingRecap = null;
+      this.recapAttempts = 0;
     } catch (error) {
-      window.flushAttempts += 1;
+      this.recapAttempts += 1;
       const maxAttempts =
         this.options.maxFlushAttempts ?? DEFAULT_MAX_FLUSH_ATTEMPTS;
-      if (window.flushAttempts < maxAttempts) {
+      if (this.recapAttempts < maxAttempts) {
         throw error;
       }
 
-      // Give up rather than retry forever: the window would otherwise pin the
-      // signature silent, suppressing every later alert for it.
-      this.windows.delete(window.key);
+      // Give up rather than retry forever, and say so: the counts in this
+      // recap are gone, and only the log records that they existed.
       console.error(
         JSON.stringify({
-          event: "alert_digest_dropped",
-          key: window.key,
-          suppressedAlerts: window.suppressedAlerts,
-          attempts: window.flushAttempts,
+          event: "daily_recap_dropped",
+          since: pending.tally.since,
+          until: pending.until,
+          signatures: pending.tally.signatures.size,
+          events: pending.tally.eventCount,
+          attempts: this.recapAttempts,
           errorName: error instanceof Error ? error.name : "UnknownError",
           errorMessage: redactBotToken(
             error instanceof Error ? error.message : String(error)
           ).slice(0, 300),
         })
       );
+      this.pendingRecap = null;
+      this.recapAttempts = 0;
+    } finally {
+      this.recapInFlight = false;
     }
   }
 
@@ -616,18 +839,39 @@ function fnv1a(input: string): string {
   return hash.toString(16).padStart(8, "0");
 }
 
+/**
+ * A signature stays quiet until the next recap, so an incident that lasts all
+ * day is announced once and its volume is reported once, rather than being
+ * re-announced every hour. `cooldownMs` is the floor: an error that first
+ * fires minutes before a recap would otherwise be free to alert again almost
+ * immediately, so the window rolls to the following period instead.
+ */
+function windowExpiry(
+  now: number,
+  options: AlertRelayOptions,
+  recapAt: number
+): number {
+  const floor = now + options.cooldownMs;
+  let expiresAt = recapAt;
+  while (expiresAt < floor) {
+    expiresAt += DAY_MS;
+  }
+  return expiresAt;
+}
+
 function openWindow(
   key: string,
   payload: ClickStackWebhookPayload,
   analysis: AlertAnalysis,
   now: number,
-  options: AlertRelayOptions
+  options: AlertRelayOptions,
+  recapAt: number
 ): AlertWindow {
   const window: AlertWindow = {
     key,
     payload,
     openedAt: now,
-    expiresAt: now + options.cooldownMs,
+    expiresAt: windowExpiry(now, options, recapAt),
     firstEventAt: now,
     lastEventAt: now,
     eventCount: 0,
@@ -638,6 +882,7 @@ function openWindow(
     sampledRows: 0,
     signatures: new Map(),
     uniqueValues: new Map(),
+    cappedValues: new Set(),
     buckets: new Array<number>(BUCKET_COUNT).fill(0),
     escalations: 0,
     flushAttempts: 0,
@@ -647,14 +892,15 @@ function openWindow(
   return window;
 }
 
+/** Returns the matched lines this delivery added beyond what was known. */
 function accumulate(
   window: AlertWindow,
   payload: ClickStackWebhookPayload,
   analysis: AlertAnalysis,
   now: number
-): void {
+): number {
   window.suppressedAlerts += 1;
-  record(window, payload, analysis, now);
+  return record(window, payload, analysis, now);
 }
 
 function record(
@@ -662,7 +908,7 @@ function record(
   payload: ClickStackWebhookPayload,
   analysis: AlertAnalysis,
   now: number
-): void {
+): number {
   const events = Math.max(analysis.eventCount, 1);
   const key = evaluationKey(payload);
   const previousEvents = window.evaluationCounts.get(key) ?? 0;
@@ -703,19 +949,127 @@ function record(
 
   // Keep the union even when ClickStack returns a different truncated row
   // sample for the same evaluation range and matched-line count.
-  for (const [label, values] of Object.entries(analysis.uniqueValues)) {
-    let seen = window.uniqueValues.get(label);
+  mergeBoundedValues(
+    window.uniqueValues,
+    window.cappedValues,
+    analysis.uniqueValues
+  );
+
+  return addedEvents;
+}
+
+/**
+ * Merges distinct values into bounded sets, recording every column that had to
+ * drop one. A column that hit the cap can only be reported as a floor: saying
+ * "500 unique wallets" when the 501st was thrown away is a wrong number, not a
+ * rounded one.
+ */
+function mergeBoundedValues(
+  target: Map<string, Set<string>>,
+  capped: Set<string>,
+  incoming: Record<string, string[]>
+): void {
+  for (const [label, values] of Object.entries(incoming)) {
+    let seen = target.get(label);
     if (!seen) {
       seen = new Set<string>();
-      window.uniqueValues.set(label, seen);
+      target.set(label, seen);
     }
     for (const value of values) {
+      if (seen.has(value)) {
+        continue;
+      }
       if (seen.size >= MAX_TRACKED_VALUES) {
-        break;
+        capped.add(label);
+        continue;
       }
       seen.add(value);
     }
   }
+}
+
+/**
+ * Folds one counted delivery into the reporting period. Called from the same
+ * branch that updates the window, so the evaluation-range deduplication that
+ * keeps a window's counters honest keeps the daily frequencies honest too.
+ */
+function recordDaily(
+  daily: DailyTally,
+  analysis: AlertAnalysis,
+  now: number,
+  addedEvents: number
+): void {
+  daily.eventCount += addedEvents;
+  daily.sampledRows += analysis.signatures.length;
+
+  for (const signature of analysis.signatures) {
+    const existing = daily.signatures.get(signature.key);
+    if (existing) {
+      existing.count += 1;
+      existing.lastAt = now;
+      continue;
+    }
+    if (daily.signatures.size >= MAX_DAILY_SIGNATURES) {
+      // Remembered by key so the recap can say how much it is not showing.
+      daily.omittedSignatures.add(signature.key);
+      continue;
+    }
+    daily.signatures.set(signature.key, {
+      count: 1,
+      service: signature.service,
+      severity: signature.severity,
+      headline: signature.headline,
+      firstAt: now,
+      lastAt: now,
+    });
+  }
+
+  mergeBoundedValues(
+    daily.uniqueValues,
+    daily.cappedValues,
+    analysis.uniqueValues
+  );
+}
+
+function summarizeDaily(daily: DailyTally, until: number): DailySummary {
+  const signatures = [...daily.signatures.values()].sort(
+    (left, right) => right.count - left.count || right.lastAt - left.lastAt
+  );
+  const uniqueValues: Record<string, number> = {};
+  for (const [label, values] of daily.uniqueValues) {
+    uniqueValues[label] = values.size;
+  }
+
+  return {
+    since: daily.since,
+    until,
+    eventCount: daily.eventCount,
+    sampledRows: daily.sampledRows,
+    deliveries: daily.deliveries,
+    alertsPosted: daily.alertsPosted,
+    signatures: signatures.map((signature) => ({
+      count: signature.count,
+      service: signature.service,
+      headline: signature.headline,
+      firstAt: signature.firstAt,
+      lastAt: signature.lastAt,
+    })),
+    omittedSignatures: daily.omittedSignatures.size,
+    uniqueValues,
+    cappedValues: [...daily.cappedValues],
+  };
+}
+
+/**
+ * The next occurrence of the configured wall-clock minute, strictly after
+ * `from`. Strictly, so a relay that starts exactly on the boundary does not
+ * immediately post a recap for a period it did not observe.
+ */
+export function nextRecapTime(from: number, atMinutes: number): number {
+  const offset = ((atMinutes % 1440) + 1440) % 1440;
+  const midnight = Math.floor(from / DAY_MS) * DAY_MS;
+  const candidate = midnight + offset * 60_000;
+  return candidate > from ? candidate : candidate + DAY_MS;
 }
 
 function evaluationKey(payload: ClickStackWebhookPayload): string {
@@ -761,13 +1115,14 @@ function summarize(window: AlertWindow): WindowSummary {
     sampledRows: window.sampledRows,
     signatures,
     uniqueValues,
+    cappedValues: [...window.cappedValues],
     buckets: [...window.buckets],
     peakBucket: window.buckets.indexOf(Math.max(...window.buckets)),
     bucketMs: bucketMsOf(window),
   };
 }
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 
 export interface PersistedWindow {
   key: string;
@@ -786,14 +1141,77 @@ export interface PersistedWindow {
   sampledRows: number;
   signatures: (SignatureState & { key: string })[];
   uniqueValues: Record<string, string[]>;
+  cappedValues?: string[];
   buckets: number[];
   escalations: number;
+}
+
+export interface PersistedTally {
+  since: number;
+  eventCount: number;
+  sampledRows?: number;
+  deliveries: number;
+  alertsPosted: number;
+  signatures: (DailySignatureState & { key: string })[];
+  uniqueValues: Record<string, string[]>;
+  cappedValues?: string[];
+  omittedSignatures: string[];
+  lastPayload?: ClickStackWebhookPayload;
 }
 
 export interface PersistedState {
   version: number;
   savedAt: number;
   windows: PersistedWindow[];
+  daily?: PersistedTally;
+  nextRecapAt?: number;
+  /** A closed period whose recap Telegram had not accepted before shutdown. */
+  pendingRecap?: { tally: PersistedTally; until: number };
+}
+
+function serializeTally(daily: DailyTally): PersistedTally {
+  const uniqueValues: Record<string, string[]> = {};
+  for (const [label, values] of daily.uniqueValues) {
+    uniqueValues[label] = [...values];
+  }
+
+  return {
+    since: daily.since,
+    eventCount: daily.eventCount,
+    sampledRows: daily.sampledRows,
+    deliveries: daily.deliveries,
+    alertsPosted: daily.alertsPosted,
+    signatures: [...daily.signatures].map(([key, state]) => ({
+      key,
+      ...state,
+    })),
+    uniqueValues,
+    cappedValues: [...daily.cappedValues],
+    omittedSignatures: [...daily.omittedSignatures],
+    lastPayload: daily.lastPayload,
+  };
+}
+
+function deserializeTally(saved: PersistedTally): DailyTally {
+  const uniqueValues = new Map<string, Set<string>>();
+  for (const [label, values] of Object.entries(saved.uniqueValues ?? {})) {
+    uniqueValues.set(label, new Set(values));
+  }
+
+  return {
+    since: saved.since,
+    eventCount: saved.eventCount,
+    sampledRows: saved.sampledRows ?? 0,
+    deliveries: saved.deliveries,
+    alertsPosted: saved.alertsPosted,
+    signatures: new Map(
+      (saved.signatures ?? []).map(({ key, ...state }) => [key, state])
+    ),
+    uniqueValues,
+    cappedValues: new Set(saved.cappedValues ?? []),
+    omittedSignatures: new Set(saved.omittedSignatures ?? []),
+    lastPayload: saved.lastPayload,
+  };
 }
 
 function serializeWindow(window: AlertWindow): PersistedWindow {
@@ -820,6 +1238,7 @@ function serializeWindow(window: AlertWindow): PersistedWindow {
       ...state,
     })),
     uniqueValues,
+    cappedValues: [...window.cappedValues],
     buckets: [...window.buckets],
     escalations: window.escalations,
   };
@@ -837,9 +1256,7 @@ function deserializeWindow(saved: PersistedWindow): AlertWindow {
   }
 
   const evaluationCounts = new Map<string, number>(
-    saved.evaluationCounts ?? [
-      [evaluationKey(saved.payload), saved.eventCount],
-    ]
+    saved.evaluationCounts ?? [[evaluationKey(saved.payload), saved.eventCount]]
   );
 
   return {
@@ -858,6 +1275,7 @@ function deserializeWindow(saved: PersistedWindow): AlertWindow {
     sampledRows: saved.sampledRows,
     signatures,
     uniqueValues,
+    cappedValues: new Set(saved.cappedValues ?? []),
     buckets: [...saved.buckets],
     escalations: saved.escalations,
     flushAttempts: 0,
