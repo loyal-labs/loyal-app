@@ -29,7 +29,11 @@ import {
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 // Resolution failures the routes surface as specific HTTP responses rather
-// than a generic 500 (`missing_earn_policy` / `missing_earn_position`).
+// than a generic 500. Every rejection that describes the CALLER's state — no
+// policy, no position, no source, a source that no longer covers the amount —
+// belongs here: answering 500 for those made a stale client balance page the
+// team as a server fault, and the device reported it as `request_failed` with
+// `httpStatus: 500` (ASK-1903). Only genuine server faults fall through.
 export class EarnWithdrawResolveError extends Error {
   readonly status: number;
   readonly code: string;
@@ -380,7 +384,11 @@ export async function resolveEarnUsdcWithdrawInput(args: {
   });
   const snapshotSources = buildSnapshotWithdrawSources(snapshot.holdings);
   if (snapshotSources.length === 0) {
-    throw new Error("No active Earn withdrawal source was found.");
+    throw new EarnWithdrawResolveError(
+      409,
+      "missing_earn_withdraw_source",
+      "No active Earn withdrawal source was found."
+    );
   }
 
   let selectedSource: SelectedEarnWithdrawSource;
@@ -392,10 +400,18 @@ export async function resolveEarnUsdcWithdrawInput(args: {
       args.sourceRequest
     );
     if (!selected) {
-      throw new Error("Select an Earn source before withdrawing.");
+      throw new EarnWithdrawResolveError(
+        400,
+        "earn_withdraw_source_required",
+        "Select an Earn source before withdrawing."
+      );
     }
     if (amountRaw > selected.amountRaw) {
-      throw new Error("Withdrawal exceeds the selected Earn source amount.");
+      throw new EarnWithdrawResolveError(
+        409,
+        "earn_withdraw_amount_exceeds_source",
+        "Withdrawal exceeds the selected Earn source amount."
+      );
     }
     selectedSource = selected;
     effectiveAmountRaw = amountRaw;

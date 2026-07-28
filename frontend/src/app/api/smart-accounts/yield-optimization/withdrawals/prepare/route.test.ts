@@ -323,7 +323,11 @@ describe("Earn withdrawal prepare route", () => {
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(500);
+    // 409, not 500: the caller's balance was stale, which is not a server
+    // fault. Reporting it as one paged the team every time a user typed an
+    // amount their source no longer covered (ASK-1903).
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("earn_withdraw_amount_exceeds_source");
     expect(payload.error.message).toBe(
       "Withdrawal exceeds the selected Earn source amount."
     );
@@ -354,5 +358,40 @@ describe("Earn withdrawal prepare route", () => {
 
     expect(response.status).toBe(409);
     expect(payload.error.code).toBe("missing_earn_position");
+  });
+
+  test("returns missing_earn_withdraw_source when the snapshot holds nothing", async () => {
+    const { POST } = await import("./route");
+    currentSnapshot = holdingsSnapshot([]);
+
+    const response = await POST(
+      createRequest({ amountRaw: "1", mode: "full" })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("missing_earn_withdraw_source");
+    expect(prepareCalls).toHaveLength(0);
+  });
+
+  test("returns earn_withdraw_source_required when a partial names no known source", async () => {
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "1000",
+        mode: "partial",
+        source: {
+          id: "11111111111111111111111111111121",
+          reserve: "11111111111111111111111111111121",
+          type: "reserve",
+        },
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error.code).toBe("earn_withdraw_source_required");
+    expect(prepareCalls).toHaveLength(0);
   });
 });
