@@ -1710,6 +1710,24 @@
   }
 }
 
+/* Optical centering over the workspace shell: its side rails are asymmetric
+   (8px pad + 360px sidebar left vs 400px pane + 16px right at >=1204px;
+   sidebar only at 796-1203px), so the middle pane's midline sits off the
+   viewport center. Shift the modal onto that midline; :has() scopes it to
+   the workspace — over the landing it stays viewport-centered. The min()
+   keeps the shifted modal (max 480px wide + 16px margin) on screen at
+   narrow sidebar-only widths. */
+@media (width >= 1204px) {
+  body:has(.facelift-shell) .t-modal-center {
+    margin-left: -24px;
+  }
+}
+@media (796px <= width < 1204px) {
+  body:has(.facelift-shell) .t-modal-center {
+    margin-left: min(180px, 50vw - 272px);
+  }
+}
+
 /* Surfaces that stay centered on mobile (sign-in modal) keep the scale
    in/out at all widths — the sheet slide assumes a bottom-anchored surface. */
 @media (width < 640px) {

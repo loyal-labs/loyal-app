@@ -212,7 +212,9 @@ export function WorkspaceFaceliftShell() {
 
   return (
     <BalanceVisibilityProvider>
-      <div className="flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
+      {/* facelift-shell marks the workspace for globals.css's sign-in modal
+          optical centering (the shell's side rails are asymmetric). */}
+      <div className="facelift-shell flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
         <HiddenBalanceFilterDefs />
         {/* Wrong-wallet guard for Earn actions — same prompt the old
             workspace mounts (ensureCanSignAccountAction opens it). */}
