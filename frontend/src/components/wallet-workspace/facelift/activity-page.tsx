@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { TransactionDetailView } from "@/components/wallet-sidebar/transaction-detail-view";
 import type {
   ActivityRow,
   TransactionDetail,
@@ -19,6 +18,10 @@ import {
   StaggerLine,
   StaggerReveal,
 } from "@/components/wallet-workspace/facelift/stagger-reveal";
+import {
+  TransactionDetailPane,
+  type TransactionSwapDetail,
+} from "@/components/wallet-workspace/facelift/transaction-detail-pane";
 import { useWalletDesktopData } from "@/hooks/use-wallet-desktop-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
@@ -26,13 +29,10 @@ const ASSET_BASE = "/wallet-workspace/facelift";
 
 // The mapped ActivityRow keeps only one leg of a swap; the raw activity has
 // both, so swap rows re-derive their display from it (two icons, from → to
-// subtitle, the received leg as the amount).
-type SwapDisplay = {
+// subtitle, the received leg as the amount). The detail pane needs the full
+// two-leg shape on top.
+type SwapDisplay = TransactionSwapDetail & {
   amountLabel: string;
-  fromIcon: string;
-  fromSymbol: string;
-  toIcon: string;
-  toSymbol: string;
 };
 
 function truncateAddress(addr: string): string {
@@ -249,10 +249,22 @@ export function ActivityPage({
       }
       const from = resolveLeg(activity.fromToken.mint);
       const to = resolveLeg(activity.toToken.mint);
+      const fromNumber = parseFloat(activity.fromToken.amount.replace(/,/g, ""));
+      const toNumber = parseFloat(activity.toToken.amount.replace(/,/g, ""));
+      const rate =
+        Number.isFinite(fromNumber) && Number.isFinite(toNumber) && toNumber > 0
+          ? `1 ${to.symbol} = ${(fromNumber / toNumber).toLocaleString("en-US", {
+              maximumFractionDigits: 2,
+              minimumFractionDigits: 2,
+            })} ${from.symbol}`
+          : null;
       map.set(activity.signature, {
         amountLabel: `+${activity.toToken.amount} ${to.symbol}`,
+        fromAmount: activity.fromToken.amount,
         fromIcon: from.icon,
         fromSymbol: from.symbol,
+        rate,
+        toAmount: activity.toToken.amount,
         toIcon: to.icon,
         toSymbol: to.symbol,
       });
@@ -355,12 +367,16 @@ export function ActivityPage({
         </PaneReveal>
         {selectedDetail ? (
           <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
-            <TransactionDetailView
-              detail={selectedDetail}
-              dismissIcon="close"
-              key={selectedDetail.activity.id}
-              onBack={() => setSelectedDetail(null)}
-            />
+            {/* Keyed by tx so switching rows replays the reveal — same as
+                the send flow's per-step PaneReveal. */}
+            <PaneReveal key={selectedDetail.activity.id}>
+              <TransactionDetailPane
+                detail={selectedDetail}
+                onClose={() => setSelectedDetail(null)}
+                swap={swapDisplayById.get(selectedDetail.activity.id)}
+                walletAddress={data.walletAddress}
+              />
+            </PaneReveal>
           </aside>
         ) : (
           <aside className="hidden h-full w-[400px] shrink-0 flex-col items-center justify-center overflow-clip rounded-3xl border-2 border-black/10 border-dashed min-[1204px]:flex">
@@ -392,11 +408,12 @@ export function ActivityPage({
         sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
         {sheetDetail ? (
-          <TransactionDetailView
+          <TransactionDetailPane
             detail={sheetDetail}
-            dismissIcon="close"
             key={sheetDetail.activity.id}
-            onBack={() => setSelectedDetail(null)}
+            onClose={() => setSelectedDetail(null)}
+            swap={swapDisplayById.get(sheetDetail.activity.id)}
+            walletAddress={data.walletAddress}
           />
         ) : null}
       </SheetReveal>
