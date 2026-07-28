@@ -17,6 +17,7 @@ import {
   type ChartTab,
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
+import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import {
@@ -27,6 +28,7 @@ import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar"
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-home-page";
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
+import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 
 // "wallet" is the mobile-only wallet home (the tab bar's Wallet tab); the
@@ -64,6 +66,7 @@ export function WorkspaceFaceliftShell() {
   const [chartTab, setChartTab] = useState<ChartTab | null>(null);
   const [activePage, setActivePage] = useState<WorkspacePage>("earn");
   const { isHydrated, isSignedIn } = useAuthCapability();
+  const { open: openSignIn } = useSignInModal();
   // Reload lands on the last visited page — signed-in only; a disconnected
   // wallet always lands on Earn. Restored in an effect (not the initializer)
   // so the client's first render matches the server HTML, and only after auth
@@ -105,8 +108,13 @@ export function WorkspaceFaceliftShell() {
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const earnData = useEarnPositionData();
   const handleSelectPage = (page: WorkspacePage) => {
-    // Disconnected wallets live on Earn — every other page needs a session.
-    setActivePage(isSignedIn ? page : "earn");
+    // Disconnected wallets live on Earn — every other page needs a session,
+    // so tapping one opens the connect-wallet modal instead of navigating.
+    if (!isSignedIn && page !== "earn") {
+      openSignIn();
+      return;
+    }
+    setActivePage(page);
     // Leaving Earn abandons any in-progress action screen.
     setMiddleView("earn");
   };
@@ -231,9 +239,11 @@ export function WorkspaceFaceliftShell() {
                   <EarnChartPane
                     earnData={earnData}
                     isExpanded={isChartExpanded}
+                    isLoggedOut={isHydrated && !isSignedIn}
                     onExpandedChange={setIsChartExpanded}
                     onSelectTab={setChartTab}
                     selectedTab={chartTab}
+                    statsPanel={<EarnStatsPanel />}
                   />
                 )}
               </div>

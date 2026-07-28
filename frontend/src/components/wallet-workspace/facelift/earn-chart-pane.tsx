@@ -17,6 +17,7 @@ import {
 import { useBalanceVisibility } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import { EarnedChart } from "@/components/wallet-workspace/facelift/earned-chart";
+import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useIsNarrowViewport } from "@/components/wallet-workspace/facelift/use-is-narrow-viewport";
@@ -158,6 +159,7 @@ export function EarnChartCard({
   earnData,
   footer,
   isExpanded = false,
+  isLoggedOut = false,
   onAction,
   onSelectTab,
   sectionClassName,
@@ -168,6 +170,9 @@ export function EarnChartCard({
   earnData: EarnPositionData;
   footer?: ReactNode;
   isExpanded?: boolean;
+  // Logged-out visitors get no tab bar — just the APY chart under an "APY"
+  // title (Figma 4884:36664); Forecast needs a session's balance context.
+  isLoggedOut?: boolean;
   onAction: () => void;
   // Tab choice lives in the shell so the compact pane, the mobile inline
   // card and the enlarged overlay all show the same tab.
@@ -182,12 +187,13 @@ export function EarnChartCard({
   const visibleTabs: readonly ChartTab[] = hasEarnedTab
     ? CHART_TABS
     : CHART_TABS.filter((tab) => tab !== "Earned");
-  const activeTab: ChartTab =
-    selectedTab && visibleTabs.includes(selectedTab)
-      ? selectedTab
-      : hasEarnedTab
-      ? "Earned"
-      : "APY";
+  const activeTab: ChartTab = isLoggedOut
+    ? "APY"
+    : selectedTab && visibleTabs.includes(selectedTab)
+    ? selectedTab
+    : hasEarnedTab
+    ? "Earned"
+    : "APY";
   // Forecast + history ride the same cached summary fetch, so one loaded
   // flag gates every APY-fed number in the chart pane.
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
@@ -204,11 +210,23 @@ export function EarnChartCard({
     >
       <header className="flex w-full items-center p-2">
         <div className="min-w-0 flex-1">
-          <ChartTabs
-            activeTab={activeTab}
-            onSelect={onSelectTab}
-            tabs={visibleTabs}
-          />
+          {isLoggedOut ? (
+            <div className="flex items-center gap-2 py-2.5 pl-4">
+              <h2 className="truncate font-semibold text-[20px] text-black leading-6">
+                APY
+              </h2>
+              <InfoTooltip
+                iconClassName="size-6"
+                text="Historical APY of the Loyal Earn strategy over the last 30 days."
+              />
+            </div>
+          ) : (
+            <ChartTabs
+              activeTab={activeTab}
+              onSelect={onSelectTab}
+              tabs={visibleTabs}
+            />
+          )}
         </div>
         <button
           aria-label={actionAriaLabel}
@@ -247,12 +265,14 @@ export function EarnChartCard({
 // Kept mounted while closing so the fade-out plays before unmount.
 function ExpandedChartOverlay({
   earnData,
+  isLoggedOut = false,
   isOpen,
   onClose,
   onSelectTab,
   selectedTab,
 }: {
   earnData: EarnPositionData;
+  isLoggedOut?: boolean;
   isOpen: boolean;
   onClose: () => void;
   onSelectTab: (tab: ChartTab) => void;
@@ -362,6 +382,7 @@ function ExpandedChartOverlay({
             actionAriaLabel="Close expanded chart"
             actionIconSrc={`${ASSET_BASE}/icon-cross.svg`}
             earnData={earnData}
+            isLoggedOut={isLoggedOut}
             footer={
               <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
                 <button
@@ -388,15 +409,21 @@ function ExpandedChartOverlay({
 export function EarnChartPane({
   earnData,
   isExpanded,
+  isLoggedOut = false,
   onExpandedChange,
   onSelectTab,
   selectedTab,
+  statsPanel,
 }: {
   earnData: EarnPositionData;
   isExpanded: boolean;
+  isLoggedOut?: boolean;
   onExpandedChange: (isExpanded: boolean) => void;
   onSelectTab: (tab: ChartTab) => void;
   selectedTab: ChartTab | null;
+  // The Stats card rendered under the chart card (Figma 4884:36662). Slotted
+  // in so the overlay portal can stay outside the responsive-hidden column.
+  statsPanel?: ReactNode;
 }) {
   useEffect(() => {
     if (!isExpanded) {
@@ -415,26 +442,25 @@ export function EarnChartPane({
     <>
       {/* Hidden below 1204px so the middle pane never shrinks the dog under
           420px (Figma 4693:65423); the chart stays reachable via the overlay.
-          The Earned tab hugs to the design's 527px (Figma 4693:68847) instead
-          of stretching full height. */}
-      <EarnChartCard
-        actionAriaLabel="Expand chart"
-        actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
-        earnData={earnData}
-        onAction={() => onExpandedChange(true)}
-        onSelectTab={onSelectTab}
-        selectedTab={selectedTab}
-        // t-resize (transitions.dev card resize) tweens the full-height ↔
-        // 527px Earned hug instead of snapping.
-        sectionClassName={(activeTab) =>
-          `t-resize hidden w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex ${
-            activeTab === "Earned" ? "h-[527px] self-start" : "h-full"
-          }`
-        }
-      />
+          Every tab shares the Earned hug height (527px, Figma 4693:68847);
+          the Stats card scrolls into view below it (Figma 4884:36662). */}
+      <div className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
+        <EarnChartCard
+          actionAriaLabel="Expand chart"
+          actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
+          earnData={earnData}
+          isLoggedOut={isLoggedOut}
+          onAction={() => onExpandedChange(true)}
+          onSelectTab={onSelectTab}
+          sectionClassName="flex h-[527px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white"
+          selectedTab={selectedTab}
+        />
+        {statsPanel}
+      </div>
 
       <ExpandedChartOverlay
         earnData={earnData}
+        isLoggedOut={isLoggedOut}
         isOpen={isExpanded}
         onClose={() => onExpandedChange(false)}
         onSelectTab={onSelectTab}

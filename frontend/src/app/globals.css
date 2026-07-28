@@ -2063,13 +2063,20 @@
   z-index: 30;
   bottom: calc(100% + 8px);
   left: 50%;
-  transform: translate(-50%, 0) scale(var(--tt-scale));
-  transform-origin: 50% 100%;
+  /* --tt-shift is set by InfoTooltip's clamp measurement so the bubble
+     never crosses its clipping container; 0 keeps the pure centered look. */
+  transform: translate(calc(-50% + var(--tt-shift, 0px)), 0)
+    scale(var(--tt-scale));
+  transform-origin: calc(50% - var(--tt-shift, 0px)) 100%;
   padding: 8px 12px;
   border-radius: 8px;
   background: var(--tt-bg);
   color: var(--tt-fg);
-  white-space: nowrap;
+  /* max-content keeps short copy on one line (the recipe's nowrap look);
+     long copy wraps instead of running off the pane. */
+  width: max-content;
+  max-width: 260px;
+  white-space: normal;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 2px 6px 0 rgba(0, 0, 0, 0.05),
     0 4px 42px 0 rgba(0, 0, 0, 0.06);
   opacity: 0;
@@ -2084,7 +2091,7 @@
 .t-tt-wrap:hover .t-tt,
 .t-tt-trigger:focus-visible + .t-tt {
   opacity: 1;
-  transform: translate(-50%, 0) scale(1);
+  transform: translate(calc(-50% + var(--tt-shift, 0px)), 0) scale(1);
   transition-duration: var(--tt-in-dur);
   transition-timing-function: var(--tt-in-ease);
   transition-delay: var(--tt-delay);
@@ -2095,7 +2102,7 @@
 .t-tt.t-tt-bottom {
   bottom: auto;
   top: calc(100% + 8px);
-  transform-origin: 50% 0%;
+  transform-origin: calc(50% - var(--tt-shift, 0px)) 0%;
 }
 
 @media (prefers-reduced-motion: reduce) {
