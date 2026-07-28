@@ -325,6 +325,7 @@ describe("yield deposit repository idempotency", () => {
             batchCalls.push(items);
             return [];
           }),
+          execute: mock(() => ({ kind: "advisory-lock" })),
           insert: mock(() => {
             const index = insertIndex++;
             return {
@@ -461,6 +462,7 @@ describe("yield deposit repository idempotency", () => {
           delete: mock(() => ({
             where: () => ({}),
           })),
+          execute: mock(() => ({ kind: "advisory-lock" })),
           insert: mock(() => {
             const index = insertIndex++;
             return {
@@ -534,7 +536,7 @@ describe("yield deposit repository idempotency", () => {
       now: () => new Date("2026-06-02T00:00:00.000Z"),
     };
 
-    return { dependencies, insertedValues, updateSets };
+    return { batchCalls, dependencies, insertedValues, updateSets };
   }
 
   const reserveWithdrawalOverrides = {
@@ -560,6 +562,26 @@ describe("yield deposit repository idempotency", () => {
     sourceId: "reserve",
     sourceType: "reserve" as const,
   };
+
+  // The confirmed-withdrawal path swaps the current snapshot in exactly the
+  // same demote-then-promote shape as the holdings reconcile, and the two race
+  // each other on one vault — locking only the reconcile would leave the
+  // pairing that actually pages still open (ASK-1902).
+  test("locks the vault before the confirmed-withdrawal snapshot swap", async () => {
+    const { batchCalls, dependencies } = createRecordedWithdrawalDependencies();
+
+    await recordConfirmedYieldWithdrawal(
+      createWithdrawalInput(reserveWithdrawalOverrides),
+      dependencies as never
+    );
+
+    // The two-statement batch is the reserve/idle read; the snapshot swap is
+    // the long one, and it has to open with the lock or the demote it guards
+    // has already run.
+    const swapBatch = batchCalls.find((items) => items.length > 2);
+    expect(swapBatch).toBeDefined();
+    expect(swapBatch?.[0]).toMatchObject({ kind: "advisory-lock" });
+  });
 
   test("records a zero-balance full withdrawal without closing position or policy state", async () => {
     const { dependencies, insertedValues, updateSets } =
