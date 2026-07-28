@@ -18,7 +18,7 @@ import {
   type CryptoPaneVariant,
   type CryptoRowActions,
 } from "@/components/wallet-workspace/facelift/crypto-pane";
-import { isTypingTarget } from "@/components/wallet-workspace/facelift/keyboard";
+import { isEscapeGuardedTarget } from "@/components/wallet-workspace/facelift/keyboard";
 import {
   MiddlePaneSlide,
   PaneReveal,
@@ -523,7 +523,8 @@ export function CryptoPage({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.key !== "Escape" ||
-        isTypingTarget(event.target) ||
+        // Numbers-only amount fields don't swallow Esc — only free text does.
+        isEscapeGuardedTarget(event.target) ||
         (viewStack.length === 0 && !isSwapOpen && !isShieldOpen)
       ) {
         return;

@@ -24,7 +24,10 @@ import {
   MiddlePaneSlide,
   PaneReveal,
 } from "@/components/wallet-workspace/facelift/pane-transitions";
-import { isTypingTarget } from "@/components/wallet-workspace/facelift/keyboard";
+import {
+  isEscapeGuardedTarget,
+  isTypingTarget,
+} from "@/components/wallet-workspace/facelift/keyboard";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-home-page";
@@ -146,12 +149,15 @@ export function WorkspaceFaceliftShell() {
         event.metaKey ||
         event.ctrlKey ||
         event.altKey ||
-        isTypingTarget(event.target) ||
         !window.matchMedia("(min-width: 796px)").matches
       ) {
         return;
       }
       if (event.key === "Escape") {
+        // Numbers-only amount fields don't swallow Esc — only free text does.
+        if (isEscapeGuardedTarget(event.target)) {
+          return;
+        }
         if (
           activePage === "earn" &&
           activeMiddleView !== "earn" &&
@@ -166,7 +172,7 @@ export function WorkspaceFaceliftShell() {
         }
         return;
       }
-      if (!isSignedIn) {
+      if (!isSignedIn || isTypingTarget(event.target)) {
         return;
       }
       const page = SHORTCUT_PAGES[event.key.toLowerCase()];

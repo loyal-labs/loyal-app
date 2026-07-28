@@ -9,3 +9,18 @@ export function isTypingTarget(target: EventTarget | null): boolean {
       target.isContentEditable)
   );
 }
+
+// Esc-only variant: numbers-only fields (the amount inputs, all
+// inputMode="decimal") can't conflict with Esc, so backing out of a flow
+// stays available while one is focused — only free-text fields swallow it.
+export function isEscapeGuardedTarget(target: EventTarget | null): boolean {
+  if (!isTypingTarget(target)) {
+    return false;
+  }
+  return !(
+    target instanceof HTMLInputElement &&
+    (target.inputMode === "decimal" ||
+      target.inputMode === "numeric" ||
+      target.type === "number")
+  );
+}
