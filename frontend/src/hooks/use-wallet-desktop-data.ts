@@ -378,9 +378,9 @@ function mapActivityToRowAndDetail(
       : "sent";
 
   // Earn (Kamino) operations read as the operation itself, not a generic
-  // send: "Earn Deposit — Network fee" instead of "Sent to Unknown". Fee-only
-  // legs (autodeposit machinery) carry no token change, so the row's SOL
-  // amount is just the network fee.
+  // send: "Earn Deposit" instead of "Sent to Unknown". Fee-only legs
+  // (autodeposit machinery) carry no token change — the row's SOL amount is
+  // just the network fee — and read as "Earn Vault Operation".
   const earnActivity =
     activity.type === "program_action" &&
     (activity.action === "earn_deposit" || activity.action === "earn_withdraw")
@@ -402,13 +402,19 @@ function mapActivityToRowAndDetail(
         : display.icon,
     rawTimestamp: activity.timestamp ?? undefined,
     ...(earnActivity
-      ? {
-          titleOverride:
-            earnActivity.action === "earn_deposit"
-              ? "Earn Deposit"
-              : "Earn Withdrawal",
-          ...(earnActivity.token ? {} : { subtitle: "Network fee" }),
-        }
+      ? earnActivity.token
+        ? {
+            titleOverride:
+              earnActivity.action === "earn_deposit"
+                ? "Earn Deposit"
+                : "Earn Withdrawal",
+          }
+        : {
+            // Fee-only SOL legs (autodeposit machinery) aren't a user
+            // deposit/withdrawal — label them as generic vault operations.
+            subtitle: "Network fee",
+            titleOverride: "Earn Vault Operation",
+          }
       : {}),
   };
 
