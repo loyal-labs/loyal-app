@@ -696,6 +696,19 @@ export async function recordConfirmedEarnCleanup(
 // withdrawal) and `recordReconciledYieldVaultSnapshot` (holdings reconcile),
 // which race each other, not just themselves.
 //
+// What this lock does NOT do, so nobody reads it as more than it is: it
+// serializes the SWAP, not the state the swap was built from. Both callers
+// compute their rows from a read taken in an earlier transaction —
+// `resolveWithdrawalSource` selects `reserveRows` in its own batch, then
+// `recordCurrentVaultSourceWithdrawal` subtracts in JS — so two confirmed
+// withdrawals can each read 1000, debit 300 and 400, and serialize here to
+// leave 600 instead of 300. That lost update predates this lock (the demote
+// only collided in the narrow window where it ran before the other promote
+// committed; the common interleaving always just clobbered), and closing it
+// needs the debit to happen in SQL against the live row, not in JS against a
+// stale copy. Tracked separately — do not treat concurrent Earn accounting as
+// safe because this lock exists.
+//
 // Scope note: loyal-yield-routing's orchestrator
 // (`crates/loyal-yield-orchestrator/src/store.rs`) writes this same invariant
 // in this same shape from a different process and does not take this lock yet.
