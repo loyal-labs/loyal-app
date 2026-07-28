@@ -18,6 +18,7 @@ import {
   type CryptoPaneVariant,
   type CryptoRowActions,
 } from "@/components/wallet-workspace/facelift/crypto-pane";
+import { isTypingTarget } from "@/components/wallet-workspace/facelift/keyboard";
 import {
   MiddlePaneSlide,
   PaneReveal,
@@ -135,6 +136,9 @@ function ShieldUnlockOverlay({
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // Marks the press handled so the page-level Esc (close the whole
+        // action flow) stays put while this overlay is up.
+        event.preventDefault();
         onClose();
       }
     };
@@ -198,10 +202,13 @@ function ShieldUnlockOverlay({
 // personal-wallet slice; the stables Earn buttons jump to the Earn page's
 // deposit screen.
 export function CryptoPage({
+  navigationNonce,
   onBack,
   onEarn,
   page,
 }: {
+  /** Bumped by the shell on every sidebar selection — abandons open actions. */
+  navigationNonce: number;
   onBack: () => void;
   onEarn: () => void;
   page: CryptoPaneVariant;
@@ -499,6 +506,50 @@ export function CryptoPage({
     setIsShieldSelectOpen(false);
     setIsShieldInfoOpen(false);
   }, []);
+
+  // Sidebar navigation abandons any in-progress action screen — the same rule
+  // the shell applies to Earn's deposit/withdraw/autodeposit views.
+  useEffect(() => {
+    setViewStack([]);
+    setSendSelect(null);
+    closeSwap();
+    closeShield();
+  }, [closeShield, closeSwap, navigationNonce]);
+
+  // Esc backs out of the open Send/Swap/Shield flow (the shell owns Esc for
+  // Earn's action screens). An open selector pane closes first; the next
+  // press leaves the flow. Skipped while an input is focused.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Escape" ||
+        isTypingTarget(event.target) ||
+        (viewStack.length === 0 && !isSwapOpen && !isShieldOpen)
+      ) {
+        return;
+      }
+      // Overlays (unlock modal, info sheets) preventDefault their own Esc;
+      // checked after dispatch so listener registration order can't matter.
+      queueMicrotask(() => {
+        if (event.defaultPrevented) {
+          return;
+        }
+        if (sendSelect !== null) {
+          setSendSelect(null);
+          return;
+        }
+        if (swapSelectSide !== null) {
+          setSwapSelectSide(null);
+          return;
+        }
+        setViewStack([]);
+        closeSwap();
+        closeShield();
+      });
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
 
   // OG handleTokenSelect collision rule: picking the token already on the
   // other side swaps the pair instead of duplicating it.
@@ -983,7 +1034,9 @@ export function CryptoPage({
         scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
         sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
-        <PaneReveal key={overlaySendSelect}>{renderSendSelectPane()}</PaneReveal>
+        <PaneReveal key={overlaySendSelect}>
+          {renderSendSelectPane()}
+        </PaneReveal>
       </SheetReveal>
       {/* Shield's <1204 selector: same geometry, opened from the source
           asset cell (the aside is hidden below 1204). */}

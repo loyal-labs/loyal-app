@@ -618,6 +618,7 @@ export function ShieldInfoOverlay({
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         onClose();
       }
     };

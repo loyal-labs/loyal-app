@@ -24,6 +24,7 @@ import {
   MiddlePaneSlide,
   PaneReveal,
 } from "@/components/wallet-workspace/facelift/pane-transitions";
+import { isTypingTarget } from "@/components/wallet-workspace/facelift/keyboard";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-home-page";
@@ -50,6 +51,14 @@ const WORKSPACE_PAGES: WorkspacePage[] = [
   "earn",
   "wallet",
 ];
+
+// Desktop section shortcuts — surfaced as the sidebar's hover kbd hints.
+const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
+  a: "activity",
+  c: "crypto",
+  e: "earn",
+  s: "stables",
+};
 
 // Figma 4693:64818 — fixed 3-pane workspace: 360px sidebar on the gray shell,
 // fluid middle panel, 400px right panel. Panes are intentionally not resizable.
@@ -107,6 +116,9 @@ export function WorkspaceFaceliftShell() {
   // so the mobile tab bar's clock shows the same badge.
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const earnData = useEarnPositionData();
+  // Bumped on every sidebar selection so CryptoPage abandons its in-progress
+  // Send/Swap/Shield screens — including re-selecting the page it's already on.
+  const [navigationNonce, setNavigationNonce] = useState(0);
   const handleSelectPage = (page: WorkspacePage) => {
     // Disconnected wallets live on Earn — every other page needs a session,
     // so tapping one opens the connect-wallet modal instead of navigating.
@@ -117,7 +129,63 @@ export function WorkspaceFaceliftShell() {
     setActivePage(page);
     // Leaving Earn abandons any in-progress action screen.
     setMiddleView("earn");
+    setNavigationNonce((nonce) => nonce + 1);
   };
+  // Briefly lights the pressed key's sidebar hint red as activation feedback.
+  const [flashedShortcut, setFlashedShortcut] = useState<WorkspacePage | null>(
+    null
+  );
+  const flashTimerRef = useRef<number | null>(null);
+  // Desktop keyboard nav: e/a/c/s jump to sections, Esc backs out of Earn's
+  // action screens (CryptoPage owns Esc for Send/Swap/Shield). Skipped while
+  // an input is focused so typing never navigates. Overlays own Esc first:
+  // their handlers preventDefault, checked after dispatch via a microtask.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        isTypingTarget(event.target) ||
+        !window.matchMedia("(min-width: 796px)").matches
+      ) {
+        return;
+      }
+      if (event.key === "Escape") {
+        if (
+          activePage === "earn" &&
+          activeMiddleView !== "earn" &&
+          !earnData.actions.pendingApproval &&
+          !earnData.actions.isReconnectPromptOpen
+        ) {
+          queueMicrotask(() => {
+            if (!event.defaultPrevented) {
+              setMiddleView("earn");
+            }
+          });
+        }
+        return;
+      }
+      if (!isSignedIn) {
+        return;
+      }
+      const page = SHORTCUT_PAGES[event.key.toLowerCase()];
+      if (!page) {
+        return;
+      }
+      handleSelectPage(page);
+      setFlashedShortcut(page);
+      if (flashTimerRef.current !== null) {
+        window.clearTimeout(flashTimerRef.current);
+      }
+      flashTimerRef.current = window.setTimeout(
+        () => setFlashedShortcut(null),
+        800
+      );
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
   // Deposit requires a session; fall back to the Earn state on sign-out.
   const activeMiddleView: MiddleView = isSignedIn ? middleView : "earn";
   // Avoid flashing the zero-state headline on reload: loading covers auth
@@ -154,6 +222,7 @@ export function WorkspaceFaceliftShell() {
         <FaceliftSidebar
           activePage={activePage}
           earnBalanceUsd={earnData.earnBalanceUsd}
+          flashedShortcut={flashedShortcut}
           isEarnBalanceLoading={isPositionLoading}
           onSelectPage={handleSelectPage}
           onUnseenActivityChange={setHasUnseenActivity}
@@ -174,6 +243,7 @@ export function WorkspaceFaceliftShell() {
             <ActivityPage onSelectPage={handleSelectPage} />
           ) : activePage !== "earn" ? (
             <CryptoPage
+              navigationNonce={navigationNonce}
               onBack={() => handleSelectPage("wallet")}
               onEarn={() => {
                 // The stables Earn buttons jump straight to the deposit

@@ -431,6 +431,7 @@ export function EarnChartPane({
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         onExpandedChange(false);
       }
     };

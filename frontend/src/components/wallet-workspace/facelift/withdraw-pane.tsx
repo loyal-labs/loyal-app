@@ -210,6 +210,7 @@ export function WithdrawPane({
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         setIsSheetOpen(false);
       }
     };

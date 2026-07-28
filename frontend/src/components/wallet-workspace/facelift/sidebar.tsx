@@ -93,15 +93,40 @@ export function SplitAmount({
   );
 }
 
+// Hover-revealed kbd hint for the section shortcuts; lights up red when the
+// shell reports the key was just pressed.
+function ShortcutKey({
+  isFlashed,
+  letter,
+}: {
+  isFlashed: boolean;
+  letter: string;
+}) {
+  return (
+    <kbd
+      className={`flex h-4 min-w-4 items-center justify-center rounded-[5px] px-0.5 font-medium font-sans text-[11px] leading-none transition-opacity duration-150 ${
+        isFlashed
+          ? "bg-[#f9363c] text-white opacity-100"
+          : "bg-black/[0.06] text-[rgba(60,60,67,0.6)] opacity-0 group-hover:opacity-100"
+      }`}
+    >
+      {letter}
+    </kbd>
+  );
+}
+
 export function FaceliftSidebar({
   activePage,
   earnBalanceUsd,
+  flashedShortcut,
   isEarnBalanceLoading,
   onSelectPage,
   onUnseenActivityChange,
 }: {
   activePage: WorkspacePage;
   earnBalanceUsd: number;
+  /** Section whose shortcut key was just pressed — flashes its kbd hint. */
+  flashedShortcut: WorkspacePage | null;
   isEarnBalanceLoading: boolean;
   onSelectPage: (page: WorkspacePage) => void;
   onUnseenActivityChange?: (hasUnseen: boolean) => void;
@@ -126,6 +151,7 @@ export function FaceliftSidebar({
     }
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         setIsWalletMenuOpen(false);
       }
     };
@@ -259,32 +285,38 @@ export function FaceliftSidebar({
           src={`${ASSET_BASE}/logotype.svg`}
         />
         <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
-          <button
-            aria-label="Activity"
-            className={`t-hover relative flex size-11 items-center justify-center rounded-3xl ${
-              activePage === "activity"
-                ? "bg-black/[0.04]"
-                : "hover:bg-black/[0.04]"
-            }`}
-            onClick={() => onSelectPage("activity")}
-            type="button"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
-              src={`${ASSET_BASE}/icon-clock-history.svg`}
+          <span className="group flex items-center gap-1.5">
+            <ShortcutKey
+              isFlashed={flashedShortcut === "activity"}
+              letter="A"
             />
-            {/* transitions.dev notification badge: pops in when wallet
-                activity newer than the last Activity visit lands. */}
-            <span
-              className="t-badge t-badge-activity"
-              data-open={hasUnseenActivity ? "true" : "false"}
+            <button
+              aria-label="Activity"
+              className={`t-hover relative flex size-11 items-center justify-center rounded-3xl ${
+                activePage === "activity"
+                  ? "bg-black/[0.04]"
+                  : "hover:bg-black/[0.04]"
+              }`}
+              onClick={() => onSelectPage("activity")}
+              type="button"
             >
-              <span className="t-badge-dot size-1.5 rounded-full bg-[#f9363c]" />
-            </span>
-          </button>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-6"
+                src={`${ASSET_BASE}/icon-clock-history.svg`}
+              />
+              {/* transitions.dev notification badge: pops in when wallet
+                activity newer than the last Activity visit lands. */}
+              <span
+                className="t-badge t-badge-activity"
+                data-open={hasUnseenActivity ? "true" : "false"}
+              >
+                <span className="t-badge-dot size-1.5 rounded-full bg-[#f9363c]" />
+              </span>
+            </button>
+          </span>
         </div>
       </div>
 
@@ -340,7 +372,7 @@ export function FaceliftSidebar({
 
       <nav className="flex w-full flex-1 flex-col py-2">
         <button
-          className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+          className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "earn" ? "bg-black/[0.04]" : "hover:bg-black/[0.04]"
           }`}
           onClick={() => onSelectPage("earn")}
@@ -386,6 +418,7 @@ export function FaceliftSidebar({
                   </span>
                 </span>
               </SkeletonReveal>
+              <ShortcutKey isFlashed={flashedShortcut === "earn"} letter="E" />
             </span>
             <SplitAmount
               fraction={earnBalance.balanceFraction}
@@ -398,7 +431,7 @@ export function FaceliftSidebar({
         </button>
 
         <button
-          className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+          className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "stables"
               ? "bg-black/[0.04]"
               : "hover:bg-black/[0.04]"
@@ -414,8 +447,14 @@ export function FaceliftSidebar({
             src={`${ASSET_BASE}/stablecoins-icon.svg`}
           />
           <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-            <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-              Stablecoins
+            <span className="flex items-center gap-1">
+              <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                Stablecoins
+              </span>
+              <ShortcutKey
+                isFlashed={flashedShortcut === "stables"}
+                letter="S"
+              />
             </span>
             <SplitAmount
               fraction={stablecoinsBalance.balanceFraction}
@@ -427,7 +466,7 @@ export function FaceliftSidebar({
         </button>
 
         <button
-          className={`t-hover flex w-full items-center rounded-2xl px-4 text-left ${
+          className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "crypto"
               ? "bg-black/[0.04]"
               : "hover:bg-black/[0.04]"
@@ -443,8 +482,14 @@ export function FaceliftSidebar({
             src={`${ASSET_BASE}/crypto-icon.svg`}
           />
           <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-            <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-              Crypto
+            <span className="flex items-center gap-1">
+              <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                Crypto
+              </span>
+              <ShortcutKey
+                isFlashed={flashedShortcut === "crypto"}
+                letter="C"
+              />
             </span>
             <SplitAmount
               fraction={cryptoBalance.balanceFraction}
@@ -562,8 +607,6 @@ export function FaceliftSidebar({
             />
           </button>
           <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
-            {/* ponytail: settings destination comes with a later screen —
-              button unwired for now. */}
             <button
               aria-label="Receive"
               className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
@@ -578,9 +621,12 @@ export function FaceliftSidebar({
                 src={`${ASSET_BASE}/icon-qr.svg`}
               />
             </button>
+            {/* ponytail: settings screen doesn't exist yet — disabled until
+              it ships. */}
             <button
               aria-label="Settings"
-              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="flex size-11 items-center justify-center rounded-3xl opacity-40"
+              disabled
               type="button"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
