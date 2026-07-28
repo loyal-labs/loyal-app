@@ -31,13 +31,14 @@ presses. The fix is complete only when every required check below passes.
    `x-loyal-flow-id`. HTTP failures continue to expose only the safe error code
    and status metadata already handled by the lifecycle observability layer.
 
-## Automated verifier
+## Local verification
 
-From the repository root:
+The focused verifier is a local implementation aid and is intentionally not
+committed with this plan. From the implementation worktree:
 
 ```sh
 cd mobile
-bun run verify:autodeposit-toggle
+bun scripts/verify-autodeposit-toggle-controller.ts
 npx tsc --noEmit
 npx expo lint
 ```
