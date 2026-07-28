@@ -1,5 +1,6 @@
 "use client";
 
+import { ArrowRightLeft, Repeat, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
@@ -19,14 +20,45 @@ function parseAmountUsd(value: string) {
   return Number.parseFloat(value.replace(/,/g, "")) || 0;
 }
 
+// Same transparency rows the mobile app shows before Autodeposit setup
+// (mobile/src/components/earn/AutodepositInfoSheet.tsx) — what primitive it
+// runs on, what permission it holds, and how it's undone.
+const INFO_ROWS = [
+  {
+    Icon: Repeat,
+    body: "Autodeposit runs on Solana's built-in subscriptions primitive — a standard, auditable on-chain permission.",
+    title: "Native Solana subscriptions",
+  },
+  {
+    Icon: ArrowRightLeft,
+    body: "It lets your smart account move stablecoins above your threshold from your wallet into Kamino reserves — no signing each time.",
+    title: "Deposits happen for you",
+  },
+  {
+    Icon: Undo2,
+    body: "Delete the Autodeposit anytime to revoke its permissions and get back the SOL held as account rent.",
+    title: "Fully reversible",
+  },
+] as const;
+
 function InfoContent() {
   return (
-    <div className="flex min-h-0 w-full flex-1 items-center justify-center p-2">
-      {/* ponytail: the design's info panel is still a placeholder — swap in
-          real copy when it lands in Figma. */}
-      <p className="text-center text-[16px] leading-5 text-[#8a8a8e]">
-        Content
-      </p>
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-5 overflow-y-auto px-6 pt-2 pb-6">
+      {INFO_ROWS.map(({ Icon, body, title }) => (
+        <div className="flex w-full gap-3.5" key={title}>
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-black/[0.04]">
+            <Icon className="text-[#f9363c]" size={24} strokeWidth={2} />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <p className="font-medium text-[16px] text-black leading-5">
+              {title}
+            </p>
+            <p className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+              {body}
+            </p>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -372,7 +404,7 @@ export function AutodepositPane({
 
       {/* Info panel: fixed right pane on wide viewports (Figma 4693:69387),
           overlay via the header ? below 1204px (Figma 4693:69792). */}
-      <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
+      <aside className="hidden h-fit max-h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
         <header className="flex w-full items-center p-2">
           <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
             How Autodeposit works
