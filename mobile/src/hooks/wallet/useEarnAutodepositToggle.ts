@@ -15,6 +15,15 @@ type OptimisticActive = {
   targetKey: string;
 };
 
+class AutodepositRefreshError extends Error {
+  readonly code = "autodeposit_refresh_failed";
+
+  constructor() {
+    super("Failed to refresh authoritative Autodeposit state.");
+    this.name = "AutodepositRefreshError";
+  }
+}
+
 export function useEarnAutodepositToggle(args: {
   autodeposit: EarnAutodepositState | null;
   signer: Signer | null;
@@ -40,10 +49,6 @@ export function useEarnAutodepositToggle(args: {
   currentTargetKeyRef.current = targetKey;
 
   const baseActive = autodeposit?.active ?? false;
-  const authoritativeActiveRef = useRef<boolean | null>(
-    autodeposit?.active ?? null
-  );
-  authoritativeActiveRef.current = autodeposit?.active ?? null;
   const active =
     targetKey && optimisticActive?.targetKey === targetKey
       ? optimisticActive.active
@@ -76,7 +81,10 @@ export function useEarnAutodepositToggle(args: {
         }),
       refresh: async () => {
         const refreshed = await refreshAutodeposit();
-        return refreshed?.active ?? authoritativeActiveRef.current;
+        if (!refreshed) {
+          throw new AutodepositRefreshError();
+        }
+        return refreshed.active;
       },
       onOptimisticActive: (nextActive) => {
         if (currentTargetKeyRef.current === controllerTargetKey) {

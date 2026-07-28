@@ -56,6 +56,7 @@ It covers:
 - serialized in-flight and follow-up submissions;
 - promise completion ordering relative to the final request and refresh;
 - final-failure refresh and reconciliation;
+- successful-submit refresh failure rejects without clearing optimistic state;
 - lifecycle-flow header wiring;
 - absence of a disabled/loading toggle gate.
 
