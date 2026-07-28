@@ -126,6 +126,9 @@ docs/superpowers
 .superpowers
 
 .agents/**
+!.agents/skills/
+!.agents/skills/loyal-observability/
+!.agents/skills/loyal-observability/**
 # Track shared Charlie daemon config (must live on the default branch to be ingested)
 !.agents/daemons/
 !.agents/daemons/**
