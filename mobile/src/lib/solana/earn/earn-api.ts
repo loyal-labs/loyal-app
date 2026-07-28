@@ -651,18 +651,19 @@ export async function updateEarnAutodepositFloor(args: {
 
 export async function toggleEarnAutodeposit(args: {
   auth: EarnAuthFields | EarnSessionAuth;
+  flowId?: string;
   active: boolean;
   policyAccount: string;
   recurringDelegation: string;
   vaultIndex: number;
 }): Promise<void> {
-  const { auth, ...rest } = args;
+  const { auth, flowId, ...rest } = args;
   const { headers, bodyFields } = earnAuthParts(auth);
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/toggle/confirm`,
     {
       method: "POST",
-      headers: { ...earnHeaders(), ...headers },
+      headers: { ...earnHeaders(flowId), ...headers },
       body: JSON.stringify({ ...bodyFields, ...rest }),
     },
   );

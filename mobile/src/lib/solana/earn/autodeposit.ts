@@ -430,6 +430,7 @@ export async function setEarnAutodepositActive(args: {
       (auth) =>
         toggleEarnAutodeposit({
           auth,
+          flowId: flow.flowId,
           active: args.active,
           policyAccount: args.policyAccount,
           recurringDelegation: args.recurringDelegation,
