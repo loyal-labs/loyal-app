@@ -19,6 +19,7 @@ import {
 } from "@/hooks/use-wallet-desktop-data";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
+import { getTokenIconUrl } from "@/lib/token-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 const MIN_DEPOSIT_USD = 1;
@@ -169,7 +170,7 @@ export function DepositPane({
                 alt=""
                 aria-hidden="true"
                 className="size-11 rounded-full"
-                src="/wallet-workspace/earn-deposit-usdc.png"
+                src={getTokenIconUrl("USDC")}
               />
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">

@@ -217,6 +217,9 @@ export function EarnChartCard({
               </h2>
               <InfoTooltip
                 iconClassName="size-6"
+                // Bottom placement: this header sits at the very top of its
+                // card/sheet, so an upward bubble gets clipped.
+                placement="bottom"
                 text="Historical APY of the Loyal Earn strategy over the last 30 days."
               />
             </div>
@@ -408,6 +411,7 @@ function ExpandedChartOverlay({
 
 export function EarnChartPane({
   earnData,
+  hideAside = false,
   isExpanded,
   isLoggedOut = false,
   onExpandedChange,
@@ -416,6 +420,9 @@ export function EarnChartPane({
   statsPanel,
 }: {
   earnData: EarnPositionData;
+  // Action screens (deposit) drop the right chart/stats column but keep the
+  // expanded overlay reachable from their own chart button.
+  hideAside?: boolean;
   isExpanded: boolean;
   isLoggedOut?: boolean;
   onExpandedChange: (isExpanded: boolean) => void;
@@ -445,19 +452,25 @@ export function EarnChartPane({
           420px (Figma 4693:65423); the chart stays reachable via the overlay.
           Every tab shares the Earned hug height (527px, Figma 4693:68847);
           the Stats card scrolls into view below it (Figma 4884:36662). */}
-      <div className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-        <EarnChartCard
-          actionAriaLabel="Expand chart"
-          actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
-          earnData={earnData}
-          isLoggedOut={isLoggedOut}
-          onAction={() => onExpandedChange(true)}
-          onSelectTab={onSelectTab}
-          sectionClassName="flex h-[527px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white"
-          selectedTab={selectedTab}
-        />
-        {statsPanel}
-      </div>
+      {hideAside ? (
+        // Empty reserved slot (same as Send's): the chart column goes away
+        // but the middle pane must keep its usual width.
+        <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block" />
+      ) : (
+        <div className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
+          <EarnChartCard
+            actionAriaLabel="Expand chart"
+            actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
+            earnData={earnData}
+            isLoggedOut={isLoggedOut}
+            onAction={() => onExpandedChange(true)}
+            onSelectTab={onSelectTab}
+            sectionClassName="flex h-[527px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white"
+            selectedTab={selectedTab}
+          />
+          {statsPanel}
+        </div>
+      )}
 
       <ExpandedChartOverlay
         earnData={earnData}

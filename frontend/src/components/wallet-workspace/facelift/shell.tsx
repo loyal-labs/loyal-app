@@ -316,6 +316,7 @@ export function WorkspaceFaceliftShell() {
                 activeMiddleView === "autodeposit" ? null : (
                   <EarnChartPane
                     earnData={earnData}
+                    hideAside={activeMiddleView === "deposit"}
                     isExpanded={isChartExpanded}
                     isLoggedOut={isHydrated && !isSignedIn}
                     onExpandedChange={setIsChartExpanded}
