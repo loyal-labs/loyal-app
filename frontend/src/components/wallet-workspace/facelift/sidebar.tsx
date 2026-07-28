@@ -12,6 +12,7 @@ import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import { ReceiveSheet } from "@/components/wallet-workspace/facelift/receive-sheet";
 import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
@@ -117,6 +118,7 @@ export function FaceliftSidebar({
   const { isBalanceHidden, toggleBalanceHidden } = useBalanceVisibility();
   const { open: openSignIn } = useSignInModal();
   const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false);
+  const [isReceiveOpen, setIsReceiveOpen] = useState(false);
 
   useEffect(() => {
     if (!isWalletMenuOpen) {
@@ -560,11 +562,12 @@ export function FaceliftSidebar({
             />
           </button>
           <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
-            {/* ponytail: receive + settings destinations come with later
-              screens — buttons unwired for now. */}
+            {/* ponytail: settings destination comes with a later screen —
+              button unwired for now. */}
             <button
               aria-label="Receive"
               className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              onClick={() => setIsReceiveOpen(true)}
               type="button"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -617,6 +620,11 @@ export function FaceliftSidebar({
               Disconnect
             </button>
           </DropdownReveal>
+          <ReceiveSheet
+            isOpen={isReceiveOpen}
+            onClose={() => setIsReceiveOpen(false)}
+            walletAddress={data.walletAddress}
+          />
         </div>
       )}
     </aside>
