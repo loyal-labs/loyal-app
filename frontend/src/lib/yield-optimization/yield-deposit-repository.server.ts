@@ -3342,6 +3342,24 @@ export async function findCurrentEarnDepositOnboardingAttempt(
   return (attempt as EarnDepositOnboardingAttemptRecord | undefined) ?? null;
 }
 
+// `vault_position_snapshots_one_current_idx` (a UNIQUE index on `vault_id`
+// WHERE `is_current`, declared in loyal-yield-routing's migration 0001) allows
+// exactly one current snapshot per vault, and this function reaches that state
+// in two steps: demote whatever is current, then promote the row it just
+// inserted. Two reconciles for one vault run as two separate transactions, so
+// B's demote can miss A's not-yet-committed promote and then promote its own
+// row on top of it — two current rows, and Postgres fails the second batch.
+// That surfaced as a 500 on `mobile/earn/withdraw/prepare-context`, which fans
+// into holdings, and paged as `earn.withdrawal.prepare.failed` (ASK-1902).
+//
+// A transaction-scoped advisory lock keyed on the vault makes the demote and
+// the promote inseparable: the second reconcile waits at the head of its batch
+// and re-reads a settled table. Scope note — this serializes loyal-app writers
+// only. loyal-yield-routing's orchestrator (`store.rs`, the same demote-then-
+// insert shape) writes this invariant too and does not take this lock yet.
+const CURRENT_VAULT_SNAPSHOT_LOCK_NAMESPACE =
+  "loyal_yield.vault_position_snapshots.is_current";
+
 export async function recordReconciledYieldVaultSnapshot(
   input: ReconciledYieldVaultSnapshotInput,
   dependencies: YieldDepositRepositoryDependencies = createDependencies()
@@ -3396,6 +3414,11 @@ export async function recordReconciledYieldVaultSnapshot(
   }));
 
   const statements: never[] = [
+    // Must stay first: everything after it is only safe once this vault's
+    // demote/promote pair is exclusive to this transaction.
+    dependencies.client.db.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${CURRENT_VAULT_SNAPSHOT_LOCK_NAMESPACE}:${input.vaultId}`}, 0))`
+    ) as never,
     dependencies.client.db
       .update(vaultPositionSnapshots)
       .set({ isCurrent: false })
