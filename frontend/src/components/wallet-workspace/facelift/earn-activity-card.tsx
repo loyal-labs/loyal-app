@@ -368,12 +368,14 @@ function NewRowReveal({ children }: { children: ReactNode }) {
 
 function TransactionsTab({
   executeNow,
+  pendingSignatures,
   refreshKey,
   scheduledSweeps,
   settingsPda,
   walletAddress,
 }: {
   executeNow: ExecuteNowControls;
+  pendingSignatures: string[];
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
@@ -447,6 +449,17 @@ function TransactionsTab({
     [items]
   );
 
+  // Just-confirmed mutations the indexed list hasn't caught up with yet
+  // (~5s): each shows a skeleton row at the top until its signature lands in
+  // a refetch. Only counted once the list is loaded — the initial-load
+  // skeleton below already covers items === null.
+  const pendingRows =
+    items === null
+      ? []
+      : pendingSignatures.filter(
+          (signature) => !items.some((item) => item.signature === signature)
+        );
+
   // Wrapper choice per row must stay stable across re-renders, so each key's
   // reveal kind is decided once, when it first appears: rows in the first
   // loaded batch ride the group's mount stagger; rows appearing on later
@@ -513,12 +526,28 @@ function TransactionsTab({
           ))}
         </div>
       ) : null}
+      {pendingRows.length > 0 ? (
+        // A just-confirmed deposit/withdrawal not yet in the indexed list:
+        // hold its slot at the top with a pulsing row until the refetch
+        // brings the real one (which then grows in via NewRowReveal).
+        // Plain direct children of t-skel-rows — the pulse targets them, and
+        // t-stagger-line must not be used here (it stays opacity:0 outside a
+        // StaggerReveal parent).
+        <div className="t-skel-rows flex flex-col gap-2 px-4 py-3">
+          {pendingRows.map((signature) => (
+            <div
+              className="h-[60px] w-full rounded-2xl bg-black/[0.04]"
+              key={signature}
+            />
+          ))}
+        </div>
+      ) : null}
       {hasError ? (
         <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
           Failed to load transactions.
         </p>
       ) : null}
-      {items !== null && items.length === 0 ? (
+      {items !== null && items.length === 0 && pendingRows.length === 0 ? (
         <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
           No transactions yet.
         </p>
@@ -649,6 +678,7 @@ export function EarnActivityCard({
   executeNow,
   holdings,
   onWithdrawSource,
+  pendingSignatures,
   refreshKey,
   scheduledSweeps,
   settingsPda,
@@ -657,6 +687,7 @@ export function EarnActivityCard({
   executeNow: ExecuteNowControls;
   holdings: ActiveEarnPositionHolding[];
   onWithdrawSource: (sourceKey: string) => void;
+  pendingSignatures: string[];
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
   settingsPda: string | null | undefined;
@@ -818,6 +849,7 @@ export function EarnActivityCard({
         {activeTab === "Transactions" ? (
           <TransactionsTab
             executeNow={executeNow}
+            pendingSignatures={pendingSignatures}
             refreshKey={refreshKey}
             scheduledSweeps={scheduledSweeps}
             settingsPda={settingsPda}

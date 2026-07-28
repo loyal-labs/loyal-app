@@ -159,6 +159,7 @@ export type EarnActions = {
   isWithdrawPending: boolean;
   mainUsdcAmount: number | null;
   pendingApproval: PendingEarnApproval | null;
+  pendingTransactionSignatures: string[];
   requestAutodepositClose: () => void;
   runCleanup: () => Promise<boolean>;
   saveAutodeposit: (keepAmountLabel: string) => Promise<boolean>;
@@ -270,6 +271,28 @@ export function useEarnActions(deps: {
     () => setIsReconnectPromptOpen(false),
     []
   );
+
+  // Signatures of just-confirmed deposits/withdrawals that the indexed
+  // transactions list may not contain yet (~5s lag). The activity card shows
+  // a skeleton row per signature until the refetched list includes it; the
+  // timeout is only a safety valve against an indexer that never catches up.
+  const [pendingTransactionSignatures, setPendingTransactionSignatures] =
+    useState<string[]>([]);
+  const expectEarnTransaction = useCallback((signature?: string) => {
+    if (!signature) {
+      return;
+    }
+    setPendingTransactionSignatures((current) =>
+      current.includes(signature) ? current : [...current, signature]
+    );
+    // ponytail: 20s cap — the indexer lag is ~5s, and a mismatch must never
+    // pin a skeleton row for long.
+    window.setTimeout(() => {
+      setPendingTransactionSignatures((current) =>
+        current.filter((existing) => existing !== signature)
+      );
+    }, 20_000);
+  }, []);
 
   const [depositError, setDepositError] = useState<string | null>(null);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
@@ -968,6 +991,7 @@ export function useEarnActions(deps: {
           resources: EARN_BALANCE_MUTATION_RESOURCES,
           signature: commit.result.signature,
         });
+        expectEarnTransaction(commit.result.signature);
         setPosition((current) =>
           buildPostDepositEarnPosition({
             amountRaw: commit.amountRaw,
@@ -1003,23 +1027,24 @@ export function useEarnActions(deps: {
           !preparedDeposit.policyFinalizePrepared;
         tracker.observe("review", {
           policyMode: requiresPolicySetup ? "create" : "reuse",
-          reviewBypassed: false,
+          reviewBypassed: shouldBypassTopUpPreview,
         });
 
-        // Every deposit gates on the approval sheet — including top-ups the
-        // OG used to fast-path (shouldBypassTopUpPreview still picks the
-        // single-execute path below).
-        const approved = await requestApproval(
-          buildEarnDepositReviewItem({
-            draft,
-            isPolicySetupFlow: requiresPolicySetup,
-            preparedDeposit,
-            showBatchTransactions: Boolean(wallet.signAllTransactions),
-          })
-        );
-        if (!approved) {
-          tracker.cancel("review", { errorCode: "wallet_rejected" });
-          return false;
+        // Top-ups fast-path straight to signing (the OG behavior); only
+        // first deposits / policy-setup flows gate on the approval sheet.
+        if (!shouldBypassTopUpPreview) {
+          const approved = await requestApproval(
+            buildEarnDepositReviewItem({
+              draft,
+              isPolicySetupFlow: requiresPolicySetup,
+              preparedDeposit,
+              showBatchTransactions: Boolean(wallet.signAllTransactions),
+            })
+          );
+          if (!approved) {
+            tracker.cancel("review", { errorCode: "wallet_rejected" });
+            return false;
+          }
         }
 
         if (!ensureCanSignAccountAction()) {
@@ -1258,6 +1283,7 @@ export function useEarnActions(deps: {
       debitMainAccountUsdcBalance,
       depositSource,
       ensureCanSignAccountAction,
+      expectEarnTransaction,
       hasPosition,
       openSignIn,
       prepareEarnDepositInBrowser,
@@ -1297,24 +1323,26 @@ export function useEarnActions(deps: {
           draft.mode === "partial" &&
           !preparedWithdraw.autodepositClosePrepared;
 
-        // Every withdrawal gates on the approval sheet — including simple
-        // partials the OG used to fast-path (shouldBypassWithdrawPreview
-        // still picks the unstaged execution path below).
-        const approved = await requestApproval(
-          buildEarnWithdrawReviewItem({
-            draft,
-            hasAutodepositTeardown: Boolean(
-              preparedWithdraw.autodepositClosePrepared
-            ),
-            preparedWithdraw,
-          })
-        );
-        if (!approved) {
-          tracker.cancel("wallet_submit_confirm", {
-            errorCode: "wallet_rejected",
-          });
-          withdrawTrackerRef.current = null;
-          return false;
+        // Simple partials fast-path straight to signing (the OG behavior);
+        // full withdrawals and partials carrying an autodeposit close gate
+        // on the approval sheet.
+        if (!shouldBypassWithdrawPreview) {
+          const approved = await requestApproval(
+            buildEarnWithdrawReviewItem({
+              draft,
+              hasAutodepositTeardown: Boolean(
+                preparedWithdraw.autodepositClosePrepared
+              ),
+              preparedWithdraw,
+            })
+          );
+          if (!approved) {
+            tracker.cancel("wallet_submit_confirm", {
+              errorCode: "wallet_rejected",
+            });
+            withdrawTrackerRef.current = null;
+            return false;
+          }
         }
 
         if (!ensureCanSignAccountAction()) {
@@ -1363,6 +1391,7 @@ export function useEarnActions(deps: {
             resources: EARN_BALANCE_MUTATION_RESOURCES,
             signature: latestSignature,
           });
+          expectEarnTransaction(latestSignature);
           setPosition((current) =>
             applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
           );
@@ -1488,6 +1517,7 @@ export function useEarnActions(deps: {
             resources: EARN_BALANCE_MUTATION_RESOURCES,
             signature: result.signature,
           });
+          expectEarnTransaction(result.signature);
           setPosition((current) =>
             applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
           );
@@ -1534,6 +1564,7 @@ export function useEarnActions(deps: {
     [
       creditMainAccountUsdcBalance,
       ensureCanSignAccountAction,
+      expectEarnTransaction,
       prepareEarnWithdrawInBrowser,
       registerExpectedEarnMutation,
       requestApproval,
@@ -2251,6 +2282,7 @@ export function useEarnActions(deps: {
     isWithdrawPending,
     mainUsdcAmount: mainUsdc.amount,
     pendingApproval,
+    pendingTransactionSignatures,
     requestAutodepositClose,
     runCleanup,
     saveAutodeposit,

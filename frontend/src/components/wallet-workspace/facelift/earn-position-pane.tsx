@@ -284,6 +284,7 @@ export function EarnPositionPane({
           }}
           holdings={data.position?.holdings ?? []}
           onWithdrawSource={onWithdraw}
+          pendingSignatures={data.actions.pendingTransactionSignatures}
           refreshKey={data.actions.earnTransactionsRefreshKey}
           scheduledSweeps={data.scheduledSweeps}
           settingsPda={data.settingsPda}
