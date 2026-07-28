@@ -691,6 +691,12 @@ async function recordCurrentVaultSourceWithdrawal(args: {
     if (!idleRow) {
       return;
     }
+    // A row observed strictly after the withdrawal slot (a concurrent
+    // reconcile's chain read) already reflects the withdrawal — debiting it
+    // again would double-count.
+    if (idleRow.observedSlot > input.confirmedSlot) {
+      return;
+    }
     await dependencies.client.db
       .update(vaultIdleTokenBalancesCurrent)
       .set({
@@ -714,6 +720,12 @@ async function recordCurrentVaultSourceWithdrawal(args: {
 
   const selectedReserve = resolution.selectedReserveRow;
   if (!selectedReserve || resolution.reserveRows.length === 0) {
+    return;
+  }
+  // Same freshness guard as the idle path. Strict: fallback rows built from
+  // the withdrawal itself carry observedSlot === confirmedSlot and must
+  // still project.
+  if (selectedReserve.observedSlot > input.confirmedSlot) {
     return;
   }
   const sourceDebitAmountRaw = getWithdrawalSourceDebitAmountRaw(
@@ -1143,6 +1155,16 @@ function buildIdempotentWithdrawalRepairInput(
       readStoredWithdrawalSourceMetadataString(withdrawal, "tokenAccount"),
     sourceType,
   };
+}
+
+// The one-current partial unique index rejects the loser when two snapshot
+// writers (withdraw confirm vs. position reconcile / rebalance sync) both run
+// flip-all-current → set-one-current on the same vault concurrently.
+function isCurrentSnapshotWriteRace(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("vault_position_snapshots_one_current_idx")
+  );
 }
 
 function isIdempotentWithdrawalSourceAlreadyApplied(error: unknown): boolean {
@@ -3932,11 +3954,37 @@ export async function recordConfirmedYieldWithdrawal(
     status: "active",
   });
 
-  await recordCurrentVaultSourceWithdrawal({
-    dependencies,
-    input,
-    resolution: withdrawalSource,
-  });
+  try {
+    await recordCurrentVaultSourceWithdrawal({
+      dependencies,
+      input,
+      resolution: withdrawalSource,
+    });
+  } catch (error) {
+    if (!isCurrentSnapshotWriteRace(error)) {
+      throw error;
+    }
+    // A concurrent snapshot writer won the one-current index mid-projection.
+    // The withdrawal ledger above is already committed; re-resolve against
+    // the winner's fresh current rows and re-apply the debit. The freshness
+    // guard inside recordCurrentVaultSourceWithdrawal skips it entirely when
+    // the winner's chain read already reflects this withdrawal.
+    try {
+      const retryResolution = await resolveWithdrawalSource(
+        input,
+        dependencies
+      );
+      await recordCurrentVaultSourceWithdrawal({
+        dependencies,
+        input,
+        resolution: retryResolution,
+      });
+    } catch (retryError) {
+      if (!isIdempotentWithdrawalSourceAlreadyApplied(retryError)) {
+        throw retryError;
+      }
+    }
+  }
 
   if (position.principalAmountRaw !== nextPrincipal) {
     return position;
