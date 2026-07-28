@@ -308,6 +308,7 @@ function LinkChip({
 // onClose renders the <1204 sheet variant (Figma 4826:440136): X in the
 // header and the actions pinned in a bottom bar instead of inline.
 export function TokenDetailPane({
+  hideChart,
   icon,
   mint,
   name,
@@ -321,6 +322,8 @@ export function TokenDetailPane({
   securedBalance,
   symbol,
 }: {
+  /** Stablecoins skip the price chart — a flat $1 line is just noise. */
+  hideChart?: boolean;
   icon: string;
   mint: string;
   name: string;
@@ -635,157 +638,159 @@ export function TokenDetailPane({
           </div>
         </div>
 
-        <div className="flex w-full shrink-0 flex-col pb-4">
-          <div className="flex w-full items-center justify-between px-4 pb-1">
-            {/* Hovered point's datetime rides the chart's top row (the empty
+        {hideChart ? null : (
+          <div className="flex w-full shrink-0 flex-col pb-4">
+            <div className="flex w-full items-center justify-between px-4 pb-1">
+              {/* Hovered point's datetime rides the chart's top row (the empty
                 space left of the max label), so it can't shift the layout. */}
-            <p
-              className={`min-h-4 text-[12px] leading-4 text-[rgba(60,60,67,0.6)] transition-opacity duration-150 ${
-                hoveredPoint ? "opacity-100" : "opacity-0"
-              }`}
-            >
-              {hoveredPoint
-                ? formatPointTime(hoveredPoint.timestamp, activeRange)
-                : " "}
-            </p>
-            <p className="min-h-4 text-[12px] leading-4 text-[rgba(60,60,67,0.6)]">
-              {geometry ? formatPrice(geometry.maxPrice) : " "}
-            </p>
-          </div>
-          <div className="relative h-[200px] w-full pr-4">
-            {geometry && normalizedPoints ? (
-              // Re-keyed per chart so token/range switches replay the draw.
-              <div
-                className="relative h-full w-full cursor-crosshair [touch-action:none]"
-                key={`${mint}:${activeRange}`}
-                onPointerCancel={() => setHoveredIndex(null)}
-                onPointerLeave={() => setHoveredIndex(null)}
-                onPointerMove={handleChartPointerMove}
-                ref={chartAreaRef}
+              <p
+                className={`min-h-4 text-[12px] leading-4 text-[rgba(60,60,67,0.6)] transition-opacity duration-150 ${
+                  hoveredPoint ? "opacity-100" : "opacity-0"
+                }`}
               >
-                <svg
-                  aria-label="Price chart"
-                  className="token-chart-line block h-full w-full overflow-visible"
-                  preserveAspectRatio="none"
-                  role="img"
-                  viewBox="0 0 100 44"
+                {hoveredPoint
+                  ? formatPointTime(hoveredPoint.timestamp, activeRange)
+                  : " "}
+              </p>
+              <p className="min-h-4 text-[12px] leading-4 text-[rgba(60,60,67,0.6)]">
+                {geometry ? formatPrice(geometry.maxPrice) : " "}
+              </p>
+            </div>
+            <div className="relative h-[200px] w-full pr-4">
+              {geometry && normalizedPoints ? (
+                // Re-keyed per chart so token/range switches replay the draw.
+                <div
+                  className="relative h-full w-full cursor-crosshair [touch-action:none]"
+                  key={`${mint}:${activeRange}`}
+                  onPointerCancel={() => setHoveredIndex(null)}
+                  onPointerLeave={() => setHoveredIndex(null)}
+                  onPointerMove={handleChartPointerMove}
+                  ref={chartAreaRef}
                 >
-                  <path
-                    d={geometry.line}
-                    fill="none"
-                    stroke={chartColor}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.8}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                </svg>
-                {/* The veil dims the line past the active point; the dot
+                  <svg
+                    aria-label="Price chart"
+                    className="token-chart-line block h-full w-full overflow-visible"
+                    preserveAspectRatio="none"
+                    role="img"
+                    viewBox="0 0 100 44"
+                  >
+                    <path
+                      d={geometry.line}
+                      fill="none"
+                      stroke={chartColor}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.8}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  </svg>
+                  {/* The veil dims the line past the active point; the dot
                     rides the line there (cursor x, or the latest point). */}
-                <span
-                  aria-hidden="true"
-                  className="token-chart-trail absolute inset-y-0 right-0 bg-white/60"
-                  style={{
-                    left: `${(activeIndex / Math.max(lastIndex, 1)) * 100}%`,
-                  }}
-                />
-                <span
-                  aria-hidden="true"
-                  className="token-chart-dot -translate-x-1/2 -translate-y-1/2 absolute size-3 rounded-full border-2 border-white"
-                  style={{
-                    backgroundColor: chartColor,
-                    left: `${(activeIndex / Math.max(lastIndex, 1)) * 100}%`,
-                    top: `${(geometry.yRatios[activeIndex] ?? 0.5) * 100}%`,
-                  }}
-                />
-                <style jsx>{`
-                  /* Left→right clip reveal; a stroke-dash draw is off the
+                  <span
+                    aria-hidden="true"
+                    className="token-chart-trail absolute inset-y-0 right-0 bg-white/60"
+                    style={{
+                      left: `${(activeIndex / Math.max(lastIndex, 1)) * 100}%`,
+                    }}
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="token-chart-dot -translate-x-1/2 -translate-y-1/2 absolute size-3 rounded-full border-2 border-white"
+                    style={{
+                      backgroundColor: chartColor,
+                      left: `${(activeIndex / Math.max(lastIndex, 1)) * 100}%`,
+                      top: `${(geometry.yRatios[activeIndex] ?? 0.5) * 100}%`,
+                    }}
+                  />
+                  <style jsx>{`
+                    /* Left→right clip reveal; a stroke-dash draw is off the
                      table here — non-scaling-stroke computes dashes in
                      screen space, which shreds the line into fragments. */
-                  .token-chart-line {
-                    animation: token-chart-reveal 0.9s
-                      cubic-bezier(0.2, 0, 0, 1) both;
-                  }
-
-                  .token-chart-trail,
-                  .token-chart-dot {
-                    animation: token-chart-fade 0.25s ease-out 0.8s both;
-                  }
-
-                  @keyframes token-chart-reveal {
-                    from {
-                      clip-path: inset(0 100% 0 0);
+                    .token-chart-line {
+                      animation: token-chart-reveal 0.9s
+                        cubic-bezier(0.2, 0, 0, 1) both;
                     }
-                    to {
-                      clip-path: inset(0 0 0 0);
-                    }
-                  }
 
-                  @keyframes token-chart-fade {
-                    from {
-                      opacity: 0;
-                    }
-                    to {
-                      opacity: 1;
-                    }
-                  }
-
-                  @media (prefers-reduced-motion: reduce) {
-                    .token-chart-line,
                     .token-chart-trail,
                     .token-chart-dot {
-                      animation: none;
+                      animation: token-chart-fade 0.25s ease-out 0.8s both;
                     }
-                  }
-                `}</style>
-              </div>
-            ) : hasDetailError && !detail ? (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-3">
-                <p className="text-[13px] leading-4 text-[#8a8a8e]">
-                  Couldn&apos;t load market data.
-                </p>
+
+                    @keyframes token-chart-reveal {
+                      from {
+                        clip-path: inset(0 100% 0 0);
+                      }
+                      to {
+                        clip-path: inset(0 0 0 0);
+                      }
+                    }
+
+                    @keyframes token-chart-fade {
+                      from {
+                        opacity: 0;
+                      }
+                      to {
+                        opacity: 1;
+                      }
+                    }
+
+                    @media (prefers-reduced-motion: reduce) {
+                      .token-chart-line,
+                      .token-chart-trail,
+                      .token-chart-dot {
+                        animation: none;
+                      }
+                    }
+                  `}</style>
+                </div>
+              ) : hasDetailError && !detail ? (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-3">
+                  <p className="text-[13px] leading-4 text-[#8a8a8e]">
+                    Couldn&apos;t load market data.
+                  </p>
+                  <button
+                    className="t-hover rounded-full bg-black/[0.04] px-4 py-2.5 font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                    onClick={() => setRetryNonce((nonce) => nonce + 1)}
+                    type="button"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : chartPoints ? (
+                <div className="flex h-full w-full items-center justify-center">
+                  <p className="text-[13px] leading-4 text-[#8a8a8e]">
+                    No price history yet.
+                  </p>
+                </div>
+              ) : (
+                <div className="h-full w-full pl-4">
+                  <div className="h-full w-full animate-pulse rounded-2xl bg-black/[0.03]" />
+                </div>
+              )}
+            </div>
+            <div className="flex w-full items-center justify-end px-4 pt-1">
+              <p className="min-h-4 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                {geometry ? formatPrice(geometry.minPrice) : " "}
+              </p>
+            </div>
+            <div className="flex w-full items-center gap-2 px-4 pt-2">
+              {CHART_RANGES.map((range) => (
                 <button
-                  className="t-hover rounded-full bg-black/[0.04] px-4 py-2.5 font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
-                  onClick={() => setRetryNonce((nonce) => nonce + 1)}
+                  className={`flex min-w-0 flex-1 items-center justify-center rounded-full px-3 py-2.5 font-medium text-[13px] leading-4 transition-colors ${
+                    activeRange === range.label
+                      ? "bg-black/[0.04] text-black"
+                      : "text-[#8a8a8e] hover:text-black"
+                  }`}
+                  key={range.label}
+                  onClick={() => setActiveRange(range.label)}
                   type="button"
                 >
-                  Retry
+                  {range.label}
                 </button>
-              </div>
-            ) : chartPoints ? (
-              <div className="flex h-full w-full items-center justify-center">
-                <p className="text-[13px] leading-4 text-[#8a8a8e]">
-                  No price history yet.
-                </p>
-              </div>
-            ) : (
-              <div className="h-full w-full pl-4">
-                <div className="h-full w-full animate-pulse rounded-2xl bg-black/[0.03]" />
-              </div>
-            )}
+              ))}
+            </div>
           </div>
-          <div className="flex w-full items-center justify-end px-4 pt-1">
-            <p className="min-h-4 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-              {geometry ? formatPrice(geometry.minPrice) : " "}
-            </p>
-          </div>
-          <div className="flex w-full items-center gap-2 px-4 pt-2">
-            {CHART_RANGES.map((range) => (
-              <button
-                className={`flex min-w-0 flex-1 items-center justify-center rounded-full px-3 py-2.5 font-medium text-[13px] leading-4 transition-colors ${
-                  activeRange === range.label
-                    ? "bg-black/[0.04] text-black"
-                    : "text-[#8a8a8e] hover:text-black"
-                }`}
-                key={range.label}
-                onClick={() => setActiveRange(range.label)}
-                type="button"
-              >
-                {range.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        )}
 
         {statChips.length > 0 ? (
           <div className="w-full shrink-0 py-2">

@@ -773,7 +773,8 @@ export function CryptoPage({
         }}
         side="from"
         title="Select asset"
-        tokens={shieldSourceTokens}
+        // Shielded balances can't be sent — only public tokens are offered.
+        tokens={derivedTokens}
       />
     ) : (
       <SendRecipientPane
@@ -931,6 +932,7 @@ export function CryptoPage({
             <PaneReveal key={detailMint}>
               <div className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white">
                 <TokenDetailPane
+                  hideChart={page === "stables"}
                   icon={detailBase.icon}
                   mint={detailMint}
                   name={detailPosition?.asset.name ?? detailBase.symbol}
@@ -1013,6 +1015,7 @@ export function CryptoPage({
           sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
         >
           <TokenDetailPane
+            hideChart={page === "stables"}
             icon={detailBase.icon}
             mint={detailMint}
             name={detailPosition?.asset.name ?? detailBase.symbol}

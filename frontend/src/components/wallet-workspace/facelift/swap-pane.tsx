@@ -21,6 +21,7 @@ import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transiti
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap } from "@/hooks/use-swap";
+import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
 import { trackWalletSwapPressed } from "@/lib/core/analytics";
 import { getTokenIconUrl } from "@/lib/token-icon";
 
@@ -636,6 +637,7 @@ export function SwapTokenSelectPane({
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<SwapToken[]>([]);
   const searchTimerRef = useRef<number | null>(null);
+  const { isBalanceHidden } = useBalanceVisibility();
 
   const query = search.trim().toLowerCase();
   const localFiltered = useMemo(
@@ -752,11 +754,39 @@ export function SwapTokenSelectPane({
                   {token.symbol}
                 </span>
               </span>
-              <span className="flex shrink-0 items-center justify-end pl-3">
-                <span className="whitespace-nowrap text-right font-medium text-[16px] text-black leading-5">
-                  ${formatTokenPrice(token.price)}
+              {side === "from" ? (
+                // Figma 4852:39653 — the source side lists what you hold:
+                // USD value on top (gray fraction), token amount below.
+                <span className="flex shrink-0 flex-col items-end justify-center gap-0.5 py-[11px] pl-3">
+                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-black leading-5">
+                    <ScrambleText
+                      isHidden={isBalanceHidden}
+                      text={splitUsdBalance(token.balance * token.price).balanceWhole}
+                    />
+                    <span className="text-[#b1b1b4]">
+                      <ScrambleText
+                        isHidden={isBalanceHidden}
+                        text={
+                          splitUsdBalance(token.balance * token.price)
+                            .balanceFraction
+                        }
+                      />
+                    </span>
+                  </span>
+                  <span className="whitespace-nowrap text-right text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                    <ScrambleText
+                      isHidden={isBalanceHidden}
+                      text={formatTokenAmount(token.balance)}
+                    />
+                  </span>
                 </span>
-              </span>
+              ) : (
+                <span className="flex shrink-0 items-center justify-end pl-3">
+                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-black leading-5">
+                    ${formatTokenPrice(token.price)}
+                  </span>
+                </span>
+              )}
             </button>
           ))
         )}

@@ -130,8 +130,9 @@ function RowPill({
 
 // Figma 4813:338887..338935 — one asset row. Every row hover-reveals its
 // action pills replacing the amounts: public rows Shield/Send/Swap, shielded
-// rows Unshield/Send/Swap plus the badge and "· Shielded" suffix; the stables
-// variant appends a black Earn pill and shows the ticker instead of price.
+// rows Unshield only (shielded balances can't be sent or swapped) plus the
+// badge and "· Shielded" suffix; the stables variant appends a black Earn
+// pill and shows the ticker instead of price.
 function TokenCell({
   actions,
   isBalanceHidden,
@@ -233,19 +234,25 @@ function TokenCell({
               onClick={() => actions.onShield(row)}
             />
           )}
-          <RowPill
-            icon="icon-arrow-up-circle.svg"
-            label="Send"
-            onClick={() => actions.onSend(row)}
-          />
-          <RowPill
-            icon={
-              isStables ? "icon-swap-repeat-gray.svg" : "icon-swap-repeat.svg"
-            }
-            isBlack={!isStables}
-            label="Swap"
-            onClick={() => actions.onSwap(row)}
-          />
+          {row.isSecured ? null : (
+            <>
+              <RowPill
+                icon="icon-arrow-up-circle.svg"
+                label="Send"
+                onClick={() => actions.onSend(row)}
+              />
+              <RowPill
+                icon={
+                  isStables
+                    ? "icon-swap-repeat-gray.svg"
+                    : "icon-swap-repeat.svg"
+                }
+                isBlack={!isStables}
+                label="Swap"
+                onClick={() => actions.onSwap(row)}
+              />
+            </>
+          )}
           {isStables ? (
             <RowPill
               icon="icon-coins-add.svg"
