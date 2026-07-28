@@ -63,9 +63,18 @@ function StatValue({
 
 // The AUM bar chart (Figma 4884:37898 / hover 4884:36726): weekly buckets —
 // the same series the public dashboard renders. Hovering highlights the bar
-// and surfaces its week label top-left; the y-max rides top-right.
-function AumBarChart({ series }: { series: EarnPublicStats["aumSeries"] }) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+// and surfaces its week label top-left; the y-max rides top-right. The hover
+// index lives in the panel so the AUM header can scrub to the hovered week
+// (ASK-1915).
+function AumBarChart({
+  hoveredIndex,
+  onHoveredIndexChange,
+  series,
+}: {
+  hoveredIndex: number | null;
+  onHoveredIndexChange: (index: number | null) => void;
+  series: EarnPublicStats["aumSeries"];
+}) {
   const maxValue = Math.max(...series.map((point) => point.value), 0);
   const firstPoint = series[0];
   const lastPoint = series.at(-1);
@@ -110,13 +119,13 @@ function AumBarChart({ series }: { series: EarnPublicStats["aumSeries"] }) {
       </div>
       <div
         className="flex h-[240px] w-full items-end justify-center gap-2 px-4"
-        onMouseLeave={() => setHoveredIndex(null)}
+        onMouseLeave={() => onHoveredIndexChange(null)}
       >
         {series.map((point, index) => (
           <div
             className="h-full min-w-px flex-1 cursor-default"
             key={point.label}
-            onMouseEnter={() => setHoveredIndex(index)}
+            onMouseEnter={() => onHoveredIndexChange(index)}
           >
             <div className="flex h-full items-end">
               <div
@@ -153,6 +162,23 @@ function AumBarChart({ series }: { series: EarnPublicStats["aumSeries"] }) {
 export function EarnStatsPanel() {
   const [stats, setStats] = useState<EarnPublicStats | null>(null);
   const [hasError, setHasError] = useState(false);
+  // Hovering an AUM bar scrubs the header to that week's value and its
+  // vs-prior-week delta (ASK-1915); unhovered shows the live numbers.
+  const [hoveredAumIndex, setHoveredAumIndex] = useState<number | null>(null);
+  const hoveredAumPoint =
+    stats !== null && hoveredAumIndex !== null
+      ? stats.aumSeries[hoveredAumIndex] ?? null
+      : null;
+  const displayedAumUsd = hoveredAumPoint?.value ?? stats?.aumUsd ?? 0;
+  const priorAumPoint =
+    stats !== null && hoveredAumIndex !== null && hoveredAumIndex > 0
+      ? stats.aumSeries[hoveredAumIndex - 1] ?? null
+      : null;
+  const displayedAumDeltaUsd = hoveredAumPoint
+    ? priorAumPoint
+      ? hoveredAumPoint.value - priorAumPoint.value
+      : null
+    : stats?.aumDeltaVsPriorWeekUsd ?? null;
 
   useEffect(() => {
     let isCurrent = true;
@@ -204,26 +230,34 @@ export function EarnStatsPanel() {
                 <InfoTooltip text={AUM_TOOLTIP} />
               </div>
               <p className="w-full font-semibold text-[40px] text-black leading-[48px]">
-                {splitUsdBalance(stats.aumUsd).balanceWhole}
+                {splitUsdBalance(displayedAumUsd).balanceWhole}
                 <span className="text-[#b1b1b4]">
-                  {splitUsdBalance(stats.aumUsd).balanceFraction}
+                  {splitUsdBalance(displayedAumUsd).balanceFraction}
                 </span>
               </p>
-              {stats.aumDeltaVsPriorWeekUsd !== null &&
-              stats.aumDeltaVsPriorWeekUsd !== 0 ? (
+              {displayedAumDeltaUsd !== null && displayedAumDeltaUsd !== 0 ? (
                 <p
                   className="text-[16px] leading-5"
                   style={{
-                    color:
-                      stats.aumDeltaVsPriorWeekUsd > 0 ? "#34c759" : "#f9363c",
+                    color: displayedAumDeltaUsd > 0 ? "#34c759" : "#f9363c",
                   }}
                 >
-                  {formatSignedUsd(stats.aumDeltaVsPriorWeekUsd)} vs prior week
+                  {formatSignedUsd(displayedAumDeltaUsd)} vs prior week
                 </p>
-              ) : null}
+              ) : (
+                // Keeps the slot height while scrubbing the first bucket,
+                // which has no prior week to diff against.
+                <p aria-hidden="true" className="invisible text-[16px] leading-5">
+                  &nbsp;
+                </p>
+              )}
             </div>
           </div>
-          <AumBarChart series={stats.aumSeries} />
+          <AumBarChart
+            hoveredIndex={hoveredAumIndex}
+            onHoveredIndexChange={setHoveredAumIndex}
+            series={stats.aumSeries}
+          />
           <div className="flex w-full flex-col px-2 pt-2">
             <StatValue
               label="Optimization Volume"
