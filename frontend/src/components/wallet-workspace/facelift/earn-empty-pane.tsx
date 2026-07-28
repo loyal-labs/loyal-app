@@ -15,13 +15,6 @@ import {
 const ASSET_BASE = "/wallet-workspace/facelift";
 const HEADLINE_PRINCIPAL_USD = 6000;
 
-// White-on-dark CTAs: the base dims a touch so the pure-white shimmer band
-// has contrast to sweep against (transitions.dev shimmer-text).
-const CTA_SHIMMER_STYLE = {
-  ["--shimmer-base" as never]: "rgba(255, 255, 255, 0.8)",
-  ["--shimmer-highlight" as never]: "#ffffff",
-};
-
 function formatHeadlineUsd(value: number): string {
   return `$${Math.round(value).toLocaleString("en-US")}`;
 }
@@ -139,13 +132,7 @@ export function EarnEmptyPane({
                 onClick={openSignIn}
                 type="button"
               >
-                <span
-                  className="t-shimmer"
-                  data-text="Connect wallet"
-                  style={CTA_SHIMMER_STYLE}
-                >
-                  Connect wallet
-                </span>
+                <span className="text-white">Connect wallet</span>
               </button>
             );
           }
@@ -162,11 +149,7 @@ export function EarnEmptyPane({
                 className="size-6"
                 src={`${ASSET_BASE}/icon-plus.svg`}
               />
-              <span
-                className="t-shimmer whitespace-nowrap pr-2.5 font-medium text-[20px] leading-6"
-                data-text="Deposit"
-                style={CTA_SHIMMER_STYLE}
-              >
+              <span className="whitespace-nowrap pr-2.5 font-medium text-[20px] leading-6">
                 Deposit
               </span>
             </button>
