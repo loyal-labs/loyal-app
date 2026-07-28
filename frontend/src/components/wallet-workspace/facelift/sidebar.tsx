@@ -104,10 +104,12 @@ function ShortcutKey({
 }) {
   return (
     <kbd
-      className={`flex h-4 min-w-4 items-center justify-center rounded-[5px] px-0.5 font-medium font-sans text-[11px] leading-none transition-opacity duration-150 ${
+      className={`flex h-4 min-w-4 items-center justify-center rounded-[5px] px-0.5 font-medium font-sans text-[11px] leading-none ${
         isFlashed
-          ? "bg-[#f9363c] text-white opacity-100"
-          : "bg-black/[0.06] text-[rgba(60,60,67,0.6)] opacity-0 group-hover:opacity-100"
+          ? // A keypress lands instantly, so its feedback must too — only the
+            // fade-out (the unflashed state's transition) is animated.
+            "bg-[#f9363c] text-white opacity-100 transition-none"
+          : "bg-black/[0.06] text-[rgba(60,60,67,0.6)] opacity-0 transition-opacity duration-150 group-hover:opacity-100"
       }`}
     >
       {letter}
