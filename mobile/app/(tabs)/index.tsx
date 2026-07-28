@@ -45,7 +45,6 @@ import {
 import {
   executeEarnAutodepositClose,
   executeEarnAutodepositSetup,
-  setEarnAutodepositActive,
   updateEarnAutodepositThreshold,
 } from "@/lib/solana/earn/autodeposit";
 import {
@@ -57,6 +56,7 @@ import { getVisibleEarnScheduledSweeps } from "@/lib/solana/earn/earn-scheduled-
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
+import { useEarnAutodepositToggle } from "@/hooks/wallet/useEarnAutodepositToggle";
 import { useEarnForecast } from "@/hooks/wallet/useEarnForecast";
 import { useEarnWithdrawSources } from "@/hooks/wallet/useEarnWithdrawSources";
 import {
@@ -205,6 +205,15 @@ export default function EarnScreen() {
   // on/off are derived from it; the create/edit/delete/toggle handlers below
   // drive the on-chain policy and refresh this.
   const { autodeposit, refreshAutodeposit } = useEarnAutodeposit(walletAddress);
+  const {
+    active: autodepositEnabled,
+    requestToggle: requestAutodepositToggle,
+  } = useEarnAutodepositToggle({
+    autodeposit,
+    signer,
+    walletUnlocked: isWalletUnlocked(state),
+    refreshAutodeposit,
+  });
   const autodepositThresholdUsd = useMemo(() => {
     if (!autodeposit) {
       return null;
@@ -212,7 +221,6 @@ export default function EarnScreen() {
     const raw = Number(autodeposit.walletBalanceFloorRaw ?? "0");
     return Number.isFinite(raw) ? raw / 1e6 : 0;
   }, [autodeposit]);
-  const autodepositEnabled = autodeposit?.active ?? false;
   const [autodepositHelpOpen, setAutodepositHelpOpen] = useState(false);
   const [autodepositSetupOpen, setAutodepositSetupOpen] = useState(false);
   const [autodepositSetupMode, setAutodepositSetupMode] = useState<
@@ -702,28 +710,17 @@ export default function EarnScreen() {
   }, [openAutodepositCreate]);
 
   const handleAutodepositToggle = useCallback(async () => {
-    if (
-      !autodeposit?.recurringDelegation ||
-      !signer ||
-      !isWalletUnlocked(state)
-    ) {
+    const request = requestAutodepositToggle();
+    if (!request) {
       return;
     }
     void Haptics.selectionAsync();
     try {
-      await setEarnAutodepositActive({
-        signer,
-        active: !autodeposit.active,
-        policyAccount: autodeposit.policyAccount,
-        recurringDelegation: autodeposit.recurringDelegation,
-        vaultIndex: autodeposit.vaultIndex,
-      });
+      await request;
     } catch (error) {
       console.warn("[autodeposit] toggle failed", error);
-    } finally {
-      refreshAutodeposit();
     }
-  }, [autodeposit, signer, state, refreshAutodeposit]);
+  }, [requestAutodepositToggle]);
 
   // Returns a Promise so the setup sheet can show its loading state. Create
   // stands up the on-chain policy; edit changes the threshold (DB-only). The
