@@ -1984,7 +1984,7 @@
 :root {
   --tabs-dur: 250ms;
   --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --tabs-text-muted: #000;
+  --tabs-text-muted: #8a8a8e;
   --tabs-text-active: #000;
   --tabs-bar-bg: rgba(0, 0, 0, 0.04);
   --tabs-pill-bg: #fff;
