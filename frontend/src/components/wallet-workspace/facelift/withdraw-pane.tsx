@@ -90,11 +90,12 @@ function SourceOptionRow({
 }
 
 // Figma 4693:66727 (positions pane, empty amount) + 4693:66028 (valid amount)
-// + 4693:66297 (narrow: source select becomes a dropdown action-sheet).
-// Renders the middle Withdraw card and, on wide viewports, the Positions
-// selector card in place of the chart pane. Withdrawals run through
-// data.actions (OG protocol); after a full exit the pane flips into the
-// rent-cleanup phase ("Close policies").
+// + 4693:66297 (source select opens as an anchored dropdown action-sheet).
+// Renders the middle Withdraw card at its usual width (an empty reserved
+// slot stands in for the hidden right pane) with the position select opening
+// in-pane at every desktop width (bottom sheet on mobile). Withdrawals run
+// through data.actions (OG protocol); after a full exit the pane flips into
+// the rent-cleanup phase ("Close policies").
 export function WithdrawPane({
   data,
   initialSourceKey,
@@ -272,13 +273,13 @@ export function WithdrawPane({
             {isSheetOpen ? (
               <button
                 aria-label="Close position select"
-                className="fixed inset-0 z-10 cursor-default min-[1204px]:hidden max-[795px]:hidden"
+                className="fixed inset-0 z-10 cursor-default max-[795px]:hidden"
                 onClick={() => setIsSheetOpen(false)}
                 type="button"
               />
             ) : null}
             <DropdownReveal
-              className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] min-[1204px]:hidden max-[795px]:hidden"
+              className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] max-[795px]:hidden"
               isOpen={isSheetOpen}
               origin="bottom-center"
             >
@@ -335,7 +336,7 @@ export function WithdrawPane({
 
             <div
               className={`t-hover flex w-full items-center rounded-2xl px-4 ${
-                isSheetOpen ? "max-[1203px]:bg-black/[0.04]" : ""
+                isSheetOpen ? "bg-black/[0.04]" : ""
               }`}
             >
               <button
@@ -406,7 +407,7 @@ export function WithdrawPane({
               </div>
               <button
                 aria-label="Select position"
-                className="t-hover -my-2.5 -mr-2.5 ml-0.5 flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
+                className="t-hover -my-2.5 -mr-2.5 ml-0.5 flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
                 onClick={() => setIsSheetOpen((open) => !open)}
                 type="button"
               >
@@ -506,26 +507,9 @@ export function WithdrawPane({
         </div>
       </section>
 
-      {/* Positions selector replaces the chart pane while withdrawing; hidden
-          below 1204px where the in-pane dropdown takes over. */}
-      <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
-        <header className="flex w-full items-center p-2">
-          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
-            Positions
-          </h2>
-        </header>
-        <div className="flex w-full flex-col p-2">
-          {options.map((option) => (
-            <SourceOptionRow
-              isSelected={option.key === selectedOption?.key}
-              key={option.key}
-              onSelect={() => selectSource(option.key)}
-              option={option}
-              rounded="rounded-2xl"
-            />
-          ))}
-        </div>
-      </aside>
+      {/* Empty reserved slot (same as Send's/deposit's): the positions
+          column went away but the middle pane must keep its usual width. */}
+      <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block" />
     </>
   );
 }
