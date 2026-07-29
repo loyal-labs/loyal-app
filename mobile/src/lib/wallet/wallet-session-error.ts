@@ -26,7 +26,7 @@ export type WalletSessionFailure =
   | "connection_failed"
   /** The wallet app was reachable but did not answer in time. */
   | "timeout"
-  /** The session opened; the wallet errored while producing the signature. */
+  /** The wallet-native signer errored while producing the signature. */
   | "signing_failed";
 
 // What the user is told, per failure. Owned here so the advice can never drift

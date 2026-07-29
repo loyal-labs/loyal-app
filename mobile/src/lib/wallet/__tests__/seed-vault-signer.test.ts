@@ -49,6 +49,8 @@ jest.mock("../vault-account-storage", () => ({
 import { SeedVaultSigner } from "../seed-vault-signer";
 // eslint-disable-next-line import/first
 import { WalletRejectedError } from "../rejection";
+// eslint-disable-next-line import/first
+import { WalletSessionError } from "../wallet-session-error";
 
 const authToken = "42";
 const derivationPath = "m/44'/501'/0'/0'";
@@ -288,6 +290,27 @@ describe("SeedVaultSigner", () => {
     await expect(signer.signMessage(new Uint8Array([0]))).rejects.toThrow(
       "result=1004",
     );
+    expect(mockListAuthorizedSeeds).not.toHaveBeenCalled();
+    expect(mockClearVaultAccount).not.toHaveBeenCalled();
+  });
+
+  it("preserves coded native signMessage failures as wallet signing errors", async () => {
+    const signer = new SeedVaultSigner(authToken, derivationPath, address);
+    const nativeError = Object.assign(new Error("No activity available"), {
+      code: "NO_ACTIVITY",
+    });
+    mockSignMessage.mockRejectedValueOnce(nativeError);
+
+    const error = await signer
+      .signMessage(new Uint8Array([0]))
+      .catch((failure: unknown) => failure);
+
+    expect(error).toBeInstanceOf(WalletSessionError);
+    expect(error).toMatchObject({
+      failure: "signing_failed",
+      walletCode: "NO_ACTIVITY",
+      cause: nativeError,
+    });
     expect(mockListAuthorizedSeeds).not.toHaveBeenCalled();
     expect(mockClearVaultAccount).not.toHaveBeenCalled();
   });

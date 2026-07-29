@@ -5,6 +5,7 @@ import { Buffer } from "buffer";
 import { WalletRejectedError } from "./rejection";
 import type { Signer } from "./signer";
 import { clearVaultAccount, storeVaultAccount } from "./vault-account-storage";
+import { WalletSessionError } from "./wallet-session-error";
 
 // The vault caps signing requests per authorization intent
 // (IMPLEMENTATION_LIMITS_MAX_SIGNING_REQUESTS — 3 on current Saga/Seeker
@@ -41,6 +42,16 @@ function isInvalidAuthTokenError(error: unknown): boolean {
  */
 export function isSeedVaultUserDecline(error: unknown): boolean {
   return error instanceof Error && USER_DECLINED_RESULT.test(error.message);
+}
+
+function nativeErrorCode(error: unknown): string | number | undefined {
+  if (!error || typeof error !== "object") {
+    return undefined;
+  }
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" || typeof code === "number"
+    ? code
+    : undefined;
 }
 
 // The vault signs the message bytes, not the full serialized transaction
@@ -81,13 +92,21 @@ export class SeedVaultSigner implements Signer {
   }
 
   async signMessage(bytes: Uint8Array): Promise<Uint8Array> {
-    return this.withAuthTokenRecovery(() =>
-      SeedVault.signMessage({
-        authToken: this.authToken,
-        derivationPath: this.derivationPath,
-        message: bytes,
-      }),
-    );
+    try {
+      return await this.withAuthTokenRecovery(() =>
+        SeedVault.signMessage({
+          authToken: this.authToken,
+          derivationPath: this.derivationPath,
+          message: bytes,
+        }),
+      );
+    } catch (error) {
+      const code = nativeErrorCode(error);
+      if (code !== undefined) {
+        throw new WalletSessionError("signing_failed", code, error);
+      }
+      throw error;
+    }
   }
 
   async signTransaction<T extends Transaction | VersionedTransaction>(

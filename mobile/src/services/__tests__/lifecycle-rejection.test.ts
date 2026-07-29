@@ -172,6 +172,21 @@ describe("wallet session classification", () => {
     expect(mapLifecycleErrorCode(error)).toBe("wallet_connection_failed");
   });
 
+  it("classifies a Seed Vault native signing code as wallet_signing_failed", () => {
+    const nativeError = Object.assign(new Error("No activity available"), {
+      code: "NO_ACTIVITY",
+    });
+    const error = new WalletSessionError(
+      "signing_failed",
+      nativeError.code,
+      nativeError,
+    );
+
+    expect(mapLifecycleErrorCode(error)).toBe("wallet_signing_failed");
+    expect(error.walletCode).toBe("NO_ACTIVITY");
+    expect(error.cause).toBe(nativeError);
+  });
+
   it("emits failed with the session code and no httpStatus", async () => {
     const sent = captureEnvelopes();
     newFlow().failFrom("prepare", new WalletSessionError("connection_failed"));
