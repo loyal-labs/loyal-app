@@ -2,91 +2,43 @@
 
 import { useState } from "react";
 
-import type { TransactionDetail } from "@/components/wallet-sidebar/types";
+import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
+import {
+  formatEarnTransactionDateGroup,
+  formatEarnTransactionTimestamp,
+  getEarnTransactionAmountColor,
+  getEarnTransactionRowLabel,
+} from "@/components/wallet-workspace/earn-transactions-pane";
 import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
+import {
+  DualIcon,
+  UsdcCoinImage,
+} from "@/components/wallet-workspace/facelift/earn-activity-card";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { openTrackedLink } from "@/lib/core/analytics";
-import { getTokenIconUrl } from "@/lib/token-icon";
+import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
-// Swap rows carry both legs (from the raw activity) so the detail can show
-// the two-line hero and the rate — the mapped ActivityRow keeps only one.
-export type TransactionSwapDetail = {
-  fromAmount: string;
-  fromSymbol: string;
-  fromIcon: string;
-  toAmount: string;
-  toSymbol: string;
-  toIcon: string;
-  rate: string | null;
-};
-
-type DetailKind =
-  | "sent"
-  | "received"
-  | "swap"
-  | "earn_deposit"
-  | "earn_withdraw"
-  | "shielded"
-  | "unshielded";
-
-const KIND_TITLES: Record<DetailKind, string> = {
-  earn_deposit: "Deposited",
-  earn_withdraw: "Withdrawn",
-  received: "Received",
-  sent: "Sent",
-  shielded: "Shielded",
-  swap: "Swapped",
-  unshielded: "Unshielded",
-};
-
-function truncateAddress(addr: string): string {
-  if (addr.length <= 12) {
-    return addr;
+function truncateMiddle(value: string): string {
+  if (value.length <= 12) {
+    return value;
   }
-  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
-}
-
-function resolveKind(
-  detail: TransactionDetail,
-  swap: TransactionSwapDetail | undefined
-): DetailKind {
-  if (swap) {
-    return "swap";
-  }
-  const override = detail.activity.titleOverride;
-  if (override === "Earn Deposit") {
-    return "earn_deposit";
-  }
-  if (override === "Earn Withdrawal") {
-    return "earn_withdraw";
-  }
-  if (detail.activity.type === "shielded") {
-    return "shielded";
-  }
-  if (detail.activity.type === "unshielded") {
-    return "unshielded";
-  }
-  return detail.activity.type === "sent" ? "sent" : "received";
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
 }
 
 // One From/To style row (Figma "Cell"): 44px tile, 13px label, 16px value.
 function RouteRow({
-  copyValue,
   icon,
   label,
   value,
   valueSuffix,
 }: {
-  copyValue?: string;
   icon: React.ReactNode;
   label: string;
   value: string;
   valueSuffix?: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
   return (
     <div className="flex h-[60px] w-full items-center rounded-2xl px-4">
       <div className="flex shrink-0 items-center py-2 pr-3">{icon}</div>
@@ -101,44 +53,41 @@ function RouteRow({
           ) : null}
         </p>
       </div>
-      {copyValue ? (
-        <button
-          aria-label={`Copy ${label.toLowerCase()} address`}
-          className="t-hover flex shrink-0 items-center justify-center pl-3"
-          onClick={() => {
-            void copyTextToClipboard(copyValue).then((didCopy) => {
-              if (didCopy) {
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1500);
-              }
-            });
-          }}
-          type="button"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
-            src={`${ASSET_BASE}/${copied ? "icon-check.svg" : "icon-copy.svg"}`}
-          />
-        </button>
-      ) : null}
     </div>
   );
 }
 
-function WalletTile() {
-  return (
-    <span className="flex size-11 items-center justify-center rounded-[11px] bg-black/[0.04]">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+// The wallet side ("Main") renders as the same USDC coin art the activity
+// rows use — the API's icon for it is the legacy agent avatar. Market sides
+// carry their own logos; abstract sides (Earn / Autodeposit) fall back to the
+// Earn glyph.
+function RouteTile({ side }: { side: EarnTransactionItem["source"] }) {
+  if (side.label === "Main") {
+    return (
+      <span className="relative block size-11 overflow-hidden rounded-full">
+        <UsdcCoinImage />
+      </span>
+    );
+  }
+  if (side.icon) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
       <img
         alt=""
         aria-hidden="true"
-        className="h-[19px] w-[25px]"
-        src={`${ASSET_BASE}/icon-wallet-fill.svg`}
+        className="size-11 rounded-full object-cover"
+        src={side.icon}
       />
-    </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      alt=""
+      aria-hidden="true"
+      className="size-11"
+      src={`${ASSET_BASE}/earn-icon.svg`}
+    />
   );
 }
 
@@ -153,114 +102,97 @@ function DetailCell({ label, value }: { label: string; value: string }) {
   );
 }
 
-// Facelift transaction detail (Figma 4880:74020 Sent, 4879:68721 Received,
-// 4880:74295 Swapped, 4879:69018 Deposited, 4880:74343 Withdrawn,
-// 4880:74400 Shielded, 4880:74481 Unshielded): identity in the header,
-// amount hero, From/To route rows, fee card, Solscan button pinned bottom.
-export function TransactionDetailPane({
-  detail,
+function SignatureCell({ signature }: { signature: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div className="flex w-full items-center">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-4 py-[11px]">
+        <p className="text-[13px] leading-4 text-[#8a8a8e]">Signature</p>
+        <p className="truncate text-[16px] text-black leading-5 tracking-[-0.176px]">
+          {truncateMiddle(signature)}
+        </p>
+      </div>
+      <button
+        aria-label="Copy transaction signature"
+        className="t-hover flex shrink-0 items-center justify-center px-4"
+        onClick={() => {
+          void copyTextToClipboard(signature).then((didCopy) => {
+            if (didCopy) {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            }
+          });
+        }}
+        type="button"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt=""
+          aria-hidden="true"
+          className="size-6"
+          src={`${ASSET_BASE}/${copied ? "icon-check.svg" : "icon-copy.svg"}`}
+        />
+      </button>
+    </div>
+  );
+}
+
+// Earn transaction detail in the wallet detail's design (Figma 4879:69018
+// Deposited / 4880:74343 Withdrawn): identity header, amount hero, From → To
+// route rows, details card, Solscan button pinned bottom. Covers every
+// indexed Earn event — create & deposit, deposit, withdraw, withdraw & close,
+// create/remove allowance, balance sweep, rebalanced, reconciled. Allowance
+// events skip the hero (their indexed amount is always $0.00) and rebalances
+// without a signature drop the signature cell and Solscan button.
+export function EarnTransactionDetailPane({
+  item,
   onClose,
-  swap,
   walletAddress,
 }: {
-  detail: TransactionDetail;
+  item: EarnTransactionItem;
   onClose: () => void;
-  swap?: TransactionSwapDetail;
   walletAddress: string | null;
 }) {
   const publicEnv = usePublicEnv();
-  const kind = resolveKind(detail, swap);
-  const row = detail.activity;
-  const title = swap ? "Swapped" : row.titleOverride ?? KIND_TITLES[kind];
-  const isPrivate = detail.isPrivate || row.isPrivate;
-  const isShieldKind = kind === "shielded" || kind === "unshielded";
-  const isEarnKind = kind === "earn_deposit" || kind === "earn_withdraw";
-
-  // "+1,010.22 USDC" → sign-stripped number + symbol for the hero.
-  const rawAmount = row.amount.replace(/^[+−-]/, "");
-  const amountParts = rawAmount.split(" ");
-  const amountNumber = amountParts[0];
-  const amountSymbol = amountParts.slice(1).join(" ");
-  // Shield rows keep the legacy shield art as row.icon — the detail wants
-  // the token image, so re-derive it from the amount's symbol.
-  const tokenIcon = isShieldKind ? getTokenIconUrl(amountSymbol) : row.icon;
-
-  const ownAddress = walletAddress ? truncateAddress(walletAddress) : null;
-  const solscanUrl = `https://solscan.io/tx/${row.id}${
+  const isMovement =
+    item.kind === "rebalance" || item.kind === "reconciliation";
+  const isAllowanceAction = item.kind === "autodeposit_action";
+  const title = getEarnTransactionRowLabel(item);
+  const confirmedAt = item.confirmedAt ?? item.sortTimestamp;
+  const dateLabel =
+    formatEarnTransactionDateGroup(confirmedAt) ?? item.dateGroup;
+  const timeLabel =
+    formatEarnTransactionTimestamp(confirmedAt) ?? item.timestamp;
+  const ownAddress = walletAddress ? truncateMiddle(walletAddress) : null;
+  const hasSignature = item.signature.length > 0;
+  const solscanUrl = `https://solscan.io/tx/${item.signature}${
     publicEnv.solanaEnv === "mainnet"
       ? ""
       : `?cluster=${publicEnv.solanaEnv === "devnet" ? "devnet" : "custom"}`
   }`;
-
-  const earnTile = (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img alt="" aria-hidden="true" className="size-11" src={`${ASSET_BASE}/earn-icon.svg`} />
-  );
-  const stablecoinsTile = (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img alt="" aria-hidden="true" className="size-11" src={`${ASSET_BASE}/stash-stablecoins.svg`} />
-  );
-  const stablecoinsRow = (label: string) => (
-    <RouteRow
-      icon={stablecoinsTile}
-      label={label}
-      value="Stablecoins"
-      valueSuffix={ownAddress ?? undefined}
-    />
-  );
-  const earnRow = (label: string) => (
-    <RouteRow icon={earnTile} label={label} value="Earn" />
-  );
+  // Same art derivation as the activity list's TransactionRow, so the header
+  // identity matches the row that opened it.
+  const backSrc =
+    isMovement || item.kind === "withdraw" ? item.source.icon : null;
+  const frontSrc =
+    isMovement || item.kind === "deposit" ? item.destination.icon : null;
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
       <header className="flex w-full shrink-0 items-center p-2">
-        <div className="flex shrink-0 items-center pr-3">
-          {swap ? (
-            <span className="relative block size-11">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="absolute top-0 left-0 size-[30px] rounded-full object-cover"
-                src={swap.fromIcon}
-              />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="absolute right-0 bottom-0 size-[30px] rounded-full object-cover"
-                src={swap.toIcon}
-              />
-            </span>
-          ) : isShieldKind ? (
-            <span className="relative block size-11">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="absolute top-0 left-0 size-[30px] rounded-full object-cover"
-                src={tokenIcon}
-              />
-              {kind === "shielded" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  alt=""
-                  className="absolute right-px bottom-px size-7"
-                  src={`${ASSET_BASE}/icon-shield-badge.svg`}
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  alt=""
-                  className="-scale-x-100 absolute right-px bottom-px h-7 w-auto max-w-none"
-                  src={`${ASSET_BASE}/icon-unshield-badge.svg`}
-                />
-              )}
+        {/* pl-4 puts the icon on the same 24px inset as the route rows and
+            cards below (title lands on their 80px text column). */}
+        <div className="flex shrink-0 items-center pl-4 pr-3">
+          {isAllowanceAction ? (
+            <span className="inline-flex size-11 shrink-0 overflow-hidden rounded-full">
+              <EarnYieldIcon />
             </span>
           ) : (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt=""
-              className="size-11 rounded-full object-cover"
-              src={tokenIcon}
+            <DualIcon
+              backSrc={backSrc}
+              frontSrc={frontSrc}
+              isWithdraw={item.kind === "withdraw"}
             />
           )}
         </div>
@@ -269,7 +201,7 @@ export function TransactionDetailPane({
             {title}
           </h2>
           <p className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-            {row.date}, {row.timestamp}
+            {dateLabel}, {timeLabel}
           </p>
         </div>
         <button
@@ -288,85 +220,56 @@ export function TransactionDetailPane({
         </button>
       </header>
       <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
-        <div className="w-full p-2">
-          <div className="flex w-full flex-col gap-0.5 px-4 pt-[30px] pb-2">
-            {swap ? (
-              <>
-                <p className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]">
-                  −{swap.fromAmount}{" "}
-                  <span className="text-[#b1b1b4] text-[28px] leading-8 tracking-[-0.308px]">
-                    {swap.fromSymbol}
-                  </span>
-                </p>
-                <p className="whitespace-nowrap font-semibold text-[#34c759] text-[40px] leading-[48px] tracking-[-0.44px]">
-                  +{swap.toAmount}{" "}
-                  <span className="text-[#b1b1b4] text-[28px] leading-8 tracking-[-0.308px]">
-                    {swap.toSymbol}
-                  </span>
-                </p>
-              </>
-            ) : (
+        {isAllowanceAction ? null : (
+          <div className="w-full p-2">
+            <div className="flex w-full flex-col gap-0.5 px-4 pt-[30px] pb-2">
               <p
-                className={`whitespace-nowrap font-semibold text-[40px] leading-[48px] tracking-[-0.44px] ${
-                  kind === "received" ? "text-[#34c759]" : "text-black"
-                }`}
+                className="whitespace-nowrap font-semibold text-[40px] leading-[48px] tracking-[-0.44px]"
+                style={{
+                  color: getEarnTransactionAmountColor({ kind: item.kind }),
+                }}
               >
-                {isShieldKind || isEarnKind
-                  ? ""
-                  : kind === "received"
-                  ? "+"
-                  : "−"}
-                {amountNumber}{" "}
+                {item.amount}{" "}
                 <span className="text-[#b1b1b4] text-[28px] leading-8 tracking-[-0.308px]">
-                  {amountSymbol}
+                  USDC
                 </span>
               </p>
-            )}
-            <p className="text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
-              {detail.usdValue}
-            </p>
+              <p className="text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                {item.rawAmount}
+              </p>
+            </div>
           </div>
+        )}
+        <div className="relative w-full px-2 pb-2">
+          <RouteRow
+            icon={<RouteTile side={item.source} />}
+            label="From"
+            value={item.source.label}
+            valueSuffix={
+              item.source.label === "Main" ? ownAddress ?? undefined : undefined
+            }
+          />
+          <RouteRow
+            icon={<RouteTile side={item.destination} />}
+            label="To"
+            value={item.destination.label}
+            valueSuffix={
+              item.destination.label === "Main"
+                ? ownAddress ?? undefined
+                : undefined
+            }
+          />
+          {/* Connector between the two 60px route rows. */}
+          <span className="absolute top-[54px] left-[45px] h-3 w-0.5 rounded-xl bg-[#d9d9d9]" />
         </div>
-        {kind === "sent" || kind === "received" ? (
-          <div className="w-full px-2 pb-2">
-            <RouteRow
-              copyValue={row.counterparty}
-              icon={<WalletTile />}
-              label={kind === "sent" ? "To" : "From"}
-              value={truncateAddress(row.counterparty)}
-            />
-          </div>
-        ) : isEarnKind ? (
-          <div className="relative w-full px-2 pb-2">
-            {kind === "earn_deposit" ? (
-              <>
-                {stablecoinsRow("From")}
-                {earnRow("To")}
-              </>
-            ) : (
-              <>
-                {earnRow("From")}
-                {stablecoinsRow("To")}
-              </>
-            )}
-            {/* Connector between the two 60px route rows. */}
-            <span className="absolute top-[54px] left-[45px] h-3 w-0.5 rounded-xl bg-[#d9d9d9]" />
-          </div>
-        ) : null}
         <div className="w-full p-2">
           <div className="flex w-full flex-col rounded-2xl bg-black/[0.04]">
-            {detail.status === "Failed" ? (
-              <DetailCell label="Status" value="Failed" />
-            ) : null}
-            {swap?.rate ? <DetailCell label="Rate" value={swap.rate} /> : null}
-            <DetailCell
-              label="Network Fee"
-              value={`${detail.networkFee} ~ ${detail.networkFeeUsd}`}
-            />
+            {hasSignature ? <SignatureCell signature={item.signature} /> : null}
+            <DetailCell label="Slot" value={item.confirmedSlot} />
           </div>
         </div>
       </div>
-      {isPrivate ? null : (
+      {hasSignature ? (
         <div className="w-full shrink-0 bg-white px-5 pt-2 pb-4">
           <button
             className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
@@ -382,7 +285,7 @@ export function TransactionDetailPane({
             View on Solscan
           </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
