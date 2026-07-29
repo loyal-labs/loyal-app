@@ -70,6 +70,13 @@ export type OptimizationVolumePoint = {
   date: string;
 };
 
+export type PreviousMonthRebalancePoint = {
+  confirmed: number;
+  date: string;
+  failed: number;
+  terminalAttempts: number;
+};
+
 export type RebalanceAuditRow = {
   abandonReason: string | null;
   amountRaw: bigint | null;
@@ -165,6 +172,13 @@ type OptimizationVolumeSqlRow = {
   cumulative_amount_raw: SqlScalar;
   daily_amount_raw: SqlScalar;
   date: string;
+};
+
+type PreviousMonthRebalanceSqlRow = {
+  confirmed: SqlScalar;
+  date: string;
+  failed: SqlScalar;
+  terminal_attempts: SqlScalar;
 };
 
 type RebalanceAuditSqlRow = {
@@ -936,6 +950,74 @@ export async function getOptimizationVolumeSeries(): Promise<
     cumulativeAmountRaw: toBigInt(row.cumulative_amount_raw),
     dailyAmountRaw: toBigInt(row.daily_amount_raw),
     date: row.date,
+  }));
+}
+
+export async function getPreviousMonthRebalanceSeries(): Promise<
+  PreviousMonthRebalancePoint[]
+> {
+  const rows = await queryRows<PreviousMonthRebalanceSqlRow>(
+    `
+      WITH bounds AS (
+        SELECT
+          (
+            date_trunc(
+              'month',
+              now() AT TIME ZONE 'Asia/Yekaterinburg'
+            ) - interval '1 month'
+          ) AS started_at,
+          date_trunc(
+            'month',
+            now() AT TIME ZONE 'Asia/Yekaterinburg'
+          ) AS ended_at
+      ),
+      days AS (
+        SELECT generate_series(
+          (SELECT started_at::date FROM bounds),
+          (SELECT (ended_at - interval '1 day')::date FROM bounds),
+          interval '1 day'
+        )::date AS date
+      ),
+      daily AS (
+        SELECT
+          (
+            decision.updated_at AT TIME ZONE 'Asia/Yekaterinburg'
+          )::date AS date,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'confirmed'
+          )::bigint AS confirmed,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'failed'
+          )::bigint AS failed
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.execution_plan->>'kind' = 'same_mint'
+          AND decision.status IN ('confirmed', 'failed')
+          AND decision.updated_at >= (
+            SELECT started_at AT TIME ZONE 'Asia/Yekaterinburg' FROM bounds
+          )
+          AND decision.updated_at < (
+            SELECT ended_at AT TIME ZONE 'Asia/Yekaterinburg' FROM bounds
+          )
+        GROUP BY 1
+      )
+      SELECT
+        to_char(day.date, 'YYYY-MM-DD') AS date,
+        COALESCE(daily.confirmed, 0)::text AS confirmed,
+        COALESCE(daily.failed, 0)::text AS failed,
+        (
+          COALESCE(daily.confirmed, 0) + COALESCE(daily.failed, 0)
+        )::text AS terminal_attempts
+      FROM days AS day
+      LEFT JOIN daily USING (date)
+      ORDER BY day.date ASC
+    `
+  );
+
+  return rows.map((row) => ({
+    confirmed: toNumber(row.confirmed),
+    date: row.date,
+    failed: toNumber(row.failed),
+    terminalAttempts: toNumber(row.terminal_attempts),
   }));
 }
 

@@ -42,10 +42,12 @@ import type {
 
 import { SafeReserveApyChart } from "../safe-reserve-apy-chart";
 import { OptimizationVolumeChart } from "./optimization-volume-chart";
+import { PreviousMonthRebalanceChart } from "./previous-month-rebalance-chart";
 import { RebalanceActivityChart } from "./rebalance-activity-chart";
 import type {
   EarnActiveReserveRouteRow,
   EarnRebalanceDecisionRow,
+  PreviousMonthRebalancePoint,
   RebalanceActivityPoint,
   RebalanceAuditErrorFilter,
   RebalanceAuditLane,
@@ -95,6 +97,7 @@ type RebalanceApiData = {
   apyData: SafeReserveApyMonitorData;
   decisions: SerializedRebalanceDecisionRow[];
   optimizationVolume: SerializedOptimizationVolumePoint[];
+  previousMonthRebalances: PreviousMonthRebalancePoint[];
   routes: SerializedActiveReserveRouteRow[];
 };
 
@@ -1279,6 +1282,7 @@ function RebalanceMonitorFallback() {
       <ApyChartFallback />
       <ApyChartFallback />
       <ApyChartFallback />
+      <ApyChartFallback />
       <RebalanceDecisionAuditFallback />
     </div>
   );
@@ -1355,6 +1359,7 @@ export function RebalanceMonitorClient() {
         decisionMarkers={toDecisionMarkers(state.data.decisions)}
       />
       <RebalanceActivityChart data={state.data.activity} />
+      <PreviousMonthRebalanceChart data={state.data.previousMonthRebalances} />
       <OptimizationVolumeChart data={state.data.optimizationVolume} />
       <RebalanceAuditCard reserveLabels={reserveLabels} />
     </div>
