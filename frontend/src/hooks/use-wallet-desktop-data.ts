@@ -72,6 +72,9 @@ export type WalletDesktopData = {
   investmentTokenRows: TokenRow[];
   activityRows: ActivityRow[];
   allActivityRows: ActivityRow[];
+  // Raw activities backing the rows — swap entries keep both token legs,
+  // which the mapped ActivityRow shape drops.
+  walletActivities: WalletActivity[];
   transactionDetails: Record<string, TransactionDetail>;
   positions: PortfolioPosition[];
   balanceHistory: BalanceHistoryPoint[];
@@ -265,7 +268,7 @@ function getActivityDisplay(
             typeof position?.priceUsd === "number"
               ? parseFloat(activity.token.amount) * position.priceUsd
               : null,
-          counterparty: activity.action,
+          counterparty: activity.counterparty ?? activity.action,
         };
       }
 
@@ -277,7 +280,7 @@ function getActivityDisplay(
           typeof solPriceUsd === "number"
             ? (activity.amountLamports / 1_000_000_000) * solPriceUsd
             : null,
-        counterparty: activity.action,
+        counterparty: activity.counterparty ?? activity.action,
       };
     }
     case "sol_transfer":
@@ -374,6 +377,16 @@ function mapActivityToRowAndDetail(
       ? "received"
       : "sent";
 
+  // Earn (Kamino) operations read as the operation itself, not a generic
+  // send: "Earn Deposit" instead of "Sent to Unknown". Fee-only legs
+  // (autodeposit machinery) carry no token change — the row's SOL amount is
+  // just the network fee — and read as "Earn Vault Operation".
+  const earnActivity =
+    activity.type === "program_action" &&
+    (activity.action === "earn_deposit" || activity.action === "earn_withdraw")
+      ? activity
+      : null;
+
   const row: ActivityRow = {
     id: activity.signature,
     type: rowType,
@@ -388,6 +401,21 @@ function mapActivityToRowAndDetail(
         ? "/hero-new/Unshield.svg"
         : display.icon,
     rawTimestamp: activity.timestamp ?? undefined,
+    ...(earnActivity
+      ? earnActivity.token
+        ? {
+            titleOverride:
+              earnActivity.action === "earn_deposit"
+                ? "Earn Deposit"
+                : "Earn Withdrawal",
+          }
+        : {
+            // Fee-only SOL legs (autodeposit machinery) aren't a user
+            // deposit/withdrawal — label them as generic vault operations.
+            subtitle: "Network fee",
+            titleOverride: "Earn Vault Operation",
+          }
+      : {}),
   };
 
   return {
@@ -1372,6 +1400,7 @@ export function useWalletDesktopData(
     investmentTokenRows,
     activityRows: mergedActivityData.rows.slice(0, 5),
     allActivityRows: mergedActivityData.rows,
+    walletActivities: activities,
     transactionDetails: mergedActivityData.details,
     positions,
     balanceHistory,

@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 
-import { fetchTokenDetailByMint } from "@/lib/market/token-detail.server";
+import {
+  fetchTokenChartByMint,
+  fetchTokenDetailByMint,
+  TOKEN_CHART_DAYS,
+  type TokenChartDays,
+} from "@/lib/market/token-detail.server";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ mint: string }> }
 ) {
   const { mint } = await params;
@@ -16,7 +21,25 @@ export async function GET(
     );
   }
 
+  const chartDays = new URL(request.url).searchParams.get("chartDays");
+
   try {
+    // ?chartDays=<1|7|30|365|max> returns just that range's chart points; the
+    // plain request keeps returning the full detail (with the 24h chart).
+    if (chartDays) {
+      if (!TOKEN_CHART_DAYS.includes(chartDays as TokenChartDays)) {
+        return NextResponse.json(
+          { error: "Invalid chartDays" },
+          { status: 400 }
+        );
+      }
+      const chart = await fetchTokenChartByMint(
+        normalizedMint,
+        chartDays as TokenChartDays
+      );
+      return NextResponse.json({ chart });
+    }
+
     const detail = await fetchTokenDetailByMint(normalizedMint);
     return NextResponse.json(detail);
   } catch (error) {

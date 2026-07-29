@@ -25,7 +25,7 @@ import {
 
 // Mobile twin of `yield-optimization/withdrawals/prepare`. Identical source
 // selection + prepare logic, but authenticated by a wallet signature (no
-// Turnstile/session) and it resolves the caller's smart account itself instead
+// captcha/session) and it resolves the caller's smart account itself instead
 // of reading it from a session principal. Withdrawing requires an existing
 // account, so (unlike deposit) it never provisions. Source selection lives in
 // `earn-withdraw-input-resolution.server.ts`, shared with `../prepare-context`

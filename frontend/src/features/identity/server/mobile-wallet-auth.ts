@@ -7,7 +7,7 @@ import {
 } from "./wallet-auth-signature";
 
 // Wallet-signed auth for the native mobile app. The web sign-in flow is gated
-// by Cloudflare Turnstile (a browser CAPTCHA a native client cannot produce),
+// by the Cap captcha (a browser CAPTCHA a native client cannot produce),
 // so mobile authenticates each Earn request by signing a short, purpose-scoped
 // message with the wallet key instead of minting a full session. The server
 // reconstructs the exact message from the request fields and verifies the

@@ -11,10 +11,9 @@ import {
 
 export type { AppEnvironment } from "./shared";
 
-const LOCAL_TURNSTILE_BYPASS_TOKEN = "local-bypass";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const APP_URL_ENV_NAME = "NEXT_PUBLIC_APP_URL";
-const TURNSTILE_SITE_KEY_ENV_NAME = "NEXT_PUBLIC_TURNSTILE_SITE_KEY";
+const CAP_SECRET_ENV_NAME = "CAP_SECRET";
 const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
@@ -22,9 +21,8 @@ const DEMO_RECIPE_ENV_NAME = "NEXT_PUBLIC_DEMO_RECIPE";
 const USERCENTRICS_SETTINGS_ID_ENV_NAME =
   "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
-export type TurnstileConfig =
-  | { mode: "bypass"; verificationToken: string }
-  | { mode: "widget"; siteKey: string }
+export type CaptchaConfig =
+  | { mode: "widget" }
   | { mode: "misconfigured"; reason: string };
 
 export type SwapConfig =
@@ -34,7 +32,7 @@ export type SwapConfig =
 export type PublicEnv = {
   appEnvironment: AppEnvironment;
   loyalAppUrl: string;
-  turnstile: TurnstileConfig;
+  captcha: CaptchaConfig;
   flagsManifestUrl: string | undefined;
   solanaEnv: SolanaEnv;
   solanaRpcEndpoint: string;
@@ -50,28 +48,22 @@ export type PublicEnv = {
 
 const DEFAULT_MIXPANEL_PROXY_PATH = "/ingest";
 
-function resolveTurnstileConfig(
+// Resolved server-side (root layout) and passed down via PublicEnvProvider,
+// so the mode can key off the server-only CAP_SECRET — only the mode string
+// ever reaches the client. Cap runs same-origin with no domain allowlist, so
+// unlike Turnstile the real widget works on localhost and Vercel previews —
+// no local bypass mode needed.
+function resolveCaptchaConfig(
   env: EnvSource,
   appEnvironment: AppEnvironment
-): TurnstileConfig {
-  if (appEnvironment === "local") {
-    return {
-      mode: "bypass",
-      verificationToken: LOCAL_TURNSTILE_BYPASS_TOKEN,
-    };
-  }
-
-  const siteKey = getOptionalEnv(env, TURNSTILE_SITE_KEY_ENV_NAME);
-  if (siteKey) {
-    return {
-      mode: "widget",
-      siteKey,
-    };
+): CaptchaConfig {
+  if (getOptionalEnv(env, CAP_SECRET_ENV_NAME)) {
+    return { mode: "widget" };
   }
 
   return {
     mode: "misconfigured",
-    reason: `Turnstile is enabled for ${appEnvironment}, but ${TURNSTILE_SITE_KEY_ENV_NAME} is not set.`,
+    reason: `The Cap captcha is enabled for ${appEnvironment}, but ${CAP_SECRET_ENV_NAME} is not set.`,
   };
 }
 
@@ -111,7 +103,7 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
   return {
     appEnvironment,
     loyalAppUrl: resolveLoyalAppUrl(env, appEnvironment),
-    turnstile: resolveTurnstileConfig(env, appEnvironment),
+    captcha: resolveCaptchaConfig(env, appEnvironment),
     flagsManifestUrl: getOptionalEnv(env, FLAGS_MANIFEST_URL_ENV_NAME),
     solanaEnv,
     solanaRpcEndpoint: getFrontendSolanaEndpoints(solanaEnv).rpcEndpoint,

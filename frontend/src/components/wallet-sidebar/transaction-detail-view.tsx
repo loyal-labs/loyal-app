@@ -29,13 +29,15 @@ export function TransactionDetailView({
   const isUnshielded = detail.activity.type === "unshielded";
   const isPrivate = detail.isPrivate || detail.activity.isPrivate;
   const isShieldType = isShielded || isUnshielded;
-  const title = isShielded
-    ? "Shielded"
-    : isUnshielded
-    ? "Unshielded"
-    : isSent
-    ? "Sent"
-    : "Received";
+  const title =
+    detail.activity.titleOverride ??
+    (isShielded
+      ? "Shielded"
+      : isUnshielded
+      ? "Unshielded"
+      : isSent
+      ? "Sent"
+      : "Received");
   // Strip the +/− prefix for the large display
   const rawAmount = detail.activity.amount.replace(/^[+\u2212-]/, "");
   const parts = rawAmount.split(" ");

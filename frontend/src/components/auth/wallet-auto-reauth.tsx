@@ -32,18 +32,14 @@ export function WalletAutoReauth() {
   const { isOpen: isSignInModalOpen } = useSignInModal();
   const { connected, publicKey, signIn, signMessage, disconnect, wallet } =
     useWallet();
-  const { turnstile } = usePublicEnv();
+  const { captcha } = usePublicEnv();
 
-  // Silent re-auth has no captcha UI, so resolve a Turnstile token for the
-  // gated challenge endpoint without one. Bypass (local) and misconfigured
-  // envs resolve immediately; in widget mode there is no token to obtain
-  // silently, so we defer to the interactive sign-in (which renders the widget).
-  const silentTurnstileToken =
-    turnstile.mode === "bypass"
-      ? turnstile.verificationToken
-      : turnstile.mode === "misconfigured"
-      ? "captcha-skipped"
-      : null;
+  // Silent re-auth has no captcha UI, so resolve a captcha token for the
+  // gated challenge endpoint without one. Misconfigured envs resolve
+  // immediately; in widget mode there is no token to obtain silently, so we
+  // defer to the interactive sign-in (which renders the widget).
+  const silentCaptchaToken =
+    captcha.mode === "misconfigured" ? "captcha-skipped" : null;
 
   const attemptedAddressRef = useRef<string | null>(null);
   const failedRef = useRef(false);
@@ -69,7 +65,7 @@ export function WalletAutoReauth() {
       return;
     }
 
-    if (!silentTurnstileToken) {
+    if (!silentCaptchaToken) {
       return;
     }
 
@@ -96,7 +92,7 @@ export function WalletAutoReauth() {
             lifecycle,
             onStatusChange: setStatus,
             signIn,
-            turnstileToken: silentTurnstileToken ?? undefined,
+            captchaToken: silentCaptchaToken ?? undefined,
             walletName: wallet.adapter.name,
           });
         } else {
@@ -106,7 +102,7 @@ export function WalletAutoReauth() {
             lifecycle,
             messageSigner: signMessage,
             onStatusChange: setStatus,
-            turnstileToken: silentTurnstileToken ?? undefined,
+            captchaToken: silentCaptchaToken ?? undefined,
             walletAddress,
           });
         }
@@ -149,7 +145,7 @@ export function WalletAutoReauth() {
     refreshSession,
     signIn,
     signMessage,
-    silentTurnstileToken,
+    silentCaptchaToken,
     retryCount,
     wallet,
   ]);

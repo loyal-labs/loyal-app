@@ -85,10 +85,11 @@ export function ActivityRowItem({
             letterSpacing: "-0.176px",
           }}
         >
-          {activity.type === "received" ? "Received"
-            : activity.type === "shielded" ? "Shielded"
-            : activity.type === "unshielded" ? "Unshielded"
-            : "Sent"}
+          {activity.titleOverride ??
+            (activity.type === "received" ? "Received"
+              : activity.type === "shielded" ? "Shielded"
+              : activity.type === "unshielded" ? "Unshielded"
+              : "Sent")}
         </span>
         <span
           style={{
@@ -99,10 +100,11 @@ export function ActivityRowItem({
             color: "rgba(60, 60, 67, 0.6)",
           }}
         >
-          {activity.type === "shielded" ? "to secure balance"
-            : activity.type === "unshielded" ? "to main balance"
-            : activity.type === "received" ? `from ${truncateAddress(activity.counterparty)}`
-            : `to ${truncateAddress(activity.counterparty)}`}
+          {activity.subtitle ??
+            (activity.type === "shielded" ? "to secure balance"
+              : activity.type === "unshielded" ? "to main balance"
+              : activity.type === "received" ? `from ${truncateAddress(activity.counterparty)}`
+              : `to ${truncateAddress(activity.counterparty)}`)}
         </span>
       </div>
       <div

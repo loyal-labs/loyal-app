@@ -15,7 +15,7 @@ export const authSessionUserSchema = z.object({
 
 export const startEmailAuthRequestSchema = z.object({
   email: z.string().trim().email(),
-  turnstileToken: z.string().trim().min(1).optional(),
+  captchaToken: z.string().trim().min(1).optional(),
 });
 
 export const startEmailAuthResponseSchema = z.object({

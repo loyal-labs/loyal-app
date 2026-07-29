@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -22,6 +23,8 @@ import {
 } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
+import { maskBalanceText } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import {
   Tooltip,
   TooltipContent,
@@ -76,7 +79,7 @@ const EARN_CHART_BASELINE = 392;
 const EARN_CHART_TOP = 8;
 const MIN_DEPOSIT_USDC = 0.5;
 const EARN_BALANCE_DECIMALS = 6;
-const EARN_BALANCE_SAMPLE_MS = 250;
+export const EARN_BALANCE_SAMPLE_MS = 250;
 const USDC_RAW_SCALE = BigInt(1_000_000);
 const USDC_DISPLAY_DUST_TOLERANCE = 1.5 / Number(USDC_RAW_SCALE);
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
@@ -386,6 +389,17 @@ function splitBucksAmountParts(value: string) {
   }
 
   return { fraction: value.slice(dotIndex), whole: value.slice(0, dotIndex) };
+}
+
+function forecastMoneySegments(value: number, mutedFraction = false) {
+  const [whole, fraction = "00"] = formatMoney(value).split(".");
+  return [
+    { text: `$${whole}` },
+    {
+      color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : undefined,
+      text: `.${fraction}`,
+    },
+  ];
 }
 
 function formatForecastMoney(value: number, mutedFraction = false) {
@@ -885,7 +899,22 @@ function DepositButton({
   );
 }
 
-function EarnGrowingBalance({
+// Facelift-only: the exact display EarnGrowingBalance renders (dust-snapped,
+// 6 decimals, grouped, $-prefixed), split so the redesigned pane can pop the
+// digits with a muted fraction. Keep in sync with the NumberFlow format below.
+export function splitEarnBalanceDisplay(baseAmount: number): {
+  fraction: string;
+  whole: string;
+} {
+  const formatted = snapDollarDisplayDust(baseAmount).toLocaleString("en-US", {
+    maximumFractionDigits: EARN_BALANCE_DECIMALS,
+    minimumFractionDigits: EARN_BALANCE_DECIMALS,
+  });
+  const [whole, fraction] = formatted.split(".");
+  return { fraction: `.${fraction}`, whole: `$${whole}` };
+}
+
+export function EarnGrowingBalance({
   baseAmount,
   isHidden = false,
 }: {
@@ -941,8 +970,8 @@ function EarnGrowingBalance({
 // Figma spec) so the in-progress day always reads as the full-height cap.
 const EARNINGS_BAR_MAX_FRACTION = 295 / 300;
 const EARNINGS_BAR_MIN_HEIGHT_PX = 4;
-const EARNINGS_LIFETIME_RANGE_ID = "ALL" satisfies EarningsRangeId;
-const EARNINGS_DAILY_RANGE_ID = "30D" satisfies EarningsRangeId;
+export const EARNINGS_LIFETIME_RANGE_ID = "ALL" satisfies EarningsRangeId;
+export const EARNINGS_DAILY_RANGE_ID = "30D" satisfies EarningsRangeId;
 const EARNINGS_BAR_COLOR = "rgba(52, 199, 89, 0.6)";
 const EARNINGS_BAR_HOVER_COLOR = "rgba(52, 199, 89, 0.16)";
 const EARNINGS_TODAY_BAR_BORDER_COLOR = "rgba(0, 0, 0, 0.24)";
@@ -1060,7 +1089,7 @@ function getEarningsFractionDigits(value: number) {
   return 2;
 }
 
-function splitEarningsHeaderValue(value: number): {
+export function splitEarningsHeaderValue(value: number): {
   fraction: string;
   whole: string;
 } {
@@ -1074,7 +1103,7 @@ function splitEarningsHeaderValue(value: number): {
   return { fraction, whole };
 }
 
-function formatMaxDailyEarningsLabel(value: number) {
+export function formatMaxDailyEarningsLabel(value: number) {
   if (!Number.isFinite(value) || value < 0.01) {
     return "<$0.01";
   }
@@ -1084,7 +1113,7 @@ function formatMaxDailyEarningsLabel(value: number) {
   })}`;
 }
 
-function formatSignedEarningsAmount(value: number) {
+export function formatSignedEarningsAmount(value: number) {
   if (!Number.isFinite(value)) {
     return "+$0.00";
   }
@@ -1111,7 +1140,7 @@ const EARN_CHART_TABS: readonly {
 // Indeterminate ring spinner that echoes the landing -> app splash loader (faint
 // track + accent arc), minus the dog logo. Shown while the Earned chart is still
 // fetching its bars.
-function EarningsChartLoader() {
+export function EarningsChartLoader() {
   const SIZE = 56;
   const STROKE = 5;
   const radius = (SIZE - STROKE) / 2;
@@ -1720,7 +1749,7 @@ function EarningsBlock({
   );
 }
 
-function AutodepositToggle({
+export function AutodepositToggle({
   disabled = false,
   isOn,
   isPending = false,
@@ -1731,11 +1760,25 @@ function AutodepositToggle({
   isPending?: boolean;
   onToggle?: () => void;
 }) {
+  // transitions-dev "toggle": .is-init gates the bounce keyframes so the off
+  // animation doesn't play at mount — armed once isOn first changes, which
+  // covers both click-driven and server-driven flips.
+  const [isInit, setIsInit] = useState(false);
+  const previousIsOn = useRef(isOn);
+  useEffect(() => {
+    if (previousIsOn.current !== isOn) {
+      setIsInit(true);
+    }
+    previousIsOn.current = isOn;
+  }, [isOn]);
+
   return (
     <button
       aria-busy={isPending}
       aria-checked={isOn}
       aria-label={isOn ? "Pause Autodeposit" : "Resume Autodeposit"}
+      className={`t-toggle${isInit ? " is-init" : ""}`}
+      data-on={isOn}
       disabled={disabled}
       onClick={onToggle}
       role="switch"
@@ -1749,12 +1792,13 @@ function AutodepositToggle({
         flexShrink: 0,
         height: "31px",
         padding: "2px",
-        transition: "background 0.2s ease",
         width: "51px",
       }}
       type="button"
     >
+      {/* Thumb travel (20px) lives in the t-toggle CSS in globals.css. */}
       <span
+        className="t-toggle-thumb"
         style={{
           alignItems: "center",
           background: "#fff",
@@ -1763,9 +1807,6 @@ function AutodepositToggle({
           display: "inline-flex",
           height: "27px",
           justifyContent: "center",
-          // 51px track - 2x2px padding - 27px knob = 20px of travel.
-          transform: isOn ? "translateX(20px)" : "translateX(0)",
-          transition: "transform 0.2s ease",
           width: "27px",
         }}
       >
@@ -4687,21 +4728,37 @@ const HISTORICAL_MAIN_USDC_FALLBACK_APY_PERCENT =
   (EARN_COMPARISON_SERIES.find((series) => series.key === "mainUsdcReserve")
     ?.fixedApyBps ?? 559) / 100;
 
-function formatHistoricalApyValue(apyPercent: number, mutedFraction: boolean) {
+function historicalApyValueSegments(
+  apyPercent: number,
+  mutedFraction: boolean
+) {
   const [whole, fraction = "00"] = apyPercent.toFixed(2).split(".");
-  return (
-    <>
-      {whole}
-      <span
-        style={{ color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : "inherit" }}
-      >
-        .{fraction}%
-      </span>
-    </>
-  );
+  return [
+    { text: whole },
+    {
+      color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : undefined,
+      text: `.${fraction}%`,
+    },
+  ];
 }
 
-function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
+export function HistoricalApyChart({
+  apyDataRevealed,
+  axisTickCount = 2,
+  rangeId,
+}: {
+  // Facelift-only: skeleton the header values until the APY summary loads
+  // (undefined keeps the legacy render byte-identical).
+  apyDataRevealed?: boolean;
+  axisTickCount?: number;
+  rangeId: EarningsRangeId;
+}) {
+  // Unique per instance so simultaneously mounted charts (e.g. compact pane +
+  // expanded overlay) don't resolve each other's reveal clip rects.
+  const revealClipId = `historical-chart-reveal-clip-${useId().replace(
+    /[^a-zA-Z0-9_-]/g,
+    ""
+  )}`;
   const apyHistory = useEarnForecastApyHistory();
   const samples = useMemo(() => {
     const fetchedSamples = toHistoricalApySamples(apyHistory);
@@ -4959,7 +5016,13 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                   whiteSpace: "nowrap",
                 }}
               >
-                {formatHistoricalApyValue(series.apyPercent, !isPrimary)}
+                <ApyRevealText
+                  isRevealed={apyDataRevealed}
+                  segments={historicalApyValueSegments(
+                    series.apyPercent,
+                    !isPrimary
+                  )}
+                />
               </p>
               <span
                 style={{
@@ -5043,10 +5106,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
               width="100%"
             >
               <defs>
-                <clipPath
-                  clipPathUnits="userSpaceOnUse"
-                  id="historical-chart-reveal-clip"
-                >
+                <clipPath clipPathUnits="userSpaceOnUse" id={revealClipId}>
                   <rect
                     className="historical-chart-reveal-rect"
                     height={chartHeight}
@@ -5056,7 +5116,7 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
                   />
                 </clipPath>
               </defs>
-              <g clipPath="url(#historical-chart-reveal-clip)">
+              <g clipPath={`url(#${revealClipId})`}>
                 {plotLines.map((line) => (
                   <path
                     d={line.d}
@@ -5130,12 +5190,19 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
           width: "100%",
         }}
       >
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
-          {HISTORICAL_AXIS_DATE_FORMAT.format(startedAtMs)}
-        </span>
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
-          {HISTORICAL_AXIS_DATE_FORMAT.format(endedAtMs)}
-        </span>
+        {Array.from({ length: Math.max(axisTickCount, 2) }, (_, index) => {
+          const tickCount = Math.max(axisTickCount, 2);
+          const progress = index / (tickCount - 1);
+          const tickMs = startedAtMs + progress * (endedAtMs - startedAtMs);
+          return (
+            <span
+              key={index}
+              style={{ color: secondary, whiteSpace: "nowrap" }}
+            >
+              {HISTORICAL_AXIS_DATE_FORMAT.format(tickMs)}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -5145,17 +5212,37 @@ function HistoricalApyChart({ rangeId }: { rangeId: EarningsRangeId }) {
 // resting state draws the Loyal line solid and benchmarks dashed with dots at
 // the line endpoints; hovering turns every line solid, veils the future side
 // with 60% white, and moves the dashed cursor line + dots to the hovered date.
-function ForecastChart({
+export function ForecastChart({
   apy = FALLBACK_EARN_APY,
+  apyDataRevealed,
   isBalanceHidden = false,
   mainUsdcReserveApyBps = 559,
   principal = 1000,
+  scrambleHiddenValues = false,
 }: {
   apy?: EarnForecastApy;
+  // Facelift-only: skeleton the summary values until the APY summary loads
+  // (undefined keeps the legacy render byte-identical).
+  apyDataRevealed?: boolean;
   isBalanceHidden?: boolean;
   mainUsdcReserveApyBps?: number;
   principal?: number;
+  // Facelift-only: hidden values mask to ASCII scramble instead of the
+  // legacy pixelate/blur filter (default keeps the OG views unchanged).
+  scrambleHiddenValues?: boolean;
 }) {
+  const hiddenValueFilter =
+    isBalanceHidden && !scrambleHiddenValues ? "url(#rs-pixelate-sm)" : "none";
+  const maskIfHidden = (text: string, seed: string) =>
+    isBalanceHidden && scrambleHiddenValues
+      ? maskBalanceText(text, seed)
+      : text;
+  // Unique per instance so simultaneously mounted charts (e.g. compact pane +
+  // expanded overlay) don't resolve each other's reveal clip rects.
+  const revealClipId = `forecast-tab-reveal-clip-${useId().replace(
+    /[^a-zA-Z0-9_-]/g,
+    ""
+  )}`;
   const points = useMemo(
     () =>
       buildEarnComparisonPoints(principal, apy, {
@@ -5220,6 +5307,10 @@ function ForecastChart({
   const chartWidth = chartSize.width;
   const chartHeight = chartSize.height;
   const hasChartArea = chartWidth > 2 && chartHeight > 2;
+  // The 28px nowrap money values need ~440px across three columns; narrower
+  // hosts (e.g. the 400px workspace chart pane) get the compact summary that
+  // the <=760px viewport media query alone can't detect.
+  const isCompactSummary = chartWidth > 0 && chartWidth < 440;
   // 1px inset on every side keeps the 2px round-cap strokes from clipping.
   const xForIndex = (index: number) =>
     1 + (index / Math.max(points.length - 1, 1)) * (chartWidth - 2);
@@ -5325,10 +5416,26 @@ function ForecastChart({
             min-width: 0;
           }
         }
+        .forecast-chart-summary--compact {
+          gap: 12px !important;
+        }
+        .forecast-chart-summary--compact
+          .forecast-chart-summary-item[data-primary="true"] {
+          flex: 0 0 auto !important;
+        }
+        .forecast-chart-summary--compact
+          .forecast-chart-summary-value[data-primary="true"] {
+          font-size: 24px !important;
+          line-height: 28px !important;
+        }
       `}</style>
 
       <div
-        className="forecast-chart-summary"
+        className={
+          isCompactSummary
+            ? "forecast-chart-summary forecast-chart-summary--compact"
+            : "forecast-chart-summary"
+        }
         style={{
           alignItems: "flex-end",
           display: "flex",
@@ -5342,6 +5449,7 @@ function ForecastChart({
           return (
             <div
               className="forecast-chart-summary-item"
+              data-primary={isPrimary ? "true" : undefined}
               key={series.key}
               style={{
                 display: "flex",
@@ -5360,7 +5468,7 @@ function ForecastChart({
                     : isPrimary
                     ? "#000"
                     : "#3C3C43",
-                  filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+                  filter: hiddenValueFilter,
                   fontFamily: font,
                   fontSize: isPrimary ? "28px" : "16px",
                   fontWeight: 600,
@@ -5369,10 +5477,19 @@ function ForecastChart({
                   whiteSpace: "nowrap",
                 }}
               >
-                {formatForecastMoney(
-                  focusPoint.values[series.key],
-                  !isBalanceHidden
-                )}
+                <ApyRevealText
+                  isRevealed={apyDataRevealed}
+                  segments={forecastMoneySegments(
+                    focusPoint.values[series.key],
+                    !isBalanceHidden
+                  ).map((segment, segmentIndex) => ({
+                    ...segment,
+                    text: maskIfHidden(
+                      segment.text,
+                      `${series.key}:${segmentIndex}`
+                    ),
+                  }))}
+                />
               </p>
               <span
                 style={{
@@ -5405,9 +5522,17 @@ function ForecastChart({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {`${series.label} (${formatEarnApyPercent(
-                    series.apyBps
-                  )} APY)`}
+                  <ApyRevealText
+                    isRevealed={apyDataRevealed}
+                    segments={[
+                      {
+                        text: `${series.label} (${formatEarnApyPercent(
+                          series.apyBps
+                        )} APY)`,
+                      },
+                    ]}
+                    withPop={false}
+                  />
                 </span>
               </span>
             </div>
@@ -5432,11 +5557,11 @@ function ForecastChart({
         <span
           style={{
             color: secondary,
-            filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
+            filter: hiddenValueFilter,
             whiteSpace: "nowrap",
           }}
         >
-          {`$${formatMoney(scaleMax)}`}
+          {maskIfHidden(`$${formatMoney(scaleMax)}`, "scale-max")}
         </span>
       </div>
 
@@ -5463,10 +5588,7 @@ function ForecastChart({
               width="100%"
             >
               <defs>
-                <clipPath
-                  clipPathUnits="userSpaceOnUse"
-                  id="forecast-tab-reveal-clip"
-                >
+                <clipPath clipPathUnits="userSpaceOnUse" id={revealClipId}>
                   <rect
                     className="forecast-chart-reveal-rect"
                     height={chartHeight}
@@ -5476,7 +5598,7 @@ function ForecastChart({
                   />
                 </clipPath>
               </defs>
-              <g clipPath="url(#forecast-tab-reveal-clip)">
+              <g clipPath={`url(#${revealClipId})`}>
                 <g
                   className="forecast-chart-mode"
                   style={{ opacity: isHovering ? 0 : 1 }}

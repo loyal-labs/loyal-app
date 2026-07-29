@@ -85,6 +85,22 @@ function toRefreshAfterIsoString(iat: number): string {
   return new Date(iat * 1000 + SESSION_REFRESH_MIN_AGE_MS).toISOString();
 }
 
+// Local development hosts: localhost/loopback plus RFC1918 LAN addresses —
+// dev servers are routinely opened from other devices via the machine's
+// network IP, and those hosts can never be a production domain.
+function isLocalDevelopmentHostname(hostname: string): boolean {
+  return (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  );
+}
+
 function resolveCookieOptions(
   request: Request,
   config: ReturnType<SessionCookieServiceDependencies["getConfig"]>,
@@ -102,9 +118,11 @@ function resolveCookieOptions(
     new URL(`${protocol}://${hostHeader}`).hostname
   );
 
-  if (hostname === "localhost") {
+  if (isLocalDevelopmentHostname(hostname)) {
     if (!config.authCookieAllowLocalhost) {
-      throw new Error("Localhost is not allowed for auth session cookies");
+      throw new Error(
+        "Local development hosts are not allowed for auth session cookies"
+      );
     }
 
     return {

@@ -36,7 +36,7 @@ import {
 
 // Mobile twin of `/api/smart-accounts/yield-optimization/deposits/prepare`.
 // Identical prepare logic, but authenticated by a wallet signature (no
-// Turnstile/session) and it resolves/provisions the caller's smart account
+// captcha/session) and it resolves/provisions the caller's smart account
 // itself instead of reading it from a session principal. Mobile then signs +
 // sends the returned prepared op with the device wallet. Keep the prepare body
 // below in sync with the session route.
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
   // sponsored (Loyal pays rent), so gate it behind real funds — the wallet must
   // already hold the USDC it is depositing. This makes free-account spam
   // economically infeasible (each new account needs a distinct funded wallet)
-  // without depending on Turnstile or external rate-limit infra.
+  // without depending on the captcha or external rate-limit infra.
   let settingsPda: string;
   let smartAccountAddress: string;
   try {

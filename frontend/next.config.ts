@@ -42,6 +42,10 @@ const nextConfig: NextConfig = {
     },
   },
   transpilePackages: ["@loyal-labs/shared"],
+  // capjs-core lazily requires esbuild (native binary) for its high
+  // obfuscation levels; bundling that breaks Turbopack, so load it from
+  // node_modules at runtime instead.
+  serverExternalPackages: ["capjs-core"],
   env: {
     NEXT_PUBLIC_GIT_COMMIT_HASH: commitHash,
     NEXT_PUBLIC_GIT_BRANCH: branch,

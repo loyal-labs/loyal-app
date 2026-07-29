@@ -225,3 +225,106 @@ export function earnAutodepositConfigFromLoadedState(
     state,
   };
 }
+
+// Moved verbatim from app-wallet-workspace.tsx so redesigned views can reuse
+// the exact same display logic without importing the workspace monolith.
+
+export const EARN_AUTODEPOSIT_MIN_VISIBLE_SCHEDULED_SWEEP_RAW = BigInt(10_000);
+
+export function formatAutodepositUsdLabel(
+  value: string | null | undefined
+): string {
+  const numeric = Number((value ?? "0").replace(/,/g, ""));
+  const amount = Number.isFinite(numeric) ? numeric : 0;
+
+  return `$${amount.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
+
+export function rawTokenAmountToNumber(
+  amountRaw: string,
+  decimals: number
+): number {
+  if (!/^\d+$/.test(amountRaw)) {
+    return 0;
+  }
+
+  const raw = BigInt(amountRaw);
+  const scale = BigInt(10) ** BigInt(decimals);
+  return Number(raw / scale) + Number(raw % scale) / 10 ** decimals;
+}
+
+export function parseUnsignedRawTokenAmount(
+  amountRaw: string | null | undefined
+): bigint | null {
+  if (!amountRaw || !/^\d+$/.test(amountRaw)) {
+    return null;
+  }
+
+  return BigInt(amountRaw);
+}
+
+export function getVisibleEarnAutodepositScheduledSweeps({
+  scheduledSweeps,
+  walletBalanceFloorRaw,
+  walletBalanceRaw,
+}: {
+  scheduledSweeps: readonly LoadedEarnAutodepositScheduledSweep[];
+  walletBalanceFloorRaw: bigint | null;
+  walletBalanceRaw: bigint | null;
+}): LoadedEarnAutodepositScheduledSweep[] {
+  const sweepsAboveDisplayThreshold = scheduledSweeps.filter((sweep) => {
+    const remainingAmountRaw = parseUnsignedRawTokenAmount(
+      sweep.remainingAmountRaw
+    );
+    return (
+      remainingAmountRaw !== null &&
+      remainingAmountRaw >= EARN_AUTODEPOSIT_MIN_VISIBLE_SCHEDULED_SWEEP_RAW
+    );
+  });
+
+  if (walletBalanceRaw === null || walletBalanceFloorRaw === null) {
+    return sweepsAboveDisplayThreshold;
+  }
+
+  let remainingSurplusRaw = walletBalanceRaw - walletBalanceFloorRaw;
+  if (remainingSurplusRaw < EARN_AUTODEPOSIT_MIN_VISIBLE_SCHEDULED_SWEEP_RAW) {
+    return [];
+  }
+
+  const visibleSweeps: LoadedEarnAutodepositScheduledSweep[] = [];
+  for (const sweep of sweepsAboveDisplayThreshold) {
+    const remainingAmountRaw = parseUnsignedRawTokenAmount(
+      sweep.remainingAmountRaw
+    );
+    if (remainingAmountRaw === null) {
+      continue;
+    }
+
+    const displayAmountRaw =
+      remainingAmountRaw < remainingSurplusRaw
+        ? remainingAmountRaw
+        : remainingSurplusRaw;
+    remainingSurplusRaw -= displayAmountRaw;
+
+    if (displayAmountRaw < EARN_AUTODEPOSIT_MIN_VISIBLE_SCHEDULED_SWEEP_RAW) {
+      break;
+    }
+
+    visibleSweeps.push(
+      displayAmountRaw === remainingAmountRaw
+        ? sweep
+        : { ...sweep, remainingAmountRaw: displayAmountRaw.toString() }
+    );
+
+    if (
+      remainingSurplusRaw < EARN_AUTODEPOSIT_MIN_VISIBLE_SCHEDULED_SWEEP_RAW
+    ) {
+      break;
+    }
+  }
+
+  return visibleSweeps;
+}

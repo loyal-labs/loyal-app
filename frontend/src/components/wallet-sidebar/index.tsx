@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { TurnstileWidget } from "@/components/auth/turnstile-widget";
+import { CapWidget } from "@/components/auth/cap-widget";
 import { WalletTab } from "@/components/auth/wallet-tab";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
@@ -92,18 +92,18 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
     [props.walletDesktopData.totalUsd, props.smartAccountData.totalUsd]
   );
 
-  // Turnstile captcha gate for sign-in tab
+  // Captcha gate for sign-in tab
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const turnstileMode = publicEnv.turnstile.mode;
+  const captchaMode = publicEnv.captcha.mode;
 
-  // Auto-resolve only for misconfigured environments. In bypass (local dev)
-  // mode we keep the widget visible so the developer can click the bypass
-  // button — it confirms the captcha is wired into the login flow.
+  // Auto-resolve only for misconfigured environments (no CAP_SECRET); in
+  // widget mode every env — localhost and previews included — runs the real
+  // captcha, since Cap is same-origin with no domain allowlist.
   useEffect(() => {
-    if (turnstileMode === "misconfigured" && captchaToken === null) {
+    if (captchaMode === "misconfigured" && captchaToken === null) {
       setCaptchaToken("captcha-skipped");
     }
-  }, [captchaToken, turnstileMode]);
+  }, [captchaToken, captchaMode]);
 
   // Reset captcha when sidebar closes
   useEffect(() => {
@@ -1543,7 +1543,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                         >
                           Complete verification to continue
                         </p>
-                        <TurnstileWidget onVerify={setCaptchaToken} />
+                        <CapWidget onVerify={setCaptchaToken} />
                       </div>
                     ) : (
                       <>
@@ -1581,8 +1581,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                           </div>
                         ) : (
                           <WalletTab
-                            onTurnstileConsumed={() => setCaptchaToken(null)}
-                            turnstileToken={captchaToken}
+                            onCaptchaConsumed={() => setCaptchaToken(null)}
+                            captchaToken={captchaToken}
                           />
                         )}
                       </>
