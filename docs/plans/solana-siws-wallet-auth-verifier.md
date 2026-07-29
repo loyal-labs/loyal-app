@@ -18,7 +18,7 @@ proof.
 
 Wallets without `signIn` must keep using the current `connect()` plus
 `signMessage()` proof. SIWS support must not weaken the existing message-sign
-auth path, Turnstile boundary, replay/idempotency behavior, or
+auth path, Cap captcha boundary, replay/idempotency behavior, or
 auth-session-only app gate.
 
 ## Fixed PASS Conditions
@@ -59,8 +59,8 @@ wallet prompt. Chain IDs used in SIWS must be Wallet Standard chain identifiers
 such as `solana:mainnet` and `solana:devnet`, not app-internal strings like
 `mainnet` or `devnet`.
 
-Pass requires Turnstile to remain on challenge creation. Completion may consume
-only the issued challenge token and wallet proof.
+Pass requires the Cap captcha to remain on challenge creation. Completion may
+consume only the issued challenge token and wallet proof.
 
 Pass requires replay and concurrent completion handling to remain equivalent to
 the existing wallet-auth completion behavior. A completed challenge may replay
