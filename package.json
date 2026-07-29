@@ -94,5 +94,8 @@
     "turbo": "^2.8.20",
     "tweetnacl": "^1.0.3",
     "typescript": "^5.7.3"
+  },
+  "patchedDependencies": {
+    "@cap.js/widget@0.1.56": "patches/@cap.js%2Fwidget@0.1.56.patch"
   }
 }
