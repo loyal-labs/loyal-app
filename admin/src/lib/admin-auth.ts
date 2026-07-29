@@ -5,7 +5,7 @@ const SESSION_HEADER = {
 } as const;
 
 export const ADMIN_SESSION_COOKIE = "loyal_admin_session";
-export const SESSION_TTL_SECONDS = 60 * 60 * 12;
+export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 3;
 
 export type SessionPayload = {
   sub: string;

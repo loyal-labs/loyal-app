@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   ADMIN_SESSION_COOKIE,
+  createSessionPayload,
+  getSessionCookieOptions,
   isSafeNextPath,
+  signSessionToken,
   verifySessionToken,
 } from "@/lib/admin-auth";
 
@@ -20,6 +23,19 @@ function isPublicAsset(pathname: string) {
   }
 
   return /\.[^/]+$/.test(pathname);
+}
+
+async function renewSession(response: NextResponse, user: string) {
+  const token = await signSessionToken(createSessionPayload(user));
+  if (token) {
+    response.cookies.set({
+      name: ADMIN_SESSION_COOKIE,
+      value: token,
+      ...getSessionCookieOptions(),
+    });
+  }
+
+  return response;
 }
 
 export async function middleware(request: NextRequest) {
@@ -46,9 +62,12 @@ export async function middleware(request: NextRequest) {
     const destination =
       destinationCandidate === "/login" ? "/overview" : destinationCandidate;
 
-    return NextResponse.redirect(new URL(destination, request.url), {
-      status: 302,
-    });
+    return renewSession(
+      NextResponse.redirect(new URL(destination, request.url), {
+        status: 302,
+      }),
+      session.sub
+    );
   }
 
   if (PUBLIC_PATHS.has(pathname)) {
@@ -56,7 +75,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (session) {
-    return NextResponse.next();
+    return renewSession(NextResponse.next(), session.sub);
   }
 
   const loginUrl = new URL("/login", request.url);
