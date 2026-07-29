@@ -186,7 +186,7 @@ export function EarnTransactionDetailPane({
         <div className="flex shrink-0 items-center pl-4 pr-3">
           {isAllowanceAction ? (
             <span className="inline-flex size-11 shrink-0 overflow-hidden rounded-full">
-              <EarnYieldIcon />
+              <EarnYieldIcon size={44} />
             </span>
           ) : (
             <DualIcon

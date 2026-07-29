@@ -307,7 +307,7 @@ export function TransactionRow({
       <span className="flex items-center py-2 pr-3">
         {item.kind === "autodeposit_action" ? (
           <span className="inline-flex size-11 shrink-0 overflow-hidden rounded-full">
-            <EarnYieldIcon />
+            <EarnYieldIcon size={44} />
           </span>
         ) : (
           <DualIcon
