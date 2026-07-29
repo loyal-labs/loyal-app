@@ -17,6 +17,7 @@ import {
   ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { getEarnEarningsCacheKey } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -46,12 +47,11 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   const { isBalanceHidden } = useBalanceVisibility();
   const hasPositiveCurrentBalance = data.hasPosition && data.earnBalanceUsd > 0;
   const earnEarningsRevalidationKey = data.position?.principalAmountRaw ?? "0";
-  const earnEarningsCacheKey = [
-    publicEnv.solanaEnv,
-    data.walletAddress ?? "anonymous",
-    data.settingsPda ?? "no-settings",
-    "vault-1",
-  ].join(":");
+  const earnEarningsCacheKey = getEarnEarningsCacheKey({
+    settingsPda: data.settingsPda ?? "no-settings",
+    solanaEnv: publicEnv.solanaEnv,
+    walletAddress: data.walletAddress ?? "anonymous",
+  });
   const {
     data: earningsRangeSet,
     freshness: earningsFreshness,

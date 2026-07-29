@@ -16,6 +16,7 @@ import {
   EarnChartPane,
   type ChartTab,
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
+import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
@@ -32,6 +33,7 @@ import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar"
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-home-page";
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 
@@ -72,6 +74,7 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
 // and only the Earn screen with a position keeps the gray card background
 // (Figma 4693:70364).
 export function WorkspaceFaceliftShell() {
+  const publicEnv = usePublicEnv();
   const [isChartExpanded, setIsChartExpanded] = useState(false);
   // One shared tab choice for every chart card (compact right pane, mobile
   // inline card, enlarged overlay) — enlarging must not reset the tab.
@@ -122,6 +125,37 @@ export function WorkspaceFaceliftShell() {
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
   // Send/Swap/Shield screens — including re-selecting the page it's already on.
   const [navigationNonce, setNavigationNonce] = useState(0);
+  useEffect(() => {
+    const walletAddress = earnData.walletAddress;
+    const settingsPda = earnData.settingsPda;
+    if (!(walletAddress && settingsPda)) {
+      return;
+    }
+
+    startEarnEarningsPrefetch({
+      enabled:
+        isHydrated &&
+        isSignedIn &&
+        earnData.hasResolvedPosition &&
+        earnData.hasPosition &&
+        earnData.earnBalanceUsd > 0,
+      revalidationKey: earnData.position?.principalAmountRaw ?? "0",
+      settingsPda,
+      solanaEnv: publicEnv.solanaEnv,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+      walletAddress,
+    });
+  }, [
+    earnData.earnBalanceUsd,
+    earnData.hasPosition,
+    earnData.hasResolvedPosition,
+    earnData.position?.principalAmountRaw,
+    earnData.settingsPda,
+    earnData.walletAddress,
+    isHydrated,
+    isSignedIn,
+    publicEnv.solanaEnv,
+  ]);
   const handleSelectPage = (page: WorkspacePage) => {
     // Disconnected wallets live on Earn — every other page needs a session,
     // so tapping one opens the connect-wallet modal instead of navigating.
