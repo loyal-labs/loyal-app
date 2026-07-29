@@ -410,6 +410,7 @@ function ExpandedChartOverlay({
 }
 
 export function EarnChartPane({
+  banner,
   earnData,
   hideAside = false,
   isExpanded,
@@ -419,6 +420,9 @@ export function EarnChartPane({
   selectedTab,
   statsPanel,
 }: {
+  // Optional promo banner card (EarnBanner) rendered above the chart card —
+  // Earn root only; slotted in so the shell owns its config and dismissal.
+  banner?: ReactNode;
   earnData: EarnPositionData;
   // Action screens (deposit) drop the right chart/stats column but keep the
   // expanded overlay reachable from their own chart button.
@@ -458,6 +462,7 @@ export function EarnChartPane({
         <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block" />
       ) : (
         <div className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
+          {banner}
           <EarnChartCard
             actionAriaLabel="Expand chart"
             actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
