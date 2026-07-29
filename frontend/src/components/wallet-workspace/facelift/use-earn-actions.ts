@@ -1027,12 +1027,13 @@ export function useEarnActions(deps: {
           !preparedDeposit.policyFinalizePrepared;
         tracker.observe("review", {
           policyMode: requiresPolicySetup ? "create" : "reuse",
-          reviewBypassed: shouldBypassTopUpPreview,
+          reviewBypassed: hasPosition,
         });
 
-        // Top-ups fast-path straight to signing (the OG behavior); only
-        // first deposits / policy-setup flows gate on the approval sheet.
-        if (!shouldBypassTopUpPreview) {
+        // Only first deposits gate on the approval sheet; top-ups skip it
+        // even when the prepare bundles policy repair — the wallet still
+        // prompts per signature.
+        if (!hasPosition) {
           const approved = await requestApproval(
             buildEarnDepositReviewItem({
               draft,
@@ -1326,10 +1327,10 @@ export function useEarnActions(deps: {
           draft.mode === "partial" &&
           !preparedWithdraw.autodepositClosePrepared;
 
-        // Simple partials fast-path straight to signing (the OG behavior);
-        // full withdrawals and partials carrying an autodeposit close gate
-        // on the approval sheet.
-        if (!shouldBypassWithdrawPreview) {
+        // Only full withdrawals gate on the approval sheet; partials skip
+        // it even when they carry an autodeposit close — the wallet still
+        // prompts per signature.
+        if (draft.mode === "full") {
           const approved = await requestApproval(
             buildEarnWithdrawReviewItem({
               draft,
