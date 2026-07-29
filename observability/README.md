@@ -4,17 +4,25 @@ Self-hosted ClickStack for investigating Loyal production issues.
 
 - Dashboard: <https://loyal-clickstack.onrender.com>
 - Health: <https://loyal-clickstack.onrender.com/api/health>
-- Render service: `loyal-clickstack`
+- Render services: `loyal-clickstack`, and `loyal-clickstack-telegram-relay`
+  for alert delivery ([`telegram-relay/README.md`](./telegram-relay/README.md))
 - Blueprint: [`render.yaml`](./render.yaml)
 
 ## What we collect
 
 The Loyal web frontend sends:
 
-- uncaught browser, React, and Next.js errors;
+- first-party uncaught browser, React, and Next.js errors;
+- first-party chunk-load failures with bounded build, page-session, network, and
+  resource diagnostics;
 - sign-in and smart-account provisioning progress;
 - deposit, top-up, and withdrawal progress;
 - Autodeposit setup, update, pause, resume, close, and Execute Now progress.
+
+Ambient browser errors with extension-scheme stack frames and no first-party
+frame are discarded before ingestion. Explicit operation reports, including
+wallet-provider failures surfaced through Loyal call sites, remain eligible for
+collection.
 
 The public gateway also accepts authenticated OTLP metrics and traces from
 trusted service exporters. We do not yet collect mobile, extension, service
@@ -71,16 +79,62 @@ Interpretation:
 
 Useful fields:
 
-| Field                | Purpose                                              |
-| -------------------- | ---------------------------------------------------- |
-| `loyal.flow.id`      | One attempt's tracking ID                            |
-| `loyal.flow.name`    | Sign-in, deposit, withdrawal, Autodeposit, and so on |
-| `loyal.flow.stage`   | Last recorded step                                   |
-| `loyal.flow.outcome` | Started, observed, completed, failed, or cancelled   |
-| `loyal.wallet.address` | Wallet address (authenticated events)              |
-| `loyal.error.code`   | Stable failure category                              |
-| `loyal.elapsed_ms`   | Total attempt duration                               |
-| `service.version`    | Frontend release                                     |
+| Field                               | Purpose                                                  |
+| ----------------------------------- | -------------------------------------------------------- |
+| `loyal.flow.id`                     | One attempt's tracking ID                                |
+| `loyal.flow.name`                   | Sign-in, deposit, withdrawal, Autodeposit, and so on     |
+| `loyal.flow.stage`                  | Last recorded step                                       |
+| `loyal.flow.outcome`                | Started, observed, completed, failed, or cancelled       |
+| `loyal.wallet.address`              | Wallet address (authenticated events)                    |
+| `loyal.error.code`                  | Stable failure category                                  |
+| `loyal.elapsed_ms`                  | Total attempt duration                                   |
+| `service.version`                   | Server-side Vercel deployment that ingested the event    |
+| `loyal.client.build_id`             | Full Git SHA compiled into the reporting browser bundle  |
+| `loyal.page_session.id`             | Random UUID scoped to one browser tab session            |
+| `loyal.chunk.url`                   | Same-origin Next.js chunk URL, without query or fragment |
+| `loyal.chunk.recovery_action`       | What recovery did: see the table below                   |
+| `network.online`                    | Browser online state when the chunk failure was observed |
+| `network.connection.effective_type` | Browser-reported connection class, when available        |
+| `network.connection.rtt_ms`         | Browser-reported round-trip time, when available         |
+| `loyal.resource.response_status`    | Resource Timing response status, when available          |
+| `loyal.resource.duration_ms`        | Resource Timing duration, when available                 |
+| `loyal.resource.transfer_size`      | Resource Timing transfer size, when available            |
+
+`service.version` remains server-authoritative. Use
+`loyal.client.build_id` to distinguish a stale browser bundle from the Vercel
+deployment that received its report. The page-session UUID is random and
+contains no user identifier.
+
+### Chunk-load recovery
+
+Every chunk failure is reported before recovery runs, so `ChunkLoadError`
+volume alone does not measure the fix. `loyal.chunk.recovery_action` records the
+decision, taken before the report leaves the browser:
+
+| Value         | Meaning                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------- |
+| `reload`      | A hard reload was performed after this report                                                       |
+| `guarded`     | Skipped: this chunk already failed a reload, or the attempt budget for the cooldown window is spent |
+| `offline`     | Skipped: the browser was offline, so a reload would only surface its network error page             |
+| `unavailable` | Skipped: `sessionStorage` could not retain the guard, so recovery failed closed                     |
+
+At most two reloads run per ten-minute window per tab, and never twice for the
+same chunk URL. The signal that recovery worked is a `reload` with no further
+`ChunkLoadError` for the same `loyal.page_session.id`:
+
+```sql
+SELECT LogAttributes['loyal.chunk.recovery_action'] AS action,
+       uniqExact(LogAttributes['loyal.page_session.id']) AS sessions,
+       count() AS events
+FROM otel_logs
+WHERE Timestamp >= now() - INTERVAL 7 DAY
+  AND LogAttributes['exception.type'] = 'ChunkLoadError'
+GROUP BY action
+ORDER BY events DESC;
+```
+
+Note that `ChunkLoadError` is excluded from the `Errors` alert saved search;
+query it directly rather than expecting it to page.
 
 ## Wallet addresses
 
@@ -123,17 +177,66 @@ Start with:
 - Execute Now failures;
 - lookup by flow ID or wallet address.
 
-Create alerts only after observing normal traffic. The first high-confidence
-alert should be `loyal.recovery.required=true`.
+## Alerting
+
+One alert is live. The `Errors` saved search selects `SeverityText = 'error'`
+together with the fields worth reading in a chat message, and the `Errors`
+alert evaluates it every minute, grouped by `ServiceName`, firing on one or
+more matched rows. It delivers to a generic webhook pointing at
+`loyal-clickstack-telegram-relay` over the private network, which posts to
+Telegram.
+
+The relay, not ClickStack, decides what the chat sees. The first delivery for a
+signature is posted immediately; repeats of it are held until the next daily
+recap at 06:00 UTC, which lists every distinct error with how often it fired.
+A lasting incident is therefore announced once and counted once a day rather
+than re-announced every hour, and silence after an alert means nothing new is
+worth interrupting anyone for. Volume that grows sharply mid-period still
+breaks through as an escalation. See
+[`telegram-relay/README.md`](./telegram-relay/README.md).
+
+The saved search `select` and the relay's `ALERT_COLUMNS` are one contract
+written in two places: ClickStack sends matched rows as a headerless CSV block,
+so the column list and its order are all the relay has to label them by, and
+drift is expensive in both directions.
+
+A change in the **number** of columns is detected, but detection only means the
+relay stops trusting the rows. Alerts still reach Telegram as the raw
+ClickStack block, and everything downstream of parsing degrades: windows fall
+back to keying on `eventId`, so one incident posts several alerts instead of
+one, cardinality counts disappear, and the daily recap is skipped entirely
+because it has no signatures to list.
+
+A rename or reorder that keeps the count is not detected at all. Every value is
+read by position, so the relay labels fields with the wrong names and derives
+its signatures and cardinality counts from the wrong fields, while the message
+still looks well-formed.
+
+Change the two together, in the same order.
+
+Add an alert only after watching normal traffic for that signal, and re-measure
+the resulting chat volume against real logs with
+[`telegram-relay/scripts/simulate.ts`](./telegram-relay/scripts/simulate.ts)
+before changing any noise-related default.
 
 ## Configuration
 
-Render:
+Render, `loyal-clickstack`:
 
 - `EXPRESS_SESSION_SECRET`
 - `INGESTION_API_KEY`
 - `CLICKSTACK_INTERNAL_SMOKE_ENABLED=true`
 - `USAGE_STATS_ENABLED=false`
+
+Render, `loyal-clickstack-telegram-relay`:
+
+- `CLICKSTACK_WEBHOOK_SECRET` — generated by Render; read it from the dashboard
+  and paste it into the ClickStack webhook's `Authorization` header
+- `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — set by an operator, never
+  stored in ClickStack
+
+The rest of the relay's settings are declared in the Blueprint and documented in
+[`telegram-relay/README.md`](./telegram-relay/README.md).
 
 Vercel `loyal-frontend`, production and server-only:
 
@@ -157,9 +260,19 @@ smoke:
 ./observability/scripts/verify.sh --local
 ```
 
+Telegram relay checks (typecheck, tests, build):
+
+```sh
+bun run --cwd observability/telegram-relay check
+```
+
+That package sits outside the root Bun workspace and no CI workflow covers it,
+so run this whenever the relay changes.
+
 Frontend checks:
 
 ```sh
+bun run --cwd frontend verify:chunk-load-recovery
 bun frontend/scripts/verify-observability.ts
 bun frontend/scripts/verify-observability-flows.ts
 ./node_modules/.bin/tsc --noEmit --project frontend/tsconfig.json --pretty false
@@ -170,21 +283,41 @@ Never run a local frontend production build.
 
 ## Deploy and rollback
 
-- `observability/**` changes deploy only `loyal-clickstack` on Render.
+- `observability/**` changes deploy `loyal-clickstack` on Render, except for
+  `observability/telegram-relay/**`, which the ClickStack service's build filter
+  ignores.
+- `observability/telegram-relay/**` changes deploy only
+  `loyal-clickstack-telegram-relay` on Render.
+- `observability/render.yaml` reaches both services through Blueprint sync,
+  which applies configuration changes regardless of either build filter. An
+  env-var edit therefore restarts the relay even though its build filter does
+  not match that file.
 - `frontend/**` changes deploy only the Loyal frontend on Vercel.
-- `observability/smoke-result.json` is ignored.
+- `observability/smoke-result.json` is ignored by the ClickStack build filter,
+  and falls outside the relay's entirely.
 
 Before an observability deploy, run the verifier, review the diff for secrets,
-wait for Render health, and confirm a synthetic event reaches HyperDX.
+and wait for the affected service to become healthy. For ClickStack, confirm a
+synthetic event reaches HyperDX. For the relay, run its `check` script and curl
+`GET /healthz` over the private network from a shell on the ClickStack service;
+Render supports health checks on web services only, so nothing does this for
+you.
 
-Rollback by reverting the commit. Do not delete or shrink the Render disk.
+Rollback by reverting the commit. Restarting the relay is cheap but not free:
+its counters are in memory, so the next daily recap covers only the time since
+the restart. Do not delete or shrink the Render disk.
 Before changing the pinned ClickStack image, run the full local smoke and take
 an application-consistent export.
 
 ## Current limits
 
-- One Render Pro service and one 10 GB persistent disk.
+- One Render Pro ClickStack service, one Starter private Telegram relay service,
+  and one 10 GB persistent disk.
 - ClickHouse, HyperDX, MongoDB, collector, and nginx share one failure boundary.
+- The relay runs one instance and keeps window and recap state in memory, with
+  no mounted disk. A restart loses the running daily tally; a 120-second grace
+  period after boot collapses the alert burst ClickStack replays into a single
+  message.
 - No high availability or zero-downtime deploys.
 - No tested backup/restore runbook or explicit retention TTL.
 - No disk-capacity alert or ingestion SLO.

@@ -18,6 +18,9 @@ const { verifyUserYieldPositions } = await import(
 const { syncConfirmedRebalanceHoldingEventsForVault } = await import(
   "./yield-deposit-repository.server"
 );
+const { recordReconciledYieldVaultSnapshot } = await import(
+  "./yield-deposit-repository.server"
+);
 
 function createDepositInput(overrides: Record<string, unknown> = {}) {
   return {
@@ -322,6 +325,7 @@ describe("yield deposit repository idempotency", () => {
             batchCalls.push(items);
             return [];
           }),
+          execute: mock(() => ({ kind: "advisory-lock" })),
           insert: mock(() => {
             const index = insertIndex++;
             return {
@@ -458,6 +462,7 @@ describe("yield deposit repository idempotency", () => {
           delete: mock(() => ({
             where: () => ({}),
           })),
+          execute: mock(() => ({ kind: "advisory-lock" })),
           insert: mock(() => {
             const index = insertIndex++;
             return {
@@ -531,7 +536,7 @@ describe("yield deposit repository idempotency", () => {
       now: () => new Date("2026-06-02T00:00:00.000Z"),
     };
 
-    return { dependencies, insertedValues, updateSets };
+    return { batchCalls, dependencies, insertedValues, updateSets };
   }
 
   const reserveWithdrawalOverrides = {
@@ -557,6 +562,26 @@ describe("yield deposit repository idempotency", () => {
     sourceId: "reserve",
     sourceType: "reserve" as const,
   };
+
+  // The confirmed-withdrawal path swaps the current snapshot in exactly the
+  // same demote-then-promote shape as the holdings reconcile, and the two race
+  // each other on one vault — locking only the reconcile would leave the
+  // pairing that actually pages still open (ASK-1902).
+  test("locks the vault before the confirmed-withdrawal snapshot swap", async () => {
+    const { batchCalls, dependencies } = createRecordedWithdrawalDependencies();
+
+    await recordConfirmedYieldWithdrawal(
+      createWithdrawalInput(reserveWithdrawalOverrides),
+      dependencies as never
+    );
+
+    // The two-statement batch is the reserve/idle read; the snapshot swap is
+    // the long one, and it has to open with the lock or the demote it guards
+    // has already run.
+    const swapBatch = batchCalls.find((items) => items.length > 2);
+    expect(swapBatch).toBeDefined();
+    expect(swapBatch?.[0]).toMatchObject({ kind: "advisory-lock" });
+  });
 
   test("records a zero-balance full withdrawal without closing position or policy state", async () => {
     const { dependencies, insertedValues, updateSets } =
@@ -686,6 +711,111 @@ describe("confirmed rebalance history projection", () => {
     );
     expect(renderedSql).toContain("latest_projected_rebalance");
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reconciled vault snapshot concurrency", () => {
+  // Demote-then-promote across two uncoordinated transactions is what put two
+  // `is_current` rows on one vault and failed the second batch on
+  // `vault_position_snapshots_one_current_idx` (ASK-1902). The lock has to be
+  // the FIRST statement, or the demote it is meant to guard already ran.
+  function createSnapshotWriterDependencies() {
+    const dialect = new PgDialect();
+    const executedSql: string[] = [];
+    let batched: unknown[] = [];
+
+    function chain(kind: string) {
+      const node: Record<string, unknown> = { kind };
+      node.onConflictDoUpdate = () => node;
+      node.returning = async () => [{ id: BigInt(42) }];
+      node.set = () => node;
+      node.values = () => node;
+      node.where = () => node;
+      return node;
+    }
+
+    const db = {
+      batch: mock(async (items: unknown[]) => {
+        batched = items;
+        return [];
+      }),
+      delete: mock(() => chain("delete")),
+      execute: mock((query: unknown) => {
+        const rendered = dialect.sqlToQuery(query as never);
+        executedSql.push(rendered.sql);
+        return { kind: "execute", params: rendered.params };
+      }),
+      insert: mock(() => chain("insert")),
+      update: mock(() => chain("update")),
+    };
+
+    return {
+      batchedStatements: () => batched,
+      dependencies: {
+        client: { db },
+        now: () => new Date("2026-07-27T23:35:26.000Z"),
+      },
+      executedSql,
+    };
+  }
+
+  function createSnapshotInput(vaultId: bigint) {
+    return {
+      context: { source: "test" },
+      idleTokenBalance: {
+        amountRaw: BigInt(10_000),
+        mint: "usdc",
+        owner: "owner",
+        tokenAccount: "idle-token-account",
+      },
+      observedSlot: BigInt(900),
+      policyId: BigInt(7),
+      positions: [],
+      sourceCommitment: "confirmed",
+      vaultId,
+    };
+  }
+
+  test("locks the vault before demoting, in the same batch as the promote", async () => {
+    const { batchedStatements, dependencies, executedSql } =
+      createSnapshotWriterDependencies();
+
+    await recordReconciledYieldVaultSnapshot(
+      createSnapshotInput(BigInt(77)),
+      dependencies as never
+    );
+
+    const statements = batchedStatements();
+    expect(executedSql[0]).toContain("pg_advisory_xact_lock");
+    expect(statements[0]).toMatchObject({ kind: "execute" });
+    expect(statements[1]).toMatchObject({ kind: "update" });
+    expect(statements.length).toBeGreaterThan(2);
+  });
+
+  test("keys the lock on the vault so unrelated vaults never block", async () => {
+    const first = createSnapshotWriterDependencies();
+    const second = createSnapshotWriterDependencies();
+
+    await recordReconciledYieldVaultSnapshot(
+      createSnapshotInput(BigInt(77)),
+      first.dependencies as never
+    );
+    await recordReconciledYieldVaultSnapshot(
+      createSnapshotInput(BigInt(78)),
+      second.dependencies as never
+    );
+
+    const firstKey = (first.batchedStatements()[0] as { params: unknown[] })
+      .params;
+    const secondKey = (second.batchedStatements()[0] as { params: unknown[] })
+      .params;
+
+    expect(firstKey).toContain(
+      "loyal_yield.vault_position_snapshots.is_current:77"
+    );
+    expect(secondKey).toContain(
+      "loyal_yield.vault_position_snapshots.is_current:78"
+    );
   });
 });
 

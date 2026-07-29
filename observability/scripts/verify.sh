@@ -45,11 +45,26 @@ require_literal 'CLICKSTACK_INTERNAL_SMOKE_ENABLED' "$blueprint"
 require_literal 'generateValue: true' "$blueprint"
 require_literal 'value: "8081"' "$blueprint"
 require_literal 'value: 127.0.0.1' "$blueprint"
-[[ "$(rg --count '^[[:space:]]+- type: (web|pserv|worker|cron|keyvalue)$' "$blueprint")" == "1" ]] \
-  || fail "observability Blueprint must retain exactly one service"
+[[ "$(rg --count '^[[:space:]]+- type: (web|pserv|worker|cron|keyvalue)$' "$blueprint")" == "2" ]] \
+  || fail "observability Blueprint must retain exactly two services"
 pass "Blueprint pins monorepo scope, disk, health check, and generated secrets"
 
-require_literal '2.30.1@sha256:bd0bde1b1f2ca0702fdafe269f3552e36b055d25e47692685b1a6018567a2d3c' "$project_dir/Dockerfile"
+# Telegram relay. Cooldown state is in-process, so a second instance
+# double-posts every alert. The listen port must match the internal address
+# Render advertises, and healthCheckPath is a web-service-only field.
+# Render treats an omitted networking.isolation as `disabled`, so a Blueprint
+# that stays silent downgrades the environment on the next sync.
+require_literal 'isolation: enabled' "$blueprint"
+require_literal 'name: loyal-clickstack-telegram-relay' "$blueprint"
+require_literal 'rootDir: observability/telegram-relay' "$blueprint"
+require_literal 'value: "10000"' "$blueprint"
+rg --quiet 'healthCheckPath: /healthz' "$blueprint" \
+  && fail "private services do not support healthCheckPath"
+[[ "$(rg --after-context=20 'name: loyal-clickstack-telegram-relay' "$blueprint" | rg --count 'numInstances: 1')" == "1" ]] \
+  || fail "telegram relay must stay pinned to numInstances: 1"
+pass "Telegram relay pins single instance, non-reserved port, and no health check"
+
+require_literal '2.31.0@sha256:b01cc48cb5aaf30d630865a88217c826ab86fb9828374201f6cd7c539d5beed1' "$project_dir/Dockerfile"
 require_literal 'nginx=1.30.4-r0' "$project_dir/Dockerfile"
 require_literal 'tini=0.19.0-r3' "$project_dir/Dockerfile"
 require_literal 'HYPERDX_APP_PORT=8081' "$project_dir/Dockerfile"
@@ -99,6 +114,12 @@ done
 if rg --quiet 'location = /v1/workflows' "$project_dir/nginx.conf"; then
   fail "the nonexistent /v1/workflows path must not be proxied"
 fi
+# Non-upgrade requests must resolve to an empty value so nginx omits the
+# Connection header entirely.
+require_literal "    '' '';" "$project_dir/nginx.conf"
+require_literal \
+  'proxy_set_header Connection $connection_upgrade;' \
+  "$project_dir/nginx.conf"
 require_literal 'metrics_probe_payload=' "$project_dir/scripts/smoke-live.sh"
 require_literal 'traces_probe_payload=' "$project_dir/scripts/smoke-live.sh"
 require_literal 'for signal in metrics traces' "$project_dir/scripts/smoke-live.sh"

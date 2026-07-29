@@ -453,9 +453,32 @@ export declare const IDL: {
         accounts: ({
             name: string;
             writable: boolean;
+            pda?: undefined;
+            address?: undefined;
         } | {
             name: string;
+            pda: {
+                seeds: ({
+                    kind: string;
+                    value: number[];
+                    path?: undefined;
+                } | {
+                    kind: string;
+                    path: string;
+                    value?: undefined;
+                })[];
+                program: {
+                    kind: string;
+                    value: number[];
+                };
+            };
             writable?: undefined;
+            address?: undefined;
+        } | {
+            name: string;
+            address: string;
+            writable?: undefined;
+            pda?: undefined;
         })[];
         args: {
             name: string;
