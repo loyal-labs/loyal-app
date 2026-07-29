@@ -65,8 +65,8 @@ adversarially:
   address for `subjectAddress`, `walletAddress`, smart-account provisioning, and
   completion idempotency.
 
-Pass requires Turnstile to stay on challenge creation. Completion may consume
-only the challenge token and wallet proof.
+Pass requires the Cap captcha to stay on challenge creation. Completion may
+consume only the challenge token and wallet proof.
 
 Pass requires replay and concurrent completion behavior to remain equivalent to
 existing wallet auth. A transaction challenge may replay only to the same
