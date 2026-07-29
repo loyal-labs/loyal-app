@@ -41,9 +41,12 @@ import type {
 } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
 import { SafeReserveApyChart } from "../safe-reserve-apy-chart";
+import { OptimizationVolumeChart } from "./optimization-volume-chart";
+import { RebalanceActivityChart } from "./rebalance-activity-chart";
 import type {
   EarnActiveReserveRouteRow,
   EarnRebalanceDecisionRow,
+  RebalanceActivityPoint,
   RebalanceAuditErrorFilter,
   RebalanceAuditLane,
   RebalanceAuditRange,
@@ -71,6 +74,13 @@ type SerializedRebalanceDecisionRow = Omit<
   confirmedSlot: string | null;
 };
 
+type SerializedOptimizationVolumePoint = {
+  confirmedCount: number;
+  cumulativeAmountRaw: string;
+  dailyAmountRaw: string;
+  date: string;
+};
+
 type SerializedRebalanceAuditRow = Omit<
   RebalanceAuditRow,
   "amountRaw" | "confirmedSlot" | "submittedSlot"
@@ -81,8 +91,10 @@ type SerializedRebalanceAuditRow = Omit<
 };
 
 type RebalanceApiData = {
+  activity: RebalanceActivityPoint[];
   apyData: SafeReserveApyMonitorData;
   decisions: SerializedRebalanceDecisionRow[];
+  optimizationVolume: SerializedOptimizationVolumePoint[];
   routes: SerializedActiveReserveRouteRow[];
 };
 
@@ -1265,6 +1277,8 @@ function RebalanceMonitorFallback() {
     <div className="mx-auto grid w-full max-w-4xl gap-6">
       <CurrentReserveApyFallback />
       <ApyChartFallback />
+      <ApyChartFallback />
+      <ApyChartFallback />
       <RebalanceDecisionAuditFallback />
     </div>
   );
@@ -1340,6 +1354,8 @@ export function RebalanceMonitorClient() {
         data={state.data.apyData}
         decisionMarkers={toDecisionMarkers(state.data.decisions)}
       />
+      <RebalanceActivityChart data={state.data.activity} />
+      <OptimizationVolumeChart data={state.data.optimizationVolume} />
       <RebalanceAuditCard reserveLabels={reserveLabels} />
     </div>
   );

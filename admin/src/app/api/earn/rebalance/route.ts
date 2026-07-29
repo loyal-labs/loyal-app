@@ -4,6 +4,8 @@ import { getSafeReserveApyMonitorData } from "@/lib/kamino/timescale-reserve-cli
 
 import {
   getActiveReserveRoutes,
+  getOptimizationVolumeSeries,
+  getRebalanceActivity,
   getRecentRebalanceDecisions,
 } from "../../../(admin)/earn/rebalance/rebalance-data";
 
@@ -11,19 +13,28 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const [apyData, routes, decisions] = await Promise.all([
-    getSafeReserveApyMonitorData(),
-    getActiveReserveRoutes(),
-    getRecentRebalanceDecisions(),
-  ]);
+  const [apyData, routes, decisions, activity, optimizationVolume] =
+    await Promise.all([
+      getSafeReserveApyMonitorData(),
+      getActiveReserveRoutes(),
+      getRecentRebalanceDecisions(),
+      getRebalanceActivity(),
+      getOptimizationVolumeSeries(),
+    ]);
 
   return NextResponse.json(
     {
+      activity,
       apyData,
       decisions: decisions.map((decision) => ({
         ...decision,
         amountRaw: decision.amountRaw?.toString() ?? null,
         confirmedSlot: decision.confirmedSlot?.toString() ?? null,
+      })),
+      optimizationVolume: optimizationVolume.map((point) => ({
+        ...point,
+        cumulativeAmountRaw: point.cumulativeAmountRaw.toString(),
+        dailyAmountRaw: point.dailyAmountRaw.toString(),
       })),
       routes: routes.map((route) => ({
         ...route,

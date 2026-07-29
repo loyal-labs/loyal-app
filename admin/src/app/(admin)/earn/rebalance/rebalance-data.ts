@@ -53,6 +53,23 @@ export type EarnRebalanceDecisionRow = {
   updatedAt: string;
 };
 
+export type RebalanceActivityPoint = {
+  bucketStartedAt: string;
+  confirmed: number;
+  expiredSubmissions: number;
+  failedDecisions: number;
+  failedOpportunities: number;
+  fleetClaims: number;
+  terminalAttempts: number;
+};
+
+export type OptimizationVolumePoint = {
+  confirmedCount: number;
+  cumulativeAmountRaw: bigint;
+  dailyAmountRaw: bigint;
+  date: string;
+};
+
 export type RebalanceAuditRow = {
   abandonReason: string | null;
   amountRaw: bigint | null;
@@ -131,6 +148,23 @@ type RebalanceDecisionSqlRow = {
   target_apy_bps: SqlScalar;
   target_reserve: string | null;
   updated_at: Date | string;
+};
+
+type RebalanceActivitySqlRow = {
+  bucket_started_at: Date | string;
+  confirmed: SqlScalar;
+  expired_submissions: SqlScalar;
+  failed_decisions: SqlScalar;
+  failed_opportunities: SqlScalar;
+  fleet_claims: SqlScalar;
+  terminal_attempts: SqlScalar;
+};
+
+type OptimizationVolumeSqlRow = {
+  confirmed_count: SqlScalar;
+  cumulative_amount_raw: SqlScalar;
+  daily_amount_raw: SqlScalar;
+  date: string;
 };
 
 type RebalanceAuditSqlRow = {
@@ -722,6 +756,186 @@ export async function getRecentRebalanceDecisions(): Promise<
     targetApyBps: toNullableNumber(row.target_apy_bps),
     targetReserve: row.target_reserve,
     updatedAt: toIsoString(row.updated_at) ?? "",
+  }));
+}
+
+export async function getRebalanceActivity(): Promise<
+  RebalanceActivityPoint[]
+> {
+  const rows = await queryRows<RebalanceActivitySqlRow>(
+    `
+      WITH bounds AS (
+        SELECT
+          now() - interval '72 hours' AS window_started_at,
+          date_bin(
+            interval '2 hours',
+            now() - interval '72 hours',
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS started_at,
+          date_bin(
+            interval '2 hours',
+            now(),
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS ended_at
+      ),
+      buckets AS (
+        SELECT generate_series(
+          (SELECT started_at FROM bounds),
+          (SELECT ended_at FROM bounds),
+          interval '2 hours'
+        ) AS bucket_started_at
+      ),
+      decision_activity AS (
+        SELECT
+          date_bin(
+            interval '2 hours',
+            decision.updated_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'confirmed'
+          )::bigint AS confirmed,
+          COUNT(*) FILTER (
+            WHERE decision.status IN ('confirmed', 'failed')
+          )::bigint AS terminal_attempts,
+          COUNT(*) FILTER (
+            WHERE decision.status = 'failed'
+          )::bigint AS failed_decisions
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.execution_plan->>'kind' = 'same_mint'
+          AND decision.updated_at >= (SELECT window_started_at FROM bounds)
+        GROUP BY 1
+      ),
+      opportunity_activity AS (
+        SELECT
+          date_bin(
+            interval '2 hours',
+            opportunity.state_entered_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*)::bigint AS failed_opportunities
+        FROM loyal_yield.rebalance_opportunities AS opportunity
+        WHERE opportunity.execution_plan->>'kind' = 'same_mint'
+          AND opportunity.opportunity_state = 'failed'
+          AND opportunity.state_entered_at >= (
+            SELECT window_started_at FROM bounds
+          )
+        GROUP BY 1
+      ),
+      submission_activity AS (
+        SELECT
+          date_bin(
+            interval '2 hours',
+            submission.submission_state_entered_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*)::bigint AS expired_submissions
+        FROM loyal_yield.signed_route_submissions AS submission
+        WHERE submission.submission_state = 'expired'
+          AND submission.submission_state_entered_at >= (
+            SELECT window_started_at FROM bounds
+          )
+        GROUP BY 1
+      ),
+      opportunity_claims AS (
+        SELECT
+          date_bin(
+            interval '2 hours',
+            opportunity.created_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COALESCE(SUM(opportunity.attempt_count), 0)::bigint AS fleet_claims
+        FROM loyal_yield.rebalance_opportunities AS opportunity
+        WHERE opportunity.execution_plan->>'kind' = 'same_mint'
+          AND opportunity.created_at >= (SELECT window_started_at FROM bounds)
+        GROUP BY 1
+      )
+      SELECT
+        bucket.bucket_started_at,
+        COALESCE(decision.confirmed, 0)::text AS confirmed,
+        COALESCE(decision.terminal_attempts, 0)::text AS terminal_attempts,
+        COALESCE(decision.failed_decisions, 0)::text AS failed_decisions,
+        COALESCE(opportunity.failed_opportunities, 0)::text
+          AS failed_opportunities,
+        COALESCE(submission.expired_submissions, 0)::text
+          AS expired_submissions,
+        COALESCE(claim.fleet_claims, 0)::text AS fleet_claims
+      FROM buckets AS bucket
+      LEFT JOIN decision_activity AS decision USING (bucket_started_at)
+      LEFT JOIN opportunity_activity AS opportunity USING (bucket_started_at)
+      LEFT JOIN submission_activity AS submission USING (bucket_started_at)
+      LEFT JOIN opportunity_claims AS claim USING (bucket_started_at)
+      ORDER BY bucket.bucket_started_at ASC
+    `
+  );
+
+  return rows.map((row) => ({
+    bucketStartedAt: toIsoString(row.bucket_started_at) ?? "",
+    confirmed: toNumber(row.confirmed),
+    expiredSubmissions: toNumber(row.expired_submissions),
+    failedDecisions: toNumber(row.failed_decisions),
+    failedOpportunities: toNumber(row.failed_opportunities),
+    fleetClaims: toNumber(row.fleet_claims),
+    terminalAttempts: toNumber(row.terminal_attempts),
+  }));
+}
+
+export async function getOptimizationVolumeSeries(): Promise<
+  OptimizationVolumePoint[]
+> {
+  const rows = await queryRows<OptimizationVolumeSqlRow>(
+    `
+      WITH confirmed_daily AS (
+        SELECT
+          (decision.updated_at AT TIME ZONE 'UTC')::date AS date,
+          COUNT(*)::bigint AS confirmed_count,
+          COALESCE(SUM(decision.amount_raw), 0)::bigint AS daily_amount_raw
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.status = 'confirmed'
+          AND decision.signature IS NOT NULL
+          AND decision.amount_raw IS NOT NULL
+        GROUP BY 1
+      ),
+      bounds AS (
+        SELECT
+          COALESCE(
+            MIN(date),
+            (now() AT TIME ZONE 'UTC')::date
+          ) AS started_on,
+          (now() AT TIME ZONE 'UTC')::date AS ended_on
+        FROM confirmed_daily
+      ),
+      days AS (
+        SELECT generate_series(
+          (SELECT started_on FROM bounds),
+          (SELECT ended_on FROM bounds),
+          interval '1 day'
+        )::date AS date
+      ),
+      daily AS (
+        SELECT
+          day.date,
+          COALESCE(confirmed.confirmed_count, 0)::bigint AS confirmed_count,
+          COALESCE(confirmed.daily_amount_raw, 0)::bigint AS daily_amount_raw
+        FROM days AS day
+        LEFT JOIN confirmed_daily AS confirmed USING (date)
+      )
+      SELECT
+        to_char(date, 'YYYY-MM-DD') AS date,
+        confirmed_count::text AS confirmed_count,
+        daily_amount_raw::text AS daily_amount_raw,
+        SUM(daily_amount_raw) OVER (ORDER BY date ASC)::text
+          AS cumulative_amount_raw
+      FROM daily
+      ORDER BY date ASC
+    `
+  );
+
+  return rows.map((row) => ({
+    confirmedCount: toNumber(row.confirmed_count),
+    cumulativeAmountRaw: toBigInt(row.cumulative_amount_raw),
+    dailyAmountRaw: toBigInt(row.daily_amount_raw),
+    date: row.date,
   }));
 }
 
