@@ -1247,6 +1247,9 @@ export function useEarnActions(deps: {
           return true;
         }
       } catch (error) {
+        // The user-facing copy below rewrites the underlying failure; keep the
+        // raw error findable in the console for support/debugging.
+        console.error(`[earn.deposit] ${phase} failed`, error);
         // app-wallet-workspace.tsx:5300-5312 (prepare) / 5804-5825 (signing)
         const raw = getEarnDepositUserErrorMessage(
           error,

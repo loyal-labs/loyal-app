@@ -692,11 +692,14 @@ type DiscoveredPolicyPair = {
   delegatedSigner: string;
 };
 
-// Probe policy PDAs at seeds 1..N and classify with the SDK's own codec,
-// mirroring smart-account-vaults' discoverEarnYieldRoutingPolicyPairOnChain
-// (not exported from the SDK): route policy = ProgramInteraction on vault
-// index 1 with 2 instruction constraints; its setup twin sits at seed+1 with 1.
+// Probe policy PDAs at seeds 1..N and classify with the SDK's own codec.
+// Classification must use the full canonical shape check, not constraint
+// counts: on 2026-07-29 a count-only version adopted a legacy-format pair
+// (single-mint allowlist, created by an external routing service) as the
+// wallet's route pair, which the web client then correctly refused to
+// deposit through — bricking web deposits for that wallet.
 async function discoverPolicyPairOnChain(args: {
+  cluster: LoyalCluster;
   connection: Connection;
   programId: PublicKey;
   settingsPda: PublicKey;
@@ -732,34 +735,36 @@ async function discoverPolicyPairOnChain(args: {
     });
   }
 
-  const earnConstraintCount = (
-    policy: ReturnType<typeof Policy.fromAccountInfo>[0]
-  ): number | null => {
-    const state = policy.policyState;
-    if (
-      state.__kind !== "ProgramInteraction" ||
-      state.fields[0].accountIndex !== EARN_VAULT_INDEX
-    ) {
-      return null;
-    }
-    return state.fields[0].instructionsConstraints.length;
-  };
+  const vault = deriveEarnVaultPda({
+    programId: args.programId,
+    settingsPda: args.settingsPda,
+  });
+  const isCanonical = (
+    policy: ReturnType<typeof Policy.fromAccountInfo>[0],
+    stage: "route" | "setup"
+  ): boolean =>
+    canonicalEarnPolicyStateMismatch({
+      cluster: args.cluster,
+      policy,
+      stage,
+      vault,
+    }) === null;
 
   const routeSeeds = [...policiesBySeed.entries()]
-    .filter(([, policy]) => earnConstraintCount(policy) === 2)
+    .filter(([, policy]) => isCanonical(policy, "route"))
     .map(([seed]) => seed)
     .sort((a, b) => b - a);
 
   if (routeSeeds.length === 0) {
     return {
       pair: null,
-      reason: `no earn route policy found at seeds 1..${POLICY_SEED_PROBE_MAX}`,
+      reason: `no canonical earn route policy found at seeds 1..${POLICY_SEED_PROBE_MAX}`,
     };
   }
 
   for (const routeSeed of routeSeeds) {
     const setup = policiesBySeed.get(routeSeed + 1);
-    if (!setup || earnConstraintCount(setup) !== 1) {
+    if (!setup || !isCanonical(setup, "setup")) {
       continue;
     }
     const route = policiesBySeed.get(routeSeed)!;
@@ -792,7 +797,7 @@ async function discoverPolicyPairOnChain(args: {
   return {
     pair: null,
     reason:
-      "route policy found on-chain but its setup twin (seed+1, 1 constraint) is missing",
+      "canonical route policy found on-chain but its canonical setup twin (seed+1) is missing",
   };
 }
 
@@ -1080,6 +1085,7 @@ async function reconcileWallet(args: {
 
   // 4. Recover the on-chain policy pair and its creation signatures.
   const discovery = await discoverPolicyPairOnChain({
+    cluster,
     connection: args.connection,
     programId: args.programId,
     settingsPda,

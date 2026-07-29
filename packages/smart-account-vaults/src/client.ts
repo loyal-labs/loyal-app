@@ -5531,6 +5531,93 @@ export function createSmartAccountVaultsClient(
         policyCreationPayloadToState(args.expectedState)
       )
     ) {
+      // The message alone cannot tell WHICH constraint diverged; log each
+      // divergent path on its own console line (with values capped) so the
+      // mismatch is diagnosable without console truncation. Array-length
+      // mismatches log lengths plus the raw (pre-normalize) entry types to
+      // separate decode divergence from normalize divergence.
+      const cap = (value: unknown) => {
+        const text = JSON.stringify(value) ?? String(value);
+        return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+      };
+      const logDiff = (line: string) =>
+        console.error(`[canonical-diff] ${line}`);
+      const collectDiffs = (left: unknown, right: unknown, path: string) => {
+        if (JSON.stringify(left) === JSON.stringify(right)) {
+          return;
+        }
+        if (Array.isArray(left) && Array.isArray(right)) {
+          if (left.length !== right.length) {
+            logDiff(
+              `${path}: length expected=${left.length} onChain=${right.length}`
+            );
+          }
+          const max = Math.max(left.length, right.length);
+          for (let index = 0; index < max; index += 1) {
+            collectDiffs(left[index], right[index], `${path}.${index}`);
+          }
+          return;
+        }
+        const leftIsObject = left !== null && typeof left === "object";
+        const rightIsObject = right !== null && typeof right === "object";
+        if (!leftIsObject || !rightIsObject) {
+          logDiff(`${path}: expected=${cap(left)} onChain=${cap(right)}`);
+          return;
+        }
+        const keys = new Set([
+          ...Object.keys(left as Record<string, unknown>),
+          ...Object.keys(right as Record<string, unknown>),
+        ]);
+        for (const key of keys) {
+          collectDiffs(
+            (left as Record<string, unknown>)[key],
+            (right as Record<string, unknown>)[key],
+            `${path}.${key}`
+          );
+        }
+      };
+      console.error(`[smart-account-vaults] ${args.label} canonical mismatch`);
+      collectDiffs(
+        normalizeComparableGeneratedValue(
+          policyCreationPayloadToState(args.expectedState)
+        ),
+        normalizeComparableGeneratedValue(policy.policyState),
+        "policyState"
+      );
+      const describeRawEntry = (value: unknown) => {
+        if (value === null || typeof value !== "object") {
+          return typeof value;
+        }
+        const name = (value as object).constructor?.name ?? "object";
+        return value instanceof Map ? `Map(size=${value.size})` : name;
+      };
+      const rawConstraints = (
+        policy.policyState as unknown as {
+          fields?: { instructionsConstraints?: unknown[] }[];
+        }
+      ).fields?.[0]?.instructionsConstraints;
+      if (Array.isArray(rawConstraints)) {
+        for (const [index, constraint] of rawConstraints.entries()) {
+          if (constraint && typeof constraint === "object") {
+            for (const [key, value] of Object.entries(constraint)) {
+              if (Array.isArray(value)) {
+                logDiff(
+                  `raw onChain constraint ${index}.${key}: length=${
+                    value.length
+                  } entryTypes=[${value
+                    .slice(0, 8)
+                    .map((entry) => describeRawEntry(entry))
+                    .join(",")}]`
+                );
+              } else if (value instanceof Map) {
+                logDiff(
+                  `raw onChain constraint ${index}.${key}: Map size=${value.size}`
+                );
+              }
+            }
+          }
+        }
+      }
       throw new Error(
         `${args.label} instruction constraints are not canonical.`
       );
@@ -6015,9 +6102,10 @@ export function createSmartAccountVaultsClient(
           constraint.programId.equals(target.lendProgramId)
         )
       ) {
-        throw new Error(
-          `Earn policy ${entry.address.toBase58()} mixes incompatible instruction programs.`
-        );
+        // Not a route/setup candidate (e.g. an autodeposit sweep policy also
+        // touches this vault). Skip it — throwing here would brick deposits
+        // for every wallet that has any unrelated policy on the Earn vault.
+        continue;
       }
 
       const seed = toBigInt(entry.policy.seed);
@@ -6041,8 +6129,14 @@ export function createSmartAccountVaultsClient(
         setups.push(entry);
         continue;
       }
-      throw new Error(
-        `Earn policy ${entry.address.toBase58()} has non-canonical instruction constraints.`
+      // Kamino-shaped but not canonical: a legacy-format pair created by an
+      // older client (seen live 2026-07-29: external routing service recreated
+      // a pair with a single-mint allowlist). Skip it so a fresh canonical
+      // pair can be created at the next seed — policies are permission
+      // records, not fund holders, so leaving the legacy pair behind only
+      // costs its rent. Log so drift stays visible.
+      console.warn(
+        `[smart-account-vaults] skipping non-canonical Earn policy ${entry.address.toBase58()} (seed ${seed.toString()}) during policy scan`
       );
     }
 
