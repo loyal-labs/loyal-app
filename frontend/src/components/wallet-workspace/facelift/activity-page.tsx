@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  ActivityRow,
-  TransactionDetail,
-} from "@/components/wallet-sidebar/types";
 import {
-  ScrambleText,
-  useBalanceVisibility,
-} from "@/components/wallet-workspace/facelift/balance-visibility";
+  groupEarnTransactions,
+  resolveEarnTransactionDisplayTimeZone,
+} from "@/components/wallet-workspace/earn-transactions-pane";
+import {
+  GroupHeader,
+  TransactionRow,
+} from "@/components/wallet-workspace/facelift/earn-activity-card";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
 import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
@@ -18,275 +18,154 @@ import {
   StaggerLine,
   StaggerReveal,
 } from "@/components/wallet-workspace/facelift/stagger-reveal";
+import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
+import { useAuthSession } from "@/contexts/auth-session-context";
+import { usePublicEnv } from "@/contexts/public-env-context";
 import {
-  TransactionDetailPane,
-  type TransactionSwapDetail,
-} from "@/components/wallet-workspace/facelift/transaction-detail-pane";
-import { useWalletDesktopData } from "@/hooks/use-wallet-desktop-data";
-import { getTokenIconUrl } from "@/lib/token-icon";
+  fetchEarnTransactions,
+  type EarnTransactionItem,
+} from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
-// The mapped ActivityRow keeps only one leg of a swap; the raw activity has
-// both, so swap rows re-derive their display from it (two icons, from → to
-// subtitle, the received leg as the amount). The detail pane needs the full
-// two-leg shape on top.
-type SwapDisplay = TransactionSwapDetail & {
-  amountLabel: string;
-};
+// Rows revealed per scroll step; the full list is already client-side (the
+// earn-transactions response has no pagination), so "loading on scroll" is
+// windowed rendering over the shared 5-minute cache.
+const PAGE_SIZE = 30;
 
-function truncateAddress(addr: string): string {
-  if (addr.length <= 12) {
-    return addr;
-  }
-  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
-}
-
-// Rows carry a preformatted "±1,010.22 USDC" amount — the symbol is its last
-// word (used for shield-row subtitles and token icons, since the mapped row
-// icon is the legacy shield art).
-function parseSymbol(amount: string): string {
-  return amount.trim().split(" ").pop() ?? "";
-}
-
-const ROW_TITLES: Record<ActivityRow["type"], string> = {
-  received: "Received",
-  sent: "Sent",
-  shielded: "Shielded",
-  unshielded: "Unshielded",
-};
-
-// Figma 4813:340209 — one activity cell: composite icon, type title, context
-// subtitle, amount + time on the right.
-function ActivityCell({
-  isBalanceHidden,
-  isSelected,
-  onSelect,
-  row,
-  swap,
-}: {
-  isBalanceHidden: boolean;
-  isSelected: boolean;
-  onSelect: () => void;
-  row: ActivityRow;
-  swap: SwapDisplay | undefined;
-}) {
-  const isShieldType = row.type === "shielded" || row.type === "unshielded";
-  const symbol = parseSymbol(row.amount);
-  const tokenIcon = isShieldType ? getTokenIconUrl(symbol) : row.icon;
-  const amount = swap ? swap.amountLabel : row.amount;
-  const isPositive = amount.startsWith("+");
-
-  return (
-    <button
-      className={`flex w-full items-center rounded-2xl px-4 text-left transition-colors duration-150 ${
-        isSelected ? "bg-black/[0.04]" : "hover:bg-black/[0.04]"
-      }`}
-      onClick={onSelect}
-      type="button"
-    >
-      <span className="flex shrink-0 items-center py-2 pr-3">
-        <span className="relative block size-11 shrink-0">
-          {swap ? (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="absolute top-0 left-0 size-[30px] rounded-full object-cover"
-                src={swap.fromIcon}
-              />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="absolute right-0 bottom-0 size-[30px] rounded-full object-cover"
-                src={swap.toIcon}
-              />
-            </>
-          ) : isShieldType ? (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="absolute top-0 left-0 size-[30px] rounded-full object-cover"
-                src={tokenIcon}
-              />
-              {row.type === "shielded" ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  alt=""
-                  className="absolute right-px bottom-px size-7"
-                  src={`${ASSET_BASE}/icon-shield-badge.svg`}
-                />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  alt=""
-                  className="-scale-x-100 absolute right-px bottom-px h-7 w-auto max-w-none"
-                  src={`${ASSET_BASE}/icon-unshield-badge.svg`}
-                />
-              )}
-            </>
-          ) : (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                className="size-11 rounded-full object-cover"
-                src={tokenIcon}
-              />
-              {row.isPrivate ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  alt="Private"
-                  className="-bottom-0.5 -right-[3px] absolute size-5"
-                  src={`${ASSET_BASE}/icon-shield-badge.svg`}
-                />
-              ) : null}
-            </>
-          )}
-        </span>
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-        <span className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
-          {swap ? "Swapped" : row.titleOverride ?? ROW_TITLES[row.type]}
-        </span>
-        {swap ? (
-          <span className="flex items-center gap-1">
-            <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-              {swap.fromSymbol}
-            </span>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt="to"
-              className="size-4"
-              src={`${ASSET_BASE}/icon-arrow-right-circle.svg`}
-            />
-            <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-              {swap.toSymbol}
-            </span>
-          </span>
-        ) : (
-          <span className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-            {row.subtitle ??
-              (isShieldType
-                ? symbol
-                : `${row.type === "received" ? "from" : "to"} ${truncateAddress(
-                    row.counterparty
-                  )}`)}
-          </span>
-        )}
-      </span>
-      <span className="flex shrink-0 flex-col items-end justify-center gap-0.5 py-[11px] pl-3">
-        <span
-          className={`whitespace-nowrap text-right text-[16px] leading-5 ${
-            isPositive ? "text-[#34c759]" : "text-black"
-          }`}
-        >
-          <ScrambleText isHidden={isBalanceHidden} text={amount} />
-        </span>
-        <span className="whitespace-nowrap text-right text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-          {row.timestamp}
-        </span>
-      </span>
-    </button>
-  );
-}
-
-// Activity screen (Figma 4813:339799 wide / 4813:340210 downsized): the
-// wallet-only activity feed — the design's Earn/Wallet tabs are intentionally
-// dropped (only wallet events exist here); an Earn Activity header pill
-// points to the Earn page instead. Right pane (4813:340199) shows the OG
-// transaction detail for the selected row, or the select-prompt placeholder.
+// Activity screen: the Earn feed in full — deposits, withdrawals and
+// rebalances rendered with the same rows as the Earn page's activity card,
+// date-grouped, extending as the user scrolls. Data comes through
+// fetchEarnTransactions, so Earn ↔ Activity switches reuse one cache and the
+// realtime stack's refreshKey bump refetches after a confirmed mutation.
 export function ActivityPage({
   onSelectPage,
+  refreshKey,
+  settingsPda,
+  walletAddress,
 }: {
   onSelectPage: (page: WorkspacePage) => void;
+  refreshKey: number;
+  settingsPda: string | null | undefined;
+  walletAddress: string | null;
 }) {
-  const data = useWalletDesktopData({});
-  const { isBalanceHidden } = useBalanceVisibility();
-  const [selectedDetail, setSelectedDetail] =
-    useState<TransactionDetail | null>(null);
+  const publicEnv = usePublicEnv();
+  const { isAuthenticated, isHydrated } = useAuthSession();
+  const [items, setItems] = useState<EarnTransactionItem[] | null>(null);
+  const [hasError, setHasError] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [selectedItem, setSelectedItem] = useState<EarnTransactionItem | null>(
+    null
+  );
   // Keeps the last detail rendered through the sheet's close animation so
   // deselecting doesn't slide out an empty sheet.
-  const lastDetailRef = useRef<TransactionDetail | null>(null);
-  if (selectedDetail) {
-    lastDetailRef.current = selectedDetail;
+  const lastItemRef = useRef<EarnTransactionItem | null>(null);
+  if (selectedItem) {
+    lastItemRef.current = selectedItem;
   }
-  const sheetDetail = selectedDetail ?? lastDetailRef.current;
+  const sheetItem = selectedItem ?? lastItemRef.current;
 
-  // Activity is a lazy fetch — kick it on mount (no-op while signed out;
-  // reruns when the wallet lands because loadActivity's identity changes).
-  const [isActivityLoading, setIsActivityLoading] = useState(true);
-  const loadActivity = data.loadActivity;
+  // An open detail owns Esc: preventDefault marks it handled so the shell's
+  // Esc → Earn handoff (checked via microtask) stays put until the second
+  // press.
   useEffect(() => {
-    let cancelled = false;
-    setIsActivityLoading(true);
-    void loadActivity().finally(() => {
-      if (!cancelled) {
-        setIsActivityLoading(false);
+    if (!selectedItem) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSelectedItem(null);
       }
-    });
-    return () => {
-      cancelled = true;
     };
-  }, [loadActivity]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedItem]);
 
-  const positions = data.positions;
-  const swapDisplayById = useMemo(() => {
-    const resolveLeg = (mint: string) => {
-      const position = positions.find((entry) => entry.asset.mint === mint);
-      // Same fallback the hook's own swap mapping uses.
-      const symbol = position?.asset.symbol ?? "SOL";
-      return {
-        icon: position?.asset.imageUrl ?? getTokenIconUrl(symbol),
-        symbol,
-      };
-    };
-    const map = new Map<string, SwapDisplay>();
-    for (const activity of data.walletActivities) {
-      if (activity.type !== "swap") {
-        continue;
-      }
-      const from = resolveLeg(activity.fromToken.mint);
-      const to = resolveLeg(activity.toToken.mint);
-      const fromNumber = parseFloat(activity.fromToken.amount.replace(/,/g, ""));
-      const toNumber = parseFloat(activity.toToken.amount.replace(/,/g, ""));
-      const rate =
-        Number.isFinite(fromNumber) && Number.isFinite(toNumber) && toNumber > 0
-          ? `1 ${to.symbol} = ${(fromNumber / toNumber).toLocaleString("en-US", {
-              maximumFractionDigits: 2,
-              minimumFractionDigits: 2,
-            })} ${from.symbol}`
-          : null;
-      map.set(activity.signature, {
-        amountLabel: `+${activity.toToken.amount} ${to.symbol}`,
-        fromAmount: activity.fromToken.amount,
-        fromIcon: from.icon,
-        fromSymbol: from.symbol,
-        rate,
-        toAmount: activity.toToken.amount,
-        toIcon: to.icon,
-        toSymbol: to.symbol,
+  useEffect(() => {
+    if (!(isAuthenticated && isHydrated && settingsPda && walletAddress)) {
+      return;
+    }
+    let isCurrent = true;
+    fetchEarnTransactions({
+      settingsPda,
+      solanaEnv: publicEnv.solanaEnv,
+      walletAddress,
+    })
+      .then((response) => {
+        if (isCurrent) {
+          setItems(response.transactions);
+          setHasError(false);
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setHasError(true);
+        }
       });
-    }
-    return map;
-  }, [data.walletActivities, positions]);
+    return () => {
+      isCurrent = false;
+    };
+  }, [
+    isAuthenticated,
+    isHydrated,
+    publicEnv.solanaEnv,
+    refreshKey,
+    settingsPda,
+    walletAddress,
+  ]);
 
-  const rows = data.allActivityRows;
-  const groups = useMemo(() => {
-    const result: { date: string; items: ActivityRow[] }[] = [];
-    for (const row of rows) {
-      const existing = result[result.length - 1];
-      if (existing?.date === row.date) {
-        existing.items.push(row);
-      } else {
-        result.push({ date: row.date, items: [row] });
-      }
-    }
-    return result;
-  }, [rows]);
+  const groups = useMemo(
+    () =>
+      groupEarnTransactions(
+        (items ?? []).slice(0, visibleCount),
+        resolveEarnTransactionDisplayTimeZone()
+      ),
+    [items, visibleCount]
+  );
+  const hasMore = items !== null && items.length > visibleCount;
 
-  const showSkeleton = isActivityLoading && rows.length === 0;
+  // Extends the window when the tail sentinel nears the viewport. Re-created
+  // per visibleCount so a still-intersecting sentinel (list shorter than the
+  // viewport) re-fires through the fresh observer's initial callback.
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!(sentinel && hasMore)) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleCount((count) => count + PAGE_SIZE);
+        }
+      },
+      { rootMargin: "300px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, visibleCount]);
+
+  // Only the first loaded batch rides the mount stagger; groups appearing on
+  // scroll-extends or refetches render in place with no reveal (they enter
+  // off-screen anyway). Same decide-once mechanics as the earn activity card.
+  const hasRenderedRowsRef = useRef(false);
+  const groupKindsRef = useRef(new Map<string, "plain" | "stagger">());
+  useEffect(() => {
+    if (groups.length > 0) {
+      hasRenderedRowsRef.current = true;
+    }
+  }, [groups]);
+  const resolveGroupKind = (key: string): "plain" | "stagger" => {
+    const kinds = groupKindsRef.current;
+    const existing = kinds.get(key);
+    if (existing) {
+      return existing;
+    }
+    const kind = hasRenderedRowsRef.current ? "plain" : "stagger";
+    kinds.set(key, kind);
+    return kind;
+  };
 
   return (
     <>
@@ -299,27 +178,9 @@ export function ActivityPage({
                   Activity
                 </h1>
               </div>
-              <div className="flex shrink-0 items-start pl-3">
-                <button
-                  className="t-hover flex items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5 hover:-translate-y-0.5 hover:bg-black/[0.08] active:translate-y-0"
-                  onClick={() => onSelectPage("earn")}
-                  type="button"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="size-6"
-                    src={`${ASSET_BASE}/icon-coins-add-gray.svg`}
-                  />
-                  <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
-                    Earn Activity
-                  </span>
-                </button>
-              </div>
             </header>
             <div className="flex w-full flex-1 flex-col px-2 pb-2">
-              {showSkeleton ? (
+              {items === null && !hasError ? (
                 // transitions.dev skeleton pulse, same rows the earn activity
                 // card skeletons with.
                 <div className="t-skel-rows flex flex-col gap-2 px-2 py-1">
@@ -330,51 +191,65 @@ export function ActivityPage({
                     />
                   ))}
                 </div>
-              ) : groups.length === 0 ? (
+              ) : null}
+              {items === null && hasError ? (
+                <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  Failed to load transactions.
+                </p>
+              ) : null}
+              {items !== null && items.length === 0 ? (
                 <p className="px-4 py-8 text-center text-[14px] leading-5 text-[rgba(60,60,67,0.6)]">
                   No activity yet
                 </p>
-              ) : (
-                <StaggerReveal>
-                  {groups.map((group, index) => (
-                    <StaggerLine index={index} key={group.date}>
-                      <div className="flex items-start px-4 pt-1">
-                        <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] leading-5 text-[rgba(60,60,67,0.6)] tracking-[-0.176px]">
-                          {group.date}
-                        </p>
-                      </div>
-                      {group.items.map((row) => (
-                        <ActivityCell
-                          isBalanceHidden={isBalanceHidden}
-                          isSelected={selectedDetail?.activity.id === row.id}
-                          key={row.id}
-                          onSelect={() => {
-                            const detail = data.transactionDetails[row.id];
-                            if (detail) {
-                              setSelectedDetail(detail);
-                            }
-                          }}
-                          row={row}
-                          swap={swapDisplayById.get(row.id)}
-                        />
-                      ))}
-                    </StaggerLine>
-                  ))}
+              ) : null}
+              {items !== null && groups.length > 0 ? (
+                <StaggerReveal className="flex w-full flex-col">
+                  {(() => {
+                    let lineIndex = 0;
+                    return groups.map((group) => {
+                      const content = (
+                        <>
+                          <GroupHeader label={group.date} />
+                          {group.items.map((item) => (
+                            <TransactionRow
+                              isSelected={selectedItem?.id === item.id}
+                              item={item}
+                              key={item.id}
+                              onSelect={() => setSelectedItem(item)}
+                            />
+                          ))}
+                        </>
+                      );
+                      return resolveGroupKind(group.date) === "stagger" ? (
+                        <StaggerLine index={lineIndex++} key={group.date}>
+                          {content}
+                        </StaggerLine>
+                      ) : (
+                        <div key={group.date}>{content}</div>
+                      );
+                    });
+                  })()}
                 </StaggerReveal>
-              )}
+              ) : null}
+              {hasMore ? (
+                <div
+                  aria-hidden="true"
+                  className="h-px w-full shrink-0"
+                  ref={sentinelRef}
+                />
+              ) : null}
             </div>
           </section>
         </PaneReveal>
-        {selectedDetail ? (
+        {selectedItem ? (
           <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
             {/* Keyed by tx so switching rows replays the reveal — same as
                 the send flow's per-step PaneReveal. */}
-            <PaneReveal key={selectedDetail.activity.id}>
-              <TransactionDetailPane
-                detail={selectedDetail}
-                onClose={() => setSelectedDetail(null)}
-                swap={swapDisplayById.get(selectedDetail.activity.id)}
-                walletAddress={data.walletAddress}
+            <PaneReveal key={selectedItem.id}>
+              <EarnTransactionDetailPane
+                item={selectedItem}
+                onClose={() => setSelectedItem(null)}
+                walletAddress={walletAddress}
               />
             </PaneReveal>
           </aside>
@@ -397,23 +272,22 @@ export function ActivityPage({
       </div>
       <MobileTabBar activeTab="activity" onSelect={onSelectPage} />
       {/* Below 1204px the right pane is gone, so the same selection opens the
-          detail as the chart-enlarge sheet (Figma 4813:366475): a 400px
-          right-pinned card on the dark scrim, a full bottom sheet on the
-          white one below 796px. On desktop the scrim is display:none, so the
-          mounted sheet is inert while the aside shows the detail. */}
+          detail as a sheet: a 400px right-pinned card on the dark scrim, a
+          full bottom sheet on the white one below 796px. On desktop the scrim
+          is display:none, so the mounted sheet is inert while the aside shows
+          the detail. */}
       <SheetReveal
-        isOpen={selectedDetail !== null}
-        onClose={() => setSelectedDetail(null)}
+        isOpen={selectedItem !== null}
+        onClose={() => setSelectedItem(null)}
         scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
         sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
-        {sheetDetail ? (
-          <TransactionDetailPane
-            detail={sheetDetail}
-            key={sheetDetail.activity.id}
-            onClose={() => setSelectedDetail(null)}
-            swap={swapDisplayById.get(sheetDetail.activity.id)}
-            walletAddress={data.walletAddress}
+        {sheetItem ? (
+          <EarnTransactionDetailPane
+            item={sheetItem}
+            key={sheetItem.id}
+            onClose={() => setSelectedItem(null)}
+            walletAddress={walletAddress}
           />
         ) : null}
       </SheetReveal>

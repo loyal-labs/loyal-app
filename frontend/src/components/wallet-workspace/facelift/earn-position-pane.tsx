@@ -37,6 +37,7 @@ export function EarnPositionPane({
   onOpenAutodeposit,
   onOpenChart,
   onSelectChartTab,
+  onViewAllActivity,
   onWithdraw,
   selectedChartTab,
 }: {
@@ -45,6 +46,7 @@ export function EarnPositionPane({
   onOpenAutodeposit: () => void;
   onOpenChart: () => void;
   onSelectChartTab: (tab: ChartTab) => void;
+  onViewAllActivity: () => void;
   onWithdraw: (sourceKey?: string) => void;
   selectedChartTab: ChartTab | null;
 }) {
@@ -283,6 +285,7 @@ export function EarnPositionPane({
             run: data.actions.executeScheduledSweep,
           }}
           holdings={data.position?.holdings ?? []}
+          onViewAllActivity={onViewAllActivity}
           onWithdrawSource={onWithdraw}
           pendingSignatures={data.actions.pendingTransactionSignatures}
           refreshKey={data.actions.earnTransactionsRefreshKey}

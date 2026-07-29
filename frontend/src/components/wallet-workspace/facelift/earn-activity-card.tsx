@@ -56,7 +56,7 @@ const ACTIVITY_TABS = ["Transactions", "Positions"] as const;
 
 type ActivityTab = (typeof ACTIVITY_TABS)[number];
 
-function UsdcCoinImage() {
+export function UsdcCoinImage() {
   return (
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -142,7 +142,7 @@ function RouteLabel({
   );
 }
 
-function GroupHeader({ label }: { label: string }) {
+export function GroupHeader({ label }: { label: string }) {
   return (
     <div className="flex w-full items-start px-4 pt-1">
       <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] leading-5 tracking-[-0.176px] text-[rgba(60,60,67,0.6)]">
@@ -282,7 +282,15 @@ function ScheduledSweepRow({
   );
 }
 
-function TransactionRow({ item }: { item: EarnTransactionItem }) {
+export function TransactionRow({
+  isSelected = false,
+  item,
+  onSelect,
+}: {
+  isSelected?: boolean;
+  item: EarnTransactionItem;
+  onSelect?: () => void;
+}) {
   const { isBalanceHidden } = useBalanceVisibility();
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
@@ -294,9 +302,9 @@ function TransactionRow({ item }: { item: EarnTransactionItem }) {
     formatEarnTransactionTimestamp(item.confirmedAt ?? item.sortTimestamp) ??
     item.timestamp;
 
-  return (
-    <div className="flex w-full items-center rounded-2xl px-4">
-      <div className="flex items-center py-2 pr-3">
+  const content = (
+    <>
+      <span className="flex items-center py-2 pr-3">
         {item.kind === "autodeposit_action" ? (
           <span className="inline-flex size-11 shrink-0 overflow-hidden rounded-full">
             <EarnYieldIcon />
@@ -308,30 +316,50 @@ function TransactionRow({ item }: { item: EarnTransactionItem }) {
             isWithdraw={item.kind === "withdraw"}
           />
         )}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-        <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
+        <span className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
           {getEarnTransactionRowLabel(item)}
-        </p>
-        <p className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        </span>
+        <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
           {timeLabel}
-        </p>
-      </div>
-      <div className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
-        <p
+        </span>
+      </span>
+      <span className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
+        <span
           className="whitespace-nowrap text-[16px] leading-5 text-right"
           style={{
             color: getEarnTransactionAmountColor({ kind: item.kind }),
           }}
         >
           <ScrambleText isHidden={isBalanceHidden} text={item.amount} />
-        </p>
+        </span>
         <RouteLabel
           destination={item.destination.label}
           source={item.source.label}
         />
-      </div>
-    </div>
+      </span>
+    </>
+  );
+
+  // Without a select handler (the Earn card's recent-5 list) the row stays a
+  // plain, non-interactive cell; the Activity feed passes one to open the
+  // transaction detail.
+  if (!onSelect) {
+    return (
+      <div className="flex w-full items-center rounded-2xl px-4">{content}</div>
+    );
+  }
+  return (
+    <button
+      className={`flex w-full items-center rounded-2xl px-4 text-left transition-colors duration-150 ${
+        isSelected ? "bg-black/[0.04]" : "hover:bg-black/[0.04]"
+      }`}
+      onClick={onSelect}
+      type="button"
+    >
+      {content}
+    </button>
   );
 }
 
@@ -368,6 +396,7 @@ function NewRowReveal({ children }: { children: ReactNode }) {
 
 function TransactionsTab({
   executeNow,
+  onViewAllActivity,
   pendingSignatures,
   refreshKey,
   scheduledSweeps,
@@ -375,6 +404,7 @@ function TransactionsTab({
   walletAddress,
 }: {
   executeNow: ExecuteNowControls;
+  onViewAllActivity: () => void;
   pendingSignatures: string[];
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
@@ -559,7 +589,7 @@ function TransactionsTab({
         <StaggerReveal className="flex w-full flex-col">
           {(() => {
             let lineIndex = 0;
-            return groups.map((group) => (
+            const renderedGroups = groups.map((group) => (
               <div className="flex w-full flex-col" key={group.date}>
                 {resolveRevealKind(`h:${group.date}`) === "insert" ? (
                   <NewRowReveal>
@@ -583,6 +613,20 @@ function TransactionsTab({
                 )}
               </div>
             ));
+            return (
+              <>
+                {renderedGroups}
+                <StaggerLine index={lineIndex}>
+                  <button
+                    className="t-hover flex h-11 w-full items-center justify-center rounded-2xl font-medium text-[14px] text-black leading-5 hover:bg-black/[0.04]"
+                    onClick={onViewAllActivity}
+                    type="button"
+                  >
+                    View all activity
+                  </button>
+                </StaggerLine>
+              </>
+            );
           })()}
         </StaggerReveal>
       ) : null}
@@ -677,6 +721,7 @@ function PositionsTab({
 export function EarnActivityCard({
   executeNow,
   holdings,
+  onViewAllActivity,
   onWithdrawSource,
   pendingSignatures,
   refreshKey,
@@ -686,6 +731,7 @@ export function EarnActivityCard({
 }: {
   executeNow: ExecuteNowControls;
   holdings: ActiveEarnPositionHolding[];
+  onViewAllActivity: () => void;
   onWithdrawSource: (sourceKey: string) => void;
   pendingSignatures: string[];
   refreshKey: number;
@@ -849,6 +895,7 @@ export function EarnActivityCard({
         {activeTab === "Transactions" ? (
           <TransactionsTab
             executeNow={executeNow}
+            onViewAllActivity={onViewAllActivity}
             pendingSignatures={pendingSignatures}
             refreshKey={refreshKey}
             scheduledSweeps={scheduledSweeps}

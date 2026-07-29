@@ -163,7 +163,10 @@ export function WorkspaceFaceliftShell() {
       openSignIn();
       return;
     }
-    setActivePage(page);
+    // Re-selecting Activity toggles it closed, back to the Earn home.
+    setActivePage(
+      page === "activity" && activePage === "activity" ? "earn" : page
+    );
     // Leaving Earn abandons any in-progress action screen.
     setMiddleView("earn");
     setNavigationNonce((nonce) => nonce + 1);
@@ -190,6 +193,15 @@ export function WorkspaceFaceliftShell() {
       if (event.key === "Escape") {
         // Numbers-only amount fields don't swallow Esc — only free text does.
         if (isEscapeGuardedTarget(event.target)) {
+          return;
+        }
+        // Activity is an Earn detour — Esc backs out to the Earn home.
+        if (activePage === "activity") {
+          queueMicrotask(() => {
+            if (!event.defaultPrevented) {
+              setActivePage("earn");
+            }
+          });
           return;
         }
         if (
@@ -282,7 +294,12 @@ export function WorkspaceFaceliftShell() {
               showActivityBadge={hasUnseenActivity}
             />
           ) : activePage === "activity" ? (
-            <ActivityPage onSelectPage={handleSelectPage} />
+            <ActivityPage
+              onSelectPage={handleSelectPage}
+              refreshKey={earnData.actions.earnTransactionsRefreshKey}
+              settingsPda={earnData.settingsPda}
+              walletAddress={earnData.walletAddress}
+            />
           ) : activePage !== "earn" ? (
             <CryptoPage
               navigationNonce={navigationNonce}
@@ -330,6 +347,7 @@ export function WorkspaceFaceliftShell() {
                         onOpenAutodeposit={() => setMiddleView("autodeposit")}
                         onOpenChart={() => setIsChartExpanded(true)}
                         onSelectChartTab={setChartTab}
+                        onViewAllActivity={() => handleSelectPage("activity")}
                         onWithdraw={(sourceKey) => {
                           setWithdrawSourceKey(sourceKey ?? null);
                           setMiddleView("withdraw");
