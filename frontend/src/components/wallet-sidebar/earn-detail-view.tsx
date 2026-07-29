@@ -17,6 +17,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type PointerEvent,
   type ReactNode,
   type RefObject,
@@ -4742,17 +4743,42 @@ function historicalApyValueSegments(
   ];
 }
 
-export function HistoricalApyChart({
-  apyDataRevealed,
-  axisTickCount = 2,
-  rangeId,
-}: {
+type HistoricalApyChartProps = {
   // Facelift-only: skeleton the header values until the APY summary loads
   // (undefined keeps the legacy render byte-identical).
   apyDataRevealed?: boolean;
   axisTickCount?: number;
   rangeId: EarningsRangeId;
-}) {
+};
+
+const subscribeToHistoricalChartHydration = () => () => undefined;
+const getHistoricalChartClientSnapshot = () => true;
+const getHistoricalChartServerSnapshot = () => false;
+
+export function HistoricalApyChart(props: HistoricalApyChartProps) {
+  const isHydrated = useSyncExternalStore(
+    subscribeToHistoricalChartHydration,
+    getHistoricalChartClientSnapshot,
+    getHistoricalChartServerSnapshot
+  );
+
+  if (!isHydrated) {
+    // The fallback history intentionally ends at the current local time. Keep
+    // the chart slot empty for SSR and the browser's matching hydration pass,
+    // then mount it below with the browser clock and timezone. The parent card
+    // owns the dimensions, so this avoids both a layout shift and mismatched
+    // date labels without weakening React's hydration checks.
+    return <div aria-hidden="true" className="min-h-0 w-full flex-1" />;
+  }
+
+  return <HydratedHistoricalApyChart {...props} />;
+}
+
+function HydratedHistoricalApyChart({
+  apyDataRevealed,
+  axisTickCount = 2,
+  rangeId,
+}: HistoricalApyChartProps) {
   // Unique per instance so simultaneously mounted charts (e.g. compact pane +
   // expanded overlay) don't resolve each other's reveal clip rects.
   const revealClipId = `historical-chart-reveal-clip-${useId().replace(
