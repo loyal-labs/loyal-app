@@ -28,6 +28,7 @@ import { resolveEarnPositionDisplay } from "@/lib/solana/earn/earn-position-disp
 import { resolveTokenIcon } from "@/lib/solana/token-holdings/resolve-token-info";
 
 import { VenueBadge } from "./venueBadge";
+import { acquireWithdrawSubmitLock } from "./withdraw-submit-lock";
 
 const usdcLogo = require("../../../assets/images/earn/usdc.png");
 
@@ -196,6 +197,7 @@ export function WithdrawSheet({
   const sheetRef = useRef<BottomSheetModal>(null);
   const sourceSheetRef = useRef<BottomSheetModal>(null);
   const inputRef = useRef<{ focus: () => void } | null>(null);
+  const submitInFlightRef = useRef(false);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -238,7 +240,6 @@ export function WithdrawSheet({
     if (open) {
       setAmount("");
       setSubmitError(null);
-      setSubmitting(false);
       setSelectedSourceId(null);
       setMaxSelected(false);
       sheetRef.current?.present();
@@ -324,29 +325,29 @@ export function WithdrawSheet({
     if (disabled) {
       return;
     }
+    const releaseSubmitLock = acquireWithdrawSubmitLock(submitInFlightRef);
+    if (!releaseSubmitLock) {
+      return;
+    }
+
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
     setSubmitError(null);
-    // MAX (or typing the visible floored max — the input only takes cents) means
-    // "empty this source": submit the exact balance and an explicit "full" mode.
-    // Reconstructing the intent later from float comparisons across different
-    // reads degraded MAX to a partial withdraw that stranded dust and kept the
-    // position open at $0.00 (no close, no SOL rent refund). Mirrors the web
-    // `deriveEarnWithdrawMode`.
-    const isMax = maxSelected || enteredUsd >= floorTo2(available);
-    const amountToWithdraw = isMax ? available : enteredUsd;
-    const result = onWithdraw?.(
-      amountToWithdraw,
-      selectedSource,
-      isMax ? "full" : "partial",
-    );
-    if (!(result instanceof Promise)) {
-      sheetRef.current?.dismiss();
-      return;
-    }
     setSubmitting(true);
     try {
-      await result;
+      // MAX (or typing the visible floored max — the input only takes cents)
+      // means "empty this source": submit the exact balance and an explicit
+      // "full" mode. Reconstructing the intent later from float comparisons
+      // across different reads degraded MAX to a partial withdraw that
+      // stranded dust and kept the position open at $0.00 (no close, no SOL
+      // rent refund). Mirrors the web `deriveEarnWithdrawMode`.
+      const isMax = maxSelected || enteredUsd >= floorTo2(available);
+      const amountToWithdraw = isMax ? available : enteredUsd;
+      await onWithdraw?.(
+        amountToWithdraw,
+        selectedSource,
+        isMax ? "full" : "partial",
+      );
       sheetRef.current?.dismiss();
     } catch (error) {
       setSubmitError(
@@ -355,6 +356,7 @@ export function WithdrawSheet({
           : "Withdrawal failed. Please try again.",
       );
     } finally {
+      releaseSubmitLock();
       setSubmitting(false);
     }
   }, [disabled, enteredUsd, maxSelected, available, onWithdraw, selectedSource]);
