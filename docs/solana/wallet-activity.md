@@ -107,7 +107,7 @@ If a token does not come back with an image URL, we fall back to a small known-i
 - Update `app/src/lib/solana/token-holdings/constants.ts` (`KNOWN_TOKEN_ICONS`)
 - Add the image file under `app/public/tokens/`
 
-## Squads Smart-Account Activity (frontend)
+## Generic Squads Smart-Account Activity (frontend)
 
 For frontend we route smart-account activity through the
 shared vault package:
@@ -128,6 +128,22 @@ shared vault package:
 This flow also carries `program_action` activity rows from the wallet data
 package. Solana program logs are not persisted as a separate frontend log feed
 in this branch; they are used for error normalization when wallet sends fail.
+
+## Facelift Earn Activity
+
+The facelift wallet workspace has a separate, Earn-only Activity page. It loads
+authenticated history from `GET /api/smart-accounts/earn-transactions`, which
+combines the Yield Neon position history with Autodeposit history for Earn vault
+`accountIndex = 1`; it does not use the generic `vault-activity` route. The
+client reuses a five-minute cache with the Earn activity card and refetches when
+the Earn realtime refresh key changes.
+
+`frontend/src/components/wallet-workspace/facelift/activity-page.tsx` groups the
+returned deposits, withdrawals, rebalances, and other Earn rows by date and
+window-renders the list. Selecting a row opens
+`frontend/src/components/wallet-workspace/facelift/transaction-detail-pane.tsx`,
+which shows its route, confirmed slot, signature when available, and a Solscan
+link when a signature exists.
 
 ## Caveats / Known Limitations
 
