@@ -56,6 +56,9 @@ export function DepositPane({
   const usdcBalance = splitUsdBalance(usdcUsd);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
+  const amountLabel = amountUsd.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+  });
   const isBelowMinimum = amountUsd < MIN_DEPOSIT_USD;
   const isInsufficient = !isBelowMinimum && amountUsd > usdcUsd;
   const isValidAmount = !isBelowMinimum && !isInsufficient;
@@ -195,7 +198,12 @@ export function DepositPane({
                 className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
                 onClick={() => {
                   if (usdcUsd > 0) {
-                    handleAmountChange(usdcUsd.toFixed(2));
+                    // Floor to cents so the fill never rounds above the real
+                    // balance (toFixed would turn 1.8699 into an
+                    // "insufficient" 1.87), same as the withdraw pane's MAX.
+                    handleAmountChange(
+                      (Math.floor(usdcUsd * 100) / 100).toFixed(2)
+                    );
                   }
                 }}
                 type="button"
@@ -278,7 +286,7 @@ export function DepositPane({
                 : isInsufficient
                 ? "Insufficient balance"
                 : isValidAmount
-                ? "Deposit"
+                ? `Deposit ${amountLabel} USDC`
                 : `Minimum deposit is $${MIN_DEPOSIT_USD}`
             }
           />

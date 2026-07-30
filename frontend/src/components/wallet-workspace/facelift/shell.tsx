@@ -31,6 +31,7 @@ import {
 } from "@/components/wallet-workspace/facelift/keyboard";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
+import { useIsNarrowViewport } from "@/components/wallet-workspace/facelift/use-is-narrow-viewport";
 import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-home-page";
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -112,6 +113,15 @@ export function WorkspaceFaceliftShell() {
       setActivePage("earn");
     }
   }, [activePage, isHydrated, isSignedIn]);
+  // The wallet home is mobile-only (tab bar's Wallet tab) — no sidebar entry
+  // can leave it, so growing past the breakpoint (resize or a desktop reload
+  // restoring a stored "wallet") snaps back to the Earn home.
+  const isNarrowViewport = useIsNarrowViewport();
+  useEffect(() => {
+    if (!isNarrowViewport && activePage === "wallet") {
+      setActivePage("earn");
+    }
+  }, [activePage, isNarrowViewport]);
   const [middleView, setMiddleView] = useState<MiddleView>("earn");
   // Set when a positions-tab row's Withdraw pill opened the screen — the
   // withdraw pane preselects that source; header Withdraw clears it.
