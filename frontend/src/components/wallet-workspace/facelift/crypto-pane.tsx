@@ -114,7 +114,12 @@ function RowPill({
           ? "bg-black text-white hover:bg-[#171717]"
           : "bg-black/[0.04] text-black hover:bg-black/[0.08]"
       }`}
-      onClick={onClick}
+      onClick={(event) => {
+        // Don't bubble into the row click — below 1204px that would slide
+        // the token detail sheet over the action pane being opened.
+        event.stopPropagation();
+        onClick();
+      }}
       type="button"
     >
       <span className="max-[999px]:hidden">{label}</span>
@@ -149,7 +154,8 @@ function TokenCell({
   const isStables = variant === "stables";
   return (
     // Row click selects the token for the detail right pane; the action
-    // pills' clicks bubbling into the selection is intentional.
+    // pills stop propagation (the page's row actions select the token
+    // themselves without opening the <1204 detail sheet).
     <div
       className="group relative flex w-full cursor-pointer items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-black/[0.04]"
       onClick={() => actions.onSelect?.(row)}
