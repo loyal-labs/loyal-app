@@ -52,7 +52,7 @@ export function EarnEmptyPane({
   ];
 
   return (
-    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
+    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-white max-[795px]:overflow-clip max-[795px]:rounded-none">
       <header className="flex w-full items-center p-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
           <h1 className="whitespace-nowrap font-semibold text-[24px] text-black leading-7">
@@ -158,8 +158,10 @@ export function EarnEmptyPane({
       </div>
 
       {/* On mobile the dog clips to the rounded bottom above the tab bar
-          (Figma 4693:69958); the white body makes the corners read clean. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
+          (Figma 4693:69958); the white body makes the corners read clean.
+          On desktop it ignores the pane instead: unclipped and dropped by the
+          shell's 8px gap (p-2) so it sits flush with the viewport bottom. */}
+      <div className="-bottom-2 pointer-events-none absolute inset-x-0 flex justify-center max-[795px]:bottom-0 max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
         <DogLottie
           className="aspect-square w-full max-h-[420px] max-w-[420px]"
           variant="playful"

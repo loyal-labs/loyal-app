@@ -144,6 +144,9 @@ export function WithdrawPane({
   const fromBalance = splitUsdBalance(selectedOption?.usd ?? 0);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
+  const amountLabel = amountUsd.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+  });
   // Same mode derivation as the old workspace: compared against the floored
   // TOTAL of all sources, so the visible max registers as a full exit.
   const withdrawMode = deriveEarnWithdrawMode({ amount: amountUsd, sources });
@@ -499,7 +502,7 @@ export function WithdrawPane({
                 text={
                   isSubmitting
                     ? "Withdrawing…"
-                    : withdrawValidationError ?? "Withdraw"
+                    : withdrawValidationError ?? `Withdraw ${amountLabel} USDC`
                 }
               />
             </button>
