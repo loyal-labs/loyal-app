@@ -2,7 +2,13 @@
 
 import { CartesianGrid, Label, Line, LineChart, XAxis, YAxis } from "recharts";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   ChartContainer,
   ChartTooltip,
@@ -10,15 +16,17 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 
-type OverviewLineChartProps<TDataKey extends string> = {
+type CommunityTrendLineChartProps<TDataKey extends string> = {
   title: string;
   description: string;
   primaryLabel: string;
   secondaryLabel: string;
   dataKey: TDataKey;
-  data: Array<{
-    date: string;
-  } & Record<TDataKey, number>>;
+  data: Array<
+    {
+      date: string;
+    } & Record<TDataKey, number>
+  >;
   totals: {
     primary: number;
     secondary: number;
@@ -47,7 +55,7 @@ function formatTooltipDate(value: unknown) {
   });
 }
 
-export function OverviewLineChart<TDataKey extends string>({
+export function CommunityTrendLineChart<TDataKey extends string>({
   title,
   description,
   primaryLabel,
@@ -56,7 +64,7 @@ export function OverviewLineChart<TDataKey extends string>({
   data,
   totals,
   yAxisLabel,
-}: OverviewLineChartProps<TDataKey>) {
+}: CommunityTrendLineChartProps<TDataKey>) {
   const chartConfig: ChartConfig = {
     [dataKey]: {
       label: primaryLabel,
@@ -77,21 +85,28 @@ export function OverviewLineChart<TDataKey extends string>({
         </div>
         <div className="flex">
           <div className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left sm:border-t-0 sm:border-l sm:px-8 sm:py-6">
-            <span className="text-xs text-muted-foreground">{primaryLabel}</span>
+            <span className="text-xs text-muted-foreground">
+              {primaryLabel}
+            </span>
             <span className="text-lg leading-none font-bold tabular-nums sm:text-3xl">
-              {totals.primary.toLocaleString()}
+              {totals.primary.toLocaleString("en-US")}
             </span>
           </div>
           <div className="flex flex-1 flex-col justify-center gap-1 border-t border-l px-6 py-4 text-left sm:border-t-0 sm:px-8 sm:py-6">
-            <span className="text-xs text-muted-foreground">{secondaryLabel}</span>
+            <span className="text-xs text-muted-foreground">
+              {secondaryLabel}
+            </span>
             <span className="text-lg leading-none font-bold tabular-nums sm:text-3xl">
-              {totals.secondary.toLocaleString()}
+              {totals.secondary.toLocaleString("en-US")}
             </span>
           </div>
         </div>
       </CardHeader>
       <CardContent className="px-2 sm:p-6">
-        <ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full min-w-0">
+        <ChartContainer
+          config={chartConfig}
+          className="aspect-auto h-[250px] w-full min-w-0"
+        >
           <LineChart
             accessibilityLayer
             data={data}
@@ -113,7 +128,12 @@ export function OverviewLineChart<TDataKey extends string>({
             >
               <Label value="Date (UTC)" position="insideBottom" offset={-16} />
             </XAxis>
-            <YAxis tickLine={false} axisLine={false} allowDecimals={false} width={44}>
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              allowDecimals={false}
+              width={44}
+            >
               <Label
                 value={yAxisLabel}
                 angle={-90}

@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CommunityActiveCheckbox } from "./community-active-checkbox";
+import { CommunityTrendLineChart } from "./community-trend-line-chart";
+import { getCommunityTrendsData } from "./community-trends-data";
 
 export const dynamic = "force-dynamic";
 
@@ -238,6 +240,10 @@ export default async function Home({ searchParams }: HomePageProps) {
     : resolvedSearchParams.parserType;
   const parserType = parseParserTypeParam(parserTypeParam);
   const requestedPage = parsePageParam(pageParam);
+  const [pageData, communityTrends] = await Promise.all([
+    getHomePageData(requestedPage, parserType),
+    getCommunityTrendsData(),
+  ]);
   const {
     rows,
     summaryCountByCommunityId,
@@ -246,13 +252,41 @@ export default async function Home({ searchParams }: HomePageProps) {
     totalPages,
     hasPreviousPage,
     hasNextPage,
-  } = await getHomePageData(requestedPage, parserType);
+  } = pageData;
   const paginationTokens = getPaginationTokens(currentPage, totalPages);
   const emptyStateLabel = parserType === "bot" ? "bot communities" : "userbot communities";
 
   return (
     <PageContainer>
       <SectionHeader title="Communities" breadcrumbs={[{ label: "Communities" }]} />
+      <div className="mb-6 space-y-6">
+        <CommunityTrendLineChart
+          title="Activity trend"
+          description="Total number of summaries created in the last 30 days"
+          primaryLabel="Summaries"
+          secondaryLabel="Messages"
+          dataKey="summaries"
+          data={communityTrends.chartPoints}
+          totals={{
+            primary: communityTrends.totals30d.summaries,
+            secondary: communityTrends.totals30d.messages,
+          }}
+          yAxisLabel="Cumulative summaries"
+        />
+        <CommunityTrendLineChart
+          title="Community growth"
+          description="Total number of onboarded communities in the last 30 days"
+          primaryLabel="Communities"
+          secondaryLabel="Users"
+          dataKey="communities"
+          data={communityTrends.communitiesChartPoints}
+          totals={{
+            primary: communityTrends.communitiesTotals30d.communities,
+            secondary: communityTrends.communitiesTotals30d.users,
+          }}
+          yAxisLabel="Cumulative communities"
+        />
+      </div>
       <Tabs value={parserType} className="mb-6">
         <TabsList className="grid h-auto w-full grid-cols-1 items-stretch gap-3 rounded-none bg-transparent p-0 group-data-[orientation=horizontal]/tabs:!h-auto sm:grid-cols-2">
           <TabsTrigger
