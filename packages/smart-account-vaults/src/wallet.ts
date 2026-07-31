@@ -342,6 +342,7 @@ export async function sendPreparedWithWallet({
   wallet,
   prepared,
   confirm = "if-required",
+  onTransactionSent,
   sendOptions,
 }: SendPreparedWithWalletArgs): Promise<string> {
   const latestBlockhash = await connection.getLatestBlockhash("confirmed");
@@ -363,6 +364,8 @@ export async function sendPreparedWithWallet({
       transaction,
     }
   );
+
+  await onTransactionSent?.({ prepared, signature });
 
   const shouldConfirm =
     confirm === true || (confirm !== false && prepared.requiresConfirmation);

@@ -128,7 +128,7 @@ function createRandomPageSessionId(): string | undefined {
   }
 }
 
-function getPageSessionId(): string | undefined {
+export function getBrowserPageSessionId(): string | undefined {
   if (cachedPageSession?.owner === window) {
     return cachedPageSession.id;
   }
@@ -210,7 +210,7 @@ export function inspectBrowserChunkLoadError(
     return undefined;
   }
 
-  const pageSessionId = getPageSessionId();
+  const pageSessionId = getBrowserPageSessionId();
   return {
     chunkUrl,
     ...(isBrowserClientBuildId(clientBuildId) && pageSessionId

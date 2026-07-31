@@ -14,7 +14,12 @@ import type {
   MobileLifecycleEnvelope,
   NormalizedLifecycleEvent,
 } from "./lifecycle-contract";
-import { buildOtlpErrorPayload, buildOtlpLifecyclePayload } from "./otlp";
+import type { BrowserLoadingMetricEnvelope } from "./metrics-contract";
+import {
+  buildOtlpErrorPayload,
+  buildOtlpLifecyclePayload,
+  buildOtlpLoadingMetricPayload,
+} from "./otlp";
 
 const EXPORT_TIMEOUT_MS = 1250;
 const MAX_METHOD_LENGTH = 16;
@@ -36,7 +41,9 @@ type TelemetryConfig = {
   ingestionKey: string;
 };
 
-function getTelemetryConfig(): TelemetryConfig | null {
+type OtlpSignal = "logs" | "metrics";
+
+function getTelemetryConfig(signal: OtlpSignal): TelemetryConfig | null {
   const rawEndpoint = process.env.OBSERVABILITY_OTLP_ENDPOINT?.trim();
   const ingestionKey = process.env.OBSERVABILITY_INGESTION_API_KEY?.trim();
   if (!rawEndpoint || !ingestionKey) {
@@ -52,7 +59,7 @@ function getTelemetryConfig(): TelemetryConfig | null {
       return null;
     }
 
-    url.pathname = "/v1/logs";
+    url.pathname = `/v1/${signal}`;
     url.search = "";
     url.hash = "";
     return { endpoint: url.toString(), ingestionKey };
@@ -93,8 +100,11 @@ function normalizeMethod(method: string | undefined): string | undefined {
     : undefined;
 }
 
-async function exportOtlpPayload(payload: unknown): Promise<boolean> {
-  const config = getTelemetryConfig();
+async function exportOtlpPayload(
+  payload: unknown,
+  signal: OtlpSignal = "logs"
+): Promise<boolean> {
+  const config = getTelemetryConfig(signal);
   if (!config) {
     return false;
   }
@@ -122,13 +132,27 @@ async function exportOtlpPayload(payload: unknown): Promise<boolean> {
 }
 
 async function exportErrorEvent(event: NormalizedErrorEvent): Promise<boolean> {
-  return exportOtlpPayload(buildOtlpErrorPayload(event));
+  return exportOtlpPayload(buildOtlpErrorPayload(event), "logs");
 }
 
 async function exportLifecycleEvent(
   event: NormalizedLifecycleEvent
 ): Promise<boolean> {
-  return exportOtlpPayload(buildOtlpLifecyclePayload(event));
+  return exportOtlpPayload(buildOtlpLifecyclePayload(event), "logs");
+}
+
+async function exportLoadingMetric(
+  event: BrowserLoadingMetricEnvelope
+): Promise<boolean> {
+  return exportOtlpPayload(
+    buildOtlpLoadingMetricPayload({
+      ...event,
+      deploymentEnvironment: getObservabilityDeploymentEnvironment(),
+      release: getObservabilityRelease(),
+      serviceName: "loyal-frontend",
+    }),
+    "metrics"
+  );
 }
 
 export async function reportBrowserErrorEnvelope(
@@ -224,6 +248,16 @@ export async function reportBrowserLifecycleEnvelope(
       release: getObservabilityRelease(),
       serviceName: "loyal-frontend",
     });
+  } catch {
+    return false;
+  }
+}
+
+export async function reportBrowserLoadingMetricEnvelope(
+  envelope: BrowserLoadingMetricEnvelope
+): Promise<boolean> {
+  try {
+    return await exportLoadingMetric(envelope);
   } catch {
     return false;
   }

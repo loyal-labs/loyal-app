@@ -84,6 +84,40 @@ function createConnection(args: {
 }
 
 describe("wallet prepared sends", () => {
+  test("reports a wallet submission before waiting for confirmation", async () => {
+    const events: string[] = [];
+    const connection = createConnection({
+      confirmTransaction: mock(async (strategy: { signature: string }) => {
+        events.push(`confirm:${strategy.signature}`);
+        return { value: { err: null } };
+      }),
+    });
+    const prepared = createPrepared();
+
+    const signature = await sendPreparedWithWallet({
+      connection,
+      confirm: true,
+      onTransactionSent: ({ prepared: submitted, signature: submittedId }) => {
+        expect(submitted).toBe(prepared);
+        events.push(`submitted:${submittedId}`);
+      },
+      prepared,
+      wallet: {
+        publicKey: feePayer,
+        sendTransaction: mock(async () => "wallet-signature"),
+        signTransaction: mock(
+          async <T extends VersionedTransaction>(transaction: T) => transaction
+        ),
+      },
+    });
+
+    expect(signature).toBe("wallet-signature");
+    expect(events).toEqual([
+      "submitted:wallet-signature",
+      "confirm:wallet-signature",
+    ]);
+  });
+
   test("simulates after wallet send failure and surfaces insufficient SOL top-up", async () => {
     const connection = createConnection({
       logs: [
