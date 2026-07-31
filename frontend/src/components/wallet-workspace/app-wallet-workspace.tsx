@@ -181,6 +181,7 @@ import {
   getBrowserPerformanceNow,
   measureBrowserLoadingDependencies,
 } from "@/features/observability/client";
+import { resolveBrowserLoadingFailurePhase } from "@/features/observability/metrics-contract";
 import {
   type ExecuteNowState,
   type LifecycleTracker,
@@ -1907,6 +1908,10 @@ export function AppWalletWorkspace({
   const earnDepositLifecycleRef = useRef<LifecycleTracker | null>(null);
   const earnWithdrawLifecycleRef = useRef<LifecycleTracker | null>(null);
   const earnAutodepositLifecycleRef = useRef<LifecycleTracker | null>(null);
+  // Close review must not adopt a terminal setup/pause/resume tracker.
+  const earnAutodepositCloseLifecycleRef = useRef<LifecycleTracker | null>(
+    null
+  );
   const executeNowLifecycleRef = useRef<{
     scheduledSlotId: string | null;
     tracker: LifecycleTracker;
@@ -4635,7 +4640,14 @@ export function AppWalletWorkspace({
   );
 
   const handleDismissEarnAutodepositPreview = useCallback(() => {
-    earnAutodepositLifecycleRef.current?.cancel("wallet_approval");
+    const tracker =
+      earnAutodepositCloseLifecycleRef.current ??
+      earnAutodepositLifecycleRef.current;
+    tracker?.cancel("wallet_approval");
+    if (earnAutodepositLifecycleRef.current === tracker) {
+      earnAutodepositLifecycleRef.current = null;
+    }
+    earnAutodepositCloseLifecycleRef.current = null;
     setPendingEarnAutodepositDraft(null);
     setPendingEarnAutodepositSetupPrepared(null);
     setPendingEarnAutodepositClosePrepared(null);
@@ -4669,6 +4681,7 @@ export function AppWalletWorkspace({
     });
     const prepareStartedAtMs = getBrowserPerformanceNow();
     earnAutodepositLifecycleRef.current = tracker;
+    earnAutodepositCloseLifecycleRef.current = tracker;
     tracker.start("intent");
     tracker.observe("prepare");
     setAutodepositConfig({ ...autodepositConfig, state: "closing" });
@@ -4702,6 +4715,12 @@ export function AppWalletWorkspace({
         })
         .catch((error) => {
           tracker.fail("prepare", { errorCode: "unexpected_error" });
+          if (earnAutodepositCloseLifecycleRef.current === tracker) {
+            earnAutodepositCloseLifecycleRef.current = null;
+          }
+          if (earnAutodepositLifecycleRef.current === tracker) {
+            earnAutodepositLifecycleRef.current = null;
+          }
           captureBrowserLoadingMetricAfterPaint({
             flowId: tracker.flowId,
             operation: "earn.autodeposit.close",
@@ -5244,6 +5263,8 @@ export function AppWalletWorkspace({
       });
       earnDepositLifecycleRef.current = tracker;
       const prepareStartedAtMs = getBrowserPerformanceNow();
+      let previewMetricSent = false;
+      let walletSubmittedAtMs: number | null = null;
       tracker.start("intent", {
         policyMode: requiresPolicySetup ? "create" : "reuse",
       });
@@ -5294,6 +5315,7 @@ export function AppWalletWorkspace({
             startedAtMs: prepareStartedAtMs,
           });
         }
+        previewMetricSent = true;
 
         if (shouldBypassTopUpPreview) {
           if (!ensureCanSignAccountAction()) {
@@ -5301,7 +5323,6 @@ export function AppWalletWorkspace({
           }
 
           setIsEarnAutoSigning(true);
-          let walletSubmittedAtMs: number | null = null;
           tracker.observe("wallet_submit_confirm", {
             chainState: "submitted",
             executionMode: "single",
@@ -5405,17 +5426,38 @@ export function AppWalletWorkspace({
           tracker.cancel("wallet_submit_confirm", {
             errorCode: "wallet_rejected",
           });
+        } else if (walletSubmittedAtMs !== null) {
+          tracker.fail("wallet_submit_confirm", {
+            errorCode: "unexpected_error",
+          });
         } else {
           tracker.fail("prepare", { errorCode: "unexpected_error" });
         }
-        captureBrowserLoadingMetricAfterPaint({
-          flowId: tracker.flowId,
-          operation: "earn.deposit",
-          outcome: "failed",
-          phase: "interaction_to_preview",
-          presentation: "in_app",
-          startedAtMs: prepareStartedAtMs,
+        const failurePhase = resolveBrowserLoadingFailurePhase({
+          previewMetricSent,
+          walletSubmitted: walletSubmittedAtMs !== null,
         });
+        if (failurePhase === "interaction_to_preview") {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            outcome: "failed",
+            phase: "interaction_to_preview",
+            presentation: "in_app",
+            startedAtMs: prepareStartedAtMs,
+          });
+        } else if (
+          failurePhase === "wallet_confirmation_to_ui" &&
+          walletSubmittedAtMs !== null
+        ) {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            outcome: "failed",
+            phase: "wallet_confirmation_to_ui",
+            startedAtMs: walletSubmittedAtMs,
+          });
+        }
       } finally {
         setIsEarnAutoSigning(false);
         setIsEarnDepositPreparePending(false);
@@ -5446,6 +5488,8 @@ export function AppWalletWorkspace({
       });
       earnWithdrawLifecycleRef.current = tracker;
       const prepareStartedAtMs = getBrowserPerformanceNow();
+      let previewMetricSent = false;
+      let walletSubmittedAtMs: number | null = null;
       tracker.start("intent", {
         cleanupRequired: draft.mode === "full",
       });
@@ -5487,6 +5531,7 @@ export function AppWalletWorkspace({
             startedAtMs: prepareStartedAtMs,
           });
         }
+        previewMetricSent = true;
 
         if (shouldBypassWithdrawPreview) {
           if (!ensureCanSignAccountAction()) {
@@ -5497,7 +5542,6 @@ export function AppWalletWorkspace({
           const stepCount = Math.max(1, preparedWithdraw.withdrawSteps.length);
           let latestConfirmedSlot: string | undefined;
           let latestSignature: string | undefined;
-          let walletSubmittedAtMs: number | null = null;
           for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
             tracker.observe("wallet_submit_confirm", {
               chainState: "submitted",
@@ -5592,17 +5636,38 @@ export function AppWalletWorkspace({
           tracker.cancel("wallet_submit_confirm", {
             errorCode: "wallet_rejected",
           });
+        } else if (walletSubmittedAtMs !== null) {
+          tracker.fail("wallet_submit_confirm", {
+            errorCode: "unexpected_error",
+          });
         } else {
           tracker.fail("prepare", { errorCode: "unexpected_error" });
         }
-        captureBrowserLoadingMetricAfterPaint({
-          flowId: tracker.flowId,
-          operation: "earn.withdrawal",
-          outcome: "failed",
-          phase: "interaction_to_preview",
-          presentation: "in_app",
-          startedAtMs: prepareStartedAtMs,
+        const failurePhase = resolveBrowserLoadingFailurePhase({
+          previewMetricSent,
+          walletSubmitted: walletSubmittedAtMs !== null,
         });
+        if (failurePhase === "interaction_to_preview") {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.withdrawal",
+            outcome: "failed",
+            phase: "interaction_to_preview",
+            presentation: "in_app",
+            startedAtMs: prepareStartedAtMs,
+          });
+        } else if (
+          failurePhase === "wallet_confirmation_to_ui" &&
+          walletSubmittedAtMs !== null
+        ) {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.withdrawal",
+            outcome: "failed",
+            phase: "wallet_confirmation_to_ui",
+            startedAtMs: walletSubmittedAtMs,
+          });
+        }
       } finally {
         setIsEarnAutoSigning(false);
         setIsEarnWithdrawPreparePending(false);
@@ -5864,6 +5929,9 @@ export function AppWalletWorkspace({
             executionMode: "sequential",
           });
           const result = await smartAccountData.executeEarnDepositPolicyStage({
+            onWalletSubmitted: () => {
+              walletSubmittedAtMs ??= getBrowserPerformanceNow();
+            },
             observabilityFlowId: tracker?.flowId,
             preparedDeposit: pendingEarnDepositPrepared,
             stage,
@@ -6701,7 +6769,9 @@ export function AppWalletWorkspace({
     }
 
     const previousAutodepositConfig = autodepositConfig;
-    const existingTracker = earnAutodepositLifecycleRef.current;
+    const existingTracker = pendingEarnAutodepositClosePrepared
+      ? earnAutodepositCloseLifecycleRef.current
+      : null;
     const tracker =
       existingTracker ??
       createBrowserLifecycleTracker({
@@ -6710,6 +6780,7 @@ export function AppWalletWorkspace({
       });
     if (!existingTracker) {
       earnAutodepositLifecycleRef.current = tracker;
+      earnAutodepositCloseLifecycleRef.current = tracker;
       tracker.start("intent");
       tracker.observe("prepare");
     }
@@ -6785,6 +6856,13 @@ export function AppWalletWorkspace({
         tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
       } else {
         tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+      }
+    } finally {
+      if (earnAutodepositCloseLifecycleRef.current === tracker) {
+        earnAutodepositCloseLifecycleRef.current = null;
+      }
+      if (earnAutodepositLifecycleRef.current === tracker) {
+        earnAutodepositLifecycleRef.current = null;
       }
     }
   }, [

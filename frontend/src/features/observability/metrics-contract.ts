@@ -63,6 +63,14 @@ export type NormalizedLoadingMetric = BrowserLoadingMetricEnvelope & {
   serviceName: "loyal-frontend";
 };
 
+export function resolveBrowserLoadingFailurePhase(args: {
+  previewMetricSent: boolean;
+  walletSubmitted: boolean;
+}): "interaction_to_preview" | "wallet_confirmation_to_ui" | null {
+  if (!args.previewMetricSent) return "interaction_to_preview";
+  return args.walletSubmitted ? "wallet_confirmation_to_ui" : null;
+}
+
 const MAX_METRIC_DURATION_MS = 24 * 60 * 60 * 1000;
 const MAX_REQUEST_COUNT = 128;
 const MAX_EVENT_AGE_MS = 60 * 60 * 1000;
@@ -199,6 +207,7 @@ export function parseBrowserLoadingMetricEnvelope(
   const isPageLoad = record.operation === "page_load";
   if (
     (isPageLoad && record.phase !== "balances_ready") ||
+    (!isPageLoad && record.phase === "balances_ready") ||
     (!isPageLoad && !isCanonicalUuidV4(record.flowId)) ||
     (isPageLoad && record.flowId !== undefined)
   ) {
@@ -217,10 +226,11 @@ export function parseBrowserLoadingMetricEnvelope(
     throw new InvalidMetricsEnvelopeError();
   }
 
+  const isPreview = record.phase === "interaction_to_preview";
   if (
-    record.presentation !== undefined &&
-    (!includes(FRONTEND_LOADING_PRESENTATIONS, record.presentation) ||
-      record.phase !== "interaction_to_preview")
+    (isPreview &&
+      !includes(FRONTEND_LOADING_PRESENTATIONS, record.presentation)) ||
+    (!isPreview && record.presentation !== undefined)
   ) {
     throw new InvalidMetricsEnvelopeError();
   }

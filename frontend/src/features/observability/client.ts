@@ -166,9 +166,10 @@ export function captureBrowserLoadingMetricAfterPaint(
   }
 ): void {
   const emit = () => {
+    const { startedAtMs, ...metric } = args;
     captureBrowserLoadingMetric({
-      ...args,
-      durationMs: Math.max(0, getBrowserPerformanceNow() - args.startedAtMs),
+      ...metric,
+      durationMs: Math.max(0, getBrowserPerformanceNow() - startedAtMs),
     });
   };
 

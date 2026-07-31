@@ -7,6 +7,7 @@ import {
   FRONTEND_LOADING_METRIC_NAME,
   FRONTEND_LOADING_OPERATIONS,
   parseBrowserLoadingMetricEnvelope,
+  resolveBrowserLoadingFailurePhase,
   type BrowserLoadingMetricEnvelope,
 } from "../src/features/observability/metrics-contract";
 import { buildOtlpLoadingMetricPayload } from "../src/features/observability/otlp";
@@ -83,12 +84,25 @@ assert.equal(
   ).operation,
   "page_load"
 );
+assert.equal(
+  parseBrowserLoadingMetricEnvelope(
+    baseMetric({
+      phase: "wallet_confirmation_to_ui",
+      presentation: undefined,
+    }),
+    NOW
+  ).phase,
+  "wallet_confirmation_to_ui"
+);
 for (const invalid of [
   { ...baseMetric(), walletAddress: "forbidden" },
   { ...baseMetric(), metricName: "loyal.frontend.arbitrary" },
   { ...baseMetric(), durationMs: -1 },
   { ...baseMetric(), operation: "earn.deposit", flowId: undefined },
   { ...baseMetric(), operation: "page_load", phase: "balances_ready" },
+  baseMetric({ phase: "interaction_to_preview", presentation: undefined }),
+  baseMetric({ phase: "balances_ready", presentation: undefined }),
+  baseMetric({ phase: "wallet_confirmation_to_ui" }),
   { ...baseMetric(), phase: "dependency", requestCount: 1 },
   {
     ...baseMetric(),
@@ -101,6 +115,95 @@ for (const invalid of [
 }
 pass(
   "metric schema covers every requested flow and rejects arbitrary context, invalid combinations, and unbounded values"
+);
+
+assert.equal(
+  resolveBrowserLoadingFailurePhase({
+    previewMetricSent: false,
+    walletSubmitted: false,
+  }),
+  "interaction_to_preview"
+);
+assert.equal(
+  resolveBrowserLoadingFailurePhase({
+    previewMetricSent: true,
+    walletSubmitted: false,
+  }),
+  null
+);
+assert.equal(
+  resolveBrowserLoadingFailurePhase({
+    previewMetricSent: true,
+    walletSubmitted: true,
+  }),
+  "wallet_confirmation_to_ui"
+);
+pass(
+  "post-preview cancellation is not double-counted and submitted failures use the confirmation-to-UI phase"
+);
+
+async function verifyAfterPaintCapturePostsMetric(): Promise<void> {
+  const postedBodies: string[] = [];
+  const sessionValues = new Map<string, string>();
+  Object.defineProperties(globalThis, {
+    document: {
+      configurable: true,
+      value: { visibilityState: "visible" },
+    },
+    fetch: {
+      configurable: true,
+      value: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        if (typeof init?.body === "string") postedBodies.push(init.body);
+        return new Response(null, { status: 202 });
+      },
+    },
+    location: {
+      configurable: true,
+      value: { origin: "https://app.askloyal.com", pathname: "/app" },
+    },
+    requestAnimationFrame: {
+      configurable: true,
+      value: (callback: FrameRequestCallback) => {
+        callback(performance.now());
+        return 1;
+      },
+    },
+    sessionStorage: {
+      configurable: true,
+      value: {
+        getItem: (key: string) => sessionValues.get(key) ?? null,
+        setItem: (key: string, value: string) => sessionValues.set(key, value),
+      },
+    },
+    window: { configurable: true, value: globalThis },
+  });
+
+  const { captureBrowserLoadingMetricAfterPaint } = await import(
+    "../src/features/observability/client"
+  );
+  captureBrowserLoadingMetricAfterPaint({
+    flowId: FLOW_ID,
+    operation: "earn.deposit",
+    phase: "interaction_to_preview",
+    presentation: "in_app",
+    startedAtMs: performance.now() - 10,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(postedBodies.length, 1);
+  const postedMetric = JSON.parse(postedBodies[0] ?? "null") as Record<
+    string,
+    unknown
+  >;
+  const parsedPostedMetric = parseBrowserLoadingMetricEnvelope(postedMetric);
+  assert.equal(parsedPostedMetric.phase, "interaction_to_preview");
+  assert.equal(parsedPostedMetric.presentation, "in_app");
+  assert.ok(!("startedAtMs" in postedMetric));
+}
+
+await verifyAfterPaintCapturePostsMetric();
+pass(
+  "the public after-paint helper posts a valid envelope without leaking its local start timestamp"
 );
 
 const pageOrigin = "https://app.askloyal.com";
@@ -185,6 +288,9 @@ const walletSource = read(
 const workspaceSource = read(
   `${frontendRoot}/src/components/wallet-workspace/app-wallet-workspace.tsx`
 );
+const sidebarDataSource = read(
+  `${frontendRoot}/src/hooks/use-smart-account-sidebar-data.ts`
+);
 const nginxSource = read(`${repoRoot}/observability/nginx.conf`);
 
 assert.ok(routeSource.includes("isSameOriginRequest(request)"));
@@ -201,6 +307,26 @@ const confirmationIndex = walletSource.indexOf("if (shouldConfirm)");
 assert.ok(transactionSentCallbackIndex >= 0);
 assert.ok(confirmationIndex >= 0);
 assert.ok(transactionSentCallbackIndex < confirmationIndex);
+const policyStageStart = sidebarDataSource.indexOf(
+  "const executeEarnDepositPolicyStage"
+);
+const policyStageEnd = sidebarDataSource.indexOf(
+  "const executeEarnDepositBatch",
+  policyStageStart
+);
+assert.ok(policyStageStart >= 0);
+assert.ok(policyStageEnd > policyStageStart);
+assert.ok(
+  sidebarDataSource
+    .slice(policyStageStart, policyStageEnd)
+    .includes("onTransactionSent: request.onWalletSubmitted")
+);
+assert.ok(workspaceSource.includes("earnAutodepositCloseLifecycleRef.current"));
+assert.ok(
+  workspaceSource.includes(
+    "const existingTracker = pendingEarnAutodepositClosePrepared"
+  )
+);
 for (const operation of FRONTEND_LOADING_OPERATIONS) {
   assert.ok(workspaceSource.includes(`operation: "${operation}"`));
 }

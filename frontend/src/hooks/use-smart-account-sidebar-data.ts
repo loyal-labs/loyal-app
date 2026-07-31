@@ -454,6 +454,7 @@ export type EarnDepositBatchResult = EarnDepositResult & {
 };
 
 export type EarnDepositPolicyStageRequest = {
+  onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   stage: "policy" | "policy-finalize";
@@ -5741,6 +5742,7 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared,
               confirm: true,
+              onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!sendResult.success) {
