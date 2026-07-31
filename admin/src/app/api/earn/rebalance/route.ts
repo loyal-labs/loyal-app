@@ -42,7 +42,7 @@ const getCachedRebalanceMonitorData = unstable_cache(
 export async function GET() {
   return NextResponse.json(await getCachedRebalanceMonitorData(), {
     headers: {
-      "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
+      "Cache-Control": "private, no-store",
     },
   });
 }
