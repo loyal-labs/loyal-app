@@ -140,13 +140,11 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
   const headerValue = splitEarningsHeaderValue(
     hoveredBarEntry
       ? Math.max(0, hoveredBarEntry.earnedUsd)
-      : estimatedEarnedAmounts.rangeEarnedUsd
+      : estimatedEarnedAmounts.lifetimeEarnedUsd
   );
   let headerSubtitle: ReactNode;
   if (!hoveredBarEntry) {
-    headerSubtitle = earningsStale
-      ? "Updating earnings…"
-      : "Earned past 30 days";
+    headerSubtitle = earningsStale ? "Updating earnings…" : "Total earned";
   } else if (hoveredApyBps !== null) {
     headerSubtitle = `with ${formatEarnApyPercent(hoveredApyBps)} APY`;
   } else if (hoveredBarEntry.isCurrent) {
