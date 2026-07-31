@@ -1,5 +1,7 @@
 "use client";
 
+import { useWallet } from "@solana/wallet-adapter-react";
+import { LogOut } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -16,6 +18,7 @@ import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { WalletHomeBanners } from "@/components/wallet-workspace/facelift/wallet-home-banners";
+import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -53,8 +56,18 @@ export function WalletHomePage({
   const publicEnv = usePublicEnv();
   const { apy: earnApy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const { isHydrated, isSignedIn } = useAuthCapability();
+  const { isAuthenticated, logout } = useAuthSession();
+  const { connected: isWalletConnected, disconnect } = useWallet();
+  // Same half-connected limbo rule as the sidebar: the adapter can
+  // auto-reconnect without an auth session, so disconnect stays clickable
+  // whenever either side is live.
+  const canDisconnect = isAuthenticated || isWalletConnected;
   const { isBalanceHidden, toggleBalanceHidden } = useBalanceVisibility();
   const { open: openSignIn } = useSignInModal();
+
+  const handleDisconnect = () => {
+    void Promise.allSettled([logout(), disconnect()]);
+  };
 
   // Same split the sidebar computes: stablecoins by mint, crypto = rest.
   const stablecoinMints = useMemo(
@@ -201,6 +214,15 @@ export function WalletHomePage({
                     className="size-6"
                     src={`${ASSET_BASE}/icon-gear.svg`}
                   />
+                </button>
+                <button
+                  aria-label="Disconnect wallet"
+                  className="t-hover flex size-11 items-center justify-center rounded-3xl text-black enabled:hover:bg-black/[0.04] disabled:text-[#d8d8d9]"
+                  disabled={!canDisconnect}
+                  onClick={handleDisconnect}
+                  type="button"
+                >
+                  <LogOut size={24} strokeWidth={1.8} />
                 </button>
               </div>
             </div>
