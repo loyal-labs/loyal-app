@@ -1,7 +1,6 @@
 "use client";
 
 import { useWallet } from "@solana/wallet-adapter-react";
-import { LogOut } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -201,10 +200,12 @@ export function WalletHomePage({
                 </div>
               )}
               <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
-                {/* ponytail: settings destination ships with a later screen */}
+                {/* ponytail: settings icon returns when its screen ships */}
                 <button
-                  aria-label="Settings"
-                  className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+                  aria-label="Disconnect wallet"
+                  className="t-hover flex size-11 items-center justify-center rounded-3xl enabled:hover:bg-black/[0.04] disabled:opacity-40"
+                  disabled={!canDisconnect}
+                  onClick={handleDisconnect}
                   type="button"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -212,17 +213,8 @@ export function WalletHomePage({
                     alt=""
                     aria-hidden="true"
                     className="size-6"
-                    src={`${ASSET_BASE}/icon-gear.svg`}
+                    src={`${ASSET_BASE}/icon-logout.svg`}
                   />
-                </button>
-                <button
-                  aria-label="Disconnect wallet"
-                  className="t-hover flex size-11 items-center justify-center rounded-3xl text-black enabled:hover:bg-black/[0.04] disabled:text-[#d8d8d9]"
-                  disabled={!canDisconnect}
-                  onClick={handleDisconnect}
-                  type="button"
-                >
-                  <LogOut size={24} strokeWidth={1.8} />
                 </button>
               </div>
             </div>
