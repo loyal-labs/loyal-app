@@ -100,7 +100,6 @@ function formatTickDate(
     hour: rangeKey === "30d" ? undefined : "2-digit",
     hour12: false,
     month: "short",
-    timeZone: "Asia/Yekaterinburg",
   }).format(date);
 }
 
@@ -114,15 +113,15 @@ function formatTooltipDate(value: unknown) {
     return value;
   }
 
-  return `${new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-US", {
     day: "numeric",
     hour: "2-digit",
     hour12: false,
     minute: "2-digit",
     month: "short",
-    timeZone: "Asia/Yekaterinburg",
+    timeZoneName: "short",
     year: "numeric",
-  }).format(date)} YEKT`;
+  }).format(date);
 }
 
 function MetricLegend({ label, total }: { label: string; total: string }) {
@@ -170,7 +169,7 @@ function SuccessChart({
             <Label
               offset={-16}
               position="insideBottom"
-              value="Time (Asia/Yekaterinburg)"
+              value="Time (your local time)"
             />
           </XAxis>
           <YAxis
@@ -238,7 +237,7 @@ function VolumeChart({
             <Label
               offset={-16}
               position="insideBottom"
-              value="Time (Asia/Yekaterinburg)"
+              value="Time (your local time)"
             />
           </XAxis>
           <YAxis
@@ -306,9 +305,10 @@ export function AutodepositActivityChart({
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">Autodeposit activity</CardTitle>
           <CardDescription>
-            {rangeLabel}, using Asia/Yekaterinburg boundaries. Successful means
-            a persisted executed pull without a completion failure; volume is
-            the successfully pulled amount. The latest bucket is partial.
+            {rangeLabel}, bucketed on UTC boundaries and shown in your local
+            time. Successful means a persisted executed pull without a
+            completion failure; volume is the successfully pulled amount. The
+            latest bucket is partial.
           </CardDescription>
           <Tabs
             className="mt-3"

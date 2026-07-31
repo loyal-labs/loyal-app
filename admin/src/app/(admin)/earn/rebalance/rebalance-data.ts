@@ -936,17 +936,17 @@ export async function getAutodepositTimeSeries(): Promise<
   const rows = await queryRows<AutodepositTimeSeriesSqlRow>(
     `
       WITH params AS (
-        SELECT now() AT TIME ZONE 'Asia/Yekaterinburg' AS local_now
+        SELECT now() AT TIME ZONE 'UTC' AS utc_now
       ),
       ranges AS (
         SELECT
           '2d'::text AS range_key,
           2::integer AS bucket_hours,
           interval '2 hours' AS bucket_size,
-          date_trunc('day', local_now) - interval '1 day' AS started_at,
+          date_trunc('day', utc_now) - interval '1 day' AS started_at,
           date_bin(
             interval '2 hours',
-            local_now,
+            utc_now,
             timestamp '1970-01-01 00:00:00'
           ) AS ended_at
         FROM params
@@ -957,10 +957,10 @@ export async function getAutodepositTimeSeries(): Promise<
           '7d'::text AS range_key,
           6::integer AS bucket_hours,
           interval '6 hours' AS bucket_size,
-          date_trunc('day', local_now) - interval '6 days' AS started_at,
+          date_trunc('day', utc_now) - interval '6 days' AS started_at,
           date_bin(
             interval '6 hours',
-            local_now,
+            utc_now,
             timestamp '1970-01-01 00:00:00'
           ) AS ended_at
         FROM params
@@ -971,8 +971,8 @@ export async function getAutodepositTimeSeries(): Promise<
           '30d'::text AS range_key,
           24::integer AS bucket_hours,
           interval '1 day' AS bucket_size,
-          date_trunc('day', local_now) - interval '29 days' AS started_at,
-          date_trunc('day', local_now) AS ended_at
+          date_trunc('day', utc_now) - interval '29 days' AS started_at,
+          date_trunc('day', utc_now) AS ended_at
         FROM params
       ),
       buckets AS (
@@ -1005,7 +1005,7 @@ export async function getAutodepositTimeSeries(): Promise<
           0::bigint AS post_pull_kamino_top_up
         FROM loyal_yield.balance_sweep_executions AS execution
         WHERE execution.inserted_at >= (
-          SELECT MIN(started_at) AT TIME ZONE 'Asia/Yekaterinburg'
+          SELECT MIN(started_at) AT TIME ZONE 'UTC'
           FROM ranges
         )
           AND execution.inserted_at <= now()
@@ -1021,7 +1021,7 @@ export async function getAutodepositTimeSeries(): Promise<
           1::bigint AS post_pull_kamino_top_up
         FROM loyal_yield.balance_sweep_executions AS execution
         WHERE COALESCE(execution.completed_at, execution.inserted_at) >= (
-          SELECT MIN(started_at) AT TIME ZONE 'Asia/Yekaterinburg'
+          SELECT MIN(started_at) AT TIME ZONE 'UTC'
           FROM ranges
         )
           AND COALESCE(execution.completed_at, execution.inserted_at) <= now()
@@ -1039,7 +1039,7 @@ export async function getAutodepositTimeSeries(): Promise<
           range.range_key,
           date_bin(
             range.bucket_size,
-            event.event_at AT TIME ZONE 'Asia/Yekaterinburg',
+            event.event_at AT TIME ZONE 'UTC',
             timestamp '1970-01-01 00:00:00'
           ) AS bucket_started_at,
           SUM(event.successful)::bigint AS successful,
@@ -1048,12 +1048,9 @@ export async function getAutodepositTimeSeries(): Promise<
             AS post_pull_kamino_top_up
         FROM execution_events AS event
         CROSS JOIN ranges AS range
-        WHERE event.event_at >= (
-            range.started_at AT TIME ZONE 'Asia/Yekaterinburg'
-          )
+        WHERE event.event_at >= (range.started_at AT TIME ZONE 'UTC')
           AND event.event_at < (
-            (range.ended_at + range.bucket_size)
-              AT TIME ZONE 'Asia/Yekaterinburg'
+            (range.ended_at + range.bucket_size) AT TIME ZONE 'UTC'
           )
         GROUP BY 1, 2
       ),
@@ -1081,7 +1078,7 @@ export async function getAutodepositTimeSeries(): Promise<
           ON claim.claim_token ~ '^autodeposit-trigger:[0-9]+:[0-9]+:'
           AND slot.id = split_part(claim.claim_token, ':', 3)::bigint
         WHERE claim.updated_at >= (
-          SELECT MIN(started_at) AT TIME ZONE 'Asia/Yekaterinburg'
+          SELECT MIN(started_at) AT TIME ZONE 'UTC'
           FROM ranges
         )
           AND claim.updated_at <= now()
@@ -1093,7 +1090,7 @@ export async function getAutodepositTimeSeries(): Promise<
           range.range_key,
           date_bin(
             range.bucket_size,
-            failure.event_at AT TIME ZONE 'Asia/Yekaterinburg',
+            failure.event_at AT TIME ZONE 'UTC',
             timestamp '1970-01-01 00:00:00'
           ) AS bucket_started_at,
           COUNT(*) FILTER (
@@ -1116,20 +1113,16 @@ export async function getAutodepositTimeSeries(): Promise<
           )::bigint AS other_pre_pull
         FROM pre_pull_failure_events AS failure
         CROSS JOIN ranges AS range
-        WHERE failure.event_at >= (
-            range.started_at AT TIME ZONE 'Asia/Yekaterinburg'
-          )
+        WHERE failure.event_at >= (range.started_at AT TIME ZONE 'UTC')
           AND failure.event_at < (
-            (range.ended_at + range.bucket_size)
-              AT TIME ZONE 'Asia/Yekaterinburg'
+            (range.ended_at + range.bucket_size) AT TIME ZONE 'UTC'
           )
         GROUP BY 1, 2
       )
       SELECT
         bucket.range_key,
         bucket.bucket_hours::text AS bucket_hours,
-        bucket.bucket_started_at
-          AT TIME ZONE 'Asia/Yekaterinburg' AS bucket_started_at,
+        bucket.bucket_started_at AT TIME ZONE 'UTC' AS bucket_started_at,
         COALESCE(execution.successful, 0)::text AS successful,
         COALESCE(execution.deposited_amount_raw, 0)::text
           AS deposited_amount_raw,
@@ -1253,15 +1246,9 @@ export async function getPreviousMonthRebalanceSeries(): Promise<
       WITH bounds AS (
         SELECT
           (
-            date_trunc(
-              'month',
-              now() AT TIME ZONE 'Asia/Yekaterinburg'
-            ) - interval '1 month'
+            date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 month'
           ) AS started_at,
-          date_trunc(
-            'month',
-            now() AT TIME ZONE 'Asia/Yekaterinburg'
-          ) AS ended_at
+          date_trunc('month', now() AT TIME ZONE 'UTC') AS ended_at
       ),
       days AS (
         SELECT generate_series(
@@ -1272,9 +1259,7 @@ export async function getPreviousMonthRebalanceSeries(): Promise<
       ),
       daily AS (
         SELECT
-          (
-            decision.updated_at AT TIME ZONE 'Asia/Yekaterinburg'
-          )::date AS date,
+          (decision.updated_at AT TIME ZONE 'UTC')::date AS date,
           COUNT(*) FILTER (
             WHERE decision.status = 'confirmed'
           )::bigint AS confirmed,
@@ -1285,10 +1270,10 @@ export async function getPreviousMonthRebalanceSeries(): Promise<
         WHERE decision.execution_plan->>'kind' = 'same_mint'
           AND decision.status IN ('confirmed', 'failed')
           AND decision.updated_at >= (
-            SELECT started_at AT TIME ZONE 'Asia/Yekaterinburg' FROM bounds
+            SELECT started_at AT TIME ZONE 'UTC' FROM bounds
           )
           AND decision.updated_at < (
-            SELECT ended_at AT TIME ZONE 'Asia/Yekaterinburg' FROM bounds
+            SELECT ended_at AT TIME ZONE 'UTC' FROM bounds
           )
         GROUP BY 1
       )
