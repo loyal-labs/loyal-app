@@ -20,7 +20,7 @@ import type { RebalanceActivityPoint } from "./rebalance-data";
 
 const chartConfig = {
   confirmed: {
-    color: "var(--foreground)",
+    color: "var(--chart-2)",
     label: "Confirmed",
   },
   expiredSubmissions: {
@@ -40,7 +40,7 @@ const chartConfig = {
     label: "Fleet claims",
   },
   terminalAttempts: {
-    color: "var(--muted-foreground)",
+    color: "var(--chart-1)",
     label: "Terminal attempts",
   },
 } satisfies ChartConfig;
