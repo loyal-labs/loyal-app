@@ -4,6 +4,7 @@ import { getSafeReserveApyMonitorData } from "@/lib/kamino/timescale-reserve-cli
 
 import {
   getActiveReserveRoutes,
+  getAutodepositTimeSeries,
   getOptimizationVolumeSeries,
   getPreviousMonthRebalanceSeries,
   getRebalanceActivity,
@@ -19,6 +20,7 @@ export async function GET() {
     routes,
     decisions,
     activity,
+    autodeposit,
     previousMonthRebalances,
     optimizationVolume,
   ] = await Promise.all([
@@ -26,6 +28,7 @@ export async function GET() {
     getActiveReserveRoutes(),
     getRecentRebalanceDecisions(),
     getRebalanceActivity(),
+    getAutodepositTimeSeries(),
     getPreviousMonthRebalanceSeries(),
     getOptimizationVolumeSeries(),
   ]);
@@ -34,6 +37,13 @@ export async function GET() {
     {
       activity,
       apyData,
+      autodeposit: autodeposit.map((range) => ({
+        ...range,
+        points: range.points.map((point) => ({
+          ...point,
+          depositedAmountRaw: point.depositedAmountRaw.toString(),
+        })),
+      })),
       decisions: decisions.map((decision) => ({
         ...decision,
         amountRaw: decision.amountRaw?.toString() ?? null,

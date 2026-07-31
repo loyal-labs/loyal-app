@@ -63,6 +63,27 @@ export type RebalanceActivityPoint = {
   terminalAttempts: number;
 };
 
+export type AutodepositTimeSeriesRangeKey = "2d" | "7d" | "30d";
+
+export type AutodepositTimeSeriesPoint = {
+  accountNotFound: number;
+  bucketStartedAt: string;
+  confirmationOrTimeout: number;
+  depositedAmountRaw: bigint;
+  insufficientRent: number;
+  missingTokenDelegate: number;
+  noLinkedError: number;
+  otherPrePull: number;
+  postPullKaminoTopUp: number;
+  successful: number;
+};
+
+export type AutodepositTimeSeriesRange = {
+  bucketHours: number;
+  key: AutodepositTimeSeriesRangeKey;
+  points: AutodepositTimeSeriesPoint[];
+};
+
 export type OptimizationVolumePoint = {
   confirmedCount: number;
   cumulativeAmountRaw: bigint;
@@ -165,6 +186,21 @@ type RebalanceActivitySqlRow = {
   failed_opportunities: SqlScalar;
   fleet_claims: SqlScalar;
   terminal_attempts: SqlScalar;
+};
+
+type AutodepositTimeSeriesSqlRow = {
+  account_not_found: SqlScalar;
+  bucket_hours: SqlScalar;
+  bucket_started_at: Date | string;
+  confirmation_or_timeout: SqlScalar;
+  deposited_amount_raw: SqlScalar;
+  insufficient_rent: SqlScalar;
+  missing_token_delegate: SqlScalar;
+  no_linked_error: SqlScalar;
+  other_pre_pull: SqlScalar;
+  post_pull_kamino_top_up: SqlScalar;
+  range_key: AutodepositTimeSeriesRangeKey;
+  successful: SqlScalar;
 };
 
 type OptimizationVolumeSqlRow = {
@@ -892,6 +928,262 @@ export async function getRebalanceActivity(): Promise<
     fleetClaims: toNumber(row.fleet_claims),
     terminalAttempts: toNumber(row.terminal_attempts),
   }));
+}
+
+export async function getAutodepositTimeSeries(): Promise<
+  AutodepositTimeSeriesRange[]
+> {
+  const rows = await queryRows<AutodepositTimeSeriesSqlRow>(
+    `
+      WITH params AS (
+        SELECT now() AT TIME ZONE 'Asia/Yekaterinburg' AS local_now
+      ),
+      ranges AS (
+        SELECT
+          '2d'::text AS range_key,
+          2::integer AS bucket_hours,
+          interval '2 hours' AS bucket_size,
+          date_trunc('day', local_now) - interval '1 day' AS started_at,
+          date_bin(
+            interval '2 hours',
+            local_now,
+            timestamp '1970-01-01 00:00:00'
+          ) AS ended_at
+        FROM params
+
+        UNION ALL
+
+        SELECT
+          '7d'::text AS range_key,
+          6::integer AS bucket_hours,
+          interval '6 hours' AS bucket_size,
+          date_trunc('day', local_now) - interval '6 days' AS started_at,
+          date_bin(
+            interval '6 hours',
+            local_now,
+            timestamp '1970-01-01 00:00:00'
+          ) AS ended_at
+        FROM params
+
+        UNION ALL
+
+        SELECT
+          '30d'::text AS range_key,
+          24::integer AS bucket_hours,
+          interval '1 day' AS bucket_size,
+          date_trunc('day', local_now) - interval '29 days' AS started_at,
+          date_trunc('day', local_now) AS ended_at
+        FROM params
+      ),
+      buckets AS (
+        SELECT
+          range.range_key,
+          range.bucket_hours,
+          range.bucket_size,
+          generate_series(
+            range.started_at,
+            range.ended_at,
+            range.bucket_size
+          ) AS bucket_started_at
+        FROM ranges AS range
+      ),
+      execution_events AS (
+        SELECT
+          execution.inserted_at AS event_at,
+          CASE
+            WHEN execution.decoded_evidence->>'status' = 'executed'
+              AND execution.completion_failure_code IS NULL
+              THEN 1
+            ELSE 0
+          END::bigint AS successful,
+          CASE
+            WHEN execution.decoded_evidence->>'status' = 'executed'
+              AND execution.completion_failure_code IS NULL
+              THEN execution.amount_raw
+            ELSE 0
+          END::bigint AS deposited_amount_raw,
+          0::bigint AS post_pull_kamino_top_up
+        FROM loyal_yield.balance_sweep_executions AS execution
+        WHERE execution.inserted_at >= (
+          SELECT MIN(started_at) AT TIME ZONE 'Asia/Yekaterinburg'
+          FROM ranges
+        )
+          AND execution.inserted_at <= now()
+          AND execution.decoded_evidence->>'status' = 'executed'
+          AND execution.completion_failure_code IS NULL
+
+        UNION ALL
+
+        SELECT
+          COALESCE(execution.completed_at, execution.inserted_at) AS event_at,
+          0::bigint AS successful,
+          0::bigint AS deposited_amount_raw,
+          1::bigint AS post_pull_kamino_top_up
+        FROM loyal_yield.balance_sweep_executions AS execution
+        WHERE COALESCE(execution.completed_at, execution.inserted_at) >= (
+          SELECT MIN(started_at) AT TIME ZONE 'Asia/Yekaterinburg'
+          FROM ranges
+        )
+          AND COALESCE(execution.completed_at, execution.inserted_at) <= now()
+          AND (
+            execution.completion_failure_code IS NOT NULL
+            OR (
+              execution.decoded_evidence->>'status' LIKE 'partial_executed%'
+              AND execution.decoded_evidence->>'status'
+                <> 'partial_executed_idle_vault_deposited'
+            )
+          )
+      ),
+      execution_activity AS (
+        SELECT
+          range.range_key,
+          date_bin(
+            range.bucket_size,
+            event.event_at AT TIME ZONE 'Asia/Yekaterinburg',
+            timestamp '1970-01-01 00:00:00'
+          ) AS bucket_started_at,
+          SUM(event.successful)::bigint AS successful,
+          SUM(event.deposited_amount_raw)::bigint AS deposited_amount_raw,
+          SUM(event.post_pull_kamino_top_up)::bigint
+            AS post_pull_kamino_top_up
+        FROM execution_events AS event
+        CROSS JOIN ranges AS range
+        WHERE event.event_at >= (
+            range.started_at AT TIME ZONE 'Asia/Yekaterinburg'
+          )
+          AND event.event_at < (
+            (range.ended_at + range.bucket_size)
+              AT TIME ZONE 'Asia/Yekaterinburg'
+          )
+        GROUP BY 1, 2
+      ),
+      pre_pull_failure_events AS (
+        SELECT
+          claim.updated_at AS event_at,
+          CASE
+            WHEN slot.last_error ILIKE '%AccountNotFound%'
+              THEN 'account_not_found'
+            WHEN slot.last_error ILIKE '%InsufficientFundsForRent%'
+              THEN 'insufficient_rent'
+            WHEN slot.last_error ILIKE '%owner does not match%'
+              OR slot.last_error ILIKE '%missing token delegate%'
+              THEN 'missing_token_delegate'
+            WHEN slot.last_error ILIKE '%unable to confirm transaction%'
+              OR slot.last_error ILIKE '%timed out%'
+              OR slot.last_error ILIKE '%BlockhashNotFound%'
+              THEN 'confirmation_or_timeout'
+            WHEN slot.last_error IS NULL OR slot.last_error = ''
+              THEN 'no_linked_error'
+            ELSE 'other_pre_pull'
+          END AS cause
+        FROM loyal_yield.balance_sweep_lot_claims AS claim
+        LEFT JOIN loyal_yield.balance_sweep_scheduled_slots AS slot
+          ON claim.claim_token ~ '^autodeposit-trigger:[0-9]+:[0-9]+:'
+          AND slot.id = split_part(claim.claim_token, ':', 3)::bigint
+        WHERE claim.updated_at >= (
+          SELECT MIN(started_at) AT TIME ZONE 'Asia/Yekaterinburg'
+          FROM ranges
+        )
+          AND claim.updated_at <= now()
+          AND claim.status::text IN ('released', 'failed')
+          AND claim.execution_id IS NULL
+      ),
+      pre_pull_failure_activity AS (
+        SELECT
+          range.range_key,
+          date_bin(
+            range.bucket_size,
+            failure.event_at AT TIME ZONE 'Asia/Yekaterinburg',
+            timestamp '1970-01-01 00:00:00'
+          ) AS bucket_started_at,
+          COUNT(*) FILTER (
+            WHERE failure.cause = 'account_not_found'
+          )::bigint AS account_not_found,
+          COUNT(*) FILTER (
+            WHERE failure.cause = 'insufficient_rent'
+          )::bigint AS insufficient_rent,
+          COUNT(*) FILTER (
+            WHERE failure.cause = 'missing_token_delegate'
+          )::bigint AS missing_token_delegate,
+          COUNT(*) FILTER (
+            WHERE failure.cause = 'confirmation_or_timeout'
+          )::bigint AS confirmation_or_timeout,
+          COUNT(*) FILTER (
+            WHERE failure.cause = 'no_linked_error'
+          )::bigint AS no_linked_error,
+          COUNT(*) FILTER (
+            WHERE failure.cause = 'other_pre_pull'
+          )::bigint AS other_pre_pull
+        FROM pre_pull_failure_events AS failure
+        CROSS JOIN ranges AS range
+        WHERE failure.event_at >= (
+            range.started_at AT TIME ZONE 'Asia/Yekaterinburg'
+          )
+          AND failure.event_at < (
+            (range.ended_at + range.bucket_size)
+              AT TIME ZONE 'Asia/Yekaterinburg'
+          )
+        GROUP BY 1, 2
+      )
+      SELECT
+        bucket.range_key,
+        bucket.bucket_hours::text AS bucket_hours,
+        bucket.bucket_started_at
+          AT TIME ZONE 'Asia/Yekaterinburg' AS bucket_started_at,
+        COALESCE(execution.successful, 0)::text AS successful,
+        COALESCE(execution.deposited_amount_raw, 0)::text
+          AS deposited_amount_raw,
+        COALESCE(failure.account_not_found, 0)::text
+          AS account_not_found,
+        COALESCE(failure.insufficient_rent, 0)::text
+          AS insufficient_rent,
+        COALESCE(failure.missing_token_delegate, 0)::text
+          AS missing_token_delegate,
+        COALESCE(failure.confirmation_or_timeout, 0)::text
+          AS confirmation_or_timeout,
+        COALESCE(failure.no_linked_error, 0)::text
+          AS no_linked_error,
+        COALESCE(failure.other_pre_pull, 0)::text AS other_pre_pull,
+        COALESCE(execution.post_pull_kamino_top_up, 0)::text
+          AS post_pull_kamino_top_up
+      FROM buckets AS bucket
+      LEFT JOIN execution_activity AS execution
+        USING (range_key, bucket_started_at)
+      LEFT JOIN pre_pull_failure_activity AS failure
+        USING (range_key, bucket_started_at)
+      ORDER BY
+        CASE bucket.range_key
+          WHEN '2d' THEN 1
+          WHEN '7d' THEN 2
+          ELSE 3
+        END,
+        bucket.bucket_started_at ASC
+    `
+  );
+
+  const ranges: AutodepositTimeSeriesRange[] = [
+    { bucketHours: 2, key: "2d", points: [] },
+    { bucketHours: 6, key: "7d", points: [] },
+    { bucketHours: 24, key: "30d", points: [] },
+  ];
+  const rangeByKey = new Map(ranges.map((range) => [range.key, range]));
+
+  for (const row of rows) {
+    rangeByKey.get(row.range_key)?.points.push({
+      accountNotFound: toNumber(row.account_not_found),
+      bucketStartedAt: toIsoString(row.bucket_started_at) ?? "",
+      confirmationOrTimeout: toNumber(row.confirmation_or_timeout),
+      depositedAmountRaw: toBigInt(row.deposited_amount_raw),
+      insufficientRent: toNumber(row.insufficient_rent),
+      missingTokenDelegate: toNumber(row.missing_token_delegate),
+      noLinkedError: toNumber(row.no_linked_error),
+      otherPrePull: toNumber(row.other_pre_pull),
+      postPullKaminoTopUp: toNumber(row.post_pull_kamino_top_up),
+      successful: toNumber(row.successful),
+    });
+  }
+
+  return ranges;
 }
 
 export async function getOptimizationVolumeSeries(): Promise<
