@@ -305,6 +305,10 @@ export function WorkspaceFaceliftShell() {
               earnBalanceUsd={earnData.earnBalanceUsd}
               isEarnBalanceLoading={isPositionLoading}
               onSelectPage={handleSelectPage}
+              onSetUpAutodeposit={() => {
+                setActivePage("earn");
+                setMiddleView("autodeposit");
+              }}
               showActivityBadge={hasUnseenActivity}
             />
           ) : activePage === "activity" ? (
