@@ -177,6 +177,7 @@ import { useAuthCapability } from "@/lib/auth/capability";
 import {
   captureBrowserLoadingMetric,
   captureBrowserLoadingMetricAfterPaint,
+  captureBrowserSubmittedFailureMetricAfterPaint,
   createBrowserLifecycleTracker,
   getBrowserPerformanceNow,
   measureBrowserLoadingDependencies,
@@ -1912,6 +1913,11 @@ export function AppWalletWorkspace({
   const earnAutodepositCloseLifecycleRef = useRef<LifecycleTracker | null>(
     null
   );
+  const earnAutodepositSetupAttemptRef = useRef<{
+    previewMetricSent: boolean;
+    startedAtMs: number;
+    tracker: LifecycleTracker;
+  } | null>(null);
   const executeNowLifecycleRef = useRef<{
     scheduledSlotId: string | null;
     tracker: LifecycleTracker;
@@ -3297,6 +3303,26 @@ export function AppWalletWorkspace({
       pendingEarnAutodepositSetupPrepared,
     ]
   );
+  useEffect(() => {
+    if (!earnAutodepositSetupReviewItem) {
+      return;
+    }
+
+    const attempt = earnAutodepositSetupAttemptRef.current;
+    if (!attempt || attempt.previewMetricSent) {
+      return;
+    }
+
+    attempt.previewMetricSent = true;
+    captureBrowserLoadingMetricAfterPaint({
+      flowId: attempt.tracker.flowId,
+      operation: "earn.autodeposit.setup",
+      phase: "interaction_to_preview",
+      presentation: "in_app",
+      shouldCapture: () => earnAutodepositSetupAttemptRef.current === attempt,
+      startedAtMs: attempt.startedAtMs,
+    });
+  }, [earnAutodepositSetupReviewItem]);
   const earnAutodepositCloseReviewItem = useMemo(
     () =>
       autodepositConfig &&
@@ -4389,6 +4415,15 @@ export function AppWalletWorkspace({
       return;
     }
 
+    const tracker =
+      earnAutodepositCloseLifecycleRef.current ??
+      earnAutodepositSetupAttemptRef.current?.tracker;
+    tracker?.cancel("wallet_approval");
+    if (earnAutodepositLifecycleRef.current === tracker) {
+      earnAutodepositLifecycleRef.current = null;
+    }
+    earnAutodepositCloseLifecycleRef.current = null;
+    earnAutodepositSetupAttemptRef.current = null;
     markDetailPaneTransition("back");
     setPendingEarnAutodepositDraft(null);
     setPendingEarnAutodepositSetupPrepared(null);
@@ -4596,6 +4631,24 @@ export function AppWalletWorkspace({
         return;
       }
 
+      const requiresSignature =
+        !autodepositCanUseFloorUpdate ||
+        autodepositIsPendingSetup ||
+        amountChanged;
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "earn.autodeposit.configuration",
+        flowVariant: requiresSignature ? "setup" : "floor_update",
+      });
+      const setupAttempt = {
+        previewMetricSent: false,
+        startedAtMs: getBrowserPerformanceNow(),
+        tracker,
+      };
+      earnAutodepositLifecycleRef.current = tracker;
+      earnAutodepositSetupAttemptRef.current = setupAttempt;
+      tracker.start("intent");
+      tracker.observe("prepare");
+
       setPendingEarnAutodepositDraft({
         amount: normalizedAmount,
         amountChanged,
@@ -4615,10 +4668,7 @@ export function AppWalletWorkspace({
         periodLengthSeconds: parseOptionalUnsignedBigInt(
           autodepositConfig?.periodLengthSeconds
         ),
-        requiresSignature:
-          !autodepositCanUseFloorUpdate ||
-          autodepositIsPendingSetup ||
-          amountChanged,
+        requiresSignature,
         source,
         startTimestamp: parseOptionalUnsignedBigInt(
           autodepositConfig?.startTimestamp
@@ -4642,12 +4692,13 @@ export function AppWalletWorkspace({
   const handleDismissEarnAutodepositPreview = useCallback(() => {
     const tracker =
       earnAutodepositCloseLifecycleRef.current ??
-      earnAutodepositLifecycleRef.current;
+      earnAutodepositSetupAttemptRef.current?.tracker;
     tracker?.cancel("wallet_approval");
     if (earnAutodepositLifecycleRef.current === tracker) {
       earnAutodepositLifecycleRef.current = null;
     }
     earnAutodepositCloseLifecycleRef.current = null;
+    earnAutodepositSetupAttemptRef.current = null;
     setPendingEarnAutodepositDraft(null);
     setPendingEarnAutodepositSetupPrepared(null);
     setPendingEarnAutodepositClosePrepared(null);
@@ -4704,16 +4755,24 @@ export function AppWalletWorkspace({
           }),
       })
         .then((preparedClose) => {
+          if (earnAutodepositCloseLifecycleRef.current !== tracker) {
+            return;
+          }
           setPendingEarnAutodepositClosePrepared(preparedClose);
           captureBrowserLoadingMetricAfterPaint({
             flowId: tracker.flowId,
             operation: "earn.autodeposit.close",
             phase: "interaction_to_preview",
             presentation: "in_app",
+            shouldCapture: () =>
+              earnAutodepositCloseLifecycleRef.current === tracker,
             startedAtMs: prepareStartedAtMs,
           });
         })
         .catch((error) => {
+          if (earnAutodepositCloseLifecycleRef.current !== tracker) {
+            return;
+          }
           tracker.fail("prepare", { errorCode: "unexpected_error" });
           if (earnAutodepositCloseLifecycleRef.current === tracker) {
             earnAutodepositCloseLifecycleRef.current = null;
@@ -6093,6 +6152,13 @@ export function AppWalletWorkspace({
           errorCode: "unexpected_error",
         });
       }
+      if (tracker) {
+        captureBrowserSubmittedFailureMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.deposit",
+          startedAtMs: walletSubmittedAtMs,
+        });
+      }
     } finally {
       setIsEarnAutoSigning(false);
     }
@@ -6326,6 +6392,13 @@ export function AppWalletWorkspace({
           errorCode: "unexpected_error",
         });
       }
+      if (tracker) {
+        captureBrowserSubmittedFailureMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.withdrawal",
+          startedAtMs: walletSubmittedAtMs,
+        });
+      }
     } finally {
       setIsEarnWithdrawPreparePending(false);
       setIsEarnAutoSigning(false);
@@ -6423,6 +6496,13 @@ export function AppWalletWorkspace({
       } else {
         tracker?.fail("cleanup", { errorCode: "unexpected_error" });
       }
+      if (tracker) {
+        captureBrowserSubmittedFailureMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.close",
+          startedAtMs: walletSubmittedAtMs,
+        });
+      }
     } finally {
       setIsEarnAutoSigning(false);
     }
@@ -6450,19 +6530,27 @@ export function AppWalletWorkspace({
     }
 
     const previousAutodepositConfig = autodepositConfig;
-    const tracker = createBrowserLifecycleTracker({
-      flowName: "earn.autodeposit.configuration",
-      flowVariant:
-        pendingEarnAutodepositDraft.requiresSignature === false
-          ? "floor_update"
-          : "setup",
-    });
-    earnAutodepositLifecycleRef.current = tracker;
-    const prepareStartedAtMs = getBrowserPerformanceNow();
-    let previewMetricSent = false;
+    const setupAttempt = earnAutodepositSetupAttemptRef.current;
+    const existingTracker =
+      setupAttempt &&
+      earnAutodepositLifecycleRef.current === setupAttempt.tracker
+        ? setupAttempt.tracker
+        : null;
+    const tracker =
+      existingTracker ??
+      createBrowserLifecycleTracker({
+        flowName: "earn.autodeposit.configuration",
+        flowVariant:
+          pendingEarnAutodepositDraft.requiresSignature === false
+            ? "floor_update"
+            : "setup",
+      });
+    if (!existingTracker) {
+      earnAutodepositLifecycleRef.current = tracker;
+      tracker.start("intent");
+      tracker.observe("prepare");
+    }
     let walletSubmittedAtMs: number | null = null;
-    tracker.start("intent");
-    tracker.observe("prepare");
     setProposalActionError(null);
     setAutodepositConfig((current) =>
       pendingEarnAutodepositDraft.requiresSignature === false
@@ -6578,16 +6666,6 @@ export function AppWalletWorkspace({
               }),
           });
           setPendingEarnAutodepositSetupPrepared(preparedSetup);
-        }
-        if (!previewMetricSent) {
-          previewMetricSent = true;
-          captureBrowserLoadingMetric({
-            durationMs: getBrowserPerformanceNow() - prepareStartedAtMs,
-            flowId: tracker.flowId,
-            operation: "earn.autodeposit.setup",
-            phase: "interaction_to_preview",
-            presentation: "wallet",
-          });
         }
         setEarnAutodepositSetupReviewStage(
           resolveEarnAutodepositSetupReviewStage(preparedSetup)
@@ -6724,17 +6802,18 @@ export function AppWalletWorkspace({
           errorCode: "unexpected_error",
         });
       }
-      if (!previewMetricSent) {
-        captureBrowserLoadingMetricAfterPaint({
-          flowId: tracker.flowId,
-          operation: "earn.autodeposit.setup",
-          outcome: "failed",
-          phase: "interaction_to_preview",
-          presentation: "in_app",
-          startedAtMs: prepareStartedAtMs,
-        });
-      }
+      captureBrowserSubmittedFailureMetricAfterPaint({
+        flowId: tracker.flowId,
+        operation: "earn.autodeposit.setup",
+        startedAtMs: walletSubmittedAtMs,
+      });
     } finally {
+      if (earnAutodepositSetupAttemptRef.current?.tracker === tracker) {
+        earnAutodepositSetupAttemptRef.current = null;
+      }
+      if (earnAutodepositLifecycleRef.current === tracker) {
+        earnAutodepositLifecycleRef.current = null;
+      }
       setIsEarnAutodepositSetupConfirming(false);
       setIsEarnAutoSigning(false);
     }
@@ -6857,6 +6936,11 @@ export function AppWalletWorkspace({
       } else {
         tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
       }
+      captureBrowserSubmittedFailureMetricAfterPaint({
+        flowId: tracker.flowId,
+        operation: "earn.autodeposit.close",
+        startedAtMs: walletSubmittedAtMs,
+      });
     } finally {
       if (earnAutodepositCloseLifecycleRef.current === tracker) {
         earnAutodepositCloseLifecycleRef.current = null;

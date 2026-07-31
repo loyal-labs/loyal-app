@@ -162,11 +162,15 @@ export function getBrowserPerformanceNow(): number {
 
 export function captureBrowserLoadingMetricAfterPaint(
   args: Omit<CaptureBrowserLoadingMetricArgs, "durationMs"> & {
+    shouldCapture?: () => boolean;
     startedAtMs: number;
   }
 ): void {
+  const { shouldCapture, startedAtMs, ...metric } = args;
   const emit = () => {
-    const { startedAtMs, ...metric } = args;
+    if (shouldCapture && !shouldCapture()) {
+      return;
+    }
     captureBrowserLoadingMetric({
       ...metric,
       durationMs: Math.max(0, getBrowserPerformanceNow() - startedAtMs),
@@ -182,6 +186,24 @@ export function captureBrowserLoadingMetricAfterPaint(
   } catch {
     emit();
   }
+}
+
+export function captureBrowserSubmittedFailureMetricAfterPaint(args: {
+  flowId: string;
+  operation: Exclude<FrontendLoadingOperation, "page_load">;
+  startedAtMs: number | null;
+}): void {
+  if (args.startedAtMs === null) {
+    return;
+  }
+
+  captureBrowserLoadingMetricAfterPaint({
+    flowId: args.flowId,
+    operation: args.operation,
+    outcome: "failed",
+    phase: "wallet_confirmation_to_ui",
+    startedAtMs: args.startedAtMs,
+  });
 }
 
 type BrowserResourceEntry = {

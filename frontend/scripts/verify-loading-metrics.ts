@@ -178,9 +178,10 @@ async function verifyAfterPaintCapturePostsMetric(): Promise<void> {
     window: { configurable: true, value: globalThis },
   });
 
-  const { captureBrowserLoadingMetricAfterPaint } = await import(
-    "../src/features/observability/client"
-  );
+  const {
+    captureBrowserLoadingMetricAfterPaint,
+    captureBrowserSubmittedFailureMetricAfterPaint,
+  } = await import("../src/features/observability/client");
   captureBrowserLoadingMetricAfterPaint({
     flowId: FLOW_ID,
     operation: "earn.deposit",
@@ -199,11 +200,41 @@ async function verifyAfterPaintCapturePostsMetric(): Promise<void> {
   assert.equal(parsedPostedMetric.phase, "interaction_to_preview");
   assert.equal(parsedPostedMetric.presentation, "in_app");
   assert.ok(!("startedAtMs" in postedMetric));
+  assert.ok(!("shouldCapture" in postedMetric));
+
+  captureBrowserLoadingMetricAfterPaint({
+    flowId: FLOW_ID,
+    operation: "earn.autodeposit.close",
+    phase: "interaction_to_preview",
+    presentation: "in_app",
+    shouldCapture: () => false,
+    startedAtMs: performance.now() - 10,
+  });
+  captureBrowserSubmittedFailureMetricAfterPaint({
+    flowId: FLOW_ID,
+    operation: "earn.deposit",
+    startedAtMs: null,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(postedBodies.length, 1);
+
+  captureBrowserSubmittedFailureMetricAfterPaint({
+    flowId: FLOW_ID,
+    operation: "earn.deposit",
+    startedAtMs: performance.now() - 10,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(postedBodies.length, 2);
+  const postedFailure = parseBrowserLoadingMetricEnvelope(
+    JSON.parse(postedBodies[1] ?? "null")
+  );
+  assert.equal(postedFailure.outcome, "failed");
+  assert.equal(postedFailure.phase, "wallet_confirmation_to_ui");
 }
 
 await verifyAfterPaintCapturePostsMetric();
 pass(
-  "the public after-paint helper posts a valid envelope without leaking its local start timestamp"
+  "the public capture helpers gate stale previews and pre-submit failures without leaking local fields"
 );
 
 const pageOrigin = "https://app.askloyal.com";
@@ -327,6 +358,47 @@ assert.ok(
     "const existingTracker = pendingEarnAutodepositClosePrepared"
   )
 );
+const autodepositSaveStart = workspaceSource.indexOf(
+  "const handleSaveAutodeposit"
+);
+const autodepositSaveEnd = workspaceSource.indexOf(
+  "const handleDismissEarnAutodepositPreview",
+  autodepositSaveStart
+);
+const autodepositSaveSource = workspaceSource.slice(
+  autodepositSaveStart,
+  autodepositSaveEnd
+);
+const setupAttemptStartIndex = autodepositSaveSource.indexOf(
+  "earnAutodepositSetupAttemptRef.current = setupAttempt"
+);
+const setupReviewStartIndex = autodepositSaveSource.indexOf(
+  "setPendingEarnAutodepositDraft"
+);
+assert.ok(setupAttemptStartIndex >= 0);
+assert.ok(setupReviewStartIndex >= 0);
+assert.ok(setupAttemptStartIndex < setupReviewStartIndex);
+assert.ok(
+  workspaceSource.includes(
+    "if (earnAutodepositCloseLifecycleRef.current !== tracker)"
+  )
+);
+for (const [handler, operation] of [
+  ["handleContinueEarnDepositReview", "earn.deposit"],
+  ["handleContinueEarnWithdrawReview", "earn.withdrawal"],
+  ["handleCompleteEarnCleanup", "earn.close"],
+  ["handleCompleteEarnAutodepositSetup", "earn.autodeposit.setup"],
+  ["handleCompleteEarnAutodepositClose", "earn.autodeposit.close"],
+] as const) {
+  const handlerStart = workspaceSource.indexOf(`const ${handler}`);
+  const handlerEnd = workspaceSource.indexOf("\n  const ", handlerStart + 1);
+  const handlerSource = workspaceSource.slice(handlerStart, handlerEnd);
+  assert.ok(handlerStart >= 0);
+  assert.ok(
+    handlerSource.includes("captureBrowserSubmittedFailureMetricAfterPaint")
+  );
+  assert.ok(handlerSource.includes(`operation: "${operation}"`));
+}
 for (const operation of FRONTEND_LOADING_OPERATIONS) {
   assert.ok(workspaceSource.includes(`operation: "${operation}"`));
 }
