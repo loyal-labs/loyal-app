@@ -63,6 +63,10 @@ export function MiddlePaneSlide({
   const rootPageRef = useRef<HTMLDivElement>(null);
   const actionPageRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
+  // Container width while the action screen is open — the close-time freeze
+  // below needs it, and by the time the close effect runs the shell has
+  // already remounted the chart pane and narrowed the container.
+  const actionWidthRef = useRef<number | null>(null);
   const [isActionMounted, setIsActionMounted] = useState(false);
   const lastActionPaneRef = useRef<ReactNode>(null);
   const isActionOpen = actionPane !== null;
@@ -89,7 +93,12 @@ export function MiddlePaneSlide({
       readCssDurationMs("--page-stagger", 0);
     if (isActionOpen) {
       rootPageRef.current?.classList.remove("is-settled");
-      void container.offsetHeight;
+      // Reopening mid-exit: drop the exit freeze so inset-0 tracks the
+      // container again.
+      actionPageRef.current?.style.removeProperty("width");
+      actionPageRef.current?.style.removeProperty("z-index");
+      // Doubles as the forced reflow the entrance transition needs.
+      actionWidthRef.current = container.offsetWidth;
       container.dataset.page = "2";
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
@@ -98,6 +107,20 @@ export function MiddlePaneSlide({
       return;
     }
     actionPageRef.current?.classList.remove("is-settled");
+    // Closing remounts the shell's chart pane in this same commit, which
+    // narrows the container while the exiting panes are still on screen —
+    // without a freeze the action screen's right pane snaps left to the
+    // narrowed mid pane's edge before its exit plays. Pin the exiting page
+    // at its open width and lift it over the incoming chart pane (whose
+    // transformed innards otherwise paint through); with inset-0 the
+    // explicit width wins and the page stays left-anchored. Single-pane
+    // screens (deposit) keep the chart column mounted, so there the frozen
+    // width matches and this is a no-op.
+    const actionPage = actionPageRef.current;
+    if (actionPage && actionWidthRef.current !== null) {
+      actionPage.style.width = `${actionWidthRef.current}px`;
+      actionPage.style.zIndex = "1";
+    }
     container.dataset.page = "1";
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
@@ -106,6 +129,18 @@ export function MiddlePaneSlide({
       setIsActionMounted(false);
     }, slideDur);
   }, [isActionOpen, isActionMounted]);
+
+  // Keep the freeze width current across window resizes while open.
+  useEffect(() => {
+    if (!isActionOpen) {
+      return;
+    }
+    const handleResize = () => {
+      actionWidthRef.current = containerRef.current?.offsetWidth ?? null;
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [isActionOpen]);
 
   useEffect(
     () => () => {
