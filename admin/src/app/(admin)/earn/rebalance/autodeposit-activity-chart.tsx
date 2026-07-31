@@ -74,31 +74,31 @@ const volumeConfig = {
 
 const failureConfig = {
   accountNotFound: {
-    color: "color-mix(in oklab, var(--foreground) 100%, var(--background))",
+    color: "var(--chart-1)",
     label: "AccountNotFound",
   },
   otherPrePull: {
-    color: "color-mix(in oklab, var(--foreground) 82%, var(--background))",
+    color: "var(--chart-2)",
     label: "Other pre-pull",
   },
   insufficientRent: {
-    color: "color-mix(in oklab, var(--foreground) 68%, var(--background))",
+    color: "var(--chart-3)",
     label: "Insufficient rent",
   },
   missingTokenDelegate: {
-    color: "color-mix(in oklab, var(--foreground) 55%, var(--background))",
+    color: "var(--chart-4)",
     label: "Missing token delegate",
   },
   confirmationOrTimeout: {
-    color: "color-mix(in oklab, var(--foreground) 44%, var(--background))",
+    color: "var(--chart-5)",
     label: "Confirmation / timeout",
   },
   noLinkedError: {
-    color: "color-mix(in oklab, var(--foreground) 32%, var(--background))",
+    color: "var(--muted-foreground)",
     label: "No linked error",
   },
   postPullKaminoTopUp: {
-    color: "color-mix(in oklab, var(--foreground) 20%, var(--background))",
+    color: "var(--destructive)",
     label: "Post-pull Kamino top-up",
   },
 } satisfies ChartConfig;
