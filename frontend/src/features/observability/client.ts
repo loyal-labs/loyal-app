@@ -231,7 +231,9 @@ function observeDependencyEntries(): DependencyEntryCollector | null {
 
     const observed: BrowserResourceEntry[] = [];
     const observer = new window.PerformanceObserver((list) => {
-      observed.push(...(list.getEntries() as unknown as BrowserResourceEntry[]));
+      observed.push(
+        ...(list.getEntries() as unknown as BrowserResourceEntry[])
+      );
     });
     observer.observe({ buffered: false, type: "resource" });
 

@@ -17,7 +17,6 @@
     "ultracite": "bunx ultracite check",
     "fix-lint": "next lint --fix",
     "verify:chunk-load-recovery": "bun scripts/verify-chunk-load-recovery.ts",
-    "verify:loading-metrics": "bun scripts/verify-loading-metrics.ts",
     "verify:observability": "bun scripts/verify-observability.ts",
     "commit": "cz"
   },

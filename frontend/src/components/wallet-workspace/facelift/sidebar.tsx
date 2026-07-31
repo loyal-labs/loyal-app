@@ -20,6 +20,7 @@ import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { captureBrowserLoadingMetricAfterPaint } from "@/features/observability/client";
 import {
   splitUsdBalance,
   useWalletDesktopData,
@@ -240,6 +241,23 @@ export function FaceliftSidebar({
     (!isSignedIn || (data.walletAddress !== null && !data.isLoading));
   const isEarnBalanceRevealed = !isEarnBalanceLoading;
   const isTotalRevealed = isWalletDataRevealed && isEarnBalanceRevealed;
+  const hasReportedBalancesReadyRef = useRef(false);
+  useEffect(() => {
+    if (
+      hasReportedBalancesReadyRef.current ||
+      !isSignedIn ||
+      !isTotalRevealed
+    ) {
+      return;
+    }
+
+    hasReportedBalancesReadyRef.current = true;
+    captureBrowserLoadingMetricAfterPaint({
+      operation: "page_load",
+      phase: "balances_ready",
+      startedAtMs: 0,
+    });
+  }, [isSignedIn, isTotalRevealed]);
 
   // Copied feedback: the copy icon swaps to a check, then back.
   const [isCopied, setIsCopied] = useState(false);
