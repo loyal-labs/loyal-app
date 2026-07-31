@@ -3016,3 +3016,94 @@ cap-widget {
     animation: none !important;
   }
 }
+
+/* transitions.dev — Toast open / close (frontend/transitions/toast.md).
+   Earn action feedback pill (facelift/earn-toast.tsx): slides into the top
+   edge with fade + cross-blur + slight scale (the host flips
+   --toast-distance negative); opening runs the slower open clock while
+   dismissing uses the faster close clock. */
+:root {
+  --toast-open: 350ms;
+  --toast-close: 250ms;
+  --toast-distance: 16px;
+  --toast-blur: 2px;
+  --toast-scale: 0.97;
+  --toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-toast {
+  opacity: 0;
+  transform: translateY(var(--toast-distance)) scale(var(--toast-scale));
+  filter: blur(var(--toast-blur));
+  will-change: transform, opacity, filter;
+  transition: opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease);
+}
+.t-toast.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  transition: opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toast {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation — the toast's status icon is an icon-swap with THREE
+   stacked states (a: pending spinner, b: success check, c: error cross).
+   The base recipe above only styles a/b, so state "c" gets the same
+   treatment here, scoped to the toast. The white arc spins while pending,
+   and the check strokes itself in on the morph to success (reusing
+   t-check-draw; 35 = the calibrated length of the shared check path). */
+:root {
+  --toast-spin-dur: 900ms;
+}
+
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="c"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+.t-toast .t-icon-swap[data-state="a"] .t-icon[data-icon="c"],
+.t-toast .t-icon-swap[data-state="b"] .t-icon[data-icon="c"],
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="a"],
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="b"] {
+  opacity: 0;
+  filter: blur(var(--icon-swap-blur));
+  transform: scale(var(--icon-swap-start-scale));
+}
+
+.t-toast-spinner {
+  animation: t-toast-spin var(--toast-spin-dur) linear infinite;
+  transform-origin: center;
+}
+
+@keyframes t-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.t-toast .t-icon[data-icon="b"] svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+.t-toast .t-icon-swap[data-state="b"] .t-icon[data-icon="b"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toast-spinner {
+    animation: none !important;
+  }
+  .t-toast .t-icon[data-icon="b"] svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}

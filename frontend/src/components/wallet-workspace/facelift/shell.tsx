@@ -18,6 +18,7 @@ import {
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
+import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
@@ -283,6 +284,9 @@ export function WorkspaceFaceliftShell() {
         {/* OG-style approval review for Earn deposit/withdraw/autodeposit —
             flows park between prepare and sign until the user responds. */}
         <EarnApprovalSheet approval={earnData.actions.pendingApproval} />
+        {/* Status pill for Earn deposit/withdraw/autodeposit flows —
+            use-earn-actions.ts drives it through the earnToast emitter. */}
+        <EarnToastHost />
         <FaceliftSidebar
           activePage={activePage}
           earnBalanceUsd={earnData.earnBalanceUsd}

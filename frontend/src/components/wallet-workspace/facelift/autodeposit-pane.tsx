@@ -278,6 +278,15 @@ export function AutodepositPane({
                     className="min-w-0 flex-1 border-none bg-transparent font-semibold text-[40px] text-black leading-[48px] outline-none placeholder:text-[#b1b1b4]"
                     inputMode="decimal"
                     onChange={(event) => handleAmountChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" || event.repeat) {
+                        return;
+                      }
+                      event.preventDefault();
+                      if (hasChanges && !isSaving) {
+                        void handleSave();
+                      }
+                    }}
                     placeholder="0"
                     type="text"
                     value={amount}
