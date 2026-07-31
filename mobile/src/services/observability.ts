@@ -178,11 +178,24 @@ function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
   return postJson("/api/observability/mobile/errors", envelope);
 }
 
-function report(error: unknown, operation: MobileErrorOperation): void {
+function report(
+  error: unknown,
+  operation: MobileErrorOperation,
+  messagePrefix?: string,
+): void {
   try {
+    const normalized = normalizeError(error);
     const envelope: MobileErrorEnvelope = {
-      ...normalizeError(error),
+      ...normalized,
       environment: getEnvironment(),
+      ...(messagePrefix
+        ? {
+            message: truncate(
+              `${messagePrefix} ${normalized.message}`,
+              MAX_ERROR_MESSAGE_LENGTH,
+            ),
+          }
+        : {}),
       operation,
       pathname: currentPathname,
       release: getRelease(),
@@ -442,6 +455,8 @@ const WALLET_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
   flowName: F;
   flowVariant: LifecycleVariantMap[F];
+  /** Emit a correlated exception record when failFrom maps to unexpected_error. */
+  reportUnexpectedErrors?: boolean;
   walletAddress?: string;
 }): LifecycleFlow<F> {
   const flowId = generateFlowId();
@@ -498,6 +513,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
     complete: (stage, diagnostics) => emit("completed", stage, diagnostics),
     fail: (stage, diagnostics) => emit("failed", stage, diagnostics),
     failFrom: (stage, error, diagnostics) => {
+      if (terminal) return;
       const errorCode = mapLifecycleErrorCode(error);
       // Only a decline that changed nothing on-chain is a clean cancellation.
       // Declining after an earlier step landed leaves confirmed-but-unrecorded
@@ -510,6 +526,15 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
         errorCode,
         ...(httpStatus !== undefined ? { httpStatus } : {}),
       });
+      if (errorCode === "unexpected_error" && args.reportUnexpectedErrors) {
+        // Lifecycle `errorDetail` is deliberately enum-only. Use the existing
+        // sanitized error ingest and add searchable flow context instead.
+        report(
+          error,
+          "mobile.global_error",
+          `[flow_id=${flowId} flow_name=${args.flowName} flow_stage=${stage}]`,
+        );
+      }
     },
     flowId,
     observe: (stage, diagnostics) => emit("observed", stage, diagnostics),

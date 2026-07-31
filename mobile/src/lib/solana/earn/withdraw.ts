@@ -388,6 +388,7 @@ export async function executeEarnWithdraw(args: {
   const flow = startLifecycleFlow({
     flowName: "earn.withdrawal",
     flowVariant: args.mode === "full" ? "full" : "partial",
+    reportUnexpectedErrors: true,
     walletAddress: args.signer.publicKey.toBase58(),
   });
   flow.start("prepare");
