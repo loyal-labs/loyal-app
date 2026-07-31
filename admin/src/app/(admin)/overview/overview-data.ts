@@ -11,12 +11,15 @@ import {
   type OptimizationVolumePoint,
 } from "../earn/rebalance/rebalance-data";
 
-type SerializedAutodepositTimeSeriesRange = Omit<
+type SerializedAutodepositTimeSeriesRange = Pick<
   AutodepositTimeSeriesRange,
-  "points"
+  "bucketHours" | "key"
 > & {
   points: Array<
-    Omit<AutodepositTimeSeriesRange["points"][number], "depositedAmountRaw"> & {
+    Pick<
+      AutodepositTimeSeriesRange["points"][number],
+      "bucketStartedAt" | "successful"
+    > & {
       depositedAmountRaw: string;
     }
   >;
@@ -43,10 +46,12 @@ async function loadOverviewData(): Promise<OverviewData> {
 
   return {
     autodeposit: autodeposit.map((range) => ({
-      ...range,
+      bucketHours: range.bucketHours,
+      key: range.key,
       points: range.points.map((point) => ({
-        ...point,
+        bucketStartedAt: point.bucketStartedAt,
         depositedAmountRaw: point.depositedAmountRaw.toString(),
+        successful: point.successful,
       })),
     })),
     optimizationVolume: optimizationVolume.map((point) => ({

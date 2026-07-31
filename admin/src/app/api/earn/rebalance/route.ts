@@ -6,6 +6,7 @@ import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 
 import {
   getActiveReserveRoutes,
+  getAutodepositTimeSeries,
   getPreviousMonthRebalanceSeries,
   getRebalanceActivity,
   getRecentRebalanceDecisions,
@@ -15,18 +16,39 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function loadRebalanceMonitorData() {
-  const [apyData, routes, decisions, activity, previousMonthRebalances] =
-    await Promise.all([
-      getSafeReserveApyMonitorData(),
-      getActiveReserveRoutes(),
-      getRecentRebalanceDecisions(),
-      getRebalanceActivity(),
-      getPreviousMonthRebalanceSeries(),
-    ]);
+  const [
+    apyData,
+    routes,
+    decisions,
+    activity,
+    previousMonthRebalances,
+    autodeposit,
+  ] = await Promise.all([
+    getSafeReserveApyMonitorData(),
+    getActiveReserveRoutes(),
+    getRecentRebalanceDecisions(),
+    getRebalanceActivity(),
+    getPreviousMonthRebalanceSeries(),
+    getAutodepositTimeSeries(),
+  ]);
 
   return {
     activity,
     apyData,
+    autodeposit: autodeposit.map((range) => ({
+      bucketHours: range.bucketHours,
+      key: range.key,
+      points: range.points.map((point) => ({
+        accountNotFound: point.accountNotFound,
+        bucketStartedAt: point.bucketStartedAt,
+        confirmationOrTimeout: point.confirmationOrTimeout,
+        insufficientRent: point.insufficientRent,
+        missingTokenDelegate: point.missingTokenDelegate,
+        noLinkedError: point.noLinkedError,
+        otherPrePull: point.otherPrePull,
+        postPullKaminoTopUp: point.postPullKaminoTopUp,
+      })),
+    })),
     decisions: decisions.map((decision) => ({
       ...decision,
       amountRaw: decision.amountRaw?.toString() ?? null,

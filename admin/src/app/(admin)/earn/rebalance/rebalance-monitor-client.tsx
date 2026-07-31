@@ -41,6 +41,10 @@ import type {
 } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
 import { SafeReserveApyChart } from "../safe-reserve-apy-chart";
+import {
+  AutodepositFailuresChart,
+  type SerializedAutodepositFailureRange,
+} from "./autodeposit-failures-chart";
 import { PreviousMonthRebalanceChart } from "./previous-month-rebalance-chart";
 import { RebalanceActivityChart } from "./rebalance-activity-chart";
 import type {
@@ -87,6 +91,7 @@ type SerializedRebalanceAuditRow = Omit<
 type RebalanceApiData = {
   activity: RebalanceActivityPoint[];
   apyData: SafeReserveApyMonitorData;
+  autodeposit: SerializedAutodepositFailureRange[];
   decisions: SerializedRebalanceDecisionRow[];
   previousMonthRebalances: PreviousMonthRebalancePoint[];
   routes: SerializedActiveReserveRouteRow[];
@@ -1272,6 +1277,7 @@ function RebalanceMonitorFallback() {
       <CurrentReserveApyFallback />
       <ApyChartFallback />
       <ApyChartFallback />
+      <ApyChartFallback />
       <RebalanceDecisionAuditFallback />
     </div>
   );
@@ -1349,6 +1355,7 @@ export function RebalanceMonitorClient() {
       />
       <RebalanceActivityChart data={state.data.activity} />
       <PreviousMonthRebalanceChart data={state.data.previousMonthRebalances} />
+      <AutodepositFailuresChart data={state.data.autodeposit} />
       <RebalanceAuditCard reserveLabels={reserveLabels} />
     </div>
   );

@@ -27,16 +27,12 @@ import {
 } from "@/components/ui/chart";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import type {
-  AutodepositTimeSeriesPoint,
-  AutodepositTimeSeriesRangeKey,
-} from "../earn/rebalance/rebalance-data";
+import type { AutodepositTimeSeriesRangeKey } from "../earn/rebalance/rebalance-data";
 
-export type SerializedAutodepositTimeSeriesPoint = Omit<
-  AutodepositTimeSeriesPoint,
-  "depositedAmountRaw"
-> & {
+export type SerializedAutodepositTimeSeriesPoint = {
+  bucketStartedAt: string;
   depositedAmountRaw: string;
+  successful: number;
 };
 
 export type SerializedAutodepositTimeSeriesRange = {
@@ -71,41 +67,6 @@ const volumeConfig = {
     label: "Deposited USDC",
   },
 } satisfies ChartConfig;
-
-const failureConfig = {
-  accountNotFound: {
-    color: "var(--chart-1)",
-    label: "AccountNotFound",
-  },
-  otherPrePull: {
-    color: "var(--chart-2)",
-    label: "Other pre-pull",
-  },
-  insufficientRent: {
-    color: "var(--chart-3)",
-    label: "Insufficient rent",
-  },
-  missingTokenDelegate: {
-    color: "var(--chart-4)",
-    label: "Missing token delegate",
-  },
-  confirmationOrTimeout: {
-    color: "var(--chart-5)",
-    label: "Confirmation / timeout",
-  },
-  noLinkedError: {
-    color: "var(--muted-foreground)",
-    label: "No linked error",
-  },
-  postPullKaminoTopUp: {
-    color: "var(--destructive)",
-    label: "Post-pull Kamino top-up",
-  },
-} satisfies ChartConfig;
-
-type FailureSeriesKey = keyof typeof failureConfig;
-
-const failureSeries = Object.keys(failureConfig) as FailureSeriesKey[];
 
 function formatCompact(value: number) {
   return new Intl.NumberFormat("en-US", {
@@ -307,89 +268,6 @@ function VolumeChart({
   );
 }
 
-function FailureChart({
-  data,
-  rangeKey,
-  totals,
-}: {
-  data: ChartPoint[];
-  rangeKey: AutodepositTimeSeriesRangeKey;
-  totals: Record<FailureSeriesKey, number>;
-}) {
-  const total = failureSeries.reduce((sum, key) => sum + totals[key], 0);
-
-  return (
-    <div className="min-w-0 space-y-2">
-      <MetricLegend
-        label="Failed attempts by cause"
-        total={`${total.toLocaleString("en-US")} attempts`}
-      />
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 text-xs text-muted-foreground">
-        {failureSeries.map((key) => (
-          <span className="flex items-center gap-1.5" key={key}>
-            <span
-              aria-hidden
-              className="size-2.5 rounded-[2px]"
-              style={{ backgroundColor: failureConfig[key].color }}
-            />
-            {failureConfig[key].label} ({totals[key].toLocaleString("en-US")})
-          </span>
-        ))}
-      </div>
-      <ChartContainer
-        className="aspect-auto h-[260px] w-full min-w-0"
-        config={failureConfig}
-      >
-        <BarChart
-          accessibilityLayer
-          data={data}
-          margin={{ bottom: 22, left: 4, right: 16, top: 8 }}
-        >
-          <CartesianGrid vertical={false} />
-          <XAxis
-            axisLine={false}
-            dataKey="bucketStartedAt"
-            minTickGap={rangeKey === "30d" ? 36 : 44}
-            tickFormatter={(value) => formatTickDate(value, rangeKey)}
-            tickLine={false}
-            tickMargin={8}
-          >
-            <Label
-              offset={-16}
-              position="insideBottom"
-              value="Time (Asia/Yekaterinburg)"
-            />
-          </XAxis>
-          <YAxis
-            allowDecimals={false}
-            axisLine={false}
-            tickFormatter={formatCompact}
-            tickLine={false}
-            width={48}
-          />
-          <ChartTooltip
-            content={
-              <ChartTooltipContent
-                className="min-w-[230px]"
-                labelFormatter={formatTooltipDate}
-              />
-            }
-          />
-          {failureSeries.map((key) => (
-            <Bar
-              dataKey={key}
-              fill={`var(--color-${key})`}
-              key={key}
-              maxBarSize={36}
-              stackId="failures"
-            />
-          ))}
-        </BarChart>
-      </ChartContainer>
-    </div>
-  );
-}
-
 export function AutodepositActivityChart({
   data,
 }: {
@@ -405,30 +283,16 @@ export function AutodepositActivityChart({
       })),
     [selectedRange]
   );
-  const totals = useMemo(() => {
-    const initialFailureTotals = Object.fromEntries(
-      failureSeries.map((key) => [key, 0])
-    ) as Record<FailureSeriesKey, number>;
-
-    return chartData.reduce(
-      (result, point) => {
-        result.successful += point.successful;
-        result.depositedUsdc += point.depositedUsdc;
-        for (const key of failureSeries) {
-          result.failures[key] += point[key];
-        }
-        return result;
-      },
-      {
-        depositedUsdc: 0,
-        failures: initialFailureTotals,
-        successful: 0,
-      }
-    );
-  }, [chartData]);
-  const failedAttempts = failureSeries.reduce(
-    (sum, key) => sum + totals.failures[key],
-    0
+  const totals = useMemo(
+    () =>
+      chartData.reduce(
+        (result, point) => ({
+          depositedUsdc: result.depositedUsdc + point.depositedUsdc,
+          successful: result.successful + point.successful,
+        }),
+        { depositedUsdc: 0, successful: 0 }
+      ),
+    [chartData]
   );
   const rangeLabel = selectedRange
     ? `${rangeLabels[selectedRange.key].label} in ${
@@ -444,8 +308,7 @@ export function AutodepositActivityChart({
           <CardDescription>
             {rangeLabel}, using Asia/Yekaterinburg boundaries. Successful means
             a persisted executed pull without a completion failure; volume is
-            the successfully pulled amount. Failures are retry attempts, not
-            unique wallets. The latest bucket is partial.
+            the successfully pulled amount. The latest bucket is partial.
           </CardDescription>
           <Tabs
             className="mt-3"
@@ -461,7 +324,7 @@ export function AutodepositActivityChart({
             </TabsList>
           </Tabs>
         </div>
-        <div className="grid grid-cols-3 xl:min-w-[480px]">
+        <div className="grid grid-cols-2 xl:min-w-[320px]">
           <div className="flex flex-col justify-center gap-1 border-t px-4 py-4 text-left xl:border-t-0 xl:border-l xl:px-6 xl:py-6">
             <span className="text-xs text-muted-foreground">Successful</span>
             <span className="text-lg leading-none font-bold tabular-nums sm:text-2xl">
@@ -475,37 +338,22 @@ export function AutodepositActivityChart({
             </span>
             <span className="text-xs text-muted-foreground">USDC</span>
           </div>
-          <div className="flex flex-col justify-center gap-1 border-t border-l px-4 py-4 text-left xl:border-t-0 xl:px-6 xl:py-6">
-            <span className="text-xs text-muted-foreground">
-              Failed attempts
-            </span>
-            <span className="text-lg leading-none font-bold tabular-nums sm:text-2xl">
-              {failedAttempts.toLocaleString("en-US")}
-            </span>
-          </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-6 px-2 pt-6 sm:p-6">
+      <CardContent className="px-2 pt-6 sm:p-6">
         {chartData.length > 0 ? (
-          <>
-            <div className="grid min-w-0 gap-6 xl:grid-cols-2">
-              <SuccessChart
-                data={chartData}
-                rangeKey={rangeKey}
-                total={totals.successful}
-              />
-              <VolumeChart
-                data={chartData}
-                rangeKey={rangeKey}
-                total={totals.depositedUsdc}
-              />
-            </div>
-            <FailureChart
+          <div className="grid min-w-0 gap-6 xl:grid-cols-2">
+            <SuccessChart
               data={chartData}
               rangeKey={rangeKey}
-              totals={totals.failures}
+              total={totals.successful}
             />
-          </>
+            <VolumeChart
+              data={chartData}
+              rangeKey={rangeKey}
+              total={totals.depositedUsdc}
+            />
+          </div>
         ) : (
           <p className="px-2 text-sm text-muted-foreground">
             No autodeposit activity found for this range.
