@@ -100,9 +100,8 @@ export function PreviousMonthRebalanceChart({
             Previous-month rebalance outcomes
           </CardTitle>
           <CardDescription>
-            Daily terminal same-mint decisions for {monthLabel}, using
-            Asia/Yekaterinburg calendar boundaries. Render-only errors are not
-            included.
+            Daily terminal same-mint decisions for {monthLabel}, using UTC
+            calendar boundaries. Render-only errors are not included.
           </CardDescription>
         </div>
         <div className="flex">
@@ -151,11 +150,7 @@ export function PreviousMonthRebalanceChart({
               tickLine={false}
               tickMargin={8}
             >
-              <Label
-                offset={-16}
-                position="insideBottom"
-                value="Date (Asia/Yekaterinburg)"
-              />
+              <Label offset={-16} position="insideBottom" value="Date (UTC)" />
             </XAxis>
             <YAxis
               allowDecimals={false}

@@ -106,7 +106,6 @@ function formatTickDate(
     hour: rangeKey === "30d" ? undefined : "2-digit",
     hour12: false,
     month: "short",
-    timeZone: "Asia/Yekaterinburg",
   }).format(date);
 }
 
@@ -120,15 +119,15 @@ function formatTooltipDate(value: unknown) {
     return value;
   }
 
-  return `${new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-US", {
     day: "numeric",
     hour: "2-digit",
     hour12: false,
     minute: "2-digit",
     month: "short",
-    timeZone: "Asia/Yekaterinburg",
+    timeZoneName: "short",
     year: "numeric",
-  }).format(date)} YEKT`;
+  }).format(date);
 }
 
 export function AutodepositFailuresChart({
@@ -164,8 +163,9 @@ export function AutodepositFailuresChart({
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">Failed attempts by cause</CardTitle>
           <CardDescription>
-            {rangeLabel}, using Asia/Yekaterinburg boundaries. Failures are
-            retry attempts, not unique wallets. The latest bucket is partial.
+            {rangeLabel}, bucketed on UTC boundaries and shown in your local
+            time. Failures are retry attempts, not unique wallets. The latest
+            bucket is partial.
           </CardDescription>
           <Tabs
             className="mt-3"
@@ -225,7 +225,7 @@ export function AutodepositFailuresChart({
                   <Label
                     offset={-16}
                     position="insideBottom"
-                    value="Time (Asia/Yekaterinburg)"
+                    value="Time (your local time)"
                   />
                 </XAxis>
                 <YAxis
