@@ -784,26 +784,44 @@ export function CryptoPage({
     });
   };
 
+  // Row actions also select the token (without opening the <1204 detail
+  // sheet) so the desktop aside shows its detail once the action closes.
+  const selectRowDetail = (row: TokenRow) =>
+    setDetailToken(tokenRowToSwapToken(row));
+
   const rowActions: CryptoRowActions = {
     // ponytail: the deposit pane picks its own source token, so row-level
     // Earn lands on the same screen as the header button.
-    onEarn: () => onEarn(),
+    onEarn: (row) => {
+      selectRowDetail(row);
+      onEarn();
+    },
     onSelect: (row) => {
       setDetailToken(tokenRowToSwapToken(row));
       setIsDetailSheetOpen(true);
     },
-    onSend: (row) => openSend(tokenRowToSwapToken(row)),
+    onSend: (row) => {
+      selectRowDetail(row);
+      openSend(tokenRowToSwapToken(row));
+    },
     // Shield and Unshield land on the same screen — the row token's secured
     // flag picks the direction.
-    onShield: (row) => openShield(tokenRowToSwapToken(row)),
+    onShield: (row) => {
+      selectRowDetail(row);
+      openShield(tokenRowToSwapToken(row));
+    },
     onSwap: (row) => {
+      selectRowDetail(row);
       const mint = row.id?.replace(/-secured$/, "");
       const base =
         derivedTokens.find((token) => token.mint === mint) ??
         tokenRowToSwapToken(row);
       openSwap(base);
     },
-    onUnshield: (row) => openShield(tokenRowToSwapToken(row)),
+    onUnshield: (row) => {
+      selectRowDetail(row);
+      openShield(tokenRowToSwapToken(row));
+    },
   };
 
   const handleShield = () => openShield();
