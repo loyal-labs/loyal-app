@@ -271,6 +271,23 @@ export function isThirdPartyExtensionError(
   );
 }
 
+// The Cap captcha widget (@cap.js/widget) rejects with this internal error
+// when it is torn down mid-solve: its worker pool is nulled while a solve
+// promise is still in flight. Not a Loyal failure. `_ensureSize` is a Cap
+// worker-pool method distinctive enough to match on message alone — the stack
+// only shows a hash-named first-party chunk, so it cannot anchor the match.
+const CAP_WIDGET_ERROR_PATTERN = /\b_ensureSize\b/;
+
+export function isCapWidgetInternalError(
+  operation: BrowserErrorOperation,
+  message: string
+): boolean {
+  return (
+    AMBIENT_BROWSER_ERROR_OPERATIONS.includes(operation) &&
+    CAP_WIDGET_ERROR_PATTERN.test(message)
+  );
+}
+
 function isAllowedBrowserOperation(
   value: unknown
 ): value is BrowserErrorOperation {
