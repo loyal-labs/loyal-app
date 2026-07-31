@@ -30,7 +30,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type {
   AutodepositTimeSeriesPoint,
   AutodepositTimeSeriesRangeKey,
-} from "./rebalance-data";
+} from "../earn/rebalance/rebalance-data";
 
 export type SerializedAutodepositTimeSeriesPoint = Omit<
   AutodepositTimeSeriesPoint,
@@ -186,7 +186,7 @@ function SuccessChart({
     <div className="min-w-0 space-y-2">
       <MetricLegend
         label="Successful autodeposits"
-        total={`${total.toLocaleString()} total`}
+        total={`${total.toLocaleString("en-US")} total`}
       />
       <ChartContainer
         className="aspect-auto h-[190px] w-full min-w-0"
@@ -322,7 +322,7 @@ function FailureChart({
     <div className="min-w-0 space-y-2">
       <MetricLegend
         label="Failed attempts by cause"
-        total={`${total.toLocaleString()} attempts`}
+        total={`${total.toLocaleString("en-US")} attempts`}
       />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 text-xs text-muted-foreground">
         {failureSeries.map((key) => (
@@ -332,7 +332,7 @@ function FailureChart({
               className="size-2.5 rounded-[2px]"
               style={{ backgroundColor: failureConfig[key].color }}
             />
-            {failureConfig[key].label} ({totals[key].toLocaleString()})
+            {failureConfig[key].label} ({totals[key].toLocaleString("en-US")})
           </span>
         ))}
       </div>
@@ -465,7 +465,7 @@ export function AutodepositActivityChart({
           <div className="flex flex-col justify-center gap-1 border-t px-4 py-4 text-left xl:border-t-0 xl:border-l xl:px-6 xl:py-6">
             <span className="text-xs text-muted-foreground">Successful</span>
             <span className="text-lg leading-none font-bold tabular-nums sm:text-2xl">
-              {totals.successful.toLocaleString()}
+              {totals.successful.toLocaleString("en-US")}
             </span>
           </div>
           <div className="flex flex-col justify-center gap-1 border-t border-l px-4 py-4 text-left xl:border-t-0 xl:px-6 xl:py-6">
@@ -480,7 +480,7 @@ export function AutodepositActivityChart({
               Failed attempts
             </span>
             <span className="text-lg leading-none font-bold tabular-nums sm:text-2xl">
-              {failedAttempts.toLocaleString()}
+              {failedAttempts.toLocaleString("en-US")}
             </span>
           </div>
         </div>

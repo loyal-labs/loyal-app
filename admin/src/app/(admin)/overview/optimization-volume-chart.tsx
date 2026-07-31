@@ -23,7 +23,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 
-type SerializedOptimizationVolumePoint = {
+export type SerializedOptimizationVolumePoint = {
   confirmedCount: number;
   cumulativeAmountRaw: string;
   dailyAmountRaw: string;
@@ -131,7 +131,7 @@ function VolumeTooltip({
         <div className="flex items-center justify-between gap-3 border-t pt-1">
           <span className="text-muted-foreground">Confirmed moves</span>
           <span className="font-mono font-medium tabular-nums text-foreground">
-            {confirmedCount.toLocaleString()}
+            {confirmedCount.toLocaleString("en-US")}
           </span>
         </div>
       </div>

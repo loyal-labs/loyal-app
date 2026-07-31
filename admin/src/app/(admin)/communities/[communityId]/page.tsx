@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
-import { OverviewLineChart } from "../../overview/overview-line-chart";
+import { CommunityTrendLineChart } from "../community-trend-line-chart";
 import { CommunityMessagesBarChart } from "./community-messages-bar-chart";
 import { CommunityActiveUsersBarChart } from "./community-active-users-bar-chart";
 import { CommunityNotificationSettingsCard } from "./community-notification-settings-card";
@@ -93,7 +93,7 @@ export default async function CommunityPage({ params, searchParams }: CommunityP
             <CommunityTopUsersBarChart data={data.topUsersChartPoints} />
           </div>
           <div className="min-w-0 h-full">
-            <OverviewLineChart
+            <CommunityTrendLineChart
               title="Activity trend"
               description="Total number of summaries created in the last 30 days for this community"
               primaryLabel="Summaries"
