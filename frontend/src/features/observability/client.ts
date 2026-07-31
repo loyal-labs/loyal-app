@@ -213,11 +213,64 @@ type BrowserResourceEntry = {
   startTime: number;
 };
 
-function readDependencyEntries(
-  startedAtMs: number,
-  endedAtMs: number,
-  rpcEndpoint: string | undefined
-): Map<
+const DEPENDENCY_INITIATOR_TYPES = new Set(["fetch", "xmlhttprequest"]);
+
+type DependencyEntryCollector = {
+  collect: () => BrowserResourceEntry[];
+};
+
+// The Resource Timing buffer stops recording once it fills (250 entries by
+// default), and this app polls Solana RPC for the life of the tab. Observing
+// the stream keeps preparation measurable in a long-lived session instead of
+// silently reporting zeroes once the buffer is full.
+function observeDependencyEntries(): DependencyEntryCollector | null {
+  try {
+    if (typeof window.PerformanceObserver !== "function") {
+      return null;
+    }
+
+    const observed: BrowserResourceEntry[] = [];
+    const observer = new window.PerformanceObserver((list) => {
+      observed.push(...(list.getEntries() as unknown as BrowserResourceEntry[]));
+    });
+    observer.observe({ buffered: false, type: "resource" });
+
+    return {
+      collect: () => {
+        try {
+          // Entries recorded just before disconnect are still queued for the
+          // callback task, so drain them before dropping the observer.
+          observed.push(
+            ...(observer.takeRecords() as unknown as BrowserResourceEntry[])
+          );
+          observer.disconnect();
+        } catch {
+          // A partial observation still describes the preparation window.
+        }
+        return observed;
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readBufferedDependencyEntries(): BrowserResourceEntry[] {
+  try {
+    return window.performance.getEntriesByType(
+      "resource"
+    ) as unknown as BrowserResourceEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function summarizeDependencyEntries(args: {
+  endedAtMs: number;
+  entries: readonly BrowserResourceEntry[];
+  rpcEndpoint: string | undefined;
+  startedAtMs: number;
+}): Map<
   FrontendLoadingDependency,
   { durationMs: number; requestCount: number }
 > {
@@ -230,21 +283,18 @@ function readDependencyEntries(
     )
   );
   try {
-    const entries = window.performance.getEntriesByType(
-      "resource"
-    ) as unknown as BrowserResourceEntry[];
-    for (const entry of entries) {
+    for (const entry of args.entries) {
       if (
-        entry.startTime < startedAtMs ||
-        entry.startTime > endedAtMs ||
-        !["fetch", "xmlhttprequest"].includes(entry.initiatorType ?? "")
+        entry.startTime < args.startedAtMs ||
+        entry.startTime > args.endedAtMs ||
+        !DEPENDENCY_INITIATOR_TYPES.has(entry.initiatorType ?? "")
       ) {
         continue;
       }
       const dependency = classifyBrowserLoadingDependencyUrl({
         pageOrigin: window.location.origin,
         resourceUrl: entry.name,
-        rpcEndpoint,
+        rpcEndpoint: args.rpcEndpoint,
       });
       if (!dependency) continue;
 
@@ -266,6 +316,7 @@ export async function measureBrowserLoadingDependencies<T>(args: {
   rpcEndpoint?: string;
   run: () => Promise<T>;
 }): Promise<T> {
+  const collector = observeDependencyEntries();
   const startedAtMs = getBrowserPerformanceNow();
   let outcome: FrontendLoadingOutcome = "completed";
   try {
@@ -275,11 +326,14 @@ export async function measureBrowserLoadingDependencies<T>(args: {
     throw error;
   } finally {
     const endedAtMs = getBrowserPerformanceNow();
-    const dependencies = readDependencyEntries(
-      startedAtMs,
+    const dependencies = summarizeDependencyEntries({
       endedAtMs,
-      args.rpcEndpoint
-    );
+      entries: collector
+        ? collector.collect()
+        : readBufferedDependencyEntries(),
+      rpcEndpoint: args.rpcEndpoint,
+      startedAtMs,
+    });
     for (const [dependency, measurement] of dependencies) {
       captureBrowserLoadingMetric({
         dependency,

@@ -1914,8 +1914,6 @@ export function AppWalletWorkspace({
     null
   );
   const earnAutodepositSetupAttemptRef = useRef<{
-    previewMetricSent: boolean;
-    startedAtMs: number;
     tracker: LifecycleTracker;
   } | null>(null);
   const executeNowLifecycleRef = useRef<{
@@ -3190,16 +3188,19 @@ export function AppWalletWorkspace({
   const isVisibleWalletPortfolioReady =
     activeDetailSelection !== "wallet" ||
     (shouldLoadMainAccountPortfolio && !walletDesktopData.isLoading);
+  // An anonymous session paints a shell with no balance in it, so admitting it
+  // here would blend a signed-out render into the same series as a real
+  // balance load and hide the latency this metric exists to describe.
   const areDisplayedBalancesReady =
     isAuthHydrated &&
-    (!canLoadPersonalAccount ||
-      (isSelectionRestored &&
-        mainAccountUsdcBalance.hasResolved &&
-        !smartAccountData.isBaseLoading &&
-        !smartAccountData.isVaultsLoading &&
-        smartAccountData.hasEarnStateResolved &&
-        hasActiveEarnPositionResolved &&
-        isVisibleWalletPortfolioReady));
+    canLoadPersonalAccount &&
+    isSelectionRestored &&
+    mainAccountUsdcBalance.hasResolved &&
+    !smartAccountData.isBaseLoading &&
+    !smartAccountData.isVaultsLoading &&
+    smartAccountData.hasEarnStateResolved &&
+    hasActiveEarnPositionResolved &&
+    isVisibleWalletPortfolioReady;
   useEffect(() => {
     if (!areDisplayedBalancesReady || pageLoadMetricSentRef.current) {
       return;
@@ -3303,26 +3304,6 @@ export function AppWalletWorkspace({
       pendingEarnAutodepositSetupPrepared,
     ]
   );
-  useEffect(() => {
-    if (!earnAutodepositSetupReviewItem) {
-      return;
-    }
-
-    const attempt = earnAutodepositSetupAttemptRef.current;
-    if (!attempt || attempt.previewMetricSent) {
-      return;
-    }
-
-    attempt.previewMetricSent = true;
-    captureBrowserLoadingMetricAfterPaint({
-      flowId: attempt.tracker.flowId,
-      operation: "earn.autodeposit.setup",
-      phase: "interaction_to_preview",
-      presentation: "in_app",
-      shouldCapture: () => earnAutodepositSetupAttemptRef.current === attempt,
-      startedAtMs: attempt.startedAtMs,
-    });
-  }, [earnAutodepositSetupReviewItem]);
   const earnAutodepositCloseReviewItem = useMemo(
     () =>
       autodepositConfig &&
@@ -4639,11 +4620,7 @@ export function AppWalletWorkspace({
         flowName: "earn.autodeposit.configuration",
         flowVariant: requiresSignature ? "setup" : "floor_update",
       });
-      const setupAttempt = {
-        previewMetricSent: false,
-        startedAtMs: getBrowserPerformanceNow(),
-        tracker,
-      };
+      const setupAttempt = { tracker };
       earnAutodepositLifecycleRef.current = tracker;
       earnAutodepositSetupAttemptRef.current = setupAttempt;
       tracker.start("intent");
@@ -6550,6 +6527,11 @@ export function AppWalletWorkspace({
       tracker.start("intent");
       tracker.observe("prepare");
     }
+    // Autodeposit prepares after the user confirms the drafted review, so the
+    // user-visible preparation wait is the run-up to the wallet prompt rather
+    // than the draft render that deposit and withdrawal measure.
+    const prepareStartedAtMs = getBrowserPerformanceNow();
+    let previewMetricSent = false;
     let walletSubmittedAtMs: number | null = null;
     setProposalActionError(null);
     setAutodepositConfig((current) =>
@@ -6666,7 +6648,19 @@ export function AppWalletWorkspace({
               }),
           });
           setPendingEarnAutodepositSetupPrepared(preparedSetup);
+          if (!previewMetricSent) {
+            captureBrowserLoadingMetric({
+              durationMs: getBrowserPerformanceNow() - prepareStartedAtMs,
+              flowId: tracker.flowId,
+              operation: "earn.autodeposit.setup",
+              phase: "interaction_to_preview",
+              presentation: "wallet",
+            });
+          }
         }
+        // A reused preparation is still past the preview boundary, so a later
+        // failure belongs to the wallet phase even though nothing was observed.
+        previewMetricSent = true;
         setEarnAutodepositSetupReviewStage(
           resolveEarnAutodepositSetupReviewStage(preparedSetup)
         );
@@ -6800,6 +6794,21 @@ export function AppWalletWorkspace({
       } else {
         tracker.fail("backend_confirm", {
           errorCode: "unexpected_error",
+        });
+      }
+      if (
+        resolveBrowserLoadingFailurePhase({
+          previewMetricSent,
+          walletSubmitted: walletSubmittedAtMs !== null,
+        }) === "interaction_to_preview"
+      ) {
+        captureBrowserLoadingMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.autodeposit.setup",
+          outcome: "failed",
+          phase: "interaction_to_preview",
+          presentation: "wallet",
+          startedAtMs: prepareStartedAtMs,
         });
       }
       captureBrowserSubmittedFailureMetricAfterPaint({

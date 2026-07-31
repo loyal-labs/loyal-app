@@ -352,6 +352,57 @@ assert.ok(
     .slice(policyStageStart, policyStageEnd)
     .includes("onTransactionSent: request.onWalletSubmitted")
 );
+// A full Resource Timing buffer stops recording, so preparation must be
+// observed as a stream rather than scraped from the shared buffer.
+assert.ok(clientSource.includes("observer.observe({ buffered: false"));
+assert.ok(clientSource.includes("observer.takeRecords()"));
+assert.ok(
+  clientSource.indexOf("const collector = observeDependencyEntries()") <
+    clientSource.indexOf("return await args.run()")
+);
+
+// An anonymous session paints no balance and must not enter the series.
+const balancesReadyStart = workspaceSource.indexOf(
+  "const areDisplayedBalancesReady"
+);
+const balancesReadyEnd = workspaceSource.indexOf(
+  "captureBrowserLoadingMetricAfterPaint",
+  balancesReadyStart
+);
+assert.ok(balancesReadyStart >= 0);
+assert.ok(
+  workspaceSource
+    .slice(balancesReadyStart, balancesReadyEnd)
+    .includes("canLoadPersonalAccount &&")
+);
+
+// Autodeposit setup prepares after confirmation, so its preview observation
+// must bracket that preparation instead of the drafted review render.
+const autodepositSetupStart = workspaceSource.indexOf(
+  "const handleCompleteEarnAutodepositSetup"
+);
+const autodepositSetupEnd = workspaceSource.indexOf(
+  "const handleCompleteEarnAutodepositClose",
+  autodepositSetupStart
+);
+const autodepositSetupSource = workspaceSource.slice(
+  autodepositSetupStart,
+  autodepositSetupEnd
+);
+assert.ok(autodepositSetupStart >= 0);
+assert.ok(autodepositSetupEnd > autodepositSetupStart);
+assert.ok(autodepositSetupSource.includes("const prepareStartedAtMs"));
+assert.ok(
+  autodepositSetupSource.indexOf("measureBrowserLoadingDependencies") <
+    autodepositSetupSource.indexOf('phase: "interaction_to_preview"')
+);
+assert.ok(
+  autodepositSetupSource.indexOf('phase: "interaction_to_preview"') <
+    autodepositSetupSource.indexOf("executeEarnAutodepositSetup")
+);
+assert.ok(!autodepositSetupSource.includes('presentation: "in_app"'));
+assert.ok(!workspaceSource.includes("attempt.previewMetricSent"));
+
 assert.ok(workspaceSource.includes("earnAutodepositCloseLifecycleRef.current"));
 assert.ok(
   workspaceSource.includes(

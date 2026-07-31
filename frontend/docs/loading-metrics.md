@@ -28,18 +28,25 @@ vendor response is accepted by the metric envelope.
 - `page_load` / `balances_ready` starts at browser navigation start and ends
   after authentication resolves, the visible account selection is restored,
   main-account USDC resolves, smart-account and vault balances load, the Earn
-  state and position resolve, and React paints the result.
+  state and position resolve, and React paints the result. An anonymous session
+  paints no balance, so it is not observed at all rather than reported as a
+  fast load.
 - `interaction_to_preview` starts when the user submits a deposit, withdrawal,
-  close, Autodeposit setup, or Autodeposit close and ends after the prepared
-  review is painted. A bypassed review uses `loyal.presentation=wallet`.
+  close, or Autodeposit close and ends after the prepared review is painted. A
+  bypassed review uses `loyal.presentation=wallet`. Autodeposit setup drafts its
+  review before preparing, so its observation instead starts at the confirmation
+  and ends when preparation completes immediately before the wallet prompt, and
+  always reports `loyal.presentation=wallet`.
 - `wallet_confirmation_to_ui` starts immediately after the wallet returns a
   submitted transaction, before chain confirmation, and ends after React paints
   the updated balance or Autodeposit state.
-- `dependency` measures Resource Timing entries that begin during preparation.
-  Same-origin `/api/*` calls are Loyal API, the configured connection endpoint
-  is Solana RPC, and other HTTP origins are third-party APIs. Durations are
-  summed within each category, so a category total can exceed wall-clock time
-  when requests overlap.
+- `dependency` measures Resource Timing entries that begin during preparation,
+  collected through a `PerformanceObserver` scoped to that window so a full
+  Resource Timing buffer cannot silently zero the observation. Same-origin
+  `/api/*` calls are Loyal API, the configured connection endpoint is Solana
+  RPC, and other HTTP origins are third-party APIs. Durations are summed within
+  each category, so a category total can exceed wall-clock time when requests
+  overlap.
 
 Loading telemetry is best-effort. A rejected, timed-out, or unavailable metrics
 relay never blocks a user action.
