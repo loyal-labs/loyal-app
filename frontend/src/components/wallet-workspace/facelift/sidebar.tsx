@@ -1,7 +1,6 @@
 "use client";
 
 import { useWallet } from "@solana/wallet-adapter-react";
-import { LogOut } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -664,7 +663,13 @@ export function FaceliftSidebar({
               }}
               type="button"
             >
-              <LogOut size={20} strokeWidth={1.8} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-5"
+                src={`${ASSET_BASE}/icon-logout.svg`}
+              />
               Disconnect
             </button>
           </DropdownReveal>
