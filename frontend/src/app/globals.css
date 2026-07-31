@@ -3107,3 +3107,41 @@ cap-widget {
     stroke-dashoffset: 0 !important;
   }
 }
+
+/* animate-text — soft-blur-in (banner titles). Per-character blurred rise
+   from the spec (900ms, 16px, cubic-bezier(0.22,1,0.36,1)), with blur 12→6
+   and stagger 25→15ms per its usage notes for sub-24px copy. The mobile home
+   banner slide (wallet-home-banners.tsx) toggles .is-shown when it becomes
+   the active carousel slide; --banner-char-i staggers the enter delays.
+   Exit is the undelayed reverse, so an outgoing title dissolves as one —
+   art + button ride the installed texts-reveal .t-stagger-line instead. */
+:root {
+  --banner-char-dur: 900ms;
+  --banner-char-stagger: 15ms;
+  --banner-char-distance: 16px;
+  --banner-char-blur: 6px;
+  --banner-char-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-banner-char {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(var(--banner-char-distance));
+  filter: blur(var(--banner-char-blur));
+  transition: opacity var(--banner-char-dur) var(--banner-char-ease),
+    transform var(--banner-char-dur) var(--banner-char-ease),
+    filter var(--banner-char-dur) var(--banner-char-ease);
+}
+
+.t-home-banner.is-shown .t-banner-char {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  transition-delay: calc(var(--banner-char-i, 0) * var(--banner-char-stagger));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-banner-char {
+    transition: none !important;
+  }
+}
