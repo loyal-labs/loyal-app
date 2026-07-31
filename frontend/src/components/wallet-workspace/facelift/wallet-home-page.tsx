@@ -15,6 +15,7 @@ import { SplitAmount } from "@/components/wallet-workspace/facelift/sidebar";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
+import { WalletHomeBanners } from "@/components/wallet-workspace/facelift/wallet-home-banners";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -39,11 +40,13 @@ export function WalletHomePage({
   earnBalanceUsd,
   isEarnBalanceLoading,
   onSelectPage,
+  onSetUpAutodeposit,
   showActivityBadge,
 }: {
   earnBalanceUsd: number;
   isEarnBalanceLoading: boolean;
   onSelectPage: (page: WorkspacePage) => void;
+  onSetUpAutodeposit: () => void;
   showActivityBadge: boolean;
 }) {
   const data = useWalletDesktopData({});
@@ -251,21 +254,7 @@ export function WalletHomePage({
 
             <div className="min-h-0 w-full flex-1 px-4 py-2">
               <div className="grid h-full min-h-[400px] grid-cols-2 grid-rows-[repeat(3,minmax(0,1fr))] gap-2">
-                {/* ponytail: the banner is a "🛠 Banner" placeholder in the
-                    design itself — real content ships later. */}
-                <div className="relative col-span-2 flex flex-col items-start justify-center overflow-clip rounded-3xl bg-[#f5f5f5] p-4">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="-right-[25px] -bottom-[9px] absolute w-[145px] max-w-none"
-                    src={`${ASSET_BASE}/banner-mascot.svg`}
-                  />
-                  <p className="font-medium text-[#8a8a8e] text-[16px] leading-5">
-                    <span className="font-bold">{"🛠 "}</span>
-                    Banner
-                  </p>
-                </div>
+                <WalletHomeBanners onSetUpAutodeposit={onSetUpAutodeposit} />
                 <button
                   className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-black/[0.03] p-4 text-left hover:bg-black/[0.06]"
                   onClick={() => onSelectPage("crypto")}

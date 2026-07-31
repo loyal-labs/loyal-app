@@ -12,6 +12,7 @@ import {
   createBrowserErrorEnvelope,
   createErrorDeduplicator,
   type ErrorDeduplicator,
+  isCapWidgetInternalError,
   isThirdPartyExtensionError,
   OBSERVABILITY_ERROR_ENDPOINT,
 } from "./error-contract";
@@ -144,7 +145,10 @@ export function createBrowserErrorProcessor(
         const captured = createBrowserErrorEnvelope(error, operation, {
           ...(chunkFailure?.telemetry ?? {}),
         });
-        if (isThirdPartyExtensionError(captured.operation, captured.stack)) {
+        if (
+          isThirdPartyExtensionError(captured.operation, captured.stack) ||
+          isCapWidgetInternalError(captured.operation, captured.message)
+        ) {
           return;
         }
         if (deduplicator.isDuplicate(captured)) {

@@ -55,6 +55,7 @@ import type {
   TokenRow,
   TransactionDetail,
 } from "@/components/wallet-sidebar/types";
+import { earnToast } from "@/components/wallet-workspace/facelift/earn-toast";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { captureBrowserError } from "@/features/observability/client";
@@ -2538,6 +2539,9 @@ function createWalletAdapterBridge(
     return null;
   }
 
+  // earnToast.signed() advances a visible "Confirm in wallet" Earn toast to
+  // "Confirming" the moment the user approves in the wallet; it is a no-op
+  // for every other flow that signs through this bridge.
   return {
     publicKey: wallet.publicKey,
     signTransaction: async <T extends Transaction | VersionedTransaction>(
@@ -2547,23 +2551,38 @@ function createWalletAdapterBridge(
         throw new Error("Connected wallet does not support signTransaction.");
       }
 
-      return wallet.signTransaction(transaction);
+      const signed = await wallet.signTransaction(transaction);
+      earnToast.signed();
+      return signed;
     },
     ...(wallet.signAllTransactions
       ? {
-          signAllTransactions: <T extends Transaction | VersionedTransaction>(
+          signAllTransactions: async <
+            T extends Transaction | VersionedTransaction
+          >(
             transactions: T[]
-          ): Promise<T[]> => wallet.signAllTransactions!(transactions),
+          ): Promise<T[]> => {
+            const signed = await wallet.signAllTransactions!(transactions);
+            earnToast.signed();
+            return signed;
+          },
         }
       : {}),
     ...(!shouldSignThenSendRaw
       ? {
-          sendTransaction: (
+          sendTransaction: async (
             transaction: Transaction | VersionedTransaction,
             nextConnection: ReturnType<typeof useConnection>["connection"],
             sendOptions?: SendOptions
-          ) =>
-            wallet.sendTransaction!(transaction, nextConnection, sendOptions),
+          ) => {
+            const signature = await wallet.sendTransaction!(
+              transaction,
+              nextConnection,
+              sendOptions
+            );
+            earnToast.signed();
+            return signature;
+          },
         }
       : {}),
   };

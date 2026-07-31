@@ -60,6 +60,10 @@ import {
   toEarnWithdrawVaultsSource,
   type EarnDepositYieldRoutingPolicy,
 } from "@/components/wallet-workspace/facelift/earn-actions-support";
+import {
+  CONFIRM_IN_WALLET_MESSAGE,
+  earnToast,
+} from "@/components/wallet-workspace/facelift/earn-toast";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -960,6 +964,7 @@ export function useEarnActions(deps: {
       });
       setDepositError(null);
       setIsDepositPending(true);
+      earnToast.loading("Preparing deposit");
       let phase: "prepare" | "sign" = "prepare";
 
       const commitDepositSuccess = (commit: {
@@ -1009,6 +1014,7 @@ export function useEarnActions(deps: {
               ? "failed"
               : "recorded",
         });
+        earnToast.success("Deposited");
       };
 
       try {
@@ -1034,6 +1040,7 @@ export function useEarnActions(deps: {
         // even when the prepare bundles policy repair — the wallet still
         // prompts per signature.
         if (!hasPosition) {
+          earnToast.loading("Waiting for approval");
           const approved = await requestApproval(
             buildEarnDepositReviewItem({
               draft,
@@ -1052,6 +1059,7 @@ export function useEarnActions(deps: {
           return false;
         }
         phase = "sign";
+        earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
 
         if (shouldBypassTopUpPreview) {
           tracker.observe("wallet_submit_confirm", {
@@ -1177,6 +1185,7 @@ export function useEarnActions(deps: {
               chainState: "submitted",
               executionMode: "sequential",
             });
+            earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
             const result = await smartAccountData.executeEarnDepositPolicyStage(
               {
                 observabilityFlowId: tracker.flowId,
@@ -1227,6 +1236,7 @@ export function useEarnActions(deps: {
             chainState: "submitted",
             executionMode: "sequential",
           });
+          earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
             observabilityFlowId: tracker.flowId,
@@ -1277,9 +1287,13 @@ export function useEarnActions(deps: {
             errorCode: "unexpected_error",
           });
         }
+        if (!isWalletCancellation(error)) {
+          earnToast.error("Deposit failed");
+        }
         return false;
       } finally {
         setIsDepositPending(false);
+        earnToast.settle();
       }
     },
     [
@@ -1316,6 +1330,7 @@ export function useEarnActions(deps: {
       tracker.start("intent", { cleanupRequired: draft.mode === "full" });
       setWithdrawError(null);
       setIsWithdrawPending(true);
+      earnToast.loading("Preparing withdrawal");
 
       try {
         tracker.observe("prepare", {
@@ -1331,6 +1346,7 @@ export function useEarnActions(deps: {
         // it even when they carry an autodeposit close — the wallet still
         // prompts per signature.
         if (draft.mode === "full") {
+          earnToast.loading("Waiting for approval");
           const approved = await requestApproval(
             buildEarnWithdrawReviewItem({
               draft,
@@ -1352,6 +1368,7 @@ export function useEarnActions(deps: {
         if (!ensureCanSignAccountAction()) {
           return false;
         }
+        earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
 
         if (shouldBypassWithdrawPreview) {
           const stepCount = Math.max(1, preparedWithdraw.withdrawSteps.length);
@@ -1364,6 +1381,7 @@ export function useEarnActions(deps: {
               stageCount: stepCount,
               stageIndex: stepIndex,
             });
+            earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
             const result = await smartAccountData.executeEarnWithdraw({
               amountRaw,
               mode: draft.mode,
@@ -1406,6 +1424,7 @@ export function useEarnActions(deps: {
             persistenceState: "recorded",
           });
           withdrawTrackerRef.current = null;
+          earnToast.success("Withdrawn");
           return true;
         }
 
@@ -1432,6 +1451,7 @@ export function useEarnActions(deps: {
             if (!preparedClose) {
               throw new Error("Prepare the Autodeposit close before signing.");
             }
+            earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
             const result = await smartAccountData.executeEarnAutodepositClose({
               observabilityFlowId: tracker.flowId,
               policy: preparedClose.policy.account.toBase58(),
@@ -1479,6 +1499,7 @@ export function useEarnActions(deps: {
             stageCount: Math.max(1, preparedWithdraw.withdrawSteps.length),
             stageIndex: stepIndex,
           });
+          earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
           const result = await smartAccountData.executeEarnWithdraw({
             amountRaw,
             observabilityFlowId: tracker.flowId,
@@ -1543,6 +1564,7 @@ export function useEarnActions(deps: {
             });
             withdrawTrackerRef.current = null;
           }
+          earnToast.success("Withdrawn");
           return true;
         }
       } catch (error) {
@@ -1560,9 +1582,13 @@ export function useEarnActions(deps: {
             errorCode: "unexpected_error",
           });
         }
+        if (!isWalletCancellation(error)) {
+          earnToast.error("Withdrawal failed");
+        }
         return false;
       } finally {
         setIsWithdrawPending(false);
+        earnToast.settle();
       }
     },
     [
@@ -1590,6 +1616,7 @@ export function useEarnActions(deps: {
     const tracker = withdrawTrackerRef.current;
     setWithdrawError(null);
     setIsCleanupPending(true);
+    earnToast.loading("Closing policies");
     try {
       tracker?.observe("full_exit_verify", {
         chainState: "confirmed",
@@ -1616,6 +1643,7 @@ export function useEarnActions(deps: {
         chainState: "submitted",
         cleanupRequired: true,
       });
+      earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
       const result = await smartAccountData.executeEarnCleanup({
         observabilityFlowId: tracker?.flowId,
         preparedCleanup,
@@ -1644,6 +1672,7 @@ export function useEarnActions(deps: {
         persistenceState: "recorded",
       });
       withdrawTrackerRef.current = null;
+      earnToast.success("Policies closed");
       return true;
     } catch (error) {
       const message =
@@ -1651,10 +1680,13 @@ export function useEarnActions(deps: {
       setWithdrawError(message);
       if (isWalletCancellation(error)) {
         tracker?.cancel("cleanup", { errorCode: "wallet_rejected" });
+      } else {
+        earnToast.error("Couldn't close policies");
       }
       return false;
     } finally {
       setIsCleanupPending(false);
+      earnToast.settle();
     }
   }, [
     ensureCanSignAccountAction,
@@ -1757,6 +1789,7 @@ export function useEarnActions(deps: {
         tracker.observe("prepare");
         autodepositFloorInFlightRef.current = true;
         setIsAutodepositPending(true);
+        earnToast.loading("Updating Autodeposit");
         try {
           const result =
             await smartAccountData.executeEarnAutodepositFloorUpdate({
@@ -1773,6 +1806,7 @@ export function useEarnActions(deps: {
             setAutodepositError(
               result.error ?? "Autodeposit wallet balance floor update failed."
             );
+            earnToast.error("Couldn't save Autodeposit");
             return false;
           }
           setAutodepositOverride({
@@ -1788,10 +1822,12 @@ export function useEarnActions(deps: {
             targetId: result.target?.id,
           });
           tracker.complete("ui_commit", { persistenceState: "recorded" });
+          earnToast.success("Autodeposit updated");
           return true;
         } finally {
           autodepositFloorInFlightRef.current = false;
           setIsAutodepositPending(false);
+          earnToast.settle();
         }
       }
 
@@ -1845,12 +1881,14 @@ export function useEarnActions(deps: {
         symbol: "USDC",
         tokenDecimals: source.decimals,
       };
+      earnToast.loading("Waiting for approval");
       const setupApproved = await requestApproval(
         buildEarnAutodepositSetupReviewItem({ draft: setupReviewDraft })
       );
       if (!setupApproved) {
         tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
         autodepositTrackerRef.current = null;
+        earnToast.settle();
         return false;
       }
 
@@ -1875,6 +1913,7 @@ export function useEarnActions(deps: {
             },
       });
       setIsAutodepositPending(true);
+      earnToast.loading("Preparing Autodeposit");
 
       try {
         let preparedSetup = null as Awaited<
@@ -1904,6 +1943,7 @@ export function useEarnActions(deps: {
             chainState: "submitted",
             executionMode: "sequential",
           });
+          earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
           const result = await smartAccountData.executeEarnAutodepositSetup({
             amountRaw,
             observabilityFlowId: tracker.flowId,
@@ -1986,6 +2026,9 @@ export function useEarnActions(deps: {
             chainState: "confirmed",
             persistenceState: "recorded",
           });
+          earnToast.success(
+            previousConfig ? "Autodeposit updated" : "Autodeposit created"
+          );
           return true;
         }
       } catch (error) {
@@ -2001,10 +2044,12 @@ export function useEarnActions(deps: {
           tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
         } else {
           tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+          earnToast.error("Couldn't save Autodeposit");
         }
         return false;
       } finally {
         setIsAutodepositPending(false);
+        earnToast.settle();
       }
     },
     [
@@ -2090,6 +2135,7 @@ export function useEarnActions(deps: {
     tracker.start("intent");
     tracker.observe("prepare");
 
+    earnToast.loading("Waiting for approval");
     const closeApproved = await requestApproval(
       buildEarnAutodepositCloseReviewItem({
         amountLabel: config.amount,
@@ -2099,12 +2145,14 @@ export function useEarnActions(deps: {
     if (!closeApproved) {
       tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
       autodepositTrackerRef.current = null;
+      earnToast.settle();
       return false;
     }
 
     setAutodepositError(null);
     setAutodepositOverride({ config: { ...config, state: "closing" } });
     setIsAutodepositPending(true);
+    earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
 
     try {
       tracker.observe("wallet_approval", {
@@ -2143,6 +2191,7 @@ export function useEarnActions(deps: {
         chainState: "confirmed",
         persistenceState: "recorded",
       });
+      earnToast.success("Autodeposit deleted");
       return true;
     } catch (error) {
       setAutodepositOverride({ config: previousConfig });
@@ -2155,10 +2204,12 @@ export function useEarnActions(deps: {
         tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
       } else {
         tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+        earnToast.error("Couldn't delete Autodeposit");
       }
       return false;
     } finally {
       setIsAutodepositPending(false);
+      earnToast.settle();
     }
   }, [
     autodepositConfig,

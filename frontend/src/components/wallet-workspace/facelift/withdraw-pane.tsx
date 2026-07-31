@@ -144,6 +144,9 @@ export function WithdrawPane({
   const fromBalance = splitUsdBalance(selectedOption?.usd ?? 0);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
+  const amountLabel = amountUsd.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+  });
   // Same mode derivation as the old workspace: compared against the floored
   // TOTAL of all sources, so the visible max registers as a full exit.
   const withdrawMode = deriveEarnWithdrawMode({ amount: amountUsd, sources });
@@ -260,6 +263,15 @@ export function WithdrawPane({
                     className="min-w-0 flex-1 border-none bg-transparent font-semibold text-[40px] text-black leading-[48px] outline-none placeholder:text-[#b1b1b4]"
                     inputMode="decimal"
                     onChange={(event) => handleAmountChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" || event.repeat) {
+                        return;
+                      }
+                      event.preventDefault();
+                      if (canWithdraw && !isSubmitting) {
+                        void handleSubmit();
+                      }
+                    }}
                     placeholder="0"
                     type="text"
                     value={amount}
@@ -499,7 +511,7 @@ export function WithdrawPane({
                 text={
                   isSubmitting
                     ? "Withdrawing…"
-                    : withdrawValidationError ?? "Withdraw"
+                    : withdrawValidationError ?? `Withdraw ${amountLabel} USDC`
                 }
               />
             </button>

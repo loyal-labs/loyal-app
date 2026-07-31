@@ -1,6 +1,8 @@
+import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { getSafeReserveApyMonitorData } from "@/lib/kamino/timescale-reserve-client.server";
+import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 
 import {
   getActiveReserveRoutes,
@@ -14,7 +16,7 @@ import {
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+async function loadRebalanceMonitorData() {
   const [
     apyData,
     routes,
@@ -33,37 +35,44 @@ export async function GET() {
     getOptimizationVolumeSeries(),
   ]);
 
-  return NextResponse.json(
-    {
-      activity,
-      apyData,
-      autodeposit: autodeposit.map((range) => ({
-        ...range,
-        points: range.points.map((point) => ({
-          ...point,
-          depositedAmountRaw: point.depositedAmountRaw.toString(),
-        })),
-      })),
-      decisions: decisions.map((decision) => ({
-        ...decision,
-        amountRaw: decision.amountRaw?.toString() ?? null,
-        confirmedSlot: decision.confirmedSlot?.toString() ?? null,
-      })),
-      previousMonthRebalances,
-      optimizationVolume: optimizationVolume.map((point) => ({
+  return {
+    activity,
+    apyData,
+    autodeposit: autodeposit.map((range) => ({
+      ...range,
+      points: range.points.map((point) => ({
         ...point,
-        cumulativeAmountRaw: point.cumulativeAmountRaw.toString(),
-        dailyAmountRaw: point.dailyAmountRaw.toString(),
+        depositedAmountRaw: point.depositedAmountRaw.toString(),
       })),
-      routes: routes.map((route) => ({
-        ...route,
-        activeAumRaw: route.activeAumRaw.toString(),
-      })),
+    })),
+    decisions: decisions.map((decision) => ({
+      ...decision,
+      amountRaw: decision.amountRaw?.toString() ?? null,
+      confirmedSlot: decision.confirmedSlot?.toString() ?? null,
+    })),
+    previousMonthRebalances,
+    optimizationVolume: optimizationVolume.map((point) => ({
+      ...point,
+      cumulativeAmountRaw: point.cumulativeAmountRaw.toString(),
+      dailyAmountRaw: point.dailyAmountRaw.toString(),
+    })),
+    routes: routes.map((route) => ({
+      ...route,
+      activeAumRaw: route.activeAumRaw.toString(),
+    })),
+  };
+}
+
+const getCachedRebalanceMonitorData = unstable_cache(
+  loadRebalanceMonitorData,
+  ["earn-rebalance-monitor"],
+  { revalidate: DATA_CACHE_TTL_SECONDS }
+);
+
+export async function GET() {
+  return NextResponse.json(await getCachedRebalanceMonitorData(), {
+    headers: {
+      "Cache-Control": "private, no-store",
     },
-    {
-      headers: {
-        "Cache-Control": "private, max-age=60, stale-while-revalidate=300",
-      },
-    }
-  );
+  });
 }

@@ -3016,3 +3016,203 @@ cap-widget {
     animation: none !important;
   }
 }
+
+/* transitions.dev — Toast open / close (frontend/transitions/toast.md).
+   Earn action feedback pill (facelift/earn-toast.tsx): slides into the top
+   edge with fade + cross-blur + slight scale (the host flips
+   --toast-distance negative); opening runs the slower open clock while
+   dismissing uses the faster close clock. */
+:root {
+  --toast-open: 350ms;
+  --toast-close: 250ms;
+  --toast-distance: 16px;
+  --toast-blur: 2px;
+  --toast-scale: 0.97;
+  --toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-toast {
+  opacity: 0;
+  transform: translateY(var(--toast-distance)) scale(var(--toast-scale));
+  filter: blur(var(--toast-blur));
+  will-change: transform, opacity, filter;
+  transition: opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease);
+}
+.t-toast.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  transition: opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toast {
+    transition: none !important;
+  }
+}
+
+/* Facelift adaptation — the toast's status icon is an icon-swap with THREE
+   stacked states (a: pending spinner, b: success check, c: error cross).
+   The base recipe above only styles a/b, so state "c" gets the same
+   treatment here, scoped to the toast. The white arc spins while pending,
+   and the check strokes itself in on the morph to success (reusing
+   t-check-draw; 35 = the calibrated length of the shared check path). */
+:root {
+  --toast-spin-dur: 900ms;
+}
+
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="c"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+.t-toast .t-icon-swap[data-state="a"] .t-icon[data-icon="c"],
+.t-toast .t-icon-swap[data-state="b"] .t-icon[data-icon="c"],
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="a"],
+.t-toast .t-icon-swap[data-state="c"] .t-icon[data-icon="b"] {
+  opacity: 0;
+  filter: blur(var(--icon-swap-blur));
+  transform: scale(var(--icon-swap-start-scale));
+}
+
+.t-toast-spinner {
+  animation: t-toast-spin var(--toast-spin-dur) linear infinite;
+  transform-origin: center;
+}
+
+@keyframes t-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.t-toast .t-icon[data-icon="b"] svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+.t-toast .t-icon-swap[data-state="b"] .t-icon[data-icon="b"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toast-spinner {
+    animation: none !important;
+  }
+  .t-toast .t-icon[data-icon="b"] svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}
+
+/* animate-text — soft-blur-in (banner titles). Per-character blurred rise
+   from the spec (900ms, 16px, cubic-bezier(0.22,1,0.36,1)), with blur 12→6
+   and stagger 25→15ms per its usage notes for sub-24px copy. The mobile home
+   banner slide (wallet-home-banners.tsx) toggles .is-shown when it becomes
+   the active carousel slide; --banner-char-i staggers the enter delays.
+   Exit is the undelayed reverse, so an outgoing title dissolves as one —
+   art + button ride the installed texts-reveal .t-stagger-line instead. */
+:root {
+  --banner-char-dur: 900ms;
+  --banner-char-stagger: 15ms;
+  --banner-char-distance: 16px;
+  --banner-char-blur: 6px;
+  --banner-char-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-banner-char {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(var(--banner-char-distance));
+  filter: blur(var(--banner-char-blur));
+  transition: opacity var(--banner-char-dur) var(--banner-char-ease),
+    transform var(--banner-char-dur) var(--banner-char-ease),
+    filter var(--banner-char-dur) var(--banner-char-ease);
+}
+
+.t-home-banner.is-shown .t-banner-char {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+  transition-delay: calc(var(--banner-char-i, 0) * var(--banner-char-stagger));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-banner-char {
+    transition: none !important;
+  }
+}
+
+/* Milo — hovering the empty-Earn dog signs his handwritten name and an arrow
+   pointing at him (earn-empty-pane.tsx). Each stroke is a pathLength=1 path,
+   so dasharray 1 covers it and dashoffset 1→0 draws it on. Hover staggers
+   the strokes in pen order — M, i, l, o, then the i's dot, then the arrow —
+   on an easeInOutSine pen pull; unhover retracts every stroke together on
+   the quick base transition (no delays), like the pen lifting away. */
+.milo-hitbox {
+  pointer-events: auto;
+}
+/* Short viewports pull the dog up under the headline/CTA — no room for the
+   name there, so the easter egg only exists at 800px+ of height. */
+@media (height < 800px) {
+  .milo-hitbox {
+    display: none;
+  }
+}
+.milo-tag path {
+  fill: none;
+  stroke: #f9363c;
+  stroke-width: 8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  /* Round caps paint a dot at each path start even at full dashoffset, so
+     the strokes stay opacity-hidden at rest; the hide waits out the 240ms
+     retract so unhover still shows the ink rewinding. */
+  opacity: 0;
+  transition: stroke-dashoffset 240ms ease-in, opacity 0ms linear 240ms;
+}
+.milo-hitbox:hover + .milo-tag path {
+  stroke-dashoffset: 0;
+  opacity: 1;
+  transition-timing-function: cubic-bezier(0.45, 0.05, 0.55, 0.95);
+}
+/* Durations pair [stroke-dashoffset, opacity]: the draw animates, the
+   opacity un-hide snaps at the same stroke's delay so ink only ever exists
+   where the pen has been. */
+.milo-hitbox:hover + .milo-tag path:nth-child(1) {
+  transition-duration: 340ms, 0ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(2) {
+  transition-duration: 130ms, 0ms;
+  transition-delay: 320ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(3) {
+  transition-duration: 170ms, 0ms;
+  transition-delay: 430ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(4) {
+  transition-duration: 220ms, 0ms;
+  transition-delay: 580ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(5) {
+  transition-duration: 60ms, 0ms;
+  transition-delay: 860ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(6) {
+  transition-duration: 240ms, 0ms;
+  transition-delay: 980ms;
+}
+.milo-hitbox:hover + .milo-tag path:nth-child(7) {
+  transition-duration: 140ms, 0ms;
+  transition-delay: 1200ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .milo-tag path {
+    transition: none !important;
+  }
+}

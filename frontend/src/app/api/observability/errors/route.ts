@@ -1,5 +1,6 @@
 import {
   InvalidObservabilityEnvelopeError,
+  isCapWidgetInternalError,
   isThirdPartyExtensionError,
   MAX_OBSERVABILITY_REQUEST_BYTES,
   parseBrowserErrorEnvelope,
@@ -86,9 +87,13 @@ export async function POST(request: Request): Promise<Response> {
     const envelope = parseBrowserErrorEnvelope(await readJsonBody(request), {
       expectedChunkOrigin: new URL(request.url).origin,
     });
-    // Browsers running a cached bundle still post extension noise; drop it here
-    // too, and acknowledge so the client never treats telemetry as a failure.
-    if (isThirdPartyExtensionError(envelope.operation, envelope.stack)) {
+    // Browsers running a cached bundle still post third-party noise; drop it
+    // here too, and acknowledge so the client never treats telemetry as a
+    // failure.
+    if (
+      isThirdPartyExtensionError(envelope.operation, envelope.stack) ||
+      isCapWidgetInternalError(envelope.operation, envelope.message)
+    ) {
       return jsonResponse({ accepted: true }, 202);
     }
     await reportBrowserErrorEnvelope(envelope);

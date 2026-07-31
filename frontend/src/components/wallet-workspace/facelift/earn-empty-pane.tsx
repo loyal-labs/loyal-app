@@ -52,7 +52,7 @@ export function EarnEmptyPane({
   ];
 
   return (
-    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
+    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-white max-[795px]:overflow-clip max-[795px]:rounded-none">
       <header className="flex w-full items-center p-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
           <h1 className="whitespace-nowrap font-semibold text-[24px] text-black leading-7">
@@ -158,12 +158,53 @@ export function EarnEmptyPane({
       </div>
 
       {/* On mobile the dog clips to the rounded bottom above the tab bar
-          (Figma 4693:69958); the white body makes the corners read clean. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
-        <DogLottie
-          className="aspect-square w-full max-h-[420px] max-w-[420px]"
-          variant="playful"
-        />
+          (Figma 4693:69958); the white body makes the corners read clean.
+          On desktop it ignores the pane instead: unclipped and dropped by the
+          shell's 8px gap (p-2) so it sits flush with the viewport bottom. */}
+      <div className="-bottom-2 pointer-events-none absolute inset-x-0 flex justify-center max-[795px]:bottom-0 max-[795px]:overflow-clip max-[795px]:rounded-b-3xl">
+        <div className="relative w-full max-w-[420px]">
+          <DogLottie
+            className="aspect-square max-h-[420px] w-full"
+            variant="playful"
+          />
+          {/* Hover hitbox over the dog's head — top quarter left out so the
+              pointer-events-none wrapper keeps the CTA clickable, and
+              globals.css hides it entirely under 800px viewport height
+              (where the dog rides up into the content). */}
+          <div
+            aria-hidden="true"
+            className="milo-hitbox absolute inset-x-[6%] top-1/4 bottom-0"
+          />
+          {/* Milo — hovering the dog signs his handwritten name + an arrow
+              pointing at him (stroke draw-on, globals.css .milo-tag). Must
+              stay the hitbox's next sibling; paths are in pen order (the i
+              is dotted last), each pathLength-normalized for the dash trick. */}
+          <svg
+            aria-hidden="true"
+            className="milo-tag -rotate-[20deg] pointer-events-none absolute top-[4%] left-[33%] w-[33%]"
+            fill="none"
+            viewBox="0 0 240 160"
+          >
+            <path
+              d="M14,97 C16,76 21,50 27,27 C33,48 38,64 44,79 C50,62 55,45 61,28 C65,51 68,74 70,96"
+              pathLength={1}
+            />
+            <path d="M85,58 C84,71 83,84 84,96" pathLength={1} />
+            <path d="M104,24 C101,48 100,72 103,96" pathLength={1} />
+            <path
+              d="M139,64 C134,56 124,57 119,66 C114,76 117,90 127,93 C136,95 142,87 141,76 C140,70 139,67 136,65"
+              pathLength={1}
+            />
+            <path d="M85,44 C86,43.5 87,44.5 86,45.5" pathLength={1} />
+            {/* Arrow hooks down-right: the face is below the name, and the
+                -20° tilt swings "down" in path space toward the dog's eyes. */}
+            <path d="M154,86 C172,92 184,108 190,130" pathLength={1} />
+            <path
+              d="M178,118 C182,122 186,126 190,130 C193,125 196,120 198,116"
+              pathLength={1}
+            />
+          </svg>
+        </div>
       </div>
     </section>
   );
