@@ -12,6 +12,7 @@ import {
 import { CryptoPage } from "@/components/wallet-workspace/facelift/crypto-page";
 import { DepositPane } from "@/components/wallet-workspace/facelift/deposit-pane";
 import { EarnApprovalSheet } from "@/components/wallet-workspace/facelift/earn-approval-sheet";
+import { EarnBanners } from "@/components/wallet-workspace/facelift/earn-banner";
 import {
   EarnChartPane,
   type ChartTab,
@@ -385,6 +386,11 @@ export function WorkspaceFaceliftShell() {
                 {activeMiddleView === "withdraw" ||
                 activeMiddleView === "autodeposit" ? null : (
                   <EarnChartPane
+                    banner={
+                      <EarnBanners
+                        onSetUpAutodeposit={() => setMiddleView("autodeposit")}
+                      />
+                    }
                     earnData={earnData}
                     hideAside={activeMiddleView === "deposit"}
                     isExpanded={isChartExpanded}
