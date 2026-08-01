@@ -1,0 +1,24 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Banners">
+<g id="Banner">
+<g clip-path="url(#clip0_4417_51292)">
+<g id="Panel Header">
+<g id="Frame 2147237926">
+<g id="expand-45, enlarge">
+<path id="vector" d="M14 4H20V10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="vector_2" d="M4 14V20H10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="vector_3" d="M19.25 4.75L14 10" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="vector_4" d="M10 14L4.75 19.25" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</g>
+</g>
+</g>
+</g>
+</g>
+<defs>
+<clipPath id="bgblur_1_4417_51292_clip_path" transform="translate(18 18)"><rect x="-10" y="-10" width="44" height="44" rx="22"/>
+</clipPath><clipPath id="clip0_4417_51292">
+<rect x="-358" y="-18" width="400" height="60" rx="30" fill="white"/>
+</clipPath>
+</defs>
+</svg>

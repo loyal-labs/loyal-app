@@ -420,8 +420,8 @@ export function EarnChartPane({
   selectedTab,
   statsPanel,
 }: {
-  // Optional promo banner card (EarnBanner) rendered above the chart card —
-  // Earn root only; slotted in so the shell owns its config and dismissal.
+  // Optional promo banner (EarnBanners) overlaying the bottom of the right
+  // pane — Earn root only; slotted in so the shell owns its actions.
   banner?: ReactNode;
   earnData: EarnPositionData;
   // Action screens (deposit) drop the right chart/stats column but keep the
@@ -462,7 +462,6 @@ export function EarnChartPane({
         <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block" />
       ) : (
         <div className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-          {banner}
           <EarnChartCard
             actionAriaLabel="Expand chart"
             actionIconSrc={`${ASSET_BASE}/icon-expand.svg`}
@@ -474,6 +473,10 @@ export function EarnChartPane({
             selectedTab={selectedTab}
           />
           {statsPanel}
+          {/* Last flow child + sticky bottom: pinned to the pane's bottom
+              edge while scrolling, yet it reserves its own height so the
+              cards above stay fully reachable at the end of the scroll. */}
+          {banner}
         </div>
       )}
 

@@ -3146,6 +3146,41 @@ cap-widget {
   }
 }
 
+/* Desktop Earn banner (earn-banner.tsx) — the card ⇄ pill morph rides the
+   resize clock (height/radius from inline styles, brand color per banner),
+   and the active story pill fills linearly over the roll interval (duration
+   set inline from ROLL_INTERVAL_MS so bar and roll always land together). */
+.t-earn-banner {
+  transition: height var(--resize-dur) var(--resize-ease),
+    border-radius var(--resize-dur) var(--resize-ease),
+    background-color var(--resize-dur) var(--resize-ease);
+  will-change: height;
+}
+
+.t-banner-progress {
+  animation: t-banner-progress linear forwards;
+}
+
+@keyframes t-banner-progress {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-earn-banner {
+    transition: none !important;
+  }
+  /* Autoplay is off too, so the first pill just reads as full. */
+  .t-banner-progress {
+    animation: none !important;
+    width: 100%;
+  }
+}
+
 /* Milo — hovering the empty-Earn dog signs his handwritten name and an arrow
    pointing at him (earn-empty-pane.tsx). Each stroke is a pathLength=1 path,
    so dasharray 1 covers it and dashoffset 1→0 draws it on. Hover staggers

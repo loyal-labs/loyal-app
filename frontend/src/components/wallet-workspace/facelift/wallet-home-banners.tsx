@@ -71,8 +71,9 @@ const BANNERS: HomeBanner[] = [
 
 // animate-text "soft-blur-in": word-wrapped spans of per-character spans;
 // --banner-char-i drives each character's staggered enter delay while the
-// word wrappers keep line breaks at natural word boundaries.
-function BannerTitleChars({ title }: { title: string }) {
+// word wrappers keep line breaks at natural word boundaries. Shared with the
+// desktop Earn banner (earn-banner.tsx).
+export function BannerTitleChars({ title }: { title: string }) {
   let charIndex = 0;
   return (
     <>
