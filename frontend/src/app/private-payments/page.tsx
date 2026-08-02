@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   Banknote,
   BotMessageSquare,
-  CircleCheck,
   CircleDashed,
   Cpu,
   Eye,
@@ -360,13 +359,8 @@ export default function PrivatePaymentsPage() {
             title: "Shielded USDC that earns carries Kamino's lending risk",
             body: "While shielded, the underlying pooled USDC earns in Kamino's single-asset lending vaults. A Kamino smart-contract exploit or bad-debt event could affect deposited principal, the same risk any Kamino lender takes. No insurance, no Loyal-run strategies that could paper over a loss. Shielded SOL and USDT don't carry this risk because they don't currently earn. Full risk discussion on /yield.",
           },
-          {
-            icon: <CircleCheck className="size-16 text-[#f9363c]" />,
-            title: "Loyal hasn't commissioned a standalone audit yet",
-            body: "What's been audited heavily is the substrate: smart accounts use Squads, the most-deployed smart-account framework on Solana, and transfer privacy runs on MagicBlock's ephemeral runtime. Both Squads and MagicBlock have been through multiple independent audits. Every line of Loyal-specific code on top is open-source.",
-          },
         ]}
-        closingStatement="Every part of this is open-source, so you don't have to take the description on faith."
+        closingStatement="Smart accounts use Squads, the most-deployed smart-account framework on Solana, and transfer privacy runs on MagicBlock's ephemeral runtime. Both have been through multiple independent audits, and every line of Loyal-specific code on top is open-source, so you don't have to take the description on faith."
       />
 
       {/* Block 7 — Section-14 (muted 3-col grid: who uses a private balance) */}
