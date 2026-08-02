@@ -30,6 +30,7 @@ const footerColumns = [
   {
     links: [
       { href: "/privacy-policy", label: "Privacy Policy" },
+      { href: "/trust", label: "Trust & Security" },
       {
         href: "https://docs.askloyal.com/transparency/q1-2026",
         label: "Transparency",
