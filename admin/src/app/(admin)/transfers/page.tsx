@@ -126,10 +126,7 @@ export default async function TransfersPage() {
                       {asset.symbol}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      <AddressLink
-                        address={asset.tokenMint}
-                        solanaEnv="mainnet"
-                      />
+                      <AddressLink address={asset.tokenMint} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {asset.userCount}

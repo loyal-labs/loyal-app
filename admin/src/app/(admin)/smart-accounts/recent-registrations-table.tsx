@@ -5,7 +5,7 @@ import { Clock4 } from "lucide-react";
 
 import {
   AddressLink,
-  SolscanTransactionLink,
+  OrbTransactionLink,
 } from "@/components/blockchain/address-link";
 import { Button } from "@/components/ui/button";
 import {
@@ -116,28 +116,21 @@ export function RecentRegistrationsTable({
                 <TableRow key={registration.id}>
                   <TableCell className="tabular-nums">
                     {registration.sponsorshipSignature ? (
-                      <SolscanTransactionLink
+                      <OrbTransactionLink
                         signature={registration.sponsorshipSignature}
-                        solanaEnv={registration.solanaEnv}
                       >
                         {formattedRegistrationDate}
-                      </SolscanTransactionLink>
+                      </OrbTransactionLink>
                     ) : (
                       formattedRegistrationDate
                     )}
                   </TableCell>
                   <TableCell>
-                    <AddressLink
-                      address={registration.userAddress}
-                      solanaEnv={registration.solanaEnv}
-                    />
+                    <AddressLink address={registration.userAddress} />
                   </TableCell>
                   <TableCell>
                     {registration.vaultAddress ? (
-                      <AddressLink
-                        address={registration.vaultAddress}
-                        solanaEnv={registration.solanaEnv}
-                      />
+                      <AddressLink address={registration.vaultAddress} />
                     ) : (
                       <span className="text-muted-foreground">N/A</span>
                     )}

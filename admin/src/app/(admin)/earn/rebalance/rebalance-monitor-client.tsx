@@ -6,7 +6,7 @@ import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react";
 import {
   AddressLink,
   formatShortAddress,
-  SolscanTransactionLink,
+  OrbTransactionLink,
 } from "@/components/blockchain/address-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,7 +62,6 @@ import type {
 } from "./rebalance-data";
 
 const USDC_DECIMALS = 6;
-const SOLANA_ENV = "mainnet";
 
 type SerializedActiveReserveRouteRow = Omit<
   EarnActiveReserveRouteRow,
@@ -304,7 +303,7 @@ function CurrentReserveApyTable({
               <TableCell className="font-medium">
                 <div>{row.marketName ?? row.market}</div>
                 <div className="mt-1 text-xs font-normal text-muted-foreground">
-                  <AddressLink address={row.reserve} solanaEnv={SOLANA_ENV} />
+                  <AddressLink address={row.reserve} />
                 </div>
               </TableCell>
               <TableCell className="text-right tabular-nums">
@@ -499,9 +498,9 @@ function AuditTransactionLink({
   return signature ? (
     <span className="flex items-center gap-1 whitespace-nowrap">
       <span className="text-xs text-muted-foreground">{label}</span>
-      <SolscanTransactionLink signature={signature} solanaEnv={SOLANA_ENV}>
+      <OrbTransactionLink signature={signature}>
         {formatShortAddress(signature)}
-      </SolscanTransactionLink>
+      </OrbTransactionLink>
     </span>
   ) : null;
 }
@@ -530,7 +529,7 @@ function AuditVault({ row }: { row: SerializedRebalanceAuditRow }) {
     <div>
       <div className="font-medium">
         {row.vaultPubkey ? (
-          <AddressLink address={row.vaultPubkey} solanaEnv={SOLANA_ENV} />
+          <AddressLink address={row.vaultPubkey} />
         ) : (
           <span>Vault record missing</span>
         )}

@@ -15,7 +15,6 @@ import { getAutonomousVaultData } from "./autonomous-vault-data";
 
 export const dynamic = "force-dynamic";
 
-const SOLANA_ENV = "mainnet";
 const TOKEN_SCALE = BigInt(1_000_000);
 
 function formatUsdcValue(raw: bigint) {
@@ -130,8 +129,7 @@ export default async function AutonomousVaultPage() {
               </span>
               <span>{formatObservedAt(data.observedAt)} UTC</span>
               <span>
-                Vault{" "}
-                <AddressLink address={data.vault} solanaEnv={SOLANA_ENV} />
+                Vault <AddressLink address={data.vault} />
               </span>
             </CardContent>
           </Card>
@@ -145,11 +143,7 @@ export default async function AutonomousVaultPage() {
                 Current Main-market obligation value.
               </p>
               <p className="text-xs text-muted-foreground">
-                Reserve{" "}
-                <AddressLink
-                  address={data.kamino.reserve}
-                  solanaEnv={SOLANA_ENV}
-                />
+                Reserve <AddressLink address={data.kamino.reserve} />
               </p>
             </ValueCard>
 
@@ -173,10 +167,7 @@ export default async function AutonomousVaultPage() {
               <p className="text-xs text-muted-foreground">
                 Reference price is not applied to the headline total · Includes
                 claimable fees · Position{" "}
-                <AddressLink
-                  address={data.meteora.position}
-                  solanaEnv={SOLANA_ENV}
-                />
+                <AddressLink address={data.meteora.position} />
               </p>
             </ValueCard>
 

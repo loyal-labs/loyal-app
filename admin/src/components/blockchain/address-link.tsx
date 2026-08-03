@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_EDGE_LENGTH = 4;
-const solscanLinkClassName =
+const explorerLinkClassName =
   "text-foreground underline underline-offset-2 hover:text-foreground/80";
 
 export function formatShortAddress(
@@ -17,18 +17,12 @@ export function formatShortAddress(
   return `${address.slice(0, edgeLength)}...${address.slice(-edgeLength)}`;
 }
 
-export function getSolscanAccountUrl(address: string, solanaEnv: string) {
-  const params =
-    solanaEnv === "mainnet" ? "" : `?cluster=${encodeURIComponent(solanaEnv)}`;
-
-  return `https://solscan.io/account/${address}${params}`;
+export function getOrbAccountUrl(address: string) {
+  return `https://orbmarkets.io/address/${address}`;
 }
 
-export function getSolscanTransactionUrl(signature: string, solanaEnv: string) {
-  const params =
-    solanaEnv === "mainnet" ? "" : `?cluster=${encodeURIComponent(solanaEnv)}`;
-
-  return `https://solscan.io/tx/${signature}${params}`;
+export function getOrbTransactionUrl(signature: string) {
+  return `https://orbmarkets.io/tx/${signature}`;
 }
 
 type ShortAddressTextProps = ComponentProps<"span"> & {
@@ -57,25 +51,23 @@ export function ShortAddressText({
 type AddressLinkProps = Omit<ComponentProps<"a">, "href" | "children"> & {
   address: string;
   edgeLength?: number;
-  solanaEnv: string;
 };
 
 export function AddressLink({
   address,
   className,
   edgeLength,
-  solanaEnv,
   title,
   ...props
 }: AddressLinkProps) {
   return (
     <a
       className={cn(
-        solscanLinkClassName,
+        explorerLinkClassName,
         "font-mono [font-variant-ligatures:none]",
         className
       )}
-      href={getSolscanAccountUrl(address, solanaEnv)}
+      href={getOrbAccountUrl(address)}
       rel="noreferrer"
       target="_blank"
       title={title ?? address}
@@ -86,23 +78,21 @@ export function AddressLink({
   );
 }
 
-type SolscanTransactionLinkProps = Omit<ComponentProps<"a">, "href"> & {
+type OrbTransactionLinkProps = Omit<ComponentProps<"a">, "href"> & {
   signature: string;
-  solanaEnv: string;
 };
 
-export function SolscanTransactionLink({
+export function OrbTransactionLink({
   children,
   className,
   signature,
-  solanaEnv,
   title,
   ...props
-}: SolscanTransactionLinkProps) {
+}: OrbTransactionLinkProps) {
   return (
     <a
-      className={cn(solscanLinkClassName, className)}
-      href={getSolscanTransactionUrl(signature, solanaEnv)}
+      className={cn(explorerLinkClassName, className)}
+      href={getOrbTransactionUrl(signature)}
       rel="noreferrer"
       target="_blank"
       title={title ?? signature}

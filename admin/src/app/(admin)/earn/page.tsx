@@ -37,7 +37,6 @@ import { getAdminEarnSnapshot, type AdminEarnSnapshot } from "./earn-snapshot";
 
 export const dynamic = "force-dynamic";
 
-const SOLANA_ENV = "mainnet";
 const POSITION_SORT_LABELS = {
   idle: "Idle USDC",
   normalized: "Normalized current",
@@ -285,10 +284,9 @@ function OperationalWalletCard({ wallet }: { wallet: EarnFundingWallet }) {
         <div className="flex min-w-0 items-center gap-1.5">
           <AddressLink
             address={wallet.address}
-            aria-label={`Open ${wallet.address} on Solscan`}
+            aria-label={`Open ${wallet.address} on Orb`}
             className="min-w-0 truncate text-xs"
             edgeLength={8}
-            solanaEnv="mainnet"
             title={wallet.address}
           />
           <CopyAddressButton address={wallet.address} />
@@ -852,22 +850,13 @@ async function EarnDetails({
                       key={`${position.settings}-${position.currentReserve}`}
                     >
                       <TableCell>
-                        <AddressLink
-                          address={position.walletAddress}
-                          solanaEnv={SOLANA_ENV}
-                        />
+                        <AddressLink address={position.walletAddress} />
                       </TableCell>
                       <TableCell>
-                        <AddressLink
-                          address={position.settings}
-                          solanaEnv={SOLANA_ENV}
-                        />
+                        <AddressLink address={position.settings} />
                       </TableCell>
                       <TableCell>
-                        <AddressLink
-                          address={position.currentReserve}
-                          solanaEnv={SOLANA_ENV}
-                        />
+                        <AddressLink address={position.currentReserve} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCompactUsdcRaw(position.normalizedAumRaw)}
