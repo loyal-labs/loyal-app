@@ -32,11 +32,11 @@ export function LandingTrust() {
 
           <div
             aria-hidden="true"
-            className="pointer-events-none flex justify-end overflow-hidden lg:absolute lg:bottom-0 lg:right-0 lg:translate-x-[8%] lg:translate-y-[16%]"
+            className="pointer-events-none flex justify-end pb-6 pr-6 lg:absolute lg:bottom-12 lg:right-16 lg:p-0"
           >
             <Image
               alt=""
-              className="h-[160px] w-[160px] translate-x-4 translate-y-4 lg:h-[280px] lg:w-[280px] lg:translate-x-0 lg:translate-y-0"
+              className="h-[160px] w-[160px] lg:h-[280px] lg:w-[280px]"
               height={288}
               src="/Shield.svg"
               width={288}
