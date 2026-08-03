@@ -7,7 +7,7 @@ import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 import {
   getActiveReserveRoutes,
   getAutodepositTimeSeries,
-  getPreviousMonthRebalanceSeries,
+  getLast30DaysRebalanceSeries,
   getRebalanceActivity,
   getRecentRebalanceDecisions,
 } from "../../../(admin)/earn/rebalance/rebalance-data";
@@ -21,14 +21,14 @@ async function loadRebalanceMonitorData() {
     routes,
     decisions,
     activity,
-    previousMonthRebalances,
+    last30DaysRebalances,
     autodeposit,
   ] = await Promise.all([
     getSafeReserveApyMonitorData(),
     getActiveReserveRoutes(),
     getRecentRebalanceDecisions(),
     getRebalanceActivity(),
-    getPreviousMonthRebalanceSeries(),
+    getLast30DaysRebalanceSeries(),
     getAutodepositTimeSeries(),
   ]);
 
@@ -54,7 +54,7 @@ async function loadRebalanceMonitorData() {
       amountRaw: decision.amountRaw?.toString() ?? null,
       confirmedSlot: decision.confirmedSlot?.toString() ?? null,
     })),
-    previousMonthRebalances,
+    last30DaysRebalances,
     routes: routes.map((route) => ({
       ...route,
       activeAumRaw: route.activeAumRaw.toString(),
