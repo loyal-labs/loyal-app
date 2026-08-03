@@ -45,12 +45,12 @@ import {
   AutodepositFailuresChart,
   type SerializedAutodepositFailureRange,
 } from "./autodeposit-failures-chart";
-import { PreviousMonthRebalanceChart } from "./previous-month-rebalance-chart";
+import { Last30DaysRebalanceChart } from "./last-30-days-rebalance-chart";
 import { RebalanceActivityChart } from "./rebalance-activity-chart";
 import type {
   EarnActiveReserveRouteRow,
   EarnRebalanceDecisionRow,
-  PreviousMonthRebalancePoint,
+  Last30DaysRebalancePoint,
   RebalanceActivityPoint,
   RebalanceAuditErrorFilter,
   RebalanceAuditLane,
@@ -93,7 +93,7 @@ type RebalanceApiData = {
   apyData: SafeReserveApyMonitorData;
   autodeposit: SerializedAutodepositFailureRange[];
   decisions: SerializedRebalanceDecisionRow[];
-  previousMonthRebalances: PreviousMonthRebalancePoint[];
+  last30DaysRebalances: Last30DaysRebalancePoint[];
   routes: SerializedActiveReserveRouteRow[];
 };
 
@@ -1354,7 +1354,7 @@ export function RebalanceMonitorClient() {
         decisionMarkers={toDecisionMarkers(state.data.decisions)}
       />
       <RebalanceActivityChart data={state.data.activity} />
-      <PreviousMonthRebalanceChart data={state.data.previousMonthRebalances} />
+      <Last30DaysRebalanceChart data={state.data.last30DaysRebalances} />
       <AutodepositFailuresChart data={state.data.autodeposit} />
       <RebalanceAuditCard reserveLabels={reserveLabels} />
     </div>

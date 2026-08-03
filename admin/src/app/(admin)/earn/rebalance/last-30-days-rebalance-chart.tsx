@@ -16,7 +16,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 
-import type { PreviousMonthRebalancePoint } from "./rebalance-data";
+import type { Last30DaysRebalancePoint } from "./rebalance-data";
 
 const chartConfig = {
   confirmed: {
@@ -65,23 +65,10 @@ function formatTooltipDate(value: unknown) {
   }).format(date);
 }
 
-function formatMonth(value: string | undefined) {
-  const date = parseDate(value);
-  if (!date) {
-    return "previous calendar month";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "long",
-    timeZone: "UTC",
-    year: "numeric",
-  }).format(date);
-}
-
-export function PreviousMonthRebalanceChart({
+export function Last30DaysRebalanceChart({
   data,
 }: {
-  data: PreviousMonthRebalancePoint[];
+  data: Last30DaysRebalancePoint[];
 }) {
   const totals = data.reduce(
     (result, point) => ({
@@ -90,18 +77,17 @@ export function PreviousMonthRebalanceChart({
     }),
     { confirmed: 0, failed: 0 }
   );
-  const monthLabel = formatMonth(data[0]?.date);
-
   return (
     <Card className="w-full py-4 sm:py-0">
       <CardHeader className="flex flex-col items-stretch border-b !p-0 sm:flex-row">
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">
-            Previous-month rebalance outcomes
+            Last 30 days of rebalance outcomes
           </CardTitle>
           <CardDescription>
-            Daily terminal same-mint decisions for {monthLabel}, using UTC
-            calendar boundaries. Render-only errors are not included.
+            Daily terminal same-mint decisions for the current UTC day and the
+            preceding 29 calendar days. Today is partial. Render-only errors are
+            not included.
           </CardDescription>
         </div>
         <div className="flex">

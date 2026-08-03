@@ -91,7 +91,7 @@ export type OptimizationVolumePoint = {
   date: string;
 };
 
-export type PreviousMonthRebalancePoint = {
+export type Last30DaysRebalancePoint = {
   confirmed: number;
   date: string;
   failed: number;
@@ -210,7 +210,7 @@ type OptimizationVolumeSqlRow = {
   date: string;
 };
 
-type PreviousMonthRebalanceSqlRow = {
+type Last30DaysRebalanceSqlRow = {
   confirmed: SqlScalar;
   date: string;
   failed: SqlScalar;
@@ -1238,22 +1238,21 @@ export async function getOptimizationVolumeSeries(): Promise<
   }));
 }
 
-export async function getPreviousMonthRebalanceSeries(): Promise<
-  PreviousMonthRebalancePoint[]
+export async function getLast30DaysRebalanceSeries(): Promise<
+  Last30DaysRebalancePoint[]
 > {
-  const rows = await queryRows<PreviousMonthRebalanceSqlRow>(
+  const rows = await queryRows<Last30DaysRebalanceSqlRow>(
     `
       WITH bounds AS (
         SELECT
-          (
-            date_trunc('month', now() AT TIME ZONE 'UTC') - interval '1 month'
-          ) AS started_at,
-          date_trunc('month', now() AT TIME ZONE 'UTC') AS ended_at
+          date_trunc('day', now() AT TIME ZONE 'UTC') - interval '29 days'
+            AS started_at,
+          now() AT TIME ZONE 'UTC' AS ended_at
       ),
       days AS (
         SELECT generate_series(
           (SELECT started_at::date FROM bounds),
-          (SELECT (ended_at - interval '1 day')::date FROM bounds),
+          (SELECT ended_at::date FROM bounds),
           interval '1 day'
         )::date AS date
       ),
