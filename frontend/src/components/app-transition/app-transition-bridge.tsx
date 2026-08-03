@@ -130,9 +130,15 @@ export function AppTransitionBridge() {
     // Removing the white overlay inside the VT callback is the DOM mutation VT
     // animates: old snapshot = white + logo, new snapshot = the loaded app. The
     // CSS in globals.css fades the white off and flies the logo at the viewer.
-    doc.startViewTransition(() => {
+    const transition = doc.startViewTransition(() => {
       flushSync(clearOverlay);
     });
+    // A hidden tab skips the transition and rejects these promises with
+    // InvalidStateError ("Skipped ViewTransition due to document being
+    // hidden"). The overlay is still cleared by the callback, so this is
+    // expected — swallow it instead of surfacing an unhandled rejection.
+    transition.ready.catch(() => {});
+    transition.finished.catch(() => {});
   }, [clearOverlay]);
 
   // Warm the app route so the client nav is instant.
