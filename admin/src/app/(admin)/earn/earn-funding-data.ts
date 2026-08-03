@@ -516,7 +516,15 @@ async function loadWalletSpend(addresses: string[]): Promise<{
     return { sourceErrors, spend: new Map() };
   }
 
-  const totals = new Map<string, { lamports24h: bigint; lamports7d: bigint }>();
+  // Every source answered, so each requested address now has a known spend.
+  // Seed them all at zero: an address with no rows anywhere spent nothing,
+  // which is an observation rather than missing data.
+  const totals = new Map<string, { lamports24h: bigint; lamports7d: bigint }>(
+    addresses.map((address) => [
+      address,
+      { lamports24h: BigInt(0), lamports7d: BigInt(0) },
+    ])
+  );
   for (const row of sources.flatMap((source) => source.result.rows)) {
     const existing = totals.get(row.address) ?? {
       lamports24h: BigInt(0),
