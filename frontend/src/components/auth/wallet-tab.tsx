@@ -238,6 +238,17 @@ export function WalletTab({
             </div>
           </div>
         </div>
+        {/* Hardware wallets refuse message signing without any prompt, which
+            lands here as an opaque wallet error. Keep the Ledger escape hatch
+            visible so those users can self-serve — but not after a deliberate
+            cancellation, which is not a capability problem. */}
+        {state.status !== "rejected" && (
+          <LedgerModeToggle
+            checked={useLedgerProof}
+            disabled={!isVerified}
+            onChange={setUseLedgerProof}
+          />
+        )}
         <button
           className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
           onClick={handleChooseAnotherWallet}
