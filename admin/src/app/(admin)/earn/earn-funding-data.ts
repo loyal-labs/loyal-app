@@ -4,7 +4,16 @@ import {
   appSmartAccountSponsorshipTransactions,
   gaslessClaimTransactions,
 } from "@loyal-labs/db-core/schema";
-import { and, count, desc, eq, max, sql as drizzleSql, sum } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  max,
+  sql as drizzleSql,
+  sum,
+} from "drizzle-orm";
 
 import { getDatabase } from "@/lib/core/database";
 import { serverEnv } from "@/lib/core/config/server";
@@ -19,7 +28,22 @@ const MAINNET_YIELD_CLUSTER = "mainnet-beta";
 const DEFAULT_MAINNET_RPC_URL =
   "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
 
-type FundingRole = "sponsorship" | "policy" | "deployment" | "route_fee_payer";
+type FundingRole =
+  | "sponsorship"
+  | "policy"
+  | "deployment"
+  | "route_fee_payer"
+  | "settings_authority";
+
+// Roles whose outflow lands in a table this page reads. A wallet with no such
+// role has no spend history to consult, which is different from having one that
+// came back empty — see loadWalletSpend and calculateStatus.
+const SPEND_TRACKED_ROLES = new Set<FundingRole>([
+  "sponsorship",
+  "policy",
+  "deployment",
+  "route_fee_payer",
+]);
 
 export type FundingStatus = "healthy" | "low" | "critical" | "unknown";
 
@@ -69,6 +93,28 @@ type FeePayerObservationRow = {
   address: string | null;
   active_shard_count: string | number | null;
   latest_seen_at: string | Date | null;
+};
+
+type SpendObservationRow = {
+  address: string | null;
+  lamports_24h: string | number | null;
+  lamports_7d: string | number | null;
+};
+
+type SpendRow = {
+  address: string;
+  lamports24h: bigint;
+  lamports7d: bigint;
+};
+
+type SpendSourceResult = {
+  rows: SpendRow[];
+  failed: boolean;
+};
+
+type WalletSpend = {
+  spend24hLamports: string | null;
+  spend7dLamports: string | null;
 };
 
 type RpcAccount = {
@@ -216,15 +262,46 @@ async function loadAppIdentityObservations(): Promise<{
   }
 }
 
-async function loadYieldIdentityObservations(): Promise<{
+// Settings authorities are per smart account, so there are thousands of them.
+// Only the configured operational authority is looked up; enumerating the
+// column would turn every user's account into a funding wallet card.
+async function loadSettingsAuthorityObservations(
+  sql: ReturnType<typeof getYieldNeonSql>,
+  configuredAddresses: string[]
+): Promise<PolicyObservationRow[]> {
+  if (configuredAddresses.length === 0) {
+    return [];
+  }
+
+  return sql.query(
+    `
+    SELECT
+      authority AS address,
+      COUNT(*)::text AS active_policy_count,
+      MAX(last_seen_at) AS latest_seen_at
+    FROM loyal_yield.route_policies
+    WHERE active = true
+      AND authority = ANY($1::text[])
+    GROUP BY authority
+    ORDER BY COUNT(*) DESC, MAX(last_seen_at) DESC
+  `,
+    [configuredAddresses]
+  ) as unknown as Promise<PolicyObservationRow[]>;
+}
+
+async function loadYieldIdentityObservations(
+  configuredSettingsAuthorities: string[]
+): Promise<{
   policy: IdentityObservation[];
   routeFeePayer: IdentityObservation[];
+  settingsAuthority: IdentityObservation[];
   sourceError: string | null;
 }> {
   try {
     const sql = getYieldNeonSql();
-    const [policyRows, feePayerRows] = await Promise.all([
-      sql.query(`
+    const [policyRows, feePayerRows, settingsAuthorityRows] = await Promise.all(
+      [
+        sql.query(`
         SELECT
           signer.address AS address,
           COUNT(*)::text AS active_policy_count,
@@ -235,7 +312,7 @@ async function loadYieldIdentityObservations(): Promise<{
         GROUP BY signer.address
         ORDER BY COUNT(*) DESC, MAX(last_seen_at) DESC
       `) as unknown as Promise<PolicyObservationRow[]>,
-      sql.query(`
+        sql.query(`
         SELECT
           fee_payer AS address,
           COUNT(*)::text AS active_shard_count,
@@ -246,7 +323,9 @@ async function loadYieldIdentityObservations(): Promise<{
         GROUP BY fee_payer
         ORDER BY COUNT(*) DESC, MAX(updated_at) DESC
       `) as unknown as Promise<FeePayerObservationRow[]>,
-    ]);
+        loadSettingsAuthorityObservations(sql, configuredSettingsAuthorities),
+      ]
+    );
 
     return {
       policy: policyRows
@@ -267,29 +346,72 @@ async function loadYieldIdentityObservations(): Promise<{
           )
         )
         .filter((row): row is IdentityObservation => Boolean(row)),
+      settingsAuthority: settingsAuthorityRows
+        .map((row) =>
+          toObservedAddress(
+            row.address,
+            row.active_policy_count,
+            row.latest_seen_at
+          )
+        )
+        .filter((row): row is IdentityObservation => Boolean(row)),
       sourceError: null,
     };
   } catch {
     return {
       policy: [],
       routeFeePayer: [],
+      settingsAuthority: [],
       sourceError: "Yield database identity observations unavailable",
     };
   }
 }
 
-async function loadSponsorshipSpend(address: string): Promise<{
-  spend24hLamports: string | null;
-  spend7dLamports: string | null;
-}> {
+function toSpendLamports(value: string | number | null | undefined): bigint {
+  if (value === null || value === undefined) {
+    return BigInt(0);
+  }
+
+  const text = String(value).trim();
+  if (!/^-?\d+$/.test(text)) {
+    return BigInt(0);
+  }
+
+  const parsed = BigInt(text);
+  return parsed > BigInt(0) ? parsed : BigInt(0);
+}
+
+function toSpendRow(
+  address: string | null | undefined,
+  lamports24h: string | number | null | undefined,
+  lamports7d: string | number | null | undefined
+): SpendRow | null {
+  const normalizedAddress = normalizeAddress(address);
+  if (!normalizedAddress) {
+    return null;
+  }
+
+  return {
+    address: normalizedAddress,
+    lamports24h: toSpendLamports(lamports24h),
+    lamports7d: toSpendLamports(lamports7d),
+  };
+}
+
+// Sponsored smart-account deployments; rows are written by the app when each
+// sponsored transaction finalizes.
+async function loadSponsorshipSpendRows(
+  addresses: string[]
+): Promise<SpendSourceResult> {
   try {
     const db = getDatabase();
     const rows = await db
       .select({
-        spend24hLamports: sum(
+        address: appSmartAccountSponsorshipTransactions.payerAddress,
+        lamports24h: sum(
           drizzleSql`CASE WHEN ${appSmartAccountSponsorshipTransactions.occurredAt} >= NOW() - INTERVAL '24 hours' THEN ${appSmartAccountSponsorshipTransactions.spentLamports} ELSE 0 END`
         ),
-        spend7dLamports: sum(
+        lamports7d: sum(
           drizzleSql`CASE WHEN ${appSmartAccountSponsorshipTransactions.occurredAt} >= NOW() - INTERVAL '7 days' THEN ${appSmartAccountSponsorshipTransactions.spentLamports} ELSE 0 END`
         ),
       })
@@ -297,17 +419,193 @@ async function loadSponsorshipSpend(address: string): Promise<{
       .where(
         and(
           eq(appSmartAccountSponsorshipTransactions.solanaEnv, MAINNET_APP_ENV),
-          eq(appSmartAccountSponsorshipTransactions.payerAddress, address)
+          inArray(
+            appSmartAccountSponsorshipTransactions.payerAddress,
+            addresses
+          )
         )
-      );
+      )
+      .groupBy(appSmartAccountSponsorshipTransactions.payerAddress);
 
     return {
-      spend24hLamports: rows[0]?.spend24hLamports?.toString() ?? null,
-      spend7dLamports: rows[0]?.spend7dLamports?.toString() ?? null,
+      failed: false,
+      rows: rows
+        .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
+        .filter((row): row is SpendRow => Boolean(row)),
     };
   } catch {
-    return { spend24hLamports: null, spend7dLamports: null };
+    return { failed: true, rows: [] };
   }
+}
+
+// Gasless claim/verification transactions; rows are backfilled by the app's
+// private-transfer-analytics cron.
+async function loadGaslessClaimSpendRows(
+  addresses: string[]
+): Promise<SpendSourceResult> {
+  try {
+    const db = getDatabase();
+    const rows = await db
+      .select({
+        address: gaslessClaimTransactions.payerAddress,
+        lamports24h: sum(
+          drizzleSql`CASE WHEN ${gaslessClaimTransactions.occurredAt} >= NOW() - INTERVAL '24 hours' THEN ${gaslessClaimTransactions.spentLamports} ELSE 0 END`
+        ),
+        lamports7d: sum(
+          drizzleSql`CASE WHEN ${gaslessClaimTransactions.occurredAt} >= NOW() - INTERVAL '7 days' THEN ${gaslessClaimTransactions.spentLamports} ELSE 0 END`
+        ),
+      })
+      .from(gaslessClaimTransactions)
+      .where(
+        and(
+          eq(gaslessClaimTransactions.solanaEnv, MAINNET_APP_ENV),
+          inArray(gaslessClaimTransactions.payerAddress, addresses)
+        )
+      )
+      .groupBy(gaslessClaimTransactions.payerAddress);
+
+    return {
+      failed: false,
+      rows: rows
+        .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
+        .filter((row): row is SpendRow => Boolean(row)),
+    };
+  } catch {
+    return { failed: true, rows: [] };
+  }
+}
+
+// Route execution fees plus lookup-table provisioning fees and unreclaimed
+// rent, both paid by the Earn policy wallet.
+async function loadYieldSpendRows(
+  addresses: string[]
+): Promise<SpendSourceResult> {
+  try {
+    const sql = getYieldNeonSql();
+    const [routeRows, lookupTableRows] = await Promise.all([
+      sql.query(
+        `
+        SELECT
+          fee_payer AS address,
+          COALESCE(SUM(compiled_fee_lamports) FILTER (WHERE confirmed_at >= NOW() - INTERVAL '24 hours'), 0)::text AS lamports_24h,
+          COALESCE(SUM(compiled_fee_lamports) FILTER (WHERE confirmed_at >= NOW() - INTERVAL '7 days'), 0)::text AS lamports_7d
+        FROM loyal_yield.signed_route_submissions
+        WHERE cluster = $1
+          AND confirmed_at IS NOT NULL
+          AND fee_payer = ANY($2::text[])
+        GROUP BY fee_payer
+      `,
+        [MAINNET_YIELD_CLUSTER, addresses]
+      ) as unknown as Promise<SpendObservationRow[]>,
+      sql.query(
+        `
+        SELECT
+          family.payer AS address,
+          COALESCE(SUM(GREATEST(COALESCE(operation.actual_fee_lamports, 0) + COALESCE(operation.actual_rent_lamports, 0) - COALESCE(operation.reclaimed_rent_lamports, 0), 0)) FILTER (WHERE operation.confirmed_at >= NOW() - INTERVAL '24 hours'), 0)::text AS lamports_24h,
+          COALESCE(SUM(GREATEST(COALESCE(operation.actual_fee_lamports, 0) + COALESCE(operation.actual_rent_lamports, 0) - COALESCE(operation.reclaimed_rent_lamports, 0), 0)) FILTER (WHERE operation.confirmed_at >= NOW() - INTERVAL '7 days'), 0)::text AS lamports_7d
+        FROM loyal_yield.lookup_table_operations AS operation
+        JOIN loyal_yield.lookup_table_families AS family
+          ON family.id = operation.family_id
+        WHERE family.cluster = $1
+          AND operation.confirmed_at IS NOT NULL
+          AND family.payer = ANY($2::text[])
+        GROUP BY family.payer
+      `,
+        [MAINNET_YIELD_CLUSTER, addresses]
+      ) as unknown as Promise<SpendObservationRow[]>,
+    ]);
+
+    return {
+      failed: false,
+      rows: [...routeRows, ...lookupTableRows]
+        .map((row) =>
+          toSpendRow(row.address, row.lamports_24h, row.lamports_7d)
+        )
+        .filter((row): row is SpendRow => Boolean(row)),
+    };
+  } catch {
+    return { failed: true, rows: [] };
+  }
+}
+
+// Spend is summed per address across every source, because a wallet's roles do
+// not partition the sources it appears in: the policy signer also has rows in
+// the sponsorship table, and any key can turn up as a gasless payer. That makes
+// a partial answer unusable — the missing source would understate some wallet's
+// spend and inflate its runway with no way to tell which one. So if any source
+// fails, no wallet reports spend and the failure is surfaced instead.
+async function loadWalletSpend(addresses: string[]): Promise<{
+  spend: Map<string, WalletSpend>;
+  sourceErrors: string[];
+}> {
+  const sourceErrors: string[] = [];
+  if (addresses.length === 0) {
+    return { sourceErrors, spend: new Map() };
+  }
+
+  const [sponsorship, gasless, yieldSpend] = await Promise.all([
+    loadSponsorshipSpendRows(addresses),
+    loadGaslessClaimSpendRows(addresses),
+    loadYieldSpendRows(addresses),
+  ]);
+
+  const sources: Array<{ error: string; result: SpendSourceResult }> = [
+    {
+      error: "Smart-account sponsorship spend history unavailable",
+      result: sponsorship,
+    },
+    {
+      error: "Gasless deployment spend history unavailable",
+      result: gasless,
+    },
+    {
+      error: "Yield execution spend history unavailable",
+      result: yieldSpend,
+    },
+  ];
+
+  for (const source of sources) {
+    if (source.result.failed) {
+      sourceErrors.push(source.error);
+    }
+  }
+
+  if (sourceErrors.length > 0) {
+    return { sourceErrors, spend: new Map() };
+  }
+
+  // Every source answered, so each requested address now has a known spend.
+  // Seed them all at zero: an address with no rows anywhere spent nothing,
+  // which is an observation rather than missing data.
+  const totals = new Map<string, { lamports24h: bigint; lamports7d: bigint }>(
+    addresses.map((address) => [
+      address,
+      { lamports24h: BigInt(0), lamports7d: BigInt(0) },
+    ])
+  );
+  for (const row of sources.flatMap((source) => source.result.rows)) {
+    const existing = totals.get(row.address) ?? {
+      lamports24h: BigInt(0),
+      lamports7d: BigInt(0),
+    };
+    totals.set(row.address, {
+      lamports24h: existing.lamports24h + row.lamports24h,
+      lamports7d: existing.lamports7d + row.lamports7d,
+    });
+  }
+
+  return {
+    sourceErrors,
+    spend: new Map(
+      Array.from(totals.entries()).map(([address, total]) => [
+        address,
+        {
+          spend24hLamports: total.lamports24h.toString(),
+          spend7dLamports: total.lamports7d.toString(),
+        },
+      ])
+    ),
+  };
 }
 
 async function loadBalances(addresses: string[]): Promise<{
@@ -420,6 +718,8 @@ function calculateStatus(args: {
   minimumLamports: bigint | null;
   roleKeys: FundingRole[];
   runwayHours: number | null;
+  spendAvailable: boolean;
+  spendTracked: boolean;
 }): { status: FundingStatus; detail: string } {
   if (args.balanceLamports === null) {
     return {
@@ -467,6 +767,27 @@ function calculateStatus(args: {
     };
   }
 
+  // No source records this wallet's outflow. It pays transaction fees, so
+  // clearing the safety floor is not evidence of health: an unmeasured burn
+  // rate is unknown, and only the floor above would catch a drain.
+  if (!args.spendTracked) {
+    return {
+      detail:
+        "Balance is above the safety floor, but spend is not tracked for this wallet so runway cannot be assessed",
+      status: "unknown",
+    };
+  }
+
+  // A wallet whose spend history could not be read has no runway to stand on,
+  // so it must not claim to clear the operating thresholds. Spend that is
+  // present but zero is a real observation and stays healthy.
+  if (!args.spendAvailable) {
+    return {
+      detail: "Balance available; recent spend history is unavailable",
+      status: "low",
+    };
+  }
+
   return {
     detail: "Balance is above the configured operating thresholds",
     status: "healthy",
@@ -477,6 +798,7 @@ function createRoleDefinitions(args: {
   app: Awaited<ReturnType<typeof loadAppIdentityObservations>>;
   configuredDeployment: string | undefined;
   configuredPolicy: string | undefined;
+  configuredSettingsAuthority: string | undefined;
   configuredSponsor: string | undefined;
   yield: Awaited<ReturnType<typeof loadYieldIdentityObservations>>;
 }): RoleDefinition[] {
@@ -505,6 +827,16 @@ function createRoleDefinitions(args: {
         observedAddresses: args.app.deployment,
       },
     },
+    {
+      key: "settings_authority",
+      label: "Earn settings authority",
+      observation: {
+        configuredAddresses: uniqueAddresses([
+          args.configuredSettingsAuthority,
+        ]),
+        observedAddresses: args.yield.settingsAuthority,
+      },
+    },
     ...args.yield.routeFeePayer.map((observation) => ({
       key: "route_fee_payer" as const,
       label: "Route fee-payer shard",
@@ -519,10 +851,7 @@ function createRoleDefinitions(args: {
 function createWallets(args: {
   balances: Map<string, string>;
   definitions: RoleDefinition[];
-  spend: Map<
-    string,
-    { spend24hLamports: string | null; spend7dLamports: string | null }
-  >;
+  spend: Map<string, WalletSpend>;
   rpcError: string | null;
   rpcObservedAt: string;
   rpcSlot: number | null;
@@ -592,6 +921,7 @@ function createWallets(args: {
       const balanceLamportsText = args.balances.get(address) ?? null;
       const balanceLamports =
         balanceLamportsText === null ? null : BigInt(balanceLamportsText);
+      const roleKeys = wallet.roles.map((role) => role.key);
       const spend = args.spend.get(address) ?? {
         spend24hLamports: null,
         spend7dLamports: null,
@@ -603,10 +933,12 @@ function createWallets(args: {
         balanceLamports,
         spend7dLamports
       );
-      const roleKeys = wallet.roles.map((role) => role.key);
       const minimumLamports = roleKeys.some(
         (key) =>
-          key === "policy" || key === "deployment" || key === "route_fee_payer"
+          key === "policy" ||
+          key === "deployment" ||
+          key === "route_fee_payer" ||
+          key === "settings_authority"
       )
         ? POLICY_MINIMUM_LAMPORTS
         : null;
@@ -615,6 +947,8 @@ function createWallets(args: {
         minimumLamports,
         roleKeys,
         runwayHours,
+        spendAvailable: spend.spend7dLamports !== null,
+        spendTracked: roleKeys.some((key) => SPEND_TRACKED_ROLES.has(key)),
       });
       const mismatch = wallet.roles.some((role) => {
         const definition = args.definitions.find(
@@ -664,9 +998,12 @@ function createWallets(args: {
 }
 
 async function loadFundingData(): Promise<EarnFundingData> {
+  const configuredSettingsAuthority = serverEnv.earnSettingsAuthorityPublicKey;
   const [appObservations, yieldObservations] = await Promise.all([
     loadAppIdentityObservations(),
-    loadYieldIdentityObservations(),
+    loadYieldIdentityObservations(
+      uniqueAddresses([configuredSettingsAuthority])
+    ),
   ]);
   const sourceErrors = [
     appObservations.sourceError,
@@ -676,6 +1013,7 @@ async function loadFundingData(): Promise<EarnFundingData> {
     app: appObservations,
     configuredDeployment: serverEnv.deploymentPublicKey,
     configuredPolicy: serverEnv.earnPolicySignerPublicKey,
+    configuredSettingsAuthority,
     configuredSponsor: serverEnv.smartAccountSponsorPublicKey,
     yield: yieldObservations,
   });
@@ -690,17 +1028,19 @@ async function loadFundingData(): Promise<EarnFundingData> {
     sourceErrors.push(balanceResult.error);
   }
 
-  const sponsorshipAddress = appObservations.sponsorship[0]?.address;
-  const spend = new Map<
-    string,
-    { spend24hLamports: string | null; spend7dLamports: string | null }
-  >();
-  if (sponsorshipAddress) {
-    spend.set(
-      sponsorshipAddress,
-      await loadSponsorshipSpend(sponsorshipAddress)
-    );
-  }
+  // Only addresses with a spend-tracked role are queried. Seeding a zero for a
+  // wallet no source covers would report "spent nothing" for outflow that is
+  // simply never recorded.
+  const spendTrackedAddresses = uniqueAddresses(
+    definitions
+      .filter((definition) => SPEND_TRACKED_ROLES.has(definition.key))
+      .flatMap((definition) => [
+        ...definition.observation.configuredAddresses,
+        ...definition.observation.observedAddresses.map((row) => row.address),
+      ])
+  );
+  const spendResult = await loadWalletSpend(spendTrackedAddresses);
+  sourceErrors.push(...spendResult.sourceErrors);
 
   const walletResult = createWallets({
     balances: balanceResult.balances,
@@ -708,7 +1048,7 @@ async function loadFundingData(): Promise<EarnFundingData> {
     rpcError: balanceResult.error,
     rpcObservedAt: balanceResult.observedAt,
     rpcSlot: balanceResult.slot,
-    spend,
+    spend: spendResult.spend,
   });
 
   return {

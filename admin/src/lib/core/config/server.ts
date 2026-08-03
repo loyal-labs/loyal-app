@@ -27,6 +27,9 @@ export const serverEnv = {
       getOptionalEnv("EARN_YIELD_ROUTER_PUBLIC_KEY")
     );
   },
+  get earnSettingsAuthorityPublicKey(): string | undefined {
+    return getOptionalEnv("EARN_SETTINGS_AUTHORITY_PUBLIC_KEY");
+  },
   get smartAccountSponsorPublicKey(): string | undefined {
     return getOptionalEnv("SMART_ACCOUNT_SPONSOR_PUBLIC_KEY");
   },
