@@ -5,6 +5,7 @@ import {
   initObservability,
   setObservabilityPathname,
 } from "@/services/observability";
+import { setMobileLoadingMetricsPathname } from "@/services/loading-metrics";
 
 /**
  * Installs the ClickStack global error hooks and keeps the reporter's
@@ -19,6 +20,7 @@ export function ObservabilityInit() {
 
   useEffect(() => {
     setObservabilityPathname(pathname);
+    setMobileLoadingMetricsPathname(pathname);
   }, [pathname]);
 
   return null;

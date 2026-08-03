@@ -42,6 +42,7 @@ import {
 import { earnTransactionTimestampMs } from "@/lib/solana/earn/earn-tx-display";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import type { LifecycleFlow } from "@/services/observability";
+import { startMobileLoadingMetric } from "@/services/loading-metrics";
 import type { Transaction } from "@/types/wallet";
 
 import {
@@ -147,6 +148,7 @@ export type EarnRefundItem = {
 // how we recognise that landing tx as new.
 export type SweepMorph = {
   sweeps: EarnAutodepositScheduledSweep[];
+  scheduledSlotId: string;
   resultTx: EarnTransactionItem | null;
   baselineTxIds: ReadonlySet<string>;
   startedAtMs: number;
@@ -239,16 +241,16 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     (autodeposit?.scheduledSweeps ?? []).some(
       (sweep) =>
         /^\d+$/.test(sweep.remainingAmountRaw) &&
-        BigInt(sweep.remainingAmountRaw) >= EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
+        BigInt(sweep.remainingAmountRaw) >= EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW
     );
   const { tokenHoldings, refreshTokenHoldings } = useTokenHoldings(
-    hasScheduledSweepCandidate ? publicKey : null,
+    hasScheduledSweepCandidate ? publicKey : null
   );
   const walletUsdcRaw = useMemo<bigint | null>(() => {
     const holding = tokenHoldings.find(
       (h) =>
         h.mint === SOLANA_USDC_MINT_MAINNET ||
-        h.mint === SOLANA_USDC_MINT_DEVNET,
+        h.mint === SOLANA_USDC_MINT_DEVNET
     );
     if (!holding || !Number.isFinite(holding.balance)) {
       return null;
@@ -263,9 +265,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       getVisibleEarnScheduledSweeps(
         autodeposit?.scheduledSweeps,
         walletUsdcRaw,
-        scheduledSweepFloorRaw,
+        scheduledSweepFloorRaw
       ),
-    [autodeposit, walletUsdcRaw, scheduledSweepFloorRaw],
+    [autodeposit, walletUsdcRaw, scheduledSweepFloorRaw]
   );
 
   const autodepositPausedMissingPosition =
@@ -313,7 +315,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const [expectingScheduledSweep, setExpectingScheduledSweep] = useState(false);
   const expectScheduledSweep = useCallback(
     () => setExpectingScheduledSweep(true),
-    [],
+    []
   );
   const hasVisibleScheduledSweep = earnScheduledSweeps.length > 0;
   useEffect(() => {
@@ -326,7 +328,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     }
     const timeoutId = setTimeout(
       () => setExpectingScheduledSweep(false),
-      EXPECTED_SWEEP_TIMEOUT_MS,
+      EXPECTED_SWEEP_TIMEOUT_MS
     );
     return () => clearTimeout(timeoutId);
   }, [expectingScheduledSweep, hasVisibleScheduledSweep]);
@@ -340,8 +342,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   // The execute-now lifecycle flow stays open until the worker's result tx is
   // observed — completing it then makes elapsedMs the true request→done time.
   // An abandoned morph (blur/timeout) simply leaves the flow unterminated.
-  const pendingSweepFlowRef = useRef<LifecycleFlow<
-    "earn.autodeposit.execute_now"
+  const pendingSweepFlowRef =
+    useRef<LifecycleFlow<"earn.autodeposit.execute_now"> | null>(null);
+  const pendingSweepMetricRef = useRef<ReturnType<
+    typeof startMobileLoadingMetric
   > | null>(null);
 
   // Trigger the pending sweep now. The endpoint only advances the sweep's
@@ -359,16 +363,21 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     // worker's new result tx.
     const sweeps = earnScheduledSweeps;
     const baselineTxIds = new Set(
-      earnTransactions.filter(isBalanceSweepTx).map((tx) => tx.id),
+      earnTransactions.filter(isBalanceSweepTx).map((tx) => tx.id)
+    );
+    pendingSweepMetricRef.current = startMobileLoadingMetric(
+      "earn.autodeposit.execute_now"
     );
     setIsExecutingSweep(true);
     try {
-      pendingSweepFlowRef.current = await executeEarnAutodepositScheduledSweep({
+      const execution = await executeEarnAutodepositScheduledSweep({
         signer,
       });
+      pendingSweepFlowRef.current = execution.flow;
       if (sweeps.length > 0) {
         setSweepMorph({
           sweeps,
+          scheduledSlotId: execution.scheduledSlotId,
           resultTx: null,
           baselineTxIds,
           startedAtMs: Date.now(),
@@ -376,6 +385,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       }
       await Promise.all([refreshAutodeposit(), refreshEarnTransactions()]);
     } catch (error) {
+      pendingSweepMetricRef.current?.failAfterPaint();
+      pendingSweepMetricRef.current = null;
       console.warn("[autodeposit] execute scheduled sweep failed", error);
       // The endpoint refuses with a user-actionable reason when the sweep can
       // never run as-is (e.g. no active Earn position after a full withdrawal)
@@ -391,7 +402,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       Alert.alert(
         refusal ? "Deposit can't run" : "Deposit didn't complete",
         refusal ??
-          "The deposit didn't complete this time. Please wait 1 minute and try again.",
+          "The deposit didn't complete this time. Please wait 1 minute and try again."
       );
     } finally {
       setIsExecutingSweep(false);
@@ -414,7 +425,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       return;
     }
     const fresh = earnTransactions.find(
-      (tx) => isBalanceSweepTx(tx) && !sweepMorph.baselineTxIds.has(tx.id),
+      (tx) => isBalanceSweepTx(tx) && !sweepMorph.baselineTxIds.has(tx.id)
     );
     if (fresh) {
       setSweepMorph((m) => (m && !m.resultTx ? { ...m, resultTx: fresh } : m));
@@ -422,6 +433,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         executeNowState: "completed",
       });
       pendingSweepFlowRef.current = null;
+      pendingSweepMetricRef.current?.completeAfterPaint();
+      pendingSweepMetricRef.current = null;
       // The sweep landing is what completes quest 2, and the worker reports it
       // within seconds — check now, and once more in case the report is still
       // in flight (deliberately no cleanup: a late one-shot nudge is harmless,
@@ -458,10 +471,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     if (!sweepMorph) {
       return;
     }
-    const timeoutId = setTimeout(
-      () => setSweepMorph(null),
-      SWEEP_MORPH_MAX_MS,
-    );
+    const timeoutId = setTimeout(() => setSweepMorph(null), SWEEP_MORPH_MAX_MS);
     return () => clearTimeout(timeoutId);
   }, [sweepMorph]);
 
@@ -469,6 +479,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSweepMorph(null);
     setExpectingScheduledSweep(false);
+    pendingSweepMetricRef.current = null;
   }, [publicKey]);
 
   // Which scheduled slot to watch on the granular progress endpoint: the
@@ -482,7 +493,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   const watchedSweepSlotId = sweepMorph
     ? sweepMorph.resultTx
       ? null
-      : (sweepMorph.sweeps[0]?.id ?? null)
+      : sweepMorph.scheduledSlotId
     : dueSweepSlotId;
 
   // Burst-poll the watched sweep's granular progress. Cheap (single-row read,
@@ -530,6 +541,25 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
           if (progress.state !== "scheduled") {
             sawInFlight = true;
           }
+          if (
+            progress.state === "failed" ||
+            progress.state === "released" ||
+            progress.state === "canceled"
+          ) {
+            if (progress.state === "canceled") {
+              pendingSweepFlowRef.current?.cancel("state_observed", {
+                executeNowState: progress.state,
+              });
+            } else {
+              pendingSweepFlowRef.current?.fail("state_observed", {
+                executeNowState: progress.state,
+              });
+            }
+            pendingSweepFlowRef.current = null;
+            pendingSweepMetricRef.current?.failAfterPaint();
+            pendingSweepMetricRef.current = null;
+            setSweepMorph(null);
+          }
           if (SWEEP_PROGRESS_END_STATES.has(progress.state) || bouncedBack) {
             clearInterval(intervalId);
             void refreshAutodeposit();
@@ -558,7 +588,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   // Scan for refundable closed Earn accounts. Read-only — never prompts Seed
   // Vault. Resolves to the fresh list so callers can route the user to the
   // Earn feed when refunds exist.
-  const refreshEarnRefunds = useCallback(async (): Promise<EarnRefundItem[]> => {
+  const refreshEarnRefunds = useCallback(async (): Promise<
+    EarnRefundItem[]
+  > => {
     if (!publicKey) {
       setEarnRefunds([]);
       setEarnLockedRefundLamports(0);
@@ -577,7 +609,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         ...(scan?.recurringDelegations ?? [])
           .filter(
             (delegation) =>
-              delegation.canRefund && (delegation.lamports ?? 0) > 0,
+              delegation.canRefund && (delegation.lamports ?? 0) > 0
           )
           .map((delegation) => ({
             kind: "recurring_delegation" as const,
@@ -634,32 +666,38 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         return;
       }
       setRefundingAccount(item.account);
+      const metric = startMobileLoadingMetric("earn.refund");
       try {
         const request: EarnRefundPrepareRequest =
           item.kind === "policy"
             ? { kind: "policy", policyAccount: item.account }
             : item.kind === "recurring_delegation"
-              ? { kind: "recurring_delegation", recurringDelegation: item.account }
-              : { kind: "vault" };
+            ? {
+                kind: "recurring_delegation",
+                recurringDelegation: item.account,
+              }
+            : { kind: "vault" };
         await executeEarnRefund({ signer, request });
         // Drop the row right away, then rescan for anything remaining. The
         // refunded SOL shows up in the wallet balance, not the Earn feed.
         setEarnRefunds((current) =>
-          current.filter((refund) => refund.account !== item.account),
+          current.filter((refund) => refund.account !== item.account)
         );
         void refreshEarnRefunds();
+        metric.completeAfterPaint();
       } catch (error) {
+        metric.failAfterPaint();
         // Row stays for a retry; the backend re-verifies on every prepare.
         console.warn("[earn-refunds] refund failed", error);
         Alert.alert(
           "Refund didn't complete",
-          "Refund didn't complete this time. Please wait 1 minute and try again.",
+          "Refund didn't complete this time. Please wait 1 minute and try again."
         );
       } finally {
         setRefundingAccount(null);
       }
     },
-    [signer, state, refundingAccount, refreshEarnRefunds],
+    [signer, state, refundingAccount, refreshEarnRefunds]
   );
 
   // Escape hatch for the locked-rent row: the Earn tab's Delete control only
@@ -711,7 +749,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
                 console.warn("[earn-refunds] autodeposit delete failed", error);
                 Alert.alert(
                   "Delete didn't complete",
-                  "Autodeposit wasn't deleted this time. Please wait 1 minute and try again.",
+                  "Autodeposit wasn't deleted this time. Please wait 1 minute and try again."
                 );
               } finally {
                 setDeletingAutodeposit(false);
@@ -719,7 +757,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
             })();
           },
         },
-      ],
+      ]
     );
   }, [
     canDeleteLockedRefundAutodeposit,
@@ -749,10 +787,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   }, [earnTransactions]);
 
   const [seenWallet, setSeenWallet] = useState<number | undefined>(() =>
-    getActivityLastSeen("wallet"),
+    getActivityLastSeen("wallet")
   );
   const [seenEarn, setSeenEarn] = useState<number | undefined>(() =>
-    getActivityLastSeen("earn"),
+    getActivityLastSeen("earn")
   );
 
   // First ever launch: seed last-seen to the newest known item so the user's
@@ -782,7 +820,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
         setSeenEarn(newestEarnTs);
       }
     },
-    [newestWalletTs, newestEarnTs],
+    [newestWalletTs, newestEarnTs]
   );
 
   const walletUnread = seenWallet !== undefined && newestWalletTs > seenWallet;
@@ -851,7 +889,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       canDeleteLockedRefundAutodeposit,
       deletingAutodeposit,
       deleteAutodepositForRefund,
-    ],
+    ]
   );
 
   return (

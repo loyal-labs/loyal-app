@@ -12,6 +12,7 @@ export function useTokenHoldings(walletAddress: string | null) {
   // explicit shield/unshield actions, not passive balance display.
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
   const [isHoldingsLoading, setIsHoldingsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
 
   const refreshTokenHoldings = useCallback(
@@ -29,6 +30,7 @@ export function useTokenHoldings(walletAddress: string | null) {
       } finally {
         if (fetchId === fetchIdRef.current) {
           setIsHoldingsLoading(false);
+          setHasLoaded(true);
         }
       }
     },
@@ -40,8 +42,14 @@ export function useTokenHoldings(walletAddress: string | null) {
       refreshTokenHoldings(false);
     } else {
       setTokenHoldings([]);
+      setHasLoaded(false);
     }
   }, [walletAddress, refreshTokenHoldings]);
 
-  return { tokenHoldings, isHoldingsLoading, refreshTokenHoldings };
+  return {
+    tokenHoldings,
+    isHoldingsLoading,
+    hasLoaded,
+    refreshTokenHoldings,
+  };
 }

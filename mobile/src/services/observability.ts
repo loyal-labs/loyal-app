@@ -71,7 +71,7 @@ export function setObservabilityPathname(pathname: string): void {
 // Same channel → environment mapping as `src/lib/datadog/datadog.ts`
 // (not imported from there: that module top-level imports the Datadog native
 // SDK, which must stay lazy-loaded).
-function getEnvironment(): string {
+export function getObservabilityEnvironment(): string {
   const channel = Updates.channel ?? "";
   if (channel === "production") return "prod";
   if (channel === "preview") return "preview";
@@ -81,7 +81,7 @@ function getEnvironment(): string {
 
 // Binary runtime version plus the OTA update that is actually running — the
 // fleet mixes binaries and OTA bundles, so neither alone identifies the code.
-function getRelease(): string {
+export function getObservabilityRelease(): string {
   const updatePrefix = Updates.updateId?.split("-")[0];
   return (
     [Updates.runtimeVersion, updatePrefix].filter(Boolean).join("_") || "dev"
@@ -99,7 +99,10 @@ function normalizeError(error: unknown): {
 } {
   if (error instanceof Error) {
     return {
-      message: truncate(error.message || "Unknown error.", MAX_ERROR_MESSAGE_LENGTH),
+      message: truncate(
+        error.message || "Unknown error.",
+        MAX_ERROR_MESSAGE_LENGTH
+      ),
       name: truncate(error.name || "Error", MAX_ERROR_NAME_LENGTH),
       ...(error.stack
         ? { stack: truncate(error.stack, MAX_ERROR_STACK_LENGTH) }
@@ -150,7 +153,11 @@ function isDuplicate(envelope: MobileErrorEnvelope): boolean {
   return false;
 }
 
-async function postJson(path: string, payload: unknown): Promise<void> {
+export async function postObservabilityJson(
+  path: string,
+  payload: unknown,
+  baseUrl = env.earnApiBaseUrl
+): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REPORT_TIMEOUT_MS);
 
@@ -161,7 +168,7 @@ async function postJson(path: string, payload: unknown): Promise<void> {
     if (env.vercelProtectionBypass) {
       headers["x-vercel-protection-bypass"] = env.vercelProtectionBypass;
     }
-    await fetch(`${env.earnApiBaseUrl}${path}`, {
+    await fetch(`${baseUrl}${path}`, {
       body: JSON.stringify(payload),
       headers,
       method: "POST",
@@ -175,30 +182,30 @@ async function postJson(path: string, payload: unknown): Promise<void> {
 }
 
 function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
-  return postJson("/api/observability/mobile/errors", envelope);
+  return postObservabilityJson("/api/observability/mobile/errors", envelope);
 }
 
 function report(
   error: unknown,
   operation: MobileErrorOperation,
-  messagePrefix?: string,
+  messagePrefix?: string
 ): void {
   try {
     const normalized = normalizeError(error);
     const envelope: MobileErrorEnvelope = {
       ...normalized,
-      environment: getEnvironment(),
+      environment: getObservabilityEnvironment(),
       ...(messagePrefix
         ? {
             message: truncate(
               `${messagePrefix} ${normalized.message}`,
-              MAX_ERROR_MESSAGE_LENGTH,
+              MAX_ERROR_MESSAGE_LENGTH
             ),
           }
         : {}),
       operation,
       pathname: currentPathname,
-      release: getRelease(),
+      release: getObservabilityRelease(),
       timestamp: new Date().toISOString(),
     };
     if (isDuplicate(envelope)) {
@@ -333,7 +340,14 @@ export type LifecycleDiagnostics = {
   chainState?: "not_submitted" | "submitted" | "confirmed" | "failed";
   cleanupRequired?: boolean;
   errorCode?: LifecycleErrorCode;
-  executeNowState?: "requested" | "completed";
+  executeNowState?:
+    | "requested"
+    | "selected"
+    | "pull_confirmed"
+    | "completed"
+    | "failed"
+    | "released"
+    | "canceled";
   executionMode?: "batch" | "sequential" | "single";
   /**
    * Status the backend actually answered with. Its presence is the signal that
@@ -349,15 +363,15 @@ export type LifecycleDiagnostics = {
 export type LifecycleFlow<F extends LifecycleFlowName> = {
   cancel: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics,
+    diagnostics?: LifecycleDiagnostics
   ) => void;
   complete: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics,
+    diagnostics?: LifecycleDiagnostics
   ) => void;
   fail: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics,
+    diagnostics?: LifecycleDiagnostics
   ) => void;
   /**
    * Terminate the flow from a caught error, classifying it first: a user
@@ -368,19 +382,19 @@ export type LifecycleFlow<F extends LifecycleFlowName> = {
   failFrom: (
     stage: LifecycleStageMap[F],
     error: unknown,
-    diagnostics?: LifecycleDiagnostics,
+    diagnostics?: LifecycleDiagnostics
   ) => void;
   /** Sent as `x-loyal-flow-id` so server-side stages join the same flow. */
   flowId: string;
   observe: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics,
+    diagnostics?: LifecycleDiagnostics
   ) => void;
   setVariant: (variant: LifecycleVariantMap[F]) => void;
   setWalletAddress: (walletAddress: string) => void;
   start: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics,
+    diagnostics?: LifecycleDiagnostics
   ) => void;
 };
 
@@ -472,7 +486,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
   const emit = (
     outcome: "started" | "observed" | "completed" | "failed" | "cancelled",
     stage: LifecycleStageMap[F],
-    diagnostics: LifecycleDiagnostics = {},
+    diagnostics: LifecycleDiagnostics = {}
   ): void => {
     try {
       if (terminal) return;
@@ -481,13 +495,13 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
         ...diagnostics,
         durationMs: Math.min(900_000, Math.max(0, current - lastAt)),
         elapsedMs: Math.min(86_400_000, Math.max(0, current - startedAt)),
-        environment: getEnvironment(),
+        environment: getObservabilityEnvironment(),
         flowId,
         flowName: args.flowName,
         flowVariant: variant,
         outcome,
         pathname: currentPathname,
-        release: getRelease(),
+        release: getObservabilityRelease(),
         runtime: "mobile",
         source: "mobile_app",
         stage,
@@ -502,7 +516,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
       ) {
         terminal = true;
       }
-      void postJson("/api/observability/mobile/events", envelope);
+      void postObservabilityJson("/api/observability/mobile/events", envelope);
     } catch {
       // Telemetry is best-effort and must never affect the flow it traces.
     }
@@ -532,7 +546,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
         report(
           error,
           "mobile.global_error",
-          `[flow_id=${flowId} flow_name=${args.flowName} flow_stage=${stage}]`,
+          `[flow_id=${flowId} flow_name=${args.flowName} flow_stage=${stage}]`
         );
       }
     },
