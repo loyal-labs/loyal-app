@@ -7,25 +7,12 @@ The TypeScript package is [`@loyal-labs/loyal-smart-accounts`](https://www.npmjs
 
 ## What It Exposes
 
-The public surface is split by feature namespace instead of one flat API:
+The public surface is split by feature namespace instead of one flat API.
 
-- `programConfig`
-- `smartAccounts`
-- `proposals`
-- `transactions`
-- `batches`
-- `policies`
-- `spendingLimits`
-- `execution`
-
-It also exports lower-level protocol helpers:
-
-- `generated`
-- `accounts`
-- `pda`
-- `codecs`
-- `errors`
-- `PROGRAM_ID`
+| Surface | Exports |
+| --- | --- |
+| Features | `programConfig`, `smartAccounts`, `proposals`, `transactions`, `batches`, `policies`, `spendingLimits`, `execution` |
+| Protocol helpers | `generated`, `accounts`, `pda`, `codecs`, `errors`, `PROGRAM_ID` |
 
 ## Install
 
@@ -146,7 +133,13 @@ await client.smartAccounts.create({
 | `prepare.*` | A reusable prepared operation before send |
 | `client.*` | The shortest path from request to signature |
 
-Every feature namespace follows the same model: raw account classes, optional raw instruction builders, prepared-operation builders, account queries, and bound client methods. For example, proposals expose create/approve/reject/cancel operations, transactions expose create/buffer/log-event operations, and execution exposes async, synchronous, settings, batch, and policy execution helpers.
+Each feature namespace can expose account classes, raw builders, prepared operations, queries, or bound client methods. Availability depends on the feature.
+
+| Namespace | Representative operations |
+| --- | --- |
+| Proposals | `create`, `approve`, `reject`, `cancel` |
+| Transactions | `create`, `buffer`, `logEvent` |
+| Execution | Async or synchronous paths for settings, batches, or policies |
 
 <Note>
 The low-level SDK exposes both current policy APIs and legacy spending-limit instructions. For new Loyal product flows, prefer policy-based spending limits through the vault adapter described below.
@@ -167,30 +160,7 @@ Do not send funds to the settings PDA by accident. In most integrations, the sub
 
 ## App-Facing Vault Adapter
 
-Most Loyal frontend flows use `@loyal-labs/smart-account-vaults` on top of this SDK. That package turns the lower-level Squads account model into app-ready APIs for:
-
-- vault portfolio and activity reads
-- proposal summaries and approval actions
-- policy signer connect/disconnect flows
-- spending-limit policy create, update, delete, and top-up actions
-- wallet-adapter sending for prepared operations
-
-```ts
-import {
-  createSmartAccountVaultsClient,
-  sendPreparedWithWallet,
-} from "@loyal-labs/smart-account-vaults";
-
-const vaults = createSmartAccountVaultsClient({
-  connection,
-  programId,
-  walletDataClient,
-});
-
-const overview = await vaults.fetchOverview({ settingsPda });
-```
-
-Read [Frontend and Vault APIs](/smart-accounts/frontend-and-vaults) for the full frontend integration layer.
+Most Loyal frontend flows use `@loyal-labs/smart-account-vaults` on top of this SDK. Read [Frontend and Vault APIs](/smart-accounts/frontend-and-vaults) for its read model, prepared writes, agent connection, and diagnostics.
 
 ## What To Read Next
 

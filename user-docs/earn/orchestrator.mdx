@@ -1,5 +1,5 @@
 ---
-title: "The Orchestrator"
+title: "Market selection"
 description: "What the Earn worker watches, how it decides, and why it can skip a move."
 ---
 
@@ -38,10 +38,20 @@ Think of it as a cautious operator that must prove a move is allowed before it c
 
 ## Why It Skips
 
-The orchestrator can skip when there is no position to move, no same-mint positive edge, unsupported amount semantics, stale market data, a cooldown after a recent move, a missing account that cannot be initialized through policy, an active decision already in progress, or a policy mismatch.
+| Decision exit | Meaning |
+| --- | --- |
+| Nothing to move | The vault has no eligible position. |
+| No useful route | No approved same-mint move clears the required edge. |
+| Evidence is stale | Market or chain data is too old to support a decision. |
+| Wait period active | A recent move is still inside its cooldown. |
+| Setup is missing | A required account cannot be created through the current policy. |
+| Another decision is active | The worker will not compete with in-progress work. |
+| Policy rejects the route | The candidate does not fit the current onchain boundary. |
 
-This is intentional. A skipped move is not a product failure when the safe action is to wait.
+A skip is the correct result when no safe move is available.
 
 <Info>
 Yield Neon is the coordination and history layer. The live position still comes from on-chain accounts.
 </Info>
+
+Use [Runtime state and evidence](/build/state-events-and-receipts) to distinguish a skipped decision from a submitted or confirmed move.

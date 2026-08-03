@@ -4,181 +4,58 @@ description: "How private transfers move between base Solana state and MagicBloc
 ---
 
 <img
+  alt="Private transaction flow between Solana and MagicBlock PER"
   className="block dark:hidden"
   src="/resources/private-txn/how-it-works-light.png"
 />
 
 <img
+  alt="Private transaction flow between Solana and MagicBlock PER"
   className="hidden dark:block"
   src="/resources/private-txn/how-it-works-dark.png"
 />
 
-Private transfers in Loyal use the `telegram-private-transfer` Solana program (`97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV`) combined with [MagicBlock Private Ephemeral Rollups (PER)](https://docs.magicblock.gg/pages/private-ephemeral-rollups-pers/introduction/authorization) — an ephemeral runtime that runs inside a [Trusted Execution Environment (Intel TDX)](https://www.magicblock.xyz/blog/institutional-grade-privacy) for privacy-preserving execution.
+Private transfers combine Loyal's Solana program with [MagicBlock Private Ephemeral Rollups](https://docs.magicblock.gg/pages/private-ephemeral-rollups-pers/introduction/authorization). Base Solana holds the token vault and settled program state. A delegated deposit can use the private runtime for balance updates.
 
-The flow spans two execution domains:
+## One lifecycle
 
-1. **Base Solana** — initialize deposits, fund the vault, create permissions, verify Telegram identity.
-2. **MagicBlock PER** — execute private balance updates (transfers, claims) with sub-second latency inside TEE.
-3. **Commit back to base** — undelegate to finalize PER state on the base chain.
+<Steps>
+  <Step title="Fund on base Solana">
+    Create the user's deposit record and move tokens into the program vault. The deposit records the user's amount; the vault holds the SPL tokens.
+  </Step>
+  <Step title="Grant private access">
+    Create the PER permission, then delegate the deposit account to the configured private validator.
+  </Step>
+  <Step title="Transfer inside PER">
+    Update delegated deposit balances by wallet address or Telegram username. These private instructions change accounting state; they do not move tokens out of the base-layer vault.
+  </Step>
+  <Step title="Settle and withdraw">
+    Undelegate to commit the private state back to base Solana. A separate withdrawal moves tokens from the vault to the user's token account.
+  </Step>
+</Steps>
 
-## Lifecycle Diagram
+## State and custody boundary
 
-```
-+--------------- Base Solana ----------------+     +------ MagicBlock PER (TEE) -------+
-|                                            |     |                                   |
-|  1. initializeDeposit                      |     |                                   |
-|  2. modifyBalance (tokens -> vault)        |     |                                   |
-|  3. createPermission                       |     |                                   |
-|  4. delegate ----------------------------------> |  5. transferDeposit               |
-|                                            |     |     transferToUsernameDeposit     |
-|                                            |     |     claimUsernameDepositToDeposit |
-|  7. modifyBalance (vault -> tokens)  <-----|---- |  6. undelegate (commit)           |
-|                                            |     |                                   |
-+--------------------------------------------+     +-----------------------------------+
-```
+| Account | What it records | Where it is used |
+| --- | --- | --- |
+| `Deposit` | Amount assigned to one wallet and mint | Base Solana or PER, depending on delegation state |
+| `UsernameDeposit` | Amount assigned to one Telegram username and mint | PER transfers and verified claims |
+| `Vault` | The actual SPL tokens for one mint | Base Solana |
 
-## Source of Truth
+A deposit must be in the right domain for the requested instruction. Funding and withdrawal require base-layer ownership. Private transfers require delegation to PER. The SDK checks this boundary before preparing the operation.
 
-| Component | Location |
-|-----------|----------|
+## Telegram claims
+
+A username transfer does not give any wallet an immediate claim. The recipient first creates a verified Telegram session through the separate `telegram-verification` program. The claim instruction checks that the session is verified, belongs to the claiming wallet, and names the same username as the deposit.
+
+## Source of truth
+
+| Concern | Repository location |
+| --- | --- |
 | Private transfer program | `programs/telegram-private-transfer/src/lib.rs` |
 | Telegram session verification | `programs/telegram-verification/src/lib.rs` |
 | SDK client | `sdk/private-transactions/src/LoyalPrivateTransactionsClient.ts` |
-| Shield/unshield test | `sdk/private-transactions/tests/private-transactions-shield.test.ts` |
 
-## On-Chain Data Structures
+The Private Transactions program address is `97FzQdWi26mFNR21AbQNg4KqofiCLqQydQfAvRQMcXhV`. The Telegram verification program address is `9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz`.
 
-### Deposit
-
-Per-user, per-token account storing a balance number. Seeds: `["deposit_v2", user_pubkey, token_mint]`.
-
-```rust
-pub struct Deposit {
-    pub user: Pubkey,
-    pub token_mint: Pubkey,
-    pub amount: u64,
-}
-```
-
-Tokens are **not** stored in the deposit itself — they live in the **Vault**. The deposit only tracks accounting (`amount`). This separation is what enables private execution: delegated deposits can be updated inside PER by simply incrementing/decrementing `amount`, without moving actual tokens on-chain.
-
-### UsernameDeposit
-
-Same concept, but keyed by Telegram username instead of wallet address. Seeds: `["username_deposit_v2", username_bytes, token_mint]`.
-
-```rust
-pub struct UsernameDeposit {
-    pub username: String,   // 5–32 chars, alphanumeric + underscore
-    pub token_mint: Pubkey,
-    pub amount: u64,
-}
-```
-
-Username deposits can only receive funds from a regular `Deposit` via a transfer instruction. The recipient proves ownership of the username through on-chain Telegram session verification, then claims to their own `Deposit`.
-
-### Vault
-
-Per-token custody account that holds actual SPL tokens. Seeds: `["vault", token_mint]`.
-
-```rust
-pub struct Vault {
-    _dummy: u8,
-}
-```
-
-When a user calls `modify_balance(increase=true)`, tokens transfer from the user's token account to the vault's associated token account. On withdrawal, tokens move back. The vault's total balance always equals the sum of all deposit amounts for that token mint.
-
-## Program Instructions
-
-| Instruction | Layer | Purpose |
-|-------------|-------|---------|
-| `initialize_deposit` | Base | Create a deposit account (no-op if exists) |
-| `initialize_username_deposit` | Base | Create a username deposit account with validation |
-| `modify_balance` | Base | Deposit (`increase=true`) or withdraw (`increase=false`) real tokens to/from vault |
-| `create_permission` | Base | Create PER access control for a deposit |
-| `create_username_permission` | Base | Create PER access control for a username deposit (requires verified session) |
-| `delegate` | Base | Delegate deposit ownership to MagicBlock for PER execution |
-| `delegate_username_deposit` | Base | Delegate username deposit to PER |
-| `transfer_deposit` | PER | Transfer balance between two user deposits (accounting only) |
-| `transfer_to_username_deposit` | PER | Transfer from user deposit to username deposit (accounting only) |
-| `claim_username_deposit_to_deposit` | PER | Claim from username deposit to user deposit (requires verified Telegram session) |
-| `undelegate` | PER | Commit and return deposit ownership to the program |
-| `undelegate_username_deposit` | PER | Commit and return username deposit to the program |
-
-## Shield / Unshield Flow
-
-The SDK and tests use "shield" and "unshield" terminology for moving tokens in and out of the private layer.
-
-### Shield (wallet → private deposit)
-
-1. `initializeDeposit` — create the deposit account if it doesn't exist
-2. Wrap SOL → wSOL if using native SOL
-3. `modifyBalance(increase=true)` — transfer tokens from user's ATA to vault, increment deposit amount
-4. `createPermission` — set up PER access control (idempotent)
-5. `delegateDeposit` — delegate to the TEE validator, moving the account into PER
-
-After shielding, the deposit is only visible to its owner inside PER.
-
-### Unshield (private deposit → wallet)
-
-1. `undelegateDeposit` — commit PER state and return ownership to the program on base layer
-2. `modifyBalance(increase=false)` — transfer tokens from vault back to user's ATA
-3. Unwrap wSOL → SOL if native
-4. Re-delegate remaining balance if any (keeps non-withdrawn funds private)
-
-### Private transfers (while shielded)
-
-All transfer operations happen on delegated accounts inside PER:
-
-- **By address**: `transferDeposit` — moves balance between two user deposits
-- **By username**: `transferToUsernameDeposit` — moves balance to a username deposit
-- **Claim**: `claimUsernameDepositToDeposit` — recipient proves Telegram identity and claims to their deposit
-
-These only update `amount` fields — no actual token movement occurs until unshield.
-
-## MagicBlock PER Integration
-
-### Why PER?
-
-Standard Solana accounts are fully public — anyone can read balances and trace transfers. PER runs a Solana-compatible validator inside Intel TDX (Trusted Execution Environment), providing:
-
-- **Privacy**: only users with granted permissions can read account state
-- **Speed**: sub-second latency for balance updates
-- **Composability**: same Solana program instructions, no bridges or new tokens
-- **Auditability**: committed state lands back on base Solana
-
-### Delegation
-
-When delegated, the deposit account's owner changes from the program to the MagicBlock delegation program. The SDK enforces this invariant:
-
-- **Base-only operations** (`modifyBalance`, `createPermission`) require the account to be **not delegated**
-- **PER operations** (`transferDeposit`, `transferToUsernameDeposit`, `claimUsernameDepositToDeposit`) require the account to be **delegated**
-
-### Permissions
-
-PER uses access control to determine who can see and interact with delegated accounts. The program creates permission PDAs via CPI to the ephemeral rollups access control program:
-
-- `create_permission` — grants the deposit owner exclusive read/write access
-- `create_username_permission` — grants access to the username deposit for a verified Telegram session holder
-
-Permission flags include: `AUTHORITY`, `TX_LOGS`, `TX_BALANCES`, `TX_MESSAGE`, `ACCOUNT_SIGNATURES`.
-
-## Telegram Verification
-
-Username claims require cryptographic proof of Telegram identity. This is handled by the separate `telegram-verification` program (`9yiphKYd4b69tR1ZPP8rNwtMeUwWgjYXaXdEzyNziNhz`):
-
-1. **Store** — user submits Telegram MiniApp validation bytes to a `tg_session_v2` PDA
-2. **Verify** — program checks Ed25519 signature against Telegram's public key, marks session as `verified`
-
-The `claim_username_deposit_to_deposit` instruction then validates:
-- The session is verified (`verified == true`)
-- The session's `user_wallet` matches the claiming wallet
-- The session's `username` matches the username deposit
-
-## Why This Model
-
-- **Privacy-preserving execution** — transfer logic runs inside TEE while delegated, invisible to external observers
-- **Auditable settlement** — committed state lands back on base Solana accounts, verifiable by anyone
-- **Identity-gated claims** — Telegram session verification controls username claim rights
-- **No token mixing** — vault accounting ensures each user gets exactly their tokens back
-- **Composable** — standard Anchor program, same instructions work on base and PER layers
+Use [Quick Start](/sdk/private-transactions/quick-start) for the first transaction sequence. Use [API Reference](/sdk/private-transactions/reference) for method signatures and [Errors](/sdk/private-transactions/errors) for safe retry guidance.

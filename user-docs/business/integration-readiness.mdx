@@ -1,0 +1,22 @@
+---
+title: "Integration readiness"
+description: "The decisions a business must own before integrating Loyal."
+---
+
+Assign an owner and evidence for every decision before production access.
+
+| Decision | Evidence required |
+| --- | --- |
+| Account model | Each customer has a distinct account with documented root authority. |
+| Approval | The interface names the reserve and recurring access. It also names the destination and variable-yield risk. |
+| Exit | Pause and withdrawal are distinct. Recurring close and full Earn exit are also distinct. |
+| Legal and support | Product counsel records the custody and disclosure analysis for each jurisdiction. Support owns delayed sweeps, failed confirmations, and delayed withdrawals. |
+| Environment and security | Engineering verifies configured program identities. Security maps deployed versions to available review evidence. |
+| Operations and rollout | Operations owns monitoring and incident response. The rollout has a named limit, success measure, and stop condition. |
+
+<Info>
+  Readiness records who made each decision and the evidence they used. It does
+  not decide whether an integration is legally noncustodial or risk-free.
+</Info>
+
+Developers can start with [Build with Loyal](/build/overview). Product owners should review [Ownership and control](/trust/ownership-and-control).

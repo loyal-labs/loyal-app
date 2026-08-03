@@ -1,0 +1,44 @@
+---
+title: "Automation lifecycle"
+description: "The states an automation can enter and the source that proves each transition."
+---
+
+Treat a transition as complete only when its durable verifier agrees.
+
+<Steps>
+  <Step title="Setup pending">
+    Customer approval has started, but required onchain authority or account setup is not confirmed.
+  </Step>
+  <Step title="Active">
+    Required authority exists and Loyal may evaluate eligible actions.
+  </Step>
+  <Step title="Paused">
+    Loyal schedules no new sweeps. Onchain authority can remain.
+  </Step>
+  <Step title="Closing">
+    The customer approved cleanup, but the required chain effects are not fully confirmed.
+  </Step>
+  <Step title="Closed">
+    The close requirements are confirmed and durable coordination state records the result.
+  </Step>
+  <Step title="Failed">
+    The intended transition did not complete. Current state must be refetched before retry.
+  </Step>
+</Steps>
+
+## Source of truth by concern
+
+| Concern | Source of truth |
+| --- | --- |
+| Root and policy authority | Current Solana accounts |
+| Recurring authority | Current subscription and token accounts |
+| Wallet and vault balances; lending position | Solana plus the underlying lending program |
+| Operating floor and pause target | Loyal's durable orchestration state |
+| Submitted or confirmed transaction | Signature status and affected onchain accounts |
+| Reconciled history | Loyal record linked to confirmed chain evidence |
+
+## Transition rule
+
+Prepared work is not submitted work. Submission does not prove confirmation. Reconciliation links durable history to confirmed evidence, while a fresh onchain read proves current authority and balances. Persist only the transition supported by its required evidence.
+
+Exact policy construction belongs in [Policy fields and construction](/earn/policies). Exit instructions belong in [Pause and close](/build/pause-and-close). Use [Runtime state and evidence](/build/state-events-and-receipts) to inspect a stall or failure.

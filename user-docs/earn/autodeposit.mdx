@@ -1,32 +1,40 @@
 ---
-title: "Autodeposit"
-description: "How Loyal can keep a wallet floor and sweep eligible surplus USDC."
+title: "Autodeposit subscription"
+description: "How to create and observe the recurring sweep subscription, plus its update boundary."
 ---
 
-Autodeposit is for users who want Earn to collect idle USDC automatically while leaving a chosen amount in their Main Account.
+Autodeposit is for users who want Earn to collect eligible USDC automatically while using a chosen Main Account amount as the operating target.
 
-The rule is easy to read: keep at least your floor in the wallet, and send only eligible surplus to Earn.
+Loyal treats the floor as a scheduling target. It calculates surplus above that target and checks separate onchain limits before execution.
 
 ## Key Facts
 
-| Question | Short answer |
-| --- | --- |
-| What does the user choose? | A wallet floor |
-| What does Loyal watch? | The wallet's USDC token account |
-| What can move? | USDC above the floor and within the approved delegation |
-| Where does it go first? | The Earn vault |
-| What happens after the pull? | The executor can top up the active Kamino Earn route |
+| Question                     | Short answer                                                  |
+| ---------------------------- | ------------------------------------------------------------- |
+| What does the user choose?   | A wallet floor plus the recurring period and amount           |
+| What does Loyal watch?       | The wallet's USDC token account                               |
+| What can Loyal schedule?     | Calculated surplus, further limited by the approved delegation |
+| Where does it go first?      | The Earn vault                                                |
+| What happens after the pull? | The executor can top up the active Kamino Earn route          |
 
 ## Setup
 
-Autodeposit setup creates the on-chain pieces needed for a constrained pull:
+Autodeposit setup creates the onchain pieces needed for a constrained pull:
 
 - A subscription authority for your wallet and USDC mint
-- A recurring delegation with an amount limit
-- An Autodeposit policy that targets the Earn vault
-- A rule that checks the wallet keeps at least the chosen floor
+- A recurring delegation with its schedule and amount for each period
+- An Autodeposit policy fixed to the expected USDC path and Earn vault
+- A saved floor that Loyal uses when calculating eligible surplus
 
-You approve this setup from your Main Account. Loyal does not receive a general transfer authority.
+You approve this setup from your Main Account. Loyal does not become a root Smart Account signer or receive an unrestricted destination.
+
+<Info>
+  The saved floor is an automation setting used by Loyal's scheduler. The
+  recurring delegation defines the period and allowed amount. The Smart
+  Account policy separately constrains the USDC mint, source and destination
+  accounts, subscription program, instruction shape, and maximum amount per
+  period.
+</Info>
 
 ## How Wallet Watching Works
 
@@ -44,17 +52,20 @@ That schedule gives the executor time to verify the current wallet balance, the 
     Loyal records the eligible amount and waits until it is ready to execute.
   </Step>
   <Step title="Pull to Earn">
-    The executor uses the Autodeposit policy to move only allowed USDC from the wallet token account into the Earn vault.
+    The executor uses the Autodeposit policy to move the scheduled USDC through
+    the fixed path from the wallet token account into the Earn vault.
   </Step>
   <Step title="Top up Earn">
-    After the pull, the executor can deposit the new vault USDC into the current Kamino Earn route.
+    After the pull, the executor can deposit the new vault USDC into the current
+    Kamino Earn route.
   </Step>
 </Steps>
 
-## Pause, Update, Close
+## Update boundary
 
-Pausing stops new sweeps from being executed. Updating the floor changes how much USDC must stay in the wallet. Closing Autodeposit revokes the recurring delegation and closes the Autodeposit policy, which requires a signed cleanup flow.
+Updating the floor changes Loyal's eligibility calculation. It does not rewrite the subscription period or Smart Account policy. Pausing and closing change different state; use [Pause and close](/build/pause-and-close) for their transaction and confirmation requirements.
 
 <Warning>
-Autodeposit is worker-driven. Execution can take time because the worker verifies state before moving funds.
+  Autodeposit is worker-driven. Execution can take time because the worker
+  verifies state before moving funds.
 </Warning>

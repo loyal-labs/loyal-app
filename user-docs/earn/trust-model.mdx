@@ -1,127 +1,23 @@
 ---
-title: "Earn Trust Model"
-description: "A dense view of where Earn yield comes from, what Loyal can execute, and what risks remain."
+title: "Technical security model"
+description: "The enforcement layers and residual risks in Loyal Earn automation."
 ---
 
-Earn is policy-bounded automation for Kamino lending. It is not a fixed-rate account, a managed custody vault, or a promise that DeFi risk disappears.
+Earn uses several independent controls. No single control proves the complete workflow is safe.
 
-## One-Screen Summary
-
-| Question | Direct answer |
-| --- | --- |
-| Where does yield come from? | Kamino lending markets. Lenders earn from borrower demand, reserve utilization, and any market incentives included in the live rate. |
-| Is the APY fixed? | No. It is a variable market rate that can move up or down. |
-| What does Loyal optimize? | Approved Kamino stablecoin routes that pass the active smart-account policy and execution checks. |
-| Who holds the funds? | Your Loyal Smart Account. Earn funds sit in the Earn vault inside that account. |
-| What can Loyal execute? | Policy-approved Earn actions through the delegated policy signer. |
-| What still requires you? | Setup, manual deposits, manual withdrawals, policy revocation, and cleanup flows require your wallet approval. |
-| What risks remain? | Kamino protocol and market risk, Squads smart-account risk, Solana network risk, and liquidity or withdrawal timing risk. |
-| What is the main protection? | A Squads smart-account policy limits what automation can submit. |
-| What is not protected? | The policy does not insure deposits, guarantee APY, or reverse losses in an underlying market. |
-
-## Money Path
-
-```text
-User wallet
-  -> Loyal Smart Account settings
-  -> Earn vault
-  -> approved smart-account policy
-  -> approved Kamino lending route
-```
-
-| Layer | What it does | What to remember |
+| Layer | Enforces | Does not prove |
 | --- | --- | --- |
-| User wallet | Approves setup and each deposit or withdrawal; also approves revocation | Loyal cannot sign as your wallet. |
-| Smart Account settings | Stores the root account configuration | This stores settings; the Earn balance lives in the Earn vault. |
-| Earn vault | Holds Earn funds and executes approved actions | This is the account Earn routes from. |
-| Earn policy | Constrains the delegated signer | Invalid instructions should fail on-chain. |
-| Kamino route | Supplies or withdraws from approved lending markets | This is where yield and lending risk come from. |
+| Customer authority | Setup, root configuration, manual approval, and exit | That an allowed lending action is risk-free. |
+| Subscription delegation | Recurring period, per-period amount, and delegated transfer authority | That every submitted transaction matches the Smart Account policy. |
+| Earn route and setup policies | The approved program interaction | That the scheduler chose the correct reserve or amount. |
+| Autodeposit policy | The approved sweep path and an independent maximum per period | That the saved operating floor is enforced onchain. |
+| Loyal scheduler | Operating floor and pause state; eligibility and timing | Onchain authority or transaction confirmation. |
+| Market and RPC inputs | Current position and liquidity; rates and confirmation evidence | Future rates, liquidity, or protocol solvency. |
 
-Live Earn holdings are checked from Solana RPC and Kamino account state. Loyal databases store coordination state, confirmed history, and snapshots; they are not the authority for the current balance.
+The operated Earn workflow is same-mint USDC through configured Kamino markets. The generic policy system can express other routes, so integration code must verify the active policy instead of assuming a product label is an onchain restriction.
 
-## Rate Source
+Realtime delivery can wake a worker or client. Current authority and balances still come from Solana and the underlying protocol.
 
-Kamino reserves pay lenders from borrower interest. A reserve's APY changes as supply, borrowing demand, utilization, market incentives, and available liquidity change.
+Policy limits reduce automation authority. They do not remove Smart Account, Subscriptions, Kamino, USDC, Solana, liquidity, operational, or upgrade risk.
 
-| Topic | Earn behavior |
-| --- | --- |
-| Rate source | Kamino reserve market data and on-chain market state. |
-| Displayed rate | A current or forecasted market-rate view with no contractual yield. |
-| Route choice | Loyal compares approved routes and can skip when the edge is not worth acting on. |
-| Freshness | Stale or missing market data should cause the system to wait rather than force a move. |
-| Verification | Users should be able to compare the displayed rate with the underlying Kamino market or reserve shown in the app. |
-| Accounting | Confirmed Earn history is written after chain confirmation; live holdings come from chain state. |
-
-Base lending yield is borrower-funded: borrowers pay interest, utilization determines the borrow rate from the reserve curve, Kamino's reserve factor or protocol spread reduces the pass-through, and suppliers receive the remaining yield through reserve accounting. Incentives or rewards can add to displayed returns only when that market exposes them separately.
-
-## Safe Bracket Kamino Markets
-
-The Safe bracket is Loyal's mainnet market allowlist for conservative Earn routing. Kamino does not publish it as a risk tier; Loyal uses it as a routing allowlist. Each market still has its own liquidity, reserve parameters, issuer exposure, and withdrawal risk.
-
-For every market below, the displayed APR/APY is still the Kamino supplier rate for the selected reserve. The notes explain what each market's lending or yield exposure is built around.
-
-Kamino's own docs cover the rate mechanics in more detail: [supplying](https://kamino.com/docs/products/borrow/supplying), [interest rates](https://kamino.com/docs/risk/safeguards/interest-rates), and the [market API](https://api.kamino.finance/v2/kamino-market).
-
-### Main Kamino
-
-Address: `7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF`
-
-Yield comes from borrower interest in Kamino's core lending market, across stablecoins and major Solana assets.
-
-### Figure / Prime
-
-Address: `CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA`
-
-Yield comes from Prime/Figure lending exposure backed by home equity lines of credit, based on Figure's Democratized Prime materials.
-
-### Maple
-
-Address: `6WEGfej9B9wjxRs6t4BYpb9iCXd8CpTpJ8fVSNzHCC5y`
-
-Yield comes from institutional lending and related strategies behind syrupUSDC within the Maple market.
-
-### OnRe
-
-Address: `47tfyEG9SsdEnUm9cw5kY9BXngQGqu3LBoop9j5uTAv8`
-
-Yield comes from reinsurance premiums plus collateral returns within the OnRe market.
-
-### Ethena
-
-Address: `BJnbcRHqvppTyGesLzWASGKnmnF1wq9jZu6ExrjT7wvF`
-
-Yield comes from USDe and stablecoin exposure within the Ethena market, backed by crypto assets, hedge positions, and liquid stable assets.
-
-## Execution Boundary
-
-| Loyal can | Loyal cannot |
-| --- | --- |
-| Prepare Earn setup plus deposit/withdrawal/cleanup transactions | Sign as your wallet |
-| Use a delegated policy signer for approved Earn actions | Become a root settings signer unless you explicitly approve that |
-| Execute actions that match the active Earn policy | Transfer arbitrary tokens from your wallet |
-| Route through approved Kamino lending paths | Bypass Squads policy checks |
-| Pause, skip, or disable automation paths | Guarantee future APY |
-| Record confirmed Earn history after chain confirmation | Insure deposits or reverse an underlying protocol loss |
-
-The important distinction is narrow: Loyal-side custody risk is reduced by the policy boundary. Underlying DeFi risk is still real.
-
-## Risk Matrix
-
-| Risk | Example | Primary owner | Loyal mitigation | Residual risk |
-| --- | --- | --- | --- | --- |
-| Kamino protocol or market risk | Exploit, bad debt, reserve accounting issue, extreme utilization | Kamino and the lending market | Approved route set; simulate routes and disable unsafe routes when needed | Principal or withdrawal timing can still be affected |
-| Squads smart-account risk | Policy or smart-account program bug | Squads program and integration code | Use established smart-account primitives and keep Earn authority policy-scoped | Smart-account execution risk remains |
-| Solana network risk | Congestion, outage, delayed confirmation | Solana network | Retry after congestion; wait for confirmation before marking actions final | Deposits, rebalances, or withdrawals can be delayed |
-| Liquidity and withdrawal timing | Reserve liquidity is mostly borrowed | Kamino market conditions | Check route state and prepare withdrawals through available paths | Exits can be slower than expected |
-
-## User Controls
-
-| Control | What it does |
-| --- | --- |
-| Withdraw | Moves funds out of Earn through the prepared withdrawal path, subject to market state. |
-| Pause Autodeposit | Stops new surplus sweeps from being executed. |
-| Close Autodeposit | Revokes the recurring delegation and closes the Autodeposit policy. |
-| Close or revoke Earn policy | Removes the delegated automation authority after the required signed cleanup flow. |
-| Review transaction details | Shows the route, market, reserve, mint, policy account, and setup requirements before signing. |
-
-The safest wording is: Earn is constrained automation on top of DeFi lending. The constraint is real, but it is not a guarantee of yield, liquidity, or protocol safety.
+Use [Policy fields and construction](/earn/policies) for exact constraints, [Runtime state and evidence](/build/state-events-and-receipts) for verification, and [Risk and liquidity](/trust/risk-and-liquidity) for customer outcomes.

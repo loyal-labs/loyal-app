@@ -1,0 +1,46 @@
+---
+title: "Build your first automation"
+description: "Prove one allowed Earn action, one rejected action, and a customer-controlled exit."
+---
+
+import { AutomationReadinessFlow } from "/snippets/automation-readiness-flow.jsx";
+
+Your first integration is complete only when chain evidence proves three outcomes: the customer remains the root signer, the allowed action succeeds, and the same automation signer cannot execute an off-policy action.
+
+<AutomationReadinessFlow />
+
+## Preconditions
+
+Use a supported non-production environment, a disposable wallet, and a small USDC amount. Read [Smart Account concepts](/smart-accounts/concepts) and [Policy fields and construction](/earn/policies). Record every account and signature used by the test.
+
+## Build and verify
+
+<Steps>
+  <Step title="Create the customer Smart Account">
+    Create the default Earn account. Refetch settings from Solana and verify the customer wallet is the intended root signer.
+  </Step>
+  <Step title="Approve the narrow automation">
+    Complete the supported Earn and Autodeposit setup. Refetch the resulting policy and subscription accounts after confirmation.
+  </Step>
+  <Step title="Preflight one allowed and one rejected action">
+    Prepare the supported USDC sweep. Clone it and change one enforced property. The supported action must pass simulation; the altered action must fail the onchain boundary.
+  </Step>
+  <Step title="Execute and refetch">
+    Submit only the allowed action. Wait for confirmation, then refetch the source and Earn vault. Read both authority accounts. Finally, inspect the lending position needed to prove the result.
+  </Step>
+  <Step title="Prove the exit">
+    Pause scheduling, then run the customer-approved close path. Verify current chain state before recording closure.
+  </Step>
+</Steps>
+
+## Required evidence
+
+| Check | Passing evidence |
+| --- | --- |
+| Root control | Current settings show the intended customer root signer. |
+| Allowed action | The supported transaction confirms and the affected accounts change as expected. |
+| Rejected action | One deliberate off-policy variant fails before execution. |
+| Exit | The customer-approved flow reaches the closed state defined by the lifecycle. |
+| Secret boundary | Logs and product history contain no customer key or automation secret. |
+
+Use [Automation lifecycle](/build/automation-lifecycle) for states and [Pause and close](/build/pause-and-close) for exit requirements.

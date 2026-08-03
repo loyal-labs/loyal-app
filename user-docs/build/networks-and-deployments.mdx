@@ -1,0 +1,22 @@
+---
+title: "Networks and deployments"
+description: "Configured program identities for Loyal automation and the evidence boundary around them."
+---
+
+The repository supports `devnet` and `mainnet-beta`. The current shared cluster configuration uses these program addresses.
+
+| Component | Configured address | Repository verification |
+| --- | --- | --- |
+| Squads Smart Account Program | `SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG` | Verified in `packages/loyal-actions/src/cluster.ts` on 2026-08-03. |
+| Solana Foundation Subscriptions | `De1egAFMkMWZSN5rYXRj9CAdheBamobVNubTsi9avR44` | Verified in `packages/loyal-actions/src/constants.ts` on 2026-08-03. |
+| Kamino K-Lend | `KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD` | Verified in `packages/loyal-actions/src/constants.ts` on 2026-08-03. |
+
+<Warning>
+  Repository configuration is not a fresh onchain deployment attestation.
+  Production verification must compare the active environment, onchain program,
+  and release evidence at the time of review.
+</Warning>
+
+The Smart Account address can be overridden by runtime environment configuration. Verify the active environment instead of assuming the repository default is production.
+
+Reviewed versions and audit conclusions belong in [Audits and deployed scope](/trust/audits-and-deployments). Do not infer a review match from an address alone.

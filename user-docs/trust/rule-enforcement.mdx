@@ -1,0 +1,23 @@
+---
+title: "Rule enforcement"
+description: "How an approved transaction proceeds and an off-policy transaction is rejected."
+---
+
+Loyal's signer can submit an automation transaction. The transaction still has to satisfy the recurring delegation and the Smart Account policy.
+
+<Tabs>
+  <Tab title="Allowed">
+    The action follows the approved path and stays within its limit. The onchain checks pass, so the transaction can proceed.
+  </Tab>
+  <Tab title="Rejected">
+    The action leaves the approved path or exceeds its limit. The onchain check fails before that off-policy action executes.
+  </Tab>
+</Tabs>
+
+## Two separate boundaries
+
+The recurring delegation limits when and how much Loyal may move. The Smart Account policy separately limits the allowed route. Both checks must pass.
+
+These controls limit Loyal's signer. They do not protect against every defect in an allowed program or lending market.
+
+Developers can inspect the exact [policy fields and construction](/earn/policies). Customers can review [Ownership and control](/trust/ownership-and-control).

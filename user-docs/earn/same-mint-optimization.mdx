@@ -1,5 +1,5 @@
 ---
-title: "Same-Mint Optimization"
+title: "Same-mint routing"
 description: "How Earn moves between approved USDC reserves without changing the asset you hold."
 ---
 
@@ -23,7 +23,7 @@ Earn tries to capture more of the available market rate by moving only when the 
     It compares eligible Kamino USDC reserves using market data.
   </Step>
   <Step title="Require a positive edge">
-    A move is considered only if the target reserve is better enough to justify action.
+    A move is considered only if the target offers enough expected benefit to justify the move.
   </Step>
   <Step title="Check the policy">
     The selected route must match the active Earn policy before it can be submitted.

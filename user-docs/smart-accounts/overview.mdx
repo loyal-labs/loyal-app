@@ -1,25 +1,27 @@
 ---
-title: "Overview"
+title: "Smart Accounts"
 description: "What Loyal Smart Accounts are, when to use them, and the mental model behind the SDKs."
 ---
 
 
 <img
+  alt="How a Loyal Smart Account controls funds and policy execution"
   className="block dark:hidden"
   src="/resources/smart-accounts/how-acc-works-light.png"
 />
 
 <img
+  alt="How a Loyal Smart Account controls funds and policy execution"
   className="hidden dark:block"
   src="/resources/smart-accounts/how-acc-works-dark.png"
 />
 
 
-Loyal Smart Accounts are programmable Solana accounts for teams and apps that need shared control, policy-based execution, or safer operational flows than a single wallet can provide.
+Loyal Smart Accounts are programmable Solana accounts for teams and apps that need shared control, policy-based execution, or a safer operational boundary than one wallet can provide.
 
-Under the hood, Loyal’s SDKs target the Squads Smart Account Program, but the docs here stay focused on the Loyal developer surface and the concepts you need to use it well.
+Loyal's SDKs target the Squads Smart Account Program. This section documents the Loyal developer surface.
 
-## When To Use This
+## When to use a Smart Account
 
 Use Loyal Smart Accounts when you need one or more of these:
 
@@ -27,52 +29,22 @@ Use Loyal Smart Accounts when you need one or more of these:
 - A controlled separation between configuration and funds
 - Proposal-based execution with an optional delay
 - Rules around what can be spent or executed
-- A TS SDK today, with a narrower Rust parity surface for create flows
+- A TypeScript SDK, with a narrower Rust surface for create flows
 
 <Info>
 If you only need a single signer wallet with no policy logic, Smart Accounts are probably unnecessary overhead.
 </Info>
 
-## Mental Model
+## Mental model
 
 Think about the system in five pieces:
 
 | Piece | What it does |
 | --- | --- |
-| `Settings` | The configuration root for a smart account |
-| Sub-accounts / vaults | The addresses that actually hold assets and execute |
-| Signers + permissions | Who can initiate, vote, and execute |
+| `Settings` | The configuration root for a Smart Account |
+| Sub-accounts and vaults | The addresses that hold assets and execute |
+| Signers + permissions | Who can initiate or vote, and who can execute |
 | Transactions + proposals | The async governance path |
 | Policies | Scoped rules for what can happen and under what limits |
 
-### 1. Settings
-
-The `Settings` account is the control plane. It stores signer configuration, threshold, time lock, and other governance state.
-
-### 2. Sub-accounts
-
-Assets live in derived smart-account addresses, sometimes easiest to think of as vaults. `account_index = 0` is usually the primary one.
-
-### 3. Signers
-
-Each signer has a permission mask. The important permissions are:
-
-- Initiate
-- Vote
-- Execute
-
-### 4. Transactions and proposals
-
-If you want review and approval before execution, you create transactions and proposals, collect votes, then execute once the threshold and time-lock rules are satisfied.
-
-### 5. Policies
-
-Policies let you express narrower execution rules without giving the whole settings authority away. That is useful for spend controls, constrained program calls, and delegated operational flows.
-
-## Start Here
-
-- Read [Concepts](/smart-accounts/concepts) if you are new to the model
-- Read [Policies and Execution](/smart-accounts/policies-and-execution) if you need the lifecycle and rule system
-- Read [Frontend and Vault APIs](/smart-accounts/frontend-and-vaults) if you are building the wallet or agent UX
-- Read [TypeScript SDK](/smart-accounts/typescript-sdk) if you are integrating from an app today
-- Read [Rust SDK](/smart-accounts/rust-sdk) if you need the current parity-first Rust surface
+Use [Concepts](/smart-accounts/concepts) for the exact account vocabulary. Use [Policies and execution](/smart-accounts/policies-and-execution) to choose the execution mode. The directory below links to frontend and SDK implementation.

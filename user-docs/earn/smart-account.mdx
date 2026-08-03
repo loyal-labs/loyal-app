@@ -3,25 +3,26 @@ title: "Your Earn Account"
 description: "How your Main Account, Loyal Smart Account, and Earn vault fit together."
 ---
 
-Earn uses a Loyal Smart Account so your funds can be controlled by rules instead of by a single always-powerful key. You still approve the important actions from your Main Account, but the assets used by Earn sit in a separate smart-account vault.
+Earn uses a Loyal Smart Account so automation can operate through a narrow policy signer while your wallet retains root authority. You approve setup, manual money movement, and removal from your Main Account. A separate Earn vault controls idle USDC and the Kamino position.
 
-The practical mental model is simple: your Main Account approves; your Earn vault holds and executes.
+The practical mental model is simple: your Main Account owns the root authority. The Earn vault controls the idle balance and lending position. A separate policy limits automated execution.
 
 ## The Three Addresses
 
-| Address | What it means | Why it matters |
-| --- | --- | --- |
-| Main Account | The wallet you connect to Loyal | You sign setup and approve deposits, withdrawals, or revocation from here |
-| Smart Account settings | The configuration root | It stores signer and policy configuration; it is not where funds should be sent |
-| Earn vault | The derived smart-account address for Earn | This is the vault that holds Earn USDC and executes approved Earn actions |
+| Address                | What it means                              | Why it matters                                                                  |
+| ---------------------- | ------------------------------------------ | ------------------------------------------------------------------------------- |
+| Main Account           | The wallet you connect to Loyal            | You sign setup and approve deposits, withdrawals, or revocation from here       |
+| Smart Account settings | The configuration root                     | It stores signer and policy configuration; it is not where funds should be sent |
+| Earn vault             | The derived smart-account address for Earn | It can hold idle USDC, owns the Kamino position, and executes approved actions  |
 
 <Note>
-In the current implementation, Earn uses smart-account vault index `1`. The primary smart-account vault is a different address.
+  In the current implementation, Earn uses smart-account vault index `1`. The
+  primary smart-account vault is a different address.
 </Note>
 
 ## Deposits
 
-When you deposit, Loyal prepares a transaction that moves USDC from your Main Account into the Earn vault and deposits it into the selected Kamino USDC reserve.
+When a deposit confirms, USDC moves through the Earn vault into the selected Kamino USDC reserve. Kamino position accounts controlled by the vault represent the supplied funds.
 
 The first Earn deposit may also create the policy accounts needed for future Earn actions. Later top-ups can reuse the active policy instead of creating it again.
 

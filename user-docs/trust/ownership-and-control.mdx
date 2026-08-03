@@ -1,0 +1,18 @@
+---
+title: "Ownership and control"
+description: "Who holds root authority, what Loyal can execute, and how the customer removes access."
+---
+
+import { AuthorityMap } from "/snippets/authority-map.jsx";
+
+The default Loyal Earn setup separates customer root authority from Loyal's limited automation signer.
+
+<AuthorityMap />
+
+Loyal does not receive or hold the customer's private key. It cannot grant itself root authority or change approved rules.
+
+Externally created Smart Accounts can use different settings from Loyal's default Earn setup. The architecture can support a customer-controlled, noncustodial design; legal classification depends on the product and jurisdiction.
+
+Pause stops new Loyal-scheduled sweeps but can leave approved access in place. A confirmed customer-approved close removes recurring sweep access. Withdrawal and full Earn exit are separate actions. See [Exit and lifecycle](/automations/exit-and-lifecycle).
+
+Continue below for [Rule enforcement](/trust/rule-enforcement), [Risk and liquidity](/trust/risk-and-liquidity), or [Audits and deployed scope](/trust/audits-and-deployments).

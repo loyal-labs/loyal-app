@@ -5,11 +5,13 @@ description: "Common errors and troubleshooting for @loyal-labs/private-transact
 
 
 <img
+  alt="Private Transactions SDK error-handling overview"
   className="block dark:hidden"
   src="/resources/private-txn/errors-light.png"
 />
 
 <img
+  alt="Private Transactions SDK error-handling overview"
   className="hidden dark:block"
   src="/resources/private-txn/errors-dark.png"
 />
@@ -28,9 +30,9 @@ Triggered before transaction submission when username input is invalid:
 
 The SDK guards execution context for every operation:
 
-- `"Account is delegated to ER: ..."` — a base-layer operation (`modifyBalance`, `createPermission`, `initializeDeposit`) was attempted on a delegated account. Undelegate first.
-- `"Account is not delegated to ER: ..."` — a PER operation (`transferDeposit`, `transferToUsernameDeposit`, `claimUsernameDepositToDeposit`) was attempted before delegation. Delegate first.
-- `"Account is delegated on wrong validator: ..."` — delegation authority does not match the expected `ER_VALIDATOR`.
+- `"Account is delegated to ER: ..."` means a base-layer operation (`modifyBalance`, `createPermission`, `initializeDeposit`) was attempted on a delegated account. Undelegate first.
+- `"Account is not delegated to ER: ..."` means a PER operation (`transferDeposit`, `transferToUsernameDeposit`, `claimUsernameDepositToDeposit`) was attempted before delegation. Delegate first.
+- `"Account is delegated on wrong validator: ..."` means the delegation authority differs from the expected `ER_VALIDATOR`.
 
 ### Permission idempotency
 
@@ -59,31 +61,31 @@ These are emitted by the `telegram-private-transfer` program (`97FzQdWi26mFNR21A
 | `InvalidMint` | `"Invalid Mint"` | Token mint mismatch between accounts |
 | `InsufficientVault` | `"Insufficient Vault"` | Vault does not hold enough tokens for withdrawal |
 | `InsufficientDeposit` | `"Insufficient Deposit"` | Deposit or username deposit `amount` is less than the requested withdrawal/transfer |
-| `NotVerified` | `"Not Verified"` | Telegram session is not verified — `store` + `verify_telegram_init_data` must complete first |
+| `NotVerified` | `"Not Verified"` | Telegram session is not verified. Complete `store` and `verify_telegram_init_data` first. |
 | `ExpiredSignature` | `"Expired Signature"` | Verification signature has expired |
 | `Replay` | `"Replay"` | Replay attack detected during verification |
 | `InvalidEd25519` | `"Invalid Ed25519"` | Ed25519 signature verification failed |
-| `InvalidUsername` | `"Invalid Username"` | Username fails validation (length or character set), or username in session does not match the username deposit |
-| `InvalidRecipient` | `"Invalid Recipient"` | Recipient wallet does not match the expected claim target |
+| `InvalidUsername` | `"Invalid Username"` | Username fails validation, or the session username differs from the username deposit. |
+| `InvalidRecipient` | `"Invalid Recipient"` | Recipient wallet differs from the expected claim target. |
 | `InvalidDepositor` | `"Invalid Depositor"` | Depositor validation failed |
 
 ## Troubleshooting Checklist
 
-1. **Delegation state mismatch** — confirm the deposit is in the correct state for the method:
+1. Delegation state mismatch. Confirm the deposit is in the correct state for the method:
    - Base-layer ops (`modifyBalance`, `createPermission`, `initializeDeposit`): account must **not** be delegated
    - PER ops (`transferDeposit`, `transferToUsernameDeposit`, `claimUsernameDepositToDeposit`): account **must** be delegated
 
-2. **Telegram session not verified** — ensure the full verification flow completed:
+2. Telegram session not verified. Ensure the full verification flow completed:
    - `store(validationBytes)` on the `telegram-verification` program
    - `verify_telegram_init_data()` with Ed25519 instruction
    - Check `session.verified === true` before calling claim or username permission methods
 
-3. **Token mint alignment** — confirm all accounts (deposit, username deposit, vault, user ATA) use the same token mint
+3. Token mint alignment. Confirm every related account uses the same token mint.
 
-4. **PER endpoint wiring** — for hosted PER (`devnet-tee.magicblock.app`):
+4. PER endpoint wiring. For hosted PER (`devnet-tee.magicblock.app`):
    - Verify `ephemeralRpcEndpoint` and `ephemeralWsEndpoint` are set
    - Ensure signer supports `signMessage` for auth token acquisition, or pass `authToken` explicitly
 
-5. **Insufficient balance** — `InsufficientDeposit` means the deposit's `amount` is less than what you're trying to transfer or withdraw. Check with `getBaseDeposit()` or `getEphemeralDeposit()`
+5. Insufficient balance. `InsufficientDeposit` means the deposit's `amount` is less than the requested transfer or withdrawal. Check with `getBaseDeposit()` or `getEphemeralDeposit()`.
 
-6. **Username validation** — usernames must be 5–32 characters, only `[a-zA-Z0-9_]`. This is validated both client-side (SDK) and on-chain
+6. Username validation. Usernames must be 5 to 32 characters from `[a-zA-Z0-9_]`. The SDK and program both validate this rule.

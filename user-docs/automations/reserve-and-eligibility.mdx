@@ -1,0 +1,18 @@
+---
+title: "Reserve and eligibility"
+description: "How Loyal determines the USDC amount that may move into Earn."
+---
+
+import { ReserveCalculation } from "/snippets/reserve-calculation.jsx";
+
+The reserve is a scheduling target for USDC the customer wants to keep available. Loyal calculates surplus above that target, then applies the separate recurring cap. The reserve itself is not an immutable onchain constraint.
+
+## One balance, one calculation
+
+<ReserveCalculation />
+
+If the balance is at or below the reserve, Loyal skips the sweep. If the surplus is larger than the remaining cap, the cap lowers the eligible amount.
+
+The reserve guides Loyal's scheduler. Separate onchain rules cap the recurring amount and constrain the allowed route. See [Rule enforcement](/trust/rule-enforcement) for the distinction.
+
+Next, see [Routing and yield](/automations/routing-and-yield) for where eligible USDC can go.

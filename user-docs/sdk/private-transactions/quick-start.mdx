@@ -5,11 +5,13 @@ description: "Quick start guide for Loyal's Private Transactions SDK"
 
 
 <img
+  alt="Private Transactions SDK quick-start flow"
   className="block dark:hidden"
   src="/resources/private-txn/quick-start-light.png"
 />
 
 <img
+  alt="Private Transactions SDK quick-start flow"
   className="hidden dark:block"
   src="/resources/private-txn/quick-start-dark.png"
 />
@@ -47,16 +49,16 @@ const signer = Keypair.fromSecretKey(Uint8Array.from([...secretBytes]));
 const client = await LoyalPrivateTransactionsClient.fromConfig({
   signer,
   baseRpcEndpoint: "https://api.devnet.solana.com",
-  // Mainnet: https://mainnet-tee.magicblock.app
-  // Devnet: https://devnet-tee.magicblock.app
-  ephemeralRpcEndpoint: "https://mainnet-tee.magicblock.app",
-  ephemeralWsEndpoint: "wss://mainnet-tee.magicblock.app",
+  ephemeralRpcEndpoint: "https://devnet-tee.magicblock.app",
+  ephemeralWsEndpoint: "wss://devnet-tee.magicblock.app",
   commitment: "confirmed",
 });
 
 const tokenMint = new PublicKey("<token-mint>");
 const user = signer.publicKey;
 ```
+
+Keep the base RPC and PER endpoint on the same network. Use mainnet endpoints only with a mainnet base RPC.
 
 ## Shield: Move Tokens into Private Deposit
 
@@ -81,10 +83,10 @@ await client.modifyBalance({
 ### 2. Create permission and delegate to PER
 
 ```typescript
-// Set up PER access control (idempotent — returns null if already exists)
+// Set up PER access control (idempotent; returns null if already exists)
 await client.createPermission({ tokenMint, user, payer: user });
 
-// Delegate deposit to TEE validator — account moves into PER
+// Delegate deposit to TEE validator; account moves into PER
 await client.delegateDeposit({
   tokenMint,
   user,
@@ -93,7 +95,7 @@ await client.delegateDeposit({
 });
 ```
 
-Your deposit is now private — only you can see it inside PER.
+Your deposit is now private. Only you can see it inside PER.
 
 ## Private Transfers
 
@@ -158,6 +160,8 @@ await client.modifyBalance({
   increase: false,
 });
 ```
+
+The quick start passes when the withdrawal confirms on base Solana and the wallet token balance increases by the expected amount. Inspect the transaction signature before treating the flow as complete.
 
 ## Next Steps
 
