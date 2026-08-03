@@ -987,6 +987,9 @@ export async function getAutodepositTimeSeries(): Promise<
           ) AS bucket_started_at
         FROM ranges AS range
       ),
+      window_bounds AS (
+        SELECT MIN(started_at) AS started_at FROM ranges
+      ),
       execution_events AS (
         SELECT
           execution.inserted_at AS event_at,
@@ -1005,8 +1008,8 @@ export async function getAutodepositTimeSeries(): Promise<
           0::bigint AS post_pull_kamino_top_up
         FROM loyal_yield.balance_sweep_executions AS execution
         WHERE execution.inserted_at >= (
-          SELECT MIN(started_at) AT TIME ZONE 'UTC'
-          FROM ranges
+          SELECT started_at AT TIME ZONE 'UTC'
+          FROM window_bounds
         )
           AND execution.inserted_at <= now()
           AND execution.decoded_evidence->>'status' = 'executed'
@@ -1021,8 +1024,8 @@ export async function getAutodepositTimeSeries(): Promise<
           1::bigint AS post_pull_kamino_top_up
         FROM loyal_yield.balance_sweep_executions AS execution
         WHERE COALESCE(execution.completed_at, execution.inserted_at) >= (
-          SELECT MIN(started_at) AT TIME ZONE 'UTC'
-          FROM ranges
+          SELECT started_at AT TIME ZONE 'UTC'
+          FROM window_bounds
         )
           AND COALESCE(execution.completed_at, execution.inserted_at) <= now()
           AND (
@@ -1034,29 +1037,74 @@ export async function getAutodepositTimeSeries(): Promise<
             )
           )
       ),
-      execution_activity AS (
+      -- Events are collapsed into 2-hour base buckets exactly once, then rolled
+      -- up per range, instead of being cross-joined against every range while
+      -- still at full row granularity. Every range boundary is midnight- or
+      -- bucket-aligned and every bucket size (2h / 6h / 1 day) is a whole
+      -- multiple of 2 hours sharing the same 1970-01-01 origin, so
+      -- date_bin(size, date_bin(2h, t)) = date_bin(size, t) and the range
+      -- predicate is equivalent on the base bucket. Both sides stay in UTC
+      -- wall-clock timestamps to match "ranges".
+      execution_base AS (
         SELECT
-          range.range_key,
           date_bin(
-            range.bucket_size,
+            interval '2 hours',
             event.event_at AT TIME ZONE 'UTC',
             timestamp '1970-01-01 00:00:00'
-          ) AS bucket_started_at,
+          ) AS base_bucket,
           SUM(event.successful)::bigint AS successful,
           SUM(event.deposited_amount_raw)::bigint AS deposited_amount_raw,
           SUM(event.post_pull_kamino_top_up)::bigint
             AS post_pull_kamino_top_up
         FROM execution_events AS event
+        GROUP BY 1
+      ),
+      execution_activity AS (
+        SELECT
+          range.range_key,
+          date_bin(
+            range.bucket_size,
+            base.base_bucket,
+            timestamp '1970-01-01 00:00:00'
+          ) AS bucket_started_at,
+          SUM(base.successful)::bigint AS successful,
+          SUM(base.deposited_amount_raw)::bigint AS deposited_amount_raw,
+          SUM(base.post_pull_kamino_top_up)::bigint
+            AS post_pull_kamino_top_up
+        FROM execution_base AS base
         CROSS JOIN ranges AS range
-        WHERE event.event_at >= (range.started_at AT TIME ZONE 'UTC')
-          AND event.event_at < (
-            (range.ended_at + range.bucket_size) AT TIME ZONE 'UTC'
-          )
+        WHERE base.base_bucket >= range.started_at
+          AND base.base_bucket < range.ended_at + range.bucket_size
         GROUP BY 1, 2
       ),
-      pre_pull_failure_events AS (
+      -- The scheduled-slot id is derived once per claim so the join key is a
+      -- plain column and the planner can hash-join the slots rather than run a
+      -- nested-loop index probe per claim per range. Claims whose token does
+      -- not match the autodeposit pattern keep a NULL id, so they still fall
+      -- through the LEFT JOIN to 'no_linked_error' as before.
+      pre_pull_claims AS (
         SELECT
           claim.updated_at AS event_at,
+          CASE
+            WHEN claim.claim_token ~ '^autodeposit-trigger:[0-9]+:[0-9]+:'
+              THEN split_part(claim.claim_token, ':', 3)::bigint
+          END AS scheduled_slot_id
+        FROM loyal_yield.balance_sweep_lot_claims AS claim
+        WHERE claim.updated_at >= (
+          SELECT started_at AT TIME ZONE 'UTC'
+          FROM window_bounds
+        )
+          AND claim.updated_at <= now()
+          AND claim.status::text IN ('released', 'failed')
+          AND claim.execution_id IS NULL
+      ),
+      -- Slot ids are 1:1 with claims, so probing the slot primary key per claim
+      -- means ~187k random index lookups (~750k buffer hits). Classifying every
+      -- slot once behind MATERIALIZED forces a single sequential pass plus a
+      -- hash join on a narrow (id, cause) tuple instead.
+      slot_causes AS MATERIALIZED (
+        SELECT
+          slot.id,
           CASE
             WHEN slot.last_error ILIKE '%AccountNotFound%'
               THEN 'account_not_found'
@@ -1073,26 +1121,25 @@ export async function getAutodepositTimeSeries(): Promise<
               THEN 'no_linked_error'
             ELSE 'other_pre_pull'
           END AS cause
-        FROM loyal_yield.balance_sweep_lot_claims AS claim
-        LEFT JOIN loyal_yield.balance_sweep_scheduled_slots AS slot
-          ON claim.claim_token ~ '^autodeposit-trigger:[0-9]+:[0-9]+:'
-          AND slot.id = split_part(claim.claim_token, ':', 3)::bigint
-        WHERE claim.updated_at >= (
-          SELECT MIN(started_at) AT TIME ZONE 'UTC'
-          FROM ranges
-        )
-          AND claim.updated_at <= now()
-          AND claim.status::text IN ('released', 'failed')
-          AND claim.execution_id IS NULL
+        FROM loyal_yield.balance_sweep_scheduled_slots AS slot
       ),
-      pre_pull_failure_activity AS (
+      pre_pull_failure_events AS (
+        -- A claim with no matching slot has no linked error, which is the same
+        -- bucket a matched slot with an empty last_error falls into.
         SELECT
-          range.range_key,
+          claim.event_at,
+          COALESCE(slot.cause, 'no_linked_error') AS cause
+        FROM pre_pull_claims AS claim
+        LEFT JOIN slot_causes AS slot
+          ON slot.id = claim.scheduled_slot_id
+      ),
+      pre_pull_base AS (
+        SELECT
           date_bin(
-            range.bucket_size,
+            interval '2 hours',
             failure.event_at AT TIME ZONE 'UTC',
             timestamp '1970-01-01 00:00:00'
-          ) AS bucket_started_at,
+          ) AS base_bucket,
           COUNT(*) FILTER (
             WHERE failure.cause = 'account_not_found'
           )::bigint AS account_not_found,
@@ -1112,11 +1159,26 @@ export async function getAutodepositTimeSeries(): Promise<
             WHERE failure.cause = 'other_pre_pull'
           )::bigint AS other_pre_pull
         FROM pre_pull_failure_events AS failure
+        GROUP BY 1
+      ),
+      pre_pull_failure_activity AS (
+        SELECT
+          range.range_key,
+          date_bin(
+            range.bucket_size,
+            base.base_bucket,
+            timestamp '1970-01-01 00:00:00'
+          ) AS bucket_started_at,
+          SUM(base.account_not_found)::bigint AS account_not_found,
+          SUM(base.insufficient_rent)::bigint AS insufficient_rent,
+          SUM(base.missing_token_delegate)::bigint AS missing_token_delegate,
+          SUM(base.confirmation_or_timeout)::bigint AS confirmation_or_timeout,
+          SUM(base.no_linked_error)::bigint AS no_linked_error,
+          SUM(base.other_pre_pull)::bigint AS other_pre_pull
+        FROM pre_pull_base AS base
         CROSS JOIN ranges AS range
-        WHERE failure.event_at >= (range.started_at AT TIME ZONE 'UTC')
-          AND failure.event_at < (
-            (range.ended_at + range.bucket_size) AT TIME ZONE 'UTC'
-          )
+        WHERE base.base_bucket >= range.started_at
+          AND base.base_bucket < range.ended_at + range.bucket_size
         GROUP BY 1, 2
       )
       SELECT
