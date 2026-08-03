@@ -261,6 +261,14 @@ export function buildOtlpLoadingMetricPayload(
       stringAttribute("loyal.page_session.id", event.pageSessionId)
     );
   }
+  if (event.appSessionId) {
+    attributes.push(
+      stringAttribute("loyal.app_session.id", event.appSessionId)
+    );
+  }
+  if (event.platform) {
+    attributes.push(stringAttribute("loyal.platform", event.platform));
+  }
   if (event.dependency) {
     attributes.push(stringAttribute("loyal.dependency", event.dependency));
   }
@@ -289,7 +297,9 @@ export function buildOtlpLoadingMetricPayload(
             metrics: [
               {
                 description:
-                  "Browser loading latency from a user-visible Loyal flow boundary.",
+                  event.serviceName === "loyal-mobile"
+                    ? "Mobile loading latency from a user-visible Loyal flow boundary."
+                    : "Browser loading latency from a user-visible Loyal flow boundary.",
                 gauge: {
                   dataPoints: [
                     {
@@ -303,7 +313,13 @@ export function buildOtlpLoadingMetricPayload(
                 unit: "ms",
               },
             ],
-            scope: { name: "loyal.frontend.loading", version: "1" },
+            scope: {
+              name:
+                event.serviceName === "loyal-mobile"
+                  ? "loyal.mobile.loading"
+                  : "loyal.frontend.loading",
+              version: "1",
+            },
           },
         ],
       },

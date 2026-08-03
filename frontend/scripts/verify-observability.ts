@@ -7,7 +7,11 @@ import {
   createErrorDeduplicator,
   parseBrowserErrorEnvelope,
 } from "../src/features/observability/error-contract";
-import { buildOtlpErrorPayload } from "../src/features/observability/otlp";
+import { parseMobileLoadingMetricEnvelope } from "../src/features/observability/metrics-contract";
+import {
+  buildOtlpErrorPayload,
+  buildOtlpLoadingMetricPayload,
+} from "../src/features/observability/otlp";
 
 const frontendRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -145,6 +149,69 @@ pass(
   "OTLP payload contains fixed resource/error fields and no forbidden markers"
 );
 
+const mobileLoadingEnvelope = parseMobileLoadingMetricEnvelope(
+  {
+    appSessionId: "31e33790-3c9c-4ead-b40b-f4bb542cbd86",
+    durationMs: 1234.567,
+    environment: "prod",
+    flowId: "0dcc877d-f6c9-4fa2-9a93-a36fdb712a1b",
+    metricName: "loyal.mobile.loading.duration",
+    operation: "earn.autodeposit.execute_now",
+    outcome: "completed",
+    pathname: "/activity",
+    phase: "interaction_to_ui",
+    platform: "android",
+    release: "1.0.0_abcdef1",
+    timestamp: now.toISOString(),
+  },
+  now.getTime()
+);
+assert.throws(() =>
+  parseMobileLoadingMetricEnvelope(
+    { ...mobileLoadingEnvelope, walletAddress: forbidden.wallet },
+    now.getTime()
+  )
+);
+assert.throws(() =>
+  parseMobileLoadingMetricEnvelope(
+    { ...mobileLoadingEnvelope, flowId: undefined },
+    now.getTime()
+  )
+);
+const {
+  environment: mobileEnvironment,
+  release: mobileRelease,
+  ...mobileLoadingEvent
+} = mobileLoadingEnvelope;
+const mobileLoadingPayload = buildOtlpLoadingMetricPayload({
+  ...mobileLoadingEvent,
+  deploymentEnvironment: mobileEnvironment,
+  release: mobileRelease,
+  serviceName: "loyal-mobile",
+});
+const serializedMobileLoadingPayload = JSON.stringify(mobileLoadingPayload);
+for (const required of [
+  "loyal.mobile.loading.duration",
+  "loyal.operation",
+  "loyal.phase",
+  "loyal.outcome",
+  "loyal.flow.id",
+  "loyal.app_session.id",
+  "loyal.platform",
+  "service.name",
+  "service.version",
+  "deployment.environment.name",
+]) {
+  assert.ok(
+    serializedMobileLoadingPayload.includes(required),
+    `mobile loading OTLP payload lacks ${required}`
+  );
+}
+assert.ok(!serializedMobileLoadingPayload.includes(forbidden.wallet));
+pass(
+  "mobile loading contract and OTLP payload preserve strict safe dimensions"
+);
+
 const listeners = new Map<string, (event: unknown) => void>();
 let fetchAttempts = 0;
 const verifierWindow = {
@@ -192,6 +259,9 @@ pass(
 const clientSource = read("src/features/observability/client.ts");
 const serverSource = read("src/features/observability/server.ts");
 const routeSource = read("src/app/api/observability/errors/route.ts");
+const mobileMetricsRouteSource = read(
+  "src/app/api/observability/mobile/metrics/route.ts"
+);
 const rateLimitSource = read("src/features/observability/rate-limit.server.ts");
 const serverInstrumentation = read("src/instrumentation.ts");
 const clientInstrumentation = read("src/instrumentation-client.ts");
@@ -234,6 +304,20 @@ pass(
   "same-origin relay enforces JSON, actual bytes, bounded hashed-source rate limiting, and 202 fail-open semantics"
 );
 
+assert.match(mobileMetricsRouteSource, /isNativeAppRequest/);
+assert.match(mobileMetricsRouteSource, /!request\.headers\.get\("origin"\)/);
+assert.match(mobileMetricsRouteSource, /application\/json/);
+assert.match(mobileMetricsRouteSource, /body\.byteLength/);
+assert.match(mobileMetricsRouteSource, /consumeBrowserMetricsRateLimit/);
+assert.match(mobileMetricsRouteSource, /reportMobileLoadingMetricEnvelope/);
+assert.doesNotMatch(
+  mobileMetricsRouteSource,
+  /OBSERVABILITY_INGESTION_API_KEY|NEXT_PUBLIC_[A-Z_]*(?:KEY|TOKEN)/
+);
+pass(
+  "native loading relay is bounded, rate limited, and keeps ingestion credentials server-only"
+);
+
 assert.match(serverInstrumentation, /reportServerError/);
 assert.match(serverInstrumentation, /context\.routePath \?\? request\.path/);
 assert.doesNotMatch(serverInstrumentation, /request\.(?:headers|body|cookies)/);
@@ -251,6 +335,7 @@ const changedObservabilitySources = [
   clientSource,
   serverSource,
   routeSource,
+  mobileMetricsRouteSource,
   rateLimitSource,
   serverInstrumentation,
   clientInstrumentation,

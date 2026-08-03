@@ -1,6 +1,9 @@
 import { isBrowserPageSessionId } from "./chunk-load-contract";
 import { isCanonicalUuidV4 } from "./lifecycle-contract";
-import { normalizeTelemetryPathname } from "./error-contract";
+import {
+  normalizeResourceValue,
+  normalizeTelemetryPathname,
+} from "./error-contract";
 
 export const OBSERVABILITY_METRICS_ENDPOINT = "/api/observability/metrics";
 export const MAX_METRICS_REQUEST_BYTES = 16 * 1024;
@@ -57,10 +60,57 @@ export type BrowserLoadingMetricEnvelope = {
   timestamp: string;
 };
 
-export type NormalizedLoadingMetric = BrowserLoadingMetricEnvelope & {
-  deploymentEnvironment: string;
+export const MOBILE_LOADING_METRIC_NAME =
+  "loyal.mobile.loading.duration" as const;
+export const MOBILE_LOADING_OPERATIONS = [
+  "app_load",
+  "earn.deposit",
+  "earn.withdrawal",
+  "earn.refund",
+  "earn.autodeposit.setup",
+  "earn.autodeposit.floor_update",
+  "earn.autodeposit.pause",
+  "earn.autodeposit.resume",
+  "earn.autodeposit.close",
+  "earn.autodeposit.execute_now",
+] as const;
+export type MobileLoadingOperation = (typeof MOBILE_LOADING_OPERATIONS)[number];
+
+export type MobileLoadingMetricEnvelope = {
+  appSessionId: string;
+  durationMs: number;
+  environment: string;
+  flowId?: string;
+  metricName: typeof MOBILE_LOADING_METRIC_NAME;
+  operation: MobileLoadingOperation;
+  outcome: FrontendLoadingOutcome;
+  pathname: string;
+  phase: "app_ready" | "interaction_to_ui";
+  platform: "android" | "ios";
   release: string;
-  serviceName: "loyal-frontend";
+  timestamp: string;
+};
+
+export type NormalizedLoadingMetric = {
+  appSessionId?: string;
+  dependency?: FrontendLoadingDependency;
+  deploymentEnvironment: string;
+  durationMs: number;
+  flowId?: string;
+  metricName:
+    | typeof FRONTEND_LOADING_METRIC_NAME
+    | typeof MOBILE_LOADING_METRIC_NAME;
+  operation: FrontendLoadingOperation | MobileLoadingOperation;
+  outcome: FrontendLoadingOutcome;
+  pageSessionId?: string;
+  pathname: string;
+  phase: FrontendLoadingPhase | "app_ready" | "interaction_to_ui";
+  platform?: "android" | "ios";
+  presentation?: FrontendLoadingPresentation;
+  release: string;
+  requestCount?: number;
+  serviceName: "loyal-frontend" | "loyal-mobile";
+  timestamp: string;
 };
 
 export function resolveBrowserLoadingFailurePhase(args: {
@@ -263,4 +313,87 @@ export function createBrowserLoadingMetricEnvelope(
     },
     now
   );
+}
+
+export function parseMobileLoadingMetricEnvelope(
+  value: unknown,
+  now = Date.now()
+): MobileLoadingMetricEnvelope {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new InvalidMetricsEnvelopeError();
+  }
+  const record = value as Record<string, unknown>;
+  const allowedKeys = new Set([
+    "appSessionId",
+    "durationMs",
+    "environment",
+    "flowId",
+    "metricName",
+    "operation",
+    "outcome",
+    "pathname",
+    "phase",
+    "platform",
+    "release",
+    "timestamp",
+  ]);
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    throw new InvalidMetricsEnvelopeError();
+  }
+  if (
+    record.metricName !== MOBILE_LOADING_METRIC_NAME ||
+    !includes(MOBILE_LOADING_OPERATIONS, record.operation) ||
+    !includes(FRONTEND_LOADING_OUTCOMES, record.outcome) ||
+    !includes(["app_ready", "interaction_to_ui"] as const, record.phase) ||
+    !includes(["android", "ios"] as const, record.platform) ||
+    !isFiniteNumberInRange(record.durationMs, 0, MAX_METRIC_DURATION_MS) ||
+    !isCanonicalUuidV4(record.appSessionId)
+  ) {
+    throw new InvalidMetricsEnvelopeError();
+  }
+  if (
+    typeof record.pathname !== "string" ||
+    !record.pathname.startsWith("/") ||
+    record.pathname.length > 256 ||
+    record.pathname.includes("?") ||
+    record.pathname.includes("#")
+  ) {
+    throw new InvalidMetricsEnvelopeError();
+  }
+  const isAppLoad = record.operation === "app_load";
+  if (
+    (isAppLoad &&
+      (record.phase !== "app_ready" || record.flowId !== undefined)) ||
+    (!isAppLoad &&
+      (record.phase !== "interaction_to_ui" ||
+        !isCanonicalUuidV4(record.flowId)))
+  ) {
+    throw new InvalidMetricsEnvelopeError();
+  }
+  if (
+    typeof record.environment !== "string" ||
+    normalizeResourceValue(record.environment, 32) !== record.environment ||
+    typeof record.release !== "string" ||
+    normalizeResourceValue(record.release, 80) !== record.release
+  ) {
+    throw new InvalidMetricsEnvelopeError();
+  }
+  const timestampMs =
+    typeof record.timestamp === "string"
+      ? Date.parse(record.timestamp)
+      : Number.NaN;
+  if (
+    typeof record.timestamp !== "string" ||
+    !Number.isFinite(timestampMs) ||
+    new Date(timestampMs).toISOString() !== record.timestamp ||
+    timestampMs < now - MAX_EVENT_AGE_MS ||
+    timestampMs > now + MAX_EVENT_CLOCK_SKEW_MS
+  ) {
+    throw new InvalidMetricsEnvelopeError();
+  }
+
+  return {
+    ...(record as MobileLoadingMetricEnvelope),
+    durationMs: Math.round(record.durationMs * 1000) / 1000,
+  };
 }
