@@ -13,10 +13,13 @@ export function useEarnAutodeposit(walletAddress: string | null) {
     null,
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
 
-  const refreshAutodeposit =
-    useCallback(async (): Promise<EarnAutodepositState | null> => {
+  const refreshAutodeposit = useCallback(
+    async (options?: {
+      throwOnError?: boolean;
+    }): Promise<EarnAutodepositState | null> => {
       if (!walletAddress) {
         return null;
       }
@@ -26,25 +29,34 @@ export function useEarnAutodeposit(walletAddress: string | null) {
         const state = await fetchEarnAutodepositState(walletAddress);
         if (fetchId === fetchIdRef.current) {
           setAutodeposit(state.autodeposit);
+        } else if (options?.throwOnError) {
+          throw new Error("Autodeposit refresh was superseded.");
         }
         return state.autodeposit;
       } catch (error) {
         console.error("Failed to fetch Autodeposit state", error);
+        if (options?.throwOnError) {
+          throw error;
+        }
         return null;
       } finally {
         if (fetchId === fetchIdRef.current) {
           setIsLoading(false);
+          setHasLoaded(true);
         }
       }
-    }, [walletAddress]);
+    },
+    [walletAddress],
+  );
 
   useEffect(() => {
     if (walletAddress) {
       refreshAutodeposit();
     } else {
       setAutodeposit(null);
+      setHasLoaded(false);
     }
   }, [walletAddress, refreshAutodeposit]);
 
-  return { autodeposit, isLoading, refreshAutodeposit };
+  return { autodeposit, isLoading, hasLoaded, refreshAutodeposit };
 }

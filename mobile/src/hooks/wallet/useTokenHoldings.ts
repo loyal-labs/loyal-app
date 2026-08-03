@@ -12,10 +12,14 @@ export function useTokenHoldings(walletAddress: string | null) {
   // explicit shield/unshield actions, not passive balance display.
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
   const [isHoldingsLoading, setIsHoldingsLoading] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
 
   const refreshTokenHoldings = useCallback(
-    async (forceRefresh = false) => {
+    async (
+      forceRefresh = false,
+      options?: { throwOnError?: boolean },
+    ): Promise<void> => {
       if (!walletAddress) return;
       const fetchId = ++fetchIdRef.current;
       setIsHoldingsLoading(true);
@@ -23,16 +27,22 @@ export function useTokenHoldings(walletAddress: string | null) {
         const holdings = await fetchTokenHoldings(walletAddress, forceRefresh);
         if (fetchId === fetchIdRef.current) {
           setTokenHoldings(holdings);
+        } else if (options?.throwOnError) {
+          throw new Error("Token holdings refresh was superseded.");
         }
       } catch (error) {
         console.error("Failed to fetch token holdings", error);
+        if (options?.throwOnError) {
+          throw error;
+        }
       } finally {
         if (fetchId === fetchIdRef.current) {
           setIsHoldingsLoading(false);
+          setHasLoaded(true);
         }
       }
     },
-    [walletAddress]
+    [walletAddress],
   );
 
   useEffect(() => {
@@ -40,8 +50,14 @@ export function useTokenHoldings(walletAddress: string | null) {
       refreshTokenHoldings(false);
     } else {
       setTokenHoldings([]);
+      setHasLoaded(false);
     }
   }, [walletAddress, refreshTokenHoldings]);
 
-  return { tokenHoldings, isHoldingsLoading, refreshTokenHoldings };
+  return {
+    tokenHoldings,
+    isHoldingsLoading,
+    hasLoaded,
+    refreshTokenHoldings,
+  };
 }

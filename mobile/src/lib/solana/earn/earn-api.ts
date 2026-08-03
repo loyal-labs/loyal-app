@@ -698,6 +698,7 @@ export type EarnAutodepositSweepExecuteResponse = {
     acceleratedAmountRaw: string;
     acceleratedLotCount: number;
     eligibleAfter: string;
+    slotId: string;
     targetId: string;
   };
   target: {

@@ -68,57 +68,66 @@ export function useEarnPosition(walletAddress: string | null) {
     mutatedAtRef.current = Date.now();
   }, []);
 
-  const refreshEarnPosition = useCallback(async () => {
-    if (!walletAddress) {
-      return;
-    }
-    const fetchId = ++fetchIdRef.current;
-    setIsLoading(true);
-    try {
-      // Fetch both concurrently: `state` for APY/principal/status (+ the
-      // post-mutation balance), `holdings` for the live balance once settled. A
-      // holdings failure must not drop the position, so each settles independently.
-      const [stateResult, holdingsResult] = await Promise.allSettled([
-        fetchEarnState(walletAddress),
-        fetchEarnHoldings(walletAddress),
-      ]);
-      if (fetchId !== fetchIdRef.current) {
+  const refreshEarnPosition = useCallback(
+    async (options?: { throwOnError?: boolean }) => {
+      if (!walletAddress) {
         return;
       }
-      if (stateResult.status === "rejected") {
-        console.error("Failed to fetch Earn position", stateResult.reason);
-        return;
-      }
-      let liveTotalRaw: string | null = null;
-      if (holdingsResult.status === "fulfilled") {
-        // observedAt is null only when the server skipped the chain read (no
-        // active Earn policy row yet) and returned a placeholder "0" — treat
-        // that as "live read unavailable" so it can't zero a real read-model
-        // balance. A genuine snapshot always carries observedAt, even at $0.
-        if (holdingsResult.value.observedAt !== null) {
-          liveTotalRaw = holdingsResult.value.currentTotalAmountRaw;
+      const fetchId = ++fetchIdRef.current;
+      setIsLoading(true);
+      try {
+        // Fetch both concurrently: `state` for APY/principal/status (+ the
+        // post-mutation balance), `holdings` for the live balance once settled. A
+        // holdings failure must not drop the position, so each settles independently.
+        const [stateResult, holdingsResult] = await Promise.allSettled([
+          fetchEarnState(walletAddress),
+          fetchEarnHoldings(walletAddress),
+        ]);
+        if (fetchId !== fetchIdRef.current) {
+          if (options?.throwOnError) {
+            throw new Error("Earn position refresh was superseded.");
+          }
+          return;
         }
-        setPolicyMissing(holdingsResult.value.observedAt === null);
-        setHoldings(holdingsResult.value.holdings);
-      } else {
-        console.error("Failed to fetch Earn holdings", holdingsResult.reason);
+        if (stateResult.status === "rejected") {
+          console.error("Failed to fetch Earn position", stateResult.reason);
+          if (options?.throwOnError) {
+            throw stateResult.reason;
+          }
+          return;
+        }
+        let liveTotalRaw: string | null = null;
+        if (holdingsResult.status === "fulfilled") {
+          // observedAt is null only when the server skipped the chain read (no
+          // active Earn policy row yet) and returned a placeholder "0" — treat
+          // that as "live read unavailable" so it can't zero a real read-model
+          // balance. A genuine snapshot always carries observedAt, even at $0.
+          if (holdingsResult.value.observedAt !== null) {
+            liveTotalRaw = holdingsResult.value.currentTotalAmountRaw;
+          }
+          setPolicyMissing(holdingsResult.value.observedAt === null);
+          setHoldings(holdingsResult.value.holdings);
+        } else {
+          console.error("Failed to fetch Earn holdings", holdingsResult.reason);
+        }
+        const preferReadModel =
+          Date.now() - mutatedAtRef.current < MUTATION_TRUST_MS;
+        setPosition(
+          reconcileBalance(
+            stateResult.value.position,
+            liveTotalRaw,
+            preferReadModel,
+          ),
+        );
+      } finally {
+        if (fetchId === fetchIdRef.current) {
+          setIsLoading(false);
+          setHasLoaded(true);
+        }
       }
-      const preferReadModel =
-        Date.now() - mutatedAtRef.current < MUTATION_TRUST_MS;
-      setPosition(
-        reconcileBalance(
-          stateResult.value.position,
-          liveTotalRaw,
-          preferReadModel,
-        ),
-      );
-    } finally {
-      if (fetchId === fetchIdRef.current) {
-        setIsLoading(false);
-        setHasLoaded(true);
-      }
-    }
-  }, [walletAddress]);
+    },
+    [walletAddress],
+  );
 
   useEffect(() => {
     if (walletAddress) {

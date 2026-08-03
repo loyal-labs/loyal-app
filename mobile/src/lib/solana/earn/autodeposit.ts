@@ -630,7 +630,10 @@ async function runEarnAutodepositClose(
 // the flow's elapsedMs captures the true request→done duration.
 export async function executeEarnAutodepositScheduledSweep(args: {
   signer: Signer;
-}): Promise<LifecycleFlow<"earn.autodeposit.execute_now">> {
+}): Promise<{
+  flow: LifecycleFlow<"earn.autodeposit.execute_now">;
+  scheduledSlotId: string;
+}> {
   const flow = startLifecycleFlow({
     flowName: "earn.autodeposit.execute_now",
     flowVariant: "execute_now",
@@ -638,13 +641,13 @@ export async function executeEarnAutodepositScheduledSweep(args: {
   });
   flow.start("intent");
   try {
-    await withEarnSessionOrAuth(
+    const response = await withEarnSessionOrAuth(
       args.signer,
       "earn-autodeposit-sweep-execute",
       (auth) => requestEarnAutodepositSweepExecute({ auth }),
     );
     flow.observe("request", { executeNowState: "requested" });
-    return flow;
+    return { flow, scheduledSlotId: response.sweepRequest.slotId };
   } catch (error) {
     flow.failFrom("request", error);
     throw error;

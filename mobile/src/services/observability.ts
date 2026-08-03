@@ -71,7 +71,7 @@ export function setObservabilityPathname(pathname: string): void {
 // Same channel → environment mapping as `src/lib/datadog/datadog.ts`
 // (not imported from there: that module top-level imports the Datadog native
 // SDK, which must stay lazy-loaded).
-function getEnvironment(): string {
+export function getObservabilityEnvironment(): string {
   const channel = Updates.channel ?? "";
   if (channel === "production") return "prod";
   if (channel === "preview") return "preview";
@@ -81,7 +81,7 @@ function getEnvironment(): string {
 
 // Binary runtime version plus the OTA update that is actually running — the
 // fleet mixes binaries and OTA bundles, so neither alone identifies the code.
-function getRelease(): string {
+export function getObservabilityRelease(): string {
   const updatePrefix = Updates.updateId?.split("-")[0];
   return (
     [Updates.runtimeVersion, updatePrefix].filter(Boolean).join("_") || "dev"
@@ -150,7 +150,10 @@ function isDuplicate(envelope: MobileErrorEnvelope): boolean {
   return false;
 }
 
-async function postJson(path: string, payload: unknown): Promise<void> {
+export async function postObservabilityJson(
+  path: string,
+  payload: unknown,
+): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REPORT_TIMEOUT_MS);
 
@@ -175,7 +178,7 @@ async function postJson(path: string, payload: unknown): Promise<void> {
 }
 
 function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
-  return postJson("/api/observability/mobile/errors", envelope);
+  return postObservabilityJson("/api/observability/mobile/errors", envelope);
 }
 
 function report(
@@ -187,7 +190,7 @@ function report(
     const normalized = normalizeError(error);
     const envelope: MobileErrorEnvelope = {
       ...normalized,
-      environment: getEnvironment(),
+      environment: getObservabilityEnvironment(),
       ...(messagePrefix
         ? {
             message: truncate(
@@ -198,7 +201,7 @@ function report(
         : {}),
       operation,
       pathname: currentPathname,
-      release: getRelease(),
+      release: getObservabilityRelease(),
       timestamp: new Date().toISOString(),
     };
     if (isDuplicate(envelope)) {
@@ -333,7 +336,14 @@ export type LifecycleDiagnostics = {
   chainState?: "not_submitted" | "submitted" | "confirmed" | "failed";
   cleanupRequired?: boolean;
   errorCode?: LifecycleErrorCode;
-  executeNowState?: "requested" | "completed";
+  executeNowState?:
+    | "requested"
+    | "selected"
+    | "pull_confirmed"
+    | "completed"
+    | "failed"
+    | "released"
+    | "canceled";
   executionMode?: "batch" | "sequential" | "single";
   /**
    * Status the backend actually answered with. Its presence is the signal that
@@ -481,13 +491,13 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
         ...diagnostics,
         durationMs: Math.min(900_000, Math.max(0, current - lastAt)),
         elapsedMs: Math.min(86_400_000, Math.max(0, current - startedAt)),
-        environment: getEnvironment(),
+        environment: getObservabilityEnvironment(),
         flowId,
         flowName: args.flowName,
         flowVariant: variant,
         outcome,
         pathname: currentPathname,
-        release: getRelease(),
+        release: getObservabilityRelease(),
         runtime: "mobile",
         source: "mobile_app",
         stage,
@@ -502,7 +512,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
       ) {
         terminal = true;
       }
-      void postJson("/api/observability/mobile/events", envelope);
+      void postObservabilityJson("/api/observability/mobile/events", envelope);
     } catch {
       // Telemetry is best-effort and must never affect the flow it traces.
     }

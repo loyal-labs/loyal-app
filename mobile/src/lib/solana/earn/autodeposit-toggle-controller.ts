@@ -6,6 +6,10 @@ export type AutodepositToggleControllerOptions = {
   debounceMs?: number;
   submit(active: boolean): Promise<void>;
   refresh(): Promise<boolean | null>;
+  onSubmissionStart?(active: boolean): {
+    complete(): void;
+    fail(): void;
+  };
   onOptimisticActive(active: boolean): void;
   onReconciledActive(active: boolean): void;
 };
@@ -50,8 +54,11 @@ export function createAutodepositToggleController(
 
     while (latestRequested !== null) {
       const submittedActive: boolean = latestRequested;
+      const submission = options.onSubmissionStart?.(submittedActive);
+      let submitSucceeded = false;
       try {
         await options.submit(submittedActive);
+        submitSucceeded = true;
         hasTerminalError = false;
         terminalError = undefined;
       } catch (error) {
@@ -62,6 +69,11 @@ export function createAutodepositToggleController(
       // A press arrived while the request was active. Skip every intermediate
       // value and immediately submit the latest one.
       if (latestRequested !== submittedActive) {
+        if (submitSucceeded) {
+          submission?.complete();
+        } else {
+          submission?.fail();
+        }
         continue;
       }
 
@@ -86,6 +98,11 @@ export function createAutodepositToggleController(
       if (!hasTerminalError && refreshError !== undefined) {
         hasTerminalError = true;
         terminalError = refreshError;
+      }
+      if (submitSucceeded && refreshError === undefined) {
+        submission?.complete();
+      } else {
+        submission?.fail();
       }
       break;
     }
