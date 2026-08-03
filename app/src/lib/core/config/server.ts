@@ -145,6 +145,9 @@ export const serverEnv = {
   get cronSecret(): string {
     return getRequiredEnv("CRON_SECRET");
   },
+  get slackStatsWebhookUrl(): string | undefined {
+    return getOptionalEnv("SLACK_STATS_WEBHOOK_URL");
+  },
   get privateMainnetRpcUrl(): string {
     return getRequiredEnv("PRIVATE_MAINNET_RPC_URL");
   },

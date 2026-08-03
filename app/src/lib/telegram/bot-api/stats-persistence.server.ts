@@ -122,6 +122,20 @@ export async function loadLoyalStatsSnapshot(
   };
 }
 
+export async function loadLoyalStatsSnapshotForRefresh(): Promise<LoyalStats | null> {
+  const rows = await getDatabase()
+    .select({
+      totalAumRaw: loyalStatsSnapshots.totalAumRaw,
+      totalOptimizedVolumeRaw: loyalStatsSnapshots.totalOptimizedVolumeRaw,
+      totalUsers: loyalStatsSnapshots.totalUsers,
+    })
+    .from(loyalStatsSnapshots)
+    .where(eq(loyalStatsSnapshots.snapshotKey, CURRENT_SNAPSHOT_KEY))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 export async function upsertLoyalStatsSnapshot(
   stats: LoyalStatsRefresh,
   refreshedAt: Date = new Date()

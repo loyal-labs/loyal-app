@@ -21,6 +21,7 @@ const SERVER_ENV_KEYS = [
   "TELEGRAM_SETUP_SECRET",
   "NEXT_PUBLIC_MIXPANEL_TOKEN",
   "CRON_SECRET",
+  "SLACK_STATS_WEBHOOK_URL",
   "TELEGRAM_SUMMARY_PEER_OVERRIDE_FROM",
   "TELEGRAM_SUMMARY_PEER_OVERRIDE_TO",
   "CLOUDFLARE_CDN_BASE_URL",
@@ -62,6 +63,7 @@ let serverEnv: {
   telegramSetupSecret: string;
   mixpanelToken: string | undefined;
   cronSecret: string;
+  slackStatsWebhookUrl: string | undefined;
   telegramSummaryPeerOverride: { fromPeerId: bigint; toPeerId: bigint } | null;
   cloudflareCdnBaseUrl: string | null;
   cloudflareR2UploadPrefix: string | undefined;
@@ -103,6 +105,17 @@ describe("server config", () => {
     expect(serverEnv.databaseUrl).toBe("postgres://db");
     expect(serverEnv.telegramSetupSecret).toBe("secret");
     expect(serverEnv.cronSecret).toBe("cron-secret");
+  });
+
+  test("returns the optional Slack stats webhook URL", () => {
+    expect(serverEnv.slackStatsWebhookUrl).toBeUndefined();
+
+    process.env.SLACK_STATS_WEBHOOK_URL =
+      "https://hooks.slack.com/services/test/stats/webhook";
+
+    expect(serverEnv.slackStatsWebhookUrl).toBe(
+      "https://hooks.slack.com/services/test/stats/webhook"
+    );
   });
 
   test("supports legacy and new Ax summary model envs", () => {
