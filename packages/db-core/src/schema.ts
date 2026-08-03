@@ -576,6 +576,12 @@ export const telegramCommandReceipts = pgTable(
  * Singleton read model for /stats. A cron refreshes this row from the canonical
  * app and Yield databases so Telegram webhook handling never runs aggregates.
  */
+export type LoyalStatsAumSeriesPoint = {
+  aumRaw: string;
+  weekEnd: string;
+  weekStart: string;
+};
+
 export const loyalStatsSnapshots = pgTable(
   "loyal_stats_snapshots",
   {
@@ -586,6 +592,20 @@ export const loyalStatsSnapshots = pgTable(
     totalOptimizedVolumeRaw: bigint("total_optimized_volume_raw", {
       mode: "bigint",
     }).notNull(),
+    activePrincipalRaw: bigint("active_principal_raw", {
+      mode: "bigint",
+    })
+      .default(sql`0`)
+      .notNull(),
+    uniqueEarnUsers: integer("unique_earn_users").default(0).notNull(),
+    uniqueEarnPolicies: integer("unique_earn_policies").default(0).notNull(),
+    activeAutodepositPolicies: integer("active_autodeposit_policies")
+      .default(0)
+      .notNull(),
+    earnAumSeries: jsonb("earn_aum_series")
+      .$type<LoyalStatsAumSeriesPoint[]>()
+      .default([])
+      .notNull(),
     refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -602,7 +622,7 @@ export const loyalStatsSnapshots = pgTable(
     ),
     check(
       "loyal_stats_snapshots_nonnegative_check",
-      sql`${table.totalAumRaw} >= 0 AND ${table.totalUsers} >= 0 AND ${table.totalOptimizedVolumeRaw} >= 0`
+      sql`${table.totalAumRaw} >= 0 AND ${table.totalUsers} >= 0 AND ${table.totalOptimizedVolumeRaw} >= 0 AND ${table.activePrincipalRaw} >= 0 AND ${table.uniqueEarnUsers} >= 0 AND ${table.uniqueEarnPolicies} >= 0 AND ${table.activeAutodepositPolicies} >= 0`
     ),
   ]
 );
@@ -848,7 +868,7 @@ export const heliusWebhooks = pgTable(
   },
   (table) => [
     uniqueIndex("helius_webhooks_helius_id_unique").on(table.heliusWebhookId),
-  ],
+  ]
 );
 
 export const heliusWebhookAddresses = pgTable(
@@ -869,7 +889,7 @@ export const heliusWebhookAddresses = pgTable(
     uniqueIndex("helius_webhook_addresses_address_unique").on(table.address),
     index("helius_webhook_addresses_wallet_idx").on(table.walletPublicKey),
     index("helius_webhook_addresses_webhook_idx").on(table.webhookId),
-  ],
+  ]
 );
 
 export const heliusWebhookDeliveries = pgTable(
@@ -881,9 +901,7 @@ export const heliusWebhookDeliveries = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [
-    primaryKey({ columns: [table.signature, table.walletPublicKey] }),
-  ],
+  (table) => [primaryKey({ columns: [table.signature, table.walletPublicKey] })]
 );
 
 /**

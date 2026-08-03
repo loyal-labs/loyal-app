@@ -10,6 +10,7 @@ import { eq, sql } from "drizzle-orm";
 import { getDatabase } from "@/lib/core/database";
 
 import type { LoyalStats } from "./stats-command";
+import type { LoyalStatsRefresh } from "./stats-command.server";
 
 const CURRENT_SNAPSHOT_KEY = "current";
 
@@ -28,9 +29,14 @@ export type StatsCommandCompletion = {
 };
 
 export type LoyalStatsSnapshotResult = {
+  activeAutodepositPolicies?: number;
+  activePrincipalRaw?: bigint;
   ageMs: number;
+  earnAumSeries?: LoyalStatsRefresh["earnAumSeries"];
   refreshedAt: Date;
   stats: LoyalStats;
+  uniqueEarnPolicies?: number;
+  uniqueEarnUsers?: number;
 };
 
 export async function claimStatsCommand(
@@ -76,10 +82,15 @@ export async function loadLoyalStatsSnapshot(
 ): Promise<LoyalStatsSnapshotResult> {
   const rows = await getDatabase()
     .select({
+      activeAutodepositPolicies: loyalStatsSnapshots.activeAutodepositPolicies,
+      activePrincipalRaw: loyalStatsSnapshots.activePrincipalRaw,
+      earnAumSeries: loyalStatsSnapshots.earnAumSeries,
       refreshedAt: loyalStatsSnapshots.refreshedAt,
       totalAumRaw: loyalStatsSnapshots.totalAumRaw,
       totalOptimizedVolumeRaw: loyalStatsSnapshots.totalOptimizedVolumeRaw,
       totalUsers: loyalStatsSnapshots.totalUsers,
+      uniqueEarnPolicies: loyalStatsSnapshots.uniqueEarnPolicies,
+      uniqueEarnUsers: loyalStatsSnapshots.uniqueEarnUsers,
     })
     .from(loyalStatsSnapshots)
     .where(eq(loyalStatsSnapshots.snapshotKey, CURRENT_SNAPSHOT_KEY))
@@ -96,26 +107,36 @@ export async function loadLoyalStatsSnapshot(
   }
 
   return {
+    activeAutodepositPolicies: snapshot.activeAutodepositPolicies,
+    activePrincipalRaw: snapshot.activePrincipalRaw,
     ageMs,
+    earnAumSeries: snapshot.earnAumSeries,
     refreshedAt: snapshot.refreshedAt,
     stats: {
       totalAumRaw: snapshot.totalAumRaw,
       totalOptimizedVolumeRaw: snapshot.totalOptimizedVolumeRaw,
       totalUsers: snapshot.totalUsers,
     },
+    uniqueEarnPolicies: snapshot.uniqueEarnPolicies,
+    uniqueEarnUsers: snapshot.uniqueEarnUsers,
   };
 }
 
 export async function upsertLoyalStatsSnapshot(
-  stats: LoyalStats,
+  stats: LoyalStatsRefresh,
   refreshedAt: Date = new Date()
 ): Promise<void> {
   const values = {
+    activeAutodepositPolicies: stats.activeAutodepositPolicies,
+    activePrincipalRaw: stats.activePrincipalRaw,
+    earnAumSeries: stats.earnAumSeries,
     refreshedAt,
     snapshotKey: CURRENT_SNAPSHOT_KEY,
     totalAumRaw: stats.totalAumRaw,
     totalOptimizedVolumeRaw: stats.totalOptimizedVolumeRaw,
     totalUsers: stats.totalUsers,
+    uniqueEarnPolicies: stats.uniqueEarnPolicies,
+    uniqueEarnUsers: stats.uniqueEarnUsers,
     updatedAt: refreshedAt,
   };
 

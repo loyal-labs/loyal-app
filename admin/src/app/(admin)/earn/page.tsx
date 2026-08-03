@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/table";
 import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 import {
   getEarnData,
@@ -32,6 +33,7 @@ import {
   type EarnFundingData,
   type EarnFundingWallet,
 } from "./earn-funding-data";
+import { getAdminEarnSnapshot, type AdminEarnSnapshot } from "./earn-snapshot";
 
 export const dynamic = "force-dynamic";
 
@@ -489,17 +491,37 @@ function PositionSortHead({
   );
 }
 
-export default async function EarnPage({
-  searchParams,
+async function EarnDetails({
+  positionSort,
 }: {
-  searchParams?: Promise<EarnPageSearchParams>;
+  positionSort: PositionSortState;
 }) {
-  const [data, fundingData] = await Promise.all([
-    getEarnData(),
-    getEarnFundingData(),
-  ]);
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const positionSort = parsePositionSort(resolvedSearchParams);
+  const result = await Promise.all([getEarnData(), getEarnFundingData()])
+    .then(([data, fundingData]) => ({ data, fundingData }))
+    .catch((error: unknown) => {
+      console.error("[admin/earn] Detailed data failed to load", {
+        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorName: error instanceof Error ? error.name : "UnknownError",
+      });
+      return null;
+    });
+
+  if (!result) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-bold">Live details unavailable</CardTitle>
+          <CardDescription>
+            The headline snapshot is still available. Yield diagnostics could
+            not be loaded and have not been replaced with cached values.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  const { data, fundingData } = result;
   const sortedTopPositions = sortTopPositions(data.topPositions, positionSort);
   const netFlow30dRaw = data.totalDeposited30dRaw - data.totalWithdrawn30dRaw;
   const activeHoldingWarningCount =
@@ -508,37 +530,8 @@ export default async function EarnPage({
     data.activeUnknownReserveSemanticsRows;
 
   return (
-    <PageContainer>
-      <SectionHeader
-        breadcrumbs={[{ label: "Earn" }]}
-        subtitle="Internal Yield Neon monitoring for Earn positions and autodeposit health"
-        title="Earn"
-      />
-
+    <>
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <StatCard
-            description="Current Earn AUM (normalized)"
-            title={formatCompactUsdcRaw(data.activeAumRaw)}
-          />
-          <StatCard
-            description="Deposited principal"
-            title={formatCompactUsdcRaw(data.activePrincipalRaw)}
-          />
-          <StatCard
-            description="Unique Earn users"
-            title={formatNumber(data.uniqueEarnUsers)}
-          />
-          <StatCard
-            description="Active Earn policies"
-            title={formatNumber(data.uniqueEarnPolicies)}
-          />
-          <StatCard
-            description="Active Autodeposit"
-            title={formatNumber(data.activeAutodepositPolicies)}
-          />
-        </div>
-
         <OperationalWallets data={fundingData} />
 
         <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
@@ -912,6 +905,111 @@ export default async function EarnPage({
             </Table>
           </CardContent>
         </Card>
+      </div>
+    </>
+  );
+}
+
+function EarnDetailsFallback() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="font-bold">Loading live diagnostics</CardTitle>
+        <CardDescription>
+          Headline stats are ready. Canonical Yield Neon details are loading
+          separately.
+        </CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
+function getSnapshotDescription(
+  label: string,
+  snapshot: AdminEarnSnapshot | null
+) {
+  if (!snapshot) {
+    return `${label} · snapshot unavailable`;
+  }
+  if (snapshot.state === "stale") {
+    return `${label} · stale since ${formatDateTime(snapshot.refreshedAt)}`;
+  }
+  return label;
+}
+
+export default async function EarnPage({
+  searchParams,
+}: {
+  searchParams?: Promise<EarnPageSearchParams>;
+}) {
+  const [snapshot, resolvedSearchParams] = await Promise.all([
+    getAdminEarnSnapshot(),
+    searchParams ?? Promise.resolve(undefined),
+  ]);
+  const positionSort = parsePositionSort(resolvedSearchParams);
+
+  return (
+    <PageContainer>
+      <SectionHeader
+        breadcrumbs={[{ label: "Earn" }]}
+        subtitle="Internal Yield Neon monitoring for Earn positions and autodeposit health"
+        title="Earn"
+      />
+
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <StatCard
+            description={getSnapshotDescription(
+              "Current Earn AUM (normalized)",
+              snapshot
+            )}
+            title={
+              snapshot
+                ? formatCompactUsdcRaw(snapshot.activeAumRaw)
+                : "Unavailable"
+            }
+          />
+          <StatCard
+            description={getSnapshotDescription(
+              "Deposited principal",
+              snapshot
+            )}
+            title={
+              snapshot
+                ? formatCompactUsdcRaw(snapshot.activePrincipalRaw)
+                : "Unavailable"
+            }
+          />
+          <StatCard
+            description={getSnapshotDescription("Unique Earn users", snapshot)}
+            title={
+              snapshot ? formatNumber(snapshot.uniqueEarnUsers) : "Unavailable"
+            }
+          />
+          <StatCard
+            description={getSnapshotDescription(
+              "Active Earn policies",
+              snapshot
+            )}
+            title={
+              snapshot
+                ? formatNumber(snapshot.uniqueEarnPolicies)
+                : "Unavailable"
+            }
+          />
+          <StatCard
+            description={getSnapshotDescription("Active Autodeposit", snapshot)}
+            title={
+              snapshot
+                ? formatNumber(snapshot.activeAutodepositPolicies)
+                : "Unavailable"
+            }
+          />
+        </div>
+
+        <Suspense fallback={<EarnDetailsFallback />}>
+          <EarnDetails positionSort={positionSort} />
+        </Suspense>
       </div>
     </PageContainer>
   );

@@ -190,6 +190,13 @@
       "when": 1785154497624,
       "tag": "0026_famous_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785737324633,
+      "tag": "0027_first_sabra",
+      "breakpoints": true
     }
   ]
 }

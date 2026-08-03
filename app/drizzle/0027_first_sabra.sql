@@ -1,0 +1,7 @@
+ALTER TABLE "loyal_stats_snapshots" DROP CONSTRAINT "loyal_stats_snapshots_nonnegative_check";--> statement-breakpoint
+ALTER TABLE "loyal_stats_snapshots" ADD COLUMN "active_principal_raw" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "loyal_stats_snapshots" ADD COLUMN "unique_earn_users" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "loyal_stats_snapshots" ADD COLUMN "unique_earn_policies" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "loyal_stats_snapshots" ADD COLUMN "active_autodeposit_policies" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "loyal_stats_snapshots" ADD COLUMN "earn_aum_series" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "loyal_stats_snapshots" ADD CONSTRAINT "loyal_stats_snapshots_nonnegative_check" CHECK ("loyal_stats_snapshots"."total_aum_raw" >= 0 AND "loyal_stats_snapshots"."total_users" >= 0 AND "loyal_stats_snapshots"."total_optimized_volume_raw" >= 0 AND "loyal_stats_snapshots"."active_principal_raw" >= 0 AND "loyal_stats_snapshots"."unique_earn_users" >= 0 AND "loyal_stats_snapshots"."unique_earn_policies" >= 0 AND "loyal_stats_snapshots"."active_autodeposit_policies" >= 0);

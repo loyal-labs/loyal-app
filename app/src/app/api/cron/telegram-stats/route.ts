@@ -21,6 +21,16 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const stats = await loadLoyalStats();
+    if (!stats) {
+      const elapsedMs = Date.now() - startedAt;
+      console.info("[cron/telegram-stats] Snapshot refresh already running", {
+        elapsedMs,
+      });
+      return NextResponse.json(
+        { elapsedMs, ok: true, skipped: "refresh_already_running" },
+        { status: 202 }
+      );
+    }
     const refreshedAt = new Date();
     await upsertLoyalStatsSnapshot(stats, refreshedAt);
 
