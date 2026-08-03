@@ -10,6 +10,7 @@ import {
   BookOpenIcon,
   CircleDollarSignIcon,
   LayoutDashboardIcon,
+  LandmarkIcon,
   LogOutIcon,
   RouteIcon,
   ShieldUserIcon,
@@ -59,6 +60,11 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/transfers", icon: ArrowLeftRightIcon, label: "Transfers" },
       { exact: true, href: "/earn", icon: CircleDollarSignIcon, label: "Earn" },
       { href: "/earn/rebalance", icon: RouteIcon, label: "Rebalance" },
+      {
+        href: "/earn/autonomous-vault",
+        icon: LandmarkIcon,
+        label: "Autonomous vault",
+      },
       {
         href: "/smart-accounts",
         icon: WalletCardsIcon,
