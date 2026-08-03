@@ -977,6 +977,7 @@ export function useEarnActions(deps: {
       });
       setDepositError(null);
       setIsDepositPending(true);
+      earnToast.begin("deposit");
       earnToast.loading("Preparing deposit");
       let phase: "prepare" | "sign" = "prepare";
       const interactionStartedAtMs = getBrowserPerformanceNow();
@@ -1408,6 +1409,7 @@ export function useEarnActions(deps: {
       tracker.start("intent", { cleanupRequired: draft.mode === "full" });
       setWithdrawError(null);
       setIsWithdrawPending(true);
+      earnToast.begin("withdraw");
       earnToast.loading("Preparing withdrawal");
       const interactionStartedAtMs = getBrowserPerformanceNow();
       let previewMetricSent = false;
@@ -1781,6 +1783,7 @@ export function useEarnActions(deps: {
     };
     setWithdrawError(null);
     setIsCleanupPending(true);
+    earnToast.begin("close-policies");
     earnToast.loading("Closing policies");
     try {
       tracker.observe("full_exit_verify", {
@@ -2100,6 +2103,7 @@ export function useEarnActions(deps: {
         symbol: "USDC",
         tokenDecimals: source.decimals,
       };
+      earnToast.begin("autodeposit-setup");
       earnToast.loading("Waiting for approval");
       const approvalPromise = requestApproval(
         buildEarnAutodepositSetupReviewItem({ draft: setupReviewDraft })
@@ -2470,6 +2474,7 @@ export function useEarnActions(deps: {
       walletSubmittedAtMs ??= getBrowserPerformanceNow();
     };
 
+    earnToast.begin("autodeposit-delete");
     earnToast.loading("Waiting for approval");
     const approvalPromise = requestApproval(
       buildEarnAutodepositCloseReviewItem({

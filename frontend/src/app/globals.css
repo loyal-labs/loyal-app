@@ -3108,6 +3108,123 @@ cap-widget {
   }
 }
 
+/* Facelift adaptation — Earn step card (earn-toast.tsx). Multi-stage flows
+   expand the pill into a task-steps card; height/width come from inline
+   styles and morph on the resize clock (interpolate-size lets width tween
+   back to the pill's auto width where supported; elsewhere it snaps). The
+   open/close transition list must be restated here because .is-open resets
+   `transition` wholesale. */
+.t-toast.t-toast-resize {
+  interpolate-size: allow-keywords;
+  transition: opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease),
+    height var(--resize-dur) var(--resize-ease),
+    width var(--resize-dur) var(--resize-ease);
+}
+.t-toast.t-toast-resize.is-open {
+  transition: opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease),
+    height var(--resize-dur) var(--resize-ease),
+    width var(--resize-dur) var(--resize-ease);
+}
+
+/* Step rows: the status icon is a four-state stack (p: pending dot,
+   a: spinner, b: check, c: cross) riding the icon-swap tokens, with the
+   incoming icon popping on the bob ease (slight overshoot past 1). The
+   check additionally swings upright and stroke-draws its path (t-check-draw;
+   35 = the calibrated length of the shared check path), and the next step's
+   spinner waits a beat so the landing check reads before the handoff. */
+:root {
+  --step-advance-delay: 120ms;
+}
+
+.t-step-icon {
+  position: relative;
+}
+.t-step-ico {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(var(--icon-swap-start-scale));
+  filter: blur(var(--icon-swap-blur));
+  transition: opacity var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--check-ease-bob),
+    filter var(--icon-swap-dur) var(--icon-swap-ease);
+}
+.t-step-ico[data-ico="b"] {
+  transform: scale(var(--icon-swap-start-scale)) rotate(-80deg);
+}
+.t-step-ico[data-ico="b"] svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+.t-step-icon[data-state="p"] .t-step-ico[data-ico="p"],
+.t-step-icon[data-state="a"] .t-step-ico[data-ico="a"],
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"],
+.t-step-icon[data-state="c"] .t-step-ico[data-ico="c"] {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+}
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"] {
+  transform: scale(1) rotate(0deg);
+}
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) forwards;
+}
+.t-step-icon[data-state="a"] .t-step-ico[data-ico="a"] {
+  transition-delay: var(--step-advance-delay);
+}
+
+/* Smooths the label's dim ⇄ full-black changes as rows advance. */
+.t-step-label {
+  transition: color var(--icon-swap-dur) var(--icon-swap-ease);
+}
+
+.t-step-active {
+  background-image: linear-gradient(
+    90deg,
+    #000 42%,
+    rgba(0, 0, 0, 0.35) 50%,
+    #000 58%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: t-step-shimmer 1.6s linear infinite;
+}
+
+@keyframes t-step-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-step-ico,
+  .t-step-label {
+    transition: none !important;
+  }
+  .t-step-icon .t-step-ico[data-ico="b"] svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+  .t-step-active {
+    animation: none !important;
+    background-image: none;
+    color: #000;
+  }
+}
+
 /* animate-text — soft-blur-in (banner titles). Per-character blurred rise
    from the spec (900ms, 16px, cubic-bezier(0.22,1,0.36,1)), with blur 12→6
    and stagger 25→15ms per its usage notes for sub-24px copy. The mobile home
