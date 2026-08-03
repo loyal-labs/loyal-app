@@ -4,6 +4,7 @@ import {
   accessSync,
   constants,
   createWriteStream,
+  mkdirSync,
   mkdtempSync,
   rmSync,
 } from "node:fs";
@@ -16,10 +17,19 @@ import {
   parseMobileLoadingMetricEnvelope,
   type MobileLoadingMetricEnvelope,
 } from "../src/services/loading-metrics-contract";
+import { createAutodepositToggleController } from "../src/lib/solana/earn/autodeposit-toggle-controller";
 
 const CLICKSTACK_PORT = Number(
   process.env.MOBILE_METRICS_CLICKSTACK_PORT ?? "18123"
 );
+const CLICKHOUSE_NATIVE_PORT = Number(
+  process.env.MOBILE_METRICS_CLICKHOUSE_NATIVE_PORT ?? "19000"
+);
+const CLICKHOUSE_INTERSERVER_PORT = Number(
+  process.env.MOBILE_METRICS_CLICKHOUSE_INTERSERVER_PORT ?? "19009"
+);
+const useHostClickHouse =
+  process.env.MOBILE_METRICS_CLICKSTACK_MODE === "host-clickhouse";
 const RELAY_PORT = Number(process.env.MOBILE_METRICS_RELAY_PORT ?? "4319");
 const METRO_PORT = Number(process.env.MOBILE_METRICS_METRO_PORT ?? "8081");
 const CLICKSTACK_IMAGE =
@@ -129,6 +139,21 @@ async function waitFor<T>(
 }
 
 function queryClickStack(query: string): string {
+  if (useHostClickHouse) {
+    return run(
+      "clickhouse",
+      [
+        "client",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(CLICKHOUSE_NATIVE_PORT),
+        "--query",
+        query,
+      ],
+      { quiet: true }
+    );
+  }
   return run(
     "podman",
     ["exec", CLICKSTACK_CONTAINER, "clickhouse-client", "--query", query],
@@ -225,6 +250,45 @@ function buildOtlpMetricPayload(metric: MobileLoadingMetricEnvelope): unknown {
 async function exportMetricToClickStack(
   metric: MobileLoadingMetricEnvelope
 ): Promise<void> {
+  if (useHostClickHouse) {
+    const attributes: Record<string, string> = {
+      "loyal.app_session.id": metric.appSessionId,
+      "loyal.operation": metric.operation,
+      "loyal.outcome": metric.outcome,
+      "loyal.phase": metric.phase,
+      "loyal.platform": metric.platform,
+      "url.path": metric.pathname,
+      ...(metric.flowId ? { "loyal.flow.id": metric.flowId } : {}),
+    };
+    const query = encodeURIComponent(
+      "INSERT INTO default.otel_metrics_gauge FORMAT JSONEachRow"
+    );
+    const response = await fetch(
+      `http://127.0.0.1:${CLICKSTACK_PORT}/?query=${query}`,
+      {
+        body:
+          JSON.stringify({
+            Attributes: attributes,
+            MetricName: metric.metricName,
+            ResourceAttributes: {
+              "deployment.environment.name": metric.environment,
+              "service.name": "loyal-mobile",
+              "service.version": metric.release,
+            },
+            Timestamp: metric.timestamp,
+            Value: metric.durationMs,
+          }) + "\n",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Local ClickHouse rejected metric insert (${response.status}).`
+      );
+    }
+    return;
+  }
   const response = await fetch(
     `http://127.0.0.1:${CLICKSTACK_PORT}/v1/metrics`,
     {
@@ -365,86 +429,166 @@ async function main(): Promise<void> {
   );
   pass("strict mobile metric contract rejects financial and arbitrary context");
 
-  const imageExists = spawnSync(
-    "podman",
-    ["image", "exists", CLICKSTACK_IMAGE],
-    { stdio: "ignore" }
+  const submittedToggleStates: boolean[] = [];
+  const instrumentedToggleStates: boolean[] = [];
+  const toggleController = createAutodepositToggleController({
+    debounceMs: 1,
+    onOptimisticActive: () => undefined,
+    onReconciledActive: () => undefined,
+    onSubmissionStart: (active) => {
+      instrumentedToggleStates.push(active);
+      return { complete: () => undefined, fail: () => undefined };
+    },
+    refresh: async () => true,
+    submit: async (active) => {
+      submittedToggleStates.push(active);
+    },
+  });
+  const pauseRequest = toggleController.request(false);
+  const resumeRequest = toggleController.request(true);
+  await Promise.all([pauseRequest, resumeRequest]);
+  assert.deepEqual(submittedToggleStates, [true]);
+  assert.deepEqual(instrumentedToggleStates, submittedToggleStates);
+  pass(
+    "debounced toggle instrumentation matches actual controller submissions"
   );
-  if (imageExists.status !== 0) {
-    try {
-      accessSync(join(CLICKSTACK_CONTEXT, "Dockerfile"), constants.R_OK);
-    } catch {
+
+  if (useHostClickHouse) {
+    const dataRoot = join(tempRoot, "clickhouse-data");
+    mkdirSync(dataRoot, { recursive: true });
+    start(
+      "clickhouse",
+      [
+        "server",
+        "--",
+        `--path=${dataRoot}`,
+        `--http_port=${String(CLICKSTACK_PORT)}`,
+        `--tcp_port=${String(CLICKHOUSE_NATIVE_PORT)}`,
+        `--interserver_http_port=${String(CLICKHOUSE_INTERSERVER_PORT)}`,
+        "--interserver_http_host=127.0.0.1",
+        "--listen_host=127.0.0.1",
+        `--logger.log=${join(tempRoot, "clickhouse.log")}`,
+        `--logger.errorlog=${join(tempRoot, "clickhouse-error.log")}`,
+      ],
+      { cwd: tempRoot }
+    );
+    await waitFor(
+      "host ClickHouse",
+      async () => {
+        try {
+          const response = await fetch(
+            `http://127.0.0.1:${CLICKSTACK_PORT}/ping`
+          );
+          return response.ok;
+        } catch {
+          return false;
+        }
+      },
+      60_000
+    );
+    run(
+      "clickhouse",
+      [
+        "client",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        String(CLICKHOUSE_NATIVE_PORT),
+        "--query",
+        `CREATE TABLE default.otel_metrics_gauge (
+          Timestamp DateTime64(3, 'UTC'),
+          MetricName String,
+          Value Float64,
+          Attributes Map(String, String),
+          ResourceAttributes Map(String, String)
+        ) ENGINE = MergeTree
+        ORDER BY (MetricName, Timestamp)`,
+      ],
+      { quiet: true }
+    );
+    pass("disposable ClickStack-compatible host ClickHouse started");
+  } else {
+    const imageExists = spawnSync(
+      "podman",
+      ["image", "exists", CLICKSTACK_IMAGE],
+      { stdio: "ignore" }
+    );
+    if (imageExists.status !== 0) {
+      try {
+        accessSync(join(CLICKSTACK_CONTEXT, "Dockerfile"), constants.R_OK);
+      } catch {
+        throw new Error(
+          "ClickStack image is absent and its build context was not found. " +
+            "Set MOBILE_METRICS_CLICKSTACK_CONTEXT to this repository's observability directory."
+        );
+      }
+      run("podman", ["build", "--tag", CLICKSTACK_IMAGE, CLICKSTACK_CONTEXT]);
+    }
+    run("podman", [
+      "run",
+      "--detach",
+      "--rm",
+      "--name",
+      CLICKSTACK_CONTAINER,
+      "--publish",
+      `127.0.0.1:${String(CLICKSTACK_PORT)}:8080`,
+      "--env",
+      "PORT=8080",
+      "--env",
+      "EXPRESS_SESSION_SECRET=local-mobile-metrics-e2e-session",
+      "--env",
+      `INGESTION_API_KEY=${CLICKSTACK_INGESTION_KEY}`,
+      "--env",
+      "CLICKSTACK_INTERNAL_SMOKE_ENABLED=true",
+      "--env",
+      "USAGE_STATS_ENABLED=false",
+      CLICKSTACK_IMAGE,
+    ]);
+    clickstackStarted = true;
+    await waitFor(
+      "local ClickStack",
+      async () => {
+        try {
+          const response = await fetch(
+            `http://127.0.0.1:${CLICKSTACK_PORT}/api/health`
+          );
+          return response.ok;
+        } catch {
+          return false;
+        }
+      },
+      180_000
+    );
+    const registration = await fetch(
+      `http://127.0.0.1:${CLICKSTACK_PORT}/api/register/password`,
+      {
+        body: JSON.stringify({
+          confirmPassword: "Local-mobile-metrics-e2e-2026!",
+          email: `mobile-metrics-${process.pid}@example.invalid`,
+          password: "Local-mobile-metrics-e2e-2026!",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }
+    );
+    if (!registration.ok) {
       throw new Error(
-        "ClickStack image is absent and its build context was not found. " +
-          "Set MOBILE_METRICS_CLICKSTACK_CONTEXT to this repository's observability directory."
+        `ClickStack team bootstrap failed (${registration.status}).`
       );
     }
-    run("podman", ["build", "--tag", CLICKSTACK_IMAGE, CLICKSTACK_CONTEXT]);
-  }
-  run("podman", [
-    "run",
-    "--detach",
-    "--rm",
-    "--name",
-    CLICKSTACK_CONTAINER,
-    "--publish",
-    `127.0.0.1:${String(CLICKSTACK_PORT)}:8080`,
-    "--env",
-    "PORT=8080",
-    "--env",
-    "EXPRESS_SESSION_SECRET=local-mobile-metrics-e2e-session",
-    "--env",
-    `INGESTION_API_KEY=${CLICKSTACK_INGESTION_KEY}`,
-    "--env",
-    "CLICKSTACK_INTERNAL_SMOKE_ENABLED=true",
-    "--env",
-    "USAGE_STATS_ENABLED=false",
-    CLICKSTACK_IMAGE,
-  ]);
-  clickstackStarted = true;
-  await waitFor(
-    "local ClickStack",
-    async () => {
-      try {
-        const response = await fetch(
-          `http://127.0.0.1:${CLICKSTACK_PORT}/api/health`
+    await waitFor(
+      "ClickStack authenticated collector",
+      () => {
+        const output = run(
+          "podman",
+          ["logs", "--tail", "300", CLICKSTACK_CONTAINER],
+          { quiet: true }
         );
-        return response.ok;
-      } catch {
-        return false;
-      }
-    },
-    180_000
-  );
-  const registration = await fetch(
-    `http://127.0.0.1:${CLICKSTACK_PORT}/api/register/password`,
-    {
-      body: JSON.stringify({
-        confirmPassword: "Local-mobile-metrics-e2e-2026!",
-        email: `mobile-metrics-${process.pid}@example.invalid`,
-        password: "Local-mobile-metrics-e2e-2026!",
-      }),
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    }
-  );
-  if (!registration.ok) {
-    throw new Error(
-      `ClickStack team bootstrap failed (${registration.status}).`
+        return output.includes('"status":"pass","stage":"initial"');
+      },
+      240_000
     );
   }
-  await waitFor(
-    "ClickStack authenticated collector",
-    () => {
-      const output = run(
-        "podman",
-        ["logs", "--tail", "300", CLICKSTACK_CONTAINER],
-        { quiet: true }
-      );
-      return output.includes('"status":"pass","stage":"initial"');
-    },
-    240_000
-  );
 
   resources.relay = Bun.serve({
     hostname: "127.0.0.1",
@@ -497,7 +641,11 @@ async function main(): Promise<void> {
       return new Response(null, { status: 404 });
     },
   });
-  pass("disposable ClickStack and strict local native relay started");
+  pass(
+    `disposable ${
+      useHostClickHouse ? "ClickStack-compatible ClickHouse" : "ClickStack"
+    } and strict local native relay started`
+  );
 
   if (relayOnly) {
     const response = await fetch(

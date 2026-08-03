@@ -1,14 +1,15 @@
 import {
+  getLoadingMetricsActivityUiDriver,
+  getLoadingMetricsEarnUiDriver,
+  type LoadingMetricsActivityUiDriver,
+  type LoadingMetricsEarnUiDriver,
+  type LoadingMetricsRefundItem,
+} from "@/e2e/loading-metrics-ui-driver";
+import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
-import {
-  executeEarnAutodepositClose,
-  executeEarnAutodepositScheduledSweep,
-  executeEarnAutodepositSetup,
-  setEarnAutodepositActive,
-  updateEarnAutodepositThreshold,
-} from "@/lib/solana/earn/autodeposit";
+import { executeEarnAutodepositClose } from "@/lib/solana/earn/autodeposit";
 import {
   fetchEarnAutodepositState,
   fetchEarnAutodepositSweepProgress,
@@ -19,15 +20,10 @@ import {
   type EarnAutodepositState,
   type EarnRefundPrepareRequest,
 } from "@/lib/solana/earn/earn-api";
-import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
 import { executeEarnRefund } from "@/lib/solana/earn/refund";
 import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { fetchTokenHoldings } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import type { Signer } from "@/lib/wallet/signer";
-import {
-  startMobileLoadingMetric,
-  type MobileLoadingOperation,
-} from "@/services/loading-metrics";
 
 const DEFAULT_DEPOSIT_USD = 0.01;
 const POLL_INTERVAL_MS = 1_000;
@@ -35,6 +31,8 @@ const POLL_INTERVAL_MS = 1_000;
 // queue ahead of a freshly requested slot. Keep the verifier bounded, but give
 // the worker enough time to report an authoritative terminal state.
 const STATE_TIMEOUT_MS = 600_000;
+const UI_DRIVER_TIMEOUT_MS = 30_000;
+const SWEEP_PROGRESS_SETTLE_MS = 2_500;
 
 export type LoadingMetricsE2eStage =
   | "preflight.close_autodeposit"
@@ -59,21 +57,28 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function measured<T>(
-  operation: Exclude<MobileLoadingOperation, "app_load">,
-  run: () => Promise<T>
-): Promise<T> {
-  const metric = startMobileLoadingMetric(operation);
-  try {
-    const result = await run();
-    metric.completeAfterPaint();
+async function waitForEarnUiDriver(
+  predicate: (driver: LoadingMetricsEarnUiDriver) => boolean = () => true
+): Promise<LoadingMetricsEarnUiDriver> {
+  const deadline = Date.now() + UI_DRIVER_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const driver = getLoadingMetricsEarnUiDriver();
+    if (driver && predicate(driver)) return driver;
     await delay(50);
-    return result;
-  } catch (error) {
-    metric.failAfterPaint();
-    await delay(50);
-    throw error;
   }
+  throw new Error("Timed out waiting for the production Earn UI handlers.");
+}
+
+async function waitForActivityUiDriver(
+  predicate: (driver: LoadingMetricsActivityUiDriver) => boolean = () => true
+): Promise<LoadingMetricsActivityUiDriver> {
+  const deadline = Date.now() + UI_DRIVER_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const driver = getLoadingMetricsActivityUiDriver();
+    if (driver && predicate(driver)) return driver;
+    await delay(50);
+  }
+  throw new Error("Timed out waiting for the production Activity UI handlers.");
 }
 
 async function waitForAutodeposit(
@@ -133,13 +138,11 @@ async function closeAutodepositIfPresent(signer: Signer): Promise<void> {
   const walletAddress = signer.publicKey.toBase58();
   const { autodeposit } = await fetchEarnAutodepositState(walletAddress);
   if (!autodeposit?.recurringDelegation) return;
-  await measured("earn.autodeposit.close", () =>
-    executeEarnAutodepositClose({
-      signer,
-      policy: autodeposit.policyAccount,
-      recurringDelegation: autodeposit.recurringDelegation as string,
-    })
-  );
+  await executeEarnAutodepositClose({
+    signer,
+    policy: autodeposit.policyAccount,
+    recurringDelegation: autodeposit.recurringDelegation as string,
+  });
 }
 
 async function withdrawAll(signer: Signer): Promise<void> {
@@ -150,28 +153,24 @@ async function withdrawAll(signer: Signer): Promise<void> {
 
   const { sources } = await fetchEarnWithdrawSources(walletAddress);
   if (sources.length === 0) {
-    await measured("earn.withdrawal", () =>
-      executeEarnWithdraw({
-        signer,
-        amountUsd: Number(positionRaw) / 1e6,
-        mode: "full",
-        source: null,
-      })
-    );
+    await executeEarnWithdraw({
+      signer,
+      amountUsd: Number(positionRaw) / 1e6,
+      mode: "full",
+      source: null,
+    });
     return;
   }
 
   for (const source of sources) {
     const amountRaw = BigInt(source.amountRaw);
     if (amountRaw <= 0) continue;
-    await measured("earn.withdrawal", () =>
-      executeEarnWithdraw({
-        signer,
-        amountUsd: Number(amountRaw) / 1e6,
-        mode: "full",
-        source: toWithdrawPrepareSource(source),
-      })
-    );
+    await executeEarnWithdraw({
+      signer,
+      amountUsd: Number(amountRaw) / 1e6,
+      mode: "full",
+      source: toWithdrawPrepareSource(source),
+    });
   }
 }
 
@@ -196,8 +195,93 @@ async function refundClosedAccounts(signer: Signer): Promise<void> {
       : []),
   ];
   for (const request of requests) {
-    await measured("earn.refund", () => executeEarnRefund({ signer, request }));
+    await executeEarnRefund({ signer, request });
   }
+}
+
+async function closeAutodepositThroughUi(signer: Signer): Promise<void> {
+  const walletAddress = signer.publicKey.toBase58();
+  const { autodeposit } = await fetchEarnAutodepositState(walletAddress);
+  if (!autodeposit?.recurringDelegation) return;
+  const driver = await waitForEarnUiDriver(
+    (candidate) =>
+      candidate.autodeposit?.recurringDelegation ===
+      autodeposit.recurringDelegation
+  );
+  await driver.closeAutodeposit();
+}
+
+async function withdrawAllThroughUi(signer: Signer): Promise<void> {
+  const walletAddress = signer.publicKey.toBase58();
+  const { position } = await fetchEarnState(walletAddress);
+  const positionRaw = BigInt(position?.currentAmountRaw ?? "0");
+  if (positionRaw <= 0) return;
+
+  const { sources } = await fetchEarnWithdrawSources(walletAddress);
+  const driver = await waitForEarnUiDriver();
+  if (sources.length === 0) {
+    await driver.withdraw({
+      amountUsd: Number(positionRaw) / 1e6,
+      mode: "full",
+      source: null,
+    });
+    return;
+  }
+  for (const source of sources) {
+    const amountRaw = BigInt(source.amountRaw);
+    if (amountRaw <= 0) continue;
+    await driver.withdraw({
+      amountUsd: Number(amountRaw) / 1e6,
+      mode: "full",
+      source,
+    });
+  }
+}
+
+async function refundClosedAccountsThroughUi(signer: Signer): Promise<void> {
+  const walletAddress = signer.publicKey.toBase58();
+  const { scan } = await fetchEarnRefundScan(walletAddress);
+  const items: LoadingMetricsRefundItem[] = [
+    ...(scan?.policies ?? [])
+      .filter((item) => item.canRefund && (item.lamports ?? 0) > 0)
+      .map((item) => ({
+        account: item.account,
+        kind: "policy" as const,
+        lamports: item.lamports ?? 0,
+      })),
+    ...(scan?.recurringDelegations ?? [])
+      .filter((item) => item.canRefund && (item.lamports ?? 0) > 0)
+      .map((item) => ({
+        account: item.account,
+        kind: "recurring_delegation" as const,
+        lamports: item.lamports ?? 0,
+      })),
+    ...(scan?.vault?.canRefund && scan.vault.totalRefundableLamports > 0
+      ? [
+          {
+            account: scan.vault.account,
+            kind: "vault" as const,
+            lamports: scan.vault.totalRefundableLamports,
+          },
+        ]
+      : []),
+  ];
+  const driver = await waitForActivityUiDriver();
+  for (const item of items) {
+    await driver.executeRefund(item);
+  }
+}
+
+async function runUiCleanupStages(
+  signer: Signer,
+  reportStage: ReportStage
+): Promise<void> {
+  await reportStage("cleanup.close_autodeposit");
+  await closeAutodepositThroughUi(signer);
+  await reportStage("cleanup.withdraw");
+  await withdrawAllThroughUi(signer);
+  await reportStage("cleanup.refund");
+  await refundClosedAccountsThroughUi(signer);
 }
 
 async function runCleanupStages(
@@ -262,9 +346,11 @@ export async function runLoadingMetricsE2e(
   let flowFailure: unknown;
   let flowFailureStage: LoadingMetricsE2eStage | null = null;
   try {
-    // Start from a deterministic empty state. These are the same real close,
-    // withdrawal, and refund paths the user reaches through the app.
+    // Start from a deterministic empty state without emitting loading metrics.
+    // Only the action phase below invokes production UI handlers, so direct
+    // cleanup cannot mask missing instrumentation.
     await runCleanupStages(signer, report, PREFLIGHT_CLEANUP_STAGES);
+    await (await waitForEarnUiDriver()).refresh();
 
     await report("preflight.holdings");
     const holdings = await fetchTokenHoldings(walletAddress, true);
@@ -289,9 +375,7 @@ export async function runLoadingMetricsE2e(
     }
 
     await report("action.deposit");
-    await measured("earn.deposit", () =>
-      executeEarnDeposit({ signer, amountUsd: depositUsd })
-    );
+    await (await waitForEarnUiDriver()).deposit(depositUsd);
 
     const postDepositHoldings = await fetchTokenHoldings(walletAddress, true);
     const postDepositUsdc = postDepositHoldings.find(
@@ -309,9 +393,7 @@ export async function runLoadingMetricsE2e(
       Math.floor((postDepositUsdc.balance - DEFAULT_DEPOSIT_USD) * 100) / 100;
 
     await report("action.autodeposit.setup");
-    await measured("earn.autodeposit.setup", () =>
-      executeEarnAutodepositSetup({ signer, thresholdUsd: initialFloorUsd })
-    );
+    await (await waitForEarnUiDriver()).setupAutodeposit(initialFloorUsd);
     await report("wait.autodeposit.setup");
     let autodeposit = await waitForAutodeposit(walletAddress, (state) =>
       Boolean(state?.recurringDelegation)
@@ -330,69 +412,44 @@ export async function runLoadingMetricsE2e(
       }
     }
     await report("action.autodeposit.execute_now");
-    const executeNowMetric = startMobileLoadingMetric(
-      "earn.autodeposit.execute_now"
-    );
-    try {
-      const { flow, scheduledSlotId } =
-        await executeEarnAutodepositScheduledSweep({ signer });
-      await report("wait.autodeposit.execute_now");
-      const terminal = await waitForAutodepositSweep(
-        walletAddress,
-        scheduledSlotId
-      );
-      if (terminal.state === "completed") {
-        flow.complete("state_observed", { executeNowState: "completed" });
-        executeNowMetric.completeAfterPaint();
-      } else {
-        // This verifier proves the loading metric for both real terminal
-        // outcomes. A worker failure is still a complete interaction-to-UI
-        // observation; it must not prevent the remaining policy actions from
-        // exercising their own metrics. Timeouts remain fatal and ambiguous.
-        flow.fail("state_observed", { executeNowState: terminal.state });
-        executeNowMetric.failAfterPaint();
-      }
-      await delay(50);
-    } catch (error) {
-      executeNowMetric.failAfterPaint();
-      await delay(50);
-      throw error;
-    }
+    const activityDriver = await waitForActivityUiDriver();
+    await activityDriver.refreshAutodeposit();
+    await (
+      await waitForActivityUiDriver((driver) =>
+        driver.scheduledSweepIds.includes(scheduled.id)
+      )
+    ).executeScheduledSweep();
+    await report("wait.autodeposit.execute_now");
+    await waitForAutodepositSweep(walletAddress, scheduled.id);
+    // ActivityProvider owns terminalization after observing the progress row.
+    // Let its production poll/effect commit before moving to policy updates.
+    await delay(SWEEP_PROGRESS_SETTLE_MS);
 
     await report("action.autodeposit.floor_update");
     autodeposit = await waitForAutodeposit(walletAddress, (state) =>
       Boolean(state?.recurringDelegation)
     );
     const updatedFloorUsd = initialFloorUsd + DEFAULT_DEPOSIT_USD;
-    await measured("earn.autodeposit.floor_update", () =>
-      updateEarnAutodepositThreshold({
-        signer,
-        thresholdUsd: updatedFloorUsd,
-        policyAccount: autodeposit.policyAccount,
-        recurringDelegation: autodeposit.recurringDelegation as string,
-        vaultIndex: autodeposit.vaultIndex,
-      })
-    );
+    await (
+      await waitForEarnUiDriver(
+        (driver) =>
+          driver.autodeposit?.recurringDelegation ===
+          autodeposit.recurringDelegation
+      )
+    ).setAutodepositFloor(updatedFloorUsd);
     await report("action.autodeposit.pause");
-    await measured("earn.autodeposit.pause", () =>
-      setEarnAutodepositActive({
-        signer,
-        active: false,
-        policyAccount: autodeposit.policyAccount,
-        recurringDelegation: autodeposit.recurringDelegation as string,
-        vaultIndex: autodeposit.vaultIndex,
-      })
+    await (await waitForEarnUiDriver()).toggleAutodeposit();
+    autodeposit = await waitForAutodeposit(
+      walletAddress,
+      (state) => state?.active === false
     );
     await report("action.autodeposit.resume");
-    await measured("earn.autodeposit.resume", () =>
-      setEarnAutodepositActive({
-        signer,
-        active: true,
-        policyAccount: autodeposit.policyAccount,
-        recurringDelegation: autodeposit.recurringDelegation as string,
-        vaultIndex: autodeposit.vaultIndex,
-      })
-    );
+    await (
+      await waitForEarnUiDriver(
+        (driver) => driver.autodeposit?.active === false
+      )
+    ).toggleAutodeposit();
+    await waitForAutodeposit(walletAddress, (state) => state?.active === true);
   } catch (error) {
     flowFailure = error;
     flowFailureStage = currentStage;
@@ -400,9 +457,24 @@ export async function runLoadingMetricsE2e(
 
   let cleanupFailure: unknown;
   try {
-    await runCleanupStages(signer, report, FINAL_CLEANUP_STAGES);
+    await runUiCleanupStages(signer, report);
   } catch (error) {
     cleanupFailure = error;
+  }
+  // Safety cleanup is deliberately uninstrumented. It runs even after a
+  // production-handler failure so an approved mainnet verifier never leaves
+  // a position, policy, delegation, or refundable account behind.
+  try {
+    await runCleanupStages(signer, async () => undefined, FINAL_CLEANUP_STAGES);
+  } catch (error) {
+    cleanupFailure =
+      cleanupFailure === undefined
+        ? error
+        : new Error(
+            `UI cleanup failed: ${errorMessage(
+              cleanupFailure
+            )} Safety cleanup also failed: ${errorMessage(error)}`
+          );
   }
 
   if (flowFailure !== undefined && cleanupFailure !== undefined) {

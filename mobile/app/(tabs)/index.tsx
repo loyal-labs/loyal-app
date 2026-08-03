@@ -33,6 +33,7 @@ import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { Skeleton } from "@/components/Skeleton";
 import { useActivity } from "@/features/activity/model/ActivityProvider";
+import { registerLoadingMetricsEarnUiDriver } from "@/e2e/loading-metrics-ui-driver";
 import { refreshEarnEarningsCache } from "@/hooks/wallet/useEarnEarnings";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -624,13 +625,21 @@ export default function EarnScreen() {
         const expectedUsd = (depositedUsd ?? 0) + amountUsd;
         setDepositedUsd(expectedUsd);
         setHasDeposit(true);
-        const refreshPromise = requestRefresh("mutation");
-        // The deposit spent wallet USDC — refresh holdings so the sheet's available
-        // balance is correct if it's reopened (it doesn't auto-update otherwise).
-        void Promise.all([refreshPromise, refreshTokenHoldings(true)]).then(
-          () => metric.completeAfterPaint(),
-          () => metric.failAfterPaint()
-        );
+        try {
+          // Mutation metrics require the reads that drive the visible Earn state.
+          // Ambient refresh remains best-effort, but this path must distinguish a
+          // real UI reconciliation from a swallowed read failure.
+          await Promise.all([
+            refreshEarnPosition({ throwOnError: true }),
+            refreshAutodeposit({ throwOnError: true }),
+            refreshTokenHoldings(true, { throwOnError: true }),
+          ]);
+          metric.completeAfterPaint();
+        } catch (refreshError) {
+          metric.failAfterPaint();
+          console.warn("[earn] deposit refresh failed", refreshError);
+          void requestRefresh("mutation");
+        }
       } catch (error) {
         metric.failAfterPaint();
         throw error;
@@ -642,6 +651,8 @@ export default function EarnScreen() {
       depositedUsd,
       markEarnMutation,
       requestRefresh,
+      refreshAutodeposit,
+      refreshEarnPosition,
       refreshTokenHoldings,
     ]
   );
@@ -719,13 +730,18 @@ export default function EarnScreen() {
           setHasDeposit(false);
           setDepositedUsd(null);
         }
-        void Promise.all([
-          requestRefresh("mutation"),
-          refreshWithdrawSources(),
-        ]).then(
-          () => metric.completeAfterPaint(),
-          () => metric.failAfterPaint()
-        );
+        try {
+          await Promise.all([
+            refreshEarnPosition({ throwOnError: true }),
+            refreshAutodeposit({ throwOnError: true }),
+            refreshWithdrawSources({ throwOnError: true }),
+          ]);
+          metric.completeAfterPaint();
+        } catch (refreshError) {
+          metric.failAfterPaint();
+          console.warn("[earn] withdrawal refresh failed", refreshError);
+          void requestRefresh("mutation");
+        }
       } catch (error) {
         metric.failAfterPaint();
         throw error;
@@ -737,6 +753,8 @@ export default function EarnScreen() {
       withdrawSources,
       markEarnMutation,
       requestRefresh,
+      refreshAutodeposit,
+      refreshEarnPosition,
       refreshWithdrawSources,
     ]
   );
@@ -766,31 +784,25 @@ export default function EarnScreen() {
   }, [openAutodepositCreate]);
 
   const handleAutodepositToggle = useCallback(async () => {
-    const operation = autodepositEnabled
-      ? "earn.autodeposit.pause"
-      : "earn.autodeposit.resume";
     const request = requestAutodepositToggle();
     if (!request) {
       return;
     }
-    const metric = startMobileLoadingMetric(operation);
     void Haptics.selectionAsync();
     try {
       await request;
-      metric.completeAfterPaint();
     } catch (error) {
-      metric.failAfterPaint();
       console.warn("[autodeposit] toggle failed", error);
     }
-  }, [autodepositEnabled, requestAutodepositToggle]);
+  }, [requestAutodepositToggle]);
 
   // Returns a Promise so the setup sheet can show its loading state. Create
   // stands up the on-chain policy; edit changes the threshold (DB-only). The
   // sheet dismisses itself on success.
-  const handleAutodepositConfirm = useCallback(
-    async (thresholdUsd: number) => {
+  const submitAutodeposit = useCallback(
+    async (mode: "create" | "edit", thresholdUsd: number) => {
       const metric = startMobileLoadingMetric(
-        autodepositSetupMode === "edit"
+        mode === "edit"
           ? "earn.autodeposit.floor_update"
           : "earn.autodeposit.setup"
       );
@@ -798,7 +810,7 @@ export default function EarnScreen() {
         if (!signer || !isWalletUnlocked(state)) {
           throw new Error("Unlock your wallet to continue.");
         }
-        if (autodepositSetupMode === "edit") {
+        if (mode === "edit") {
           if (!autodeposit?.recurringDelegation) {
             throw new Error("Autodeposit isn't set up.");
           }
@@ -812,23 +824,34 @@ export default function EarnScreen() {
         } else {
           await executeEarnAutodepositSetup({ signer, thresholdUsd });
         }
-        const fresh = await refreshAutodeposit();
-        // Criteria met for immediate execution → the backend scheduled a bootstrap
-        // sweep. Take the user straight to Activity so the pending transaction (and
-        // its "Execute now" shortcut) is visible, instead of leaving them guessing.
-        // The Activity feed reads Autodeposit state through its own hook instance,
-        // which hasn't seen the new sweep yet: flag the expectation (the feed shows
-        // a skeleton "Scheduled" row immediately) and warm its read in the
-        // background so the real row lands without waiting for a manual refresh.
-        if (getVisibleEarnScheduledSweeps(fresh?.scheduledSweeps).length > 0) {
-          expectScheduledSweep();
-          void refreshActivityAutodeposit();
-          router.navigate({
-            pathname: "/(tabs)/activity",
-            params: { section: "earn" },
-          });
+        try {
+          const fresh = await refreshAutodeposit({ throwOnError: true });
+          if (!fresh) {
+            throw new Error(
+              "Autodeposit mutation completed but its state was not available."
+            );
+          }
+          // Criteria met for immediate execution → the backend scheduled a bootstrap
+          // sweep. Take the user straight to Activity so the pending transaction (and
+          // its "Execute now" shortcut) is visible, instead of leaving them guessing.
+          // The Activity feed reads Autodeposit state through its own hook instance,
+          // which hasn't seen the new sweep yet: flag the expectation (the feed shows
+          // a skeleton "Scheduled" row immediately) and warm its read in the
+          // background so the real row lands without waiting for a manual refresh.
+          if (getVisibleEarnScheduledSweeps(fresh.scheduledSweeps).length > 0) {
+            expectScheduledSweep();
+            void refreshActivityAutodeposit();
+            router.navigate({
+              pathname: "/(tabs)/activity",
+              params: { section: "earn" },
+            });
+          }
+          metric.completeAfterPaint();
+        } catch (refreshError) {
+          metric.failAfterPaint();
+          console.warn("[autodeposit] mutation refresh failed", refreshError);
+          void refreshAutodeposit();
         }
-        metric.completeAfterPaint();
       } catch (error) {
         metric.failAfterPaint();
         throw error;
@@ -837,13 +860,17 @@ export default function EarnScreen() {
     [
       signer,
       state,
-      autodepositSetupMode,
       autodeposit,
       refreshAutodeposit,
       expectScheduledSweep,
       refreshActivityAutodeposit,
       router,
     ]
+  );
+  const handleAutodepositConfirm = useCallback(
+    (thresholdUsd: number) =>
+      submitAutodeposit(autodepositSetupMode, thresholdUsd),
+    [autodepositSetupMode, submitAutodeposit]
   );
 
   const handleAutodepositDelete = useCallback(async () => {
@@ -860,15 +887,59 @@ export default function EarnScreen() {
         policy: autodeposit.policyAccount,
         recurringDelegation: autodeposit.recurringDelegation,
       });
-      void refreshAutodeposit().then(
-        () => metric.completeAfterPaint(),
-        () => metric.failAfterPaint()
-      );
+      try {
+        await refreshAutodeposit({ throwOnError: true });
+        metric.completeAfterPaint();
+      } catch (refreshError) {
+        metric.failAfterPaint();
+        console.warn("[autodeposit] close refresh failed", refreshError);
+        void refreshAutodeposit();
+      }
     } catch (error) {
       metric.failAfterPaint();
       throw error;
     }
   }, [signer, state, autodeposit, refreshAutodeposit]);
+
+  // The mainnet verifier invokes these exact production callbacks. Registration
+  // exists only in a dev build with the explicit E2E flag, so a verifier pass
+  // proves the instrumentation remains attached to the UI mutation paths.
+  useEffect(() => {
+    if (!(__DEV__ && process.env.EXPO_PUBLIC_E2E_METRICS === "true")) {
+      return;
+    }
+    return registerLoadingMetricsEarnUiDriver({
+      autodeposit,
+      closeAutodeposit: handleAutodepositDelete,
+      deposit: handleDepositConfirmed,
+      refresh: async () => {
+        await Promise.all([
+          refreshEarnPosition({ throwOnError: true }),
+          refreshAutodeposit({ throwOnError: true }),
+          refreshTokenHoldings(true, { throwOnError: true }),
+          refreshWithdrawSources({ throwOnError: true }),
+        ]);
+      },
+      setAutodepositFloor: (thresholdUsd) =>
+        submitAutodeposit("edit", thresholdUsd),
+      setupAutodeposit: (thresholdUsd) =>
+        submitAutodeposit("create", thresholdUsd),
+      toggleAutodeposit: handleAutodepositToggle,
+      withdraw: ({ amountUsd, mode, source }) =>
+        handleWithdrawConfirmed(amountUsd, source, mode),
+    });
+  }, [
+    autodeposit,
+    handleAutodepositDelete,
+    handleAutodepositToggle,
+    handleDepositConfirmed,
+    handleWithdrawConfirmed,
+    refreshAutodeposit,
+    refreshEarnPosition,
+    refreshTokenHoldings,
+    refreshWithdrawSources,
+    submitAutodeposit,
+  ]);
 
   // Loyal APY for the hero + funded header badges — same source as the APY
   // chart and the web (forecast/loyal rate), not the position's raw reserve

@@ -11,6 +11,7 @@ import {
 import { Alert } from "react-native";
 
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
+import { registerLoadingMetricsActivityUiDriver } from "@/e2e/loading-metrics-ui-driver";
 import { useEarnActivity } from "@/hooks/wallet/useEarnActivity";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -338,15 +339,28 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   // when "Execute now" succeeds; resolved (cross-faded) when the worker's
   // `balance_sweep` tx lands; cleared on blur / wallet change / safety timeout.
   const [sweepMorph, setSweepMorph] = useState<SweepMorph | null>(null);
-  const clearSweepMorph = useCallback(() => setSweepMorph(null), []);
   // The execute-now lifecycle flow stays open until the worker's result tx is
   // observed — completing it then makes elapsedMs the true request→done time.
-  // An abandoned morph (blur/timeout) simply leaves the flow unterminated.
+  // Every abandonment path terminalizes both telemetry records before clearing.
   const pendingSweepFlowRef =
     useRef<LifecycleFlow<"earn.autodeposit.execute_now"> | null>(null);
   const pendingSweepMetricRef = useRef<ReturnType<
     typeof startMobileLoadingMetric
   > | null>(null);
+  const sweepAttemptIdRef = useRef(0);
+  const failPendingSweep = useCallback(() => {
+    sweepAttemptIdRef.current += 1;
+    pendingSweepFlowRef.current?.fail("ui_commit", {
+      executeNowState: "failed",
+    });
+    pendingSweepFlowRef.current = null;
+    pendingSweepMetricRef.current?.failAfterPaint();
+    pendingSweepMetricRef.current = null;
+  }, []);
+  const clearSweepMorph = useCallback(() => {
+    failPendingSweep();
+    setSweepMorph(null);
+  }, [failPendingSweep]);
 
   // Trigger the pending sweep now. The endpoint only advances the sweep's
   // eligibility (the worker still runs it), so we refresh the autodeposit state
@@ -365,6 +379,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     const baselineTxIds = new Set(
       earnTransactions.filter(isBalanceSweepTx).map((tx) => tx.id)
     );
+    // A second accepted request must never overwrite an unterminated attempt.
+    failPendingSweep();
+    const attemptId = ++sweepAttemptIdRef.current;
     pendingSweepMetricRef.current = startMobileLoadingMetric(
       "earn.autodeposit.execute_now"
     );
@@ -373,6 +390,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       const execution = await executeEarnAutodepositScheduledSweep({
         signer,
       });
+      if (attemptId !== sweepAttemptIdRef.current) {
+        execution.flow.fail("ui_commit", { executeNowState: "failed" });
+        return;
+      }
       pendingSweepFlowRef.current = execution.flow;
       if (sweeps.length > 0) {
         setSweepMorph({
@@ -385,8 +406,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
       }
       await Promise.all([refreshAutodeposit(), refreshEarnTransactions()]);
     } catch (error) {
-      pendingSweepMetricRef.current?.failAfterPaint();
-      pendingSweepMetricRef.current = null;
+      failPendingSweep();
       console.warn("[autodeposit] execute scheduled sweep failed", error);
       // The endpoint refuses with a user-actionable reason when the sweep can
       // never run as-is (e.g. no active Earn position after a full withdrawal)
@@ -415,6 +435,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     earnTransactions,
     refreshAutodeposit,
     refreshEarnTransactions,
+    failPendingSweep,
   ]);
 
   // Watch the Earn feed for the worker's result tx: the newest `balance_sweep`
@@ -471,16 +492,19 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     if (!sweepMorph) {
       return;
     }
-    const timeoutId = setTimeout(() => setSweepMorph(null), SWEEP_MORPH_MAX_MS);
+    const timeoutId = setTimeout(() => {
+      failPendingSweep();
+      setSweepMorph(null);
+    }, SWEEP_MORPH_MAX_MS);
     return () => clearTimeout(timeoutId);
-  }, [sweepMorph]);
+  }, [sweepMorph, failPendingSweep]);
 
   // A morph/expectation belongs to one wallet — drop them if the wallet changes.
   useEffect(() => {
+    failPendingSweep();
     setSweepMorph(null);
     setExpectingScheduledSweep(false);
-    pendingSweepMetricRef.current = null;
-  }, [publicKey]);
+  }, [publicKey, failPendingSweep]);
 
   // Which scheduled slot to watch on the granular progress endpoint: the
   // unresolved morph's snapshotted sweep (the slot drops out of the live
@@ -699,6 +723,23 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     },
     [signer, state, refundingAccount, refreshEarnRefunds]
   );
+
+  useEffect(() => {
+    if (!(__DEV__ && process.env.EXPO_PUBLIC_E2E_METRICS === "true")) {
+      return;
+    }
+    return registerLoadingMetricsActivityUiDriver({
+      executeRefund,
+      executeScheduledSweep,
+      refreshAutodeposit,
+      scheduledSweepIds: earnScheduledSweeps.map((sweep) => sweep.id),
+    });
+  }, [
+    earnScheduledSweeps,
+    executeRefund,
+    executeScheduledSweep,
+    refreshAutodeposit,
+  ]);
 
   // Escape hatch for the locked-rent row: the Earn tab's Delete control only
   // renders once a deposit exists, so a wallet whose position is closed — the

@@ -7,6 +7,7 @@ import {
 import { setEarnAutodepositActive } from "@/lib/solana/earn/autodeposit";
 import type { EarnAutodepositState } from "@/lib/solana/earn/earn-api";
 import type { Signer } from "@/lib/wallet/signer";
+import { startMobileLoadingMetric } from "@/services/loading-metrics";
 
 const AUTODEPOSIT_TOGGLE_DEBOUNCE_MS = 250;
 
@@ -28,7 +29,9 @@ export function useEarnAutodepositToggle(args: {
   autodeposit: EarnAutodepositState | null;
   signer: Signer | null;
   walletUnlocked: boolean;
-  refreshAutodeposit(): Promise<EarnAutodepositState | null>;
+  refreshAutodeposit(options?: {
+    throwOnError?: boolean;
+  }): Promise<EarnAutodepositState | null>;
 }): {
   active: boolean;
   requestToggle(): Promise<void> | null;
@@ -80,11 +83,20 @@ export function useEarnAutodepositToggle(args: {
           vaultIndex,
         }),
       refresh: async () => {
-        const refreshed = await refreshAutodeposit();
+        const refreshed = await refreshAutodeposit({ throwOnError: true });
         if (!refreshed) {
           throw new AutodepositRefreshError();
         }
         return refreshed.active;
+      },
+      onSubmissionStart: (nextActive) => {
+        const metric = startMobileLoadingMetric(
+          nextActive ? "earn.autodeposit.resume" : "earn.autodeposit.pause"
+        );
+        return {
+          complete: metric.completeAfterPaint,
+          fail: metric.failAfterPaint,
+        };
       },
       onOptimisticActive: (nextActive) => {
         if (currentTargetKeyRef.current === controllerTargetKey) {

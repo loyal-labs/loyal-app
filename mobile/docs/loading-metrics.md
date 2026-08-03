@@ -15,7 +15,8 @@ The gauge is `loyal.mobile.loading.duration`, in milliseconds. It records:
   `execute_now`: interaction through the authoritative refreshed UI state. An
   execute-now attempt stays open until its resulting activity is observed.
   Both a completed worker result and an authoritative failed/released/canceled
-  result close the metric; a missing terminal state remains open until timeout.
+  result close the metric. Blur, wallet replacement, and the bounded morph
+  timeout close an abandoned attempt as failed rather than dropping it.
 
 Every Earn attempt gets a random flow UUID and exactly one terminal outcome.
 App load gets a random process-session UUID. Allowed dimensions are operation,
@@ -47,8 +48,26 @@ native relay. It launches the dev client, copies the key to the app-private
 emulator sandbox, deletes both staging and app-private copies during
 unconditional cleanup, and executes real deposit, Autodeposit setup/scheduled
 execution/floor update/pause/resume/close, full withdrawal, and eligible refund
-paths. It then queries the database for every mandatory metric and proves that
-no wallet, amount, or signature dimensions were stored.
+paths. The action phase invokes the exact production Earn and Activity
+callbacks registered by the rendered screens; direct executors are reserved
+for uninstrumented preflight and safety cleanup. The verifier would therefore
+fail if UI instrumentation were removed. It then queries the database for
+every mandatory metric and proves that no wallet, amount, or signature
+dimensions were stored.
+
+By default the verifier starts the repository's full disposable ClickStack
+image. When Podman's VM transport is unavailable, developers with the
+`clickhouse` binary installed can run the same app, relay, persistence, and
+database assertions against a disposable ClickStack-compatible host table:
+
+```sh
+MOBILE_METRICS_CLICKSTACK_MODE=host-clickhouse \
+  bun run verify:loading-metrics:e2e
+```
+
+The host mode verifies the strict native relay contract and the exact
+`default.otel_metrics_gauge` storage shape, but it does not replace the full
+image's collector/authentication smoke check.
 
 The verifier requires successful metrics for the app load and every directly
 signed mobile policy/action path. Execute-now is asynchronous infrastructure:
