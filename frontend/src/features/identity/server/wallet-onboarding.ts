@@ -729,7 +729,10 @@ export async function completeWalletOnboarding(
           ? error.code
           : isSmartAccountProvisioningError(error)
           ? error.code
-          : undefined
+          : // The proof already verified; anything raw here is an
+            // infrastructure failure inside provisioning (RPC, DB), not an
+            // unknown condition.
+            "smart_account_provisioning_failed"
       ),
     });
     if (isSmartAccountProvisioningError(error)) {
@@ -780,6 +783,27 @@ export async function completeWalletOnboarding(
       }
     }
 
-    throw error;
+    if (
+      error instanceof WalletAuthError ||
+      isSmartAccountProvisioningError(error)
+    ) {
+      throw error;
+    }
+
+    // A raw error here (RPC outage, DB failure) would bubble out of the route
+    // as a bare 500 with no error envelope, showing the user a generic
+    // failure for a signature that already verified — which reads as a wallet
+    // problem and sends them down the wrong path (ASK-1961).
+    console.error("[wallet-onboarding] wallet onboarding failed unexpectedly", {
+      challengeHash,
+      walletAddress,
+      errorName: error instanceof Error ? error.name : undefined,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      error,
+    });
+    throw new WalletAuthError(
+      "We could not finish setting up your session due to a temporary server issue. Your wallet signature was valid — please try again.",
+      { code: "smart_account_provisioning_failed", status: 503 }
+    );
   }
 }
