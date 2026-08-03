@@ -49,3 +49,33 @@ vendor response is accepted by the metric envelope.
 
 Loading telemetry is best-effort. A rejected, timed-out, or unavailable metrics
 relay never blocks a user action.
+
+## Mobile loading metrics
+
+The Expo app reports the gauge `loyal.mobile.loading.duration` to the native-only
+`POST /api/observability/mobile/metrics` relay. The relay accepts no browser
+origin headers, validates the same strict contract as the app, and exports the
+observation with `service.name=loyal-mobile`. Device-provided environment and
+release values describe the installed binary or OTA release rather than the
+Vercel relay deployment.
+
+| Attribute              | Values                                                                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loyal.operation`      | `app_load`, `earn.deposit`, `earn.withdrawal`, `earn.refund`, and Autodeposit `setup`, `floor_update`, `pause`, `resume`, `close`, or `execute_now` |
+| `loyal.phase`          | `app_ready` for app startup; `interaction_to_ui` for an Earn action                                                                                 |
+| `loyal.outcome`        | `completed`, `failed`                                                                                                                               |
+| `loyal.flow.id`        | Random per-attempt UUID for Earn actions                                                                                                            |
+| `loyal.app_session.id` | Random per-process UUID                                                                                                                             |
+| `loyal.platform`       | `android`, `ios`                                                                                                                                    |
+| `url.path`             | Normalized Expo Router pathname without a query or fragment                                                                                         |
+
+`app_load` starts in `mobile/index.js`, before Expo Router is imported, and
+ends after authentication, account address, wallet holdings, Earn position, and
+Autodeposit state have resolved and the final screen has painted. Earn actions
+start at the user's submit or confirm interaction and end after the confirmed
+chain result is refreshed and painted. Failed terminal attempts are observed
+once; retry attempts receive a new flow ID.
+
+The mobile envelope rejects wallet addresses, token amounts, transaction
+signatures, request bodies, and extra attributes. Telemetry remains best-effort
+and cannot make a user action fail.

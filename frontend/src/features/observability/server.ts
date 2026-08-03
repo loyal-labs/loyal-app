@@ -14,7 +14,11 @@ import type {
   MobileLifecycleEnvelope,
   NormalizedLifecycleEvent,
 } from "./lifecycle-contract";
-import type { BrowserLoadingMetricEnvelope } from "./metrics-contract";
+import type {
+  BrowserLoadingMetricEnvelope,
+  MobileLoadingMetricEnvelope,
+  NormalizedLoadingMetric,
+} from "./metrics-contract";
 import {
   buildOtlpErrorPayload,
   buildOtlpLifecyclePayload,
@@ -142,17 +146,9 @@ async function exportLifecycleEvent(
 }
 
 async function exportLoadingMetric(
-  event: BrowserLoadingMetricEnvelope
+  event: NormalizedLoadingMetric
 ): Promise<boolean> {
-  return exportOtlpPayload(
-    buildOtlpLoadingMetricPayload({
-      ...event,
-      deploymentEnvironment: getObservabilityDeploymentEnvironment(),
-      release: getObservabilityRelease(),
-      serviceName: "loyal-frontend",
-    }),
-    "metrics"
-  );
+  return exportOtlpPayload(buildOtlpLoadingMetricPayload(event), "metrics");
 }
 
 export async function reportBrowserErrorEnvelope(
@@ -257,7 +253,28 @@ export async function reportBrowserLoadingMetricEnvelope(
   envelope: BrowserLoadingMetricEnvelope
 ): Promise<boolean> {
   try {
-    return await exportLoadingMetric(envelope);
+    return await exportLoadingMetric({
+      ...envelope,
+      deploymentEnvironment: getObservabilityDeploymentEnvironment(),
+      release: getObservabilityRelease(),
+      serviceName: "loyal-frontend",
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function reportMobileLoadingMetricEnvelope(
+  envelope: MobileLoadingMetricEnvelope
+): Promise<boolean> {
+  try {
+    const { environment, release, ...event } = envelope;
+    return await exportLoadingMetric({
+      ...event,
+      deploymentEnvironment: environment,
+      release,
+      serviceName: "loyal-mobile",
+    });
   } catch {
     return false;
   }
