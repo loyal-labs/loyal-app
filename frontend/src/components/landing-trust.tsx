@@ -32,13 +32,13 @@ export function LandingTrust() {
 
           <div
             aria-hidden="true"
-            className="pointer-events-none flex justify-end overflow-hidden lg:absolute lg:bottom-0 lg:right-0 lg:translate-y-[14%]"
+            className="pointer-events-none flex justify-end overflow-hidden lg:absolute lg:bottom-0 lg:right-0 lg:translate-x-[8%] lg:translate-y-[16%]"
           >
             <Image
               alt=""
-              className="h-[160px] w-[160px] translate-x-4 translate-y-4 lg:h-[300px] lg:w-[300px] lg:translate-x-0 lg:translate-y-0"
+              className="h-[160px] w-[160px] translate-x-4 translate-y-4 lg:h-[280px] lg:w-[280px] lg:translate-x-0 lg:translate-y-0"
               height={288}
-              src="/landing/figma/workflows-mascot.svg"
+              src="/Shield.svg"
               width={288}
             />
           </div>
