@@ -12,6 +12,7 @@ import { LandingPhoneLottie } from "@/components/landing-phone-lottie";
 // Roadmap temporarily hidden — restore by uncommenting
 // import { LandingRoadmap } from "@/components/landing-roadmap";
 import { LandingScrollAnimations } from "@/components/landing-scroll-animations";
+import { LandingTrust } from "@/components/landing-trust";
 
 const featureCards: {
   image: { src: string; alt: string };
@@ -178,6 +179,8 @@ export default function LandingPage() {
 
       {/* Roadmap temporarily hidden — restore by uncommenting */}
       {/* <LandingRoadmap /> */}
+
+      <LandingTrust />
 
       <LandingFaq />
 
