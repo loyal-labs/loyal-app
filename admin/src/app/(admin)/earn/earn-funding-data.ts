@@ -92,6 +92,11 @@ type SpendRow = {
   lamports7d: bigint;
 };
 
+type SpendSourceResult = {
+  rows: SpendRow[];
+  failed: boolean;
+};
+
 type WalletSpend = {
   spend24hLamports: string | null;
   spend7dLamports: string | null;
@@ -339,7 +344,7 @@ function toSpendRow(
 // sponsored transaction finalizes.
 async function loadSponsorshipSpendRows(
   addresses: string[]
-): Promise<SpendRow[]> {
+): Promise<SpendSourceResult> {
   try {
     const db = getDatabase();
     const rows = await db
@@ -364,11 +369,14 @@ async function loadSponsorshipSpendRows(
       )
       .groupBy(appSmartAccountSponsorshipTransactions.payerAddress);
 
-    return rows
-      .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
-      .filter((row): row is SpendRow => Boolean(row));
+    return {
+      failed: false,
+      rows: rows
+        .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
+        .filter((row): row is SpendRow => Boolean(row)),
+    };
   } catch {
-    return [];
+    return { failed: true, rows: [] };
   }
 }
 
@@ -376,7 +384,7 @@ async function loadSponsorshipSpendRows(
 // private-transfer-analytics cron.
 async function loadGaslessClaimSpendRows(
   addresses: string[]
-): Promise<SpendRow[]> {
+): Promise<SpendSourceResult> {
   try {
     const db = getDatabase();
     const rows = await db
@@ -398,17 +406,22 @@ async function loadGaslessClaimSpendRows(
       )
       .groupBy(gaslessClaimTransactions.payerAddress);
 
-    return rows
-      .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
-      .filter((row): row is SpendRow => Boolean(row));
+    return {
+      failed: false,
+      rows: rows
+        .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
+        .filter((row): row is SpendRow => Boolean(row)),
+    };
   } catch {
-    return [];
+    return { failed: true, rows: [] };
   }
 }
 
 // Route execution fees plus lookup-table provisioning fees and unreclaimed
 // rent, both paid by the Earn policy wallet.
-async function loadYieldSpendRows(addresses: string[]): Promise<SpendRow[]> {
+async function loadYieldSpendRows(
+  addresses: string[]
+): Promise<SpendSourceResult> {
   try {
     const sql = getYieldNeonSql();
     const [routeRows, lookupTableRows] = await Promise.all([
@@ -444,29 +457,71 @@ async function loadYieldSpendRows(addresses: string[]): Promise<SpendRow[]> {
       ) as unknown as Promise<SpendObservationRow[]>,
     ]);
 
-    return [...routeRows, ...lookupTableRows]
-      .map((row) => toSpendRow(row.address, row.lamports_24h, row.lamports_7d))
-      .filter((row): row is SpendRow => Boolean(row));
+    return {
+      failed: false,
+      rows: [...routeRows, ...lookupTableRows]
+        .map((row) =>
+          toSpendRow(row.address, row.lamports_24h, row.lamports_7d)
+        )
+        .filter((row): row is SpendRow => Boolean(row)),
+    };
   } catch {
-    return [];
+    return { failed: true, rows: [] };
   }
 }
 
-async function loadWalletSpend(
-  addresses: string[]
-): Promise<Map<string, WalletSpend>> {
+// A wallet's spend is only meaningful once every source covering its roles has
+// answered. Summing what is left after a source fails would understate spend
+// and inflate the runway without any visible sign, so the affected wallets fall
+// back to "unknown" and the failure is surfaced as a source error instead.
+async function loadWalletSpend(addresses: string[]): Promise<{
+  spend: Map<string, WalletSpend>;
+  unavailableRoles: Set<FundingRole>;
+  sourceErrors: string[];
+}> {
+  const unavailableRoles = new Set<FundingRole>();
+  const sourceErrors: string[] = [];
   if (addresses.length === 0) {
-    return new Map();
+    return { sourceErrors, spend: new Map(), unavailableRoles };
   }
 
-  const rowGroups = await Promise.all([
+  const [sponsorship, gasless, yieldSpend] = await Promise.all([
     loadSponsorshipSpendRows(addresses),
     loadGaslessClaimSpendRows(addresses),
     loadYieldSpendRows(addresses),
   ]);
 
+  const sources: Array<{
+    error: string;
+    result: SpendSourceResult;
+    roles: FundingRole[];
+  }> = [
+    {
+      error: "Smart-account sponsorship spend history unavailable",
+      result: sponsorship,
+      roles: ["sponsorship"],
+    },
+    {
+      error: "Gasless deployment spend history unavailable",
+      result: gasless,
+      roles: ["deployment"],
+    },
+    {
+      error: "Yield execution spend history unavailable",
+      result: yieldSpend,
+      roles: ["policy", "route_fee_payer"],
+    },
+  ];
+
+  for (const source of sources) {
+    if (source.result.failed) {
+      sourceErrors.push(source.error);
+      source.roles.forEach((role) => unavailableRoles.add(role));
+    }
+  }
+
   const totals = new Map<string, { lamports24h: bigint; lamports7d: bigint }>();
-  for (const row of rowGroups.flat()) {
+  for (const row of sources.flatMap((source) => source.result.rows)) {
     const existing = totals.get(row.address) ?? {
       lamports24h: BigInt(0),
       lamports7d: BigInt(0),
@@ -477,15 +532,19 @@ async function loadWalletSpend(
     });
   }
 
-  return new Map(
-    Array.from(totals.entries()).map(([address, total]) => [
-      address,
-      {
-        spend24hLamports: total.lamports24h.toString(),
-        spend7dLamports: total.lamports7d.toString(),
-      },
-    ])
-  );
+  return {
+    sourceErrors,
+    spend: new Map(
+      Array.from(totals.entries()).map(([address, total]) => [
+        address,
+        {
+          spend24hLamports: total.lamports24h.toString(),
+          spend7dLamports: total.lamports7d.toString(),
+        },
+      ])
+    ),
+    unavailableRoles,
+  };
 }
 
 async function loadBalances(addresses: string[]): Promise<{
@@ -698,6 +757,7 @@ function createWallets(args: {
   balances: Map<string, string>;
   definitions: RoleDefinition[];
   spend: Map<string, WalletSpend>;
+  spendUnavailableRoles: Set<FundingRole>;
   rpcError: string | null;
   rpcObservedAt: string;
   rpcSlot: number | null;
@@ -767,10 +827,14 @@ function createWallets(args: {
       const balanceLamportsText = args.balances.get(address) ?? null;
       const balanceLamports =
         balanceLamportsText === null ? null : BigInt(balanceLamportsText);
-      const spend = args.spend.get(address) ?? {
-        spend24hLamports: null,
-        spend7dLamports: null,
-      };
+      const roleKeys = wallet.roles.map((role) => role.key);
+      const spendUnavailable = roleKeys.some((key) =>
+        args.spendUnavailableRoles.has(key)
+      );
+      const spend =
+        spendUnavailable || !args.spend.has(address)
+          ? { spend24hLamports: null, spend7dLamports: null }
+          : (args.spend.get(address) as WalletSpend);
       const spend7dLamports = spend.spend7dLamports
         ? BigInt(spend.spend7dLamports)
         : null;
@@ -778,7 +842,6 @@ function createWallets(args: {
         balanceLamports,
         spend7dLamports
       );
-      const roleKeys = wallet.roles.map((role) => role.key);
       const minimumLamports = roleKeys.some(
         (key) =>
           key === "policy" || key === "deployment" || key === "route_fee_payer"
@@ -865,7 +928,8 @@ async function loadFundingData(): Promise<EarnFundingData> {
     sourceErrors.push(balanceResult.error);
   }
 
-  const spend = await loadWalletSpend(addresses);
+  const spendResult = await loadWalletSpend(addresses);
+  sourceErrors.push(...spendResult.sourceErrors);
 
   const walletResult = createWallets({
     balances: balanceResult.balances,
@@ -873,7 +937,8 @@ async function loadFundingData(): Promise<EarnFundingData> {
     rpcError: balanceResult.error,
     rpcObservedAt: balanceResult.observedAt,
     rpcSlot: balanceResult.slot,
-    spend,
+    spend: spendResult.spend,
+    spendUnavailableRoles: spendResult.unavailableRoles,
   });
 
   return {
