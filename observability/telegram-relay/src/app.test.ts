@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createRequestHandler,
+  createFanoutSender,
+  createSlackSender,
   createTelegramSender,
   formatPlainTelegramMessage,
   formatTelegramMessage,
@@ -163,6 +165,7 @@ describe("payload and formatting", () => {
       CLICKSTACK_WEBHOOK_SECRET: "secret",
       TELEGRAM_BOT_TOKEN: "token",
       TELEGRAM_CHAT_ID: "chat",
+      SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/test",
     };
     expect(loadConfig(env).traceLogs).toBe(false);
     expect(loadConfig({ ...env, TRACE_LOGS: "true" }).traceLogs).toBe(true);
@@ -200,6 +203,7 @@ describe("payload and formatting", () => {
       CLICKSTACK_WEBHOOK_SECRET: "secret",
       TELEGRAM_BOT_TOKEN: "token",
       TELEGRAM_CHAT_ID: "chat",
+      SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/test",
     };
     expect(loadConfig(env).alertColumns).toEqual([
       "Timestamp",
@@ -306,6 +310,7 @@ describe("pretty alert formatting", () => {
       CLICKSTACK_WEBHOOK_SECRET: "secret",
       TELEGRAM_BOT_TOKEN: "token",
       TELEGRAM_CHAT_ID: "chat",
+      SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/test",
     };
     expect(() => loadConfig({ ...env, PORT: "0x10" })).toThrow(
       "PORT must be a positive integer"
@@ -427,5 +432,49 @@ describe("Telegram sender", () => {
     expect(bodies[0]?.parse_mode).toBe("HTML");
     expect(bodies[1]?.parse_mode).toBeUndefined();
     expect(bodies[1]?.text).toContain('"loyal-mobile"');
+  });
+});
+
+describe("Slack sender and fan-out", () => {
+  const newAlert: AlertContext = { kind: "new", silent: false };
+
+  test("posts the formatted alert to the configured Slack webhook", async () => {
+    const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const send = createSlackSender(
+      {
+        slackWebhookUrl: "https://hooks.slack.com/services/test",
+        alertColumns: defaultColumns,
+      },
+      async (url, init) => {
+        requests.push({
+          url,
+          body: JSON.parse(String(init.body)) as Record<string, unknown>,
+        });
+        return new Response("ok", { status: 200 });
+      }
+    );
+
+    await send(payload, newAlert);
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("https://hooks.slack.com/services/test");
+    expect(requests[0]?.body.text).toContain("Alert for Errors");
+    expect(requests[0]?.body.text).toContain(payload.link);
+  });
+
+  test("does not acknowledge fan-out when either destination fails", async () => {
+    const destinations: string[] = [];
+    const send = createFanoutSender([
+      async () => {
+        destinations.push("telegram");
+      },
+      async () => {
+        destinations.push("slack");
+        throw new Error("Slack returned HTTP 500");
+      },
+    ]);
+
+    await expect(send(payload, newAlert)).rejects.toThrow("destination(s) 2");
+    expect(destinations).toEqual(["telegram", "slack"]);
   });
 });

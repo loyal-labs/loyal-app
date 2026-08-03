@@ -67,6 +67,7 @@ function createSystem(options: SystemOptions = {}) {
     CLICKSTACK_WEBHOOK_SECRET: "test-secret",
     TELEGRAM_BOT_TOKEN: "1234567:test-token",
     TELEGRAM_CHAT_ID: "-1001234567890",
+    SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/test",
     ALERT_COLUMNS: ALERT_COLUMNS.join(","),
     CARDINALITY_COLUMNS: "wallet",
     // A fresh process is a restart, so the shipped default holds the first

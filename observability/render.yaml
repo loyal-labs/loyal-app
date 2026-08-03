@@ -50,7 +50,7 @@ projects:
               mountPath: /var/lib/clickhouse
               sizeGB: 10
 
-          # Relays ClickStack alert webhooks to Telegram. Private service: it is
+          # Relays ClickStack alert webhooks to Telegram and Slack. Private service: it is
           # reached only over this environment's private network, so the webhook
           # endpoint is never exposed publicly and the Bearer token is defense in
           # depth rather than the only control.
@@ -97,6 +97,9 @@ projects:
               - key: TELEGRAM_BOT_TOKEN
                 sync: false
               - key: TELEGRAM_CHAT_ID
+                sync: false
+              # Loyal #logs incoming webhook. Keep the full URL only in Render.
+              - key: SLACK_WEBHOOK_URL
                 sync: false
               # Minimum length of the quiet window, not its usual length: a
               # signature is held until the next daily recap, so a lasting

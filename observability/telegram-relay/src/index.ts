@@ -1,6 +1,8 @@
 import {
   createAlertAnalyzer,
   createRequestHandler,
+  createFanoutSender,
+  createSlackSender,
   createTelegramSender,
   loadConfig,
   type ServerConfig,
@@ -23,16 +25,19 @@ function readConfig() {
 }
 
 const config = readConfig();
-const relay = new AlertRelay(createTelegramSender(config), {
-  cooldownMs: config.cooldownMs,
-  idempotencyTtlMs: config.idempotencyTtlMs,
-  maxCacheEntries: config.maxCacheEntries,
-  analyze: createAlertAnalyzer(config),
-  dailyRecapEnabled: config.dailyRecapEnabled,
-  dailyRecapAtMinutes: config.dailyRecapAtMinutes,
-  escalationMultiplier: config.escalationMultiplier,
-  restartGraceMs: config.restartGraceMs,
-});
+const relay = new AlertRelay(
+  createFanoutSender([createTelegramSender(config), createSlackSender(config)]),
+  {
+    cooldownMs: config.cooldownMs,
+    idempotencyTtlMs: config.idempotencyTtlMs,
+    maxCacheEntries: config.maxCacheEntries,
+    analyze: createAlertAnalyzer(config),
+    dailyRecapEnabled: config.dailyRecapEnabled,
+    dailyRecapAtMinutes: config.dailyRecapAtMinutes,
+    escalationMultiplier: config.escalationMultiplier,
+    restartGraceMs: config.restartGraceMs,
+  }
+);
 
 const restored = await restoreState(config, relay);
 

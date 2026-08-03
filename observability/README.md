@@ -186,7 +186,8 @@ more matched rows. It delivers to a generic webhook pointing at
 `loyal-clickstack-telegram-relay` over the private network, which posts to
 Telegram.
 
-The relay, not ClickStack, decides what the chat sees. The first delivery for a
+The relay, not ClickStack, decides what the chats see. Each accepted alert is
+sent to both Telegram and Loyal Slack `#logs`. The first delivery for a
 signature is posted immediately; repeats of it are held until the next daily
 recap at 06:00 UTC, which lists every distinct error with how often it fired.
 A lasting incident is therefore announced once and counted once a day rather
@@ -234,6 +235,8 @@ Render, `loyal-clickstack-telegram-relay`:
   and paste it into the ClickStack webhook's `Authorization` header
 - `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` — set by an operator, never
   stored in ClickStack
+- `SLACK_WEBHOOK_URL` — incoming webhook for Loyal `#logs`, stored only in
+  Render
 
 The rest of the relay's settings are declared in the Blueprint and documented in
 [`telegram-relay/README.md`](./telegram-relay/README.md).

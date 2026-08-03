@@ -71,10 +71,13 @@ export interface DailySummary {
   cappedValues: string[];
 }
 
-export type TelegramSender = (
+export type AlertSender = (
   payload: ClickStackWebhookPayload,
   context: AlertContext
 ) => Promise<void>;
+
+/** Kept as an alias for callers and tests written before Slack fan-out. */
+export type TelegramSender = AlertSender;
 
 export interface SignatureSummary {
   count: number;
@@ -329,7 +332,7 @@ export class AlertRelay {
   private pendingRecap: { tally: DailyTally; until: number } | null = null;
 
   constructor(
-    private readonly sender: TelegramSender,
+    private readonly sender: AlertSender,
     private readonly options: AlertRelayOptions
   ) {
     this.idempotencyKeys = new ExpiringCache(options.maxCacheEntries);

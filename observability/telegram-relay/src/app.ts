@@ -10,6 +10,7 @@ import {
 import { redactBotToken } from "./redact.ts";
 import {
   type AlertAnalyzer,
+  type AlertSender,
   AlertRelay,
   type ClickStackWebhookPayload,
   type TelegramSender,
@@ -19,6 +20,7 @@ export { formatPlainTelegramMessage, formatTelegramMessage } from "./format.ts";
 export { redactBotToken } from "./redact.ts";
 
 const TELEGRAM_REQUEST_TIMEOUT_MS = 10_000;
+const SLACK_REQUEST_TIMEOUT_MS = 10_000;
 /** Longest `retry_after` we absorb in-process before handing the retry back. */
 const TELEGRAM_MAX_RETRY_AFTER_MS = 5_000;
 /**
@@ -35,6 +37,7 @@ export interface ServerConfig {
   clickStackWebhookSecret: string;
   telegramBotToken: string;
   telegramChatId: string;
+  slackWebhookUrl: string;
   cooldownMs: number;
   idempotencyTtlMs: number;
   maxCacheEntries: number;
@@ -61,6 +64,7 @@ export function loadConfig(
     clickStackWebhookSecret: required(env, "CLICKSTACK_WEBHOOK_SECRET"),
     telegramBotToken: required(env, "TELEGRAM_BOT_TOKEN"),
     telegramChatId: required(env, "TELEGRAM_CHAT_ID"),
+    slackWebhookUrl: required(env, "SLACK_WEBHOOK_URL"),
     cooldownMs:
       positiveInteger(env.COOLDOWN_SECONDS, 3600, "COOLDOWN_SECONDS") * 1000,
     idempotencyTtlMs:
@@ -234,6 +238,73 @@ export function createTelegramSender(
   };
 }
 
+export function createSlackSender(
+  config: Pick<ServerConfig, "slackWebhookUrl" | "alertColumns"> &
+    Partial<Pick<ServerConfig, "cardinalityColumns">>,
+  fetchImpl: FetchLike = fetch
+): AlertSender {
+  return async (payload, context) => {
+    const message = formatTelegramMessage(payload, {
+      alertColumns: config.alertColumns,
+      cardinalityColumns: config.cardinalityColumns,
+      context,
+    });
+    const response = await fetchImpl(config.slackWebhookUrl, {
+      method: "POST",
+      signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: telegramHtmlToSlack(message.text) }),
+    });
+    const responseText = await response.text();
+
+    if (!response.ok || responseText.trim().toLowerCase() !== "ok") {
+      throw new Error(
+        `Slack returned HTTP ${response.status}: ${responseText.slice(0, 300)}`
+      );
+    }
+  };
+}
+
+/** Send each accepted alert to both destinations before acknowledging it. */
+export function createFanoutSender(senders: AlertSender[]): AlertSender {
+  return async (payload, context) => {
+    const results = await Promise.allSettled(
+      senders.map((sender) => sender(payload, context))
+    );
+    const failures = results
+      .map((result, index) => ({ result, index }))
+      .filter(
+        (item): item is { result: PromiseRejectedResult; index: number } =>
+          item.result.status === "rejected"
+      );
+    if (failures.length > 0) {
+      throw new Error(
+        `Alert delivery failed for destination(s) ${failures
+          .map(({ index }) => index + 1)
+          .join(", ")}: ${failures
+          .map(({ result }) => errorMessage(result.reason))
+          .join("; ")}`
+      );
+    }
+  };
+}
+
+function telegramHtmlToSlack(text: string): string {
+  return text
+    .replace(/<b>(.*?)<\/b>/gs, "*$1*")
+    .replace(/<code>(.*?)<\/code>/gs, "`$1`")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /**
  * Fails closed on unparseable bodies. A false negative costs a duplicate
  * message after ClickStack retries; a false positive loses the alert.
@@ -379,7 +450,7 @@ export function createRequestHandler(
       // and an invalid chat ID are indistinguishable here.
       console.error(
         JSON.stringify({
-          event: "telegram_delivery_failed",
+          event: "alert_delivery_failed",
           eventId: payload.eventId,
           state: payload.state,
           errorName: error instanceof Error ? error.name : "UnknownError",
@@ -393,13 +464,10 @@ export function createRequestHandler(
         })
       );
       trace("request_failed", {
-        reason: "telegram_delivery_failed",
+        reason: "alert_delivery_failed",
         errorName: error instanceof Error ? error.name : "UnknownError",
       });
-      return jsonResponse(
-        { ok: false, error: "telegram_delivery_failed" },
-        502
-      );
+      return jsonResponse({ ok: false, error: "alert_delivery_failed" }, 502);
     }
   };
 }

@@ -1,9 +1,10 @@
-# ClickStack Telegram relay
+# ClickStack chat alert relay
 
-A small Bun service that sits between ClickStack and Telegram:
+A small Bun service that sits between ClickStack and the team chats:
 
 ```text
 ClickStack -> relay -> Telegram Bot API
+                    -> Slack #logs
 ```
 
 It sends the first non-`OK` state immediately and then holds that signature
@@ -235,6 +236,7 @@ search link.
 | `CLICKSTACK_WEBHOOK_SECRET` | yes      | -                                         | Bearer token accepted from ClickStack                                                                                                                            |
 | `TELEGRAM_BOT_TOKEN`        | yes      | -                                         | Telegram Bot API token, stored only by this relay                                                                                                                |
 | `TELEGRAM_CHAT_ID`          | yes      | -                                         | Destination chat or channel ID                                                                                                                                   |
+| `SLACK_WEBHOOK_URL`         | yes      | -                                         | Incoming webhook scoped to Loyal `#logs`; store only in Render                                                                                                   |
 | `HOST`                      | no       | `127.0.0.1`                               | Listen address. Must be `0.0.0.0` on Render                                                                                                                      |
 | `PORT`                      | no       | `3000`                                    | Listen port                                                                                                                                                      |
 | `COOLDOWN_SECONDS`          | no       | `3600`                                    | Minimum length of the quiet window. A signature is held until the next recap; this floor stops an alert that fires just before one from re-firing right after it |
@@ -255,8 +257,8 @@ search link.
 `CLICKSTACK_WEBHOOK_SECRET` uses `generateValue: true` in the Blueprint, so
 Render generates it. Read it from the Render dashboard and paste it into the
 ClickStack webhook header; it never needs to exist anywhere else.
-`TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` are `sync: false` and must be set by
-an operator.
+`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, and `SLACK_WEBHOOK_URL` are
+`sync: false` and must be set by an operator.
 
 ## ClickStack webhook
 
