@@ -1,8 +1,8 @@
 import "server-only";
 
-import { appUsers } from "@loyal-labs/db-core/schema";
+import { appUsers, loyalStatsSnapshots } from "@loyal-labs/db-core/schema";
 import { neon } from "@neondatabase/serverless";
-import { count } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 
 import { serverEnv } from "@/lib/core/config/server";
 import { getDatabase } from "@/lib/core/database";
@@ -10,6 +10,8 @@ import { getDatabase } from "@/lib/core/database";
 import type { LoyalStats } from "./stats-command";
 
 const EARN_AUM_START_DATE = "2026-06-15";
+const FIXED_KAMINO_MAIN_ROUTE_MODE = "fixed_kamino_main";
+const NATIVE_USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const STATS_QUERY_TIMEOUT_MS = 50_000;
 const ACTIVE_EARN_HOLDINGS_CTE = `
   refresh_lock AS MATERIALIZED (
@@ -34,9 +36,34 @@ const ACTIVE_EARN_HOLDINGS_CTE = `
     WHERE position.status = 'active'
       AND (SELECT acquired FROM refresh_lock)
   ),
+  active_aum_vaults AS (
+    SELECT DISTINCT
+      active.vault_id,
+      active.deposit_mint
+    FROM active_positions AS active
+    WHERE active.vault_id IS NOT NULL
+
+    UNION ALL
+
+    SELECT
+      vault.id AS vault_id,
+      '${NATIVE_USDC_MINT}'::text AS deposit_mint
+    FROM loyal_yield.managed_vaults AS vault
+    INNER JOIN loyal_yield.route_policies AS policy
+      ON policy.id = vault.active_policy_id
+      AND policy.active = true
+    WHERE vault.active = true
+      AND '${FIXED_KAMINO_MAIN_ROUTE_MODE}' = ANY(policy.route_modes)
+      AND '${NATIVE_USDC_MINT}' = ANY(policy.stable_mints)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM active_positions AS active
+        WHERE active.vault_id = vault.id
+      )
+  ),
   reserve_rows AS (
     SELECT
-      active.position_id,
+      active.vault_id,
       reserve.amount_raw,
       COALESCE(
         reserve.planning_metadata->>'amountSemantics',
@@ -46,13 +73,14 @@ const ACTIVE_EARN_HOLDINGS_CTE = `
         reserve.planning_metadata->>'redeemable_liquidity_amount_raw',
         reserve.planning_metadata->>'redeemable_source_liquidity_amount_raw'
       ) AS redeemable_amount_raw_text
-    FROM active_positions AS active
+    FROM active_aum_vaults AS active
     INNER JOIN loyal_yield.vault_reserve_positions_current AS reserve
       ON reserve.vault_id = active.vault_id
+      AND reserve.liquidity_mint = active.deposit_mint
   ),
   normalized_reserve_by_position AS (
     SELECT
-      position_id,
+      vault_id,
       COALESCE(SUM(
         CASE
           WHEN amount_semantics IN (
@@ -67,28 +95,28 @@ const ACTIVE_EARN_HOLDINGS_CTE = `
         END
       ), 0)::bigint AS normalized_reserve_raw
     FROM reserve_rows
-    GROUP BY position_id
+    GROUP BY vault_id
   ),
   idle_by_position AS (
     SELECT
-      active.position_id,
+      active.vault_id,
       COALESCE(SUM(idle.amount_raw), 0)::bigint AS idle_raw
-    FROM active_positions AS active
+    FROM active_aum_vaults AS active
     INNER JOIN loyal_yield.vault_idle_token_balances_current AS idle
       ON idle.vault_id = active.vault_id
       AND idle.mint = active.deposit_mint
-    GROUP BY active.position_id
+    GROUP BY active.vault_id
   ),
   normalized_active_positions AS (
     SELECT
-      active.position_id,
+      active.vault_id,
       COALESCE(reserve.normalized_reserve_raw, 0::bigint)
         + COALESCE(idle.idle_raw, 0::bigint) AS normalized_aum_raw
-    FROM active_positions AS active
+    FROM active_aum_vaults AS active
     LEFT JOIN normalized_reserve_by_position AS reserve
-      ON reserve.position_id = active.position_id
+      ON reserve.vault_id = active.vault_id
     LEFT JOIN idle_by_position AS idle
-      ON idle.position_id = active.position_id
+      ON idle.vault_id = active.vault_id
   )
 `;
 
@@ -176,15 +204,42 @@ function parseAumSeries(value: unknown): LoyalStatsRefresh["earnAumSeries"] {
   });
 }
 
+function preserveCompletedAumWeeks(
+  current: LoyalStatsRefresh["earnAumSeries"],
+  previous: LoyalStatsRefresh["earnAumSeries"]
+): LoyalStatsRefresh["earnAumSeries"] {
+  const currentWeekStart = current.at(-1)?.weekStart;
+  if (!currentWeekStart || previous.length === 0) {
+    return current;
+  }
+
+  const previousByWeek = new Map(
+    previous.map((point) => [point.weekStart, point] as const)
+  );
+  return current.map((point) =>
+    point.weekStart === currentWeekStart
+      ? point
+      : previousByWeek.get(point.weekStart) ?? point
+  );
+}
+
 export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
   const database = getDatabase();
   const sql = getYieldNeonSql();
 
-  const [userCountRows, transactionResults] = await Promise.all([
-    database.select({ value: count() }).from(appUsers),
-    sql.transaction((txn) => [
-      txn.query(`SET LOCAL statement_timeout = '${STATS_QUERY_TIMEOUT_MS}ms'`),
-      txn.query(`
+  const [userCountRows, existingSnapshotRows, transactionResults] =
+    await Promise.all([
+      database.select({ value: count() }).from(appUsers),
+      database
+        .select({ earnAumSeries: loyalStatsSnapshots.earnAumSeries })
+        .from(loyalStatsSnapshots)
+        .where(eq(loyalStatsSnapshots.snapshotKey, "current"))
+        .limit(1),
+      sql.transaction((txn) => [
+        txn.query(
+          `SET LOCAL statement_timeout = '${STATS_QUERY_TIMEOUT_MS}ms'`
+        ),
+        txn.query(`
         WITH
         ${ACTIVE_EARN_HOLDINGS_CTE},
         current_bounds AS (
@@ -298,9 +353,9 @@ export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
           ) AS earn_aum_series
         FROM refresh_lock
         WHERE acquired
-      `),
-    ]),
-  ]);
+        `),
+      ]),
+    ]);
 
   const totalUsers = userCountRows[0]?.value;
   const yieldRows = transactionResults[1] as unknown as YieldStatsRow[];
@@ -312,6 +367,11 @@ export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
     throw new Error("Invalid Loyal stats query result");
   }
 
+  const currentAumSeries = parseAumSeries(yieldStats.earn_aum_series);
+  const previousAumSeries = existingSnapshotRows[0]
+    ? parseAumSeries(existingSnapshotRows[0].earnAumSeries)
+    : [];
+
   return {
     activeAutodepositPolicies: parseCountMetric(
       yieldStats.active_autodeposit_policies,
@@ -321,7 +381,10 @@ export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
       yieldStats.active_principal_raw,
       "active principal"
     ),
-    earnAumSeries: parseAumSeries(yieldStats.earn_aum_series),
+    earnAumSeries: preserveCompletedAumWeeks(
+      currentAumSeries,
+      previousAumSeries
+    ),
     totalAumRaw: parseRawMetric(yieldStats.total_aum_raw, "total AUM"),
     totalOptimizedVolumeRaw: parseRawMetric(
       yieldStats.total_optimized_volume_raw,
