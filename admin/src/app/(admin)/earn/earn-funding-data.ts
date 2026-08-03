@@ -767,13 +767,14 @@ function calculateStatus(args: {
     };
   }
 
-  // No source records this wallet's outflow, so there is no runway to report
-  // and nothing to warn about. Say so rather than implying a reading of zero.
+  // No source records this wallet's outflow. It pays transaction fees, so
+  // clearing the safety floor is not evidence of health: an unmeasured burn
+  // rate is unknown, and only the floor above would catch a drain.
   if (!args.spendTracked) {
     return {
       detail:
-        "Balance is above the configured operating thresholds; spend is not tracked for this wallet",
-      status: "healthy",
+        "Balance is above the safety floor, but spend is not tracked for this wallet so runway cannot be assessed",
+      status: "unknown",
     };
   }
 
