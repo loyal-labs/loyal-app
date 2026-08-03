@@ -4,7 +4,16 @@ import {
   appSmartAccountSponsorshipTransactions,
   gaslessClaimTransactions,
 } from "@loyal-labs/db-core/schema";
-import { and, count, desc, eq, max, sql as drizzleSql, sum } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  max,
+  sql as drizzleSql,
+  sum,
+} from "drizzle-orm";
 
 import { getDatabase } from "@/lib/core/database";
 import { serverEnv } from "@/lib/core/config/server";
@@ -69,6 +78,23 @@ type FeePayerObservationRow = {
   address: string | null;
   active_shard_count: string | number | null;
   latest_seen_at: string | Date | null;
+};
+
+type SpendObservationRow = {
+  address: string | null;
+  lamports_24h: string | number | null;
+  lamports_7d: string | number | null;
+};
+
+type SpendRow = {
+  address: string;
+  lamports24h: bigint;
+  lamports7d: bigint;
+};
+
+type WalletSpend = {
+  spend24hLamports: string | null;
+  spend7dLamports: string | null;
 };
 
 type RpcAccount = {
@@ -278,18 +304,51 @@ async function loadYieldIdentityObservations(): Promise<{
   }
 }
 
-async function loadSponsorshipSpend(address: string): Promise<{
-  spend24hLamports: string | null;
-  spend7dLamports: string | null;
-}> {
+function toSpendLamports(value: string | number | null | undefined): bigint {
+  if (value === null || value === undefined) {
+    return BigInt(0);
+  }
+
+  const text = String(value).trim();
+  if (!/^-?\d+$/.test(text)) {
+    return BigInt(0);
+  }
+
+  const parsed = BigInt(text);
+  return parsed > BigInt(0) ? parsed : BigInt(0);
+}
+
+function toSpendRow(
+  address: string | null | undefined,
+  lamports24h: string | number | null | undefined,
+  lamports7d: string | number | null | undefined
+): SpendRow | null {
+  const normalizedAddress = normalizeAddress(address);
+  if (!normalizedAddress) {
+    return null;
+  }
+
+  return {
+    address: normalizedAddress,
+    lamports24h: toSpendLamports(lamports24h),
+    lamports7d: toSpendLamports(lamports7d),
+  };
+}
+
+// Sponsored smart-account deployments; rows are written by the app when each
+// sponsored transaction finalizes.
+async function loadSponsorshipSpendRows(
+  addresses: string[]
+): Promise<SpendRow[]> {
   try {
     const db = getDatabase();
     const rows = await db
       .select({
-        spend24hLamports: sum(
+        address: appSmartAccountSponsorshipTransactions.payerAddress,
+        lamports24h: sum(
           drizzleSql`CASE WHEN ${appSmartAccountSponsorshipTransactions.occurredAt} >= NOW() - INTERVAL '24 hours' THEN ${appSmartAccountSponsorshipTransactions.spentLamports} ELSE 0 END`
         ),
-        spend7dLamports: sum(
+        lamports7d: sum(
           drizzleSql`CASE WHEN ${appSmartAccountSponsorshipTransactions.occurredAt} >= NOW() - INTERVAL '7 days' THEN ${appSmartAccountSponsorshipTransactions.spentLamports} ELSE 0 END`
         ),
       })
@@ -297,17 +356,136 @@ async function loadSponsorshipSpend(address: string): Promise<{
       .where(
         and(
           eq(appSmartAccountSponsorshipTransactions.solanaEnv, MAINNET_APP_ENV),
-          eq(appSmartAccountSponsorshipTransactions.payerAddress, address)
+          inArray(
+            appSmartAccountSponsorshipTransactions.payerAddress,
+            addresses
+          )
         )
-      );
+      )
+      .groupBy(appSmartAccountSponsorshipTransactions.payerAddress);
 
-    return {
-      spend24hLamports: rows[0]?.spend24hLamports?.toString() ?? null,
-      spend7dLamports: rows[0]?.spend7dLamports?.toString() ?? null,
-    };
+    return rows
+      .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
+      .filter((row): row is SpendRow => Boolean(row));
   } catch {
-    return { spend24hLamports: null, spend7dLamports: null };
+    return [];
   }
+}
+
+// Gasless claim/verification transactions; rows are backfilled by the app's
+// private-transfer-analytics cron.
+async function loadGaslessClaimSpendRows(
+  addresses: string[]
+): Promise<SpendRow[]> {
+  try {
+    const db = getDatabase();
+    const rows = await db
+      .select({
+        address: gaslessClaimTransactions.payerAddress,
+        lamports24h: sum(
+          drizzleSql`CASE WHEN ${gaslessClaimTransactions.occurredAt} >= NOW() - INTERVAL '24 hours' THEN ${gaslessClaimTransactions.spentLamports} ELSE 0 END`
+        ),
+        lamports7d: sum(
+          drizzleSql`CASE WHEN ${gaslessClaimTransactions.occurredAt} >= NOW() - INTERVAL '7 days' THEN ${gaslessClaimTransactions.spentLamports} ELSE 0 END`
+        ),
+      })
+      .from(gaslessClaimTransactions)
+      .where(
+        and(
+          eq(gaslessClaimTransactions.solanaEnv, MAINNET_APP_ENV),
+          inArray(gaslessClaimTransactions.payerAddress, addresses)
+        )
+      )
+      .groupBy(gaslessClaimTransactions.payerAddress);
+
+    return rows
+      .map((row) => toSpendRow(row.address, row.lamports24h, row.lamports7d))
+      .filter((row): row is SpendRow => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+// Route execution fees plus lookup-table provisioning fees and unreclaimed
+// rent, both paid by the Earn policy wallet.
+async function loadYieldSpendRows(addresses: string[]): Promise<SpendRow[]> {
+  try {
+    const sql = getYieldNeonSql();
+    const [routeRows, lookupTableRows] = await Promise.all([
+      sql.query(
+        `
+        SELECT
+          fee_payer AS address,
+          COALESCE(SUM(compiled_fee_lamports) FILTER (WHERE confirmed_at >= NOW() - INTERVAL '24 hours'), 0)::text AS lamports_24h,
+          COALESCE(SUM(compiled_fee_lamports) FILTER (WHERE confirmed_at >= NOW() - INTERVAL '7 days'), 0)::text AS lamports_7d
+        FROM loyal_yield.signed_route_submissions
+        WHERE cluster = $1
+          AND confirmed_at IS NOT NULL
+          AND fee_payer = ANY($2::text[])
+        GROUP BY fee_payer
+      `,
+        [MAINNET_YIELD_CLUSTER, addresses]
+      ) as unknown as Promise<SpendObservationRow[]>,
+      sql.query(
+        `
+        SELECT
+          family.payer AS address,
+          COALESCE(SUM(GREATEST(COALESCE(operation.actual_fee_lamports, 0) + COALESCE(operation.actual_rent_lamports, 0) - COALESCE(operation.reclaimed_rent_lamports, 0), 0)) FILTER (WHERE operation.confirmed_at >= NOW() - INTERVAL '24 hours'), 0)::text AS lamports_24h,
+          COALESCE(SUM(GREATEST(COALESCE(operation.actual_fee_lamports, 0) + COALESCE(operation.actual_rent_lamports, 0) - COALESCE(operation.reclaimed_rent_lamports, 0), 0)) FILTER (WHERE operation.confirmed_at >= NOW() - INTERVAL '7 days'), 0)::text AS lamports_7d
+        FROM loyal_yield.lookup_table_operations AS operation
+        JOIN loyal_yield.lookup_table_families AS family
+          ON family.id = operation.family_id
+        WHERE family.cluster = $1
+          AND operation.confirmed_at IS NOT NULL
+          AND family.payer = ANY($2::text[])
+        GROUP BY family.payer
+      `,
+        [MAINNET_YIELD_CLUSTER, addresses]
+      ) as unknown as Promise<SpendObservationRow[]>,
+    ]);
+
+    return [...routeRows, ...lookupTableRows]
+      .map((row) => toSpendRow(row.address, row.lamports_24h, row.lamports_7d))
+      .filter((row): row is SpendRow => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+async function loadWalletSpend(
+  addresses: string[]
+): Promise<Map<string, WalletSpend>> {
+  if (addresses.length === 0) {
+    return new Map();
+  }
+
+  const rowGroups = await Promise.all([
+    loadSponsorshipSpendRows(addresses),
+    loadGaslessClaimSpendRows(addresses),
+    loadYieldSpendRows(addresses),
+  ]);
+
+  const totals = new Map<string, { lamports24h: bigint; lamports7d: bigint }>();
+  for (const row of rowGroups.flat()) {
+    const existing = totals.get(row.address) ?? {
+      lamports24h: BigInt(0),
+      lamports7d: BigInt(0),
+    };
+    totals.set(row.address, {
+      lamports24h: existing.lamports24h + row.lamports24h,
+      lamports7d: existing.lamports7d + row.lamports7d,
+    });
+  }
+
+  return new Map(
+    Array.from(totals.entries()).map(([address, total]) => [
+      address,
+      {
+        spend24hLamports: total.lamports24h.toString(),
+        spend7dLamports: total.lamports7d.toString(),
+      },
+    ])
+  );
 }
 
 async function loadBalances(addresses: string[]): Promise<{
@@ -519,10 +697,7 @@ function createRoleDefinitions(args: {
 function createWallets(args: {
   balances: Map<string, string>;
   definitions: RoleDefinition[];
-  spend: Map<
-    string,
-    { spend24hLamports: string | null; spend7dLamports: string | null }
-  >;
+  spend: Map<string, WalletSpend>;
   rpcError: string | null;
   rpcObservedAt: string;
   rpcSlot: number | null;
@@ -690,17 +865,7 @@ async function loadFundingData(): Promise<EarnFundingData> {
     sourceErrors.push(balanceResult.error);
   }
 
-  const sponsorshipAddress = appObservations.sponsorship[0]?.address;
-  const spend = new Map<
-    string,
-    { spend24hLamports: string | null; spend7dLamports: string | null }
-  >();
-  if (sponsorshipAddress) {
-    spend.set(
-      sponsorshipAddress,
-      await loadSponsorshipSpend(sponsorshipAddress)
-    );
-  }
+  const spend = await loadWalletSpend(addresses);
 
   const walletResult = createWallets({
     balances: balanceResult.balances,
