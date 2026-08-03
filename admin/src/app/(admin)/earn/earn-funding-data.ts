@@ -652,6 +652,7 @@ function calculateStatus(args: {
   minimumLamports: bigint | null;
   roleKeys: FundingRole[];
   runwayHours: number | null;
+  spendAvailable: boolean;
 }): { status: FundingStatus; detail: string } {
   if (args.balanceLamports === null) {
     return {
@@ -695,6 +696,16 @@ function calculateStatus(args: {
   if (args.roleKeys.includes("sponsorship") && args.runwayHours === null) {
     return {
       detail: "Balance available; recent sponsorship spend is unavailable",
+      status: "low",
+    };
+  }
+
+  // A wallet whose spend history could not be read has no runway to stand on,
+  // so it must not claim to clear the operating thresholds. Spend that is
+  // present but zero is a real observation and stays healthy.
+  if (!args.spendAvailable) {
+    return {
+      detail: "Balance available; recent spend history is unavailable",
       status: "low",
     };
   }
@@ -844,6 +855,7 @@ function createWallets(args: {
         minimumLamports,
         roleKeys,
         runwayHours,
+        spendAvailable: spend.spend7dLamports !== null,
       });
       const mismatch = wallet.roles.some((role) => {
         const definition = args.definitions.find(
