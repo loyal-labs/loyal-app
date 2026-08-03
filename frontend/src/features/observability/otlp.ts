@@ -162,6 +162,7 @@ export function buildOtlpLifecyclePayload(
 
   const strings: Array<[string, string | undefined]> = [
     ["loyal.wallet.address", event.walletAddress],
+    ["loyal.wallet.provider", event.walletProvider],
     ["loyal.error.code", event.errorCode],
     ["loyal.error.detail", event.errorDetail],
     ["loyal.execute_now.state", event.executeNowState],

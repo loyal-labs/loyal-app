@@ -48,6 +48,7 @@ import {
   type LifecycleFlowStage,
   type LifecycleTracker,
   normalizeLifecycleErrorCode,
+  normalizeLifecycleWalletProvider,
 } from "@/features/observability/lifecycle-contract";
 
 const WALLET_CONNECTION_SETTLE_MS = 2500;
@@ -257,15 +258,22 @@ export function useWalletProofAuth({
             ? error.code
             : classifyWalletAdapterError(error)
         );
+      // Connected-wallet verification never sets selectedWalletNameRef, so
+      // fall back to the adapter the hook currently holds.
+      const walletProvider = normalizeLifecycleWalletProvider(
+        selectedWalletNameRef.current ?? wallet?.adapter.name
+      );
       if (nextError.status === "rejected") {
         // Without an explicit stage this is a proof-flow caller, where a
         // rejection is always the signature prompt.
         lifecycleRef.current?.cancel(options?.stage ?? "wallet_approval", {
           errorCode: "wallet_rejected",
+          walletProvider,
         });
       } else {
         lifecycleRef.current?.fail(options?.stage ?? "completion", {
           errorCode,
+          walletProvider,
         });
       }
       dispatch({
@@ -275,7 +283,7 @@ export function useWalletProofAuth({
         details: nextError.details,
       });
     },
-    [endExplicitWalletConnect]
+    [endExplicitWalletConnect, wallet]
   );
 
   const recoverStaleSelectedWallet = useCallback(
