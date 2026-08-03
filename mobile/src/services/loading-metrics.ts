@@ -1,7 +1,5 @@
 import { Platform } from "react-native";
 
-import { env } from "@/config/env";
-
 import {
   getObservabilityEnvironment,
   getObservabilityRelease,
@@ -19,7 +17,6 @@ export type { MobileLoadingOperation } from "./loading-metrics-contract";
 type MobileLoadingAttempt = {
   completeAfterPaint: () => void;
   failAfterPaint: () => void;
-  flowId: string;
 };
 
 declare global {
@@ -85,11 +82,7 @@ function reportMetric(args: {
       release: getObservabilityRelease(),
       timestamp: new Date().toISOString(),
     });
-    void postObservabilityJson(
-      MOBILE_METRICS_PATH,
-      envelope,
-      env.observabilityBaseUrl
-    );
+    void postObservabilityJson(MOBILE_METRICS_PATH, envelope);
   } catch {
     // Metrics are best-effort and must never alter application behavior.
   }
@@ -100,7 +93,7 @@ export function setMobileLoadingMetricsPathname(pathname: string): void {
 }
 
 export function startMobileLoadingMetric(
-  operation: Exclude<MobileLoadingOperation, "app_load">
+  operation: Exclude<MobileLoadingOperation, "app_load">,
 ): MobileLoadingAttempt {
   const flowId = generateUuid();
   const startedAtMs = Date.now();
@@ -123,7 +116,6 @@ export function startMobileLoadingMetric(
   return {
     completeAfterPaint: () => finish("completed"),
     failAfterPaint: () => finish("failed"),
-    flowId,
   };
 }
 

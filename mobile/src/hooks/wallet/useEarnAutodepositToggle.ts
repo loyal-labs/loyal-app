@@ -91,7 +91,7 @@ export function useEarnAutodepositToggle(args: {
       },
       onSubmissionStart: (nextActive) => {
         const metric = startMobileLoadingMetric(
-          nextActive ? "earn.autodeposit.resume" : "earn.autodeposit.pause"
+          nextActive ? "earn.autodeposit.resume" : "earn.autodeposit.pause",
         );
         return {
           complete: metric.completeAfterPaint,

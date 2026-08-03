@@ -102,7 +102,7 @@ async function throwEarnError(res: Response, fallback: string): Promise<never> {
   throw new EarnApiError(
     payload?.error?.message ?? fallback,
     payload?.error?.code,
-    res.status
+    res.status,
   );
 }
 
@@ -150,12 +150,12 @@ export async function fetchEarnDepositPrepareContext(args: {
           amountRaw: args.amountRaw,
         }),
         timeoutMs: PREPARE_TIMEOUT_MS,
-      }
+      },
     );
   } catch (error) {
     if (error instanceof FetchTimeoutError) {
       throw new EarnApiError(
-        "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute."
+        "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute.",
       );
     }
     throw error;
@@ -188,12 +188,12 @@ export async function prepareEarnDeposit(args: {
           ...(args.sponsored ? { sponsored: true } : {}),
         }),
         timeoutMs: PREPARE_TIMEOUT_MS,
-      }
+      },
     );
   } catch (error) {
     if (error instanceof FetchTimeoutError) {
       throw new EarnApiError(
-        "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute."
+        "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute.",
       );
     }
     throw error;
@@ -267,7 +267,7 @@ export async function prepareEarnWithdraw(args: {
         mode: args.mode,
         source: args.source ?? null,
       }),
-    }
+    },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to prepare Earn withdrawal.");
@@ -357,7 +357,7 @@ export async function fetchEarnWithdrawPrepareContext(args: {
         mode: args.mode,
         source: args.source ?? null,
       }),
-    }
+    },
   );
   if (res.status === 404) {
     return null;
@@ -401,7 +401,7 @@ export async function fetchEarnWithdrawCleanupPrepareContext(args: {
         ...args.auth,
         minContextSlot: args.minContextSlot,
       }),
-    }
+    },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to prepare Earn account cleanup.");
@@ -416,7 +416,7 @@ export type EarnWithdrawCleanupConfirmArgs = {
 };
 
 export async function confirmEarnWithdrawCleanup(
-  args: EarnWithdrawCleanupConfirmArgs
+  args: EarnWithdrawCleanupConfirmArgs,
 ): Promise<void> {
   const { auth, ...rest } = args;
   const res = await fetch(
@@ -425,7 +425,7 @@ export async function confirmEarnWithdrawCleanup(
       method: "POST",
       headers: earnHeaders(),
       body: JSON.stringify({ ...auth, ...rest }),
-    }
+    },
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Earn account cleanup.");
@@ -444,7 +444,7 @@ export type EarnWithdrawConfirmArgs = {
 };
 
 export async function confirmEarnWithdraw(
-  args: EarnWithdrawConfirmArgs
+  args: EarnWithdrawConfirmArgs,
 ): Promise<void> {
   const { auth, ...rest } = args;
   const res = await fetch(
@@ -453,7 +453,7 @@ export async function confirmEarnWithdraw(
       method: "POST",
       headers: earnHeaders(),
       body: JSON.stringify({ ...auth, ...rest }),
-    }
+    },
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Earn withdrawal.");
@@ -481,15 +481,13 @@ export type EarnWithdrawSourcesResponse = {
 
 // Read-only list of withdrawal sources for the wallet (no signature).
 export async function fetchEarnWithdrawSources(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<EarnWithdrawSourcesResponse> {
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/withdraw/sources?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/withdraw/sources?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn withdrawal sources.");
@@ -499,7 +497,7 @@ export async function fetchEarnWithdrawSources(
 
 // Maps a source list entry to the `withdraw/prepare` source identifier shape.
 export function toWithdrawPrepareSource(
-  info: EarnWithdrawSourceInfo
+  info: EarnWithdrawSourceInfo,
 ): EarnWithdrawSource {
   return {
     type: info.type,
@@ -594,15 +592,13 @@ export type EarnAutodepositStateResponse = {
 
 // Read-only autodeposit state, keyed by wallet address (no signature).
 export async function fetchEarnAutodepositState(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<EarnAutodepositStateResponse> {
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/autodeposit/state?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/state?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Autodeposit state.");
@@ -624,7 +620,7 @@ export async function confirmEarnAutodepositSetup(args: {
       method: "POST",
       headers: earnHeaders(),
       body: JSON.stringify({ ...auth, ...rest }),
-    }
+    },
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Autodeposit setup.");
@@ -646,7 +642,7 @@ export async function updateEarnAutodepositFloor(args: {
       method: "POST",
       headers: { ...earnHeaders(), ...headers },
       body: JSON.stringify({ ...bodyFields, ...rest }),
-    }
+    },
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to update Autodeposit threshold.");
@@ -669,7 +665,7 @@ export async function toggleEarnAutodeposit(args: {
       method: "POST",
       headers: { ...earnHeaders(flowId), ...headers },
       body: JSON.stringify({ ...bodyFields, ...rest }),
-    }
+    },
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to update Autodeposit on/off state.");
@@ -689,7 +685,7 @@ export async function confirmEarnAutodepositClose(args: {
       method: "POST",
       headers: earnHeaders(),
       body: JSON.stringify({ ...auth, ...rest }),
-    }
+    },
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Autodeposit removal.");
@@ -703,7 +699,6 @@ export type EarnAutodepositSweepExecuteResponse = {
     acceleratedLotCount: number;
     eligibleAfter: string;
     slotId: string;
-    status: string;
     targetId: string;
   };
   target: {
@@ -731,7 +726,7 @@ export async function requestEarnAutodepositSweepExecute(args: {
       method: "POST",
       headers: { ...earnHeaders(), ...headers },
       body: JSON.stringify(bodyFields),
-    }
+    },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to execute Autodeposit sweep now.");
@@ -775,16 +770,14 @@ export type EarnAutodepositSweepProgress = {
 // endpoint, so callers can quietly fall back to the coarse state polling.
 export async function fetchEarnAutodepositSweepProgress(
   walletAddress: string,
-  slotId: string
+  slotId: string,
 ): Promise<EarnAutodepositSweepProgress | null> {
   try {
     const res = await fetch(
-      `${
-        env.earnApiBaseUrl
-      }/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute?walletAddress=${encodeURIComponent(
-        walletAddress
+      `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute?walletAddress=${encodeURIComponent(
+        walletAddress,
       )}&slotId=${encodeURIComponent(slotId)}`,
-      { method: "GET", headers: earnHeaders() }
+      { method: "GET", headers: earnHeaders() },
     );
     if (!res.ok) {
       return null;
@@ -830,15 +823,13 @@ export type EarnStateResponse = {
 // triggers a Seed Vault prompt on passive Earn-tab views (the server resolves
 // the wallet's smart account itself and only returns public on-chain data).
 export async function fetchEarnState(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<EarnStateResponse> {
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/state?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/state?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn state.");
@@ -872,15 +863,13 @@ export type EarnHoldingsResponse = {
 };
 
 export async function fetchEarnHoldings(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<EarnHoldingsResponse> {
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/holdings?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/holdings?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn holdings.");
@@ -935,16 +924,14 @@ function deviceTimezone(): string | null {
 }
 
 export async function fetchEarnEarnings(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<EarnEarningsResponse> {
   const timezone = deviceTimezone();
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/earnings?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/earnings?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}${timezone ? `&timezone=${encodeURIComponent(timezone)}` : ""}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn earnings.");
@@ -1005,15 +992,13 @@ export type EarnTransactionsResponse = {
 // like `state`/`earnings`). Wallet-keyed twin of the web session
 // `earn-transactions` route.
 export async function fetchEarnTransactions(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<EarnTransactionsResponse> {
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/transactions?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/transactions?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn transactions.");
@@ -1048,7 +1033,7 @@ export type EarnForecastSummary = {
 export async function fetchEarnForecastSummary(): Promise<EarnForecastSummary> {
   const res = await fetch(
     `${env.earnApiBaseUrl}/api/smart-accounts/earn-forecast/summary`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load Earn forecast.");
@@ -1070,7 +1055,7 @@ export type EarnDepositConfirmArgs = {
 };
 
 export async function confirmEarnDeposit(
-  args: EarnDepositConfirmArgs
+  args: EarnDepositConfirmArgs,
 ): Promise<void> {
   const { auth, ...rest } = args;
   const res = await fetch(
@@ -1079,7 +1064,7 @@ export async function confirmEarnDeposit(
       method: "POST",
       headers: earnHeaders(),
       body: JSON.stringify({ ...auth, ...rest }),
-    }
+    },
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to confirm Earn deposit.");
@@ -1113,7 +1098,7 @@ export type EarnSponsoredDepositConfirmArgs = {
 };
 
 export async function confirmEarnDepositSponsored(
-  args: EarnSponsoredDepositConfirmArgs
+  args: EarnSponsoredDepositConfirmArgs,
 ): Promise<EarnSponsoredDepositConfirmations> {
   const { auth, ...rest } = args;
   const res = await fetch(
@@ -1122,7 +1107,7 @@ export async function confirmEarnDepositSponsored(
       method: "POST",
       headers: earnHeaders(),
       body: JSON.stringify({ ...auth, ...rest }),
-    }
+    },
   );
   const payload = (await res.json().catch(() => null)) as {
     error?: { code?: string; message?: string };
@@ -1136,7 +1121,7 @@ export async function confirmEarnDepositSponsored(
     if (!res.ok) {
       console.warn(
         "[earn-api] sponsored deposit landed but record failed; reconciler will backfill",
-        payload.error
+        payload.error,
       );
     }
     return payload.sponsoredConfirmations;
@@ -1147,13 +1132,13 @@ export async function confirmEarnDepositSponsored(
     throw new EarnApiError(
       payload?.error?.message ?? "Failed to execute sponsored Earn deposit.",
       payload?.error?.code,
-      res.status
+      res.status,
     );
   }
   throw new EarnApiError(
     "Sponsored Earn deposit response is missing confirmations.",
     undefined,
-    res.status
+    res.status,
   );
 }
 
@@ -1182,15 +1167,13 @@ export type SolanaWeekQuestProgressResponse = {
 };
 
 export async function fetchSolanaWeekQuestProgress(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<SolanaWeekQuestProgressResponse> {
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/solana-week/progress?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/solana-week/progress?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to load quest progress.");
@@ -1227,15 +1210,13 @@ export type EarnRefundScanResponse = {
 };
 
 export async function fetchEarnRefundScan(
-  walletAddress: string
+  walletAddress: string,
 ): Promise<EarnRefundScanResponse> {
   const res = await fetch(
-    `${
-      env.earnApiBaseUrl
-    }/api/smart-accounts/mobile/earn/policy-refunds/scan?walletAddress=${encodeURIComponent(
-      walletAddress
+    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/policy-refunds/scan?walletAddress=${encodeURIComponent(
+      walletAddress,
     )}`,
-    { method: "GET", headers: earnHeaders() }
+    { method: "GET", headers: earnHeaders() },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to scan for refunds.");
@@ -1269,7 +1250,7 @@ export async function prepareEarnRefund(args: {
       method: "POST",
       headers: earnHeaders(),
       body: JSON.stringify({ ...args.auth, ...args.request }),
-    }
+    },
   );
   if (!res.ok) {
     return throwEarnError(res, "Failed to prepare the refund.");

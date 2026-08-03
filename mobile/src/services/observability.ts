@@ -99,10 +99,7 @@ function normalizeError(error: unknown): {
 } {
   if (error instanceof Error) {
     return {
-      message: truncate(
-        error.message || "Unknown error.",
-        MAX_ERROR_MESSAGE_LENGTH
-      ),
+      message: truncate(error.message || "Unknown error.", MAX_ERROR_MESSAGE_LENGTH),
       name: truncate(error.name || "Error", MAX_ERROR_NAME_LENGTH),
       ...(error.stack
         ? { stack: truncate(error.stack, MAX_ERROR_STACK_LENGTH) }
@@ -156,7 +153,6 @@ function isDuplicate(envelope: MobileErrorEnvelope): boolean {
 export async function postObservabilityJson(
   path: string,
   payload: unknown,
-  baseUrl = env.earnApiBaseUrl
 ): Promise<void> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REPORT_TIMEOUT_MS);
@@ -168,7 +164,7 @@ export async function postObservabilityJson(
     if (env.vercelProtectionBypass) {
       headers["x-vercel-protection-bypass"] = env.vercelProtectionBypass;
     }
-    await fetch(`${baseUrl}${path}`, {
+    await fetch(`${env.earnApiBaseUrl}${path}`, {
       body: JSON.stringify(payload),
       headers,
       method: "POST",
@@ -188,7 +184,7 @@ function postEnvelope(envelope: MobileErrorEnvelope): Promise<void> {
 function report(
   error: unknown,
   operation: MobileErrorOperation,
-  messagePrefix?: string
+  messagePrefix?: string,
 ): void {
   try {
     const normalized = normalizeError(error);
@@ -199,7 +195,7 @@ function report(
         ? {
             message: truncate(
               `${messagePrefix} ${normalized.message}`,
-              MAX_ERROR_MESSAGE_LENGTH
+              MAX_ERROR_MESSAGE_LENGTH,
             ),
           }
         : {}),
@@ -363,15 +359,15 @@ export type LifecycleDiagnostics = {
 export type LifecycleFlow<F extends LifecycleFlowName> = {
   cancel: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics
+    diagnostics?: LifecycleDiagnostics,
   ) => void;
   complete: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics
+    diagnostics?: LifecycleDiagnostics,
   ) => void;
   fail: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics
+    diagnostics?: LifecycleDiagnostics,
   ) => void;
   /**
    * Terminate the flow from a caught error, classifying it first: a user
@@ -382,19 +378,19 @@ export type LifecycleFlow<F extends LifecycleFlowName> = {
   failFrom: (
     stage: LifecycleStageMap[F],
     error: unknown,
-    diagnostics?: LifecycleDiagnostics
+    diagnostics?: LifecycleDiagnostics,
   ) => void;
   /** Sent as `x-loyal-flow-id` so server-side stages join the same flow. */
   flowId: string;
   observe: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics
+    diagnostics?: LifecycleDiagnostics,
   ) => void;
   setVariant: (variant: LifecycleVariantMap[F]) => void;
   setWalletAddress: (walletAddress: string) => void;
   start: (
     stage: LifecycleStageMap[F],
-    diagnostics?: LifecycleDiagnostics
+    diagnostics?: LifecycleDiagnostics,
   ) => void;
 };
 
@@ -486,7 +482,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
   const emit = (
     outcome: "started" | "observed" | "completed" | "failed" | "cancelled",
     stage: LifecycleStageMap[F],
-    diagnostics: LifecycleDiagnostics = {}
+    diagnostics: LifecycleDiagnostics = {},
   ): void => {
     try {
       if (terminal) return;
@@ -546,7 +542,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
         report(
           error,
           "mobile.global_error",
-          `[flow_id=${flowId} flow_name=${args.flowName} flow_stage=${stage}]`
+          `[flow_id=${flowId} flow_name=${args.flowName} flow_stage=${stage}]`,
         );
       }
     },

@@ -33,7 +33,6 @@ import { WithdrawSheet } from "@/components/earn/WithdrawSheet";
 import { nudgeQuestProgressCheck } from "@/components/quests/QuestCompletionWatcher";
 import { Skeleton } from "@/components/Skeleton";
 import { useActivity } from "@/features/activity/model/ActivityProvider";
-import { registerLoadingMetricsEarnUiDriver } from "@/e2e/loading-metrics-ui-driver";
 import { refreshEarnEarningsCache } from "@/hooks/wallet/useEarnEarnings";
 import { useEarnPosition } from "@/hooks/wallet/useEarnPosition";
 import { useTokenHoldings } from "@/hooks/wallet/useTokenHoldings";
@@ -131,7 +130,7 @@ const FUNDED_CARD_RADIUS = 26;
 // (display-only: it reads market/liquidityMint/amountRaw and `id` as the row
 // key). The withdraw flow continues to use the real `withdrawSources`.
 function earnHoldingToDisplaySource(
-  holding: EarnHoldingItem
+  holding: EarnHoldingItem,
 ): EarnWithdrawSourceInfo {
   return {
     type: holding.kind === "idle" ? "idle" : "reserve",
@@ -163,7 +162,7 @@ export default function EarnScreen() {
     const holding = tokenHoldings.find(
       (h) =>
         h.mint === SOLANA_USDC_MINT_MAINNET ||
-        h.mint === SOLANA_USDC_MINT_DEVNET
+        h.mint === SOLANA_USDC_MINT_DEVNET,
     );
     return holding && Number.isFinite(holding.balance) ? holding.balance : null;
   }, [tokenHoldings]);
@@ -203,7 +202,7 @@ export default function EarnScreen() {
       holdings
         .filter((holding) => Number(holding.amountRaw) >= 5000)
         .map((holding) => earnHoldingToDisplaySource(holding)),
-    [holdings]
+    [holdings],
   );
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -259,7 +258,7 @@ export default function EarnScreen() {
     // cost — so gate on the policy read, not just the balance.
     if (!earnPositionLoaded || (hasDeposit && !earnPolicyMissing)) return null;
     const sol = tokenHoldings.find(
-      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured
+      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured,
     );
     if (!sol) return null;
     return computeFirstDepositSolShortfall(sol.balance);
@@ -268,7 +267,7 @@ export default function EarnScreen() {
   // same fail-open gate. The sheet only applies it in "create" mode.
   const autodepositSolShortfall = useMemo(() => {
     const sol = tokenHoldings.find(
-      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured
+      (h) => h.mint === NATIVE_SOL_MINT && !h.isSecured,
     );
     if (!sol) return null;
     return computeAutodepositSetupSolShortfall(sol.balance);
@@ -332,7 +331,7 @@ export default function EarnScreen() {
         [
           { text: "Not now", style: "cancel" },
           { text: "Deposit", onPress: () => setDepositOpen(true) },
-        ]
+        ],
       );
       return;
     }
@@ -342,12 +341,7 @@ export default function EarnScreen() {
     refreshEarnPosition();
     autodepositInfoModeRef.current = "create";
     setAutodepositInfoOpen(true);
-  }, [
-    earnPositionLoaded,
-    hasDeposit,
-    refreshTokenHoldings,
-    refreshEarnPosition,
-  ]);
+  }, [earnPositionLoaded, hasDeposit, refreshTokenHoldings, refreshEarnPosition]);
 
   // Info accepted — open the setup sheet in the mode captured at initiation.
   const handleAutodepositInfoContinue = useCallback(() => {
@@ -406,7 +400,7 @@ export default function EarnScreen() {
         ...(walletAddress ? [refreshEarnEarningsCache(walletAddress)] : []),
       ]);
     },
-    [refreshEarnPosition, refreshAutodeposit, walletAddress]
+    [refreshEarnPosition, refreshAutodeposit, walletAddress],
   );
   const { requestRefresh } = useWalletAutoRefresh({
     walletAddress,
@@ -428,7 +422,7 @@ export default function EarnScreen() {
         line2.value = 0;
         badge.value = 0;
       };
-    }, [width, riseY, line0, line1, line2, badge])
+    }, [width, riseY, line0, line1, line2, badge]),
   );
 
   // The reconciled position drives the funded Earn Balance: a non-zero read sets
@@ -491,7 +485,7 @@ export default function EarnScreen() {
           if (finished) {
             runOnJS(setShowHero)(false);
           }
-        }
+        },
       );
     } else {
       setShowHero(true);
@@ -533,23 +527,23 @@ export default function EarnScreen() {
 
     riseY.value = withDelay(
       REVEAL_START_DELAY_MS,
-      withTiming(0, { duration: DOG_RISE_MS, easing: ENTER_EASING })
+      withTiming(0, { duration: DOG_RISE_MS, easing: ENTER_EASING }),
     );
     line0.value = withDelay(
       REVEAL_START_DELAY_MS + LINES_START_MS,
-      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING })
+      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING }),
     );
     line1.value = withDelay(
       REVEAL_START_DELAY_MS + LINES_START_MS + LINE_STAGGER_MS,
-      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING })
+      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING }),
     );
     line2.value = withDelay(
       REVEAL_START_DELAY_MS + LINES_START_MS + 2 * LINE_STAGGER_MS,
-      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING })
+      withTiming(1, { duration: LINE_REVEAL_MS, easing: ENTER_EASING }),
     );
     badge.value = withDelay(
       REVEAL_START_DELAY_MS + BADGE_START_MS,
-      withTiming(1, { duration: BADGE_MS, easing: BADGE_EASING })
+      withTiming(1, { duration: BADGE_MS, easing: BADGE_EASING }),
     );
 
     return () => {
@@ -581,9 +575,7 @@ export default function EarnScreen() {
     transform: [{ scale: 0.7 + badge.value * 0.3 }],
   }));
   const heroLayerStyle = useAnimatedStyle(() => ({ opacity: heroFade.value }));
-  const fundedLayerStyle = useAnimatedStyle(() => ({
-    opacity: fundedFade.value,
-  }));
+  const fundedLayerStyle = useAnimatedStyle(() => ({ opacity: fundedFade.value }));
   const bottomCardRadiusStyle = useAnimatedStyle(() => ({
     borderTopLeftRadius: fundedFade.value * FUNDED_CARD_RADIUS,
     borderTopRightRadius: fundedFade.value * FUNDED_CARD_RADIUS,
@@ -654,7 +646,7 @@ export default function EarnScreen() {
       refreshAutodeposit,
       refreshEarnPosition,
       refreshTokenHoldings,
-    ]
+    ],
   );
 
   const handleOpenWithdraw = useCallback(() => {
@@ -700,14 +692,14 @@ export default function EarnScreen() {
         .activeOffsetY(-12)
         .runOnJS(true)
         .onStart(() => handleOpenPositions()),
-    [hasDeposit, handleOpenPositions]
+    [hasDeposit, handleOpenPositions],
   );
 
   const handleWithdrawConfirmed = useCallback(
     async (
       amountUsd: number,
       source: EarnWithdrawSourceInfo | null,
-      mode: "full" | "partial"
+      mode: "full" | "partial",
     ) => {
       const metric = startMobileLoadingMetric("earn.withdrawal");
       try {
@@ -756,7 +748,7 @@ export default function EarnScreen() {
       refreshAutodeposit,
       refreshEarnPosition,
       refreshWithdrawSources,
-    ]
+    ],
   );
 
   const handleAutodepositSetup = useCallback(() => {
@@ -799,18 +791,18 @@ export default function EarnScreen() {
   // Returns a Promise so the setup sheet can show its loading state. Create
   // stands up the on-chain policy; edit changes the threshold (DB-only). The
   // sheet dismisses itself on success.
-  const submitAutodeposit = useCallback(
-    async (mode: "create" | "edit", thresholdUsd: number) => {
+  const handleAutodepositConfirm = useCallback(
+    async (thresholdUsd: number) => {
       const metric = startMobileLoadingMetric(
-        mode === "edit"
+        autodepositSetupMode === "edit"
           ? "earn.autodeposit.floor_update"
-          : "earn.autodeposit.setup"
+          : "earn.autodeposit.setup",
       );
       try {
         if (!signer || !isWalletUnlocked(state)) {
           throw new Error("Unlock your wallet to continue.");
         }
-        if (mode === "edit") {
+        if (autodepositSetupMode === "edit") {
           if (!autodeposit?.recurringDelegation) {
             throw new Error("Autodeposit isn't set up.");
           }
@@ -828,7 +820,7 @@ export default function EarnScreen() {
           const fresh = await refreshAutodeposit({ throwOnError: true });
           if (!fresh) {
             throw new Error(
-              "Autodeposit mutation completed but its state was not available."
+              "Autodeposit mutation completed but its state was not available.",
             );
           }
           // Criteria met for immediate execution → the backend scheduled a bootstrap
@@ -860,17 +852,13 @@ export default function EarnScreen() {
     [
       signer,
       state,
+      autodepositSetupMode,
       autodeposit,
       refreshAutodeposit,
       expectScheduledSweep,
       refreshActivityAutodeposit,
       router,
-    ]
-  );
-  const handleAutodepositConfirm = useCallback(
-    (thresholdUsd: number) =>
-      submitAutodeposit(autodepositSetupMode, thresholdUsd),
-    [autodepositSetupMode, submitAutodeposit]
+    ],
   );
 
   const handleAutodepositDelete = useCallback(async () => {
@@ -900,46 +888,6 @@ export default function EarnScreen() {
       throw error;
     }
   }, [signer, state, autodeposit, refreshAutodeposit]);
-
-  // The mainnet verifier invokes these exact production callbacks. Registration
-  // exists only in a dev build with the explicit E2E flag, so a verifier pass
-  // proves the instrumentation remains attached to the UI mutation paths.
-  useEffect(() => {
-    if (!(__DEV__ && process.env.EXPO_PUBLIC_E2E_METRICS === "true")) {
-      return;
-    }
-    return registerLoadingMetricsEarnUiDriver({
-      autodeposit,
-      closeAutodeposit: handleAutodepositDelete,
-      deposit: handleDepositConfirmed,
-      refresh: async () => {
-        await Promise.all([
-          refreshEarnPosition({ throwOnError: true }),
-          refreshAutodeposit({ throwOnError: true }),
-          refreshTokenHoldings(true, { throwOnError: true }),
-          refreshWithdrawSources({ throwOnError: true }),
-        ]);
-      },
-      setAutodepositFloor: (thresholdUsd) =>
-        submitAutodeposit("edit", thresholdUsd),
-      setupAutodeposit: (thresholdUsd) =>
-        submitAutodeposit("create", thresholdUsd),
-      toggleAutodeposit: handleAutodepositToggle,
-      withdraw: ({ amountUsd, mode, source }) =>
-        handleWithdrawConfirmed(amountUsd, source, mode),
-    });
-  }, [
-    autodeposit,
-    handleAutodepositDelete,
-    handleAutodepositToggle,
-    handleDepositConfirmed,
-    handleWithdrawConfirmed,
-    refreshAutodeposit,
-    refreshEarnPosition,
-    refreshTokenHoldings,
-    refreshWithdrawSources,
-    submitAutodeposit,
-  ]);
 
   // Loyal APY for the hero + funded header badges — same source as the APY
   // chart and the web (forecast/loyal rate), not the position's raw reserve

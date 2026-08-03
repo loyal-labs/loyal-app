@@ -15,55 +15,48 @@ const walletCoreRoot = path.resolve(__dirname, "../packages/wallet-core/src");
 // workspace deps — all resolved from source, same pattern as wallet-core.
 const smartAccountVaultsRoot = path.resolve(
   __dirname,
-  "../packages/smart-account-vaults/src"
+  "../packages/smart-account-vaults/src",
 );
-const loyalActionsRoot = path.resolve(
-  __dirname,
-  "../packages/loyal-actions/src"
-);
+const loyalActionsRoot = path.resolve(__dirname, "../packages/loyal-actions/src");
 const loyalSmartAccountsRoot = path.resolve(
   __dirname,
-  "../sdk/loyal-smart-accounts/src"
+  "../sdk/loyal-smart-accounts/src",
 );
 const loyalSmartAccountsCoreRoot = path.resolve(
   __dirname,
-  "../sdk/loyal-smart-accounts-core/src"
+  "../sdk/loyal-smart-accounts-core/src",
 );
-const solanaWalletRoot = path.resolve(
-  __dirname,
-  "../packages/solana-wallet/src"
-);
+const solanaWalletRoot = path.resolve(__dirname, "../packages/solana-wallet/src");
 const solanaInstructionDecoderRoot = path.resolve(
   __dirname,
-  "../packages/solana-instruction-decoder/src"
+  "../packages/solana-instruction-decoder/src",
 );
-const privateTransactionsRoot = path.resolve(
-  __dirname,
-  "../sdk/private-transactions"
-);
+const privateTransactionsRoot = path.resolve(__dirname, "../sdk/private-transactions");
 const privateTransactionsEntryCandidates = [
-  path.resolve(__dirname, "../sdk/private-transactions/dist/index.js"),
   path.resolve(
     __dirname,
-    "node_modules/@loyal-labs/private-transactions/dist/index.js"
+    "node_modules/@loyal-labs/private-transactions/dist/index.js",
   ),
   path.resolve(
     __dirname,
-    "node_modules/@loyal-labs/private-transactions/index.ts"
+    "../sdk/private-transactions/dist/index.js",
   ),
-  path.resolve(__dirname, "../sdk/private-transactions/index.ts"),
+  path.resolve(
+    __dirname,
+    "node_modules/@loyal-labs/private-transactions/index.ts",
+  ),
+  path.resolve(
+    __dirname,
+    "../sdk/private-transactions/index.ts",
+  ),
 ];
 const privateTransactionsEntry = privateTransactionsEntryCandidates.find(
-  (candidate) => fs.existsSync(candidate)
+  (candidate) => fs.existsSync(candidate),
 );
-const tweetNaclRoot = fs.realpathSync(
-  path.resolve(__dirname, "node_modules/tweetnacl")
-);
-const tweetNaclEntry = path.resolve(tweetNaclRoot, "nacl-fast.js");
 
 if (!privateTransactionsEntry) {
   throw new Error(
-    "Unable to resolve @loyal-labs/private-transactions entry file from Metro config."
+    "Unable to resolve @loyal-labs/private-transactions entry file from Metro config.",
   );
 }
 config.watchFolders = [
@@ -77,7 +70,6 @@ config.watchFolders = [
   loyalSmartAccountsCoreRoot,
   solanaWalletRoot,
   solanaInstructionDecoderRoot,
-  tweetNaclRoot,
 ];
 config.resolver.nodeModulesPaths = [
   path.resolve(__dirname, "node_modules"),
@@ -92,7 +84,7 @@ config.resolver.extraNodeModules = {
   "@loyal-labs/loyal-smart-accounts-core": loyalSmartAccountsCoreRoot,
   "@loyal-labs/loyal-smart-accounts-core/internal": path.resolve(
     loyalSmartAccountsCoreRoot,
-    "internal/index.ts"
+    "internal/index.ts",
   ),
   "@loyal-labs/solana-wallet": solanaWalletRoot,
   "@loyal-labs/solana-instruction-decoder": solanaInstructionDecoderRoot,
@@ -100,10 +92,10 @@ config.resolver.extraNodeModules = {
 
 // SVG transformer
 config.transformer.babelTransformerPath = require.resolve(
-  "react-native-svg-transformer"
+  "react-native-svg-transformer",
 );
 config.resolver.assetExts = config.resolver.assetExts.filter(
-  (ext) => ext !== "svg"
+  (ext) => ext !== "svg",
 );
 config.resolver.sourceExts = [...config.resolver.sourceExts, "svg"];
 
@@ -120,18 +112,6 @@ nativewindConfig.resolver.resolveRequest = (context, moduleName, platform) => {
       type: "sourceFile",
       filePath: privateTransactionsEntry,
     };
-  }
-
-  // The verifier worktree reuses the base checkout's node_modules via a
-  // symlink. tweetnacl is lazy-imported only when the injected local signer
-  // signs its first auth message, and Metro otherwise rewrites its real path
-  // into an unresolvable project-relative specifier. Pin both forms to the
-  // watched real file so development and E2E bundles resolve identically.
-  if (
-    moduleName === "tweetnacl" ||
-    /(?:^|\/)tweetnacl\/nacl-fast(?:\.js)?$/.test(moduleName)
-  ) {
-    return { type: "sourceFile", filePath: tweetNaclEntry };
   }
 
   // The SDK's webcrypto.ts guards a `await import("node:crypto")` behind a

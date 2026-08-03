@@ -1,4 +1,7 @@
-import { getSolanaEndpoints, resolveSolanaEnv } from "@loyal-labs/solana-rpc";
+import {
+  getSolanaEndpoints,
+  resolveSolanaEnv,
+} from "@loyal-labs/solana-rpc";
 
 // API base URL — points to the deployed Next.js app
 // In development, use your local network IP or tunnel URL
@@ -7,7 +10,8 @@ const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
   "https://solana-telegram-transactions.vercel.app";
 const GRID_AUTH_BASE_URL =
-  process.env.EXPO_PUBLIC_GRID_AUTH_BASE_URL ?? "https://auth.askloyal.com";
+  process.env.EXPO_PUBLIC_GRID_AUTH_BASE_URL ??
+  "https://auth.askloyal.com";
 const SOLANA_ENV = resolveSolanaEnv(process.env.EXPO_PUBLIC_SOLANA_ENV);
 
 // Earn backend (the web `frontend` app at https://askloyal.com) — hosts the
@@ -16,12 +20,6 @@ const SOLANA_ENV = resolveSolanaEnv(process.env.EXPO_PUBLIC_SOLANA_ENV);
 // backend.
 const EARN_API_BASE_URL =
   process.env.EXPO_PUBLIC_EARN_API_BASE_URL ?? "https://askloyal.com";
-// Native loading metrics normally use the Earn frontend's same server-only
-// ClickStack relay. The separate override lets the emulator verifier point
-// only telemetry at its loopback relay while real Earn requests keep using the
-// configured backend.
-const OBSERVABILITY_BASE_URL =
-  process.env.EXPO_PUBLIC_OBSERVABILITY_BASE_URL ?? EARN_API_BASE_URL;
 // Vercel deployment-protection bypass — only needed for protected preview
 // deploys (e.g. a staging branch). Production askloyal.com is public, so this
 // is empty by default; set EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS to test against
@@ -48,7 +46,6 @@ const ONESIGNAL_APP_ID = process.env.EXPO_PUBLIC_ONESIGNAL_APP_ID ?? "";
 export const env = {
   apiBaseUrl: API_BASE_URL,
   earnApiBaseUrl: EARN_API_BASE_URL,
-  observabilityBaseUrl: OBSERVABILITY_BASE_URL,
   earnSponsoredDeposits: EARN_SPONSORED_DEPOSITS,
   vercelProtectionBypass: VERCEL_PROTECTION_BYPASS,
   gridAuthBaseUrl: GRID_AUTH_BASE_URL,

@@ -18,7 +18,7 @@ export function useTokenHoldings(walletAddress: string | null) {
   const refreshTokenHoldings = useCallback(
     async (
       forceRefresh = false,
-      options?: { throwOnError?: boolean }
+      options?: { throwOnError?: boolean },
     ): Promise<void> => {
       if (!walletAddress) return;
       const fetchId = ++fetchIdRef.current;
@@ -42,7 +42,7 @@ export function useTokenHoldings(walletAddress: string | null) {
         }
       }
     },
-    [walletAddress]
+    [walletAddress],
   );
 
   useEffect(() => {

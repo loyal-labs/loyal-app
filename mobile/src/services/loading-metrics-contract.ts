@@ -47,14 +47,14 @@ export class InvalidMobileLoadingMetricError extends Error {
 
 function includes<T extends string>(
   values: readonly T[],
-  value: unknown
+  value: unknown,
 ): value is T {
   return typeof value === "string" && values.includes(value as T);
 }
 
 export function parseMobileLoadingMetricEnvelope(
   value: unknown,
-  now = Date.now()
+  now = Date.now(),
 ): MobileLoadingMetricEnvelope {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new InvalidMobileLoadingMetricError();

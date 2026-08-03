@@ -1,6 +1,5 @@
 import { Keypair } from "@solana/web3.js";
 import * as SeedVault from "expo-seed-vault";
-import { File, Paths } from "expo-file-system";
 import type { VaultAccount } from "expo-seed-vault";
 import {
   createContext,
@@ -83,7 +82,7 @@ interface WalletContextValue {
   finalizeSigner: (
     keypair: Keypair,
     pin: string,
-    opts?: { alreadyStored?: boolean }
+    opts?: { alreadyStored?: boolean },
   ) => Promise<void>;
   finalizeMwaSigner: (account: StoredMwaAccount) => Promise<void>;
   finalizeVaultSigner: (account: VaultAccount) => Promise<void>;
@@ -125,43 +124,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   // resetWallet clears all of them).
   useEffect(() => {
     (async () => {
-      // The emulator verifier pushes the approved test key into this app-private
-      // file with `adb run-as`. It is read only in a development bundle, never
-      // persisted by the app, and never crosses Metro, an environment variable,
-      // a command argument, logs, or telemetry.
-      if (__DEV__ && process.env.EXPO_PUBLIC_E2E_METRICS === "true") {
-        try {
-          const keyFile = new File(
-            Paths.document,
-            "loyal-metrics-e2e-wallet.json"
-          );
-          if (keyFile.exists) {
-            const serializedKey = await keyFile.text();
-            keyFile.delete();
-            const parsed = JSON.parse(serializedKey) as unknown;
-            if (
-              Array.isArray(parsed) &&
-              parsed.length === 64 &&
-              parsed.every(
-                (value) => Number.isInteger(value) && value >= 0 && value <= 255
-              )
-            ) {
-              const keypair = Keypair.fromSecretKey(Uint8Array.from(parsed));
-              const next = new LocalKeypairSigner(keypair);
-              const nextPublicKey = keypair.publicKey.toBase58();
-              setSigner(next);
-              setPublicKey(nextPublicKey);
-              setWalletSigner(next);
-              setState("unlocked");
-              return;
-            }
-          }
-        } catch {
-          // The verifier reports a timeout if its private key fixture is absent
-          // or malformed. Do not log key parsing or file details.
-        }
-      }
-
       const mwa = await loadMwaAccount();
       if (mwa) {
         const next = new MwaSigner(mwa.authToken, mwa.publicKey, mwa.label);
@@ -179,7 +141,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           const next = new SeedVaultSigner(
             vault.authToken,
             vault.derivationPath,
-            vault.publicKey
+            vault.publicKey,
           );
           setSigner(next);
           setPublicKey(vault.publicKey);
@@ -249,7 +211,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const kp = await importKeypair(secretKey, pin);
       return kp;
     },
-    []
+    [],
   );
 
   // Called after biometric setup — persists keypair (create) or just unlocks (import).
@@ -273,10 +235,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         source === "imported"
           ? WALLET_SETUP_EVENTS.walletImported
           : WALLET_SETUP_EVENTS.walletCreated,
-        { source }
+        { source },
       );
     },
-    []
+    [],
   );
 
   // MWA accounts finalize without PIN/biometric setup. The user's wallet app
@@ -286,7 +248,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const next = new MwaSigner(
       account.authToken,
       account.publicKey,
-      account.label
+      account.label,
     );
     setSigner(next);
     setPublicKey(account.publicKey);
@@ -308,7 +270,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const next = new SeedVaultSigner(
       account.authToken,
       account.derivationPath,
-      account.publicKey
+      account.publicKey,
     );
     setSigner(next);
     setPublicKey(account.publicKey);
@@ -359,7 +321,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setBiometricEnabledState(false);
       }
     },
-    []
+    [],
   );
 
   const changePinAction = useCallback(
@@ -372,7 +334,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         await enableBiometrics(newPin);
       }
     },
-    [signer, biometricEnabled]
+    [signer, biometricEnabled],
   );
 
   const resetWallet = useCallback(async () => {
@@ -462,7 +424,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       getSecretKeyHex,
       startOnboardingReplay,
       finishOnboardingReplay,
-    ]
+    ],
   );
 
   return (

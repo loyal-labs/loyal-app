@@ -10,7 +10,7 @@ import {
 // backend endpoint. Like useEarnPosition: wallet-address-keyed, never signs.
 export function useEarnAutodeposit(walletAddress: string | null) {
   const [autodeposit, setAutodeposit] = useState<EarnAutodepositState | null>(
-    null
+    null,
   );
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -46,7 +46,7 @@ export function useEarnAutodeposit(walletAddress: string | null) {
         }
       }
     },
-    [walletAddress]
+    [walletAddress],
   );
 
   useEffect(() => {

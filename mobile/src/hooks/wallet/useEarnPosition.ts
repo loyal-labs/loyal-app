@@ -26,7 +26,7 @@ const MUTATION_TRUST_MS = 20_000;
 function reconcileBalance(
   position: EarnPosition | null,
   liveTotalRaw: string | null,
-  preferReadModel: boolean
+  preferReadModel: boolean,
 ): EarnPosition | null {
   if (position === null || liveTotalRaw === null || preferReadModel) {
     return position;
@@ -116,8 +116,8 @@ export function useEarnPosition(walletAddress: string | null) {
           reconcileBalance(
             stateResult.value.position,
             liveTotalRaw,
-            preferReadModel
-          )
+            preferReadModel,
+          ),
         );
       } finally {
         if (fetchId === fetchIdRef.current) {
@@ -126,7 +126,7 @@ export function useEarnPosition(walletAddress: string | null) {
         }
       }
     },
-    [walletAddress]
+    [walletAddress],
   );
 
   useEffect(() => {

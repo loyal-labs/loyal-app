@@ -40,7 +40,7 @@ export function useEarnWithdrawSources(walletAddress: string | null) {
         }
       }
     },
-    [walletAddress]
+    [walletAddress],
   );
 
   return { sources, isLoading, refreshSources };

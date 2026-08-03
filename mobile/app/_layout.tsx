@@ -3,7 +3,6 @@ import "@/global.css";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 
 import { DatadogInit } from "@/components/DatadogInit";
-import { MobileMetricsE2eRunner } from "@/components/MobileMetricsE2eRunner";
 import { ObservabilityInit } from "@/components/ObservabilityInit";
 import { OtaUpdateBanner } from "@/components/OtaUpdateBanner";
 import { PushTokenRegistrar } from "@/components/PushTokenRegistrar";
@@ -30,13 +29,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
-  // A headless Android emulator can leave the Lottie callback suspended behind
-  // Expo's first-run developer-menu sheet. The verifier still boots the real
-  // app and waits for its authenticated data dependencies; it skips only this
-  // decorative overlay so the action runner cannot deadlock on emulator UI.
-  const e2eMetricsEnabled =
-    __DEV__ && process.env.EXPO_PUBLIC_E2E_METRICS === "true";
-  const [showSplash, setShowSplash] = useState(!e2eMetricsEnabled);
+  const [showSplash, setShowSplash] = useState(true);
 
   const [fontsLoaded] = useFonts({
     Geist_400Regular: require("@expo-google-fonts/geist/400Regular/Geist_400Regular.ttf"),
@@ -109,13 +102,15 @@ export default function RootLayout() {
             <StatusBar style="auto" />
             <WalletAuthGate />
             <AppReadyProvider splashDone={!showSplash}>
-              <MobileMetricsE2eRunner />
               <Stack
                 screenOptions={{
                   headerBackButtonDisplayMode: "minimal",
                 }}
               >
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="(tabs)"
+                  options={{ headerShown: false }}
+                />
                 <Stack.Screen
                   name="token/[mint]"
                   options={{ headerShown: false }}
