@@ -204,6 +204,47 @@ export const LIFECYCLE_ERROR_DETAILS = [
 ] as const;
 export type LifecycleErrorDetail = (typeof LIFECYCLE_ERROR_DETAILS)[number];
 
+// The wallet adapter behind a sign-in attempt. Wallet-standard adapters
+// register under arbitrary display names the extension controls, so this is a
+// closed token set for the same reason as `LIFECYCLE_ERROR_DETAILS`: known
+// names map to their token, anything else collapses into `other`, and no
+// string a wallet holds can reach the exported attribute.
+export const LIFECYCLE_WALLET_PROVIDERS = [
+  "backpack",
+  "brave_wallet",
+  "coinbase_wallet",
+  "exodus",
+  "glow",
+  "jupiter",
+  "ledger",
+  "loyal",
+  "magic_eden",
+  "metamask",
+  "nightly",
+  "okx_wallet",
+  "other",
+  "phantom",
+  "solflare",
+  "trust",
+] as const;
+export type LifecycleWalletProvider =
+  (typeof LIFECYCLE_WALLET_PROVIDERS)[number];
+
+// Maps an adapter's display name ("Coinbase Wallet", "Magic Eden") onto its
+// token. Unknown non-empty names become `other` — still counted, bounded
+// cardinality — while a missing name stays unset.
+export function normalizeLifecycleWalletProvider(
+  value: unknown
+): LifecycleWalletProvider | undefined {
+  if (typeof value !== "string") return undefined;
+  const token = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+  if (!token) return undefined;
+  return includes(LIFECYCLE_WALLET_PROVIDERS, token) ? token : "other";
+}
+
 export const EXECUTE_NOW_STATES = [
   "requested",
   "selected",
@@ -280,6 +321,7 @@ export type LifecycleDiagnostics = {
   stageCount?: number;
   stageIndex?: number;
   transactionVersion?: (typeof TRANSACTION_VERSIONS)[number];
+  walletProvider?: LifecycleWalletProvider;
 };
 
 export type BrowserLifecycleEnvelope = LifecycleDiagnostics & {
@@ -423,6 +465,7 @@ export function parseBrowserLifecycleEnvelope(
     "stageIndex",
     "timestamp",
     "transactionVersion",
+    "walletProvider",
   ]);
   if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
     throw new InvalidLifecycleEnvelopeError();
@@ -480,6 +523,15 @@ export function parseBrowserLifecycleEnvelope(
 
   assertOptionalEnum(record.errorCode, LIFECYCLE_ERROR_CODES);
   const errorDetail = normalizeErrorDetail(record.errorDetail);
+  // Exact-token match only: at the ingest boundary an unrecognized value is
+  // dropped, never bucketed into `other` — mapping display names onto tokens
+  // is the emitter's job via normalizeLifecycleWalletProvider.
+  const walletProvider = includes(
+    LIFECYCLE_WALLET_PROVIDERS,
+    record.walletProvider
+  )
+    ? record.walletProvider
+    : undefined;
   assertOptionalEnum(record.executeNowState, EXECUTE_NOW_STATES);
   assertOptionalEnum(record.authProofKind, PROOF_KINDS);
   assertOptionalEnum(record.executionMode, EXECUTION_MODES);
@@ -599,9 +651,14 @@ export function parseBrowserLifecycleEnvelope(
     }
   }
 
-  // `errorDetail` always overwrites the raw value; undefined when it was
-  // absent or normalized away, which downstream treats as "not set".
-  return { ...record, pathname, errorDetail } as BrowserLifecycleEnvelope;
+  // `errorDetail`/`walletProvider` always overwrite the raw value; undefined
+  // when absent or normalized away, which downstream treats as "not set".
+  return {
+    ...record,
+    pathname,
+    errorDetail,
+    walletProvider,
+  } as BrowserLifecycleEnvelope;
 }
 
 const WALLET_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
