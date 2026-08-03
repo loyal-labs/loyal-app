@@ -28,7 +28,22 @@ const MAINNET_YIELD_CLUSTER = "mainnet-beta";
 const DEFAULT_MAINNET_RPC_URL =
   "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
 
-type FundingRole = "sponsorship" | "policy" | "deployment" | "route_fee_payer";
+type FundingRole =
+  | "sponsorship"
+  | "policy"
+  | "deployment"
+  | "route_fee_payer"
+  | "settings_authority";
+
+// Roles whose outflow lands in a table this page reads. A wallet with no such
+// role has no spend history to consult, which is different from having one that
+// came back empty — see loadWalletSpend and calculateStatus.
+const SPEND_TRACKED_ROLES = new Set<FundingRole>([
+  "sponsorship",
+  "policy",
+  "deployment",
+  "route_fee_payer",
+]);
 
 export type FundingStatus = "healthy" | "low" | "critical" | "unknown";
 
@@ -247,15 +262,46 @@ async function loadAppIdentityObservations(): Promise<{
   }
 }
 
-async function loadYieldIdentityObservations(): Promise<{
+// Settings authorities are per smart account, so there are thousands of them.
+// Only the configured operational authority is looked up; enumerating the
+// column would turn every user's account into a funding wallet card.
+async function loadSettingsAuthorityObservations(
+  sql: ReturnType<typeof getYieldNeonSql>,
+  configuredAddresses: string[]
+): Promise<PolicyObservationRow[]> {
+  if (configuredAddresses.length === 0) {
+    return [];
+  }
+
+  return sql.query(
+    `
+    SELECT
+      authority AS address,
+      COUNT(*)::text AS active_policy_count,
+      MAX(last_seen_at) AS latest_seen_at
+    FROM loyal_yield.route_policies
+    WHERE active = true
+      AND authority = ANY($1::text[])
+    GROUP BY authority
+    ORDER BY COUNT(*) DESC, MAX(last_seen_at) DESC
+  `,
+    [configuredAddresses]
+  ) as unknown as Promise<PolicyObservationRow[]>;
+}
+
+async function loadYieldIdentityObservations(
+  configuredSettingsAuthorities: string[]
+): Promise<{
   policy: IdentityObservation[];
   routeFeePayer: IdentityObservation[];
+  settingsAuthority: IdentityObservation[];
   sourceError: string | null;
 }> {
   try {
     const sql = getYieldNeonSql();
-    const [policyRows, feePayerRows] = await Promise.all([
-      sql.query(`
+    const [policyRows, feePayerRows, settingsAuthorityRows] = await Promise.all(
+      [
+        sql.query(`
         SELECT
           signer.address AS address,
           COUNT(*)::text AS active_policy_count,
@@ -266,7 +312,7 @@ async function loadYieldIdentityObservations(): Promise<{
         GROUP BY signer.address
         ORDER BY COUNT(*) DESC, MAX(last_seen_at) DESC
       `) as unknown as Promise<PolicyObservationRow[]>,
-      sql.query(`
+        sql.query(`
         SELECT
           fee_payer AS address,
           COUNT(*)::text AS active_shard_count,
@@ -277,7 +323,9 @@ async function loadYieldIdentityObservations(): Promise<{
         GROUP BY fee_payer
         ORDER BY COUNT(*) DESC, MAX(updated_at) DESC
       `) as unknown as Promise<FeePayerObservationRow[]>,
-    ]);
+        loadSettingsAuthorityObservations(sql, configuredSettingsAuthorities),
+      ]
+    );
 
     return {
       policy: policyRows
@@ -298,12 +346,22 @@ async function loadYieldIdentityObservations(): Promise<{
           )
         )
         .filter((row): row is IdentityObservation => Boolean(row)),
+      settingsAuthority: settingsAuthorityRows
+        .map((row) =>
+          toObservedAddress(
+            row.address,
+            row.active_policy_count,
+            row.latest_seen_at
+          )
+        )
+        .filter((row): row is IdentityObservation => Boolean(row)),
       sourceError: null,
     };
   } catch {
     return {
       policy: [],
       routeFeePayer: [],
+      settingsAuthority: [],
       sourceError: "Yield database identity observations unavailable",
     };
   }
@@ -661,6 +719,7 @@ function calculateStatus(args: {
   roleKeys: FundingRole[];
   runwayHours: number | null;
   spendAvailable: boolean;
+  spendTracked: boolean;
 }): { status: FundingStatus; detail: string } {
   if (args.balanceLamports === null) {
     return {
@@ -708,6 +767,16 @@ function calculateStatus(args: {
     };
   }
 
+  // No source records this wallet's outflow, so there is no runway to report
+  // and nothing to warn about. Say so rather than implying a reading of zero.
+  if (!args.spendTracked) {
+    return {
+      detail:
+        "Balance is above the configured operating thresholds; spend is not tracked for this wallet",
+      status: "healthy",
+    };
+  }
+
   // A wallet whose spend history could not be read has no runway to stand on,
   // so it must not claim to clear the operating thresholds. Spend that is
   // present but zero is a real observation and stays healthy.
@@ -728,6 +797,7 @@ function createRoleDefinitions(args: {
   app: Awaited<ReturnType<typeof loadAppIdentityObservations>>;
   configuredDeployment: string | undefined;
   configuredPolicy: string | undefined;
+  configuredSettingsAuthority: string | undefined;
   configuredSponsor: string | undefined;
   yield: Awaited<ReturnType<typeof loadYieldIdentityObservations>>;
 }): RoleDefinition[] {
@@ -754,6 +824,16 @@ function createRoleDefinitions(args: {
       observation: {
         configuredAddresses: uniqueAddresses([args.configuredDeployment]),
         observedAddresses: args.app.deployment,
+      },
+    },
+    {
+      key: "settings_authority",
+      label: "Earn settings authority",
+      observation: {
+        configuredAddresses: uniqueAddresses([
+          args.configuredSettingsAuthority,
+        ]),
+        observedAddresses: args.yield.settingsAuthority,
       },
     },
     ...args.yield.routeFeePayer.map((observation) => ({
@@ -854,7 +934,10 @@ function createWallets(args: {
       );
       const minimumLamports = roleKeys.some(
         (key) =>
-          key === "policy" || key === "deployment" || key === "route_fee_payer"
+          key === "policy" ||
+          key === "deployment" ||
+          key === "route_fee_payer" ||
+          key === "settings_authority"
       )
         ? POLICY_MINIMUM_LAMPORTS
         : null;
@@ -864,6 +947,7 @@ function createWallets(args: {
         roleKeys,
         runwayHours,
         spendAvailable: spend.spend7dLamports !== null,
+        spendTracked: roleKeys.some((key) => SPEND_TRACKED_ROLES.has(key)),
       });
       const mismatch = wallet.roles.some((role) => {
         const definition = args.definitions.find(
@@ -913,9 +997,12 @@ function createWallets(args: {
 }
 
 async function loadFundingData(): Promise<EarnFundingData> {
+  const configuredSettingsAuthority = serverEnv.earnSettingsAuthorityPublicKey;
   const [appObservations, yieldObservations] = await Promise.all([
     loadAppIdentityObservations(),
-    loadYieldIdentityObservations(),
+    loadYieldIdentityObservations(
+      uniqueAddresses([configuredSettingsAuthority])
+    ),
   ]);
   const sourceErrors = [
     appObservations.sourceError,
@@ -925,6 +1012,7 @@ async function loadFundingData(): Promise<EarnFundingData> {
     app: appObservations,
     configuredDeployment: serverEnv.deploymentPublicKey,
     configuredPolicy: serverEnv.earnPolicySignerPublicKey,
+    configuredSettingsAuthority,
     configuredSponsor: serverEnv.smartAccountSponsorPublicKey,
     yield: yieldObservations,
   });
@@ -939,7 +1027,18 @@ async function loadFundingData(): Promise<EarnFundingData> {
     sourceErrors.push(balanceResult.error);
   }
 
-  const spendResult = await loadWalletSpend(addresses);
+  // Only addresses with a spend-tracked role are queried. Seeding a zero for a
+  // wallet no source covers would report "spent nothing" for outflow that is
+  // simply never recorded.
+  const spendTrackedAddresses = uniqueAddresses(
+    definitions
+      .filter((definition) => SPEND_TRACKED_ROLES.has(definition.key))
+      .flatMap((definition) => [
+        ...definition.observation.configuredAddresses,
+        ...definition.observation.observedAddresses.map((row) => row.address),
+      ])
+  );
+  const spendResult = await loadWalletSpend(spendTrackedAddresses);
   sourceErrors.push(...spendResult.sourceErrors);
 
   const walletResult = createWallets({
