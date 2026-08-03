@@ -1,5 +1,6 @@
 import type { NormalizedErrorEvent } from "./error-contract";
 import type { NormalizedLifecycleEvent } from "./lifecycle-contract";
+import type { NormalizedLoadingMetric } from "./metrics-contract";
 
 export type OtlpAttribute = {
   key: string;
@@ -235,6 +236,74 @@ export function buildOtlpLifecyclePayload(
                   : "loyal.frontend.lifecycle",
               version: "1",
             },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+export function buildOtlpLoadingMetricPayload(
+  event: NormalizedLoadingMetric
+): unknown {
+  const attributes: OtlpAttribute[] = [
+    stringAttribute("loyal.operation", event.operation),
+    stringAttribute("loyal.phase", event.phase),
+    stringAttribute("loyal.outcome", event.outcome),
+    stringAttribute("url.path", event.pathname),
+  ];
+
+  if (event.flowId) {
+    attributes.push(stringAttribute("loyal.flow.id", event.flowId));
+  }
+  if (event.pageSessionId) {
+    attributes.push(
+      stringAttribute("loyal.page_session.id", event.pageSessionId)
+    );
+  }
+  if (event.dependency) {
+    attributes.push(stringAttribute("loyal.dependency", event.dependency));
+  }
+  if (event.presentation) {
+    attributes.push(stringAttribute("loyal.presentation", event.presentation));
+  }
+  if (event.requestCount !== undefined) {
+    attributes.push(intAttribute("loyal.request.count", event.requestCount));
+  }
+
+  return {
+    resourceMetrics: [
+      {
+        resource: {
+          attributes: [
+            stringAttribute("service.name", event.serviceName),
+            stringAttribute("service.version", event.release),
+            stringAttribute(
+              "deployment.environment.name",
+              event.deploymentEnvironment
+            ),
+          ],
+        },
+        scopeMetrics: [
+          {
+            metrics: [
+              {
+                description:
+                  "Browser loading latency from a user-visible Loyal flow boundary.",
+                gauge: {
+                  dataPoints: [
+                    {
+                      asDouble: event.durationMs,
+                      attributes,
+                      timeUnixNano: toUnixNano(event.timestamp),
+                    },
+                  ],
+                },
+                name: event.metricName,
+                unit: "ms",
+              },
+            ],
+            scope: { name: "loyal.frontend.loading", version: "1" },
           },
         ],
       },

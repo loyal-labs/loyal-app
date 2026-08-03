@@ -78,13 +78,21 @@ import {
   type EarnExpectedMutationOperation,
   type EarnRealtimeInvalidation,
 } from "@/features/earn-realtime";
-import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import {
+  captureBrowserLoadingMetric,
+  captureBrowserLoadingMetricAfterPaint,
+  captureBrowserSubmittedFailureMetricAfterPaint,
+  createBrowserLifecycleTracker,
+  getBrowserPerformanceNow,
+  measureBrowserLoadingDependencies,
+} from "@/features/observability/client";
 import {
   mapExecuteNowState,
   normalizeLifecycleErrorCode,
   type ExecuteNowState,
   type LifecycleTracker,
 } from "@/features/observability/lifecycle-contract";
+import { resolveBrowserLoadingFailurePhase } from "@/features/observability/metrics-contract";
 import {
   useRealtimeResource,
   useRealtimeSync,
@@ -323,6 +331,11 @@ export function useEarnActions(deps: {
   const autodepositTrackerRef = useRef<LifecycleTracker | null>(null);
   const autodepositClosePreparedRef =
     useRef<SmartAccountPreparedEarnUsdcAutodepositClose | null>(null);
+  const autodepositCloseMetricRef = useRef<{
+    previewMetricSent: boolean;
+    startedAtMs: number;
+    tracker: LifecycleTracker;
+  } | null>(null);
   const autodepositFloorInFlightRef = useRef(false);
 
   // ---- Wallet USDC funding balance (app-wallet-workspace.tsx:1765-1805) ----
@@ -966,6 +979,12 @@ export function useEarnActions(deps: {
       setIsDepositPending(true);
       earnToast.loading("Preparing deposit");
       let phase: "prepare" | "sign" = "prepare";
+      const interactionStartedAtMs = getBrowserPerformanceNow();
+      let previewMetricSent = false;
+      let walletSubmittedAtMs: number | null = null;
+      const markWalletSubmitted = () => {
+        walletSubmittedAtMs ??= getBrowserPerformanceNow();
+      };
 
       const commitDepositSuccess = (commit: {
         amountRaw: bigint;
@@ -1007,6 +1026,14 @@ export function useEarnActions(deps: {
         );
         debitMainAccountUsdcBalance(commit.amountRaw);
         suppressPositionRefreshThroughSlot(commit.result.confirmedSlot);
+        if (walletSubmittedAtMs !== null) {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            phase: "wallet_confirmation_to_ui",
+            startedAtMs: walletSubmittedAtMs,
+          });
+        }
         tracker.complete("ui_commit", {
           chainState: "confirmed",
           persistenceState:
@@ -1025,7 +1052,12 @@ export function useEarnActions(deps: {
           draft.amountLabel,
           draft.tokenDecimals
         );
-        const preparedDeposit = await prepareEarnDepositInBrowser(draft);
+        const preparedDeposit = await measureBrowserLoadingDependencies({
+          flowId: tracker.flowId,
+          operation: "earn.deposit",
+          rpcEndpoint: connection.rpcEndpoint,
+          run: () => prepareEarnDepositInBrowser(draft),
+        });
         const shouldBypassTopUpPreview =
           hasPosition &&
           !requiresPolicySetup &&
@@ -1041,7 +1073,7 @@ export function useEarnActions(deps: {
         // prompts per signature.
         if (!hasPosition) {
           earnToast.loading("Waiting for approval");
-          const approved = await requestApproval(
+          const approvalPromise = requestApproval(
             buildEarnDepositReviewItem({
               draft,
               isPolicySetupFlow: requiresPolicySetup,
@@ -1049,10 +1081,31 @@ export function useEarnActions(deps: {
               showBatchTransactions: Boolean(wallet.signAllTransactions),
             })
           );
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            phase: "interaction_to_preview",
+            presentation: "in_app",
+            startedAtMs: interactionStartedAtMs,
+          });
+          previewMetricSent = true;
+          const approved = await approvalPromise;
           if (!approved) {
             tracker.cancel("review", { errorCode: "wallet_rejected" });
             return false;
           }
+        } else {
+          captureBrowserLoadingMetric({
+            durationMs: Math.max(
+              0,
+              getBrowserPerformanceNow() - interactionStartedAtMs
+            ),
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            phase: "interaction_to_preview",
+            presentation: "wallet",
+          });
+          previewMetricSent = true;
         }
 
         if (!ensureCanSignAccountAction()) {
@@ -1070,6 +1123,7 @@ export function useEarnActions(deps: {
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
             observabilityFlowId: tracker.flowId,
+            onWalletSubmitted: markWalletSubmitted,
             preparedDeposit,
           });
           if (!result.success) {
@@ -1118,6 +1172,7 @@ export function useEarnActions(deps: {
           const batchResult = await smartAccountData.executeEarnDepositBatch({
             amountRaw,
             observabilityFlowId: tracker.flowId,
+            onWalletSubmitted: markWalletSubmitted,
             preparedDeposit,
             startStage: stage,
             ...stageSignatures,
@@ -1189,6 +1244,7 @@ export function useEarnActions(deps: {
             const result = await smartAccountData.executeEarnDepositPolicyStage(
               {
                 observabilityFlowId: tracker.flowId,
+                onWalletSubmitted: markWalletSubmitted,
                 preparedDeposit,
                 stage,
               }
@@ -1240,6 +1296,7 @@ export function useEarnActions(deps: {
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
             observabilityFlowId: tracker.flowId,
+            onWalletSubmitted: markWalletSubmitted,
             ...stageSignatures,
             preparedDeposit,
           });
@@ -1287,6 +1344,26 @@ export function useEarnActions(deps: {
             errorCode: "unexpected_error",
           });
         }
+        const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
+          previewMetricSent,
+          walletSubmitted: walletSubmittedAtMs !== null,
+        });
+        if (loadingFailurePhase === "interaction_to_preview") {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            outcome: "failed",
+            phase: loadingFailurePhase,
+            presentation: hasPosition ? "wallet" : "in_app",
+            startedAtMs: interactionStartedAtMs,
+          });
+        } else if (loadingFailurePhase === "wallet_confirmation_to_ui") {
+          captureBrowserSubmittedFailureMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            startedAtMs: walletSubmittedAtMs,
+          });
+        }
         if (!isWalletCancellation(error)) {
           earnToast.error("Deposit failed");
         }
@@ -1298,6 +1375,7 @@ export function useEarnActions(deps: {
     },
     [
       canMutateAccount,
+      connection.rpcEndpoint,
       debitMainAccountUsdcBalance,
       depositSource,
       ensureCanSignAccountAction,
@@ -1331,13 +1409,24 @@ export function useEarnActions(deps: {
       setWithdrawError(null);
       setIsWithdrawPending(true);
       earnToast.loading("Preparing withdrawal");
+      const interactionStartedAtMs = getBrowserPerformanceNow();
+      let previewMetricSent = false;
+      let walletSubmittedAtMs: number | null = null;
+      const markWalletSubmitted = () => {
+        walletSubmittedAtMs ??= getBrowserPerformanceNow();
+      };
 
       try {
         tracker.observe("prepare", {
           cleanupRequired: draft.mode === "full",
         });
         const amountRaw = getEarnWithdrawDraftAmountRaw(draft);
-        let preparedWithdraw = await prepareEarnWithdrawInBrowser(draft);
+        let preparedWithdraw = await measureBrowserLoadingDependencies({
+          flowId: tracker.flowId,
+          operation: "earn.withdrawal",
+          rpcEndpoint: connection.rpcEndpoint,
+          run: () => prepareEarnWithdrawInBrowser(draft),
+        });
         const shouldBypassWithdrawPreview =
           draft.mode === "partial" &&
           !preparedWithdraw.autodepositClosePrepared;
@@ -1347,7 +1436,7 @@ export function useEarnActions(deps: {
         // prompts per signature.
         if (draft.mode === "full") {
           earnToast.loading("Waiting for approval");
-          const approved = await requestApproval(
+          const approvalPromise = requestApproval(
             buildEarnWithdrawReviewItem({
               draft,
               hasAutodepositTeardown: Boolean(
@@ -1356,6 +1445,15 @@ export function useEarnActions(deps: {
               preparedWithdraw,
             })
           );
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.withdrawal",
+            phase: "interaction_to_preview",
+            presentation: "in_app",
+            startedAtMs: interactionStartedAtMs,
+          });
+          previewMetricSent = true;
+          const approved = await approvalPromise;
           if (!approved) {
             tracker.cancel("wallet_submit_confirm", {
               errorCode: "wallet_rejected",
@@ -1363,6 +1461,18 @@ export function useEarnActions(deps: {
             withdrawTrackerRef.current = null;
             return false;
           }
+        } else {
+          captureBrowserLoadingMetric({
+            durationMs: Math.max(
+              0,
+              getBrowserPerformanceNow() - interactionStartedAtMs
+            ),
+            flowId: tracker.flowId,
+            operation: "earn.withdrawal",
+            phase: "interaction_to_preview",
+            presentation: "wallet",
+          });
+          previewMetricSent = true;
         }
 
         if (!ensureCanSignAccountAction()) {
@@ -1386,6 +1496,7 @@ export function useEarnActions(deps: {
               amountRaw,
               mode: draft.mode,
               observabilityFlowId: tracker.flowId,
+              onWalletSubmitted: markWalletSubmitted,
               preparedWithdraw,
               stepIndex,
             });
@@ -1419,6 +1530,14 @@ export function useEarnActions(deps: {
           );
           creditMainAccountUsdcBalance(amountRaw);
           suppressPositionRefreshThroughSlot(latestConfirmedSlot);
+          if (walletSubmittedAtMs !== null) {
+            captureBrowserLoadingMetricAfterPaint({
+              flowId: tracker.flowId,
+              operation: "earn.withdrawal",
+              phase: "wallet_confirmation_to_ui",
+              startedAtMs: walletSubmittedAtMs,
+            });
+          }
           tracker.complete("ui_commit", {
             chainState: "confirmed",
             persistenceState: "recorded",
@@ -1454,6 +1573,7 @@ export function useEarnActions(deps: {
             earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
             const result = await smartAccountData.executeEarnAutodepositClose({
               observabilityFlowId: tracker.flowId,
+              onWalletSubmitted: markWalletSubmitted,
               policy: preparedClose.policy.account.toBase58(),
               preparedClose,
               recurringDelegation:
@@ -1505,6 +1625,7 @@ export function useEarnActions(deps: {
             observabilityFlowId: tracker.flowId,
             autodepositCloseAlreadyCompleted: draft.mode === "full",
             mode: draft.mode,
+            onWalletSubmitted: markWalletSubmitted,
             preparedWithdraw,
             stepIndex,
           });
@@ -1550,6 +1671,14 @@ export function useEarnActions(deps: {
             creditMainAccountUsdcBalance(amountRaw);
             suppressPositionRefreshThroughSlot(result.confirmedSlot);
           }
+          if (walletSubmittedAtMs !== null) {
+            captureBrowserLoadingMetricAfterPaint({
+              flowId: tracker.flowId,
+              operation: "earn.withdrawal",
+              phase: "wallet_confirmation_to_ui",
+              startedAtMs: walletSubmittedAtMs,
+            });
+          }
           if (draft.mode === "full") {
             // The flow stays open: the rent-cleanup phase completes it.
             tracker.observe("full_exit_verify", {
@@ -1582,6 +1711,26 @@ export function useEarnActions(deps: {
             errorCode: "unexpected_error",
           });
         }
+        const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
+          previewMetricSent,
+          walletSubmitted: walletSubmittedAtMs !== null,
+        });
+        if (loadingFailurePhase === "interaction_to_preview") {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.withdrawal",
+            outcome: "failed",
+            phase: loadingFailurePhase,
+            presentation: draft.mode === "full" ? "in_app" : "wallet",
+            startedAtMs: interactionStartedAtMs,
+          });
+        } else if (loadingFailurePhase === "wallet_confirmation_to_ui") {
+          captureBrowserSubmittedFailureMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.withdrawal",
+            startedAtMs: walletSubmittedAtMs,
+          });
+        }
         if (!isWalletCancellation(error)) {
           earnToast.error("Withdrawal failed");
         }
@@ -1593,6 +1742,7 @@ export function useEarnActions(deps: {
     },
     [
       creditMainAccountUsdcBalance,
+      connection.rpcEndpoint,
       ensureCanSignAccountAction,
       expectEarnTransaction,
       prepareEarnWithdrawInBrowser,
@@ -1613,22 +1763,43 @@ export function useEarnActions(deps: {
   const runCleanup = useCallback(async (): Promise<boolean> => {
     // ponytail: the monolith splits prepare ("Close policies") and sign
     // (review approve) into two clicks; one button covers both here.
-    const tracker = withdrawTrackerRef.current;
+    const tracker =
+      withdrawTrackerRef.current ??
+      createBrowserLifecycleTracker({
+        flowName: "earn.withdrawal",
+        flowVariant: "full",
+      });
+    if (!withdrawTrackerRef.current) {
+      withdrawTrackerRef.current = tracker;
+      tracker.start("intent", { cleanupRequired: true });
+    }
+    const interactionStartedAtMs = getBrowserPerformanceNow();
+    let previewMetricSent = false;
+    let walletSubmittedAtMs: number | null = null;
+    const markWalletSubmitted = () => {
+      walletSubmittedAtMs ??= getBrowserPerformanceNow();
+    };
     setWithdrawError(null);
     setIsCleanupPending(true);
     earnToast.loading("Closing policies");
     try {
-      tracker?.observe("full_exit_verify", {
+      tracker.observe("full_exit_verify", {
         chainState: "confirmed",
         cleanupRequired: true,
       });
       let preparedCleanup;
       try {
-        preparedCleanup = await prepareEarnCleanupOnServer({
-          observabilityFlowId: tracker?.flowId,
+        preparedCleanup = await measureBrowserLoadingDependencies({
+          flowId: tracker.flowId,
+          operation: "earn.close",
+          rpcEndpoint: connection.rpcEndpoint,
+          run: () =>
+            prepareEarnCleanupOnServer({
+              observabilityFlowId: tracker.flowId,
+            }),
         });
       } catch (error) {
-        tracker?.fail("full_exit_verify", {
+        tracker.fail("full_exit_verify", {
           errorCode: "full_exit_verification_retryable",
         });
         throw error instanceof Error
@@ -1636,21 +1807,34 @@ export function useEarnActions(deps: {
           : new Error("Failed to prepare Earn cleanup.");
       }
 
+      captureBrowserLoadingMetric({
+        durationMs: Math.max(
+          0,
+          getBrowserPerformanceNow() - interactionStartedAtMs
+        ),
+        flowId: tracker.flowId,
+        operation: "earn.close",
+        phase: "interaction_to_preview",
+        presentation: "wallet",
+      });
+      previewMetricSent = true;
+
       if (!ensureCanSignAccountAction()) {
         return false;
       }
-      tracker?.observe("cleanup", {
+      tracker.observe("cleanup", {
         chainState: "submitted",
         cleanupRequired: true,
       });
       earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
       const result = await smartAccountData.executeEarnCleanup({
-        observabilityFlowId: tracker?.flowId,
+        observabilityFlowId: tracker.flowId,
+        onWalletSubmitted: markWalletSubmitted,
         preparedCleanup,
       });
       if (!result.success) {
         if (result.status === "confirmation_record_failed") {
-          tracker?.fail("cleanup", {
+          tracker.fail("cleanup", {
             chainState: "confirmed",
             errorCode: "record_failed",
             persistenceState: "failed",
@@ -1666,7 +1850,15 @@ export function useEarnActions(deps: {
         resources: EARN_CLEANUP_MUTATION_RESOURCES,
         signature: result.signature,
       });
-      tracker?.complete("ui_commit", {
+      if (walletSubmittedAtMs !== null) {
+        captureBrowserLoadingMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.close",
+          phase: "wallet_confirmation_to_ui",
+          startedAtMs: walletSubmittedAtMs,
+        });
+      }
+      tracker.complete("ui_commit", {
         chainState: "confirmed",
         cleanupRequired: true,
         persistenceState: "recorded",
@@ -1679,9 +1871,29 @@ export function useEarnActions(deps: {
         error instanceof Error ? error.message : "Earn cleanup failed.";
       setWithdrawError(message);
       if (isWalletCancellation(error)) {
-        tracker?.cancel("cleanup", { errorCode: "wallet_rejected" });
+        tracker.cancel("cleanup", { errorCode: "wallet_rejected" });
       } else {
         earnToast.error("Couldn't close policies");
+      }
+      const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
+        previewMetricSent,
+        walletSubmitted: walletSubmittedAtMs !== null,
+      });
+      if (loadingFailurePhase === "interaction_to_preview") {
+        captureBrowserLoadingMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.close",
+          outcome: "failed",
+          phase: loadingFailurePhase,
+          presentation: "wallet",
+          startedAtMs: interactionStartedAtMs,
+        });
+      } else if (loadingFailurePhase === "wallet_confirmation_to_ui") {
+        captureBrowserSubmittedFailureMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.close",
+          startedAtMs: walletSubmittedAtMs,
+        });
       }
       return false;
     } finally {
@@ -1689,6 +1901,7 @@ export function useEarnActions(deps: {
       earnToast.settle();
     }
   }, [
+    connection.rpcEndpoint,
     ensureCanSignAccountAction,
     registerExpectedEarnMutation,
     setAutodepositOverride,
@@ -1867,6 +2080,12 @@ export function useEarnActions(deps: {
       autodepositTrackerRef.current = tracker;
       tracker.start("intent");
       tracker.observe("prepare");
+      const interactionStartedAtMs = getBrowserPerformanceNow();
+      let previewMetricSent = false;
+      let walletSubmittedAtMs: number | null = null;
+      const markWalletSubmitted = () => {
+        walletSubmittedAtMs ??= getBrowserPerformanceNow();
+      };
 
       const setupReviewDraft: EarnAutodepositDraft = {
         amount: Number(amountLabel.replace(/,/g, "")) || 0,
@@ -1882,9 +2101,18 @@ export function useEarnActions(deps: {
         tokenDecimals: source.decimals,
       };
       earnToast.loading("Waiting for approval");
-      const setupApproved = await requestApproval(
+      const approvalPromise = requestApproval(
         buildEarnAutodepositSetupReviewItem({ draft: setupReviewDraft })
       );
+      captureBrowserLoadingMetricAfterPaint({
+        flowId: tracker.flowId,
+        operation: "earn.autodeposit.setup",
+        phase: "interaction_to_preview",
+        presentation: "in_app",
+        startedAtMs: interactionStartedAtMs,
+      });
+      previewMetricSent = true;
+      const setupApproved = await approvalPromise;
       if (!setupApproved) {
         tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
         autodepositTrackerRef.current = null;
@@ -1921,16 +2149,22 @@ export function useEarnActions(deps: {
         > | null;
         for (;;) {
           if (!preparedSetup) {
-            preparedSetup = await smartAccountData.prepareEarnAutodepositSetup({
-              amountRaw,
-              expiryTimestamp,
-              nonce: draftNonce,
-              periodLengthSeconds,
-              policySeed: existingPolicySeed
-                ? BigInt(existingPolicySeed)
-                : undefined,
-              startTimestamp,
-              walletBalanceFloorRaw: keepAmountRaw,
+            preparedSetup = await measureBrowserLoadingDependencies({
+              flowId: tracker.flowId,
+              operation: "earn.autodeposit.setup",
+              rpcEndpoint: connection.rpcEndpoint,
+              run: () =>
+                smartAccountData.prepareEarnAutodepositSetup({
+                  amountRaw,
+                  expiryTimestamp,
+                  nonce: draftNonce,
+                  periodLengthSeconds,
+                  policySeed: existingPolicySeed
+                    ? BigInt(existingPolicySeed)
+                    : undefined,
+                  startTimestamp,
+                  walletBalanceFloorRaw: keepAmountRaw,
+                }),
             });
           }
           tracker.observe(
@@ -1947,6 +2181,7 @@ export function useEarnActions(deps: {
           const result = await smartAccountData.executeEarnAutodepositSetup({
             amountRaw,
             observabilityFlowId: tracker.flowId,
+            onWalletSubmitted: markWalletSubmitted,
             expiryTimestamp,
             nonce: draftNonce,
             periodLengthSeconds,
@@ -2022,6 +2257,14 @@ export function useEarnActions(deps: {
             signature: result.signature,
             targetId: result.targetId,
           });
+          if (walletSubmittedAtMs !== null) {
+            captureBrowserLoadingMetricAfterPaint({
+              flowId: tracker.flowId,
+              operation: "earn.autodeposit.setup",
+              phase: "wallet_confirmation_to_ui",
+              startedAtMs: walletSubmittedAtMs,
+            });
+          }
           tracker.complete("ui_commit", {
             chainState: "confirmed",
             persistenceState: "recorded",
@@ -2046,6 +2289,26 @@ export function useEarnActions(deps: {
           tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
           earnToast.error("Couldn't save Autodeposit");
         }
+        const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
+          previewMetricSent,
+          walletSubmitted: walletSubmittedAtMs !== null,
+        });
+        if (loadingFailurePhase === "interaction_to_preview") {
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.autodeposit.setup",
+            outcome: "failed",
+            phase: loadingFailurePhase,
+            presentation: "in_app",
+            startedAtMs: interactionStartedAtMs,
+          });
+        } else if (loadingFailurePhase === "wallet_confirmation_to_ui") {
+          captureBrowserSubmittedFailureMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.autodeposit.setup",
+            startedAtMs: walletSubmittedAtMs,
+          });
+        }
         return false;
       } finally {
         setIsAutodepositPending(false);
@@ -2055,6 +2318,7 @@ export function useEarnActions(deps: {
     [
       autodepositConfig,
       canMutateAccount,
+      connection.rpcEndpoint,
       depositSource,
       ensureCanSignAccountAction,
       openSignIn,
@@ -2079,31 +2343,83 @@ export function useEarnActions(deps: {
       config: { ...autodepositConfig, state: "closing" },
     });
     autodepositClosePreparedRef.current = null;
+    const tracker = createBrowserLifecycleTracker({
+      flowName: "earn.autodeposit.configuration",
+      flowVariant: "close",
+    });
+    tracker.start("intent");
+    tracker.observe("prepare");
+    autodepositTrackerRef.current = tracker;
+    const closeMetric = {
+      previewMetricSent: false,
+      startedAtMs: getBrowserPerformanceNow(),
+      tracker,
+    };
+    autodepositCloseMetricRef.current = closeMetric;
     if (
       autodepositConfig.policyAccount &&
       autodepositConfig.recurringDelegation
     ) {
-      void smartAccountData
-        .prepareEarnAutodepositClose({
-          policy: autodepositConfig.policyAccount,
-          recurringDelegation: autodepositConfig.recurringDelegation,
-        })
+      void measureBrowserLoadingDependencies({
+        flowId: tracker.flowId,
+        operation: "earn.autodeposit.close",
+        rpcEndpoint: connection.rpcEndpoint,
+        run: () =>
+          smartAccountData.prepareEarnAutodepositClose({
+            policy: autodepositConfig.policyAccount,
+            recurringDelegation: autodepositConfig.recurringDelegation,
+          }),
+      })
         .then((prepared) => {
+          if (autodepositCloseMetricRef.current !== closeMetric) {
+            return;
+          }
           autodepositClosePreparedRef.current = prepared;
+          closeMetric.previewMetricSent = true;
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.autodeposit.close",
+            phase: "interaction_to_preview",
+            presentation: "in_app",
+            shouldCapture: () =>
+              autodepositCloseMetricRef.current === closeMetric,
+            startedAtMs: closeMetric.startedAtMs,
+          });
         })
         .catch((error) => {
+          if (autodepositCloseMetricRef.current !== closeMetric) {
+            return;
+          }
+          tracker.fail("prepare", { errorCode: "unexpected_error" });
+          captureBrowserLoadingMetricAfterPaint({
+            flowId: tracker.flowId,
+            operation: "earn.autodeposit.close",
+            outcome: "failed",
+            phase: "interaction_to_preview",
+            presentation: "in_app",
+            startedAtMs: closeMetric.startedAtMs,
+          });
+          autodepositTrackerRef.current = null;
+          autodepositCloseMetricRef.current = null;
           console.warn(
             "[earn] failed to prepare Autodeposit close preview",
             error
           );
         });
     }
-  }, [autodepositConfig, setAutodepositOverride, smartAccountData]);
+  }, [
+    autodepositConfig,
+    connection.rpcEndpoint,
+    setAutodepositOverride,
+    smartAccountData,
+  ]);
 
   const dismissAutodepositClose = useCallback(() => {
     autodepositTrackerRef.current?.cancel("wallet_approval", {
       errorCode: "wallet_rejected",
     });
+    autodepositTrackerRef.current = null;
+    autodepositCloseMetricRef.current = null;
     autodepositClosePreparedRef.current = null;
     setAutodepositOverride((current) =>
       current?.config?.state === "closing"
@@ -2127,24 +2443,57 @@ export function useEarnActions(deps: {
     }
 
     const previousConfig = config;
-    const tracker = createBrowserLifecycleTracker({
-      flowName: "earn.autodeposit.configuration",
-      flowVariant: "close",
-    });
+    const existingMetric = autodepositCloseMetricRef.current;
+    const tracker =
+      existingMetric?.tracker ??
+      createBrowserLifecycleTracker({
+        flowName: "earn.autodeposit.configuration",
+        flowVariant: "close",
+      });
+    const closeMetric: {
+      previewMetricSent: boolean;
+      startedAtMs: number;
+      tracker: LifecycleTracker;
+    } = existingMetric ?? {
+      previewMetricSent: false,
+      startedAtMs: getBrowserPerformanceNow(),
+      tracker,
+    };
+    if (!existingMetric) {
+      tracker.start("intent");
+      tracker.observe("prepare");
+      autodepositCloseMetricRef.current = closeMetric;
+    }
     autodepositTrackerRef.current = tracker;
-    tracker.start("intent");
-    tracker.observe("prepare");
+    let walletSubmittedAtMs: number | null = null;
+    const markWalletSubmitted = () => {
+      walletSubmittedAtMs ??= getBrowserPerformanceNow();
+    };
 
     earnToast.loading("Waiting for approval");
-    const closeApproved = await requestApproval(
+    const approvalPromise = requestApproval(
       buildEarnAutodepositCloseReviewItem({
         amountLabel: config.amount,
         preparedClose: autodepositClosePreparedRef.current,
       })
     );
+    if (!closeMetric.previewMetricSent) {
+      closeMetric.previewMetricSent = true;
+      captureBrowserLoadingMetricAfterPaint({
+        flowId: tracker.flowId,
+        operation: "earn.autodeposit.close",
+        phase: "interaction_to_preview",
+        presentation: "in_app",
+        startedAtMs: closeMetric.startedAtMs,
+      });
+    }
+    const closeApproved = await approvalPromise;
     if (!closeApproved) {
       tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
       autodepositTrackerRef.current = null;
+      if (autodepositCloseMetricRef.current?.tracker === tracker) {
+        autodepositCloseMetricRef.current = null;
+      }
       earnToast.settle();
       return false;
     }
@@ -2161,6 +2510,7 @@ export function useEarnActions(deps: {
       });
       const result = await smartAccountData.executeEarnAutodepositClose({
         observabilityFlowId: tracker.flowId,
+        onWalletSubmitted: markWalletSubmitted,
         policy: config.policyAccount,
         preparedClose: autodepositClosePreparedRef.current,
         recurringDelegation: config.recurringDelegation,
@@ -2187,6 +2537,14 @@ export function useEarnActions(deps: {
         signature: result.signature,
         targetId: result.targetId,
       });
+      if (walletSubmittedAtMs !== null) {
+        captureBrowserLoadingMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.autodeposit.close",
+          phase: "wallet_confirmation_to_ui",
+          startedAtMs: walletSubmittedAtMs,
+        });
+      }
       tracker.complete("ui_commit", {
         chainState: "confirmed",
         persistenceState: "recorded",
@@ -2206,8 +2564,34 @@ export function useEarnActions(deps: {
         tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
         earnToast.error("Couldn't delete Autodeposit");
       }
+      const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
+        previewMetricSent: closeMetric.previewMetricSent,
+        walletSubmitted: walletSubmittedAtMs !== null,
+      });
+      if (loadingFailurePhase === "interaction_to_preview") {
+        captureBrowserLoadingMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.autodeposit.close",
+          outcome: "failed",
+          phase: loadingFailurePhase,
+          presentation: "in_app",
+          startedAtMs: closeMetric.startedAtMs,
+        });
+      } else if (loadingFailurePhase === "wallet_confirmation_to_ui") {
+        captureBrowserSubmittedFailureMetricAfterPaint({
+          flowId: tracker.flowId,
+          operation: "earn.autodeposit.close",
+          startedAtMs: walletSubmittedAtMs,
+        });
+      }
       return false;
     } finally {
+      if (autodepositTrackerRef.current === tracker) {
+        autodepositTrackerRef.current = null;
+      }
+      if (autodepositCloseMetricRef.current?.tracker === tracker) {
+        autodepositCloseMetricRef.current = null;
+      }
       setIsAutodepositPending(false);
       earnToast.settle();
     }

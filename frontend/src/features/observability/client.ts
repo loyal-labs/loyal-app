@@ -2,6 +2,7 @@
 
 import type { BrowserChunkRecoveryAction } from "./chunk-load-contract";
 import {
+  getBrowserPageSessionId,
   inspectBrowserChunkLoadError,
   planBrowserChunkRecovery,
   recoverBrowserChunkLoadErrorOnce,
@@ -24,6 +25,17 @@ import {
   type LifecycleTracker,
   OBSERVABILITY_LIFECYCLE_ENDPOINT,
 } from "./lifecycle-contract";
+import {
+  type BrowserLoadingMetricEnvelope,
+  classifyBrowserLoadingDependencyUrl,
+  createBrowserLoadingMetricEnvelope,
+  type FrontendLoadingDependency,
+  type FrontendLoadingOperation,
+  type FrontendLoadingOutcome,
+  type FrontendLoadingPhase,
+  type FrontendLoadingPresentation,
+  OBSERVABILITY_METRICS_ENDPOINT,
+} from "./metrics-contract";
 
 const CLIENT_REPORT_TIMEOUT_MS = 1250;
 const CLIENT_BUILD_ID = process.env.NEXT_PUBLIC_GIT_COMMIT_HASH ?? "unknown";
@@ -85,6 +97,256 @@ async function postBrowserLifecycle(
     // Lifecycle telemetry is best-effort and must never affect the user flow.
   } finally {
     window.clearTimeout(timeout);
+  }
+}
+
+async function postBrowserLoadingMetric(
+  envelope: BrowserLoadingMetricEnvelope
+): Promise<void> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    CLIENT_REPORT_TIMEOUT_MS
+  );
+
+  try {
+    await fetch(OBSERVABILITY_METRICS_ENDPOINT, {
+      body: JSON.stringify(envelope),
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      keepalive: true,
+      method: "POST",
+      signal: controller.signal,
+    });
+  } catch {
+    // Performance telemetry is best-effort and must never affect the flow.
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+export type CaptureBrowserLoadingMetricArgs = {
+  dependency?: FrontendLoadingDependency;
+  durationMs: number;
+  flowId?: string;
+  operation: FrontendLoadingOperation;
+  outcome?: FrontendLoadingOutcome;
+  phase: FrontendLoadingPhase;
+  presentation?: FrontendLoadingPresentation;
+  requestCount?: number;
+};
+
+export function captureBrowserLoadingMetric(
+  args: CaptureBrowserLoadingMetricArgs
+): void {
+  try {
+    const envelope = createBrowserLoadingMetricEnvelope({
+      ...args,
+      outcome: args.outcome ?? "completed",
+      pageSessionId: getBrowserPageSessionId(),
+    });
+    void postBrowserLoadingMetric(envelope).catch(() => undefined);
+  } catch {
+    // Performance capture itself is never allowed to throw.
+  }
+}
+
+export function getBrowserPerformanceNow(): number {
+  try {
+    return window.performance.now();
+  } catch {
+    return Date.now();
+  }
+}
+
+export function captureBrowserLoadingMetricAfterPaint(
+  args: Omit<CaptureBrowserLoadingMetricArgs, "durationMs"> & {
+    shouldCapture?: () => boolean;
+    startedAtMs: number;
+  }
+): void {
+  const { shouldCapture, startedAtMs, ...metric } = args;
+  const emit = () => {
+    if (shouldCapture && !shouldCapture()) {
+      return;
+    }
+    captureBrowserLoadingMetric({
+      ...metric,
+      durationMs: Math.max(0, getBrowserPerformanceNow() - startedAtMs),
+    });
+  };
+
+  try {
+    if (document.visibilityState === "visible") {
+      window.requestAnimationFrame(() => window.requestAnimationFrame(emit));
+      return;
+    }
+    window.setTimeout(emit, 0);
+  } catch {
+    emit();
+  }
+}
+
+export function captureBrowserSubmittedFailureMetricAfterPaint(args: {
+  flowId: string;
+  operation: Exclude<FrontendLoadingOperation, "page_load">;
+  startedAtMs: number | null;
+}): void {
+  if (args.startedAtMs === null) {
+    return;
+  }
+
+  captureBrowserLoadingMetricAfterPaint({
+    flowId: args.flowId,
+    operation: args.operation,
+    outcome: "failed",
+    phase: "wallet_confirmation_to_ui",
+    startedAtMs: args.startedAtMs,
+  });
+}
+
+type BrowserResourceEntry = {
+  duration: number;
+  initiatorType?: string;
+  name: string;
+  startTime: number;
+};
+
+const DEPENDENCY_INITIATOR_TYPES = new Set(["fetch", "xmlhttprequest"]);
+
+type DependencyEntryCollector = {
+  collect: () => BrowserResourceEntry[];
+};
+
+// The Resource Timing buffer stops recording once it fills (250 entries by
+// default), and this app polls Solana RPC for the life of the tab. Observing
+// the stream keeps preparation measurable in a long-lived session instead of
+// silently reporting zeroes once the buffer is full.
+function observeDependencyEntries(): DependencyEntryCollector | null {
+  try {
+    if (typeof window.PerformanceObserver !== "function") {
+      return null;
+    }
+
+    const observed: BrowserResourceEntry[] = [];
+    const observer = new window.PerformanceObserver((list) => {
+      observed.push(
+        ...(list.getEntries() as unknown as BrowserResourceEntry[])
+      );
+    });
+    observer.observe({ buffered: false, type: "resource" });
+
+    return {
+      collect: () => {
+        try {
+          // Entries recorded just before disconnect are still queued for the
+          // callback task, so drain them before dropping the observer.
+          observed.push(
+            ...(observer.takeRecords() as unknown as BrowserResourceEntry[])
+          );
+          observer.disconnect();
+        } catch {
+          // A partial observation still describes the preparation window.
+        }
+        return observed;
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+function readBufferedDependencyEntries(): BrowserResourceEntry[] {
+  try {
+    return window.performance.getEntriesByType(
+      "resource"
+    ) as unknown as BrowserResourceEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function summarizeDependencyEntries(args: {
+  endedAtMs: number;
+  entries: readonly BrowserResourceEntry[];
+  rpcEndpoint: string | undefined;
+  startedAtMs: number;
+}): Map<
+  FrontendLoadingDependency,
+  { durationMs: number; requestCount: number }
+> {
+  const totals = new Map<
+    FrontendLoadingDependency,
+    { durationMs: number; requestCount: number }
+  >(
+    (["loyal_api", "solana_rpc", "third_party_api"] as const).map(
+      (dependency) => [dependency, { durationMs: 0, requestCount: 0 }]
+    )
+  );
+  try {
+    for (const entry of args.entries) {
+      if (
+        entry.startTime < args.startedAtMs ||
+        entry.startTime > args.endedAtMs ||
+        !DEPENDENCY_INITIATOR_TYPES.has(entry.initiatorType ?? "")
+      ) {
+        continue;
+      }
+      const dependency = classifyBrowserLoadingDependencyUrl({
+        pageOrigin: window.location.origin,
+        resourceUrl: entry.name,
+        rpcEndpoint: args.rpcEndpoint,
+      });
+      if (!dependency) continue;
+
+      const current = totals.get(dependency);
+      if (!current) continue;
+      current.durationMs += Math.max(0, entry.duration);
+      current.requestCount += 1;
+    }
+  } catch {
+    // Resource Timing is optional; zero-count metrics still describe coverage.
+  }
+
+  return totals;
+}
+
+export async function measureBrowserLoadingDependencies<T>(args: {
+  flowId: string;
+  operation: Exclude<FrontendLoadingOperation, "page_load">;
+  rpcEndpoint?: string;
+  run: () => Promise<T>;
+}): Promise<T> {
+  const collector = observeDependencyEntries();
+  const startedAtMs = getBrowserPerformanceNow();
+  let outcome: FrontendLoadingOutcome = "completed";
+  try {
+    return await args.run();
+  } catch (error) {
+    outcome = "failed";
+    throw error;
+  } finally {
+    const endedAtMs = getBrowserPerformanceNow();
+    const dependencies = summarizeDependencyEntries({
+      endedAtMs,
+      entries: collector
+        ? collector.collect()
+        : readBufferedDependencyEntries(),
+      rpcEndpoint: args.rpcEndpoint,
+      startedAtMs,
+    });
+    for (const [dependency, measurement] of dependencies) {
+      captureBrowserLoadingMetric({
+        dependency,
+        durationMs: measurement.durationMs,
+        flowId: args.flowId,
+        operation: args.operation,
+        outcome,
+        phase: "dependency",
+        requestCount: measurement.requestCount,
+      });
+    }
   }
 }
 

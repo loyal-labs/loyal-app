@@ -203,6 +203,10 @@ export type SendPreparedWithWalletArgs = {
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   confirm?: boolean | "if-required";
   sendOptions?: SendOptions;
+  onTransactionSent?: (args: {
+    prepared: PreparedLoyalSmartAccountsOperation<string>;
+    signature: string;
+  }) => Promise<void> | void;
 };
 
 export type SendPreparedBatchWithWalletArgs = {

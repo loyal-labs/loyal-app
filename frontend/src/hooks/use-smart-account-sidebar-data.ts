@@ -412,6 +412,7 @@ export type VaultSwapResult = VaultTransferResult;
 
 export type EarnDepositRequest = {
   amountRaw: bigint;
+  onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   policyConfirmedSlot?: string;
   policySignature?: string;
@@ -453,6 +454,7 @@ export type EarnDepositBatchResult = EarnDepositResult & {
 };
 
 export type EarnDepositPolicyStageRequest = {
+  onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
   stage: "policy" | "policy-finalize";
@@ -470,6 +472,7 @@ export type EarnWithdrawRequest = {
   amountRaw: bigint;
   autodepositCloseAlreadyCompleted?: boolean;
   mode: "partial" | "full";
+  onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   onConfirmationRecorded?: () => Promise<void> | void;
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
@@ -492,6 +495,7 @@ export type PreparedEarnUsdcCleanup = SmartAccountPreparedEarnUsdcCleanup & {
 };
 
 export type EarnCleanupRequest = {
+  onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   preparedCleanup?: PreparedEarnUsdcCleanup;
 };
@@ -509,6 +513,7 @@ export type EarnAutodepositSetupRequest = {
   amountRaw: bigint;
   expiryTimestamp?: bigint;
   nonce: bigint;
+  onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   periodLengthSeconds?: bigint;
   policySeed?: bigint;
@@ -595,6 +600,7 @@ function createEarnAutodepositPrepareKey(args: {
 }
 
 export type EarnAutodepositCloseRequest = {
+  onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   policy: string;
   recurringDelegation: string;
@@ -5736,6 +5742,7 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared,
               confirm: true,
+              onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!sendResult.success) {
@@ -5980,6 +5987,9 @@ export function useSmartAccountSidebarData(
             wallet: walletBridge,
             prepared: batchStages.map((stage) => stage.prepared),
             confirm: true,
+            onTransactionSent: () => {
+              request.onWalletSubmitted?.();
+            },
             onTransactionConfirmed: async ({ index, signature }) => {
               const confirmedStage = batchStages[index];
               if (!confirmedStage) {
@@ -6296,6 +6306,7 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedDeposit.prepared,
               confirm: true,
+              onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!sendResult.success) {
@@ -6498,6 +6509,7 @@ export function useSmartAccountSidebarData(
                 wallet: walletBridge,
                 prepared: autodepositClosePrepared.prepared,
                 confirm: true,
+                onTransactionSent: request.onWalletSubmitted,
               }),
           });
           if (!closeSendResult.success) {
@@ -6541,6 +6553,7 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedStep.prepared,
               confirm: true,
+              onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!sendResult.success) {
@@ -6687,6 +6700,7 @@ export function useSmartAccountSidebarData(
                 wallet: walletBridge,
                 prepared: autodepositClosePrepared.prepared,
                 confirm: true,
+                onTransactionSent: request.onWalletSubmitted,
               }),
           });
           if (!closeSendResult.success) {
@@ -6709,6 +6723,7 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedCleanup.prepared,
               confirm: true,
+              onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!sendResult.success) {
@@ -7110,6 +7125,7 @@ export function useSmartAccountSidebarData(
                 prepared: batchPreparedSetups.map((setup) => setup.prepared),
                 confirm: true,
                 onTransactionSent: ({ index }) => {
+                  request.onWalletSubmitted?.();
                   const sentSetup = batchPreparedSetups[index];
                   if (sentSetup?.stage === "create_recurring_delegation") {
                     recurringDelegationSent = true;
@@ -7252,6 +7268,7 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedSetup.prepared,
               confirm: true,
+              onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!setupSend.success) {
@@ -7481,6 +7498,7 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedClose.prepared,
               confirm: true,
+              onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!closeSend.success) {
