@@ -16,21 +16,21 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Automations",
-        "icon": "arrows-rotate",
+        "tab": "Product",
+        "icon": "sparkles",
         "groups": [
           {
-            "group": "Explore Automations",
-            "icon": "sparkles",
-            "root": "index",
+            "group": "Automations",
+            "icon": "arrows-rotate",
             "directory": "card",
             "pages": [
+              "index",
               "automations/how-it-works",
               {
                 "group": "Balance Sweep & Earn",
                 "icon": "chart-line",
                 "root": "automations/balance-sweeps-and-earn",
-                "expanded": true,
+                "expanded": false,
                 "pages": [
                   "automations/reserve-and-eligibility",
                   "automations/routing-and-yield",
@@ -50,44 +50,32 @@
                 ]
               }
             ]
-          }
-        ]
-      },
-      {
-        "tab": "For Businesses",
-        "icon": "building-columns",
-        "groups": [
+          },
           {
-            "group": "Adopt Loyal",
-            "icon": "building",
-            "root": "business/overview",
+            "group": "For Businesses",
+            "icon": "building-columns",
             "directory": "card",
             "pages": [
+              "business/overview",
               "business/product-fit",
               "business/use-cases",
               "business/economics-and-responsibilities",
               "business/integration-readiness"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Developers",
-        "icon": "code",
-        "groups": [
+          },
           {
-            "group": "Build with Loyal",
-            "icon": "rocket",
-            "root": "build/overview",
+            "group": "Developers",
+            "icon": "code",
             "directory": "card",
             "pages": [
+              "build/overview",
               "build/first-automation",
               "build/system-architecture",
               {
                 "group": "Automation lifecycle",
                 "icon": "timeline",
                 "root": "build/automation-lifecycle",
-                "expanded": true,
+                "expanded": false,
                 "pages": [
                   "earn/autodeposit",
                   "earn/policies",

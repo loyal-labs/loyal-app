@@ -4,14 +4,12 @@ Status: planning artifact only. Do not change public documentation from this fil
 
 ## Outcome
 
-Replace the generic Product and Build split with four reader paths:
+Use two top-level tabs:
 
-1. Automations
-2. For Businesses
-3. Developers
-4. Transparency
+1. Product
+2. Transparency
 
-Automations explains the product. For Businesses supports evaluation and adoption. Developers contains implementation material. Transparency remains unchanged.
+Product contains three visually separated sidebar sections. Automations explains the product. For Businesses supports evaluation and adoption. Developers contains implementation material. Transparency remains unchanged.
 
 Trust and control stays inside Automations as the canonical cross-cutting section. Business and developer pages link to it. They do not restate it.
 
@@ -25,8 +23,9 @@ The repository also contains older privacy-inference and agent-network pages out
 
 The required correction is progressive disclosure:
 
-- Top navigation selects reader intent.
-- A root page defines the section and shows its children.
+- Top navigation separates product documentation from company transparency.
+- Product sidebar sections select reader intent.
+- An explicit Overview page defines each Product section.
 - Nested groups expose one feature at a time.
 - Child pages answer one question.
 - One concept has one canonical owner.
@@ -65,7 +64,7 @@ Adopt:
 
 Do not adopt:
 
-- one sidebar for both commercial evaluation and developer reference
+- a flat sidebar that mixes commercial evaluation with developer reference
 - broad product claims without a current implementation boundary
 
 ### Solomon
@@ -93,16 +92,16 @@ Use the following Mintlify features:
 
 | Field | Rule |
 | --- | --- |
-| `icon` | Add it to each top-level tab and nested feature group. Protected Transparency child groups are the sole exception. |
-| `root` | Assign it to each new reader-path and feature landing page. Protected Transparency groups keep their current shape. |
-| `directory: "card"` | Use it so root pages display their children. |
-| `expanded: true` | Set it only on the first nested task branch where one exists. Automations and Developers each have one. |
-| `expanded: false` | Apply it to all remaining nested groups. |
+| `icon` | Add it to each top-level tab, Product section, direct Product page, and nested feature group. Child pages inside nested groups and protected Transparency groups are the exceptions. |
+| `sidebarTitle: "Overview"` | Use it on the Automations, For Businesses, and Developers landing pages so all three remain visible as the first page in their section. |
+| `root` | Assign it to nested feature landing pages. Product section landing pages remain explicit sidebar entries. Protected Transparency groups keep their current shape. |
+| `directory: "card"` | Set it on Product sections so nested root pages display their children. |
+| `expanded: false` | Apply it to every nested group. Top-level Product sections remain visible as native sidebar separators. |
 | `redirects` | Preserve every changed public route. |
 
 Do not use Mintlify `products` yet. The Smart Account and private-transfer capabilities remain inside Loyal's developer section. They are not separate customer offerings.
 
-Tabs remain the best available top-level control even though these paths serve different readers. Products would falsely present internal capabilities as separate offerings. Dropdowns would hide the three primary entry choices. Tabs keep those choices persistent while preserving one Loyal documentation site.
+Two tabs create the clearest top-level distinction: Product explains what Loyal offers and how to adopt or build it; Transparency contains company and launch material. Automations, For Businesses, and Developers remain persistent as Product sidebar sections instead of competing for space in the top navigation.
 
 ## Navigation contract
 
@@ -113,21 +112,21 @@ The implementation target is exhaustive. Page paths omit file extensions, as req
   "navigation": {
     "tabs": [
       {
-        "tab": "Automations",
-        "icon": "arrows-rotate",
+        "tab": "Product",
+        "icon": "sparkles",
         "groups": [
           {
-            "group": "Explore Automations",
-            "icon": "sparkles",
-            "root": "index",
+            "group": "Automations",
+            "icon": "arrows-rotate",
             "directory": "card",
             "pages": [
+              "index",
               "automations/how-it-works",
               {
                 "group": "Balance Sweep & Earn",
                 "icon": "chart-line",
                 "root": "automations/balance-sweeps-and-earn",
-                "expanded": true,
+                "expanded": false,
                 "pages": [
                   "automations/reserve-and-eligibility",
                   "automations/routing-and-yield",
@@ -147,44 +146,32 @@ The implementation target is exhaustive. Page paths omit file extensions, as req
                 ]
               }
             ]
-          }
-        ]
-      },
-      {
-        "tab": "For Businesses",
-        "icon": "building-columns",
-        "groups": [
+          },
           {
-            "group": "Adopt Loyal",
-            "icon": "building",
-            "root": "business/overview",
+            "group": "For Businesses",
+            "icon": "building-columns",
             "directory": "card",
             "pages": [
+              "business/overview",
               "business/product-fit",
               "business/use-cases",
               "business/economics-and-responsibilities",
               "business/integration-readiness"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Developers",
-        "icon": "code",
-        "groups": [
+          },
           {
-            "group": "Build with Loyal",
-            "icon": "rocket",
-            "root": "build/overview",
+            "group": "Developers",
+            "icon": "code",
             "directory": "card",
             "pages": [
+              "build/overview",
               "build/first-automation",
               "build/system-architecture",
               {
                 "group": "Automation lifecycle",
                 "icon": "timeline",
                 "root": "build/automation-lifecycle",
-                "expanded": true,
+                "expanded": false,
                 "pages": [
                   "earn/autodeposit",
                   "earn/policies",
@@ -273,7 +260,7 @@ The implementation target is exhaustive. Page paths omit file extensions, as req
 }
 ```
 
-Mintlify top-level groups are always expanded. Each new reader tab therefore uses one top-level root group. Feature branches beneath that root are nested groups. `directory: "card"` is set on the three new root groups and inherited by their nested roots. For Businesses has no nested group because four direct decisions are clearer. Transparency preserves its current groups and content, so it has no new roots, directories, or expansion settings.
+Mintlify top-level groups are always visible, so the Product tab uses them as three stable sidebar sections: Automations, For Businesses, and Developers. Each section begins with an explicit Overview page. Direct pages and collapsible feature groups have icons; pages inside a collapsed feature group do not. Feature branches start closed. `directory: "card"` is set on each Product section and inherited by its nested roots. For Businesses has no nested group because four direct decisions are clearer. Transparency preserves its current groups and content, so it has no new roots, directories, or expansion settings.
 
 ## Canonical content ownership
 
@@ -610,10 +597,12 @@ The first implementation deliverable is `scripts/verify-user-docs-ia.mjs`. It ac
 | Check | Passing result |
 | --- | --- |
 | JSON | `jq empty user-docs/docs.json` exits successfully. |
-| Tabs | Product is absent. The tab set is `Automations / For Businesses / Developers / Transparency`. |
-| Nested groups | Every new reader or feature group has an icon and root page. Protected Transparency child groups remain unchanged. Balance Sweep & Earn and Automation lifecycle are the only groups with `expanded: true`. |
+| Tabs | The tab set is exactly `Product / Transparency`. |
+| Product sections | Product contains `Automations / For Businesses / Developers` as top-level groups, each with an icon, `directory: "card"`, and an explicit first page titled `Overview` in the sidebar. |
+| Page icons | Every direct Product page has an icon. Child pages inside nested groups remain plain. |
+| Nested groups | Every Product feature group has an icon and root page, and every nested group sets `expanded: false`. Protected Transparency groups remain unchanged. |
 | Targets | Every `docs.json` page target exists. |
-| Root pages | The three new top-level roots set `directory: "card"`; nested roots inherit it. |
+| Root pages | Product section overviews are explicit pages; nested feature roots inherit `directory: "card"` from their section. |
 
 ### Routes and content inventory
 

@@ -36,6 +36,102 @@ if (JSON.stringify(docsJson.navigation) === JSON.stringify(plannedNavigation)) {
   fail("docs.json navigation differs from the approved plan");
 }
 
+const tabs = docsJson.navigation.tabs ?? [];
+const tabNames = tabs.map(({ tab }) => tab);
+if (JSON.stringify(tabNames) === JSON.stringify(["Product", "Transparency"])) {
+  pass("top navigation contains Product and Transparency only");
+} else {
+  fail(
+    `top navigation differs from Product / Transparency: ${tabNames.join(
+      " / "
+    )}`
+  );
+}
+
+const productTab = tabs.find(({ tab }) => tab === "Product");
+const productSectionNames = (productTab?.groups ?? []).map(
+  ({ group }) => group
+);
+const expectedProductSections = ["Automations", "For Businesses", "Developers"];
+if (
+  JSON.stringify(productSectionNames) ===
+  JSON.stringify(expectedProductSections)
+) {
+  pass("Product sidebar sections match the approved reader paths");
+} else {
+  fail(`Product sidebar sections differ: ${productSectionNames.join(" / ")}`);
+}
+
+const expectedProductOverviews = new Map([
+  ["Automations", "index"],
+  ["For Businesses", "business/overview"],
+  ["Developers", "build/overview"],
+]);
+const missingProductOverviews = (productTab?.groups ?? []).filter(
+  ({ group, pages }) => pages?.[0] !== expectedProductOverviews.get(group)
+);
+if (missingProductOverviews.length === 0) {
+  pass("each Product section begins with its Overview page");
+} else {
+  fail(
+    `Product sections missing a first-page Overview: ${missingProductOverviews
+      .map(({ group }) => group)
+      .join(", ")}`
+  );
+}
+
+const directProductPages = (productTab?.groups ?? []).flatMap(({ pages }) =>
+  (pages ?? []).filter((page) => typeof page === "string")
+);
+const missingDirectPageIcons = [];
+const invalidOverviewLabels = [];
+for (const target of directProductPages) {
+  const source = readFileSync(join(docsDir, `${target}.mdx`), "utf8");
+  const frontmatter = source.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? "";
+  if (!/^icon:\s*["']?[^\n"']+["']?\s*$/m.test(frontmatter)) {
+    missingDirectPageIcons.push(target);
+  }
+  if (
+    [...expectedProductOverviews.values()].includes(target) &&
+    !/^sidebarTitle:\s*["']?Overview["']?\s*$/m.test(frontmatter)
+  ) {
+    invalidOverviewLabels.push(target);
+  }
+}
+if (missingDirectPageIcons.length === 0) {
+  pass(`${directProductPages.length} direct Product pages have sidebar icons`);
+} else {
+  fail(`direct Product pages missing icons: ${missingDirectPageIcons.join(", ")}`);
+}
+if (invalidOverviewLabels.length === 0) {
+  pass("Product landing pages use the Overview sidebar label");
+} else {
+  fail(`Product landing pages missing Overview labels: ${invalidOverviewLabels.join(", ")}`);
+}
+
+const nestedProductGroups = [];
+const collectNestedGroups = (pages) => {
+  for (const page of pages ?? []) {
+    if (!page || typeof page !== "object") continue;
+    if (typeof page.group === "string") nestedProductGroups.push(page);
+    collectNestedGroups(page.pages);
+  }
+};
+for (const section of productTab?.groups ?? [])
+  collectNestedGroups(section.pages);
+const expandedNestedGroups = nestedProductGroups.filter(
+  ({ expanded }) => expanded !== false
+);
+if (expandedNestedGroups.length === 0) {
+  pass(`${nestedProductGroups.length} Product feature groups start closed`);
+} else {
+  fail(
+    `Product feature groups must start closed: ${expandedNestedGroups
+      .map(({ group }) => group)
+      .join(", ")}`
+  );
+}
+
 const pageTargets = new Set();
 const visitNavigation = (value) => {
   if (Array.isArray(value)) {

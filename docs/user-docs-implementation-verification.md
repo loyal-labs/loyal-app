@@ -35,6 +35,14 @@ The JSX snippet scores are parser artifacts from CSS declarations and JSX being 
 - Mintlify MDX accessibility: pass
 - Git whitespace check: pass
 
+## Two-tab navigation iteration
+
+The top navigation now contains Product and Transparency only. Product uses three visible sidebar sections for reader intent: Automations, For Businesses, and Developers. All seven nested Product feature groups start closed. Transparency navigation and content remain unchanged.
+
+The IA verifier now rejects any return to extra top tabs, reordered Product sections, or an expanded nested Product group. Rendered checks at 1280 by 720 and 390 by 844 found no horizontal overflow. On mobile, the Product selector exposes Product and Transparency, the three Product sections remain distinct, and all seven feature groups remain closed.
+
+Each Product section now begins with an explicit Overview link, restoring access to the Automations, Business, and Developer landing pages from the sidebar. Every direct Product page and collapsible feature group has an icon. Child pages inside collapsed groups remain plain. The verifier protects the Overview order, labels, and eleven direct-page icons.
+
 ## Visual QA
 
 Checked at 1280 by 720 and 390 by 844 in light and dark themes.
