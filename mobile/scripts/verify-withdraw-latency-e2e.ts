@@ -46,12 +46,15 @@ const MAINNET_USDC_MINT = new PublicKey(
 type Mode = "withdraw" | "seed-position";
 
 type LifecycleEvent = {
+  chainState?: string;
   durationMs: number;
   elapsedMs: number;
   flowId: string;
   flowName: string;
   flowVariant: string;
   outcome: string;
+  persistenceState?: string;
+  recoveryRequired?: boolean;
   stage: string;
   timestamp: string;
   walletAddress?: string;
@@ -910,7 +913,7 @@ async function driveWithdraw(): Promise<void> {
     );
   }
   console.info("[withdraw-e2e] withdrawal handler started through the app UI");
-  await waitFor(
+  const completed = await waitFor(
     "completed withdrawal lifecycle",
     () =>
       lifecycleEvents.find(
@@ -920,6 +923,40 @@ async function driveWithdraw(): Promise<void> {
           event.stage === "ui_commit",
       ) ?? false,
     timeoutMs,
+  );
+  const cleanupPrepare = lifecycleEvents.find(
+    (event) =>
+      event.flowId === completed.flowId &&
+      event.outcome === "observed" &&
+      event.stage === "cleanup_prepare",
+  );
+  assert.ok(
+    cleanupPrepare,
+    "The withdrawal completed without a successful cleanup_prepare event.",
+  );
+  const cleanupWallet = lifecycleEvents.find(
+    (event) =>
+      event.flowId === completed.flowId &&
+      event.outcome === "observed" &&
+      event.stage === "cleanup_wallet_submit_confirm" &&
+      event.chainState === "confirmed",
+  );
+  assert.ok(
+    cleanupWallet,
+    "The withdrawal completed without confirmed cleanup wallet submission.",
+  );
+  const cleanupBackend = lifecycleEvents.find(
+    (event) =>
+      event.flowId === completed.flowId &&
+      event.outcome === "observed" &&
+      event.stage === "cleanup_backend_confirm" &&
+      event.chainState === "confirmed" &&
+      event.persistenceState === "recorded" &&
+      event.recoveryRequired !== true,
+  );
+  assert.ok(
+    cleanupBackend,
+    "The withdrawal completed without recorded cleanup persistence.",
   );
 }
 

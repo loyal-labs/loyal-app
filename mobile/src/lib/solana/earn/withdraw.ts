@@ -563,7 +563,7 @@ async function runEarnWithdraw(
           flow.observe("cleanup_backend_confirm", {
             chainState: "confirmed",
             cleanupRequired: true,
-            errorCode: mapLifecycleErrorCode(error),
+            errorCode: "backend_confirmation_failed",
             persistenceState: "failed",
             recoveryRequired: true,
           });
