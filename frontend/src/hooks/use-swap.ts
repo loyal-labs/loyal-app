@@ -9,6 +9,12 @@ import {
 import { useCallback, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import {
+  type LifecycleErrorCode,
+  type LifecycleFlowStage,
+  normalizeLifecycleWalletProvider,
+} from "@/features/observability/lifecycle-contract";
 import { trackWalletSwapCompleted } from "@/lib/core/analytics";
 
 // Debug logger that only emits in development
@@ -39,6 +45,24 @@ const SLIPPAGE_BPS = 50;
 // the route's output fell below the quote's minimum-out by execution time.
 function isSlippageExceededError(message: string): boolean {
   return message.includes('"Custom":6001') || message.includes("0x1771");
+}
+
+// Maps a swap failure onto its lifecycle error code — a bounded enum, so raw
+// error strings never reach telemetry.
+function swapLifecycleErrorCode(message: string): LifecycleErrorCode {
+  if (isSlippageExceededError(message)) {
+    return "slippage_exceeded";
+  }
+  if (message.includes("timeout") || message.includes("Timeout")) {
+    return "wallet_signing_failed";
+  }
+  if (message.includes("Jupiter Swap API failed")) {
+    return "request_failed";
+  }
+  if (message.includes("Transaction failed:")) {
+    return "chain_confirmation_failed";
+  }
+  return "unexpected_error";
 }
 
 export type SwapQuote = {
@@ -116,7 +140,12 @@ type JupiterSwapResponse = {
 
 export function useSwap() {
   const { connection } = useConnection();
-  const { publicKey, connected: isConnected, sendTransaction } = useWallet();
+  const {
+    publicKey,
+    connected: isConnected,
+    sendTransaction,
+    wallet,
+  } = useWallet();
   const publicEnv = usePublicEnv();
   const { swap: swapConfig } = publicEnv;
   const [loading, setLoading] = useState(false);
@@ -286,6 +315,18 @@ export function useSwap() {
       setLoading(true);
       setError(null);
 
+      // Same flow-lifecycle telemetry as the auth/earn flows, so swap
+      // failures land in ClickStack instead of only the browser console.
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "wallet.swap",
+        flowVariant: executionContext ? "smart_account" : "wallet_adapter",
+      });
+      const walletProvider = normalizeLifecycleWalletProvider(
+        wallet?.adapter.name
+      );
+      let lifecycleStage: LifecycleFlowStage<"wallet.swap"> = "intent";
+      tracker.start("intent");
+
       try {
         logger.debug("Executing swap with quote:", quoteResponse);
 
@@ -314,9 +355,12 @@ export function useSwap() {
         let activeQuote = quoteResponse;
         for (let attempt = 0; ; attempt++) {
           activeQuote = (await refreshQuoteResponse()) ?? activeQuote;
+          lifecycleStage = "quote_refresh";
+          tracker.observe("quote_refresh", { stageIndex: attempt });
           try {
             // Step 1: Call Jupiter Swap API to get transaction
             logger.debug("Calling Jupiter Swap API...");
+            lifecycleStage = "build";
 
             const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
               method: "POST",
@@ -358,9 +402,11 @@ export function useSwap() {
             // Step 2: Deserialize transaction
             const txBuffer = Buffer.from(serializedTx, "base64");
             const transaction = VersionedTransaction.deserialize(txBuffer);
+            tracker.observe("build", { stageIndex: attempt });
 
             // Step 3: Sign and send transaction using wallet-adapter
             logger.debug("Signing and sending transaction...");
+            lifecycleStage = "wallet_submit_confirm";
             const executionResult = executionContext
               ? await executionContext.executeTransaction(transaction)
               : {
@@ -403,6 +449,12 @@ export function useSwap() {
             }
 
             logger.debug("Transaction confirmed!");
+            tracker.observe("wallet_submit_confirm", {
+              chainState:
+                executionResult.status === "proposed"
+                  ? "submitted"
+                  : "confirmed",
+            });
             setLoading(false);
             if (successTrackingProperties) {
               trackWalletSwapCompleted(publicEnv, {
@@ -410,6 +462,7 @@ export function useSwap() {
                 signature,
               });
             }
+            tracker.complete("ui_commit");
             return {
               signature,
               success: true,
@@ -420,6 +473,10 @@ export function useSwap() {
               attemptError instanceof Error ? attemptError.message : "";
             if (attempt === 0 && isSlippageExceededError(attemptMessage)) {
               logger.debug("Slippage exceeded; retrying with a fresh quote");
+              tracker.observe("wallet_submit_confirm", {
+                errorCode: "slippage_exceeded",
+                stageIndex: attempt,
+              });
               continue;
             }
             throw attemptError;
@@ -427,6 +484,19 @@ export function useSwap() {
         }
       } catch (err) {
         let errorMessage = "Swap execution failed";
+        const rawMessage = err instanceof Error ? err.message : "";
+
+        if (rawMessage.includes("User rejected")) {
+          tracker.cancel(lifecycleStage, {
+            errorCode: "wallet_rejected",
+            ...(walletProvider ? { walletProvider } : {}),
+          });
+        } else {
+          tracker.fail(lifecycleStage, {
+            errorCode: swapLifecycleErrorCode(rawMessage),
+            ...(walletProvider ? { walletProvider } : {}),
+          });
+        }
 
         if (err instanceof Error) {
           // Handle timeout errors specifically
@@ -460,6 +530,7 @@ export function useSwap() {
       quoteResponse,
       sendTransaction,
       swapConfig,
+      wallet,
     ]
   );
 
