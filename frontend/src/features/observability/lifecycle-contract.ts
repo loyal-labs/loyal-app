@@ -187,6 +187,11 @@ export const LIFECYCLE_ERROR_CODES = [
   "no_scheduled_sweeps",
   "request_failed",
   "progress_read_failed",
+  // Terminal sweep failure codes forwarded from the yield backend's bounded
+  // completion_failure_code set. Codes outside this union still collapse to
+  // `unexpected_error` via `normalizeLifecycleErrorCode`.
+  "execution_failed",
+  "kamino_top_up_failed",
   "autodeposit_target_closed",
   "unconfirmed_signature",
   "metadata_mismatch",
