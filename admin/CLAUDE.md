@@ -114,6 +114,11 @@ Required in `.env.local`:
 DATABASE_URL=postgresql://...   # Neon PostgreSQL connection string
 ```
 
+The admin Earn funding view optionally accepts the public-only
+`EARN_SETTINGS_AUTHORITY_PUBLIC_KEY` for config-vs-observed operational-wallet
+checks. Store only the public key in environment files; never place private
+keys there.
+
 ## Adding New Pages
 
 1. Create a directory under `src/app/` with a `page.tsx`
