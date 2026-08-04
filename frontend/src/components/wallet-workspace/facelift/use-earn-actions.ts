@@ -109,6 +109,7 @@ import {
   EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   getEarnDepositUserErrorMessage,
+  isConfirmedSlotUnavailableError,
   prepareEarnCleanupOnServer,
   type SmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
@@ -2294,6 +2295,14 @@ export function useEarnActions(deps: {
         );
         if (isWalletCancellation(error)) {
           tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
+        } else if (isConfirmedSlotUnavailableError(error)) {
+          // The transaction landed; only the slot probe timed out. Name the
+          // real stage so alerts don't read as backend persistence failures.
+          tracker.fail("slot_resolve", {
+            chainState: "confirmed",
+            errorCode: "slot_resolution_failed",
+          });
+          earnToast.error("Couldn't save Autodeposit");
         } else {
           tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
           earnToast.error("Couldn't save Autodeposit");

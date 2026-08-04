@@ -2594,8 +2594,25 @@ function createWalletAdapterBridge(
   };
 }
 
-const CONFIRMED_SIGNATURE_SLOT_ATTEMPTS = 10;
+// Status probes can lag a confirmation by tens of seconds on a busy RPC
+// indexer (a 51s slot_resolve was observed in prod on 2026-08-04), so the
+// backoff budget must run to ~40s — the old 10×350ms gave up at ~3.5s and
+// failed setups whose transaction had already landed (ASK-2005).
+const CONFIRMED_SIGNATURE_SLOT_ATTEMPTS = 12;
 const CONFIRMED_SIGNATURE_SLOT_RETRY_MS = 350;
+const CONFIRMED_SIGNATURE_SLOT_RETRY_MAX_MS = 5000;
+
+const CONFIRMED_SLOT_UNAVAILABLE_MESSAGE =
+  "Confirmed transaction slot is unavailable";
+
+// True when the transaction landed but the RPC never surfaced its slot within
+// the polling budget — chain state is fine, only recording fell behind.
+export function isConfirmedSlotUnavailableError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes(CONFIRMED_SLOT_UNAVAILABLE_MESSAGE)
+  );
+}
 
 function waitForConfirmedSignatureSlotRetry(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -2639,13 +2656,16 @@ async function resolveConfirmedSignatureSlot(args: {
 
     if (attempt < CONFIRMED_SIGNATURE_SLOT_ATTEMPTS - 1) {
       await waitForConfirmedSignatureSlotRetry(
-        CONFIRMED_SIGNATURE_SLOT_RETRY_MS
+        Math.min(
+          CONFIRMED_SIGNATURE_SLOT_RETRY_MS * 2 ** attempt,
+          CONFIRMED_SIGNATURE_SLOT_RETRY_MAX_MS
+        )
       );
     }
   }
 
   throw new Error(
-    `Confirmed transaction slot is unavailable${
+    `${CONFIRMED_SLOT_UNAVAILABLE_MESSAGE}${
       lastStatus ? ` (${lastStatus})` : ""
     }.`
   );
@@ -7131,7 +7151,7 @@ export function useSmartAccountSidebarData(
                     recurringDelegationSent = true;
                   }
                 },
-                onTransactionConfirmed: async ({ index, signature }) => {
+                onTransactionConfirmed: async ({ index, signature, slot }) => {
                   const confirmedSetup = batchPreparedSetups[index];
                   if (!confirmedSetup) {
                     throw new Error(
@@ -7139,10 +7159,13 @@ export function useSmartAccountSidebarData(
                     );
                   }
 
-                  const confirmedSlot = await resolveConfirmedSignatureSlot({
-                    connection,
-                    signature,
-                  });
+                  const confirmedSlot =
+                    slot === undefined
+                      ? await resolveConfirmedSignatureSlot({
+                          connection,
+                          signature,
+                        })
+                      : String(slot);
                   try {
                     const response = await postConfirmedEarnAutodepositSetup({
                       observabilityFlowId: request.observabilityFlowId,
@@ -7258,6 +7281,7 @@ export function useSmartAccountSidebarData(
           return { success: false, error: nativeSolError };
         }
 
+        let walletConfirmedSlot: string | null = null;
         const setupSend = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "autodeposit setup",
@@ -7268,16 +7292,23 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedSetup.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot === undefined ? null : String(slot);
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
         if (!setupSend.success) {
           return setupSend;
         }
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature: setupSend.signature,
-        });
+        // The confirmation already carries the slot; the status-probe
+        // fallback only runs when the transport did not report one.
+        const confirmedSlot =
+          walletConfirmedSlot ??
+          (await resolveConfirmedSignatureSlot({
+            connection,
+            signature: setupSend.signature,
+          }));
         let confirmResponse: EarnAutodepositSetupConfirmResponse;
         try {
           confirmResponse = await postConfirmedEarnAutodepositSetup({
