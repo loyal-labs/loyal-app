@@ -643,7 +643,11 @@ export function parseBrowserLifecycleEnvelope(
   if (
     record.recoveryRequired === true &&
     (!isMoneyFlow ||
-      record.stage !== "backend_confirm" ||
+      (record.stage !== "backend_confirm" &&
+        !(
+          flowName === "earn.withdrawal" &&
+          record.stage === "cleanup_backend_confirm"
+        )) ||
       record.outcome !== "observed" ||
       record.chainState !== "confirmed" ||
       record.persistenceState !== "failed" ||
