@@ -15,6 +15,7 @@ export const LIFECYCLE_FLOW_NAMES = [
   "earn.withdrawal",
   "earn.autodeposit.configuration",
   "earn.autodeposit.execute_now",
+  "wallet.swap",
 ] as const;
 
 export type LifecycleFlowName = (typeof LIFECYCLE_FLOW_NAMES)[number];
@@ -59,6 +60,8 @@ export const LIFECYCLE_VARIANTS = {
     "close",
   ],
   "earn.autodeposit.execute_now": ["execute_now"],
+  // Direct wallet-adapter signing vs the smart-account execution context.
+  "wallet.swap": ["wallet_adapter", "smart_account"],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
 
 export const LIFECYCLE_STAGES = {
@@ -122,6 +125,13 @@ export const LIFECYCLE_STAGES = {
     "state_observed",
     "ui_commit",
   ],
+  "wallet.swap": [
+    "intent",
+    "quote_refresh",
+    "build",
+    "wallet_submit_confirm",
+    "ui_commit",
+  ],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
 
 export const LIFECYCLE_ERROR_CODES = [
@@ -162,6 +172,8 @@ export const LIFECYCLE_ERROR_CODES = [
   "wallet_unavailable",
   "wallet_mismatch",
   "simulation_failed",
+  // The route's output fell below the quote's minimum-out (Jupiter 6001).
+  "slippage_exceeded",
   "send_failed",
   "chain_confirmation_failed",
   "slot_resolution_failed",
