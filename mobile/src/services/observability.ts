@@ -99,7 +99,10 @@ function normalizeError(error: unknown): {
 } {
   if (error instanceof Error) {
     return {
-      message: truncate(error.message || "Unknown error.", MAX_ERROR_MESSAGE_LENGTH),
+      message: truncate(
+        error.message || "Unknown error.",
+        MAX_ERROR_MESSAGE_LENGTH,
+      ),
       name: truncate(error.name || "Error", MAX_ERROR_NAME_LENGTH),
       ...(error.stack
         ? { stack: truncate(error.stack, MAX_ERROR_STACK_LENGTH) }
@@ -296,6 +299,9 @@ type LifecycleStageMap = {
     | "wallet_submit_confirm"
     | "backend_confirm"
     | "full_exit_verify"
+    | "cleanup_prepare"
+    | "cleanup_wallet_submit_confirm"
+    | "cleanup_backend_confirm"
     | "cleanup"
     | "ui_commit";
   "earn.autodeposit.configuration":

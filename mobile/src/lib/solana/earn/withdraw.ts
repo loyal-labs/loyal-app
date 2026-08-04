@@ -524,10 +524,15 @@ async function runEarnWithdraw(
             ),
           ),
       );
+      flow.observe("cleanup_prepare", { cleanupRequired: true });
       const [cleanupResult] = await signAndSendPreparedOperations({
         connection: getConnection(),
         signer: args.signer,
         operations: [preparedCleanup.prepared],
+      });
+      flow.observe("cleanup_wallet_submit_confirm", {
+        chainState: "confirmed",
+        cleanupRequired: true,
       });
       cleanupSignature = cleanupResult?.signature;
       if (cleanupResult) {
@@ -549,7 +554,19 @@ async function runEarnWithdraw(
                   }),
               ),
           });
+          flow.observe("cleanup_backend_confirm", {
+            chainState: "confirmed",
+            cleanupRequired: true,
+            persistenceState: "recorded",
+          });
         } catch (error) {
+          flow.observe("cleanup_backend_confirm", {
+            chainState: "confirmed",
+            cleanupRequired: true,
+            errorCode: "backend_confirmation_failed",
+            persistenceState: "failed",
+            recoveryRequired: true,
+          });
           console.warn(
             "[earn-withdraw] cleanup confirm failed; backend will reconcile",
             error,

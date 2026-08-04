@@ -18,6 +18,7 @@ const fetchEarnWithdrawPrepareContext = jest.fn();
 const confirmEarnWithdraw = jest.fn();
 const confirmEarnWithdrawCleanup = jest.fn();
 const signAndSendPreparedOperations = jest.fn();
+const observeLifecycle = jest.fn();
 
 // Mirrors the real EarnApiError so withdraw.ts's instanceof/code checks that
 // gate cleanup-context retries stay exercised.
@@ -71,7 +72,7 @@ jest.mock("@/services/observability", () => ({
   startLifecycleFlow: () => ({
     complete: () => {},
     fail: () => {},
-    observe: () => {},
+    observe: observeLifecycle,
     setVariant: () => {},
     start: () => {},
   }),
@@ -294,6 +295,15 @@ describe("executeEarnWithdraw", () => {
     expect(warn).toHaveBeenCalledWith(
       "[earn-withdraw] cleanup confirm failed; backend will reconcile",
       expect.any(Error),
+    );
+    expect(observeLifecycle).toHaveBeenCalledWith(
+      "cleanup_backend_confirm",
+      expect.objectContaining({
+        chainState: "confirmed",
+        errorCode: "backend_confirmation_failed",
+        persistenceState: "failed",
+        recoveryRequired: true,
+      }),
     );
     warn.mockRestore();
   });
