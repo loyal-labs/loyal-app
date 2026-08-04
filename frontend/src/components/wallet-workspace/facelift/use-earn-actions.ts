@@ -64,6 +64,7 @@ import {
   CONFIRM_IN_WALLET_MESSAGE,
   earnToast,
 } from "@/components/wallet-workspace/facelift/earn-toast";
+import { lifecycleOnboarding } from "@/components/wallet-workspace/facelift/lifecycle-onboarding";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -1043,6 +1044,7 @@ export function useEarnActions(deps: {
               : "recorded",
         });
         earnToast.success("Deposited");
+        lifecycleOnboarding.depositConfirmed();
       };
 
       try {
@@ -2276,6 +2278,9 @@ export function useEarnActions(deps: {
           earnToast.success(
             previousConfig ? "Autodeposit updated" : "Autodeposit created"
           );
+          if (!previousConfig) {
+            lifecycleOnboarding.autodepositCreated();
+          }
           return true;
         }
       } catch (error) {

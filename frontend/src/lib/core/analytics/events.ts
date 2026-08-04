@@ -21,6 +21,9 @@ export const FRONTEND_ANALYTICS_EVENTS = {
   walletSwapCompleted: "wallet_swap_completed",
   walletShieldPressed: "wallet_shield_pressed",
   walletShieldCompleted: "wallet_shield_completed",
+  onboardingPopupShown: "onboarding_popup_shown",
+  onboardingPopupDismissed: "onboarding_popup_dismissed",
+  onboardingPopupCtaClicked: "onboarding_popup_cta_clicked",
 } as const;
 
 export type FrontendAnalyticsEventName =
