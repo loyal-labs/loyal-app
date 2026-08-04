@@ -11,6 +11,8 @@ The default Loyal Earn setup separates customer root authority from Loyal's limi
 
 Loyal does not receive or hold the customer's private key. It cannot grant itself root authority or change approved rules.
 
+If Loyal is unavailable, the customer can [find the account onchain and withdraw through RPC](/trust/withdraw-without-loyal).
+
 Externally created Smart Accounts can use different settings from Loyal's default Earn setup. The architecture can support a customer-controlled, noncustodial design; legal classification depends on the product and jurisdiction.
 
 Pause stops new Loyal-scheduled sweeps but can leave approved access in place. A confirmed customer-approved close removes recurring sweep access. Withdrawal and full Earn exit are separate actions. See [Exit and lifecycle](/automations/exit-and-lifecycle).

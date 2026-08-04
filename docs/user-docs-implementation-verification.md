@@ -26,7 +26,7 @@ The JSX snippet scores are parser artifacts from CSS declarations and JSX being 
 ## Structural gates
 
 - Information architecture verifier: pass
-- Navigation targets: 49 of 49 exist
+- Navigation targets: 50 of 50 exist
 - Redirect map: pass
 - Legacy page removal: pass
 - Protected Transparency hashes: pass
@@ -41,7 +41,7 @@ The top navigation now contains Product and Transparency only. Product uses thre
 
 The IA verifier now rejects any return to extra top tabs, reordered Product sections, or an expanded nested Product group. Rendered checks at 1280 by 720 and 390 by 844 found no horizontal overflow. On mobile, the Product selector exposes Product and Transparency, the three Product sections remain distinct, and all seven feature groups remain closed.
 
-Each Product section now begins with an explicit Overview link, restoring access to the Automations, Business, and Developer landing pages from the sidebar. Every direct Product page and collapsible feature group has an icon. Child pages inside collapsed groups remain plain. The verifier protects the Overview order, labels, and eleven direct-page icons.
+Each Product section now begins with an explicit Overview link, restoring access to the Automations, Business, and Developer landing pages from the sidebar. Every direct Product page and collapsible feature group has an icon. Child pages inside collapsed groups remain plain. The verifier protects the Overview order, labels, and twelve direct-page icons.
 
 ## Visual QA
 
@@ -69,3 +69,16 @@ The root, live automation root, customer walkthrough, Business overview, and Dev
 Slop Guard scored the four revised child pages 100/100. The root scored 83 only because of the Gauntlet URL noted above.
 
 The revised pages passed the IA verifier, Mintlify broken-link and anchor checks, Mintlify accessibility, `git diff --check`, and the nontechnical dash check. Rendered checks at 1280 by 720 and 390 by 844 found no horizontal overflow on the five revised routes. Mobile QA also caught and fixed an MDX math-parsing issue caused by multiple dollar-denominated amounts in one sentence; the customer example now uses explicit USDC units in prose.
+
+## Loyal-independent withdrawal runbook
+
+`Withdraw manually` is a direct Automations page between `Automation catalog` and the nested `Trust & control` group. It begins with the self-custody conclusion: the customer does not need Loyal to withdraw and can rebuild, sign, and submit a full exit from RPC data. The page covers the current two-phase exit without relying on Loyal's frontend, API, or database:
+
+1. Find every Smart Account Settings record that contains the customer wallet as a signer.
+2. Review the Earn policy and reconstruct every positive holding from RPC.
+3. Prepare and confirm each full-withdrawal step in order.
+4. Prove the Earn balance is zero before closing policies and refundable vault accounts.
+
+The verifier rejects a missing or misplaced page and checks for the fixed Squads Smart Account program address, official source link, concrete RPC and SDK calls, ordered sends, confirmation, and refund calls used by the runbook. The recovery tasks use independent Find, Review, Exit, and Close tabs instead of a long vertical stepper. The page passed the IA verifier, Mintlify broken-link check, Mintlify accessibility check, JSON validation, nontechnical dash check, and `git diff --check`.
+
+Rendered checks at 1440 by 1000 and 390 by 844 found no page-level horizontal overflow. Mobile code blocks scroll within their own containers. The four compact tab labels fit at mobile width, and the Autodeposit RPC disclosure opens correctly. Slop Guard scored the ownership page 100 and the code-heavy recovery runbook 78; its remaining flags come from TypeScript punctuation, repeated calls to the required transaction-send helper, and the analyzer treating a code block as one sentence, not rendered prose.

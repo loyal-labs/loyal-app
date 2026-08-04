@@ -38,6 +38,7 @@
                 ]
               },
               "automations/catalog",
+              "trust/withdraw-without-loyal",
               {
                 "group": "Trust & control",
                 "icon": "shield-halved",

@@ -134,6 +134,7 @@ The implementation target is exhaustive. Page paths omit file extensions, as req
                 ]
               },
               "automations/catalog",
+              "trust/withdraw-without-loyal",
               {
                 "group": "Trust & control",
                 "icon": "shield-halved",
@@ -277,6 +278,7 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 | Economics and duties | `/business/economics-and-responsibilities` | Avoid revenue examples elsewhere. |
 | Integration readiness | `/business/integration-readiness` | Link from sales and developer entry points. |
 | Root authority and signer access | `/trust/ownership-and-control` | State the conclusion and link. |
+| Loyal-independent Earn exit | `/trust/withdraw-without-loyal` | State that the root wallet can recover through RPC and link to the runbook. |
 | Plain-language rule enforcement | `/trust/rule-enforcement` | State that an action passed or failed. Exact fields belong to developer policies. |
 | Risk and liquidity | `/trust/risk-and-liquidity` | Use the relevant warning and link. |
 | Audit scope and coverage | `/trust/audits-and-deployments` | Own the reviewer and reviewed version or commit. Own the scope and deployment-match conclusion. Other pages link without repeating them. |
@@ -313,6 +315,7 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 | `/automations/exit-and-lifecycle` create | Customer: How does a pause differ from withdrawal or closure? | New-sweep pause, withdrawal, recurring-access removal, full Earn exit, confirmation boundary. | Four-state lifecycle diagram. | No root-authority topology. Link to Ownership and developer lifecycle. |
 | `/automations/catalog` create | Buyer: What is available now and what is only a possibility? | Status matrix defining each label: Live, Pilot, Illustrative, Unsupported. Balance Sweep & Earn is the only live automation unless evidence changes. | Filterable or static status table. | No implied roadmap. Each entry links to evidence or says illustrative. |
 | `/trust/ownership-and-control` retain and narrow | Customer or counsel: Who can control or change the account? | Default customer root authority, Loyal's separate limited signer, private-key boundary, external-account caveat, legal qualification. | Existing five-node authority map. | No risk catalog or audit list. Link to enforcement and exit. Link to audits where review scope matters. |
+| `/trust/withdraw-without-loyal` create | Customer developer or recovery operator: Can the customer exit when Loyal is unavailable? | RPC-only Settings discovery, live Earn holdings, local transaction preparation, ordered signatures, zero proof, and policy closure. | Independent Find, Review, Exit, and Close tabs with focused code blocks. | No database dependency, seed phrase handling, or promise of protocol liquidity. Link to deployment identity and SDK details. |
 | `/trust/rule-enforcement` create | Security reviewer: What rejects an unauthorized transaction? | Plain-language allowed versus rejected outcomes, the separate roles of subscription and Smart Account policy, and the user-visible result. | Allowed versus rejected transaction comparison. | No constraint fields or SDK construction. Link to developer policies. |
 | `/trust/risk-and-liquidity` create | Customer or risk reviewer: What can still go wrong? | User-visible outcomes from software or lending risk; depeg and signer risk; liquidity, network, or service failure. | Risk table by layer and consequence. | No audit marketing. Link to audits and routing. |
 | `/trust/audits-and-deployments` create | Security reviewer: What was reviewed and does it match production? | Evidence for Squads Smart Accounts and Kamino K-Lend, plus the Subscriptions program; version or commit scope; deployed-version verification gap; no standalone Loyal audit claim. | Coverage table showing project and reviewer, review scope and date, then deployment-match status. | No generic safety language. Link to technical deployments reference. |
@@ -601,6 +604,7 @@ The first implementation deliverable is `scripts/verify-user-docs-ia.mjs`. It ac
 | Product sections | Product contains `Automations / For Businesses / Developers` as top-level groups, each with an icon, `directory: "card"`, and an explicit first page titled `Overview` in the sidebar. |
 | Page icons | Every direct Product page has an icon. Child pages inside nested groups remain plain. |
 | Nested groups | Every Product feature group has an icon and root page, and every nested group sets `expanded: false`. Protected Transparency groups remain unchanged. |
+| Recovery order | Automations places `Withdraw manually` directly after `Automation catalog` and before the nested `Trust & control` group. |
 | Targets | Every `docs.json` page target exists. |
 | Root pages | Product section overviews are explicit pages; nested feature roots inherit `directory: "card"` from their section. |
 
@@ -637,12 +641,13 @@ The first implementation deliverable is `scripts/verify-user-docs-ia.mjs`. It ac
 | Reduced motion | Every explanation remains available. |
 | Color modes | Dark and light modes preserve contrast and diagram meaning. |
 
-Run the preview matrix on `/`, `/automations/how-it-works`, `/business/use-cases`, `/build/overview`, and `/trust/ownership-and-control`. Capture each at 1440 by 1000 and 390 by 844 in both color modes. Save the twenty screenshots under `/private/tmp/loyal-user-docs-qa/<phase>/`. Run the walkthrough once more with reduced motion and record all four states. The deployed search verifier queries `private inference`, `agent network`, `surveillance`, and `zero knowledge`; no deleted legacy page may appear in search, sitemap output, or `llms.txt`.
+Run the preview matrix on `/`, `/automations/how-it-works`, `/business/use-cases`, `/build/overview`, `/trust/ownership-and-control`, and `/trust/withdraw-without-loyal`. Capture each at 1440 by 1000 and 390 by 844 in both color modes. Save the twenty-four screenshots under `/private/tmp/loyal-user-docs-qa/<phase>/`. Run the walkthrough once more with reduced motion and record all four states. The deployed search verifier queries `private inference`, `agent network`, `surveillance`, and `zero knowledge`; no deleted legacy page may appear in search, sitemap output, or `llms.txt`.
 
 ### Technical truth
 
 - Customer root authority, Loyal's limited signer, subscription constraints, and Smart Account policy are described as separate controls.
 - Pause, withdrawal, subscription close, and full Earn exit remain distinct.
+- The recovery runbook discovers Settings and holdings from RPC, confirms every withdrawal step, proves a zero balance, and only then closes access.
 - The execution-state terms in Legal and security wording are not conflated.
 - Live product claims match verified code and deployed behavior. Confirm product availability separately.
 - Deployed program identifiers and reviewed versions include a verification date.

@@ -132,6 +132,83 @@ if (expandedNestedGroups.length === 0) {
   );
 }
 
+const recoveryTarget = "trust/withdraw-without-loyal";
+const automationsGroup = (productTab?.groups ?? []).find(
+  ({ group }) => group === "Automations"
+);
+const automationPages = automationsGroup?.pages ?? [];
+const catalogIndex = automationPages.indexOf("automations/catalog");
+const recoveryIndex = automationPages.indexOf(recoveryTarget);
+const pageAfterRecovery = automationPages[recoveryIndex + 1];
+if (
+  recoveryIndex === catalogIndex + 1 &&
+  pageAfterRecovery?.group === "Trust & control"
+) {
+  pass("recovery is a direct page between Automation catalog and Trust & control");
+} else {
+  fail("recovery is not placed directly before Trust & control");
+}
+
+const trustGroup = nestedProductGroups.find(
+  ({ group }) => group === "Trust & control"
+);
+const expectedTrustPages = [
+  "trust/rule-enforcement",
+  "trust/risk-and-liquidity",
+  "trust/audits-and-deployments",
+];
+if (
+  trustGroup?.root === "trust/ownership-and-control" &&
+  JSON.stringify(trustGroup.pages) === JSON.stringify(expectedTrustPages)
+) {
+  pass("Trust & control contains only its nested detail pages");
+} else {
+  fail("Trust & control does not match the approved nested detail order");
+}
+
+const recoveryPath = join(docsDir, `${recoveryTarget}.mdx`);
+if (!existsSync(recoveryPath)) {
+  fail(`missing recovery page: ${recoveryTarget}`);
+} else {
+  const recoverySource = readFileSync(recoveryPath, "utf8");
+  const requiredRecoveryTerms = [
+    'title: "Withdraw manually"',
+    "completely self-custodial",
+    "You do not need Loyal to withdraw",
+    "withdraw all USDC held in Earn",
+    "getProgramAccounts",
+    "settingsDiscriminator",
+    "Settings.fromAccountInfo",
+    "accountIndex: 1",
+    "fetchEarnRpcHoldingsSnapshot",
+    "prepareEarnUsdcWithdraw",
+    "prepareEarnVaultAccountsRefund",
+    "autodepositClosePrepared",
+    "withdrawSteps",
+    "sendPreparedWithWallet",
+    "getSignatureStatuses",
+    '<Tab title="Find"',
+    '<Tab title="Review"',
+    '<Tab title="Exit"',
+    '<Tab title="Close"',
+    "SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG",
+    "https://github.com/Squads-Protocol/smart-account-program",
+  ];
+  const missingRecoveryTerms = requiredRecoveryTerms.filter(
+    (term) => !recoverySource.includes(term)
+  );
+  if (missingRecoveryTerms.length === 0) {
+    pass("recovery page covers discovery, preparation, ordered send, and proof");
+  } else {
+    fail(`recovery page is missing: ${missingRecoveryTerms.join(", ")}`);
+  }
+  if (recoverySource.includes("<Steps>")) {
+    fail("recovery page still uses the superseded Steps layout");
+  } else {
+    pass("recovery tasks use tabs instead of a long stepper");
+  }
+}
+
 const pageTargets = new Set();
 const visitNavigation = (value) => {
   if (Array.isArray(value)) {
