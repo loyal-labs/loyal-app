@@ -115,6 +115,7 @@ export const LIFECYCLE_STAGES = {
     "wallet_approval",
     "create_policy",
     "create_recurring_delegation",
+    "slot_resolve",
     "backend_confirm",
     "bootstrap",
     "ui_commit",
