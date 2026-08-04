@@ -188,9 +188,22 @@ async function startSendingSignedTransaction(
   });
 
   let rebroadcasting = true;
+  let wakeRebroadcast: (() => void) | null = null;
+  const waitForRebroadcast = (): Promise<void> =>
+    new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        wakeRebroadcast = null;
+        resolve();
+      }, REBROADCAST_INTERVAL_MS);
+      wakeRebroadcast = () => {
+        clearTimeout(timer);
+        wakeRebroadcast = null;
+        resolve();
+      };
+    });
   const rebroadcast = (async () => {
     while (rebroadcasting) {
-      await delay(REBROADCAST_INTERVAL_MS);
+      await waitForRebroadcast();
       if (!rebroadcasting) {
         return;
       }
@@ -209,6 +222,7 @@ async function startSendingSignedTransaction(
     signature,
     stop: async () => {
       rebroadcasting = false;
+      wakeRebroadcast?.();
       await rebroadcast.catch(() => undefined);
     },
   };

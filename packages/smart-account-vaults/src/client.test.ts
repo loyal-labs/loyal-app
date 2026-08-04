@@ -2227,6 +2227,66 @@ describe("prepareEarnUsdcWithdraw", () => {
   });
 });
 
+describe("prepareEarnUsdcCleanup", () => {
+  test("batches vault token ownership reads for final-exit cleanup", async () => {
+    const collateralAta = new PublicKey("1111111111111111111111111111111D");
+    const vaultUsdcAta = deriveVaultUsdcAta();
+    const getMultipleAccountsInfo = mock(async (addresses: PublicKey[]) =>
+      addresses.map((address) => {
+        if (!address.equals(collateralAta) && !address.equals(vaultUsdcAta)) {
+          return null;
+        }
+        return {
+          data: createTokenAccountData({
+            amountRaw: BigInt(0),
+            owner: deriveVault(),
+          }),
+          executable: false,
+          lamports: 1,
+          owner: TOKEN_PROGRAM_ID,
+          rentEpoch: 0,
+        };
+      })
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getBalance: mock(async () => 0),
+        getMultipleAccountsInfo,
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcCleanup({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      idleAmountRaw: BigInt(1),
+      closeVaultCollateralAtas: [collateralAta],
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(result.persistence.closedCollateralAtas).toEqual([
+      collateralAta.toBase58(),
+    ]);
+    expect(result.persistence.closedVaultUsdcAta).toBe(true);
+    expect(
+      getMultipleAccountsInfo.mock.calls.some(([addresses]) => {
+        const keys = (addresses as PublicKey[]).map((address) =>
+          address.toBase58()
+        );
+        return (
+          keys.includes(collateralAta.toBase58()) &&
+          keys.includes(vaultUsdcAta.toBase58())
+        );
+      })
+    ).toBe(true);
+  });
+});
+
 describe("prepareEarnUsdcAutodeposit", () => {
   afterEach(() => {
     mock.restore();

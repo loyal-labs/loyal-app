@@ -2664,6 +2664,16 @@ async function isTokenAccountOwnedBy(args: {
   return AccountLayout.decode(accountInfo.data).owner.equals(args.owner);
 }
 
+function isTokenAccountInfoOwnedBy(args: {
+  accountInfo: AccountInfo<Buffer> | null;
+  owner: PublicKey;
+}): boolean {
+  return Boolean(
+    args.accountInfo?.owner.equals(TOKEN_PROGRAM_ID) &&
+      AccountLayout.decode(args.accountInfo.data).owner.equals(args.owner)
+  );
+}
+
 async function resolveEarnFullWithdrawAmounts(args: {
   connection: Connection;
   requestedWithdrawAmountRaw: bigint;
@@ -8124,6 +8134,45 @@ export function createSmartAccountVaultsClient(
     );
     const idleAmountRaw = args.idleAmountRaw ?? BigInt(0);
     const tokenInstructions: TransactionInstruction[] = [];
+    const collateralAtas = args.closeVaultCollateralAtas ?? [];
+    const policyAccounts = [
+      args.yieldRoutingPolicy.account,
+      ...(args.yieldRoutingPolicy.setupPolicy?.account
+        ? [args.yieldRoutingPolicy.setupPolicy.account]
+        : []),
+    ];
+    const [
+      tokenAccountInfos,
+      vaultSweepLamports,
+      policyCloseOperation,
+      autodepositClosePrepared,
+    ] = await Promise.all([
+      getAccountInfoMap({
+        accounts: [...collateralAtas, vaultUsdcAta],
+        connection: config.connection,
+      }),
+      getVaultSweepLamportsOrZero(config.connection, vaultPda),
+      prepareCloseLiveYieldRoutingPoliciesSync({
+        settingsPda: args.settingsPda,
+        feePayer: args.feePayer,
+        signers: [args.walletAddress],
+        policies: policyAccounts,
+        memo: args.memo,
+      }),
+      args.autodepositClose
+        ? prepareEarnUsdcAutodepositClose({
+            cluster,
+            feePayer: args.feePayer,
+            memo: args.memo,
+            policy: args.autodepositClose.policy,
+            policySigner: args.policySigner,
+            recurringDelegation: args.autodepositClose.recurringDelegation,
+            settingsPda: args.settingsPda,
+            signer: args.walletAddress,
+            walletAddress: args.walletAddress,
+          })
+        : Promise.resolve(null),
+    ]);
 
     if (idleAmountRaw > BigInt(0)) {
       tokenInstructions.push(
@@ -8143,18 +8192,12 @@ export function createSmartAccountVaultsClient(
       );
     }
 
-    const closeableCollateralAtas: PublicKey[] = [];
-    for (const collateralAta of args.closeVaultCollateralAtas ?? []) {
-      if (
-        await isTokenAccountOwnedBy({
-          account: collateralAta,
-          connection: config.connection,
-          owner: vaultPda,
-        })
-      ) {
-        closeableCollateralAtas.push(collateralAta);
-      }
-    }
+    const closeableCollateralAtas = collateralAtas.filter((collateralAta) =>
+      isTokenAccountInfoOwnedBy({
+        accountInfo: tokenAccountInfos.get(collateralAta.toBase58()) ?? null,
+        owner: vaultPda,
+      })
+    );
 
     for (const collateralAta of closeableCollateralAtas) {
       tokenInstructions.push(
@@ -8171,9 +8214,8 @@ export function createSmartAccountVaultsClient(
       );
     }
 
-    const shouldCloseVaultUsdcAta = await isTokenAccountOwnedBy({
-      account: vaultUsdcAta,
-      connection: config.connection,
+    const shouldCloseVaultUsdcAta = isTokenAccountInfoOwnedBy({
+      accountInfo: tokenAccountInfos.get(vaultUsdcAta.toBase58()) ?? null,
       owner: vaultPda,
     });
     if (shouldCloseVaultUsdcAta) {
@@ -8195,10 +8237,6 @@ export function createSmartAccountVaultsClient(
     // Kamino setup buffer sitting on the vault PDA (see
     // createEarnFullWithdrawCleanupInstructions for why the obligation and
     // farms rents cannot be reclaimed).
-    const vaultSweepLamports = await getVaultSweepLamportsOrZero(
-      config.connection,
-      vaultPda
-    );
     if (vaultSweepLamports > BigInt(0)) {
       tokenInstructions.push(
         SystemProgram.transfer({
@@ -8231,34 +8269,6 @@ export function createSmartAccountVaultsClient(
             );
           })()
         : null;
-    const policyAccounts = [
-      args.yieldRoutingPolicy.account,
-      ...(args.yieldRoutingPolicy.setupPolicy?.account
-        ? [args.yieldRoutingPolicy.setupPolicy.account]
-        : []),
-    ];
-    const policyCloseOperation = await prepareCloseLiveYieldRoutingPoliciesSync(
-      {
-        settingsPda: args.settingsPda,
-        feePayer: args.feePayer,
-        signers: [args.walletAddress],
-        policies: policyAccounts,
-        memo: args.memo,
-      }
-    );
-    const autodepositClosePrepared = args.autodepositClose
-      ? await prepareEarnUsdcAutodepositClose({
-          cluster,
-          feePayer: args.feePayer,
-          memo: args.memo,
-          policy: args.autodepositClose.policy,
-          policySigner: args.policySigner,
-          recurringDelegation: args.autodepositClose.recurringDelegation,
-          settingsPda: args.settingsPda,
-          signer: args.walletAddress,
-          walletAddress: args.walletAddress,
-        })
-      : null;
     const operations = [
       ...(tokenOperation ? [tokenOperation] : []),
       ...(policyCloseOperation ? [policyCloseOperation] : []),
