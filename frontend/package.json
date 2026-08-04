@@ -25,6 +25,7 @@
     "@ai-sdk/openai-compatible": "^1.0.24",
     "@ai-sdk/react": "^2.0.13",
     "@cap.js/widget": "^0.1.56",
+    "@cherrydotfun/miniapp-sdk": "0.1.21",
     "@connectrpc/connect": "^2.0.4",
     "@connectrpc/connect-web": "^2.0.4",
     "@icons-pack/react-simple-icons": "^13.7.0",

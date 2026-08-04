@@ -6,6 +6,9 @@ import { WalletAutoReauth } from "@/components/auth/wallet-auto-reauth";
 import { WalletConnectionProvider } from "@/components/solana/wallet-provider";
 import { AuthSessionProvider } from "@/contexts/auth-session-context";
 import { SignInModalProvider } from "@/contexts/sign-in-modal-context";
+import { CherryAuthPrompt } from "@/features/cherry/client/auth-prompt";
+import { CherryRuntimeBoundary } from "@/features/cherry/client/runtime-boundary";
+import { CherrySessionGate } from "@/features/cherry/client/session-gate";
 import { RealtimeSyncProvider } from "@/features/realtime-sync";
 import { FeatureFlagsProvider } from "@/providers/feature-flags-provider";
 import { AppWorkspaceShell } from "./app-workspace-shell";
@@ -54,21 +57,26 @@ export default function AppLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <WalletConnectionProvider>
-      <AuthSessionProvider>
-        <FeatureFlagsProvider>
-          <SignInModalProvider>
-            <WalletAutoReauth />
-            <AnalyticsBootstrap />
-            {/* Header/main nav is hidden for the wallet workspace redesign. */}
-            <RealtimeSyncProvider>
-              <AppWorkspaceShell />
-              {children}
-            </RealtimeSyncProvider>
-            <SignInModal />
-          </SignInModalProvider>
-        </FeatureFlagsProvider>
-      </AuthSessionProvider>
-    </WalletConnectionProvider>
+    <CherryRuntimeBoundary>
+      <WalletConnectionProvider>
+        <AuthSessionProvider>
+          <CherrySessionGate>
+            <FeatureFlagsProvider>
+              <SignInModalProvider>
+                <WalletAutoReauth />
+                <CherryAuthPrompt />
+                <AnalyticsBootstrap />
+                {/* Header/main nav is hidden for the wallet workspace redesign. */}
+                <RealtimeSyncProvider>
+                  <AppWorkspaceShell />
+                  {children}
+                </RealtimeSyncProvider>
+                <SignInModal />
+              </SignInModalProvider>
+            </FeatureFlagsProvider>
+          </CherrySessionGate>
+        </AuthSessionProvider>
+      </WalletConnectionProvider>
+    </CherryRuntimeBoundary>
   );
 }
