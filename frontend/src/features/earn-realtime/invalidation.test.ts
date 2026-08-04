@@ -30,6 +30,22 @@ describe("Earn realtime targeted invalidation", () => {
     });
   });
 
+  test("refreshes activity and position for failed executions (partial pulls)", () => {
+    expect(
+      resolveEarnRealtimeRefreshPlan([
+        {
+          eventType: EARN_REALTIME_EVENT_TYPES.autodeposit,
+          state: "failed",
+        },
+      ])
+    ).toEqual({
+      earnings: false,
+      earnState: true,
+      position: true,
+      transactions: true,
+    });
+  });
+
   test("coalesces mixed events into one targeted refresh plan", () => {
     expect(
       resolveEarnRealtimeRefreshPlan([

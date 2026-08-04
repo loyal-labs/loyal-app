@@ -42,6 +42,10 @@ export async function POST(request: Request) {
     const serverEnv = getServerEnv();
     const authSecret = serverEnv.earnRealtime.authSecret;
     if (!authSecret) {
+      console.error("[earn-realtime-token] REALTIME_AUTH_SECRET is not set", {
+        settingsPda: principal.settingsPda,
+        walletAddress: principal.walletAddress,
+      });
       return jsonError(
         503,
         "realtime_unavailable",
