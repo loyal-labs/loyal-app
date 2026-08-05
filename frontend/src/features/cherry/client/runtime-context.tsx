@@ -2,13 +2,17 @@
 
 import { createContext, useContext } from "react";
 
-import type { CherryOperationLease } from "./runtime-contract";
+import type {
+  CherryHostPlatform,
+  CherryOperationLease,
+} from "./runtime-contract";
 
 export type CherryRuntimeValue =
   | { mode: "standalone" }
   | {
-      mode: "cherry_mobile";
+      mode: "cherry_embedded";
       operationLease: CherryOperationLease;
+      platform: CherryHostPlatform;
       roomId: string;
       verifiedWalletAddress: string;
     };

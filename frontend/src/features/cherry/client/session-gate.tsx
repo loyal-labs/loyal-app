@@ -14,7 +14,7 @@ export function CherrySessionGate({ children }: { children: ReactNode }) {
   const logoutStartedRef = useRef(false);
   const [logoutFailed, setLogoutFailed] = useState(false);
   const sessionMismatch =
-    runtime.mode === "cherry_mobile" &&
+    runtime.mode === "cherry_embedded" &&
     isHydrated &&
     user !== null &&
     !isVerifiedCherryAuthSessionMatch(
@@ -36,7 +36,7 @@ export function CherrySessionGate({ children }: { children: ReactNode }) {
     void logout().catch(() => setLogoutFailed(true));
   }, [logout, sessionMismatch]);
 
-  if (runtime.mode !== "cherry_mobile") {
+  if (runtime.mode !== "cherry_embedded") {
     return children;
   }
   if (!isHydrated) {

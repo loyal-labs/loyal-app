@@ -14,18 +14,26 @@ import {
   type AuthSessionTokenClaims,
   verifyAuthSessionTokenMulti,
 } from "./session-token";
+import {
+  CHERRY_WALLET_SESSION_COOKIE_NAME,
+  createCherryPartitionedSessionCookieOptions,
+  hasCherryEmbedContext,
+  type CherryPartitionedCookieOptions,
+} from "./cherry-session-cookie";
 
 export const WALLET_AUTH_SESSION_COOKIE_NAME = "loyal_wallet_session";
 export const SESSION_REFRESH_MIN_AGE_MS = 24 * 60 * 60 * 1000;
 
-export type SessionCookieOptions = {
-  httpOnly: true;
-  sameSite: "lax";
-  secure: boolean;
-  path: "/";
-  maxAge: number;
-  domain?: string;
-};
+export type SessionCookieOptions =
+  | {
+      httpOnly: true;
+      sameSite: "lax";
+      secure: boolean;
+      path: "/";
+      maxAge: number;
+      domain?: string;
+    }
+  | CherryPartitionedCookieOptions;
 
 export type WalletSessionMetadata = {
   expiresAt: string;
@@ -106,6 +114,10 @@ function resolveCookieOptions(
   config: ReturnType<SessionCookieServiceDependencies["getConfig"]>,
   maxAge: number
 ): SessionCookieOptions {
+  if (hasCherryEmbedContext(request)) {
+    return createCherryPartitionedSessionCookieOptions(maxAge);
+  }
+
   const fallbackUrl = new URL(request.url);
   const hostHeader =
     getPrimaryHeaderValue(request.headers, "x-forwarded-host") ??
@@ -172,7 +184,7 @@ export function createAuthSessionCookieService(
   async function readSessionClaimsFromRequest(request: Request) {
     const config = dependencies.getConfig();
     const token = parseCookieHeader(request.headers.get("cookie"))[
-      WALLET_AUTH_SESSION_COOKIE_NAME
+      getSessionCookieName(request)
     ];
 
     if (!token) {
@@ -228,6 +240,8 @@ export function createAuthSessionCookieService(
 
     readSessionClaimsFromRequest,
 
+    getSessionCookieName,
+
     async readSessionFromRequest(request: Request) {
       const claims = await readSessionClaimsFromRequest(request);
       if (!claims) {
@@ -264,4 +278,10 @@ export function createAuthSessionCookieService(
       return resolveCookieOptions(request, dependencies.getConfig(), 0);
     },
   };
+}
+
+export function getSessionCookieName(request: Request): string {
+  return hasCherryEmbedContext(request)
+    ? CHERRY_WALLET_SESSION_COOKIE_NAME
+    : WALLET_AUTH_SESSION_COOKIE_NAME;
 }

@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 
-import {
-  createAuthSessionCookieService,
-  WALLET_AUTH_SESSION_COOKIE_NAME,
-} from "@/features/identity/server/session-cookie";
+import { createAuthSessionCookieService } from "@/features/identity/server/session-cookie";
 import {
   getOptionalEnv,
   isStrictTrue,
@@ -76,7 +73,7 @@ export async function POST(request: Request) {
   const response = new NextResponse(null, { status: 204 });
 
   response.cookies.set({
-    name: WALLET_AUTH_SESSION_COOKIE_NAME,
+    name: sessionCookieService.getSessionCookieName(request),
     value: "",
     ...sessionCookieService.createClearedSessionCookieOptions(request),
   });

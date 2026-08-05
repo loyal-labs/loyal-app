@@ -156,7 +156,7 @@ export function SignInModal() {
             <>
               <DialogHeader className="px-6 pt-6 pb-5 text-left">
                 <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
-                  {cherryRuntime.mode === "cherry_mobile"
+                  {cherryRuntime.mode === "cherry_embedded"
                     ? "Verify"
                     : "Connect"}
                 </DialogTitle>

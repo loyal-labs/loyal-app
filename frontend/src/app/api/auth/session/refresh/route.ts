@@ -1,10 +1,7 @@
 import { NextResponse } from "next/server";
 import { mapAuthSessionTokenClaimsToUser } from "@loyal-labs/auth-core";
 
-import {
-  createAuthSessionCookieService,
-  WALLET_AUTH_SESSION_COOKIE_NAME,
-} from "@/features/identity/server/session-cookie";
+import { createAuthSessionCookieService } from "@/features/identity/server/session-cookie";
 import { getServerEnv } from "@/lib/core/config/server";
 
 export async function POST(request: Request) {
@@ -38,17 +35,20 @@ export async function POST(request: Request) {
   }
 
   const refreshedToken = await sessionCookieService.issueSessionToken(user);
+  const sessionCookieName = sessionCookieService.getSessionCookieName(request);
   const refreshedClaims =
     await sessionCookieService.readSessionClaimsFromRequest(
       new Request(request.url, {
         headers: {
-          cookie: `${WALLET_AUTH_SESSION_COOKIE_NAME}=${refreshedToken}`,
+          cookie: `${
+            request.headers.get("cookie") ?? ""
+          }; ${sessionCookieName}=${refreshedToken}`,
         },
       })
     );
 
   response.cookies.set({
-    name: WALLET_AUTH_SESSION_COOKIE_NAME,
+    name: sessionCookieName,
     value: refreshedToken,
     ...sessionCookieService.createSessionCookieOptions(request),
   });

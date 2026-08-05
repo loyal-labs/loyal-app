@@ -1,12 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
+
+mock.module("server-only", () => ({}));
 
 import type { CherryMiniAppConfig } from "@/features/cherry/config";
+import type { CherryLaunchAttestationDependencies } from "./launch-attestation";
 
-import { CherryLaunchTokenError } from "./launch-token";
-import {
-  attestCherryLaunch,
-  type CherryLaunchAttestationDependencies,
-} from "./launch-attestation";
+const { CherryLaunchTokenError } = await import("./launch-token");
+const { attestCherryLaunch } = await import("./launch-attestation");
 
 const ORIGIN = "https://askloyal.com";
 const config: CherryMiniAppConfig = {
@@ -42,7 +42,7 @@ describe("attestCherryLaunch", () => {
     let verifierCalled = false;
     const response = await attestCherryLaunch(
       launchRequest(
-        { launchToken: "sensitive.jwt" },
+        { launchToken: "sensitive.jwt", platform: "webview" },
         "https://attacker.example"
       ),
       dependencies(async () => {
@@ -57,7 +57,7 @@ describe("attestCherryLaunch", () => {
 
   test("returns only minimum verified launch context without a cookie", async () => {
     const response = await attestCherryLaunch(
-      launchRequest({ launchToken: "sensitive.jwt" }),
+      launchRequest({ launchToken: "sensitive.jwt", platform: "webview" }),
       dependencies(async (token, receivedConfig) => {
         expect(token).toBe("sensitive.jwt");
         expect(receivedConfig).toBe(config);
@@ -85,9 +85,32 @@ describe("attestCherryLaunch", () => {
     expect(JSON.stringify(body)).not.toContain("must-not-leak-jti");
   });
 
+  test("sets only a partitioned context marker after a verified iframe launch", async () => {
+    const response = await attestCherryLaunch(
+      launchRequest({ launchToken: "sensitive.jwt", platform: "iframe" }),
+      dependencies(async () => ({
+        walletAddress: "11111111111111111111111111111111",
+        roomId: "room_123",
+        tokenId: "jti",
+        issuedAt: 1_000,
+        expiresAt: 1_300,
+      }))
+    );
+    const setCookie = response.headers.get("set-cookie") ?? "";
+
+    expect(response.status).toBe(200);
+    expect(setCookie).toContain("__Host-loyal_cherry_embed=1");
+    expect(setCookie).toContain("HttpOnly");
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("SameSite=None");
+    expect(setCookie).toContain("Partitioned");
+    expect(setCookie).not.toContain("loyal_cherry_session");
+    expect(setCookie).not.toContain("sensitive.jwt");
+  });
+
   test("sanitizes token verification failures", async () => {
     const response = await attestCherryLaunch(
-      launchRequest({ launchToken: "sensitive.jwt" }),
+      launchRequest({ launchToken: "sensitive.jwt", platform: "iframe" }),
       dependencies(async () => {
         throw new CherryLaunchTokenError("sensitive upstream detail", {
           code: "invalid_cherry_launch_token",
@@ -106,12 +129,13 @@ describe("attestCherryLaunch", () => {
     });
     expect(JSON.stringify(body)).not.toContain("sensitive upstream detail");
     expect(JSON.stringify(body)).not.toContain("sensitive.jwt");
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 
   test("rejects malformed input without calling the verifier", async () => {
     let verifierCalled = false;
     const response = await attestCherryLaunch(
-      launchRequest({ launchToken: 123 }),
+      launchRequest({ launchToken: 123, platform: "webview" }),
       dependencies(async () => {
         verifierCalled = true;
         throw new Error("must not run");
@@ -120,5 +144,20 @@ describe("attestCherryLaunch", () => {
 
     expect(response.status).toBe(400);
     expect(verifierCalled).toBe(false);
+  });
+
+  test("rejects an unrecognized host platform before verification", async () => {
+    let verifierCalled = false;
+    const response = await attestCherryLaunch(
+      launchRequest({ launchToken: "sensitive.jwt", platform: "browser" }),
+      dependencies(async () => {
+        verifierCalled = true;
+        throw new Error("must not run");
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(verifierCalled).toBe(false);
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 });

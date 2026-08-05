@@ -4,7 +4,7 @@ import { mapAuthSessionTokenClaimsToUser } from "@loyal-labs/auth-core";
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 
 import { getServerEnv } from "@/lib/core/config/server";
-import { WALLET_AUTH_SESSION_COOKIE_NAME } from "@/features/identity/server/session-cookie";
+import { getSessionCookieName } from "@/features/identity/server/session-cookie";
 import { verifyAuthSessionTokenMulti } from "@/features/identity/server/session-token";
 
 export type AuthenticatedPrincipal = {
@@ -58,10 +58,7 @@ async function verifySessionLocally(
   const cookieHeader = request.headers.get("cookie");
   if (!cookieHeader) return null;
 
-  const token = extractCookieValue(
-    cookieHeader,
-    WALLET_AUTH_SESSION_COOKIE_NAME
-  );
+  const token = extractCookieValue(cookieHeader, getSessionCookieName(request));
   if (!token) return null;
 
   let payload;

@@ -6,8 +6,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { isCherryEntryPath } from "../entry";
 import {
-  resolveCherryMobileEntry,
-  type CherryMobileEntryMode,
+  resolveCherryEntry,
+  type CherryEntryResolution,
 } from "./runtime-contract";
 import { CherryStatusScreen } from "./status-screen";
 
@@ -29,25 +29,31 @@ type CherryNativeWindow = Window & {
 
 export function CherryRuntimeBoundary({ children }: { children: ReactNode }) {
   const pathname = usePathname() ?? "";
-  const [entryMode, setEntryMode] = useState<CherryMobileEntryMode>(() =>
-    isCherryEntryPath(pathname) ? "unsupported_cherry_entry" : "standalone"
+  const [entry, setEntry] = useState<CherryEntryResolution>(() =>
+    isCherryEntryPath(pathname)
+      ? { mode: "unsupported_cherry_entry" }
+      : { mode: "standalone" }
   );
   const [checkedPathname, setCheckedPathname] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isCherryEntryPath(pathname)) {
-      setEntryMode("standalone");
+      setEntry({ mode: "standalone" });
       setCheckedPathname(pathname);
       return;
     }
 
     const cherryWindow = window as CherryNativeWindow;
-    setEntryMode(
-      resolveCherryMobileEntry({
+    setEntry(
+      resolveCherryEntry({
         pathname,
         hasCherryMarker: cherryWindow.__cherry === true,
         hasNativePostMessage:
           typeof cherryWindow.ReactNativeWebView?.postMessage === "function",
+        hasEmbedQueryMarker:
+          new URLSearchParams(window.location.search).get("cherry_embed") ===
+          "1",
+        isFramed: window.parent !== window,
       })
     );
     setCheckedPathname(pathname);
@@ -61,11 +67,13 @@ export function CherryRuntimeBoundary({ children }: { children: ReactNode }) {
     return <CherryStatusScreen message="Checking the Cherry connection…" />;
   }
 
-  if (entryMode !== "cherry_mobile") {
-    return (
-      <CherryStatusScreen message="Open this Mini App from the Cherry mobile app." />
-    );
+  if (entry.mode !== "cherry_embedded") {
+    return <CherryStatusScreen message="Open this Mini App from Cherry." />;
   }
 
-  return <CherryEmbeddedRuntime>{children}</CherryEmbeddedRuntime>;
+  return (
+    <CherryEmbeddedRuntime platform={entry.platform}>
+      {children}
+    </CherryEmbeddedRuntime>
+  );
 }
