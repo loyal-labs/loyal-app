@@ -40,6 +40,20 @@ function captureEnvelopes(): Envelope[] {
   return sent;
 }
 
+// Keeps the two ingests apart: lifecycle events carry the outcome, the
+// sanitized error ingest carries the message and stack.
+function capturePostsByPath(): { path: string; body: Envelope }[] {
+  const sent: { path: string; body: Envelope }[] = [];
+  global.fetch = jest.fn(async (url: unknown, init: unknown) => {
+    sent.push({
+      body: JSON.parse((init as { body: string }).body) as Envelope,
+      path: String(url),
+    });
+    return { ok: true, json: async () => ({}) } as unknown as Response;
+  }) as unknown as typeof fetch;
+  return sent;
+}
+
 function newFlow() {
   return startLifecycleFlow({
     flowName: "earn.withdrawal",
@@ -190,6 +204,31 @@ describe("errorDetail on the wire", () => {
     expect(sent.find((event) => event.outcome === "failed")?.errorDetail).toBe(
       "request_timeout",
     );
+  });
+
+  // Classifying a bug as `unexpected_error` only helps if the flow forwards it
+  // to the sanitized ingest — that is where the message and stack live.
+  // `request_failed` is deliberately excluded from that ingest, so a bug
+  // misfiled under it was invisible no matter which flow raised it (ASK-2018).
+  test.each([
+    ["reports it when the flow opted in", true, 1],
+    ["stays silent when it did not", false, 0],
+  ])("%s", (_label, reportUnexpectedErrors, expectedReports) => {
+    const posts = capturePostsByPath();
+
+    startLifecycleFlow({
+      flowName: "earn.deposit",
+      flowVariant: "initial",
+      reportUnexpectedErrors,
+    }).failFrom("prepare", new TypeError("undefined is not a function"));
+
+    expect(
+      posts.filter((post) => post.path.includes("/mobile/errors")),
+    ).toHaveLength(expectedReports);
+    // The lifecycle event is emitted either way.
+    expect(
+      posts.filter((post) => post.path.includes("/mobile/events")),
+    ).not.toHaveLength(0);
   });
 
   // A declined prompt is a user decision, not a failure with a cause to name.
