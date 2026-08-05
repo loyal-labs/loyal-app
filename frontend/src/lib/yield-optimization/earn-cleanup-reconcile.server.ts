@@ -3,7 +3,7 @@ import "server-only";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { and, asc, eq, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 
 import { resolveLoyalSmartAccountsProgramIdFromEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
@@ -13,6 +13,7 @@ import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { verifyEarnFullExitZeroBalances } from "./earn-full-exit-zero-proof.server";
 import { serializeRoutePolicyState } from "./earn-state-serializers.server";
 import {
+  EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW,
   findEarnCleanupVaultState,
   recordConfirmedEarnCleanup,
 } from "./yield-deposit-repository.server";
@@ -83,8 +84,27 @@ type GhostCandidate = {
 // last confirmed slot. A deposit that lands after the withdrawal advances
 // `lastConfirmedSlot` past it, so resumed positions never qualify. One row
 // per position (the newest qualifying withdrawal wins).
-async function findGhostCandidates(limit: number): Promise<GhostCandidate[]> {
-  const client = getYieldOptimizationClient();
+//
+// Ordering is by "looks like a ghost" first, then oldest. The slot guard above
+// does not catch every resumed position — a re-deposit that leaves
+// `lastConfirmedSlot` at or below the withdrawal slot still qualifies — and
+// those rows hold real value, so the chain proof refuses them every run. Since
+// a skip leaves `updatedAt` untouched they stayed the oldest candidates
+// forever, monopolising the per-run budget: production was scanning 15 and
+// finalizing 0 while 146 genuine ghosts waited behind them (ASK-2021).
+//
+// They are deprioritised rather than filtered out, because the DB amount can be
+// stale: positions reading non-zero here have been proven fully exited on
+// chain, and the proof, not this ordering, remains the authority on whether a
+// position closes. Once the zero-value backlog drains they are scanned again.
+export async function findGhostCandidates(
+  limit: number,
+  client: Pick<
+    ReturnType<typeof getYieldOptimizationClient>,
+    "db"
+  > = getYieldOptimizationClient()
+): Promise<GhostCandidate[]> {
+  const looksExited = sql`${userYieldPositions.currentAmountRaw} < ${EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW}`;
   const rows = await client.db
     .select({
       settings: userYieldPositions.settings,
@@ -126,7 +146,7 @@ async function findGhostCandidates(limit: number): Promise<GhostCandidate[]> {
         eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX)
       )
     )
-    .orderBy(asc(userYieldPositions.updatedAt))
+    .orderBy(desc(looksExited), asc(userYieldPositions.updatedAt))
     .limit(limit * 4);
 
   const byPosition = new Map<string, GhostCandidate>();
