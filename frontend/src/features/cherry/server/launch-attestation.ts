@@ -4,6 +4,7 @@ import {
   createCherryMiniAppConfig,
   type CherryMiniAppConfig,
 } from "@/features/cherry/config";
+import { createCherryEmbedContextCookieHeader } from "@/features/identity/server/cherry-session-cookie";
 
 import {
   CherryLaunchTokenError,
@@ -68,7 +69,9 @@ export async function attestCherryLaunch(
     typeof body !== "object" ||
     body === null ||
     !("launchToken" in body) ||
-    typeof body.launchToken !== "string"
+    typeof body.launchToken !== "string" ||
+    !("platform" in body) ||
+    (body.platform !== "webview" && body.platform !== "iframe")
   ) {
     return jsonError(
       "invalid_cherry_launch_request",
@@ -83,6 +86,11 @@ export async function attestCherryLaunch(
       dependencies.getConfig()
     );
 
+    const headers = new Headers(NO_STORE_HEADERS);
+    if (body.platform === "iframe") {
+      headers.set("set-cookie", createCherryEmbedContextCookieHeader());
+    }
+
     return Response.json(
       {
         walletAddress: launch.walletAddress,
@@ -90,7 +98,7 @@ export async function attestCherryLaunch(
         issuedAt: launch.issuedAt,
         expiresAt: launch.expiresAt,
       },
-      { headers: NO_STORE_HEADERS }
+      { headers }
     );
   } catch (error) {
     if (error instanceof CherryLaunchTokenError) {

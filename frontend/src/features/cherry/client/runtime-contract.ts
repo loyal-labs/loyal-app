@@ -19,23 +19,33 @@ export function createCherryOperationLease(): CherryOperationLease {
   };
 }
 
-export type CherryMobileEntryMode =
-  | "standalone"
-  | "cherry_mobile"
-  | "unsupported_cherry_entry";
+export type CherryHostPlatform = "webview" | "iframe";
 
-export function resolveCherryMobileEntry(args: {
+export type CherryEntryResolution =
+  | { mode: "standalone" }
+  | { mode: "cherry_embedded"; platform: CherryHostPlatform }
+  | { mode: "unsupported_cherry_entry" };
+
+export function resolveCherryEntry(args: {
   pathname: string;
   hasCherryMarker: boolean;
   hasNativePostMessage: boolean;
-}): CherryMobileEntryMode {
+  hasEmbedQueryMarker: boolean;
+  isFramed: boolean;
+}): CherryEntryResolution {
   if (!isCherryEntryPath(args.pathname)) {
-    return "standalone";
+    return { mode: "standalone" };
   }
 
-  return args.hasCherryMarker && args.hasNativePostMessage
-    ? "cherry_mobile"
-    : "unsupported_cherry_entry";
+  if (args.hasCherryMarker && args.hasNativePostMessage) {
+    return { mode: "cherry_embedded", platform: "webview" };
+  }
+
+  if (args.hasEmbedQueryMarker && args.isFramed) {
+    return { mode: "cherry_embedded", platform: "iframe" };
+  }
+
+  return { mode: "unsupported_cherry_entry" };
 }
 
 export type VerifiedCherryLaunchResponse = {

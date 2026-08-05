@@ -58,7 +58,7 @@ function CherryWalletGate({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (runtime.mode !== "cherry_mobile" || terminalErrorRef.current) {
+    if (runtime.mode !== "cherry_embedded" || terminalErrorRef.current) {
       return;
     }
 
@@ -75,7 +75,7 @@ function CherryWalletGate({ children }: { children: ReactNode }) {
   }, [connect, connected, connecting, fail, runtime.mode, select, wallet]);
 
   useEffect(() => {
-    if (runtime.mode !== "cherry_mobile" || connected) {
+    if (runtime.mode !== "cherry_embedded" || connected) {
       return;
     }
 
@@ -87,7 +87,7 @@ function CherryWalletGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (
-      runtime.mode !== "cherry_mobile" ||
+      runtime.mode !== "cherry_embedded" ||
       !connected ||
       isVerifiedCherryWalletMatch(
         runtime.verifiedWalletAddress,
@@ -101,7 +101,7 @@ function CherryWalletGate({ children }: { children: ReactNode }) {
     void disconnect().catch(() => undefined);
   }, [connected, disconnect, fail, publicKey, runtime]);
 
-  if (runtime.mode !== "cherry_mobile") {
+  if (runtime.mode !== "cherry_embedded") {
     return children;
   }
 
@@ -138,7 +138,7 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
   const publicEnv = usePublicEnv();
   const cherryRuntime = useCherryRuntime();
   const cherryOperationLease =
-    cherryRuntime.mode === "cherry_mobile"
+    cherryRuntime.mode === "cherry_embedded"
       ? cherryRuntime.operationLease
       : null;
   const { solanaRpcEndpoint } = publicEnv;
@@ -225,7 +225,7 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
     return explicitWalletConnectNameRef.current === null;
   }, []);
 
-  if (cherryRuntime.mode === "cherry_mobile" && cherryAdapterLoadFailed) {
+  if (cherryRuntime.mode === "cherry_embedded" && cherryAdapterLoadFailed) {
     return (
       <CherryStatusScreen
         message="The Cherry wallet is unavailable. Reopen the Mini App."
@@ -234,7 +234,7 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
     );
   }
 
-  if (cherryRuntime.mode === "cherry_mobile" && !cherryAdapter) {
+  if (cherryRuntime.mode === "cherry_embedded" && !cherryAdapter) {
     return <CherryStatusScreen message="Preparing the Cherry wallet…" />;
   }
 
@@ -242,10 +242,10 @@ export const WalletConnectionProvider: FC<WalletConnectionProviderProps> = ({
     <ConnectionProvider config={connectionConfig} endpoint={endpoint}>
       <WalletProvider
         autoConnect={
-          cherryRuntime.mode === "cherry_mobile" ? false : shouldAutoConnect
+          cherryRuntime.mode === "cherry_embedded" ? false : shouldAutoConnect
         }
         localStorageKey={
-          cherryRuntime.mode === "cherry_mobile"
+          cherryRuntime.mode === "cherry_embedded"
             ? CHERRY_WALLET_STORAGE_KEY
             : "walletName"
         }

@@ -1,3 +1,3 @@
-export default function CherryMobilePage() {
+export default function CherryEmbeddedPage() {
   return null;
 }

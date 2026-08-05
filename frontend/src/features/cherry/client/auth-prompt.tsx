@@ -18,7 +18,7 @@ export function CherryAuthPrompt() {
 
   useEffect(() => {
     if (
-      runtime.mode !== "cherry_mobile" ||
+      runtime.mode !== "cherry_embedded" ||
       captcha.mode !== "widget" ||
       !isHydrated ||
       isAuthenticated ||

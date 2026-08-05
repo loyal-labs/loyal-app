@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
-import { CherryMobileDocumentScope } from "./cherry-mobile-document-scope";
+import { CherryDocumentScope } from "./cherry-document-scope";
 
 export const metadata: Metadata = {
   robots: {
@@ -15,12 +15,12 @@ export const viewport: Viewport = {
   width: "device-width",
 };
 
-export default function CherryMobileLayout({
+export default function CherryEmbeddedLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <>
-      <CherryMobileDocumentScope />
+      <CherryDocumentScope />
       {children}
     </>
   );

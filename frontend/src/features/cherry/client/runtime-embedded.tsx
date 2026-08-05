@@ -16,6 +16,7 @@ import {
   parseVerifiedCherryLaunchResponse,
   runCherryDisconnectActions,
   type CherryLifecyclePhase,
+  type CherryHostPlatform,
   type VerifiedCherryLaunchResponse,
 } from "./runtime-contract";
 import { CherryStatusScreen } from "./status-screen";
@@ -24,10 +25,11 @@ type AttestationPhase = "verifying" | "verified" | "failed";
 
 async function verifyLaunchToken(
   launchToken: string,
+  platform: CherryHostPlatform,
   signal: AbortSignal
 ): Promise<VerifiedCherryLaunchResponse> {
   const response = await fetch("/api/cherry/launch", {
-    body: JSON.stringify({ launchToken }),
+    body: JSON.stringify({ launchToken, platform }),
     cache: "no-store",
     credentials: "same-origin",
     headers: {
@@ -44,7 +46,13 @@ async function verifyLaunchToken(
   return launch;
 }
 
-function VerifiedCherryRuntime({ children }: { children: ReactNode }) {
+function VerifiedCherryRuntime({
+  children,
+  platform,
+}: {
+  children: ReactNode;
+  platform: CherryHostPlatform;
+}) {
   const app = useCherryApp();
   const { error, isReady, launchToken } = useCherryMiniApp();
   const [launch, setLaunch] = useState<VerifiedCherryLaunchResponse | null>(
@@ -70,7 +78,7 @@ function VerifiedCherryRuntime({ children }: { children: ReactNode }) {
     verifiedLaunchTokenRef.current = null;
     setLaunch(null);
     setAttestationPhase("verifying");
-    void verifyLaunchToken(launchToken, controller.signal)
+    void verifyLaunchToken(launchToken, platform, controller.signal)
       .then((verifiedLaunch) => {
         if (controller.signal.aborted) {
           return;
@@ -90,7 +98,7 @@ function VerifiedCherryRuntime({ children }: { children: ReactNode }) {
       controller.abort();
       verifiedLaunchTokenRef.current = null;
     };
-  }, [error, isReady, launchToken]);
+  }, [error, isReady, launchToken, platform]);
 
   useEffect(() => {
     if (!app) {
@@ -155,8 +163,9 @@ function VerifiedCherryRuntime({ children }: { children: ReactNode }) {
   return (
     <CherryRuntimeContext.Provider
       value={{
-        mode: "cherry_mobile",
+        mode: "cherry_embedded",
         operationLease,
+        platform,
         roomId: launch.roomId,
         verifiedWalletAddress: launch.walletAddress,
       }}
@@ -166,10 +175,18 @@ function VerifiedCherryRuntime({ children }: { children: ReactNode }) {
   );
 }
 
-export function CherryEmbeddedRuntime({ children }: { children: ReactNode }) {
+export function CherryEmbeddedRuntime({
+  children,
+  platform,
+}: {
+  children: ReactNode;
+  platform: CherryHostPlatform;
+}) {
   return (
     <CherryMiniAppProvider initTimeout={CHERRY_INIT_TIMEOUT_MS} strict>
-      <VerifiedCherryRuntime>{children}</VerifiedCherryRuntime>
+      <VerifiedCherryRuntime platform={platform}>
+        {children}
+      </VerifiedCherryRuntime>
     </CherryMiniAppProvider>
   );
 }

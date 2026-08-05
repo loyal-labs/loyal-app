@@ -35,6 +35,14 @@ function getGitInfo() {
 
 const { commitHash, branch } = getGitInfo();
 
+const COMMON_SECURITY_HEADERS = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=()",
+  },
+] as const;
+
 const nextConfig: NextConfig = {
   compiler: {
     removeConsole: {
@@ -86,17 +94,22 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Applied to every route. HSTS is already set by Vercel at the
-        // platform level; these three add the clickjacking / MIME-sniffing /
-        // sensor-permission protections that were missing (audit M-3).
-        source: "/:path*",
+        source: "/app/cherry",
         headers: [
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          ...COMMON_SECURITY_HEADERS,
           {
-            key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'self' https://chat.cherry.fun",
           },
+        ],
+      },
+      {
+        // Keep clickjacking protection everywhere except the one Cherry entry
+        // that has an explicit frame-ancestors allowlist above.
+        source: "/((?!app/cherry/?$).*)",
+        headers: [
+          ...COMMON_SECURITY_HEADERS,
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
         ],
       },
     ];

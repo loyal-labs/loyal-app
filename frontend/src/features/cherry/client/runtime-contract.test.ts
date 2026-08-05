@@ -7,63 +7,82 @@ import {
   isVerifiedCherryWalletMatch,
   parseVerifiedCherryLaunchResponse,
   reduceCherryLifecycle,
-  resolveCherryMobileEntry,
+  resolveCherryEntry,
   runCherryDisconnectActions,
 } from "./runtime-contract";
 
-describe("Cherry mobile runtime contract", () => {
-  test("activates only the dedicated route with both strict host signals", () => {
+describe("Cherry embedded runtime contract", () => {
+  test("activates only strict mobile or iframe signals on the dedicated route", () => {
     expect(
-      resolveCherryMobileEntry({
+      resolveCherryEntry({
         pathname: "/app/cherry",
         hasCherryMarker: true,
         hasNativePostMessage: true,
+        hasEmbedQueryMarker: false,
+        isFramed: false,
       })
-    ).toBe("cherry_mobile");
+    ).toEqual({ mode: "cherry_embedded", platform: "webview" });
+
+    expect(
+      resolveCherryEntry({
+        pathname: "/app/cherry",
+        hasCherryMarker: false,
+        hasNativePostMessage: false,
+        hasEmbedQueryMarker: true,
+        isFramed: true,
+      })
+    ).toEqual({ mode: "cherry_embedded", platform: "iframe" });
 
     for (const candidate of [
       {
         pathname: "/app/cherry",
         hasCherryMarker: false,
         hasNativePostMessage: true,
+        hasEmbedQueryMarker: false,
+        isFramed: false,
       },
       {
         pathname: "/app/cherry",
         hasCherryMarker: true,
         hasNativePostMessage: false,
+        hasEmbedQueryMarker: false,
+        isFramed: false,
       },
       {
         pathname: "/app/cherry",
         hasCherryMarker: false,
         hasNativePostMessage: false,
+        hasEmbedQueryMarker: true,
+        isFramed: false,
+      },
+      {
+        pathname: "/app/cherry",
+        hasCherryMarker: false,
+        hasNativePostMessage: false,
+        hasEmbedQueryMarker: false,
+        isFramed: true,
       },
     ]) {
-      expect(resolveCherryMobileEntry(candidate)).toBe(
-        "unsupported_cherry_entry"
-      );
+      expect(resolveCherryEntry(candidate)).toEqual({
+        mode: "unsupported_cherry_entry",
+      });
     }
 
-    expect(
-      resolveCherryMobileEntry({
-        pathname: "/app",
-        hasCherryMarker: true,
-        hasNativePostMessage: true,
-      })
-    ).toBe("standalone");
-    expect(
-      resolveCherryMobileEntry({
-        pathname: "/app/cherry/activity",
-        hasCherryMarker: true,
-        hasNativePostMessage: true,
-      })
-    ).toBe("standalone");
-    expect(
-      resolveCherryMobileEntry({
-        pathname: "/app/cherry-picker",
-        hasCherryMarker: true,
-        hasNativePostMessage: true,
-      })
-    ).toBe("standalone");
+    for (const pathname of [
+      "/app",
+      "/app/cherry/activity",
+      "/app/cherry-picker",
+    ]) {
+      expect(
+        resolveCherryEntry({
+          pathname,
+          hasCherryMarker: true,
+          hasNativePostMessage: true,
+          hasEmbedQueryMarker: true,
+          isFramed: true,
+        })
+      ).toEqual({ mode: "standalone" });
+    }
   });
 
   test("accepts only the minimal launch response and exact wallet equality", () => {

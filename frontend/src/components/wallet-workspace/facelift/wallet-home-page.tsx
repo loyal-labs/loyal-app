@@ -155,7 +155,7 @@ export function WalletHomePage({
                     src="/agents/Agent-01.svg"
                   />
                   <span className="whitespace-nowrap text-[16px] text-black leading-5">
-                    {cherryRuntime.mode === "cherry_mobile"
+                    {cherryRuntime.mode === "cherry_embedded"
                       ? "Verify account"
                       : "Connect account"}
                   </span>

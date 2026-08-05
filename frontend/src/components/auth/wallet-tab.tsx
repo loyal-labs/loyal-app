@@ -140,7 +140,7 @@ export function WalletTab({
   onFlowStart?: () => void;
 }) {
   const cherryRuntime = useCherryRuntime();
-  const isCherryMobile = cherryRuntime.mode === "cherry_mobile";
+  const isCherryEmbedded = cherryRuntime.mode === "cherry_embedded";
   const [useLedgerProof, setUseLedgerProof] = useState(false);
   const [showWalletSelection, setShowWalletSelection] = useState(false);
   const {
@@ -210,7 +210,7 @@ export function WalletTab({
         <p className="max-w-[320px] text-neutral-500 text-sm">
           <TextSwap text={statusMessage} />
         </p>
-        {isCherryMobile ? null : (
+        {isCherryEmbedded ? null : (
           <button
             className="rounded-full px-4 py-2 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
             onClick={handleChooseAnotherWallet}
@@ -247,7 +247,7 @@ export function WalletTab({
             lands here as an opaque wallet error. Keep the Ledger escape hatch
             visible so those users can self-serve — but not after a deliberate
             cancellation, which is not a capability problem. */}
-        {state.status !== "rejected" && !isCherryMobile && (
+        {state.status !== "rejected" && !isCherryEmbedded && (
           <LedgerModeToggle
             checked={useLedgerProof}
             disabled={!isVerified}
@@ -257,7 +257,7 @@ export function WalletTab({
         <button
           className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
           onClick={
-            isCherryMobile
+            isCherryEmbedded
               ? () => {
                   retry();
                   setShowWalletSelection(false);
@@ -266,7 +266,7 @@ export function WalletTab({
           }
           type="button"
         >
-          {isCherryMobile ? "Retry verification" : "Choose another wallet"}
+          {isCherryEmbedded ? "Retry verification" : "Choose another wallet"}
         </button>
       </div>
     );
@@ -276,7 +276,7 @@ export function WalletTab({
     <div className="flex flex-col gap-4">
       {connected && publicKey && !showWalletSelection ? (
         <div className="flex flex-col gap-2">
-          {isCherryMobile ? null : (
+          {isCherryEmbedded ? null : (
             <LedgerModeToggle
               checked={useLedgerProof}
               disabled={!isVerified}
@@ -291,7 +291,7 @@ export function WalletTab({
           >
             <TextSwap
               text={
-                isCherryMobile
+                isCherryEmbedded
                   ? "Verify Cherry Wallet"
                   : useLedgerProof
                   ? "Verify Ledger Wallet"
@@ -299,7 +299,7 @@ export function WalletTab({
               }
             />
           </button>
-          {isCherryMobile ? null : (
+          {isCherryEmbedded ? null : (
             <button
               className="h-12 rounded-full px-4 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
               onClick={handleChooseAnotherWallet}
