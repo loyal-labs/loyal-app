@@ -212,6 +212,12 @@ export type LifecycleErrorCode = (typeof LIFECYCLE_ERROR_CODES)[number];
 // EUNSPECIFIED (the module's catch-all), ERROR_WALLET_NOT_FOUND,
 // ERROR_SESSION_TIMEOUT, ERROR_SESSION_CLOSED, "Timed out waiting for local
 // association to be ready", and "Failed to end session".
+//
+// The rest name what went wrong behind a `request_failed` that carries no
+// `httpStatus` — meaning no response ever arrived, so the status that usually
+// explains a failure is absent. Four unrelated incidents look identical
+// without them: the device is offline, our own client timeout elapsed, Kamino
+// is down, or an RPC answered with an error (ASK-2018).
 export const LIFECYCLE_ERROR_DETAILS = [
   "mwa_unspecified",
   "mwa_wallet_not_found",
@@ -219,6 +225,16 @@ export const LIFECYCLE_ERROR_DETAILS = [
   "mwa_association_timeout",
   "mwa_session_closed",
   "mwa_end_session_failed",
+  // Connection-level fetch failure: DNS, TLS or a reset socket. React Native
+  // surfaces all of them as a bare TypeError("Network request failed").
+  "network_unreachable",
+  // One of our own client deadlines elapsed, not the server's.
+  "request_timeout",
+  // Kamino answered 5xx/429 and kept doing so until the retries ran out. An
+  // upstream incident, not anything wrong on the device.
+  "kamino_upstream_unavailable",
+  // A Solana JSON-RPC call returned an error object rather than a result.
+  "rpc_request_failed",
 ] as const;
 export type LifecycleErrorDetail = (typeof LIFECYCLE_ERROR_DETAILS)[number];
 

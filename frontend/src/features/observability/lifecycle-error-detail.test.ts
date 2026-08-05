@@ -88,4 +88,22 @@ describe("lifecycle errorDetail", () => {
   test("is optional", () => {
     expect(parseBrowserLifecycleEnvelope(envelope()).errorDetail).toBeUndefined();
   });
+
+  // A `request_failed` with no `httpStatus` never got a response, so the status
+  // that would normally explain it is absent. These tokens are the only thing
+  // separating "the device is offline" from "Kamino is down" (ASK-2018).
+  test.each([
+    ["network_unreachable"],
+    ["request_timeout"],
+    ["kamino_upstream_unavailable"],
+    ["rpc_request_failed"],
+  ])("carries %s on a statusless request_failed", (errorDetail) => {
+    const parsed = parseBrowserLifecycleEnvelope(
+      envelope({ errorCode: "request_failed", errorDetail })
+    );
+
+    expect(parsed.errorDetail).toBe(errorDetail);
+    expect(parsed.errorCode).toBe("request_failed");
+    expect(parsed.httpStatus).toBeUndefined();
+  });
 });
