@@ -12,6 +12,10 @@
 import * as Updates from "expo-updates";
 
 import { env } from "@/config/env";
+import {
+  isConnectionFailure,
+  isConnectionTimeout,
+} from "@/lib/network/connection-failure";
 import { hasLandedProgress, isWalletRejection } from "@/lib/wallet/rejection";
 import {
   isWalletSessionError,
@@ -337,11 +341,33 @@ type LifecycleErrorCode =
   | "wallet_connection_timeout"
   | "wallet_signing_failed";
 
+// Same contract, same cost on a typo — an unknown detail is dropped rather
+// than failing the envelope, so a mistake here costs the field silently.
+// Mirrors the `request_failed` arm of the backend's LIFECYCLE_ERROR_DETAILS.
+export type LifecycleErrorDetail =
+  | "network_unreachable"
+  | "request_timeout"
+  | "kamino_upstream_unavailable"
+  | "rpc_request_failed";
+
+const LIFECYCLE_ERROR_DETAILS: readonly LifecycleErrorDetail[] = [
+  "network_unreachable",
+  "request_timeout",
+  "kamino_upstream_unavailable",
+  "rpc_request_failed",
+];
+
 export type LifecycleDiagnostics = {
   autodepositCloseRequired?: boolean;
   chainState?: "not_submitted" | "submitted" | "confirmed" | "failed";
   cleanupRequired?: boolean;
   errorCode?: LifecycleErrorCode;
+  /**
+   * Which underlying cause produced a broad `errorCode`. Set automatically by
+   * `failFrom`; only worth passing by hand when a call site knows something
+   * the error shape does not carry.
+   */
+  errorDetail?: LifecycleErrorDetail;
   executeNowState?:
     | "requested"
     | "selected"
@@ -424,8 +450,61 @@ export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
     if (code === "unconfirmed_signature") return "unconfirmed_signature";
     return "request_failed";
   }
-  if (error instanceof TypeError) return "request_failed";
+  // Only a connection-level TypeError is a failed request. Every other one is
+  // a bug in our own code, and calling it `request_failed` both inflated that
+  // code and hid the bug: `request_failed` is deliberately kept out of the
+  // sanitized error ingest, so its message and stack were never reported
+  // anywhere. As `unexpected_error` it reaches that ingest and is diagnosable.
+  if (isConnectionFailure(error)) return "request_failed";
   return "unexpected_error";
+}
+
+function declaredErrorDetail(value: unknown): LifecycleErrorDetail | undefined {
+  return LIFECYCLE_ERROR_DETAILS.includes(value as LifecycleErrorDetail)
+    ? (value as LifecycleErrorDetail)
+    : undefined;
+}
+
+// web3.js throws SolanaJSONRPCError with a numeric `code` and no HTTP status,
+// so it lands in `request_failed` looking exactly like a dead connection.
+// Brand-checked by name for the same reason as KaminoUpstreamError: Metro can
+// resolve web3.js to more than one module instance, which would quietly make
+// `instanceof` false.
+function isRpcError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.name === "SolanaJSONRPCError" &&
+    typeof (error as { code?: unknown }).code === "number"
+  );
+}
+
+/**
+ * Name the cause behind a broad `errorCode`. Only a `request_failed` with no
+ * `httpStatus` really needs this — nothing answered, so there is no status to
+ * explain the failure and four unrelated incidents look identical (ASK-2018).
+ *
+ * Returns undefined when the cause is genuinely unknown. That is the honest
+ * answer and a better one than a token that sends on-call somewhere wrong.
+ */
+export function mapLifecycleErrorDetail(
+  error: unknown,
+): LifecycleErrorDetail | undefined {
+  // Already classified at the throw site, which saw the cause this layer
+  // cannot: `withConnectionRetry` knows what it retried before giving up.
+  const carried = declaredErrorDetail(
+    error && typeof error === "object"
+      ? (error as { detail?: unknown }).detail
+      : undefined,
+  );
+  if (carried) return carried;
+  if (error instanceof Error && error.name === "FetchTimeoutError") {
+    return "request_timeout";
+  }
+  // Checked before the broader failure test, which also covers timeouts.
+  if (isConnectionTimeout(error)) return "request_timeout";
+  if (isConnectionFailure(error)) return "network_unreachable";
+  if (isRpcError(error)) return "rpc_request_failed";
+  return undefined;
 }
 
 /**
@@ -537,9 +616,14 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
       const cancelled =
         errorCode === "wallet_rejected" && !hasLandedProgress(error);
       const httpStatus = httpStatusOf(error);
+      // An explicit `errorDetail` from the call site wins: it was passed
+      // because the caller knew something the error shape does not carry.
+      const errorDetail =
+        diagnostics?.errorDetail ?? mapLifecycleErrorDetail(error);
       emit(cancelled ? "cancelled" : "failed", stage, {
         ...diagnostics,
         errorCode,
+        ...(errorDetail !== undefined ? { errorDetail } : {}),
         ...(httpStatus !== undefined ? { httpStatus } : {}),
       });
       if (errorCode === "unexpected_error" && args.reportUnexpectedErrors) {

@@ -3,6 +3,7 @@ import {
   fetchWithTimeout,
   FetchTimeoutError,
 } from "@/lib/network/fetch-with-timeout";
+import type { LifecycleErrorDetail } from "@/services/observability";
 
 import type { WirePreparedOperation } from "./wire";
 
@@ -86,13 +87,37 @@ export function earnHeaders(flowId?: string): Record<string, string> {
 export class EarnApiError extends Error {
   readonly code?: string;
   readonly status?: number;
+  /**
+   * Why the request failed, for the throws that carry no `status` and would
+   * otherwise reach telemetry as an unexplained `request_failed` (ASK-2018).
+   * Set at the throw site, which is the only place that still knows.
+   */
+  readonly detail?: LifecycleErrorDetail;
 
-  constructor(message: string, code?: string, status?: number) {
+  constructor(
+    message: string,
+    code?: string,
+    status?: number,
+    detail?: LifecycleErrorDetail,
+  ) {
     super(message);
     this.name = "EarnApiError";
     this.code = code;
     this.status = status;
+    this.detail = detail;
   }
+}
+
+/**
+ * An Earn failure that never got a response — no backend code, no HTTP status,
+ * just a named cause. Spelling out the two undefineds at every call site would
+ * bury the one argument that carries information.
+ */
+export function earnNetworkError(
+  message: string,
+  detail?: LifecycleErrorDetail,
+): EarnApiError {
+  return new EarnApiError(message, undefined, undefined, detail);
 }
 
 async function throwEarnError(res: Response, fallback: string): Promise<never> {
@@ -154,8 +179,9 @@ export async function fetchEarnDepositPrepareContext(args: {
     );
   } catch (error) {
     if (error instanceof FetchTimeoutError) {
-      throw new EarnApiError(
+      throw earnNetworkError(
         "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute.",
+        "request_timeout",
       );
     }
     throw error;
@@ -192,8 +218,9 @@ export async function prepareEarnDeposit(args: {
     );
   } catch (error) {
     if (error instanceof FetchTimeoutError) {
-      throw new EarnApiError(
+      throw earnNetworkError(
         "Setting up your Earn account is taking longer than usual. It finishes in the background — try again in a minute.",
+        "request_timeout",
       );
     }
     throw error;

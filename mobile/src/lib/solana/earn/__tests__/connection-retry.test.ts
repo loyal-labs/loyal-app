@@ -16,11 +16,13 @@ class MockKaminoUpstreamError extends Error {
 // Jest does not transform.
 class MockEarnApiError extends Error {
   readonly code?: string;
+  readonly detail?: string;
 
-  constructor(message: string, code?: string) {
+  constructor(message: string, code?: string, detail?: string) {
     super(message);
     this.name = "EarnApiError";
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -34,6 +36,8 @@ jest.mock(
 
 jest.mock("../earn-api", () => ({
   EarnApiError: MockEarnApiError,
+  earnNetworkError: (message: string, detail?: string) =>
+    new MockEarnApiError(message, undefined, detail),
 }));
 
 // Keep the subject import after mock initialization: this test uses a virtual
@@ -105,10 +109,16 @@ describe("withConnectionRetry", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  test("still retries RN connection-level TypeErrors", async () => {
+  // Both messages whatwg-fetch rejects with for a connection-level failure —
+  // `xhr.onerror` and `xhr.ontimeout`. Retrying only the first would strand
+  // every stalled request on its first attempt.
+  test.each([
+    ["a dead socket", "Network request failed"],
+    ["a stalled request", "Network request timed out"],
+  ])("still retries RN's TypeError for %s", async (_label, message) => {
     const run = jest
       .fn()
-      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockRejectedValueOnce(new TypeError(message))
       .mockResolvedValueOnce("prepared");
 
     await expect(
@@ -147,5 +157,50 @@ describe("withConnectionRetry", () => {
       runWithTimers(withConnectionRetry("device prepare", EXHAUSTED, run)),
     ).rejects.toThrow(EXHAUSTED);
     expect(run).toHaveBeenCalledTimes(3);
+  });
+
+  // The exhausted error replaces the one it was retrying, so without a carried
+  // detail every giving-up looks identical in telemetry — an unexplained
+  // `request_failed` with no httpStatus (ASK-2018).
+  test.each([
+    [
+      "a Kamino outage",
+      () => new MockKaminoUpstreamError(503, "unavailable"),
+      "kamino_upstream_unavailable",
+    ],
+    [
+      "a dead connection",
+      () => new TypeError("Network request failed"),
+      "network_unreachable",
+    ],
+  ])("names %s on the exhausted error", async (_label, makeError, detail) => {
+    const run = jest.fn().mockRejectedValue(makeError());
+
+    const error = await runWithTimers(
+      withConnectionRetry("device prepare", EXHAUSTED, run).then(
+        () => null,
+        (thrown: unknown) => thrown,
+      ),
+    );
+
+    expect((error as MockEarnApiError).detail).toBe(detail);
+    // Still no backend code or status: nothing ever answered.
+    expect((error as MockEarnApiError).code).toBeUndefined();
+  });
+
+  // This helper wraps whole SDK prepare calls, so a TypeError reaching it is
+  // just as likely a bug in our own transaction building as a dead socket.
+  // Retrying one wasted the budget and then replaced it with a "check your
+  // connection" EarnApiError — telling the user, and on-call, the wrong thing
+  // while the real fault sat in our code (ASK-2018).
+  test("throws a TypeError that is really a bug through untouched", async () => {
+    const error = new TypeError("undefined is not a function");
+    const run = jest.fn().mockRejectedValue(error);
+
+    await expect(
+      runWithTimers(withConnectionRetry("device prepare", EXHAUSTED, run)),
+    ).rejects.toBe(error);
+    // Not retried, and never rewritten into a network-worded message.
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

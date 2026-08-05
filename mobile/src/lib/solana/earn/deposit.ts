@@ -183,6 +183,12 @@ export async function executeEarnDeposit(args: {
   const flow = startLifecycleFlow({
     flowName: "earn.deposit",
     flowVariant: "initial",
+    // Deposit runs the same SDK prepare through the same retry helper as
+    // withdrawal, so a bug surfaces here the same way: as `unexpected_error`,
+    // whose message and stack only reach the sanitized error ingest when this
+    // is set (ASK-2018). Without it the withdrawal twin was diagnosable and
+    // this was not, for no reason beyond which flow the exception landed in.
+    reportUnexpectedErrors: true,
     walletAddress: args.signer.publicKey.toBase58(),
   });
   flow.start("prepare");
