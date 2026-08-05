@@ -33,11 +33,21 @@ function translateSimulationLogs(logs: string[]): Error | null {
     return null;
   }
 
+  const placeholder = Object.assign(
+    new Error("Transaction simulation failed."),
+    { logs }
+  );
   try {
-    translateAndThrowAnchorError(
-      Object.assign(new Error("Transaction simulation failed."), { logs })
-    );
+    translateAndThrowAnchorError(placeholder);
   } catch (error) {
+    // The translator rethrows the placeholder unchanged when the logs carry no
+    // recognizable failure — which is what a clean diagnostic simulation looks
+    // like (e.g. the user rejected in the wallet and the transaction itself is
+    // fine). Surfacing the placeholder there would replace the real error with
+    // a fabricated "Transaction simulation failed.", so keep the original.
+    if (error === placeholder) {
+      return null;
+    }
     return error instanceof Error ? error : null;
   }
 }
