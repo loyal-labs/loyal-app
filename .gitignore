@@ -36,6 +36,7 @@ claude-report-second.md
 /dashboard/out/
 /frontend/.next/
 /frontend/out/
+/examples/*/.next/
 
 # production
 /build
@@ -58,6 +59,7 @@ yarn-error.log*
 .env*
 /frontend/.env*
 !/dashboard/.env.example
+!/examples/privy-showcase/.env.example
 
 # vercel
 /app/.vercel
@@ -69,6 +71,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 !/dashboard/next-env.d.ts
+!/examples/privy-showcase/next-env.d.ts
 
 .anchor
 DS_Store

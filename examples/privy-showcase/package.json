@@ -1,0 +1,45 @@
+{
+  "name": "@loyal-labs/privy-showcase",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "lint": "eslint src scripts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src",
+    "verify": "bun run verify:dependencies && bun run lint && bun run typecheck && bun run test && bun run verify:mainnet && bun run verify:boundaries",
+    "verify:dependencies": "bunx turbo run build --filter='@loyal-labs/privy-showcase^...'",
+    "verify:mainnet": "bun scripts/verify-mainnet-only.ts",
+    "verify:boundaries": "bun scripts/verify-static-boundaries.ts"
+  },
+  "dependencies": {
+    "@loyal-labs/actions": "workspace:*",
+    "@loyal-labs/loyal-smart-accounts": "workspace:*",
+    "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
+    "@loyal-labs/smart-account-vaults": "workspace:*",
+    "@privy-io/node": "^0.20.0",
+    "@privy-io/react-auth": "^3.0.0",
+    "@solana-program/memo": "0.12.0",
+    "@solana-program/system": "0.13.0",
+    "@solana-program/token": "0.15.0",
+    "@solana/kit": "7.0.0",
+    "@solana/spl-token": "^0.4.13",
+    "@solana/web3.js": "^1.98.0",
+    "bs58": "^6.0.0",
+    "next": "^15.5.7",
+    "react": "^19.1.2",
+    "react-dom": "^19.1.2",
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@types/node": "^24.0.15",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
+    "eslint": "^9.39.1",
+    "eslint-config-next": "15.5.7",
+    "typescript": "^5.7.3"
+  }
+}

@@ -8,6 +8,7 @@
     "app",
     "dashboard",
     "extension",
+    "examples/*",
     "frontend",
     "packages/*",
     "sdk/*",
