@@ -31,6 +31,8 @@ function parseAmountUsd(value: string) {
   return Number.parseFloat(value.replace(/,/g, "")) || 0;
 }
 
+const AUTODEPOSIT_DOCS_URL = "https://docs.askloyal.com/earn/autodeposit";
+
 // The pipeline a sweep travels, told as steps (user-docs/earn/autodeposit.mdx
 // "Execution"), with the trust facts the old flat rows carried — the on-chain
 // primitive, the permission scope, and how it's undone — folded into the
@@ -80,7 +82,7 @@ export function AutodepositInfoOverlay({
       onClose={onClose}
       title="How Autodeposit works"
     >
-      <FlowDiagram steps={AUTODEPOSIT_STEPS} />
+      <FlowDiagram docsHref={AUTODEPOSIT_DOCS_URL} steps={AUTODEPOSIT_STEPS} />
     </FlowExplainerOverlay>
   );
 }
@@ -372,7 +374,10 @@ export function AutodepositPane({
       {/* Info panel: fixed right pane on wide viewports (Figma 4693:69387),
           overlay via the header ? below 1204px (Figma 4693:69792). */}
       <FlowExplainerAside title="How Autodeposit works">
-        <FlowDiagram steps={AUTODEPOSIT_STEPS} />
+        <FlowDiagram
+          docsHref={AUTODEPOSIT_DOCS_URL}
+          steps={AUTODEPOSIT_STEPS}
+        />
       </FlowExplainerAside>
 
       <AutodepositInfoOverlay

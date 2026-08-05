@@ -61,6 +61,9 @@ const DEPOSIT_STEPS: readonly FlowStep[] = [
 const DEPOSIT_FOOTNOTE =
   "Rates are variable, and supplied funds carry the risks of the underlying lending market.";
 
+const DEPOSIT_DOCS_URL =
+  "https://docs.askloyal.com/automations/routing-and-yield";
+
 // Figma 4693:65815 (empty / below minimum) + 4693:65625 (valid amount) +
 // 4693:70280 (mobile: full-bleed, chart button in the header opens the chart
 // sheet, system num keyboard under the focused amount input).
@@ -365,7 +368,11 @@ export function DepositPane({
         column vacates for this screen), overlay via the header ? below
         1204px — same split the Autodeposit screen uses. */}
       <FlowExplainerAside title="How Deposit works">
-        <FlowDiagram footnote={DEPOSIT_FOOTNOTE} steps={DEPOSIT_STEPS} />
+        <FlowDiagram
+          docsHref={DEPOSIT_DOCS_URL}
+          footnote={DEPOSIT_FOOTNOTE}
+          steps={DEPOSIT_STEPS}
+        />
       </FlowExplainerAside>
 
       <FlowExplainerOverlay
@@ -373,7 +380,11 @@ export function DepositPane({
         onClose={() => setIsInfoOpen(false)}
         title="How Deposit works"
       >
-        <FlowDiagram footnote={DEPOSIT_FOOTNOTE} steps={DEPOSIT_STEPS} />
+        <FlowDiagram
+          docsHref={DEPOSIT_DOCS_URL}
+          footnote={DEPOSIT_FOOTNOTE}
+          steps={DEPOSIT_STEPS}
+        />
       </FlowExplainerOverlay>
     </>
   );

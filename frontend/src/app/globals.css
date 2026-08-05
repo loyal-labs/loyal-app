@@ -2375,8 +2375,10 @@
   transform: scaleY(1);
 }
 /* Loop reset: fills fade out where they stand (the transform snap waits for
-   the fade), nodes ride their normal color/background transition back. */
-.is-flow-resetting .t-flow-fill {
+   the fade), nodes ride their normal color/background transition back. The
+   class sits on each track (not the stagger group, whose is-shown React
+   would wipe on a className change). */
+.t-flow-track.is-resetting .t-flow-fill {
   opacity: 0;
   transform: scaleY(0);
   transition: opacity var(--flow-reset-dur) ease,

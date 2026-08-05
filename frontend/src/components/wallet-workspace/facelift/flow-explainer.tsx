@@ -29,9 +29,11 @@ const RESET_MS = 500;
 // globals.css). Rows enter on the texts-reveal stagger; prefers-reduced-motion
 // pins the finished all-lit state instead of cycling.
 export function FlowDiagram({
+  docsHref,
   footnote,
   steps,
 }: {
+  docsHref?: string;
   footnote?: string;
   steps: readonly FlowStep[];
 }) {
@@ -72,12 +74,12 @@ export function FlowDiagram({
     return () => window.clearTimeout(timer);
   }, [activeIndex, isResetting, isStatic, steps.length]);
 
+  // The reset class lives on the per-row tracks, never on StaggerReveal's
+  // className: StaggerReveal adds is-shown imperatively, so a changing
+  // className prop would make React rewrite the attribute and wipe it —
+  // hiding the whole diagram.
   return (
-    <StaggerReveal
-      className={`flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-6 pt-2 pb-6 ${
-        isResetting ? "is-flow-resetting" : ""
-      }`}
-    >
+    <StaggerReveal className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto px-6 pt-2 pb-6">
       {steps.map(({ Icon, body, title }, index) => {
         const isLast = index === steps.length - 1;
         const isReached = isStatic || index <= activeIndex;
@@ -97,7 +99,9 @@ export function FlowDiagram({
                 {isLast ? null : (
                   <span
                     aria-hidden="true"
-                    className={`t-flow-track ${isFilled ? "is-filled" : ""}`}
+                    className={`t-flow-track ${isFilled ? "is-filled" : ""} ${
+                      isResetting ? "is-resetting" : ""
+                    }`}
                   >
                     <span className="t-flow-fill" />
                   </span>
@@ -124,6 +128,18 @@ export function FlowDiagram({
           <p className="pt-5 text-[13px] leading-4 text-[rgba(60,60,67,0.45)]">
             {footnote}
           </p>
+        </StaggerLine>
+      ) : null}
+      {docsHref ? (
+        <StaggerLine index={steps.length + (footnote ? 1 : 0)}>
+          <a
+            className="t-hover mt-5 inline-block font-medium text-[13px] leading-4 text-[rgba(60,60,67,0.6)] hover:text-black"
+            href={docsHref}
+            rel="noreferrer"
+            target="_blank"
+          >
+            Learn more in the docs ↗
+          </a>
         </StaggerLine>
       ) : null}
     </StaggerReveal>
