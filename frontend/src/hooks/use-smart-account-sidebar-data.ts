@@ -59,6 +59,7 @@ import { earnToast } from "@/components/wallet-workspace/facelift/earn-toast";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { captureBrowserError } from "@/features/observability/client";
+import type { BrowserErrorOperation } from "@/features/observability/error-contract";
 import {
   resolveSmartAccountRefreshError,
   resolveSmartAccountMutationRefreshPlan,
@@ -720,7 +721,7 @@ export function isWalletCancellationError(error: unknown): boolean {
 // alongside the flow-lifecycle .failed event (ASK-2038).
 function reportWalletActionFailure(
   label: string,
-  operation: string,
+  operation: BrowserErrorOperation,
   err: unknown
 ): void {
   if (isWalletCancellationError(err)) {

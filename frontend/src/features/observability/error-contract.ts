@@ -43,6 +43,17 @@ export const BROWSER_ERROR_OPERATIONS = [
   "react.global_error_boundary",
   "earn.deposit.confirmation",
   "earn.deposit.execute",
+  "earn.deposit_batch.execute",
+  "earn.deposit_policy_stage.execute",
+  "earn.policy_setup.execute",
+  "earn.withdrawal.execute",
+  "earn.cleanup.execute",
+  "earn.autodeposit_setup.execute",
+  "earn.autodeposit_floor_update.execute",
+  "earn.autodeposit_toggle.execute",
+  "earn.autodeposit_close.execute",
+  "vault.transfer.execute",
+  "vault.swap.execute",
 ] as const;
 
 export type BrowserErrorOperation = (typeof BROWSER_ERROR_OPERATIONS)[number];
