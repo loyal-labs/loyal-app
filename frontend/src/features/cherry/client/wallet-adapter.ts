@@ -343,25 +343,25 @@ function messageOf(transaction: SupportedTransaction): VersionedMessage {
 // compute-budget (priority fees), Lighthouse (assertion-only guard — its
 // instructions can abort a transaction but never move funds), and Memo
 // (inert data). The Seeker vault injects guard/fee instructions on signing.
-const BENIGN_INJECTED_PROGRAM_IDS: readonly PublicKey[] = [
-  ComputeBudgetProgram.programId,
-  new PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"),
-  new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
-];
+const BENIGN_INJECTED_PROGRAM_IDS = new Set([
+  ComputeBudgetProgram.programId.toBase58(),
+  "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95",
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+]);
 
 function isBenignInjectedProgram(key: PublicKey | undefined): boolean {
-  return Boolean(
-    key && BENIGN_INJECTED_PROGRAM_IDS.some((program) => program.equals(key))
-  );
+  return Boolean(key && BENIGN_INJECTED_PROGRAM_IDS.has(key.toBase58()));
 }
 
 /**
  * True when the returned message differs from the sent one only in ways an
- * MWA wallet is allowed to introduce: a replaced recent blockhash and/or
- * inserted instructions from the benign program allowlist (with those
- * programs appended to the static keys). Everything else — fee payer, signer
- * set, lookup tables, and every original instruction byte — must be
- * unchanged.
+ * MWA wallet is allowed to introduce: a replaced recent blockhash, inserted
+ * instructions from the benign program allowlist, and the key/header
+ * reshuffle of a full message recompile (the Seeker vault recompiles rather
+ * than patches). Instructions are compared by resolved account keys, not
+ * indexes, so reordered static keys are fine — but the fee payer, signer
+ * counts, every original key's permission class, the lookup tables, and
+ * every original instruction's program/accounts/data must be unchanged.
  */
 function isBenignWalletModification(
   original: VersionedMessage,
@@ -371,30 +371,8 @@ function isBenignWalletModification(
     return false;
   }
 
-  const originalKeys = original.staticAccountKeys;
-  const signedKeys = signed.staticAccountKeys;
-  if (signedKeys.length < originalKeys.length) {
-    return false;
-  }
-  if (!originalKeys.every((key, index) => key.equals(signedKeys[index]!))) {
-    return false;
-  }
-  const addedKeys = signedKeys.slice(originalKeys.length);
-  if (!addedKeys.every((key) => isBenignInjectedProgram(key))) {
-    return false;
-  }
-
-  if (
-    signed.header.numRequiredSignatures !==
-      original.header.numRequiredSignatures ||
-    signed.header.numReadonlySignedAccounts !==
-      original.header.numReadonlySignedAccounts ||
-    signed.header.numReadonlyUnsignedAccounts !==
-      original.header.numReadonlyUnsignedAccounts + addedKeys.length
-  ) {
-    return false;
-  }
-
+  // Identical lookups keep loaded-account positions comparable across the
+  // two messages, which the resolved instruction comparison relies on.
   if (
     !addressTableLookupsEqual(
       original.addressTableLookups,
@@ -404,19 +382,130 @@ function isBenignWalletModification(
     return false;
   }
 
-  const originalInstructions = original.compiledInstructions;
-  let cursor = 0;
-  for (const instruction of signed.compiledInstructions) {
-    const expected = originalInstructions[cursor];
-    if (expected && compiledInstructionsEqual(instruction, expected)) {
-      cursor += 1;
-      continue;
-    }
-    if (!isBenignInjectedProgram(signedKeys[instruction.programIdIndex])) {
+  const originalPayer = original.staticAccountKeys[0];
+  if (!originalPayer || !signed.staticAccountKeys[0]?.equals(originalPayer)) {
+    return false;
+  }
+  if (
+    signed.header.numRequiredSignatures !==
+      original.header.numRequiredSignatures ||
+    signed.header.numReadonlySignedAccounts !==
+      original.header.numReadonlySignedAccounts
+  ) {
+    return false;
+  }
+
+  // Every original key must survive with its signer/writable class intact;
+  // any new key must be an allowlisted program in the readonly section.
+  const signedIndexByKey = new Map(
+    signed.staticAccountKeys.map((key, index) => [key.toBase58(), index])
+  );
+  for (const [index, key] of original.staticAccountKeys.entries()) {
+    const signedIndex = signedIndexByKey.get(key.toBase58());
+    if (
+      signedIndex === undefined ||
+      accountClass(original, index) !== accountClass(signed, signedIndex)
+    ) {
       return false;
     }
   }
-  return cursor === originalInstructions.length;
+  const originalKeySet = new Set(
+    original.staticAccountKeys.map((key) => key.toBase58())
+  );
+  for (const [index, key] of signed.staticAccountKeys.entries()) {
+    if (originalKeySet.has(key.toBase58())) {
+      continue;
+    }
+    if (
+      !isBenignInjectedProgram(key) ||
+      accountClass(signed, index) !== "readonly"
+    ) {
+      return false;
+    }
+  }
+
+  const originalResolved = original.compiledInstructions.map((instruction) =>
+    resolveInstruction(original, instruction)
+  );
+  if (originalResolved.some((resolved) => resolved === null)) {
+    return false;
+  }
+  let cursor = 0;
+  for (const instruction of signed.compiledInstructions) {
+    const resolved = resolveInstruction(signed, instruction);
+    if (resolved === null) {
+      return false;
+    }
+    const expected = originalResolved[cursor];
+    if (expected && resolvedInstructionsEqual(resolved, expected)) {
+      cursor += 1;
+      continue;
+    }
+    if (!BENIGN_INJECTED_PROGRAM_IDS.has(resolved.programId)) {
+      return false;
+    }
+  }
+  return cursor === originalResolved.length;
+}
+
+type AccountClass =
+  | "readonly"
+  | "readonly-signer"
+  | "writable"
+  | "writable-signer";
+
+function accountClass(message: VersionedMessage, index: number): AccountClass {
+  const { header, staticAccountKeys } = message;
+  if (index < header.numRequiredSignatures) {
+    return index <
+      header.numRequiredSignatures - header.numReadonlySignedAccounts
+      ? "writable-signer"
+      : "readonly-signer";
+  }
+  return index < staticAccountKeys.length - header.numReadonlyUnsignedAccounts
+    ? "writable"
+    : "readonly";
+}
+
+type ResolvedInstruction = {
+  accounts: string[];
+  data: Uint8Array;
+  programId: string;
+};
+
+// Account indexes past the static keys refer to lookup-table-loaded
+// addresses; with identical lookups on both messages a loaded position is a
+// stable identity, so it resolves to a positional token instead of a key.
+function resolveInstruction(
+  message: VersionedMessage,
+  instruction: MessageCompiledInstruction
+): ResolvedInstruction | null {
+  const staticKeys = message.staticAccountKeys;
+  const programId = staticKeys[instruction.programIdIndex];
+  if (!programId) {
+    return null;
+  }
+  return {
+    accounts: instruction.accountKeyIndexes.map((index) =>
+      index < staticKeys.length
+        ? staticKeys[index]!.toBase58()
+        : `lookup:${index - staticKeys.length}`
+    ),
+    data: instruction.data,
+    programId: programId.toBase58(),
+  };
+}
+
+function resolvedInstructionsEqual(
+  left: ResolvedInstruction,
+  right: ResolvedInstruction
+): boolean {
+  return (
+    left.programId === right.programId &&
+    left.accounts.length === right.accounts.length &&
+    left.accounts.every((value, index) => value === right.accounts[index]) &&
+    bytesEqual(left.data, right.data)
+  );
 }
 
 // Compact structural diff for the MESSAGE_CHANGED error, so telemetry shows
@@ -465,17 +554,20 @@ function describeMessageChange(
   ) {
     parts.push("static key order changed");
   }
+  const originalResolved = original.compiledInstructions.map((instruction) =>
+    resolveInstruction(original, instruction)
+  );
   const insertedPrograms: string[] = [];
   let cursor = 0;
   for (const instruction of signed.compiledInstructions) {
-    const expected = original.compiledInstructions[cursor];
-    if (expected && compiledInstructionsEqual(instruction, expected)) {
+    const resolved = resolveInstruction(signed, instruction);
+    const expected = originalResolved[cursor];
+    if (resolved && expected && resolvedInstructionsEqual(resolved, expected)) {
       cursor += 1;
       continue;
     }
     insertedPrograms.push(
-      signed.staticAccountKeys[instruction.programIdIndex]?.toBase58() ??
-        `key#${instruction.programIdIndex}`
+      resolved?.programId ?? `key#${instruction.programIdIndex}`
     );
   }
   if (insertedPrograms.length > 0) {
@@ -519,17 +611,6 @@ function addressTableLookupsEqual(
         numberArraysEqual(lookup.readonlyIndexes, other.readonlyIndexes)
       );
     })
-  );
-}
-
-function compiledInstructionsEqual(
-  left: MessageCompiledInstruction,
-  right: MessageCompiledInstruction
-): boolean {
-  return (
-    left.programIdIndex === right.programIdIndex &&
-    numberArraysEqual(left.accountKeyIndexes, right.accountKeyIndexes) &&
-    bytesEqual(left.data, right.data)
   );
 }
 

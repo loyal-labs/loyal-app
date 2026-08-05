@@ -346,6 +346,81 @@ describe("Loyal Cherry wallet adapter", () => {
     ).toBe(true);
   });
 
+  test("accepts a Seeker-style full recompile with reordered static keys", async () => {
+    activeHost = approvedHost({
+      signVersioned(transaction) {
+        // The Seeker vault rebuilds the whole message: fee instructions in
+        // front, guard asserts behind, and freshly compiled (reordered) keys.
+        const message = TransactionMessage.decompile(transaction.message);
+        message.instructions = [
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }),
+          ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }),
+          ...message.instructions,
+          new TransactionInstruction({
+            data: Buffer.from([4, 0]),
+            keys: [
+              { pubkey: RECIPIENT_A, isSigner: false, isWritable: false },
+            ],
+            programId: LIGHTHOUSE_PROGRAM,
+          }),
+        ];
+        const recompiled = new VersionedTransaction(
+          message.compileToV0Message()
+        );
+        recompiled.sign([WALLET]);
+        return recompiled;
+      },
+    });
+    const adapter = await connectedAdapter();
+    const transaction = versionedTransaction(RECIPIENT_A);
+    const originalSystemIndex = transaction.message.staticAccountKeys.findIndex(
+      (key) => key.equals(SystemProgram.programId)
+    );
+    const rpc = recordingConnection();
+
+    await expect(
+      adapter.sendTransaction(transaction, rpc.connection)
+    ).resolves.toBe(RPC_SIGNATURE);
+
+    expect(rpc.calls).toHaveLength(1);
+    const sent = VersionedTransaction.deserialize(rpc.calls[0]!.raw);
+    expect(sent.message.compiledInstructions).toHaveLength(4);
+    expect(
+      sent.message.staticAccountKeys.findIndex((key) =>
+        key.equals(SystemProgram.programId)
+      )
+    ).not.toBe(originalSystemIndex);
+    expect(
+      nacl.sign.detached.verify(
+        sent.message.serialize(),
+        signatureForVersioned(sent, WALLET.publicKey),
+        WALLET.publicKey.toBytes()
+      )
+    ).toBe(true);
+  });
+
+  test("rejects a recompile that swaps an original instruction account", async () => {
+    activeHost = approvedHost({
+      signVersioned(transaction) {
+        const message = TransactionMessage.decompile(transaction.message);
+        message.instructions = [instruction(RECIPIENT_B)];
+        const recompiled = new VersionedTransaction(
+          message.compileToV0Message()
+        );
+        recompiled.sign([WALLET]);
+        return recompiled;
+      },
+    });
+    const adapter = await connectedAdapter();
+    const transaction = versionedTransaction(RECIPIENT_A);
+    const rpc = recordingConnection();
+
+    await expect(
+      adapter.sendTransaction(transaction, rpc.connection)
+    ).rejects.toThrow("different message");
+    expect(rpc.calls).toHaveLength(0);
+  });
+
   test("rejects a benign-looking modification when the transaction carried a prior signature", async () => {
     activeHost = approvedHost({
       signVersioned: seekerVaultStyleSigner(),
