@@ -6,11 +6,15 @@ import {
   type SendTransactionOptions,
 } from "@solana/wallet-adapter-base";
 import {
+  ComputeBudgetProgram,
   Transaction,
   VersionedTransaction,
   type Connection,
+  type MessageAddressTableLookup,
+  type MessageCompiledInstruction,
   type PublicKey,
   type Signer,
+  type VersionedMessage,
 } from "@solana/web3.js";
 import nacl from "tweetnacl";
 
@@ -199,10 +203,24 @@ export function validateCherrySignedTransaction<T extends SupportedTransaction>(
   const originalMessage = serializeMessage(original);
   const signedMessage = serializeMessage(signed);
   if (!bytesEqual(originalMessage, signedMessage)) {
-    throw new CherrySignedTransactionValidationError(
-      "MESSAGE_CHANGED",
-      "Cherry returned a transaction with a different message."
-    );
+    // Cherry on Seeker delegates signing to the device wallet over Mobile
+    // Wallet Adapter, which may patch the transaction before signing (fresh
+    // blockhash, injected compute-budget instructions). Accept exactly those
+    // edits — and only for transactions we handed over unsigned: a message
+    // change voids any preexisting signature, so partially signed
+    // transactions keep the strict byte-equality requirement.
+    const isAcceptedModification =
+      !hasAnySignature(original) &&
+      isBenignWalletModification(messageOf(original), messageOf(signed));
+    if (!isAcceptedModification) {
+      throw new CherrySignedTransactionValidationError(
+        "MESSAGE_CHANGED",
+        `Cherry returned a transaction with a different message. (${describeMessageChange(
+          messageOf(original),
+          messageOf(signed)
+        )})`
+      );
+    }
   }
 
   if (
@@ -304,6 +322,168 @@ function validateWalletSignature(
       "Cherry returned an invalid connected wallet signature."
     );
   }
+}
+
+function hasAnySignature(transaction: SupportedTransaction): boolean {
+  if (transaction instanceof VersionedTransaction) {
+    return transaction.signatures.some(
+      (signature) => !isZeroSignature(signature)
+    );
+  }
+  return transaction.signatures.some(({ signature }) => signature !== null);
+}
+
+function messageOf(transaction: SupportedTransaction): VersionedMessage {
+  return transaction instanceof VersionedTransaction
+    ? transaction.message
+    : transaction.compileMessage();
+}
+
+/**
+ * True when the returned message differs from the sent one only in ways an
+ * MWA wallet is allowed to introduce: a replaced recent blockhash and/or
+ * inserted compute-budget instructions (with the compute-budget program
+ * appended to the static keys). Everything else — fee payer, signer set,
+ * lookup tables, and every original instruction byte — must be unchanged.
+ */
+function isBenignWalletModification(
+  original: VersionedMessage,
+  signed: VersionedMessage
+): boolean {
+  if (original.version !== signed.version) {
+    return false;
+  }
+
+  const originalKeys = original.staticAccountKeys;
+  const signedKeys = signed.staticAccountKeys;
+  if (signedKeys.length < originalKeys.length) {
+    return false;
+  }
+  if (!originalKeys.every((key, index) => key.equals(signedKeys[index]!))) {
+    return false;
+  }
+  const addedKeys = signedKeys.slice(originalKeys.length);
+  if (!addedKeys.every((key) => key.equals(ComputeBudgetProgram.programId))) {
+    return false;
+  }
+
+  if (
+    signed.header.numRequiredSignatures !==
+      original.header.numRequiredSignatures ||
+    signed.header.numReadonlySignedAccounts !==
+      original.header.numReadonlySignedAccounts ||
+    signed.header.numReadonlyUnsignedAccounts !==
+      original.header.numReadonlyUnsignedAccounts + addedKeys.length
+  ) {
+    return false;
+  }
+
+  if (
+    !addressTableLookupsEqual(
+      original.addressTableLookups,
+      signed.addressTableLookups
+    )
+  ) {
+    return false;
+  }
+
+  const originalInstructions = original.compiledInstructions;
+  let cursor = 0;
+  for (const instruction of signed.compiledInstructions) {
+    const expected = originalInstructions[cursor];
+    if (expected && compiledInstructionsEqual(instruction, expected)) {
+      cursor += 1;
+      continue;
+    }
+    const program = signedKeys[instruction.programIdIndex];
+    if (!program?.equals(ComputeBudgetProgram.programId)) {
+      return false;
+    }
+  }
+  return cursor === originalInstructions.length;
+}
+
+// Compact structural diff for the MESSAGE_CHANGED error, so telemetry shows
+// what the host/wallet actually altered instead of an opaque byte mismatch.
+function describeMessageChange(
+  original: VersionedMessage,
+  signed: VersionedMessage
+): string {
+  const parts: string[] = [];
+  const originalPayer = original.staticAccountKeys[0];
+  const signedPayer = signed.staticAccountKeys[0];
+  if (!originalPayer || !signedPayer || !originalPayer.equals(signedPayer)) {
+    parts.push("fee payer changed");
+  }
+  if (original.recentBlockhash !== signed.recentBlockhash) {
+    parts.push("blockhash changed");
+  }
+  if (original.staticAccountKeys.length !== signed.staticAccountKeys.length) {
+    parts.push(
+      `static keys ${original.staticAccountKeys.length}->${signed.staticAccountKeys.length}`
+    );
+  }
+  if (
+    original.compiledInstructions.length !== signed.compiledInstructions.length
+  ) {
+    parts.push(
+      `instructions ${original.compiledInstructions.length}->${signed.compiledInstructions.length}`
+    );
+  }
+  if (
+    !addressTableLookupsEqual(
+      original.addressTableLookups,
+      signed.addressTableLookups
+    )
+  ) {
+    parts.push("address table lookups changed");
+  }
+  if (
+    original.header.numRequiredSignatures !==
+      signed.header.numRequiredSignatures ||
+    original.header.numReadonlySignedAccounts !==
+      signed.header.numReadonlySignedAccounts ||
+    original.header.numReadonlyUnsignedAccounts !==
+      signed.header.numReadonlyUnsignedAccounts
+  ) {
+    parts.push("header changed");
+  }
+  return parts.join("; ") || "unrecognized byte-level change";
+}
+
+function addressTableLookupsEqual(
+  left: MessageAddressTableLookup[],
+  right: MessageAddressTableLookup[]
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((lookup, index) => {
+      const other = right[index]!;
+      return (
+        lookup.accountKey.equals(other.accountKey) &&
+        numberArraysEqual(lookup.writableIndexes, other.writableIndexes) &&
+        numberArraysEqual(lookup.readonlyIndexes, other.readonlyIndexes)
+      );
+    })
+  );
+}
+
+function compiledInstructionsEqual(
+  left: MessageCompiledInstruction,
+  right: MessageCompiledInstruction
+): boolean {
+  return (
+    left.programIdIndex === right.programIdIndex &&
+    numberArraysEqual(left.accountKeyIndexes, right.accountKeyIndexes) &&
+    bytesEqual(left.data, right.data)
+  );
+}
+
+function numberArraysEqual(left: number[], right: number[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
 }
 
 function serializeMessage(transaction: SupportedTransaction): Uint8Array {
