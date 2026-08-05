@@ -8,6 +8,7 @@ import {
 } from "bun:test";
 import type { SendTransactionOptions } from "@solana/wallet-adapter-base";
 import {
+  ComputeBudgetProgram,
   Keypair,
   SystemProgram,
   Transaction,
@@ -267,6 +268,76 @@ describe("Loyal Cherry wallet adapter", () => {
     }
   );
 
+  test("accepts a Seeker-style benign wallet modification of an unsigned v0 transaction", async () => {
+    activeHost = approvedHost({
+      signVersioned: seekerVaultStyleSigner(),
+    });
+    const adapter = await connectedAdapter();
+    const transaction = versionedTransaction(RECIPIENT_A);
+    const rpc = recordingConnection();
+
+    await expect(
+      adapter.sendTransaction(transaction, rpc.connection)
+    ).resolves.toBe(RPC_SIGNATURE);
+
+    expect(rpc.calls).toHaveLength(1);
+    const sent = VersionedTransaction.deserialize(rpc.calls[0]!.raw);
+    expect(sent.message.recentBlockhash).toBe(OTHER_BLOCKHASH);
+    expect(
+      sent.message.staticAccountKeys.some((key) =>
+        key.equals(ComputeBudgetProgram.programId)
+      )
+    ).toBe(true);
+    expect(
+      nacl.sign.detached.verify(
+        sent.message.serialize(),
+        signatureForVersioned(sent, WALLET.publicKey),
+        WALLET.publicKey.toBytes()
+      )
+    ).toBe(true);
+  });
+
+  test("rejects a benign-looking modification when the transaction carried a prior signature", async () => {
+    activeHost = approvedHost({
+      signVersioned: seekerVaultStyleSigner(),
+    });
+    const adapter = await connectedAdapter();
+    const transaction = versionedTransaction(RECIPIENT_A);
+    transaction.sign([COSIGNER]);
+    const rpc = recordingConnection();
+
+    await expect(
+      adapter.sendTransaction(transaction, rpc.connection)
+    ).rejects.toThrow("different message");
+    expect(rpc.calls).toHaveLength(0);
+  });
+
+  test("rejects a non-compute-budget instruction injected into an unsigned v0 transaction", async () => {
+    activeHost = approvedHost({
+      signVersioned(transaction) {
+        transaction.message.recentBlockhash = OTHER_BLOCKHASH;
+        transaction.message.compiledInstructions.push({
+          accountKeyIndexes: [0, 2],
+          data: new Uint8Array([9, 9, 9]),
+          programIdIndex: transaction.message.staticAccountKeys.findIndex(
+            (key) => key.equals(SystemProgram.programId)
+          ),
+        });
+        const patched = new VersionedTransaction(transaction.message);
+        patched.sign([WALLET]);
+        return patched;
+      },
+    });
+    const adapter = await connectedAdapter();
+    const transaction = versionedTransaction(RECIPIENT_A);
+    const rpc = recordingConnection();
+
+    await expect(
+      adapter.sendTransaction(transaction, rpc.connection)
+    ).rejects.toThrow("different message");
+    expect(rpc.calls).toHaveLength(0);
+  });
+
   test("rejects a changed v0 message before RPC submission", async () => {
     activeHost = approvedHost({
       signVersioned(transaction) {
@@ -358,6 +429,28 @@ describe("Loyal Cherry wallet adapter", () => {
     ).rejects.toThrow("different message");
   });
 });
+
+// Mirrors how an MWA device wallet (Seeker Vault) patches a transaction in
+// place before signing: fresh blockhash, compute-budget program appended to
+// the static keys, and a priority-fee instruction prepended.
+function seekerVaultStyleSigner() {
+  return (transaction: VersionedTransaction): VersionedTransaction => {
+    const message = transaction.message;
+    message.recentBlockhash = OTHER_BLOCKHASH;
+    message.staticAccountKeys.push(ComputeBudgetProgram.programId);
+    message.header.numReadonlyUnsignedAccounts += 1;
+    message.compiledInstructions.unshift({
+      accountKeyIndexes: [],
+      data: new Uint8Array(
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }).data
+      ),
+      programIdIndex: message.staticAccountKeys.length - 1,
+    });
+    const patched = new VersionedTransaction(message);
+    patched.sign([WALLET]);
+    return patched;
+  };
+}
 
 async function connectedAdapter() {
   const adapter = await createLoyalCherryWalletAdapter();
