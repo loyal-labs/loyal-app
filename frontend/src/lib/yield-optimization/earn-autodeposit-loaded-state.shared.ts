@@ -56,13 +56,26 @@ type EarnAutodepositDisplayStatus =
   | "pausing"
   | "resuming";
 
-export function getDisplayableEarnAutodepositScheduledSweeps<T>(
+const EXECUTING_SWEEP_STATUSES = new Set(["requested", "selected"]);
+
+export function getDisplayableEarnAutodepositScheduledSweeps<
+  T extends { status: string },
+>(
   status: EarnAutodepositDisplayStatus,
   scheduledSweeps: readonly T[] | null | undefined
 ): T[] {
-  return status === "active" || status === "created"
-    ? [...(scheduledSweeps ?? [])]
-    : [];
+  if (status !== "active" && status !== "created") {
+    return [];
+  }
+  const sweeps = [...(scheduledSweeps ?? [])];
+  // On claiming a slot the worker re-points its open surplus lots to the next
+  // recurring slot while the execution is still consuming that same surplus,
+  // so a plain 'scheduled' sibling would double-display the funds. Hide
+  // scheduled rows until the execution settles; they return afterward if
+  // surplus genuinely remains.
+  return sweeps.some((sweep) => EXECUTING_SWEEP_STATUSES.has(sweep.status))
+    ? sweeps.filter((sweep) => sweep.status !== "scheduled")
+    : sweeps;
 }
 
 export function getLoadedScheduledSweepExecuteNowAvailableAtMs(
