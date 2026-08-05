@@ -3,7 +3,7 @@ import "server-only";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 import { resolveLoyalSmartAccountsProgramIdFromEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
@@ -85,18 +85,34 @@ type GhostCandidate = {
 // `lastConfirmedSlot` past it, so resumed positions never qualify. One row
 // per position (the newest qualifying withdrawal wins).
 //
-// Ordering is by "looks like a ghost" first, then oldest. The slot guard above
-// does not catch every resumed position — a re-deposit that leaves
-// `lastConfirmedSlot` at or below the withdrawal slot still qualifies — and
-// those rows hold real value, so the chain proof refuses them every run. Since
-// a skip leaves `updatedAt` untouched they stayed the oldest candidates
-// forever, monopolising the per-run budget: production was scanning 15 and
-// finalizing 0 while 146 genuine ghosts waited behind them (ASK-2021).
+// Ordering has two jobs, because a skip is invisible: it neither closes the
+// position nor touches `updatedAt`, so under a stable sort an unfinalizable row
+// keeps its place at the head of the queue on every run, forever.
 //
-// They are deprioritised rather than filtered out, because the DB amount can be
-// stale: positions reading non-zero here have been proven fully exited on
-// chain, and the proof, not this ordering, remains the authority on whether a
-// position closes. Once the zero-value backlog drains they are scanned again.
+// First, rows that look exited sort ahead of rows that clearly still hold
+// value. The slot guard above does not catch every resumed position — a
+// re-deposit that leaves `lastConfirmedSlot` at or below the withdrawal slot
+// still qualifies — and the chain proof refuses those every run. In production
+// 37 such rows held the head of the queue and the cron was scanning 15 and
+// finalizing 0 while 286 finalizable ghosts waited behind them (ASK-2021).
+// They are deprioritised rather than filtered out, because the recorded amount
+// can be stale: rows reading non-zero here have been proven fully exited on
+// chain, so the proof, not this ordering, stays the authority on whether a
+// position closes.
+//
+// Second, the order within each bucket is randomised. The bucket is a heuristic
+// over a possibly-stale amount, so it cannot guarantee that everything sorted
+// to the front is finalizable — a row reading zero here whose vault still holds
+// idle liquidity is refused every run just the same. Randomising means no set
+// of unfinalizable rows can hold the head of the queue: throughput degrades in
+// proportion to how many are stuck instead of collapsing to zero the moment 15
+// of them collect at the front. A durable per-candidate cooldown would target
+// the retries more precisely, but it needs a column to persist attempts in;
+// this keeps the guarantee without a migration.
+//
+// `updatedAt` is deliberately not used as a tiebreak. It is only advanced by a
+// successful finalize, so ordering by it is what let the stuck rows pin
+// themselves to the front in the first place.
 export async function findGhostCandidates(
   limit: number,
   client: Pick<
@@ -118,10 +134,7 @@ export async function findGhostCandidates(
       userYieldPositionWithdrawals,
       and(
         eq(userYieldPositionWithdrawals.mode, "full"),
-        eq(
-          userYieldPositionWithdrawals.settings,
-          userYieldPositions.settings
-        ),
+        eq(userYieldPositionWithdrawals.settings, userYieldPositions.settings),
         eq(
           userYieldPositionWithdrawals.vaultIndex,
           userYieldPositions.vaultIndex
@@ -146,7 +159,7 @@ export async function findGhostCandidates(
         eq(userYieldPositions.vaultIndex, EARN_VAULT_INDEX)
       )
     )
-    .orderBy(desc(looksExited), asc(userYieldPositions.updatedAt))
+    .orderBy(desc(looksExited), sql`random()`)
     .limit(limit * 4);
 
   const byPosition = new Map<string, GhostCandidate>();
@@ -332,5 +345,7 @@ async function resolvePolicyCloseSignature(args: {
     { limit: POLICY_CLOSE_SIGNATURE_PROBE_LIMIT }
   );
   const close = signatures.find((entry) => entry.err === null);
-  return close ? { signature: close.signature, slot: BigInt(close.slot) } : null;
+  return close
+    ? { signature: close.signature, slot: BigInt(close.slot) }
+    : null;
 }

@@ -209,7 +209,15 @@ function startCluster(): Cluster {
     execFileSync(join(bin, command), args, { encoding: "utf8", stdio: "pipe" });
 
   console.log(`  starting throwaway postgres in ${dataDir} (port ${port})`);
-  run("initdb", ["-D", dataDir, "-U", "verifier", "--auth=trust", "-E", "UTF8"]);
+  run("initdb", [
+    "-D",
+    dataDir,
+    "-U",
+    "verifier",
+    "--auth=trust",
+    "-E",
+    "UTF8",
+  ]);
   run("pg_ctl", [
     "-D",
     dataDir,
@@ -231,7 +239,15 @@ function startCluster(): Cluster {
   };
 
   try {
-    run("createdb", ["-h", "127.0.0.1", "-p", String(port), "-U", "verifier", "loyal_verify"]);
+    run("createdb", [
+      "-h",
+      "127.0.0.1",
+      "-p",
+      String(port),
+      "-U",
+      "verifier",
+      "loyal_verify",
+    ]);
     execFileSync(
       join(bin, "psql"),
       [
@@ -293,15 +309,23 @@ async function main(): Promise<void> {
     // `recordConfirmedEarnCleanup` writes through drizzle's `batch`, which only the
     // Neon HTTP driver implements. Sequential execution is equivalent for this
     // verification; it just is not one round trip.
-    (db as unknown as { batch: (queries: unknown[]) => Promise<unknown[]> }).batch =
-      async (queries: unknown[]) => {
-        const results: unknown[] = [];
-        for (const query of queries) {
-          results.push(await query);
-        }
-        return results;
-      };
+    (
+      db as unknown as { batch: (queries: unknown[]) => Promise<unknown[]> }
+    ).batch = async (queries: unknown[]) => {
+      const results: unknown[] = [];
+      for (const query of queries) {
+        results.push(await query);
+      }
+      return results;
+    };
     const client = { db } as never;
+
+    await verifyNoStarvationWithinBucket({
+      client,
+      findGhostCandidates,
+      sql: sql as unknown as VerifySql,
+    });
+    await truncateAll(sql);
 
     await seed(sql);
 
@@ -310,9 +334,14 @@ async function main(): Promise<void> {
       `${BLOCKER_COUNT} live re-deposited positions are older than the ghosts`,
       true
     );
-    check(`${GHOST_COUNT} withdrawn positions still hold an active route policy`, true);
+    check(
+      `${GHOST_COUNT} withdrawn positions still hold an active route policy`,
+      true
+    );
 
-    console.log("\nbefore the fix: oldest-first ordering never reaches a ghost");
+    console.log(
+      "\nbefore the fix: oldest-first ordering never reaches a ghost"
+    );
     const legacyWindow = await sql`
       SELECT p.wallet_address
       FROM loyal_yield.user_yield_positions p
@@ -334,23 +363,35 @@ async function main(): Promise<void> {
       { ghosts: legacyGhosts.length, window: legacyWindow.length }
     );
 
-    console.log("\nafter the fix: the real candidate query surfaces the ghosts");
-    const candidates = await findGhostCandidates(PER_RUN_LIMIT, client);
+    console.log(
+      "\nafter the fix: the real candidate query surfaces the ghosts"
+    );
+    // Production reconciles `candidates.slice(0, limit)`; anything the query
+    // returns past that is never scanned, so every assertion below is made
+    // against the same window the cron actually processes.
+    const scanWindow = async () =>
+      (await findGhostCandidates(PER_RUN_LIMIT, client)).slice(
+        0,
+        PER_RUN_LIMIT
+      );
+    const candidates = await scanWindow();
     const ghostCandidates = candidates.filter((candidate) =>
       candidate.walletAddress.startsWith("ghost")
     );
     check(
-      "every ghost is inside the per-run budget",
+      "every ghost is inside the per-run processing window",
       ghostCandidates.length === GHOST_COUNT,
-      { found: ghostCandidates.length, scanned: candidates.length }
+      { found: ghostCandidates.length, window: candidates.length }
     );
     check(
-      "live positions are not starved out of the candidate set",
-      candidates.length > GHOST_COUNT,
+      "the window is full, so ghosts displaced blockers rather than the query being short",
+      candidates.length === PER_RUN_LIMIT,
       candidates.length
     );
 
-    console.log("\nthe withdrawal is finalized and the route policy is deactivated");
+    console.log(
+      "\nthe withdrawal is finalized and the route policy is deactivated"
+    );
     const before = await sql`
       SELECT count(*)::int AS active FROM loyal_yield.route_policies WHERE active
     `;
@@ -416,7 +457,8 @@ async function main(): Promise<void> {
       "ghost positions are closed at zero",
       ghostPositions.length === GHOST_COUNT &&
         ghostPositions.every(
-          (row) => row.status === "closed" && String(row.current_amount_raw) === "0"
+          (row) =>
+            row.status === "closed" && String(row.current_amount_raw) === "0"
         ),
       ghostPositions
     );
@@ -435,9 +477,15 @@ async function main(): Promise<void> {
       SELECT count(*)::int AS active FROM loyal_yield.managed_vaults
       WHERE active AND vault_pubkey LIKE 'ghost%'
     `;
-    check("ghost vaults are deactivated", ghostVaults[0].active === 0, ghostVaults[0].active);
+    check(
+      "ghost vaults are deactivated",
+      ghostVaults[0].active === 0,
+      ghostVaults[0].active
+    );
 
-    console.log("\nre-running the query no longer returns the finalized ghosts");
+    console.log(
+      "\nre-running the query no longer returns the finalized ghosts"
+    );
     const afterCandidates = await findGhostCandidates(PER_RUN_LIMIT, client);
     check(
       "finalized ghosts leave the candidate set",
@@ -464,6 +512,124 @@ async function main(): Promise<void> {
     return;
   }
   console.log(`PASSED ${checks}/${checks} checks`);
+}
+
+type VerifySql = {
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<
+    Array<Record<string, unknown>>
+  >;
+  unsafe: (query: string) => Promise<unknown>;
+};
+
+const STUCK_COUNT = 20;
+const FAIRNESS_RUNS = 20;
+
+async function truncateAll(sql: {
+  unsafe: (query: string) => Promise<unknown>;
+}): Promise<void> {
+  await sql.unsafe(`
+    TRUNCATE loyal_yield.route_policies, loyal_yield.managed_vaults,
+             loyal_yield.user_yield_positions, loyal_yield.user_yield_position_withdrawals,
+             loyal_yield.vault_reserve_positions_current,
+             loyal_yield.vault_idle_token_balances_current
+    RESTART IDENTITY
+  `);
+}
+
+/**
+ * The "looks exited" bucket is a heuristic over a possibly-stale amount, so it can also
+ * contain rows the chain proof refuses every run — a position reading zero here whose
+ * vault still holds idle liquidity, for instance. Those are seeded older than the real
+ * ghosts and never finalize, which is exactly the shape that pinned the queue head
+ * before. Ordering must not let them hold it.
+ */
+async function verifyNoStarvationWithinBucket(args: {
+  client: never;
+  findGhostCandidates: (
+    limit: number,
+    client: never
+  ) => Promise<Array<{ walletAddress: string }>>;
+  sql: VerifySql;
+}): Promise<void> {
+  console.log(
+    "\nfairness: unfinalizable rows inside the same bucket must not hold the queue head"
+  );
+  const statements: string[] = [];
+  for (let index = 0; index < STUCK_COUNT; index += 1) {
+    statements.push(
+      buildScenario({
+        amountRaw: 0,
+        prefix: "stuck",
+        index,
+        updatedAt: `2026-07-05 0${index % 10}:00:00+00`,
+      })
+    );
+  }
+  for (let index = 0; index < GHOST_COUNT; index += 1) {
+    statements.push(
+      buildScenario({
+        amountRaw: 0,
+        prefix: "ghost",
+        index,
+        updatedAt: `2026-07-25 1${index}:00:00+00`,
+      })
+    );
+  }
+  for (const statement of statements) {
+    await args.sql.unsafe(statement);
+  }
+
+  const stableWindow = await args.sql`
+    SELECT p.wallet_address
+    FROM loyal_yield.user_yield_positions p
+    JOIN loyal_yield.user_yield_position_withdrawals w
+      ON w.mode = 'full' AND w.settings = p.settings
+     AND w.vault_index = p.vault_index AND w.vault_pubkey = p.vault_pubkey
+     AND w.wallet_address = p.wallet_address
+     AND w.confirmed_slot >= p.last_confirmed_slot
+    WHERE p.status = 'active' AND p.vault_index = ${EARN_VAULT_INDEX}
+      AND p.current_amount_raw < ${DUST_TOLERANCE_RAW}
+    ORDER BY p.updated_at ASC
+    LIMIT ${PER_RUN_LIMIT}
+  `;
+  check(
+    "a stable oldest-first tiebreak would never scan a ghost",
+    stableWindow.length === PER_RUN_LIMIT &&
+      stableWindow.every((row) =>
+        String(row.wallet_address).startsWith("stuck")
+      ),
+    stableWindow.length
+  );
+
+  const seenGhosts = new Set<string>();
+  const distinctWindows = new Set<string>();
+  for (let run = 0; run < FAIRNESS_RUNS; run += 1) {
+    const window = (
+      await args.findGhostCandidates(PER_RUN_LIMIT, args.client)
+    ).slice(0, PER_RUN_LIMIT);
+    distinctWindows.add(
+      window
+        .map((candidate) => candidate.walletAddress)
+        .sort()
+        .join(",")
+    );
+    for (const candidate of window) {
+      if (candidate.walletAddress.startsWith("ghost")) {
+        seenGhosts.add(candidate.walletAddress);
+      }
+    }
+  }
+
+  check(
+    "the scanned window rotates instead of repeating",
+    distinctWindows.size > 1,
+    distinctWindows.size
+  );
+  check(
+    `every ghost is scanned within ${FAIRNESS_RUNS} runs despite ${STUCK_COUNT} older never-finalizing rows`,
+    seenGhosts.size === GHOST_COUNT,
+    { scanned: [...seenGhosts] }
+  );
 }
 
 async function seed(sql: {
