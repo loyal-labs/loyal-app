@@ -714,6 +714,23 @@ export function isWalletCancellationError(error: unknown): boolean {
   );
 }
 
+// Shared failure reporting for wallet-signed action executors: a denial is a
+// user decision, not an app failure, so it stays out of error-level
+// telemetry; everything else is captured so it is queryable in ClickStack
+// alongside the flow-lifecycle .failed event (ASK-2038).
+function reportWalletActionFailure(
+  label: string,
+  operation: string,
+  err: unknown
+): void {
+  if (isWalletCancellationError(err)) {
+    console.warn(`[${label}] canceled in wallet`, err);
+    return;
+  }
+  captureBrowserError(err, operation);
+  console.error(`[${label}] failed`, err);
+}
+
 export const EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE =
   "Your USDC deposit is confirmed, but Earn is still updating. Refresh Earn before doing anything else so you do not deposit twice.";
 
@@ -5391,7 +5408,11 @@ export function useSmartAccountSidebarData(
         const friendly = isRentError
           ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
           : rawMessage;
-        console.error("[executeVaultTransfer] failed", err);
+        reportWalletActionFailure(
+          "executeVaultTransfer",
+          "vault.transfer.execute",
+          err
+        );
         return { success: false, error: friendly };
       }
     },
@@ -5534,7 +5555,11 @@ export function useSmartAccountSidebarData(
         };
       } catch (err) {
         const error = err instanceof Error ? err.message : "Stash swap failed.";
-        console.error("[executeVaultSwap] failed", err);
+        reportWalletActionFailure(
+          "executeVaultSwap",
+          "vault.swap.execute",
+          err
+        );
         return { success: false, error };
       }
     },
@@ -5698,7 +5723,11 @@ export function useSmartAccountSidebarData(
       } catch (err) {
         const error =
           err instanceof Error ? err.message : "Earn policy setup failed.";
-        console.error("[executeEarnPolicySetup] failed", err);
+        reportWalletActionFailure(
+          "executeEarnPolicySetup",
+          "earn.policy_setup.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
@@ -5840,7 +5869,11 @@ export function useSmartAccountSidebarData(
             ? "Earn policy setup failed."
             : "Earn policy finalization failed."
         );
-        console.error("[executeEarnDepositPolicyStage] failed", err);
+        reportWalletActionFailure(
+          "executeEarnDepositPolicyStage",
+          "earn.deposit_policy_stage.execute",
+          err
+        );
         const signature = getSubmittedTransactionSignature(err);
         return {
           success: false,
@@ -6187,7 +6220,11 @@ export function useSmartAccountSidebarData(
         };
       } catch (err) {
         const error = getEarnDepositUserErrorMessage(err);
-        console.error("[executeEarnDepositBatch] failed", err);
+        reportWalletActionFailure(
+          "executeEarnDepositBatch",
+          "earn.deposit_batch.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
@@ -6441,14 +6478,11 @@ export function useSmartAccountSidebarData(
         };
       } catch (err) {
         const error = getEarnDepositUserErrorMessage(err);
-        if (isWalletCancellationError(err)) {
-          // A denial is a user decision, not an app failure — keep it out of
-          // error-level telemetry so it does not trip the errors alert.
-          console.warn("[executeEarnDeposit] canceled in wallet", err);
-        } else {
-          captureBrowserError(err, "earn.deposit.execute");
-          console.error("[executeEarnDeposit] failed", err);
-        }
+        reportWalletActionFailure(
+          "executeEarnDeposit",
+          "earn.deposit.execute",
+          err
+        );
         const signature = getSubmittedTransactionSignature(err);
         return {
           success: false,
@@ -6677,7 +6711,11 @@ export function useSmartAccountSidebarData(
           err,
           "Earn withdrawal failed."
         );
-        console.error("[executeEarnWithdraw] failed", err);
+        reportWalletActionFailure(
+          "executeEarnWithdraw",
+          "earn.withdrawal.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
@@ -6811,7 +6849,11 @@ export function useSmartAccountSidebarData(
           err,
           "Earn cleanup failed."
         );
-        console.error("[executeEarnCleanup] failed", err);
+        reportWalletActionFailure(
+          "executeEarnCleanup",
+          "earn.cleanup.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
@@ -7419,7 +7461,11 @@ export function useSmartAccountSidebarData(
       } catch (err) {
         const error =
           err instanceof Error ? err.message : "Autodeposit setup failed.";
-        console.error("[executeEarnAutodepositSetup] failed", err);
+        reportWalletActionFailure(
+          "executeEarnAutodepositSetup",
+          "earn.autodeposit_setup.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
@@ -7464,7 +7510,11 @@ export function useSmartAccountSidebarData(
           err instanceof Error
             ? err.message
             : "Autodeposit wallet balance floor update failed.";
-        console.error("[executeEarnAutodepositFloorUpdate] failed", err);
+        reportWalletActionFailure(
+          "executeEarnAutodepositFloorUpdate",
+          "earn.autodeposit_floor_update.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
@@ -7486,7 +7536,11 @@ export function useSmartAccountSidebarData(
           err instanceof Error
             ? err.message
             : "Autodeposit active state update failed.";
-        console.error("[executeEarnAutodepositToggle] failed", err);
+        reportWalletActionFailure(
+          "executeEarnAutodepositToggle",
+          "earn.autodeposit_toggle.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
@@ -7589,7 +7643,11 @@ export function useSmartAccountSidebarData(
       } catch (err) {
         const error =
           err instanceof Error ? err.message : "Autodeposit close failed.";
-        console.error("[executeEarnAutodepositClose] failed", err);
+        reportWalletActionFailure(
+          "executeEarnAutodepositClose",
+          "earn.autodeposit_close.execute",
+          err
+        );
         return { success: false, error };
       } finally {
         setIsActionPending(false);
