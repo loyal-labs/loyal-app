@@ -9,6 +9,7 @@ import {
   BellRingIcon,
   BookOpenIcon,
   CircleDollarSignIcon,
+  GaugeIcon,
   LayoutDashboardIcon,
   LandmarkIcon,
   LogOutIcon,
@@ -49,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Core",
     items: [
       { href: "/overview", icon: LayoutDashboardIcon, label: "Overview" },
+      { href: "/metrics", icon: GaugeIcon, label: "Metrics" },
       { href: "/communities", icon: UsersRoundIcon, label: "Communities" },
       // { href: "/features", icon: ListChecksIcon, label: "Features" },
       // { href: "/flags", icon: FlagIcon, label: "Flags" },
