@@ -19,6 +19,7 @@ import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift
 import { WalletHomeBanners } from "@/components/wallet-workspace/facelift/wallet-home-banners";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
@@ -56,6 +57,7 @@ export function WalletHomePage({
   const { apy: earnApy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { isAuthenticated, logout } = useAuthSession();
+  const cherryRuntime = useCherryRuntime();
   const { connected: isWalletConnected, disconnect } = useWallet();
   // Same half-connected limbo rule as the sidebar: the adapter can
   // auto-reconnect without an auth session, so disconnect stays clickable
@@ -153,7 +155,9 @@ export function WalletHomePage({
                     src="/agents/Agent-01.svg"
                   />
                   <span className="whitespace-nowrap text-[16px] text-black leading-5">
-                    Connect account
+                    {cherryRuntime.mode === "cherry_embedded"
+                      ? "Verify account"
+                      : "Connect account"}
                   </span>
                 </button>
               ) : (
@@ -201,21 +205,23 @@ export function WalletHomePage({
               )}
               <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
                 {/* ponytail: settings icon returns when its screen ships */}
-                <button
-                  aria-label="Disconnect wallet"
-                  className="t-hover flex size-11 items-center justify-center rounded-3xl enabled:hover:bg-black/[0.04] disabled:opacity-40"
-                  disabled={!canDisconnect}
-                  onClick={handleDisconnect}
-                  type="button"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="size-6"
-                    src={`${ASSET_BASE}/icon-logout.svg`}
-                  />
-                </button>
+                {cherryRuntime.mode === "standalone" ? (
+                  <button
+                    aria-label="Disconnect wallet"
+                    className="t-hover flex size-11 items-center justify-center rounded-3xl enabled:hover:bg-black/[0.04] disabled:opacity-40"
+                    disabled={!canDisconnect}
+                    onClick={handleDisconnect}
+                    type="button"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="size-6"
+                      src={`${ASSET_BASE}/icon-logout.svg`}
+                    />
+                  </button>
+                ) : null}
               </div>
             </div>
 

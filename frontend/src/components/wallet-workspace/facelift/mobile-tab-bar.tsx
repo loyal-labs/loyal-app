@@ -16,7 +16,7 @@ export function MobileTabBar({
   showActivityBadge?: boolean;
 }) {
   return (
-    <div className="w-full shrink-0 bg-white px-4 min-[796px]:hidden">
+    <div className="cherry-mobile-tab-bar w-full shrink-0 bg-white px-4 min-[796px]:hidden">
       <div className="flex w-full items-center gap-4">
         <button
           aria-current={activeTab === "wallet" ? "page" : undefined}

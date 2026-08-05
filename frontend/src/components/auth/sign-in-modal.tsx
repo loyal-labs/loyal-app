@@ -18,6 +18,7 @@ import {
 import { useAuthCapability } from "@/lib/auth/capability";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 
 import { WalletSignIn } from "./wallet-sign-in";
 
@@ -26,6 +27,7 @@ function ConnectedView() {
   const { logout, user } = useAuthSession();
   const { close } = useSignInModal();
   const { hasAuthSession, hasWalletConnection } = useAuthCapability();
+  const cherryRuntime = useCherryRuntime();
   const [copied, setCopied] = useState(false);
   const address = publicKey?.toBase58() ?? user?.displayAddress ?? "";
 
@@ -80,34 +82,36 @@ function ConnectedView() {
         ) : null}
       </div>
 
-      <div className="flex flex-col gap-2">
-        {hasAuthSession ? (
-          <button
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
-            onClick={async () => {
-              await Promise.allSettled([logout(), disconnect()]);
-              close();
-            }}
-            type="button"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
-        ) : null}
-        {hasWalletConnection ? (
-          <button
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#fde8e9] px-4 font-medium text-[#f9363c] text-sm transition hover:bg-[#fadadb]"
-            onClick={async () => {
-              await disconnect();
-              close();
-            }}
-            type="button"
-          >
-            <Unplug className="h-4 w-4" />
-            Disconnect wallet
-          </button>
-        ) : null}
-      </div>
+      {cherryRuntime.mode === "standalone" ? (
+        <div className="flex flex-col gap-2">
+          {hasAuthSession ? (
+            <button
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
+              onClick={async () => {
+                await Promise.allSettled([logout(), disconnect()]);
+                close();
+              }}
+              type="button"
+            >
+              <LogOut className="h-4 w-4" />
+              Sign out
+            </button>
+          ) : null}
+          {hasWalletConnection ? (
+            <button
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#fde8e9] px-4 font-medium text-[#f9363c] text-sm transition hover:bg-[#fadadb]"
+              onClick={async () => {
+                await disconnect();
+                close();
+              }}
+              type="button"
+            >
+              <Unplug className="h-4 w-4" />
+              Disconnect wallet
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -115,6 +119,7 @@ function ConnectedView() {
 export function SignInModal() {
   const { isOpen, close } = useSignInModal();
   const { hasAuthSession } = useAuthCapability();
+  const cherryRuntime = useCherryRuntime();
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
@@ -151,7 +156,9 @@ export function SignInModal() {
             <>
               <DialogHeader className="px-6 pt-6 pb-5 text-left">
                 <DialogTitle className="font-semibold text-[28px] text-neutral-950 leading-8">
-                  Connect
+                  {cherryRuntime.mode === "cherry_embedded"
+                    ? "Verify"
+                    : "Connect"}
                 </DialogTitle>
                 <DialogDescription className="sr-only">
                   Complete verification, then choose your sign-in method.

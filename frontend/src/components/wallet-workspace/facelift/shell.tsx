@@ -31,6 +31,7 @@ import {
   isEscapeGuardedTarget,
   isTypingTarget,
 } from "@/components/wallet-workspace/facelift/keyboard";
+import { LifecycleOnboardingHost } from "@/components/wallet-workspace/facelift/lifecycle-onboarding";
 import { FaceliftSidebar } from "@/components/wallet-workspace/facelift/sidebar";
 import { useEarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useIsNarrowViewport } from "@/components/wallet-workspace/facelift/use-is-narrow-viewport";
@@ -272,7 +273,7 @@ export function WorkspaceFaceliftShell() {
     <BalanceVisibilityProvider>
       {/* facelift-shell marks the workspace for globals.css's sign-in modal
           optical centering (the shell's side rails are asymmetric). */}
-      <div className="facelift-shell flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
+      <div className="cherry-mobile-workspace facelift-shell flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
         <HiddenBalanceFilterDefs />
         {/* Wrong-wallet guard for Earn actions — same prompt the old
             workspace mounts (ensureCanSignAccountAction opens it). */}
@@ -288,6 +289,27 @@ export function WorkspaceFaceliftShell() {
         {/* Status pill for Earn deposit/withdraw/autodeposit flows —
             use-earn-actions.ts drives it through the earnToast emitter. */}
         <EarnToastHost />
+        {/* ASK-1972 — one-time lifecycle onboarding pop-ups (welcome /
+            post-deposit / autodeposit-enabled), shown only on the Earn
+            root so they never cover an in-progress action screen. */}
+        <LifecycleOnboardingHost
+          hasAutodeposit={earnData.autodepositConfig !== null}
+          hasPosition={earnData.hasPosition}
+          isAtEarnRoot={
+            activePage === "earn" && activeMiddleView === "earn" &&
+            !isChartExpanded
+          }
+          isReady={isSignedIn && !isPositionLoading}
+          onOpenAutodeposit={() => {
+            setActivePage("earn");
+            setMiddleView("autodeposit");
+          }}
+          onOpenDeposit={() => {
+            setActivePage("earn");
+            setMiddleView("deposit");
+          }}
+          walletAddress={earnData.walletAddress ?? null}
+        />
         <FaceliftSidebar
           activePage={activePage}
           earnBalanceUsd={earnData.earnBalanceUsd}

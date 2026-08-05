@@ -300,6 +300,10 @@ type KaminoDepositInstructionResponse = {
     data?: unknown;
     programAddress?: unknown;
   }>;
+  // Kamino ships the address lookup tables that cover the reserve/market/farm
+  // accounts its instructions touch. Dropping them forces every one of those
+  // accounts inline and overruns the 1232-byte packet on multi-reserve exits.
+  lutsByAddress?: unknown;
 };
 
 type KaminoInstructionResponse = KaminoDepositInstructionResponse;
@@ -322,6 +326,7 @@ type EarnPolicyUniverse = {
 type KaminoInstructionBundle = {
   instruction: TransactionInstruction;
   instructions: TransactionInstruction[];
+  lookupTableAddresses: PublicKey[];
   matchingInstructions: TransactionInstruction[];
 };
 
@@ -1916,6 +1921,44 @@ function createEarnInitObligationPolicyCreationPayload(args: {
   };
 }
 
+/**
+ * Resolves Kamino's advertised lookup tables into accounts the v0 compiler can
+ * use. Kamino's reserve/market/farm accounts dominate an Earn withdraw's key
+ * list; without these tables a two-reserve full exit compiles past the
+ * 1232-byte packet limit and `MessageV0.serialize()` throws
+ * `RangeError: encoding overruns Uint8Array` before the RPC is ever called.
+ *
+ * Best-effort by design: a table that cannot be read only costs size, so an
+ * unreadable one is skipped rather than failing an otherwise valid withdrawal.
+ */
+async function resolveKaminoLookupTableAccounts(args: {
+  addresses: readonly PublicKey[];
+  connection: Connection;
+}): Promise<AddressLookupTableAccount[]> {
+  const unique = new Map<string, PublicKey>();
+  for (const address of args.addresses) {
+    unique.set(address.toBase58(), address);
+  }
+  if (unique.size === 0) {
+    return [];
+  }
+
+  const resolved = await Promise.all(
+    [...unique.values()].map(async (address) => {
+      try {
+        const { value } = await args.connection.getAddressLookupTable(address);
+        return value;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return resolved.filter(
+    (account): account is AddressLookupTableAccount => account !== null
+  );
+}
+
 function dedupeLookupTableAccounts(
   lookupTableAccounts: readonly AddressLookupTableAccount[]
 ) {
@@ -2237,8 +2280,49 @@ function readKaminoInstructionBundle(
   return {
     instruction: toKaminoTransactionInstruction(instruction, label),
     instructions,
+    lookupTableAddresses: readKaminoLookupTableAddresses(payload),
     matchingInstructions,
   };
+}
+
+// Kamino returns the lookup tables covering its instruction accounts under
+// `lutsByAddress`, a `Record<tableAddress, containedAddresses[]>`. Only the
+// keys are used: the table contents are re-read from chain so the compiler
+// indexes against authoritative state rather than the API's view of it.
+//
+// Tolerates a bare address array too, and skips anything that is not a valid
+// address. These tables are advisory — a missing one only costs transaction
+// size, so a parse miss must never fail an otherwise valid withdrawal.
+function readKaminoLookupTableAddresses(
+  payload: KaminoInstructionResponse
+): PublicKey[] {
+  const raw = payload.lutsByAddress;
+  const candidates = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object"
+    ? Object.keys(raw)
+    : [];
+
+  const addresses: PublicKey[] = [];
+  const seen = new Set<string>();
+  for (const entry of candidates) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+    let address: PublicKey;
+    try {
+      address = new PublicKey(entry);
+    } catch {
+      continue;
+    }
+    const key = address.toBase58();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    addresses.push(address);
+  }
+  return addresses;
 }
 
 function readKaminoDepositInstruction(
@@ -6874,6 +6958,7 @@ export function createSmartAccountVaultsClient(
             return {
               instruction,
               instructions: [instruction],
+              lookupTableAddresses: [],
               matchingInstructions: [instruction],
             };
           })()
@@ -6949,6 +7034,7 @@ export function createSmartAccountVaultsClient(
         kaminoDepositBundle = {
           instruction: localDepositInstruction,
           instructions: [...refreshPrefix, localDepositInstruction],
+          lookupTableAddresses: kaminoDepositBundle.lookupTableAddresses,
           matchingInstructions: [localDepositInstruction],
         };
       }
@@ -7722,6 +7808,7 @@ export function createSmartAccountVaultsClient(
       instruction: TransactionInstruction;
       instructions: TransactionInstruction[];
       kaminoWithdrawAmountRaw: bigint;
+      lookupTableAddresses: PublicKey[];
     };
 
     type ProvisionalWithdrawBatch = Omit<
@@ -7799,6 +7886,7 @@ export function createSmartAccountVaultsClient(
               return {
                 instruction,
                 instructions: [instruction],
+                lookupTableAddresses: [],
                 matchingInstructions: [instruction],
               };
             })()
@@ -7868,6 +7956,7 @@ export function createSmartAccountVaultsClient(
         kaminoWithdrawBundle = {
           instruction: selectedWithdrawInstruction,
           instructions: [...refreshPrefix, selectedWithdrawInstruction],
+          lookupTableAddresses: kaminoWithdrawBundle.lookupTableAddresses,
           matchingInstructions: [selectedWithdrawInstruction],
         };
         validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
@@ -7938,6 +8027,7 @@ export function createSmartAccountVaultsClient(
           kaminoWithdrawBundle = {
             instruction: reconciledWithdrawInstruction,
             instructions: [...refreshPrefix, reconciledWithdrawInstruction],
+            lookupTableAddresses: kaminoWithdrawBundle.lookupTableAddresses,
             matchingInstructions: [reconciledWithdrawInstruction],
           };
           validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
@@ -8094,6 +8184,7 @@ export function createSmartAccountVaultsClient(
             withdrawInstruction,
           ],
           kaminoWithdrawAmountRaw: stepKaminoWithdrawAmountRaw,
+          lookupTableAddresses: kaminoWithdrawBundle.lookupTableAddresses,
         });
       }
 
@@ -8201,6 +8292,13 @@ export function createSmartAccountVaultsClient(
           );
         }
       }
+      const batchKaminoLookupTableAccounts =
+        await resolveKaminoLookupTableAccounts({
+          addresses: batch.flatMap(
+            (withdrawal) => withdrawal.lookupTableAddresses
+          ),
+          connection: config.connection,
+        });
       const currentVaultUsdcAmountRaw =
         isFinalExit && isFinalBatch
           ? fullWithdrawVaultUsdcRemainderRaw
@@ -8227,9 +8325,10 @@ export function createSmartAccountVaultsClient(
             ...vaultAtaSetupInstructions,
             ...withdrawPrefixExecution.instructions,
           ],
-          lookupTableAccounts: dedupeLookupTableAccounts(
-            withdrawPrefixExecution.lookupTableAccounts ?? []
-          ),
+          lookupTableAccounts: dedupeLookupTableAccounts([
+            ...(withdrawPrefixExecution.lookupTableAccounts ?? []),
+            ...batchKaminoLookupTableAccounts,
+          ]),
         }),
         tokenAccount: vaultUsdcAta,
       });
@@ -8360,9 +8459,12 @@ export function createSmartAccountVaultsClient(
           ...vaultAtaSetupInstructions,
           ...operations.flatMap((operation) => operation.instructions),
         ],
-        lookupTableAccounts: dedupeLookupTableAccounts(
-          operations.flatMap((operation) => operation.lookupTableAccounts ?? [])
-        ),
+        lookupTableAccounts: dedupeLookupTableAccounts([
+          ...operations.flatMap(
+            (operation) => operation.lookupTableAccounts ?? []
+          ),
+          ...batchKaminoLookupTableAccounts,
+        ]),
       });
       const reserveWithdrawalMetadata = batch.map((withdrawal) => ({
         accountingReserve: withdrawal.accountingReserve.reserve.toBase58(),

@@ -269,12 +269,15 @@ async function sendVersionedTransaction(args: {
   });
 }
 
+// Resolves with the confirmation's slot when the transport reported one —
+// the slot is authoritative here, while status probes can lag the
+// confirmation on a busy RPC indexer.
 async function confirmSubmittedTransaction(args: {
   blockhash: string;
   connection: PreparedConnection;
   lastValidBlockHeight: number;
   signature: string;
-}): Promise<void> {
+}): Promise<number | undefined> {
   try {
     const confirmation = await args.connection.confirmTransaction(
       {
@@ -292,7 +295,7 @@ async function confirmSubmittedTransaction(args: {
         )}`
       );
     }
-    return;
+    return confirmation.context.slot;
   } catch (confirmationError) {
     // Confirmation transports can time out after a transaction has landed.
     // Reconcile the returned signature before reporting failure; callers must
@@ -312,7 +315,7 @@ async function confirmSubmittedTransaction(args: {
         status?.confirmationStatus === "confirmed" ||
         status?.confirmationStatus === "finalized"
       ) {
-        return;
+        return status.slot;
       }
     } catch (statusError) {
       if (
@@ -342,6 +345,7 @@ export async function sendPreparedWithWallet({
   wallet,
   prepared,
   confirm = "if-required",
+  onTransactionConfirmed,
   onTransactionSent,
   sendOptions,
 }: SendPreparedWithWalletArgs): Promise<string> {
@@ -371,12 +375,13 @@ export async function sendPreparedWithWallet({
     confirm === true || (confirm !== false && prepared.requiresConfirmation);
 
   if (shouldConfirm) {
-    await confirmSubmittedTransaction({
+    const slot = await confirmSubmittedTransaction({
       blockhash: latestBlockhash.blockhash,
       connection,
       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
       signature,
     });
+    await onTransactionConfirmed?.({ prepared, signature, slot });
   }
 
   return signature;
@@ -487,8 +492,9 @@ export async function sendPreparedBatchWithWallet({
 
     const confirmationResults = await Promise.allSettled(
       sentTransactions.map(async (sent) => {
+        let slot: number | undefined;
         if (sent.shouldConfirm) {
-          await confirmSubmittedTransaction({
+          slot = await confirmSubmittedTransaction({
             blockhash: latestBlockhash.blockhash,
             connection,
             lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
@@ -500,6 +506,7 @@ export async function sendPreparedBatchWithWallet({
           index: sent.index,
           prepared: sent.operation,
           signature: sent.signature,
+          slot,
         });
       })
     );
@@ -547,8 +554,9 @@ export async function sendPreparedBatchWithWallet({
     const shouldConfirm =
       confirm === true || (confirm !== false && operation.requiresConfirmation);
 
+    let slot: number | undefined;
     if (shouldConfirm) {
-      await confirmSubmittedTransaction({
+      slot = await confirmSubmittedTransaction({
         blockhash: latestBlockhash.blockhash,
         connection,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
@@ -560,6 +568,7 @@ export async function sendPreparedBatchWithWallet({
       index,
       prepared: operation,
       signature,
+      slot,
     });
   }
 

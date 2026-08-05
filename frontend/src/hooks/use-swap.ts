@@ -9,6 +9,12 @@ import {
 import { useCallback, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import { createBrowserLifecycleTracker } from "@/features/observability/client";
+import {
+  type LifecycleErrorCode,
+  type LifecycleFlowStage,
+  normalizeLifecycleWalletProvider,
+} from "@/features/observability/lifecycle-contract";
 import { trackWalletSwapCompleted } from "@/lib/core/analytics";
 
 // Debug logger that only emits in development
@@ -31,6 +37,33 @@ function cleanSolanaErrorMessage(message: string): string {
 
 // Constants
 const PERCENTAGE_MULTIPLIER = 100;
+
+// Jupiter route slippage tolerance (0.5%).
+const SLIPPAGE_BPS = 50;
+
+// Jupiter aggregator custom error 6001 (0x1771) — SlippageToleranceExceeded:
+// the route's output fell below the quote's minimum-out by execution time.
+function isSlippageExceededError(message: string): boolean {
+  return message.includes('"Custom":6001') || message.includes("0x1771");
+}
+
+// Maps a swap failure onto its lifecycle error code — a bounded enum, so raw
+// error strings never reach telemetry.
+function swapLifecycleErrorCode(message: string): LifecycleErrorCode {
+  if (isSlippageExceededError(message)) {
+    return "slippage_exceeded";
+  }
+  if (message.includes("timeout") || message.includes("Timeout")) {
+    return "wallet_signing_failed";
+  }
+  if (message.includes("Jupiter Swap API failed")) {
+    return "request_failed";
+  }
+  if (message.includes("Transaction failed:")) {
+    return "chain_confirmation_failed";
+  }
+  return "unexpected_error";
+}
 
 export type SwapQuote = {
   inputAmount: string;
@@ -107,7 +140,12 @@ type JupiterSwapResponse = {
 
 export function useSwap() {
   const { connection } = useConnection();
-  const { publicKey, connected: isConnected, sendTransaction } = useWallet();
+  const {
+    publicKey,
+    connected: isConnected,
+    sendTransaction,
+    wallet,
+  } = useWallet();
   const publicEnv = usePublicEnv();
   const { swap: swapConfig } = publicEnv;
   const [loading, setLoading] = useState(false);
@@ -191,7 +229,7 @@ export function useSwap() {
         });
 
         // Build Jupiter Quote API URL
-        const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=50`;
+        const url = `${JUPITER_QUOTE_API_URL}?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountInSmallestUnit}&slippageBps=${SLIPPAGE_BPS}`;
         logger.debug("Fetching quote from Jupiter API:", url);
 
         const response = await fetch(url, {
@@ -277,111 +315,188 @@ export function useSwap() {
       setLoading(true);
       setError(null);
 
+      // Same flow-lifecycle telemetry as the auth/earn flows, so swap
+      // failures land in ClickStack instead of only the browser console.
+      const tracker = createBrowserLifecycleTracker({
+        flowName: "wallet.swap",
+        flowVariant: executionContext ? "smart_account" : "wallet_adapter",
+      });
+      const walletProvider = normalizeLifecycleWalletProvider(
+        wallet?.adapter.name
+      );
+      let lifecycleStage: LifecycleFlowStage<"wallet.swap"> = "intent";
+      tracker.start("intent");
+
       try {
         logger.debug("Executing swap with quote:", quoteResponse);
 
-        // Step 1: Call Jupiter Swap API to get transaction
-        logger.debug("Calling Jupiter Swap API...");
+        // The stored quote is as old as the user's review pause + wallet
+        // approval, so its minimum-out can trail the live market. Refresh it
+        // right before building the transaction; on failure fall back to the
+        // quote we already have rather than blocking the swap.
+        const refreshQuoteResponse =
+          async (): Promise<JupiterQuoteResponse | null> => {
+            try {
+              const url = `${JUPITER_QUOTE_API_URL}?inputMint=${quoteResponse.inputMint}&outputMint=${quoteResponse.outputMint}&amount=${quoteResponse.inAmount}&slippageBps=${SLIPPAGE_BPS}`;
+              const response = await fetch(url, {
+                headers: { "x-api-key": swapConfig.apiKey },
+              });
+              if (!response.ok) {
+                return null;
+              }
+              return (await response.json()) as JupiterQuoteResponse;
+            } catch {
+              return null;
+            }
+          };
 
-        const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": swapConfig.apiKey,
-          },
-          body: JSON.stringify({
-            userPublicKey: swapUserPublicKey.toBase58(),
-            quoteResponse,
-            wrapAndUnwrapSol: true,
-            dynamicComputeUnitLimit: true,
-            prioritizationFeeLamports: {
-              priorityLevelWithMaxLamports: {
-                priorityLevel: "veryHigh",
-                maxLamports: 50_000_000, // 0.05 SOL max for priority
-                global: true, // Use global fee market
+        // Price can still move between signing and landing — retry exactly
+        // once with another fresh quote when the route slips (Jupiter 6001).
+        let activeQuote = quoteResponse;
+        for (let attempt = 0; ; attempt++) {
+          activeQuote = (await refreshQuoteResponse()) ?? activeQuote;
+          lifecycleStage = "quote_refresh";
+          tracker.observe("quote_refresh", { stageIndex: attempt });
+          try {
+            // Step 1: Call Jupiter Swap API to get transaction
+            logger.debug("Calling Jupiter Swap API...");
+            lifecycleStage = "build";
+
+            const swapResponse = await fetch(JUPITER_SWAP_API_URL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "x-api-key": swapConfig.apiKey,
               },
-            },
-          }),
-        });
+              body: JSON.stringify({
+                userPublicKey: swapUserPublicKey.toBase58(),
+                quoteResponse: activeQuote,
+                wrapAndUnwrapSol: true,
+                dynamicComputeUnitLimit: true,
+                prioritizationFeeLamports: {
+                  priorityLevelWithMaxLamports: {
+                    priorityLevel: "veryHigh",
+                    maxLamports: 50_000_000, // 0.05 SOL max for priority
+                    global: true, // Use global fee market
+                  },
+                },
+              }),
+            });
 
-        if (!swapResponse.ok) {
-          const errorText = await swapResponse.text();
-          logger.debug("Jupiter Swap API error:", errorText);
-          throw new Error(
-            `Jupiter Swap API failed: ${swapResponse.statusText}`
-          );
-        }
+            if (!swapResponse.ok) {
+              const errorText = await swapResponse.text();
+              logger.debug("Jupiter Swap API error:", errorText);
+              throw new Error(
+                `Jupiter Swap API failed: ${swapResponse.statusText}`
+              );
+            }
 
-        const swapData: JupiterSwapResponse = await swapResponse.json();
-        logger.debug("Jupiter Swap transaction response:", swapData);
+            const swapData: JupiterSwapResponse = await swapResponse.json();
+            logger.debug("Jupiter Swap transaction response:", swapData);
 
-        const { swapTransaction: serializedTx } = swapData;
-        if (!serializedTx) {
-          throw new Error("No transaction returned from Jupiter Swap API");
-        }
+            const { swapTransaction: serializedTx } = swapData;
+            if (!serializedTx) {
+              throw new Error("No transaction returned from Jupiter Swap API");
+            }
 
-        // Step 2: Deserialize transaction
-        const txBuffer = Buffer.from(serializedTx, "base64");
-        const transaction = VersionedTransaction.deserialize(txBuffer);
+            // Step 2: Deserialize transaction
+            const txBuffer = Buffer.from(serializedTx, "base64");
+            const transaction = VersionedTransaction.deserialize(txBuffer);
+            tracker.observe("build", { stageIndex: attempt });
 
-        // Step 3: Sign and send transaction using wallet-adapter
-        logger.debug("Signing and sending transaction...");
-        const executionResult = executionContext
-          ? await executionContext.executeTransaction(transaction)
-          : {
-              signature: await sendTransaction(transaction, connection),
-              success: true,
-              status: "executed" as const,
-            };
+            // Step 3: Sign and send transaction using wallet-adapter
+            logger.debug("Signing and sending transaction...");
+            lifecycleStage = "wallet_submit_confirm";
+            const executionResult = executionContext
+              ? await executionContext.executeTransaction(transaction)
+              : {
+                  signature: await sendTransaction(transaction, connection),
+                  success: true,
+                  status: "executed" as const,
+                };
 
-        if (!executionResult.success) {
-          throw new Error(executionResult.error ?? "Swap execution failed");
-        }
+            if (!executionResult.success) {
+              throw new Error(executionResult.error ?? "Swap execution failed");
+            }
 
-        const signature = executionResult.signature;
+            const signature = executionResult.signature;
 
-        logger.debug("Transaction sent:", signature);
-        logger.debug(
-          `View transaction: https://orbmarkets.io/tx/${signature}?tab=summary`
-        );
-
-        if (!executionContext && signature) {
-          // Step 4: Confirm transaction with proper strategy
-          logger.debug("Confirming transaction...");
-          const latestBlockhash = await connection.getLatestBlockhash(
-            "confirmed"
-          );
-          const confirmation = await connection.confirmTransaction(
-            {
-              signature,
-              blockhash: latestBlockhash.blockhash,
-              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            },
-            "confirmed"
-          );
-
-          if (confirmation.value.err) {
-            throw new Error(
-              `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
+            logger.debug("Transaction sent:", signature);
+            logger.debug(
+              `View transaction: https://orbmarkets.io/tx/${signature}?tab=summary`
             );
+
+            if (!executionContext && signature) {
+              // Step 4: Confirm transaction with proper strategy
+              logger.debug("Confirming transaction...");
+              const latestBlockhash = await connection.getLatestBlockhash(
+                "confirmed"
+              );
+              const confirmation = await connection.confirmTransaction(
+                {
+                  signature,
+                  blockhash: latestBlockhash.blockhash,
+                  lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+                },
+                "confirmed"
+              );
+
+              if (confirmation.value.err) {
+                throw new Error(
+                  `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
+                );
+              }
+            }
+
+            logger.debug("Transaction confirmed!");
+            tracker.observe("wallet_submit_confirm", {
+              chainState:
+                executionResult.status === "proposed"
+                  ? "submitted"
+                  : "confirmed",
+            });
+            setLoading(false);
+            if (successTrackingProperties) {
+              trackWalletSwapCompleted(publicEnv, {
+                ...successTrackingProperties,
+                signature,
+              });
+            }
+            tracker.complete("ui_commit");
+            return {
+              signature,
+              success: true,
+              status: executionResult.status,
+            };
+          } catch (attemptError) {
+            const attemptMessage =
+              attemptError instanceof Error ? attemptError.message : "";
+            if (attempt === 0 && isSlippageExceededError(attemptMessage)) {
+              logger.debug("Slippage exceeded; retrying with a fresh quote");
+              tracker.observe("wallet_submit_confirm", {
+                errorCode: "slippage_exceeded",
+                stageIndex: attempt,
+              });
+              continue;
+            }
+            throw attemptError;
           }
         }
-
-        logger.debug("Transaction confirmed!");
-        setLoading(false);
-        if (successTrackingProperties) {
-          trackWalletSwapCompleted(publicEnv, {
-            ...successTrackingProperties,
-            signature,
-          });
-        }
-        return {
-          signature,
-          success: true,
-          status: executionResult.status,
-        };
       } catch (err) {
         let errorMessage = "Swap execution failed";
+        const rawMessage = err instanceof Error ? err.message : "";
+
+        if (rawMessage.includes("User rejected")) {
+          tracker.cancel(lifecycleStage, {
+            errorCode: "wallet_rejected",
+            ...(walletProvider ? { walletProvider } : {}),
+          });
+        } else {
+          tracker.fail(lifecycleStage, {
+            errorCode: swapLifecycleErrorCode(rawMessage),
+            ...(walletProvider ? { walletProvider } : {}),
+          });
+        }
 
         if (err instanceof Error) {
           // Handle timeout errors specifically
@@ -393,6 +508,9 @@ export function useSwap() {
               "Transaction signing timed out. Please try again and approve the transaction in your wallet promptly.";
           } else if (err.message.includes("User rejected")) {
             errorMessage = "Transaction was rejected in your wallet.";
+          } else if (isSlippageExceededError(err.message)) {
+            errorMessage =
+              "The price moved while the swap was executing, so nothing was swapped. Please try again.";
           } else {
             errorMessage = cleanSolanaErrorMessage(err.message);
           }
@@ -412,6 +530,7 @@ export function useSwap() {
       quoteResponse,
       sendTransaction,
       swapConfig,
+      wallet,
     ]
   );
 

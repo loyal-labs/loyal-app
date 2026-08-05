@@ -18,6 +18,7 @@ import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { captureBrowserLoadingMetricAfterPaint } from "@/features/observability/client";
@@ -138,6 +139,7 @@ export function FaceliftSidebar({
   const { apy: earnApy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const { isHydrated, isSignedIn } = useAuthCapability();
   const { isAuthenticated, logout } = useAuthSession();
+  const cherryRuntime = useCherryRuntime();
   const { connected: isWalletConnected, disconnect } = useWallet();
   // The adapter can auto-reconnect without an auth session (stale dev state);
   // disconnect must stay clickable in that half-connected limbo to clear it.
@@ -564,7 +566,9 @@ export function FaceliftSidebar({
               src="/agents/Agent-01.svg"
             />
             <span className="whitespace-nowrap text-[16px] text-black leading-5">
-              Connect account
+              {cherryRuntime.mode === "cherry_embedded"
+                ? "Verify account"
+                : "Connect account"}
             </span>
           </button>
         </div>
@@ -572,7 +576,11 @@ export function FaceliftSidebar({
         <div className="relative flex w-full shrink-0 items-center">
           <button
             className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
-            onClick={() => setIsWalletMenuOpen((open) => !open)}
+            onClick={() => {
+              if (cherryRuntime.mode === "standalone") {
+                setIsWalletMenuOpen((open) => !open);
+              }
+            }}
             type="button"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -618,12 +626,14 @@ export function FaceliftSidebar({
               </span>
             </span>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="ml-2 size-6 shrink-0"
-              src={`${ASSET_BASE}/icon-chevron-down.svg`}
-            />
+            {cherryRuntime.mode === "standalone" ? (
+              <img
+                alt=""
+                aria-hidden="true"
+                className="ml-2 size-6 shrink-0"
+                src={`${ASSET_BASE}/icon-chevron-down.svg`}
+              />
+            ) : null}
           </button>
           <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
             <button
@@ -658,7 +668,7 @@ export function FaceliftSidebar({
             </button>
           </div>
 
-          {isWalletMenuOpen ? (
+          {cherryRuntime.mode === "standalone" && isWalletMenuOpen ? (
             <button
               aria-label="Close wallet menu"
               className="fixed inset-0 z-20 cursor-default"
@@ -669,7 +679,7 @@ export function FaceliftSidebar({
           {/* Same frosted sheet treatment as the withdraw source select. */}
           <DropdownReveal
             className="absolute bottom-[calc(100%+4px)] left-0 z-30 flex w-60 flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px]"
-            isOpen={isWalletMenuOpen}
+            isOpen={cherryRuntime.mode === "standalone" && isWalletMenuOpen}
             origin="bottom-left"
           >
             <button

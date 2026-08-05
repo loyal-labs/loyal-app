@@ -1722,6 +1722,19 @@
     margin-left: -24px;
   }
 }
+
+/* Cherry's native mobile shell can draw behind device cutouts. The document
+   marker is mounted only by /app/cherry, and the breakpoint keeps desktop
+   workspace geometry byte-for-byte unchanged. */
+@media (width < 796px) {
+  html[data-cherry-embedded="true"] .cherry-mobile-workspace {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  html[data-cherry-embedded="true"] .cherry-mobile-tab-bar {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
 @media (796px <= width < 1204px) {
   body:has(.facelift-shell) .t-modal-center {
     margin-left: min(180px, 50vw - 272px);

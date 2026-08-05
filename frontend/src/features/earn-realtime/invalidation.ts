@@ -30,11 +30,14 @@ export function resolveEarnRealtimeRefreshPlan(
         plan.position = true;
         plan.transactions = true;
         plan.earnings = true;
-      } else if (
-        event.state === "failed" ||
-        event.state === "released" ||
-        event.state === "canceled"
-      ) {
+      } else if (event.state === "failed") {
+        // Failed executions can be partial (pull tx landed, top-up blocked),
+        // and the fallback poll may have skipped the intermediate
+        // pull_confirmed state, so refresh transactions and position too.
+        plan.earnState = true;
+        plan.position = true;
+        plan.transactions = true;
+      } else if (event.state === "released" || event.state === "canceled") {
         plan.earnState = true;
       }
     } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.allowance) {

@@ -64,6 +64,7 @@ import {
   CONFIRM_IN_WALLET_MESSAGE,
   earnToast,
 } from "@/components/wallet-workspace/facelift/earn-toast";
+import { lifecycleOnboarding } from "@/components/wallet-workspace/facelift/lifecycle-onboarding";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -108,6 +109,7 @@ import {
   EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   getEarnDepositUserErrorMessage,
+  isConfirmedSlotUnavailableError,
   prepareEarnCleanupOnServer,
   type SmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
@@ -1043,6 +1045,7 @@ export function useEarnActions(deps: {
               : "recorded",
         });
         earnToast.success("Deposited");
+        lifecycleOnboarding.depositConfirmed();
       };
 
       try {
@@ -2276,6 +2279,9 @@ export function useEarnActions(deps: {
           earnToast.success(
             previousConfig ? "Autodeposit updated" : "Autodeposit created"
           );
+          if (!previousConfig) {
+            lifecycleOnboarding.autodepositCreated();
+          }
           return true;
         }
       } catch (error) {
@@ -2289,6 +2295,14 @@ export function useEarnActions(deps: {
         );
         if (isWalletCancellation(error)) {
           tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
+        } else if (isConfirmedSlotUnavailableError(error)) {
+          // The transaction landed; only the slot probe timed out. Name the
+          // real stage so alerts don't read as backend persistence failures.
+          tracker.fail("slot_resolve", {
+            chainState: "confirmed",
+            errorCode: "slot_resolution_failed",
+          });
+          earnToast.error("Couldn't save Autodeposit");
         } else {
           tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
           earnToast.error("Couldn't save Autodeposit");

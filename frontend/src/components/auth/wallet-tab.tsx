@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { TrackedExternalLink } from "@/components/analytics/tracked-external-link";
 import { MatrixLoader } from "@/components/wallet-workspace/facelift/matrix-loader";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { useCherryRuntime } from "@/features/cherry/client/runtime-context";
 import { useWalletProofAuth } from "./use-wallet-proof-auth";
 
 const MOBILE_WALLETS = [
@@ -138,6 +139,8 @@ export function WalletTab({
   onCaptchaConsumed?: () => void;
   onFlowStart?: () => void;
 }) {
+  const cherryRuntime = useCherryRuntime();
+  const isCherryEmbedded = cherryRuntime.mode === "cherry_embedded";
   const [useLedgerProof, setUseLedgerProof] = useState(false);
   const [showWalletSelection, setShowWalletSelection] = useState(false);
   const {
@@ -207,13 +210,15 @@ export function WalletTab({
         <p className="max-w-[320px] text-neutral-500 text-sm">
           <TextSwap text={statusMessage} />
         </p>
-        <button
-          className="rounded-full px-4 py-2 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
-          onClick={handleChooseAnotherWallet}
-          type="button"
-        >
-          Choose another wallet
-        </button>
+        {isCherryEmbedded ? null : (
+          <button
+            className="rounded-full px-4 py-2 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
+            onClick={handleChooseAnotherWallet}
+            type="button"
+          >
+            Choose another wallet
+          </button>
+        )}
       </div>
     );
   }
@@ -242,7 +247,7 @@ export function WalletTab({
             lands here as an opaque wallet error. Keep the Ledger escape hatch
             visible so those users can self-serve — but not after a deliberate
             cancellation, which is not a capability problem. */}
-        {state.status !== "rejected" && (
+        {state.status !== "rejected" && !isCherryEmbedded && (
           <LedgerModeToggle
             checked={useLedgerProof}
             disabled={!isVerified}
@@ -251,10 +256,17 @@ export function WalletTab({
         )}
         <button
           className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
-          onClick={handleChooseAnotherWallet}
+          onClick={
+            isCherryEmbedded
+              ? () => {
+                  retry();
+                  setShowWalletSelection(false);
+                }
+              : handleChooseAnotherWallet
+          }
           type="button"
         >
-          Choose another wallet
+          {isCherryEmbedded ? "Retry verification" : "Choose another wallet"}
         </button>
       </div>
     );
@@ -264,11 +276,13 @@ export function WalletTab({
     <div className="flex flex-col gap-4">
       {connected && publicKey && !showWalletSelection ? (
         <div className="flex flex-col gap-2">
-          <LedgerModeToggle
-            checked={useLedgerProof}
-            disabled={!isVerified}
-            onChange={setUseLedgerProof}
-          />
+          {isCherryEmbedded ? null : (
+            <LedgerModeToggle
+              checked={useLedgerProof}
+              disabled={!isVerified}
+              onChange={setUseLedgerProof}
+            />
+          )}
           <button
             className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!isVerified}
@@ -277,19 +291,23 @@ export function WalletTab({
           >
             <TextSwap
               text={
-                useLedgerProof
+                isCherryEmbedded
+                  ? "Verify Cherry Wallet"
+                  : useLedgerProof
                   ? "Verify Ledger Wallet"
                   : "Verify Connected Wallet"
               }
             />
           </button>
-          <button
-            className="h-12 rounded-full px-4 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
-            onClick={handleChooseAnotherWallet}
-            type="button"
-          >
-            Choose another wallet
-          </button>
+          {isCherryEmbedded ? null : (
+            <button
+              className="h-12 rounded-full px-4 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
+              onClick={handleChooseAnotherWallet}
+              type="button"
+            >
+              Choose another wallet
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-2">

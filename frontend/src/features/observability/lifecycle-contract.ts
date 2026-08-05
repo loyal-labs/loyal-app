@@ -15,6 +15,7 @@ export const LIFECYCLE_FLOW_NAMES = [
   "earn.withdrawal",
   "earn.autodeposit.configuration",
   "earn.autodeposit.execute_now",
+  "wallet.swap",
 ] as const;
 
 export type LifecycleFlowName = (typeof LIFECYCLE_FLOW_NAMES)[number];
@@ -59,6 +60,8 @@ export const LIFECYCLE_VARIANTS = {
     "close",
   ],
   "earn.autodeposit.execute_now": ["execute_now"],
+  // Direct wallet-adapter signing vs the smart-account execution context.
+  "wallet.swap": ["wallet_adapter", "smart_account"],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
 
 export const LIFECYCLE_STAGES = {
@@ -103,6 +106,9 @@ export const LIFECYCLE_STAGES = {
     "slot_resolve",
     "backend_confirm",
     "full_exit_verify",
+    "cleanup_prepare",
+    "cleanup_wallet_submit_confirm",
+    "cleanup_backend_confirm",
     "cleanup",
     "ui_commit",
   ],
@@ -112,6 +118,7 @@ export const LIFECYCLE_STAGES = {
     "wallet_approval",
     "create_policy",
     "create_recurring_delegation",
+    "slot_resolve",
     "backend_confirm",
     "bootstrap",
     "ui_commit",
@@ -120,6 +127,13 @@ export const LIFECYCLE_STAGES = {
     "intent",
     "request",
     "state_observed",
+    "ui_commit",
+  ],
+  "wallet.swap": [
+    "intent",
+    "quote_refresh",
+    "build",
+    "wallet_submit_confirm",
     "ui_commit",
   ],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
@@ -162,6 +176,8 @@ export const LIFECYCLE_ERROR_CODES = [
   "wallet_unavailable",
   "wallet_mismatch",
   "simulation_failed",
+  // The route's output fell below the quote's minimum-out (Jupiter 6001).
+  "slippage_exceeded",
   "send_failed",
   "chain_confirmation_failed",
   "slot_resolution_failed",
@@ -174,6 +190,11 @@ export const LIFECYCLE_ERROR_CODES = [
   "no_scheduled_sweeps",
   "request_failed",
   "progress_read_failed",
+  // Terminal sweep failure codes forwarded from the yield backend's bounded
+  // completion_failure_code set. Codes outside this union still collapse to
+  // `unexpected_error` via `normalizeLifecycleErrorCode`.
+  "execution_failed",
+  "kamino_top_up_failed",
   "autodeposit_target_closed",
   "unconfirmed_signature",
   "metadata_mismatch",
@@ -194,6 +215,12 @@ export type LifecycleErrorCode = (typeof LIFECYCLE_ERROR_CODES)[number];
 // EUNSPECIFIED (the module's catch-all), ERROR_WALLET_NOT_FOUND,
 // ERROR_SESSION_TIMEOUT, ERROR_SESSION_CLOSED, "Timed out waiting for local
 // association to be ready", and "Failed to end session".
+//
+// The rest name what went wrong behind a `request_failed` that carries no
+// `httpStatus` — meaning no response ever arrived, so the status that usually
+// explains a failure is absent. Four unrelated incidents look identical
+// without them: the device is offline, our own client timeout elapsed, Kamino
+// is down, or an RPC answered with an error (ASK-2018).
 export const LIFECYCLE_ERROR_DETAILS = [
   "mwa_unspecified",
   "mwa_wallet_not_found",
@@ -201,6 +228,16 @@ export const LIFECYCLE_ERROR_DETAILS = [
   "mwa_association_timeout",
   "mwa_session_closed",
   "mwa_end_session_failed",
+  // Connection-level fetch failure: DNS, TLS or a reset socket. React Native
+  // surfaces all of them as a bare TypeError("Network request failed").
+  "network_unreachable",
+  // One of our own client deadlines elapsed, not the server's.
+  "request_timeout",
+  // Kamino answered 5xx/429 and kept doing so until the retries ran out. An
+  // upstream incident, not anything wrong on the device.
+  "kamino_upstream_unavailable",
+  // A Solana JSON-RPC call returned an error object rather than a result.
+  "rpc_request_failed",
 ] as const;
 export type LifecycleErrorDetail = (typeof LIFECYCLE_ERROR_DETAILS)[number];
 
@@ -622,7 +659,11 @@ export function parseBrowserLifecycleEnvelope(
   if (
     record.recoveryRequired === true &&
     (!isMoneyFlow ||
-      record.stage !== "backend_confirm" ||
+      (record.stage !== "backend_confirm" &&
+        !(
+          flowName === "earn.withdrawal" &&
+          record.stage === "cleanup_backend_confirm"
+        )) ||
       record.outcome !== "observed" ||
       record.chainState !== "confirmed" ||
       record.persistenceState !== "failed" ||

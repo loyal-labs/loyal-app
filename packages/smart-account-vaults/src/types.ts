@@ -207,6 +207,15 @@ export type SendPreparedWithWalletArgs = {
     prepared: PreparedLoyalSmartAccountsOperation<string>;
     signature: string;
   }) => Promise<void> | void;
+  // Fires after the transaction's confirmation resolves. `slot` is the
+  // confirmation context's slot when the transport reported one — callers can
+  // use it instead of re-deriving the slot from a status probe, which can lag
+  // the confirmation by tens of seconds on a busy RPC indexer.
+  onTransactionConfirmed?: (args: {
+    prepared: PreparedLoyalSmartAccountsOperation<string>;
+    signature: string;
+    slot?: number;
+  }) => Promise<void> | void;
 };
 
 export type SendPreparedBatchWithWalletArgs = {
@@ -220,6 +229,9 @@ export type SendPreparedBatchWithWalletArgs = {
     index: number;
     prepared: PreparedLoyalSmartAccountsOperation<string>;
     signature: string;
+    // Confirmation-context slot when the transport reported one; see
+    // SendPreparedWithWalletArgs["onTransactionConfirmed"].
+    slot?: number;
   }) => Promise<void> | void;
   onTransactionSent?: (args: {
     index: number;
