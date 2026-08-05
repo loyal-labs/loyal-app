@@ -156,12 +156,12 @@ submitted, a timeout is unresolved and must reconcile before retry.
 
 ## Runtime configuration
 
-| Variable                  | Required | Purpose                                                                                                                     |
-| ------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `CHERRY_MINIAPP_ID`       | Yes      | Expected `app_id` in Cherry launch tokens.                                                                                  |
-| `CHERRY_MINIAPP_ORIGIN`   | Yes      | Exact registered Loyal origin: `https://askloyal.com`. Paths are removed before the SDK compares the signed `origin` claim. |
-| `CHERRY_MINIAPP_ISSUER`   | No       | Defaults to `https://chat.cherry.fun`.                                                                                      |
-| `CHERRY_MINIAPP_JWKS_URL` | No       | Defaults to Cherry's public JWKS endpoint. A local endpoint may be used only by the development harness.                    |
+| Variable                  | Required | Purpose                                                                                                                        |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `CHERRY_MINIAPP_ID`       | Yes      | Expected `app_id` in Cherry launch tokens.                                                                                     |
+| `CHERRY_MINIAPP_ORIGIN`   | Yes      | Exact registered Loyal Mini App URL: `https://askloyal.com/app/cherry`. Cherry includes the path in the signed `origin` claim. |
+| `CHERRY_MINIAPP_ISSUER`   | No       | Defaults to `https://chat.cherry.fun`.                                                                                         |
+| `CHERRY_MINIAPP_JWKS_URL` | No       | Defaults to Cherry's public JWKS endpoint. A local endpoint may be used only by the development harness.                       |
 
 The MiniApp ID is public configuration, not a secret. Launch tokens are
 credentials and must never be written to logs, analytics, URLs controlled by
@@ -241,10 +241,10 @@ production build gate; repository rules prohibit a local frontend build.
    <https://chat.cherry.fun>).
 2. Give Cherry the group name and the stable hosted URL
    `https://askloyal.com/app/cherry`.
-3. Receive the staging MiniApp ID, registered exact origin, staging group/test
+3. Receive the staging MiniApp ID, registered exact app URL, staging group/test
    access, and confirmation of issuer/JWKS plus `wallet:connect` permission.
 4. Configure `CHERRY_MINIAPP_ID` and
-   `CHERRY_MINIAPP_ORIGIN=https://askloyal.com` on the deployment; override
+   `CHERRY_MINIAPP_ORIGIN=https://askloyal.com/app/cherry` on the deployment; override
    issuer/JWKS only if Cherry explicitly supplies different values.
 
 ### 3. Fast live ladder — stop at the first failure
