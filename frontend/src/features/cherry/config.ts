@@ -51,6 +51,16 @@ function normalizeEndpointUrl(value: string, name: string): string {
   return `${normalizedOrigin}${url.pathname}${url.search}`;
 }
 
+function normalizeLaunchUrl(value: string, name: string): string {
+  const normalizedOrigin = normalizeUrl(value, name);
+  const url = new URL(value);
+  if (url.search || url.hash) {
+    throw new Error(`${name} must not contain a query or fragment`);
+  }
+
+  return `${normalizedOrigin}${url.pathname === "/" ? "" : url.pathname}`;
+}
+
 export function createCherryMiniAppConfig(env: EnvSource): CherryMiniAppConfig {
   const appId = env[CHERRY_MINIAPP_ID_ENV_NAME]?.trim();
   const expectedOrigin = env[CHERRY_MINIAPP_ORIGIN_ENV_NAME]?.trim();
@@ -65,7 +75,7 @@ export function createCherryMiniAppConfig(env: EnvSource): CherryMiniAppConfig {
   return {
     mode: "enabled",
     appId,
-    expectedOrigin: normalizeUrl(
+    expectedOrigin: normalizeLaunchUrl(
       expectedOrigin,
       CHERRY_MINIAPP_ORIGIN_ENV_NAME
     ),

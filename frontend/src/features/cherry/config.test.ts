@@ -10,7 +10,7 @@ describe("createCherryMiniAppConfig", () => {
     });
   });
 
-  test("normalizes the registered app origin and keeps the JWKS path", () => {
+  test("preserves the registered app path and keeps the JWKS path", () => {
     expect(
       createCherryMiniAppConfig({
         CHERRY_MINIAPP_ID: "miniapp_123",
@@ -19,7 +19,7 @@ describe("createCherryMiniAppConfig", () => {
     ).toEqual({
       mode: "enabled",
       appId: "miniapp_123",
-      expectedOrigin: "https://askloyal.com",
+      expectedOrigin: "https://askloyal.com/app/cherry",
       issuer: "https://chat.cherry.fun",
       jwksUrl: "https://chat.cherry.fun/.well-known/jwks.json",
     });
@@ -44,7 +44,7 @@ describe("createCherryMiniAppConfig", () => {
     ).toMatchObject({
       mode: "enabled",
       appId: "miniapp_local",
-      expectedOrigin: "http://127.0.0.1:3000",
+      expectedOrigin: "http://127.0.0.1:3000/app/cherry",
       jwksUrl: "http://localhost:3100/jwks.json?fixture=1",
     });
   });
@@ -65,5 +65,19 @@ describe("createCherryMiniAppConfig", () => {
           "https://chat.cherry.fun/.well-known/jwks.json#ignored",
       })
     ).toThrow("CHERRY_MINIAPP_JWKS_URL must not contain a URL fragment");
+  });
+
+  test("rejects query parameters and fragments in the registered app URL", () => {
+    for (const origin of [
+      "https://askloyal.com/app/cherry?theme=cherry",
+      "https://askloyal.com/app/cherry#embed",
+    ]) {
+      expect(() =>
+        createCherryMiniAppConfig({
+          CHERRY_MINIAPP_ID: "miniapp_123",
+          CHERRY_MINIAPP_ORIGIN: origin,
+        })
+      ).toThrow("CHERRY_MINIAPP_ORIGIN must not contain a query or fragment");
+    }
   });
 });

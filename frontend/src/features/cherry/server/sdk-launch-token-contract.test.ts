@@ -1,14 +1,16 @@
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, mock, test } from "bun:test";
 import { verifyLaunchToken } from "@cherrydotfun/miniapp-sdk";
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from "jose";
 
+mock.module("server-only", () => ({}));
+
 import type { CherryMiniAppConfig } from "@/features/cherry/config";
 
-import { verifyCherryLaunch } from "./launch-token";
+const { verifyCherryLaunch } = await import("./launch-token");
 
 const JWKS_URL = "https://jwks.cherry-contract.invalid/keys";
 const APP_ID = "miniapp_contract_test";
-const ORIGIN = "https://askloyal.com";
+const ORIGIN = "https://askloyal.com/app/cherry";
 const ISSUER = "https://chat.cherry.fun";
 const originalFetch = globalThis.fetch;
 const config: CherryMiniAppConfig = {
