@@ -17,6 +17,7 @@
     "ultracite": "bunx ultracite check",
     "fix-lint": "next lint --fix",
     "verify:chunk-load-recovery": "bun scripts/verify-chunk-load-recovery.ts",
+    "verify:earn-cleanup-ghost-reconcile": "bun scripts/verify-earn-cleanup-ghost-reconcile.ts",
     "verify:observability": "bun scripts/verify-observability.ts",
     "commit": "cz"
   },
