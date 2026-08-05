@@ -1,5 +1,6 @@
 import { KaminoUpstreamError } from "@loyal-labs/smart-account-vaults";
 
+import { isConnectionFailure } from "@/lib/network/connection-failure";
 // Type-only: a value import from `@/services/observability` would pull the
 // storage/native-module graph into this leaf and break its test suite.
 import type { LifecycleErrorDetail } from "@/services/observability";
@@ -54,15 +55,17 @@ function isRetryableNetworkError(error: unknown): error is Error {
 // indistinguishable from a phone with no signal (ASK-2018). Kamino is checked
 // here rather than in the shared classifier because the retryable-status rule
 // lives in this file.
-// Only the two shapes `isRetryableNetworkError` accepts can reach here, since
-// nothing else is ever retried — so this covers every exhausted error.
+//
+// `isConnectionFailure` rather than a bare `instanceof TypeError`: this helper
+// wraps whole SDK prepare calls, not just fetches, so a TypeError reaching it
+// may well be a bug in our own transaction building. Retrying one is harmless,
+// but reporting it as an unreachable network would point on-call at
+// connectivity while the real fault sits in our code. Those stay unnamed.
 function exhaustedErrorDetail(
   lastError: unknown,
 ): LifecycleErrorDetail | undefined {
   if (isKaminoUpstreamError(lastError)) return "kamino_upstream_unavailable";
-  // A TypeError is why this loop retried at all: per `isRetryableNetworkError`
-  // above, fetch rejects with one only for connection-level failures.
-  if (lastError instanceof TypeError) return "network_unreachable";
+  if (isConnectionFailure(lastError)) return "network_unreachable";
   return undefined;
 }
 

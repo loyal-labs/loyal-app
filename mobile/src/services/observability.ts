@@ -12,6 +12,7 @@
 import * as Updates from "expo-updates";
 
 import { env } from "@/config/env";
+import { isConnectionFailure } from "@/lib/network/connection-failure";
 import { hasLandedProgress, isWalletRejection } from "@/lib/wallet/rejection";
 import {
   isWalletSessionError,
@@ -448,17 +449,6 @@ function declaredErrorDetail(value: unknown): LifecycleErrorDetail | undefined {
   return LIFECYCLE_ERROR_DETAILS.includes(value as LifecycleErrorDetail)
     ? (value as LifecycleErrorDetail)
     : undefined;
-}
-
-// RN rejects a connection-level failure with TypeError("Network request
-// failed"). Matching the message rather than the type is deliberate: every
-// other TypeError reaching a flow is a bug in our own code, and reporting
-// those as an unreachable network would send on-call looking at the wrong
-// thing entirely.
-function isConnectionFailure(error: unknown): boolean {
-  return (
-    error instanceof TypeError && /network request failed/i.test(error.message)
-  );
 }
 
 // web3.js throws SolanaJSONRPCError with a numeric `code` and no HTTP status,

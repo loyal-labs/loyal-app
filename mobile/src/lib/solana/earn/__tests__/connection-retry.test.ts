@@ -181,4 +181,24 @@ describe("withConnectionRetry", () => {
     // Still no backend code or status: nothing ever answered.
     expect((error as MockEarnApiError).code).toBeUndefined();
   });
+
+  // This helper wraps whole SDK prepare calls, so a TypeError reaching it is
+  // just as likely a bug in our own transaction building as a dead socket.
+  // Retrying one is harmless; calling it a network failure would point on-call
+  // at connectivity while the real fault sits in our code.
+  test("leaves a TypeError that is really a bug unexplained", async () => {
+    const run = jest
+      .fn()
+      .mockRejectedValue(new TypeError("undefined is not a function"));
+
+    const error = await runWithTimers(
+      withConnectionRetry("device prepare", EXHAUSTED, run).then(
+        () => null,
+        (thrown: unknown) => thrown,
+      ),
+    );
+
+    expect((error as MockEarnApiError).detail).toBeUndefined();
+    expect((error as MockEarnApiError).message).toBe(EXHAUSTED);
+  });
 });
