@@ -7,12 +7,12 @@ import {
 } from "@solana/wallet-adapter-base";
 import {
   ComputeBudgetProgram,
+  PublicKey,
   Transaction,
   VersionedTransaction,
   type Connection,
   type MessageAddressTableLookup,
   type MessageCompiledInstruction,
-  type PublicKey,
   type Signer,
   type VersionedMessage,
 } from "@solana/web3.js";
@@ -339,12 +339,29 @@ function messageOf(transaction: SupportedTransaction): VersionedMessage {
     : transaction.compileMessage();
 }
 
+// Programs an MWA wallet may inject without being able to touch user assets:
+// compute-budget (priority fees), Lighthouse (assertion-only guard — its
+// instructions can abort a transaction but never move funds), and Memo
+// (inert data). The Seeker vault injects guard/fee instructions on signing.
+const BENIGN_INJECTED_PROGRAM_IDS: readonly PublicKey[] = [
+  ComputeBudgetProgram.programId,
+  new PublicKey("L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"),
+  new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+];
+
+function isBenignInjectedProgram(key: PublicKey | undefined): boolean {
+  return Boolean(
+    key && BENIGN_INJECTED_PROGRAM_IDS.some((program) => program.equals(key))
+  );
+}
+
 /**
  * True when the returned message differs from the sent one only in ways an
  * MWA wallet is allowed to introduce: a replaced recent blockhash and/or
- * inserted compute-budget instructions (with the compute-budget program
- * appended to the static keys). Everything else — fee payer, signer set,
- * lookup tables, and every original instruction byte — must be unchanged.
+ * inserted instructions from the benign program allowlist (with those
+ * programs appended to the static keys). Everything else — fee payer, signer
+ * set, lookup tables, and every original instruction byte — must be
+ * unchanged.
  */
 function isBenignWalletModification(
   original: VersionedMessage,
@@ -363,7 +380,7 @@ function isBenignWalletModification(
     return false;
   }
   const addedKeys = signedKeys.slice(originalKeys.length);
-  if (!addedKeys.every((key) => key.equals(ComputeBudgetProgram.programId))) {
+  if (!addedKeys.every((key) => isBenignInjectedProgram(key))) {
     return false;
   }
 
@@ -395,8 +412,7 @@ function isBenignWalletModification(
       cursor += 1;
       continue;
     }
-    const program = signedKeys[instruction.programIdIndex];
-    if (!program?.equals(ComputeBudgetProgram.programId)) {
+    if (!isBenignInjectedProgram(signedKeys[instruction.programIdIndex])) {
       return false;
     }
   }
@@ -418,17 +434,55 @@ function describeMessageChange(
   if (original.recentBlockhash !== signed.recentBlockhash) {
     parts.push("blockhash changed");
   }
-  if (original.staticAccountKeys.length !== signed.staticAccountKeys.length) {
+  const originalKeySet = new Set(
+    original.staticAccountKeys.map((key) => key.toBase58())
+  );
+  const signedKeySet = new Set(
+    signed.staticAccountKeys.map((key) => key.toBase58())
+  );
+  const addedKeys = signed.staticAccountKeys.filter(
+    (key) => !originalKeySet.has(key.toBase58())
+  );
+  const removedKeys = original.staticAccountKeys.filter(
+    (key) => !signedKeySet.has(key.toBase58())
+  );
+  if (addedKeys.length > 0) {
     parts.push(
-      `static keys ${original.staticAccountKeys.length}->${signed.staticAccountKeys.length}`
+      `static keys added: ${addedKeys.map((key) => key.toBase58()).join(", ")}`
+    );
+  }
+  if (removedKeys.length > 0) {
+    parts.push(
+      `static keys removed: ${removedKeys
+        .map((key) => key.toBase58())
+        .join(", ")}`
     );
   }
   if (
-    original.compiledInstructions.length !== signed.compiledInstructions.length
+    !original.staticAccountKeys.every((key, index) =>
+      signed.staticAccountKeys[index]?.equals(key)
+    )
   ) {
-    parts.push(
-      `instructions ${original.compiledInstructions.length}->${signed.compiledInstructions.length}`
+    parts.push("static key order changed");
+  }
+  const insertedPrograms: string[] = [];
+  let cursor = 0;
+  for (const instruction of signed.compiledInstructions) {
+    const expected = original.compiledInstructions[cursor];
+    if (expected && compiledInstructionsEqual(instruction, expected)) {
+      cursor += 1;
+      continue;
+    }
+    insertedPrograms.push(
+      signed.staticAccountKeys[instruction.programIdIndex]?.toBase58() ??
+        `key#${instruction.programIdIndex}`
     );
+  }
+  if (insertedPrograms.length > 0) {
+    parts.push(`instructions inserted: ${insertedPrograms.join(", ")}`);
+  }
+  if (cursor !== original.compiledInstructions.length) {
+    parts.push("original instructions rewritten");
   }
   if (
     !addressTableLookupsEqual(

@@ -10,6 +10,7 @@ import type { SendTransactionOptions } from "@solana/wallet-adapter-base";
 import {
   ComputeBudgetProgram,
   Keypair,
+  PublicKey,
   SystemProgram,
   Transaction,
   TransactionInstruction,
@@ -50,6 +51,12 @@ const RECIPIENT_A = keypair(3).publicKey;
 const RECIPIENT_B = keypair(4).publicKey;
 const BLOCKHASH = keypair(5).publicKey.toBase58();
 const OTHER_BLOCKHASH = keypair(6).publicKey.toBase58();
+const LIGHTHOUSE_PROGRAM = new PublicKey(
+  "L2TExMFKdjpN9kozasaurPirfHy9P8sbXoAN1qA3S95"
+);
+const MEMO_PROGRAM = new PublicKey(
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+);
 const RPC_SIGNATURE = "deterministic-rpc-signature";
 
 const messageListeners = new Set<MessageListener>();
@@ -297,6 +304,48 @@ describe("Loyal Cherry wallet adapter", () => {
     ).toBe(true);
   });
 
+  test("accepts a Seeker-style guard and fee injection without a blockhash change", async () => {
+    activeHost = approvedHost({
+      signVersioned: seekerVaultStyleSigner({
+        inject: [
+          {
+            data: new Uint8Array(
+              ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }).data
+            ),
+            programId: ComputeBudgetProgram.programId,
+          },
+          {
+            data: new Uint8Array(
+              ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 })
+                .data
+            ),
+            programId: ComputeBudgetProgram.programId,
+          },
+          { data: new Uint8Array([4, 0, 0]), programId: LIGHTHOUSE_PROGRAM },
+          { data: new Uint8Array([109, 101, 109, 111]), programId: MEMO_PROGRAM },
+        ],
+        replaceBlockhash: false,
+      }),
+    });
+    const adapter = await connectedAdapter();
+    const transaction = versionedTransaction(RECIPIENT_A);
+    const rpc = recordingConnection();
+
+    await expect(
+      adapter.sendTransaction(transaction, rpc.connection)
+    ).resolves.toBe(RPC_SIGNATURE);
+
+    expect(rpc.calls).toHaveLength(1);
+    const sent = VersionedTransaction.deserialize(rpc.calls[0]!.raw);
+    expect(sent.message.recentBlockhash).toBe(BLOCKHASH);
+    expect(sent.message.compiledInstructions).toHaveLength(5);
+    expect(
+      sent.message.staticAccountKeys.some((key) =>
+        key.equals(LIGHTHOUSE_PROGRAM)
+      )
+    ).toBe(true);
+  });
+
   test("rejects a benign-looking modification when the transaction carried a prior signature", async () => {
     activeHost = approvedHost({
       signVersioned: seekerVaultStyleSigner(),
@@ -334,7 +383,9 @@ describe("Loyal Cherry wallet adapter", () => {
 
     await expect(
       adapter.sendTransaction(transaction, rpc.connection)
-    ).rejects.toThrow("different message");
+    ).rejects.toThrow(
+      `instructions inserted: ${SystemProgram.programId.toBase58()}`
+    );
     expect(rpc.calls).toHaveLength(0);
   });
 
@@ -431,21 +482,42 @@ describe("Loyal Cherry wallet adapter", () => {
 });
 
 // Mirrors how an MWA device wallet (Seeker Vault) patches a transaction in
-// place before signing: fresh blockhash, compute-budget program appended to
-// the static keys, and a priority-fee instruction prepended.
-function seekerVaultStyleSigner() {
-  return (transaction: VersionedTransaction): VersionedTransaction => {
-    const message = transaction.message;
-    message.recentBlockhash = OTHER_BLOCKHASH;
-    message.staticAccountKeys.push(ComputeBudgetProgram.programId);
-    message.header.numReadonlyUnsignedAccounts += 1;
-    message.compiledInstructions.unshift({
-      accountKeyIndexes: [],
+// place before signing: injected programs appended to the static keys and
+// their instructions prepended, optionally with a fresh blockhash.
+function seekerVaultStyleSigner(
+  options: {
+    inject?: Array<{ data: Uint8Array; programId: PublicKey }>;
+    replaceBlockhash?: boolean;
+  } = {}
+) {
+  const inject = options.inject ?? [
+    {
       data: new Uint8Array(
         ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1000 }).data
       ),
-      programIdIndex: message.staticAccountKeys.length - 1,
-    });
+      programId: ComputeBudgetProgram.programId,
+    },
+  ];
+  return (transaction: VersionedTransaction): VersionedTransaction => {
+    const message = transaction.message;
+    if (options.replaceBlockhash ?? true) {
+      message.recentBlockhash = OTHER_BLOCKHASH;
+    }
+    for (const { data, programId } of inject) {
+      let programIdIndex = message.staticAccountKeys.findIndex((key) =>
+        key.equals(programId)
+      );
+      if (programIdIndex < 0) {
+        message.staticAccountKeys.push(programId);
+        message.header.numReadonlyUnsignedAccounts += 1;
+        programIdIndex = message.staticAccountKeys.length - 1;
+      }
+      message.compiledInstructions.unshift({
+        accountKeyIndexes: [],
+        data,
+        programIdIndex,
+      });
+    }
     const patched = new VersionedTransaction(message);
     patched.sign([WALLET]);
     return patched;
