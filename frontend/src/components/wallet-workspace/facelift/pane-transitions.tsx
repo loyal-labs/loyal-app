@@ -113,9 +113,9 @@ export function MiddlePaneSlide({
     // narrowed mid pane's edge before its exit plays. Pin the exiting page
     // at its open width and lift it over the incoming chart pane (whose
     // transformed innards otherwise paint through); with inset-0 the
-    // explicit width wins and the page stays left-anchored. Single-pane
-    // screens (deposit) keep the chart column mounted, so there the frozen
-    // width matches and this is a no-op.
+    // explicit width wins and the page stays left-anchored. Every action
+    // screen (withdraw/autodeposit/deposit) is two-pane now, so the freeze
+    // always matters.
     const actionPage = actionPageRef.current;
     if (actionPage && actionWidthRef.current !== null) {
       actionPage.style.width = `${actionWidthRef.current}px`;

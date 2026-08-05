@@ -1,14 +1,25 @@
 "use client";
 
-import { ArrowRightLeft, Repeat, Undo2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  ArrowRightLeft,
+  CalendarClock,
+  Radar,
+  Undo2,
+  Wallet,
+} from "lucide-react";
+import { useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
 import {
   ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
-import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
+import {
+  FlowDiagram,
+  FlowExplainerAside,
+  FlowExplainerOverlay,
+  type FlowStep,
+} from "@/components/wallet-workspace/facelift/flow-explainer";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
@@ -20,48 +31,37 @@ function parseAmountUsd(value: string) {
   return Number.parseFloat(value.replace(/,/g, "")) || 0;
 }
 
-// Same transparency rows the mobile app shows before Autodeposit setup
-// (mobile/src/components/earn/AutodepositInfoSheet.tsx) — what primitive it
-// runs on, what permission it holds, and how it's undone.
-const INFO_ROWS = [
+// The pipeline a sweep travels, told as steps (user-docs/earn/autodeposit.mdx
+// "Execution"), with the trust facts the old flat rows carried — the on-chain
+// primitive, the permission scope, and how it's undone — folded into the
+// step bodies. Mirrors mobile's AutodepositInfoSheet content.
+const AUTODEPOSIT_STEPS: readonly FlowStep[] = [
   {
-    Icon: Repeat,
-    body: "Autodeposit runs on Solana's built-in subscriptions primitive — a standard, auditable on-chain permission.",
-    title: "Native Solana subscriptions",
+    Icon: Wallet,
+    body: "Pick how much of your stablecoins to keep liquid. Everything above that floor is eligible for Earn — change it anytime.",
+    title: "You set the amount to keep",
+  },
+  {
+    Icon: Radar,
+    body: "A native Solana subscription — a standard, auditable on-chain permission — notices when your balance rises above the floor.",
+    title: "Loyal watches your wallet",
+  },
+  {
+    Icon: CalendarClock,
+    body: "The eligible amount is queued while Loyal re-verifies your balance and the on-chain limits. You can also execute it right away.",
+    title: "The surplus gets scheduled",
   },
   {
     Icon: ArrowRightLeft,
-    body: "It lets your smart account move stablecoins above your threshold from your wallet into Kamino reserves — no signing each time.",
-    title: "Deposits happen for you",
+    body: "Your smart account moves the surplus along one approved path into Kamino reserves — no signing each time.",
+    title: "Deposited for you",
   },
   {
     Icon: Undo2,
-    body: "Delete the Autodeposit anytime to revoke its permissions and get back the SOL held as account rent.",
-    title: "Fully reversible",
+    body: "The deposit starts earning immediately. Delete Autodeposit anytime to revoke its permission and get back the SOL held as rent.",
+    title: "Earning — and reversible",
   },
-] as const;
-
-function InfoContent() {
-  return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-5 overflow-y-auto px-6 pt-2 pb-6">
-      {INFO_ROWS.map(({ Icon, body, title }) => (
-        <div className="flex w-full gap-3.5" key={title}>
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-black/[0.04]">
-            <Icon className="text-[#f9363c]" size={24} strokeWidth={2} />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <p className="font-medium text-[16px] text-black leading-5">
-              {title}
-            </p>
-            <p className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
-              {body}
-            </p>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
+];
 
 // "How Autodeposit works" as an overlay: card next to the sidebar below
 // 1204px (Figma 4693:69792), bottom sheet on mobile (Figma 4693:71793) —
@@ -74,57 +74,14 @@ export function AutodepositInfoOverlay({
   isOpen: boolean;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
   return (
-    <SheetReveal
+    <FlowExplainerOverlay
       isOpen={isOpen}
       onClose={onClose}
-      scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] min-[1204px]:hidden max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
-      sheetClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      title="How Autodeposit works"
     >
-      <header className="flex w-full items-center p-2">
-        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
-          How Autodeposit works
-        </h2>
-        <button
-          aria-label="Close info"
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
-          onClick={onClose}
-          type="button"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
-            src={`${ASSET_BASE}/icon-cross.svg`}
-          />
-        </button>
-      </header>
-      <InfoContent />
-      <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
-        <button
-          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
-          onClick={onClose}
-          type="button"
-        >
-          Close
-        </button>
-      </div>
-    </SheetReveal>
+      <FlowDiagram steps={AUTODEPOSIT_STEPS} />
+    </FlowExplainerOverlay>
   );
 }
 
@@ -414,14 +371,9 @@ export function AutodepositPane({
 
       {/* Info panel: fixed right pane on wide viewports (Figma 4693:69387),
           overlay via the header ? below 1204px (Figma 4693:69792). */}
-      <aside className="hidden h-fit max-h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
-        <header className="flex w-full items-center p-2">
-          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
-            How Autodeposit works
-          </h2>
-        </header>
-        <InfoContent />
-      </aside>
+      <FlowExplainerAside title="How Autodeposit works">
+        <FlowDiagram steps={AUTODEPOSIT_STEPS} />
+      </FlowExplainerAside>
 
       <AutodepositInfoOverlay
         isOpen={isInfoOpen}

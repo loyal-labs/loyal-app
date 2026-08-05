@@ -456,11 +456,10 @@ export function EarnChartPane({
           420px (Figma 4693:65423); the chart stays reachable via the overlay.
           Every tab shares the Earned hug height (527px, Figma 4693:68847);
           the Stats card scrolls into view below it (Figma 4884:36662). */}
-      {hideAside ? (
-        // Empty reserved slot (same as Send's): the chart column goes away
-        // but the middle pane must keep its usual width.
-        <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block" />
-      ) : (
+      {/* hideAside (deposit): the action pane brings its own 400px explainer
+          aside in the chart column's place, so no reserved slot is needed —
+          only the expanded overlay below stays mounted. */}
+      {hideAside ? null : (
         <div className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
           <EarnChartCard
             actionAriaLabel="Expand chart"
