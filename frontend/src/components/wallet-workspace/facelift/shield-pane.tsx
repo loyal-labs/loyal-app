@@ -205,7 +205,16 @@ export function ShieldPane({
       : "To shield funds, select an unshielded asset";
 
   return (
-    <section className="flex h-full w-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
+    /* The result screens unclip the pane on desktop so their dog can drop
+        into the shell's 8px gap and sit flush with the viewport bottom (same
+        escape the earn empty pane uses); the form keeps the clip. */
+    <section
+      className={`flex h-full w-full min-w-0 flex-1 flex-col rounded-3xl bg-white max-[795px]:rounded-none ${
+        step === "success" || step === "error"
+          ? "max-[795px]:overflow-clip"
+          : "overflow-clip"
+      }`}
+    >
       <header className="flex w-full shrink-0 items-center p-2">
         <div className="flex shrink-0 items-center pr-3">
           <button

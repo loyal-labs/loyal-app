@@ -71,7 +71,10 @@ export function ActionProcessingBody({
 }
 
 // Figma 4813:406464 — success check + confetti burst, actions, and the
-// front dog rising from the pane bottom.
+// front dog rising from the pane bottom. Like the earn empty pane's dog, on
+// desktop it drops by the shell's 8px gap (-bottom-2, the host pane unclips
+// for result steps) to sit flush with the viewport bottom; on mobile it clips
+// to the rounded pane bottom instead.
 export function ActionSuccessBody({
   label,
   onDone,
@@ -88,7 +91,7 @@ export function ActionSuccessBody({
     <div className="relative flex w-full flex-1 flex-col items-center pt-8 pb-[68px]">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center"
+        className="-bottom-2 pointer-events-none absolute inset-x-0 flex justify-center max-[795px]:bottom-0 max-[795px]:overflow-clip max-[795px]:rounded-b-3xl"
       >
         <DogLottie className="aspect-square w-full max-w-[420px]" variant="calm" />
       </div>
@@ -156,8 +159,8 @@ export function ActionSuccessBody({
 
 // Figma 4813:407564 — failed X with the error under it and the dog rising
 // from the pane bottom (same layout as success — the message moved in-flow so
-// it stays on white instead of over the red dog); Back returns to the form
-// for a retry.
+// it stays on white instead of over the red dog, and the dog gets the same
+// viewport-bottom drop); Back returns to the form for a retry.
 export function ActionErrorBody({
   message,
   onBack,
@@ -169,7 +172,7 @@ export function ActionErrorBody({
     <div className="relative flex w-full flex-1 flex-col items-center pt-8 pb-[68px]">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center"
+        className="-bottom-2 pointer-events-none absolute inset-x-0 flex justify-center max-[795px]:bottom-0 max-[795px]:overflow-clip max-[795px]:rounded-b-3xl"
       >
         <DogLottie className="aspect-square w-full max-w-[420px]" variant="calm" />
       </div>
