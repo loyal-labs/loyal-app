@@ -1,6 +1,9 @@
 import { KaminoUpstreamError } from "@loyal-labs/smart-account-vaults";
 
-import { isConnectionFailure } from "@/lib/network/connection-failure";
+import {
+  isConnectionFailure,
+  isConnectionTimeout,
+} from "@/lib/network/connection-failure";
 // Type-only: a value import from `@/services/observability` would pull the
 // storage/native-module graph into this leaf and break its test suite.
 import type { LifecycleErrorDetail } from "@/services/observability";
@@ -42,9 +45,13 @@ function isKaminoUpstreamError(
 }
 
 function isRetryableNetworkError(error: unknown): error is Error {
-  // fetch rejects with TypeError only for connection-level failures;
-  // API rejections are EarnApiError and SDK/build errors are plain Error.
-  if (error instanceof TypeError) {
+  // The message is matched, not just the TypeError type. This helper wraps
+  // whole SDK prepare calls, so a TypeError arriving here is as likely a bug
+  // in our own transaction building as a dead socket — and treating one as a
+  // network blip retried it three times, then replaced it with an
+  // `EarnApiError` telling the user to check their connection while the real
+  // fault sat in our code. A bug now throws straight through, message intact.
+  if (isConnectionFailure(error)) {
     return true;
   }
   return isKaminoUpstreamError(error) && isRetryableKaminoStatus(error.status);
@@ -56,15 +63,15 @@ function isRetryableNetworkError(error: unknown): error is Error {
 // here rather than in the shared classifier because the retryable-status rule
 // lives in this file.
 //
-// `isConnectionFailure` rather than a bare `instanceof TypeError`: this helper
-// wraps whole SDK prepare calls, not just fetches, so a TypeError reaching it
-// may well be a bug in our own transaction building. Retrying one is harmless,
-// but reporting it as an unreachable network would point on-call at
-// connectivity while the real fault sits in our code. Those stay unnamed.
+// Only the two shapes `isRetryableNetworkError` accepts can reach here, since
+// nothing else is ever retried — the undefined return is a safe default, not a
+// reachable case.
 function exhaustedErrorDetail(
   lastError: unknown,
 ): LifecycleErrorDetail | undefined {
   if (isKaminoUpstreamError(lastError)) return "kamino_upstream_unavailable";
+  // Checked before the broader failure test, which also covers timeouts.
+  if (isConnectionTimeout(lastError)) return "request_timeout";
   if (isConnectionFailure(lastError)) return "network_unreachable";
   return undefined;
 }

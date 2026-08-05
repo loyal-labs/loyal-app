@@ -52,7 +52,11 @@ describe("wallet rejection classification", () => {
 
   it("still maps ordinary and coded failures to their own codes", () => {
     expect(mapLifecycleErrorCode(new Error("boom"))).toBe("unexpected_error");
-    expect(mapLifecycleErrorCode(new TypeError("network"))).toBe("request_failed");
+    // RN's own wording for a connection-level failure — the only TypeError
+    // that is a failed request rather than a bug in our code (ASK-2018).
+    expect(mapLifecycleErrorCode(new TypeError("Network request failed"))).toBe(
+      "request_failed",
+    );
     expect(mapLifecycleErrorCode({ code: "unconfirmed_signature" })).toBe(
       "unconfirmed_signature",
     );

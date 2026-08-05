@@ -100,6 +100,15 @@ describe("mapLifecycleErrorDetail", () => {
     );
   });
 
+  // whatwg-fetch rejects `xhr.ontimeout` with its own TypeError. Missing it
+  // would call every stalled request a bug in our own code and route it to the
+  // sanitized error ingest — the flood that ingest is kept clear of.
+  test("names a stalled request as a timeout, not an unreachable network", () => {
+    expect(
+      mapLifecycleErrorDetail(new TypeError("Network request timed out")),
+    ).toBe("request_timeout");
+  });
+
   // The reason the message is matched and not just the type: every other
   // TypeError reaching a flow is a bug in our own code, and calling that a
   // dead network would send on-call looking at the wrong thing entirely.
@@ -146,6 +155,29 @@ describe("errorDetail on the wire", () => {
     const failed = sent.find((event) => event.outcome === "failed");
     expect(failed?.errorCode).toBe("unexpected_error");
     expect("errorDetail" in (failed ?? {})) .toBe(false);
+  });
+
+  // A bug reported as `request_failed` was invisible twice over: it inflated a
+  // code on-call reads as "the network", and `request_failed` is kept out of
+  // the sanitized error ingest, so its message and stack went nowhere.
+  test("still counts a stalled request as a failed request, not a bug", () => {
+    const sent = captureEnvelopes();
+
+    newFlow().failFrom("prepare", new TypeError("Network request timed out"));
+
+    const failed = sent.find((event) => event.outcome === "failed");
+    expect(failed?.errorCode).toBe("request_failed");
+    expect(failed?.errorDetail).toBe("request_timeout");
+  });
+
+  test("reports a TypeError that is really a bug as unexpected_error", () => {
+    const sent = captureEnvelopes();
+
+    newFlow().failFrom("prepare", new TypeError("undefined is not a function"));
+
+    const failed = sent.find((event) => event.outcome === "failed");
+    expect(failed?.errorCode).toBe("unexpected_error");
+    expect(failed?.errorDetail).toBeUndefined();
   });
 
   test("a call site's own detail wins over the derived one", () => {

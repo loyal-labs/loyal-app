@@ -109,10 +109,16 @@ describe("withConnectionRetry", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  test("still retries RN connection-level TypeErrors", async () => {
+  // Both messages whatwg-fetch rejects with for a connection-level failure —
+  // `xhr.onerror` and `xhr.ontimeout`. Retrying only the first would strand
+  // every stalled request on its first attempt.
+  test.each([
+    ["a dead socket", "Network request failed"],
+    ["a stalled request", "Network request timed out"],
+  ])("still retries RN's TypeError for %s", async (_label, message) => {
     const run = jest
       .fn()
-      .mockRejectedValueOnce(new TypeError("Network request failed"))
+      .mockRejectedValueOnce(new TypeError(message))
       .mockResolvedValueOnce("prepared");
 
     await expect(
@@ -184,21 +190,17 @@ describe("withConnectionRetry", () => {
 
   // This helper wraps whole SDK prepare calls, so a TypeError reaching it is
   // just as likely a bug in our own transaction building as a dead socket.
-  // Retrying one is harmless; calling it a network failure would point on-call
-  // at connectivity while the real fault sits in our code.
-  test("leaves a TypeError that is really a bug unexplained", async () => {
-    const run = jest
-      .fn()
-      .mockRejectedValue(new TypeError("undefined is not a function"));
+  // Retrying one wasted the budget and then replaced it with a "check your
+  // connection" EarnApiError — telling the user, and on-call, the wrong thing
+  // while the real fault sat in our code (ASK-2018).
+  test("throws a TypeError that is really a bug through untouched", async () => {
+    const error = new TypeError("undefined is not a function");
+    const run = jest.fn().mockRejectedValue(error);
 
-    const error = await runWithTimers(
-      withConnectionRetry("device prepare", EXHAUSTED, run).then(
-        () => null,
-        (thrown: unknown) => thrown,
-      ),
-    );
-
-    expect((error as MockEarnApiError).detail).toBeUndefined();
-    expect((error as MockEarnApiError).message).toBe(EXHAUSTED);
+    await expect(
+      runWithTimers(withConnectionRetry("device prepare", EXHAUSTED, run)),
+    ).rejects.toBe(error);
+    // Not retried, and never rewritten into a network-worded message.
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });

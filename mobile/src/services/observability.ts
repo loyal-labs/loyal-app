@@ -12,7 +12,10 @@
 import * as Updates from "expo-updates";
 
 import { env } from "@/config/env";
-import { isConnectionFailure } from "@/lib/network/connection-failure";
+import {
+  isConnectionFailure,
+  isConnectionTimeout,
+} from "@/lib/network/connection-failure";
 import { hasLandedProgress, isWalletRejection } from "@/lib/wallet/rejection";
 import {
   isWalletSessionError,
@@ -441,7 +444,12 @@ export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
     if (code === "unconfirmed_signature") return "unconfirmed_signature";
     return "request_failed";
   }
-  if (error instanceof TypeError) return "request_failed";
+  // Only a connection-level TypeError is a failed request. Every other one is
+  // a bug in our own code, and calling it `request_failed` both inflated that
+  // code and hid the bug: `request_failed` is deliberately kept out of the
+  // sanitized error ingest, so its message and stack were never reported
+  // anywhere. As `unexpected_error` it reaches that ingest and is diagnosable.
+  if (isConnectionFailure(error)) return "request_failed";
   return "unexpected_error";
 }
 
@@ -486,6 +494,8 @@ export function mapLifecycleErrorDetail(
   if (error instanceof Error && error.name === "FetchTimeoutError") {
     return "request_timeout";
   }
+  // Checked before the broader failure test, which also covers timeouts.
+  if (isConnectionTimeout(error)) return "request_timeout";
   if (isConnectionFailure(error)) return "network_unreachable";
   if (isRpcError(error)) return "rpc_request_failed";
   return undefined;
