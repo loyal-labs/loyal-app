@@ -699,6 +699,21 @@ function getDetailedWalletErrorMessage(error: unknown, fallback: string) {
   return `${baseMessage}: ${nested}`;
 }
 
+const WALLET_CANCELLATION_MESSAGE_MARKERS = [
+  "user rejected",
+  "user denied",
+  "declined",
+  "cancelled",
+  "canceled",
+];
+
+export function isWalletCancellationError(error: unknown): boolean {
+  const normalized = getDetailedWalletErrorMessage(error, "").toLowerCase();
+  return WALLET_CANCELLATION_MESSAGE_MARKERS.some((marker) =>
+    normalized.includes(marker)
+  );
+}
+
 export const EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE =
   "Your USDC deposit is confirmed, but Earn is still updating. Refresh Earn before doing anything else so you do not deposit twice.";
 
@@ -747,11 +762,9 @@ export function getEarnDepositUserErrorMessage(
   }
 
   if (
-    normalized.includes("user rejected") ||
-    normalized.includes("user denied") ||
-    normalized.includes("declined") ||
-    normalized.includes("cancelled") ||
-    normalized.includes("canceled")
+    WALLET_CANCELLATION_MESSAGE_MARKERS.some((marker) =>
+      normalized.includes(marker)
+    )
   ) {
     return "You canceled the wallet request. No USDC was deposited.";
   }
@@ -6428,8 +6441,14 @@ export function useSmartAccountSidebarData(
         };
       } catch (err) {
         const error = getEarnDepositUserErrorMessage(err);
-        captureBrowserError(err, "earn.deposit.execute");
-        console.error("[executeEarnDeposit] failed", err);
+        if (isWalletCancellationError(err)) {
+          // A denial is a user decision, not an app failure — keep it out of
+          // error-level telemetry so it does not trip the errors alert.
+          console.warn("[executeEarnDeposit] canceled in wallet", err);
+        } else {
+          captureBrowserError(err, "earn.deposit.execute");
+          console.error("[executeEarnDeposit] failed", err);
+        }
         const signature = getSubmittedTransactionSignature(err);
         return {
           success: false,

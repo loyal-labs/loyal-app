@@ -149,6 +149,48 @@ describe("wallet prepared sends", () => {
     expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
   });
 
+  test("keeps the wallet rejection when the diagnostic simulation succeeds", async () => {
+    // A user denial leaves a perfectly valid transaction behind, so the
+    // post-failure diagnostic simulation succeeds with clean logs. That must
+    // never be reported as "Transaction simulation failed." in place of the
+    // wallet's own rejection error.
+    const connection = createConnection({
+      simulateTransaction: mock(async () => ({
+        context: { slot: 1 },
+        value: {
+          err: null,
+          logs: [
+            "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG invoke [1]",
+            "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG success",
+          ],
+        },
+      })),
+    });
+    const walletError = new Error("User rejected the request.");
+
+    try {
+      await sendPreparedWithWallet({
+        connection,
+        prepared: createPrepared(),
+        wallet: {
+          publicKey: feePayer,
+          sendTransaction: mock(async () => {
+            throw walletError;
+          }),
+          signTransaction: mock(
+            async <T extends VersionedTransaction>(transaction: T) =>
+              transaction
+          ),
+        },
+      });
+      throw new Error("expected sendPreparedWithWallet to throw");
+    } catch (error) {
+      expect(error).toBe(walletError);
+    }
+
+    expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
+  });
+
   test("simulates prepared batch transactions after wallet signing failure", async () => {
     const connection = createConnection({
       logs: [
