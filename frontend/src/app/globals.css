@@ -2323,6 +2323,75 @@
   }
 }
 
+/* transitions.dev-style — Flow diagram (facelift "How … works" explainers,
+   flow-explainer.tsx): the active node lights up in sequence and the
+   connector fills top-down like funds moving through the pipeline. The loop
+   reset fades the fills in place instead of draining them upward; cycle
+   timing lives in the component. */
+:root {
+  --flow-dur: 500ms;
+  --flow-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --flow-fill-dur: 800ms;
+  --flow-reset-dur: 400ms;
+}
+
+.t-flow-node {
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(60, 60, 67, 0.45);
+  transition: background var(--flow-dur) var(--flow-ease),
+    color var(--flow-dur) var(--flow-ease),
+    transform var(--flow-dur) var(--flow-ease);
+  will-change: transform;
+}
+.t-flow-node.is-reached {
+  color: #f9363c;
+}
+.t-flow-node.is-active {
+  background: rgba(249, 54, 60, 0.08);
+  transform: scale(1.08);
+}
+
+.t-flow-track {
+  position: relative;
+  flex: 1;
+  width: 2px;
+  min-height: 14px;
+  margin: 4px 0;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.t-flow-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #f9363c;
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--flow-fill-dur) var(--flow-ease);
+  will-change: transform;
+}
+.t-flow-track.is-filled .t-flow-fill {
+  transform: scaleY(1);
+}
+/* Loop reset: fills fade out where they stand (the transform snap waits for
+   the fade), nodes ride their normal color/background transition back. The
+   class sits on each track (not the stagger group, whose is-shown React
+   would wipe on a className change). */
+.t-flow-track.is-resetting .t-flow-fill {
+  opacity: 0;
+  transform: scaleY(0);
+  transition: opacity var(--flow-reset-dur) ease,
+    transform 0s linear var(--flow-reset-dur);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-flow-node,
+  .t-flow-fill {
+    transition: none !important;
+  }
+}
+
 /* Facelift adaptation: flow-layout list skeletons (transaction rows) reuse
    the skeleton recipe's pulse clock without the absolute reveal wrap — the
    reveal side is handled by the texts-reveal stagger on the loaded rows. */
