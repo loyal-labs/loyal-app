@@ -1,6 +1,10 @@
 import { KaminoUpstreamError } from "@loyal-labs/smart-account-vaults";
 
-import { EarnApiError } from "./earn-api";
+// Type-only: a value import from `@/services/observability` would pull the
+// storage/native-module graph into this leaf and break its test suite.
+import type { LifecycleErrorDetail } from "@/services/observability";
+
+import { earnNetworkError } from "./earn-api";
 
 // RN surfaces connection-level fetch failures (DNS/TLS/socket reset) as a bare
 // TypeError("Network request failed") — which used to reach the Earn sheets
@@ -45,6 +49,23 @@ function isRetryableNetworkError(error: unknown): error is Error {
   return isKaminoUpstreamError(error) && isRetryableKaminoStatus(error.status);
 }
 
+// The exhausted error replaces whatever we were retrying, so without this the
+// cause is gone by the time telemetry sees it and a Kamino outage is
+// indistinguishable from a phone with no signal (ASK-2018). Kamino is checked
+// here rather than in the shared classifier because the retryable-status rule
+// lives in this file.
+// Only the two shapes `isRetryableNetworkError` accepts can reach here, since
+// nothing else is ever retried — so this covers every exhausted error.
+function exhaustedErrorDetail(
+  lastError: unknown,
+): LifecycleErrorDetail | undefined {
+  if (isKaminoUpstreamError(lastError)) return "kamino_upstream_unavailable";
+  // A TypeError is why this loop retried at all: per `isRetryableNetworkError`
+  // above, fetch rejects with one only for connection-level failures.
+  if (lastError instanceof TypeError) return "network_unreachable";
+  return undefined;
+}
+
 export async function withConnectionRetry<T>(
   label: string,
   exhaustedMessage: string,
@@ -74,5 +95,5 @@ export async function withConnectionRetry<T>(
     errorMessage:
       lastError instanceof Error ? lastError.message : String(lastError),
   });
-  throw new EarnApiError(exhaustedMessage);
+  throw earnNetworkError(exhaustedMessage, exhaustedErrorDetail(lastError));
 }
