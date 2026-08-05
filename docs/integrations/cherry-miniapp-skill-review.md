@@ -8,9 +8,10 @@ Reviewed commit: `0b06e7f4d183e2e947374af661631181218109a1`
 
 Installed skill: `cherry-miniapp-integration`
 
-The skill was applied to the mobile fullscreen slice. The implementation keeps
-Loyal's transaction builders, auth proof, RPC submission, confirmation, and
-reconciliation; Cherry supplies the embedded wallet and approvals.
+The skill was applied to the mobile fullscreen and web iframe slices. The
+implementation keeps Loyal's transaction builders, auth proof, RPC submission,
+confirmation, and reconciliation; Cherry supplies the embedded wallet and
+approvals.
 
 ## Applied checklist
 
@@ -18,7 +19,7 @@ reconciliation; Cherry supplies the embedded wallet and approvals.
 | -------------- | -------------------------------------------------------------------------------------- | ---------------- |
 | Framework      | Next.js client boundary under `/app/cherry`; Vercel is the build gate.                 | Complete         |
 | SDK path       | Exact `0.1.21` pin; web3 wallet-adapter entry, no Kit migration.                       | Complete         |
-| Detection      | Dedicated route plus `window.__cherry` and callable native bridge before SDK import.   | Complete         |
+| Detection      | Dedicated route plus explicit mobile or framed-iframe host signals before SDK import. | Complete         |
 | Provider       | Route-only provider, automatic Cherry selection, separate wallet preference key.       | Complete         |
 | User/room      | Raw token verified server-side; client receives minimum wallet/room/time context.      | Complete locally |
 | Wallet UI      | Standalone wallet chooser and disconnect controls hidden only in verified Cherry mode. | Complete locally |
@@ -28,7 +29,7 @@ reconciliation; Cherry supplies the embedded wallet and approvals.
 | Mobile shell   | Device viewport and route-scoped safe areas.                                           | Complete locally |
 | Navigation     | No Loyal outcome needs Cherry profile/room navigation.                                 | Deferred         |
 | Sharing/blinks | Not required for fullscreen wallet integration.                                        | Deferred         |
-| Web iframe     | Mobile is the requested first surface; no CSP/cross-site-cookie work added.            | Deferred         |
+| Web iframe     | Framed-entry marker, scoped CSP allowlist, and partitioned auth-cookie support.         | Complete locally |
 | Privy auth     | Loyal does not use Privy; existing CAPTCHA plus wallet proof remains.                  | Not applicable   |
 
 ## Intentional hardening beyond the generic skill

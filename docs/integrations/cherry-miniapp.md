@@ -15,7 +15,7 @@ The intended boundary is:
 
 The inverse `@cherrydotfun/chat-embed-sdk` is not part of this integration.
 
-## Mobile MVP implemented without Cherry provisioning
+## Embedded MVP implemented without Cherry provisioning
 
 - `@cherrydotfun/miniapp-sdk` is pinned exactly, because the package is still
   pre-1.0 and bridge behavior must not change through an implicit range update.
@@ -25,9 +25,11 @@ The inverse `@cherrydotfun/chat-embed-sdk` is not part of this integration.
 - Launch-token verification validates the Cherry signature through the SDK,
   then independently checks issuer, Solana wallet, room, token id, and token
   timing context before exposing a wallet identity to Loyal.
-- `/app/cherry` is a mobile-only entry. It requires both
-  `window.__cherry === true` and a callable native WebView transport before it
-  dynamically loads any Cherry SDK runtime.
+- `/app/cherry` supports two explicit embedded hosts:
+  - mobile WebView requires both `window.__cherry === true` and a callable
+    `ReactNativeWebView.postMessage` transport;
+  - web iframe requires `cherry_embed=1` and a framed window.
+  Both modes dynamically load the Cherry SDK only after their host gate passes.
 - The server attests the launch token through a same-origin, no-store endpoint.
   It returns only wallet, room, issue, and expiry context and never creates a
   Loyal session from the bearer token.
@@ -63,7 +65,7 @@ README:
 | `strict` is declared and forwarded, but the built client reads only `initTimeout`; adapter readiness is also non-strict. | `dist/client-Bi55Q6eQ.d.ts:222-247`; `dist/react/index.mjs:508-525`; `dist/index.mjs:173-196`; `dist/solana/index.mjs:177-179` | SDK 0.1.21's provider flag is insufficient. Loyal must gate mounting and ask Cherry to fix the release.                        |
 | Bridge request timeout is 120 seconds; init defaults to 10 seconds.                                                      | `node_modules/@cherrydotfun/miniapp-sdk/dist/index.mjs:30,119-134,194-195`                                                     | Show distinct initialization and approval states; a two-minute wallet wait cannot look frozen.                                 |
 | Client initialization decodes the launch JWT without verifying it.                                                       | `node_modules/@cherrydotfun/miniapp-sdk/dist/index.mjs:221-246`                                                                | Never create a Loyal session from client context; verify the raw token server-side first.                                      |
-| Bridge messages use wildcard `postMessage`; incoming messages are not filtered by `event.origin` or `event.source`.      | `node_modules/@cherrydotfun/miniapp-sdk/dist/index.mjs:41-79,91-110`                                                           | Keep the route mobile-only, add no iframe surface, and verify host message provenance with Cherry before financial activation. |
+| Bridge messages use wildcard `postMessage`; incoming messages are not filtered by `event.origin` or `event.source`.      | `node_modules/@cherrydotfun/miniapp-sdk/dist/index.mjs:41-79,91-110`                                                           | Keep explicit route and host gating for both modes, and resolve host message provenance with Cherry before financial activation. |
 | Single, batch, and message signing return host results.                                                                  | `node_modules/@cherrydotfun/miniapp-sdk/dist/solana/index.mjs:210-247`                                                         | Verify message bytes, signer slot, prior signatures, and batch order before submission.                                        |
 | Stock `sendTransaction` ignores Loyal's connection/options and calls host `wallet.signAndSendTransaction`.               | `node_modules/@cherrydotfun/miniapp-sdk/dist/solana/index.mjs:249-263`                                                         | Direct use changes submission ownership and can bypass Loyal RPC send/reconciliation.                                          |
 | Token verification fixes RS256, verifies against JWKS, then compares `app_id` and exact `origin`.                        | `node_modules/@cherrydotfun/miniapp-sdk/dist/index.mjs:501-518`                                                                | Treat `app_id` as app audience; test signature, expiry, `nbf`, app, and origin locally.                                        |
@@ -102,8 +104,8 @@ network access.
 | Smart-account orchestration | `frontend/src/hooks/use-smart-account-sidebar-data.ts`                                                                                                                                                                                                | Important Earn stages use `signThenSendRaw: true`; other stages may retain adapter `sendTransaction` and must be normalized.                                                                              |
 | Smart-account send core     | `packages/smart-account-vaults/src/wallet.ts`                                                                                                                                                                                                         | Prefers `wallet.sendTransaction`; otherwise signs then Loyal sends raw with ambiguous-send reconciliation. Batch always signs all and Loyal submits/confirms. Adapter shape selects submission ownership. |
 | Earn UI/actions             | `frontend/src/components/wallet-workspace/facelift/use-earn-actions.ts`; `frontend/src/components/wallet-workspace/earn-transactions-pane.tsx`; `frontend/src/components/wallet-workspace/app-wallet-workspace.tsx`                                   | Policy, deposit, withdraw, autodeposit, cleanup/refund, batch, confirmation, and persistence each need evidence.                                                                                          |
-| Loyal session               | `frontend/src/features/identity/server/session-cookie.ts`; `/api/auth/wallet/complete`; `/api/auth/session/refresh`; `/api/auth/logout`                                                                                                               | The top-level mobile WebView reuses the existing session; Cherry boot attestation cannot create or replace it.                                                                                            |
-| Hosting                     | `frontend/next.config.ts`; `/app/cherry`                                                                                                                                                                                                              | Vercel hosts the page; existing `SAMEORIGIN` policy stays unchanged because no web iframe is in scope.                                                                                                    |
+| Loyal session               | `frontend/src/features/identity/server/session-cookie.ts`; `/api/auth/wallet/complete`; `/api/auth/session/refresh`; `/api/auth/logout`                                                                                                               | Embedded auth uses the existing flow; iframe attestation selects a separate Secure/HttpOnly/SameSite=None/Partitioned session cookie. Cherry boot attestation cannot create or replace a session.                 |
+| Hosting                     | `frontend/next.config.ts`; `/app/cherry`                                                                                                                                                                                                              | Vercel hosts the page; `/app/cherry` allows `self` and `https://chat.cherry.fun` as frame ancestors, while other routes retain `X-Frame-Options: SAMEORIGIN`.                                           |
 | Lifecycle/UI                | wallet workspace plus `frontend/src/features/realtime-sync`                                                                                                                                                                                           | Hide chooser/connect/disconnect only after verified Cherry mode; handle mobile safe areas, suspension, resume, rejection, timeout, and canonical refetch.                                                 |
 
 Discovery is reproducible with:
@@ -167,17 +169,19 @@ The MiniApp ID is public configuration, not a secret. Launch tokens are
 credentials and must never be written to logs, analytics, URLs controlled by
 Loyal, or error details.
 
-## Implemented mobile architecture
+## Implemented embedded architecture
 
 ### Route and runtime
 
 - `/app/cherry` is the only Cherry entry.
-- It requires both `window.__cherry === true` and a callable
-  `ReactNativeWebView.postMessage` before dynamically importing the SDK.
+- Mobile WebView entries require both `window.__cherry === true` and a callable
+  `ReactNativeWebView.postMessage`; iframe entries require `cherry_embed=1` and
+  `window.parent !== window` before dynamically importing the SDK.
 - A missing host, handshake timeout, unconfigured app, invalid token, wallet
   mismatch, or disconnect fails before the Loyal workspace mounts.
-- Web iframe, cross-site-cookie, blink, Cherry navigation, and Privy work are
-  deliberately absent from this mobile slice.
+- A successful iframe launch attestation sets the embed context marker, and the
+  auth session service uses a partitioned cookie for that embedded context.
+  Blink, Cherry navigation, and Privy work remain absent.
 
 ### Identity and existing Loyal auth
 
