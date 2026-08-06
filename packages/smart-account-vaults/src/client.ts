@@ -2373,6 +2373,55 @@ function readKaminoDepositInstruction(
   ).instruction;
 }
 
+// Kamino instruction templates are a pure function of (wallet, market,
+// reserve, amount) over short horizons, so a small single-flight TTL cache
+// lets a UI prefetch absorb the API round-trip and dedupes back-to-back
+// prepares of the same request. Only the raw response is cached — every
+// caller re-parses it into fresh instruction objects, so cache hits never
+// share mutable state. A template that goes stale mid-TTL fails the same
+// validation/simulation it would have failed if fetched moments earlier.
+const KAMINO_INSTRUCTION_RESPONSE_TTL_MS = 45_000;
+const KAMINO_INSTRUCTION_RESPONSE_CACHE_MAX_ENTRIES = 8;
+const kaminoInstructionResponseCache = new Map<
+  string,
+  { expiresAtMs: number; response: Promise<KaminoInstructionResponse> }
+>();
+
+function fetchKaminoInstructionResponseCached(
+  cacheKey: string,
+  load: () => Promise<KaminoInstructionResponse>
+): Promise<KaminoInstructionResponse> {
+  // Only browser sessions benefit: that's where a prefetch precedes the
+  // prepare. Server processes get no cross-request reuse worth the staleness
+  // and test-isolation trade-offs.
+  if (typeof window === "undefined") {
+    return load();
+  }
+  const now = Date.now();
+  const cached = kaminoInstructionResponseCache.get(cacheKey);
+  if (cached && cached.expiresAtMs > now) {
+    return cached.response;
+  }
+  kaminoInstructionResponseCache.delete(cacheKey);
+  const response = load();
+  kaminoInstructionResponseCache.set(cacheKey, {
+    expiresAtMs: now + KAMINO_INSTRUCTION_RESPONSE_TTL_MS,
+    response,
+  });
+  response.catch(() => kaminoInstructionResponseCache.delete(cacheKey));
+  while (
+    kaminoInstructionResponseCache.size >
+    KAMINO_INSTRUCTION_RESPONSE_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = kaminoInstructionResponseCache.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    kaminoInstructionResponseCache.delete(oldestKey);
+  }
+  return response;
+}
+
 async function fetchKaminoDepositInstruction(args: {
   amountRaw: bigint;
   depositDiscriminator: readonly number[];
@@ -2391,25 +2440,32 @@ async function fetchKaminoDepositInstruction(args: {
     reserve: args.reserve.toBase58(),
     amount,
   };
-  const response = await fetch(
-    typeof window === "undefined" || IS_REACT_NATIVE
-      ? KAMINO_DEPOSIT_INSTRUCTIONS_URL
-      : KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
+  const payload = await fetchKaminoInstructionResponseCached(
+    `deposit:${JSON.stringify(requestBody)}`,
+    async () => {
+      const response = await fetch(
+        typeof window === "undefined" || IS_REACT_NATIVE
+          ? KAMINO_DEPOSIT_INSTRUCTIONS_URL
+          : KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Kamino deposit instruction request failed with status ${response.status}.`
+        );
+      }
+
+      return (await response.json()) as KaminoInstructionResponse;
     }
   );
 
-  if (!response.ok) {
-    throw new Error(
-      `Kamino deposit instruction request failed with status ${response.status}.`
-    );
-  }
-
   return readKaminoInstructionBundle(
-    (await response.json()) as KaminoInstructionResponse,
+    payload,
     args.lendProgramId,
     args.depositDiscriminator,
     "deposit"
@@ -2424,34 +2480,42 @@ async function fetchKaminoWithdrawInstruction(args: {
   withdrawDiscriminator: readonly number[];
   wallet: PublicKey;
 }): Promise<KaminoInstructionBundle> {
-  const response = await fetch(
-    typeof window === "undefined" || IS_REACT_NATIVE
-      ? KAMINO_WITHDRAW_INSTRUCTIONS_URL
-      : KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        wallet: args.wallet.toBase58(),
-        market: args.market.toBase58(),
-        reserve: args.reserve.toBase58(),
-        amount: formatRawTokenAmountForApi(
-          args.amountRaw,
-          EARN_DEPOSIT_USDC_DECIMALS
-        ),
-      }),
+  const requestBody = {
+    wallet: args.wallet.toBase58(),
+    market: args.market.toBase58(),
+    reserve: args.reserve.toBase58(),
+    amount: formatRawTokenAmountForApi(
+      args.amountRaw,
+      EARN_DEPOSIT_USDC_DECIMALS
+    ),
+  };
+  const payload = await fetchKaminoInstructionResponseCached(
+    `withdraw:${JSON.stringify(requestBody)}`,
+    async () => {
+      const response = await fetch(
+        typeof window === "undefined" || IS_REACT_NATIVE
+          ? KAMINO_WITHDRAW_INSTRUCTIONS_URL
+          : KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (!response.ok) {
+        const responseText = await response.text().catch(() => "");
+        throw new Error(
+          `Kamino withdraw instruction request failed with status ${response.status}: ${responseText}`
+        );
+      }
+
+      return (await response.json()) as KaminoInstructionResponse;
     }
   );
 
-  if (!response.ok) {
-    const responseText = await response.text().catch(() => "");
-    throw new Error(
-      `Kamino withdraw instruction request failed with status ${response.status}: ${responseText}`
-    );
-  }
-
   return readKaminoInstructionBundle(
-    (await response.json()) as KaminoInstructionResponse,
+    payload,
     args.lendProgramId,
     args.withdrawDiscriminator,
     "withdraw"
@@ -6885,6 +6949,40 @@ export function createSmartAccountVaultsClient(
     });
   }
 
+  // Warms the Kamino instruction-response cache so a subsequent
+  // prepareEarnUsdcDeposit for the same amount skips the API round-trip —
+  // the prepare's longest leg. Best-effort by design: failures stay silent
+  // and the real prepare surfaces them.
+  async function prefetchEarnUsdcDepositInstructions(args: {
+    amountRaw: bigint;
+    cluster?: LoyalCluster;
+    settingsPda: PublicKey;
+    target?: SmartAccountEarnUsdcDepositInput["target"];
+  }): Promise<void> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    if (args.amountRaw <= BigInt(0) || cluster === LoyalCluster.Devnet) {
+      return;
+    }
+    const earnTarget = resolveKaminoEarnTarget(cluster, args.target);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    try {
+      await fetchKaminoDepositInstruction({
+        amountRaw: args.amountRaw,
+        depositDiscriminator: earnTarget.depositDiscriminator,
+        lendProgramId: earnTarget.lendProgramId,
+        market: earnTarget.market,
+        reserve: earnTarget.reserve,
+        wallet: vaultPda,
+      });
+    } catch {
+      // Prefetch must never surface errors.
+    }
+  }
+
   async function prepareEarnUsdcDeposit(
     args: SmartAccountEarnUsdcDepositInput
   ): Promise<SmartAccountPreparedEarnUsdcDeposit> {
@@ -11013,6 +11111,7 @@ export function createSmartAccountVaultsClient(
     prepareRemoveSpendingLimitPolicy,
     prepareRemoveSpendingLimitProposal: prepareRemoveSpendingLimitPolicy,
     prepareEarnUsdcYieldRoutingPolicy,
+    prefetchEarnUsdcDepositInstructions,
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,
     prepareEarnUsdcCleanup,
