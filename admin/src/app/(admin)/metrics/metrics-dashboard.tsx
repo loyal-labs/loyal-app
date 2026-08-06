@@ -16,6 +16,14 @@ import {
   ChartTooltip,
   type ChartConfig,
 } from "@/components/ui/chart";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 import type {
   MetricPoint,
@@ -492,6 +500,59 @@ function MetricTooltip({
   );
 }
 
+/**
+ * The WCAG-clean twin of the plot. Three light-mode slots sit below 3:1 against
+ * the card, and a tooltip must never be the only way to reach a value, so every
+ * measured bucket is readable as text here.
+ */
+function MetricTable({
+  chart,
+}: {
+  chart: OperationChart;
+}) {
+  const rows = chart.data.filter((row) =>
+    chart.series.some((spec) => typeof row[spec.key] === "number")
+  );
+
+  return (
+    <div className="max-h-[260px] overflow-auto rounded-md border">
+      <Table>
+        <TableHeader className="sticky top-0 bg-card">
+          <TableRow>
+            <TableHead className="whitespace-nowrap">Bucket (UTC)</TableHead>
+            {chart.series.map((spec) => (
+              // No swatch here on purpose: this view exists so identity and
+              // value read without colour.
+              <TableHead className="text-right whitespace-nowrap" key={spec.key}>
+                {spec.label}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={String(row.bucketTime)}>
+              <TableCell className="whitespace-nowrap tabular-nums">
+                {formatUtcTimestamp(row.bucketTime)}
+              </TableCell>
+              {chart.series.map((spec) => (
+                <TableCell
+                  className="text-right tabular-nums"
+                  key={spec.key}
+                >
+                  {typeof row[spec.key] === "number"
+                    ? formatDuration(row[spec.key] as number)
+                    : "—"}
+                </TableCell>
+              ))}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 /** Sparse operations get their numbers directly — a line through 2 points is a lie. */
 function ValueTiles({
   latestByKey,
@@ -529,6 +590,7 @@ function MetricChartCard({
   chart: OperationChart;
 }) {
   const [showOutliers, setShowOutliers] = useState(false);
+  const [showTable, setShowTable] = useState(false);
 
   const values = useMemo(
     () =>
@@ -569,16 +631,30 @@ function MetricChartCard({
       <CardHeader className="gap-1">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <CardTitle>{humanizePath(chart.operation)}</CardTitle>
-          {showTrend && hasOutliers ? (
-            <Button
-              className="h-6 px-2 text-xs"
-              onClick={() => setShowOutliers((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showOutliers ? "secondary" : "outline"}
-            >
-              {showOutliers ? "Clip outliers" : `Show ${clippedCount} above`}
-            </Button>
+          {showTrend ? (
+            <div className="flex items-center gap-1.5">
+              {hasOutliers && !showTable ? (
+                <Button
+                  className="h-6 px-2 text-xs"
+                  onClick={() => setShowOutliers((value) => !value)}
+                  size="sm"
+                  type="button"
+                  variant={showOutliers ? "secondary" : "outline"}
+                >
+                  {showOutliers ? "Clip outliers" : `Show ${clippedCount} above`}
+                </Button>
+              ) : null}
+              <Button
+                aria-pressed={showTable}
+                className="h-6 px-2 text-xs"
+                onClick={() => setShowTable((value) => !value)}
+                size="sm"
+                type="button"
+                variant={showTable ? "secondary" : "outline"}
+              >
+                {showTable ? "Chart" : "Table"}
+              </Button>
+            </div>
           ) : null}
         </div>
         <CardDescription className="tabular-nums">
@@ -592,10 +668,11 @@ function MetricChartCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 space-y-4">
-        {showTrend ? (
+        {showTrend && !showTable ? (
           <ChartLegend latestByKey={chart.latestByKey} series={chart.series} />
         ) : null}
-        {showTrend ? (
+        {showTrend && showTable ? <MetricTable chart={chart} /> : null}
+        {showTrend && !showTable ? (
           <ChartContainer
             className="aspect-auto h-[220px] w-full min-w-0"
             config={config}
@@ -660,7 +737,8 @@ function MetricChartCard({
               ))}
             </LineChart>
           </ChartContainer>
-        ) : (
+        ) : null}
+        {showTrend ? null : (
           <ValueTiles latestByKey={chart.latestByKey} series={chart.series} />
         )}
       </CardContent>
