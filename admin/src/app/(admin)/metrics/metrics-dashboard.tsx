@@ -40,9 +40,6 @@ const SERIES_SLOT_COUNT = 6;
  */
 const MIN_BUCKETS_FOR_TREND = 6;
 
-/** Clamping the axis is only worth the confusion when an outlier really dwarfs the rest. */
-const OUTLIER_RATIO = 1.5;
-
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
 /** Never collapse the axis below this, however short the measured history is. */
@@ -234,6 +231,9 @@ function buildValueAxis(maxValue: number): { max: number; ticks: number[] } {
 
 /** One unit for the whole axis — mixing "50s" and "1.3m" hides even spacing. */
 function formatAxisValue(ms: number, axisMax: number): string {
+  if (ms === 0) {
+    return "0";
+  }
   if (axisMax < 1_000) {
     return `${Math.round(ms)}ms`;
   }
@@ -605,15 +605,18 @@ function MetricChartCard({
 
   const fullMax = values.length > 0 ? Math.max(...values) : 0;
   const robustMax = percentile(values, 0.95);
-  const hasOutliers = fullMax > robustMax * OUTLIER_RATIO && robustMax > 0;
+  const fullAxis = buildValueAxis(fullMax);
   const clippedAxis = buildValueAxis(robustMax);
-  const valueAxis =
-    hasOutliers && !showOutliers ? clippedAxis : buildValueAxis(fullMax);
-  // Counted against the clipped axis either way, so the label stays put instead
-  // of dropping to "0 above" the moment the outliers are shown.
+  // Counted against the clipped axis in both states, so the label stays put
+  // instead of dropping to "0 above" the moment the outliers are shown.
   const outlierCount = values.filter(
     (value) => value > clippedAxis.max
   ).length;
+  // Both conditions read off the axis that actually renders. Comparing the raw
+  // p95 instead would disagree with the count, because niceStep rounds the axis
+  // up far enough that it can already contain every point.
+  const canClip = outlierCount > 0 && clippedAxis.max < fullAxis.max;
+  const valueAxis = canClip && !showOutliers ? clippedAxis : fullAxis;
 
   const config = useMemo(
     () =>
@@ -641,7 +644,7 @@ function MetricChartCard({
                   controls and lets aria-pressed carry the on/off state. A label
                   that flips to the other mode's name would make a pressed
                   toggle announce the mode it is not in. */}
-              {hasOutliers && !showTable ? (
+              {canClip && !showTable ? (
                 <Button
                   aria-label={`Include ${outlierCount} ${
                     outlierCount === 1 ? "point" : "points"
