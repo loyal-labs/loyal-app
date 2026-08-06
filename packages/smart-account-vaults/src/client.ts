@@ -634,6 +634,7 @@ function getPreparedRequiredSignatureCount(
 
 async function estimatePreparedFeeLamports(args: {
   connection: Connection;
+  getLatestBlockhash?: () => Promise<{ blockhash: string }>;
   prepared: PreparedLoyalSmartAccountsOperation<string>;
 }): Promise<bigint> {
   const fallback = getFallbackPreparedFeeLamports(args.prepared);
@@ -652,10 +653,11 @@ async function estimatePreparedFeeLamports(args: {
   }
 
   try {
-    const latestBlockhash =
-      typeof connectionWithFees.getLatestBlockhash === "function"
-        ? await connectionWithFees.getLatestBlockhash("confirmed")
-        : { blockhash: "11111111111111111111111111111111" };
+    const latestBlockhash = args.getLatestBlockhash
+      ? await args.getLatestBlockhash()
+      : typeof connectionWithFees.getLatestBlockhash === "function"
+      ? await connectionWithFees.getLatestBlockhash("confirmed")
+      : { blockhash: "11111111111111111111111111111111" };
     const transaction = compilePreparedOperation({
       blockhash: latestBlockhash.blockhash,
       prepared: args.prepared,
@@ -787,10 +789,49 @@ async function estimateNativeSolRequirement(args: {
   const unknownRentCandidates = rentCandidates.filter(
     (candidate) => candidate.exists === undefined
   );
-  const existingAccounts = await getExistingAccountSet({
-    accounts: unknownRentCandidates.map((candidate) => candidate.account),
-    connection: args.connection,
-  });
+  const connectionWithBlockhash = args.connection as Connection & {
+    getLatestBlockhash?: (
+      commitment?: "confirmed"
+    ) => Promise<{ blockhash: string }>;
+  };
+  // One blockhash serves every prepared-transaction fee estimate; fetching it
+  // per estimate just multiplies round-trips.
+  let latestBlockhashPromise: Promise<{ blockhash: string }> | null = null;
+  const getSharedLatestBlockhash =
+    typeof connectionWithBlockhash.getLatestBlockhash === "function"
+      ? () =>
+          (latestBlockhashPromise ??=
+            connectionWithBlockhash.getLatestBlockhash!("confirmed"))
+      : undefined;
+  const shouldQueryBalance =
+    args.balanceLamports === undefined &&
+    args.checkBalance !== false &&
+    typeof args.connection.getBalance === "function";
+  // The existing-account scan, fee estimates, and payer balance don't depend
+  // on each other — only the items assembly below needs them all.
+  const [existingAccounts, feeLamportsByIndex, queriedBalanceLamports] =
+    await Promise.all([
+      getExistingAccountSet({
+        accounts: unknownRentCandidates.map((candidate) => candidate.account),
+        connection: args.connection,
+      }),
+      Promise.all(
+        args.prepared.map((prepared) =>
+          args.estimateFees === false
+            ? Promise.resolve(getFallbackPreparedFeeLamports(prepared))
+            : estimatePreparedFeeLamports({
+                connection: args.connection,
+                prepared,
+                ...(getSharedLatestBlockhash
+                  ? { getLatestBlockhash: getSharedLatestBlockhash }
+                  : {}),
+              })
+        )
+      ),
+      shouldQueryBalance
+        ? args.connection.getBalance(args.payer, "confirmed")
+        : Promise.resolve(null),
+    ]);
   const items: SmartAccountNativeSolRequirementItem[] = [];
 
   for (const item of fixedItems) {
@@ -834,13 +875,7 @@ async function estimateNativeSolRequirement(args: {
   }
 
   for (const [index, prepared] of args.prepared.entries()) {
-    const lamports =
-      args.estimateFees === false
-        ? getFallbackPreparedFeeLamports(prepared)
-        : await estimatePreparedFeeLamports({
-            connection: args.connection,
-            prepared,
-          });
+    const lamports = feeLamportsByIndex[index]!;
     if (lamports <= BigInt(0)) {
       continue;
     }
@@ -867,10 +902,9 @@ async function estimateNativeSolRequirement(args: {
   const balanceLamports =
     args.balanceLamports !== undefined
       ? toLamportsBigInt(args.balanceLamports)
-      : args.checkBalance === false ||
-        typeof args.connection.getBalance !== "function"
+      : queriedBalanceLamports === null
       ? requiredLamports
-      : BigInt(await args.connection.getBalance(args.payer, "confirmed"));
+      : BigInt(queriedBalanceLamports);
   const deficitLamports =
     requiredLamports > balanceLamports
       ? requiredLamports - balanceLamports
@@ -2339,6 +2373,55 @@ function readKaminoDepositInstruction(
   ).instruction;
 }
 
+// Kamino instruction templates are a pure function of (wallet, market,
+// reserve, amount) over short horizons, so a small single-flight TTL cache
+// lets a UI prefetch absorb the API round-trip and dedupes back-to-back
+// prepares of the same request. Only the raw response is cached — every
+// caller re-parses it into fresh instruction objects, so cache hits never
+// share mutable state. A template that goes stale mid-TTL fails the same
+// validation/simulation it would have failed if fetched moments earlier.
+const KAMINO_INSTRUCTION_RESPONSE_TTL_MS = 45_000;
+const KAMINO_INSTRUCTION_RESPONSE_CACHE_MAX_ENTRIES = 8;
+const kaminoInstructionResponseCache = new Map<
+  string,
+  { expiresAtMs: number; response: Promise<KaminoInstructionResponse> }
+>();
+
+function fetchKaminoInstructionResponseCached(
+  cacheKey: string,
+  load: () => Promise<KaminoInstructionResponse>
+): Promise<KaminoInstructionResponse> {
+  // Only browser sessions benefit: that's where a prefetch precedes the
+  // prepare. Server processes get no cross-request reuse worth the staleness
+  // and test-isolation trade-offs.
+  if (typeof window === "undefined") {
+    return load();
+  }
+  const now = Date.now();
+  const cached = kaminoInstructionResponseCache.get(cacheKey);
+  if (cached && cached.expiresAtMs > now) {
+    return cached.response;
+  }
+  kaminoInstructionResponseCache.delete(cacheKey);
+  const response = load();
+  kaminoInstructionResponseCache.set(cacheKey, {
+    expiresAtMs: now + KAMINO_INSTRUCTION_RESPONSE_TTL_MS,
+    response,
+  });
+  response.catch(() => kaminoInstructionResponseCache.delete(cacheKey));
+  while (
+    kaminoInstructionResponseCache.size >
+    KAMINO_INSTRUCTION_RESPONSE_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = kaminoInstructionResponseCache.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    kaminoInstructionResponseCache.delete(oldestKey);
+  }
+  return response;
+}
+
 async function fetchKaminoDepositInstruction(args: {
   amountRaw: bigint;
   depositDiscriminator: readonly number[];
@@ -2357,25 +2440,32 @@ async function fetchKaminoDepositInstruction(args: {
     reserve: args.reserve.toBase58(),
     amount,
   };
-  const response = await fetch(
-    typeof window === "undefined" || IS_REACT_NATIVE
-      ? KAMINO_DEPOSIT_INSTRUCTIONS_URL
-      : KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
+  const payload = await fetchKaminoInstructionResponseCached(
+    `deposit:${JSON.stringify(requestBody)}`,
+    async () => {
+      const response = await fetch(
+        typeof window === "undefined" || IS_REACT_NATIVE
+          ? KAMINO_DEPOSIT_INSTRUCTIONS_URL
+          : KAMINO_BROWSER_DEPOSIT_INSTRUCTIONS_URL,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          `Kamino deposit instruction request failed with status ${response.status}.`
+        );
+      }
+
+      return (await response.json()) as KaminoInstructionResponse;
     }
   );
 
-  if (!response.ok) {
-    throw new Error(
-      `Kamino deposit instruction request failed with status ${response.status}.`
-    );
-  }
-
   return readKaminoInstructionBundle(
-    (await response.json()) as KaminoInstructionResponse,
+    payload,
     args.lendProgramId,
     args.depositDiscriminator,
     "deposit"
@@ -2390,34 +2480,42 @@ async function fetchKaminoWithdrawInstruction(args: {
   withdrawDiscriminator: readonly number[];
   wallet: PublicKey;
 }): Promise<KaminoInstructionBundle> {
-  const response = await fetch(
-    typeof window === "undefined" || IS_REACT_NATIVE
-      ? KAMINO_WITHDRAW_INSTRUCTIONS_URL
-      : KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        wallet: args.wallet.toBase58(),
-        market: args.market.toBase58(),
-        reserve: args.reserve.toBase58(),
-        amount: formatRawTokenAmountForApi(
-          args.amountRaw,
-          EARN_DEPOSIT_USDC_DECIMALS
-        ),
-      }),
+  const requestBody = {
+    wallet: args.wallet.toBase58(),
+    market: args.market.toBase58(),
+    reserve: args.reserve.toBase58(),
+    amount: formatRawTokenAmountForApi(
+      args.amountRaw,
+      EARN_DEPOSIT_USDC_DECIMALS
+    ),
+  };
+  const payload = await fetchKaminoInstructionResponseCached(
+    `withdraw:${JSON.stringify(requestBody)}`,
+    async () => {
+      const response = await fetch(
+        typeof window === "undefined" || IS_REACT_NATIVE
+          ? KAMINO_WITHDRAW_INSTRUCTIONS_URL
+          : KAMINO_BROWSER_WITHDRAW_INSTRUCTIONS_URL,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }
+      );
+
+      if (!response.ok) {
+        const responseText = await response.text().catch(() => "");
+        throw new Error(
+          `Kamino withdraw instruction request failed with status ${response.status}: ${responseText}`
+        );
+      }
+
+      return (await response.json()) as KaminoInstructionResponse;
     }
   );
 
-  if (!response.ok) {
-    const responseText = await response.text().catch(() => "");
-    throw new Error(
-      `Kamino withdraw instruction request failed with status ${response.status}: ${responseText}`
-    );
-  }
-
   return readKaminoInstructionBundle(
-    (await response.json()) as KaminoInstructionResponse,
+    payload,
     args.lendProgramId,
     args.withdrawDiscriminator,
     "withdraw"
@@ -6045,12 +6143,11 @@ export function createSmartAccountVaultsClient(
     settingsPda: PublicKey;
     signer: PublicKey;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
-    const settings =
-      await smartAccountsClient.smartAccounts.queries.fetchSettings(
-        args.settingsPda
-      );
-    const currentPolicySeed =
-      settings.policySeed == null ? BigInt(0) : toBigInt(settings.policySeed);
+    const settingsPromise =
+      smartAccountsClient.smartAccounts.queries.fetchSettings(args.settingsPda);
+    // A guard below can throw before this promise is awaited; keep its
+    // rejection observed so it can't surface as an unhandled rejection.
+    settingsPromise.catch(() => undefined);
     const vault = pda.getSmartAccountPda({
       programId: smartAccountsClient.programId,
       settingsPda: args.settingsPda,
@@ -6089,17 +6186,6 @@ export function createSmartAccountVaultsClient(
       });
 
     if (args.knownRoute) {
-      const routeEntry = await fetchRawPolicyAtAddress({
-        account: args.knownRoute.account,
-        label: "Earn route policy",
-      });
-      if (!routeEntry) {
-        throw new Error(
-          "The persisted Earn route policy is absent on-chain. Refresh policy state before depositing."
-        );
-      }
-      assertRoute(routeEntry, args.knownRoute.seed);
-
       const setupSeed = args.knownRoute.seed + BigInt(1);
       if (setupSeed > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new Error("Earn setup policy seed is too large for this client.");
@@ -6109,10 +6195,28 @@ export function createSmartAccountVaultsClient(
         settingsPda: args.settingsPda,
         policySeed: Number(setupSeed),
       })[0];
-      const setupEntry = await fetchRawPolicyAtAddress({
-        account: setupAccount,
-        label: "Earn setup policy",
-      });
+      // The settings, route-policy, and setup-policy reads are independent;
+      // fetching them concurrently keeps the common top-up prepare at one
+      // round-trip instead of three.
+      const [settings, routeEntry, setupEntry] = await Promise.all([
+        settingsPromise,
+        fetchRawPolicyAtAddress({
+          account: args.knownRoute.account,
+          label: "Earn route policy",
+        }),
+        fetchRawPolicyAtAddress({
+          account: setupAccount,
+          label: "Earn setup policy",
+        }),
+      ]);
+      const currentPolicySeed =
+        settings.policySeed == null ? BigInt(0) : toBigInt(settings.policySeed);
+      if (!routeEntry) {
+        throw new Error(
+          "The persisted Earn route policy is absent on-chain. Refresh policy state before depositing."
+        );
+      }
+      assertRoute(routeEntry, args.knownRoute.seed);
       if (setupEntry) {
         assertSetup(setupEntry, setupSeed);
         return {
@@ -6155,9 +6259,16 @@ export function createSmartAccountVaultsClient(
         "Cannot safely prepare an Earn policy without scanning on-chain policies."
       );
     }
+    // Start the policy scan while the settings read resolves — the scan does
+    // not depend on it.
+    const policiesPromise = listRawPolicies({ settingsPda: args.settingsPda });
+    policiesPromise.catch(() => undefined);
+    const settings = await settingsPromise;
+    const currentPolicySeed =
+      settings.policySeed == null ? BigInt(0) : toBigInt(settings.policySeed);
     let policies: RawPolicyEntry[];
     try {
-      policies = await listRawPolicies({ settingsPda: args.settingsPda });
+      policies = await policiesPromise;
     } catch (error) {
       const detail = error instanceof Error ? ` ${error.message}` : "";
       throw new Error(`Cannot safely scan Earn policies.${detail}`);
@@ -6838,6 +6949,40 @@ export function createSmartAccountVaultsClient(
     });
   }
 
+  // Warms the Kamino instruction-response cache so a subsequent
+  // prepareEarnUsdcDeposit for the same amount skips the API round-trip —
+  // the prepare's longest leg. Best-effort by design: failures stay silent
+  // and the real prepare surfaces them.
+  async function prefetchEarnUsdcDepositInstructions(args: {
+    amountRaw: bigint;
+    cluster?: LoyalCluster;
+    settingsPda: PublicKey;
+    target?: SmartAccountEarnUsdcDepositInput["target"];
+  }): Promise<void> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    if (args.amountRaw <= BigInt(0) || cluster === LoyalCluster.Devnet) {
+      return;
+    }
+    const earnTarget = resolveKaminoEarnTarget(cluster, args.target);
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    try {
+      await fetchKaminoDepositInstruction({
+        amountRaw: args.amountRaw,
+        depositDiscriminator: earnTarget.depositDiscriminator,
+        lendProgramId: earnTarget.lendProgramId,
+        market: earnTarget.market,
+        reserve: earnTarget.reserve,
+        wallet: vaultPda,
+      });
+    } catch {
+      // Prefetch must never surface errors.
+    }
+  }
+
   async function prepareEarnUsdcDeposit(
     args: SmartAccountEarnUsdcDepositInput
   ): Promise<SmartAccountPreparedEarnUsdcDeposit> {
@@ -6882,7 +7027,10 @@ export function createSmartAccountVaultsClient(
       : null;
     const shouldInitializeYieldRoutingPolicy =
       args.initializeYieldRoutingPolicy ?? true;
-    if (typeof config.connection.getTokenAccountBalance === "function") {
+    const assertWalletUsdcCoversDeposit = async (): Promise<void> => {
+      if (typeof config.connection.getTokenAccountBalance !== "function") {
+        return;
+      }
       try {
         const walletUsdcBalance =
           await config.connection.getTokenAccountBalance(
@@ -6912,30 +7060,88 @@ export function createSmartAccountVaultsClient(
         }
         throw error;
       }
+    };
+    const resolveEarnPolicyForDeposit = () =>
+      shouldInitializeYieldRoutingPolicy
+        ? resolveEarnYieldRoutingPolicyForPreparation({
+            cluster,
+            feePayer: args.feePayer,
+            policySigner: args.policySigner,
+            settingsPda: args.settingsPda,
+            signer: args.walletAddress,
+          })
+        : args.yieldRoutingPolicy
+        ? resolveEarnYieldRoutingPolicyForPreparation({
+            cluster,
+            feePayer: args.feePayer,
+            knownRoute: {
+              account: args.yieldRoutingPolicy.account,
+              seed: args.yieldRoutingPolicy.seed,
+            },
+            policySigner: args.policySigner,
+            settingsPda: args.settingsPda,
+            signer: args.walletAddress,
+          })
+        : resolveEarnYieldRoutingPolicyForExecution({
+            settingsPda: args.settingsPda,
+          });
+    let targetReserveAccountsPromise: Promise<KaminoReserveTokenAccounts> | null =
+      null;
+    const fetchTargetReserveAccounts =
+      (): Promise<KaminoReserveTokenAccounts> =>
+        (targetReserveAccountsPromise ??= (async () => {
+          const reserveAccount = await config.connection.getAccountInfo(
+            earnTarget.reserve,
+            "confirmed"
+          );
+          if (!reserveAccount) {
+            throw new Error("Selected Kamino reserve account was not found.");
+          }
+
+          const reserveTokenAccounts = parseKaminoReserveTokenAccounts(
+            reserveAccount.data
+          );
+          assertKaminoAccountEquals({
+            actual: reserveTokenAccounts.reserveLiquidityMint,
+            expected: usdcMint,
+            label: "liquidity mint",
+          });
+
+          return reserveTokenAccounts;
+        })());
+    // The prepare's slow legs — the wallet balance gate, the policy reads,
+    // the Kamino instructions API, and the reserve read the mainnet path
+    // below always performs — are independent, so run them concurrently.
+    // allSettled (with rethrows in the original await order) keeps error
+    // precedence identical to the old sequential flow.
+    const [balanceLeg, policyLeg, kaminoLeg] = await Promise.allSettled([
+      assertWalletUsdcCoversDeposit(),
+      resolveEarnPolicyForDeposit(),
+      cluster === LoyalCluster.Devnet
+        ? Promise.resolve(null)
+        : fetchKaminoDepositInstruction({
+            amountRaw: args.amountRaw,
+            depositDiscriminator: earnTarget.depositDiscriminator,
+            lendProgramId: earnTarget.lendProgramId,
+            market: earnTarget.market,
+            reserve: earnTarget.reserve,
+            wallet: vaultPda,
+          }),
+      cluster !== LoyalCluster.Devnet &&
+      typeof config.connection.getAccountInfo === "function"
+        ? fetchTargetReserveAccounts()
+        : Promise.resolve(null),
+    ]);
+    if (balanceLeg.status === "rejected") {
+      throw balanceLeg.reason;
     }
-    const earnPolicy = shouldInitializeYieldRoutingPolicy
-      ? await resolveEarnYieldRoutingPolicyForPreparation({
-          cluster,
-          feePayer: args.feePayer,
-          policySigner: args.policySigner,
-          settingsPda: args.settingsPda,
-          signer: args.walletAddress,
-        })
-      : args.yieldRoutingPolicy
-      ? await resolveEarnYieldRoutingPolicyForPreparation({
-          cluster,
-          feePayer: args.feePayer,
-          knownRoute: {
-            account: args.yieldRoutingPolicy.account,
-            seed: args.yieldRoutingPolicy.seed,
-          },
-          policySigner: args.policySigner,
-          settingsPda: args.settingsPda,
-          signer: args.walletAddress,
-        })
-      : await resolveEarnYieldRoutingPolicyForExecution({
-          settingsPda: args.settingsPda,
-        });
+    if (policyLeg.status === "rejected") {
+      throw policyLeg.reason;
+    }
+    if (kaminoLeg.status === "rejected") {
+      throw kaminoLeg.reason;
+    }
+    const earnPolicy = policyLeg.value;
     // "create" only when route-policy creation ops are actually prepared —
     // discovery can satisfy an initialize request by reusing an on-chain pair,
     // and confirm requires policy-creation signatures whenever it sees
@@ -6946,56 +7152,22 @@ export function createSmartAccountVaultsClient(
     const setupPolicyAccount = earnPolicy.setupAccount ?? null;
     const setupPolicySeed = earnPolicy.setupSeed ?? null;
     let kaminoDepositBundle =
-      cluster === LoyalCluster.Devnet
-        ? (() => {
-            const instruction = createLocalKaminoDepositInstruction({
-              amountRaw: args.amountRaw,
-              target: earnTarget,
-              vaultPda,
-              vaultUsdcAta,
-              vaultCollateralAta: vaultCollateralAta!,
-            });
-            return {
-              instruction,
-              instructions: [instruction],
-              lookupTableAddresses: [],
-              matchingInstructions: [instruction],
-            };
-          })()
-        : await fetchKaminoDepositInstruction({
-            amountRaw: args.amountRaw,
-            depositDiscriminator: earnTarget.depositDiscriminator,
-            lendProgramId: earnTarget.lendProgramId,
-            market: earnTarget.market,
-            reserve: earnTarget.reserve,
-            wallet: vaultPda,
-          });
-    let targetReserveAccounts: KaminoReserveTokenAccounts | null = null;
-    const fetchTargetReserveAccounts =
-      async (): Promise<KaminoReserveTokenAccounts> => {
-        if (targetReserveAccounts) {
-          return targetReserveAccounts;
-        }
-
-        const reserveAccount = await config.connection.getAccountInfo(
-          earnTarget.reserve,
-          "confirmed"
-        );
-        if (!reserveAccount) {
-          throw new Error("Selected Kamino reserve account was not found.");
-        }
-
-        targetReserveAccounts = parseKaminoReserveTokenAccounts(
-          reserveAccount.data
-        );
-        assertKaminoAccountEquals({
-          actual: targetReserveAccounts.reserveLiquidityMint,
-          expected: usdcMint,
-          label: "liquidity mint",
+      kaminoLeg.value ??
+      (() => {
+        const instruction = createLocalKaminoDepositInstruction({
+          amountRaw: args.amountRaw,
+          target: earnTarget,
+          vaultPda,
+          vaultUsdcAta,
+          vaultCollateralAta: vaultCollateralAta!,
         });
-
-        return targetReserveAccounts;
-      };
+        return {
+          instruction,
+          instructions: [instruction],
+          lookupTableAddresses: [],
+          matchingInstructions: [instruction],
+        };
+      })();
     if (cluster !== LoyalCluster.Devnet) {
       const usesCurrentDepositAccountOrder =
         kaminoDepositBundle.instruction.keys[2]?.pubkey.equals(
@@ -8191,18 +8363,24 @@ export function createSmartAccountVaultsClient(
       return reserveWithdrawals;
     };
 
-    const fullWithdrawVaultUsdcRemainderRaw = isFinalExit
-      ? await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta)
-      : BigInt(0);
-    const fullWithdrawVaultSweepLamports = isFinalExit
-      ? await getVaultSweepLamportsOrZero(config.connection, vaultPda)
-      : BigInt(0);
-
-    const reserveWithdrawals = (
-      await Promise.all(
+    // The final-exit vault reads and the per-plan withdraw collection are
+    // independent; overlap them instead of reading the vault first.
+    const [
+      fullWithdrawVaultUsdcRemainderRaw,
+      fullWithdrawVaultSweepLamports,
+      collectedReserveWithdrawals,
+    ] = await Promise.all([
+      isFinalExit
+        ? getTokenAccountAmountOrZero(config.connection, vaultUsdcAta)
+        : Promise.resolve(BigInt(0)),
+      isFinalExit
+        ? getVaultSweepLamportsOrZero(config.connection, vaultPda)
+        : Promise.resolve(BigInt(0)),
+      Promise.all(
         withdrawPlans.map((plan) => collectReserveWithdrawalsForPlan(plan))
-      )
-    ).flat();
+      ),
+    ]);
+    const reserveWithdrawals = collectedReserveWithdrawals.flat();
     if (reserveWithdrawals.length === 0) {
       throw new Error("Kamino did not return any Earn withdraw steps.");
     }
@@ -8292,17 +8470,18 @@ export function createSmartAccountVaultsClient(
           );
         }
       }
-      const batchKaminoLookupTableAccounts =
-        await resolveKaminoLookupTableAccounts({
-          addresses: batch.flatMap(
-            (withdrawal) => withdrawal.lookupTableAddresses
-          ),
-          connection: config.connection,
-        });
-      const currentVaultUsdcAmountRaw =
-        isFinalExit && isFinalBatch
-          ? fullWithdrawVaultUsdcRemainderRaw
-          : await getTokenAccountAmountOrZero(config.connection, vaultUsdcAta);
+      const [batchKaminoLookupTableAccounts, currentVaultUsdcAmountRaw] =
+        await Promise.all([
+          resolveKaminoLookupTableAccounts({
+            addresses: batch.flatMap(
+              (withdrawal) => withdrawal.lookupTableAddresses
+            ),
+            connection: config.connection,
+          }),
+          isFinalExit && isFinalBatch
+            ? Promise.resolve(fullWithdrawVaultUsdcRemainderRaw)
+            : getTokenAccountAmountOrZero(config.connection, vaultUsdcAta),
+        ]);
       const {
         amountRaw: simulatedVaultUsdcAmountRaw,
         lamportAccountLamports: simulatedVaultLamports,
@@ -10932,6 +11111,7 @@ export function createSmartAccountVaultsClient(
     prepareRemoveSpendingLimitPolicy,
     prepareRemoveSpendingLimitProposal: prepareRemoveSpendingLimitPolicy,
     prepareEarnUsdcYieldRoutingPolicy,
+    prefetchEarnUsdcDepositInstructions,
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,
     prepareEarnUsdcCleanup,

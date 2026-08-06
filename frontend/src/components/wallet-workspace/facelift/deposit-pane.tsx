@@ -1,7 +1,7 @@
 "use client";
 
 import { CircleDollarSign, Landmark, PenLine, TrendingUp } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
 import {
@@ -104,6 +104,17 @@ export function DepositPane({
   const isInsufficient = !isBelowMinimum && amountUsd > usdcUsd;
   const isValidAmount = !isBelowMinimum && !isInsufficient;
   const isSubmitting = actions.isDepositPending;
+
+  // Warm the Kamino instruction fetch while the user pauses on a valid
+  // amount, so hitting Deposit skips the prepare's longest network leg.
+  const prefetchDeposit = actions.prefetchDepositPreparation;
+  useEffect(() => {
+    if (!isValidAmount) {
+      return;
+    }
+    const timer = window.setTimeout(() => prefetchDeposit(amount), 300);
+    return () => window.clearTimeout(timer);
+  }, [amount, isValidAmount, prefetchDeposit]);
 
   const handleAmountChange = (rawValue: string) => {
     const sanitized = sanitizeBucksAmountInput(rawValue, amount);
