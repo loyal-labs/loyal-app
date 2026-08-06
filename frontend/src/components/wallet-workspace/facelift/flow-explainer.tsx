@@ -3,6 +3,7 @@
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import {
   StaggerLine,
@@ -146,8 +147,10 @@ export function FlowDiagram({
   );
 }
 
-// Fixed right pane on wide viewports — same 400px slot and card skin the
-// chart column uses, so the explainer reads as part of the workspace.
+// Fixed right pane on wide viewports — the same scrollable 400px column the
+// root chart pane uses, holding the explainer card with the protocol stats
+// card below it (ASK-2047), so the action screens read as part of the
+// workspace.
 export function FlowExplainerAside({
   children,
   title,
@@ -156,13 +159,16 @@ export function FlowExplainerAside({
   title: string;
 }) {
   return (
-    <aside className="hidden h-fit max-h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
-      <header className="flex w-full items-center p-2">
-        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
-          {title}
-        </h2>
-      </header>
-      {children}
+    <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
+      <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white">
+        <header className="flex w-full items-center p-2">
+          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+            {title}
+          </h2>
+        </header>
+        {children}
+      </section>
+      <EarnStatsPanel />
     </aside>
   );
 }
