@@ -1,6 +1,7 @@
 import {
   normalizeResourceValue,
   normalizeTelemetryPathname,
+  sanitizeTelemetryText,
 } from "./error-contract";
 
 export const OBSERVABILITY_LIFECYCLE_ENDPOINT = "/api/observability/events";
@@ -221,6 +222,16 @@ export type LifecycleErrorCode = (typeof LIFECYCLE_ERROR_CODES)[number];
 // explains a failure is absent. Four unrelated incidents look identical
 // without them: the device is offline, our own client timeout elapsed, Kamino
 // is down, or an RPC answered with an error (ASK-2018).
+export const MAX_LIFECYCLE_ERROR_MESSAGE_LENGTH = 256;
+
+// Where a browser flow ran. Bounded and derived by our own detection code —
+// never a raw user-agent string, which is both high-cardinality and a
+// fingerprinting liability. Server (`node`) and app (`mobile` runtime) events
+// simply leave it unset.
+export const LIFECYCLE_CLIENT_PLATFORMS = ["desktop", "mobile"] as const;
+export type LifecycleClientPlatform =
+  (typeof LIFECYCLE_CLIENT_PLATFORMS)[number];
+
 export const LIFECYCLE_ERROR_DETAILS = [
   "mwa_unspecified",
   "mwa_wallet_not_found",
@@ -343,6 +354,20 @@ export type LifecycleDiagnostics = {
    * token-safe characters, so a free-text field would export them intact.
    */
   errorDetail?: LifecycleErrorDetail;
+  /**
+   * The underlying error's own words, for failures whose `errorCode` names a
+   * category several vendor errors collapse into and no `errorDetail` token
+   * exists yet — a wallet refusing to sign said *something*, and without it
+   * the two Brave events in ASK-2049 were undiagnosable.
+   *
+   * Free text is admissible here where it was not for `errorDetail` because
+   * it takes the same path as `exception.message` in the error channel:
+   * `sanitizeTelemetryText` at the parse boundary redacts base58/hex/encoded
+   * identifiers, bearer tokens and secret-shaped values before export, and
+   * the result is capped at MAX_LIFECYCLE_ERROR_MESSAGE_LENGTH. Only kept on
+   * `failed`/`cancelled` outcomes; dropped elsewhere, never costing the event.
+   */
+  errorMessage?: string;
   executeNowState?: ExecuteNowState;
   executionMode?: (typeof EXECUTION_MODES)[number];
   httpStatus?: number;
@@ -362,6 +387,7 @@ export type LifecycleDiagnostics = {
 };
 
 export type BrowserLifecycleEnvelope = LifecycleDiagnostics & {
+  clientPlatform?: LifecycleClientPlatform;
   durationMs: number;
   elapsedMs: number;
   flowId: string;
@@ -474,10 +500,12 @@ export function parseBrowserLifecycleEnvelope(
     "autodepositCloseRequired",
     "chainState",
     "cleanupRequired",
+    "clientPlatform",
     "durationMs",
     "elapsedMs",
     "errorCode",
     "errorDetail",
+    "errorMessage",
     "executeNowState",
     "executionMode",
     "flowId",
@@ -560,6 +588,23 @@ export function parseBrowserLifecycleEnvelope(
 
   assertOptionalEnum(record.errorCode, LIFECYCLE_ERROR_CODES);
   const errorDetail = normalizeErrorDetail(record.errorDetail);
+  // Sanitized on every parse — the client tracker and the ingest route share
+  // this function, so a message is redacted before it leaves the browser and
+  // again before it reaches the exporter.
+  const errorMessage =
+    (record.outcome === "failed" || record.outcome === "cancelled") &&
+    typeof record.errorMessage === "string"
+      ? sanitizeTelemetryText(
+          record.errorMessage,
+          MAX_LIFECYCLE_ERROR_MESSAGE_LENGTH
+        ) || undefined
+      : undefined;
+  const clientPlatform = includes(
+    LIFECYCLE_CLIENT_PLATFORMS,
+    record.clientPlatform
+  )
+    ? record.clientPlatform
+    : undefined;
   // Exact-token match only: at the ingest boundary an unrecognized value is
   // dropped, never bucketed into `other` — mapping display names onto tokens
   // is the emitter's job via normalizeLifecycleWalletProvider.
@@ -692,12 +737,14 @@ export function parseBrowserLifecycleEnvelope(
     }
   }
 
-  // `errorDetail`/`walletProvider` always overwrite the raw value; undefined
-  // when absent or normalized away, which downstream treats as "not set".
+  // Normalized fields always overwrite the raw value; undefined when absent
+  // or normalized away, which downstream treats as "not set".
   return {
     ...record,
     pathname,
+    clientPlatform,
     errorDetail,
+    errorMessage,
     walletProvider,
   } as BrowserLifecycleEnvelope;
 }
@@ -797,7 +844,23 @@ function fallbackRandomUuidV4(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+// Formats an unknown error for the `errorMessage` diagnostic: class name plus
+// message, with the wallet adapter's nested cause appended when present —
+// adapters wrap the provider's real error under `.error` (or `.cause`), and
+// that inner message is usually the diagnosis. Redaction happens at the parse
+// boundary, not here.
+export function lifecycleErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause =
+    (error as Error & { error?: unknown }).error ?? error.cause;
+  const base = `${error.name}: ${error.message}`;
+  if (cause instanceof Error) return `${base} <- ${cause.name}: ${cause.message}`;
+  if (cause !== undefined && cause !== null) return `${base} <- ${String(cause)}`;
+  return base;
+}
+
 export function createLifecycleTracker(args: {
+  clientPlatform?: LifecycleClientPlatform;
   emit: (event: BrowserLifecycleEnvelope) => void;
   flowId?: string;
   flowName: LifecycleFlowName;
@@ -835,6 +898,9 @@ export function createLifecycleTracker(args: {
       const event = parseBrowserLifecycleEnvelope(
         {
           ...diagnostics,
+          ...(args.clientPlatform
+            ? { clientPlatform: args.clientPlatform }
+            : {}),
           durationMs: Math.min(
             900_000,
             Math.max(0, Math.round(current - lastAt))
@@ -893,6 +959,9 @@ export function createLifecycleTracker(args: {
           parseBrowserLifecycleEnvelope(
             {
               ...diagnostics,
+              ...(args.clientPlatform
+                ? { clientPlatform: args.clientPlatform }
+                : {}),
               chainState: "confirmed",
               durationMs: Math.min(
                 900_000,

@@ -45,6 +45,7 @@ import { useExplicitWalletConnectIntent } from "@/components/solana/wallet-provi
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
 import {
   type LifecycleErrorCode,
+  lifecycleErrorMessage,
   type LifecycleFlowStage,
   type LifecycleTracker,
   normalizeLifecycleErrorCode,
@@ -273,6 +274,7 @@ export function useWalletProofAuth({
       } else {
         lifecycleRef.current?.fail(options?.stage ?? "completion", {
           errorCode,
+          errorMessage: lifecycleErrorMessage(error),
           walletProvider,
         });
       }

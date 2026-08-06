@@ -20,6 +20,7 @@ import {
 import {
   type BrowserLifecycleEnvelope,
   createLifecycleTracker,
+  type LifecycleClientPlatform,
   type LifecycleFlowName,
   type LifecycleFlowVariant,
   type LifecycleTracker,
@@ -360,6 +361,30 @@ export function captureBrowserLifecycle(
   }
 }
 
+// Client Hints where available, user-agent tokens otherwise. iPadOS reports a
+// "Macintosh" user agent; multi-touch is the only tell, and it is scoped to
+// that UA so touchscreen laptops keep reporting desktop.
+function detectBrowserClientPlatform(): LifecycleClientPlatform {
+  try {
+    const userAgentData = (
+      navigator as Navigator & { userAgentData?: { mobile?: boolean } }
+    ).userAgentData;
+    if (typeof userAgentData?.mobile === "boolean") {
+      return userAgentData.mobile ? "mobile" : "desktop";
+    }
+    const userAgent = navigator.userAgent;
+    if (/Android|iPad|iPhone|iPod|Mobile/i.test(userAgent)) {
+      return "mobile";
+    }
+    if (/Macintosh/.test(userAgent) && navigator.maxTouchPoints > 1) {
+      return "mobile";
+    }
+    return "desktop";
+  } catch {
+    return "desktop";
+  }
+}
+
 export function createBrowserLifecycleTracker(args: {
   flowId?: string;
   flowName: LifecycleFlowName;
@@ -367,6 +392,9 @@ export function createBrowserLifecycleTracker(args: {
   pathname?: string;
 }): LifecycleTracker {
   return createLifecycleTracker({
+    ...(typeof window === "undefined"
+      ? {}
+      : { clientPlatform: detectBrowserClientPlatform() }),
     emit: captureBrowserLifecycle,
     ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: args.flowName,
