@@ -83,7 +83,7 @@ export const EARN_POLICY_MUTATION_RESOURCES = [
   EARN_SYNC_RESOURCES.state,
 ] as const;
 
-export const DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL = "10,000";
+export const DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL = "100,000";
 
 // app-wallet-workspace.tsx:278-299
 export function resolveEarnMutationSmartAccountPlan(args: {

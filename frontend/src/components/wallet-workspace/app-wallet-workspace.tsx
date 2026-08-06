@@ -664,7 +664,7 @@ function tokenAmountNumberToRaw(
   return parseTokenAmountLabelToRaw(amount.toFixed(decimals), decimals);
 }
 
-const DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL = "10,000";
+const DEFAULT_EARN_AUTODEPOSIT_AMOUNT_LABEL = "100,000";
 const EARN_AUTODEPOSIT_CONFIG_CACHE_VERSION = 1;
 const EARN_AUTODEPOSIT_CONFIG_CACHE_PREFIX = "loyal.earnAutodepositConfig.v1";
 
