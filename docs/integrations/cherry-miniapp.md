@@ -196,9 +196,16 @@ Loyal, or error details.
 
 Loyal continues using its existing web3 transaction builders and confirmation
 flows. The narrow Cherry adapter preserves connect, message signing, legacy/v0
-single signing, and ordered batch signing. Its `sendTransaction` validates that
-the message is unchanged, the Cherry wallet signature is valid, and existing
-signatures survive; only then does it call Loyal's supplied
+single signing, and ordered batch signing. Its `sendTransaction` validates the
+returned transaction before broadcast. For an unsigned transaction, the Seeker
+MWA path may replace the recent blockhash, reorder static keys during a full
+message recompile, and insert read-only instructions from the allowlisted
+Compute Budget, Lighthouse, or Memo programs. The adapter still requires the
+same transaction type and version, fee payer, address-table lookups, signer
+counts, original key permission classes, and original instructions/accounts/data
+in order. A transaction that already carries a signature must keep byte-
+identical message bytes; in all cases the Cherry wallet signature must be valid
+and existing signatures must survive. Only then does it call Loyal's supplied
 `Connection.sendRawTransaction` once. It never calls the stock host
 `wallet.signAndSendTransaction` path or retries an ambiguous send.
 
@@ -218,9 +225,10 @@ signatures survive; only then does it call Loyal's supplied
 The subsecond loop uses the installed SDK with an in-memory WebView bridge and
 ephemeral RSA/JWKS fixtures. It proves strict route gating, SDK init/timeout and
 lifecycle, token claims, minimum response exposure, exact wallet equality,
-message/legacy/v0/batch signing, prior-signature preservation, tamper rejection,
-and exactly one Loyal RPC submission. No private key, remote RPC, real wallet,
-or transaction broadcast is used.
+message/legacy/v0/batch signing, allowlisted unsigned wallet modifications,
+prior-signature preservation, unauthorized tamper rejection, and exactly one
+Loyal RPC submission. No private key, remote RPC, real wallet, or transaction
+broadcast is used.
 
 Run the verifier in `cherry-mobile-verifier.md`. The Vercel deployment is the
 production build gate; repository rules prohibit a local frontend build.

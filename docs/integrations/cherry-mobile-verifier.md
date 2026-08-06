@@ -38,13 +38,20 @@ storage, responses, analytics, or logs.
 ### M3. One signer, one submitter
 
 The adapter preserves connect, message, legacy/v0 single and ordered batch
-signing. `sendTransaction` asks Cherry to sign, proves the message unchanged,
-the wallet signature valid, and prior signatures preserved, then calls Loyal's
-supplied `Connection.sendRawTransaction` exactly once. It never invokes host
+signing. For unsigned transactions, `sendTransaction` accepts only the bounded
+Seeker/MWA changes of a replaced recent blockhash, reordered static keys from a
+full message recompile, and inserted read-only Compute Budget, Lighthouse, or
+Memo instructions. It still requires the same transaction type/version, fee
+payer, address-table lookups, signer counts, original key permission classes,
+and original instructions/accounts/data in order. Any transaction with a prior
+signature must retain byte-identical message bytes. After validating the Cherry
+wallet signature and preserving prior signatures, it calls Loyal's supplied
+`Connection.sendRawTransaction` exactly once. It never invokes host
 `signAndSendTransaction` or automatically retries an ambiguous send. Real
-serialized deterministic fixtures must prove mutation/rejection/invalid
-signature failures perform zero RPC calls. Existing transaction hooks gain no
-Cherry branches.
+serialized deterministic fixtures must prove the allowlisted modifications are
+accepted while unauthorized mutations, invalid signatures, and prior-signature
+changes perform zero RPC calls. Existing transaction hooks gain no Cherry
+branches.
 
 ### M4. Lifecycle and mobile shell
 
