@@ -40,6 +40,14 @@ const SERIES_SLOT_COUNT = 6;
  */
 const MIN_BUCKETS_FOR_TREND = 6;
 
+/**
+ * How far past the clipped axis the tallest point must sit before clipping is
+ * worth a control. Measured against the axis rather than the raw p95: the axis
+ * is what renders, so this also guarantees the hidden count is at least one and
+ * that toggling actually changes the scale.
+ */
+const OUTLIER_RATIO = 1.5;
+
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
 /** Never collapse the axis below this, however short the measured history is. */
@@ -612,10 +620,12 @@ function MetricChartCard({
   const outlierCount = values.filter(
     (value) => value > clippedAxis.max
   ).length;
-  // Both conditions read off the axis that actually renders. Comparing the raw
-  // p95 instead would disagree with the count, because niceStep rounds the axis
-  // up far enough that it can already contain every point.
-  const canClip = outlierCount > 0 && clippedAxis.max < fullAxis.max;
+  // Measured against the axis that renders, not the raw p95. Comparing the p95
+  // would disagree with the count, since niceStep rounds the axis up far enough
+  // that it can already contain every point; dropping the ratio entirely would
+  // instead offer the control for ordinary spread, whenever the p95 and the
+  // maximum happen to round to different axes.
+  const canClip = robustMax > 0 && fullMax > clippedAxis.max * OUTLIER_RATIO;
   const valueAxis = canClip && !showOutliers ? clippedAxis : fullAxis;
 
   const config = useMemo(
