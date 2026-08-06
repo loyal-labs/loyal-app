@@ -19,8 +19,8 @@ export type FlowStep = {
 
 // Walkthrough clock: the spotlight advances every STEP_MS, dwells on the
 // completed pipeline so it can be read as a whole, then fades back and loops.
-const STEP_MS = 2400;
-const LAST_DWELL_MS = 3600;
+const STEP_MS = 1300;
+const LAST_DWELL_MS = 2000;
 const RESET_MS = 500;
 
 // Animated step diagram for the "How … works" explainer panes: each step is a

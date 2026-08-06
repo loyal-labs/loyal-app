@@ -1,5 +1,12 @@
 "use client";
 
+import {
+  CircleDollarSign,
+  Landmark,
+  PenLine,
+  Undo2,
+  Wallet,
+} from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
@@ -15,6 +22,12 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import { DualIcon } from "@/components/wallet-workspace/facelift/earn-activity-card";
+import {
+  FlowDiagram,
+  FlowExplainerAside,
+  FlowExplainerOverlay,
+  type FlowStep,
+} from "@/components/wallet-workspace/facelift/flow-explainer";
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
@@ -23,6 +36,44 @@ import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
 import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
+
+// The exit path told as steps — the same route the deposit explainer walks,
+// run backwards (user-docs automations/routing-and-yield.mdx: lending market →
+// vault → Main Account, USDC stays USDC), ending on the rent-cleanup phase
+// this pane flips into after a full exit (automations/exit-and-lifecycle.mdx).
+const WITHDRAW_STEPS: readonly FlowStep[] = [
+  {
+    Icon: Landmark,
+    body: "Every Kamino USDC reserve you supplied, plus anything still idle in your Earn vault, is listed with its own balance.",
+    title: "Pick a position",
+  },
+  {
+    Icon: CircleDollarSign,
+    body: "Take part of it, or use Max to exit that position completely. There is no lock-up.",
+    title: "Choose an amount",
+  },
+  {
+    Icon: PenLine,
+    body: "One signature moves the funds through your own smart account — Loyal never takes custody of your funds.",
+    title: "Approve in your wallet",
+  },
+  {
+    Icon: Wallet,
+    body: "It leaves the lending market, passes back through your Earn vault, and lands in your stablecoins. USDC stays USDC — it is never swapped.",
+    title: "USDC returns to your wallet",
+  },
+  {
+    Icon: Undo2,
+    body: "Once a position is empty, close its Earn accounts to reclaim the SOL held as their rent.",
+    title: "A full exit frees the rent",
+  },
+];
+
+const WITHDRAW_FOOTNOTE =
+  "Market liquidity can affect how quickly a withdrawal completes. Interest accrues until the moment funds leave the market.";
+
+const WITHDRAW_DOCS_URL =
+  "https://docs.askloyal.com/automations/exit-and-lifecycle";
 
 // Display label matching the facelift rows: "Main Kamino USDC" for reserves
 // (the OG source label is "<market> reserve"), the OG label for idle vaults.
@@ -91,8 +142,8 @@ function SourceOptionRow({
 
 // Figma 4693:66727 (positions pane, empty amount) + 4693:66028 (valid amount)
 // + 4693:66297 (source select opens as an anchored dropdown action-sheet).
-// Renders the middle Withdraw card at its usual width (an empty reserved
-// slot stands in for the hidden right pane) with the position select opening
+// Renders the middle Withdraw card at its usual width (the "How Withdraw
+// works" explainer holds the right slot) with the position select opening
 // in-pane at every desktop width (bottom sheet on mobile). Withdrawals run
 // through data.actions (OG protocol); after a full exit the pane flips into
 // the rent-cleanup phase ("Close policies").
@@ -110,6 +161,7 @@ export function WithdrawPane({
   // defaults to the first eligible source (options[0] fallback below).
   const [selectedKey, setSelectedKey] = useState(initialSourceKey ?? "");
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const { isBalanceHidden } = useBalanceVisibility();
 
   const stablecoinsUsd = useStablecoinsUsd();
@@ -242,9 +294,25 @@ export function WithdrawPane({
               />
             </button>
           </div>
-          <h1 className="min-w-0 flex-1 truncate py-2 font-semibold text-[20px] text-black leading-6">
-            Withdraw
-          </h1>
+          <div className="flex min-w-0 flex-1 items-center gap-2 py-2">
+            <h1 className="truncate font-semibold text-[20px] text-black leading-6">
+              Withdraw
+            </h1>
+            <button
+              aria-label="How Withdraw works"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
+              onClick={() => setIsInfoOpen(true)}
+              type="button"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                alt=""
+                aria-hidden="true"
+                className="size-6"
+                src={`${ASSET_BASE}/icon-question.svg`}
+              />
+            </button>
+          </div>
         </header>
 
         <div className="flex min-h-0 w-full flex-1 flex-col">
@@ -519,9 +587,29 @@ export function WithdrawPane({
         </div>
       </section>
 
-      {/* Empty reserved slot (same as Send's/deposit's): the positions
-          column went away but the middle pane must keep its usual width. */}
-      <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block" />
+      {/* Explainer fills the slot the positions column vacated (the shell
+        renders no chart pane here), so the middle pane keeps its usual
+        width; overlay via the header ? below 1204px — same split Deposit
+        and Autodeposit use. */}
+      <FlowExplainerAside title="How Withdraw works">
+        <FlowDiagram
+          docsHref={WITHDRAW_DOCS_URL}
+          footnote={WITHDRAW_FOOTNOTE}
+          steps={WITHDRAW_STEPS}
+        />
+      </FlowExplainerAside>
+
+      <FlowExplainerOverlay
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="How Withdraw works"
+      >
+        <FlowDiagram
+          docsHref={WITHDRAW_DOCS_URL}
+          footnote={WITHDRAW_FOOTNOTE}
+          steps={WITHDRAW_STEPS}
+        />
+      </FlowExplainerOverlay>
     </>
   );
 }
