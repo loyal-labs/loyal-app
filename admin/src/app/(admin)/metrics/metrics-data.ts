@@ -11,6 +11,13 @@ const DEFAULT_METRICS_SOURCE_ID = "6a58601284f8f1d4ff4d12ab";
 const RANGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const RESPONSE_SIZE_LIMIT = 5 * 1_024 * 1_024;
 
+// Earn traffic is low enough that 30-minute buckets leave 336 slots holding a
+// handful of samples, so every chart degrades into disconnected single points.
+// Two-hour buckets keep the same 7-day window while giving each p95 a real
+// sample population behind it.
+export const BUCKET_MINUTES = 120;
+const GRANULARITY = "2h";
+
 const OPERATION_FIELD = "arrayElement(Attributes, 'loyal.operation')";
 const PHASE_FIELD = "arrayElement(Attributes, 'loyal.phase')";
 const DEPENDENCY_FIELD = "arrayElement(Attributes, 'loyal.dependency')";
@@ -30,18 +37,30 @@ export type MetricPoint = {
   p95Ms: number;
 };
 
+/** Measurements behind each operation, so a p95 drawn from one sample is obvious. */
+export type OperationVolume = {
+  completed: number;
+  failed: number;
+  total: number;
+};
+
 export type MetricsDashboardData = {
+  bucketMinutes: number;
   desktop: MetricPoint[];
   fetchedAt: string;
   mobile: MetricPoint[];
   rangeEndedAt: string;
   rangeStartedAt: string;
   status: Record<MetricSurface, "available" | "unavailable">;
+  volume: Record<MetricSurface, Record<string, OperationVolume>>;
 };
+
+type QueryKind = "latency" | "volume";
 
 type ClickStackQuery = {
   environment: "prod" | "production";
   groupBy: string[];
+  kind: QueryKind;
   metricName: string;
   serviceName: "loyal-frontend" | "loyal-mobile";
   surface: MetricSurface;
@@ -49,30 +68,47 @@ type ClickStackQuery = {
 
 type RawMetricRow = Record<string, unknown>;
 
+const DESKTOP_SOURCE = {
+  environment: "production",
+  metricName: "loyal.frontend.loading.duration",
+  serviceName: "loyal-frontend",
+  surface: "desktop",
+} as const;
+
+const MOBILE_SOURCE = {
+  environment: "prod",
+  metricName: "loyal.mobile.loading.duration",
+  serviceName: "loyal-mobile",
+  surface: "mobile",
+} as const;
+
+const VOLUME_GROUP_BY = [
+  "Attributes['loyal.operation']",
+  "Attributes['loyal.outcome']",
+];
+
 const QUERIES: ClickStackQuery[] = [
   {
-    environment: "production",
+    ...DESKTOP_SOURCE,
     groupBy: [
       "Attributes['loyal.operation']",
       "Attributes['loyal.phase']",
       "Attributes['loyal.dependency']",
       "Attributes['loyal.outcome']",
     ],
-    metricName: "loyal.frontend.loading.duration",
-    serviceName: "loyal-frontend",
-    surface: "desktop",
+    kind: "latency",
   },
   {
-    environment: "prod",
+    ...MOBILE_SOURCE,
     groupBy: [
       "Attributes['loyal.operation']",
       "Attributes['loyal.outcome']",
       "Attributes['loyal.platform']",
     ],
-    metricName: "loyal.mobile.loading.duration",
-    serviceName: "loyal-mobile",
-    surface: "mobile",
+    kind: "latency",
   },
+  { ...DESKTOP_SOURCE, groupBy: VOLUME_GROUP_BY, kind: "volume" },
+  { ...MOBILE_SOURCE, groupBy: VOLUME_GROUP_BY, kind: "volume" },
 ];
 
 function readDimension(value: unknown): string | null {
@@ -142,7 +178,7 @@ async function queryMetrics(
   query: ClickStackQuery,
   startTime: number,
   endTime: number
-): Promise<MetricPoint[]> {
+): Promise<RawMetricRow[]> {
   const apiKey = serverEnv.clickStackApiKey;
   if (!apiKey) {
     throw new Error("ClickStack API key is not configured");
@@ -151,20 +187,21 @@ async function queryMetrics(
   const response = await fetch(getSeriesUrl(), {
     body: JSON.stringify({
       endTime,
-      granularity: "30m",
+      granularity: GRANULARITY,
       series: [
         {
-          aggFn: "quantile",
           dataSource: "metrics",
           field: "Value",
           groupBy: query.groupBy,
-          level: 0.95,
           metricDataType: "gauge",
           metricName: query.metricName,
           sourceId:
             serverEnv.clickStackMetricsSourceId ?? DEFAULT_METRICS_SOURCE_ID,
           where: `ServiceName = '${query.serviceName}' AND ResourceAttributes['deployment.environment.name'] = '${query.environment}'`,
           whereLanguage: "sql",
+          ...(query.kind === "volume"
+            ? { aggFn: "count" }
+            : { aggFn: "quantile", level: 0.95 }),
         },
       ],
       seriesReturnType: "column",
@@ -198,16 +235,47 @@ async function queryMetrics(
     throw new Error("ClickStack returned an invalid metrics response");
   }
 
-  return parsed.data
-    .filter(
-      (row): row is RawMetricRow =>
-        typeof row === "object" && row !== null && !Array.isArray(row)
-    )
-    .map((row) => normalizeRow(row, query.surface))
+  return parsed.data.filter(
+    (row): row is RawMetricRow =>
+      typeof row === "object" && row !== null && !Array.isArray(row)
+  );
+}
+
+function toLatencyPoints(
+  rows: RawMetricRow[],
+  surface: MetricSurface
+): MetricPoint[] {
+  return rows
+    .map((row) => normalizeRow(row, surface))
     .filter((point): point is MetricPoint => point !== null)
     .sort((left, right) =>
       left.bucketStartedAt.localeCompare(right.bucketStartedAt)
     );
+}
+
+function toVolumeByOperation(
+  rows: RawMetricRow[]
+): Record<string, OperationVolume> {
+  const volume: Record<string, OperationVolume> = {};
+
+  for (const row of rows) {
+    const operation = readDimension(row[OPERATION_FIELD]);
+    const outcome = readDimension(row[OUTCOME_FIELD]) ?? "unknown";
+    const count = Number(row.series_0);
+
+    if (!operation || !Number.isFinite(count) || count <= 0) {
+      continue;
+    }
+
+    const current = volume[operation] ?? { completed: 0, failed: 0, total: 0 };
+    volume[operation] = {
+      completed: current.completed + (outcome === "completed" ? count : 0),
+      failed: current.failed + (outcome === "failed" ? count : 0),
+      total: current.total + count,
+    };
+  }
+
+  return volume;
 }
 
 async function loadMetricsData(): Promise<MetricsDashboardData> {
@@ -220,19 +288,25 @@ async function loadMetricsData(): Promise<MetricsDashboardData> {
   );
 
   const data: MetricsDashboardData = {
+    bucketMinutes: BUCKET_MINUTES,
     desktop: [],
     fetchedAt: new Date().toISOString(),
     mobile: [],
     rangeEndedAt: rangeEndedAt.toISOString(),
     rangeStartedAt: rangeStartedAt.toISOString(),
     status: { desktop: "unavailable", mobile: "unavailable" },
+    volume: { desktop: {}, mobile: {} },
   };
 
   results.forEach((result, index) => {
     const query = QUERIES[index];
     if (result.status === "fulfilled") {
-      data[query.surface] = result.value;
-      data.status[query.surface] = "available";
+      if (query.kind === "latency") {
+        data[query.surface] = toLatencyPoints(result.value, query.surface);
+        data.status[query.surface] = "available";
+      } else {
+        data.volume[query.surface] = toVolumeByOperation(result.value);
+      }
       return;
     }
 
@@ -242,6 +316,7 @@ async function loadMetricsData(): Promise<MetricsDashboardData> {
           ? result.reason.message
           : "Unknown error",
       errorName: result.reason instanceof Error ? result.reason.name : "Error",
+      kind: query.kind,
       surface: query.surface,
     });
   });

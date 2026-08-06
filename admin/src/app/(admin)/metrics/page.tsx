@@ -14,7 +14,7 @@ export default async function MetricsPage() {
       <SectionHeader
         title="Metrics"
         breadcrumbs={[{ label: "Metrics" }]}
-        subtitle="Production p95 latency in 30-minute buckets over the last 7 days."
+        subtitle="Production p95 latency in two-hour UTC buckets over the last 7 days, busiest operations first."
       />
       <MetricsDashboard data={data} />
     </PageContainer>
