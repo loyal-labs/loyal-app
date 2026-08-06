@@ -606,10 +606,14 @@ function MetricChartCard({
   const fullMax = values.length > 0 ? Math.max(...values) : 0;
   const robustMax = percentile(values, 0.95);
   const hasOutliers = fullMax > robustMax * OUTLIER_RATIO && robustMax > 0;
-  const valueAxis = buildValueAxis(
-    hasOutliers && !showOutliers ? robustMax : fullMax
-  );
-  const clippedCount = values.filter((value) => value > valueAxis.max).length;
+  const clippedAxis = buildValueAxis(robustMax);
+  const valueAxis =
+    hasOutliers && !showOutliers ? clippedAxis : buildValueAxis(fullMax);
+  // Counted against the clipped axis either way, so the label stays put instead
+  // of dropping to "0 above" the moment the outliers are shown.
+  const outlierCount = values.filter(
+    (value) => value > clippedAxis.max
+  ).length;
 
   const config = useMemo(
     () =>
@@ -633,18 +637,27 @@ function MetricChartCard({
           <CardTitle>{humanizePath(chart.operation)}</CardTitle>
           {showTrend ? (
             <div className="flex items-center gap-1.5">
+              {/* Both are toggles, so each keeps a fixed label naming what it
+                  controls and lets aria-pressed carry the on/off state. A label
+                  that flips to the other mode's name would make a pressed
+                  toggle announce the mode it is not in. */}
               {hasOutliers && !showTable ? (
                 <Button
+                  aria-label={`Include ${outlierCount} ${
+                    outlierCount === 1 ? "point" : "points"
+                  } above the axis`}
+                  aria-pressed={showOutliers}
                   className="h-6 px-2 text-xs"
                   onClick={() => setShowOutliers((value) => !value)}
                   size="sm"
                   type="button"
                   variant={showOutliers ? "secondary" : "outline"}
                 >
-                  {showOutliers ? "Clip outliers" : `Show ${clippedCount} above`}
+                  {`${outlierCount} above`}
                 </Button>
               ) : null}
               <Button
+                aria-label="Show measurements as a table"
                 aria-pressed={showTable}
                 className="h-6 px-2 text-xs"
                 onClick={() => setShowTable((value) => !value)}
@@ -652,7 +665,7 @@ function MetricChartCard({
                 type="button"
                 variant={showTable ? "secondary" : "outline"}
               >
-                {showTable ? "Chart" : "Table"}
+                Table
               </Button>
             </div>
           ) : null}
