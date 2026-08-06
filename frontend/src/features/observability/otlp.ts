@@ -165,6 +165,8 @@ export function buildOtlpLifecyclePayload(
     ["loyal.wallet.provider", event.walletProvider],
     ["loyal.error.code", event.errorCode],
     ["loyal.error.detail", event.errorDetail],
+    ["loyal.error.message", event.errorMessage],
+    ["loyal.client.platform", event.clientPlatform],
     ["loyal.execute_now.state", event.executeNowState],
     ["loyal.chain.state", event.chainState],
     ["loyal.persistence.state", event.persistenceState],

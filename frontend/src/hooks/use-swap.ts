@@ -12,6 +12,7 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { createBrowserLifecycleTracker } from "@/features/observability/client";
 import {
   type LifecycleErrorCode,
+  lifecycleErrorMessage,
   type LifecycleFlowStage,
   normalizeLifecycleWalletProvider,
 } from "@/features/observability/lifecycle-contract";
@@ -494,6 +495,7 @@ export function useSwap() {
         } else {
           tracker.fail(lifecycleStage, {
             errorCode: swapLifecycleErrorCode(rawMessage),
+            errorMessage: lifecycleErrorMessage(err),
             ...(walletProvider ? { walletProvider } : {}),
           });
         }
