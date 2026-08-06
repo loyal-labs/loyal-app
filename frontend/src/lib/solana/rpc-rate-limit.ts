@@ -1,7 +1,13 @@
-// Helius public frontend RPC hides the API key but is capped at 5 TPS per IP.
-// Keep direct browser RPC below that ceiling; server routes may use private
-// keyed RPC via rpc-endpoints.server.ts.
-const DEFAULT_FRONTEND_SOLANA_RPC_MIN_INTERVAL_MS = 250;
+// The dedicated frontend Helius endpoints tolerate concurrent bursts (a
+// 12-request burst returns all-200 in ~100ms — verified while debugging
+// ASK-2043), so the limiter is a rolling one-second window rather than the
+// old strict 250ms serial spacing. Serial spacing taxed every multi-read
+// flow with 250ms per request — a deposit prepare's ~12 reads took ~3s in
+// the browser no matter how parallel the calling code was.
+const DEFAULT_FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_WINDOW = 15;
+const FRONTEND_SOLANA_RPC_WINDOW_MS = 1_000;
+const FRONTEND_SOLANA_RPC_MAX_REQUESTS_ENV_NAME =
+  "FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND";
 const FRONTEND_SOLANA_RPC_MIN_INTERVAL_ENV_NAME =
   "FRONTEND_SOLANA_RPC_MIN_INTERVAL_MS";
 const FRONTEND_SOLANA_RPC_COMPLETED_RESULT_TTL_MS = 1_000;
@@ -18,9 +24,8 @@ const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
 
 type RpcFetch = typeof fetch;
 
-type RpcQueueState = {
-  nextRunAt: number;
-  tail: Promise<void>;
+type RpcWindowState = {
+  dispatchedAt: number[];
 };
 
 type RpcRequestKey = {
@@ -45,7 +50,7 @@ type RecentRpcResponseSnapshot = {
 
 declare global {
   // eslint-disable-next-line no-var
-  var __loyalFrontendSolanaRpcQueue: RpcQueueState | undefined;
+  var __loyalFrontendSolanaRpcWindow: RpcWindowState | undefined;
   // eslint-disable-next-line no-var
   var __loyalFrontendSolanaRpcInflight:
     | Map<string, Promise<RpcResponseSnapshot>>
@@ -56,13 +61,12 @@ declare global {
     | undefined;
 }
 
-function getQueue() {
-  globalThis.__loyalFrontendSolanaRpcQueue ??= {
-    nextRunAt: 0,
-    tail: Promise.resolve(),
+function getWindow() {
+  globalThis.__loyalFrontendSolanaRpcWindow ??= {
+    dispatchedAt: [],
   };
 
-  return globalThis.__loyalFrontendSolanaRpcQueue;
+  return globalThis.__loyalFrontendSolanaRpcWindow;
 }
 
 function getInflightRequests() {
@@ -138,11 +142,7 @@ function parseRpcRequestKey(
     return null;
   }
 
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    Array.isArray(parsed)
-  ) {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return null;
   }
 
@@ -170,25 +170,26 @@ async function runQueuedFetch(
   input: Parameters<RpcFetch>[0],
   init: Parameters<RpcFetch>[1]
 ): Promise<Response> {
-  const queue = getQueue();
-  const previous = queue.tail;
-  let release!: () => void;
-  queue.tail = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const window = getWindow();
+  const maxRequests = getFrontendSolanaRpcMaxRequestsPerWindow();
 
-  await previous.catch(() => undefined);
-
-  try {
-    const delay = Math.max(0, queue.nextRunAt - Date.now());
-    if (delay > 0) {
-      await wait(delay);
+  for (;;) {
+    const now = Date.now();
+    while (
+      window.dispatchedAt.length > 0 &&
+      window.dispatchedAt[0]! <= now - FRONTEND_SOLANA_RPC_WINDOW_MS
+    ) {
+      window.dispatchedAt.shift();
     }
 
-    queue.nextRunAt = Date.now() + getFrontendSolanaRpcMinIntervalMs();
-    return await fetchImpl(input, init);
-  } finally {
-    release();
+    // The check-and-record below runs synchronously within one event-loop
+    // turn, so concurrent callers cannot both claim the window's last slot.
+    if (window.dispatchedAt.length < maxRequests) {
+      window.dispatchedAt.push(now);
+      return fetchImpl(input, init);
+    }
+
+    await wait(window.dispatchedAt[0]! + FRONTEND_SOLANA_RPC_WINDOW_MS - now);
   }
 }
 
@@ -309,19 +310,26 @@ function setRecentSnapshot(cacheKey: string, snapshot: RpcResponseSnapshot) {
   });
 }
 
-export function getFrontendSolanaRpcMinIntervalMs(): number {
-  const rawValue =
-    typeof process === "undefined"
-      ? undefined
-      : process.env[FRONTEND_SOLANA_RPC_MIN_INTERVAL_ENV_NAME];
-  if (!rawValue) {
-    return DEFAULT_FRONTEND_SOLANA_RPC_MIN_INTERVAL_MS;
+export function getFrontendSolanaRpcMaxRequestsPerWindow(): number {
+  const env = typeof process === "undefined" ? undefined : process.env;
+  const rawMaxRequests = env?.[FRONTEND_SOLANA_RPC_MAX_REQUESTS_ENV_NAME];
+  if (rawMaxRequests) {
+    const parsed = Number.parseInt(rawMaxRequests, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
   }
 
-  const parsed = Number.parseInt(rawValue, 10);
-  return Number.isFinite(parsed) && parsed >= 0
-    ? parsed
-    : DEFAULT_FRONTEND_SOLANA_RPC_MIN_INTERVAL_MS;
+  // Honor a legacy min-interval override as an equivalent per-second ceiling.
+  const rawInterval = env?.[FRONTEND_SOLANA_RPC_MIN_INTERVAL_ENV_NAME];
+  if (rawInterval) {
+    const parsed = Number.parseInt(rawInterval, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.max(1, Math.floor(FRONTEND_SOLANA_RPC_WINDOW_MS / parsed));
+    }
+  }
+
+  return DEFAULT_FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_WINDOW;
 }
 
 export function getFrontendSolanaRpcFetch(fetchImpl?: RpcFetch): RpcFetch {
@@ -333,9 +341,7 @@ export function getFrontendSolanaRpcFetch(fetchImpl?: RpcFetch): RpcFetch {
       return runQueuedFetch(runFetch, input, init);
     }
 
-    const recentSnapshot = RECENTLY_CACHEABLE_RPC_METHODS.has(
-      requestKey.method
-    )
+    const recentSnapshot = RECENTLY_CACHEABLE_RPC_METHODS.has(requestKey.method)
       ? getRecentSnapshot(requestKey.cacheKey)
       : null;
     if (recentSnapshot) {
