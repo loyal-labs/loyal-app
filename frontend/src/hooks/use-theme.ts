@@ -15,8 +15,9 @@ type ViewTransitionDocument = Document & {
 };
 
 // The pre-paint script in app/layout.tsx owns initial theme resolution
-// (localStorage "theme", falling back to prefers-color-scheme); this hook
-// only mirrors and mutates the html.dark class it set.
+// (light for everyone unless localStorage "theme" is "dark" — system
+// preference is deliberately ignored); this hook only mirrors and mutates
+// the html.dark class it set.
 export function useTheme() {
   const [isDark, setIsDark] = useState(false);
 
