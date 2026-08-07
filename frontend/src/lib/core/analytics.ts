@@ -6,6 +6,7 @@ import type { AnalyticsProperties } from "@loyal-labs/shared/analytics";
 import type { PublicEnv } from "@/lib/core/config/public";
 
 export {
+  getFlagVariant,
   identifyAuthenticatedUser,
   initAnalytics,
   resetAuthenticatedUser,

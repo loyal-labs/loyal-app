@@ -3,6 +3,7 @@
 import type { AuthSessionUser } from "@loyal-labs/auth-core";
 import {
   type AnalyticsClient,
+  type AnalyticsFlagVariant,
   type AnalyticsProperties,
   createMixpanelBrowserClient,
   createWorkspaceProfileUpdate,
@@ -75,6 +76,7 @@ function getAnalyticsClient(publicEnv: PublicEnv): AnalyticsClient {
     apiHost: getApiHost(publicEnv),
     debug: publicEnv.appEnvironment !== "prod",
     persistence: "localStorage",
+    flags: true,
     defaultEventProperties: {
       workspace: WEBSITE_WORKSPACE,
     },
@@ -157,6 +159,18 @@ export function trackFrontendAnalyticsEvent(
 
 export function trackPageView(publicEnv: PublicEnv, pathname: string): void {
   track(publicEnv, getFrontendPageViewEventName(pathname), { path: pathname });
+}
+
+// Resolves a Mixpanel feature-flag variant ({ key, value }); resolves the
+// fallback (key "fallback") when flags are unavailable or the flag is
+// missing/disabled. Calling this counts as an experiment exposure, so only
+// call it when the flagged surface is actually about to show.
+export function getFlagVariant(
+  publicEnv: PublicEnv,
+  flagKey: string,
+  fallbackValue: unknown
+): Promise<AnalyticsFlagVariant> {
+  return getAnalyticsClient(publicEnv).getFlagVariant(flagKey, fallbackValue);
 }
 
 export function identifyAuthenticatedUser(
