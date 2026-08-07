@@ -168,8 +168,12 @@ async function loadAutodepositPrepareContext(walletAddress: string): Promise<{
 export async function executeEarnAutodepositSetup(args: {
   signer: Signer;
   thresholdUsd: number;
+  // The caller's loading-metric flow id, so the metric point and this flow's
+  // events share one `loyal.flow.id`.
+  flowId?: string;
 }): Promise<void> {
   const flow = startLifecycleFlow({
+    ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: "earn.autodeposit.configuration",
     flowVariant: "setup",
     walletAddress: args.signer.publicKey.toBase58(),
@@ -381,8 +385,12 @@ export async function updateEarnAutodepositThreshold(args: {
   policyAccount: string;
   recurringDelegation: string;
   vaultIndex: number;
+  // The caller's loading-metric flow id, so the metric point and this flow's
+  // events share one `loyal.flow.id`.
+  flowId?: string;
 }): Promise<void> {
   const flow = startLifecycleFlow({
+    ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: "earn.autodeposit.configuration",
     flowVariant: "floor_update",
     walletAddress: args.signer.publicKey.toBase58(),
@@ -416,8 +424,12 @@ export async function setEarnAutodepositActive(args: {
   policyAccount: string;
   recurringDelegation: string;
   vaultIndex: number;
+  // The caller's loading-metric flow id, so the metric point and this flow's
+  // events share one `loyal.flow.id`.
+  flowId?: string;
 }): Promise<void> {
   const flow = startLifecycleFlow({
+    ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: "earn.autodeposit.configuration",
     flowVariant: args.active ? "resume" : "pause",
     walletAddress: args.signer.publicKey.toBase58(),
@@ -465,6 +477,10 @@ export async function executeEarnAutodepositClose(args: {
   policy: string;
   recurringDelegation: string;
   source?: "deleted" | "withdraw";
+  // The caller's loading-metric flow id, so the metric point and this flow's
+  // events share one `loyal.flow.id`. Ignored for the nested withdrawal close,
+  // which emits no flow of its own.
+  flowId?: string;
 }): Promise<void> {
   // A close nested inside a withdrawal is already traced as that flow's
   // `autodeposit_close` stage — only a standalone delete gets its own flow.
@@ -472,6 +488,7 @@ export async function executeEarnAutodepositClose(args: {
     args.source === "withdraw"
       ? null
       : startLifecycleFlow({
+          ...(args.flowId ? { flowId: args.flowId } : {}),
           flowName: "earn.autodeposit.configuration" as const,
           flowVariant: "close",
           walletAddress: args.signer.publicKey.toBase58(),
@@ -630,11 +647,15 @@ async function runEarnAutodepositClose(
 // the flow's elapsedMs captures the true request→done duration.
 export async function executeEarnAutodepositScheduledSweep(args: {
   signer: Signer;
+  // The caller's loading-metric flow id, so the metric point and this flow's
+  // events share one `loyal.flow.id`.
+  flowId?: string;
 }): Promise<{
   flow: LifecycleFlow<"earn.autodeposit.execute_now">;
   scheduledSlotId: string;
 }> {
   const flow = startLifecycleFlow({
+    ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: "earn.autodeposit.execute_now",
     flowVariant: "execute_now",
     walletAddress: args.signer.publicKey.toBase58(),

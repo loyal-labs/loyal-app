@@ -74,13 +74,14 @@ export function useEarnAutodepositToggle(args: {
     const controllerTargetKey = targetKey;
     return createAutodepositToggleController({
       debounceMs: AUTODEPOSIT_TOGGLE_DEBOUNCE_MS,
-      submit: (nextActive) =>
+      submit: (nextActive, flowId) =>
         setEarnAutodepositActive({
           signer,
           active: nextActive,
           policyAccount,
           recurringDelegation,
           vaultIndex,
+          flowId,
         }),
       refresh: async () => {
         const refreshed = await refreshAutodeposit({ throwOnError: true });
@@ -96,6 +97,7 @@ export function useEarnAutodepositToggle(args: {
         return {
           complete: metric.completeAfterPaint,
           fail: metric.failAfterPaint,
+          flowId: metric.flowId,
         };
       },
       onOptimisticActive: (nextActive) => {

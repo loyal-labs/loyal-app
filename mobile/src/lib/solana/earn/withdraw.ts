@@ -379,6 +379,9 @@ async function signSendAndConfirmWithdraw(args: {
 export async function executeEarnWithdraw(args: {
   signer: Signer;
   amountUsd: number;
+  // The caller's loading-metric flow id, so the metric point and this flow's
+  // events share one `loyal.flow.id`.
+  flowId?: string;
   mode: EarnWithdrawMode;
   // The chosen source. Omitted/null lets the backend auto-select when there's
   // exactly one source; required (from the picker) when the position spans
@@ -386,6 +389,7 @@ export async function executeEarnWithdraw(args: {
   source?: EarnWithdrawSource | null;
 }): Promise<EarnWithdrawResult> {
   const flow = startLifecycleFlow({
+    ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: "earn.withdrawal",
     flowVariant: args.mode === "full" ? "full" : "partial",
     reportUnexpectedErrors: true,

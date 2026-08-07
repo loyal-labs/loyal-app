@@ -4,11 +4,14 @@ export type AutodepositToggleController = {
 
 export type AutodepositToggleControllerOptions = {
   debounceMs?: number;
-  submit(active: boolean): Promise<void>;
+  // `flowId` comes from the submission handle below, so the loading metric for
+  // this press and the lifecycle flow the submit starts share one id.
+  submit(active: boolean, flowId?: string): Promise<void>;
   refresh(): Promise<boolean | null>;
   onSubmissionStart?(active: boolean): {
     complete(): void;
     fail(): void;
+    flowId?: string;
   };
   onOptimisticActive(active: boolean): void;
   onReconciledActive(active: boolean): void;
@@ -57,7 +60,7 @@ export function createAutodepositToggleController(
       const submission = options.onSubmissionStart?.(submittedActive);
       let submitSucceeded = false;
       try {
-        await options.submit(submittedActive);
+        await options.submit(submittedActive, submission?.flowId);
         submitSucceeded = true;
         hasTerminalError = false;
         terminalError = undefined;
