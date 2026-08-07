@@ -22,6 +22,7 @@ import {
 import { usePublicEnv } from "@/contexts/public-env-context";
 import {
   FRONTEND_ANALYTICS_EVENTS,
+  getFlagVariant,
   trackFrontendAnalyticsEvent,
 } from "@/lib/core/analytics";
 
@@ -92,6 +93,64 @@ type StepContent = {
   steps: EarnModalStep[];
   title: string;
 };
+
+// Mixpanel dynamic-config flags serving each step's copy (ASK-1972 A/B
+// plumbing). The variant payload overrides the STEP_CONTENT text below;
+// icons and layout stay in code. Copy is editable in Mixpanel without a
+// deploy once the flag is enabled; a disabled/missing flag (or no network)
+// falls back to STEP_CONTENT with variant "fallback".
+const STEP_FLAG_KEYS: Record<OnboardingStepId, string> = {
+  autodeposit: "onboarding_popup_autodeposit",
+  deposit: "onboarding_popup_deposit",
+  welcome: "onboarding_popup_welcome",
+};
+
+// The flags SDK resolves its fallback on fetch errors; this bound only
+// covers a hung fetch so a popup can't be silently swallowed.
+const FLAG_TIMEOUT_MS = 2000;
+
+type StepContentOverride = {
+  buttonLabel?: unknown;
+  description?: unknown;
+  steps?: unknown;
+  title?: unknown;
+};
+
+function mergeStepContent(base: StepContent, payload: unknown): StepContent {
+  if (typeof payload !== "object" || payload === null) {
+    return base;
+  }
+  const override = payload as StepContentOverride;
+  const overrideSteps = Array.isArray(override.steps) ? override.steps : [];
+  return {
+    ...base,
+    buttonLabel:
+      typeof override.buttonLabel === "string"
+        ? override.buttonLabel
+        : base.buttonLabel,
+    description:
+      typeof override.description === "string"
+        ? override.description
+        : base.description,
+    title: typeof override.title === "string" ? override.title : base.title,
+    steps: base.steps.map((step, index) => {
+      const stepOverride = overrideSteps[index] as
+        | { description?: unknown; title?: unknown }
+        | undefined;
+      return {
+        ...step,
+        description:
+          typeof stepOverride?.description === "string"
+            ? stepOverride.description
+            : step.description,
+        title:
+          typeof stepOverride?.title === "string"
+            ? stepOverride.title
+            : step.title,
+      };
+    }),
+  };
+}
 
 const STEP_CONTENT: Record<OnboardingStepId, StepContent> = {
   autodeposit: {
@@ -189,7 +248,11 @@ export function LifecycleOnboardingHost({
   walletAddress: string | null;
 }) {
   const publicEnv = usePublicEnv();
-  const [visibleStep, setVisibleStep] = useState<OnboardingStepId | null>(null);
+  const [presented, setPresented] = useState<{
+    content: StepContent;
+    step: OnboardingStepId;
+    variant: string;
+  } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   // Bumped whenever a signal writes storage so the presenter effect re-runs.
   const [stateVersion, setStateVersion] = useState(0);
@@ -270,7 +333,9 @@ export function LifecycleOnboardingHost({
   }, [hasAutodeposit, hasPosition, isReady, walletAddress]);
 
   // Presenter: on the Earn root with nothing open, show the furthest
-  // pending step, remember it (and everything before it) as done.
+  // pending step, remember it (and everything before it) as done. The
+  // Mixpanel flag variant is resolved first so the modal renders its copy
+  // in one pass; storage only flips to "done" once the popup really shows.
   useEffect(() => {
     if (!(isReady && walletAddress && isAtEarnRoot) || isOpen) {
       return;
@@ -282,28 +347,50 @@ export function LifecycleOnboardingHost({
     if (!step) {
       return;
     }
-    for (const id of STEP_ORDER) {
-      if (state[id] === "pending") {
-        state[id] = "done";
+    let cancelled = false;
+    void (async () => {
+      const flagVariant = await Promise.race([
+        getFlagVariant(publicEnv, STEP_FLAG_KEYS[step], null),
+        new Promise<{ key: string; value: unknown }>((resolve) =>
+          setTimeout(
+            () => resolve({ key: "fallback", value: null }),
+            FLAG_TIMEOUT_MS
+          )
+        ),
+      ]);
+      if (cancelled) {
+        return;
       }
-      if (id === step) {
-        break;
+      for (const id of STEP_ORDER) {
+        if (state[id] === "pending") {
+          state[id] = "done";
+        }
+        if (id === step) {
+          break;
+        }
       }
-    }
-    writeState(walletAddress, state);
-    trackFrontendAnalyticsEvent(
-      publicEnv,
-      FRONTEND_ANALYTICS_EVENTS.onboardingPopupShown,
-      { step }
-    );
-    setVisibleStep(step);
-    setIsOpen(true);
+      writeState(walletAddress, state);
+      trackFrontendAnalyticsEvent(
+        publicEnv,
+        FRONTEND_ANALYTICS_EVENTS.onboardingPopupShown,
+        { step, variant: flagVariant.key }
+      );
+      setPresented({
+        content: mergeStepContent(STEP_CONTENT[step], flagVariant.value),
+        step,
+        variant: flagVariant.key,
+      });
+      setIsOpen(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isAtEarnRoot, isOpen, isReady, publicEnv, stateVersion, walletAddress]);
 
-  if (visibleStep === null) {
+  if (presented === null) {
     return null;
   }
-  const content = STEP_CONTENT[visibleStep];
+  const { content, step, variant } = presented;
   return (
     <EarnModal
       buttonLabel={content.buttonLabel}
@@ -314,12 +401,12 @@ export function LifecycleOnboardingHost({
         trackFrontendAnalyticsEvent(
           publicEnv,
           FRONTEND_ANALYTICS_EVENTS.onboardingPopupCtaClicked,
-          { step: visibleStep }
+          { step, variant }
         );
         setIsOpen(false);
-        if (visibleStep === "welcome") {
+        if (step === "welcome") {
           onOpenDeposit();
-        } else if (visibleStep === "deposit") {
+        } else if (step === "deposit") {
           onOpenAutodeposit();
         }
       }}
@@ -327,7 +414,7 @@ export function LifecycleOnboardingHost({
         trackFrontendAnalyticsEvent(
           publicEnv,
           FRONTEND_ANALYTICS_EVENTS.onboardingPopupDismissed,
-          { step: visibleStep }
+          { step, variant }
         );
         setIsOpen(false);
       }}

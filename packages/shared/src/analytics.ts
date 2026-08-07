@@ -26,6 +26,12 @@ export type AnalyticsConfig = {
   persistence?: Persistence;
   defaultEventProperties?: AnalyticsProperties;
   registerProperties?: AnalyticsProperties;
+  flags?: boolean;
+};
+
+export type AnalyticsFlagVariant = {
+  key: string;
+  value: unknown;
 };
 
 export type AnalyticsClient = {
@@ -38,6 +44,10 @@ export type AnalyticsClient = {
   setUserProfile: (properties: AnalyticsProperties) => void;
   setUserProfileOnce: (properties: AnalyticsProperties) => void;
   unionUserProfile: (properties: AnalyticsProfileUnionProperties) => void;
+  getFlagVariant: (
+    flagKey: string,
+    fallbackValue: unknown
+  ) => Promise<AnalyticsFlagVariant>;
   __resetForTests: () => void;
 };
 
@@ -98,6 +108,7 @@ export function createMixpanelBrowserClient(
           debug: config.debug ?? false,
           track_pageview: false,
           persistence: config.persistence,
+          flags: config.flags ?? false,
         });
 
         if (config.registerProperties) {
@@ -236,6 +247,33 @@ export function createMixpanelBrowserClient(
     });
   }
 
+  async function getFlagVariant(
+    flagKey: string,
+    fallbackValue: unknown
+  ): Promise<AnalyticsFlagVariant> {
+    const fallback: AnalyticsFlagVariant = {
+      key: "fallback",
+      value: fallbackValue,
+    };
+
+    if (!canTrack()) {
+      return fallback;
+    }
+
+    try {
+      await init();
+      if (!isInitialized || !mixpanel) {
+        return fallback;
+      }
+
+      const variant = await mixpanel.flags.get_variant(flagKey, fallback);
+      return { key: variant.key, value: variant.value };
+    } catch (error) {
+      console.error("Failed to get Mixpanel flag variant", error);
+      return fallback;
+    }
+  }
+
   function resetForTests(): void {
     mixpanel = null;
     isInitialized = false;
@@ -253,6 +291,7 @@ export function createMixpanelBrowserClient(
     setUserProfile,
     setUserProfileOnce,
     unionUserProfile,
+    getFlagVariant,
     __resetForTests: resetForTests,
   };
 }

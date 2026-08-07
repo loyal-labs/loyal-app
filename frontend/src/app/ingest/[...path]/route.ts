@@ -2,6 +2,8 @@ const MIXPANEL_API_ORIGIN = "https://api-js.mixpanel.com";
 const FORWARDED_REQUEST_HEADERS = [
   "accept",
   "accept-language",
+  // The feature-flags fetch authenticates via `Authorization: Basic <token>`.
+  "authorization",
   "cf-connecting-ip",
   "content-type",
   "forwarded",
