@@ -179,8 +179,12 @@ function hydrateWireStages(
 export async function executeEarnDeposit(args: {
   signer: Signer;
   amountUsd: number;
+  // The caller's loading-metric flow id, so the metric point and this flow's
+  // events share one `loyal.flow.id`.
+  flowId?: string;
 }): Promise<EarnDepositResult> {
   const flow = startLifecycleFlow({
+    ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: "earn.deposit",
     flowVariant: "initial",
     // Deposit runs the same SDK prepare through the same retry helper as

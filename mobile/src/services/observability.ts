@@ -546,15 +546,30 @@ function generateFlowId(): string {
 // The ingest drops any envelope whose walletAddress isn't base58 — guard here
 // so one bad address never costs the whole event.
 const WALLET_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+// The lifecycle ingest drops any envelope whose flowId isn't a canonical v4,
+// so an adopted id is checked before it can cost the whole flow's events.
+const FLOW_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
+  /**
+   * Adopt the caller's id instead of minting one. The UI starts its loading
+   * metric before this flow exists, so handing that metric's id down here is
+   * what lets a latency point on the metrics dashboard join back to the
+   * lifecycle events and error records that explain it. A malformed id is
+   * ignored rather than propagated: telemetry never breaks the flow it traces.
+   */
+  flowId?: string;
   flowName: F;
   flowVariant: LifecycleVariantMap[F];
   /** Emit a correlated exception record when failFrom maps to unexpected_error. */
   reportUnexpectedErrors?: boolean;
   walletAddress?: string;
 }): LifecycleFlow<F> {
-  const flowId = generateFlowId();
+  const flowId =
+    args.flowId && FLOW_ID_PATTERN.test(args.flowId)
+      ? args.flowId
+      : generateFlowId();
   const startedAt = Date.now();
   let lastAt = startedAt;
   let variant: LifecycleVariantMap[F] = args.flowVariant;

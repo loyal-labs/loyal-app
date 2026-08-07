@@ -388,6 +388,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     try {
       const execution = await executeEarnAutodepositScheduledSweep({
         signer,
+        flowId: pendingSweepMetricRef.current.flowId,
       });
       if (attemptId !== sweepAttemptIdRef.current) {
         execution.flow.fail("ui_commit", { executeNowState: "failed" });

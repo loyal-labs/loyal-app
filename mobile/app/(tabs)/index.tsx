@@ -603,7 +603,7 @@ export default function EarnScreen() {
         if (!signer || !isWalletUnlocked(state)) {
           throw new Error("Unlock your wallet to deposit.");
         }
-        await executeEarnDeposit({ signer, amountUsd });
+        await executeEarnDeposit({ signer, amountUsd, flowId: metric.flowId });
         // Trust the read-model for the next reads — confirmEarnDeposit (inside
         // executeEarnDeposit, just awaited) wrote it with the deposited total, so
         // the next `/state` read is correct immediately while live `/holdings` lags.
@@ -709,6 +709,7 @@ export default function EarnScreen() {
         await executeEarnWithdraw({
           signer,
           amountUsd,
+          flowId: metric.flowId,
           mode,
           source: source ? toWithdrawPrepareSource(source) : null,
         });
@@ -812,9 +813,14 @@ export default function EarnScreen() {
             policyAccount: autodeposit.policyAccount,
             recurringDelegation: autodeposit.recurringDelegation,
             vaultIndex: autodeposit.vaultIndex,
+            flowId: metric.flowId,
           });
         } else {
-          await executeEarnAutodepositSetup({ signer, thresholdUsd });
+          await executeEarnAutodepositSetup({
+            signer,
+            thresholdUsd,
+            flowId: metric.flowId,
+          });
         }
         try {
           const fresh = await refreshAutodeposit({ throwOnError: true });
@@ -874,6 +880,7 @@ export default function EarnScreen() {
         signer,
         policy: autodeposit.policyAccount,
         recurringDelegation: autodeposit.recurringDelegation,
+        flowId: metric.flowId,
       });
       try {
         await refreshAutodeposit({ throwOnError: true });
