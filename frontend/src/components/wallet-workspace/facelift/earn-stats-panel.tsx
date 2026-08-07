@@ -48,13 +48,13 @@ function StatValue({
   return (
     <div className="flex w-full flex-col gap-0.5 px-4 py-2">
       <div className="flex items-center gap-1">
-        <p className="text-[16px] leading-5 text-[#8a8a8e]">{label}</p>
+        <p className="text-[16px] leading-5 text-muted-foreground">{label}</p>
         <InfoTooltip text={tooltip} />
       </div>
-      <p className="w-full font-semibold text-[40px] text-black leading-[48px]">
+      <p className="w-full font-semibold text-[40px] text-foreground leading-[48px]">
         {value.balanceWhole}
         {value.balanceFraction ? (
-          <span className="text-[#b1b1b4]">{value.balanceFraction}</span>
+          <span className="text-tertiary">{value.balanceFraction}</span>
         ) : null}
       </p>
     </div>
@@ -111,7 +111,7 @@ function AumBarChart({
           }
         }
       `}</style>
-      <div className="flex w-full items-center justify-between px-4 pb-2 text-[13px] leading-4 text-[#8a8a8e]">
+      <div className="flex w-full items-center justify-between px-4 pb-2 text-[13px] leading-4 text-tertiary">
         <p className={hoveredPoint ? "" : "invisible"}>
           {hoveredPoint?.label ?? " "}
         </p>
@@ -134,8 +134,8 @@ function AumBarChart({
                   ["--bar-index" as string]: index,
                   backgroundColor:
                     hoveredIndex === index
-                      ? "rgba(52,199,89,0.6)"
-                      : "rgba(52,199,89,0.4)",
+                      ? "color-mix(in oklab, var(--positive) 60%, transparent)"
+                      : "color-mix(in oklab, var(--positive) 40%, transparent)",
                   height: `${Math.max(
                     MIN_BAR_HEIGHT_PX,
                     Math.round((point.value / maxValue) * CHART_HEIGHT_PX)
@@ -148,7 +148,7 @@ function AumBarChart({
           </div>
         ))}
       </div>
-      <div className="flex w-full items-start justify-between px-4 py-2 text-[13px] leading-4 text-[#8a8a8e]">
+      <div className="flex w-full items-start justify-between px-4 py-2 text-[13px] leading-4 text-tertiary">
         <p>{firstPoint?.label}</p>
         <p>{lastPoint?.label}</p>
       </div>
@@ -209,29 +209,29 @@ export function EarnStatsPanel() {
   }
 
   return (
-    <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white">
+    <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card">
       <header className="flex w-full items-center p-2">
-        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
           Loyal Stats
         </h2>
       </header>
       {stats === null ? (
         <div className="t-skel-rows flex flex-col gap-2 px-6 pt-2 pb-6">
-          <div className="h-[76px] w-full rounded-2xl bg-black/[0.04]" />
-          <div className="h-[240px] w-full rounded-2xl bg-black/[0.04]" />
-          <div className="h-[76px] w-full rounded-2xl bg-black/[0.04]" />
+          <div className="h-[76px] w-full rounded-2xl bg-accent" />
+          <div className="h-[240px] w-full rounded-2xl bg-accent" />
+          <div className="h-[76px] w-full rounded-2xl bg-accent" />
         </div>
       ) : (
         <div className="flex w-full flex-col pb-4">
           <div className="flex w-full flex-col px-2 pt-2">
             <div className="flex w-full flex-col gap-0.5 px-4 py-2">
               <div className="flex items-center gap-1">
-                <p className="text-[16px] leading-5 text-[#8a8a8e]">Earn AUM</p>
+                <p className="text-[16px] leading-5 text-muted-foreground">Earn AUM</p>
                 <InfoTooltip text={AUM_TOOLTIP} />
               </div>
-              <p className="w-full font-semibold text-[40px] text-black leading-[48px]">
+              <p className="w-full font-semibold text-[40px] text-foreground leading-[48px]">
                 {splitUsdBalance(displayedAumUsd).balanceWhole}
-                <span className="text-[#b1b1b4]">
+                <span className="text-tertiary">
                   {splitUsdBalance(displayedAumUsd).balanceFraction}
                 </span>
               </p>
@@ -239,7 +239,10 @@ export function EarnStatsPanel() {
                 <p
                   className="text-[16px] leading-5"
                   style={{
-                    color: displayedAumDeltaUsd > 0 ? "#34c759" : "#f9363c",
+                    color:
+                      displayedAumDeltaUsd > 0
+                        ? "var(--positive)"
+                        : "var(--destructive)",
                   }}
                 >
                   {formatSignedUsd(displayedAumDeltaUsd)} vs prior week

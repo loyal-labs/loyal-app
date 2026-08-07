@@ -9,6 +9,7 @@ import {
   StaggerLine,
   StaggerReveal,
 } from "@/components/wallet-workspace/facelift/stagger-reveal";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
@@ -113,10 +114,10 @@ export function FlowDiagram({
                   isLast ? "" : "pb-5"
                 }`}
               >
-                <p className="font-medium text-[16px] text-black leading-5">
+                <p className="font-medium text-[16px] text-foreground leading-5">
                   {title}
                 </p>
-                <p className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <p className="text-[13px] leading-4 text-muted-foreground">
                   {body}
                 </p>
               </div>
@@ -126,7 +127,7 @@ export function FlowDiagram({
       })}
       {footnote ? (
         <StaggerLine index={steps.length}>
-          <p className="pt-5 text-[13px] leading-4 text-[rgba(60,60,67,0.45)]">
+          <p className="pt-5 text-[13px] leading-4 text-tertiary">
             {footnote}
           </p>
         </StaggerLine>
@@ -134,7 +135,7 @@ export function FlowDiagram({
       {docsHref ? (
         <StaggerLine index={steps.length + (footnote ? 1 : 0)}>
           <a
-            className="t-hover mt-5 inline-block font-medium text-[13px] leading-4 text-[rgba(60,60,67,0.6)] hover:text-black"
+            className="t-hover mt-5 inline-block font-medium text-[13px] leading-4 text-muted-foreground hover:text-foreground"
             href={docsHref}
             rel="noreferrer"
             target="_blank"
@@ -160,9 +161,9 @@ export function FlowExplainerAside({
 }) {
   return (
     <aside className="hidden h-full w-[400px] shrink-0 flex-col gap-2 overflow-y-auto [scrollbar-width:none] min-[1204px]:flex [&::-webkit-scrollbar]:hidden">
-      <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white">
+      <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card">
         <header className="flex w-full items-center p-2">
-          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+          <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
             {title}
           </h2>
         </header>
@@ -206,23 +207,20 @@ export function FlowExplainerOverlay({
       isOpen={isOpen}
       onClose={onClose}
       scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 pl-[368px] backdrop-blur-[4px] min-[1204px]:hidden max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
-      sheetClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      sheetClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
     >
       <header className="flex w-full items-center p-2">
-        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
           {title}
         </h2>
         <button
           aria-label="Close info"
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
           onClick={onClose}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-muted-foreground"
             src={`${ASSET_BASE}/icon-cross.svg`}
           />
         </button>
@@ -230,7 +228,7 @@ export function FlowExplainerOverlay({
       {children}
       <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
         <button
-          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
+          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-secondary font-medium text-[16px] text-foreground leading-5 hover:bg-accent-active"
           onClick={onClose}
           type="button"
         >

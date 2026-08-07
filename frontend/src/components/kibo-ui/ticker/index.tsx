@@ -167,9 +167,7 @@ export const TickerPriceChange = memo(
       <span
         className={cn(
           "flex items-center gap-0.5",
-          isPositiveChange
-            ? "text-green-600 dark:text-green-500"
-            : "text-red-600 dark:text-red-500",
+          isPositiveChange ? "text-positive" : "text-destructive",
           className
         )}
         {...props}

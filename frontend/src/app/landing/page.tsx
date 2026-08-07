@@ -79,12 +79,22 @@ const ChatBotDemo = () => {
     setModel(models[0].value);
   }, [setMessages]);
 
-  // Initialize dark mode based on system preference
+  // Initialize dark mode: explicit user choice (theme toggle) wins,
+  // otherwise follow system preference.
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    setDarkMode(mediaQuery.matches);
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("theme");
+    } catch {}
+    setDarkMode(stored ? stored === "dark" : mediaQuery.matches);
 
-    const handler = (e: MediaQueryListEvent) => setDarkMode(e.matches);
+    const handler = (e: MediaQueryListEvent) => {
+      try {
+        if (localStorage.getItem("theme")) return;
+      } catch {}
+      setDarkMode(e.matches);
+    };
     mediaQuery.addEventListener("change", handler);
     return () => mediaQuery.removeEventListener("change", handler);
   }, []);

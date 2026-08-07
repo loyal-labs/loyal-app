@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect } from "react";
 
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
@@ -67,7 +68,7 @@ export function EarnModal({
           ? "items-end justify-end p-2"
           : "items-center justify-center p-4"
       }`}
-      sheetClassName={`flex max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none ${
+      sheetClassName={`flex max-w-full flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none ${
         withMascot ? "w-[724px]" : "w-[400px]"
       }`}
     >
@@ -76,16 +77,16 @@ export function EarnModal({
           <div className="flex min-h-[300px] w-full flex-col p-2 max-[795px]:min-h-0">
             <div className="flex w-full flex-col gap-6 px-4 pt-4 pb-2">
               {Icon ? (
-                <span className="flex size-16 items-center justify-center rounded-[14.667px] bg-[#f9363c]">
+                <span className="flex size-16 items-center justify-center rounded-[14.667px] bg-primary">
                   <Icon aria-hidden="true" className="size-11 text-white" />
                 </span>
               ) : null}
               <div className="flex w-full flex-col gap-3 pr-4">
-                <h2 className="font-semibold text-[36px] text-black leading-10 tracking-[-0.72px]">
+                <h2 className="font-semibold text-[36px] text-foreground leading-10 tracking-[-0.72px]">
                   {title}
                 </h2>
                 {description ? (
-                  <p className="text-[16px] leading-5 text-[#8a8a8e]">
+                  <p className="text-[16px] leading-5 text-muted-foreground">
                     {description}
                   </p>
                 ) : null}
@@ -98,15 +99,15 @@ export function EarnModal({
                     <span className="flex items-start py-[9px] pr-3">
                       <step.icon
                         aria-hidden="true"
-                        className="size-6 text-[#8a8a8e]"
+                        className="size-6 text-muted-foreground"
                       />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                      <span className="font-medium text-[16px] text-black leading-5">
+                      <span className="font-medium text-[16px] text-foreground leading-5">
                         {step.title}
                       </span>
                       {step.description ? (
-                        <span className="text-[13px] leading-4 text-[#8a8a8e]">
+                        <span className="text-[13px] leading-4 text-muted-foreground">
                           {step.description}
                         </span>
                       ) : null}
@@ -118,7 +119,7 @@ export function EarnModal({
           </div>
           <div className="w-full px-4 pt-2 pb-4">
             <button
-              className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+              className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
               onClick={onAction}
               type="button"
             >
@@ -144,15 +145,12 @@ export function EarnModal({
         <div className="absolute top-2 right-2">
           <button
             aria-label="Close"
-            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={onClose}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
               src={`${ASSET_BASE}/icon-cross.svg`}
             />
           </button>

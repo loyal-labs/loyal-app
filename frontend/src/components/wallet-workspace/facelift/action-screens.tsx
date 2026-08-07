@@ -57,7 +57,7 @@ export function ActionProcessingBody({
     <div className="flex w-full flex-1 flex-col items-center justify-center pb-[68px]">
       <div className="flex w-full flex-col items-center gap-4 p-8">
         <div className="flex items-start">{icons}</div>
-        <p className="text-center font-semibold text-[28px] text-black leading-8 tracking-[-0.28px]">
+        <p className="text-center font-semibold text-[28px] text-foreground leading-8 tracking-[-0.28px]">
           {label}
           <span aria-hidden="true" className="t-loading-dots">
             <span>.</span>
@@ -114,7 +114,7 @@ export function ActionSuccessBody({
           </span>
           <span aria-hidden="true" className="t-success-check" data-state="in">
             <svg className="size-16" fill="none" viewBox="0 0 64 64">
-              <circle cx="32" cy="32" fill="#34c759" r="32" />
+              <circle cx="32" cy="32" fill="var(--positive)" r="32" />
               <path
                 d="M20 33l8 8 16-16"
                 stroke="white"
@@ -125,14 +125,14 @@ export function ActionSuccessBody({
             </svg>
           </span>
         </span>
-        <p className="text-center font-semibold text-[28px] text-black leading-8 tracking-[-0.28px]">
+        <p className="text-center font-semibold text-[28px] text-foreground leading-8 tracking-[-0.28px]">
           {label}
         </p>
       </div>
       <div className="relative flex flex-col items-center gap-3">
         {signature ? (
           <button
-            className="t-hover flex h-12 items-center justify-center rounded-full bg-black/[0.04] px-5 font-medium text-[16px] text-black leading-5 hover:bg-black/[0.08]"
+            className="t-hover flex h-12 items-center justify-center rounded-full bg-accent px-5 font-medium text-[16px] text-foreground leading-5 hover:bg-accent-active"
             onClick={() =>
               openTrackedLink(publicEnv, {
                 href: getExplorerTxUrl(signature),
@@ -146,7 +146,7 @@ export function ActionSuccessBody({
           </button>
         ) : null}
         <button
-          className="t-hover flex h-12 items-center justify-center rounded-full bg-black px-5 font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+          className="t-hover flex h-12 items-center justify-center rounded-full bg-foreground px-5 font-medium text-[16px] text-background leading-5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
           onClick={onDone}
           type="button"
         >
@@ -184,17 +184,17 @@ export function ActionErrorBody({
           className="size-16"
           src={`${ASSET_BASE}/icon-swap-failed.svg`}
         />
-        <p className="text-center font-semibold text-[28px] text-black leading-8 tracking-[-0.28px]">
+        <p className="text-center font-semibold text-[28px] text-foreground leading-8 tracking-[-0.28px]">
           Failed
         </p>
         {message ? (
-          <p className="max-w-[400px] truncate text-center text-[16px] leading-5 tracking-[-0.16px] text-[#f9363c]">
+          <p className="max-w-[400px] truncate text-center text-[16px] leading-5 tracking-[-0.16px] text-destructive">
             {message}
           </p>
         ) : null}
       </div>
       <button
-        className="t-hover relative flex h-12 items-center justify-center rounded-full bg-black px-5 font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+        className="t-hover relative flex h-12 items-center justify-center rounded-full bg-foreground px-5 font-medium text-[16px] text-background leading-5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
         onClick={onBack}
         type="button"
       >

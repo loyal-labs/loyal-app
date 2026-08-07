@@ -15,6 +15,7 @@ import {
 import { SplitUsd } from "@/components/wallet-workspace/facelift/crypto-pane";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
@@ -195,22 +196,29 @@ function buildChartGeometry(points: ChartPoint[]) {
 
 function CircleActionButton({
   icon,
+  iconColorClass,
   label,
   onClick,
 }: {
   icon: string;
+  /** text-* class rendering the icon as a themed mask; omit = raw img. */
+  iconColorClass?: string;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button
       aria-label={label}
-      className="t-hover flex items-center justify-center rounded-full bg-black/[0.04] p-2.5 hover:-translate-y-0.5 hover:bg-black/[0.08] active:translate-y-0"
+      className="t-hover flex items-center justify-center rounded-full bg-accent p-2.5 hover:-translate-y-0.5 hover:bg-accent-active active:translate-y-0"
       onClick={onClick}
       type="button"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt="" aria-hidden="true" className="size-6" src={icon} />
+      {iconColorClass ? (
+        <ThemedIcon className={`size-6 ${iconColorClass}`} src={icon} />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img alt="" aria-hidden="true" className="size-6" src={icon} />
+      )}
     </button>
   );
 }
@@ -251,10 +259,10 @@ function BalanceRow({
         </span>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-        <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+        <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
           {title}
         </p>
-        <p className="whitespace-nowrap text-[13px] leading-4 text-[#8a8a8e]">
+        <p className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
           <ScrambleText isHidden={isBalanceHidden} text={amountLabel} />
         </p>
       </div>
@@ -282,19 +290,16 @@ function LinkChip({
 }) {
   return (
     <a
-      className="t-hover flex shrink-0 items-center gap-1 rounded-xl bg-[#f5f5f5] py-2 pr-3 pl-2 hover:bg-black/[0.08]"
+      className="t-hover flex shrink-0 items-center gap-1 rounded-xl bg-secondary py-2 pr-3 pl-2 hover:bg-accent-active"
       href={href}
       rel="noopener noreferrer"
       target="_blank"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt=""
-        aria-hidden="true"
-        className="size-5"
+      <ThemedIcon
+        className="size-5 text-tertiary"
         src={`${ASSET_BASE}/${icon}`}
       />
-      <span className="whitespace-nowrap font-medium text-[15px] text-black leading-5 tracking-[-0.165px]">
+      <span className="whitespace-nowrap font-medium text-[15px] text-foreground leading-5 tracking-[-0.165px]">
         {label}
       </span>
     </a>
@@ -456,7 +461,7 @@ export function TokenDetailPane({
 
   const priceChange = detail?.market.priceChange24hPercent ?? null;
   const isNegative = priceChange !== null && priceChange < 0;
-  const chartColor = isNegative ? "#f9363c" : "#34c759";
+  const chartColor = isNegative ? "var(--destructive)" : "var(--positive)";
   const displayPrice = detail?.market.priceUsd ?? price;
   const priceParts = splitPrice(hoveredPoint?.priceUsd ?? displayPrice);
   // The pop-in mounts once the real price is known (or the fetch settled),
@@ -566,14 +571,13 @@ export function TokenDetailPane({
           />
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2.5">
-          <h2 className="truncate font-semibold text-[20px] text-black leading-6">
+          <h2 className="truncate font-semibold text-[20px] text-foreground leading-6">
             {symbol}
           </h2>
           {detail?.info.gtVerified ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              alt="Verified"
-              className="size-6 shrink-0"
+            <ThemedIcon
+              className="size-6 shrink-0 text-positive"
+              label="Verified"
               src={`${ASSET_BASE}/icon-verified.svg`}
             />
           ) : null}
@@ -581,15 +585,12 @@ export function TokenDetailPane({
         {onClose ? (
           <button
             aria-label="Close"
-            className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={onClose}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
               src={`${ASSET_BASE}/icon-cross.svg`}
             />
           </button>
@@ -600,14 +601,14 @@ export function TokenDetailPane({
         <div className={`w-full shrink-0 ${isSheet ? "py-2" : "p-2"}`}>
           <div className="flex h-[86px] w-full items-center rounded-[20px] px-4 py-2">
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <p className="truncate text-[16px] leading-5 text-[#8a8a8e]">
+              <p className="truncate text-[16px] leading-5 text-muted-foreground">
                 {name}
               </p>
               <div className="flex items-baseline gap-3">
-                <p className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]">
+                <p className="whitespace-nowrap font-semibold text-[40px] text-foreground leading-[48px] tracking-[-0.44px]">
                   <SkeletonReveal
                     isRevealed={isPriceRevealed}
-                    skeletonClassName="rounded-lg bg-black/[0.06]"
+                    skeletonClassName="rounded-lg bg-accent-selected"
                   >
                     {isPriceRevealed ? (
                       <PopDigits
@@ -615,7 +616,7 @@ export function TokenDetailPane({
                         segments={[
                           { text: priceParts.whole },
                           {
-                            color: "rgba(60,60,67,0.4)",
+                            color: "var(--tertiary)",
                             text: priceParts.fraction,
                           },
                         ]}
@@ -644,7 +645,7 @@ export function TokenDetailPane({
               {/* Hovered point's datetime rides the chart's top row (the empty
                 space left of the max label), so it can't shift the layout. */}
               <p
-                className={`min-h-4 text-[12px] leading-4 text-[rgba(60,60,67,0.6)] transition-opacity duration-150 ${
+                className={`min-h-4 text-[12px] leading-4 text-muted-foreground transition-opacity duration-150 ${
                   hoveredPoint ? "opacity-100" : "opacity-0"
                 }`}
               >
@@ -652,7 +653,7 @@ export function TokenDetailPane({
                   ? formatPointTime(hoveredPoint.timestamp, activeRange)
                   : " "}
               </p>
-              <p className="min-h-4 text-[12px] leading-4 text-[rgba(60,60,67,0.6)]">
+              <p className="min-h-4 text-[12px] leading-4 text-muted-foreground">
                 {geometry ? formatPrice(geometry.maxPrice) : " "}
               </p>
             </div>
@@ -688,14 +689,14 @@ export function TokenDetailPane({
                     rides the line there (cursor x, or the latest point). */}
                   <span
                     aria-hidden="true"
-                    className="token-chart-trail absolute inset-y-0 right-0 bg-white/60"
+                    className="token-chart-trail absolute inset-y-0 right-0 bg-card/60"
                     style={{
                       left: `${(activeIndex / Math.max(lastIndex, 1)) * 100}%`,
                     }}
                   />
                   <span
                     aria-hidden="true"
-                    className="token-chart-dot -translate-x-1/2 -translate-y-1/2 absolute size-3 rounded-full border-2 border-white"
+                    className="token-chart-dot -translate-x-1/2 -translate-y-1/2 absolute size-3 rounded-full border-2 border-card"
                     style={{
                       backgroundColor: chartColor,
                       left: `${(activeIndex / Math.max(lastIndex, 1)) * 100}%`,
@@ -745,11 +746,11 @@ export function TokenDetailPane({
                 </div>
               ) : hasDetailError && !detail ? (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-3">
-                  <p className="text-[13px] leading-4 text-[#8a8a8e]">
+                  <p className="text-[13px] leading-4 text-muted-foreground">
                     Couldn&apos;t load market data.
                   </p>
                   <button
-                    className="t-hover rounded-full bg-black/[0.04] px-4 py-2.5 font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                    className="t-hover rounded-full bg-accent px-4 py-2.5 font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                     onClick={() => setRetryNonce((nonce) => nonce + 1)}
                     type="button"
                   >
@@ -758,18 +759,18 @@ export function TokenDetailPane({
                 </div>
               ) : chartPoints ? (
                 <div className="flex h-full w-full items-center justify-center">
-                  <p className="text-[13px] leading-4 text-[#8a8a8e]">
+                  <p className="text-[13px] leading-4 text-muted-foreground">
                     No price history yet.
                   </p>
                 </div>
               ) : (
                 <div className="h-full w-full pl-4">
-                  <div className="h-full w-full animate-pulse rounded-2xl bg-black/[0.03]" />
+                  <div className="h-full w-full animate-pulse rounded-2xl bg-accent" />
                 </div>
               )}
             </div>
             <div className="flex w-full items-center justify-end px-4 pt-1">
-              <p className="min-h-4 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+              <p className="min-h-4 text-[13px] leading-4 text-muted-foreground">
                 {geometry ? formatPrice(geometry.minPrice) : " "}
               </p>
             </div>
@@ -778,8 +779,8 @@ export function TokenDetailPane({
                 <button
                   className={`flex min-w-0 flex-1 items-center justify-center rounded-full px-3 py-2.5 font-medium text-[13px] leading-4 transition-colors ${
                     activeRange === range.label
-                      ? "bg-black/[0.04] text-black"
-                      : "text-[#8a8a8e] hover:text-black"
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                   key={range.label}
                   onClick={() => setActiveRange(range.label)}
@@ -797,13 +798,13 @@ export function TokenDetailPane({
             <div className="flex w-full gap-2 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {statChips.map((chip) => (
                 <div
-                  className="flex shrink-0 flex-col justify-center rounded-xl bg-[#f5f5f5] px-3 py-2"
+                  className="flex shrink-0 flex-col justify-center rounded-xl bg-secondary px-3 py-2"
                   key={chip.label}
                 >
-                  <p className="text-[13px] leading-4 text-[#8a8a8e]">
+                  <p className="text-[13px] leading-4 text-muted-foreground">
                     {chip.label}
                   </p>
-                  <p className="whitespace-nowrap font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+                  <p className="whitespace-nowrap font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
                     {chip.value}
                   </p>
                 </div>
@@ -818,20 +819,20 @@ export function TokenDetailPane({
           }`}
         >
           <div className="flex w-full flex-col gap-0.5 px-4 py-2">
-            <p className="text-[16px] leading-5 text-[#8a8a8e]">Balance</p>
-            <p className="whitespace-nowrap font-semibold text-[32px] text-black leading-9">
+            <p className="text-[16px] leading-5 text-muted-foreground">Balance</p>
+            <p className="whitespace-nowrap font-semibold text-[32px] text-foreground leading-9">
               <ScrambleText
                 isHidden={isBalanceHidden}
                 text={balanceParts.balanceWhole}
               />
-              <span className="text-[#b1b1b4]">
+              <span className="text-tertiary">
                 <ScrambleText
                   isHidden={isBalanceHidden}
                   text={balanceParts.balanceFraction}
                 />
               </span>
             </p>
-            <p className="whitespace-nowrap text-[16px] leading-5 text-[#8a8a8e]">
+            <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
               <ScrambleText
                 isHidden={isBalanceHidden}
                 text={`${formatTokenBalance(
@@ -843,23 +844,21 @@ export function TokenDetailPane({
           {isSheet ? null : (
             <div className="flex w-full items-center gap-2 py-2 pl-3">
               <button
-                className="t-hover flex items-center justify-center gap-2 rounded-full bg-black p-2.5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+                className="t-hover flex items-center justify-center gap-2 rounded-full bg-foreground p-2.5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
                 onClick={onSwap}
                 type="button"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6"
+                <ThemedIcon
+                  className="size-6 text-background"
                   src={`${ASSET_BASE}/icon-swap-repeat.svg`}
                 />
-                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-white leading-5">
+                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-background leading-5">
                   Swap
                 </span>
               </button>
               <CircleActionButton
                 icon={`${ASSET_BASE}/icon-arrow-up-circle.svg`}
+                iconColorClass="text-tertiary"
                 label="Send"
                 onClick={onSend}
               />
@@ -871,6 +870,7 @@ export function TokenDetailPane({
               {hasSecured ? (
                 <CircleActionButton
                   icon={`${ASSET_BASE}/icon-shield-break.svg`}
+                  iconColorClass="text-muted-foreground"
                   label="Unshield"
                   onClick={onUnshield}
                 />
@@ -903,7 +903,7 @@ export function TokenDetailPane({
               {hasPublic && hasSecured ? (
                 <span
                   aria-hidden="true"
-                  className="-translate-y-1/2 absolute top-1/2 left-[37px] h-3 w-0.5 rounded-full bg-[#d9d9d9]"
+                  className="-translate-y-1/2 absolute top-1/2 left-[37px] h-3 w-0.5 rounded-full bg-border"
                 />
               ) : null}
             </div>
@@ -914,12 +914,12 @@ export function TokenDetailPane({
           className={`flex w-full shrink-0 flex-col ${isSheet ? "" : "px-2"}`}
         >
           <div className="flex w-full items-start px-4 pt-1">
-            <p className="min-w-0 flex-1 pt-3 pb-2 font-semibold text-[16px] text-black leading-5 tracking-[-0.176px]">
+            <p className="min-w-0 flex-1 pt-3 pb-2 font-semibold text-[16px] text-foreground leading-5 tracking-[-0.176px]">
               About
             </p>
           </div>
           {detail?.info.description ? (
-            <p className="px-4 pb-2 text-[13px] leading-4 text-[#8a8a8e]">
+            <p className="px-4 pb-2 text-[13px] leading-4 text-muted-foreground">
               {detail.info.description}
             </p>
           ) : null}
@@ -939,42 +939,36 @@ export function TokenDetailPane({
       {isSheet ? (
         // Sheet variant pins the actions under the scroll area (Figma
         // 4834:440680): labeled Swap/Send pills, stretched shield circles.
-        <div className="flex w-full shrink-0 items-center gap-2 bg-white px-4 pt-2 pb-4">
+        <div className="flex w-full shrink-0 items-center gap-2 bg-card px-4 pt-2 pb-4">
           <button
-            className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-black p-2.5"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-foreground p-2.5"
             onClick={onSwap}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-background"
               src={`${ASSET_BASE}/icon-swap-repeat.svg`}
             />
-            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-white leading-5">
+            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-background leading-5">
               Swap
             </span>
           </button>
           <button
-            className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-[#f5f5f5] p-2.5"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-full bg-secondary p-2.5"
             onClick={onSend}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-tertiary"
               src={`${ASSET_BASE}/icon-arrow-up-circle.svg`}
             />
-            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
+            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
               Send
             </span>
           </button>
           <button
             aria-label="Shield"
-            className="flex min-w-0 flex-1 items-center justify-center rounded-full bg-black/[0.04] p-2.5"
+            className="flex min-w-0 flex-1 items-center justify-center rounded-full bg-accent p-2.5"
             onClick={onShield}
             type="button"
           >
@@ -989,15 +983,12 @@ export function TokenDetailPane({
           {hasSecured ? (
             <button
               aria-label="Unshield"
-              className="flex min-w-0 flex-1 items-center justify-center rounded-full bg-black/[0.04] p-2.5"
+              className="flex min-w-0 flex-1 items-center justify-center rounded-full bg-accent p-2.5"
               onClick={onUnshield}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
                 src={`${ASSET_BASE}/icon-shield-break.svg`}
               />
             </button>

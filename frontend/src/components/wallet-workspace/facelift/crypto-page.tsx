@@ -41,6 +41,7 @@ import {
   SwapPane,
   SwapTokenSelectPane,
 } from "@/components/wallet-workspace/facelift/swap-pane";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { TokenDetailPane } from "@/components/wallet-workspace/facelift/token-detail-pane";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -151,39 +152,36 @@ function ShieldUnlockOverlay({
       isOpen={isOpen}
       onClose={onClose}
       scrimClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-[4px]"
-      sheetClassName="flex w-full max-w-[400px] flex-col overflow-clip rounded-3xl bg-white"
+      sheetClassName="flex w-full max-w-[400px] flex-col overflow-clip rounded-3xl bg-card"
     >
       <header className="flex w-full items-center p-2">
-        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
           Shielded balances
         </h2>
         <button
           aria-label="Close"
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
           onClick={onClose}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-muted-foreground"
             src="/wallet-workspace/facelift/icon-cross.svg"
           />
         </button>
       </header>
-      <p className="px-4 text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+      <p className="px-4 text-[16px] leading-5 text-muted-foreground">
         Signing proves wallet ownership so Loyal can show shielded balances. No
         funds move and no gas is spent.
       </p>
       {error ? (
-        <p className="px-4 pt-2 text-[13px] leading-4 text-[#f9363c]">
+        <p className="px-4 pt-2 text-[13px] leading-4 text-destructive">
           {error}
         </p>
       ) : null}
       <div className="w-full p-4">
         <button
-          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 hover:bg-[#171717] disabled:bg-[#cccdcd]"
+          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 hover:bg-foreground/90 disabled:bg-foreground/20"
           disabled={isUnlocking}
           onClick={onSign}
           type="button"
@@ -939,7 +937,7 @@ export function CryptoPage({
           // pane; both slide out while a submit runs and on result screens.
           <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
             <InlineSheetReveal
-              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
+              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-card"
               isOpen={sendSelect !== null && isSendFormActive}
             >
               <PaneReveal key={overlaySendSelect}>
@@ -953,7 +951,7 @@ export function CryptoPage({
           // switching sides replays the content reveal on the open panel.
           <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
             <InlineSheetReveal
-              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
+              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-card"
               isOpen={swapSelectSide !== null}
             >
               <PaneReveal key={overlaySelectSide}>
@@ -982,7 +980,7 @@ export function CryptoPage({
           // screens (the 400px slot stays reserved so the middle never jumps).
           <div className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
             <InlineSheetReveal
-              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white"
+              className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-card"
               isOpen={isShieldFormActive}
             >
               <PaneReveal>
@@ -1000,7 +998,7 @@ export function CryptoPage({
           // switching tokens replays the panel reveal.
           <aside className="hidden h-full w-[400px] shrink-0 min-[1204px]:block">
             <PaneReveal key={detailMint}>
-              <div className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white">
+              <div className="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-card">
                 <TokenDetailPane
                   hideChart={page === "stables"}
                   icon={detailBase.icon}
@@ -1019,7 +1017,7 @@ export function CryptoPage({
             </PaneReveal>
           </aside>
         ) : (
-          <aside className="hidden h-full w-[400px] shrink-0 rounded-3xl bg-white min-[1204px]:block" />
+          <aside className="hidden h-full w-[400px] shrink-0 rounded-3xl bg-card min-[1204px]:block" />
         )}
       </div>
       {/* Below 1204px the selector opens as the right-pinned card over the
@@ -1029,7 +1027,7 @@ export function CryptoPage({
         isOpen={isSwapOpen && swapSelectSide !== null}
         onClose={() => setSwapSelectSide(null)}
         scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
-        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
         <PaneReveal key={overlaySelectSide}>
           <SwapTokenSelectPane
@@ -1051,7 +1049,7 @@ export function CryptoPage({
         isOpen={isSendOpen && sendSelect !== null && isSendFormActive}
         onClose={() => setSendSelect(null)}
         scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
-        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
         <PaneReveal key={overlaySendSelect}>
           {renderSendSelectPane()}
@@ -1063,7 +1061,7 @@ export function CryptoPage({
         isOpen={isShieldOpen && isShieldSelectOpen}
         onClose={() => setIsShieldSelectOpen(false)}
         scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
-        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+        sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
         <ShieldAssetPane
           nameByMint={tokenNameByMint}
@@ -1084,7 +1082,7 @@ export function CryptoPage({
           isOpen={isDetailSheetOpen}
           onClose={() => setIsDetailSheetOpen(false)}
           scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
-          sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+          sheetClassName="ml-auto flex h-full w-[392px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
         >
           <TokenDetailPane
             hideChart={page === "stables"}

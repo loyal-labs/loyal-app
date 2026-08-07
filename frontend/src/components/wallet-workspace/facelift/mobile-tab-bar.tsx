@@ -1,11 +1,13 @@
 "use client";
 
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
+
 const ASSET_BASE = "/wallet-workspace/facelift";
 
 // Figma 4813:400091 — mobile-only bottom tab bar: Wallet home · Earn (mascot
-// pill) · Activity. Active icons go black, inactive stay #B1B1B4. Shown only
-// on the root views; input screens (deposit/withdraw/autodeposit, send/swap)
-// hide it under the system keyboard.
+// pill) · Activity. Active icons render in the foreground color, inactive in
+// tertiary. Shown only on the root views; input screens (deposit/withdraw/
+// autodeposit, send/swap) hide it under the system keyboard.
 export function MobileTabBar({
   activeTab,
   onSelect,
@@ -16,7 +18,7 @@ export function MobileTabBar({
   showActivityBadge?: boolean;
 }) {
   return (
-    <div className="cherry-mobile-tab-bar w-full shrink-0 bg-white px-4 min-[796px]:hidden">
+    <div className="cherry-mobile-tab-bar w-full shrink-0 bg-card px-4 min-[796px]:hidden">
       <div className="flex w-full items-center gap-4">
         <button
           aria-current={activeTab === "wallet" ? "page" : undefined}
@@ -25,11 +27,10 @@ export function MobileTabBar({
           onClick={() => onSelect("wallet")}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-7"
+          <ThemedIcon
+            className={`size-7 ${
+              activeTab === "wallet" ? "text-foreground" : "text-tertiary"
+            }`}
             src={`${ASSET_BASE}/${
               activeTab === "wallet"
                 ? "icon-tab-wallet-black.svg"
@@ -48,7 +49,7 @@ export function MobileTabBar({
               light-red tint (4813:400091). */}
           <span
             className={`relative mx-auto block h-11 w-full max-w-16 overflow-hidden rounded-full ${
-              activeTab === "earn" ? "bg-black" : "bg-[rgba(249,54,60,0.14)]"
+              activeTab === "earn" ? "bg-foreground" : "bg-primary/[0.14]"
             }`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -68,11 +69,10 @@ export function MobileTabBar({
           type="button"
         >
           <span className="relative">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-7"
+            <ThemedIcon
+              className={`size-7 ${
+                activeTab === "activity" ? "text-foreground" : "text-tertiary"
+              }`}
               src={`${ASSET_BASE}/${
                 activeTab === "activity"
                   ? "icon-tab-clock-black.svg"
@@ -84,7 +84,7 @@ export function MobileTabBar({
               className="t-badge t-badge-tab"
               data-open={showActivityBadge ? "true" : "false"}
             >
-              <span className="t-badge-dot size-1.5 rounded-full bg-[#f9363c]" />
+              <span className="t-badge-dot size-1.5 rounded-full bg-primary" />
             </span>
           </span>
         </button>

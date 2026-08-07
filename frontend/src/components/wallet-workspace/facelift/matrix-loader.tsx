@@ -37,6 +37,52 @@ if (typeof window !== "undefined") {
   });
 }
 
+// The lottie's two cell colors are baked for a white surface; in dark the
+// pale cells glare, so the palette remaps at mount (the loader is transient,
+// so a mid-flight theme toggle isn't re-themed until remount).
+const DARK_CELL_REMAP: [from: number[], to: number[]][] = [
+  [
+    [249, 54, 60],
+    [255, 80, 80],
+  ], // brand red -> dark accent #FF5050
+  [
+    [227, 201, 202],
+    [85, 49, 54],
+  ], // pale pink -> #553136, same lift off #2B2930 as the pink has off white
+];
+
+function remapDarkCellColors(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      remapDarkCellColors(item);
+    }
+    return;
+  }
+  if (!node || typeof node !== "object") {
+    return;
+  }
+  const record = node as Record<string, unknown>;
+  const color = record.c as { k?: unknown } | undefined;
+  if (
+    color &&
+    Array.isArray(color.k) &&
+    color.k.length >= 3 &&
+    color.k.every((channel) => typeof channel === "number")
+  ) {
+    const k = color.k as number[];
+    for (const [from, to] of DARK_CELL_REMAP) {
+      if (from.every((value, i) => Math.abs(k[i] * 255 - value) < 2)) {
+        for (let i = 0; i < 3; i++) {
+          k[i] = to[i] / 255;
+        }
+      }
+    }
+  }
+  for (const value of Object.values(record)) {
+    remapDarkCellColors(value);
+  }
+}
+
 // Brand-red "Matrix Loader" lottie. Shared by the sign-in wallet wait and the
 // Earn shell boot loader.
 export function MatrixLoader() {
@@ -55,10 +101,14 @@ export function MatrixLoader() {
         if (cancelled || !el) {
           return;
         }
+        // lottie mutates the data it plays; clone so concurrent/sequential
+        // mounts never share a poisoned object.
+        const data = structuredClone(animationData);
+        if (document.documentElement.classList.contains("dark")) {
+          remapDarkCellColors(data);
+        }
         anim = lottie.loadAnimation({
-          // lottie mutates the data it plays; clone so concurrent/sequential
-          // mounts never share a poisoned object.
-          animationData: structuredClone(animationData),
+          animationData: data,
           autoplay: !prefersReducedMotion,
           container: el,
           loop: true,

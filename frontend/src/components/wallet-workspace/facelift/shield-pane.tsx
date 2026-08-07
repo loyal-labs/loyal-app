@@ -25,6 +25,7 @@ import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transiti
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import { SplitAmount } from "@/components/wallet-workspace/facelift/sidebar";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useShield } from "@/hooks/use-shield";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
 import { getTokenIconUrl } from "@/lib/token-icon";
@@ -209,7 +210,7 @@ export function ShieldPane({
         into the shell's 8px gap and sit flush with the viewport bottom (same
         escape the earn empty pane uses); the form keeps the clip. */
     <section
-      className={`flex h-full w-full min-w-0 flex-1 flex-col rounded-3xl bg-white max-[795px]:rounded-none ${
+      className={`flex h-full w-full min-w-0 flex-1 flex-col rounded-3xl bg-card max-[795px]:rounded-none ${
         step === "success" || step === "error"
           ? "max-[795px]:overflow-clip"
           : "overflow-clip"
@@ -219,34 +220,28 @@ export function ShieldPane({
         <div className="flex shrink-0 items-center pr-3">
           <button
             aria-label="Back"
-            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={onBack}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
               src={`${ASSET_BASE}/icon-arrow-left.svg`}
             />
           </button>
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2">
-          <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+          <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
             <TextSwap text={direction === "shield" ? "Shield" : "Unshield"} />
           </h1>
           <button
             aria-label="What are Shielded Assets?"
-            className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={onOpenInfo}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-tertiary"
               src={`${ASSET_BASE}/icon-question.svg`}
             />
           </button>
@@ -259,19 +254,19 @@ export function ShieldPane({
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
               <div className="w-full shrink-0 p-2">
                 <div className="flex w-full flex-col gap-0.5 px-4 py-2">
-                  <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                  <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                     Amount
                   </p>
                   <div className="flex w-full items-center">
                     <div className="flex h-12 min-w-0 flex-1 items-baseline">
                       {isUsdInput ? (
-                        <span className="font-semibold text-[40px] text-black leading-[48px]">
+                        <span className="font-semibold text-[40px] text-foreground leading-[48px]">
                           $
                         </span>
                       ) : null}
                       <input
                         autoFocus
-                        className="w-full min-w-0 bg-transparent font-semibold text-[40px] text-black leading-[48px] outline-none placeholder:text-[#b1b1b4]"
+                        className="w-full min-w-0 bg-transparent font-semibold text-[40px] text-foreground leading-[48px] outline-none placeholder:text-tertiary"
                         inputMode="decimal"
                         onChange={(event) =>
                           handleAmountChange(event.target.value)
@@ -284,21 +279,18 @@ export function ShieldPane({
                     <div className="flex shrink-0 items-center pl-3">
                       <button
                         aria-label="Switch between token and dollar amounts"
-                        className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+                        className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
                         onClick={handleToggleCurrency}
                         type="button"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          alt=""
-                          aria-hidden="true"
-                          className="size-6"
+                        <ThemedIcon
+                          className="size-6 text-tertiary"
                           src={`${ASSET_BASE}/icon-arrow-top-bottom.svg`}
                         />
                       </button>
                     </div>
                   </div>
-                  <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                  <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                     {isUsdInput
                       ? `${formatTokenAmount(tokenAmount)} ${token.symbol}`
                       : `$${formatUsdAmount(usdAmount)}`}
@@ -316,7 +308,7 @@ export function ShieldPane({
                       src={`${ASSET_BASE}/icon-circle-info.svg`}
                     />
                   </span>
-                  <p className="min-w-0 max-w-[400px] flex-1 py-2 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  <p className="min-w-0 max-w-[400px] flex-1 py-2 text-[13px] leading-4 text-muted-foreground">
                     <TextSwap text={captionText} />
                   </p>
                 </div>
@@ -352,12 +344,12 @@ export function ShieldPane({
                     <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
                       <SplitAmount
                         fraction={balanceSplit.balanceFraction}
-                        fractionColor="#b1b1b4"
+                        fractionColor="var(--tertiary)"
                         isHidden={isBalanceHidden}
                         isRevealed
                         whole={balanceSplit.balanceWhole}
                       />
-                      <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                      <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                         <ScrambleText
                           isHidden={isBalanceHidden}
                           text={`${formatTokenAmount(token.balance)} ${
@@ -369,7 +361,7 @@ export function ShieldPane({
                   </button>
                   <span className="flex shrink-0 items-center pl-3">
                     <button
-                      className="t-hover flex min-w-16 items-center justify-center rounded-full bg-black/[0.04] px-4 py-2.5 font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                      className="t-hover flex min-w-16 items-center justify-center rounded-full bg-accent px-4 py-2.5 font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                       onClick={handleMax}
                       type="button"
                     >
@@ -380,14 +372,14 @@ export function ShieldPane({
               </div>
             </div>
 
-            <div className="w-full shrink-0 bg-white px-4 pt-2 pb-4">
+            <div className="w-full shrink-0 bg-card px-4 pt-2 pb-4">
               <button
                 className={`flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 transition-colors ${
                   isCtaInvalid
-                    ? "bg-[rgba(249,54,60,0.08)] text-[#f9363c]"
+                    ? "bg-primary/[0.08] text-primary"
                     : ctaDisabled
-                    ? "bg-black text-white opacity-60"
-                    : "t-hover bg-black text-white hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+                    ? "bg-foreground text-background opacity-60"
+                    : "t-hover bg-foreground text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
                 }`}
                 disabled={ctaDisabled}
                 onClick={() => void handleConfirm()}
@@ -487,7 +479,7 @@ export function ShieldAssetPane({
     <div className="flex h-full w-full min-w-0 flex-col">
       <header className="flex w-full shrink-0 items-center p-2">
         <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4 max-[795px]:pl-2">
-          <h2 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+          <h2 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
             Select asset
           </h2>
         </div>
@@ -495,15 +487,12 @@ export function ShieldAssetPane({
           <div className="flex shrink-0 items-center pl-3">
             <button
               aria-label="Close"
-              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={onClose}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
                 src={`${ASSET_BASE}/icon-cross.svg`}
               />
             </button>
@@ -511,14 +500,14 @@ export function ShieldAssetPane({
         ) : null}
       </header>
       <div className="w-full shrink-0 px-4 pb-2">
-        <div className="flex w-full items-center rounded-full bg-black/[0.04] px-3">
+        <div className="flex w-full items-center rounded-full bg-accent px-3">
           <Search
-            className="mr-3 shrink-0 text-[#8a8a8e]"
+            className="mr-3 shrink-0 text-muted-foreground"
             size={24}
             strokeWidth={2}
           />
           <input
-            className="min-w-0 flex-1 bg-transparent py-3 text-[16px] text-black leading-5 outline-none placeholder:text-[#8a8a8e]"
+            className="min-w-0 flex-1 bg-transparent py-3 text-[16px] text-foreground leading-5 outline-none placeholder:text-muted-foreground"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search assets"
             type="text"
@@ -528,7 +517,7 @@ export function ShieldAssetPane({
       </div>
       <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto p-2">
         {filtered.length === 0 ? (
-          <p className="px-4 py-8 text-center text-[14px] leading-5 text-[rgba(60,60,67,0.6)]">
+          <p className="px-4 py-8 text-center text-[14px] leading-5 text-muted-foreground">
             No assets found
           </p>
         ) : (
@@ -540,7 +529,7 @@ export function ShieldAssetPane({
             return (
               <button
                 className={`t-hover flex w-full shrink-0 items-center rounded-2xl px-4 text-left ${
-                  isSelected ? "bg-black/[0.04]" : "hover:bg-black/[0.04]"
+                  isSelected ? "bg-accent" : "hover:bg-accent"
                 }`}
                 key={`${token.mint ?? token.symbol}${
                   token.isSecured ? "-secured" : ""
@@ -567,19 +556,19 @@ export function ShieldAssetPane({
                   </span>
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                  <span className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+                  <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
                     {(token.mint ? nameByMint[token.mint] : undefined) ??
                       token.symbol}
                     {token.isSecured ? (
-                      <span className="text-[#b1b1b4]"> · Shielded</span>
+                      <span className="text-tertiary"> · Shielded</span>
                     ) : null}
                   </span>
-                  <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                     {token.symbol}
                   </span>
                 </span>
                 <span className="flex shrink-0 flex-col items-end gap-0.5 py-[11px] pl-3">
-                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-black leading-5">
+                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
                     {isBalanceHidden ? (
                       <ScrambleText
                         isHidden
@@ -588,13 +577,13 @@ export function ShieldAssetPane({
                     ) : (
                       <>
                         {split.balanceWhole}
-                        <span className="text-[#b1b1b4]">
+                        <span className="text-tertiary">
                           {split.balanceFraction}
                         </span>
                       </>
                     )}
                   </span>
-                  <span className="whitespace-nowrap text-right text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  <span className="whitespace-nowrap text-right text-[13px] leading-4 text-muted-foreground">
                     <ScrambleText
                       isHidden={isBalanceHidden}
                       text={formatTokenAmount(token.balance)}
@@ -640,23 +629,20 @@ export function ShieldInfoOverlay({
       isOpen={isOpen}
       onClose={onClose}
       scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
-      sheetClassName="ml-auto flex h-full w-[400px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      sheetClassName="ml-auto flex h-full w-[400px] min-w-0 max-w-full flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
     >
       <header className="flex w-full items-center p-2">
-        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-black leading-6">
+        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
           What are Shielded Assets?
         </h2>
         <button
           aria-label="Close info"
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
           onClick={onClose}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-muted-foreground"
             src={`${ASSET_BASE}/icon-cross.svg`}
           />
         </button>
@@ -664,13 +650,13 @@ export function ShieldInfoOverlay({
       <div className="flex min-h-0 w-full flex-1 items-center justify-center p-2">
         {/* ponytail: the design's info body is still a placeholder — swap in
             real copy when it lands in Figma. */}
-        <p className="text-center text-[16px] leading-5 text-[#8a8a8e]">
+        <p className="text-center text-[16px] leading-5 text-muted-foreground">
           Content
         </p>
       </div>
       <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
         <button
-          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
+          className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-secondary font-medium text-[16px] text-foreground leading-5 hover:bg-accent-active"
           onClick={onClose}
           type="button"
         >

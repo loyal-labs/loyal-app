@@ -169,7 +169,7 @@ export function WalletHomeBanners({
         {BANNERS.map((banner, index) => (
           <span
             className={`size-2 rounded-full transition-colors duration-200 ${
-              index === activeIndex ? "bg-[#f9363c]" : "bg-[#f9363c]/10"
+              index === activeIndex ? "bg-primary" : "bg-primary/10"
             }`}
             key={banner.key}
           />

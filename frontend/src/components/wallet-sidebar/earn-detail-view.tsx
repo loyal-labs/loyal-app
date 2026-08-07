@@ -55,10 +55,10 @@ import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
 import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history";
 
 const font = "var(--font-geist-sans), sans-serif";
-const secondary = "rgba(60, 60, 67, 0.6)";
-const decimalGray = "rgba(60, 60, 67, 0.4)";
-const POSITIVE_AMOUNT_COLOR = "#34C759";
-const LOYAL_EARN_BRAND_COLOR = "#F9363C";
+const secondary = "var(--muted-foreground)";
+const decimalGray = "var(--tertiary)";
+const POSITIVE_AMOUNT_COLOR = "var(--positive)";
+const LOYAL_EARN_BRAND_COLOR = "var(--primary)";
 // USDC mark badged onto the Main Account icon when a row reflects only the
 // account's USDC balance (deposit/withdraw/autodeposit), so it isn't confused
 // with the account's full multi-token value. Mirrors the shielded-asset badge.
@@ -397,7 +397,7 @@ function forecastMoneySegments(value: number, mutedFraction = false) {
   return [
     { text: `$${whole}` },
     {
-      color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : undefined,
+      color: mutedFraction ? "var(--tertiary)" : undefined,
       text: `.${fraction}`,
     },
   ];
@@ -409,7 +409,7 @@ function formatForecastMoney(value: number, mutedFraction = false) {
     <>
       ${whole}
       <span
-        style={{ color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : "inherit" }}
+        style={{ color: mutedFraction ? "var(--tertiary)" : "inherit" }}
       >
         .{fraction}
       </span>
@@ -1736,10 +1736,10 @@ function EarningsBlock({
                 width: "100%",
               }}
             >
-              <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+              <span style={{ color: "var(--tertiary)", whiteSpace: "nowrap" }}>
                 {dailyBars[0]?.label ?? ""}
               </span>
-              <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+              <span style={{ color: "var(--tertiary)", whiteSpace: "nowrap" }}>
                 {dailyBars[dailyBars.length - 1]?.label ?? ""}
               </span>
             </div>
@@ -4737,7 +4737,7 @@ function historicalApyValueSegments(
   return [
     { text: whole },
     {
-      color: mutedFraction ? "rgba(60, 60, 67, 0.4)" : undefined,
+      color: mutedFraction ? "var(--tertiary)" : undefined,
       text: `.${fraction}%`,
     },
   ];
@@ -5033,7 +5033,7 @@ function HydratedHistoricalApyChart({
             >
               <p
                 style={{
-                  color: isPrimary ? "#000" : "#3C3C43",
+                  color: "var(--foreground)",
                   fontFamily: font,
                   fontSize: isPrimary ? "28px" : "20px",
                   fontWeight: 600,
@@ -5071,7 +5071,7 @@ function HydratedHistoricalApyChart({
                 />
                 <span
                   style={{
-                    color: isPrimary ? "#000" : secondary,
+                    color: secondary,
                     fontFamily: font,
                     fontSize: "13px",
                     lineHeight: "16px",
@@ -5099,12 +5099,12 @@ function HydratedHistoricalApyChart({
           width: "100%",
         }}
       >
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+        <span style={{ color: "var(--tertiary)", whiteSpace: "nowrap" }}>
           {isHovering
             ? HISTORICAL_HOVER_DATE_FORMAT.format(focusSample.observedAtMs)
             : ""}
         </span>
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+        <span style={{ color: "var(--tertiary)", whiteSpace: "nowrap" }}>
           {`${scaleMax.toFixed(2)}%`}
         </span>
       </div>
@@ -5159,7 +5159,7 @@ function HydratedHistoricalApyChart({
                   style={{ opacity: isHovering ? 1 : 0 }}
                 >
                   <rect
-                    fill="#fff"
+                    fill="var(--card)"
                     fillOpacity={0.6}
                     height={chartHeight}
                     width={Math.max(chartWidth - focusX, 0)}
@@ -5167,7 +5167,7 @@ function HydratedHistoricalApyChart({
                     y={0}
                   />
                   <line
-                    stroke="#000"
+                    stroke="var(--foreground)"
                     strokeDasharray="6 6"
                     strokeLinecap="round"
                     strokeOpacity={0.14}
@@ -5187,7 +5187,7 @@ function HydratedHistoricalApyChart({
                 style={{
                   background: series.color,
                   borderRadius: "9999px",
-                  boxShadow: "0 0 0 2px #fff",
+                  boxShadow: "0 0 0 2px var(--card)",
                   height: "8px",
                   left: `${((focusX / chartWidth) * 100).toFixed(2)}%`,
                   pointerEvents: "none",
@@ -5223,7 +5223,7 @@ function HydratedHistoricalApyChart({
           return (
             <span
               key={index}
-              style={{ color: secondary, whiteSpace: "nowrap" }}
+              style={{ color: "var(--tertiary)", whiteSpace: "nowrap" }}
             >
               {HISTORICAL_AXIS_DATE_FORMAT.format(tickMs)}
             </span>
@@ -5489,11 +5489,7 @@ export function ForecastChart({
                 className="forecast-chart-summary-value"
                 data-primary={isPrimary ? "true" : undefined}
                 style={{
-                  color: isBalanceHidden
-                    ? "#BBBBC0"
-                    : isPrimary
-                    ? "#000"
-                    : "#3C3C43",
+                  color: isBalanceHidden ? "var(--tertiary)" : "var(--foreground)",
                   filter: hiddenValueFilter,
                   fontFamily: font,
                   fontSize: isPrimary ? "28px" : "16px",
@@ -5539,7 +5535,7 @@ export function ForecastChart({
                 <span
                   className="forecast-chart-summary-label"
                   style={{
-                    color: isPrimary ? "#000" : secondary,
+                    color: secondary,
                     fontFamily: font,
                     fontSize: "13px",
                     lineHeight: "16px",
@@ -5577,12 +5573,12 @@ export function ForecastChart({
           width: "100%",
         }}
       >
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+        <span style={{ color: "var(--tertiary)", whiteSpace: "nowrap" }}>
           {isHovering ? focusPoint.date : ""}
         </span>
         <span
           style={{
-            color: secondary,
+            color: "var(--tertiary)",
             filter: hiddenValueFilter,
             whiteSpace: "nowrap",
           }}
@@ -5658,7 +5654,7 @@ export function ForecastChart({
                     />
                   ))}
                   <rect
-                    fill="#fff"
+                    fill="var(--card)"
                     fillOpacity={0.6}
                     height={chartHeight}
                     width={Math.max(chartWidth - focusX, 0)}
@@ -5666,7 +5662,7 @@ export function ForecastChart({
                     y={0}
                   />
                   <line
-                    stroke="#000"
+                    stroke="var(--foreground)"
                     strokeDasharray="6 6"
                     strokeLinecap="round"
                     strokeOpacity={0.14}
@@ -5686,7 +5682,7 @@ export function ForecastChart({
                 style={{
                   background: EARN_SERIES_DISPLAY[series.key].color,
                   borderRadius: "9999px",
-                  boxShadow: "0 0 0 2px #fff",
+                  boxShadow: "0 0 0 2px var(--card)",
                   height: "8px",
                   left: `${((focusX / chartWidth) * 100).toFixed(2)}%`,
                   pointerEvents: "none",
@@ -5717,14 +5713,14 @@ export function ForecastChart({
       >
         <span
           style={{
-            color: secondary,
+            color: "var(--tertiary)",
             filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
             whiteSpace: "nowrap",
           }}
         >
           {`Today · $${formatMoney(principal)}`}
         </span>
-        <span style={{ color: secondary, whiteSpace: "nowrap" }}>
+        <span style={{ color: "var(--tertiary)", whiteSpace: "nowrap" }}>
           {points[points.length - 1]?.date ?? ""}
         </span>
       </div>
@@ -5921,7 +5917,7 @@ function DepositChart({
               style={{
                 background: series.color,
                 borderRadius: "9999px",
-                boxShadow: "0 0 0 2px #fff",
+                boxShadow: "0 0 0 2px var(--card)",
                 height: "8px",
                 left: `${hoverLeft}%`,
                 pointerEvents: "none",
@@ -6015,7 +6011,7 @@ function DepositChart({
               </span>
               <span
                 style={{
-                  color: isBalanceHidden ? "#BBBBC0" : POSITIVE_AMOUNT_COLOR,
+                  color: isBalanceHidden ? "var(--tertiary)" : POSITIVE_AMOUNT_COLOR,
                   filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   fontFamily: font,
                   fontSize: "13px",

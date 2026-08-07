@@ -210,12 +210,12 @@ export function getEarnTransactionAmountColor(args: {
   kind: EarnTransactionItem["kind"];
 }) {
   if (args.isBalanceHidden) {
-    return "#BBBBC0";
+    return "var(--tertiary)";
   }
 
   return args.kind === "deposit" || args.kind === "balance_sweep"
-    ? "#34C759"
-    : "#000";
+    ? "var(--positive)"
+    : "var(--foreground)";
 }
 
 function EarnTransactionsLoadingState() {

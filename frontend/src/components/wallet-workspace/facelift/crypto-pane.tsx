@@ -7,6 +7,7 @@ import {
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
@@ -35,9 +36,9 @@ export function SplitUsd({
   const whole = dotIndex >= 0 ? value.slice(0, dotIndex) : value;
   const fraction = dotIndex >= 0 ? value.slice(dotIndex) : "";
   return (
-    <p className="whitespace-nowrap text-right font-medium text-[16px] text-black leading-5">
+    <p className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
       <ScrambleText isHidden={isHidden} text={whole} />
-      <span className="text-[#b1b1b4]">
+      <span className="text-tertiary">
         <ScrambleText isHidden={isHidden} text={fraction} />
       </span>
     </p>
@@ -57,12 +58,15 @@ function getPairKey(row: TokenRow): string {
 function HeaderPill({
   hideLabel,
   icon,
+  iconColorClass,
   isBlack,
   label,
   onClick,
 }: {
   hideLabel?: boolean;
   icon: string;
+  /** text-* class rendering the icon as a themed mask; omit = raw img. */
+  iconColorClass?: string;
   isBlack?: boolean;
   label: string;
   onClick: () => void;
@@ -71,22 +75,29 @@ function HeaderPill({
     <button
       className={`t-hover flex items-center justify-center gap-2 rounded-full p-2.5 hover:-translate-y-0.5 active:translate-y-0 ${
         isBlack
-          ? "bg-black hover:bg-[#171717]"
-          : "bg-black/[0.04] hover:bg-black/[0.08]"
+          ? "bg-foreground hover:bg-foreground/90"
+          : "bg-accent hover:bg-accent-active"
       }`}
       onClick={onClick}
       type="button"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt=""
-        aria-hidden="true"
-        className="size-6"
-        src={`${ASSET_BASE}/${icon}`}
-      />
+      {iconColorClass ? (
+        <ThemedIcon
+          className={`size-6 ${iconColorClass}`}
+          src={`${ASSET_BASE}/${icon}`}
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          aria-hidden="true"
+          className="size-6"
+          src={`${ASSET_BASE}/${icon}`}
+        />
+      )}
       <span
         className={`whitespace-nowrap pr-2.5 font-medium text-[16px] leading-5 ${
-          isBlack ? "text-white" : "text-black"
+          isBlack ? "text-background" : "text-foreground"
         }${hideLabel ? " max-[999px]:hidden" : ""}`}
       >
         {label}
@@ -98,11 +109,14 @@ function HeaderPill({
 // Hover-revealed row action: label pill wide, icon circle when downsized.
 function RowPill({
   icon,
+  iconColorClass,
   isBlack,
   label,
   onClick,
 }: {
   icon: string;
+  /** text-* class rendering the icon as a themed mask; omit = raw img. */
+  iconColorClass?: string;
   isBlack?: boolean;
   label: string;
   onClick: () => void;
@@ -111,8 +125,8 @@ function RowPill({
     <button
       className={`flex min-w-16 items-center justify-center rounded-[40px] px-4 py-2.5 font-medium text-[13px] leading-4 transition-colors max-[999px]:size-9 max-[999px]:min-w-0 max-[999px]:p-0 ${
         isBlack
-          ? "bg-black text-white hover:bg-[#171717]"
-          : "bg-black/[0.04] text-black hover:bg-black/[0.08]"
+          ? "bg-foreground text-background hover:bg-foreground/90"
+          : "bg-accent text-foreground hover:bg-accent-active"
       }`}
       onClick={(event) => {
         // Don't bubble into the row click — below 1204px that would slide
@@ -123,12 +137,20 @@ function RowPill({
       type="button"
     >
       <span className="max-[999px]:hidden">{label}</span>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt={label}
-        className="hidden size-5 max-[999px]:block"
-        src={`${ASSET_BASE}/${icon}`}
-      />
+      {iconColorClass ? (
+        <ThemedIcon
+          className={`hidden size-5 max-[999px]:block ${iconColorClass}`}
+          label={label}
+          src={`${ASSET_BASE}/${icon}`}
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt={label}
+          className="hidden size-5 max-[999px]:block"
+          src={`${ASSET_BASE}/${icon}`}
+        />
+      )}
     </button>
   );
 }
@@ -157,13 +179,13 @@ function TokenCell({
     // pills stop propagation (the page's row actions select the token
     // themselves without opening the <1204 detail sheet).
     <div
-      className="group relative flex w-full cursor-pointer items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-black/[0.04]"
+      className="group relative flex w-full cursor-pointer items-center rounded-2xl px-4 transition-colors duration-150 hover:bg-accent"
       onClick={() => actions.onSelect?.(row)}
     >
       {isPairFirst ? (
         <span
           aria-hidden="true"
-          className="-bottom-1.5 absolute left-[37px] z-10 h-3 w-0.5 rounded-full bg-[#d9d9d9]"
+          className="-bottom-1.5 absolute left-[37px] z-10 h-3 w-0.5 rounded-full bg-border"
         />
       ) : null}
       <div className="flex shrink-0 items-center py-2 pr-3">
@@ -185,13 +207,13 @@ function TokenCell({
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-        <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+        <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
           {row.name ?? row.symbol}
           {row.isSecured ? (
-            <span className="text-[#b1b1b4]">{" · Shielded"}</span>
+            <span className="text-tertiary">{" · Shielded"}</span>
           ) : null}
         </p>
-        <p className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <p className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
           {isStables ? (
             row.symbol
           ) : (
@@ -201,8 +223,8 @@ function TokenCell({
                 <span
                   className={
                     row.priceChange24h >= 0
-                      ? "text-[#34c759]"
-                      : "text-[#f9363c]"
+                      ? "text-positive"
+                      : "text-destructive"
                   }
                 >
                   {formatChangeLabel(row.priceChange24h)}
@@ -216,7 +238,7 @@ function TokenCell({
         <div className="group-hover:pointer-events-none flex flex-col items-end justify-center gap-0.5 py-[11px] transition-opacity duration-150 group-hover:opacity-0">
           <SplitUsd isHidden={isBalanceHidden} value={row.value} />
           {isStables ? null : (
-            <p className="whitespace-nowrap text-right text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+            <p className="whitespace-nowrap text-right text-[13px] leading-4 text-muted-foreground">
               <ScrambleText
                 isHidden={isBalanceHidden}
                 text={`${row.amount} ${row.symbol}`}
@@ -226,10 +248,11 @@ function TokenCell({
         </div>
         {/* Reveal rides a short delay so quick pointer passes don't flash the
             buttons; un-hover drops the delay and hides immediately. */}
-        <div className="pointer-events-none absolute right-0 flex items-center gap-2 rounded-[40px] bg-[#f5f5f5] opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
+        <div className="pointer-events-none absolute right-0 flex items-center gap-2 rounded-[40px] bg-secondary opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
           {row.isSecured ? (
             <RowPill
               icon="icon-shield-break.svg"
+              iconColorClass="text-muted-foreground"
               label="Unshield"
               onClick={() => actions.onUnshield(row)}
             />
@@ -244,6 +267,7 @@ function TokenCell({
             <>
               <RowPill
                 icon="icon-arrow-up-circle.svg"
+                iconColorClass="text-tertiary"
                 label="Send"
                 onClick={() => actions.onSend(row)}
               />
@@ -252,6 +276,9 @@ function TokenCell({
                   isStables
                     ? "icon-swap-repeat-gray.svg"
                     : "icon-swap-repeat.svg"
+                }
+                iconColorClass={
+                  isStables ? "text-tertiary" : "text-background"
                 }
                 isBlack={!isStables}
                 label="Swap"
@@ -262,6 +289,7 @@ function TokenCell({
           {isStables ? (
             <RowPill
               icon="icon-coins-add.svg"
+              iconColorClass="text-background"
               isBlack
               label="Earn"
               onClick={() => actions.onEarn?.(row)}
@@ -307,28 +335,25 @@ export function CryptoPane({
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
-      <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-white max-[795px]:rounded-none">
+      <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-card max-[795px]:rounded-none">
         <header className="flex w-full shrink-0 items-center p-2">
           {/* Mobile (Figma 4813:365930 / 4813:366091) — a pushed screen: back
               arrow to the wallet home, no header pills. */}
           <div className="hidden shrink-0 items-center pr-3 max-[795px]:flex">
             <button
               aria-label="Back"
-              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={onBack}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
                 src={`${ASSET_BASE}/icon-arrow-left.svg`}
               />
             </button>
           </div>
           <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4 max-[795px]:pl-0">
-            <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+            <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
               {isStables ? "Stablecoins" : "Crypto"}
             </h1>
           </div>
@@ -342,6 +367,7 @@ export function CryptoPane({
             <HeaderPill
               hideLabel
               icon="icon-arrow-up-circle.svg"
+              iconColorClass="text-tertiary"
               label="Send"
               onClick={onSend}
             />
@@ -350,6 +376,7 @@ export function CryptoPane({
               icon={
                 isStables ? "icon-swap-repeat-gray.svg" : "icon-swap-repeat.svg"
               }
+              iconColorClass={isStables ? "text-tertiary" : "text-background"}
               isBlack={!isStables}
               label="Swap"
               onClick={onSwap}
@@ -358,6 +385,7 @@ export function CryptoPane({
               <HeaderPill
                 hideLabel
                 icon="icon-coins-add.svg"
+                iconColorClass="text-background"
                 isBlack
                 label="Earn"
                 onClick={onEarn}
@@ -387,20 +415,20 @@ export function CryptoPane({
               )}
             </div>
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+              <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                 Balance
               </p>
-              <p className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]">
+              <p className="whitespace-nowrap font-semibold text-[40px] text-foreground leading-[48px] tracking-[-0.44px]">
                 <SkeletonReveal
                   isRevealed={isBalanceRevealed}
-                  skeletonClassName="rounded-lg bg-black/[0.06]"
+                  skeletonClassName="rounded-lg bg-accent-selected"
                 >
                   {isBalanceRevealed ? (
                     <ScrambledPopDigits
                       isHidden={isBalanceHidden}
                       segments={[
                         { text: balanceWhole },
-                        { color: "#b1b1b4", text: balanceFraction },
+                        { color: "var(--tertiary)", text: balanceFraction },
                       ]}
                     />
                   ) : (
@@ -435,41 +463,35 @@ export function CryptoPane({
 
       {/* Mobile action bar (Figma 4813:366048 / 4813:366180) — the header
           pills' actions pinned under the list; same trio on both variants. */}
-      <div className="hidden w-full shrink-0 gap-2 bg-white px-4 pt-2 pb-4 max-[795px]:flex">
+      <div className="hidden w-full shrink-0 gap-2 bg-card px-4 pt-2 pb-4 max-[795px]:flex">
         <button
-          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black p-2.5"
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-foreground p-2.5"
           onClick={onSwap}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-background"
             src={`${ASSET_BASE}/icon-swap-repeat.svg`}
           />
-          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-white leading-5">
+          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-background leading-5">
             Swap
           </span>
         </button>
         <button
-          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-[#f5f5f5] p-2.5"
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-secondary p-2.5"
           onClick={onSend}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-tertiary"
             src={`${ASSET_BASE}/icon-arrow-up-circle.svg`}
           />
-          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
+          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
             Send
           </span>
         </button>
         <button
-          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5"
+          className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-accent p-2.5"
           onClick={onShield}
           type="button"
         >
@@ -480,7 +502,7 @@ export function CryptoPane({
             className="size-6"
             src={`${ASSET_BASE}/icon-shield.svg`}
           />
-          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
+          <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
             Shield
           </span>
         </button>

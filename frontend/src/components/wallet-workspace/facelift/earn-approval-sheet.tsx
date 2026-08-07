@@ -21,11 +21,11 @@ function ReviewRow({ row }: { row: ApprovalReviewDisplayRow }) {
   const isAddressLike = isAddressLikeValue(row.value);
   return (
     <div className="px-3 py-[9px]">
-      <p className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+      <p className="text-[13px] leading-4 text-muted-foreground">
         {row.label}
       </p>
       <p
-        className={`mt-0.5 break-words text-black ${
+        className={`mt-0.5 break-words text-foreground ${
           isAddressLike ? "text-[13px] leading-[18px]" : "text-[16px] leading-5"
         }`}
         style={isAddressLike ? { fontFamily: MONO_FONT } : undefined}
@@ -43,18 +43,18 @@ function CollapsibleRows({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   return (
-    <div className="overflow-hidden rounded-2xl bg-black/[0.04]">
+    <div className="overflow-hidden rounded-2xl bg-accent">
       <button
-        className="flex w-full items-center justify-between gap-2 px-3 py-[13px] text-left font-medium text-[14px] text-black leading-5"
+        className="flex w-full items-center justify-between gap-2 px-3 py-[13px] text-left font-medium text-[14px] text-foreground leading-5"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
         <span>{collapsible.title}</span>
         {isOpen ? (
-          <ChevronUp className="shrink-0 text-[rgba(60,60,67,0.6)]" size={16} />
+          <ChevronUp className="shrink-0 text-muted-foreground" size={16} />
         ) : (
           <ChevronDown
-            className="shrink-0 text-[rgba(60,60,67,0.6)]"
+            className="shrink-0 text-muted-foreground"
             size={16}
           />
         )}
@@ -104,11 +104,11 @@ function ApprovalBody({ approval }: { approval: PendingEarnApproval }) {
       <header className="flex w-full shrink-0 items-center justify-end p-2">
         <button
           aria-label="Close"
-          className="t-hover flex size-11 items-center justify-center rounded-full hover:bg-black/[0.04]"
+          className="t-hover flex size-11 items-center justify-center rounded-full hover:bg-accent"
           onClick={approval.reject}
           type="button"
         >
-          <X className="text-[#3c3c43]" size={24} />
+          <X className="text-foreground" size={24} />
         </button>
       </header>
 
@@ -116,27 +116,27 @@ function ApprovalBody({ approval }: { approval: PendingEarnApproval }) {
         <div className="flex w-full flex-col gap-1 px-2 pt-6 pb-6">
           {page.amount ? (
             <p className="flex items-baseline gap-2 whitespace-nowrap font-semibold">
-              <span className="text-[40px] text-black leading-[48px]">
+              <span className="text-[40px] text-foreground leading-[48px]">
                 {page.amount}
               </span>
               {page.symbol ? (
-                <span className="text-[28px] leading-8 tracking-[0.4px] text-[rgba(60,60,67,0.4)]">
+                <span className="text-[28px] leading-8 tracking-[0.4px] text-tertiary">
                   {page.symbol}
                 </span>
               ) : null}
             </p>
           ) : (
-            <p className="font-semibold text-[24px] text-black leading-[30px]">
+            <p className="font-semibold text-[24px] text-foreground leading-[30px]">
               {page.heading}
             </p>
           )}
           {page.amount && !page.hideAmountHeading ? (
-            <p className="text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+            <p className="text-[16px] leading-5 text-muted-foreground">
               {page.heading}
             </p>
           ) : null}
           {page.subheading ? (
-            <p className="text-[14px] leading-[19px] text-[rgba(60,60,67,0.6)]">
+            <p className="text-[14px] leading-[19px] text-muted-foreground">
               {page.subheading}
             </p>
           ) : null}
@@ -144,7 +144,7 @@ function ApprovalBody({ approval }: { approval: PendingEarnApproval }) {
 
         <div className="flex w-full flex-col gap-2">
           {page.rows && page.rows.length > 0 ? (
-            <div className="flex w-full flex-col rounded-2xl bg-black/[0.04] py-1">
+            <div className="flex w-full flex-col rounded-2xl bg-accent py-1">
               {page.rows.map((row) => (
                 <ReviewRow key={row.label} row={row} />
               ))}
@@ -157,14 +157,14 @@ function ApprovalBody({ approval }: { approval: PendingEarnApproval }) {
       </div>
 
       {page.mascotNote ? (
-        <p className="w-full shrink-0 px-6 pt-3 pb-1 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <p className="w-full shrink-0 px-6 pt-3 pb-1 text-[13px] leading-4 text-muted-foreground">
           {page.mascotNote}
         </p>
       ) : null}
 
       <div className="flex w-full shrink-0 gap-2 px-4 pt-2 pb-4">
         <button
-          className="t-hover flex h-12 flex-1 items-center justify-center rounded-full bg-black/[0.04] font-medium text-[16px] text-black leading-5 hover:bg-black/[0.08]"
+          className="t-hover flex h-12 flex-1 items-center justify-center rounded-full bg-accent font-medium text-[16px] text-foreground leading-5 hover:bg-accent-active"
           onClick={
             isFirst
               ? approval.reject
@@ -175,7 +175,7 @@ function ApprovalBody({ approval }: { approval: PendingEarnApproval }) {
           {isFirst ? secondaryLabel : "Back"}
         </button>
         <button
-          className="t-hover flex h-12 flex-1 items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+          className="t-hover flex h-12 flex-1 items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
           onClick={
             isLast
               ? approval.approve
@@ -211,7 +211,7 @@ export function EarnApprovalSheet({
       isOpen={approval !== null}
       onClose={() => approval?.reject()}
       scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8"
-      sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+      sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
     >
       {sheetApproval ? <ApprovalBody approval={sheetApproval} /> : null}
     </SheetReveal>

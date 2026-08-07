@@ -32,6 +32,7 @@ import {
   shouldShowScheduledSweepsSection,
 } from "@/components/wallet-workspace/earn-transactions-pane";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
@@ -125,17 +126,14 @@ function RouteLabel({
 }) {
   return (
     <span className="flex items-center justify-end gap-1">
-      <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+      <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
         {source}
       </span>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt=""
-        aria-hidden="true"
-        className="size-4"
+      <ThemedIcon
+        className="size-4 text-tertiary"
         src={`${ASSET_BASE}/icon-arrow-right-circle.svg`}
       />
-      <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+      <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
         {destination}
       </span>
     </span>
@@ -145,7 +143,7 @@ function RouteLabel({
 export function GroupHeader({ label }: { label: string }) {
   return (
     <div className="flex w-full items-start px-4 pt-1">
-      <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] leading-5 tracking-[-0.176px] text-[rgba(60,60,67,0.6)]">
+      <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] leading-5 tracking-[-0.176px] text-muted-foreground">
         {label}
       </p>
     </div>
@@ -247,15 +245,15 @@ function ScheduledSweepRow({
         </div>
         <div className="flex min-w-0 flex-1 items-center justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-            <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+            <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
               Autodeposit
             </p>
-            <p className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+            <p className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
               {formatScheduledSweepTime(sweep.eligibleAfter)}
             </p>
           </div>
           <div className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
-            <p className="whitespace-nowrap text-[16px] text-black leading-5 text-right">
+            <p className="whitespace-nowrap text-[16px] text-foreground leading-5 text-right">
               <ScrambleText isHidden={isBalanceHidden} text={amountLabel} />
             </p>
             <RouteLabel destination="Earn" source="Main" />
@@ -265,7 +263,7 @@ function ScheduledSweepRow({
       <div className="flex w-full flex-col items-start px-4 pt-1 pb-2">
         <button
           aria-busy={isProgressActive}
-          className="t-hover flex h-9 items-center justify-center rounded-full bg-black/[0.04] px-4 font-medium text-[14px] text-black leading-5 enabled:hover:bg-black/[0.08] disabled:opacity-50"
+          className="t-hover flex h-9 items-center justify-center rounded-full bg-accent px-4 font-medium text-[14px] text-foreground leading-5 enabled:hover:bg-accent-active disabled:opacity-50"
           disabled={isButtonDisabled}
           onClick={() => void executeNow.run(sweep)}
           type="button"
@@ -273,7 +271,7 @@ function ScheduledSweepRow({
           <TextSwap text={buttonLabel} />
         </button>
         {executeNow.error && !isProgressActive ? (
-          <p className="pt-2 text-[13px] leading-4 text-[#f9363c]">
+          <p className="pt-2 text-[13px] leading-4 text-destructive">
             {executeNow.error}
           </p>
         ) : null}
@@ -318,10 +316,10 @@ export function TransactionRow({
         )}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-        <span className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+        <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
           {getEarnTransactionRowLabel(item)}
         </span>
-        <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
           {timeLabel}
         </span>
       </span>
@@ -353,7 +351,7 @@ export function TransactionRow({
   return (
     <button
       className={`flex w-full items-center rounded-2xl px-4 text-left transition-colors duration-150 ${
-        isSelected ? "bg-black/[0.04]" : "hover:bg-black/[0.04]"
+        isSelected ? "bg-accent" : "hover:bg-accent"
       }`}
       onClick={onSelect}
       type="button"
@@ -519,14 +517,11 @@ function TransactionsTab({
           <StaggerLine index={0}>
             <div className="flex w-full items-start px-4 pt-1">
               <div className="flex min-w-0 flex-1 items-center gap-1 pt-3 pb-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-5"
+                <ThemedIcon
+                  className="size-5 text-tertiary"
                   src={`${ASSET_BASE}/icon-clock.svg`}
                 />
-                <p className="min-w-0 flex-1 text-[16px] leading-5 tracking-[-0.176px] text-[rgba(60,60,67,0.6)]">
+                <p className="min-w-0 flex-1 text-[16px] leading-5 tracking-[-0.176px] text-muted-foreground">
                   Scheduled
                 </p>
               </div>
@@ -550,7 +545,7 @@ function TransactionsTab({
         <div className="t-skel-rows flex flex-col gap-2 px-4 py-3">
           {[0, 1, 2].map((index) => (
             <div
-              className="h-[60px] w-full rounded-2xl bg-black/[0.04]"
+              className="h-[60px] w-full rounded-2xl bg-accent"
               key={index}
             />
           ))}
@@ -566,19 +561,19 @@ function TransactionsTab({
         <div className="t-skel-rows flex flex-col gap-2 px-4 py-3">
           {pendingRows.map((signature) => (
             <div
-              className="h-[60px] w-full rounded-2xl bg-black/[0.04]"
+              className="h-[60px] w-full rounded-2xl bg-accent"
               key={signature}
             />
           ))}
         </div>
       ) : null}
       {hasError ? (
-        <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <p className="px-4 py-3 text-[13px] leading-4 text-muted-foreground">
           Failed to load transactions.
         </p>
       ) : null}
       {items !== null && items.length === 0 && pendingRows.length === 0 ? (
-        <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <p className="px-4 py-3 text-[13px] leading-4 text-muted-foreground">
           No transactions yet.
         </p>
       ) : null}
@@ -618,7 +613,7 @@ function TransactionsTab({
                 {renderedGroups}
                 <StaggerLine index={lineIndex}>
                   <button
-                    className="t-hover flex h-11 w-full items-center justify-center rounded-2xl font-medium text-[14px] text-black leading-5 hover:bg-black/[0.04]"
+                    className="t-hover flex h-11 w-full items-center justify-center rounded-2xl font-medium text-[14px] text-foreground leading-5 hover:bg-accent"
                     onClick={onViewAllActivity}
                     type="button"
                   >
@@ -653,7 +648,7 @@ function PositionsTab({
   return (
     <StaggerReveal className="flex w-full flex-col p-2">
       {visibleHoldings.length === 0 ? (
-        <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <p className="px-4 py-3 text-[13px] leading-4 text-muted-foreground">
           No positions.
         </p>
       ) : null}
@@ -672,7 +667,7 @@ function PositionsTab({
               holding.reserve ?? holding.market ?? label
             }`}
           >
-            <div className="group t-hover flex w-full items-center rounded-2xl px-4 hover:bg-black/[0.04]">
+            <div className="group t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent">
               <div className="flex items-center py-2 pr-3">
                 <DualIcon
                   frontSrc={resolveEarnTransactionMarketIcon({
@@ -681,15 +676,15 @@ function PositionsTab({
                 />
               </div>
               <div className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
-                <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                   {label}
                 </span>
-                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
                   <ScrambleText
                     isHidden={isBalanceHidden}
                     text={amount.balanceWhole}
                   />
-                  <span className="text-[rgba(60,60,67,0.4)]">
+                  <span className="text-tertiary">
                     <ScrambleText
                       isHidden={isBalanceHidden}
                       text={amount.balanceFraction}
@@ -701,7 +696,7 @@ function PositionsTab({
                   flash the pill; un-hover drops the delay and hides at once. */}
               <div className="pointer-events-none flex pl-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
                 <button
-                  className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                  className="t-hover min-w-16 rounded-full bg-accent px-4 py-2.5 text-center font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                   onClick={() =>
                     onWithdrawSource(getWithdrawSourceKeyForHolding(holding))
                   }
@@ -860,7 +855,7 @@ export function EarnActivityCard({
   return (
     // On mobile the card grows to meet the sticky action bar and drops its
     // bottom rounding (Figma 4693:70498).
-    <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:flex-1 max-[795px]:rounded-b-none">
+    <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:flex-1 max-[795px]:rounded-b-none">
       <div
         className="relative flex w-full items-center px-2 pt-2"
         ref={tabBarRef}
@@ -878,8 +873,8 @@ export function EarnActivityCard({
               aria-selected={isActive}
               className={`t-hover relative flex h-11 items-center justify-center px-4 font-medium text-[16px] leading-5 tracking-[-0.176px] ${
                 isActive
-                  ? "text-black"
-                  : "rounded-3xl text-[rgba(60,60,67,0.6)] hover:bg-black/[0.04] hover:text-black"
+                  ? "text-foreground"
+                  : "rounded-3xl text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
               key={tab}
               onClick={() => selectTab(tab)}

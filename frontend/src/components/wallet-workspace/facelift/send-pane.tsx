@@ -24,6 +24,7 @@ import {
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
 import { SplitAmount } from "@/components/wallet-workspace/facelift/sidebar";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { usePrivateSend } from "@/hooks/use-private-send";
 import { useSend } from "@/hooks/use-send";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -94,8 +95,8 @@ export function useSendRecentRecipients(walletAddress: string | null): {
 // Wallet stash square shared by the "To" cell and the recent-recipient rows.
 function RecipientStashIcon() {
   return (
-    <span className="flex size-11 shrink-0 items-center justify-center rounded-[11px] bg-black/[0.04]">
-      <Wallet className="text-[#8a8a8e]" size={24} strokeWidth={1.8} />
+    <span className="flex size-11 shrink-0 items-center justify-center rounded-[11px] bg-accent">
+      <Wallet className="text-muted-foreground" size={24} strokeWidth={1.8} />
     </span>
   );
 }
@@ -254,7 +255,7 @@ export function SendPane({
         into the shell's 8px gap and sit flush with the viewport bottom (same
         escape the earn empty pane uses); the form keeps the clip. */
     <section
-      className={`flex h-full w-full min-w-0 flex-1 flex-col rounded-3xl bg-white max-[795px]:rounded-none ${
+      className={`flex h-full w-full min-w-0 flex-1 flex-col rounded-3xl bg-card max-[795px]:rounded-none ${
         step === "success" || step === "error"
           ? "max-[795px]:overflow-clip"
           : "overflow-clip"
@@ -264,21 +265,18 @@ export function SendPane({
         <div className="flex shrink-0 items-center pr-3">
           <button
             aria-label="Back"
-            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={onBack}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
               src={`${ASSET_BASE}/icon-arrow-left.svg`}
             />
           </button>
         </div>
         <div className="flex min-w-0 flex-1 items-center py-2">
-          <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+          <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
             Send
           </h1>
         </div>
@@ -290,19 +288,19 @@ export function SendPane({
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
               <div className="w-full shrink-0 p-2">
                 <div className="flex w-full flex-col gap-0.5 px-4 py-2">
-                  <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                  <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                     Amount
                   </p>
                   <div className="flex w-full items-center">
                     <div className="flex h-12 min-w-0 flex-1 items-baseline">
                       {isUsdInput ? (
-                        <span className="font-semibold text-[40px] text-black leading-[48px]">
+                        <span className="font-semibold text-[40px] text-foreground leading-[48px]">
                           $
                         </span>
                       ) : null}
                       <input
                         autoFocus
-                        className="w-full min-w-0 bg-transparent font-semibold text-[40px] text-black leading-[48px] outline-none placeholder:text-[#b1b1b4]"
+                        className="w-full min-w-0 bg-transparent font-semibold text-[40px] text-foreground leading-[48px] outline-none placeholder:text-tertiary"
                         inputMode="decimal"
                         onChange={(event) =>
                           handleAmountChange(event.target.value)
@@ -315,21 +313,18 @@ export function SendPane({
                     <div className="flex shrink-0 items-center pl-3">
                       <button
                         aria-label="Switch between token and dollar amounts"
-                        className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+                        className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
                         onClick={handleToggleCurrency}
                         type="button"
                       >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          alt=""
-                          aria-hidden="true"
-                          className="size-6"
+                        <ThemedIcon
+                          className="size-6 text-tertiary"
                           src={`${ASSET_BASE}/icon-arrow-top-bottom.svg`}
                         />
                       </button>
                     </div>
                   </div>
-                  <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                  <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                     {isUsdInput
                       ? `${formatTokenAmount(tokenAmount)} ${token.symbol}`
                       : `$${formatUsdAmount(usdAmount)}`}
@@ -341,11 +336,11 @@ export function SendPane({
                   ready. The fee matches the OG flow's flat reserve. */}
               {isReady ? (
                 <div className="w-full shrink-0 px-2">
-                  <div className="flex w-full items-center justify-between rounded-xl bg-black/[0.04] px-4 py-2.5">
-                    <span className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  <div className="flex w-full items-center justify-between rounded-xl bg-accent px-4 py-2.5">
+                    <span className="text-[13px] leading-4 text-muted-foreground">
                       Network Fee
                     </span>
-                    <span className="text-[13px] text-black leading-4">
+                    <span className="text-[13px] text-foreground leading-4">
                       {SOL_FEE_RESERVE} SOL ~ &lt;$0.01
                     </span>
                   </div>
@@ -357,9 +352,9 @@ export function SendPane({
               <div className="relative mt-auto flex w-full shrink-0 flex-col gap-1 p-2">
                 <span
                   aria-hidden="true"
-                  className="-translate-y-1/2 absolute top-1/2 left-[45px] h-3.5 w-0.5 rounded-full bg-[#d9d9d9]"
+                  className="-translate-y-1/2 absolute top-1/2 left-[45px] h-3.5 w-0.5 rounded-full bg-border"
                 />
-                <div className="t-hover flex w-full items-center rounded-2xl px-4 hover:bg-black/[0.04]">
+                <div className="t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent">
                   <button
                     className="flex min-w-0 flex-1 items-center text-left"
                     onClick={onOpenAssetSelect}
@@ -386,12 +381,12 @@ export function SendPane({
                     <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
                       <SplitAmount
                         fraction={balanceSplit.balanceFraction}
-                        fractionColor="#b1b1b4"
+                        fractionColor="var(--tertiary)"
                         isHidden={isBalanceHidden}
                         isRevealed
                         whole={balanceSplit.balanceWhole}
                       />
-                      <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                      <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                         <ScrambleText
                           isHidden={isBalanceHidden}
                           text={`${formatTokenAmount(token.balance)} ${
@@ -403,7 +398,7 @@ export function SendPane({
                   </button>
                   <span className="flex shrink-0 items-center pl-3">
                     <button
-                      className="t-hover flex min-w-16 items-center justify-center rounded-full bg-black/[0.04] px-4 py-2.5 font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                      className="t-hover flex min-w-16 items-center justify-center rounded-full bg-accent px-4 py-2.5 font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                       onClick={handleMax}
                       type="button"
                     >
@@ -416,17 +411,14 @@ export function SendPane({
                     onClick={onOpenAssetSelect}
                     type="button"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="size-6"
+                    <ThemedIcon
+                      className="size-6 text-muted-foreground"
                       src={`${ASSET_BASE}/icon-chevron-grabber.svg`}
                     />
                   </button>
                 </div>
                 <button
-                  className="t-hover flex w-full items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+                  className="t-hover flex w-full items-center rounded-2xl px-4 text-left hover:bg-accent"
                   onClick={onOpenRecipientSelect}
                   type="button"
                 >
@@ -434,12 +426,12 @@ export function SendPane({
                     <RecipientStashIcon />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                    <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                    <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                       To
                     </span>
                     <span
                       className={`truncate font-medium text-[20px] leading-6 ${
-                        recipient ? "text-black" : "text-[#b1b1b4]"
+                        recipient ? "text-foreground" : "text-tertiary"
                       }`}
                     >
                       {recipient
@@ -448,11 +440,8 @@ export function SendPane({
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center pl-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="size-6"
+                    <ThemedIcon
+                      className="size-6 text-tertiary"
                       src={`${ASSET_BASE}/icon-chevron-right.svg`}
                     />
                   </span>
@@ -460,14 +449,14 @@ export function SendPane({
               </div>
             </div>
 
-            <div className="w-full shrink-0 bg-white px-4 pt-2 pb-4">
+            <div className="w-full shrink-0 bg-card px-4 pt-2 pb-4">
               <button
                 className={`flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 transition-colors ${
                   isCtaInvalid
-                    ? "bg-[rgba(249,54,60,0.08)] text-[#f9363c]"
+                    ? "bg-primary/[0.08] text-primary"
                     : ctaDisabled
-                    ? "bg-black text-white opacity-60"
-                    : "t-hover bg-black text-white hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+                    ? "bg-foreground text-background opacity-60"
+                    : "t-hover bg-foreground text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
                 }`}
                 disabled={ctaDisabled}
                 onClick={() => void handleConfirm()}
@@ -554,7 +543,7 @@ export function SendRecipientPane({
     <div className="flex h-full w-full min-w-0 flex-col">
       <header className="flex w-full shrink-0 items-center p-2">
         <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4 max-[795px]:pl-2">
-          <h2 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+          <h2 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
             Recipient
           </h2>
         </div>
@@ -562,15 +551,12 @@ export function SendRecipientPane({
           <div className="flex shrink-0 items-center pl-3">
             <button
               aria-label="Close"
-              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={onClose}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
                 src={`${ASSET_BASE}/icon-cross.svg`}
               />
             </button>
@@ -584,7 +570,7 @@ export function SendRecipientPane({
         <div className="flex w-full items-center">
           <input
             autoFocus
-            className="min-w-0 flex-1 bg-transparent font-medium text-[20px] text-black leading-6 outline-none placeholder:text-[#b1b1b4]"
+            className="min-w-0 flex-1 bg-transparent font-medium text-[20px] text-foreground leading-6 outline-none placeholder:text-tertiary"
             onChange={(event) => commitIfValid(event.target.value)}
             placeholder="Solana address"
             spellCheck={false}
@@ -595,15 +581,15 @@ export function SendRecipientPane({
             {trimmed.length > 0 ? (
               <button
                 aria-label="Clear address"
-                className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+                className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
                 onClick={() => setInput("")}
                 type="button"
               >
-                <CircleX className="text-[#b1b1b4]" size={24} />
+                <CircleX className="text-tertiary" size={24} />
               </button>
             ) : (
               <button
-                className="t-hover flex min-w-16 items-center justify-center rounded-full bg-black/[0.04] px-4 py-2.5 font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                className="t-hover flex min-w-16 items-center justify-center rounded-full bg-accent px-4 py-2.5 font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                 onClick={() => void handlePaste()}
                 type="button"
               >
@@ -613,7 +599,7 @@ export function SendRecipientPane({
           </span>
         </div>
         {isInvalid ? (
-          <p className="pt-2 text-[#f9363c] text-[14px] leading-5">
+          <p className="pt-2 text-destructive text-[14px] leading-5">
             Invalid Solana address
           </p>
         ) : null}
@@ -621,12 +607,12 @@ export function SendRecipientPane({
 
       {recents.length > 0 ? (
         <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto p-2">
-          <p className="px-4 pt-3 pb-2 text-[16px] leading-5 text-[rgba(60,60,67,0.6)] tracking-[-0.176px]">
+          <p className="px-4 pt-3 pb-2 text-[16px] leading-5 text-muted-foreground tracking-[-0.176px]">
             Recently used
           </p>
           {recents.map((entry) => (
             <button
-              className="t-hover flex w-full shrink-0 items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+              className="t-hover flex w-full shrink-0 items-center rounded-2xl px-4 text-left hover:bg-accent"
               key={entry.address}
               onClick={() => onSelect(entry.address)}
               type="button"
@@ -635,10 +621,10 @@ export function SendRecipientPane({
                 <RecipientStashIcon />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                <span className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+                <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
                   {truncateAddress(entry.address)}
                 </span>
-                <span className="whitespace-nowrap text-[#8a8a8e] text-[13px] leading-4">
+                <span className="whitespace-nowrap text-muted-foreground text-[13px] leading-4">
                   {entry.count === 1 ? "1 send" : `${entry.count} sends`}
                 </span>
               </span>

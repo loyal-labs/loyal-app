@@ -21,6 +21,7 @@ import {
   type FlowStep,
 } from "@/components/wallet-workspace/facelift/flow-explainer";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -159,39 +160,33 @@ export function AutodepositPane({
 
   return (
     <>
-      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
+      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-none">
         <header className="flex w-full items-center p-2">
           <div className="pr-3">
             <button
               aria-label="Back"
-              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={handleBack}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
                 src={`${ASSET_BASE}/icon-arrow-left.svg`}
               />
             </button>
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-2 py-2">
-            <h1 className="truncate font-semibold text-[20px] text-black leading-6">
+            <h1 className="truncate font-semibold text-[20px] text-foreground leading-6">
               Autodeposit
             </h1>
             <button
               aria-label="How Autodeposit works"
-              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
               onClick={() => setIsInfoOpen(true)}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-tertiary"
                 src={`${ASSET_BASE}/icon-question.svg`}
               />
             </button>
@@ -199,19 +194,16 @@ export function AutodepositPane({
           {isEdit ? (
             <div className="flex items-start pl-3">
               <button
-                className="t-hover flex items-center justify-center gap-2 rounded-full bg-[rgba(249,54,60,0.08)] p-2.5 enabled:hover:-translate-y-0.5 enabled:hover:bg-[rgba(249,54,60,0.14)] enabled:active:translate-y-0 disabled:opacity-60"
+                className="t-hover flex items-center justify-center gap-2 rounded-full bg-destructive/[0.08] p-2.5 enabled:hover:-translate-y-0.5 enabled:hover:bg-destructive/[0.14] enabled:active:translate-y-0 disabled:opacity-60"
                 disabled={isSaving}
                 onClick={() => void handleDelete()}
                 type="button"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6"
+                <ThemedIcon
+                  className="size-6 text-destructive"
                   src={`${ASSET_BASE}/icon-trash-red.svg`}
                 />
-                <span className="whitespace-nowrap pr-2.5 font-medium text-[#f9363c] text-[16px] leading-5">
+                <span className="whitespace-nowrap pr-2.5 font-medium text-destructive text-[16px] leading-5">
                   <TextSwap
                     text={isDeleteArmed ? "Confirm delete" : "Delete"}
                   />
@@ -225,16 +217,16 @@ export function AutodepositPane({
           <div className="flex w-full flex-1 flex-col">
             <div className="w-full p-2">
               <label className="flex w-full flex-col gap-0.5 rounded-2xl px-4 py-2">
-                <span className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                <span className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                   Deposit anything above
                 </span>
                 <span className="flex h-12 w-full items-baseline">
-                  <span className="font-semibold text-[40px] text-black leading-[48px]">
+                  <span className="font-semibold text-[40px] text-foreground leading-[48px]">
                     $
                   </span>
                   <input
                     autoFocus
-                    className="min-w-0 flex-1 border-none bg-transparent font-semibold text-[40px] text-black leading-[48px] outline-none placeholder:text-[#b1b1b4]"
+                    className="min-w-0 flex-1 border-none bg-transparent font-semibold text-[40px] text-foreground leading-[48px] outline-none placeholder:text-tertiary"
                     inputMode="decimal"
                     onChange={(event) => handleAmountChange(event.target.value)}
                     onKeyDown={(event) => {
@@ -257,15 +249,12 @@ export function AutodepositPane({
             <div className="w-full px-2">
               <div className="flex w-full items-start px-4">
                 <div className="flex items-center py-1 pr-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="size-6"
+                  <ThemedIcon
+                    className="size-6 text-primary"
                     src={`${ASSET_BASE}/icon-exclamation-circle.svg`}
                   />
                 </div>
-                <p className="min-w-0 max-w-[400px] flex-1 py-2 text-[#f9363c] text-[13px] leading-4">
+                <p className="min-w-0 max-w-[400px] flex-1 py-2 text-primary text-[13px] leading-4">
                   Any stablecoins above this amount will automatically go to
                   Earn
                 </p>
@@ -285,15 +274,15 @@ export function AutodepositPane({
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                <span className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <span className="truncate text-[13px] leading-4 text-muted-foreground">
                   {`from Stablecoins · ${addressLabel}`}
                 </span>
-                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
                   <ScrambleText
                     isHidden={isBalanceHidden}
                     text={stablecoinsBalance.balanceWhole}
                   />
-                  <span className="text-[rgba(60,60,67,0.4)]">
+                  <span className="text-tertiary">
                     <ScrambleText
                       isHidden={isBalanceHidden}
                       text={stablecoinsBalance.balanceFraction}
@@ -314,15 +303,15 @@ export function AutodepositPane({
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                   to Earn
                 </span>
-                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
                   <ScrambleText
                     isHidden={isBalanceHidden}
                     text={earnBalance.balanceWhole}
                   />
-                  <span className="text-[rgba(60,60,67,0.4)]">
+                  <span className="text-tertiary">
                     <ScrambleText
                       isHidden={isBalanceHidden}
                       text={earnBalance.balanceFraction}
@@ -332,13 +321,13 @@ export function AutodepositPane({
               </div>
             </div>
 
-            <div className="-translate-y-1/2 absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 rounded-xl bg-[#d9d9d9]" />
+            <div className="-translate-y-1/2 absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 rounded-xl bg-border" />
           </div>
         </div>
 
-        <div className="w-full bg-white px-4 pt-2 pb-4">
+        <div className="w-full bg-card px-4 pt-2 pb-4">
           {actions.autodepositError ? (
-            <p className="px-4 pb-2 text-[13px] leading-4 text-[#f9363c]">
+            <p className="px-4 pb-2 text-[13px] leading-4 text-destructive">
               {actions.autodepositError}
             </p>
           ) : null}
@@ -347,8 +336,8 @@ export function AutodepositPane({
           <button
             className={`t-hover flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 ${
               hasChanges
-                ? "bg-black text-white enabled:hover:-translate-y-0.5 enabled:hover:bg-[#171717] enabled:active:translate-y-0"
-                : "bg-black/[0.04] text-[rgba(60,60,67,0.6)]"
+                ? "bg-foreground text-background enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90 enabled:active:translate-y-0"
+                : "bg-accent text-muted-foreground"
             }`}
             disabled={!hasChanges || isSaving}
             onClick={() => void handleSave()}

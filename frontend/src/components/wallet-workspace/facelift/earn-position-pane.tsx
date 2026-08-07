@@ -20,6 +20,7 @@ import {
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
@@ -77,10 +78,10 @@ export function EarnPositionPane({
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
       <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-y-auto">
-        <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-t-none">
+        <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-t-none">
           <header className="flex w-full items-center p-2">
             <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
-              <h1 className="whitespace-nowrap font-semibold text-[24px] text-black leading-7">
+              <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
                 Earn
               </h1>
               {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
@@ -92,34 +93,28 @@ export function EarnPositionPane({
             </div>
             <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
               <button
-                className="t-hover flex items-center justify-center gap-2 rounded-full bg-black/[0.04] p-2.5 hover:-translate-y-0.5 hover:bg-black/[0.08] active:translate-y-0"
+                className="t-hover flex items-center justify-center gap-2 rounded-full bg-accent p-2.5 hover:-translate-y-0.5 hover:bg-accent-active active:translate-y-0"
                 onClick={() => onWithdraw()}
                 type="button"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6"
+                <ThemedIcon
+                  className="size-6 text-muted-foreground"
                   src={`${ASSET_BASE}/icon-withdraw-arrow.svg`}
                 />
-                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
+                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
                   Withdraw
                 </span>
               </button>
               <button
-                className="t-hover flex items-center justify-center gap-2 rounded-full bg-black p-2.5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+                className="t-hover flex items-center justify-center gap-2 rounded-full bg-foreground p-2.5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
                 onClick={onDeposit}
                 type="button"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6"
+                <ThemedIcon
+                  className="size-6 text-background"
                   src={`${ASSET_BASE}/icon-plus.svg`}
                 />
-                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-white leading-5">
+                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-background leading-5">
                   Deposit
                 </span>
               </button>
@@ -129,9 +124,9 @@ export function EarnPositionPane({
           <div className="w-full p-2">
             <div className="flex h-[86px] w-full flex-col items-start gap-0.5 rounded-[20px] px-4 py-2">
               <div className="flex items-start gap-1">
-                <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                   {"Balance · "}
-                  <span className="text-[#34c759]">
+                  <span className="text-positive">
                     <ApyRevealText
                       isRevealed={isApyLoaded}
                       segments={[{ text: formatEarnApyLabel(apy.apyBps) }]}
@@ -149,7 +144,9 @@ export function EarnPositionPane({
                   <p
                     className="whitespace-nowrap font-semibold text-[40px] leading-[46px] [font-variant-numeric:tabular-nums] max-[760px]:text-[clamp(30px,9.5vw,40px)] max-[760px]:leading-[1.08]"
                     style={{
-                      color: isBalanceHidden ? "#BBBBC0" : "#000",
+                      color: isBalanceHidden
+                        ? "var(--tertiary)"
+                        : "var(--foreground)",
                     }}
                   >
                     <ScrambledPopDigits
@@ -157,9 +154,7 @@ export function EarnPositionPane({
                       segments={[
                         { text: balance.whole },
                         {
-                          color: isBalanceHidden
-                            ? "#BBBBC0"
-                            : "rgba(60, 60, 67, 0.4)",
+                          color: "var(--tertiary)",
                           text: balance.fraction,
                         },
                       ]}
@@ -182,12 +177,12 @@ export function EarnPositionPane({
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                <p className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+                <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
                   Autodeposit
                 </p>
                 {/* No truncate: the setup teaser must wrap on narrow screens
                     instead of clipping mid-word. */}
-                <p className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <p className="text-[13px] leading-4 text-muted-foreground">
                   {/* Hiding masks the amount-bearing label through TextSwap's
                       own swap animation (churning it would thrash the swap). */}
                   <TextSwap
@@ -203,15 +198,12 @@ export function EarnPositionPane({
                 <div className="flex items-center justify-end gap-1 pl-3">
                   <button
                     aria-label="Autodeposit settings"
-                    className="t-hover flex size-11 items-center justify-center rounded-[20px] hover:bg-black/[0.04]"
+                    className="t-hover flex size-11 items-center justify-center rounded-[20px] hover:bg-accent"
                     onClick={onOpenAutodeposit}
                     type="button"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="size-6"
+                    <ThemedIcon
+                      className="size-6 text-muted-foreground"
                       src={`${ASSET_BASE}/icon-settings-slider.svg`}
                     />
                   </button>
@@ -235,20 +227,17 @@ export function EarnPositionPane({
                 <div className="flex items-center gap-1 pl-3">
                   <button
                     aria-label="How Autodeposit works"
-                    className="t-hover hidden size-11 items-center justify-center rounded-[20px] hover:bg-black/[0.04] max-[795px]:flex"
+                    className="t-hover hidden size-11 items-center justify-center rounded-[20px] hover:bg-accent max-[795px]:flex"
                     onClick={() => setIsInfoOpen(true)}
                     type="button"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="size-6"
+                    <ThemedIcon
+                      className="size-6 text-tertiary"
                       src={`${ASSET_BASE}/icon-question.svg`}
                     />
                   </button>
                   <button
-                    className="t-hover min-w-16 rounded-full bg-[#f9363c] px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 hover:-translate-y-0.5 hover:bg-[#e62f35] active:translate-y-0"
+                    className="t-hover min-w-16 rounded-full bg-primary px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 hover:-translate-y-0.5 hover:bg-primary/90 active:translate-y-0"
                     onClick={onOpenAutodeposit}
                     type="button"
                   >
@@ -258,7 +247,7 @@ export function EarnPositionPane({
               )}
             </div>
             {data.autodepositToggleError ? (
-              <p className="px-4 pt-1 pb-2 text-[13px] leading-4 text-[#f9363c]">
+              <p className="px-4 pt-1 pb-2 text-[13px] leading-4 text-destructive">
                 {data.autodepositToggleError}
               </p>
             ) : null}
@@ -273,7 +262,7 @@ export function EarnPositionPane({
           earnData={data}
           onAction={onOpenChart}
           onSelectTab={onSelectChartTab}
-          sectionClassName="hidden h-[406px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:flex"
+          sectionClassName="hidden h-[406px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:flex"
           selectedTab={selectedChartTab}
         />
 
@@ -296,37 +285,31 @@ export function EarnPositionPane({
       </div>
 
       {/* Mobile sticky action bar (Figma 4693:70601). */}
-      <div className="hidden w-full shrink-0 bg-white px-4 py-2 max-[795px]:block">
+      <div className="hidden w-full shrink-0 bg-card px-4 py-2 max-[795px]:block">
         <div className="flex w-full gap-2">
           <button
-            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black hover:bg-[#171717]"
+            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-foreground hover:bg-foreground/90"
             onClick={onDeposit}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-background"
               src={`${ASSET_BASE}/icon-plus.svg`}
             />
-            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-white leading-5">
+            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-background leading-5">
               Deposit
             </span>
           </button>
           <button
-            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-black/[0.04] hover:bg-black/[0.08]"
+            className="t-hover flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-accent hover:bg-accent-active"
             onClick={() => onWithdraw()}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
               src={`${ASSET_BASE}/icon-withdraw-arrow.svg`}
             />
-            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-black leading-5">
+            <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
               Withdraw
             </span>
           </button>

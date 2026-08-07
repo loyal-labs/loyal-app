@@ -2,6 +2,8 @@
 
 import { useEffect, useId, useLayoutEffect, useRef } from "react";
 
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
+
 const ASSET_BASE = "/wallet-workspace/facelift";
 const CLIP_PADDING_PX = 8;
 
@@ -84,11 +86,8 @@ export function InfoTooltip({
         className="t-tt-trigger flex cursor-help items-center justify-center"
         type="button"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          aria-hidden="true"
-          className={iconClassName}
+        <ThemedIcon
+          className={`${iconClassName} text-tertiary`}
           src={`${ASSET_BASE}/icon-question.svg`}
         />
       </button>

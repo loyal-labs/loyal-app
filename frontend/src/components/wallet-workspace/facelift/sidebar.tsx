@@ -1,7 +1,8 @@
 "use client";
 
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Moon, Sun } from "lucide-react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ScrambledPopDigits,
@@ -15,6 +16,7 @@ import { ReceiveSheet } from "@/components/wallet-workspace/facelift/receive-she
 import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
@@ -26,6 +28,7 @@ import {
   splitUsdBalance,
   useWalletDesktopData,
 } from "@/hooks/use-wallet-desktop-data";
+import { useTheme } from "@/hooks/use-theme";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import {
   getStablecoinMintSetForSolanaEnv,
@@ -60,7 +63,7 @@ const SIDEBAR_LINKS = [
 
 export function SplitAmount({
   fraction,
-  fractionColor = "rgba(60, 60, 67, 0.4)",
+  fractionColor = "var(--tertiary)",
   isHidden = false,
   isRevealed,
   whole,
@@ -72,10 +75,10 @@ export function SplitAmount({
   whole: string;
 }) {
   return (
-    <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+    <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
       <SkeletonReveal
         isRevealed={isRevealed}
-        skeletonClassName="rounded-md bg-black/[0.06]"
+        skeletonClassName="rounded-md bg-accent-selected"
       >
         {isRevealed ? (
           <ScrambledPopDigits
@@ -109,8 +112,8 @@ function ShortcutKey({
         isFlashed
           ? // A keypress lands instantly, so its feedback must too — only the
             // fade-out (the unflashed state's transition) is animated.
-            "bg-[#f9363c] text-white opacity-100 transition-none"
-          : "bg-black/[0.06] text-[rgba(60,60,67,0.6)] opacity-0 transition-opacity duration-150 group-hover:opacity-100"
+            "bg-primary text-white opacity-100 transition-none"
+          : "bg-accent-selected text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100"
       }`}
     >
       {letter}
@@ -146,6 +149,7 @@ export function FaceliftSidebar({
   const canDisconnect = isAuthenticated || isWalletConnected;
   const { isBalanceHidden, toggleBalanceHidden } = useBalanceVisibility();
   const { open: openSignIn } = useSignInModal();
+  const { isDark, toggleTheme } = useTheme();
   const [isWalletMenuOpen, setIsWalletMenuOpen] = useState(false);
   const [isReceiveOpen, setIsReceiveOpen] = useState(false);
 
@@ -299,10 +303,9 @@ export function FaceliftSidebar({
     <aside className="flex h-full w-[360px] shrink-0 flex-col overflow-clip p-2 max-[795px]:hidden">
       {/* Figma 4768:102489 — logo on top, wallet chip moved to the bottom. */}
       <div className="flex h-[60px] w-full shrink-0 items-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt="Loyal"
-          className="ml-4 h-6 w-14"
+        <ThemedIcon
+          className="ml-4 h-6 w-14 text-foreground"
+          label="Loyal"
           src={`${ASSET_BASE}/logotype.svg`}
         />
         <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
@@ -315,17 +318,14 @@ export function FaceliftSidebar({
               aria-label="Activity"
               className={`t-hover relative flex size-11 items-center justify-center rounded-3xl ${
                 activePage === "activity"
-                  ? "bg-black/[0.04]"
-                  : "hover:bg-black/[0.04]"
+                  ? "bg-accent"
+                  : "hover:bg-accent"
               }`}
               onClick={() => onSelectPage("activity")}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-tertiary"
                 src={`${ASSET_BASE}/icon-clock-history.svg`}
               />
               {/* transitions.dev notification badge: pops in when wallet
@@ -334,7 +334,7 @@ export function FaceliftSidebar({
                 className="t-badge t-badge-activity"
                 data-open={hasUnseenActivity ? "true" : "false"}
               >
-                <span className="t-badge-dot size-1.5 rounded-full bg-[#f9363c]" />
+                <span className="t-badge-dot size-1.5 rounded-full bg-primary" />
               </span>
             </button>
           </span>
@@ -344,17 +344,17 @@ export function FaceliftSidebar({
       <div className="w-full py-2">
         <div className="flex w-full flex-col gap-0.5 px-4 py-2">
           <div className="flex items-center gap-1">
-            <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+            <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
               Total balance
             </p>
             {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
             <InfoTooltip text="Wallet and Earn balances combined" />
           </div>
           <div className="flex items-center gap-3">
-            <p className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]">
+            <p className="whitespace-nowrap font-semibold text-[40px] text-foreground leading-[48px] tracking-[-0.44px]">
               <SkeletonReveal
                 isRevealed={isTotalRevealed}
-                skeletonClassName="rounded-lg bg-black/[0.06]"
+                skeletonClassName="rounded-lg bg-accent-selected"
               >
                 {isTotalRevealed ? (
                   <ScrambledPopDigits
@@ -362,7 +362,7 @@ export function FaceliftSidebar({
                     segments={[
                       { text: totalBalance.balanceWhole },
                       {
-                        color: "rgba(60, 60, 67, 0.4)",
+                        color: "var(--tertiary)",
                         text: totalBalance.balanceFraction,
                       },
                     ]}
@@ -375,15 +375,12 @@ export function FaceliftSidebar({
             </p>
             <button
               aria-label={isBalanceHidden ? "Show balance" : "Hide balance"}
-              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={toggleBalanceHidden}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-tertiary"
                 src={`${ASSET_BASE}/icon-eye.svg`}
               />
             </button>
@@ -394,7 +391,7 @@ export function FaceliftSidebar({
       <nav className="flex w-full flex-1 flex-col py-2">
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
-            activePage === "earn" ? "bg-black/[0.04]" : "hover:bg-black/[0.04]"
+            activePage === "earn" ? "bg-accent" : "hover:bg-accent"
           }`}
           onClick={() => onSelectPage("earn")}
           type="button"
@@ -408,7 +405,7 @@ export function FaceliftSidebar({
           />
           <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
             <span className="flex items-center gap-1">
-              <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                 Earn
               </span>
               {/* Skeleton the whole pill until the real APY lands, then
@@ -416,9 +413,9 @@ export function FaceliftSidebar({
                   hardcoded number that would otherwise flash and re-pop). */}
               <SkeletonReveal
                 isRevealed={isApyLoaded}
-                skeletonClassName="rounded-md bg-black/[0.06]"
+                skeletonClassName="rounded-md bg-accent-selected"
               >
-                <span className="inline-flex items-center gap-0.5 rounded-md bg-[rgba(52,199,89,0.14)] px-1 py-px">
+                <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     alt=""
@@ -426,7 +423,7 @@ export function FaceliftSidebar({
                     className="h-3 w-2"
                     src="/wallet-workspace/earn-flash.svg"
                   />
-                  <span className="whitespace-nowrap pt-px font-medium text-[#34c759] text-[11px] leading-[13px] tracking-[0.06px]">
+                  <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
                     {isApyLoaded ? (
                       <PopDigits
                         segments={[
@@ -443,7 +440,7 @@ export function FaceliftSidebar({
             </span>
             <SplitAmount
               fraction={earnBalance.balanceFraction}
-              fractionColor="#b1b1b4"
+              fractionColor="var(--tertiary)"
               isHidden={isBalanceHidden}
               isRevealed={isEarnBalanceRevealed}
               whole={earnBalance.balanceWhole}
@@ -454,8 +451,8 @@ export function FaceliftSidebar({
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "stables"
-              ? "bg-black/[0.04]"
-              : "hover:bg-black/[0.04]"
+              ? "bg-accent"
+              : "hover:bg-accent"
           }`}
           onClick={() => onSelectPage("stables")}
           type="button"
@@ -469,7 +466,7 @@ export function FaceliftSidebar({
           />
           <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
             <span className="flex items-center gap-1">
-              <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                 Stablecoins
               </span>
               <ShortcutKey
@@ -489,8 +486,8 @@ export function FaceliftSidebar({
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "crypto"
-              ? "bg-black/[0.04]"
-              : "hover:bg-black/[0.04]"
+              ? "bg-accent"
+              : "hover:bg-accent"
           }`}
           onClick={() => onSelectPage("crypto")}
           type="button"
@@ -504,7 +501,7 @@ export function FaceliftSidebar({
           />
           <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
             <span className="flex items-center gap-1">
-              <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                 Crypto
               </span>
               <ShortcutKey
@@ -525,22 +522,19 @@ export function FaceliftSidebar({
       <div className="flex w-full flex-col py-2">
         {SIDEBAR_LINKS.map((link) => (
           <a
-            className="t-hover flex w-full items-center rounded-2xl px-4 hover:bg-black/[0.04]"
+            className="t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent"
             href={link.href}
             key={link.label}
             rel="noreferrer"
             target="_blank"
           >
             <span className="mr-3 flex size-11 shrink-0 items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-tertiary"
                 src={`${ASSET_BASE}/${link.icon}`}
               />
             </span>
-            <span className="py-2 font-medium text-[#8a8a8e] text-[16px] leading-5">
+            <span className="py-2 font-medium text-muted-foreground text-[16px] leading-5">
               {link.label}
             </span>
           </a>
@@ -554,7 +548,7 @@ export function FaceliftSidebar({
       {isHydrated && !isSignedIn ? (
         <div className="flex w-full shrink-0 items-center">
           <button
-            className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+            className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-accent"
             onClick={openSignIn}
             type="button"
           >
@@ -565,7 +559,7 @@ export function FaceliftSidebar({
               className="mr-3 size-11 shrink-0 rounded-[11px]"
               src="/agents/Agent-01.svg"
             />
-            <span className="whitespace-nowrap text-[16px] text-black leading-5">
+            <span className="whitespace-nowrap text-[16px] text-foreground leading-5">
               {cherryRuntime.mode === "cherry_embedded"
                 ? "Verify account"
                 : "Connect account"}
@@ -575,7 +569,7 @@ export function FaceliftSidebar({
       ) : (
         <div className="relative flex w-full shrink-0 items-center">
           <button
-            className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+            className="t-hover flex h-[60px] items-center rounded-2xl px-4 text-left hover:bg-accent"
             onClick={() => {
               if (cherryRuntime.mode === "standalone") {
                 setIsWalletMenuOpen((open) => !open);
@@ -591,10 +585,10 @@ export function FaceliftSidebar({
               src="/agents/Agent-01.svg"
             />
             <span className="flex min-w-0 items-center gap-1">
-              <span className="whitespace-nowrap text-[16px] text-black leading-5">
+              <span className="whitespace-nowrap text-[16px] text-foreground leading-5">
                 <SkeletonReveal
                   isRevealed={isAddressRevealed}
-                  skeletonClassName="rounded-md bg-black/[0.06]"
+                  skeletonClassName="rounded-md bg-accent-selected"
                 >
                   <TextSwap text={addressLabel} />
                 </SkeletonReveal>
@@ -608,29 +602,24 @@ export function FaceliftSidebar({
                   handleCopyAddress();
                 }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt="Copy address"
-                  className="t-icon size-6"
+                <span
+                  className="t-icon icon-themed size-6 text-tertiary"
                   data-icon="a"
-                  src={`${ASSET_BASE}/icon-copy.svg`}
+                  role="img"
+                  aria-label="Copy address"
+                  style={{ "--icon": `url("${ASSET_BASE}/icon-copy.svg")` } as CSSProperties}
                 />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
+                <span
                   aria-hidden="true"
-                  className="t-icon size-6"
+                  className="t-icon icon-themed size-6 text-tertiary"
                   data-icon="b"
-                  src={`${ASSET_BASE}/icon-check.svg`}
+                  style={{ "--icon": `url("${ASSET_BASE}/icon-check.svg")` } as CSSProperties}
                 />
               </span>
             </span>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             {cherryRuntime.mode === "standalone" ? (
-              <img
-                alt=""
-                aria-hidden="true"
-                className="ml-2 size-6 shrink-0"
+              <ThemedIcon
+                className="ml-2 size-6 text-tertiary"
                 src={`${ASSET_BASE}/icon-chevron-down.svg`}
               />
             ) : null}
@@ -638,33 +627,30 @@ export function FaceliftSidebar({
           <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
             <button
               aria-label="Receive"
-              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={() => setIsReceiveOpen(true)}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-tertiary"
                 src={`${ASSET_BASE}/icon-qr.svg`}
               />
             </button>
-            {/* ponytail: settings screen doesn't exist yet — disabled until
-              it ships. */}
             <button
-              aria-label="Settings"
-              className="flex size-11 items-center justify-center rounded-3xl opacity-40"
-              disabled
+              aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+              className="t-hover flex size-11 items-center justify-center rounded-3xl text-tertiary hover:bg-accent"
+              onClick={(event) => {
+                // Wipe from the toggle itself (also right for keyboard
+                // activation, where click coords are unreliable).
+                const rect = event.currentTarget.getBoundingClientRect();
+                toggleTheme({
+                  x: rect.left + rect.width / 2,
+                  y: rect.top + rect.height / 2,
+                });
+              }}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
-                src={`${ASSET_BASE}/icon-gear.svg`}
-              />
+              {isDark ? <Sun className="size-6" /> : <Moon className="size-6" />}
             </button>
           </div>
 
@@ -678,12 +664,12 @@ export function FaceliftSidebar({
           ) : null}
           {/* Same frosted sheet treatment as the withdraw source select. */}
           <DropdownReveal
-            className="absolute bottom-[calc(100%+4px)] left-0 z-30 flex w-60 flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px]"
+            className="absolute bottom-[calc(100%+4px)] left-0 z-30 flex w-60 flex-col rounded-2xl bg-popover/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px]"
             isOpen={cherryRuntime.mode === "standalone" && isWalletMenuOpen}
             origin="bottom-left"
           >
             <button
-              className="t-hover flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-black leading-5 enabled:hover:bg-black/[0.04] disabled:text-[#d8d8d9]"
+              className="t-hover flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left font-medium text-[16px] text-foreground leading-5 enabled:hover:bg-accent disabled:text-tertiary"
               disabled={!canDisconnect}
               onClick={() => {
                 setIsWalletMenuOpen(false);
@@ -691,11 +677,8 @@ export function FaceliftSidebar({
               }}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-5"
+              <ThemedIcon
+                className="size-5 text-tertiary"
                 src={`${ASSET_BASE}/icon-logout.svg`}
               />
               Disconnect

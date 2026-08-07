@@ -30,6 +30,7 @@ import {
 } from "@/components/wallet-workspace/facelift/flow-explainer";
 import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -106,18 +107,18 @@ function SourceOptionRow({
   const { isBalanceHidden } = useBalanceVisibility();
   return (
     <button
-      className={`t-hover flex w-full items-center px-4 text-left hover:bg-black/[0.04] ${rounded}`}
+      className={`t-hover flex w-full items-center px-4 text-left hover:bg-accent ${rounded}`}
       onClick={onSelect}
       type="button"
     >
       <span className="flex items-center py-2 pr-3">{option.icon}</span>
       <span className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
-        <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
           {option.label}
         </span>
-        <span className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+        <span className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
           <ScrambleText isHidden={isBalanceHidden} text={amount.balanceWhole} />
-          <span className="text-[rgba(60,60,67,0.4)]">
+          <span className="text-tertiary">
             <ScrambleText
               isHidden={isBalanceHidden}
               text={amount.balanceFraction}
@@ -127,11 +128,8 @@ function SourceOptionRow({
       </span>
       {isSelected ? (
         <span className="flex items-center justify-end pl-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-primary"
             src={`${ASSET_BASE}/icon-check-red.svg`}
           />
         </span>
@@ -276,39 +274,33 @@ export function WithdrawPane({
 
   return (
     <>
-      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-none">
+      <section className="flex h-full min-w-0 flex-1 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-none">
         <header className="flex w-full items-center p-2">
           <div className="pr-3">
             <button
               aria-label="Back"
-              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+              className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
               onClick={onBack}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-muted-foreground"
                 src={`${ASSET_BASE}/icon-arrow-left.svg`}
               />
             </button>
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-2 py-2">
-            <h1 className="truncate font-semibold text-[20px] text-black leading-6">
+            <h1 className="truncate font-semibold text-[20px] text-foreground leading-6">
               Withdraw
             </h1>
             <button
               aria-label="How Withdraw works"
-              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
+              className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
               onClick={() => setIsInfoOpen(true)}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-6"
+              <ThemedIcon
+                className="size-6 text-tertiary"
                 src={`${ASSET_BASE}/icon-question.svg`}
               />
             </button>
@@ -319,16 +311,16 @@ export function WithdrawPane({
           <div className="flex w-full flex-1 flex-col">
             <div className="w-full p-2">
               <label className="flex w-full flex-col gap-0.5 rounded-2xl px-4 py-2">
-                <span className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                <span className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                   Amount
                 </span>
                 <span className="flex h-12 w-full items-baseline">
-                  <span className="font-semibold text-[40px] text-black leading-[48px]">
+                  <span className="font-semibold text-[40px] text-foreground leading-[48px]">
                     $
                   </span>
                   <input
                     autoFocus
-                    className="min-w-0 flex-1 border-none bg-transparent font-semibold text-[40px] text-black leading-[48px] outline-none placeholder:text-[#b1b1b4]"
+                    className="min-w-0 flex-1 border-none bg-transparent font-semibold text-[40px] text-foreground leading-[48px] outline-none placeholder:text-tertiary"
                     inputMode="decimal"
                     onChange={(event) => handleAmountChange(event.target.value)}
                     onKeyDown={(event) => {
@@ -359,7 +351,7 @@ export function WithdrawPane({
               />
             ) : null}
             <DropdownReveal
-              className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-white/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] max-[795px]:hidden"
+              className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-popover/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] max-[795px]:hidden"
               isOpen={isSheetOpen}
               origin="bottom-center"
             >
@@ -380,23 +372,20 @@ export function WithdrawPane({
               isOpen={isSheetOpen}
               onClose={() => setIsSheetOpen(false)}
               scrimClassName="fixed inset-0 z-50 hidden flex-col justify-end bg-white/60 pt-8 backdrop-blur-[4px] max-[795px]:flex"
-              sheetClassName="flex w-full flex-col rounded-t-3xl bg-white shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+              sheetClassName="flex w-full flex-col rounded-t-3xl bg-card shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
             >
               <header className="flex w-full items-center p-2">
-                <h2 className="min-w-0 flex-1 truncate py-2.5 pl-2 font-semibold text-[20px] text-black leading-6">
+                <h2 className="min-w-0 flex-1 truncate py-2.5 pl-2 font-semibold text-[20px] text-foreground leading-6">
                   Positions
                 </h2>
                 <button
                   aria-label="Close position select"
-                  className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+                  className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
                   onClick={() => setIsSheetOpen(false)}
                   type="button"
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="size-6"
+                  <ThemedIcon
+                    className="size-6 text-muted-foreground"
                     src={`${ASSET_BASE}/icon-cross.svg`}
                   />
                 </button>
@@ -416,7 +405,7 @@ export function WithdrawPane({
 
             <div
               className={`t-hover flex w-full items-center rounded-2xl px-4 ${
-                isSheetOpen ? "bg-black/[0.04]" : ""
+                isSheetOpen ? "bg-accent" : ""
               }`}
             >
               <button
@@ -437,12 +426,12 @@ export function WithdrawPane({
                   )}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                  <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                     <TextSwap
                       text={`from ${selectedOption?.label ?? "Earn"}`}
                     />
                   </span>
-                  <span className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                  <span className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
                     {/* Hiding masks through TextSwap's own swap animation
                         (churning it would thrash the swap). */}
                     <TextSwap
@@ -452,7 +441,7 @@ export function WithdrawPane({
                           : fromBalance.balanceWhole
                       }
                     />
-                    <span className="text-[rgba(60,60,67,0.4)]">
+                    <span className="text-tertiary">
                       <TextSwap
                         text={
                           isBalanceHidden
@@ -469,7 +458,7 @@ export function WithdrawPane({
               </button>
               <div className="pl-3">
                 <button
-                  className="t-hover min-w-16 rounded-full bg-black/[0.04] px-4 py-2.5 text-center font-medium text-[13px] text-black leading-4 hover:bg-black/[0.08]"
+                  className="t-hover min-w-16 rounded-full bg-accent px-4 py-2.5 text-center font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                   onClick={() => {
                     const usd = selectedOption?.usd ?? 0;
                     if (usd > 0) {
@@ -487,15 +476,12 @@ export function WithdrawPane({
               </div>
               <button
                 aria-label="Select position"
-                className="t-hover -my-2.5 -mr-2.5 ml-0.5 flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+                className="t-hover -my-2.5 -mr-2.5 ml-0.5 flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
                 onClick={() => setIsSheetOpen((open) => !open)}
                 type="button"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-6"
+                <ThemedIcon
+                  className="size-6 text-muted-foreground"
                   src={`${ASSET_BASE}/icon-chevron-grabber.svg`}
                 />
               </button>
@@ -512,15 +498,15 @@ export function WithdrawPane({
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                <span className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <span className="truncate text-[13px] leading-4 text-muted-foreground">
                   {`to Stablecoins · ${addressLabel}`}
                 </span>
-                <p className="whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+                <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
                   <ScrambleText
                     isHidden={isBalanceHidden}
                     text={stablecoinsBalance.balanceWhole}
                   />
-                  <span className="text-[rgba(60,60,67,0.4)]">
+                  <span className="text-tertiary">
                     <ScrambleText
                       isHidden={isBalanceHidden}
                       text={stablecoinsBalance.balanceFraction}
@@ -530,13 +516,13 @@ export function WithdrawPane({
               </div>
             </div>
 
-            <div className="-translate-y-1/2 absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 rounded-xl bg-[#d9d9d9]" />
+            <div className="-translate-y-1/2 absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 rounded-xl bg-border" />
           </div>
         </div>
 
-        <div className="w-full bg-white px-4 pt-2 pb-4">
+        <div className="w-full bg-card px-4 pt-2 pb-4">
           {data.actions.withdrawError ? (
-            <p className="px-4 pb-2 text-[13px] leading-4 text-[#f9363c]">
+            <p className="px-4 pb-2 text-[13px] leading-4 text-destructive">
               {data.actions.withdrawError}
             </p>
           ) : null}
@@ -545,12 +531,12 @@ export function WithdrawPane({
               {/* Phase 2 of a full exit (slot-pinned zero proof happens
                   server-side in the prepare): close the empty Earn accounts
                   and reclaim their SOL rent. */}
-              <p className="px-4 pb-2 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+              <p className="px-4 pb-2 text-[13px] leading-4 text-muted-foreground">
                 Your funds are withdrawn. Close the empty Earn accounts to
                 reclaim their SOL rent.
               </p>
               <button
-                className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 enabled:hover:-translate-y-0.5 enabled:hover:bg-[#171717] enabled:active:translate-y-0"
+                className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90 enabled:active:translate-y-0"
                 disabled={data.actions.isCleanupPending}
                 onClick={() => void handleCleanup()}
                 type="button"
@@ -568,8 +554,8 @@ export function WithdrawPane({
             <button
               className={`t-hover flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 ${
                 canWithdraw
-                  ? "bg-black text-white enabled:hover:-translate-y-0.5 enabled:hover:bg-[#171717] enabled:active:translate-y-0"
-                  : "bg-[rgba(249,54,60,0.08)] text-[#f9363c]"
+                  ? "bg-foreground text-background enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90 enabled:active:translate-y-0"
+                  : "bg-destructive/[0.08] text-destructive"
               }`}
               disabled={!canWithdraw || isSubmitting}
               onClick={() => void handleSubmit()}

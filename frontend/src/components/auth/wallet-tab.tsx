@@ -44,12 +44,12 @@ function MobileWalletList() {
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-neutral-500 text-sm">
+      <p className="text-muted-foreground text-sm">
         Open this page in your wallet&apos;s built-in browser:
       </p>
       {MOBILE_WALLETS.map((wallet) => (
         <TrackedExternalLink
-          className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06]"
+          className="flex h-14 items-center gap-3 rounded-2xl bg-secondary px-4 text-foreground text-sm transition hover:bg-accent-selected"
           href={wallet.browseUrl(currentUrl)}
           key={wallet.name}
           linkText={`Open in ${wallet.name}`}
@@ -57,7 +57,7 @@ function MobileWalletList() {
         >
           <img alt={wallet.name} className="h-6 w-6" src={wallet.icon} />
           <span className="min-w-0 flex-1">Open in {wallet.name}</span>
-          <ArrowUpRight className="h-4 w-4 text-neutral-400" />
+          <ArrowUpRight className="h-4 w-4 text-tertiary" />
         </TrackedExternalLink>
       ))}
     </div>
@@ -81,7 +81,7 @@ function LedgerModeToggle({
   // button's own clicks — mouse or Space/Enter — bubble up to it too).
   return (
     <div
-      className={`flex items-start gap-3 rounded-2xl bg-[#f5f5f5] px-4 py-3 text-left text-neutral-900 text-sm ${
+      className={`flex items-start gap-3 rounded-2xl bg-secondary px-4 py-3 text-left text-foreground text-sm ${
         disabled ? "opacity-60" : "cursor-pointer"
       }`}
       onClick={() => {
@@ -94,7 +94,7 @@ function LedgerModeToggle({
         aria-checked={checked}
         aria-describedby={descriptionId}
         aria-labelledby={labelId}
-        className="t-check mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-white shadow-[inset_0_0_0_1.5px_#d4d4d4] aria-checked:bg-neutral-950 aria-checked:shadow-[inset_0_0_0_1.5px_#0a0a0a]"
+        className="t-check mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] bg-card shadow-[inset_0_0_0_1.5px_var(--border)] aria-checked:bg-foreground aria-checked:shadow-[inset_0_0_0_1.5px_var(--foreground)]"
         disabled={disabled}
         role="checkbox"
         type="button"
@@ -119,7 +119,7 @@ function LedgerModeToggle({
           I use Ledger or hardware wallet
         </span>
         <span
-          className="mt-0.5 block text-neutral-500 text-xs"
+          className="mt-0.5 block text-muted-foreground text-xs"
           id={descriptionId}
         >
           Approves a login verification transaction. Loyal will not broadcast
@@ -205,14 +205,14 @@ export function WalletTab({
         : "Verifying your wallet and preparing your smart account...";
 
     return (
-      <div className="flex flex-col items-center gap-4 rounded-[28px] bg-[#f5f5f5] px-5 py-8 text-center">
+      <div className="flex flex-col items-center gap-4 rounded-[28px] bg-secondary px-5 py-8 text-center">
         <MatrixLoader />
-        <p className="max-w-[320px] text-neutral-500 text-sm">
+        <p className="max-w-[320px] text-muted-foreground text-sm">
           <TextSwap text={statusMessage} />
         </p>
         {isCherryEmbedded ? null : (
           <button
-            className="rounded-full px-4 py-2 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
+            className="rounded-full px-4 py-2 font-medium text-muted-foreground text-sm transition hover:bg-accent-selected hover:text-foreground"
             onClick={handleChooseAnotherWallet}
             type="button"
           >
@@ -226,15 +226,15 @@ export function WalletTab({
   if (isErrorState && showError) {
     return (
       <div className="flex flex-col gap-3">
-        <div className="rounded-[24px] bg-[#fff1f2] p-4 text-[#d50012] text-sm">
+        <div className="rounded-[24px] bg-destructive/10 p-4 text-destructive text-sm">
           <div className="flex gap-3">
-            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-card">
               <AlertCircle className="h-4 w-4" />
             </span>
             <div className="min-w-0">
               <p className="font-medium">{state.errorMessage}</p>
               {state.errorDetails.length > 0 && (
-                <ul className="mt-2 list-disc pl-5 text-[#d50012]/80">
+                <ul className="mt-2 list-disc pl-5 text-destructive/80">
                   {state.errorDetails.map((detail) => (
                     <li key={detail}>{detail}</li>
                   ))}
@@ -255,7 +255,7 @@ export function WalletTab({
           />
         )}
         <button
-          className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800"
+          className="h-12 rounded-full bg-foreground px-4 font-medium text-background text-sm transition hover:bg-foreground/90"
           onClick={
             isCherryEmbedded
               ? () => {
@@ -284,7 +284,7 @@ export function WalletTab({
             />
           )}
           <button
-            className="h-12 rounded-full bg-neutral-950 px-4 font-medium text-sm text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
+            className="h-12 rounded-full bg-foreground px-4 font-medium text-background text-sm transition hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-40"
             disabled={!isVerified}
             onClick={startConnectedWalletVerification}
             type="button"
@@ -301,7 +301,7 @@ export function WalletTab({
           </button>
           {isCherryEmbedded ? null : (
             <button
-              className="h-12 rounded-full px-4 font-medium text-neutral-500 text-sm transition hover:bg-black/[0.06] hover:text-neutral-900"
+              className="h-12 rounded-full px-4 font-medium text-muted-foreground text-sm transition hover:bg-accent-selected hover:text-foreground"
               onClick={handleChooseAnotherWallet}
               type="button"
             >
@@ -318,7 +318,7 @@ export function WalletTab({
           />
           {installedWallets.map((installedWallet) => (
             <button
-              className="flex h-14 items-center gap-3 rounded-2xl bg-[#f5f5f5] px-4 text-neutral-900 text-sm transition hover:bg-black/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-14 items-center gap-3 rounded-2xl bg-secondary px-4 text-foreground text-sm transition hover:bg-accent-selected disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!isVerified}
               key={installedWallet.adapter.name}
               onClick={() => handleConnectWallet(installedWallet.adapter.name)}
@@ -334,12 +334,12 @@ export function WalletTab({
               <span className="min-w-0 flex-1 text-left">
                 {installedWallet.adapter.name}
               </span>
-              <ArrowUpRight className="h-4 w-4 text-neutral-400" />
+              <ArrowUpRight className="h-4 w-4 text-tertiary" />
             </button>
           ))}
           {installedWallets.length === 0 && isMobile && <MobileWalletList />}
           {installedWallets.length === 0 && !isMobile && (
-            <p className="py-4 text-center text-neutral-500 text-sm">
+            <p className="py-4 text-center text-muted-foreground text-sm">
               No wallet extensions detected. Install a Solana wallet extension
               to continue.
             </p>
