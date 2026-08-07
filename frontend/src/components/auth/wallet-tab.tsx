@@ -1,5 +1,6 @@
 "use client";
 
+import { useWallet } from "@solana/wallet-adapter-react";
 import { AlertCircle, ArrowUpRight } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
@@ -141,8 +142,15 @@ export function WalletTab({
 }) {
   const cherryRuntime = useCherryRuntime();
   const isCherryEmbedded = cherryRuntime.mode === "cherry_embedded";
+  const { wallet } = useWallet();
   const [useLedgerProof, setUseLedgerProof] = useState(false);
   const [showWalletSelection, setShowWalletSelection] = useState(false);
+  // Brave Wallet validates `recentBlockhash` against the chain before
+  // signing, so it can never sign the non-broadcastable Ledger proof
+  // transaction (ASK-2049). Hide the toggle for it — and mask the flag too,
+  // because the toggle can be checked before a wallet is chosen.
+  const supportsLedgerProof = wallet?.adapter.name !== "Brave Wallet";
+  const ledgerProofActive = useLedgerProof && supportsLedgerProof;
   const {
     connected,
     publicKey,
@@ -155,7 +163,7 @@ export function WalletTab({
     captchaToken: captchaToken ?? undefined,
     onCaptchaConsumed,
     onFlowStart,
-    useLedgerProof,
+    useLedgerProof: ledgerProofActive,
   });
 
   const isVerified = Boolean(captchaToken);
@@ -199,7 +207,7 @@ export function WalletTab({
       state.status === "connecting"
         ? "Connecting your wallet..."
         : state.status === "awaiting_signature"
-        ? useLedgerProof
+        ? ledgerProofActive
           ? "Approve the Ledger verification transaction..."
           : "Approve sign-in in your wallet..."
         : "Verifying your wallet and preparing your smart account...";
@@ -247,7 +255,7 @@ export function WalletTab({
             lands here as an opaque wallet error. Keep the Ledger escape hatch
             visible so those users can self-serve — but not after a deliberate
             cancellation, which is not a capability problem. */}
-        {state.status !== "rejected" && !isCherryEmbedded && (
+        {state.status !== "rejected" && !isCherryEmbedded && supportsLedgerProof && (
           <LedgerModeToggle
             checked={useLedgerProof}
             disabled={!isVerified}
@@ -276,7 +284,7 @@ export function WalletTab({
     <div className="flex flex-col gap-4">
       {connected && publicKey && !showWalletSelection ? (
         <div className="flex flex-col gap-2">
-          {isCherryEmbedded ? null : (
+          {isCherryEmbedded || !supportsLedgerProof ? null : (
             <LedgerModeToggle
               checked={useLedgerProof}
               disabled={!isVerified}
@@ -293,7 +301,7 @@ export function WalletTab({
               text={
                 isCherryEmbedded
                   ? "Verify Cherry Wallet"
-                  : useLedgerProof
+                  : ledgerProofActive
                   ? "Verify Ledger Wallet"
                   : "Verify Connected Wallet"
               }

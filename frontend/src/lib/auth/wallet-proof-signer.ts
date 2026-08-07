@@ -232,6 +232,20 @@ export async function signWalletProofTransaction(args: {
       );
     }
 
+    // Some wallets (Brave Wallet) validate `recentBlockhash` against the
+    // chain before signing, so they refuse the deliberately non-broadcastable
+    // proof transaction outright (ASK-2049). A capability gap, not a signing
+    // failure — tell the user the way out instead of surfacing wallet jargon.
+    if (
+      error instanceof Error &&
+      error.message.toLowerCase().includes("blockhash")
+    ) {
+      throw new WalletProofSignerError(
+        "This wallet cannot sign the Ledger verification transaction. Turn off “I use Ledger or hardware wallet” and sign in normally.",
+        "wallet_signing_unsupported"
+      );
+    }
+
     throw error;
   }
 }
