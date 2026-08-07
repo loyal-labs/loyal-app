@@ -50,7 +50,7 @@ export function WalletSignIn() {
         <div className="t-acc-panel">
           <div className="t-acc-panel-inner">
             <div className="flex flex-col gap-3 pb-4">
-              <p className="text-neutral-500 text-sm">
+              <p className="text-muted-foreground text-sm">
                 Complete verification to continue
               </p>
               <CapWidget key={widgetEpoch} onVerify={setCaptchaToken} />
@@ -58,7 +58,7 @@ export function WalletSignIn() {
           </div>
         </div>
       </div>
-      <p className="pb-4 text-neutral-500 text-sm">
+      <p className="pb-4 text-muted-foreground text-sm">
         Choose your preferred sign-in method.
       </p>
       <WalletTab

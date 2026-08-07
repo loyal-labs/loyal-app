@@ -19,6 +19,7 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSwap } from "@/hooks/use-swap";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
@@ -89,20 +90,17 @@ function SwapTokenPill({
   return (
     <button
       className={`t-hover flex shrink-0 items-center rounded-full py-1 pl-1 pr-2.5 ${
-        isActive ? "bg-black/[0.08]" : "bg-black/[0.04] hover:bg-black/[0.08]"
+        isActive ? "bg-accent-active" : "bg-accent hover:bg-accent-active"
       }`}
       onClick={onClick}
       type="button"
     >
       <TokenIconSwap src={token.icon || getTokenIconUrl(token.symbol)} />
-      <span className="px-2 font-medium text-[16px] text-black leading-5">
+      <span className="px-2 font-medium text-[16px] text-foreground leading-5">
         <TextSwap text={token.symbol} />
       </span>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt=""
-        aria-hidden="true"
-        className="size-6"
+      <ThemedIcon
+        className="size-6 text-tertiary"
         src={`${ASSET_BASE}/icon-chevron-right.svg`}
       />
     </button>
@@ -356,7 +354,7 @@ export function SwapPane({
         into the shell's 8px gap and sit flush with the viewport bottom (same
         escape the earn empty pane uses); the form keeps the clip. */
     <section
-      className={`flex h-full w-full min-w-0 flex-1 flex-col rounded-3xl bg-white max-[795px]:rounded-none ${
+      className={`flex h-full w-full min-w-0 flex-1 flex-col rounded-3xl bg-card max-[795px]:rounded-none ${
         step === "success" || step === "error"
           ? "max-[795px]:overflow-clip"
           : "overflow-clip"
@@ -366,21 +364,18 @@ export function SwapPane({
         <div className="flex shrink-0 items-center pr-3">
           <button
             aria-label="Back"
-            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={onBack}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
               src={`${ASSET_BASE}/icon-arrow-left.svg`}
             />
           </button>
         </div>
         <div className="flex min-w-0 flex-1 items-center py-2">
-          <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+          <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
             Swap
           </h1>
         </div>
@@ -394,19 +389,19 @@ export function SwapPane({
             <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto">
               <div className="flex w-full shrink-0 flex-col p-2">
                 <div className="flex w-full flex-col gap-0.5 px-4 py-2">
-                  <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                  <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                     You swap
                   </p>
                   <div className="flex w-full items-center">
                     <div className="flex h-12 min-w-0 flex-1 items-baseline">
                       {isUsdInput ? (
-                        <span className="font-semibold text-[40px] text-black leading-[48px]">
+                        <span className="font-semibold text-[40px] text-foreground leading-[48px]">
                           $
                         </span>
                       ) : null}
                       <input
                         autoFocus
-                        className="w-full min-w-0 bg-transparent font-semibold text-[40px] text-black leading-[48px] outline-none placeholder:text-[#b1b1b4]"
+                        className="w-full min-w-0 bg-transparent font-semibold text-[40px] text-foreground leading-[48px] outline-none placeholder:text-tertiary"
                         inputMode="decimal"
                         onChange={(event) =>
                           handleAmountChange(event.target.value)
@@ -431,30 +426,27 @@ export function SwapPane({
                       onClick={handleToggleCurrency}
                       type="button"
                     >
-                      <span className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                      <span className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                         {isUsdInput
                           ? `${formatTokenAmount(tokenAmount)} ${
                               fromToken.symbol
                             }`
                           : `$${formatUsdAmount(fromUsd)}`}
                       </span>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        alt=""
-                        aria-hidden="true"
-                        className="size-5"
+                      <ThemedIcon
+                        className="size-5 text-tertiary"
                         src={`${ASSET_BASE}/icon-arrow-rotate.svg`}
                       />
                     </button>
                     <p className="flex items-center gap-1 whitespace-nowrap text-[16px] leading-5">
                       <button
-                        className="t-hover text-black hover:opacity-70"
+                        className="t-hover text-foreground hover:opacity-70"
                         onClick={handleMax}
                         type="button"
                       >
                         MAX
                       </button>
-                      <span className="text-[#8a8a8e]">
+                      <span className="text-muted-foreground">
                         <ScrambleText
                           isHidden={isBalanceHidden}
                           text={formatTokenAmount(fromToken.balance)}
@@ -467,33 +459,30 @@ export function SwapPane({
                 <div className="relative flex h-11 w-full items-center justify-center">
                   <span
                     aria-hidden="true"
-                    className="absolute inset-x-6 top-1/2 h-px bg-black/[0.08]"
+                    className="absolute inset-x-6 top-1/2 h-px bg-border"
                   />
                   <button
                     aria-label="Swap tokens"
-                    className="t-hover relative flex size-11 items-center justify-center rounded-3xl bg-[#f5f5f5] hover:bg-[#ececec]"
+                    className="t-hover relative flex size-11 items-center justify-center rounded-3xl bg-secondary hover:bg-accent-active"
                     onClick={handleFlip}
                     type="button"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="size-6"
+                    <ThemedIcon
+                      className="size-6 text-tertiary"
                       src={`${ASSET_BASE}/icon-arrow-top-bottom.svg`}
                     />
                   </button>
                 </div>
 
                 <div className="flex w-full flex-col gap-0.5 px-4 py-2">
-                  <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                  <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                     You receive
                   </p>
                   <div className="flex w-full items-center">
                     <div className="flex h-12 min-w-0 flex-1 items-baseline overflow-hidden">
                       <p
                         className={`truncate font-semibold text-[40px] leading-[48px] ${
-                          toAmount > 0 ? "text-black" : "text-[#b1b1b4]"
+                          toAmount > 0 ? "text-foreground" : "text-tertiary"
                         }`}
                       >
                         {toAmount > 0 ? formatTokenAmount(toAmount) : "0"}
@@ -508,10 +497,10 @@ export function SwapPane({
                     </div>
                   </div>
                   <div className="flex w-full items-center justify-between">
-                    <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                    <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                       ~${formatUsdAmount(toUsd)}
                     </p>
-                    <p className="whitespace-nowrap text-[16px] leading-5 text-[#8a8a8e]">
+                    <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                       {"Balance: "}
                       <ScrambleText
                         isHidden={isBalanceHidden}
@@ -523,10 +512,10 @@ export function SwapPane({
               </div>
 
               <div className="w-full shrink-0 p-2">
-                <div className="flex w-full flex-col rounded-2xl bg-black/[0.04]">
+                <div className="flex w-full flex-col rounded-2xl bg-accent">
                   <div className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] leading-4">
-                    <span className="text-[rgba(60,60,67,0.6)]">Rate</span>
-                    <span className="pl-3 text-right text-black">
+                    <span className="text-muted-foreground">Rate</span>
+                    <span className="pl-3 text-right text-foreground">
                       {rate > 0
                         ? `1 ${toToken.symbol} ~ ${
                             rate >= 1
@@ -539,16 +528,16 @@ export function SwapPane({
                     </span>
                   </div>
                   <div className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] leading-4">
-                    <span className="text-[rgba(60,60,67,0.6)]">Slippage</span>
+                    <span className="text-muted-foreground">Slippage</span>
                     {/* Same static figures the OG swap form shows — actual
                   slippage/priority fee are Jupiter-side. */}
-                    <span className="text-black">1%</span>
+                    <span className="text-foreground">1%</span>
                   </div>
                   <div className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] leading-4">
-                    <span className="text-[rgba(60,60,67,0.6)]">
+                    <span className="text-muted-foreground">
                       Network Fee
                     </span>
-                    <span className="pl-3 text-right text-black">
+                    <span className="pl-3 text-right text-foreground">
                       {"0.00005 SOL ~ <$0.01"}
                     </span>
                   </div>
@@ -556,19 +545,19 @@ export function SwapPane({
               </div>
             </div>
 
-            <div className="w-full shrink-0 bg-white px-4 pt-2 pb-4">
+            <div className="w-full shrink-0 bg-card px-4 pt-2 pb-4">
               {visibleError ? (
-                <p className="pb-2 text-[13px] text-[#f9363c] leading-4">
+                <p className="pb-2 text-[13px] text-destructive leading-4">
                   {visibleError}
                 </p>
               ) : null}
               <button
                 className={`flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 transition-colors ${
                   isCtaInvalid
-                    ? "bg-[rgba(249,54,60,0.08)] text-[#f9363c]"
+                    ? "bg-destructive/[0.08] text-destructive"
                     : ctaDisabled
-                    ? "bg-black text-white opacity-60"
-                    : "t-hover bg-black text-white hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+                    ? "bg-foreground text-background opacity-60"
+                    : "t-hover bg-foreground text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
                 }`}
                 disabled={ctaDisabled}
                 onClick={() => void handleConfirm()}
@@ -696,36 +685,33 @@ export function SwapTokenSelectPane({
     <div className="flex h-full w-full min-w-0 flex-col">
       <header className="flex w-full shrink-0 items-center p-2">
         <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4 max-[795px]:pl-2">
-          <h2 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6">
+          <h2 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
             {title ?? (side === "from" ? "You swap" : "You receive")}
           </h2>
         </div>
         <div className="flex shrink-0 items-center pl-3">
           <button
             aria-label="Close"
-            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+            className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
             onClick={onClose}
             type="button"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              alt=""
-              aria-hidden="true"
-              className="size-6"
+            <ThemedIcon
+              className="size-6 text-muted-foreground"
               src={`${ASSET_BASE}/icon-cross.svg`}
             />
           </button>
         </div>
       </header>
       <div className="w-full shrink-0 px-4 pb-2">
-        <div className="flex w-full items-center rounded-full bg-black/[0.04] px-3">
+        <div className="flex w-full items-center rounded-full bg-accent px-3">
           <Search
-            className="mr-3 shrink-0 text-[#8a8a8e]"
+            className="mr-3 shrink-0 text-muted-foreground"
             size={24}
             strokeWidth={2}
           />
           <input
-            className="min-w-0 flex-1 bg-transparent py-3 text-[16px] text-black leading-5 outline-none placeholder:text-[#8a8a8e]"
+            className="min-w-0 flex-1 bg-transparent py-3 text-[16px] text-foreground leading-5 outline-none placeholder:text-muted-foreground"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search assets"
             type="text"
@@ -735,13 +721,13 @@ export function SwapTokenSelectPane({
       </div>
       <div className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto p-2">
         {list.length === 0 ? (
-          <p className="px-4 py-8 text-center text-[14px] leading-5 text-[rgba(60,60,67,0.6)]">
+          <p className="px-4 py-8 text-center text-[14px] leading-5 text-muted-foreground">
             No tokens found
           </p>
         ) : (
           list.map((token) => (
             <button
-              className="t-hover flex w-full shrink-0 items-center rounded-2xl px-4 text-left hover:bg-black/[0.04]"
+              className="t-hover flex w-full shrink-0 items-center rounded-2xl px-4 text-left hover:bg-accent"
               key={token.mint ?? token.symbol}
               onClick={() => onSelect(token)}
               type="button"
@@ -755,11 +741,11 @@ export function SwapTokenSelectPane({
                 />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                <span className="truncate font-medium text-[16px] text-black leading-5 tracking-[-0.176px]">
+                <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
                   {(token.mint ? nameByMint[token.mint] : undefined) ??
                     token.symbol}
                 </span>
-                <span className="whitespace-nowrap text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                   {token.symbol}
                 </span>
               </span>
@@ -767,12 +753,12 @@ export function SwapTokenSelectPane({
                 // Figma 4852:39653 — the source side lists what you hold:
                 // USD value on top (gray fraction), token amount below.
                 <span className="flex shrink-0 flex-col items-end justify-center gap-0.5 py-[11px] pl-3">
-                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-black leading-5">
+                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
                     <ScrambleText
                       isHidden={isBalanceHidden}
                       text={splitUsdBalance(token.balance * token.price).balanceWhole}
                     />
-                    <span className="text-[#b1b1b4]">
+                    <span className="text-tertiary">
                       <ScrambleText
                         isHidden={isBalanceHidden}
                         text={
@@ -782,7 +768,7 @@ export function SwapTokenSelectPane({
                       />
                     </span>
                   </span>
-                  <span className="whitespace-nowrap text-right text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                  <span className="whitespace-nowrap text-right text-[13px] leading-4 text-muted-foreground">
                     <ScrambleText
                       isHidden={isBalanceHidden}
                       text={formatTokenAmount(token.balance)}
@@ -791,7 +777,7 @@ export function SwapTokenSelectPane({
                 </span>
               ) : (
                 <span className="flex shrink-0 items-center justify-end pl-3">
-                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-black leading-5">
+                  <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
                     ${formatTokenPrice(token.price)}
                   </span>
                 </span>

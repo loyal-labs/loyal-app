@@ -29,11 +29,11 @@ import { deriveEarnEarningsDisplayAmounts } from "@/lib/yield-optimization/earni
 
 // Figma 4693:67592 (compact) / 4693:68575 (expanded) — bars are flex-1 so the
 // wider expanded pane thickens them without extra layout rules.
-const BAR_COLOR = "rgba(52, 199, 89, 0.4)";
-const BAR_HOVER_COLOR = "rgba(52, 199, 89, 0.16)";
-const TODAY_BAR_BORDER_COLOR = "#34c759";
+const BAR_COLOR = "color-mix(in srgb, var(--positive) 40%, transparent)";
+const BAR_HOVER_COLOR = "color-mix(in srgb, var(--positive) 16%, transparent)";
+const TODAY_BAR_BORDER_COLOR = "var(--positive)";
 const TODAY_BAR_HOVER_FILL =
-  "linear-gradient(180deg, rgba(52, 199, 89, 0.6) 0%, rgba(52, 199, 89, 0) 100%)";
+  "linear-gradient(180deg, color-mix(in srgb, var(--positive) 60%, transparent) 0%, transparent 100%)";
 // Tallest bar tops out at 290/300 of the chart height in the Figma spec.
 const BAR_MAX_FRACTION = 290 / 300;
 const BAR_MIN_HEIGHT_PX = 4;
@@ -173,7 +173,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         /* Full-height column track behind the bar — hover feedback stays
            visible even when the day's bar is tiny or absent. */
         .earned-bar-track {
-          background: rgba(0, 0, 0, 0.04);
+          background: var(--accent);
           border-radius: 4px;
           inset: 0;
           opacity: 0;
@@ -212,10 +212,10 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
       `}</style>
 
       <div className="flex w-full flex-col gap-0.5 pb-2">
-        <p className="truncate text-[16px] leading-5 text-[#8a8a8e]">
+        <p className="truncate text-[16px] leading-5 text-muted-foreground">
           {headerSubtitle}
         </p>
-        <p className="font-semibold text-[40px] text-black leading-[48px]">
+        <p className="font-semibold text-[40px] text-foreground leading-[48px]">
           {earningsUnavailable ? (
             "Unavailable"
           ) : (
@@ -230,7 +230,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
                   popOnChange={false}
                   segments={[
                     { text: `$${headerValue.whole}` },
-                    { color: "#b1b1b4", text: `.${headerValue.fraction}` },
+                    { color: "var(--tertiary)", text: `.${headerValue.fraction}` },
                   ]}
                 />
               )}
@@ -239,7 +239,7 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         </p>
       </div>
 
-      <div className="flex w-full justify-between pb-2 text-[13px] leading-4 text-[#8a8a8e]">
+      <div className="flex w-full justify-between pb-2 text-[13px] leading-4 text-tertiary">
         <span>{hoveredDateRowLabel}</span>
         <span>
           <ScrambleText
@@ -258,10 +258,10 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         onMouseLeave={() => setHoveredBar(null)}
       >
         {earningsUnavailable ? (
-          <div className="flex h-full flex-1 flex-col items-center justify-center gap-2 text-[13px] leading-4 text-[#8a8a8e]">
+          <div className="flex h-full flex-1 flex-col items-center justify-center gap-2 text-[13px] leading-4 text-muted-foreground">
             <span>Earnings are temporarily unavailable.</span>
             <button
-              className="t-hover rounded-full bg-black/[0.04] px-3 py-1.5 text-black hover:bg-black/[0.08]"
+              className="t-hover rounded-full bg-accent px-3 py-1.5 text-foreground hover:bg-accent-active"
               onClick={refreshEarnings}
               type="button"
             >
@@ -322,13 +322,13 @@ export function EarnedChart({ data }: { data: EarnPositionData }) {
         {dailyBars.length === 0 &&
         !showEarningsLoader &&
         !earningsUnavailable ? (
-          <div className="flex h-full flex-1 items-center justify-center text-[13px] leading-4 text-[#8a8a8e]">
+          <div className="flex h-full flex-1 items-center justify-center text-[13px] leading-4 text-muted-foreground">
             No earnings yet
           </div>
         ) : null}
       </div>
 
-      <div className="flex w-full justify-between pt-2 text-[13px] leading-4 text-[#8a8a8e]">
+      <div className="flex w-full justify-between pt-2 text-[13px] leading-4 text-tertiary">
         <span className="whitespace-nowrap">{dailyBars[0]?.label ?? ""}</span>
         <span className="whitespace-nowrap">
           {dailyBars[dailyBars.length - 1]?.label ?? ""}

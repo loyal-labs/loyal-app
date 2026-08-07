@@ -79,14 +79,14 @@ const ChatBotDemo = () => {
     setModel(models[0].value);
   }, [setMessages]);
 
-  // Initialize dark mode based on system preference
+  // Light is the default for everyone regardless of system preference;
+  // dark only via the explicit theme toggle (stored "theme" = "dark").
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    setDarkMode(mediaQuery.matches);
-
-    const handler = (e: MediaQueryListEvent) => setDarkMode(e.matches);
-    mediaQuery.addEventListener("change", handler);
-    return () => mediaQuery.removeEventListener("change", handler);
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem("theme");
+    } catch {}
+    setDarkMode(stored === "dark");
   }, []);
 
   // apply dark mode

@@ -15,7 +15,7 @@ import {
 export function SkeletonReveal({
   children,
   isRevealed,
-  skeletonClassName = "rounded-[6px] bg-black/[0.06]",
+  skeletonClassName = "rounded-[6px] bg-accent-selected",
 }: {
   children: ReactNode;
   isRevealed: boolean;

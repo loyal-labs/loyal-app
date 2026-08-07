@@ -31,6 +31,11 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-positive: var(--positive);
+  --color-tertiary: var(--tertiary);
+  --color-segmented: var(--segmented);
+  --color-accent-selected: var(--accent-selected);
+  --color-accent-active: var(--accent-active);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -49,26 +54,32 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* Values from Figma "Color Web" variables (Loyal UI Base Library) */
 :root {
   --radius: 0.65rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.141 0.005 285.823);
+  --background: oklch(1 0 0); /* Background/Primary #FFFFFF */
+  --foreground: oklch(0 0 0); /* Text/Primary #000000 */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.141 0.005 285.823);
+  --card-foreground: oklch(0 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.141 0.005 285.823);
-  --primary: oklch(0.623 0.214 259.815);
-  --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
-  --accent: oklch(0.967 0.001 286.375);
-  --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
-  --ring: oklch(0.623 0.214 259.815);
+  --popover-foreground: oklch(0 0 0);
+  --primary: oklch(0.641 0.229 25.29); /* Background/Accent #F9363C */
+  --primary-foreground: oklch(1 0 0); /* Text/Contrast #FFFFFF */
+  --secondary: oklch(0.97 0 0); /* Background/Tertiary #F5F5F5 */
+  --secondary-foreground: oklch(0 0 0);
+  --muted: oklch(0.97 0 0); /* Background/Secondary #F5F5F5 */
+  --muted-foreground: oklch(0.635 0.006 286.23); /* Text/Secondary #8A8A8E */
+  --accent: oklch(0 0 0 / 4%); /* Background States/Hover */
+  --accent-selected: oklch(0 0 0 / 6%); /* Background States/Selected|Pressed */
+  --accent-active: oklch(0 0 0 / 8%); /* Background States/Secondary Alpha Hover */
+  --accent-foreground: oklch(0 0 0);
+  --destructive: oklch(0.641 0.229 25.29); /* Text/Negative #F9363C */
+  --positive: oklch(0.683 0.173 143.395); /* Text/Positive #4BB34B */
+  --tertiary: oklch(0.751 0.009 301.305); /* Text|Icon/Tertiary #AFADB3 */
+  --segmented: oklch(1 0 0); /* Other/Segmented Control #FFFFFF */
+  --border: oklch(0 0 0 / 12%); /* Separator/Non-opaque */
+  --input: oklch(0 0 0 / 12%);
+  --ring: oklch(0.641 0.229 25.29);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -85,71 +96,42 @@
 }
 
 .dark {
-  --background: oklch(0.141 0.005 285.823);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.21 0.006 285.885);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.21 0.006 285.885);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.546 0.245 262.881);
-  --primary-foreground: oklch(0.379 0.146 265.522);
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.274 0.006 286.033);
-  --muted-foreground: oklch(0.705 0.015 286.067);
-  --accent: oklch(0.274 0.006 286.033);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.488 0.243 264.376);
+  --background: oklch(0.227 0.01 303.714); /* Background/Primary #1D1B20 */
+  --foreground: oklch(0.915 0.005 258.325); /* Text/Primary #E1E3E6 */
+  --card: oklch(0.227 0.01 303.714); /* Background/Primary #1D1B20 — cards share the primary surface */
+  --card-foreground: oklch(0.915 0.005 258.325);
+  --popover: oklch(0.286 0.013 298.633); /* Other/Action Sheet #2B2930 */
+  --popover-foreground: oklch(0.915 0.005 258.325);
+  --primary: oklch(0.676 0.212 24.811); /* Background/Accent #FF5050 */
+  --primary-foreground: oklch(1 0 0); /* Text/Contrast #FFFFFF */
+  --secondary: oklch(0.286 0.013 298.633); /* Background/Tertiary #2B2930 */
+  --secondary-foreground: oklch(0.915 0.005 258.325);
+  --muted: oklch(0.187 0.012 300.422); /* Background/Secondary #141218 — recessed canvas */
+  --muted-foreground: oklch(0.673 0.008 304.183); /* Text/Secondary #97959A */
+  --accent: oklch(1 0 0 / 4%); /* Background States/Hover */
+  --accent-selected: oklch(1 0 0 / 6%); /* Background States/Selected|Pressed */
+  --accent-active: oklch(1 0 0 / 8%); /* Background States/Secondary Alpha Hover */
+  --accent-foreground: oklch(0.915 0.005 258.325);
+  --destructive: oklch(0.676 0.212 24.811); /* Text/Negative #FF5050 */
+  --positive: oklch(0.756 0.208 146.984); /* Text/Positive #30D158 */
+  --tertiary: oklch(0.494 0.012 305.226); /* Text|Icon/Tertiary #636067 */
+  --segmented: oklch(0.41 0.012 298.916); /* Other/Segmented Control #4B4950 */
+  --border: oklch(1 0 0 / 12%); /* Separator/Non-opaque */
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.676 0.212 24.811);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.21 0.006 285.885);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.546 0.245 262.881);
-  --sidebar-primary-foreground: oklch(0.379 0.146 265.522);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.488 0.243 264.376);
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.286 0.013 298.633);
+  --sidebar-foreground: oklch(0.915 0.005 258.325);
+  --sidebar-primary: oklch(0.676 0.212 24.811);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(1 0 0 / 4%);
+  --sidebar-accent-foreground: oklch(0.915 0.005 258.325);
+  --sidebar-border: oklch(1 0 0 / 12%);
+  --sidebar-ring: oklch(0.676 0.212 24.811);
 }
 
 @layer base {
@@ -157,7 +139,7 @@
     @apply border-border outline-ring/50;
   }
   html {
-    background-color: white;
+    background-color: var(--background);
     scroll-behavior: smooth;
   }
   body {
@@ -1936,8 +1918,8 @@
 /* transitions.dev — Shimmer text (frontend/transitions/shimmer-text.md) */
 :root {
   --shimmer-dur: 2000ms;
-  --shimmer-base: #7c7c7c;
-  --shimmer-highlight: #0d0d0d;
+  --shimmer-base: var(--muted-foreground);
+  --shimmer-highlight: var(--foreground);
   --shimmer-band: 400%;
   --shimmer-ease: linear;
 }
@@ -1997,10 +1979,10 @@
 :root {
   --tabs-dur: 250ms;
   --tabs-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --tabs-text-muted: #8a8a8e;
-  --tabs-text-active: #000;
-  --tabs-bar-bg: rgba(0, 0, 0, 0.04);
-  --tabs-pill-bg: #fff;
+  --tabs-text-muted: var(--muted-foreground);
+  --tabs-text-active: var(--foreground);
+  --tabs-bar-bg: var(--accent);
+  --tabs-pill-bg: var(--segmented);
 }
 
 /* The bar is just a flex container with padding for the pill
@@ -2080,8 +2062,8 @@
   --tt-delay: 80ms;
   --tt-in-ease: ease-out;
   --tt-out-ease: ease-out;
-  --tt-bg: #ffffff;
-  --tt-fg: #2f2f2f;
+  --tt-bg: var(--popover);
+  --tt-fg: var(--popover-foreground);
 }
 
 .t-tt-wrap {
@@ -2336,18 +2318,18 @@
 }
 
 .t-flow-node {
-  background: rgba(0, 0, 0, 0.04);
-  color: rgba(60, 60, 67, 0.45);
+  background: var(--accent);
+  color: var(--tertiary);
   transition: background var(--flow-dur) var(--flow-ease),
     color var(--flow-dur) var(--flow-ease),
     transform var(--flow-dur) var(--flow-ease);
   will-change: transform;
 }
 .t-flow-node.is-reached {
-  color: #f9363c;
+  color: var(--primary);
 }
 .t-flow-node.is-active {
-  background: rgba(249, 54, 60, 0.08);
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
   transform: scale(1.08);
 }
 
@@ -2358,14 +2340,14 @@
   min-height: 14px;
   margin: 4px 0;
   border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--accent-active);
   overflow: hidden;
 }
 .t-flow-fill {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: #f9363c;
+  background: var(--primary);
   transform: scaleY(0);
   transform-origin: top;
   transition: transform var(--flow-fill-dur) var(--flow-ease);
@@ -2413,7 +2395,7 @@
   left: 0;
   height: 3px;
   border-radius: 4px 4px 1px 1px;
-  background: #f9363c;
+  background: var(--primary);
   transition: transform var(--tabs-dur) var(--tabs-ease),
     width var(--tabs-dur) var(--tabs-ease);
   will-change: transform, width;
@@ -2595,6 +2577,42 @@
   --hover-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Monochrome SVG assets rendered in the current text color: the asset is a
+   mask, the fill comes from currentColor, so icons follow the theme tokens. */
+/* transitions/theme-switch.md — while the theme circle-wipe runs, freeze
+   both root snapshots so the WAAPI clip-path on the new one is the only
+   motion. Scoped by the data attribute so any other view transition keeps
+   the API's default crossfade. */
+:root[data-theme-wipe]::view-transition-old(root),
+:root[data-theme-wipe]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+/* The old snapshot stacks at z-index 1 by default, which would hide the
+   clip-reveal happening on the new one — put the new snapshot on top. */
+:root[data-theme-wipe]::view-transition-new(root) {
+  z-index: 2;
+}
+
+/* icon-shield.svg is multicolor (white eye on themed body) so it can't go
+   through the currentColor mask — dark mode swaps the whole image for the
+   #636067-body variant (Figma 5200:100388). */
+.dark img[src$="/icon-shield.svg"] {
+  content: url("/wallet-workspace/facelift/icon-shield-dark.svg");
+}
+
+/* In @layer components so display utilities (hidden, max-*:block) can
+   override the inline-block default — unlayered CSS would always win. */
+@layer components {
+  .icon-themed {
+    display: inline-block;
+    flex-shrink: 0;
+    background-color: currentColor;
+    mask: var(--icon) center / contain no-repeat;
+    -webkit-mask: var(--icon) center / contain no-repeat;
+  }
+}
+
 .t-hover {
   transition: background-color var(--hover-dur) var(--hover-ease),
     color var(--hover-dur) var(--hover-ease),
@@ -2673,6 +2691,16 @@ cap-widget {
   --cap-spinner-color: #0a0a0a;
   --cap-spinner-background-color: rgba(0, 0, 0, 0.08);
   --cap-spinner-thickness: 3px;
+}
+
+.dark cap-widget {
+  /* Opaque equivalent of white/[0.04] over Background/Primary #1D1B20. */
+  --cap-background: #262429;
+  --cap-color: #e1e3e6;
+  --cap-checkbox-border: 1px solid rgba(255, 255, 255, 0.29);
+  --cap-checkbox-background: #1d1b20;
+  --cap-spinner-color: #e1e3e6;
+  --cap-spinner-background-color: rgba(255, 255, 255, 0.08);
 }
 
 /* transitions.dev — Page side-by-side (frontend/transitions/page-side-by-side.md).
@@ -3271,9 +3299,9 @@ cap-widget {
 .t-step-active {
   background-image: linear-gradient(
     90deg,
-    #000 42%,
-    rgba(0, 0, 0, 0.35) 50%,
-    #000 58%
+    var(--foreground) 42%,
+    color-mix(in oklab, var(--foreground) 35%, transparent) 50%,
+    var(--foreground) 58%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -3303,7 +3331,7 @@ cap-widget {
   .t-step-active {
     animation: none !important;
     background-image: none;
-    color: #000;
+    color: var(--foreground);
   }
 }
 
@@ -3398,7 +3426,7 @@ cap-widget {
 }
 .milo-tag path {
   fill: none;
-  stroke: #f9363c;
+  stroke: var(--primary);
   stroke-width: 8;
   stroke-linecap: round;
   stroke-linejoin: round;

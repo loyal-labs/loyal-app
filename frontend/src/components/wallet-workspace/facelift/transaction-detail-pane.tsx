@@ -14,6 +14,7 @@ import {
   DualIcon,
   UsdcCoinImage,
 } from "@/components/wallet-workspace/facelift/earn-activity-card";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { openTrackedLink } from "@/lib/core/analytics";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
@@ -43,13 +44,13 @@ function RouteRow({
     <div className="flex h-[60px] w-full items-center rounded-2xl px-4">
       <div className="flex shrink-0 items-center py-2 pr-3">{icon}</div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-2">
-        <p className="text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+        <p className="text-[13px] leading-4 text-muted-foreground">
           {label}
         </p>
-        <p className="truncate font-medium text-[16px] text-black leading-5">
+        <p className="truncate font-medium text-[16px] text-foreground leading-5">
           {value}
           {valueSuffix ? (
-            <span className="text-[#b1b1b4]"> · {valueSuffix}</span>
+            <span className="text-tertiary"> · {valueSuffix}</span>
           ) : null}
         </p>
       </div>
@@ -94,8 +95,8 @@ function RouteTile({ side }: { side: EarnTransactionItem["source"] }) {
 function DetailCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex w-full flex-col gap-0.5 px-4 py-[11px]">
-      <p className="text-[13px] leading-4 text-[#8a8a8e]">{label}</p>
-      <p className="text-[16px] text-black leading-5 tracking-[-0.176px]">
+      <p className="text-[13px] leading-4 text-muted-foreground">{label}</p>
+      <p className="text-[16px] text-foreground leading-5 tracking-[-0.176px]">
         {value}
       </p>
     </div>
@@ -108,8 +109,8 @@ function SignatureCell({ signature }: { signature: string }) {
   return (
     <div className="flex w-full items-center">
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-4 py-[11px]">
-        <p className="text-[13px] leading-4 text-[#8a8a8e]">Signature</p>
-        <p className="truncate text-[16px] text-black leading-5 tracking-[-0.176px]">
+        <p className="text-[13px] leading-4 text-muted-foreground">Signature</p>
+        <p className="truncate text-[16px] text-foreground leading-5 tracking-[-0.176px]">
           {truncateMiddle(signature)}
         </p>
       </div>
@@ -126,11 +127,8 @@ function SignatureCell({ signature }: { signature: string }) {
         }}
         type="button"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          aria-hidden="true"
-          className="size-6"
+        <ThemedIcon
+          className="size-6 text-tertiary"
           src={`${ASSET_BASE}/${copied ? "icon-check.svg" : "icon-copy.svg"}`}
         />
       </button>
@@ -197,24 +195,21 @@ export function EarnTransactionDetailPane({
           )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <h2 className="truncate font-semibold text-[20px] text-black leading-6 tracking-[-0.22px]">
+          <h2 className="truncate font-semibold text-[20px] text-foreground leading-6 tracking-[-0.22px]">
             {title}
           </h2>
-          <p className="truncate text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+          <p className="truncate text-[13px] leading-4 text-muted-foreground">
             {dateLabel}, {timeLabel}
           </p>
         </div>
         <button
           aria-label="Close transaction details"
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
           onClick={onClose}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-muted-foreground"
             src={`${ASSET_BASE}/icon-cross.svg`}
           />
         </button>
@@ -230,11 +225,11 @@ export function EarnTransactionDetailPane({
                 }}
               >
                 {item.amount}{" "}
-                <span className="text-[#b1b1b4] text-[28px] leading-8 tracking-[-0.308px]">
+                <span className="text-tertiary text-[28px] leading-8 tracking-[-0.308px]">
                   USDC
                 </span>
               </p>
-              <p className="text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+              <p className="text-[16px] leading-5 text-muted-foreground">
                 {item.rawAmount}
               </p>
             </div>
@@ -260,19 +255,19 @@ export function EarnTransactionDetailPane({
             }
           />
           {/* Connector between the two 60px route rows. */}
-          <span className="absolute top-[54px] left-[45px] h-3 w-0.5 rounded-xl bg-[#d9d9d9]" />
+          <span className="absolute top-[54px] left-[45px] h-3 w-0.5 rounded-xl bg-border" />
         </div>
         <div className="w-full p-2">
-          <div className="flex w-full flex-col rounded-2xl bg-black/[0.04]">
+          <div className="flex w-full flex-col rounded-2xl bg-accent">
             {hasSignature ? <SignatureCell signature={item.signature} /> : null}
             <DetailCell label="Slot" value={item.confirmedSlot} />
           </div>
         </div>
       </div>
       {hasSignature ? (
-        <div className="w-full shrink-0 bg-white px-5 pt-2 pb-4">
+        <div className="w-full shrink-0 bg-card px-5 pt-2 pb-4">
           <button
-            className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-black font-medium text-[16px] text-white leading-5 hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+            className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
             onClick={() =>
               openTrackedLink(publicEnv, {
                 href: solscanUrl,

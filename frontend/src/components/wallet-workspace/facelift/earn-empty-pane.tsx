@@ -4,6 +4,7 @@ import { DogLottie } from "@/components/wallet-workspace/facelift/dog-lottie";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
@@ -52,10 +53,10 @@ export function EarnEmptyPane({
   ];
 
   return (
-    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-white max-[795px]:overflow-clip max-[795px]:rounded-none">
+    <section className="relative flex h-full min-w-0 flex-1 flex-col items-center rounded-3xl bg-card max-[795px]:overflow-clip max-[795px]:rounded-none">
       <header className="flex w-full items-center p-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
-          <h1 className="whitespace-nowrap font-semibold text-[24px] text-black leading-7">
+          <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
             Earn
           </h1>
           {/* ponytail: mock tooltip copy — real copy comes with the wiring pass */}
@@ -67,15 +68,12 @@ export function EarnEmptyPane({
         </div>
         <button
           aria-label="Open chart"
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04] min-[1204px]:hidden"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
           onClick={onOpenChart}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-muted-foreground"
             src={`${ASSET_BASE}/icon-chart.svg`}
           />
         </button>
@@ -89,8 +87,8 @@ export function EarnEmptyPane({
           >
             {headlineWords.map((word, index) => {
               const colorClassName = word.emphasized
-                ? "text-black"
-                : "text-[#8a8a8e]";
+                ? "text-foreground"
+                : "text-muted-foreground";
               if (!word.apyDependent) {
                 return (
                   <span className={colorClassName} key={index}>
@@ -104,7 +102,7 @@ export function EarnEmptyPane({
                 <SkeletonReveal
                   isRevealed={isApyLoaded}
                   key={index}
-                  skeletonClassName="rounded-[8px] bg-black/[0.06]"
+                  skeletonClassName="rounded-[8px] bg-accent-selected"
                 >
                   <span className={colorClassName}>
                     {isApyLoaded ? (
@@ -128,24 +126,21 @@ export function EarnEmptyPane({
           if (!isSignedIn) {
             return (
               <button
-                className="t-hover flex h-14 items-center justify-center rounded-full bg-[#f9363c] px-8 font-medium text-[20px] leading-6 hover:-translate-y-0.5 hover:bg-[#e62f35] active:translate-y-0"
+                className="t-hover flex h-14 items-center justify-center rounded-full bg-foreground px-8 font-medium text-[20px] leading-6 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
                 onClick={openSignIn}
                 type="button"
               >
-                <span className="text-white">Connect wallet</span>
+                <span className="text-background">Connect wallet</span>
               </button>
             );
           }
           return (
             <button
-              className="t-hover flex h-14 items-center justify-center gap-2 rounded-full bg-black px-6 text-white hover:-translate-y-0.5 hover:bg-[#171717] active:translate-y-0"
+              className="t-hover flex h-14 items-center justify-center gap-2 rounded-full bg-foreground px-6 text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
               onClick={onDeposit}
               type="button"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
+              <ThemedIcon
                 className="size-6"
                 src={`${ASSET_BASE}/icon-plus.svg`}
               />

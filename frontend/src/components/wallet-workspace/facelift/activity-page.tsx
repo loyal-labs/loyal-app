@@ -18,6 +18,7 @@ import {
   StaggerLine,
   StaggerReveal,
 } from "@/components/wallet-workspace/facelift/stagger-reveal";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -171,10 +172,10 @@ export function ActivityPage({
     <>
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
         <PaneReveal>
-          <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-white max-[795px]:rounded-none">
+          <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-card max-[795px]:rounded-none">
             <header className="flex w-full shrink-0 items-center p-2">
               <div className="flex min-w-0 flex-1 items-center py-2.5 pl-4">
-                <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-black leading-6 max-[795px]:text-[24px] max-[795px]:leading-7">
+                <h1 className="truncate whitespace-nowrap font-semibold text-[20px] text-foreground leading-6 max-[795px]:text-[24px] max-[795px]:leading-7">
                   Activity
                 </h1>
               </div>
@@ -186,19 +187,19 @@ export function ActivityPage({
                 <div className="t-skel-rows flex flex-col gap-2 px-2 py-1">
                   {[0, 1, 2].map((index) => (
                     <div
-                      className="h-[66px] w-full rounded-2xl bg-black/[0.04]"
+                      className="h-[66px] w-full rounded-2xl bg-accent"
                       key={index}
                     />
                   ))}
                 </div>
               ) : null}
               {items === null && hasError ? (
-                <p className="px-4 py-3 text-[13px] leading-4 text-[rgba(60,60,67,0.6)]">
+                <p className="px-4 py-3 text-[13px] leading-4 text-muted-foreground">
                   Failed to load transactions.
                 </p>
               ) : null}
               {items !== null && items.length === 0 ? (
-                <p className="px-4 py-8 text-center text-[14px] leading-5 text-[rgba(60,60,67,0.6)]">
+                <p className="px-4 py-8 text-center text-[14px] leading-5 text-muted-foreground">
                   No activity yet
                 </p>
               ) : null}
@@ -242,7 +243,7 @@ export function ActivityPage({
           </section>
         </PaneReveal>
         {selectedItem ? (
-          <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-white min-[1204px]:flex">
+          <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">
             {/* Keyed by tx so switching rows replays the reveal — same as
                 the send flow's per-step PaneReveal. */}
             <PaneReveal key={selectedItem.id}>
@@ -254,16 +255,13 @@ export function ActivityPage({
             </PaneReveal>
           </aside>
         ) : (
-          <aside className="hidden h-full w-[400px] shrink-0 flex-col items-center justify-center overflow-clip rounded-3xl border-2 border-black/10 border-dashed min-[1204px]:flex">
+          <aside className="hidden h-full w-[400px] shrink-0 flex-col items-center justify-center overflow-clip rounded-3xl border-2 border-border border-dashed min-[1204px]:flex">
             <div className="flex w-full flex-col items-center gap-4 px-6">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                alt=""
-                aria-hidden="true"
-                className="size-11"
+              <ThemedIcon
+                className="size-11 text-tertiary"
                 src={`${ASSET_BASE}/icon-cursor-click.svg`}
               />
-              <p className="text-center text-[16px] leading-5 text-[#8a8a8e] tracking-[-0.176px]">
+              <p className="text-center text-[16px] leading-5 text-muted-foreground tracking-[-0.176px]">
                 Select a transaction to view its details
               </p>
             </div>
@@ -280,7 +278,7 @@ export function ActivityPage({
         isOpen={selectedItem !== null}
         onClose={() => setSelectedItem(null)}
         scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
-        sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+        sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
       >
         {sheetItem ? (
           <EarnTransactionDetailPane

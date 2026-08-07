@@ -216,7 +216,7 @@ export function EarnToastHost() {
       role="status"
     >
       <div
-        className={`t-toast t-toast-resize flex flex-col justify-center overflow-hidden bg-white font-medium text-[14px] text-black leading-5 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] ${
+        className={`t-toast t-toast-resize flex flex-col justify-center overflow-hidden bg-popover font-medium text-[14px] text-foreground leading-5 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] ${
           isOpen ? "is-open" : ""
         }`}
         // Top-anchored, so the pill drops in from above its resting spot
@@ -252,7 +252,7 @@ export function EarnToastHost() {
                     data-state={state}
                   >
                     <span className="t-step-ico" data-ico="p">
-                      <span className="size-1.5 rounded-full bg-black/20" />
+                      <span className="size-1.5 rounded-full bg-foreground/20" />
                     </span>
                     <span className="t-step-ico" data-ico="a">
                       <SpinnerIcon className="size-4" />
@@ -265,7 +265,7 @@ export function EarnToastHost() {
                     </span>
                   </span>
                   <span
-                    className={`t-step-label min-w-0 truncate ${state === "p" ? "text-black/40" : ""}`}
+                    className={`t-step-label min-w-0 truncate ${state === "p" ? "text-muted-foreground" : ""}`}
                   >
                     <TextSwap
                       className={state === "a" ? "t-step-active" : ""}
@@ -340,7 +340,7 @@ function SpinnerIcon({ className }: { className?: string }) {
 function CheckIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 64 64">
-      <circle cx="32" cy="32" fill="#34c759" r="32" />
+      <circle cx="32" cy="32" fill="var(--positive)" r="32" />
       <path
         d="M20 33l8 8 16-16"
         stroke="white"
@@ -355,7 +355,7 @@ function CheckIcon({ className }: { className?: string }) {
 function CrossIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 64 64">
-      <circle cx="32" cy="32" fill="#f9363c" r="32" />
+      <circle cx="32" cy="32" fill="var(--destructive)" r="32" />
       <path
         d="M23 23l18 18M41 23l-18 18"
         stroke="white"

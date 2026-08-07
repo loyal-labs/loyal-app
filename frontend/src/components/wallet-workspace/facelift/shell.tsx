@@ -273,7 +273,7 @@ export function WorkspaceFaceliftShell() {
     <BalanceVisibilityProvider>
       {/* facelift-shell marks the workspace for globals.css's sign-in modal
           optical centering (the shell's side rails are asymmetric). */}
-      <div className="cherry-mobile-workspace facelift-shell flex h-dvh w-full overflow-clip bg-[#f5f5f5] text-black">
+      <div className="cherry-mobile-workspace facelift-shell flex h-dvh w-full overflow-clip bg-muted text-foreground">
         <HiddenBalanceFilterDefs />
         {/* Wrong-wallet guard for Earn actions — same prompt the old
             workspace mounts (ensureCanSignAccountAction opens it). */}
@@ -320,7 +320,7 @@ export function WorkspaceFaceliftShell() {
         />
         <div
           className={`flex h-full min-w-0 flex-1 flex-col ${
-            isMobileGrayBackground ? "" : "max-[795px]:bg-white"
+            isMobileGrayBackground ? "" : "max-[795px]:bg-card"
           }`}
         >
           {activePage === "wallet" ? (
@@ -379,7 +379,7 @@ export function WorkspaceFaceliftShell() {
                   }
                 >
                   {isPositionLoading ? (
-                    <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-white max-[795px]:rounded-none" />
+                    <section className="flex h-full min-w-0 flex-1 rounded-3xl bg-card max-[795px]:rounded-none" />
                   ) : earnData.hasPosition ? (
                     <PaneReveal>
                       <EarnPositionPane

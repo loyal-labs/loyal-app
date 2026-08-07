@@ -18,6 +18,7 @@ import { useBalanceVisibility } from "@/components/wallet-workspace/facelift/bal
 import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
 import { EarnedChart } from "@/components/wallet-workspace/facelift/earned-chart";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useIsNarrowViewport } from "@/components/wallet-workspace/facelift/use-is-narrow-viewport";
@@ -212,7 +213,7 @@ export function EarnChartCard({
         <div className="min-w-0 flex-1">
           {isLoggedOut ? (
             <div className="flex items-center gap-2 py-2.5 pl-4">
-              <h2 className="truncate font-semibold text-[20px] text-black leading-6">
+              <h2 className="truncate font-semibold text-[20px] text-foreground leading-6">
                 APY
               </h2>
               <InfoTooltip
@@ -233,15 +234,12 @@ export function EarnChartCard({
         </div>
         <button
           aria-label={actionAriaLabel}
-          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+          className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
           onClick={onAction}
           type="button"
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            aria-hidden="true"
-            className="size-6"
+          <ThemedIcon
+            className="size-6 text-muted-foreground"
             src={actionIconSrc}
           />
         </button>
@@ -389,7 +387,7 @@ function ExpandedChartOverlay({
             footer={
               <div className="w-full px-4 pt-2 pb-4 min-[796px]:hidden">
                 <button
-                  className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-[#f5f5f5] font-medium text-[16px] text-black leading-5 hover:bg-[#ececec]"
+                  className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-secondary font-medium text-[16px] text-foreground leading-5 hover:bg-accent-active"
                   onClick={onClose}
                   type="button"
                 >
@@ -400,7 +398,7 @@ function ExpandedChartOverlay({
             isExpanded
             onAction={onClose}
             onSelectTab={onSelectTab}
-            sectionClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-white max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+            sectionClassName="flex h-full w-full min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
             selectedTab={selectedTab}
           />
         </div>
@@ -468,7 +466,7 @@ export function EarnChartPane({
             isLoggedOut={isLoggedOut}
             onAction={() => onExpandedChange(true)}
             onSelectTab={onSelectTab}
-            sectionClassName="flex h-[527px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-white"
+            sectionClassName="flex h-[527px] w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card"
             selectedTab={selectedTab}
           />
           {statsPanel}

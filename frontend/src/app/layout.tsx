@@ -134,10 +134,16 @@ export default async function RootLayout({
   const publicEnv = createPublicEnv(process.env);
 
   return (
-    <html className="dark" lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        {/* Pre-paint theme resolution: explicit choice wins, else OS preference. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem("theme")==="dark")document.documentElement.classList.add("dark")}catch(e){}`,
+          }}
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

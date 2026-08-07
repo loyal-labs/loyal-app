@@ -1,7 +1,13 @@
 "use client";
 
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import {
   ScrambledPopDigits,
@@ -15,6 +21,7 @@ import type { WorkspacePage } from "@/components/wallet-workspace/facelift/shell
 import { SplitAmount } from "@/components/wallet-workspace/facelift/sidebar";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
+import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import { WalletHomeBanners } from "@/components/wallet-workspace/facelift/wallet-home-banners";
 import { useAuthSession } from "@/contexts/auth-session-context";
@@ -139,11 +146,11 @@ export function WalletHomePage({
     <>
       <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
         <PaneReveal>
-          <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-white max-[795px]:rounded-none">
+          <section className="flex min-h-0 w-full flex-1 flex-col overflow-y-auto rounded-3xl bg-card max-[795px]:rounded-none">
             <div className="flex w-full shrink-0 items-center gap-2.5 pr-2 pl-1">
               {isHydrated && !isSignedIn ? (
                 <button
-                  className="t-hover flex h-[60px] items-center rounded-2xl px-3 text-left hover:bg-black/[0.04]"
+                  className="t-hover flex h-[60px] items-center rounded-2xl px-3 text-left hover:bg-accent"
                   onClick={openSignIn}
                   type="button"
                 >
@@ -154,7 +161,7 @@ export function WalletHomePage({
                     className="mr-3 size-11 shrink-0 rounded-[11px]"
                     src="/agents/Agent-01.svg"
                   />
-                  <span className="whitespace-nowrap text-[16px] text-black leading-5">
+                  <span className="whitespace-nowrap text-[16px] text-foreground leading-5">
                     {cherryRuntime.mode === "cherry_embedded"
                       ? "Verify account"
                       : "Connect account"}
@@ -171,10 +178,10 @@ export function WalletHomePage({
                     src="/agents/Agent-01.svg"
                   />
                   <span className="flex min-w-0 items-center gap-1">
-                    <span className="whitespace-nowrap text-[16px] text-black leading-5">
+                    <span className="whitespace-nowrap text-[16px] text-foreground leading-5">
                       <SkeletonReveal
                         isRevealed={isAddressRevealed}
-                        skeletonClassName="rounded-md bg-black/[0.06]"
+                        skeletonClassName="rounded-md bg-accent-selected"
                       >
                         <TextSwap text={addressLabel} />
                       </SkeletonReveal>
@@ -184,20 +191,26 @@ export function WalletHomePage({
                       data-state={isCopied ? "b" : "a"}
                       onClick={handleCopyAddress}
                     >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        alt="Copy address"
-                        className="t-icon size-5"
+                      <span
+                        aria-label="Copy address"
+                        className="t-icon icon-themed size-5 text-tertiary"
                         data-icon="a"
-                        src={`${ASSET_BASE}/icon-copy.svg`}
+                        role="img"
+                        style={
+                          {
+                            "--icon": `url("${ASSET_BASE}/icon-copy.svg")`,
+                          } as CSSProperties
+                        }
                       />
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        alt=""
+                      <span
                         aria-hidden="true"
-                        className="t-icon size-5"
+                        className="t-icon icon-themed size-5 text-tertiary"
                         data-icon="b"
-                        src={`${ASSET_BASE}/icon-check.svg`}
+                        style={
+                          {
+                            "--icon": `url("${ASSET_BASE}/icon-check.svg")`,
+                          } as CSSProperties
+                        }
                       />
                     </span>
                   </span>
@@ -208,16 +221,13 @@ export function WalletHomePage({
                 {cherryRuntime.mode === "standalone" ? (
                   <button
                     aria-label="Disconnect wallet"
-                    className="t-hover flex size-11 items-center justify-center rounded-3xl enabled:hover:bg-black/[0.04] disabled:opacity-40"
+                    className="t-hover flex size-11 items-center justify-center rounded-3xl enabled:hover:bg-accent disabled:opacity-40"
                     disabled={!canDisconnect}
                     onClick={handleDisconnect}
                     type="button"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="size-6"
+                    <ThemedIcon
+                      className="size-6 text-tertiary"
                       src={`${ASSET_BASE}/icon-logout.svg`}
                     />
                   </button>
@@ -227,14 +237,14 @@ export function WalletHomePage({
 
             <div className="w-full shrink-0 py-2">
               <div className="flex w-full flex-col gap-0.5 px-4 py-2">
-                <p className="whitespace-nowrap text-[16px] leading-5 text-[rgba(60,60,67,0.6)]">
+                <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
                   Total balance
                 </p>
                 <div className="flex items-center gap-3">
-                  <p className="whitespace-nowrap font-semibold text-[40px] text-black leading-[48px] tracking-[-0.44px]">
+                  <p className="whitespace-nowrap font-semibold text-[40px] text-foreground leading-[48px] tracking-[-0.44px]">
                     <SkeletonReveal
                       isRevealed={isTotalRevealed}
-                      skeletonClassName="rounded-lg bg-black/[0.06]"
+                      skeletonClassName="rounded-lg bg-accent-selected"
                     >
                       {isTotalRevealed ? (
                         <ScrambledPopDigits
@@ -242,7 +252,7 @@ export function WalletHomePage({
                           segments={[
                             { text: totalBalance.balanceWhole },
                             {
-                              color: "rgba(60, 60, 67, 0.4)",
+                              color: "var(--tertiary)",
                               text: totalBalance.balanceFraction,
                             },
                           ]}
@@ -256,15 +266,12 @@ export function WalletHomePage({
                     aria-label={
                       isBalanceHidden ? "Show balance" : "Hide balance"
                     }
-                    className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-black/[0.04]"
+                    className="t-hover -m-2.5 flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
                     onClick={toggleBalanceHidden}
                     type="button"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      alt=""
-                      aria-hidden="true"
-                      className="size-6"
+                    <ThemedIcon
+                      className="size-6 text-tertiary"
                       src={`${ASSET_BASE}/icon-eye.svg`}
                     />
                   </button>
@@ -276,7 +283,7 @@ export function WalletHomePage({
               <div className="grid h-full min-h-[400px] grid-cols-2 grid-rows-[repeat(3,minmax(0,1fr))] gap-2">
                 <WalletHomeBanners onSetUpAutodeposit={onSetUpAutodeposit} />
                 <button
-                  className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-black/[0.03] p-4 text-left hover:bg-black/[0.06]"
+                  className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
                   onClick={() => onSelectPage("crypto")}
                   type="button"
                 >
@@ -286,7 +293,7 @@ export function WalletHomePage({
                     <span className="absolute top-[13.33px] left-[28.33px] h-5 w-[5px] rounded-[1.667px] bg-white" />
                   </span>
                   <span className="flex w-full flex-col gap-1">
-                    <span className="text-[15px] leading-5 text-[rgba(60,60,67,0.6)]">
+                    <span className="text-[15px] leading-5 text-muted-foreground">
                       Crypto
                     </span>
                     <SplitAmount
@@ -298,7 +305,7 @@ export function WalletHomePage({
                   </span>
                 </button>
                 <button
-                  className="t-hover relative row-span-2 flex flex-col items-start justify-between overflow-clip rounded-3xl bg-black/[0.03] p-4 text-left hover:bg-black/[0.06]"
+                  className="t-hover relative row-span-2 flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
                   onClick={() => onSelectPage("earn")}
                   type="button"
                 >
@@ -309,23 +316,20 @@ export function WalletHomePage({
                     className="size-10 shrink-0"
                     src={`${ASSET_BASE}/earn-icon.svg`}
                   />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2 size-12"
+                  <ThemedIcon
+                    className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2 size-12 text-tertiary"
                     src={`${ASSET_BASE}/icon-plus-gray.svg`}
                   />
                   <span className="flex w-full flex-col gap-1">
                     <span className="flex items-center gap-1">
-                      <span className="whitespace-nowrap font-semibold text-[15px] text-black leading-5">
+                      <span className="whitespace-nowrap font-semibold text-[15px] text-foreground leading-5">
                         Earn
                       </span>
                       <SkeletonReveal
                         isRevealed={isApyLoaded}
-                        skeletonClassName="rounded-md bg-black/[0.06]"
+                        skeletonClassName="rounded-md bg-accent-selected"
                       >
-                        <span className="inline-flex items-center gap-0.5 rounded-md bg-[rgba(52,199,89,0.14)] px-1 py-px">
+                        <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
                             alt=""
@@ -333,7 +337,7 @@ export function WalletHomePage({
                             className="h-3 w-2"
                             src="/wallet-workspace/earn-flash.svg"
                           />
-                          <span className="whitespace-nowrap pt-px font-medium text-[#34c759] text-[11px] leading-[13px] tracking-[0.06px]">
+                          <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
                             {isApyLoaded ? (
                               <PopDigits
                                 segments={[
@@ -356,7 +360,7 @@ export function WalletHomePage({
                   </span>
                 </button>
                 <button
-                  className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-black/[0.03] p-4 text-left hover:bg-black/[0.06]"
+                  className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
                   onClick={() => onSelectPage("stables")}
                   type="button"
                 >
@@ -368,7 +372,7 @@ export function WalletHomePage({
                     src={`${ASSET_BASE}/stash-stablecoins.svg`}
                   />
                   <span className="flex w-full flex-col gap-1">
-                    <span className="text-[15px] leading-5 text-[rgba(60,60,67,0.6)]">
+                    <span className="text-[15px] leading-5 text-muted-foreground">
                       Stablecoins
                     </span>
                     <SplitAmount
