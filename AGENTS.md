@@ -20,6 +20,50 @@ Keep shell variable expansion inside the `sh -c` subprocess so `op run` injects 
 
 Solana Telegram Transactions enables users to deposit SOL for any Telegram username, which can later be claimed by the verified account owner. It integrates Solana smart contracts with a Telegram mini-app interface.
 
+## Working Agreements
+
+Repo-wide agreements for all coding agents. Directory-specific rules live in that
+directory's own `CLAUDE.md` (e.g. `mobile/CLAUDE.md`).
+
+### Verify before claiming done
+
+- File writes can succeed without the code being correct. Before reporting a task
+  complete, run the relevant check for the code you touched and confirm it passes:
+  - JS/TS app code: `cd <pkg> && bun lint` (or `npx expo lint` for `mobile/`).
+  - Add a type-check (`tsc --noEmit`) only when types were part of the change or
+    the package is set up for it.
+- Scope checks to what you changed. Don't run repo-wide type-checks/lint on every
+  task — lint/format only the files you touched. Pre-existing errors in untouched
+  files are not yours to fix; note them and move on.
+
+### Make changes safely
+
+- When renaming or changing a function/type/variable, grep for all of: direct
+  references, type-level references, string literals, dynamic imports, re-exports/
+  barrels, and tests/mocks. One grep rarely catches everything.
+- Re-read a file before editing it if you're unsure it matches your last view of it
+  (e.g. after a long gap or external changes). You don't need to re-read files you
+  just edited — the edit tools fail loudly on a mismatch.
+
+### Code quality
+
+- Write the minimum code that solves the problem; nothing speculative. Touch only
+  what the task requires, and clean up only your own mess.
+- Follow existing patterns, conventions, and libraries already in the area you're
+  working in before introducing new ones.
+- If the architecture is genuinely flawed (duplicated state, inconsistent patterns),
+  call it out and propose a fix rather than silently working around it — but don't
+  expand scope without flagging it first.
+- When a change alters documented behavior, update the relevant doc (`AGENTS.md`,
+  directory `CLAUDE.md`, `docs/`, README) in the same commit — code ships with its
+  spec; a closed task with a stale doc is not done.
+
+### Scale effort to the task
+
+- Match ceremony to the work: a small UI tweak is one focused pass, not a multi-phase
+  plan. Reserve phased execution and parallel sub-agents for genuinely large,
+  multi-file changes where they actually save time.
+
 ## Commands
 
 ### Telegram Mini-App Frontend (run from `/app`)
