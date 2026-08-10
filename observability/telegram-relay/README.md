@@ -252,7 +252,7 @@ search link.
 | `RESTART_GRACE_SECONDS`     | no       | `120`                                     | Hold alerts this long after boot and post one restart recap. `0` disables                                                                                        |
 | `SWEEP_INTERVAL_SECONDS`    | no       | `60`                                      | How often windows are closed and the recap schedule is checked                                                                                                   |
 | `STATE_FILE`                | no       | empty                                     | Path to persist windows across restarts. Needs a mounted disk                                                                                                    |
-| `TRACE_LOGS`                | no       | `false`                                   | Structured request and validation diagnostics                                                                                                                    |
+| `TRACE_LOGS`                | no       | `false`                                   | Structured request and validation diagnostics. Delivered message text is logged unconditionally, not by this flag                                                |
 
 `CLICKSTACK_WEBHOOK_SECRET` uses `generateValue: true` in the Blueprint, so
 Render generates it. Read it from the Render dashboard and paste it into the
@@ -379,11 +379,44 @@ difference between a reality check and an unrepresentative sample.
 Use it before changing any noise-related default. The removal of the per-window
 recap was decided this way.
 
+## Delivered message logging
+
+Every message the relay sends is logged to stdout before it is posted, once per
+destination, so Render logs show what Telegram and Slack actually received:
+
+```json
+{
+  "event": "alert_message_outgoing",
+  "destination": "telegram",
+  "eventId": "dcc4a074d12db8a38065aeeeb8fdf88c674ce2dc",
+  "state": "ALERT",
+  "kind": "new",
+  "chars": 812,
+  "parseMode": "HTML",
+  "silent": false,
+  "text": "<b>Alert for Errors</b>\n..."
+}
+```
+
+This is not behind `TRACE_LOGS`. The cooldown keeps alert volume to a handful of
+messages a day, and the text is most needed exactly when a send fails — which is
+why it is logged before the request rather than after a successful one. A send
+Telegram rejects for bad HTML entities logs twice: the second carries
+`"fallback": true` and the unformatted text that replaced it. Slack lines carry
+the Slack rendering, not the Telegram HTML. Bot tokens and Slack webhook URLs are
+redacted from the text — see [Security notes](#security-notes) — and text past
+4096 characters is cut with `"truncated": true`, though the formatter fits inside
+Telegram's limit, so in practice nothing is cut.
+
+Follow one incident across both destinations by filtering Render logs on its
+`eventId`, which is shared with the `clickstack_webhook` outcome line.
+
 ## Trace logging
 
-Trace logs are disabled by default. Enable them temporarily when diagnosing a
-rejected ClickStack webhook by setting `TRACE_LOGS=true`. Each request then
-emits structured JSON diagnostics:
+Trace logs are disabled by default and cover request validation, not message
+content: enable them temporarily when diagnosing a rejected ClickStack webhook
+by setting `TRACE_LOGS=true`. Each request then emits structured JSON
+diagnostics:
 
 ```json
 {
@@ -413,6 +446,40 @@ for `state`, including `INSUFFICIENT_DATA`, are valid.
   alerting path does not depend on the system it alerts about.
 - Trace logs contain field names, validation reasons, `eventId`, state, and
   timestamps, but never request bodies or authentication values.
+- `alert_message_outgoing` logs do contain the delivered text, which carries
+  whatever the alerted log lines carry — service names, exception messages, and
+  wallet addresses. That is the same content already in ClickStack and in the
+  Telegram and Slack channels.
+- Because that text is other services' output, it is redacted more aggressively
+  than the relay's own error messages: bot tokens are stripped both in their URL
+  form and bare by shape (`<id>:<35-char secret>`), Slack webhook URLs by
+  pattern, and all three of the relay's own credentials — bot token, Slack
+  webhook URL, `CLICKSTACK_WEBHOOK_SECRET` — by exact value, in both their raw
+  and HTML-escaped spellings, since formatted text carries the escaped one. A
+  service that logs its bot token, or dumps its environment into an error,
+  therefore cannot leak it through this relay's logs.
+- There is no minimum secret length. A short or word-like secret makes log lines
+  noisy, because every innocent occurrence of that word is redacted too — that
+  is preferred over a floor that silently leaves the shortest secrets in the
+  logs. If logs look over-redacted, the fix is a longer secret.
+- Occurrences are located against the original text and overlapping ones are
+  merged before anything is rewritten, so no character of a credential survives
+  regardless of credential order or how two of them overlap. Rewriting as it
+  scanned left tails behind (`<redacted>-BBBB`) when one credential ended where
+  another began.
+- That secret set is the same for both destinations on purpose. Telegram and
+  Slack render the same alert text, so a credential redacted from only one
+  sender's log line would still be printed in full by the other's. The redactor
+  lives on `RelayCredentials` (`src/credentials.ts`), which holds all four
+  credentials and the redaction over them as one value. Senders post with
+  `credentials.telegramBotToken` and log through `credentials.redactLogText`, so
+  redaction always covers the credentials actually in use. The class has a
+  private field, which makes it nominal: no object literal and no spread of an
+  instance is assignable to it, so `{ ...config, telegramBotToken: other }` —
+  which would otherwise keep redaction built over the previous token and print
+  the new one in full — does not compile. Changing a credential means
+  constructing a new instance, which rebuilds the secret set from the values it
+  was given.
 
 ## Routes
 

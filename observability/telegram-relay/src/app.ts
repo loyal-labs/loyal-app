@@ -7,9 +7,11 @@ import {
   formatPlainTelegramMessage,
   formatTelegramMessage,
 } from "./format.ts";
+import { RelayCredentials } from "./credentials.ts";
 import { redactBotToken } from "./redact.ts";
 import {
   type AlertAnalyzer,
+  type AlertContext,
   type AlertSender,
   AlertRelay,
   type ClickStackWebhookPayload,
@@ -30,14 +32,23 @@ const TELEGRAM_MAX_RETRY_AFTER_MS = 5_000;
  * truncated for delivery anyway.
  */
 const MAX_BODY_FIELD_LENGTH = 8192;
+/**
+ * Telegram's own per-message ceiling, which the formatter already fits inside,
+ * so a logged message is the whole message rather than a clipped sample. The
+ * Slack rendering is a substitution over the same text and stays within it too.
+ */
+const MAX_LOGGED_TEXT_LENGTH = 4096;
 
 export interface ServerConfig {
   host: string;
   port: number;
-  clickStackWebhookSecret: string;
-  telegramBotToken: string;
-  telegramChatId: string;
-  slackWebhookUrl: string;
+  /**
+   * Every credential, and the redaction built over them, as one inseparable
+   * value. They are deliberately not four loose string fields plus a redactor:
+   * that shape let a caller override one credential while keeping redaction
+   * built over the old set. See `RelayCredentials`.
+   */
+  credentials: RelayCredentials;
   cooldownMs: number;
   idempotencyTtlMs: number;
   maxCacheEntries: number;
@@ -61,10 +72,14 @@ export function loadConfig(
   return {
     host: env.HOST?.trim() || "127.0.0.1",
     port: positiveInteger(env.PORT, 3000, "PORT"),
-    clickStackWebhookSecret: required(env, "CLICKSTACK_WEBHOOK_SECRET"),
-    telegramBotToken: required(env, "TELEGRAM_BOT_TOKEN"),
-    telegramChatId: required(env, "TELEGRAM_CHAT_ID"),
-    slackWebhookUrl: required(env, "SLACK_WEBHOOK_URL"),
+    // Reading all four together is what keeps redaction and the credentials in
+    // use from ever drifting apart.
+    credentials: new RelayCredentials({
+      clickStackWebhookSecret: required(env, "CLICKSTACK_WEBHOOK_SECRET"),
+      telegramBotToken: required(env, "TELEGRAM_BOT_TOKEN"),
+      telegramChatId: required(env, "TELEGRAM_CHAT_ID"),
+      slackWebhookUrl: required(env, "SLACK_WEBHOOK_URL"),
+    }),
     cooldownMs:
       positiveInteger(env.COOLDOWN_SECONDS, 3600, "COOLDOWN_SECONDS") * 1000,
     idempotencyTtlMs:
@@ -139,23 +154,24 @@ function columnList(raw: string | undefined): string[] {
 type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
 export function createTelegramSender(
-  config: Pick<
-    ServerConfig,
-    "telegramBotToken" | "telegramChatId" | "alertColumns"
-  > &
+  config: Pick<ServerConfig, "credentials" | "alertColumns"> &
     Partial<Pick<ServerConfig, "cardinalityColumns" | "recapSilent">>,
   fetchImpl: FetchLike = fetch,
   sleep: (ms: number) => Promise<void> = defaultSleep
 ): TelegramSender {
+  const logMessage = createOutgoingMessageLogger(
+    "telegram",
+    config.credentials
+  );
   const post = (message: FormattedMessage, silent: boolean) =>
     fetchImpl(
-      `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`,
+      `https://api.telegram.org/bot${config.credentials.telegramBotToken}/sendMessage`,
       {
         method: "POST",
         signal: AbortSignal.timeout(TELEGRAM_REQUEST_TIMEOUT_MS),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: config.telegramChatId,
+          chat_id: config.credentials.telegramChatId,
           text: message.text,
           ...(message.parseMode ? { parse_mode: message.parseMode } : {}),
           disable_web_page_preview: true,
@@ -172,6 +188,10 @@ export function createTelegramSender(
       alertColumns: config.alertColumns,
       cardinalityColumns: config.cardinalityColumns,
       context,
+    });
+    logMessage(payload, context, message.text, {
+      parseMode: message.parseMode,
+      silent,
     });
     let response = await post(message, silent);
 
@@ -206,10 +226,9 @@ export function createTelegramSender(
           eventId: payload.eventId,
         })
       );
-      response = await post(
-        { text: formatPlainTelegramMessage(payload) },
-        silent
-      );
+      const plainText = formatPlainTelegramMessage(payload);
+      logMessage(payload, context, plainText, { silent, fallback: true });
+      response = await post({ text: plainText }, silent);
     }
 
     const responseText = await response.text();
@@ -239,21 +258,25 @@ export function createTelegramSender(
 }
 
 export function createSlackSender(
-  config: Pick<ServerConfig, "slackWebhookUrl" | "alertColumns"> &
+  config: Pick<ServerConfig, "credentials" | "alertColumns"> &
     Partial<Pick<ServerConfig, "cardinalityColumns">>,
   fetchImpl: FetchLike = fetch
 ): AlertSender {
+  const logMessage = createOutgoingMessageLogger("slack", config.credentials);
+
   return async (payload, context) => {
     const message = formatTelegramMessage(payload, {
       alertColumns: config.alertColumns,
       cardinalityColumns: config.cardinalityColumns,
       context,
     });
-    const response = await fetchImpl(config.slackWebhookUrl, {
+    const text = telegramHtmlToSlack(message.text);
+    logMessage(payload, context, text);
+    const response = await fetchImpl(config.credentials.slackWebhookUrl, {
       method: "POST",
       signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: telegramHtmlToSlack(message.text) }),
+      body: JSON.stringify({ text }),
     });
     const responseText = await response.text();
 
@@ -286,6 +309,51 @@ export function createFanoutSender(senders: AlertSender[]): AlertSender {
           .join("; ")}`
       );
     }
+  };
+}
+
+/**
+ * Logs the message text before it is handed to the destination, not after,
+ * because the send is exactly what this is for: a rejected message (a bad HTML
+ * entity, a chat that vanished) is the case where the text matters most, and
+ * after a throw there is nothing left to log it from. Unconditional rather than
+ * behind `TRACE_LOGS`: alerts are rate limited to a handful a day by the
+ * cooldown, and an operator reading Render logs should not have to redeploy the
+ * relay to find out what it said.
+ *
+ * Redaction goes through the same `RelayCredentials` the sender posts with, so
+ * it always covers the credentials actually in use — including the other
+ * destination's, since both render the same text. That text is assembled from
+ * other services' log lines, so it can carry anything they logged, including a
+ * bot token with no `bot` prefix in front of it, which the URL-shaped redaction
+ * alone would miss.
+ */
+function createOutgoingMessageLogger(
+  destination: "telegram" | "slack",
+  credentials: RelayCredentials
+) {
+  return (
+    payload: ClickStackWebhookPayload,
+    context: AlertContext,
+    text: string,
+    details: Record<string, unknown> = {}
+  ): void => {
+    const redacted = credentials.redactLogText(text);
+    console.info(
+      JSON.stringify({
+        event: "alert_message_outgoing",
+        destination,
+        eventId: payload.eventId,
+        state: payload.state,
+        kind: context.kind,
+        chars: redacted.length,
+        ...(redacted.length > MAX_LOGGED_TEXT_LENGTH
+          ? { truncated: true }
+          : {}),
+        ...details,
+        text: redacted.slice(0, MAX_LOGGED_TEXT_LENGTH),
+      })
+    );
   };
 }
 
@@ -355,7 +423,7 @@ export function createAlertAnalyzer(
 
 export function createRequestHandler(
   relay: AlertRelay,
-  config: Pick<ServerConfig, "clickStackWebhookSecret"> & {
+  config: Pick<ServerConfig, "credentials"> & {
     traceLogs?: boolean;
   }
 ): (request: Request) => Promise<Response> {
@@ -392,7 +460,9 @@ export function createRequestHandler(
       return jsonResponse({ ok: false, error: "not_found" }, 404);
     }
 
-    if (!hasValidBearerToken(request, config.clickStackWebhookSecret)) {
+    if (
+      !hasValidBearerToken(request, config.credentials.clickStackWebhookSecret)
+    ) {
       trace("request_rejected", { reason: "unauthorized" });
       return jsonResponse({ ok: false, error: "unauthorized" }, 401, {
         "WWW-Authenticate": "Bearer",
