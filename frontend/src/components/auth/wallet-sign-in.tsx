@@ -1,5 +1,6 @@
 "use client";
 
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useEffect, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
@@ -16,6 +17,14 @@ export function WalletSignIn() {
   const publicEnv = usePublicEnv();
   const captchaMode = publicEnv.captcha.mode;
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  // No installed wallet extension and no connected wallet means sign-in
+  // cannot proceed, so asking for captcha verification is pointless noise
+  // (ASK-2066). Mirrors the `readyState === "Installed"` filter in
+  // use-wallet-proof-auth.
+  const { connected, wallets } = useWallet();
+  const hasWalletOption =
+    connected ||
+    wallets.some((candidate) => candidate.readyState === "Installed");
 
   // Auto-resolve only for misconfigured environments (no CAP_SECRET); in
   // widget mode every env — localhost and previews included — runs the real
@@ -46,18 +55,20 @@ export function WalletSignIn() {
 
   return (
     <div className="flex flex-col">
-      <div className="t-acc" data-open={isCollapsed ? "false" : "true"}>
-        <div className="t-acc-panel">
-          <div className="t-acc-panel-inner">
-            <div className="flex flex-col gap-3 pb-4">
-              <p className="text-muted-foreground text-sm">
-                Complete verification to continue
-              </p>
-              <CapWidget key={widgetEpoch} onVerify={setCaptchaToken} />
+      {hasWalletOption ? (
+        <div className="t-acc" data-open={isCollapsed ? "false" : "true"}>
+          <div className="t-acc-panel">
+            <div className="t-acc-panel-inner">
+              <div className="flex flex-col gap-3 pb-4">
+                <p className="text-muted-foreground text-sm">
+                  Complete verification to continue
+                </p>
+                <CapWidget key={widgetEpoch} onVerify={setCaptchaToken} />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
       <p className="pb-4 text-muted-foreground text-sm">
         Choose your preferred sign-in method.
       </p>
