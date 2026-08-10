@@ -80,6 +80,13 @@ and message proof, and use `signTransaction` after the server returns a
 transaction challenge. When disabled, existing behavior remains: prefer SIWS,
 then message fallback.
 
+Brave Wallet is an explicit exception: it must not expose or activate Ledger
+mode because it validates `recentBlockhash` against the chain before signing the
+deliberately non-broadcastable proof transaction. Brave Wallet must remain on
+the SIWS/message path; a blockhash-validation refusal is an unsupported wallet
+capability and must surface the self-serve fallback rather than a generic
+signing failure.
+
 Pass requires rejection semantics to be user-respectful. If the user rejects a
 transaction proof, the UI must surface cancellation and must not immediately
 surprise them with SIWS or message-sign fallback. Fallback between proof kinds is
@@ -130,11 +137,14 @@ Record exact commands or file inspections for each item:
   rejects memo/account/instruction/signature mutation, derives wallet address
   from fee payer, and then uses the same onboarding/session issuance path;
 - frontend Ledger mode: login form exposes a Ledger/hardware toggle and selected
-  wallets route to transaction proof when enabled;
+  wallets route to transaction proof when enabled, while Brave Wallet hides the
+  toggle and remains on the SIWS/message path;
 - fallback preservation: existing SIWS and message flows remain reachable when
   Ledger mode is disabled;
 - rejection behavior: rejected transaction signing maps to a cancellation state
   without auto-triggering another proof prompt;
+- unsupported wallet behavior: Brave Wallet's blockhash-validation refusal maps
+  to `wallet_signing_unsupported` and the self-serve fallback message;
 - legacy route status: `/api/solana/create` and `/api/solana/verify` are absent;
 - static checks: focused commands below.
 
