@@ -606,6 +606,15 @@ export const loyalStatsSnapshots = pgTable(
       .$type<LoyalStatsAumSeriesPoint[]>()
       .default([])
       .notNull(),
+    /**
+     * Last Slack-alerted 0.1 SOL bucket per routing key public key. Lives on the
+     * singleton stats row so the routing-balance watchdog needs no table of its
+     * own; written only by the routing-balance cron.
+     */
+    routingBalanceAlertState: jsonb("routing_balance_alert_state")
+      .$type<Record<string, number>>()
+      .default({})
+      .notNull(),
     refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

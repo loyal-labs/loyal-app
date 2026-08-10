@@ -1,0 +1,1 @@
+ALTER TABLE "loyal_stats_snapshots" ADD COLUMN "routing_balance_alert_state" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -36,6 +36,18 @@ const getCloudflareCdnBaseUrl = (): string | null => {
   return null;
 };
 
+const parseCommaSeparatedEnv = (envName: string): string[] => {
+  const value = getOptionalEnv(envName);
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+};
+
 const parseTelegramPeerId = (value: string, envName: string): bigint => {
   try {
     return BigInt(value);
@@ -147,6 +159,12 @@ export const serverEnv = {
   },
   get slackStatsWebhookUrl(): string | undefined {
     return getOptionalEnv("SLACK_STATS_WEBHOOK_URL");
+  },
+  get slackAlertMentionUserIds(): string[] {
+    return parseCommaSeparatedEnv("SLACK_ALERT_MENTION_USER_IDS");
+  },
+  get solanaRoutingAlertPublicKeys(): string[] {
+    return parseCommaSeparatedEnv("SOLANA_ROUTING_ALERT_PUBLIC_KEYS");
   },
   get privateMainnetRpcUrl(): string {
     return getRequiredEnv("PRIVATE_MAINNET_RPC_URL");

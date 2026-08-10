@@ -9,6 +9,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { getDatabase } from "@/lib/core/database";
 
+import type { RoutingBalanceAlertState } from "./routing-balance-alert.server";
 import type { LoyalStats } from "./stats-command";
 import type { LoyalStatsRefresh } from "./stats-command.server";
 
@@ -134,6 +135,36 @@ export async function loadLoyalStatsSnapshotForRefresh(): Promise<LoyalStats | n
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+/**
+ * The routing-balance watchdog piggybacks on the singleton stats row instead of
+ * owning a table. The row is created by the stats cron, so a missing row simply
+ * means there is nowhere to remember buckets yet.
+ */
+export async function loadRoutingBalanceAlertState(): Promise<RoutingBalanceAlertState> {
+  const rows = await getDatabase()
+    .select({
+      routingBalanceAlertState: loyalStatsSnapshots.routingBalanceAlertState,
+    })
+    .from(loyalStatsSnapshots)
+    .where(eq(loyalStatsSnapshots.snapshotKey, CURRENT_SNAPSHOT_KEY))
+    .limit(1);
+
+  return rows[0]?.routingBalanceAlertState ?? {};
+}
+
+/** Returns false when the stats snapshot row does not exist yet. */
+export async function saveRoutingBalanceAlertState(
+  state: RoutingBalanceAlertState
+): Promise<boolean> {
+  const updated = await getDatabase()
+    .update(loyalStatsSnapshots)
+    .set({ routingBalanceAlertState: state, updatedAt: new Date() })
+    .where(eq(loyalStatsSnapshots.snapshotKey, CURRENT_SNAPSHOT_KEY))
+    .returning({ id: loyalStatsSnapshots.id });
+
+  return updated.length > 0;
 }
 
 export async function upsertLoyalStatsSnapshot(

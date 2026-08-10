@@ -12,6 +12,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/routing-balance",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/summaries",
       "schedule": "0 6 * * *"
     },

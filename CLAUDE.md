@@ -408,6 +408,25 @@ Optional:
 - `DEPLOYMENT_PK` - Gasless transaction keypair (base58)
 - `NEXT_PUBLIC_GAS_PUBLIC_KEY` - Gasless payer public key
 
+### Loyal Stats Slack Alerts
+
+Both alerts post to the same channel via `SLACK_STATS_WEBHOOK_URL`:
+
+| Variable | Purpose |
+|----------|---------|
+| `SLACK_STATS_WEBHOOK_URL` | Slack incoming webhook shared by the AUM alert and the routing-key watchdog |
+| `SOLANA_ROUTING_ALERT_PUBLIC_KEYS` | Comma-separated routing key public keys watched by `/api/cron/routing-balance` |
+| `SLACK_ALERT_MENTION_USER_IDS` | Comma-separated Slack member IDs (`U…`) mentioned by the low-balance alert only |
+
+- The routing-balance cron (`app/src/app/api/cron/routing-balance/route.ts`) runs every minute, alerts when a key drops below 1 SOL, and re-alerts on every further 0.1 SOL step down.
+- The last-alerted bucket per key is kept in `loyal_stats_snapshots.routing_balance_alert_state`, not a dedicated table. That row is created by the stats cron; if it is missing, buckets simply are not remembered.
+- Recovering above 1 SOL clears a key's state so the next drop alerts from the top again.
+- The AUM alert is intentionally mention-free — do not add `SLACK_ALERT_MENTION_USER_IDS` to `stats-slack-alert.server.ts`.
+- Tests that import `server-only` modules must run with the react-server condition:
+  ```bash
+  cd app && bun test --conditions react-server src/lib/telegram/bot-api/__tests__/
+  ```
+
 ### Cloudflare R2/CDN (feature-specific)
 
 Core clients live in `/app/src/lib/core`:
