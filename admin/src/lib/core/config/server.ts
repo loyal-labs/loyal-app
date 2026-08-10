@@ -36,4 +36,16 @@ export const serverEnv = {
   get solanaMainnetRpcUrl(): string | undefined {
     return getOptionalEnv("SOLANA_MAINNET_RPC_URL");
   },
+  get clickStackApiKey(): string | undefined {
+    return (
+      getOptionalEnv("LOYAL_CLICKSTACK_API_KEY") ??
+      getOptionalEnv("HYPERDX_ACCESS_KEY")
+    );
+  },
+  get clickStackApiUrl(): string | undefined {
+    return getOptionalEnv("LOYAL_CLICKSTACK_API_URL");
+  },
+  get clickStackMetricsSourceId(): string | undefined {
+    return getOptionalEnv("LOYAL_CLICKSTACK_METRICS_SOURCE_ID");
+  },
 } as const;
