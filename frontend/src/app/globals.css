@@ -289,6 +289,58 @@
     }
   }
 
+  .supporters-marquee-viewport {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 16px,
+      black calc(100% - 16px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 16px,
+      black calc(100% - 16px),
+      transparent
+    );
+  }
+
+  .supporters-marquee-track {
+    animation: supportersMarquee 23.5s linear infinite;
+    will-change: transform;
+  }
+
+  @media (min-width: 1024px) {
+    .supporters-marquee-viewport {
+      -webkit-mask-image: linear-gradient(
+        to right,
+        transparent,
+        black 48px,
+        black calc(100% - 48px),
+        transparent
+      );
+      mask-image: linear-gradient(
+        to right,
+        transparent,
+        black 48px,
+        black calc(100% - 48px),
+        transparent
+      );
+    }
+
+    .supporters-marquee-track {
+      animation-duration: 33.3s;
+    }
+  }
+
+  @keyframes supportersMarquee {
+    to {
+      transform: translate3d(-33.333333%, 0, 0);
+    }
+  }
+
   .developer-mascot-eye,
   .developer-docs-eye {
     transform-box: fill-box;
@@ -382,6 +434,22 @@
       filter: none;
       opacity: 1;
       transform: none;
+    }
+
+    .supporters-marquee-viewport {
+      overflow-x: auto;
+      -webkit-mask-image: none;
+      mask-image: none;
+    }
+
+    .supporters-marquee-track {
+      animation: none;
+      transform: none;
+      will-change: auto;
+    }
+
+    .supporters-marquee-copy {
+      display: none;
     }
 
     .group:hover .developer-mascot-eye,

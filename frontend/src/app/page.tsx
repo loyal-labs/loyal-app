@@ -12,6 +12,7 @@ import { LandingPhoneLottie } from "@/components/landing-phone-lottie";
 // Roadmap temporarily hidden — restore by uncommenting
 // import { LandingRoadmap } from "@/components/landing-roadmap";
 import { LandingScrollAnimations } from "@/components/landing-scroll-animations";
+import { LandingSupportedBy } from "@/components/landing-supported-by";
 import { LandingTrust } from "@/components/landing-trust";
 
 const featureCards: {
@@ -52,9 +53,10 @@ export default function LandingPage() {
       <LandingScrollAnimations />
       <LandingHeader />
       <LandingHero />
+      <LandingSupportedBy />
 
       <section
-        className="flex w-full justify-center bg-white px-4 pb-[72px] pt-20 lg:px-6 lg:pb-24 lg:pt-32"
+        className="flex w-full justify-center bg-white px-4 pb-[72px] pt-20 lg:px-6 lg:py-24"
         id="features"
       >
         <div className="grid w-full max-w-[528px] gap-14 lg:max-w-[1560px] lg:grid-cols-3 lg:gap-6">

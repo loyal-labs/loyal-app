@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
+import type { EarnPublicStats } from "@/lib/yield-optimization/earn-public-stats.server";
 import {
   MARKETING_PAGES,
   type MarketingPage,
@@ -23,17 +24,52 @@ const navLinks: NavItem[] = [
   { kind: "anchor", href: "/#footer", label: "Links" },
 ];
 
+const compactUsdFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  minimumFractionDigits: 2,
+  notation: "compact",
+  style: "currency",
+});
 const neutralPupilOffset = 49 - 61.3298;
 const randomBlinkDelay = () => 2600 + Math.random() * 5200;
 const stickyRevealOffset = 68;
 
 export function LandingHeader() {
   const { loyalAppUrl } = usePublicEnv();
+  const [earnAumUsd, setEarnAumUsd] = useState<number | null>(null);
   const [eyeOffset, setEyeOffset] = useState(0);
   const [isIntroEyeOpen, setIsIntroEyeOpen] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isStickyVisible, setIsStickyVisible] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadEarnAum = async () => {
+      try {
+        const response = await fetch("/api/earn/stats", {
+          cache: "force-cache",
+        });
+        if (!response.ok) {
+          return;
+        }
+        const stats = (await response.json()) as EarnPublicStats;
+        if (!cancelled) {
+          setEarnAumUsd(stats.aumUsd);
+        }
+      } catch {
+        // Keep the stats link available without a value if the public feed fails.
+      }
+    };
+
+    void loadEarnAum();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsIntroEyeOpen(true), 1350);
@@ -171,6 +207,7 @@ export function LandingHeader() {
         }`}
       >
         <HeaderContent
+          earnAumUsd={earnAumUsd}
           eyeOffset={eyeOffset}
           interactive={isStickyVisible}
           isEyeOpen
@@ -180,6 +217,7 @@ export function LandingHeader() {
           maskId="landing-header-eye-mask-sticky"
           menuId="landing-mobile-menu-sticky"
           onMenuOpenChange={setIsMenuOpen}
+          showStatsWidget
         />
       </header>
     </>
@@ -187,6 +225,7 @@ export function LandingHeader() {
 }
 
 function HeaderContent({
+  earnAumUsd = null,
   eyeOffset,
   interactive = true,
   isEyeOpen,
@@ -197,7 +236,9 @@ function HeaderContent({
   menuId,
   onMenuOpenChange,
   shouldAnimateIn = false,
+  showStatsWidget = false,
 }: {
+  earnAumUsd?: number | null;
   eyeOffset: number;
   interactive?: boolean;
   isEyeOpen: boolean;
@@ -208,6 +249,7 @@ function HeaderContent({
   menuId: string;
   onMenuOpenChange: (isOpen: boolean) => void;
   shouldAnimateIn?: boolean;
+  showStatsWidget?: boolean;
 }) {
   const linkTabIndex = interactive ? undefined : -1;
   const closeMenu = () => onMenuOpenChange(false);
@@ -315,7 +357,46 @@ function HeaderContent({
         </g>
       </svg>
 
-      <div className="hidden lg:block">
+      <div className="hidden items-center gap-4 lg:flex">
+        {showStatsWidget ? (
+          <Link
+            aria-label={`View Earn AUM stats${
+              earnAumUsd === null
+                ? ""
+                : `: ${compactUsdFormatter.format(earnAumUsd)}`
+            }`}
+            className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/[0.12] p-3 text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+            href="https://stats.askloyal.com"
+            rel="noopener noreferrer"
+            tabIndex={linkTabIndex}
+            target="_blank"
+          >
+            <Image
+              alt=""
+              aria-hidden="true"
+              height={20}
+              src="/landing/assets/header-stats-chart.svg"
+              width={20}
+            />
+            <span className="flex gap-2 whitespace-nowrap">
+              <span>Earn AUM:</span>
+              <span className="font-semibold">
+                {earnAumUsd === null
+                  ? "—"
+                  : compactUsdFormatter.format(earnAumUsd)}
+              </span>
+            </span>
+            <Image
+              alt=""
+              aria-hidden="true"
+              className="opacity-60"
+              height={20}
+              src="/landing/assets/header-stats-external.svg"
+              width={20}
+            />
+          </Link>
+        ) : null}
+
         <Link
           className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
           href={loyalAppUrl}
