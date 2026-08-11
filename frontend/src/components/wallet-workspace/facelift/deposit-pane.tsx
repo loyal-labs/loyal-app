@@ -8,6 +8,7 @@ import {
   ScrambleText,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
 import {
   FlowDiagram,
   FlowExplainerAside,
@@ -15,6 +16,7 @@ import {
   type FlowStep,
 } from "@/components/wallet-workspace/facelift/flow-explainer";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
+import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import { SkeletonReveal } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
@@ -31,6 +33,71 @@ import { getTokenIconUrl } from "@/lib/token-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 const MIN_DEPOSIT_USD = 1;
+
+type DepositSourceOption = {
+  key: string;
+  symbol: string;
+  usd: number;
+};
+
+function DepositSourceOptionRow({
+  isSelected,
+  onSelect,
+  option,
+  rounded,
+}: {
+  isSelected: boolean;
+  onSelect: () => void;
+  option: DepositSourceOption;
+  rounded: string;
+}) {
+  const balance = splitUsdBalance(option.usd);
+  const { isBalanceHidden } = useBalanceVisibility();
+
+  return (
+    <button
+      aria-pressed={isSelected}
+      className={`t-hover flex w-full items-center px-4 text-left hover:bg-accent ${rounded}`}
+      onClick={onSelect}
+      type="button"
+    >
+      <span className="flex items-center py-2 pr-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          alt=""
+          aria-hidden="true"
+          className="size-11 rounded-full"
+          src={getTokenIconUrl(option.symbol)}
+        />
+      </span>
+      <span className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
+        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+          {option.symbol} balance
+        </span>
+        <span className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
+          <ScrambleText
+            isHidden={isBalanceHidden}
+            text={balance.balanceWhole}
+          />
+          <span className="text-tertiary">
+            <ScrambleText
+              isHidden={isBalanceHidden}
+              text={balance.balanceFraction}
+            />
+          </span>
+        </span>
+      </span>
+      {isSelected ? (
+        <span className="flex items-center justify-end pl-3">
+          <ThemedIcon
+            className="size-6 text-primary"
+            src={`${ASSET_BASE}/icon-check-red.svg`}
+          />
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 // The deposit's path told as steps — amount, one signature, where the USDC
 // actually goes, and what earning/withdrawing look like (user-docs
@@ -83,6 +150,8 @@ export function DepositPane({
   const { isBalanceHidden } = useBalanceVisibility();
   const [amount, setAmount] = useState("");
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [isSourceSheetOpen, setIsSourceSheetOpen] = useState(false);
+  const [selectedSourceKey, setSelectedSourceKey] = useState("USDC");
   const { actions } = earnData;
 
   const positionsUsdcUsd = useMemo(() => {
@@ -95,14 +164,22 @@ export function DepositPane({
   // Same funding balance the old workspace shows: live wallet USDC ATA read,
   // portfolio-position value as the fallback while it loads.
   const usdcUsd = actions.mainUsdcAmount ?? positionsUsdcUsd;
-  const usdcBalance = splitUsdBalance(usdcUsd);
+  const sourceOptions = useMemo<DepositSourceOption[]>(
+    () => [{ key: "USDC", symbol: "USDC", usd: usdcUsd }],
+    [usdcUsd]
+  );
+  const selectedSource =
+    sourceOptions.find((source) => source.key === selectedSourceKey) ??
+    sourceOptions[0];
+  const sourceUsd = selectedSource.usd;
+  const sourceBalance = splitUsdBalance(sourceUsd);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
   const amountLabel = amountUsd.toLocaleString("en-US", {
     maximumFractionDigits: 2,
   });
   const isBelowMinimum = amountUsd < MIN_DEPOSIT_USD;
-  const isInsufficient = !isBelowMinimum && amountUsd > usdcUsd;
+  const isInsufficient = !isBelowMinimum && amountUsd > sourceUsd;
   const isValidAmount = !isBelowMinimum && !isInsufficient;
   const isSubmitting = actions.isDepositPending;
 
@@ -132,6 +209,24 @@ export function DepositPane({
       onBack();
     }
   };
+  const selectSource = (key: string) => {
+    setSelectedSourceKey(key);
+    setIsSourceSheetOpen(false);
+  };
+
+  useEffect(() => {
+    if (!isSourceSheetOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setIsSourceSheetOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSourceSheetOpen]);
 
   return (
     <>
@@ -236,44 +331,114 @@ export function DepositPane({
             )}
           </div>
 
-          <div className="relative flex h-36 w-full flex-col gap-1 overflow-clip p-2">
-            <div className="flex w-full items-center rounded-2xl px-4">
-              <div className="py-2 pr-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  alt=""
-                  aria-hidden="true"
-                  className="size-11 rounded-full"
-                  src={getTokenIconUrl("USDC")}
+          <div className="relative flex h-36 w-full flex-col gap-1 p-2">
+            {isSourceSheetOpen ? (
+              <button
+                aria-label="Close stablecoin select"
+                className="fixed inset-0 z-10 cursor-default max-[795px]:hidden"
+                onClick={() => setIsSourceSheetOpen(false)}
+                type="button"
+              />
+            ) : null}
+            <DropdownReveal
+              className="absolute inset-x-2 bottom-full z-20 flex flex-col rounded-2xl bg-popover/70 p-2 shadow-[0px_0px_2px_0px_rgba(0,0,0,0.08),0px_4px_16px_0px_rgba(0,0,0,0.08)] backdrop-blur-[16px] max-[795px]:hidden"
+              isOpen={isSourceSheetOpen}
+              origin="bottom-center"
+            >
+              {sourceOptions.map((option) => (
+                <DepositSourceOptionRow
+                  isSelected={option.key === selectedSource.key}
+                  key={option.key}
+                  onSelect={() => selectSource(option.key)}
+                  option={option}
+                  rounded="rounded-lg"
                 />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
-                  from USDC balance
-                </span>
-                <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
-                  <ScrambleText
-                    isHidden={isBalanceHidden}
-                    text={usdcBalance.balanceWhole}
+              ))}
+            </DropdownReveal>
+            <SheetReveal
+              isOpen={isSourceSheetOpen}
+              onClose={() => setIsSourceSheetOpen(false)}
+              scrimClassName="fixed inset-0 z-50 hidden flex-col justify-end bg-white/60 pt-8 backdrop-blur-[4px] max-[795px]:flex"
+              sheetClassName="flex w-full flex-col rounded-t-3xl bg-card shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+            >
+              <header className="flex w-full items-center p-2">
+                <h2 className="min-w-0 flex-1 truncate py-2.5 pl-2 font-semibold text-[20px] text-foreground leading-6">
+                  Stablecoins
+                </h2>
+                <button
+                  aria-label="Close stablecoin select"
+                  className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent"
+                  onClick={() => setIsSourceSheetOpen(false)}
+                  type="button"
+                >
+                  <ThemedIcon
+                    className="size-6 text-muted-foreground"
+                    src={`${ASSET_BASE}/icon-cross.svg`}
                   />
-                  <span className="text-tertiary">
+                </button>
+              </header>
+              <div className="flex w-full flex-col py-2">
+                {sourceOptions.map((option) => (
+                  <DepositSourceOptionRow
+                    isSelected={option.key === selectedSource.key}
+                    key={option.key}
+                    onSelect={() => selectSource(option.key)}
+                    option={option}
+                    rounded="rounded-none"
+                  />
+                ))}
+              </div>
+            </SheetReveal>
+
+            <div
+              className={`t-hover flex w-full items-center rounded-2xl px-4 ${
+                isSourceSheetOpen ? "bg-accent" : ""
+              }`}
+            >
+              <button
+                aria-expanded={isSourceSheetOpen}
+                aria-label="Select deposit stablecoin"
+                className="flex min-w-0 flex-1 items-center text-left"
+                onClick={() => setIsSourceSheetOpen((open) => !open)}
+                type="button"
+              >
+                <span className="flex items-center py-2 pr-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="size-11 rounded-full"
+                    src={getTokenIconUrl(selectedSource.symbol)}
+                  />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
+                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                    {`from ${selectedSource.symbol} balance`}
+                  </span>
+                  <span className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
                     <ScrambleText
                       isHidden={isBalanceHidden}
-                      text={usdcBalance.balanceFraction}
+                      text={sourceBalance.balanceWhole}
                     />
+                    <span className="text-tertiary">
+                      <ScrambleText
+                        isHidden={isBalanceHidden}
+                        text={sourceBalance.balanceFraction}
+                      />
+                    </span>
                   </span>
-                </p>
-              </div>
+                </span>
+              </button>
               <div className="pl-3">
                 <button
                   className="t-hover min-w-16 rounded-full bg-accent px-4 py-2.5 text-center font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
                   onClick={() => {
-                    if (usdcUsd > 0) {
+                    if (sourceUsd > 0) {
                       // Floor to cents so the fill never rounds above the real
                       // balance (toFixed would turn 1.8699 into an
                       // "insufficient" 1.87), same as the withdraw pane's MAX.
                       handleAmountChange(
-                        (Math.floor(usdcUsd * 100) / 100).toFixed(2)
+                        (Math.floor(sourceUsd * 100) / 100).toFixed(2)
                       );
                     }
                   }}
@@ -282,6 +447,18 @@ export function DepositPane({
                   MAX
                 </button>
               </div>
+              <button
+                aria-expanded={isSourceSheetOpen}
+                aria-label="Select deposit stablecoin"
+                className="t-hover -my-2.5 -mr-2.5 ml-0.5 flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
+                onClick={() => setIsSourceSheetOpen((open) => !open)}
+                type="button"
+              >
+                <ThemedIcon
+                  className="size-6 text-muted-foreground"
+                  src={`${ASSET_BASE}/icon-chevron-grabber.svg`}
+                />
+              </button>
             </div>
 
             <div className="flex w-full items-center rounded-2xl px-4">
