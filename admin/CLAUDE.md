@@ -119,6 +119,12 @@ The admin Earn funding view optionally accepts the public-only
 checks. Store only the public key in environment files; never place private
 keys there.
 
+The admin Metrics page at `/metrics` reads ClickStack telemetry server-side.
+Configure `LOYAL_CLICKSTACK_API_KEY` for its API key; `HYPERDX_ACCESS_KEY`
+remains supported as a fallback. `LOYAL_CLICKSTACK_API_URL` and
+`LOYAL_CLICKSTACK_METRICS_SOURCE_ID` are optional overrides for the ClickStack
+deployment and metrics source.
+
 ## Adding New Pages
 
 1. Create a directory under `src/app/` with a `page.tsx`
