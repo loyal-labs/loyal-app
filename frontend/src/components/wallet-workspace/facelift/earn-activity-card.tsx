@@ -350,7 +350,7 @@ export function TransactionRow({
   }
   return (
     <button
-      className={`flex w-full items-center rounded-2xl px-4 text-left transition-colors duration-150 ${
+      className={`flex w-full items-center rounded-2xl px-4 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 ${
         isSelected ? "bg-accent" : "hover:bg-accent"
       }`}
       onClick={onSelect}
@@ -394,18 +394,22 @@ function NewRowReveal({ children }: { children: ReactNode }) {
 
 function TransactionsTab({
   executeNow,
+  onSelectTransaction,
   onViewAllActivity,
   pendingSignatures,
   refreshKey,
   scheduledSweeps,
+  selectedTransactionId,
   settingsPda,
   walletAddress,
 }: {
   executeNow: ExecuteNowControls;
+  onSelectTransaction: (item: EarnTransactionItem) => void;
   onViewAllActivity: () => void;
   pendingSignatures: string[];
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
+  selectedTransactionId: string | null;
   settingsPda: string | null | undefined;
   walletAddress: string | null;
 }) {
@@ -598,11 +602,19 @@ function TransactionsTab({
                 {group.items.map((item) =>
                   resolveRevealKind(item.id) === "insert" ? (
                     <NewRowReveal key={item.id}>
-                      <TransactionRow item={item} />
+                      <TransactionRow
+                        isSelected={selectedTransactionId === item.id}
+                        item={item}
+                        onSelect={() => onSelectTransaction(item)}
+                      />
                     </NewRowReveal>
                   ) : (
                     <StaggerLine index={lineIndex++} key={item.id}>
-                      <TransactionRow item={item} />
+                      <TransactionRow
+                        isSelected={selectedTransactionId === item.id}
+                        item={item}
+                        onSelect={() => onSelectTransaction(item)}
+                      />
                     </StaggerLine>
                   )
                 )}
@@ -716,21 +728,25 @@ function PositionsTab({
 export function EarnActivityCard({
   executeNow,
   holdings,
+  onSelectTransaction,
   onViewAllActivity,
   onWithdrawSource,
   pendingSignatures,
   refreshKey,
   scheduledSweeps,
+  selectedTransactionId,
   settingsPda,
   walletAddress,
 }: {
   executeNow: ExecuteNowControls;
   holdings: ActiveEarnPositionHolding[];
+  onSelectTransaction: (item: EarnTransactionItem) => void;
   onViewAllActivity: () => void;
   onWithdrawSource: (sourceKey: string) => void;
   pendingSignatures: string[];
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
+  selectedTransactionId: string | null;
   settingsPda: string | null | undefined;
   walletAddress: string | null;
 }) {
@@ -890,10 +906,12 @@ export function EarnActivityCard({
         {activeTab === "Transactions" ? (
           <TransactionsTab
             executeNow={executeNow}
+            onSelectTransaction={onSelectTransaction}
             onViewAllActivity={onViewAllActivity}
             pendingSignatures={pendingSignatures}
             refreshKey={refreshKey}
             scheduledSweeps={scheduledSweeps}
+            selectedTransactionId={selectedTransactionId}
             settingsPda={settingsPda}
             walletAddress={walletAddress}
           />
