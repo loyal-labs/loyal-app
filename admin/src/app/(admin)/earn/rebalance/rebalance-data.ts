@@ -98,6 +98,24 @@ export type Last30DaysRebalancePoint = {
   terminalAttempts: number;
 };
 
+export type ExecutedEarnRebalanceRow = {
+  amountRaw: bigint;
+  authority: string;
+  confirmedSlot: bigint;
+  currentDepositRaw: bigint;
+  executedAt: string;
+  id: string;
+  sourceReserve: string;
+  targetReserve: string;
+  userRank: number;
+};
+
+export type ExecutedEarnRebalanceHistory = {
+  executions: ExecutedEarnRebalanceRow[];
+  generatedAt: string;
+  userCount: number;
+};
+
 export type RebalanceAuditRow = {
   abandonReason: string | null;
   amountRaw: bigint | null;
@@ -215,6 +233,19 @@ type Last30DaysRebalanceSqlRow = {
   date: string;
   failed: SqlScalar;
   terminal_attempts: SqlScalar;
+};
+
+type ExecutedEarnRebalanceSqlRow = {
+  amount_raw: SqlScalar;
+  authority: string;
+  confirmed_slot: SqlScalar;
+  current_deposit_raw: SqlScalar;
+  executed_at: Date | string;
+  id: string;
+  source_reserve: string;
+  target_reserve: string;
+  user_count: SqlScalar;
+  user_rank: SqlScalar;
 };
 
 type RebalanceAuditSqlRow = {
@@ -1357,6 +1388,146 @@ export async function getLast30DaysRebalanceSeries(): Promise<
     failed: toNumber(row.failed),
     terminalAttempts: toNumber(row.terminal_attempts),
   }));
+}
+
+export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnRebalanceHistory> {
+  const rows = await queryRows<ExecutedEarnRebalanceSqlRow>(
+    `
+      WITH executed AS MATERIALIZED (
+        SELECT
+          decision.id,
+          decision.updated_at AS executed_at,
+          decision.amount_raw,
+          decision.source_reserve,
+          decision.target_reserve,
+          decision.confirmed_slot,
+          policy.authority
+        FROM loyal_yield.rebalance_decisions AS decision
+        INNER JOIN loyal_yield.managed_vaults AS vault
+          ON vault.id = decision.vault_id
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        WHERE decision.status = 'confirmed'
+          AND decision.source_reserve IS NOT NULL
+          AND decision.target_reserve IS NOT NULL
+          AND decision.amount_raw IS NOT NULL
+          AND decision.confirmed_slot IS NOT NULL
+      ),
+      executed_users AS MATERIALIZED (
+        SELECT DISTINCT authority FROM executed
+      ),
+      relevant_vaults AS MATERIALIZED (
+        SELECT vault.id AS vault_id, policy.authority
+        FROM loyal_yield.managed_vaults AS vault
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        INNER JOIN executed_users
+          ON executed_users.authority = policy.authority
+      ),
+      current_reserve_by_vault AS MATERIALIZED (
+        SELECT
+          position.vault_id,
+          SUM(
+            CASE
+              WHEN COALESCE(
+                position.planning_metadata->>'amountSemantics',
+                position.planning_metadata->>'amount_semantics'
+              ) IN (
+                'kamino_redeemable_liquidity',
+                'redeemable_liquidity_amount'
+              )
+                THEN position.amount_raw
+              WHEN COALESCE(
+                position.planning_metadata->>'amountSemantics',
+                position.planning_metadata->>'amount_semantics'
+              ) = 'kamino_obligation_collateral_deposited_amount'
+                AND COALESCE(
+                  position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                  position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+                ) ~ '^[0-9]+$'
+                THEN COALESCE(
+                  position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                  position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+                )::bigint
+              ELSE 0::bigint
+            END
+          )::bigint AS amount_raw
+        FROM relevant_vaults AS relevant
+        INNER JOIN loyal_yield.vault_reserve_positions_current AS position
+          ON position.vault_id = relevant.vault_id
+        WHERE position.has_value = true
+          AND position.amount_raw > 0
+        GROUP BY position.vault_id
+      ),
+      current_idle_by_vault AS MATERIALIZED (
+        SELECT idle.vault_id, SUM(idle.amount_raw)::bigint AS amount_raw
+        FROM relevant_vaults AS relevant
+        INNER JOIN loyal_yield.vault_idle_token_balances_current AS idle
+          ON idle.vault_id = relevant.vault_id
+        WHERE idle.amount_raw > 0
+        GROUP BY idle.vault_id
+      ),
+      current_user_deposits AS MATERIALIZED (
+        SELECT
+          relevant.authority,
+          SUM(
+            COALESCE(reserve.amount_raw, 0::bigint)
+            + COALESCE(idle.amount_raw, 0::bigint)
+          )::bigint AS current_deposit_raw
+        FROM relevant_vaults AS relevant
+        LEFT JOIN current_reserve_by_vault AS reserve
+          ON reserve.vault_id = relevant.vault_id
+        LEFT JOIN current_idle_by_vault AS idle
+          ON idle.vault_id = relevant.vault_id
+        GROUP BY relevant.authority
+      ),
+      ranked_users AS MATERIALIZED (
+        SELECT
+          executed_user.authority,
+          COALESCE(deposit_total.current_deposit_raw, 0::bigint)
+            AS current_deposit_raw,
+          ROW_NUMBER() OVER (
+            ORDER BY
+              COALESCE(deposit_total.current_deposit_raw, 0::bigint) ASC,
+              executed_user.authority ASC
+          )::integer AS user_rank
+        FROM executed_users AS executed_user
+        LEFT JOIN current_user_deposits AS deposit_total
+          ON deposit_total.authority = executed_user.authority
+      )
+      SELECT
+        executed.id::text,
+        executed.executed_at,
+        executed.amount_raw::text,
+        executed.source_reserve,
+        executed.target_reserve,
+        executed.confirmed_slot::text,
+        executed.authority,
+        ranked_users.current_deposit_raw::text,
+        ranked_users.user_rank::text,
+        MAX(ranked_users.user_rank) OVER ()::text AS user_count
+      FROM executed
+      INNER JOIN ranked_users
+        ON ranked_users.authority = executed.authority
+      ORDER BY executed.executed_at ASC, executed.id ASC
+    `
+  );
+
+  return {
+    executions: rows.map((row) => ({
+      amountRaw: toBigInt(row.amount_raw),
+      authority: row.authority,
+      confirmedSlot: toBigInt(row.confirmed_slot),
+      currentDepositRaw: toBigInt(row.current_deposit_raw),
+      executedAt: toIsoString(row.executed_at) ?? "",
+      id: row.id,
+      sourceReserve: row.source_reserve,
+      targetReserve: row.target_reserve,
+      userRank: toNumber(row.user_rank),
+    })),
+    generatedAt: new Date().toISOString(),
+    userCount: rows.length > 0 ? toNumber(rows[0].user_count) : 0,
+  };
 }
 
 export async function getRebalanceAuditSummary(

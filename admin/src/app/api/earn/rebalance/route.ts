@@ -7,6 +7,7 @@ import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 import {
   getActiveReserveRoutes,
   getAutodepositTimeSeries,
+  getExecutedEarnRebalanceHistory,
   getLast30DaysRebalanceSeries,
   getRebalanceActivity,
   getRecentRebalanceDecisions,
@@ -16,6 +17,22 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function loadRebalanceMonitorData() {
+  const executedRebalancesPromise = getExecutedEarnRebalanceHistory()
+    .then((history) => ({ ...history, status: "available" as const }))
+    .catch((error) => {
+      console.error("Executed Earn rebalance history query failed", {
+        errorMessage:
+          error instanceof Error ? error.message : "Unknown database error",
+        errorName: error instanceof Error ? error.name : "Error",
+      });
+
+      return {
+        executions: [],
+        generatedAt: new Date().toISOString(),
+        status: "unavailable" as const,
+        userCount: 0,
+      };
+    });
   const [
     apyData,
     routes,
@@ -23,6 +40,7 @@ async function loadRebalanceMonitorData() {
     activity,
     last30DaysRebalances,
     autodeposit,
+    executedRebalances,
   ] = await Promise.all([
     getSafeReserveApyMonitorData(),
     getActiveReserveRoutes(),
@@ -30,6 +48,7 @@ async function loadRebalanceMonitorData() {
     getRebalanceActivity(),
     getLast30DaysRebalanceSeries(),
     getAutodepositTimeSeries(),
+    executedRebalancesPromise,
   ]);
 
   return {
@@ -54,6 +73,15 @@ async function loadRebalanceMonitorData() {
       amountRaw: decision.amountRaw?.toString() ?? null,
       confirmedSlot: decision.confirmedSlot?.toString() ?? null,
     })),
+    executedRebalances: {
+      ...executedRebalances,
+      executions: executedRebalances.executions.map((execution) => ({
+        ...execution,
+        amountRaw: execution.amountRaw.toString(),
+        confirmedSlot: execution.confirmedSlot.toString(),
+        currentDepositRaw: execution.currentDepositRaw.toString(),
+      })),
+    },
     last30DaysRebalances,
     routes: routes.map((route) => ({
       ...route,
