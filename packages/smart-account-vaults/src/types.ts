@@ -703,6 +703,7 @@ export type SmartAccountEarnUsdcWithdrawMetadata = {
   targetReserve: string;
   market: string;
   liquidityMint: string;
+  requestedWithdrawAmountRaw: string;
   withdrawnAmountRaw: string;
   mode: "partial" | "full";
   sourceType?: "reserve" | "idle";

@@ -92,6 +92,7 @@ export type EarnWithdrawalConfirmRequestBody = {
   walletAddress: string;
   withdrawalSignature: string;
   withdrawnAmountRaw: string;
+  requestedWithdrawAmountRaw?: string;
   sourceAmountRaw?: string | null;
   sourceId?: string | null;
   sourceMetadata?: Record<string, unknown> | null;
@@ -535,6 +536,10 @@ export function parseEarnWithdrawalConfirmRequestBody(
     executionReserve: readOptionalString(record, "executionReserve"),
     isFinalStep: readOptionalBoolean(record, "isFinalStep"),
     reserveWithdrawals: readOptionalReserveWithdrawals(record),
+    requestedWithdrawAmountRaw: readOptionalBigIntString(
+      record,
+      "requestedWithdrawAmountRaw"
+    ),
     sourceAmountRaw: readOptionalBigIntString(record, "sourceAmountRaw"),
     sourceId: readOptionalString(record, "sourceId"),
     sourceMetadata: readOptionalSourceMetadata(record),

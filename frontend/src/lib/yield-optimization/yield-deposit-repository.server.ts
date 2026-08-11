@@ -227,6 +227,7 @@ export type ConfirmedYieldWithdrawalInput = {
   market: string | null;
   liquidityMint: string;
   withdrawnAmountRaw: bigint;
+  requestedWithdrawAmountRaw?: bigint | null;
   mode: "partial" | "full";
   confirmedReserveDebitAmountRaw?: bigint | null;
   confirmedVaultIdleDeltaRaw?: bigint | null;
@@ -3916,12 +3917,21 @@ export async function recordConfirmedYieldWithdrawal(
     policySeed: input.policySeed,
     reserveWithdrawals: input.reserveWithdrawals ?? [],
     sourceId: withdrawalSource.sourceId,
-    sourceMetadata: buildStoredWithdrawalSourceMetadata({
-      sourceAmountRaw: withdrawalSource.sourceAmountRaw,
-      sourceMetadata: withdrawalSource.sourceMetadata,
-      sourceMint: withdrawalSource.sourceMint,
-      sourceTokenAccount: withdrawalSource.sourceTokenAccount,
-    }),
+    sourceMetadata: {
+      ...buildStoredWithdrawalSourceMetadata({
+        sourceAmountRaw: withdrawalSource.sourceAmountRaw,
+        sourceMetadata: withdrawalSource.sourceMetadata,
+        sourceMint: withdrawalSource.sourceMint,
+        sourceTokenAccount: withdrawalSource.sourceTokenAccount,
+      }),
+      ...(input.requestedWithdrawAmountRaw !== undefined &&
+      input.requestedWithdrawAmountRaw !== null
+        ? {
+            requestedWithdrawAmountRaw:
+              input.requestedWithdrawAmountRaw.toString(),
+          }
+        : {}),
+    },
     sourceType: withdrawalSource.sourceType,
     settings: input.settings,
     smartAccountAddress,

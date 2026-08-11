@@ -32,6 +32,10 @@ import {
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
+import {
+  applyConfirmedWithdrawalTransactionProof,
+  type ConfirmedWithdrawalTransactionProof,
+} from "@/lib/yield-optimization/earn-withdraw-proof.shared";
 
 // Shared core for confirming an Earn withdrawal, used by BOTH the session
 // (`yield-optimization/withdrawals/confirm`) and mobile
@@ -78,13 +82,6 @@ function rejectWithdrawConfirm(args: {
   });
   throw new EarnWithdrawConfirmError(args.status, args.code, args.message);
 }
-
-type ConfirmedWithdrawalTransactionProof = {
-  reserveDebitAmountRaw: bigint;
-  vaultIdleDeltaRaw: bigint;
-  vaultIdleTokenAccount: string;
-  walletTransferAmountRaw: bigint;
-};
 
 function getConnection(cluster: SolanaEnv): Connection {
   const cached = connectionCache.get(cluster);
@@ -269,28 +266,6 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
     vaultIdleDeltaRaw,
     vaultIdleTokenAccount: vaultUsdcAta,
     walletTransferAmountRaw,
-  };
-}
-
-function applyConfirmedWithdrawalTransactionProof(args: {
-  input: ConfirmedYieldWithdrawalInput;
-  proof: ConfirmedWithdrawalTransactionProof;
-}): ConfirmedYieldWithdrawalInput {
-  const sourceType = args.input.sourceType ?? "reserve";
-
-  return {
-    ...args.input,
-    confirmedVaultIdleDeltaRaw: args.proof.vaultIdleDeltaRaw,
-    confirmedVaultIdleTokenAccount: args.proof.vaultIdleTokenAccount,
-    confirmedWalletTransferAmountRaw: args.proof.walletTransferAmountRaw,
-    withdrawnAmountRaw: args.proof.walletTransferAmountRaw,
-    ...(sourceType === "reserve"
-      ? {
-          confirmedReserveDebitAmountRaw: args.proof.reserveDebitAmountRaw,
-          sourceAmountRaw:
-            args.input.sourceAmountRaw ?? args.proof.reserveDebitAmountRaw,
-        }
-      : {}),
   };
 }
 
