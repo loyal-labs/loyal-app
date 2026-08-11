@@ -17,6 +17,7 @@ import {
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { openTrackedLink } from "@/lib/core/analytics";
+import { getExplorerTxUrl } from "@/lib/solana/explorer";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
@@ -138,11 +139,11 @@ function SignatureCell({ signature }: { signature: string }) {
 
 // Earn transaction detail in the wallet detail's design (Figma 4879:69018
 // Deposited / 4880:74343 Withdrawn): identity header, amount hero, From → To
-// route rows, details card, Solscan button pinned bottom. Covers every
+// route rows, details card, explorer button pinned bottom. Covers every
 // indexed Earn event — create & deposit, deposit, withdraw, withdraw & close,
 // create/remove allowance, balance sweep, rebalanced, reconciled. Allowance
 // events skip the hero (their indexed amount is always $0.00) and rebalances
-// without a signature drop the signature cell and Solscan button.
+// without a signature drop the signature cell and explorer button.
 export function EarnTransactionDetailPane({
   item,
   onClose,
@@ -164,11 +165,7 @@ export function EarnTransactionDetailPane({
     formatEarnTransactionTimestamp(confirmedAt) ?? item.timestamp;
   const ownAddress = walletAddress ? truncateMiddle(walletAddress) : null;
   const hasSignature = item.signature.length > 0;
-  const solscanUrl = `https://solscan.io/tx/${item.signature}${
-    publicEnv.solanaEnv === "mainnet"
-      ? ""
-      : `?cluster=${publicEnv.solanaEnv === "devnet" ? "devnet" : "custom"}`
-  }`;
+  const transactionUrl = getExplorerTxUrl(item.signature);
   // Same art derivation as the activity list's TransactionRow, so the header
   // identity matches the row that opened it.
   const backSrc =
@@ -270,14 +267,14 @@ export function EarnTransactionDetailPane({
             className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
             onClick={() =>
               openTrackedLink(publicEnv, {
-                href: solscanUrl,
-                linkText: "View on Solscan",
+                href: transactionUrl,
+                linkText: "View on Orb Markets",
                 source: "transaction_detail",
               })
             }
             type="button"
           >
-            View on Solscan
+            View on Orb Markets
           </button>
         </div>
       ) : null}
