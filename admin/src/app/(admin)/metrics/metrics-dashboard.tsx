@@ -268,7 +268,10 @@ function buildBucketGrid(data: MetricsDashboardData): number[] {
   let earliestSample = Number.POSITIVE_INFINITY;
   for (const points of [data.desktop, data.mobile]) {
     for (const point of points) {
-      earliestSample = Math.min(earliestSample, Date.parse(point.bucketStartedAt));
+      earliestSample = Math.min(
+        earliestSample,
+        Date.parse(point.bucketStartedAt)
+      );
     }
   }
 
@@ -421,7 +424,9 @@ function SeriesSwatch({ spec }: { spec: SeriesSpec }) {
       style={
         isFailure
           ? {
-              backgroundImage: `repeating-linear-gradient(to right, ${slotColor(spec.slot)} 0 4px, transparent 4px 7px)`,
+              backgroundImage: `repeating-linear-gradient(to right, ${slotColor(
+                spec.slot
+              )} 0 4px, transparent 4px 7px)`,
             }
           : { backgroundColor: slotColor(spec.slot) }
       }
@@ -513,11 +518,7 @@ function MetricTooltip({
  * the card, and a tooltip must never be the only way to reach a value, so every
  * measured bucket is readable as text here.
  */
-function MetricTable({
-  chart,
-}: {
-  chart: OperationChart;
-}) {
+function MetricTable({ chart }: { chart: OperationChart }) {
   const rows = chart.data.filter((row) =>
     chart.series.some((spec) => typeof row[spec.key] === "number")
   );
@@ -531,7 +532,10 @@ function MetricTable({
             {chart.series.map((spec) => (
               // No swatch here on purpose: this view exists so identity and
               // value read without colour.
-              <TableHead className="text-right whitespace-nowrap" key={spec.key}>
+              <TableHead
+                className="text-right whitespace-nowrap"
+                key={spec.key}
+              >
                 {spec.label}
               </TableHead>
             ))}
@@ -544,10 +548,7 @@ function MetricTable({
                 {formatUtcTimestamp(row.bucketTime)}
               </TableCell>
               {chart.series.map((spec) => (
-                <TableCell
-                  className="text-right tabular-nums"
-                  key={spec.key}
-                >
+                <TableCell className="text-right tabular-nums" key={spec.key}>
                   {typeof row[spec.key] === "number"
                     ? formatDuration(row[spec.key] as number)
                     : "—"}
@@ -617,9 +618,7 @@ function MetricChartCard({
   const clippedAxis = buildValueAxis(robustMax);
   // Counted against the clipped axis in both states, so the label stays put
   // instead of dropping to "0 above" the moment the outliers are shown.
-  const outlierCount = values.filter(
-    (value) => value > clippedAxis.max
-  ).length;
+  const outlierCount = values.filter((value) => value > clippedAxis.max).length;
   // Measured against the axis that renders, not the raw p95. Comparing the p95
   // would disagree with the count, since niceStep rounds the axis up far enough
   // that it can already contain every point; dropping the ratio entirely would
@@ -685,10 +684,12 @@ function MetricChartCard({
         </div>
         <CardDescription className="tabular-nums">
           {volume
-            ? `${volume.total.toLocaleString()} ${volume.total === 1 ? "sample" : "samples"}`
+            ? `${volume.total.toLocaleString("en-US")} ${
+                volume.total === 1 ? "sample" : "samples"
+              }`
             : "p95 latency"}
           {volume && volume.failed > 0
-            ? ` · ${volume.failed.toLocaleString()} failed`
+            ? ` · ${volume.failed.toLocaleString("en-US")} failed`
             : ""}
           {` · ${chart.bucketCount} of ${bucketGrid.length} buckets`}
         </CardDescription>
@@ -714,7 +715,9 @@ function MetricChartCard({
                 dataKey="bucketTime"
                 domain={[bucketGrid[0], bucketGrid[bucketGrid.length - 1]]}
                 scale="time"
-                tickFormatter={(value: number) => formatUtcTick(value, axisSpan)}
+                tickFormatter={(value: number) =>
+                  formatUtcTick(value, axisSpan)
+                }
                 tickLine={false}
                 tickMargin={8}
                 ticks={buildAxisTicks(bucketGrid)}
@@ -879,7 +882,8 @@ export function MetricsDashboard({ data }: { data: MetricsDashboardData }) {
   const latestSampleAt = getLatestSampleAt(data);
   const bucketGrid = useMemo(() => buildBucketGrid(data), [data]);
   const isTrimmed =
-    bucketGrid[0] - Date.parse(data.rangeStartedAt) > data.bucketMinutes * 60_000;
+    bucketGrid[0] - Date.parse(data.rangeStartedAt) >
+    data.bucketMinutes * 60_000;
 
   return (
     <div className="space-y-8">
