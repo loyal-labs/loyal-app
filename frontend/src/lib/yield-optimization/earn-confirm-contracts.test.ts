@@ -137,7 +137,7 @@ describe("Earn withdrawal confirmation contracts", () => {
     expect(parsed.mode).toBe("partial");
   });
 
-  test("builds confirmation bodies from the selected withdraw step", () => {
+  test("[earn-withdraw-exact-output] keeps requested intent distinct from the selected step's expected credit", () => {
     const body = buildEarnWithdrawalConfirmRequestBody({
       confirmedSlot: "123",
       preparedStep: {
@@ -160,6 +160,7 @@ describe("Earn withdrawal confirmation contracts", () => {
           vaultIndex: 1,
           vaultPubkey: "vault",
           walletAddress: "wallet",
+          requestedWithdrawAmountRaw: "500000",
           withdrawnAmountRaw: "400000",
         },
       } as never,
@@ -189,6 +190,7 @@ describe("Earn withdrawal confirmation contracts", () => {
     expect(body.stepIndex).toBe(0);
     expect(body.stepCount).toBe(2);
     expect(body.targetReserve).toBe("accounting-reserve");
+    expect(body.requestedWithdrawAmountRaw).toBe("500000");
     expect(body.withdrawnAmountRaw).toBe("400000");
     const parsed = parseEarnWithdrawalConfirmRequestBody(body);
     expect(parsed.accountingReserve).toBe("accounting-reserve");
@@ -196,6 +198,7 @@ describe("Earn withdrawal confirmation contracts", () => {
     expect(parsed.isFinalStep).toBe(false);
     expect(parsed.mode).toBe("partial");
     expect(parsed.stepIndex).toBe(0);
+    expect(parsed.requestedWithdrawAmountRaw).toBe(BigInt(500_000));
     expect(parsed.withdrawnAmountRaw).toBe(BigInt(400_000));
   });
 
