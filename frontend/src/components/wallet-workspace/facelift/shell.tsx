@@ -22,11 +22,13 @@ import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty
 import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
+import { EarnTransactionDetailPane } from "@/components/wallet-workspace/facelift/transaction-detail-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import {
   MiddlePaneSlide,
   PaneReveal,
 } from "@/components/wallet-workspace/facelift/pane-transitions";
+import { SheetReveal } from "@/components/wallet-workspace/facelift/sheet-reveal";
 import {
   isEscapeGuardedTarget,
   isTypingTarget,
@@ -40,6 +42,7 @@ import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pa
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import { useAuthCapability } from "@/lib/auth/capability";
+import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
 // "wallet" is the mobile-only wallet home (the tab bar's Wallet tab); the
 // sidebar navigates straight to crypto/stables instead.
@@ -126,6 +129,15 @@ export function WorkspaceFaceliftShell() {
     }
   }, [activePage, isNarrowViewport]);
   const [middleView, setMiddleView] = useState<MiddleView>("earn");
+  const [selectedEarnTransaction, setSelectedEarnTransaction] =
+    useState<EarnTransactionItem | null>(null);
+  // Keep the closing detail populated until its exit animation finishes.
+  const lastEarnTransactionRef = useRef<EarnTransactionItem | null>(null);
+  if (selectedEarnTransaction) {
+    lastEarnTransactionRef.current = selectedEarnTransaction;
+  }
+  const earnTransactionDetail =
+    selectedEarnTransaction ?? lastEarnTransactionRef.current;
   // Set when a positions-tab row's Withdraw pill opened the screen — the
   // withdraw pane preselects that source; header Withdraw clears it.
   const [withdrawSourceKey, setWithdrawSourceKey] = useState<string | null>(
@@ -180,8 +192,9 @@ export function WorkspaceFaceliftShell() {
     setActivePage(
       page === "activity" && activePage === "activity" ? "earn" : page
     );
-    // Leaving Earn abandons any in-progress action screen.
+    // Leaving Earn abandons any in-progress action screen or detail.
     setMiddleView("earn");
+    setSelectedEarnTransaction(null);
     setNavigationNonce((nonce) => nonce + 1);
   };
   // Briefly lights the pressed key's sidebar hint red as activation feedback.
@@ -253,6 +266,33 @@ export function WorkspaceFaceliftShell() {
   });
   // Deposit requires a session; fall back to the Earn state on sign-out.
   const activeMiddleView: MiddleView = isSignedIn ? middleView : "earn";
+
+  useEffect(() => {
+    if (!selectedEarnTransaction) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        setSelectedEarnTransaction(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedEarnTransaction]);
+
+  useEffect(() => {
+    if (
+      selectedEarnTransaction &&
+      (activePage !== "earn" || activeMiddleView !== "earn")
+    ) {
+      setSelectedEarnTransaction(null);
+    }
+  }, [activeMiddleView, activePage, selectedEarnTransaction]);
+
   // Avoid flashing the zero-state headline on reload: loading covers auth
   // hydration, the smart-account overview fetch (settingsPda === undefined —
   // hasResolvedPosition reads true while the position fetch is disabled, so
@@ -296,7 +336,8 @@ export function WorkspaceFaceliftShell() {
           hasAutodeposit={earnData.autodepositConfig !== null}
           hasPosition={earnData.hasPosition}
           isAtEarnRoot={
-            activePage === "earn" && activeMiddleView === "earn" &&
+            activePage === "earn" &&
+            activeMiddleView === "earn" &&
             !isChartExpanded
           }
           isReady={isSignedIn && !isPositionLoading}
@@ -388,12 +429,16 @@ export function WorkspaceFaceliftShell() {
                         onOpenAutodeposit={() => setMiddleView("autodeposit")}
                         onOpenChart={() => setIsChartExpanded(true)}
                         onSelectChartTab={setChartTab}
+                        onSelectTransaction={setSelectedEarnTransaction}
                         onViewAllActivity={() => handleSelectPage("activity")}
                         onWithdraw={(sourceKey) => {
                           setWithdrawSourceKey(sourceKey ?? null);
                           setMiddleView("withdraw");
                         }}
                         selectedChartTab={chartTab}
+                        selectedTransactionId={
+                          selectedEarnTransaction?.id ?? null
+                        }
                       />
                     </PaneReveal>
                   ) : (
@@ -406,7 +451,20 @@ export function WorkspaceFaceliftShell() {
                   )}
                 </MiddlePaneSlide>
                 {activeMiddleView === "withdraw" ||
-                activeMiddleView === "autodeposit" ? null : (
+                activeMiddleView ===
+                  "autodeposit" ? null : selectedEarnTransaction &&
+                  earnTransactionDetail &&
+                  activeMiddleView === "earn" ? (
+                  <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">
+                    <PaneReveal key={earnTransactionDetail.id}>
+                      <EarnTransactionDetailPane
+                        item={earnTransactionDetail}
+                        onClose={() => setSelectedEarnTransaction(null)}
+                        walletAddress={earnData.walletAddress}
+                      />
+                    </PaneReveal>
+                  </aside>
+                ) : (
                   <EarnChartPane
                     banner={
                       <EarnBanners
@@ -424,6 +482,23 @@ export function WorkspaceFaceliftShell() {
                   />
                 )}
               </div>
+              {earnData.hasPosition ? (
+                <SheetReveal
+                  isOpen={selectedEarnTransaction !== null && isEarnRootView}
+                  onClose={() => setSelectedEarnTransaction(null)}
+                  scrimClassName="fixed inset-0 z-50 flex bg-black/20 p-2 backdrop-blur-[4px] max-[795px]:bg-white/60 max-[795px]:p-0 max-[795px]:pt-8 min-[1204px]:hidden"
+                  sheetClassName="ml-auto flex h-full w-[400px] min-w-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:w-full max-[795px]:rounded-b-none max-[795px]:shadow-[0px_-10px_40px_-10px_rgba(0,0,0,0.2)]"
+                >
+                  {earnTransactionDetail ? (
+                    <EarnTransactionDetailPane
+                      item={earnTransactionDetail}
+                      key={earnTransactionDetail.id}
+                      onClose={() => setSelectedEarnTransaction(null)}
+                      walletAddress={earnData.walletAddress}
+                    />
+                  ) : null}
+                </SheetReveal>
+              ) : null}
               {isEarnRootView ? (
                 <MobileTabBar
                   activeTab="earn"

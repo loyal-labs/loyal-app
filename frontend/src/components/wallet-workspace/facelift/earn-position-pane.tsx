@@ -25,6 +25,7 @@ import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { formatAutodepositUsdLabel } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
@@ -38,18 +39,22 @@ export function EarnPositionPane({
   onOpenAutodeposit,
   onOpenChart,
   onSelectChartTab,
+  onSelectTransaction,
   onViewAllActivity,
   onWithdraw,
   selectedChartTab,
+  selectedTransactionId,
 }: {
   data: EarnPositionData;
   onDeposit: () => void;
   onOpenAutodeposit: () => void;
   onOpenChart: () => void;
   onSelectChartTab: (tab: ChartTab) => void;
+  onSelectTransaction: (item: EarnTransactionItem) => void;
   onViewAllActivity: () => void;
   onWithdraw: (sourceKey?: string) => void;
   selectedChartTab: ChartTab | null;
+  selectedTransactionId: string | null;
 }) {
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const autodeposit = data.autodepositConfig;
@@ -274,11 +279,13 @@ export function EarnPositionPane({
             run: data.actions.executeScheduledSweep,
           }}
           holdings={data.position?.holdings ?? []}
+          onSelectTransaction={onSelectTransaction}
           onViewAllActivity={onViewAllActivity}
           onWithdrawSource={onWithdraw}
           pendingSignatures={data.actions.pendingTransactionSignatures}
           refreshKey={data.actions.earnTransactionsRefreshKey}
           scheduledSweeps={data.scheduledSweeps}
+          selectedTransactionId={selectedTransactionId}
           settingsPda={data.settingsPda}
           walletAddress={data.walletAddress}
         />
