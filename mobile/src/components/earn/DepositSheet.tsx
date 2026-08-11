@@ -5,7 +5,7 @@ import {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import * as Haptics from "expo-haptics";
-import { X } from "lucide-react-native";
+import { Check, ChevronDown, X } from "lucide-react-native";
 import {
   useCallback,
   useEffect,
@@ -17,6 +17,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Image,
+  type ImageSourcePropType,
   Keyboard,
   Pressable,
   StyleSheet,
@@ -33,8 +34,16 @@ import { env } from "@/config/env";
 
 const usdcLogo = require("../../../assets/images/earn/usdc.png");
 
-// Earn only accepts USDC, so the asset is fixed and the selector is replaced
-// by a static logo chip (Figma 75:33570, annotation "вместо селекта").
+// Which stablecoin funds the deposit. Only USDC today, so the picker opens a
+// one-row list — it exists so another stablecoin is one more entry in
+// `sourceOptions` and nothing else. Mirrors the web deposit pane's
+// DepositSourceOption; the picker chrome is the withdraw sheet's source selector.
+type DepositSourceOption = {
+  symbol: string;
+  logo: ImageSourcePropType;
+  usd: number;
+};
+
 const MIN_DEPOSIT_USD = 1;
 
 // The first Earn deposit creates the position's on-chain accounts, which costs
@@ -167,11 +176,13 @@ export function DepositSheet({
   isFirstDeposit,
 }: DepositSheetProps) {
   const sheetRef = useRef<BottomSheetModal>(null);
+  const sourceSheetRef = useRef<BottomSheetModal>(null);
   // The underlying input is gesture-handler's TextInput (forwarded through
   // @gorhom/bottom-sheet); only `.focus()` is called here.
   const inputRef = useRef<{ focus: () => void } | null>(null);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
+  const [selectedSymbol, setSelectedSymbol] = useState("USDC");
   const [isFocused, setIsFocused] = useState(false);
   const [caretOn, setCaretOn] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -190,9 +201,17 @@ export function DepositSheet({
   }, [submitting, isFirstDeposit]);
 
   const snapPoints = useMemo(() => ["94%"], []);
-  const available = Number.isFinite(availableUsdc ?? NaN)
+  const usdcAvailable = Number.isFinite(availableUsdc ?? NaN)
     ? (availableUsdc as number)
     : 0;
+  const sourceOptions = useMemo<DepositSourceOption[]>(
+    () => [{ symbol: "USDC", logo: usdcLogo, usd: usdcAvailable }],
+    [usdcAvailable],
+  );
+  const selectedSource =
+    sourceOptions.find((option) => option.symbol === selectedSymbol) ??
+    sourceOptions[0];
+  const available = selectedSource.usd;
 
   useEffect(() => {
     if (open) {
@@ -239,6 +258,21 @@ export function DepositSheet({
     void Haptics.selectionAsync();
     setAmount(available.toFixed(2));
   }, [available]);
+
+  const openSourceList = useCallback(() => {
+    void Haptics.selectionAsync();
+    Keyboard.dismiss();
+    sourceSheetRef.current?.present();
+  }, []);
+
+  const selectSource = useCallback((symbol: string) => {
+    void Haptics.selectionAsync();
+    setSelectedSymbol(symbol);
+    // The cap moves with the coin — start the amount over instead of carrying
+    // a value the newly selected balance may not cover.
+    setAmount("");
+    sourceSheetRef.current?.dismiss();
+  }, []);
 
   const handleDeposit = useCallback(async () => {
     const usd = amountToUsd(amount);
@@ -324,171 +358,231 @@ export function DepositSheet({
   }));
 
   return (
-    <BottomSheetModal
-      ref={sheetRef}
-      snapPoints={snapPoints}
-      enableDynamicSizing={false}
-      enablePanDownToClose
-      backdropComponent={renderBackdrop}
-      onDismiss={onClose}
-      onChange={handleSheetChange}
-      handleComponent={null}
-      backgroundStyle={styles.sheetBackground}
-      // Keep the sheet at its 94% snap when the keyboard opens — neither
-      // gorhom nor the OS pans it. Footer is animated separately via
-      // `useAnimatedKeyboard` below, so the sheet itself doesn't need to
-      // move. `adjustResize` lets the system keep the focused input visible
-      // without panning the sheet content into the status bar.
-      keyboardBehavior="extend"
-      keyboardBlurBehavior="restore"
-      android_keyboardInputMode="adjustResize"
-    >
-      <BottomSheetView style={styles.container}>
-        {/* Toolbar — three flex children so the absolute title doesn't eat
-            taps on the close button (the bug in the previous version). */}
-        <View style={styles.toolbar}>
-          <Pressable
-            onPress={handleClose}
-            accessibilityRole="button"
-            accessibilityLabel="Close"
-            style={({ pressed }) => [
-              styles.iconButton,
-              { opacity: pressed ? 0.7 : 1 },
-            ]}
-            hitSlop={12}
-          >
-            <X size={24} color="#1C1C1E" strokeWidth={2} />
-          </Pressable>
-          <Text style={styles.toolbarTitle}>Deposit</Text>
-          <View style={styles.iconButtonSpacer} />
-        </View>
+    <>
+      <BottomSheetModal
+        ref={sheetRef}
+        snapPoints={snapPoints}
+        enableDynamicSizing={false}
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        onDismiss={onClose}
+        onChange={handleSheetChange}
+        handleComponent={null}
+        backgroundStyle={styles.sheetBackground}
+        // Keep the sheet at its 94% snap when the keyboard opens — neither
+        // gorhom nor the OS pans it. Footer is animated separately via
+        // `useAnimatedKeyboard` below, so the sheet itself doesn't need to
+        // move. `adjustResize` lets the system keep the focused input visible
+        // without panning the sheet content into the status bar.
+        keyboardBehavior="extend"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
+      >
+        <BottomSheetView style={styles.container}>
+          {/* Toolbar — three flex children so the absolute title doesn't eat
+              taps on the close button (the bug in the previous version). */}
+          <View style={styles.toolbar}>
+            <Pressable
+              onPress={handleClose}
+              accessibilityRole="button"
+              accessibilityLabel="Close"
+              style={({ pressed }) => [
+                styles.iconButton,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+              hitSlop={12}
+            >
+              <X size={24} color="#1C1C1E" strokeWidth={2} />
+            </Pressable>
+            <Text style={styles.toolbarTitle}>Deposit</Text>
+            <View style={styles.iconButtonSpacer} />
+          </View>
 
-        {/* Amount input — a transparent BottomSheetTextInput covers the row
-            and captures taps/keyboard. The visible "$" + digits + caret are
-            rendered on top via pointerEvents="none" so they don't block
-            re-focusing. The value is entered in dollars (USDC ≈ $1). */}
-        <View style={styles.body}>
-          <View style={styles.amountInputWrap}>
-            <View style={styles.amountRow}>
-              <View style={styles.amountVisual} pointerEvents="none">
-                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
-                  $
-                </Text>
-                <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
-                  {displayValue || "0"}
-                </Text>
-                <View
-                  style={[
-                    styles.caret,
-                    { opacity: isFocused && caretOn ? 1 : 0 },
-                  ]}
+          {/* Amount input — a transparent BottomSheetTextInput covers the row
+              and captures taps/keyboard. The visible "$" + digits + caret are
+              rendered on top via pointerEvents="none" so they don't block
+              re-focusing. The value is entered in dollars (USDC ≈ $1). */}
+          <View style={styles.body}>
+            <View style={styles.amountInputWrap}>
+              <View style={styles.amountRow}>
+                <View style={styles.amountVisual} pointerEvents="none">
+                  <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
+                    $
+                  </Text>
+                  <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
+                    {displayValue || "0"}
+                  </Text>
+                  <View
+                    style={[
+                      styles.caret,
+                      { opacity: isFocused && caretOn ? 1 : 0 },
+                    ]}
+                  />
+                </View>
+                {/* Transparent overlay input — sits on top of the row, captures
+                    taps directly so re-focus after keyboard dismiss is just a
+                    tap (no JS .focus() roundtrip needed). */}
+                <BottomSheetTextInput
+                  ref={inputRef as unknown as React.Ref<never>}
+                  value={displayValue}
+                  onChangeText={handleAmountChange}
+                  onFocus={handleFocus}
+                  onBlur={handleBlur}
+                  keyboardType="decimal-pad"
+                  inputMode="decimal"
+                  maxLength={15}
+                  caretHidden
+                  style={styles.overlayInput}
+                  accessibilityLabel="Deposit amount"
                 />
               </View>
-              {/* Transparent overlay input — sits on top of the row, captures
-                  taps directly so re-focus after keyboard dismiss is just a
-                  tap (no JS .focus() roundtrip needed). */}
-              <BottomSheetTextInput
-                ref={inputRef as unknown as React.Ref<never>}
-                value={displayValue}
-                onChangeText={handleAmountChange}
-                onFocus={handleFocus}
-                onBlur={handleBlur}
-                keyboardType="decimal-pad"
-                inputMode="decimal"
-                maxLength={15}
-                caretHidden
-                style={styles.overlayInput}
-                accessibilityLabel="Deposit amount"
-              />
             </View>
           </View>
-        </View>
 
-        {/* CTA: absolute at the sheet's bottom, translated up by keyboard
-            height via `useAnimatedKeyboard`. Stays glued to the keyboard
-            top when it's open, and to the safe-area bottom when it's not. */}
-        <Animated.View
-          style={[
-            styles.footerAbsolute,
-            { paddingBottom: insets.bottom + 12 },
-            animatedFooterStyle,
-          ]}
-        >
-          {/* Balance cell — USDC only, so the selector is a static logo chip
-              with the available balance and a MAX shortcut. Lives directly
-              above the CTA (not under the input) and rides up with the
-              keyboard alongside the button. */}
-          <View style={styles.balanceCell}>
-            <View style={styles.logoChip}>
-              <Image
-                source={usdcLogo}
-                style={styles.tokenLogo}
-                accessibilityLabel="USDC"
-              />
-            </View>
-            <View style={styles.balanceMiddle}>
-              <Text style={styles.balanceAmount}>
-                {BALANCE_FORMATTER.format(available)}
-              </Text>
-              <Text style={styles.balanceAvailable}>Available</Text>
-            </View>
-            <Pressable
-              onPress={handleMax}
-              accessibilityRole="button"
-              accessibilityLabel="Use maximum balance"
-              style={({ pressed }) => [
-                styles.maxBadge,
-                { opacity: pressed ? 0.8 : 1 },
-              ]}
-              hitSlop={8}
-            >
-              <Text style={styles.maxBadgeText}>MAX</Text>
-            </Pressable>
-          </View>
-
-          {submitError ? (
-            <Text style={styles.submitError}>{submitError}</Text>
-          ) : null}
-
-          {slowSetupHint ? (
-            <Text style={styles.solHint}>
-              Setting up your Earn account — a first deposit can take up to a
-              minute…
-            </Text>
-          ) : null}
-
-          {isFirstDeposit ? (
-            <Text style={styles.solHint}>
-              This deposit sets up your Earn account and takes ~
-              {formatSolAmount(FIRST_DEPOSIT_MIN_SOL)} SOL from your wallet for
-              Solana account rent — it is returned when you fully withdraw.
-            </Text>
-          ) : null}
-
-          <Pressable
-            onPress={handleDeposit}
-            accessibilityRole="button"
-            accessibilityLabel={ctaLabel}
-            disabled={hasError || submitting}
-            style={({ pressed }) => [
-              styles.cta,
-              hasError ? styles.ctaError : styles.ctaEnabled,
-              !hasError && !submitting && pressed && styles.ctaPressed,
+          {/* CTA: absolute at the sheet's bottom, translated up by keyboard
+              height via `useAnimatedKeyboard`. Stays glued to the keyboard
+              top when it's open, and to the safe-area bottom when it's not. */}
+          <Animated.View
+            style={[
+              styles.footerAbsolute,
+              { paddingBottom: insets.bottom + 12 },
+              animatedFooterStyle,
             ]}
           >
-            {submitting ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text
-                style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}
+            {/* Balance cell — a tappable stablecoin pill (logo + chevron), the
+                selected coin's available balance and a MAX shortcut. Lives
+                directly above the CTA (not under the input) and rides up with
+                the keyboard alongside the button. */}
+            <View style={styles.balanceCell}>
+              <Pressable
+                onPress={openSourceList}
+                accessibilityRole="button"
+                accessibilityLabel="Choose deposit stablecoin"
+                style={({ pressed }) => [
+                  styles.selectorPill,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+                hitSlop={8}
               >
-                {ctaLabel}
+                <Image
+                  source={selectedSource.logo}
+                  style={styles.tokenLogo}
+                  accessibilityLabel={selectedSource.symbol}
+                />
+                <ChevronDown size={16} color={COLOR_LABEL_DIM} strokeWidth={2} />
+              </Pressable>
+              <View style={styles.balanceMiddle}>
+                <Text style={styles.balanceAmount}>
+                  {BALANCE_FORMATTER.format(available)}
+                </Text>
+                <Text style={styles.balanceAvailable} numberOfLines={1}>
+                  {`${selectedSource.symbol} available`}
+                </Text>
+              </View>
+              <Pressable
+                onPress={handleMax}
+                accessibilityRole="button"
+                accessibilityLabel="Use maximum balance"
+                style={({ pressed }) => [
+                  styles.maxBadge,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+                hitSlop={8}
+              >
+                <Text style={styles.maxBadgeText}>MAX</Text>
+              </Pressable>
+            </View>
+
+            {submitError ? (
+              <Text style={styles.submitError}>{submitError}</Text>
+            ) : null}
+
+            {slowSetupHint ? (
+              <Text style={styles.solHint}>
+                Setting up your Earn account — a first deposit can take up to a
+                minute…
               </Text>
-            )}
-          </Pressable>
-        </Animated.View>
-      </BottomSheetView>
-    </BottomSheetModal>
+            ) : null}
+
+            {isFirstDeposit ? (
+              <Text style={styles.solHint}>
+                This deposit sets up your Earn account and takes ~
+                {formatSolAmount(FIRST_DEPOSIT_MIN_SOL)} SOL from your wallet for
+                Solana account rent — it is returned when you fully withdraw.
+              </Text>
+            ) : null}
+
+            <Pressable
+              onPress={handleDeposit}
+              accessibilityRole="button"
+              accessibilityLabel={ctaLabel}
+              disabled={hasError || submitting}
+              style={({ pressed }) => [
+                styles.cta,
+                hasError ? styles.ctaError : styles.ctaEnabled,
+                !hasError && !submitting && pressed && styles.ctaPressed,
+              ]}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text
+                  style={hasError ? styles.ctaLabelError : styles.ctaLabelEnabled}
+                >
+                  {ctaLabel}
+                </Text>
+              )}
+            </Pressable>
+          </Animated.View>
+        </BottomSheetView>
+      </BottomSheetModal>
+
+      <BottomSheetModal
+        ref={sourceSheetRef}
+        enableDynamicSizing
+        enablePanDownToClose
+        backdropComponent={renderBackdrop}
+        backgroundStyle={styles.sheetBackground}
+        handleIndicatorStyle={styles.sourceHandle}
+      >
+        <BottomSheetView
+          style={{
+            paddingHorizontal: 12,
+            paddingBottom: insets.bottom + 12,
+            paddingTop: 4,
+          }}
+        >
+          <Text style={styles.sourceListTitle}>Stablecoins</Text>
+          {sourceOptions.map((option) => (
+            <Pressable
+              key={option.symbol}
+              onPress={() => selectSource(option.symbol)}
+              accessibilityRole="button"
+              accessibilityLabel={option.symbol}
+              style={({ pressed }) => [
+                styles.sourceRow,
+                { backgroundColor: pressed ? COLOR_CHIP_BG : "transparent" },
+              ]}
+            >
+              <Image
+                source={option.logo}
+                style={styles.sourceRowLogo}
+                accessibilityLabel={option.symbol}
+              />
+              <View style={styles.sourceRowMiddle}>
+                <Text style={styles.sourceRowLabel}>{option.symbol}</Text>
+                <Text style={styles.sourceRowBalance}>
+                  {BALANCE_FORMATTER.format(option.usd)}
+                </Text>
+              </View>
+              {option.symbol === selectedSource.symbol ? (
+                <Check size={22} color={COLOR_BLACK} strokeWidth={2} />
+              ) : null}
+            </Pressable>
+          ))}
+        </BottomSheetView>
+      </BottomSheetModal>
+    </>
   );
 }
 
@@ -588,12 +682,15 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
   },
-  logoChip: {
-    padding: 4,
-    borderRadius: 999,
-    backgroundColor: COLOR_CHIP_SOFT,
+  selectorPill: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 4,
+    paddingLeft: 4,
+    paddingRight: 8,
+    paddingVertical: 4,
+    borderRadius: 61,
+    backgroundColor: COLOR_CHIP_SOFT,
   },
   tokenLogo: {
     width: 40,
@@ -684,5 +781,47 @@ const styles = StyleSheet.create({
     color: COLOR_LABEL_DIM,
     textAlign: "center",
     marginBottom: 12,
+  },
+  sourceHandle: {
+    backgroundColor: "rgba(60, 60, 67, 0.3)",
+    width: 40,
+  },
+  sourceListTitle: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 17,
+    lineHeight: 22,
+    color: COLOR_BLACK,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  sourceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    borderRadius: 16,
+  },
+  sourceRowLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  sourceRowMiddle: {
+    flex: 1,
+  },
+  sourceRowLabel: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 16,
+    lineHeight: 20,
+    color: COLOR_BLACK,
+  },
+  sourceRowBalance: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 14,
+    lineHeight: 18,
+    color: COLOR_LABEL_DIM,
+    marginTop: 2,
   },
 });
