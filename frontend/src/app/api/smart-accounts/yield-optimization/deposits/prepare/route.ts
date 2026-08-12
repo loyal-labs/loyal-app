@@ -80,7 +80,7 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint;
-  let mint: string;
+  let mint: string | null;
   try {
     ({ amountRaw, mint } = parseEarnDepositPrepareRequestBody(
       await request.json()
@@ -113,6 +113,9 @@ export async function POST(request: Request) {
       error instanceof Error ? error.message : "Unsupported Earn mint."
     );
   }
+  // Legacy bodies omit the mint (ASK-2099); from here on use the resolved
+  // product mint, which defaults those to USDC.
+  mint = productMint.mint.toBase58();
   let policy: RoutePolicyRecord | null = null;
   let setupPolicy: RoutePolicyRecord | null = null;
   let resumeRouteOnly = false;

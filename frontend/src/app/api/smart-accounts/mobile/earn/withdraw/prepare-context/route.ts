@@ -18,7 +18,10 @@ import {
   resolveEarnUsdcWithdrawInput,
   serializeEarnUsdcWithdrawInput,
 } from "@/lib/yield-optimization/earn-withdraw-input-resolution.server";
-import { parseEarnWithdrawPrepareRequestBody } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
+import {
+  type EarnWithdrawLegacyPrepareRequest,
+  parseEarnWithdrawPrepareRequestBody,
+} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 
 // Context twin of `../prepare` for ON-DEVICE withdraw prepare: same auth and
 // source-selection/reconcile logic (shared via
@@ -82,9 +85,11 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint | "max";
-  let sourceId: string;
+  let sourceId: string | null;
+  let legacy: EarnWithdrawLegacyPrepareRequest | null;
   try {
-    ({ amountRaw, sourceId } = parseEarnWithdrawPrepareRequestBody(body));
+    ({ amountRaw, sourceId, legacy } =
+      parseEarnWithdrawPrepareRequestBody(body));
   } catch (error) {
     return jsonError(
       400,
@@ -147,6 +152,7 @@ export async function POST(request: Request) {
       cluster,
       connection: getConnection(solanaEnv),
       earnVaultPda,
+      legacyRequest: legacy,
       logTag: "mobile-earn-withdraw-prepare-context",
       requestedAmountRaw: amountRaw,
       policySigner: getDeploymentPolicySignerPublicKey(),

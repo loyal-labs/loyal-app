@@ -124,7 +124,7 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint;
-  let mint: string;
+  let mint: string | null;
   try {
     ({ amountRaw, mint } = parseEarnDepositPrepareRequestBody(body));
   } catch (error) {
@@ -155,6 +155,9 @@ export async function POST(request: Request) {
       error instanceof Error ? error.message : "Unsupported Earn mint."
     );
   }
+  // Legacy bodies omit the mint (ASK-2099); from here on use the resolved
+  // product mint, which defaults those to USDC.
+  mint = productMint.mint.toBase58();
 
   // Resolve (provisioning if needed) the canonical smart account for this
   // wallet — same gate as `../prepare`: the first-ever provisioning is

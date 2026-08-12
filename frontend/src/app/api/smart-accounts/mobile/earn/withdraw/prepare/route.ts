@@ -19,6 +19,7 @@ import {
   resolveEarnUsdcWithdrawInput,
 } from "@/lib/yield-optimization/earn-withdraw-input-resolution.server";
 import {
+  type EarnWithdrawLegacyPrepareRequest,
   parseEarnWithdrawPrepareRequestBody,
   serializePreparedEarnUsdcWithdraw,
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
@@ -86,9 +87,11 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint | "max";
-  let sourceId: string;
+  let sourceId: string | null;
+  let legacy: EarnWithdrawLegacyPrepareRequest | null;
   try {
-    ({ amountRaw, sourceId } = parseEarnWithdrawPrepareRequestBody(body));
+    ({ amountRaw, sourceId, legacy } =
+      parseEarnWithdrawPrepareRequestBody(body));
   } catch (error) {
     return jsonError(
       400,
@@ -152,6 +155,7 @@ export async function POST(request: Request) {
       cluster,
       connection,
       earnVaultPda,
+      legacyRequest: legacy,
       logTag: "mobile-earn-withdraw-prepare",
       requestedAmountRaw: amountRaw,
       policySigner: getDeploymentPolicySignerPublicKey(),
