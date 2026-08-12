@@ -227,7 +227,7 @@ bun run frontend:build     # build loyal web frontend from repo root
 | `/apps/admin`                    | Next.js 15 internal admin dashboard.                                                                                                                                              |
 | `/packages`                      | Internal shared workspace packages such as `db-core`, `db-adapter-neon`, `auth-core`, and `shared`.                                                                               |
 | `/packages/private-transactions` | Publishable `@loyal-labs/private-transactions` NPM package.                                                                                                                       |
-| `/workers`                       | Runtime services/workers.                                                                                                                                                         |
+| `/apps/userbot`                  | Telegram userbot worker service.                                                                                                                                                  |
 | `/tests`                         | Anchor test suite.                                                                                                                                                                |
 | `/docs` and `/user-docs`         | Internal engineering docs and Mintlify-hosted user-facing docs.                                                                                                                   |
 

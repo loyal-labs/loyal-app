@@ -249,7 +249,7 @@ const changedFiles = [
 const prohibited = changedFiles.filter(
   (path) =>
     path.startsWith("programs/") ||
-    path.startsWith("workers/") ||
+    path.startsWith("apps/userbot/") ||
     path.includes("earn-product-mints") ||
     path.includes("policy-plan") ||
     path.includes("autodeposit")

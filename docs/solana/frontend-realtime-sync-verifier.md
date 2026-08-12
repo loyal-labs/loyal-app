@@ -94,19 +94,19 @@ submit transactions or mutate production state.
 
 ```sh
 git diff --check
-bun test frontend/src/features/earn-realtime/stream.test.ts \
-  frontend/src/features/earn-realtime/invalidation.test.ts \
-  frontend/src/features/earn-realtime/server/token.server.test.ts \
-  frontend/src/app/api/smart-accounts/yield-optimization/realtime/token/route.test.ts
+bun test apps/web/src/features/earn-realtime/stream.test.ts \
+  apps/web/src/features/earn-realtime/invalidation.test.ts \
+  apps/web/src/features/earn-realtime/server/token.server.test.ts \
+  apps/web/src/app/api/smart-accounts/yield-optimization/realtime/token/route.test.ts
 bun run --cwd frontend scripts/verify-realtime-sync.ts
 ./node_modules/.bin/tsc --noEmit --incremental false \
-  --project frontend/tsconfig.json --pretty false
+  --project apps/web/tsconfig.json --pretty false
 bun run frontend:lint
 rg -n 'const delays = \[800, 2000\]' \
-  frontend/src/components/wallet-workspace/app-wallet-workspace.tsx
+  apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx
 rg -n 'await refresh\(\{ invalidateAddresses, readCache: false \}\)' \
-  frontend/src/hooks/use-smart-account-sidebar-data.ts
-rg -n 'useEarnRealtime\(' frontend/src --glob '*.ts' --glob '*.tsx'
+  apps/web/src/hooks/use-smart-account-sidebar-data.ts
+rg -n 'useEarnRealtime\(' apps/web/src --glob '*.ts' --glob '*.tsx'
 ```
 
 The first two `rg` commands must return no match. The last must show the hook

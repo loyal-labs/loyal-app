@@ -1,6 +1,6 @@
 # Environment Variables
 
-All environment variables used by `/app/src/`.
+All environment variables used by `/apps/telegram/src/`.
 
 Environment access is centralized in:
 - `core/config/public.ts` for `NEXT_PUBLIC_*` values

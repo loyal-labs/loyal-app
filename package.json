@@ -8,10 +8,10 @@
     "apps/telegram",
     "apps/dashboard",
     "apps/extension",
-    "examples/*",
+    "apps/privy-showcase",
     "apps/web",
     "packages/*",
-    "workers/*"
+    "apps/userbot"
   ],
   "scripts": {
     "admin:dev": "bun run --cwd apps/admin dev",

@@ -6,7 +6,7 @@ steps.
 
 ## Required checks
 
-1. `/admin/earn` renders an Operational wallets section covering the current
+1. `/apps/admin/earn` renders an Operational wallets section covering the current
    production sponsorship, Earn policy/route, and gasless deployment roles.
    Roles sharing one address render as one wallet with multiple role labels.
 2. The admin path only handles public addresses or read-only database

@@ -14,14 +14,14 @@ Ensure these environment variables are configured for the app deployment:
 - `DATABASE_URL`
 - `REDPILL_AI_API_KEY`
 
-Reference: `app/.env.example`.
+Reference: `apps/telegram/.env.example`.
 
 ### Register Telegram bot commands
 
 Run the setup script once after deployment (or when commands change):
 
 ```bash
-cd app
+cd apps/telegram
 bun run telegram:setup-commands
 ```
 
