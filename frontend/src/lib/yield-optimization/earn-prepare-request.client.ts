@@ -1,6 +1,9 @@
 import type { LifecycleErrorDetail } from "@/features/observability/lifecycle-contract";
 
-const EARN_PREPARE_REQUEST_TIMEOUT_MS = 15_000;
+// Prepare routes legitimately run long (Safe reserve selection + Kamino RPC
+// round trips measured at ~10s in production, longer on dev cold compiles),
+// so the bound only guards against a hung connection, not a slow prepare.
+const EARN_PREPARE_REQUEST_TIMEOUT_MS = 45_000;
 
 export class EarnPrepareRequestError extends Error {
   readonly code: string | undefined;
@@ -60,7 +63,10 @@ export async function fetchEarnPrepare(args: {
       controller.abort();
     }, EARN_PREPARE_REQUEST_TIMEOUT_MS);
     try {
-      return await args.fetchImpl(args.url, {
+      // Invoke with an explicit receiver: `args.fetchImpl(...)` would call the
+      // native fetch with `this === args`, which browsers reject with
+      // "Failed to execute 'fetch' on 'Window': Illegal invocation".
+      return await args.fetchImpl.call(globalThis, args.url, {
         body: args.body,
         credentials: "include",
         headers: {
@@ -79,10 +85,15 @@ export async function fetchEarnPrepare(args: {
       if (attempt === 0 && errorDetail) {
         continue;
       }
-      throw new EarnPrepareRequestError("Earn prepare request failed.", {
-        cause: error,
-        errorDetail,
-      });
+      throw new EarnPrepareRequestError(
+        errorDetail === "request_timeout"
+          ? "Earn prepare request timed out."
+          : "Earn prepare request failed.",
+        {
+          cause: error,
+          errorDetail,
+        }
+      );
     } finally {
       clearTimeout(timeout);
     }
