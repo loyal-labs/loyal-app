@@ -174,6 +174,10 @@ export async function reportMobileErrorEnvelope(
       // The device reports its own release/environment — the app fleet mixes
       // binary versions and OTA updates that Vercel's release can't describe.
       deploymentEnvironment: envelope.environment,
+      ...(envelope.deviceId ? { deviceId: envelope.deviceId } : {}),
+      ...(envelope.devicePlatform
+        ? { devicePlatform: envelope.devicePlatform }
+        : {}),
       exception: {
         message: envelope.message,
         name: envelope.name,

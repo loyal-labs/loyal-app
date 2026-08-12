@@ -232,6 +232,12 @@ export const LIFECYCLE_CLIENT_PLATFORMS = ["desktop", "mobile"] as const;
 export type LifecycleClientPlatform =
   (typeof LIFECYCLE_CLIENT_PLATFORMS)[number];
 
+// Which OS fleet a mobile device belongs to — same vocabulary as the metrics
+// contract's `platform` (ASK-2097). Distinct from `clientPlatform`, which is
+// a browser form-factor token.
+export const MOBILE_DEVICE_PLATFORMS = ["android", "ios"] as const;
+export type MobileDevicePlatform = (typeof MOBILE_DEVICE_PLATFORMS)[number];
+
 export const LIFECYCLE_ERROR_DETAILS = [
   "mwa_unspecified",
   "mwa_wallet_not_found",
@@ -405,6 +411,13 @@ export type BrowserLifecycleEnvelope = LifecycleDiagnostics & {
 // binary versions and OTA bundles) plus an optional wallet address that the
 // ingest route forwards verbatim, the same way web sessions report theirs.
 export type MobileLifecycleEnvelope = BrowserLifecycleEnvelope & {
+  /**
+   * Stable per-install UUID, the join key for a device's whole telemetry
+   * trail across sessions and wallets (ASK-2097). Optional: older clients
+   * predate it.
+   */
+  deviceId?: string;
+  devicePlatform?: MobileDevicePlatform;
   environment: string;
   release: string;
   walletAddress?: string;
@@ -412,6 +425,8 @@ export type MobileLifecycleEnvelope = BrowserLifecycleEnvelope & {
 
 export type NormalizedLifecycleEvent = BrowserLifecycleEnvelope & {
   deploymentEnvironment: string;
+  deviceId?: string;
+  devicePlatform?: MobileDevicePlatform;
   release: string;
   serviceName: "loyal-frontend" | "loyal-mobile";
   walletAddress?: string;
@@ -760,10 +775,8 @@ export function parseMobileLifecycleEnvelope(
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new InvalidLifecycleEnvelopeError();
   }
-  const { environment, release, walletAddress, ...rest } = value as Record<
-    string,
-    unknown
-  >;
+  const { deviceId, devicePlatform, environment, release, walletAddress, ...rest } =
+    value as Record<string, unknown>;
 
   const normalizedEnvironment =
     typeof environment === "string"
@@ -783,6 +796,18 @@ export function parseMobileLifecycleEnvelope(
   ) {
     throw new InvalidLifecycleEnvelopeError();
   }
+  if (
+    deviceId !== undefined &&
+    (typeof deviceId !== "string" || !UUID_V4_PATTERN.test(deviceId))
+  ) {
+    throw new InvalidLifecycleEnvelopeError();
+  }
+  if (
+    devicePlatform !== undefined &&
+    !includes(MOBILE_DEVICE_PLATFORMS, devicePlatform)
+  ) {
+    throw new InvalidLifecycleEnvelopeError();
+  }
   if (rest.runtime !== "mobile") {
     throw new InvalidLifecycleEnvelopeError();
   }
@@ -792,6 +817,8 @@ export function parseMobileLifecycleEnvelope(
     environment: normalizedEnvironment,
     release: normalizedRelease,
     ...(walletAddress ? { walletAddress } : {}),
+    ...(deviceId !== undefined ? { deviceId } : {}),
+    ...(devicePlatform !== undefined ? { devicePlatform } : {}),
   };
 }
 
