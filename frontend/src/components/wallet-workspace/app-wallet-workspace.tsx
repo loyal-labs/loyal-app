@@ -136,12 +136,17 @@ import {
 import {
   EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+  EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   getEarnDepositUserErrorMessage,
   prepareEarnCleanupOnServer,
   prepareEarnDepositOnServer,
   type PreparedEarnUsdcCleanup,
   useSmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
+import {
+  EarnPrepareRequestError,
+  getEarnPrepareLifecycleDiagnostics,
+} from "@/lib/yield-optimization/earn-prepare-request.client";
 import { usePopularTokens } from "@/hooks/use-popular-tokens";
 import {
   splitUsdBalance,
@@ -731,7 +736,6 @@ function normalizeCachedEarnAutodepositConfig(
   };
 }
 
-
 function parseOptionalUnsignedBigInt(
   value: string | null | undefined
 ): bigint | undefined {
@@ -778,9 +782,6 @@ function removeCachedEarnAutodepositConfig(args: {
 }) {
   removeClientCache({ key: getEarnAutodepositConfigCacheKey(args) });
 }
-
-
-
 
 function useMainAccountUsdcBalance(args: {
   connection: Connection;
@@ -4778,7 +4779,8 @@ export function AppWalletWorkspace({
 
   const prepareEarnDepositInBrowser = useCallback(
     async (
-      draft: EarnDepositDraft
+      draft: EarnDepositDraft,
+      observabilityFlowId?: string
     ): Promise<SmartAccountPreparedEarnUsdcDeposit> => {
       const amountRaw = parseTokenAmountLabelToRaw(
         draft.amountLabel,
@@ -4790,6 +4792,7 @@ export function AppWalletWorkspace({
       return prepareEarnDepositOnServer({
         amountRaw,
         mint: draft.source.mint,
+        observabilityFlowId,
       });
     },
     []
@@ -5018,7 +5021,10 @@ export function AppWalletWorkspace({
           draft.amountLabel,
           draft.tokenDecimals
         );
-        const preparedDeposit = await prepareEarnDepositInBrowser(draft);
+        const preparedDeposit = await prepareEarnDepositInBrowser(
+          draft,
+          tracker.flowId
+        );
         const shouldBypassTopUpPreview =
           hasEarnPosition &&
           !requiresPolicySetup &&
@@ -5129,6 +5135,8 @@ export function AppWalletWorkspace({
           tracker.cancel("wallet_submit_confirm", {
             errorCode: "wallet_rejected",
           });
+        } else if (error instanceof EarnPrepareRequestError) {
+          tracker.fail("prepare", getEarnPrepareLifecycleDiagnostics(error));
         } else {
           tracker.fail("prepare", { errorCode: "unexpected_error" });
         }
@@ -5681,6 +5689,7 @@ export function AppWalletWorkspace({
     setIsEarnAutoSigning(true);
     const tracker = earnWithdrawLifecycleRef.current;
     try {
+      let confirmationRecordFailed = false;
       let stage = earnWithdrawReviewStage;
       let preparedWithdraw = pendingEarnWithdrawPrepared;
       const amountRaw = getEarnWithdrawDraftAmountRaw(pendingEarnWithdrawDraft);
@@ -5773,15 +5782,10 @@ export function AppWalletWorkspace({
         });
 
         if (!result.success) {
-          if (result.status === "confirmation_record_failed") {
-            tracker?.fail("backend_confirm", {
-              chainState: "confirmed",
-              errorCode: "record_failed",
-              persistenceState: "failed",
-            });
-          }
           throw new Error(result.error ?? "Earn withdrawal failed.");
         }
+        confirmationRecordFailed ||=
+          result.status === "confirmation_record_failed";
 
         const nextStage = getNextEarnWithdrawReviewStage({
           currentStage: stage,
@@ -5799,7 +5803,7 @@ export function AppWalletWorkspace({
         tracker?.observe("slot_resolve", { chainState: "confirmed" });
         tracker?.observe("backend_confirm", {
           chainState: "confirmed",
-          persistenceState: "recorded",
+          persistenceState: confirmationRecordFailed ? "failed" : "recorded",
         });
 
         markDetailPaneTransition("back");
@@ -5833,13 +5837,21 @@ export function AppWalletWorkspace({
           tracker?.observe("full_exit_verify", {
             chainState: "confirmed",
             cleanupRequired: true,
-            persistenceState: "recorded",
+            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
           });
         } else {
           tracker?.complete("ui_commit", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
           });
+          if (confirmationRecordFailed) {
+            tracker?.recovery({ errorCode: "record_failed" });
+          }
+        }
+        if (confirmationRecordFailed) {
+          setProposalActionError(
+            EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE
+          );
         }
         break;
       }

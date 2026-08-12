@@ -60,7 +60,10 @@ describe("lifecycle errorDetail", () => {
   // characters a sanitizer would have waved through intact.
   test.each([
     ["a wallet address", "BGtzTW2yczjR7FCpSvKfcjxCw811Rdori8aY96ZJdQ51"],
-    ["a JWT", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1"],
+    [
+      "a JWT",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1",
+    ],
     // Shaped like an API key without matching a real provider's pattern —
     // secret scanners flag the genuine article even in a test fixture.
     ["an API key", "EXAMPLE_NOT_A_REAL_KEY_0123456789abcdefghij"],
@@ -86,7 +89,9 @@ describe("lifecycle errorDetail", () => {
   });
 
   test("is optional", () => {
-    expect(parseBrowserLifecycleEnvelope(envelope()).errorDetail).toBeUndefined();
+    expect(
+      parseBrowserLifecycleEnvelope(envelope()).errorDetail
+    ).toBeUndefined();
   });
 
   // A `request_failed` with no `httpStatus` never got a response, so the status
@@ -97,7 +102,7 @@ describe("lifecycle errorDetail", () => {
     ["request_timeout"],
     ["kamino_upstream_unavailable"],
     ["rpc_request_failed"],
-  ])("carries %s on a statusless request_failed", (errorDetail) => {
+  ] as const)("carries %s on a statusless request_failed", (errorDetail) => {
     const parsed = parseBrowserLifecycleEnvelope(
       envelope({ errorCode: "request_failed", errorDetail })
     );

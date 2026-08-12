@@ -1,0 +1,50 @@
+diff --git a/src/adapter.ts b/src/adapter.ts
+--- a/src/adapter.ts
++++ b/src/adapter.ts
+@@ -201,8 +201,11 @@
+     #reset() {
+-        const supportedTransactionVersions =
++        const declaredSupportedTransactionVersions =
+             SolanaSignAndSendTransaction in this.#wallet.features
+                 ? this.#wallet.features[SolanaSignAndSendTransaction].supportedTransactionVersions
+                 : this.#wallet.features[SolanaSignTransaction].supportedTransactionVersions;
++        const supportedTransactionVersions = Array.isArray(declaredSupportedTransactionVersions)
++            ? declaredSupportedTransactionVersions
++            : [];
+         this.#supportedTransactionVersions = arraysEqual(supportedTransactionVersions, ['legacy'])
+             ? null
+             : new Set(supportedTransactionVersions);
+diff --git a/lib/esm/adapter.js b/lib/esm/adapter.js
+--- a/lib/esm/adapter.js
++++ b/lib/esm/adapter.js
+@@ -255,9 +255,12 @@
+     __classPrivateFieldGet(this, _StandardWalletAdapter_instances, "m", _StandardWalletAdapter_reset).call(this);
+     this.emit('disconnect');
+ }, _StandardWalletAdapter_reset = function _StandardWalletAdapter_reset() {
+-    const supportedTransactionVersions = SolanaSignAndSendTransaction in __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features
++    const declaredSupportedTransactionVersions = SolanaSignAndSendTransaction in __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features
+         ? __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features[SolanaSignAndSendTransaction].supportedTransactionVersions
+         : __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features[SolanaSignTransaction].supportedTransactionVersions;
++    const supportedTransactionVersions = Array.isArray(declaredSupportedTransactionVersions)
++        ? declaredSupportedTransactionVersions
++        : [];
+     __classPrivateFieldSet(this, _StandardWalletAdapter_supportedTransactionVersions, arraysEqual(supportedTransactionVersions, ['legacy'])
+         ? null
+         : new Set(supportedTransactionVersions), "f");
+diff --git a/lib/cjs/adapter.js b/lib/cjs/adapter.js
+--- a/lib/cjs/adapter.js
++++ b/lib/cjs/adapter.js
+@@ -290,9 +290,12 @@
+     this.emit('disconnect');
+ }, _StandardWalletAdapter_reset = function _StandardWalletAdapter_reset() {
+     var _a, _b;
+-    const supportedTransactionVersions = wallet_standard_features_1.SolanaSignAndSendTransaction in __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features
++    const declaredSupportedTransactionVersions = wallet_standard_features_1.SolanaSignAndSendTransaction in __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features
+         ? __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features[wallet_standard_features_1.SolanaSignAndSendTransaction].supportedTransactionVersions
+         : __classPrivateFieldGet(this, _StandardWalletAdapter_wallet, "f").features[wallet_standard_features_1.SolanaSignTransaction].supportedTransactionVersions;
++    const supportedTransactionVersions = Array.isArray(declaredSupportedTransactionVersions)
++        ? declaredSupportedTransactionVersions
++        : [];
+     __classPrivateFieldSet(this, _StandardWalletAdapter_supportedTransactionVersions, (0, wallet_1.arraysEqual)(supportedTransactionVersions, ['legacy'])
+         ? null
+         : new Set(supportedTransactionVersions), "f");

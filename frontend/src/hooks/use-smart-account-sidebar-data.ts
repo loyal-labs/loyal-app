@@ -86,6 +86,10 @@ import {
 } from "@/lib/wallet/stablecoin-classification";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import {
+  EarnPrepareRequestError,
+  fetchEarnPrepare,
+} from "@/lib/yield-optimization/earn-prepare-request.client";
+import {
   buildEarnAutodepositCloseConfirmRequestBody,
   buildEarnAutodepositSetupConfirmRequestBody,
   type EarnAutodepositCloseConfirmResponse,
@@ -742,6 +746,9 @@ export const EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE =
 
 export const EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE =
   "Earn setup is confirmed, but Earn is still updating. Refresh Earn, then continue this deposit. No USDC was deposited yet.";
+
+export const EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE =
+  "Your withdrawal is confirmed, but Earn is still syncing it. Do not withdraw again; refresh Earn in a moment.";
 
 export function getEarnDepositUserErrorMessage(
   error: unknown,
@@ -1779,22 +1786,20 @@ async function postEarnAutodepositToggle(args: {
 
 export async function prepareEarnDepositOnServer(args: {
   amountRaw: bigint;
-  mint: string;
   fetchImpl?: typeof fetch;
+  mint: string;
+  observabilityFlowId?: string;
 }): Promise<SmartAccountPreparedEarnUsdcDeposit> {
   const fetchImpl = args.fetchImpl ?? fetch;
-  const response = await fetchImpl(
-    "/api/smart-accounts/yield-optimization/deposits/prepare",
-    {
-      body: JSON.stringify({
-        amountRaw: args.amountRaw.toString(),
-        mint: args.mint,
-      }),
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-    }
-  );
+  const response = await fetchEarnPrepare({
+    body: JSON.stringify({
+      amountRaw: args.amountRaw.toString(),
+      mint: args.mint,
+    }),
+    fetchImpl,
+    flowId: args.observabilityFlowId,
+    url: "/api/smart-accounts/yield-optimization/deposits/prepare",
+  });
 
   if (!response.ok) {
     const payload = (await response
@@ -1809,8 +1814,12 @@ export async function prepareEarnDepositOnServer(args: {
           "Update your Earn policy before depositing this asset."
       );
     }
-    throw new Error(
-      payload?.error?.message ?? "Failed to prepare earn deposit."
+    throw new EarnPrepareRequestError(
+      payload?.error?.message ?? "Failed to prepare earn deposit.",
+      {
+        code: payload?.error?.code,
+        httpStatus: response.status,
+      }
     );
   }
 
@@ -1830,26 +1839,28 @@ export class EarnPolicyUpdateRequiredClientError extends Error {
 export async function prepareEarnWithdrawOnServer(args: {
   amountRaw: bigint | "max";
   fetchImpl?: typeof fetch;
+  observabilityFlowId?: string;
   sourceId: string;
 }): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
-  const response = await (args.fetchImpl ?? fetch)(
-    "/api/smart-accounts/yield-optimization/withdrawals/prepare",
-    {
-      body: JSON.stringify({
-        amountRaw: args.amountRaw === "max" ? "max" : args.amountRaw.toString(),
-        sourceId: args.sourceId,
-      }),
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-    }
-  );
+  const response = await fetchEarnPrepare({
+    body: JSON.stringify({
+      amountRaw: args.amountRaw === "max" ? "max" : args.amountRaw.toString(),
+      sourceId: args.sourceId,
+    }),
+    fetchImpl: args.fetchImpl ?? fetch,
+    flowId: args.observabilityFlowId,
+    url: "/api/smart-accounts/yield-optimization/withdrawals/prepare",
+  });
   if (!response.ok) {
     const payload = (await response
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to prepare Earn withdrawal."
+    throw new EarnPrepareRequestError(
+      payload?.error?.message ?? "Failed to prepare Earn withdrawal.",
+      {
+        code: payload?.error?.code,
+        httpStatus: response.status,
+      }
     );
   }
   const payload = (await response.json()) as EarnWithdrawPrepareResponse;
@@ -2005,15 +2016,31 @@ async function postConfirmedEarnWithdraw(args: {
   smartAccountAddress: string;
 }) {
   const body = buildEarnWithdrawalConfirmRequestBody(args);
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/withdrawals/confirm",
-    {
+  const send = () =>
+    fetch("/api/smart-accounts/yield-optimization/withdrawals/confirm", {
       method: "POST",
       credentials: "include",
       headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify(body),
+    });
+  let response: Response | null = null;
+  let lastTransportError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await send();
+      if (response.ok || response.status < 500 || attempt === 1) {
+        break;
+      }
+    } catch (error) {
+      lastTransportError = error;
+      if (attempt === 1) {
+        throw error;
+      }
     }
-  );
+  }
+  if (!response) {
+    throw lastTransportError;
+  }
 
   if (!response.ok) {
     const payload = (await response
@@ -6419,6 +6446,7 @@ export function useSmartAccountSidebarData(
           (await prepareEarnDepositOnServer({
             amountRaw: request.amountRaw,
             mint: request.mint,
+            observabilityFlowId: request.observabilityFlowId,
           }));
         if (
           preparedDeposit.persistence.principalAmountRaw !==
@@ -6803,18 +6831,15 @@ export function useSmartAccountSidebarData(
         } else {
           try {
             await recordWithdrawalConfirmation();
-          } catch (error) {
+          } catch {
             return {
-              success: false,
+              success: true,
               signature,
               confirmedSlot,
               status: "confirmation_record_failed",
               mode: request.mode,
               amountRaw: request.amountRaw.toString(),
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to record confirmed earn withdrawal.",
+              error: EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
             };
           }
         }

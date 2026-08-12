@@ -172,6 +172,33 @@ const SPL_TOKEN_ACCOUNT_AMOUNT_OFFSET = BigInt(64);
 export const EARN_POLICY_UPDATE_REQUIRED_CODE =
   "earn_policy_update_required" as const;
 
+export const EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE =
+  "earn_withdraw_required_account_missing" as const;
+
+export class EarnWithdrawRequiredAccountMissingError extends Error {
+  readonly accountRole = "transaction_account" as const;
+  readonly code = EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE;
+
+  constructor() {
+    super(
+      "A required Earn withdrawal transaction account is unavailable. Refresh Earn and prepare the withdrawal again."
+    );
+    this.name = "EarnWithdrawRequiredAccountMissingError";
+  }
+}
+
+export function isEarnWithdrawRequiredAccountMissingError(
+  error: unknown
+): error is EarnWithdrawRequiredAccountMissingError {
+  return (
+    error instanceof EarnWithdrawRequiredAccountMissingError ||
+    (error !== null &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE)
+  );
+}
+
 export class EarnPolicyUpdateRequiredError extends Error {
   readonly code = EARN_POLICY_UPDATE_REQUIRED_CODE;
 
@@ -3100,23 +3127,33 @@ async function simulatePreparedTokenAccountAmount(args: {
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   tokenAccount: PublicKey;
 }): Promise<{ amountRaw: bigint; lamportAccountLamports: bigint | null }> {
-  const blockhash = await args.connection.getLatestBlockhash("confirmed");
-  const transaction = compilePreparedOperation({
-    blockhash: blockhash.blockhash,
-    prepared: args.prepared,
-  });
-  const simulation = await args.connection.simulateTransaction(transaction, {
-    accounts: {
-      addresses: [
-        args.tokenAccount.toBase58(),
-        ...(args.lamportAccount ? [args.lamportAccount.toBase58()] : []),
-      ],
-      encoding: "base64",
-    },
-    commitment: "confirmed",
-    replaceRecentBlockhash: true,
-    sigVerify: false,
-  });
+  const simulate = async () => {
+    const blockhash = await args.connection.getLatestBlockhash("confirmed");
+    const transaction = compilePreparedOperation({
+      blockhash: blockhash.blockhash,
+      prepared: args.prepared,
+    });
+    return args.connection.simulateTransaction(transaction, {
+      accounts: {
+        addresses: [
+          args.tokenAccount.toBase58(),
+          ...(args.lamportAccount ? [args.lamportAccount.toBase58()] : []),
+        ],
+        encoding: "base64",
+      },
+      commitment: "confirmed",
+      replaceRecentBlockhash: true,
+      sigVerify: false,
+    });
+  };
+
+  let simulation = await simulate();
+  if (JSON.stringify(simulation.value.err) === '"AccountNotFound"') {
+    simulation = await simulate();
+    if (JSON.stringify(simulation.value.err) === '"AccountNotFound"') {
+      throw new EarnWithdrawRequiredAccountMissingError();
+    }
+  }
 
   if (simulation.value.err) {
     throw new Error(

@@ -97,6 +97,7 @@
     "typescript": "^5.7.3"
   },
   "patchedDependencies": {
-    "@cap.js/widget@0.1.56": "patches/@cap.js%2Fwidget@0.1.56.patch"
+    "@cap.js/widget@0.1.56": "patches/@cap.js%2Fwidget@0.1.56.patch",
+    "@solana/wallet-standard-wallet-adapter-base@1.1.4": "patches/@solana%2Fwallet-standard-wallet-adapter-base@1.1.4.patch"
   }
 }

@@ -14,7 +14,7 @@ import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
-  EarnWithdrawResolveError,
+  normalizeEarnWithdrawPreparationError,
   resolveEarnUsdcWithdrawInput,
   serializeEarnUsdcWithdrawInput,
 } from "@/lib/yield-optimization/earn-withdraw-input-resolution.server";
@@ -164,8 +164,13 @@ export async function POST(request: Request) {
       withdrawInput: serializeEarnUsdcWithdrawInput(resolved.input),
     });
   } catch (error) {
-    if (error instanceof EarnWithdrawResolveError) {
-      return jsonError(error.status, error.code, error.message);
+    const normalizedError = normalizeEarnWithdrawPreparationError(error);
+    if (normalizedError) {
+      return jsonError(
+        normalizedError.status,
+        normalizedError.code,
+        normalizedError.message
+      );
     }
     console.error("[mobile-earn-withdraw-prepare-context] context failed", {
       amountRaw: amountRaw === "max" ? amountRaw : amountRaw.toString(),
@@ -182,9 +187,7 @@ export async function POST(request: Request) {
     return jsonError(
       500,
       "context_failed",
-      error instanceof Error
-        ? error.message
-        : "Failed to resolve Earn withdrawal context."
+      "Failed to resolve Earn withdrawal context. Refresh Earn and try again."
     );
   }
 }

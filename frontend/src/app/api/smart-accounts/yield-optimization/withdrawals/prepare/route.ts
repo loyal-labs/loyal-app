@@ -16,7 +16,7 @@ import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
-  EarnWithdrawResolveError,
+  normalizeEarnWithdrawPreparationError,
   resolveEarnUsdcWithdrawInput,
 } from "@/lib/yield-optimization/earn-withdraw-input-resolution.server";
 import {
@@ -127,8 +127,13 @@ export async function POST(request: Request) {
       preparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
     });
   } catch (error) {
-    if (error instanceof EarnWithdrawResolveError) {
-      return jsonError(error.status, error.code, error.message);
+    const normalizedError = normalizeEarnWithdrawPreparationError(error);
+    if (normalizedError) {
+      return jsonError(
+        normalizedError.status,
+        normalizedError.code,
+        normalizedError.message
+      );
     }
     if (isSmartAccountProvisioningError(error)) {
       return jsonError(error.status, error.code, error.message);
@@ -152,9 +157,7 @@ export async function POST(request: Request) {
     return jsonError(
       500,
       "prepare_failed",
-      error instanceof Error
-        ? error.message
-        : "Failed to prepare Earn withdrawal."
+      "Failed to prepare Earn withdrawal. Refresh Earn and try again."
     );
   }
 }

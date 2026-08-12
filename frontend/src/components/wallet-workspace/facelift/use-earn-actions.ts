@@ -100,6 +100,7 @@ import {
 import {
   EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+  EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EarnPolicyUpdateRequiredClientError,
   getEarnDepositUserErrorMessage,
   isConfirmedSlotUnavailableError,
@@ -110,6 +111,10 @@ import {
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useAuthCapability } from "@/lib/auth/capability";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
+import {
+  EarnPrepareRequestError,
+  getEarnPrepareLifecycleDiagnostics,
+} from "@/lib/yield-optimization/earn-prepare-request.client";
 import type {
   LoadedEarnAutodepositConfig,
   LoadedEarnAutodepositScheduledSweep,
@@ -806,11 +811,13 @@ export function useEarnActions(deps: {
 
   const prepareEarnWithdrawInBrowser = useCallback(
     async (
-      draft: EarnWithdrawDraft
+      draft: EarnWithdrawDraft,
+      observabilityFlowId?: string
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
       const requestedAmountRaw = getEarnWithdrawDraftAmountRaw(draft);
       return prepareEarnWithdrawOnServer({
         amountRaw: draft.mode === "full" ? "max" : requestedAmountRaw,
+        observabilityFlowId,
         sourceId: draft.source.sourceId,
       });
     },
@@ -944,6 +951,7 @@ export function useEarnActions(deps: {
             prepareEarnDepositOnServer({
               amountRaw,
               mint: args.mint,
+              observabilityFlowId: tracker.flowId,
             }),
         });
         const shouldBypassTopUpPreview =
@@ -1230,6 +1238,11 @@ export function useEarnActions(deps: {
           tracker.cancel("wallet_submit_confirm", {
             errorCode: "wallet_rejected",
           });
+        } else if (
+          phase === "prepare" &&
+          error instanceof EarnPrepareRequestError
+        ) {
+          tracker.fail("prepare", getEarnPrepareLifecycleDiagnostics(error));
         } else if (phase === "prepare") {
           tracker.fail("prepare", { errorCode: "unexpected_error" });
         } else {
@@ -1319,7 +1332,7 @@ export function useEarnActions(deps: {
           flowId: tracker.flowId,
           operation: "earn.withdrawal",
           rpcEndpoint: connection.rpcEndpoint,
-          run: () => prepareEarnWithdrawInBrowser(draft),
+          run: () => prepareEarnWithdrawInBrowser(draft, tracker.flowId),
         });
         const shouldBypassWithdrawPreview =
           draft.mode === "partial" &&
@@ -1376,6 +1389,7 @@ export function useEarnActions(deps: {
 
         if (shouldBypassWithdrawPreview) {
           const stepCount = Math.max(1, preparedWithdraw.withdrawSteps.length);
+          let confirmationRecordFailed = false;
           let latestConfirmedSlot: string | undefined;
           let latestSignature: string | undefined;
           for (let stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
@@ -1395,15 +1409,10 @@ export function useEarnActions(deps: {
               stepIndex,
             });
             if (!result.success) {
-              if (result.status === "confirmation_record_failed") {
-                tracker.fail("backend_confirm", {
-                  chainState: "confirmed",
-                  errorCode: "record_failed",
-                  persistenceState: "failed",
-                });
-              }
               throw new Error(result.error ?? "Earn withdrawal failed.");
             }
+            confirmationRecordFailed ||=
+              result.status === "confirmation_record_failed";
             latestConfirmedSlot = result.confirmedSlot ?? latestConfirmedSlot;
             latestSignature = result.signature ?? latestSignature;
           }
@@ -1411,7 +1420,7 @@ export function useEarnActions(deps: {
           tracker.observe("slot_resolve", { chainState: "confirmed" });
           tracker.observe("backend_confirm", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
           });
           registerExpectedEarnMutation({
             operation: "withdraw_partial",
@@ -1436,8 +1445,12 @@ export function useEarnActions(deps: {
           }
           tracker.complete("ui_commit", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
           });
+          if (confirmationRecordFailed) {
+            setWithdrawError(EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE);
+            tracker.recovery({ errorCode: "record_failed" });
+          }
           withdrawTrackerRef.current = null;
           earnToast.success("Withdrawn");
           return true;
@@ -1450,6 +1463,7 @@ export function useEarnActions(deps: {
           preparedWithdraw.autodepositClosePrepared
             ? "autodeposit"
             : "withdraw-0";
+        let confirmationRecordFailed = false;
         for (;;) {
           if (stage === "autodeposit") {
             tracker.observe("autodeposit_close", {
@@ -1493,7 +1507,8 @@ export function useEarnActions(deps: {
               targetId: result.targetId,
             });
             const nextPreparedWithdraw = await prepareEarnWithdrawInBrowser(
-              draft
+              draft,
+              tracker.flowId
             );
             if (nextPreparedWithdraw.autodepositClosePrepared) {
               throw new Error(
@@ -1526,15 +1541,10 @@ export function useEarnActions(deps: {
             stepIndex,
           });
           if (!result.success) {
-            if (result.status === "confirmation_record_failed") {
-              tracker.fail("backend_confirm", {
-                chainState: "confirmed",
-                errorCode: "record_failed",
-                persistenceState: "failed",
-              });
-            }
             throw new Error(result.error ?? "Earn withdrawal failed.");
           }
+          confirmationRecordFailed ||=
+            result.status === "confirmation_record_failed";
 
           const nextStage = getNextEarnWithdrawReviewStage({
             currentStage: stage,
@@ -1551,7 +1561,7 @@ export function useEarnActions(deps: {
           tracker.observe("slot_resolve", { chainState: "confirmed" });
           tracker.observe("backend_confirm", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: confirmationRecordFailed ? "failed" : "recorded",
           });
           registerExpectedEarnMutation({
             operation:
@@ -1583,14 +1593,24 @@ export function useEarnActions(deps: {
             tracker.observe("full_exit_verify", {
               chainState: "confirmed",
               cleanupRequired: true,
-              persistenceState: "recorded",
+              persistenceState: confirmationRecordFailed
+                ? "failed"
+                : "recorded",
             });
           } else {
             tracker.complete("ui_commit", {
               chainState: "confirmed",
-              persistenceState: "recorded",
+              persistenceState: confirmationRecordFailed
+                ? "failed"
+                : "recorded",
             });
+            if (confirmationRecordFailed) {
+              tracker.recovery({ errorCode: "record_failed" });
+            }
             withdrawTrackerRef.current = null;
+          }
+          if (confirmationRecordFailed) {
+            setWithdrawError(EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE);
           }
           earnToast.success("Withdrawn");
           return true;
@@ -1605,6 +1625,8 @@ export function useEarnActions(deps: {
           tracker.cancel("wallet_submit_confirm", {
             errorCode: "wallet_rejected",
           });
+        } else if (error instanceof EarnPrepareRequestError) {
+          tracker.fail("prepare", getEarnPrepareLifecycleDiagnostics(error));
         } else {
           tracker.fail("wallet_submit_confirm", {
             errorCode: "unexpected_error",

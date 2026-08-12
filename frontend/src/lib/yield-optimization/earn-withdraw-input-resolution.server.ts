@@ -1,7 +1,10 @@
 import "server-only";
 
 import type { LoyalCluster } from "@loyal-labs/actions";
-import type { SmartAccountEarnUsdcWithdrawInput } from "@loyal-labs/smart-account-vaults";
+import {
+  isEarnWithdrawRequiredAccountMissingError,
+  type SmartAccountEarnUsdcWithdrawInput,
+} from "@loyal-labs/smart-account-vaults";
 import { type Connection, PublicKey } from "@solana/web3.js";
 
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
@@ -41,6 +44,49 @@ export class EarnWithdrawResolveError extends Error {
     this.status = status;
     this.code = code;
   }
+}
+
+function getErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    return `${error.name}: ${error.message}`;
+  }
+  return typeof error === "string" ? error : "";
+}
+
+export function normalizeEarnWithdrawPreparationError(
+  error: unknown
+): EarnWithdrawResolveError | null {
+  if (error instanceof EarnWithdrawResolveError) {
+    return error;
+  }
+  if (isEarnWithdrawRequiredAccountMissingError(error)) {
+    return new EarnWithdrawResolveError(409, error.code, error.message);
+  }
+
+  const errorText = getErrorText(error);
+  if (
+    /KLEND_(MARKET|OBLIGATION)_NOT_FOUND/i.test(errorText) ||
+    /Kamino (reserve account|vault collateral token account) (was not found|is unavailable)/i.test(
+      errorText
+    ) ||
+    /Selected Kamino reserve account was not found/i.test(errorText)
+  ) {
+    return new EarnWithdrawResolveError(
+      409,
+      "earn_withdraw_source_changed",
+      "The selected Earn source changed. Refresh Earn and choose it again."
+    );
+  }
+
+  if (/\bAccountNotFound\b/i.test(errorText)) {
+    return new EarnWithdrawResolveError(
+      409,
+      "earn_withdraw_required_account_missing",
+      "A required Earn withdrawal transaction account is unavailable. Refresh Earn and prepare the withdrawal again."
+    );
+  }
+
+  return null;
 }
 
 type EarnWithdrawSourceId = ReturnType<

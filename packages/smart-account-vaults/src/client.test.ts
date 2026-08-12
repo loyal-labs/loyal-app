@@ -41,6 +41,7 @@ import {
   calculateKaminoCollateralAmountForRedeemableLiquidityRaw,
   calculateKaminoRedeemableLiquidityAmountRaw,
   createSmartAccountVaultsClient,
+  EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE,
   parseKaminoObligationAccount,
   parseKaminoObligationDepositedCollateralAmountRaw,
   parseKaminoObligationDeposits,
@@ -1581,6 +1582,59 @@ describe("prepareEarnUsdcWithdraw", () => {
     ).rejects.toThrow(
       "Kamino withdrawal simulation produced less liquidity than requested."
     );
+  });
+
+  test("[earn-withdraw-account-drift] retries AccountNotFound once and returns a typed error", async () => {
+    mockKaminoWithdrawInstruction({
+      instructionAmountRaw: () => BigInt(95_150_000),
+    });
+    const getLatestBlockhash = mock(async () => ({
+      blockhash: "11111111111111111111111111111111",
+      lastValidBlockHeight: 1,
+    }));
+    const simulateTransaction = mock(async () => ({
+      value: {
+        accounts: null,
+        err: "AccountNotFound",
+        logs: [],
+      },
+    }));
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getLatestBlockhash,
+        getTokenAccountBalance: mock(async () => ({
+          context: { slot: 1 },
+          value: {
+            amount: "0",
+            decimals: 6,
+            uiAmount: 0,
+            uiAmountString: "0",
+          },
+        })),
+        simulateTransaction,
+      } as never,
+      programId,
+    });
+
+    await expect(
+      client.prepareEarnUsdcWithdraw({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        policySigner: backendSigner,
+        amountRaw: BigInt(100_000_000),
+        mode: "partial",
+        yieldRoutingPolicy: {
+          account: policyAccount,
+          seed: BigInt(7),
+        },
+      })
+    ).rejects.toMatchObject({
+      accountRole: "transaction_account",
+      code: EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE,
+    });
+    expect(getLatestBlockhash).toHaveBeenCalledTimes(2);
+    expect(simulateTransaction).toHaveBeenCalledTimes(2);
   });
 
   test("accepts Kamino execution reserve drift inside the Earn envelope", async () => {
