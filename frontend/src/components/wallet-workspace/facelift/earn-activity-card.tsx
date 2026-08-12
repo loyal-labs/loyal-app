@@ -38,6 +38,7 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import type { EarnAutodepositProgress } from "@/features/earn-realtime";
 import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
+import { getTokenIconUrl } from "@/lib/token-icon";
 import {
   formatLoadedScheduledSweepAvailableIn,
   getLoadedScheduledSweepExecuteNowAvailableAtMs,
@@ -77,6 +78,16 @@ export function UsdcCoinImage() {
       />
     </>
   );
+}
+
+// Non-USDC holdings show their mint's coin icon in the coin slot; USDC keeps
+// the designed vault art (`UsdcCoinImage`) through the null fallback.
+export function resolveEarnCoinIconSrc(args: {
+  liquidityMint: string;
+  market: string | null;
+}): string | null {
+  const symbol = resolveEarnPositionDisplay(args).mintSymbol;
+  return symbol === "USDC" ? null : getTokenIconUrl(symbol);
 }
 
 // Same fallback rules as the old pane's CompoundIcon, at the redesign's 44px.
@@ -295,10 +306,18 @@ export function TransactionRow({
   const { isBalanceHidden } = useBalanceVisibility();
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
+  // Non-USDC events put the mint's coin icon in the coin slot (the slot the
+  // fallbacks would otherwise fill with the USDC vault art).
+  const coinSrc = item.liquidityMint
+    ? resolveEarnCoinIconSrc({
+        liquidityMint: item.liquidityMint,
+        market: null,
+      })
+    : null;
   const backSrc =
-    isMovement || item.kind === "withdraw" ? item.source.icon : null;
+    isMovement || item.kind === "withdraw" ? item.source.icon : coinSrc;
   const frontSrc =
-    isMovement || item.kind === "deposit" ? item.destination.icon : null;
+    isMovement || item.kind === "deposit" ? item.destination.icon : coinSrc;
   const timeLabel =
     formatEarnTransactionTimestamp(item.confirmedAt ?? item.sortTimestamp) ??
     item.timestamp;
@@ -685,6 +704,10 @@ function PositionsTab({
             <div className="group t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent">
               <div className="flex items-center py-2 pr-3">
                 <DualIcon
+                  backSrc={resolveEarnCoinIconSrc({
+                    liquidityMint: holding.liquidityMint,
+                    market: holding.market,
+                  })}
                   frontSrc={resolveEarnTransactionMarketIcon({
                     market: holding.market,
                   })}

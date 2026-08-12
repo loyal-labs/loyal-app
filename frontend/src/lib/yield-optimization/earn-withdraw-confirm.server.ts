@@ -6,10 +6,7 @@ import {
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import {
-  getAssociatedTokenAddressSync,
-  TOKEN_PROGRAM_ID,
-} from "@solana/spl-token";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   Connection,
   PublicKey,
@@ -22,7 +19,8 @@ import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { pollRpcRead } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
-import { assertSafeUsdcEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
+import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
+import { assertSafeEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
   findEarnCleanupVaultState,
@@ -214,21 +212,28 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
   }
 
   const liquidityMint = new PublicKey(args.input.liquidityMint);
-  const walletUsdcAta = getAssociatedTokenAddressSync(
+  // ATA addresses depend on the mint's token program (CASH/USDG/PYUSD are
+  // Token-2022); resolving through the product catalog also rejects
+  // unsupported mints before any balance evidence is read.
+  const productAsset = resolveEarnProductAsset({
+    cluster: resolveLoyalClusterForSolanaEnv(args.cluster),
+    mint: liquidityMint,
+  });
+  const walletLiquidityAta = getAssociatedTokenAddressSync(
     liquidityMint,
     new PublicKey(args.input.walletAddress),
     false,
-    TOKEN_PROGRAM_ID
+    productAsset.tokenProgramId
   ).toBase58();
-  const vaultUsdcAta = getAssociatedTokenAddressSync(
+  const vaultLiquidityAta = getAssociatedTokenAddressSync(
     liquidityMint,
     new PublicKey(args.input.vaultPubkey),
     true,
-    TOKEN_PROGRAM_ID
+    productAsset.tokenProgramId
   ).toBase58();
   const walletAtaDeltaRaw = getParsedTokenBalanceDeltaRaw({
     mint: args.input.liquidityMint,
-    tokenAccount: walletUsdcAta,
+    tokenAccount: walletLiquidityAta,
     transaction,
   });
   const walletOwnerDeltaRaw =
@@ -244,17 +249,17 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
 
   if (walletTransferAmountRaw <= BigInt(0)) {
     throw new Error(
-      "Confirmed withdrawal transaction does not transfer USDC to the authenticated wallet."
+      "Confirmed withdrawal transaction does not transfer the withdrawal mint to the authenticated wallet."
     );
   }
 
-  const vaultUsdcDeltaRaw = getParsedTokenBalanceDeltaRaw({
+  const vaultLiquidityDeltaRaw = getParsedTokenBalanceDeltaRaw({
     mint: args.input.liquidityMint,
-    tokenAccount: vaultUsdcAta,
+    tokenAccount: vaultLiquidityAta,
     transaction,
   });
   const vaultIdleDeltaRaw =
-    vaultUsdcDeltaRaw > BigInt(0) ? vaultUsdcDeltaRaw : BigInt(0);
+    vaultLiquidityDeltaRaw > BigInt(0) ? vaultLiquidityDeltaRaw : BigInt(0);
   const sourceType = args.input.sourceType ?? "reserve";
   const reserveDebitAmountRaw =
     sourceType === "reserve"
@@ -264,7 +269,7 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
   return {
     reserveDebitAmountRaw,
     vaultIdleDeltaRaw,
-    vaultIdleTokenAccount: vaultUsdcAta,
+    vaultIdleTokenAccount: vaultLiquidityAta,
     walletTransferAmountRaw,
   };
 }
@@ -297,8 +302,15 @@ export function createCanonicalWithdrawalInput(
       requestInput.setupPolicyAccount !== null) ||
     (requestInput.setupPolicySeed !== undefined &&
       requestInput.setupPolicySeed !== null);
-  const target = assertSafeUsdcEarnReserveMetadata({
+  // Same per-mint strictness as the deposit confirm: the mint must be a
+  // supported Earn product mint and the market must be in the Safe universe.
+  const productAsset = resolveEarnProductAsset({
     cluster,
+    mint: requestInput.liquidityMint,
+  });
+  const target = assertSafeEarnReserveMetadata({
+    cluster,
+    expectedLiquidityMint: productAsset.mint.toBase58(),
     liquidityMint: requestInput.liquidityMint,
     market: requestInput.market,
     targetReserve: requestInput.targetReserve,

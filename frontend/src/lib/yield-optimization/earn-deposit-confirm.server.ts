@@ -16,8 +16,9 @@ import {
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
 import {
-  assertSafeUsdcEarnReserveMetadata,
+  assertSafeEarnReserveMetadata,
   findEarnReserveTargetIneligibility,
 } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
@@ -205,8 +206,16 @@ function createCanonicalDepositInput(
       requestInput.setupPolicySeed !== null);
   const requiresSetupPolicyMetadata =
     requestInput.policyInitialization === "create" || hasSetupPolicyMetadata;
-  const target = assertSafeUsdcEarnReserveMetadata({
+  // The mint must be one of the supported Earn product mints (throws
+  // otherwise) and the reserve market must sit in the Safe universe — the
+  // same strictness the USDC-only assert enforced, per deposit mint.
+  const productAsset = resolveEarnProductAsset({
     cluster,
+    mint: requestInput.liquidityMint,
+  });
+  const target = assertSafeEarnReserveMetadata({
+    cluster,
+    expectedLiquidityMint: productAsset.mint.toBase58(),
     liquidityMint: requestInput.liquidityMint,
     market: requestInput.market,
     targetReserve: requestInput.targetReserve,
@@ -505,7 +514,7 @@ async function resolveConfirmedDepositTransactionProof(args: {
 
   if (principalAmountRaw <= BigInt(0)) {
     throw new Error(
-      "Confirmed deposit transaction does not debit USDC from the wallet or Earn vault."
+      "Confirmed deposit transaction does not debit the deposit mint from the wallet or Earn vault."
     );
   }
 

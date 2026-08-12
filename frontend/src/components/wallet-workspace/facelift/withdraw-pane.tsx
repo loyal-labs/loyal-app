@@ -21,7 +21,10 @@ import {
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
-import { DualIcon } from "@/components/wallet-workspace/facelift/earn-activity-card";
+import {
+  DualIcon,
+  resolveEarnCoinIconSrc,
+} from "@/components/wallet-workspace/facelift/earn-activity-card";
 import {
   FlowDiagram,
   FlowExplainerAside,
@@ -184,6 +187,10 @@ export function WithdrawPane({
       sources.map((source) => ({
         icon: (
           <DualIcon
+            backSrc={resolveEarnCoinIconSrc({
+              liquidityMint: source.liquidityMint,
+              market: source.market,
+            })}
             frontSrc={resolveEarnTransactionMarketIcon({
               market: source.market,
             })}
