@@ -10,6 +10,7 @@ import { getConnection } from "@/lib/solana/rpc/connection";
 import { isWalletRejection } from "@/lib/wallet/rejection";
 import type { Signer } from "@/lib/wallet/signer";
 import {
+  type LifecycleDiagnostics,
   type LifecycleFlow,
   mapLifecycleErrorCode,
   startLifecycleFlow,
@@ -222,6 +223,39 @@ const RETRYABLE_CLEANUP_CONFIRM_CODES = new Set([
 const CLEANUP_CONFIRM_ATTEMPTS = 4;
 const CLEANUP_CONFIRM_RETRY_DELAY_MS = 3_000;
 
+// The lifecycle contract has a single coarse `prepare` stage and no substage
+// field, so a failed front-half reports WHICH sub-call died via the contract's
+// bounded `stageIndex`/`stageCount` ints, in execution order (ASK-2095). The
+// cause itself travels as the enum-only `errorDetail` (ASK-2018).
+const PREPARE_SUBSTAGES = [
+  "wallet_auth",
+  "prepare_context",
+  "device_prepare",
+  "server_prepare",
+] as const;
+
+function prepareSubstage(
+  substage: (typeof PREPARE_SUBSTAGES)[number],
+): LifecycleDiagnostics {
+  return {
+    stageCount: PREPARE_SUBSTAGES.length,
+    stageIndex: PREPARE_SUBSTAGES.indexOf(substage),
+  };
+}
+
+// `withConnectionRetry` converts an exhausted retryable failure (transport,
+// Kamino upstream, RPC) into an `EarnApiError` carrying no backend code and no
+// HTTP status; semantic failures (validation, policy, simulation) throw
+// through it untouched. That shape split gates the server-prepare recovery
+// path: only retry exhaustion falls back (ASK-2095).
+function isRetryExhaustion(error: unknown): error is EarnApiError {
+  return (
+    error instanceof EarnApiError &&
+    error.code === undefined &&
+    error.status === undefined
+  );
+}
+
 // Retries `run` on network errors and the listed backend codes; an
 // `EarnApiError` outside `retryableCodes` (or with no code) throws through.
 async function retryEarnApiCall<T>(args: {
@@ -367,6 +401,64 @@ async function signSendAndConfirmWithdraw(args: {
   return { withdrawalConfirmedSlots, withdrawalSignatures };
 }
 
+// Server-side prepare (`withdraw/prepare`) with the Autodeposit close-first
+// loop. Two callers: the legacy path for backends that predate
+// `prepare-context`, and the recovery path when on-device preparation
+// exhausts its retry budget (ASK-2095).
+async function serverPrepareWithdraw(
+  args: {
+    signer: Signer;
+    amountRaw: string;
+    mode: EarnWithdrawMode;
+    source?: EarnWithdrawSource | null;
+    prepareAuth: EarnAuthFields;
+  },
+  flow: LifecycleFlow<"earn.withdrawal">,
+): Promise<WirePreparedEarnWithdraw> {
+  const prepare = () =>
+    withConnectionRetry("server prepare", WITHDRAW_NETWORK_MESSAGE, () =>
+      withEarnAuth(
+        args.signer,
+        args.prepareAuth,
+        "earn-withdraw-prepare",
+        (auth) =>
+          prepareEarnWithdraw({
+            auth,
+            amountRaw: args.amountRaw,
+            mode: args.mode,
+            source: args.source ?? undefined,
+          }),
+      ),
+    ).catch((error) => {
+      flow.failFrom("prepare", error, prepareSubstage("server_prepare"));
+      throw error;
+    });
+  let preparedWithdraw = (await prepare()).preparedWithdraw;
+
+  for (let round = 0; preparedWithdraw.autodepositClosePrepared; round++) {
+    if (round >= MAX_WITHDRAW_AUTODEPOSIT_CLOSES) {
+      throw new Error(
+        "Couldn't remove the Autodeposit tied to this position. Delete the Autodeposit and try again.",
+      );
+    }
+    const close = preparedWithdraw.autodepositClosePrepared;
+    await executeEarnAutodepositClose({
+      signer: args.signer,
+      policy: close.policy.account,
+      recurringDelegation: close.subscription.recurringDelegation,
+      source: "withdraw",
+    }).catch((error) => {
+      flow.failFrom("autodeposit_close", error, {
+        autodepositCloseRequired: true,
+      });
+      throw error;
+    });
+    flow.observe("autodeposit_close", { autodepositCloseRequired: true });
+    preparedWithdraw = (await prepare()).preparedWithdraw;
+  }
+  return preparedWithdraw;
+}
+
 // Real on-chain Earn withdrawal from the caller's smart account (same position
 // as web). The withdraw transactions are built ON-DEVICE with the
 // smart-account-vaults SDK (mirroring the deposit and autodeposit flows): the
@@ -415,7 +507,13 @@ async function runEarnWithdraw(
   flow: LifecycleFlow<"earn.withdrawal">,
 ): Promise<EarnWithdrawResult> {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
-  const prepareAuth = await signEarnAuth(args.signer, "earn-withdraw-prepare");
+  const prepareAuth = await signEarnAuth(
+    args.signer,
+    "earn-withdraw-prepare",
+  ).catch((error) => {
+    flow.failFrom("prepare", error, prepareSubstage("wallet_auth"));
+    throw error;
+  });
   const fetchContext = () =>
     withConnectionRetry("prepare-context", WITHDRAW_NETWORK_MESSAGE, () =>
       withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
@@ -427,7 +525,10 @@ async function runEarnWithdraw(
           source: args.source ?? null,
         }),
       ),
-    );
+    ).catch((error) => {
+      flow.failFrom("prepare", error, prepareSubstage("prepare_context"));
+      throw error;
+    });
 
   let context = await fetchContext();
 
@@ -468,25 +569,71 @@ async function runEarnWithdraw(
       context,
       args.signer.publicKey,
     );
-    const preparedWithdraw = await withConnectionRetry(
-      "device prepare",
-      WITHDRAW_NETWORK_MESSAGE,
-      () =>
-        client.prepareEarnUsdcWithdraw({
-          ...withdrawInput,
-          closePoliciesOnFullWithdrawal: false,
-        }),
-    );
-    flow.observe("prepare");
-    const hasSteps = preparedWithdraw.withdrawSteps.length > 0;
+    let operations: HydratedPreparedOperation[];
+    let hasSteps: boolean;
+    let wirePreparedWithdraw: WirePreparedEarnWithdraw;
+    try {
+      const preparedWithdraw = await withConnectionRetry(
+        "device prepare",
+        WITHDRAW_NETWORK_MESSAGE,
+        () =>
+          client.prepareEarnUsdcWithdraw({
+            ...withdrawInput,
+            closePoliciesOnFullWithdrawal: false,
+          }),
+      );
+      hasSteps = preparedWithdraw.withdrawSteps.length > 0;
+      operations = hasSteps
+        ? preparedWithdraw.withdrawSteps.map((step) => step.prepared)
+        : [preparedWithdraw.prepared];
+      wirePreparedWithdraw =
+        serializePreparedEarnUsdcWithdraw(preparedWithdraw);
+      flow.observe("prepare");
+    } catch (error) {
+      // Semantic failures (validation, policy, simulation) surface normally;
+      // only an exhausted retryable cause earns the server-side recovery
+      // path — the device demonstrably cannot build the transaction, but the
+      // backend's own RPC allowance usually still can (ASK-2095).
+      if (!isRetryExhaustion(error)) {
+        flow.failFrom("prepare", error, prepareSubstage("device_prepare"));
+        throw error;
+      }
+      console.warn(
+        "[earn-withdraw] device prepare exhausted; recovering via server prepare",
+        { errorDetail: error.detail },
+      );
+      const serverPrepared = await serverPrepareWithdraw(
+        {
+          signer: args.signer,
+          amountRaw,
+          mode: args.mode,
+          source: args.source,
+          prepareAuth,
+        },
+        flow,
+      );
+      const steps =
+        serverPrepared.withdrawSteps && serverPrepared.withdrawSteps.length > 0
+          ? serverPrepared.withdrawSteps
+          : null;
+      hasSteps = steps !== null;
+      operations = (steps ?? [{ prepared: serverPrepared.prepared }]).map(
+        (step) => hydratePreparedOperation(step.prepared),
+      );
+      wirePreparedWithdraw = serverPrepared;
+      // The observed `prepare` names the recovery substage and carries the
+      // bounded cause the device path was abandoned for.
+      flow.observe("prepare", {
+        ...prepareSubstage("server_prepare"),
+        ...(error.detail !== undefined ? { errorDetail: error.detail } : {}),
+      });
+    }
     const withdrawResult = await signSendAndConfirmWithdraw({
       signer: args.signer,
       prepareAuth,
-      operations: hasSteps
-        ? preparedWithdraw.withdrawSteps.map((step) => step.prepared)
-        : [preparedWithdraw.prepared],
+      operations,
       hasSteps,
-      wirePreparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
+      wirePreparedWithdraw,
       flow,
     });
     if (!needsSeparateCleanup) {
@@ -598,40 +745,16 @@ async function runEarnWithdraw(
   }
 
   // Backend predates `prepare-context` — legacy server-side prepare.
-  const prepare = () =>
-    withConnectionRetry("server prepare", WITHDRAW_NETWORK_MESSAGE, () =>
-      withEarnAuth(args.signer, prepareAuth, "earn-withdraw-prepare", (auth) =>
-        prepareEarnWithdraw({
-          auth,
-          amountRaw,
-          mode: args.mode,
-          source: args.source ?? null,
-        }),
-      ),
-    );
-  let preparedWithdraw = (await prepare()).preparedWithdraw;
-
-  for (let round = 0; preparedWithdraw.autodepositClosePrepared; round++) {
-    if (round >= MAX_WITHDRAW_AUTODEPOSIT_CLOSES) {
-      throw new Error(
-        "Couldn't remove the Autodeposit tied to this position. Delete the Autodeposit and try again.",
-      );
-    }
-    const close = preparedWithdraw.autodepositClosePrepared;
-    await executeEarnAutodepositClose({
+  const preparedWithdraw = await serverPrepareWithdraw(
+    {
       signer: args.signer,
-      policy: close.policy.account,
-      recurringDelegation: close.subscription.recurringDelegation,
-      source: "withdraw",
-    }).catch((error) => {
-      flow.failFrom("autodeposit_close", error, {
-        autodepositCloseRequired: true,
-      });
-      throw error;
-    });
-    flow.observe("autodeposit_close", { autodepositCloseRequired: true });
-    preparedWithdraw = (await prepare()).preparedWithdraw;
-  }
+      amountRaw,
+      mode: args.mode,
+      source: args.source,
+      prepareAuth,
+    },
+    flow,
+  );
 
   flow.observe("prepare");
   const steps =

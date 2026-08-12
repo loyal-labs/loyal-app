@@ -28,6 +28,8 @@ type MobileErrorOperation =
   | "mobile.unhandled_rejection";
 
 type MobileErrorEnvelope = {
+  deviceId?: string;
+  devicePlatform?: "android" | "ios";
   environment: string;
   message: string;
   name: string;
@@ -70,6 +72,22 @@ export function setObservabilityPathname(pathname: string): void {
   if (pathname.startsWith("/")) {
     currentPathname = pathname;
   }
+}
+
+// Injected from `@/services/device-identity` at app init rather than imported:
+// this module must stay free of react-native/storage imports so its test
+// suite only has to mock expo-updates (ASK-2097). Envelopes sent before the
+// injection simply omit the fields — the ingest treats them as optional.
+let deviceIdentity: {
+  deviceId: string;
+  devicePlatform: "android" | "ios";
+} | null = null;
+
+export function setObservabilityDeviceIdentity(identity: {
+  deviceId: string;
+  devicePlatform: "android" | "ios";
+}): void {
+  deviceIdentity = identity;
 }
 
 // Same channel → environment mapping as `src/lib/datadog/datadog.ts`
@@ -197,6 +215,7 @@ function report(
     const normalized = normalizeError(error);
     const envelope: MobileErrorEnvelope = {
       ...normalized,
+      ...(deviceIdentity ?? {}),
       environment: getObservabilityEnvironment(),
       ...(messagePrefix
         ? {
@@ -386,6 +405,13 @@ export type LifecycleDiagnostics = {
   persistenceState?: "not_started" | "recorded" | "failed";
   policyMode?: "create" | "reuse";
   recoveryRequired?: boolean;
+  /**
+   * Substage coordinates inside a coarse stage — which ordered sub-call a
+   * `prepare` failure died in (ASK-2095). The ingest contract bounds them
+   * (index 0–15, count 1–16); an out-of-range value drops the whole event.
+   */
+  stageCount?: number;
+  stageIndex?: number;
 };
 
 export type LifecycleFlow<F extends LifecycleFlowName> = {
@@ -589,6 +615,7 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
       const current = Date.now();
       const envelope = {
         ...diagnostics,
+        ...(deviceIdentity ?? {}),
         durationMs: Math.min(900_000, Math.max(0, current - lastAt)),
         elapsedMs: Math.min(86_400_000, Math.max(0, current - startedAt)),
         environment: getObservabilityEnvironment(),

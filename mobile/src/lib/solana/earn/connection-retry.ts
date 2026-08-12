@@ -44,6 +44,18 @@ function isKaminoUpstreamError(
   );
 }
 
+// A Solana JSON-RPC error response during a read-only prepare (node lag, a
+// slot the node hasn't reached) heals on retry the same way a transport blip
+// does. Brand-checked by name like KaminoUpstreamError: Metro can duplicate
+// web3.js module instances.
+function isRpcError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    error.name === "SolanaJSONRPCError" &&
+    typeof (error as { code?: unknown }).code === "number"
+  );
+}
+
 function isRetryableNetworkError(error: unknown): error is Error {
   // The message is matched, not just the TypeError type. This helper wraps
   // whole SDK prepare calls, so a TypeError arriving here is as likely a bug
@@ -52,6 +64,9 @@ function isRetryableNetworkError(error: unknown): error is Error {
   // `EarnApiError` telling the user to check their connection while the real
   // fault sat in our code. A bug now throws straight through, message intact.
   if (isConnectionFailure(error)) {
+    return true;
+  }
+  if (isRpcError(error)) {
     return true;
   }
   return isKaminoUpstreamError(error) && isRetryableKaminoStatus(error.status);
@@ -63,13 +78,14 @@ function isRetryableNetworkError(error: unknown): error is Error {
 // here rather than in the shared classifier because the retryable-status rule
 // lives in this file.
 //
-// Only the two shapes `isRetryableNetworkError` accepts can reach here, since
+// Only the shapes `isRetryableNetworkError` accepts can reach here, since
 // nothing else is ever retried — the undefined return is a safe default, not a
 // reachable case.
 function exhaustedErrorDetail(
   lastError: unknown,
 ): LifecycleErrorDetail | undefined {
   if (isKaminoUpstreamError(lastError)) return "kamino_upstream_unavailable";
+  if (isRpcError(lastError)) return "rpc_request_failed";
   // Checked before the broader failure test, which also covers timeouts.
   if (isConnectionTimeout(lastError)) return "request_timeout";
   if (isConnectionFailure(lastError)) return "network_unreachable";

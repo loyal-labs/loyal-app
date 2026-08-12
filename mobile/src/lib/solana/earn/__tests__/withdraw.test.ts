@@ -19,16 +19,22 @@ const confirmEarnWithdraw = jest.fn();
 const confirmEarnWithdrawCleanup = jest.fn();
 const signAndSendPreparedOperations = jest.fn();
 const observeLifecycle = jest.fn();
+const failFromLifecycle = jest.fn();
+const prepareEarnWithdrawServer = jest.fn();
 
 // Mirrors the real EarnApiError so withdraw.ts's instanceof/code checks that
 // gate cleanup-context retries stay exercised.
 class MockEarnApiError extends Error {
   readonly code?: string;
+  readonly status?: number;
+  readonly detail?: string;
 
-  constructor(message: string, code?: string) {
+  constructor(message: string, code?: string, status?: number, detail?: string) {
     super(message);
     this.name = "EarnApiError";
     this.code = code;
+    this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -72,6 +78,8 @@ jest.mock("@/services/observability", () => ({
   startLifecycleFlow: () => ({
     complete: () => {},
     fail: () => {},
+    failFrom: failFromLifecycle,
+    flowId: "test-flow-id",
     observe: observeLifecycle,
     setVariant: () => {},
     start: () => {},
@@ -86,9 +94,14 @@ jest.mock("../earn-api", () => ({
   EarnApiError: MockEarnApiError,
   confirmEarnWithdraw,
   confirmEarnWithdrawCleanup,
+  // Real connection-retry runs inside these tests; its exhaustion error must
+  // keep the real shape (no code, no status, detail carried) so the
+  // server-prepare fallback gate in withdraw.ts is exercised for real.
+  earnNetworkError: (message: string, detail?: string) =>
+    new MockEarnApiError(message, undefined, undefined, detail),
   fetchEarnWithdrawCleanupPrepareContext,
   fetchEarnWithdrawPrepareContext,
-  prepareEarnWithdraw: jest.fn(),
+  prepareEarnWithdraw: prepareEarnWithdrawServer,
 }));
 
 jest.mock("../earn-auth", () => ({
@@ -369,5 +382,74 @@ describe("executeEarnWithdraw", () => {
     expect(result).toEqual({
       withdrawalSignatures: ["withdraw-signature"],
     });
+  });
+
+  test("recovers via server prepare when device prepare exhausts its retry budget", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const context = fullFinalExitContext();
+    fetchEarnWithdrawPrepareContext.mockResolvedValue({
+      ...context,
+      withdrawInput: { ...context.withdrawInput, mode: "partial" },
+    });
+    // Kamino keeps answering 503 until the real retry budget runs out.
+    prepareEarnUsdcWithdraw.mockRejectedValue(
+      new MockKaminoUpstreamError(503, "Kamino unavailable"),
+    );
+    const serverOperation = { operation: "server-withdraw" };
+    prepareEarnWithdrawServer.mockResolvedValue({
+      preparedWithdraw: { prepared: serverOperation },
+    });
+
+    const result = await executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "partial",
+      signer,
+    });
+
+    expect(prepareEarnWithdrawServer).toHaveBeenCalledTimes(1);
+    expect(prepareEarnWithdrawServer).toHaveBeenCalledWith(
+      expect.objectContaining({ amountRaw: "1000000", mode: "partial" }),
+    );
+    expect(signAndSendPreparedOperations).toHaveBeenCalledWith(
+      expect.objectContaining({ operations: [serverOperation] }),
+    );
+    expect(observeLifecycle).toHaveBeenCalledWith(
+      "prepare",
+      expect.objectContaining({
+        errorDetail: "kamino_upstream_unavailable",
+        stageCount: 4,
+        stageIndex: 3,
+      }),
+    );
+    expect(result).toEqual({
+      withdrawalSignatures: ["withdraw-signature"],
+    });
+    warn.mockRestore();
+  }, 15_000);
+
+  test("does not fall back to server prepare on a semantic device-prepare failure", async () => {
+    const context = fullFinalExitContext();
+    fetchEarnWithdrawPrepareContext.mockResolvedValue({
+      ...context,
+      withdrawInput: { ...context.withdrawInput, mode: "partial" },
+    });
+    // A plain error from the SDK build is a bug or a rejected input, not a
+    // transport blip: connection-retry throws it through unretried.
+    const semanticError = new Error(
+      "Kamino withdrawal simulation produced less liquidity than requested.",
+    );
+    prepareEarnUsdcWithdraw.mockRejectedValue(semanticError);
+
+    await expect(
+      executeEarnWithdraw({ amountUsd: 1, mode: "partial", signer }),
+    ).rejects.toThrow(semanticError.message);
+
+    expect(prepareEarnWithdrawServer).not.toHaveBeenCalled();
+    expect(signAndSendPreparedOperations).not.toHaveBeenCalled();
+    expect(failFromLifecycle).toHaveBeenCalledWith(
+      "prepare",
+      semanticError,
+      expect.objectContaining({ stageCount: 4, stageIndex: 2 }),
+    );
   });
 });

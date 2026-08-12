@@ -7181,6 +7181,7 @@ export function createSmartAccountVaultsClient(
         targetReserve: earnTarget.reserve.toBase58(),
         market: earnTarget.market.toBase58(),
         liquidityMint: usdcMint.toBase58(),
+        requestedWithdrawAmountRaw: transferAmountRaw.toString(),
         withdrawnAmountRaw: transferAmountRaw.toString(),
         mode: args.mode,
         walletTransferAmountRaw: transferAmountRaw.toString(),
@@ -7376,21 +7377,46 @@ export function createSmartAccountVaultsClient(
       obligation: PublicKey;
       target: KaminoEarnTarget;
     }): Promise<ProvisionalReserveWithdrawal[]> => {
-      const partialWithdrawAmounts =
-        args.mode === "full"
-          ? null
-          : await resolveEarnPartialWithdrawAmounts({
+      let vaultCollateralAta = plan.localCollateralAta;
+      const preResolvedFullWithdrawAmounts =
+        args.mode === "full" &&
+        vaultCollateralAta &&
+        (await isTokenAccountOwnedBy({
+          account: vaultCollateralAta,
+          connection: config.connection,
+          owner: vaultPda,
+        }))
+          ? await resolveEarnFullWithdrawAmounts({
               connection: config.connection,
               requestedWithdrawAmountRaw: plan.amountRaw,
               reserve: plan.target.reserve,
-            });
+              vaultCollateralAta,
+            })
+          : null;
+      const localWithdrawAmounts =
+        cluster === LoyalCluster.Devnet && args.mode !== "full"
+          ? await resolveEarnPartialWithdrawAmounts({
+              connection: config.connection,
+              requestedWithdrawAmountRaw: plan.amountRaw,
+              reserve: plan.target.reserve,
+            })
+          : null;
       let expectedRedeemedAmountRaw =
-        partialWithdrawAmounts?.expectedRedeemedAmountRaw ?? plan.amountRaw;
+        preResolvedFullWithdrawAmounts?.expectedRedeemedAmountRaw ??
+        localWithdrawAmounts?.expectedRedeemedAmountRaw ??
+        plan.amountRaw;
       let kaminoWithdrawAmountRaw =
-        partialWithdrawAmounts?.kaminoWithdrawAmountRaw ?? plan.amountRaw;
+        (cluster === LoyalCluster.Devnet
+          ? preResolvedFullWithdrawAmounts?.kaminoWithdrawAmountRaw
+          : null) ??
+        localWithdrawAmounts?.kaminoWithdrawAmountRaw ??
+        plan.amountRaw;
       let reserveSnapshot: KaminoReserveSnapshot | null =
-        partialWithdrawAmounts?.snapshot ?? null;
-      let vaultCollateralAta = plan.localCollateralAta;
+        preResolvedFullWithdrawAmounts?.snapshot ??
+        localWithdrawAmounts?.snapshot ??
+        null;
+      const ktxLiquidityAmountRaw =
+        args.mode === "full" ? expectedRedeemedAmountRaw : plan.amountRaw;
       let kaminoWithdrawBundle =
         cluster === LoyalCluster.Devnet
           ? (() => {
@@ -7413,13 +7439,17 @@ export function createSmartAccountVaultsClient(
               };
             })()
           : await fetchKaminoWithdrawInstruction({
-              amountRaw: kaminoWithdrawAmountRaw,
+              amountRaw: ktxLiquidityAmountRaw,
               lendProgramId: plan.target.lendProgramId,
               market: plan.target.market,
               reserve: plan.target.reserve,
               withdrawDiscriminator: plan.target.withdrawDiscriminator,
               wallet: vaultPda,
             });
+      kaminoWithdrawAmountRaw = readWithdrawInstructionAmountRaw(
+        kaminoWithdrawBundle.instruction,
+        kaminoWithdrawAmountRaw
+      );
       let validatedWithdrawAccounts = validateKaminoWithdrawInstruction({
         instruction: kaminoWithdrawBundle.instruction,
         lendProgramId: plan.target.lendProgramId,
@@ -7579,6 +7609,9 @@ export function createSmartAccountVaultsClient(
             snapshot: reserveSnapshot,
           };
         }
+        if (preResolvedFullWithdrawAmounts) {
+          return preResolvedFullWithdrawAmounts;
+        }
         const canResolveFromVaultCollateralAta =
           vaultCollateralAta &&
           (await isTokenAccountOwnedBy({
@@ -7605,14 +7638,13 @@ export function createSmartAccountVaultsClient(
       if (args.mode === "full") {
         expectedRedeemedAmountRaw =
           fullWithdrawAmounts.expectedRedeemedAmountRaw;
-        kaminoWithdrawAmountRaw = fullWithdrawAmounts.kaminoWithdrawAmountRaw;
         reserveSnapshot = fullWithdrawAmounts.snapshot;
         if (
-          kaminoWithdrawAmountRaw !== plan.amountRaw &&
-          cluster !== LoyalCluster.Devnet
+          cluster !== LoyalCluster.Devnet &&
+          expectedRedeemedAmountRaw !== ktxLiquidityAmountRaw
         ) {
           kaminoWithdrawBundle = await fetchKaminoWithdrawInstruction({
-            amountRaw: kaminoWithdrawAmountRaw,
+            amountRaw: expectedRedeemedAmountRaw,
             lendProgramId: plan.target.lendProgramId,
             market: plan.target.market,
             reserve: plan.target.reserve,
@@ -7641,9 +7673,13 @@ export function createSmartAccountVaultsClient(
               label: "reserve collateral mint",
             });
           }
+          kaminoWithdrawAmountRaw = readWithdrawInstructionAmountRaw(
+            kaminoWithdrawBundle.instruction,
+            kaminoWithdrawAmountRaw
+          );
         }
       } else {
-        reserveSnapshot = partialWithdrawAmounts?.snapshot ?? reserveSnapshot;
+        reserveSnapshot = localWithdrawAmounts?.snapshot ?? reserveSnapshot;
       }
 
       if (!vaultCollateralAta) {
@@ -7817,13 +7853,21 @@ export function createSmartAccountVaultsClient(
         currentVaultUsdcAmountRaw,
         simulatedVaultUsdcAmountRaw,
       });
+      if (
+        args.mode !== "full" &&
+        simulatedRedeemedOnlyAmountRaw < batchAmountRaw
+      ) {
+        throw new Error(
+          "Kamino withdrawal simulation produced less liquidity than requested."
+        );
+      }
       const redeemedTransferAmountRaw =
         simulatedRedeemedOnlyAmountRaw > BigInt(0)
           ? simulatedRedeemedOnlyAmountRaw
           : batchExpectedRedeemedAmountRaw;
       const walletTransferAmountRaw =
         args.mode !== "full"
-          ? redeemedTransferAmountRaw
+          ? batchAmountRaw
           : isFinalBatch
           ? batchVaultUsdcRemainderRaw + redeemedTransferAmountRaw
           : redeemedTransferAmountRaw;
@@ -7975,6 +8019,7 @@ export function createSmartAccountVaultsClient(
           market: firstWithdrawal.accountingReserve.market.toBase58(),
           liquidityMint:
             firstWithdrawal.accountingReserve.liquidityMint.toBase58(),
+          requestedWithdrawAmountRaw: batchAmountRaw.toString(),
           withdrawnAmountRaw: walletTransferAmountRaw.toString(),
           mode,
           ...(sourceMetadata ?? {}),
@@ -8088,6 +8133,7 @@ export function createSmartAccountVaultsClient(
         targetReserve: topLevelAccountingReserve.reserve.toBase58(),
         market: topLevelAccountingReserve.market.toBase58(),
         liquidityMint: usdcMint.toBase58(),
+        requestedWithdrawAmountRaw: args.amountRaw.toString(),
         withdrawnAmountRaw: finalWithdrawStep.persistence.withdrawnAmountRaw,
         mode: args.mode,
         stepCount: withdrawSteps.length,
