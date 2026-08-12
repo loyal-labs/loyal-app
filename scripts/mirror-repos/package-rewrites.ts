@@ -79,8 +79,7 @@ export function rewriteInternalDependencyRanges(
     for (const [name, range] of Object.entries(dependencies)) {
       if (
         range === "workspace:*" ||
-        range.startsWith("file:../packages") ||
-        range.startsWith("file:../sdk")
+        /^file:(\.\.\/)+(packages|sdk)\//.test(range)
       ) {
         const version = versions.get(name);
         if (!version) {
