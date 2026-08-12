@@ -39,6 +39,9 @@ export type SerializedEarnTransaction = {
     | "balance_sweep";
   id: string;
   kind: EarnTransactionKind;
+  // Mint of the position the event belongs to; null for autodeposit action
+  // rows (USDC-only flows). Lets the client render per-mint coin icons.
+  liquidityMint: string | null;
   rawAmount: string;
   signature: string;
   sortTimestamp: string;
@@ -190,6 +193,7 @@ function serializeAutodepositActionEvent(
       : "autodeposit_closed",
     id: event.id,
     kind: isBalanceSweep ? "balance_sweep" : "autodeposit_action",
+    liquidityMint: null,
     rawAmount: formatExactUsdcAmount(transactionAmountRaw),
     signature: event.signature,
     sortTimestamp: event.confirmedAt.toISOString(),
@@ -263,6 +267,7 @@ export function serializeEarnTransactionEvent(
     eventType: event.eventType,
     id: `${event.signature}:${event.id.toString()}`,
     kind,
+    liquidityMint: event.liquidityMint,
     rawAmount: formatExactUsdcAmount(transactionAmountRaw),
     signature: event.signature,
     sortTimestamp: event.confirmedAt.toISOString(),

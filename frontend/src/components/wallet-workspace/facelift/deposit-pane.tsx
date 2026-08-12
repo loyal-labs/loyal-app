@@ -156,6 +156,12 @@ export function DepositPane({
   const [isSourceSheetOpen, setIsSourceSheetOpen] = useState(false);
   const [selectedSourceKey, setSelectedSourceKey] = useState("");
   const { actions } = earnData;
+  // The funding balance is only auto-refreshed after Earn transactions, so
+  // re-read it on open to pick up swaps and external transfers (ASK-2096).
+  const { refreshMainUsdcAmount } = actions;
+  useEffect(() => {
+    void refreshMainUsdcAmount();
+  }, [refreshMainUsdcAmount]);
 
   const sourceOptions = useMemo<DepositSourceOption[]>(() => {
     const cluster = resolveLoyalClusterForSolanaEnv(
@@ -188,10 +194,25 @@ export function DepositPane({
     publicEnv.earnEnabledStablecoins,
     publicEnv.solanaEnv,
   ]);
+  // Default to USDC, but when it has no balance prefer the funded stablecoin
+  // (largest balance) so a fully swapped wallet doesn't open on a $0 source.
+  const defaultSource = useMemo(() => {
+    const usdc = sourceOptions.find(
+      (source) => source.symbol === Stablecoin.USDC
+    );
+    if (usdc && usdc.usd > 0) {
+      return usdc;
+    }
+    const funded = sourceOptions.reduce<DepositSourceOption | null>(
+      (best, source) =>
+        source.usd > 0 && source.usd > (best?.usd ?? 0) ? source : best,
+      null
+    );
+    return funded ?? usdc ?? sourceOptions[0]!;
+  }, [sourceOptions]);
   const selectedSource =
     sourceOptions.find((source) => source.key === selectedSourceKey) ??
-    sourceOptions.find((source) => source.symbol === Stablecoin.USDC) ??
-    sourceOptions[0]!;
+    defaultSource;
   const sourceUsd = selectedSource.usd;
   const depositSteps = useMemo(
     () => createDepositSteps(selectedSource.symbol),

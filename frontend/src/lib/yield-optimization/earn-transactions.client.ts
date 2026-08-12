@@ -27,6 +27,7 @@ export type EarnTransactionItem = {
   signature: string;
   sortTimestamp?: string;
   confirmedSlot: string;
+  liquidityMint?: string | null;
   source: { label: string; icon: string | null };
   destination: { label: string; icon: string | null };
 };

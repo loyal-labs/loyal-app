@@ -172,6 +172,7 @@ export type EarnActions = {
   isReconnectPromptOpen: boolean;
   isWithdrawPending: boolean;
   mainUsdcAmount: number | null;
+  refreshMainUsdcAmount: () => Promise<void>;
   pendingApproval: PendingEarnApproval | null;
   pendingTransactionSignatures: string[];
   prefetchDepositPreparation: (amountLabel: string, mint: string) => void;
@@ -209,6 +210,7 @@ export function useEarnActions(deps: {
   hasPosition: boolean;
   mainUsdc: {
     amount: number | null;
+    refresh: (isCurrent?: () => boolean) => Promise<void>;
     setAmountRaw: Dispatch<SetStateAction<bigint | null>>;
   };
   position: ActiveEarnPosition | null;
@@ -351,6 +353,14 @@ export function useEarnActions(deps: {
     [publicEnv.solanaEnv]
   );
   const setMainUsdcAmountRaw = mainUsdc.setAmountRaw;
+  const refreshMainUsdc = mainUsdc.refresh;
+  // Swaps and other non-Earn flows change the wallet's stablecoin balances
+  // without passing through this hook's onAfterTx refresh, so consumers (the
+  // deposit pane) re-read the funding balance on demand.
+  const refreshMainUsdcAmount = useCallback(
+    () => refreshMainUsdc(),
+    [refreshMainUsdc]
+  );
   const debitMainAccountUsdcBalance = useCallback(
     (amountRaw: bigint) => {
       setMainUsdcAmountRaw((current) => {
@@ -2658,6 +2668,7 @@ export function useEarnActions(deps: {
     isReconnectPromptOpen,
     isWithdrawPending,
     mainUsdcAmount: mainUsdc.amount,
+    refreshMainUsdcAmount,
     pendingApproval,
     pendingTransactionSignatures,
     prefetchDepositPreparation,

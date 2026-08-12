@@ -12,12 +12,14 @@ import {
 import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
 import {
   DualIcon,
+  resolveEarnCoinIconSrc,
   UsdcCoinImage,
 } from "@/components/wallet-workspace/facelift/earn-activity-card";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { openTrackedLink } from "@/lib/core/analytics";
 import { getExplorerTxUrl } from "@/lib/solana/explorer";
+import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
@@ -63,11 +65,27 @@ function RouteRow({
 // rows use — the API's icon for it is the legacy agent avatar. Market sides
 // carry their own logos; abstract sides (Earn / Autodeposit) fall back to the
 // Earn glyph.
-function RouteTile({ side }: { side: EarnTransactionItem["source"] }) {
+function RouteTile({
+  coinSrc = null,
+  side,
+}: {
+  coinSrc?: string | null;
+  side: EarnTransactionItem["source"];
+}) {
   if (side.label === "Main") {
     return (
       <span className="relative block size-11 overflow-hidden rounded-full">
-        <UsdcCoinImage />
+        {coinSrc ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            alt=""
+            aria-hidden="true"
+            className="size-11 rounded-full object-cover"
+            src={coinSrc}
+          />
+        ) : (
+          <UsdcCoinImage />
+        )}
       </span>
     );
   }
@@ -168,10 +186,22 @@ export function EarnTransactionDetailPane({
   const transactionUrl = getExplorerTxUrl(item.signature);
   // Same art derivation as the activity list's TransactionRow, so the header
   // identity matches the row that opened it.
+  const coinSrc = item.liquidityMint
+    ? resolveEarnCoinIconSrc({
+        liquidityMint: item.liquidityMint,
+        market: null,
+      })
+    : null;
+  const amountSymbol = item.liquidityMint
+    ? resolveEarnPositionDisplay({
+        liquidityMint: item.liquidityMint,
+        market: null,
+      }).mintSymbol
+    : "USDC";
   const backSrc =
-    isMovement || item.kind === "withdraw" ? item.source.icon : null;
+    isMovement || item.kind === "withdraw" ? item.source.icon : coinSrc;
   const frontSrc =
-    isMovement || item.kind === "deposit" ? item.destination.icon : null;
+    isMovement || item.kind === "deposit" ? item.destination.icon : coinSrc;
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col">
@@ -223,7 +253,7 @@ export function EarnTransactionDetailPane({
               >
                 {item.amount}{" "}
                 <span className="text-tertiary text-[28px] leading-8 tracking-[-0.308px]">
-                  USDC
+                  {amountSymbol}
                 </span>
               </p>
               <p className="text-[16px] leading-5 text-muted-foreground">
@@ -234,7 +264,7 @@ export function EarnTransactionDetailPane({
         )}
         <div className="relative w-full px-2 pb-2">
           <RouteRow
-            icon={<RouteTile side={item.source} />}
+            icon={<RouteTile coinSrc={coinSrc} side={item.source} />}
             label="From"
             value={item.source.label}
             valueSuffix={
@@ -242,7 +272,7 @@ export function EarnTransactionDetailPane({
             }
           />
           <RouteRow
-            icon={<RouteTile side={item.destination} />}
+            icon={<RouteTile coinSrc={coinSrc} side={item.destination} />}
             label="To"
             value={item.destination.label}
             valueSuffix={
