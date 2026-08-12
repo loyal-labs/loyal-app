@@ -20,8 +20,8 @@ import {
   REQUIRED_ACCOUNTS,
   REQUIRED_INSTRUCTIONS,
   findOperationCoverageIssues,
-} from "../sdk/loyal-smart-accounts-core/src/spec/index.ts";
-import { pda, smartAccounts } from "../sdk/loyal-smart-accounts/index.ts";
+} from "../packages/loyal-smart-accounts-core/src/spec/index.ts";
+import { pda, smartAccounts } from "../packages/loyal-smart-accounts/index.ts";
 
 type SmartAccountIdl = {
   address?: string;
@@ -40,9 +40,9 @@ type SyncOptions = {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = resolve(__dirname, "..");
-const PACKAGE_DIR = resolve(ROOT_DIR, "sdk/loyal-smart-accounts-core");
-const PUBLIC_PACKAGE_DIR = resolve(ROOT_DIR, "sdk/loyal-smart-accounts");
-const RUST_PACKAGE_DIR = resolve(ROOT_DIR, "sdk/loyal-smart-accounts-rs");
+const PACKAGE_DIR = resolve(ROOT_DIR, "packages/loyal-smart-accounts-core");
+const PUBLIC_PACKAGE_DIR = resolve(ROOT_DIR, "packages/loyal-smart-accounts");
+const RUST_PACKAGE_DIR = resolve(ROOT_DIR, "crates/loyal-smart-accounts-rs");
 const RAW_IDL_PATH = join(
   PACKAGE_DIR,
   "upstream/raw/squads_smart_account_program.json"

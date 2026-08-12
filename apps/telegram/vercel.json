@@ -1,5 +1,5 @@
 {
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ../../packages ../../sdk",
+  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ../../packages",
   "installCommand": "rm -rf node_modules && cd ../.. && bun install --frozen-lockfile",
   "buildCommand": "bun run build && bash scripts/upload-sourcemaps.sh",
   "crons": [

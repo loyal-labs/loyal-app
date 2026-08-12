@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "cli/loyal-cli",
-    "cli/private-transfers-cli",
-    "cli/smart-accounts-cli",
-    "sdk/loyal-smart-accounts-rs",
+    "crates/loyal-cli",
+    "crates/private-transfers-cli",
+    "crates/smart-accounts-cli",
+    "crates/loyal-smart-accounts-rs",
     "programs/telegram-private-transfer",
     "programs/telegram-verification",
 ]

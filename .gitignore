@@ -84,9 +84,9 @@ test-ledger
 .yarn
 my-ledger-1/
 test-ledger-magicblock/
-sdk/private-transactions/.cache/devnet-mint.json
-sdk/private-transactions/tests/.auth-token-cache.json
-sdk/private-transactions/tests/.mint-cache.json
+packages/private-transactions/.cache/devnet-mint.json
+packages/private-transactions/tests/.auth-token-cache.json
+packages/private-transactions/tests/.mint-cache.json
 
 /apps/telegram/testing.ts
 .vercel
@@ -117,7 +117,6 @@ docs/scopes
 
 # internal workspace package build outputs
 /packages/*/dist/
-/sdk/*/dist/
 
 report.md
 skills-lock**

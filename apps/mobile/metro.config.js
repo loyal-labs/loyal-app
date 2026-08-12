@@ -12,19 +12,19 @@ const sharedRoot = path.resolve(__dirname, "../../packages/shared");
 const solanaRpcRoot = path.resolve(__dirname, "../../packages/solana-rpc/src");
 const privateTransactionsRoot = path.resolve(
   __dirname,
-  "../../sdk/private-transactions"
+  "../../packages/private-transactions"
 );
 const privateTransactionsEntryCandidates = [
   path.resolve(
     __dirname,
     "node_modules/@loyal-labs/private-transactions/dist/index.js"
   ),
-  path.resolve(__dirname, "../../sdk/private-transactions/dist/index.js"),
+  path.resolve(__dirname, "../../packages/private-transactions/dist/index.js"),
   path.resolve(
     __dirname,
     "node_modules/@loyal-labs/private-transactions/index.ts"
   ),
-  path.resolve(__dirname, "../../sdk/private-transactions/index.ts"),
+  path.resolve(__dirname, "../../packages/private-transactions/index.ts"),
 ];
 const privateTransactionsEntry = privateTransactionsEntryCandidates.find(
   (candidate) => fs.existsSync(candidate)

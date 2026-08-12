@@ -2,14 +2,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import bs58 from "bs58";
-import { PROGRAM_ADDRESS, pda } from "../sdk/loyal-smart-accounts/src/index.ts";
+import {
+  PROGRAM_ADDRESS,
+  pda,
+} from "../packages/loyal-smart-accounts/src/index.ts";
 import {
   Settings,
   Policy,
   settingsDiscriminator,
   toBigInt,
   transactionMessageToMultisigTransactionMessageBytes,
-} from "../sdk/loyal-smart-accounts-core/src/index.ts";
+} from "../packages/loyal-smart-accounts-core/src/index.ts";
 import { createSmartAccountVaultsClient } from "../packages/smart-account-vaults/src/index.ts";
 import {
   getSolanaEndpoints,

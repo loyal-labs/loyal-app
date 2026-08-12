@@ -20,12 +20,12 @@ import {
 import {
   compilePreparedOperation,
   generated,
-} from "../sdk/loyal-smart-accounts-core/src/index.ts";
+} from "../packages/loyal-smart-accounts-core/src/index.ts";
 import {
   PROGRAM_ADDRESS,
   createLoyalSmartAccountsClient,
   pda,
-} from "../sdk/loyal-smart-accounts/src/index.ts";
+} from "../packages/loyal-smart-accounts/src/index.ts";
 import {
   getSolanaEndpoints,
   resolveSolanaEnv,

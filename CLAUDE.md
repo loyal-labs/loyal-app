@@ -107,7 +107,7 @@ bun run admin:build        # build admin workspace from repo root
 - **`/apps/mobile`** - Expo React Native mobile app (iOS/Android)
 - **`/apps/admin`** - Next.js 15 internal admin dashboard
 - **`/packages`** - Internal shared workspace packages (e.g. `db-core`, `db-adapter-neon`, `grid-core`, `shared`)
-- **`/sdk/private-transactions`** - Publishable `@loyal-labs/private-transactions` NPM package
+- **`/packages/private-transactions`** - Publishable `@loyal-labs/private-transactions` NPM package
 - **`/workers`** - Runtime services/workers
 - **`/tests`** - Anchor test suite (Mocha/Chai)
 - **`/docs`** - Internal repository/engineering documentation

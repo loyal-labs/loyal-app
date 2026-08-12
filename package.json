@@ -11,7 +11,6 @@
     "examples/*",
     "apps/web",
     "packages/*",
-    "sdk/*",
     "workers/*"
   ],
   "scripts": {
@@ -37,13 +36,13 @@
     "frontend:lint": "bun run --cwd apps/web lint",
     "loyal-smart-accounts:update": "bun run scripts/update-loyal-smart-accounts.ts",
     "loyal-smart-accounts:update:check": "bun run scripts/update-loyal-smart-accounts.ts --check",
-    "loyal-smart-accounts:build": "bun run --cwd sdk/loyal-smart-accounts-core build && bun run --cwd sdk/loyal-smart-accounts build",
-    "loyal-smart-accounts:typecheck": "bun run guard:sdk-dist-untracked && bun run --cwd sdk/loyal-smart-accounts-core build && bun run --cwd sdk/loyal-smart-accounts-core typecheck && bun run --cwd sdk/loyal-smart-accounts build && bun run --cwd sdk/loyal-smart-accounts typecheck",
-    "loyal-smart-accounts:test": "bun run guard:sdk-dist-untracked && bun run --cwd sdk/loyal-smart-accounts-core build && bun run --cwd sdk/loyal-smart-accounts build && bun run --cwd sdk/loyal-smart-accounts-core test && bun run --cwd sdk/loyal-smart-accounts test",
+    "loyal-smart-accounts:build": "bun run --cwd packages/loyal-smart-accounts-core build && bun run --cwd packages/loyal-smart-accounts build",
+    "loyal-smart-accounts:typecheck": "bun run guard:sdk-dist-untracked && bun run --cwd packages/loyal-smart-accounts-core build && bun run --cwd packages/loyal-smart-accounts-core typecheck && bun run --cwd packages/loyal-smart-accounts build && bun run --cwd packages/loyal-smart-accounts typecheck",
+    "loyal-smart-accounts:test": "bun run guard:sdk-dist-untracked && bun run --cwd packages/loyal-smart-accounts-core build && bun run --cwd packages/loyal-smart-accounts build && bun run --cwd packages/loyal-smart-accounts-core test && bun run --cwd packages/loyal-smart-accounts test",
     "smart-accounts:propose": "bun run scripts/propose-smart-account-transaction.ts",
     "smart-accounts:create-kamino-policy": "bun run scripts/create-kamino-lending-policy.ts",
     "smart-accounts:execute-settings": "bun run scripts/execute-smart-account-settings-transaction.ts",
-    "build:packages": "turbo run build --filter='./packages/*' --filter='./sdk/*'",
+    "build:packages": "turbo run build --filter='./packages/*'",
     "build:auth-packages": "bun run --cwd packages/auth-core build",
     "typecheck:auth-packages": "bun run --cwd packages/auth-core typecheck",
     "build:solana-packages": "bun run --cwd packages/shared build && bun run --cwd packages/solana-rpc build && bun run --cwd packages/solana-wallet build",
@@ -67,7 +66,7 @@
     "guard:shared-boundaries": "rg -n \"@/lib/core/config/server|apps/telegram/src/lib/core/config/server\" packages && (echo \"Shared packages must not import app server config\" && exit 1) || true",
     "guard:llm-package-boundaries": "rg -n \"@/|@/lib/core/config/server|apps/telegram/src/lib/core/config/server\" packages/llm-core packages/llm-server && (echo \"LLM packages must not import app aliases or server config\" && exit 1) || true",
     "guard:admin-shared-schema": "([ ! -d apps/admin/src/lib/generated ] || (echo \"apps/admin/src/lib/generated must not exist\" && exit 1)) && ([ ! -f apps/admin/drizzle.config.ts ] || (echo \"apps/admin/drizzle.config.ts must not exist\" && exit 1)) && (rg -n \"@/lib/generated|src/lib/generated\" apps/admin/src && (echo \"Admin must use shared @loyal-labs/db-core/schema only\" && exit 1) || true)",
-    "guard:sdk-dist-untracked": "test -z \"$(git ls-files 'sdk/loyal-smart-accounts/dist/**' 'sdk/loyal-smart-accounts-core/dist/**')\" || (echo 'SDK dist outputs must not be tracked' && exit 1)"
+    "guard:sdk-dist-untracked": "test -z \"$(git ls-files 'packages/loyal-smart-accounts/dist/**' 'packages/loyal-smart-accounts-core/dist/**')\" || (echo 'SDK dist outputs must not be tracked' && exit 1)"
   },
   "overrides": {
     "drizzle-orm": "0.45.1"

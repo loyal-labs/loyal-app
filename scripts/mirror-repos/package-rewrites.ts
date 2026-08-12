@@ -15,9 +15,9 @@ const packageDirs = [
   "packages/solana-rpc",
   "packages/solana-wallet",
   "packages/wallet-core",
-  "sdk/loyal-smart-accounts-core",
-  "sdk/loyal-smart-accounts",
-  "sdk/private-transactions",
+  "packages/loyal-smart-accounts-core",
+  "packages/loyal-smart-accounts",
+  "packages/private-transactions",
 ] as const;
 
 const dependencySections = [

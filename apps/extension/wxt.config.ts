@@ -19,7 +19,7 @@ export default defineConfig({
     "@loyal-labs/shared": new URL("../../packages/shared/src", import.meta.url)
       .pathname,
     "@loyal-labs/private-transactions": new URL(
-      "../../sdk/private-transactions/dist/index.js",
+      "../../packages/private-transactions/dist/index.js",
       import.meta.url
     ).pathname,
   },

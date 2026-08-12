@@ -38,7 +38,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/loyal-labs/loyal-app.git",
-    "directory": "sdk/loyal-smart-accounts"
+    "directory": "packages/loyal-smart-accounts"
   },
   "bugs": {
     "url": "https://github.com/loyal/loyal-app/issues"

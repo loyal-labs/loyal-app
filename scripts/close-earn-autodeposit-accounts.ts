@@ -31,13 +31,13 @@ import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
 } from "../packages/smart-account-vaults/src/index.ts";
-import { compilePreparedOperation } from "../sdk/loyal-smart-accounts-core/src/index.ts";
+import { compilePreparedOperation } from "../packages/loyal-smart-accounts-core/src/index.ts";
 import {
   PROGRAM_ADDRESS,
   createLoyalSmartAccountsClient,
   generated,
   pda,
-} from "../sdk/loyal-smart-accounts/src/index.ts";
+} from "../packages/loyal-smart-accounts/src/index.ts";
 import {
   getSolanaEndpoints,
   resolveSolanaEnv,
