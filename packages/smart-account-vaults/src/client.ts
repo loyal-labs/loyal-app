@@ -2860,6 +2860,84 @@ function makeSignerWritable(
   };
 }
 
+export function createEarnVaultTokenCleanupInstructions(args: {
+  feePayer: PublicKey;
+  tokenAccounts: SmartAccountEarnUsdcCleanupInput["vaultTokenAccounts"];
+  usdcMint: PublicKey;
+  vaultPda: PublicKey;
+  walletAddress: PublicKey;
+}): {
+  idleUsdcTransferRaw: bigint;
+  tokenInstructions: TransactionInstruction[];
+  walletAtaInstructions: TransactionInstruction[];
+} {
+  const tokenInstructions: TransactionInstruction[] = [];
+  const walletAtaInstructions: TransactionInstruction[] = [];
+  let idleUsdcTransferRaw = BigInt(0);
+
+  for (const tokenAccount of args.tokenAccounts) {
+    if (
+      !tokenAccount.tokenProgramId.equals(TOKEN_PROGRAM_ID) &&
+      !tokenAccount.tokenProgramId.equals(TOKEN_2022_PROGRAM_ID)
+    ) {
+      throw new Error("Earn cleanup received an unsupported token program.");
+    }
+    if (tokenAccount.amountRaw > BigInt(0)) {
+      const walletAta = getAssociatedTokenAddressSync(
+        tokenAccount.mint,
+        args.walletAddress,
+        false,
+        tokenAccount.tokenProgramId
+      );
+      walletAtaInstructions.push(
+        createAssociatedTokenAccountIdempotentInstruction(
+          args.feePayer,
+          walletAta,
+          args.walletAddress,
+          tokenAccount.mint,
+          tokenAccount.tokenProgramId
+        )
+      );
+      tokenInstructions.push(
+        makeSignerWritable(
+          createTransferCheckedInstruction(
+            tokenAccount.address,
+            tokenAccount.mint,
+            walletAta,
+            args.vaultPda,
+            tokenAccount.amountRaw,
+            tokenAccount.decimals,
+            [],
+            tokenAccount.tokenProgramId
+          ),
+          args.vaultPda
+        )
+      );
+      if (tokenAccount.mint.equals(args.usdcMint)) {
+        idleUsdcTransferRaw += tokenAccount.amountRaw;
+      }
+    }
+    tokenInstructions.push(
+      makeSignerWritable(
+        createCloseAccountInstruction(
+          tokenAccount.address,
+          args.walletAddress,
+          args.vaultPda,
+          [],
+          tokenAccount.tokenProgramId
+        ),
+        args.vaultPda
+      )
+    );
+  }
+
+  return {
+    idleUsdcTransferRaw,
+    tokenInstructions,
+    walletAtaInstructions,
+  };
+}
+
 function createEarnFullWithdrawCleanupInstructions(args: {
   vaultCollateralAtas?: PublicKey[];
   vaultPda: PublicKey;
@@ -9227,80 +9305,17 @@ export function createSmartAccountVaultsClient(
       true,
       TOKEN_PROGRAM_ID
     );
-    const walletUsdcAta = getAssociatedTokenAddressSync(
-      usdcMint,
-      args.walletAddress,
-      false,
-      TOKEN_PROGRAM_ID
+    const { idleUsdcTransferRaw, tokenInstructions, walletAtaInstructions } =
+      createEarnVaultTokenCleanupInstructions({
+        feePayer: args.feePayer,
+        tokenAccounts: args.vaultTokenAccounts,
+        usdcMint,
+        vaultPda,
+        walletAddress: args.walletAddress,
+      });
+    const shouldCloseVaultUsdcAta = args.vaultTokenAccounts.some((account) =>
+      account.address.equals(vaultUsdcAta)
     );
-    const idleAmountRaw = args.idleAmountRaw ?? BigInt(0);
-    const tokenInstructions: TransactionInstruction[] = [];
-
-    if (idleAmountRaw > BigInt(0)) {
-      tokenInstructions.push(
-        makeSignerWritable(
-          createTransferCheckedInstruction(
-            vaultUsdcAta,
-            usdcMint,
-            walletUsdcAta,
-            vaultPda,
-            idleAmountRaw,
-            EARN_DEPOSIT_USDC_DECIMALS,
-            [],
-            TOKEN_PROGRAM_ID
-          ),
-          vaultPda
-        )
-      );
-    }
-
-    const closeableCollateralAtas: PublicKey[] = [];
-    for (const collateralAta of args.closeVaultCollateralAtas ?? []) {
-      if (
-        await isTokenAccountOwnedBy({
-          account: collateralAta,
-          connection: config.connection,
-          owner: vaultPda,
-        })
-      ) {
-        closeableCollateralAtas.push(collateralAta);
-      }
-    }
-
-    for (const collateralAta of closeableCollateralAtas) {
-      tokenInstructions.push(
-        makeSignerWritable(
-          createCloseAccountInstruction(
-            collateralAta,
-            args.walletAddress,
-            vaultPda,
-            [],
-            TOKEN_PROGRAM_ID
-          ),
-          vaultPda
-        )
-      );
-    }
-
-    const shouldCloseVaultUsdcAta = await isTokenAccountOwnedBy({
-      account: vaultUsdcAta,
-      connection: config.connection,
-      owner: vaultPda,
-    });
-    if (shouldCloseVaultUsdcAta) {
-      tokenInstructions.push(
-        makeSignerWritable(
-          createCloseAccountInstruction(
-            vaultUsdcAta,
-            args.walletAddress,
-            vaultPda,
-            [],
-            TOKEN_PROGRAM_ID
-          ),
-          vaultPda
-        )
-      );
-    }
 
     // Same final-exit refund as the full-withdraw path: return the unspent
     // Kamino setup buffer sitting on the vault PDA (see
@@ -9385,17 +9400,7 @@ export function createSmartAccountVaultsClient(
       programId: smartAccountsClient.programId,
       requiresConfirmation: true,
       instructions: [
-        ...(idleAmountRaw > BigInt(0)
-          ? [
-              createAssociatedTokenAccountIdempotentInstruction(
-                args.feePayer,
-                walletUsdcAta,
-                args.walletAddress,
-                usdcMint,
-                TOKEN_PROGRAM_ID
-              ),
-            ]
-          : []),
+        ...walletAtaInstructions,
         ...operations.flatMap((operation) => operation.instructions),
       ],
       lookupTableAccounts: dedupeLookupTableAccounts(
@@ -9424,11 +9429,11 @@ export function createSmartAccountVaultsClient(
               setupPolicySeed: setupPolicy.seed.toString(),
             }
           : {}),
-        idleTransferAmountRaw: idleAmountRaw.toString(),
+        idleTransferAmountRaw: idleUsdcTransferRaw.toString(),
         closedVaultUsdcAta: shouldCloseVaultUsdcAta,
-        closedCollateralAtas: closeableCollateralAtas.map((account) =>
-          account.toBase58()
-        ),
+        closedCollateralAtas: args.vaultTokenAccounts
+          .filter((account) => !account.address.equals(vaultUsdcAta))
+          .map((account) => account.address.toBase58()),
         autodepositClose: autodepositClosePrepared?.persistence ?? null,
       },
       policy: {
@@ -9483,24 +9488,41 @@ export function createSmartAccountVaultsClient(
         getTokenAccountsByOwner?: Connection["getTokenAccountsByOwner"];
       }
     ).getTokenAccountsByOwner;
-    const [lamports, tokenAccountsResponse] = await Promise.all([
-      getVaultSweepLamportsOrZero(config.connection, vaultPda),
-      typeof getTokenAccountsByOwner === "function"
-        ? getTokenAccountsByOwner.call(
-            config.connection,
-            vaultPda,
-            { programId: TOKEN_PROGRAM_ID },
-            {
-              commitment: "confirmed",
-              ...(args.minContextSlot !== undefined
-                ? { minContextSlot: args.minContextSlot }
-                : {}),
-            }
-          )
-        : Promise.resolve(null),
-    ]);
+    const [lamports, tokenAccountsResponse, token2022AccountsResponse] =
+      await Promise.all([
+        getVaultSweepLamportsOrZero(config.connection, vaultPda),
+        typeof getTokenAccountsByOwner === "function"
+          ? getTokenAccountsByOwner.call(
+              config.connection,
+              vaultPda,
+              { programId: TOKEN_PROGRAM_ID },
+              {
+                commitment: "confirmed",
+                ...(args.minContextSlot !== undefined
+                  ? { minContextSlot: args.minContextSlot }
+                  : {}),
+              }
+            )
+          : Promise.resolve(null),
+        typeof getTokenAccountsByOwner === "function"
+          ? getTokenAccountsByOwner.call(
+              config.connection,
+              vaultPda,
+              { programId: TOKEN_2022_PROGRAM_ID },
+              {
+                commitment: "confirmed",
+                ...(args.minContextSlot !== undefined
+                  ? { minContextSlot: args.minContextSlot }
+                  : {}),
+              }
+            )
+          : Promise.resolve(null),
+      ]);
 
-    const tokenAccounts = (tokenAccountsResponse?.value ?? [])
+    const tokenAccounts = [
+      ...(tokenAccountsResponse?.value ?? []),
+      ...(token2022AccountsResponse?.value ?? []),
+    ]
       .map(({ account, pubkey }) => {
         const decoded = AccountLayout.decode(account.data);
         const mint = new PublicKey(decoded.mint);
@@ -9516,8 +9538,18 @@ export function createSmartAccountVaultsClient(
       .sort((left, right) =>
         left.address.toBase58().localeCompare(right.address.toBase58())
       );
+    const observedSlot = Math.min(
+      tokenAccountsResponse?.context.slot ?? args.minContextSlot ?? 0,
+      token2022AccountsResponse?.context.slot ?? args.minContextSlot ?? 0
+    );
 
-    return { lamports, tokenAccounts, vaultPda, vaultUsdcAta };
+    return {
+      lamports,
+      observedSlot,
+      tokenAccounts,
+      vaultPda,
+      vaultUsdcAta,
+    };
   }
 
   // Refund the rent still parked on the Earn vault after the position is
@@ -9590,7 +9622,7 @@ export function createSmartAccountVaultsClient(
             args.walletAddress,
             vaultPda,
             [],
-            TOKEN_PROGRAM_ID
+            tokenAccount.tokenProgramId
           ),
           vaultPda
         )

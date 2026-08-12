@@ -677,8 +677,13 @@ export type SmartAccountEarnUsdcCleanupInput = {
   feePayer: PublicKey;
   policySigner: PublicKey;
   cluster?: LoyalCluster;
-  idleAmountRaw?: bigint;
-  closeVaultCollateralAtas?: PublicKey[];
+  vaultTokenAccounts: Array<{
+    address: PublicKey;
+    amountRaw: bigint;
+    decimals: number;
+    mint: PublicKey;
+    tokenProgramId: PublicKey;
+  }>;
   yieldRoutingPolicy: {
     account: PublicKey;
     seed: bigint;
@@ -848,6 +853,7 @@ export type SmartAccountEarnVaultRefundTokenAccount = {
 
 export type SmartAccountEarnVaultRefundSnapshot = {
   lamports: bigint;
+  observedSlot: number;
   tokenAccounts: SmartAccountEarnVaultRefundTokenAccount[];
   vaultPda: PublicKey;
   vaultUsdcAta: PublicKey;

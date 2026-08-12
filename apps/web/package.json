@@ -16,6 +16,7 @@
     "smart-accounts:reconcile": "bun run src/features/smart-accounts/server/run-reconciler.ts",
     "ultracite": "bunx ultracite check",
     "verify:earn-multi-mint-readiness": "bun --conditions=react-server scripts/verify-earn-multi-mint-readiness.ts",
+    "verify:earn-multi-mint-server-followups": "bun --conditions=react-server scripts/verify-earn-multi-mint-server-followups.ts",
     "fix-lint": "next lint --fix",
     "verify:chunk-load-recovery": "bun scripts/verify-chunk-load-recovery.ts",
     "verify:earn-cleanup-ghost-reconcile": "bun scripts/verify-earn-cleanup-ghost-reconcile.ts",

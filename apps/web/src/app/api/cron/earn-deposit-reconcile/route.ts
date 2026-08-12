@@ -18,8 +18,8 @@ async function handleCronRequest(request: Request) {
 
   const params = new URL(request.url).searchParams;
   const dryRun = params.get("dryRun") === "1";
-  // Scheduled runs scan only recently-touched accounts to respect the 5 rps
-  // Helius budget; `?full=1` runs the unbounded fleet sweep on demand.
+  // Scheduled runs scan one stable fleet shard; `?full=1` runs the explicit
+  // unbounded sweep on demand.
   const fullScan = params.get("full") === "1";
   try {
     const summary = await reconcileInvisibleEarnDeposits({ dryRun, fullScan });

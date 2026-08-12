@@ -49,8 +49,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -100,13 +99,12 @@ export async function POST(request: Request) {
     }
 
     const connection = getConnection(solanaEnv);
-    const latestFullWithdrawal =
-      await findLatestFullYieldWithdrawalForVault({
-        settings: principal.settingsPda,
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        vaultPubkey: earnVaultPda.toBase58(),
-        walletAddress: principal.walletAddress,
-      });
+    const latestFullWithdrawal = await findLatestFullYieldWithdrawalForVault({
+      settings: principal.settingsPda,
+      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+      vaultPubkey: earnVaultPda.toBase58(),
+      walletAddress: principal.walletAddress,
+    });
     if (!latestFullWithdrawal) {
       return jsonError(
         409,
@@ -162,7 +160,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const idleAmountRaw = BigInt(zeroProof.idleAmountRaw);
     const client = createSmartAccountVaultsClient({ connection, programId });
     const autodepositState = await findCurrentEarnAutodepositState({
       settings: principal.settingsPda,
@@ -220,14 +217,17 @@ export async function POST(request: Request) {
           );
     const preparedCleanup = await client.prepareEarnUsdcCleanup({
       cluster,
-      closeVaultCollateralAtas: zeroProof.closeableTokenAccounts.map(
-        (account) => new PublicKey(account)
-      ),
       feePayer: new PublicKey(principal.walletAddress),
-      idleAmountRaw,
       policySigner: getDeploymentPolicySignerPublicKey(),
       settingsPda,
       walletAddress: new PublicKey(principal.walletAddress),
+      vaultTokenAccounts: zeroProof.cleanupTokenAccounts.map((account) => ({
+        address: new PublicKey(account.address),
+        amountRaw: BigInt(account.amountRaw),
+        decimals: account.decimals,
+        mint: new PublicKey(account.mint),
+        tokenProgramId: new PublicKey(account.tokenProgramId),
+      })),
       yieldRoutingPolicy: {
         account: new PublicKey(cleanupState.routePolicy.policyAccount),
         seed: cleanupState.routePolicy.policySeed,
@@ -271,9 +271,7 @@ export async function POST(request: Request) {
     return jsonError(
       500,
       "prepare_failed",
-      error instanceof Error
-        ? error.message
-        : "Failed to prepare Earn cleanup."
+      error instanceof Error ? error.message : "Failed to prepare Earn cleanup."
     );
   }
 }

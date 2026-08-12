@@ -20,7 +20,6 @@ import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { pollRpcRead } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
 import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
-import { assertSafeEarnReserveMetadata } from "@/lib/yield-optimization/earn-reserve-target.server";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
   findEarnCleanupVaultState,
@@ -87,8 +86,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -176,7 +174,8 @@ function getParsedTokenBalanceDeltaRaw(args: {
       continue;
     }
 
-    deltaRaw += readTokenBalanceAmountRaw(post) - readTokenBalanceAmountRaw(pre);
+    deltaRaw +=
+      readTokenBalanceAmountRaw(post) - readTokenBalanceAmountRaw(pre);
   }
 
   return deltaRaw;
@@ -200,7 +199,9 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
   });
 
   if (!transaction || !transaction.meta) {
-    throw new Error("Confirmed withdrawal transaction details are unavailable.");
+    throw new Error(
+      "Confirmed withdrawal transaction details are unavailable."
+    );
   }
   if (transaction.meta.err) {
     throw new Error("Withdrawal transaction proof has an execution error.");
@@ -258,13 +259,23 @@ async function resolveConfirmedWithdrawalTransactionProof(args: {
     tokenAccount: vaultLiquidityAta,
     transaction,
   });
-  const vaultIdleDeltaRaw =
-    vaultLiquidityDeltaRaw > BigInt(0) ? vaultLiquidityDeltaRaw : BigInt(0);
   const sourceType = args.input.sourceType ?? "reserve";
-  const reserveDebitAmountRaw =
-    sourceType === "reserve"
-      ? walletTransferAmountRaw + vaultIdleDeltaRaw
-      : BigInt(0);
+  let reserveDebitAmountRaw = BigInt(0);
+  let vaultIdleDeltaRaw = BigInt(0);
+  if (sourceType === "idle") {
+    if (
+      vaultLiquidityDeltaRaw >= BigInt(0) ||
+      -vaultLiquidityDeltaRaw !== walletTransferAmountRaw
+    ) {
+      throw new Error(
+        "Confirmed idle withdrawal does not debit the selected vault token account by the wallet credit amount."
+      );
+    }
+  } else if (sourceType === "reserve") {
+    vaultIdleDeltaRaw =
+      vaultLiquidityDeltaRaw > BigInt(0) ? vaultLiquidityDeltaRaw : BigInt(0);
+    reserveDebitAmountRaw = walletTransferAmountRaw + vaultIdleDeltaRaw;
+  }
 
   return {
     reserveDebitAmountRaw,
@@ -302,24 +313,74 @@ export function createCanonicalWithdrawalInput(
       requestInput.setupPolicyAccount !== null) ||
     (requestInput.setupPolicySeed !== undefined &&
       requestInput.setupPolicySeed !== null);
-  // Same per-mint strictness as the deposit confirm: the mint must be a
-  // supported Earn product mint and the market must be in the Safe universe.
   const productAsset = resolveEarnProductAsset({
     cluster,
     mint: requestInput.liquidityMint,
   });
-  const target = assertSafeEarnReserveMetadata({
-    cluster,
-    expectedLiquidityMint: productAsset.mint.toBase58(),
-    liquidityMint: requestInput.liquidityMint,
-    market: requestInput.market,
-    targetReserve: requestInput.targetReserve,
-  });
+  const sourceType = requestInput.sourceType ?? "reserve";
+  let target: {
+    liquidityMint: string;
+    market: string | null;
+    sourceTokenAccount: string | null;
+    targetReserve: string;
+  };
+  if (sourceType === "idle") {
+    const vaultLiquidityAta = getAssociatedTokenAddressSync(
+      productAsset.mint,
+      expectedVault,
+      true,
+      productAsset.tokenProgramId
+    ).toBase58();
+    if (requestInput.market !== null) {
+      throw new Error("Earn idle withdrawal market must be null.");
+    }
+    if (requestInput.sourceTokenAccount !== vaultLiquidityAta) {
+      throw new Error(
+        "Earn idle withdrawal source token account does not match the vault mint account."
+      );
+    }
+    if (
+      requestInput.sourceMint !== undefined &&
+      requestInput.sourceMint !== null &&
+      requestInput.sourceMint !== productAsset.mint.toBase58()
+    ) {
+      throw new Error(
+        "Earn idle withdrawal source mint does not match the withdrawal mint."
+      );
+    }
+    if (requestInput.targetReserve !== vaultLiquidityAta) {
+      throw new Error(
+        "Earn idle withdrawal target does not match the vault mint account."
+      );
+    }
+    target = {
+      liquidityMint: productAsset.mint.toBase58(),
+      market: null,
+      sourceTokenAccount: vaultLiquidityAta,
+      targetReserve: vaultLiquidityAta,
+    };
+  } else if (sourceType === "reserve") {
+    if (!requestInput.market) {
+      throw new Error("Earn reserve withdrawal market is required.");
+    }
+    new PublicKey(requestInput.market);
+    new PublicKey(requestInput.targetReserve);
+    target = {
+      liquidityMint: productAsset.mint.toBase58(),
+      market: requestInput.market,
+      sourceTokenAccount: requestInput.sourceTokenAccount ?? null,
+      targetReserve: requestInput.targetReserve,
+    };
+  } else {
+    throw new Error("Earn withdrawal source type is invalid.");
+  }
   const canonicalInput = {
     ...normalizedRequestInput,
     cluster,
     liquidityMint: target.liquidityMint,
     market: target.market,
+    sourceTokenAccount: target.sourceTokenAccount,
+    sourceType,
     policyAccount: expectedPolicyAccount.toBase58(),
     policyId: requestInput.policySeed,
     policySeed: requestInput.policySeed,
@@ -347,6 +408,11 @@ export function createCanonicalWithdrawalInput(
     "liquidityMint"
   );
   assertCanonicalField(requestInput.market, canonicalInput.market, "market");
+  assertCanonicalField(
+    requestInput.sourceTokenAccount ?? null,
+    canonicalInput.sourceTokenAccount ?? null,
+    "sourceTokenAccount"
+  );
   assertCanonicalField(
     requestInput.policyAccount,
     canonicalInput.policyAccount,
@@ -742,9 +808,8 @@ export async function recordConfirmedEarnWithdrawal(args: {
 
     console.info("[earn-withdraw-confirm] full exit verification", {
       blockingTokenAccountCount: proof.blockingTokenAccounts.length,
+      cleanupTokenAccountCount: proof.cleanupTokenAccounts.length,
       cluster: input.cluster,
-      idleAmountRaw: proof.idleAmountRaw,
-      idleReadsAgree: proof.idleReadsAgree,
       observedSlot: proof.observedSlot,
       remainingHoldingCount: proof.remainingHoldings.length,
       settings: input.settings,
