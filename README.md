@@ -8,9 +8,9 @@ the Loyal web frontend, shared packages/SDKs, and worker services.
 
 | Directory | What it contains | Start here |
 | --- | --- | --- |
-| [`app/`](./app) | Next.js Telegram mini-app and API routes | [`app/README.md`](./app/README.md) |
-| [`frontend/`](./frontend) | Next.js Loyal web frontend | [`frontend/README.md`](./frontend/README.md) |
-| [`admin/`](./admin) | Internal Next.js admin dashboard | [`admin/README.md`](./admin/README.md) |
+| [`apps/telegram/`](./apps/telegram) | Next.js Telegram mini-app and API routes | [`apps/telegram/README.md`](./app/README.md) |
+| [`apps/web/`](./apps/web) | Next.js Loyal web frontend | [`apps/web/README.md`](./frontend/README.md) |
+| [`apps/admin/`](./apps/admin) | Internal Next.js admin dashboard | [`apps/admin/README.md`](./admin/README.md) |
 | [`programs/`](./programs) | Anchor smart contracts (`telegram-verification`, `telegram-private-transfer`) | [`programs/`](./programs) |
 | [`tests/`](./tests) | Anchor integration tests | [`tests/`](./tests) |
 | [`packages/`](./packages) | Shared workspace libraries (`db-core`, `db-adapter-neon`, `llm-core`, `llm-server`, `shared`) | [`packages/`](./packages) |
@@ -34,11 +34,11 @@ the Loyal web frontend, shared packages/SDKs, and worker services.
    ```
 3. Run the main app:
    ```bash
-   cd app
+   cd apps/telegram
    bun dev
    ```
 
-For Vercel monorepo deploys, use separate projects with Root Directory set to `app`, `admin`, and `frontend` respectively.
+For Vercel monorepo deploys, use separate projects with Root Directory set to `apps/telegram`, `apps/admin`, `apps/web`, and `apps/dashboard` respectively.
 
 ## Common Commands
 
@@ -66,7 +66,7 @@ bun run frontend:lint
 bun run frontend:build
 ```
 
-### Telegram App (`/app`)
+### Telegram App (`/apps/telegram`)
 
 ```bash
 bun dev
@@ -77,7 +77,7 @@ bun db:migrate
 bun db:studio
 ```
 
-### Loyal Web Frontend (`/frontend`)
+### Loyal Web Frontend (`/apps/web`)
 
 ```bash
 bun dev
@@ -85,7 +85,7 @@ bun run build
 bun run lint
 ```
 
-### Admin (`/admin`)
+### Admin (`/apps/admin`)
 
 ```bash
 bun dev
@@ -176,7 +176,7 @@ GitHub pull requests also enforce commit messages and PR titles with the same ru
 These are the brand-facing answers, kept verbatim across three locations:
 
 - This README
-- [`frontend/public/llms.txt`](./frontend/public/llms.txt)
+- [`apps/web/public/llms.txt`](./frontend/public/llms.txt)
 - [`user-docs/faq/index.mdx`](./user-docs/faq/index.mdx)
 
 Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any answer changes, update all three locations in the same commit.
