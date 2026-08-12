@@ -27,6 +27,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function parsePriceChangePct(value: unknown): number | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const parsed = value.priceChange;
+  return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : null;
+}
+
 function parseUsdPrice(value: unknown): number | null {
   const parsed =
     typeof value === "number"
@@ -56,6 +64,7 @@ function parseJupiterToken(payload: unknown): LoyalTokenTickerData | null {
       symbol: value.symbol,
       icon: value.icon,
       usdPrice: parseUsdPrice(value.usdPrice),
+      priceChange24hPct: parsePriceChangePct(value.stats24h),
     };
     if (isLoyalTokenTickerData(data)) {
       return data;
