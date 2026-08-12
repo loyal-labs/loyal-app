@@ -18,7 +18,8 @@
  */
 
 const ROOT = new URL("../", import.meta.url);
-const SOURCE_PATH = "admin/src/app/(admin)/earn/rebalance/rebalance-data.ts";
+const SOURCE_PATH =
+  "apps/admin/src/app/(admin)/earn/rebalance/rebalance-data.ts";
 const FUNCTION_NAME = "getAutodepositTimeSeries";
 
 type Variant = "baseline" | "candidate";

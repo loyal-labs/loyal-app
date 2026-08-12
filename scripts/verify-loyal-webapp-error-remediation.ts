@@ -116,7 +116,7 @@ check(
 );
 
 const resolverSource = source(
-  "frontend/src/lib/yield-optimization/earn-withdraw-input-resolution.server.ts"
+  "apps/web/src/lib/yield-optimization/earn-withdraw-input-resolution.server.ts"
 );
 check(
   "live exact source boundary",
@@ -207,7 +207,7 @@ check(
 );
 
 const clientSource = source(
-  "frontend/src/hooks/use-smart-account-sidebar-data.ts"
+  "apps/web/src/hooks/use-smart-account-sidebar-data.ts"
 );
 check(
   "confirmed withdrawal recovery boundary",
@@ -274,7 +274,7 @@ const commands = [
   [
     "bun",
     "test",
-    "frontend/src/lib/yield-optimization/yield-deposit-repository.server.test.ts",
+    "apps/web/src/lib/yield-optimization/yield-deposit-repository.server.test.ts",
     "--test-name-pattern",
     "keeps policies active when a full withdrawal confirmation is replayed",
   ],

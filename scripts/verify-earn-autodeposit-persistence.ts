@@ -82,57 +82,57 @@ async function main() {
     migration0023,
     smartAccountClient,
   ] = await Promise.all([
-    read("frontend/src/lib/yield-optimization/yield-neon-client.server.ts"),
+    read("apps/web/src/lib/yield-optimization/yield-neon-client.server.ts"),
     read(
-      "frontend/src/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared.ts"
+      "apps/web/src/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared.ts"
     ),
     read(
-      "frontend/src/lib/yield-optimization/earn-autodeposit-repository.server.ts"
+      "apps/web/src/lib/yield-optimization/earn-autodeposit-repository.server.ts"
     ),
     read(
-      "frontend/src/app/api/smart-accounts/yield-optimization/autodeposit/setup/confirm/route.ts"
+      "apps/web/src/app/api/smart-accounts/yield-optimization/autodeposit/setup/confirm/route.ts"
     ),
     read(
-      "frontend/src/app/api/smart-accounts/yield-optimization/autodeposit/close/confirm/route.ts"
+      "apps/web/src/app/api/smart-accounts/yield-optimization/autodeposit/close/confirm/route.ts"
     ),
     read(
-      "frontend/src/app/api/smart-accounts/yield-optimization/autodeposit/floor/confirm/route.ts"
+      "apps/web/src/app/api/smart-accounts/yield-optimization/autodeposit/floor/confirm/route.ts"
     ),
     read(
-      "frontend/src/app/api/smart-accounts/yield-optimization/autodeposit/toggle/confirm/route.ts"
+      "apps/web/src/app/api/smart-accounts/yield-optimization/autodeposit/toggle/confirm/route.ts"
     ),
     read(
-      "frontend/src/app/api/smart-accounts/yield-optimization/earn-state/route.ts"
+      "apps/web/src/app/api/smart-accounts/yield-optimization/earn-state/route.ts"
     ),
-    read("frontend/src/hooks/use-smart-account-sidebar-data.ts"),
+    read("apps/web/src/hooks/use-smart-account-sidebar-data.ts"),
     read(
-      "frontend/src/lib/yield-optimization/earn-autodeposit-loaded-state.shared.ts"
+      "apps/web/src/lib/yield-optimization/earn-autodeposit-loaded-state.shared.ts"
     ),
-    read("frontend/src/components/wallet-workspace/app-wallet-workspace.tsx"),
-    read("frontend/src/components/wallet-sidebar/portfolio-content.tsx"),
+    read("apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx"),
+    read("apps/web/src/components/wallet-sidebar/portfolio-content.tsx"),
     read(
-      "frontend/src/lib/yield-optimization/migrations/0005_add_autodeposit_balance_sweep_config.sql"
-    ),
-    read(
-      "frontend/src/lib/yield-optimization/migrations/0006_add_balance_sweep_policies.sql"
+      "apps/web/src/lib/yield-optimization/migrations/0005_add_autodeposit_balance_sweep_config.sql"
     ),
     read(
-      "frontend/src/lib/yield-optimization/migrations/0007_add_balance_sweep_target_start_timestamp.sql"
+      "apps/web/src/lib/yield-optimization/migrations/0006_add_balance_sweep_policies.sql"
     ),
     read(
-      "frontend/src/lib/yield-optimization/migrations/0009_add_floor_rebaseline_surplus_classification.sql"
+      "apps/web/src/lib/yield-optimization/migrations/0007_add_balance_sweep_target_start_timestamp.sql"
     ),
     read(
-      "frontend/src/lib/yield-optimization/migrations/0015_add_balance_sweep_target_token_accounts.sql"
+      "apps/web/src/lib/yield-optimization/migrations/0009_add_floor_rebaseline_surplus_classification.sql"
     ),
     read(
-      "frontend/src/lib/yield-optimization/migrations/0021_allow_pending_policy_autodeposit_targets.sql"
+      "apps/web/src/lib/yield-optimization/migrations/0015_add_balance_sweep_target_token_accounts.sql"
     ),
     read(
-      "frontend/src/lib/yield-optimization/migrations/0022_earn_realtime_events.sql"
+      "apps/web/src/lib/yield-optimization/migrations/0021_allow_pending_policy_autodeposit_targets.sql"
     ),
     read(
-      "frontend/src/lib/yield-optimization/migrations/0023_autodeposit_execution_slot_realtime.sql"
+      "apps/web/src/lib/yield-optimization/migrations/0022_earn_realtime_events.sql"
+    ),
+    read(
+      "apps/web/src/lib/yield-optimization/migrations/0023_autodeposit_execution_slot_realtime.sql"
     ),
     read("packages/smart-account-vaults/src/client.ts"),
   ]);

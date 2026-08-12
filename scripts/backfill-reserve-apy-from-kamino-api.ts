@@ -6,7 +6,7 @@ import { neon } from "@neondatabase/serverless";
 // the indexer never sampled (e.g. hidden reserves a position historically
 // held), so the earnings coverage gate can compute instead of returning
 // apy_coverage_incomplete forever. Read-path union lives in
-// frontend/src/lib/kamino/timescale-reserve-client.server.ts
+// apps/web/src/lib/kamino/timescale-reserve-client.server.ts
 // (getReserveApyHistorySamplesForReserves).
 
 const TIMESCALE_URL_ENV_NAME = "TIMESCALEDB_URL";

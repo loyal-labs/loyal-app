@@ -64,7 +64,7 @@ function removeExternalTsconfigPaths(tsconfigPath: string): void {
       alias.startsWith("@loyal-labs/") &&
       targets.some(
         (target) =>
-          target.startsWith("../packages") || target.startsWith("../sdk")
+          target.startsWith("../../packages") || target.startsWith("../../sdk")
       )
     ) {
       delete paths[alias];
@@ -101,8 +101,8 @@ function rewriteWorkspaceScripts(packageJsonPath: string): void {
     }
 
     scripts[name] = command
-      .replace(/bun run --cwd \.\. build:[^&]+&&\s*/g, "")
-      .replace(/bun run --cwd \.\. [^&]+&&\s*/g, "")
+      .replace(/bun run --cwd \.\.\/\.\. build:[^&]+&&\s*/g, "")
+      .replace(/bun run --cwd \.\.\/\.\. [^&]+&&\s*/g, "")
       .trim();
   }
 
@@ -125,7 +125,7 @@ function rewriteTelegramApp(root: string, versions: Map<string, string>): void {
 
   replaceRequired(
     path.join(root, "next.config.ts"),
-    `  turbopack: {\n    root: path.resolve(__dirname, ".."),\n  },\n`,
+    `  turbopack: {\n    root: path.resolve(__dirname, "../.."),\n  },\n`,
     ""
   );
 
@@ -141,7 +141,7 @@ function rewriteTelegramApp(root: string, versions: Map<string, string>): void {
   );
   replaceRequired(
     path.join(root, "drizzle.config.ts"),
-    `schema: "../packages/db-core/src/schema.ts"`,
+    `schema: "../../packages/db-core/src/schema.ts"`,
     `schema: "./drizzle.schema.ts"`
   );
 }
@@ -221,7 +221,7 @@ module.exports = nativewindConfig;
 
   const jestConfigPath = path.join(root, "jest.config.js");
   const jestConfig = readText(jestConfigPath).replace(
-    `    "^@loyal-labs/shared$": "<rootDir>/../packages/shared/src/index",\n`,
+    `    "^@loyal-labs/shared$": "<rootDir>/../../packages/shared/src/index",\n`,
     ""
   );
   writeText(jestConfigPath, jestConfig);
@@ -258,7 +258,7 @@ function rewriteExtension(root: string, versions: Map<string, string>): void {
 
   replaceRequired(
     path.join(root, "wxt.config.ts"),
-    `\n  alias: {\n    "@loyal-labs/wallet-core": new URL(\n      "../packages/wallet-core/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-rpc": new URL(\n      "../packages/solana-rpc/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-wallet": new URL(\n      "../packages/solana-wallet/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/shared": new URL("../packages/shared/src", import.meta.url)\n      .pathname,\n    "@loyal-labs/private-transactions": new URL(\n      "../sdk/private-transactions/dist/index.js",\n      import.meta.url\n    ).pathname,\n  },\n`,
+    `\n  alias: {\n    "@loyal-labs/wallet-core": new URL(\n      "../../packages/wallet-core/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-rpc": new URL(\n      "../../packages/solana-rpc/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-wallet": new URL(\n      "../../packages/solana-wallet/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/shared": new URL("../../packages/shared/src", import.meta.url)\n      .pathname,\n    "@loyal-labs/private-transactions": new URL(\n      "../../sdk/private-transactions/dist/index.js",\n      import.meta.url\n    ).pathname,\n  },\n`,
     "\n"
   );
 }

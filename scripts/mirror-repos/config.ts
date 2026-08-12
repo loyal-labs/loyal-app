@@ -16,25 +16,25 @@ export type MirrorConfig = {
 
 export const mirrors = [
   {
-    source: "frontend",
+    source: "apps/web",
     repo: "loyal-labs/loyal-webapp",
     kind: "next-app",
     description: "Generated mirror of loyal-app/frontend",
   },
   {
-    source: "app",
+    source: "apps/telegram",
     repo: "loyal-labs/loyal-telegram-app",
     kind: "telegram-app",
     description: "Generated mirror of loyal-app/app",
   },
   {
-    source: "mobile",
+    source: "apps/mobile",
     repo: "loyal-labs/loyal-mobile",
     kind: "expo-app",
     description: "Generated mirror of loyal-app/mobile",
   },
   {
-    source: "extension",
+    source: "apps/extension",
     repo: "loyal-labs/loyal-extension",
     kind: "wxt-extension",
     description: "Generated mirror of loyal-app/extension",

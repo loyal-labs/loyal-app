@@ -7,13 +7,13 @@
 claude-report-second.md
 
 # dependencies
-/app/node_modules
-/app/.next
-/dashboard/node_modules
+/apps/telegram/node_modules
+/apps/telegram/.next
+/apps/dashboard/node_modules
 /node_modules
-/app/node_modules
+/apps/telegram/node_modules
 /.pnp
-/app/.pnp
+/apps/telegram/.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -23,29 +23,29 @@ claude-report-second.md
 
 # testing
 /coverage
-/app/coverage
+/apps/telegram/coverage
 
 # next.js
 /.next/
 /out/
-/app/.next/
-/app/out/
-/admin/.next/
-/admin/out/
-/dashboard/.next/
-/dashboard/out/
-/frontend/.next/
-/frontend/out/
+/apps/telegram/.next/
+/apps/telegram/out/
+/apps/admin/.next/
+/apps/admin/out/
+/apps/dashboard/.next/
+/apps/dashboard/out/
+/apps/web/.next/
+/apps/web/out/
 /examples/*/.next/
 
 # production
 /build
-/app/build
+/apps/telegram/build
 
 # misc
 .DS_Store
 *.pem
-/frontend/refs/
+/apps/web/refs/
 .claude/
 /scripts/.state/
 
@@ -57,20 +57,20 @@ yarn-error.log*
 
 # env files
 .env*
-/frontend/.env*
-!/dashboard/.env.example
+/apps/web/.env*
+!/apps/dashboard/.env.example
 !/examples/privy-showcase/.env.example
 
 # vercel
-/app/.vercel
-/admin/.vercel
-/dashboard/.vercel
-/frontend/.vercel
+/apps/telegram/.vercel
+/apps/admin/.vercel
+/apps/dashboard/.vercel
+/apps/web/.vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-!/dashboard/next-env.d.ts
+!/apps/dashboard/next-env.d.ts
 !/examples/privy-showcase/next-env.d.ts
 
 .anchor
@@ -88,13 +88,13 @@ sdk/private-transactions/.cache/devnet-mint.json
 sdk/private-transactions/tests/.auth-token-cache.json
 sdk/private-transactions/tests/.mint-cache.json
 
-/app/testing.ts
+/apps/telegram/testing.ts
 .vercel
 
 CHANGELOG-*.md
 
 CLAUDE.md
-!/mobile/CLAUDE.md
+!/apps/mobile/CLAUDE.md
 
 docs/plans
 docs/scopes
@@ -102,10 +102,10 @@ docs/scopes
 .entire/
 
 # Mobile
-/mobile/.expo/
-/mobile/node_modules/
-/mobile/ios/
-/mobile/android/
+/apps/mobile/.expo/
+/apps/mobile/node_modules/
+/apps/mobile/ios/
+/apps/mobile/android/
 
 # userbot worker local storage overrides
 /.data/userbot/
