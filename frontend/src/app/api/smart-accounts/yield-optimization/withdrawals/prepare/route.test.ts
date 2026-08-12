@@ -169,10 +169,16 @@ mock.module(
   () => ({
     parseEarnWithdrawPrepareRequestBody: (body: {
       amountRaw: string;
-      sourceId: string;
+      sourceId?: string;
+      mode?: "partial" | "full";
+      source?: Record<string, unknown> | null;
     }) => ({
       amountRaw: body.amountRaw === "max" ? "max" : BigInt(body.amountRaw),
-      sourceId: body.sourceId,
+      sourceId: body.sourceId ?? null,
+      legacy:
+        body.sourceId === undefined && body.mode
+          ? { mode: body.mode, source: body.source ?? null }
+          : null,
     }),
     serializePreparedEarnUsdcWithdraw: () => ({ ok: true }),
   })
@@ -196,6 +202,9 @@ mock.module("@loyal-labs/smart-account-vaults", () => ({
       return { prepared: true, input };
     },
   }),
+  // The input-resolution module imports this too; an incomplete module mock
+  // fails the whole suite at import time.
+  isEarnWithdrawRequiredAccountMissingError: () => false,
 }));
 
 function createRequest(body: Record<string, unknown>): Request {
@@ -369,5 +378,93 @@ describe("Earn withdrawal prepare route", () => {
     expect(response.status).toBe(409);
     expect(payload.error.code).toBe("earn_withdraw_source_changed");
     expect(prepareCalls).toHaveLength(0);
+  });
+
+  // Legacy `{ amountRaw, mode, source }` bodies — the shape every shipped
+  // mobile binary/OTA still sends (ASK-2099).
+  test("resolves a legacy partial body by raw reserve id (ASK-2099)", async () => {
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "300000",
+        mode: "partial",
+        source: {
+          id: secondReserve,
+          reserve: secondReserve,
+          type: "reserve",
+        },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(prepareCalls[0]?.amountRaw).toBe(BigInt(300_000));
+    expect(prepareCalls[0]?.mode).toBe("partial");
+    expect(prepareCalls[0]?.source).toMatchObject({
+      id: secondReserve,
+      type: "reserve",
+    });
+    expect(prepareCalls[0]?.fullWithdrawalTargets).toBeUndefined();
+  });
+
+  test("resolves a legacy partial body holding a new-format source id (ASK-2099)", async () => {
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "300000",
+        mode: "partial",
+        source: { id: `reserve:${secondReserve}`, type: "reserve" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(prepareCalls[0]?.source).toMatchObject({
+      id: secondReserve,
+      type: "reserve",
+    });
+  });
+
+  test("legacy full exit aggregates every source (ASK-2099)", async () => {
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "1010000",
+        mode: "full",
+        source: null,
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(prepareCalls[0]?.mode).toBe("full");
+    // 600000 + 400000 + 10000 — every source, not just the largest.
+    expect(prepareCalls[0]?.amountRaw).toBe(BigInt(1_010_000));
+    expect(prepareCalls[0]?.fullWithdrawalTargets).toHaveLength(2);
+    expect(prepareCalls[0]?.source).toMatchObject({
+      id: activePosition.currentReserve,
+      type: "reserve",
+    });
+  });
+
+  test("legacy idle withdrawal keeps a reserve routing target (ASK-2099)", async () => {
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "10000",
+        mode: "partial",
+        source: { id: idleTokenAccount, type: "idle" },
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(prepareCalls[0]?.source).toMatchObject({
+      id: idleTokenAccount,
+      type: "idle",
+    });
+    expect(prepareCalls[0]?.target).toMatchObject({
+      reserve: new PublicKey(activePosition.currentReserve),
+    });
   });
 });

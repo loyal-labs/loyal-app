@@ -55,10 +55,17 @@ describe("Earn asset registry and public deposit intent", () => {
     }
   });
 
-  test("rejects missing and unsupported mints before construction", () => {
-    expect(() =>
-      parseEarnDepositPrepareRequestBody({ amountRaw: "1" })
-    ).toThrow("mint must be a mint public key");
+  test("treats a missing mint as legacy USDC and rejects unsupported mints", () => {
+    // Legacy mobile deposit bodies predate mint selection and always meant
+    // USDC; requiring the field silently 400'd every mobile deposit (ASK-2099).
+    expect(parseEarnDepositPrepareRequestBody({ amountRaw: "1" })).toEqual({
+      amountRaw: BigInt(1),
+      mint: null,
+    });
+    expect(
+      resolveEarnProductAsset({ cluster: LoyalCluster.MainnetBeta, mint: null })
+        .symbol
+    ).toBe(Stablecoin.USDC);
     expect(() =>
       resolveEarnProductAsset({
         cluster: LoyalCluster.MainnetBeta,

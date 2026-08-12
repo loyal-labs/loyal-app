@@ -82,7 +82,9 @@ function readUnsignedIntegerString(
 
 export function parseEarnDepositPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
-  mint: string;
+  // null = legacy client that predates mint selection; those bodies always
+  // meant USDC and the product-asset resolver defaults accordingly (ASK-2099).
+  mint: string | null;
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
@@ -92,6 +94,9 @@ export function parseEarnDepositPrepareRequestBody(body: unknown): {
   }
 
   const mintValue = record.mint;
+  if (mintValue === undefined) {
+    return { amountRaw, mint: null };
+  }
   if (typeof mintValue !== "string") {
     throw new Error("mint must be a mint public key.");
   }

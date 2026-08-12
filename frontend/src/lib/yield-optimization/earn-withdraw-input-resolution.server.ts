@@ -8,13 +8,20 @@ import {
 import { type Connection, PublicKey } from "@solana/web3.js";
 
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
-import type { EarnUsdcReserveTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
+import {
+  earnReserveTargetFromActivePosition,
+  type EarnUsdcReserveTarget,
+} from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   type EarnRpcHolding,
   fetchEarnRpcHoldingsSnapshot,
 } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
-import type { parseEarnWithdrawPrepareRequestBody } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
+import type {
+  EarnWithdrawLegacyPrepareRequest,
+  EarnWithdrawLegacySourceRequest,
+  parseEarnWithdrawPrepareRequestBody,
+} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import {
   findActiveYieldRoutePolicyPair,
   findReconciledActiveYieldPositionForVault,
@@ -137,6 +144,190 @@ function selectRequestedEarnWithdrawSource(
   return selected;
 }
 
+// ---------------------------------------------------------------------------
+// Legacy request compatibility (ASK-2099). Mobile binaries and OTAs that
+// predate the sourceId contract still send `{ amountRaw, mode, source }`;
+// these are the selection/matching rules that contract shipped with, applied
+// to the same snapshot sources. Delete once the mobile fleet speaks sourceId.
+
+function isNonEmptyString(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+// Legacy clients that refreshed their source list after the contract change
+// hold new-format ids ("reserve:<pubkey>" / "idle:<tokenAccount>") — strip
+// the prefix so they still match the raw identifiers below.
+function stripSourceIdPrefix(value: string): string {
+  return value.replace(/^(?:reserve|idle):/, "");
+}
+
+function legacySourceMatchesDirectIdentifier(
+  source: SelectedEarnWithdrawSource,
+  request: NonNullable<EarnWithdrawLegacySourceRequest>
+): boolean {
+  if (source.type !== request.type) {
+    return false;
+  }
+
+  const identifiers = [request.id, request.reserve, request.tokenAccount]
+    .filter(isNonEmptyString)
+    .map(stripSourceIdPrefix);
+
+  if (identifiers.includes(source.id)) {
+    return true;
+  }
+
+  return source.type === "reserve" && identifiers.includes(source.reserve);
+}
+
+function legacySourceMatchesStableMint(
+  source: SelectedEarnWithdrawSource,
+  request: NonNullable<EarnWithdrawLegacySourceRequest>
+): boolean {
+  if (source.type !== request.type) {
+    return false;
+  }
+
+  const identifiers = [request.id, request.liquidityMint, request.mint].filter(
+    isNonEmptyString
+  );
+
+  return source.type === "reserve"
+    ? identifiers.includes(source.liquidityMint)
+    : identifiers.includes(source.mint);
+}
+
+function selectLegacyEarnWithdrawSource(
+  sources: SelectedEarnWithdrawSource[],
+  request: EarnWithdrawLegacySourceRequest
+): SelectedEarnWithdrawSource | null {
+  if (!request) {
+    return sources.length === 1 ? (sources[0] ?? null) : null;
+  }
+
+  const directMatch = sources.find((source) =>
+    legacySourceMatchesDirectIdentifier(source, request)
+  );
+  if (directMatch) {
+    return directMatch;
+  }
+
+  const stableMintMatches = sources.filter((source) =>
+    legacySourceMatchesStableMint(source, request)
+  );
+  if (stableMintMatches.length === 1) {
+    return stableMintMatches[0] ?? null;
+  }
+
+  const amountMatchedStableMintMatches = stableMintMatches.filter(
+    (source) => request.amountRaw === source.amountRaw.toString()
+  );
+
+  return amountMatchedStableMintMatches.length === 1
+    ? (amountMatchedStableMintMatches[0] ?? null)
+    : null;
+}
+
+function publicKeyFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+  keys: string[]
+): PublicKey | null {
+  if (!metadata) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value !== "string" || value.trim().length === 0) {
+      continue;
+    }
+    try {
+      return new PublicKey(value);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+// Reserve target the legacy contract attached to idle-source withdrawals so
+// the device SDK always had a routing venue.
+function snapshotReserveTarget(
+  holdings: EarnRpcHolding[]
+): EarnUsdcReserveTarget | null {
+  const kamino = holdings.find(
+    (holding) => holding.kind === "kamino" && holding.reserve && holding.market
+  );
+  if (!(kamino?.reserve && kamino.market)) {
+    return null;
+  }
+  let supplyApyBps: bigint | null = null;
+  if (kamino.supplyApyBps) {
+    try {
+      supplyApyBps = BigInt(kamino.supplyApyBps);
+    } catch {
+      supplyApyBps = null;
+    }
+  }
+  return {
+    liquidityMint: new PublicKey(kamino.liquidityMint),
+    liquidityTokenProgram: new PublicKey(kamino.tokenProgramId),
+    market: new PublicKey(kamino.market),
+    reserve: new PublicKey(kamino.reserve),
+    supplyApyBps,
+  };
+}
+
+// Legacy full exit unwinds EVERY market the wallet holds; the aggregate target
+// list drives the SDK's multi-market full-withdrawal build.
+function snapshotFullWithdrawalTargets(holdings: EarnRpcHolding[]): {
+  amountRaw: bigint;
+  liquidityMint: PublicKey;
+  market: PublicKey;
+  reserve: PublicKey;
+  reserveCollateralMint?: PublicKey;
+  supplyApyBps: bigint | null;
+}[] {
+  const targets = [];
+  for (const holding of holdings) {
+    if (holding.kind !== "kamino" || !holding.reserve || !holding.market) {
+      continue;
+    }
+    let amountRaw: bigint;
+    try {
+      amountRaw = BigInt(holding.amountRaw);
+    } catch {
+      continue;
+    }
+    if (amountRaw <= BigInt(0)) {
+      continue;
+    }
+    let supplyApyBps: bigint | null = null;
+    if (holding.supplyApyBps) {
+      try {
+        supplyApyBps = BigInt(holding.supplyApyBps);
+      } catch {
+        supplyApyBps = null;
+      }
+    }
+    const reserveCollateralMint = publicKeyFromMetadata(holding.provenance, [
+      "reserveCollateralMint",
+    ]);
+    targets.push({
+      amountRaw,
+      liquidityMint: new PublicKey(holding.liquidityMint),
+      market: new PublicKey(holding.market),
+      reserve: new PublicKey(holding.reserve),
+      ...(reserveCollateralMint ? { reserveCollateralMint } : {}),
+      supplyApyBps,
+    });
+  }
+  return targets;
+}
+
+// ---------------------------------------------------------------------------
+
 // Build withdrawal sources from the live on-chain holdings snapshot. The DB
 // read-model cannot follow a cross-market rebalance. Drop entries missing the
 // identifiers a withdrawal needs to match or build.
@@ -204,6 +395,9 @@ export async function resolveEarnUsdcWithdrawInput(args: {
   earnVaultPda: PublicKey;
   requestedAmountRaw: bigint | "max";
   sourceId: EarnWithdrawSourceId;
+  // Set for legacy `{ amountRaw, mode, source }` bodies (ASK-2099); resolved
+  // with the legacy matcher instead of an exact sourceId match.
+  legacyRequest?: EarnWithdrawLegacyPrepareRequest | null;
   // Route-specific log prefix so on-call greps keep working per endpoint.
   logTag: string;
 }): Promise<ResolvedEarnUsdcWithdraw> {
@@ -292,31 +486,97 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     );
   }
 
-  const selectedSource = selectRequestedEarnWithdrawSource(
-    snapshotSources,
-    args.sourceId
-  );
-  const effectiveAmountRaw =
-    requestedAmountRaw === "max"
-      ? selectedSource.amountRaw
-      : requestedAmountRaw;
-  if (effectiveAmountRaw > selectedSource.amountRaw) {
-    throw new EarnWithdrawResolveError(
-      409,
-      "earn_withdraw_amount_exceeds_source",
-      "Withdrawal exceeds the selected Earn source amount."
+  const legacyRequest = args.legacyRequest ?? null;
+  let selectedSource: SelectedEarnWithdrawSource;
+  let effectiveAmountRaw: bigint;
+  let mode: "partial" | "full" = "partial";
+  let fullWithdrawalTargets: ReturnType<typeof snapshotFullWithdrawalTargets> =
+    [];
+  let withdrawTarget: EarnUsdcReserveTarget | undefined;
+
+  if (legacyRequest && legacyRequest.mode === "full") {
+    // Legacy full exit: aggregate every source and let the SDK unwind each
+    // market; the client's amountRaw is display-precision and ignored.
+    const largestReserveSource = snapshotSources.reduce<Extract<
+      SelectedEarnWithdrawSource,
+      { type: "reserve" }
+    > | null>((largest, source) => {
+      if (source.type !== "reserve") {
+        return largest;
+      }
+      return !largest || source.amountRaw > largest.amountRaw
+        ? source
+        : largest;
+    }, null);
+    selectedSource =
+      largestReserveSource ??
+      snapshotSources.find((source) => source.type === "idle")!;
+    effectiveAmountRaw = snapshotSources.reduce(
+      (total, source) => total + source.amountRaw,
+      BigInt(0)
     );
+    mode = "full";
+    fullWithdrawalTargets = snapshotFullWithdrawalTargets(snapshot.holdings);
+    withdrawTarget =
+      selectedSource.type === "reserve"
+        ? reserveSourceWithdrawTarget(selectedSource)
+        : (snapshotReserveTarget(snapshot.holdings) ??
+          earnReserveTargetFromActivePosition(position, cluster));
+  } else if (legacyRequest) {
+    const selected = selectLegacyEarnWithdrawSource(
+      snapshotSources,
+      legacyRequest.source
+    );
+    if (!selected) {
+      throw new EarnWithdrawResolveError(
+        400,
+        "earn_withdraw_source_required",
+        "Select an Earn source before withdrawing."
+      );
+    }
+    selectedSource = selected;
+    effectiveAmountRaw =
+      requestedAmountRaw === "max" ? selected.amountRaw : requestedAmountRaw;
+    if (effectiveAmountRaw > selected.amountRaw) {
+      throw new EarnWithdrawResolveError(
+        409,
+        "earn_withdraw_amount_exceeds_source",
+        "Withdrawal exceeds the selected Earn source amount."
+      );
+    }
+    withdrawTarget =
+      selected.type === "reserve"
+        ? reserveSourceWithdrawTarget(selected)
+        : (snapshotReserveTarget(snapshot.holdings) ??
+          earnReserveTargetFromActivePosition(position, cluster));
+  } else {
+    if (args.sourceId === null) {
+      throw new EarnWithdrawResolveError(
+        400,
+        "earn_withdraw_source_required",
+        "Select an Earn source before withdrawing."
+      );
+    }
+    selectedSource = selectRequestedEarnWithdrawSource(
+      snapshotSources,
+      args.sourceId
+    );
+    effectiveAmountRaw =
+      requestedAmountRaw === "max"
+        ? selectedSource.amountRaw
+        : requestedAmountRaw;
+    if (effectiveAmountRaw > selectedSource.amountRaw) {
+      throw new EarnWithdrawResolveError(
+        409,
+        "earn_withdraw_amount_exceeds_source",
+        "Withdrawal exceeds the selected Earn source amount."
+      );
+    }
+    withdrawTarget =
+      selectedSource.type === "reserve"
+        ? reserveSourceWithdrawTarget(selectedSource)
+        : undefined;
   }
-  const withdrawTarget: EarnUsdcReserveTarget | undefined =
-    selectedSource.type === "reserve"
-      ? {
-          liquidityMint: new PublicKey(selectedSource.liquidityMint),
-          liquidityTokenProgram: new PublicKey(selectedSource.tokenProgramId),
-          market: new PublicKey(selectedSource.market),
-          reserve: new PublicKey(selectedSource.reserve),
-          supplyApyBps: null,
-        }
-      : undefined;
 
   const yieldRoutingPolicy = {
     account: new PublicKey(policy.policyAccount),
@@ -337,6 +597,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     policySigner: args.policySigner,
     settingsPda: settingsPdaKey,
     target: withdrawTarget,
+    ...(fullWithdrawalTargets.length > 0 ? { fullWithdrawalTargets } : {}),
     // Full withdrawal and policy close are intentionally separate phases.
     closePoliciesOnFullWithdrawal: false,
     source:
@@ -363,10 +624,22 @@ export async function resolveEarnUsdcWithdrawInput(args: {
 
   const input: SmartAccountEarnUsdcWithdrawInput = {
     ...withdrawInput,
-    mode: "partial",
+    mode,
   };
 
   return { input, policy, effectiveAmountRaw };
+}
+
+function reserveSourceWithdrawTarget(
+  source: Extract<SelectedEarnWithdrawSource, { type: "reserve" }>
+): EarnUsdcReserveTarget {
+  return {
+    liquidityMint: new PublicKey(source.liquidityMint),
+    liquidityTokenProgram: new PublicKey(source.tokenProgramId),
+    market: new PublicKey(source.market),
+    reserve: new PublicKey(source.reserve),
+    supplyApyBps: null,
+  };
 }
 
 // Wire form of the resolved SDK input, served by `withdraw/prepare-context`
