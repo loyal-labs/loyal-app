@@ -4,6 +4,7 @@ export type LoyalTokenTickerData = {
   symbol: "LOYAL";
   icon: string;
   usdPrice: number;
+  priceChange24hPct: number | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -38,6 +39,9 @@ export function isLoyalTokenTickerData(
     isSafeIconUrl(value.icon) &&
     typeof value.usdPrice === "number" &&
     Number.isFinite(value.usdPrice) &&
-    value.usdPrice > 0
+    value.usdPrice > 0 &&
+    (value.priceChange24hPct === null ||
+      (typeof value.priceChange24hPct === "number" &&
+        Number.isFinite(value.priceChange24hPct)))
   );
 }

@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { usePublicEnv } from "@/contexts/public-env-context";
-import type { EarnPublicStats } from "@/lib/yield-optimization/earn-public-stats.server";
+import {
+  isLoyalTokenTickerData,
+  LOYAL_TOKEN_MINT,
+  type LoyalTokenTickerData,
+} from "@/lib/market/loyal-token-ticker.shared";
 import {
   MARKETING_PAGES,
   type MarketingPage,
@@ -24,20 +28,22 @@ const navLinks: NavItem[] = [
   { kind: "anchor", href: "/#footer", label: "Links" },
 ];
 
-const compactUsdFormatter = new Intl.NumberFormat("en-US", {
+const usdPriceFormatter = new Intl.NumberFormat("en-US", {
   currency: "USD",
   maximumFractionDigits: 2,
   minimumFractionDigits: 2,
-  notation: "compact",
   style: "currency",
 });
+const LOYAL_JUPITER_URL = `https://jup.ag/tokens/${LOYAL_TOKEN_MINT}`;
 const neutralPupilOffset = 49 - 61.3298;
 const randomBlinkDelay = () => 2600 + Math.random() * 5200;
 const stickyRevealOffset = 68;
 
 export function LandingHeader() {
   const { loyalAppUrl } = usePublicEnv();
-  const [earnAumUsd, setEarnAumUsd] = useState<number | null>(null);
+  const [tokenTicker, setTokenTicker] = useState<LoyalTokenTickerData | null>(
+    null
+  );
   const [eyeOffset, setEyeOffset] = useState(0);
   const [isIntroEyeOpen, setIsIntroEyeOpen] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
@@ -47,24 +53,24 @@ export function LandingHeader() {
   useEffect(() => {
     let cancelled = false;
 
-    const loadEarnAum = async () => {
+    const loadTokenTicker = async () => {
       try {
-        const response = await fetch("/api/earn/stats", {
-          cache: "force-cache",
+        const response = await fetch("/api/tokens/loyal-ticker", {
+          cache: "default",
         });
         if (!response.ok) {
           return;
         }
-        const stats = (await response.json()) as EarnPublicStats;
-        if (!cancelled) {
-          setEarnAumUsd(stats.aumUsd);
+        const data: unknown = await response.json();
+        if (!cancelled && isLoyalTokenTickerData(data)) {
+          setTokenTicker(data);
         }
       } catch {
-        // Keep the stats link available without a value if the public feed fails.
+        // Hide the token price pill when the ticker feed fails.
       }
     };
 
-    void loadEarnAum();
+    void loadTokenTicker();
 
     return () => {
       cancelled = true;
@@ -195,6 +201,7 @@ export function LandingHeader() {
           menuId="landing-mobile-menu-static"
           onMenuOpenChange={setIsMenuOpen}
           shouldAnimateIn
+          tokenTicker={tokenTicker}
         />
       </header>
 
@@ -207,7 +214,6 @@ export function LandingHeader() {
         }`}
       >
         <HeaderContent
-          earnAumUsd={earnAumUsd}
           eyeOffset={eyeOffset}
           interactive={isStickyVisible}
           isEyeOpen
@@ -217,7 +223,7 @@ export function LandingHeader() {
           maskId="landing-header-eye-mask-sticky"
           menuId="landing-mobile-menu-sticky"
           onMenuOpenChange={setIsMenuOpen}
-          showStatsWidget
+          tokenTicker={tokenTicker}
         />
       </header>
     </>
@@ -225,7 +231,6 @@ export function LandingHeader() {
 }
 
 function HeaderContent({
-  earnAumUsd = null,
   eyeOffset,
   interactive = true,
   isEyeOpen,
@@ -236,9 +241,8 @@ function HeaderContent({
   menuId,
   onMenuOpenChange,
   shouldAnimateIn = false,
-  showStatsWidget = false,
+  tokenTicker = null,
 }: {
-  earnAumUsd?: number | null;
   eyeOffset: number;
   interactive?: boolean;
   isEyeOpen: boolean;
@@ -249,7 +253,7 @@ function HeaderContent({
   menuId: string;
   onMenuOpenChange: (isOpen: boolean) => void;
   shouldAnimateIn?: boolean;
-  showStatsWidget?: boolean;
+  tokenTicker?: LoyalTokenTickerData | null;
 }) {
   const linkTabIndex = interactive ? undefined : -1;
   const closeMenu = () => onMenuOpenChange(false);
@@ -358,44 +362,29 @@ function HeaderContent({
       </svg>
 
       <div className="hidden items-center gap-4 lg:flex">
-        {showStatsWidget ? (
+        {tokenTicker === null ? null : (
           <Link
-            aria-label={`View Earn AUM stats${
-              earnAumUsd === null
-                ? ""
-                : `: ${compactUsdFormatter.format(earnAumUsd)}`
-            }`}
-            className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/[0.12] p-3 text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-black/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
-            href="https://stats.askloyal.com"
+            aria-label={`View LOYAL token on Jupiter: ${usdPriceFormatter.format(
+              tokenTicker.usdPrice
+            )}`}
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-white px-5 py-3 text-[16px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#ffe9ea] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+            href={LOYAL_JUPITER_URL}
             rel="noopener noreferrer"
             tabIndex={linkTabIndex}
             target="_blank"
           >
-            <Image
-              alt=""
-              aria-hidden="true"
-              height={20}
-              src="/landing/assets/header-stats-chart.svg"
-              width={20}
-            />
-            <span className="flex gap-2 whitespace-nowrap">
-              <span>Earn AUM:</span>
-              <span className="font-semibold">
-                {earnAumUsd === null
-                  ? "—"
-                  : compactUsdFormatter.format(earnAumUsd)}
-              </span>
+            <span>$LOYAL</span>
+            <span className="font-semibold">
+              {usdPriceFormatter.format(tokenTicker.usdPrice)}
             </span>
-            <Image
-              alt=""
-              aria-hidden="true"
-              className="opacity-60"
-              height={20}
-              src="/landing/assets/header-stats-external.svg"
-              width={20}
-            />
+            {tokenTicker.priceChange24hPct !== null &&
+            tokenTicker.priceChange24hPct > 0 ? (
+              <span className="text-[#01d112]">
+                {`+${tokenTicker.priceChange24hPct.toFixed(2)}%`}
+              </span>
+            ) : null}
           </Link>
-        ) : null}
+        )}
 
         <Link
           className="flex shrink-0 items-center justify-center rounded-full bg-black px-4 py-3 text-center text-[16px] font-normal leading-5 text-white transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#171717] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
