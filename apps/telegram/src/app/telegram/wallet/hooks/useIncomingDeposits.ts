@@ -2,7 +2,6 @@ import { hapticFeedback } from "@telegram-apps/sdk-react";
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { TELEGRAM_PUBLIC_KEY_PROD_UINT8ARRAY } from "@/lib/constants";
 import { track } from "@/lib/core/analytics";
 import { subscribeToDepositsWithUsername } from "@/lib/solana/deposits";
 import { invalidatePrivateClient } from "@/lib/solana/deposits/private-client";
@@ -153,8 +152,7 @@ export function useIncomingDeposits(params: {
           username,
           amountLamports,
           validationBytes,
-          signatureBytes,
-          TELEGRAM_PUBLIC_KEY_PROD_UINT8ARRAY
+          signatureBytes
         );
 
         // TODO: filter out tx instead

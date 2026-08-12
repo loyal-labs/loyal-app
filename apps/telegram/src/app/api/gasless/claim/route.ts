@@ -12,7 +12,11 @@ import { NextResponse } from "next/server";
 
 import { RECIPIENT_TARGET_LAMPORTS } from "@/features/private-transfer-analytics/server/constants";
 import { recordGaslessClaimTransactionBySignature } from "@/features/private-transfer-analytics/server/gasless-claims";
-import { getEndpoints } from "@/lib/solana/rpc/connection";
+import {
+  TELEGRAM_PUBLIC_KEY_PROD,
+  TELEGRAM_PUBLIC_KEY_PROD_UINT8ARRAY,
+} from "@/lib/constants";
+import { getEndpoints, getSolanaEnv } from "@/lib/solana/rpc/connection";
 import {
   getSessionPda,
   getTelegramVerificationProgram,
@@ -20,8 +24,10 @@ import {
 import { getGaslessKeypair } from "@/lib/solana/wallet/gasless-keypair.server";
 import { getGaslessPublicKey } from "@/lib/solana/wallet/wallet-details";
 import { SimpleWallet } from "@/lib/solana/wallet/wallet-implementation";
+import { verifyInitDataWithPublicKey } from "@/lib/telegram/mini-app/verify-init-data";
 
 import { TelegramVerification } from "../../../../../../../target/types/telegram_verification";
+import { validateGaslessStoreTransaction } from "./transaction-validation";
 
 const TELEGRAM_USERNAME_REGEX = /^[A-Za-z0-9_]{5,32}$/;
 
@@ -183,12 +189,17 @@ const isInvalidTelegramUsernameFailure = ({
 
 const deserializeTransaction = (
   serializedTx: string
-): Transaction | VersionedTransaction => {
+): Transaction => {
   const buffer = Buffer.from(serializedTx, "base64");
   try {
-    return VersionedTransaction.deserialize(buffer);
-  } catch {
     return Transaction.from(buffer);
+  } catch {
+    try {
+      VersionedTransaction.deserialize(buffer);
+    } catch {
+      throw new Error("Invalid transaction format");
+    }
+    throw new Error("Versioned transactions are not supported");
   }
 };
 
@@ -384,6 +395,13 @@ export async function POST(req: Request) {
       );
     }
 
+    if (parsedSolanaEnv !== getSolanaEnv()) {
+      return NextResponse.json(
+        { error: "Solana env does not match the configured environment" },
+        { status: 400 }
+      );
+    }
+
     const {
       storeTx,
       recipientPubKey,
@@ -391,7 +409,6 @@ export async function POST(req: Request) {
       amount,
       processedInitDataBytes,
       telegramSignatureBytes,
-      telegramPublicKeyBytes,
     } = bodyJson;
     const parsedAmountRaw =
       typeof amount === "string" ? Number.parseInt(amount, 10) : amount;
@@ -408,8 +425,7 @@ export async function POST(req: Request) {
       !username ||
       parsedAmount === null ||
       !processedInitDataBytes ||
-      !telegramSignatureBytes ||
-      !telegramPublicKeyBytes
+      !telegramSignatureBytes
     ) {
       console.log("transaction and payer are required", {
         storeTx: !!storeTx,
@@ -418,7 +434,6 @@ export async function POST(req: Request) {
         parsedAmount: parsedAmount !== null,
         processedInitDataBytes: !!processedInitDataBytes,
         telegramSignatureBytes: !!telegramSignatureBytes,
-        telegramPublicKeyBytes: !!telegramPublicKeyBytes,
       });
       return NextResponse.json(
         { error: "transaction and payer are required" },
@@ -448,23 +463,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid username" }, { status: 400 });
     }
 
-    const payer = await getGaslessKeypair();
-    const configuredGaslessPublicKey = await getGaslessPublicKey();
-    if (!payer.publicKey.equals(configuredGaslessPublicKey)) {
-      return NextResponse.json(
-        { error: "Gasless keypair does not match configured public key" },
-        { status: 500 }
-      );
-    }
-
-    const payerWallet = new SimpleWallet(payer);
-    const provider = createProviderForEnv(payerWallet, parsedSolanaEnv);
-
     const parsedStoreTx = deserializeTransaction(storeTx);
     const parsedRecipient = new PublicKey(recipientPubKey);
     const processedInitData = normalizeBytes(processedInitDataBytes);
     const telegramSignature = normalizeBytes(telegramSignatureBytes);
-    const telegramPublicKey = normalizeBytes(telegramPublicKeyBytes);
 
     let initDataUsername: string;
     try {
@@ -486,6 +488,54 @@ export async function POST(req: Request) {
         },
         { status: 400 }
       );
+    }
+
+    if (
+      !(await verifyInitDataWithPublicKey(
+        processedInitData,
+        telegramSignature,
+        TELEGRAM_PUBLIC_KEY_PROD
+      ))
+    ) {
+      return NextResponse.json(
+        { error: "Invalid Telegram init data signature" },
+        { status: 401 }
+      );
+    }
+
+    const payer = await getGaslessKeypair();
+    const configuredGaslessPublicKey = await getGaslessPublicKey();
+    if (!payer.publicKey.equals(configuredGaslessPublicKey)) {
+      return NextResponse.json(
+        { error: "Gasless keypair does not match configured public key" },
+        { status: 500 }
+      );
+    }
+
+    const payerWallet = new SimpleWallet(payer);
+    const provider = createProviderForEnv(payerWallet, parsedSolanaEnv);
+    const verificationProgram = getTelegramVerificationProgram(provider);
+    const expectedStoreInstruction = await verificationProgram.methods
+      .store(Buffer.from(processedInitData))
+      .accountsPartial({
+        payer: payer.publicKey,
+        user: parsedRecipient,
+        session: getSessionPda(parsedRecipient, verificationProgram),
+        systemProgram: SystemProgram.programId,
+      })
+      .instruction();
+
+    try {
+      validateGaslessStoreTransaction({
+        transaction: parsedStoreTx,
+        expectedInstruction: expectedStoreInstruction,
+        payer: payer.publicKey,
+        recipient: parsedRecipient,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Invalid gasless transaction";
+      return NextResponse.json({ error: message }, { status: 400 });
     }
 
     const storeResult = await sendSignedTransaction(
@@ -522,7 +572,7 @@ export async function POST(req: Request) {
       parsedAmount,
       processedInitData,
       telegramSignature,
-      telegramPublicKey
+      TELEGRAM_PUBLIC_KEY_PROD_UINT8ARRAY
     );
     if (!result.ok) {
       return NextResponse.json(

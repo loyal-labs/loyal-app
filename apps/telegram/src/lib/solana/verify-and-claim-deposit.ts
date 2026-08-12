@@ -218,8 +218,7 @@ export const sendStoreInitDataTxn = async (
   username: string,
   amount: number,
   processedInitDataBytes: Uint8Array,
-  telegramSignatureBytes: Uint8Array,
-  telegramPublicKeyBytes: Uint8Array
+  telegramSignatureBytes: Uint8Array
 ) => {
   const serializedStoreTx = storeTx
     .serialize({ requireAllSignatures: false })
@@ -242,7 +241,6 @@ export const sendStoreInitDataTxn = async (
       solanaEnv: claimSolanaEnv,
       processedInitDataBytes: encodeBytes(processedInitDataBytes),
       telegramSignatureBytes: encodeBytes(telegramSignatureBytes),
-      telegramPublicKeyBytes: encodeBytes(telegramPublicKeyBytes),
       closeTx: null,
     }),
   });
