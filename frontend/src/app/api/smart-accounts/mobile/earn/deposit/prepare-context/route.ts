@@ -1,12 +1,11 @@
-import { NextResponse } from "next/server";
 import {
-  getStablecoinMintForCluster,
   resolveLoyalClusterForSolanaEnv,
   Stablecoin,
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { NextResponse } from "next/server";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
@@ -17,13 +16,22 @@ import {
   isSmartAccountProvisioningError,
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
+import { getPublicEnv } from "@/lib/core/config/public";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import { hasLiveBalanceSweepTargetForWallet } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import { parseEarnDepositPrepareRequestBody } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
-import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { resolveEligibleEarnDepositTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
+import {
+  EarnMintNotEnabledError,
+  type EarnProductAsset,
+  resolveEnabledEarnProductAsset,
+} from "@/lib/yield-optimization/earn-product-mints.shared";
+import {
+  findBestSafeEarnReserveTarget,
+  resolveEligibleEarnDepositTarget,
+} from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
   findActiveYieldRoutePolicyPair,
   findReconciledActiveYieldPositionForVault,
@@ -60,8 +68,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -74,13 +81,13 @@ function getConnection(cluster: SolanaEnv): Connection {
 
 // Sum the wallet's USDC across its token accounts (parsed RPC; no spl-token
 // dependency, mirroring the frontend asset provider).
-async function getWalletUsdcBalanceRaw(
+async function getWalletMintBalanceRaw(
   connection: Connection,
   owner: PublicKey,
-  usdcMint: PublicKey
+  mint: PublicKey
 ): Promise<bigint> {
   const { value } = await connection.getParsedTokenAccountsByOwner(owner, {
-    mint: usdcMint,
+    mint,
   });
   let total = BigInt(0);
   for (const entry of value) {
@@ -117,8 +124,9 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint;
+  let mint: string;
   try {
-    ({ amountRaw } = parseEarnDepositPrepareRequestBody(body));
+    ({ amountRaw, mint } = parseEarnDepositPrepareRequestBody(body));
   } catch (error) {
     return jsonError(
       400,
@@ -129,6 +137,24 @@ export async function POST(request: Request) {
 
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
+  const enabledStablecoins = getPublicEnv().earnEnabledStablecoins;
+  let productMint: EarnProductAsset;
+  try {
+    productMint = resolveEnabledEarnProductAsset({
+      cluster,
+      enabledStablecoins,
+      mint,
+    });
+  } catch (error) {
+    if (error instanceof EarnMintNotEnabledError) {
+      return jsonError(409, error.code, error.message);
+    }
+    return jsonError(
+      400,
+      "unsupported_mint",
+      error instanceof Error ? error.message : "Unsupported Earn mint."
+    );
+  }
 
   // Resolve (provisioning if needed) the canonical smart account for this
   // wallet — same gate as `../prepare`: the first-ever provisioning is
@@ -151,17 +177,16 @@ export async function POST(request: Request) {
       settingsPda = existing.settingsPda;
       smartAccountAddress = existing.smartAccountAddress;
     } else {
-      const usdcMint = getStablecoinMintForCluster(cluster, Stablecoin.USDC);
-      const usdcBalanceRaw = await getWalletUsdcBalanceRaw(
+      const mintBalanceRaw = await getWalletMintBalanceRaw(
         getConnection(solanaEnv),
         new PublicKey(walletAddress),
-        usdcMint
+        productMint.mint
       );
-      if (usdcBalanceRaw < amountRaw) {
+      if (mintBalanceRaw < amountRaw) {
         return jsonError(
           402,
-          "insufficient_usdc",
-          "Wallet must hold the USDC it is depositing before its Earn account can be created."
+          "insufficient_balance",
+          "Wallet must hold the selected mint before its Earn account can be created."
         );
       }
       const ensured = await ensureWalletUserSmartAccountTraced({
@@ -211,6 +236,7 @@ export async function POST(request: Request) {
       }),
       findReconciledActiveYieldPositionForVault({
         cluster,
+        liquidityMint: mint,
         settings: settingsPda,
         vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
         walletAddress,
@@ -222,14 +248,25 @@ export async function POST(request: Request) {
     // safe USDC reserve) — same rule as `../prepare` — unless that reserve is
     // ineligible (hidden/unsampled or drained); then fall back to the default
     // reserve instead of feeding it (ASK-1764).
-    const target =
+    const existingTarget =
       policy && activePosition
         ? await resolveEligibleEarnDepositTarget({
             cluster,
+            liquidityMint: mint,
             logTag: "mobile-earn-deposit-prepare-context",
             position: activePosition,
           })
         : null;
+    const target =
+      existingTarget ??
+      (await findBestSafeEarnReserveTarget({ cluster, productMint }));
+    if (!target) {
+      return jsonError(
+        409,
+        "no_eligible_reserve",
+        "No eligible Safe Kamino reserve is available for this Earn mint."
+      );
+    }
     // Stray-approval heal, fail-closed: the SPL delegate is load-bearing for
     // sweeps, so the revoke rider is requested only when the wallet provably
     // has NO live autodeposit target (any settings, duplicates included). The
@@ -237,6 +274,7 @@ export async function POST(request: Request) {
     let revokeStrayUsdcDelegate = false;
     try {
       revokeStrayUsdcDelegate =
+        productMint.stablecoin === Stablecoin.USDC &&
         !(await hasLiveBalanceSweepTargetForWallet(walletAddress));
     } catch {
       revokeStrayUsdcDelegate = false;
@@ -260,19 +298,19 @@ export async function POST(request: Request) {
               : null,
           }
         : null,
-      target: target
-        ? {
-            reserve: target.reserve.toBase58(),
-            market: target.market.toBase58(),
-            liquidityMint: target.liquidityMint.toBase58(),
-            supplyApyBps: target.supplyApyBps?.toString() ?? null,
-          }
-        : null,
+      target: {
+        reserve: target.reserve.toBase58(),
+        market: target.market.toBase58(),
+        liquidityMint: target.liquidityMint.toBase58(),
+        liquidityTokenProgram: target.liquidityTokenProgram.toBase58(),
+        supplyApyBps: target.supplyApyBps?.toString() ?? null,
+      },
     });
   } catch (error) {
     console.error("[mobile-earn-deposit-prepare-context] context failed", {
       amountRaw: amountRaw.toString(),
       cluster,
+      mint,
       errorMessage:
         error instanceof Error ? error.message : "Unknown context error.",
       errorName: error instanceof Error ? error.name : typeof error,

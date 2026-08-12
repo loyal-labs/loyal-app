@@ -27,6 +27,7 @@ export type WireSmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
   prepared: WirePreparedLoyalSmartAccountsOperation;
   targetReserve: {
     liquidityMint: string;
+    liquidityTokenProgram: string;
     market: string;
     obligation: string;
     reserve: string;
@@ -64,6 +65,8 @@ export function serializePreparedEarnUsdcYieldRoutingPolicy(
     prepared: serializePreparedOperation(preparedPolicy.prepared),
     targetReserve: {
       liquidityMint: preparedPolicy.targetReserve.liquidityMint.toBase58(),
+      liquidityTokenProgram:
+        preparedPolicy.targetReserve.liquidityTokenProgram.toBase58(),
       market: preparedPolicy.targetReserve.market.toBase58(),
       obligation: preparedPolicy.targetReserve.obligation.toBase58(),
       reserve: preparedPolicy.targetReserve.reserve.toBase58(),
@@ -98,6 +101,9 @@ export function hydratePreparedEarnUsdcYieldRoutingPolicy(
     prepared: hydratePreparedOperation(wire.prepared),
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
+      liquidityTokenProgram: new PublicKey(
+        wire.targetReserve.liquidityTokenProgram
+      ),
       market: new PublicKey(wire.targetReserve.market),
       obligation: new PublicKey(wire.targetReserve.obligation),
       reserve: new PublicKey(wire.targetReserve.reserve),

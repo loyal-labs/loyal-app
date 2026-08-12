@@ -11,13 +11,14 @@ import {
   removeClientCache,
   writeClientCache,
 } from "@/lib/client-cache/client-cache";
+import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
 import {
-  fetchEarnRpcHoldingsSnapshot,
-  sumEarnRpcHoldingsAmountRaw,
   type EarnRpcHolding,
   type EarnRpcHoldingsSnapshot,
   type EarnRpcPolicyMetadata,
   type EarnRpcWatchedAccount,
+  fetchEarnRpcHoldingsSnapshot,
+  sumEarnRpcHoldingsAmountRaw,
 } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 
 const EARN_POSITION_CACHE_VERSION = 6;
@@ -37,7 +38,9 @@ export type ActiveEarnPositionHolding = {
   observedSlot: string;
   provenance: Record<string, string | null>;
   reserve: string | null;
+  sourceId: string;
   supplyApyBps: string | null;
+  tokenProgramId: string;
 };
 
 export type ActiveEarnPosition = {
@@ -102,6 +105,16 @@ export function isActiveEarnPosition(
     return false;
   }
 
+  if (position.holdings) {
+    return position.holdings.some((holding) => {
+      try {
+        return BigInt(holding.amountRaw) > BigInt(0);
+      } catch {
+        return false;
+      }
+    });
+  }
+
   try {
     return BigInt(position.currentTotalAmountRaw) > BigInt(0);
   } catch {
@@ -112,7 +125,7 @@ export function isActiveEarnPosition(
 function parseEarnRawAmount(
   amountRaw: string | null | undefined
 ): bigint | null {
-  if (!amountRaw || !/^\d+$/.test(amountRaw)) {
+  if (!(amountRaw && /^\d+$/.test(amountRaw))) {
     return null;
   }
 
@@ -127,7 +140,7 @@ function parseEarnObservedSlot(
   position: ActiveEarnPosition | null | undefined
 ): bigint | null {
   const observedSlot = position?.currentHolding.observedSlot;
-  if (!observedSlot || !/^\d+$/.test(observedSlot)) {
+  if (!(observedSlot && /^\d+$/.test(observedSlot))) {
     return null;
   }
 
@@ -152,7 +165,7 @@ function shouldKeepCurrentPositionOverConfirmed(args: {
   current: ActiveEarnPosition | null;
   confirmed: ActiveEarnPosition | null;
 }): boolean {
-  if (!args.current || !args.confirmed) {
+  if (!(args.current && args.confirmed)) {
     return hasRpcObservedHoldings(args.current);
   }
 
@@ -221,7 +234,7 @@ function shouldRequestPositionReconciliation(args: {
   base: ActiveEarnPosition | null;
   rpc: ActiveEarnPosition | null;
 }): boolean {
-  if (!args.base || !args.rpc) {
+  if (!(args.base && args.rpc)) {
     return false;
   }
 
@@ -508,7 +521,7 @@ export function useActiveEarnPosition({
     async (
       basePosition: ActiveEarnPosition | null
     ): Promise<RpcPositionRead | null> => {
-      if (!connection || !programId || !earnPolicy || !settingsPda) {
+      if (!(connection && programId && earnPolicy && settingsPda)) {
         return null;
       }
 
@@ -612,12 +625,12 @@ export function useActiveEarnPosition({
             ) {
               return positionRef.current;
             }
-            if (!next) {
-              setHasResolved(true);
-              result = positionRef.current;
-            } else {
+            if (next) {
               commitRpcPosition(next);
               result = next.position;
+            } else {
+              setHasResolved(true);
+              result = positionRef.current;
             }
           } catch (error) {
             lastError = error;
@@ -679,7 +692,7 @@ export function useActiveEarnPosition({
   );
 
   useEffect(() => {
-    if (!canUseCache || !walletAddress || !settingsPda) {
+    if (!(canUseCache && walletAddress && settingsPda)) {
       setWatchedAccounts([]);
       if (enabled && walletAddress && !settingsPda) {
         const fallback = readLastEarnPositionCache({
@@ -747,7 +760,7 @@ export function useActiveEarnPosition({
           return;
         }
         const basePosition =
-          confirmedPosition !== undefined ? confirmedPosition : rpcBasePosition;
+          confirmedPosition === undefined ? rpcBasePosition : confirmedPosition;
         if (
           shouldRequestPositionReconciliation({
             base: basePosition,
@@ -823,10 +836,12 @@ export function useActiveEarnPosition({
     const removeAccountChangeListener =
       connection?.removeAccountChangeListener?.bind(connection);
     if (
-      !enabled ||
-      !onAccountChange ||
-      !removeAccountChangeListener ||
-      !watchAccountKey
+      !(
+        enabled &&
+        onAccountChange &&
+        removeAccountChangeListener &&
+        watchAccountKey
+      )
     ) {
       return;
     }
@@ -928,15 +943,17 @@ export function applyEarnRpcSnapshotToPosition(
     return null;
   }
 
-  const primaryHolding =
-    snapshot.holdings.find((holding) => holding.kind === "kamino") ??
-    snapshot.holdings[0];
+  const primaryHolding = snapshot.holdings[0];
   if (!primaryHolding) {
     return null;
   }
 
   const activePosition =
     position ?? createPositionFromRpcHolding(primaryHolding);
+  const primaryDisplay = resolveEarnPositionDisplay({
+    liquidityMint: primaryHolding.liquidityMint,
+    market: primaryHolding.market,
+  });
   const currentHolding = {
     amountRaw: primaryHolding.amountRaw,
     liquidityMint: primaryHolding.liquidityMint,
@@ -955,48 +972,50 @@ export function applyEarnRpcSnapshotToPosition(
   return {
     ...activePosition,
     currentHolding,
-    currentSupplyApyBps:
-      snapshot.holdings.find((holding) => holding.kind === "kamino")
-        ?.supplyApyBps ?? activePosition.currentSupplyApyBps,
+    currentSupplyApyBps: calculateWeightedEarnApyBps(snapshot.holdings),
     currentTotalAmountRaw: totalAmountRaw.toString(),
     display: {
       label: primaryHolding.label,
       marketName: primaryHolding.marketName,
-      mintSymbol: "USDC",
+      mintSymbol: primaryDisplay.mintSymbol,
     },
     holdings: snapshot.holdings,
-    principalAmountRaw: deriveRpcSnapshotPrincipalAmountRaw(
-      activePosition,
-      totalAmountRaw
-    ),
+    principalAmountRaw: activePosition.principalAmountRaw,
     status: "active",
   };
 }
 
-function deriveRpcSnapshotPrincipalAmountRaw(
-  position: ActiveEarnPosition,
-  totalAmountRaw: bigint
-): string {
-  try {
-    const currentTotalAmountRaw = BigInt(position.currentTotalAmountRaw);
-    const principalAmountRaw = BigInt(position.principalAmountRaw);
-    if (
-      principalAmountRaw === currentTotalAmountRaw &&
-      currentTotalAmountRaw > totalAmountRaw
-    ) {
-      return totalAmountRaw.toString();
+export function calculateWeightedEarnApyBps(
+  holdings: readonly ActiveEarnPositionHolding[]
+): string | null {
+  let weighted = BigInt(0);
+  let covered = BigInt(0);
+  for (const holding of holdings) {
+    const amount = BigInt(holding.amountRaw);
+    if (amount <= BigInt(0)) {
+      continue;
     }
-  } catch {
-    return position.principalAmountRaw;
+    if (holding.kind === "idle") {
+      covered += amount;
+      continue;
+    }
+    if (holding.supplyApyBps === null) {
+      return null;
+    }
+    covered += amount;
+    weighted += amount * BigInt(holding.supplyApyBps);
   }
-
-  return position.principalAmountRaw;
+  return covered > BigInt(0) ? (weighted / covered).toString() : null;
 }
 
 function createPositionFromRpcHolding(
   holding: EarnRpcHolding
 ): ActiveEarnPosition {
   const reserve = holding.reserve ?? "";
+  const display = resolveEarnPositionDisplay({
+    liquidityMint: holding.liquidityMint,
+    market: holding.market,
+  });
   return {
     currentHolding: {
       amountRaw: holding.amountRaw,
@@ -1015,7 +1034,7 @@ function createPositionFromRpcHolding(
     display: {
       label: holding.label,
       marketName: holding.marketName,
-      mintSymbol: "USDC",
+      mintSymbol: display.mintSymbol,
     },
     holdings: [holding],
     initialHolding: {
@@ -1024,7 +1043,9 @@ function createPositionFromRpcHolding(
       reserve,
       supplyApyBps: holding.supplyApyBps,
     },
-    principalAmountRaw: holding.amountRaw,
+    // RPC exposure is not a principal ledger. The earnings endpoint remains
+    // unavailable until a confirmed deposit/withdrawal record supplies basis.
+    principalAmountRaw: "0",
     status: "active",
   };
 }

@@ -12,47 +12,47 @@ import {
   X,
 } from "lucide-react";
 import {
+  type PointerEvent,
+  type ReactNode,
+  type RefObject,
   useEffect,
   useId,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  type PointerEvent,
-  type ReactNode,
-  type RefObject,
 } from "react";
 
 import { DogWithMood } from "@/components/chat-input";
-import { maskBalanceText } from "@/components/wallet-workspace/facelift/balance-visibility";
-import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { maskBalanceText } from "@/components/wallet-workspace/facelift/balance-visibility";
+import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
+import { useEarnEarnings } from "@/hooks/use-earn-earnings";
+import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
+import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history";
 import {
+  type EarnForecastApy,
+  type EarnForecastApyHistoryResponse,
   FALLBACK_EARN_FORECAST,
   formatEarnApyLabel,
   formatEarnApyPercent,
   getEarnForecastTargetMultiplier,
-  type EarnForecastApy,
-  type EarnForecastApyHistoryResponse,
 } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import { resolveEarnDetailHeaderActionMode } from "@/lib/yield-optimization/earn-cleanup-ui-state";
 import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
-import { deriveEarnEarningsDisplayAmounts } from "@/lib/yield-optimization/earnings-display.shared";
 import type {
   EarnEarningsBar,
   EarnEarningsResponse,
   EarningsRangeId,
 } from "@/lib/yield-optimization/earnings.shared";
-import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
-import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
-import { useEarnEarnings } from "@/hooks/use-earn-earnings";
-import { useEarnForecastApy } from "@/hooks/use-earn-forecast-apy";
-import { useEarnForecastApyHistory } from "@/hooks/use-earn-forecast-apy-history";
+import { deriveEarnEarningsDisplayAmounts } from "@/lib/yield-optimization/earnings-display.shared";
 
 const font = "var(--font-geist-sans), sans-serif";
 const secondary = "var(--muted-foreground)";
@@ -220,7 +220,7 @@ export type EarnDepositDraft = {
   amountLabel: string;
   forecastApyBps: number;
   source: EarnDepositSourceOption;
-  symbol: "USDC";
+  symbol: string;
   tokenDecimals: number;
   tokenMint: string | null;
 };
@@ -235,7 +235,7 @@ export type EarnWithdrawDraft = {
   fullExitSources: EarnWithdrawSourceOption[];
   mode: "partial" | "full";
   source: EarnWithdrawSourceOption;
-  symbol: "USDC";
+  symbol: string;
   tokenDecimals: number;
 };
 
@@ -251,6 +251,7 @@ export type EarnWithdrawSourceOption = {
   sourceId: string;
   supplyApyBps?: string | null;
   tokenAccount: string | null;
+  tokenProgramId: string;
   type: "reserve" | "idle";
 };
 
@@ -408,9 +409,7 @@ function formatForecastMoney(value: number, mutedFraction = false) {
   return (
     <>
       ${whole}
-      <span
-        style={{ color: mutedFraction ? "var(--tertiary)" : "inherit" }}
-      >
+      <span style={{ color: mutedFraction ? "var(--tertiary)" : "inherit" }}>
         .{fraction}
       </span>
     </>
@@ -446,7 +445,7 @@ export function buildEarnChartPoints(
 
   return Array.from({ length: months + 1 }, (_, index) => {
     const progress = index / months;
-    const eased = Math.pow(progress, 1.08);
+    const eased = progress ** 1.08;
     const value = principal + (target - principal) * eased;
     return {
       date: FORECAST_DATES[index] ?? FORECAST_DATES[FORECAST_DATES.length - 1],
@@ -541,7 +540,7 @@ export function buildEarnComparisonPoints(
 
   return Array.from({ length: months + 1 }, (_, index) => {
     const progress = index / months;
-    const eased = Math.pow(progress, 1.08);
+    const eased = progress ** 1.08;
     const values = EARN_COMPARISON_SERIES.reduce((acc, series) => {
       acc[series.key] = principal + (targets[series.key] - principal) * eased;
       return acc;
@@ -609,21 +608,20 @@ export function deriveEarnWithdrawMode({
   // closes the position, the policies and the vault, so it may only mean
   // "everything". Maxing one of several sources is a partial withdrawal.
   //
-  // The input only accepts cents, so typing the visible (floored) max means
-  // "withdraw everything" — compare at cent precision to avoid dust positions.
+  // Do not round another source away as dust. Max is source-local; any other
+  // positive holding keeps this a partial withdrawal and cleanup remains a
+  // separate fresh all-zero decision.
   const totalWithdrawableAmount = sources.reduce(
     (total, source) => total + source.balance,
     0
   );
 
-  return amount >= floorToBucks(totalWithdrawableAmount) ? "full" : "partial";
+  return amount >= totalWithdrawableAmount ? "full" : "partial";
 }
 
-// The reserves a full exit must unwind, selected source first. A vault can hold
-// USDC in a second Kamino market; unwinding only the selected reserve strands
-// the rest and fails the post-withdrawal zero proof, so the position never
-// closes and its rent is never refunded. With one reserve this is [source] —
-// byte-identical to the single-target input this replaced.
+// A withdrawal always targets the selected source. Full means that this was
+// the vault's only positive source; it never grants permission to drain other
+// reserves discovered by the UI.
 export function selectEarnFullExitSources(
   draft: Pick<EarnWithdrawDraft, "fullExitSources" | "mode" | "source">
 ): EarnWithdrawSourceOption[] {
@@ -631,13 +629,7 @@ export function selectEarnFullExitSources(
     return [];
   }
 
-  return [
-    draft.source,
-    ...draft.fullExitSources.filter(
-      (source) =>
-        source.type === "reserve" && source.sourceId !== draft.source.sourceId
-    ),
-  ];
+  return [draft.source];
 }
 
 function EarnYieldIcon({ size = 64 }: { size?: number }) {
@@ -1224,7 +1216,9 @@ function EarningsBlock({
   const [historicalRevision, setHistoricalRevision] = useState(0);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const handleTabChange = (next: EarnChartTab) => {
-    if (next === activeTab) return;
+    if (next === activeTab) {
+      return;
+    }
     setActiveTab(next);
     setHoveredBar(null);
     if (next === "Earnings") {
@@ -1261,7 +1255,7 @@ function EarningsBlock({
     [dailyBars]
   );
   const hoveredBarEntry =
-    hoveredBar !== null ? dailyBars[hoveredBar] ?? null : null;
+    hoveredBar === null ? null : dailyBars[hoveredBar] ?? null;
   const hoveredApyBps = hoveredBarEntry
     ? hoveredBarEntry.isCurrent
       ? earningsData?.currentApyBps ?? hoveredBarEntry.apyBps
@@ -1778,7 +1772,7 @@ export function AutodepositToggle({
       aria-busy={isPending}
       aria-checked={isOn}
       aria-label={isOn ? "Pause Autodeposit" : "Resume Autodeposit"}
-      className={`t-toggle${isInit ? " is-init" : ""}`}
+      className={`t-toggle${isInit ? "is-init" : ""}`}
       data-on={isOn}
       disabled={disabled}
       onClick={onToggle}
@@ -1878,29 +1872,20 @@ function createWithdrawSourceOptions(
         return false;
       }
     }) ?? [];
-  const hasReserveHolding = positiveHoldings.some(
-    (holding) => holding.kind === "kamino"
-  );
-  const eligibleHoldings = hasReserveHolding
-    ? positiveHoldings.filter((holding) => holding.kind === "kamino")
-    : positiveHoldings;
-  const options = eligibleHoldings.map((holding): EarnWithdrawSourceOption => {
+  const options = positiveHoldings.map((holding): EarnWithdrawSourceOption => {
     const tokenAccount =
       typeof holding.provenance.tokenAccount === "string"
         ? holding.provenance.tokenAccount
         : null;
-    const sourceId =
-      holding.kind === "idle"
-        ? tokenAccount ?? holding.liquidityMint
-        : holding.reserve ?? holding.liquidityMint;
+    const sourceId = holding.sourceId;
     return {
       amountRaw: holding.amountRaw,
       balance: Number(BigInt(holding.amountRaw)) / 1_000_000,
-      id: `${holding.kind}:${sourceId}`,
+      id: sourceId,
       icon: resolveEarnTransactionMarketIcon({ market: holding.market }),
       label:
         holding.kind === "idle"
-          ? "Idle vault USDC"
+          ? `Idle vault ${holding.marketName}`
           : `${holding.marketName} reserve`,
       liquidityMint: holding.liquidityMint,
       market: holding.market,
@@ -1908,6 +1893,7 @@ function createWithdrawSourceOptions(
       sourceId,
       supplyApyBps: holding.supplyApyBps,
       tokenAccount,
+      tokenProgramId: holding.tokenProgramId,
       type: holding.kind === "idle" ? "idle" : "reserve",
     };
   });
@@ -2004,7 +1990,7 @@ function AutodepositCard({
   // Only the configured Smart Account status carries balance numbers; the
   // creating/closing/pausing/resuming/paused statuses are plain text and must
   // not blur.
-  const statusLabelHasAmount = !isBusy && !isToggling && state !== "paused";
+  const statusLabelHasAmount = !(isBusy || isToggling) && state !== "paused";
   const renderTitleWithHelp = (title: string) => (
     <span
       className="earn-autodeposit-title-line"
@@ -2694,16 +2680,16 @@ export function EarnDetailView({
         width="0"
       >
         <defs>
-          <filter id="rs-pixelate-lg" x="0" y="0" width="100%" height="100%">
-            <feFlood x="4" y="4" height="2" width="2" />
-            <feComposite width="10" height="10" />
+          <filter height="100%" id="rs-pixelate-lg" width="100%" x="0" y="0">
+            <feFlood height="2" width="2" x="4" y="4" />
+            <feComposite height="10" width="10" />
             <feTile result="a" />
             <feComposite in="SourceGraphic" in2="a" operator="in" />
             <feMorphology operator="dilate" radius="5" />
           </filter>
-          <filter id="rs-pixelate-sm" x="0" y="0" width="100%" height="100%">
-            <feFlood x="3" y="3" height="2" width="2" />
-            <feComposite width="8" height="8" />
+          <filter height="100%" id="rs-pixelate-sm" width="100%" x="0" y="0">
+            <feFlood height="2" width="2" x="3" y="3" />
+            <feComposite height="8" width="8" />
             <feTile result="a" />
             <feComposite in="SourceGraphic" in2="a" operator="in" />
             <feMorphology operator="dilate" radius="4" />
@@ -2758,7 +2744,7 @@ export function EarnDetailView({
         <div
           className={`earn-detail-actions${
             headerActionMode === "deposit-only"
-              ? " earn-detail-actions-single"
+              ? "earn-detail-actions-single"
               : ""
           }`}
           style={{ display: "flex", gap: "8px" }}
@@ -2994,10 +2980,10 @@ export function EarnDetailView({
         <EarningsBlock
           apy={earnForecastApy}
           earningsData={earningsDailyData}
-          estimatedRangeEarnedUsd={estimatedEarnedAmounts.rangeEarnedUsd}
-          estimatedTodayEarnedUsd={estimatedEarnedAmounts.todayEarnedUsd}
           earningsStale={earningsFreshness === "stale"}
           earningsUnavailable={earningsOutcome === "unavailable"}
+          estimatedRangeEarnedUsd={estimatedEarnedAmounts.rangeEarnedUsd}
+          estimatedTodayEarnedUsd={estimatedEarnedAmounts.todayEarnedUsd}
           forecastPrincipalAmount={forecastPrincipalAmount}
           isBalanceHidden={isBalanceHidden}
           isEarningsLoading={isEarningsLoading}
@@ -3009,15 +2995,15 @@ export function EarnDetailView({
         floorAccountLabel={autodepositFloorAccountLabel}
         floorLabel={autodepositFloorLabel}
         hasCurrentPosition={hasCurrentPosition}
+        helpTooltip={helpTooltip("autodeposit")}
         isBalanceHidden={isBalanceHidden}
         isConfigured={isAutodepositConfigured}
         isPendingSetup={isAutodepositPending}
         isUpdating={isAutodepositUpdating}
-        scheduledSweeps={autodepositScheduledSweeps}
-        state={autodepositState}
-        helpTooltip={helpTooltip("autodeposit")}
         onDisable={onDisableAutodeposit}
         onSetUp={onOpenAutodeposit}
+        scheduledSweeps={autodepositScheduledSweeps}
+        state={autodepositState}
       />
 
       {hasCurrentPosition ? (
@@ -3524,13 +3510,13 @@ export function EarnWithdrawView({
     amount: effectiveWithdrawAmount,
     sources: sourceOptions,
   });
-  const withdrawAmountError = !selectedSource
-    ? "No withdrawable Earn source"
-    : !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
-    ? "Enter an amount"
-    : hasWithdrawAmount && numericWithdrawAmount > selectedSourceMaxAmount
-    ? "Insufficient balance"
-    : null;
+  const withdrawAmountError = selectedSource
+    ? !Number.isFinite(effectiveWithdrawAmount) || effectiveWithdrawAmount <= 0
+      ? "Enter an amount"
+      : hasWithdrawAmount && numericWithdrawAmount > selectedSourceMaxAmount
+      ? "Insufficient balance"
+      : null
+    : "No withdrawable Earn source";
   const isWithdrawButtonDisabled = isSubmitting || withdrawAmountError !== null;
   const withdrawButtonLabel = isSubmitting
     ? "Withdrawing..."
@@ -4553,7 +4539,7 @@ const HISTORICAL_APY_SPIKES = [
 function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
-    state = (state + 0x6d2b79f5) | 0;
+    state = (state + 0x6d_2b_79_f5) | 0;
     let t = Math.imul(state ^ (state >>> 15), 1 | state);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
@@ -5489,7 +5475,9 @@ export function ForecastChart({
                 className="forecast-chart-summary-value"
                 data-primary={isPrimary ? "true" : undefined}
                 style={{
-                  color: isBalanceHidden ? "var(--tertiary)" : "var(--foreground)",
+                  color: isBalanceHidden
+                    ? "var(--tertiary)"
+                    : "var(--foreground)",
                   filter: hiddenValueFilter,
                   fontFamily: font,
                   fontSize: isPrimary ? "28px" : "16px",
@@ -6011,7 +5999,9 @@ function DepositChart({
               </span>
               <span
                 style={{
-                  color: isBalanceHidden ? "var(--tertiary)" : POSITIVE_AMOUNT_COLOR,
+                  color: isBalanceHidden
+                    ? "var(--tertiary)"
+                    : POSITIVE_AMOUNT_COLOR,
                   filter: isBalanceHidden ? "url(#rs-pixelate-sm)" : "none",
                   fontFamily: font,
                   fontSize: "13px",
@@ -6241,7 +6231,9 @@ function EarnDepositChartsSection({
     setActiveTab(defaultActiveTab);
   }, [defaultActiveTab]);
   const handleTabChange = (next: EarnDepositChartTab) => {
-    if (next === activeTab) return;
+    if (next === activeTab) {
+      return;
+    }
     setActiveTab(next);
     if (next === "Forecast") {
       setForecastRevision((revision) => revision + 1);
@@ -7074,9 +7066,9 @@ export function AutodepositSetupView({
   const submitLabel = isSubmitting
     ? "Updating minimum balance…"
     : isEditing
-    ? !hasChanges
-      ? "No changes yet"
-      : "Update minimum balance"
+    ? hasChanges
+      ? "Update minimum balance"
+      : "No changes yet"
     : isPendingSetup
     ? "Finish setup"
     : "Create Autodeposit";

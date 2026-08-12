@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { NextResponse } from "next/server";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
@@ -13,15 +13,15 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import {
-  parseEarnWithdrawPrepareRequestBody,
-  serializePreparedEarnUsdcWithdraw,
-} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   EarnWithdrawResolveError,
   resolveEarnUsdcWithdrawInput,
 } from "@/lib/yield-optimization/earn-withdraw-input-resolution.server";
+import {
+  parseEarnWithdrawPrepareRequestBody,
+  serializePreparedEarnUsdcWithdraw,
+} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 
 // Mobile twin of `yield-optimization/withdrawals/prepare`. Identical source
 // selection + prepare logic, but authenticated by a wallet signature (no
@@ -85,17 +85,10 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "Mobile wallet auth failed.");
   }
 
-  let amountRaw: bigint;
-  let mode: "partial" | "full";
-  let selectedSourceRequest: ReturnType<
-    typeof parseEarnWithdrawPrepareRequestBody
-  >["source"];
+  let amountRaw: bigint | "max";
+  let sourceId: string;
   try {
-    ({
-      amountRaw,
-      mode,
-      source: selectedSourceRequest,
-    } = parseEarnWithdrawPrepareRequestBody(body));
+    ({ amountRaw, sourceId } = parseEarnWithdrawPrepareRequestBody(body));
   } catch (error) {
     return jsonError(
       400,
@@ -156,16 +149,15 @@ export async function POST(request: Request) {
     });
     const connection = getConnection(solanaEnv);
     const resolved = await resolveEarnUsdcWithdrawInput({
-      amountRaw,
       cluster,
       connection,
       earnVaultPda,
       logTag: "mobile-earn-withdraw-prepare",
-      mode,
+      requestedAmountRaw: amountRaw,
       policySigner: getDeploymentPolicySignerPublicKey(),
       programId,
       settingsPda,
-      sourceRequest: selectedSourceRequest,
+      sourceId,
       walletAddress,
     });
     const client = createSmartAccountVaultsClient({
@@ -188,12 +180,12 @@ export async function POST(request: Request) {
       return jsonError(error.status, error.code, error.message);
     }
     console.error("[mobile-earn-withdraw-prepare] prepare failed", {
-      amountRaw: amountRaw.toString(),
+      amountRaw: amountRaw === "max" ? amountRaw : amountRaw.toString(),
       cluster,
       errorMessage:
         error instanceof Error ? error.message : "Unknown prepare error.",
       errorName: error instanceof Error ? error.name : typeof error,
-      mode,
+      sourceId,
       settings: settingsPda,
       solanaEnv,
       stack: error instanceof Error ? error.stack : undefined,

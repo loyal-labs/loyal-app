@@ -77,6 +77,9 @@ function createVaultSnapshot(args: {
         isUsdc: true,
         lamports: 1,
         mint: usdcMint,
+        tokenProgramId: new PublicKey(
+          "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        ),
       },
       {
         address: collateralAta,
@@ -84,6 +87,9 @@ function createVaultSnapshot(args: {
         isUsdc: false,
         lamports: 1,
         mint: collateralMint,
+        tokenProgramId: new PublicKey(
+          "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        ),
       },
     ],
     vaultPda,

@@ -1,26 +1,16 @@
 "use client";
 
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 
 import { EarnYieldIcon } from "@/components/wallet-sidebar/portfolio-content";
-import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
-import { getWithdrawSourceKeyForHolding } from "@/components/wallet-workspace/facelift/earn-actions-support";
-import {
-  ScrambleText,
-  useBalanceVisibility,
-} from "@/components/wallet-workspace/facelift/balance-visibility";
-import {
-  StaggerLine,
-  StaggerReveal,
-} from "@/components/wallet-workspace/facelift/stagger-reveal";
 import {
   formatEarnTransactionTimestamp,
   formatScheduledSweepAmount,
@@ -31,23 +21,36 @@ import {
   resolveEarnTransactionDisplayTimeZone,
   shouldShowScheduledSweepsSection,
 } from "@/components/wallet-workspace/earn-transactions-pane";
+import {
+  ScrambleText,
+  useBalanceVisibility,
+} from "@/components/wallet-workspace/facelift/balance-visibility";
+import { readCssDurationMs } from "@/components/wallet-workspace/facelift/css-duration";
+import { getWithdrawSourceKeyForHolding } from "@/components/wallet-workspace/facelift/earn-actions-support";
+import {
+  StaggerLine,
+  StaggerReveal,
+} from "@/components/wallet-workspace/facelift/stagger-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useAuthSession } from "@/contexts/auth-session-context";
 import { usePublicEnv } from "@/contexts/public-env-context";
+import type { EarnAutodepositProgress } from "@/features/earn-realtime";
 import type { ActiveEarnPositionHolding } from "@/hooks/use-active-earn-position";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
-import type { EarnAutodepositProgress } from "@/features/earn-realtime";
 import {
   formatLoadedScheduledSweepAvailableIn,
   getLoadedScheduledSweepExecuteNowAvailableAtMs,
-  rawTokenAmountToNumber,
   type LoadedEarnAutodepositScheduledSweep,
+  rawTokenAmountToNumber,
 } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
-import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
 import {
-  fetchEarnTransactions,
+  resolveEarnPositionDisplay,
+  resolveEarnTransactionMarketIcon,
+} from "@/lib/yield-optimization/earn-position-display";
+import {
   type EarnTransactionItem,
+  fetchEarnTransactions,
 } from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
@@ -126,14 +129,14 @@ function RouteLabel({
 }) {
   return (
     <span className="flex items-center justify-end gap-1">
-      <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+      <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
         {source}
       </span>
       <ThemedIcon
         className="size-4 text-tertiary"
         src={`${ASSET_BASE}/icon-arrow-right-circle.svg`}
       />
-      <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+      <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
         {destination}
       </span>
     </span>
@@ -143,7 +146,7 @@ function RouteLabel({
 export function GroupHeader({ label }: { label: string }) {
   return (
     <div className="flex w-full items-start px-4 pt-1">
-      <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] leading-5 tracking-[-0.176px] text-muted-foreground">
+      <p className="min-w-0 flex-1 pt-3 pb-2 text-[16px] text-muted-foreground leading-5 tracking-[-0.176px]">
         {label}
       </p>
     </div>
@@ -248,12 +251,12 @@ function ScheduledSweepRow({
             <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
               Autodeposit
             </p>
-            <p className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+            <p className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
               {formatScheduledSweepTime(sweep.eligibleAfter)}
             </p>
           </div>
           <div className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
-            <p className="whitespace-nowrap text-[16px] text-foreground leading-5 text-right">
+            <p className="whitespace-nowrap text-right text-[16px] text-foreground leading-5">
               <ScrambleText isHidden={isBalanceHidden} text={amountLabel} />
             </p>
             <RouteLabel destination="Earn" source="Main" />
@@ -271,7 +274,7 @@ function ScheduledSweepRow({
           <TextSwap text={buttonLabel} />
         </button>
         {executeNow.error && !isProgressActive ? (
-          <p className="pt-2 text-[13px] leading-4 text-destructive">
+          <p className="pt-2 text-[13px] text-destructive leading-4">
             {executeNow.error}
           </p>
         ) : null}
@@ -319,13 +322,13 @@ export function TransactionRow({
         <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
           {getEarnTransactionRowLabel(item)}
         </span>
-        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+        <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
           {timeLabel}
         </span>
       </span>
       <span className="flex flex-col items-end gap-0.5 py-[11px] pl-3">
         <span
-          className="whitespace-nowrap text-[16px] leading-5 text-right"
+          className="whitespace-nowrap text-right text-[16px] leading-5"
           style={{
             color: getEarnTransactionAmountColor({ kind: item.kind }),
           }}
@@ -350,7 +353,7 @@ export function TransactionRow({
   }
   return (
     <button
-      className={`flex w-full items-center rounded-2xl px-4 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 ${
+      className={`flex w-full items-center rounded-2xl px-4 text-left outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset ${
         isSelected ? "bg-accent" : "hover:bg-accent"
       }`}
       onClick={onSelect}
@@ -525,7 +528,7 @@ function TransactionsTab({
                   className="size-5 text-tertiary"
                   src={`${ASSET_BASE}/icon-clock.svg`}
                 />
-                <p className="min-w-0 flex-1 text-[16px] leading-5 tracking-[-0.176px] text-muted-foreground">
+                <p className="min-w-0 flex-1 text-[16px] text-muted-foreground leading-5 tracking-[-0.176px]">
                   Scheduled
                 </p>
               </div>
@@ -572,12 +575,12 @@ function TransactionsTab({
         </div>
       ) : null}
       {hasError ? (
-        <p className="px-4 py-3 text-[13px] leading-4 text-muted-foreground">
+        <p className="px-4 py-3 text-[13px] text-muted-foreground leading-4">
           Failed to load transactions.
         </p>
       ) : null}
       {items !== null && items.length === 0 && pendingRows.length === 0 ? (
-        <p className="px-4 py-3 text-[13px] leading-4 text-muted-foreground">
+        <p className="px-4 py-3 text-[13px] text-muted-foreground leading-4">
           No transactions yet.
         </p>
       ) : null}
@@ -660,7 +663,7 @@ function PositionsTab({
   return (
     <StaggerReveal className="flex w-full flex-col p-2">
       {visibleHoldings.length === 0 ? (
-        <p className="px-4 py-3 text-[13px] leading-4 text-muted-foreground">
+        <p className="px-4 py-3 text-[13px] text-muted-foreground leading-4">
           No positions.
         </p>
       ) : null}
@@ -668,17 +671,17 @@ function PositionsTab({
         const label =
           holding.kind === "idle"
             ? `${holding.label} ${holding.marketName}`
-            : `${holding.marketName} USDC`;
+            : `${holding.marketName} ${
+                resolveEarnPositionDisplay({
+                  liquidityMint: holding.liquidityMint,
+                  market: holding.market,
+                }).mintSymbol
+              }`;
         const amount = splitUsdBalance(
           rawTokenAmountToNumber(holding.amountRaw, 6)
         );
         return (
-          <StaggerLine
-            index={holdingIndex}
-            key={`${holding.kind}:${
-              holding.reserve ?? holding.market ?? label
-            }`}
-          >
+          <StaggerLine index={holdingIndex} key={holding.sourceId}>
             <div className="group t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent">
               <div className="flex items-center py-2 pr-3">
                 <DualIcon
@@ -688,7 +691,7 @@ function PositionsTab({
                 />
               </div>
               <div className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
-                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
                   {label}
                 </span>
                 <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">

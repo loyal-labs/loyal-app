@@ -12,11 +12,10 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import { fetchEarnRpcHoldingsSnapshot } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
-  findActiveYieldPositionForVault,
+  findActiveYieldPositionsForVault,
   findActiveYieldRoutePolicyPair,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -24,27 +23,15 @@ import {
 // (`earn-rpc-holdings.client.ts`, summed by the sidebar for its headline
 // balance). The DB snapshot that `mobile/earn/state` reads lags the chain (and
 // doesn't track non-idle venue holdings), so the native balance was stale; this
-// reads the vault's current holdings — Kamino obligations + idle USDC — directly
+// reads the vault's current holdings — Kamino obligations plus every policy
+// mint's idle ATA — directly
 // from the chain via the same `fetchEarnRpcHoldingsSnapshot` the web uses.
 //
 // Keyed by wallet address (the native app holds no signer, to avoid a Seed Vault
 // prompt on a passive balance view) — this only reads public on-chain accounts
-// for a vault the caller already knows, and never provisions. Its only write is
-// the read-model heal below, which re-derives the stored position from the same
-// public chain state. Returns an empty snapshot when the wallet has no app user
-// / smart account / active Earn policy yet.
-//
-// Read-model heal: the yield worker's sweep confirm can stamp the DB position
-// with the obligation's raw cToken collateral amount (~0.84x the real USDC
-// value). The web hides that because its headline is a client-side chain sum
-// and its client fires POST /yield-optimization/position/reconcile on any
-// divergence, rewriting the read-model. Mobile has no such trigger, so /state
-// keeps serving the undercount (shown during the post-deposit trust window and
-// whenever this live read fails). Mirror the web's heal here: when the live
-// chain total is ABOVE the stored one by at least a cent, run the same
-// reconcile. Up-direction only — right after a deposit the live read can
-// transiently dip BELOW the freshly confirmed total (funds mid-flight into
-// Kamino), and healing downward would reintroduce the very dip this fixes.
+// for a vault the caller already knows, and never provisions or writes. Returns
+// an empty snapshot when the wallet has no app user, smart account, or active
+// Earn policy yet.
 //
 // Stale-read protection: the RPC pool can serve a lagging node whose account
 // view predates a deposit the DB already confirmed, and the client trusts a
@@ -56,7 +43,6 @@ import {
 // read-model balance; plus a residual observedAt: null suppression should a
 // stale snapshot slip through anyway.
 const EARN_VAULT_INDEX = 1;
-const EARN_READ_MODEL_HEAL_MIN_DELTA_RAW = BigInt(10_000); // $0.01
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
@@ -109,6 +95,7 @@ export async function GET(request: Request) {
 
   const emptySnapshot = {
     currentTotalAmountRaw: "0",
+    currentTotalNominalUsdMicros: "0",
     holdings: [],
     observedAt: null,
     observedSlot: null,
@@ -161,20 +148,28 @@ export async function GET(request: Request) {
       });
     }
 
-    // The active position's last confirmed slot anchors the freshness floor
+    // The newest confirmed slot across every mint-scoped accounting row anchors
+    // the freshness floor
     // for every chain read below. The snapshot spans two RPC requests that can
     // land on different nodes; without minContextSlot a lagging node can serve
     // the obligation as it looked BEFORE a confirmed deposit/withdrawal while
     // the other request looks fresh — the exact "balance flashes an old value"
     // bug. With it, a lagging node errors instead of answering.
-    const position = await findActiveYieldPositionForVault({
+    const positions = await findActiveYieldPositionsForVault({
       cluster,
       settings: account.settingsPda,
       vaultIndex: EARN_VAULT_INDEX,
       walletAddress,
     });
+    const confirmedSlotFloor = positions.reduce(
+      (latest, position) =>
+        position.currentObservedSlot > latest
+          ? position.currentObservedSlot
+          : latest,
+      BigInt(0)
+    );
     const minContextSlot =
-      position !== null ? Number(position.currentObservedSlot) : undefined;
+      confirmedSlotFloor > BigInt(0) ? Number(confirmedSlotFloor) : undefined;
 
     const readSnapshot = () =>
       fetchEarnRpcHoldingsSnapshot({
@@ -208,49 +203,20 @@ export async function GET(request: Request) {
       snapshot = await readSnapshot();
     }
 
-    // Belt-and-braces stale guard + best-effort read-model heal (see the
-    // module comment). Neither ever fails the holdings response — the live
-    // snapshot above is already the answer.
-    let staleLiveRead = false;
-    try {
-      staleLiveRead =
-        position !== null &&
-        BigInt(snapshot.observedSlot) < position.currentObservedSlot;
-      if (staleLiveRead) {
-        console.warn("[mobile-earn-holdings] stale live read suppressed", {
-          confirmedSlot: position?.currentObservedSlot.toString(),
-          observedSlot: snapshot.observedSlot,
-          walletAddress,
-        });
-      }
-      const liveTotalAmountRaw = BigInt(snapshot.currentTotalAmountRaw);
-      if (
-        !staleLiveRead &&
-        position !== null &&
-        liveTotalAmountRaw - position.currentAmountRaw >=
-          EARN_READ_MODEL_HEAL_MIN_DELTA_RAW
-      ) {
-        await reconcileEarnVaultPosition({
-          authority: walletAddress,
-          cluster,
-          connection: getConnection(solanaEnv),
-          force: true,
-          minContextSlot,
-          settings: account.settingsPda,
-          vaultPubkey: earnVaultPda.toBase58(),
-        });
-      }
-    } catch (error) {
-      console.warn("[mobile-earn-holdings] read-model heal failed", {
-        errorMessage:
-          error instanceof Error ? error.message : "Unknown heal error.",
-        errorName: error instanceof Error ? error.name : typeof error,
+    const staleLiveRead =
+      confirmedSlotFloor > BigInt(0) &&
+      BigInt(snapshot.observedSlot) < confirmedSlotFloor;
+    if (staleLiveRead) {
+      console.warn("[mobile-earn-holdings] stale live read suppressed", {
+        confirmedSlot: confirmedSlotFloor.toString(),
+        observedSlot: snapshot.observedSlot,
         walletAddress,
       });
     }
 
     return NextResponse.json({
       currentTotalAmountRaw: snapshot.currentTotalAmountRaw,
+      currentTotalNominalUsdMicros: snapshot.currentTotalNominalUsdMicros,
       holdings: snapshot.holdings,
       observedAt: staleLiveRead ? null : snapshot.observedAt,
       observedSlot: snapshot.observedSlot,

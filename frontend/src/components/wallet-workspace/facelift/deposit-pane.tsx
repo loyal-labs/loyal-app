@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  resolveLoyalClusterForSolanaEnv,
+  Stablecoin,
+} from "@loyal-labs/actions";
+import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import { CircleDollarSign, Landmark, PenLine, TrendingUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -28,14 +33,15 @@ import {
   useWalletDesktopData,
 } from "@/hooks/use-wallet-desktop-data";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
-import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
 import { getTokenIconUrl } from "@/lib/token-icon";
+import { getEnabledEarnProductAssetsForCluster } from "@/lib/yield-optimization/earn-product-mints.shared";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 const MIN_DEPOSIT_USD = 1;
 
 type DepositSourceOption = {
   key: string;
+  mint: string;
   symbol: string;
   usd: number;
 };
@@ -71,7 +77,7 @@ function DepositSourceOptionRow({
         />
       </span>
       <span className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
-        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+        <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
           {option.symbol} balance
         </span>
         <span className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
@@ -99,14 +105,11 @@ function DepositSourceOptionRow({
   );
 }
 
-// The deposit's path told as steps — amount, one signature, where the USDC
-// actually goes, and what earning/withdrawing look like (user-docs
-// automations/routing-and-yield.mdx: vault → approved lending market, USDC
-// stays USDC; rates are variable).
-const DEPOSIT_STEPS: readonly FlowStep[] = [
+// The selected asset remains the same mint through deposit and routing.
+const createDepositSteps = (symbol: string): readonly FlowStep[] => [
   {
     Icon: CircleDollarSign,
-    body: `Pick how much USDC to move from your wallet into Earn. The minimum is $${MIN_DEPOSIT_USD}.`,
+    body: `Pick how much ${symbol} to move from your wallet into Earn. The minimum is $${MIN_DEPOSIT_USD}.`,
     title: "Choose an amount",
   },
   {
@@ -116,8 +119,8 @@ const DEPOSIT_STEPS: readonly FlowStep[] = [
   },
   {
     Icon: Landmark,
-    body: "It lands in your Earn vault, then an approved USDC lending market on Kamino. USDC stays USDC — it is never swapped.",
-    title: "Your USDC is lent out",
+    body: `It lands in your Earn vault, then an approved ${symbol} lending market on Kamino. ${symbol} stays ${symbol} — it is never swapped.`,
+    title: `Your ${symbol} is lent out`,
   },
   {
     Icon: TrendingUp,
@@ -151,27 +154,49 @@ export function DepositPane({
   const [amount, setAmount] = useState("");
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [isSourceSheetOpen, setIsSourceSheetOpen] = useState(false);
-  const [selectedSourceKey, setSelectedSourceKey] = useState("USDC");
+  const [selectedSourceKey, setSelectedSourceKey] = useState("");
   const { actions } = earnData;
 
-  const positionsUsdcUsd = useMemo(() => {
-    const usdcMint = resolveTrackedKaminoUsdcMint(publicEnv.solanaEnv);
-    const position = data.positions.find(
-      (candidate) => candidate.asset.mint === usdcMint
+  const sourceOptions = useMemo<DepositSourceOption[]>(() => {
+    const cluster = resolveLoyalClusterForSolanaEnv(
+      resolveSolanaEnv(publicEnv.solanaEnv)
     );
-    return position?.totalValueUsd ?? 0;
-  }, [data.positions, publicEnv.solanaEnv]);
-  // Same funding balance the old workspace shows: live wallet USDC ATA read,
-  // portfolio-position value as the fallback while it loads.
-  const usdcUsd = actions.mainUsdcAmount ?? positionsUsdcUsd;
-  const sourceOptions = useMemo<DepositSourceOption[]>(
-    () => [{ key: "USDC", symbol: "USDC", usd: usdcUsd }],
-    [usdcUsd]
-  );
+    return getEnabledEarnProductAssetsForCluster({
+      cluster,
+      enabledStablecoins: publicEnv.earnEnabledStablecoins,
+    }).map((asset) => {
+      const mint = asset.mint.toBase58();
+      const position = data.positions.find(
+        (candidate) => candidate.asset.mint === mint
+      );
+      const portfolioUsd =
+        position?.publicValueUsd ?? position?.publicBalance ?? 0;
+      return {
+        key: mint,
+        mint,
+        symbol: asset.symbol,
+        usd:
+          asset.stablecoin === Stablecoin.USDC &&
+          actions.mainUsdcAmount !== null
+            ? actions.mainUsdcAmount
+            : portfolioUsd,
+      };
+    });
+  }, [
+    actions.mainUsdcAmount,
+    data.positions,
+    publicEnv.earnEnabledStablecoins,
+    publicEnv.solanaEnv,
+  ]);
   const selectedSource =
     sourceOptions.find((source) => source.key === selectedSourceKey) ??
-    sourceOptions[0];
+    sourceOptions.find((source) => source.symbol === Stablecoin.USDC) ??
+    sourceOptions[0]!;
   const sourceUsd = selectedSource.usd;
+  const depositSteps = useMemo(
+    () => createDepositSteps(selectedSource.symbol),
+    [selectedSource.symbol]
+  );
   const sourceBalance = splitUsdBalance(sourceUsd);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
@@ -180,7 +205,7 @@ export function DepositPane({
   });
   const isBelowMinimum = amountUsd < MIN_DEPOSIT_USD;
   const isInsufficient = !isBelowMinimum && amountUsd > sourceUsd;
-  const isValidAmount = !isBelowMinimum && !isInsufficient;
+  const isValidAmount = !(isBelowMinimum || isInsufficient);
   const isSubmitting = actions.isDepositPending;
 
   // Warm the Kamino instruction fetch while the user pauses on a valid
@@ -190,9 +215,12 @@ export function DepositPane({
     if (!isValidAmount) {
       return;
     }
-    const timer = window.setTimeout(() => prefetchDeposit(amount), 300);
+    const timer = window.setTimeout(
+      () => prefetchDeposit(amount, selectedSource.mint),
+      300
+    );
     return () => window.clearTimeout(timer);
-  }, [amount, isValidAmount, prefetchDeposit]);
+  }, [amount, isValidAmount, prefetchDeposit, selectedSource.mint]);
 
   const handleAmountChange = (rawValue: string) => {
     const sanitized = sanitizeBucksAmountInput(rawValue, amount);
@@ -204,6 +232,8 @@ export function DepositPane({
     const didDeposit = await actions.submitDeposit({
       amountLabel: amount,
       forecastApyBps: apy.apyBps,
+      mint: selectedSource.mint,
+      symbol: selectedSource.symbol,
     });
     if (didDeposit) {
       onBack();
@@ -278,7 +308,7 @@ export function DepositPane({
           <div className="flex w-full flex-1 flex-col">
             <div className="w-full p-2">
               <label className="flex w-full flex-col gap-0.5 rounded-2xl px-4 py-2">
-                <span className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
+                <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
                   Amount
                 </span>
                 <span className="flex h-12 w-full items-baseline">
@@ -321,7 +351,7 @@ export function DepositPane({
                       src={`${ASSET_BASE}/icon-circle-info.svg`}
                     />
                   </div>
-                  <p className="min-w-0 max-w-[400px] flex-1 py-2 text-[13px] leading-4 text-muted-foreground">
+                  <p className="min-w-0 max-w-[400px] flex-1 py-2 text-[13px] text-muted-foreground leading-4">
                     Your first deposit takes ~0.06 SOL from your wallet for
                     Solana account rent — it is returned when you fully
                     withdraw.
@@ -412,7 +442,7 @@ export function DepositPane({
                   />
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                  <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
                     {`from ${selectedSource.symbol} balance`}
                   </span>
                   <span className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
@@ -472,7 +502,7 @@ export function DepositPane({
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
                   to Earn
                 </span>
                 <span className="flex items-center">
@@ -490,7 +520,7 @@ export function DepositPane({
                         className="h-5 w-3"
                         src="/wallet-workspace/earn-flash.svg"
                       />
-                      <span className="whitespace-nowrap font-medium text-positive text-[16px] leading-5 tracking-[0.06px]">
+                      <span className="whitespace-nowrap font-medium text-[16px] text-positive leading-5 tracking-[0.06px]">
                         {isApyLoaded ? (
                           <PopDigits
                             segments={[
@@ -507,13 +537,13 @@ export function DepositPane({
               </div>
             </div>
 
-            <div className="-translate-y-1/2 absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 rounded-xl bg-border" />
+            <div className="absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 -translate-y-1/2 rounded-xl bg-border" />
           </div>
         </div>
 
         <div className="w-full bg-card px-4 pt-2 pb-4">
           {actions.depositError ? (
-            <p className="px-4 pb-2 text-[13px] leading-4 text-destructive">
+            <p className="px-4 pb-2 text-[13px] text-destructive leading-4">
               {actions.depositError}
             </p>
           ) : null}
@@ -522,7 +552,7 @@ export function DepositPane({
           <button
             className={`t-hover flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 ${
               isValidAmount
-                ? "bg-foreground text-background enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90 enabled:active:translate-y-0"
+                ? "bg-foreground text-background enabled:active:translate-y-0 enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90"
                 : "bg-destructive/[0.08] text-destructive"
             }`}
             disabled={!isValidAmount || isSubmitting}
@@ -536,7 +566,7 @@ export function DepositPane({
                   : isInsufficient
                   ? "Insufficient balance"
                   : isValidAmount
-                  ? `Deposit ${amountLabel} USDC`
+                  ? `Deposit ${amountLabel} ${selectedSource.symbol}`
                   : `Minimum deposit is $${MIN_DEPOSIT_USD}`
               }
             />
@@ -551,7 +581,7 @@ export function DepositPane({
         <FlowDiagram
           docsHref={DEPOSIT_DOCS_URL}
           footnote={DEPOSIT_FOOTNOTE}
-          steps={DEPOSIT_STEPS}
+          steps={depositSteps}
         />
       </FlowExplainerAside>
 
@@ -563,7 +593,7 @@ export function DepositPane({
         <FlowDiagram
           docsHref={DEPOSIT_DOCS_URL}
           footnote={DEPOSIT_FOOTNOTE}
-          steps={DEPOSIT_STEPS}
+          steps={depositSteps}
         />
       </FlowExplainerOverlay>
     </>

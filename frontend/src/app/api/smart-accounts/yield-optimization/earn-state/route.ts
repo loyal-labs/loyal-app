@@ -245,7 +245,10 @@ function serializePosition(
       reserve: position.initialReserve,
       supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
     },
+    // Deprecated compatibility field; the value is a nominal stablecoin-par
+    // total, not a quantity denominated in one mint.
     currentTotalAmountRaw: currentTotalAmountRaw.toString(),
+    currentTotalNominalUsdMicros: currentTotalAmountRaw.toString(),
     principalAmountRaw: position.principalAmountRaw.toString(),
     status: position.status,
   };

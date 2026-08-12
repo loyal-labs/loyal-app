@@ -16,6 +16,8 @@ import {
   Stablecoin,
 } from "@loyal-labs/actions";
 
+import { getEarnProductAssetsForCluster } from "./earn-product-mints.shared";
+
 export type EarnPositionDisplay = {
   label: string;
   marketName: string;
@@ -61,6 +63,12 @@ const devnetUsdcMint =
   STABLECOIN_MINTS_BY_CLUSTER[LoyalCluster.Devnet][Stablecoin.USDC]?.toBase58();
 
 const KNOWN_MINT_SYMBOLS = new Map([
+  ...getEarnProductAssetsForCluster(LoyalCluster.MainnetBeta).map(
+    (asset) => [asset.mint.toBase58(), asset.symbol] as const
+  ),
+  ...getEarnProductAssetsForCluster(LoyalCluster.Devnet).map(
+    (asset) => [asset.mint.toBase58(), asset.symbol] as const
+  ),
   [STABLECOIN_MINTS[Stablecoin.USDC].toBase58(), "USDC"],
   ...(devnetUsdcMint ? ([[devnetUsdcMint, "USDC"]] as const) : []),
 ]);

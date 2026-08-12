@@ -1,30 +1,30 @@
 "use client";
 
 import {
-  LoyalCluster,
+  type LoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
 import {
   combineSmartAccountNativeSolRequirements,
   createSmartAccountVaultsClient,
-  sendPreparedBatchWithWallet,
-  sendPreparedWithWallet,
-  SOL_SPENDING_LIMIT_MINT,
   type SmartAccountNativeSolRequirement,
   type SmartAccountOverview,
   type SmartAccountOverviewBase,
+  type SmartAccountPolicyOverview,
   type SmartAccountPreparedEarnUsdcAutodepositClose,
   type SmartAccountPreparedEarnUsdcAutodepositSetup,
   type SmartAccountPreparedEarnUsdcCleanup,
   type SmartAccountPreparedEarnUsdcDeposit,
-  type SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   type SmartAccountPreparedEarnUsdcWithdraw,
-  type SmartAccountPolicyOverview,
+  type SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   type SmartAccountProposalSnapshot,
   type SmartAccountSignerPermission,
   type SmartAccountSignerSnapshot,
   type SmartAccountSpendingLimitSnapshot,
   type SmartAccountVaultSnapshot,
+  SOL_SPENDING_LIMIT_MINT,
+  sendPreparedBatchWithWallet,
+  sendPreparedWithWallet,
 } from "@loyal-labs/smart-account-vaults";
 import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import {
@@ -61,17 +61,17 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { captureBrowserError } from "@/features/observability/client";
 import type { BrowserErrorOperation } from "@/features/observability/error-contract";
 import {
-  resolveSmartAccountRefreshError,
   resolveSmartAccountMutationRefreshPlan,
+  resolveSmartAccountRefreshError,
   SmartAccountPolicyFollowUp,
-  SmartAccountRefreshOrder,
-  SmartAccountRefreshSingleflight,
-  SmartAccountScopeGeneration,
   type SmartAccountRefreshGroup,
+  SmartAccountRefreshOrder,
   type SmartAccountRefreshOrderGroup,
   type SmartAccountRefreshOrderToken,
   type SmartAccountRefreshPlan,
+  SmartAccountRefreshSingleflight,
   type SmartAccountScopedErrors,
+  SmartAccountScopeGeneration,
 } from "@/features/smart-accounts/refresh-plan";
 import {
   getClientCacheStorage,
@@ -84,6 +84,16 @@ import {
   getStablecoinMintSetForSolanaEnv,
   isStablecoinMint,
 } from "@/lib/wallet/stablecoin-classification";
+import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import {
+  buildEarnAutodepositCloseConfirmRequestBody,
+  buildEarnAutodepositSetupConfirmRequestBody,
+  type EarnAutodepositCloseConfirmResponse,
+  type EarnAutodepositFloorUpdateConfirmRequestBody,
+  type EarnAutodepositSetupConfirmResponse,
+  type EarnAutodepositToggleConfirmRequestBody,
+  type EarnAutodepositToggleConfirmResponse,
+} from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
   buildEarnDepositConfirmRequestBody,
   buildEarnDepositPolicyStageConfirmRequestBody,
@@ -95,28 +105,22 @@ import {
   resolveEarnDepositConfirmPolicySignature,
 } from "@/lib/yield-optimization/earn-deposit-flow.shared";
 import {
-  buildEarnAutodepositCloseConfirmRequestBody,
-  buildEarnAutodepositSetupConfirmRequestBody,
-  type EarnAutodepositFloorUpdateConfirmRequestBody,
-  type EarnAutodepositToggleConfirmRequestBody,
-  type EarnAutodepositCloseConfirmResponse,
-  type EarnAutodepositSetupConfirmResponse,
-  type EarnAutodepositToggleConfirmResponse,
-} from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
-import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
-import {
-  hydratePreparedEarnUsdcDeposit,
   type EarnDepositPrepareResponse,
+  hydratePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import {
+  type EarnPolicyPrepareResponse,
+  hydratePreparedEarnUsdcYieldRoutingPolicy,
+} from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
+import {
+  type EarnWithdrawCleanupPrepareResponse,
   hydratePreparedEarnUsdcCleanup,
   serializePreparedEarnUsdcCleanup,
-  type EarnWithdrawCleanupPrepareResponse,
 } from "@/lib/yield-optimization/earn-withdraw-cleanup-contracts.shared";
 import {
-  hydratePreparedEarnUsdcYieldRoutingPolicy,
-  type EarnPolicyPrepareResponse,
-} from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
+  type EarnWithdrawPrepareResponse,
+  hydratePreparedEarnUsdcWithdraw,
+} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
@@ -413,6 +417,7 @@ export type VaultSwapResult = VaultTransferResult;
 
 export type EarnDepositRequest = {
   amountRaw: bigint;
+  mint: string;
   onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   policyConfirmedSlot?: string;
@@ -1774,13 +1779,17 @@ async function postEarnAutodepositToggle(args: {
 
 export async function prepareEarnDepositOnServer(args: {
   amountRaw: bigint;
+  mint: string;
   fetchImpl?: typeof fetch;
 }): Promise<SmartAccountPreparedEarnUsdcDeposit> {
   const fetchImpl = args.fetchImpl ?? fetch;
   const response = await fetchImpl(
     "/api/smart-accounts/yield-optimization/deposits/prepare",
     {
-      body: JSON.stringify({ amountRaw: args.amountRaw.toString() }),
+      body: JSON.stringify({
+        amountRaw: args.amountRaw.toString(),
+        mint: args.mint,
+      }),
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       method: "POST",
@@ -1791,6 +1800,15 @@ export async function prepareEarnDepositOnServer(args: {
     const payload = (await response
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    if (
+      response.status === 409 &&
+      payload?.error?.code === "earn_policy_update_required"
+    ) {
+      throw new EarnPolicyUpdateRequiredClientError(
+        payload.error.message ??
+          "Update your Earn policy before depositing this asset."
+      );
+    }
     throw new Error(
       payload?.error?.message ?? "Failed to prepare earn deposit."
     );
@@ -1800,11 +1818,46 @@ export async function prepareEarnDepositOnServer(args: {
   return hydratePreparedEarnUsdcDeposit(payload.preparedDeposit);
 }
 
+export class EarnPolicyUpdateRequiredClientError extends Error {
+  readonly code = "earn_policy_update_required";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "EarnPolicyUpdateRequiredClientError";
+  }
+}
+
+export async function prepareEarnWithdrawOnServer(args: {
+  amountRaw: bigint | "max";
+  fetchImpl?: typeof fetch;
+  sourceId: string;
+}): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
+  const response = await (args.fetchImpl ?? fetch)(
+    "/api/smart-accounts/yield-optimization/withdrawals/prepare",
+    {
+      body: JSON.stringify({
+        amountRaw: args.amountRaw === "max" ? "max" : args.amountRaw.toString(),
+        sourceId: args.sourceId,
+      }),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare Earn withdrawal."
+    );
+  }
+  const payload = (await response.json()) as EarnWithdrawPrepareResponse;
+  return hydratePreparedEarnUsdcWithdraw(payload.preparedWithdraw);
+}
+
 export async function prepareEarnCleanupOnServer(
-  args: {
-    fetchImpl?: typeof fetch;
-    observabilityFlowId?: string;
-  } = {}
+  args: { fetchImpl?: typeof fetch; observabilityFlowId?: string } = {}
 ): Promise<PreparedEarnUsdcCleanup> {
   const fetchImpl = args.fetchImpl ?? fetch;
   const response = await fetchImpl(
@@ -2016,7 +2069,7 @@ export function shouldInitializeEarnYieldRoutingPolicyForDeposit({
   hasActiveEarnPosition: boolean;
   hasEarnPolicy?: boolean;
 }): boolean {
-  return !hasActiveEarnPosition && !hasEarnPolicy;
+  return !(hasActiveEarnPosition || hasEarnPolicy);
 }
 
 function isActiveEarnStatePosition(
@@ -2569,10 +2622,7 @@ function createWalletAdapterBridge(
   const shouldSignThenSendRaw = Boolean(
     options?.signThenSendRaw && wallet.signTransaction
   );
-  if (
-    !wallet.publicKey ||
-    (!shouldSignThenSendRaw && !wallet.sendTransaction)
-  ) {
+  if (!wallet.publicKey || !(shouldSignThenSendRaw || wallet.sendTransaction)) {
     return null;
   }
 
@@ -2605,8 +2655,9 @@ function createWalletAdapterBridge(
           },
         }
       : {}),
-    ...(!shouldSignThenSendRaw
-      ? {
+    ...(shouldSignThenSendRaw
+      ? {}
+      : {
           sendTransaction: async (
             transaction: Transaction | VersionedTransaction,
             nextConnection: ReturnType<typeof useConnection>["connection"],
@@ -2620,8 +2671,7 @@ function createWalletAdapterBridge(
             earnToast.signed();
             return signature;
           },
-        }
-      : {}),
+        }),
   };
 }
 
@@ -2778,7 +2828,7 @@ function tokenRawAmountToNumber(
   const rawAmount = Number(amountRaw);
   const scale = 10 ** decimals;
 
-  if (!Number.isFinite(rawAmount) || !Number.isFinite(scale) || scale <= 0) {
+  if (!(Number.isFinite(rawAmount) && Number.isFinite(scale)) || scale <= 0) {
     return null;
   }
 
@@ -3689,8 +3739,7 @@ export function useSmartAccountSidebarData(
       const requestedScope = smartAccountScopeSnapshot;
       const isCurrent = loadOptions?.isCurrent ?? (() => true);
       if (
-        !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-        !isCurrent()
+        !(smartAccountScopeGeneration.isCurrent(requestedScope) && isCurrent())
       ) {
         return;
       }
@@ -3728,8 +3777,9 @@ export function useSmartAccountSidebarData(
         const payload =
           (await response.json()) as SmartAccountVaultActivityRouteResponse;
         if (
-          !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-          !isCurrent()
+          !(
+            smartAccountScopeGeneration.isCurrent(requestedScope) && isCurrent()
+          )
         ) {
           return;
         }
@@ -3787,8 +3837,7 @@ export function useSmartAccountSidebarData(
       const requestedScope = smartAccountScopeSnapshot;
       const isCurrent = loadOptions?.isCurrent ?? (() => true);
       if (
-        !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-        !isCurrent()
+        !(smartAccountScopeGeneration.isCurrent(requestedScope) && isCurrent())
       ) {
         return;
       }
@@ -3801,10 +3850,12 @@ export function useSmartAccountSidebarData(
 
       const promise = (async () => {
         if (
-          !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-          !isCurrent()
-        )
+          !(
+            smartAccountScopeGeneration.isCurrent(requestedScope) && isCurrent()
+          )
+        ) {
           return;
+        }
         setSignerPortfolioByAddress((current) => ({
           ...current,
           [signerAddress]: {
@@ -3826,10 +3877,13 @@ export function useSmartAccountSidebarData(
           );
 
           if (
-            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-            !isCurrent()
-          )
+            !(
+              smartAccountScopeGeneration.isCurrent(requestedScope) &&
+              isCurrent()
+            )
+          ) {
             return;
+          }
           setSignerPortfolioByAddress((current) => ({
             ...current,
             [signerAddress]: {
@@ -3841,10 +3895,13 @@ export function useSmartAccountSidebarData(
           }));
         } catch (err) {
           if (
-            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-            !isCurrent()
-          )
+            !(
+              smartAccountScopeGeneration.isCurrent(requestedScope) &&
+              isCurrent()
+            )
+          ) {
             return;
+          }
           setSignerPortfolioByAddress((current) => ({
             ...current,
             [signerAddress]: {
@@ -3892,8 +3949,7 @@ export function useSmartAccountSidebarData(
       const requestedScope = smartAccountScopeSnapshot;
       const isCurrent = loadOptions?.isCurrent ?? (() => true);
       if (
-        !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-        !isCurrent()
+        !(smartAccountScopeGeneration.isCurrent(requestedScope) && isCurrent())
       ) {
         return;
       }
@@ -3926,10 +3982,13 @@ export function useSmartAccountSidebarData(
             );
 
           if (
-            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-            !isCurrent()
-          )
+            !(
+              smartAccountScopeGeneration.isCurrent(requestedScope) &&
+              isCurrent()
+            )
+          ) {
             return;
+          }
           setSignerPortfolioByAddress((current) => {
             const previous =
               current[signerAddress] ?? EMPTY_SIGNER_PORTFOLIO_VIEW;
@@ -3946,10 +4005,13 @@ export function useSmartAccountSidebarData(
           });
         } catch (err) {
           if (
-            !smartAccountScopeGeneration.isCurrent(requestedScope) ||
-            !isCurrent()
-          )
+            !(
+              smartAccountScopeGeneration.isCurrent(requestedScope) &&
+              isCurrent()
+            )
+          ) {
             return;
+          }
           setSignerPortfolioByAddress((current) => ({
             ...current,
             [signerAddress]: {
@@ -4063,7 +4125,9 @@ export function useSmartAccountSidebarData(
       };
 
       const loadBase = async () => {
-        if (!canCommit("base")) return;
+        if (!canCommit("base")) {
+          return;
+        }
         setIsBaseLoading(true);
         try {
           const url = new URL(
@@ -4073,7 +4137,9 @@ export function useSmartAccountSidebarData(
           const base = await fetchSmartAccountGroup<SmartAccountOverviewBase>(
             url
           );
-          if (!canCommit("base")) return;
+          if (!canCommit("base")) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -4092,7 +4158,9 @@ export function useSmartAccountSidebarData(
           });
           setScopedErrors((current) => ({ ...current, base: null }));
         } catch (nextError) {
-          if (!canCommit("base")) return;
+          if (!canCommit("base")) {
+            return;
+          }
           const message =
             nextError instanceof Error
               ? nextError.message
@@ -4100,12 +4168,16 @@ export function useSmartAccountSidebarData(
           setScopedErrors((current) => ({ ...current, base: message }));
           throw nextError;
         } finally {
-          if (canCommit("base")) setIsBaseLoading(false);
+          if (canCommit("base")) {
+            setIsBaseLoading(false);
+          }
         }
       };
 
       const loadPolicies = async () => {
-        if (!canCommit("policies")) return;
+        if (!canCommit("policies")) {
+          return;
+        }
         setIsPoliciesLoading(true);
         try {
           const url = new URL(
@@ -4117,7 +4189,9 @@ export function useSmartAccountSidebarData(
           }
           const policies =
             await fetchSmartAccountGroup<SmartAccountPolicyOverview>(url);
-          if (!canCommit("policies")) return;
+          if (!canCommit("policies")) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -4131,7 +4205,9 @@ export function useSmartAccountSidebarData(
           );
           setScopedErrors((current) => ({ ...current, policies: null }));
         } catch (nextError) {
-          if (!canCommit("policies")) return;
+          if (!canCommit("policies")) {
+            return;
+          }
           const message =
             nextError instanceof Error
               ? nextError.message
@@ -4139,12 +4215,16 @@ export function useSmartAccountSidebarData(
           setScopedErrors((current) => ({ ...current, policies: message }));
           throw nextError;
         } finally {
-          if (canCommit("policies")) setIsPoliciesLoading(false);
+          if (canCommit("policies")) {
+            setIsPoliciesLoading(false);
+          }
         }
       };
 
       const loadProposals = async () => {
-        if (!canCommit("proposals")) return;
+        if (!canCommit("proposals")) {
+          return;
+        }
         setIsProposalsLoading(true);
         try {
           const url = new URL(
@@ -4154,7 +4234,9 @@ export function useSmartAccountSidebarData(
           const proposals = await fetchSmartAccountGroup<
             SmartAccountProposalSnapshot[]
           >(url);
-          if (!canCommit("proposals")) return;
+          if (!canCommit("proposals")) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -4168,7 +4250,9 @@ export function useSmartAccountSidebarData(
           );
           setScopedErrors((current) => ({ ...current, proposals: null }));
         } catch (nextError) {
-          if (!canCommit("proposals")) return;
+          if (!canCommit("proposals")) {
+            return;
+          }
           const message =
             nextError instanceof Error
               ? nextError.message
@@ -4176,12 +4260,16 @@ export function useSmartAccountSidebarData(
           setScopedErrors((current) => ({ ...current, proposals: message }));
           throw nextError;
         } finally {
-          if (canCommit("proposals")) setIsProposalsLoading(false);
+          if (canCommit("proposals")) {
+            setIsProposalsLoading(false);
+          }
         }
       };
 
       const loadVaults = async () => {
-        if (!canCommit("vaults")) return;
+        if (!canCommit("vaults")) {
+          return;
+        }
         setIsVaultsLoading(true);
         let pendingInvalidationAddresses: string[] = [];
         try {
@@ -4213,7 +4301,9 @@ export function useSmartAccountSidebarData(
           const vaults = await fetchSmartAccountGroup<
             SmartAccountVaultSnapshot[]
           >(url);
-          if (!canCommit("vaults")) return;
+          if (!canCommit("vaults")) {
+            return;
+          }
           writeSmartAccountOverviewCacheGroup({
             settingsPda,
             solanaEnv,
@@ -4227,7 +4317,9 @@ export function useSmartAccountSidebarData(
           );
           setScopedErrors((current) => ({ ...current, vaults: null }));
         } catch (nextError) {
-          if (!canCommit("vaults")) return;
+          if (!canCommit("vaults")) {
+            return;
+          }
           for (const address of pendingInvalidationAddresses) {
             pendingVaultInvalidationAddressesRef.current.add(address);
           }
@@ -4238,17 +4330,28 @@ export function useSmartAccountSidebarData(
           setScopedErrors((current) => ({ ...current, vaults: message }));
           throw nextError;
         } finally {
-          if (canCommit("vaults")) setIsVaultsLoading(false);
+          if (canCommit("vaults")) {
+            setIsVaultsLoading(false);
+          }
         }
       };
 
       const groupTasks = groups.flatMap((group) => {
-        if (group === "base") return runScopedRefresh(group, loadBase);
-        if (group === "policies") return runScopedRefresh(group, loadPolicies);
-        if (group === "proposals")
+        if (group === "base") {
+          return runScopedRefresh(group, loadBase);
+        }
+        if (group === "policies") {
+          return runScopedRefresh(group, loadPolicies);
+        }
+        if (group === "proposals") {
           return runScopedRefresh(group, loadProposals);
-        if (group === "vaults") return runScopedRefresh(group, loadVaults);
-        if (group === "earn") return runScopedRefresh(group, refreshEarnState);
+        }
+        if (group === "vaults") {
+          return runScopedRefresh(group, loadVaults);
+        }
+        if (group === "earn") {
+          return runScopedRefresh(group, refreshEarnState);
+        }
         return [];
       });
 
@@ -4281,9 +4384,13 @@ export function useSmartAccountSidebarData(
 
       if (groupSet.has("wallet")) {
         const reloadCandidates = new Set(signerAddresses);
-        if (connectedWallet) reloadCandidates.add(connectedWallet);
+        if (connectedWallet) {
+          reloadCandidates.add(connectedWallet);
+        }
         for (const address of reloadCandidates) {
-          if (!signerPortfolioByAddress[address]) continue;
+          if (!signerPortfolioByAddress[address]) {
+            continue;
+          }
           detailTasks.push(
             runScopedRefresh(`wallet:signer:${address}`, () =>
               loadSignerPortfolio(address, {
@@ -4299,7 +4406,9 @@ export function useSmartAccountSidebarData(
         if (onAfter) {
           detailTasks.push(
             runScopedRefresh("wallet:authenticated", async () => {
-              if (!canCommit("wallet")) return;
+              if (!canCommit("wallet")) {
+                return;
+              }
               await onAfter({ isCurrent: () => canCommit("wallet") });
             })
           );
@@ -4395,7 +4504,9 @@ export function useSmartAccountSidebarData(
 
   const patchSettingsTransactionIndex = useCallback(
     (transactionIndex: bigint | number | string | undefined) => {
-      if (transactionIndex === undefined || !user?.settingsPda) return;
+      if (transactionIndex === undefined || !user?.settingsPda) {
+        return;
+      }
       const nextIndex = String(transactionIndex);
       const shouldReplace = (currentIndex: string) => {
         try {
@@ -4493,7 +4604,9 @@ export function useSmartAccountSidebarData(
     let cancelled = false;
     void fetchTokenMarkets(vaultMintsSignature)
       .then(({ markets }) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         const next = new Map<string, number>();
         for (const market of markets) {
           if (
@@ -4506,7 +4619,9 @@ export function useSmartAccountSidebarData(
         setVaultPriceChange24hByMint(next);
       })
       .catch((error) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         console.warn(
           "[smart-account-sidebar] failed to fetch token markets",
           error
@@ -4615,7 +4730,7 @@ export function useSmartAccountSidebarData(
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
-      if (!wallet.publicKey || !user?.walletAddress) {
+      if (!(wallet.publicKey && user?.walletAddress)) {
         throw new Error(
           "Connect the authenticated wallet to sign this action."
         );
@@ -4800,7 +4915,7 @@ export function useSmartAccountSidebarData(
       existingSpendingLimitAddress?: string | null;
       signerAddress: string;
     }) => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
@@ -4874,7 +4989,7 @@ export function useSmartAccountSidebarData(
       signerAddress: string;
       permissions?: SmartAccountSignerPermission[];
     }) => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
@@ -4926,7 +5041,7 @@ export function useSmartAccountSidebarData(
       policyAddress?: string | null;
       accountIndex?: number;
     }) => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
@@ -4975,7 +5090,7 @@ export function useSmartAccountSidebarData(
       spendingLimitAddress: string;
       signerAddress: string;
     }) => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
@@ -5004,7 +5119,7 @@ export function useSmartAccountSidebarData(
       policyAddress?: string | null;
       signerAddress: string;
     }) => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
@@ -5041,7 +5156,7 @@ export function useSmartAccountSidebarData(
       signerAddress: string;
       spendingLimitAddress: string;
     }) => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         throw new Error("Smart-account overview is not loaded yet.");
       }
 
@@ -5123,7 +5238,7 @@ export function useSmartAccountSidebarData(
       amountRaw: bigint;
       recipientAddress?: string;
     }): VaultTransferCapability => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         return { kind: "blocked", reason: "Smart account not loaded yet" };
       }
 
@@ -5192,7 +5307,7 @@ export function useSmartAccountSidebarData(
 
   const executeVaultTransfer = useCallback(
     async (request: VaultTransferRequest): Promise<VaultTransferResult> => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         return { success: false, error: "Smart account not loaded yet." };
       }
 
@@ -5236,9 +5351,7 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      const amountRaw = BigInt(
-        Math.floor(request.amount * Math.pow(10, decimals))
-      );
+      const amountRaw = BigInt(Math.floor(request.amount * 10 ** decimals));
       if (amountRaw <= BigInt(0)) {
         return {
           success: false,
@@ -5247,8 +5360,7 @@ export function useSmartAccountSidebarData(
       }
 
       if (
-        BigInt(Math.floor(position.publicBalance * Math.pow(10, decimals))) <
-        amountRaw
+        BigInt(Math.floor(position.publicBalance * 10 ** decimals)) < amountRaw
       ) {
         return {
           success: false,
@@ -5429,7 +5541,7 @@ export function useSmartAccountSidebarData(
 
   const executeVaultSwap = useCallback(
     async (request: VaultSwapRequest): Promise<VaultSwapResult> => {
-      if (!overview || !wallet.publicKey) {
+      if (!(overview && wallet.publicKey)) {
         return { success: false, error: "Smart account not loaded yet." };
       }
 
@@ -6203,7 +6315,7 @@ export function useSmartAccountSidebarData(
           };
         }
 
-        if (!depositSignature || !depositConfirmedSlot) {
+        if (!(depositSignature && depositConfirmedSlot)) {
           return {
             success: false,
             ...collectedSignatureFields(),
@@ -6306,6 +6418,7 @@ export function useSmartAccountSidebarData(
           request.preparedDeposit ??
           (await prepareEarnDepositOnServer({
             amountRaw: request.amountRaw,
+            mint: request.mint,
           }));
         if (
           preparedDeposit.persistence.principalAmountRaw !==
@@ -6315,6 +6428,13 @@ export function useSmartAccountSidebarData(
             success: false,
             error:
               "Prepared Earn deposit amount changed. Review the deposit again before signing.",
+          };
+        }
+        if (preparedDeposit.persistence.depositMint !== request.mint) {
+          return {
+            success: false,
+            error:
+              "Prepared Earn deposit mint changed. Review the deposit again before signing.",
           };
         }
         const nativeSolError = getNativeSolRequirementError(
@@ -7151,7 +7271,7 @@ export function useSmartAccountSidebarData(
           ) {
             const batchPreparedSetup = batchPrepare.preparedSetup;
             const batchNextPreparedSetup = batchPrepare.nextPreparedSetup;
-            if (!batchPreparedSetup || !batchNextPreparedSetup) {
+            if (!(batchPreparedSetup && batchNextPreparedSetup)) {
               return {
                 success: false,
                 error:
@@ -7306,9 +7426,11 @@ export function useSmartAccountSidebarData(
             }
 
             if (
-              !confirmResponse ||
-              !recurringDelegationConfirmedSlot ||
-              !recurringDelegationSignature
+              !(
+                confirmResponse &&
+                recurringDelegationConfirmedSlot &&
+                recurringDelegationSignature
+              )
             ) {
               return {
                 success: false,

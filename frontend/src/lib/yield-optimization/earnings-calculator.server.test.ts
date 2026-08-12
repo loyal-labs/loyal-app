@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   calculateEarnEarnings,
+  principalByMintAt,
   type ReserveApySample,
+  type YieldPortfolioSnapshot,
   type YieldPositionEvent,
   type YieldPositionPathEvent,
 } from "./earnings-calculator.server";
@@ -159,5 +161,96 @@ describe("calculateEarnEarnings money path", () => {
 
     expect(result.lifetimeEarnedUsd).toBeCloseTo(1.5, 12);
     expect(result.currentApyBps).toBe(7300);
+  });
+
+  test("aggregates concurrent reserve sources while keeping principal by mint", () => {
+    const snapshots: YieldPortfolioSnapshot[] = [
+      {
+        exposures: [
+          {
+            amountRaw: rawUsdc(100),
+            kind: "kamino",
+            liquidityMint: "USDC",
+            reserve: "reserve-a",
+            sourceId: "reserve:reserve-a",
+          },
+          {
+            amountRaw: rawUsdc(50),
+            kind: "kamino",
+            liquidityMint: "PYUSD",
+            reserve: "reserve-b",
+            sourceId: "reserve:reserve-b",
+          },
+          {
+            amountRaw: rawUsdc(50),
+            kind: "idle",
+            liquidityMint: "USDC",
+            reserve: null,
+            sourceId: "idle:usdc",
+          },
+        ],
+        observedAt: daysAgo(10),
+        observedSlot: BigInt(1),
+      },
+    ];
+    const result = calculateEarnEarnings({
+      apySamples: [
+        { observedAt: daysAgo(30), reserve: "reserve-a", supplyApy: 0.365 },
+        { observedAt: daysAgo(30), reserve: "reserve-b", supplyApy: 0.73 },
+      ],
+      events: [
+        {
+          amountRaw: rawUsdc(100),
+          confirmedAt: daysAgo(10),
+          liquidityMint: "USDC",
+          type: "deposit",
+        },
+        {
+          amountRaw: rawUsdc(50),
+          confirmedAt: daysAgo(10),
+          liquidityMint: "PYUSD",
+          type: "deposit",
+        },
+        {
+          amountRaw: rawUsdc(25),
+          confirmedAt: daysAgo(1),
+          liquidityMint: "PYUSD",
+          type: "withdrawal",
+        },
+      ],
+      now: NOW,
+      portfolioSnapshots: snapshots,
+      range: "30D",
+      timezone: "UTC",
+    });
+
+    expect(result.lifetimeEarnedUsd).toBeCloseTo(2, 12);
+    expect(result.principalUsd).toBe(125);
+    expect(result.currentApyBps).toBe(3650);
+    const principal = principalByMintAt(
+      [
+        {
+          amountRaw: rawUsdc(100),
+          confirmedAt: daysAgo(10),
+          liquidityMint: "USDC",
+          type: "deposit",
+        },
+        {
+          amountRaw: rawUsdc(50),
+          confirmedAt: daysAgo(10),
+          liquidityMint: "PYUSD",
+          type: "deposit",
+        },
+        {
+          amountRaw: rawUsdc(25),
+          confirmedAt: daysAgo(1),
+          liquidityMint: "PYUSD",
+          type: "withdrawal",
+        },
+      ],
+      NOW
+    );
+    expect(principal.get("USDC")).toBe(rawUsdc(100));
+    expect(principal.get("PYUSD")).toBe(rawUsdc(25));
   });
 });

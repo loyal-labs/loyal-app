@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 mock.module("server-only", () => ({}));
 
@@ -44,7 +45,9 @@ function kaminoHolding(args: {
       reserveCollateralMint: "11111111111111111111111111111115",
     },
     reserve: args.reserve,
+    sourceId: `reserve:${args.reserve}`,
     supplyApyBps: "300",
+    tokenProgramId: TOKEN_PROGRAM_ID.toBase58(),
   };
 }
 
@@ -60,7 +63,9 @@ function idleHolding(amountRaw: string) {
     observedSlot: "1",
     provenance: { tokenAccount: idleTokenAccount },
     reserve: null,
+    sourceId: `idle:${idleTokenAccount}`,
     supplyApyBps: null,
+    tokenProgramId: TOKEN_PROGRAM_ID.toBase58(),
   };
 }
 
@@ -70,7 +75,9 @@ type SnapshotHolding =
 
 function holdingsSnapshot(holdings: SnapshotHolding[]) {
   return {
+    completeness: "complete" as const,
     currentTotalAmountRaw: "0",
+    currentTotalNominalUsdMicros: "0",
     holdings,
     observedAt: "2026-07-13T00:00:00.000Z",
     observedSlot: "1",
@@ -162,12 +169,10 @@ mock.module(
   () => ({
     parseEarnWithdrawPrepareRequestBody: (body: {
       amountRaw: string;
-      mode: "partial" | "full";
-      source?: unknown;
+      sourceId: string;
     }) => ({
-      amountRaw: BigInt(body.amountRaw),
-      mode: body.mode,
-      source: body.source ?? null,
+      amountRaw: body.amountRaw === "max" ? "max" : BigInt(body.amountRaw),
+      sourceId: body.sourceId,
     }),
     serializePreparedEarnUsdcWithdraw: () => ({ ok: true }),
   })
@@ -221,67 +226,44 @@ describe("Earn withdrawal prepare route", () => {
     prepareCalls = [];
   });
 
-  test("unwinds every positive Kamino market in a full exit", async () => {
+  test("max drains only the exact selected source", async () => {
     const { POST } = await import("./route");
 
     const response = await POST(
-      createRequest({ amountRaw: "1", mode: "full" })
+      createRequest({
+        amountRaw: "max",
+        sourceId: `reserve:${activePosition.currentReserve}`,
+      })
     );
 
     expect(response.status).toBe(200);
-    expect(prepareCalls[0]?.amountRaw).toBe(BigInt(1_010_000));
-    const targets = prepareCalls[0]?.fullWithdrawalTargets as Array<{
-      market: PublicKey;
-      reserve: PublicKey;
-    }>;
-    expect(
-      targets.map((target) => ({
-        market: target.market.toBase58(),
-        reserve: target.reserve.toBase58(),
-      }))
-    ).toEqual([
-      {
-        market: activePosition.currentMarket,
-        reserve: activePosition.currentReserve,
-      },
-      { market: secondMarket, reserve: secondReserve },
-    ]);
+    expect(prepareCalls[0]?.amountRaw).toBe(BigInt(600_000));
+    expect(prepareCalls[0]?.source).toMatchObject({
+      id: activePosition.currentReserve,
+      reserve: new PublicKey(activePosition.currentReserve),
+      type: "reserve",
+    });
+    expect(prepareCalls[0]?.fullWithdrawalTargets).toBeUndefined();
+    expect(prepareCalls[0]?.mode).toBe("partial");
     expect(prepareCalls[0]?.closePoliciesOnFullWithdrawal).toBe(false);
   });
 
-  test("ignores a full-exit source request that names one market", async () => {
+  test("does not expand a selected reserve into another reserve", async () => {
     const { POST } = await import("./route");
 
     const response = await POST(
       createRequest({
         amountRaw: "600000",
-        mode: "full",
-        source: {
-          id: activePosition.currentReserve,
-          market: activePosition.currentMarket,
-          reserve: activePosition.currentReserve,
-          type: "reserve",
-        },
+        sourceId: `reserve:${activePosition.currentReserve}`,
       })
     );
 
     expect(response.status).toBe(200);
-    const targets = prepareCalls[0]?.fullWithdrawalTargets as Array<{
-      market: PublicKey;
-      reserve: PublicKey;
-    }>;
-    expect(
-      targets.map((target) => ({
-        market: target.market.toBase58(),
-        reserve: target.reserve.toBase58(),
-      }))
-    ).toEqual([
-      {
-        market: activePosition.currentMarket,
-        reserve: activePosition.currentReserve,
-      },
-      { market: secondMarket, reserve: secondReserve },
-    ]);
+    expect(prepareCalls[0]?.amountRaw).toBe(BigInt(600_000));
+    expect(prepareCalls[0]?.source).toMatchObject({
+      id: activePosition.currentReserve,
+    });
+    expect(prepareCalls[0]?.fullWithdrawalTargets).toBeUndefined();
   });
 
   test("selects the requested snapshot source for a partial withdrawal", async () => {
@@ -290,12 +272,7 @@ describe("Earn withdrawal prepare route", () => {
     const response = await POST(
       createRequest({
         amountRaw: "300000",
-        mode: "partial",
-        source: {
-          id: secondReserve,
-          reserve: secondReserve,
-          type: "reserve",
-        },
+        sourceId: `reserve:${secondReserve}`,
       })
     );
 
@@ -313,12 +290,7 @@ describe("Earn withdrawal prepare route", () => {
     const response = await POST(
       createRequest({
         amountRaw: "400001",
-        mode: "partial",
-        source: {
-          id: secondReserve,
-          reserve: secondReserve,
-          type: "reserve",
-        },
+        sourceId: `reserve:${secondReserve}`,
       })
     );
     const payload = await response.json();
@@ -339,7 +311,10 @@ describe("Earn withdrawal prepare route", () => {
     currentPolicy = null;
 
     const response = await POST(
-      createRequest({ amountRaw: "1", mode: "full" })
+      createRequest({
+        amountRaw: "max",
+        sourceId: `reserve:${activePosition.currentReserve}`,
+      })
     );
     const payload = await response.json();
 
@@ -352,7 +327,10 @@ describe("Earn withdrawal prepare route", () => {
     currentPosition = null;
 
     const response = await POST(
-      createRequest({ amountRaw: "1", mode: "full" })
+      createRequest({
+        amountRaw: "max",
+        sourceId: `reserve:${activePosition.currentReserve}`,
+      })
     );
     const payload = await response.json();
 
@@ -365,7 +343,10 @@ describe("Earn withdrawal prepare route", () => {
     currentSnapshot = holdingsSnapshot([]);
 
     const response = await POST(
-      createRequest({ amountRaw: "1", mode: "full" })
+      createRequest({
+        amountRaw: "max",
+        sourceId: `reserve:${activePosition.currentReserve}`,
+      })
     );
     const payload = await response.json();
 
@@ -374,24 +355,19 @@ describe("Earn withdrawal prepare route", () => {
     expect(prepareCalls).toHaveLength(0);
   });
 
-  test("returns earn_withdraw_source_required when a partial names no known source", async () => {
+  test("returns source-changed when the exact source ID is absent", async () => {
     const { POST } = await import("./route");
 
     const response = await POST(
       createRequest({
         amountRaw: "1000",
-        mode: "partial",
-        source: {
-          id: "11111111111111111111111111111121",
-          reserve: "11111111111111111111111111111121",
-          type: "reserve",
-        },
+        sourceId: "reserve:11111111111111111111111111111121",
       })
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(payload.error.code).toBe("earn_withdraw_source_required");
+    expect(response.status).toBe(409);
+    expect(payload.error.code).toBe("earn_withdraw_source_changed");
     expect(prepareCalls).toHaveLength(0);
   });
 });

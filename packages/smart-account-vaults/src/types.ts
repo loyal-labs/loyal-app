@@ -426,6 +426,7 @@ export type SmartAccountEarnUsdcReserveTargetInput = {
   reserve: PublicKey;
   market: PublicKey;
   liquidityMint: PublicKey;
+  liquidityTokenProgram?: PublicKey;
   supplyApyBps?: bigint | null;
   reserveCollateralMint?: PublicKey;
   reserveLiquiditySupply?: PublicKey;
@@ -515,6 +516,7 @@ export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    liquidityTokenProgram: PublicKey;
     obligation: PublicKey;
   };
   persistence: SmartAccountEarnUsdcYieldRoutingPolicyMetadata;
@@ -604,6 +606,7 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    liquidityTokenProgram: PublicKey;
     obligation: PublicKey;
     supplyApyBps: bigint | null;
   };
@@ -633,6 +636,7 @@ type SmartAccountEarnUsdcWithdrawBaseInput = {
         amountRaw: bigint;
         mint: PublicKey;
         tokenAccount: PublicKey;
+        tokenProgramId: PublicKey;
       };
   target?: SmartAccountEarnUsdcReserveTargetInput;
   fullWithdrawalTargets?: Array<
@@ -700,8 +704,8 @@ export type SmartAccountEarnUsdcWithdrawMetadata = {
   setupPolicyId?: string;
   setupPolicyAccount?: string;
   setupPolicySeed?: string;
-  targetReserve: string;
-  market: string;
+  targetReserve?: string;
+  market?: string;
   liquidityMint: string;
   requestedWithdrawAmountRaw: string;
   withdrawnAmountRaw: string;
@@ -743,18 +747,18 @@ export type SmartAccountPreparedEarnUsdcWithdrawStep = {
   stepCount: number;
   amountRaw: bigint;
   mode: "partial" | "full";
-  collateralAta: PublicKey;
+  collateralAta: PublicKey | null;
   accountingReserve: {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
     obligation: PublicKey;
-  };
+  } | null;
   executionReserve: {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
-  };
+  } | null;
   reserveWithdrawals: SmartAccountEarnUsdcReserveWithdrawalMetadata[];
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
 };
@@ -781,14 +785,15 @@ export type SmartAccountPreparedEarnUsdcWithdraw = {
     accountIndex: 1;
     pubkey: PublicKey;
     usdcAta: PublicKey;
-    collateralAta: PublicKey;
+    collateralAta: PublicKey | null;
   };
   targetReserve: {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    liquidityTokenProgram: PublicKey;
     obligation: PublicKey;
-  };
+  } | null;
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
 };
 
@@ -838,6 +843,7 @@ export type SmartAccountEarnVaultRefundTokenAccount = {
   isUsdc: boolean;
   lamports: number;
   mint: PublicKey;
+  tokenProgramId: PublicKey;
 };
 
 export type SmartAccountEarnVaultRefundSnapshot = {

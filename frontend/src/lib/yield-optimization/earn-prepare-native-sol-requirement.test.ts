@@ -87,6 +87,7 @@ describe("Earn prepare native SOL requirement wire contracts", () => {
       prepared: prepared("earnUsdcDeposit"),
       targetReserve: {
         liquidityMint: ACCOUNT,
+        liquidityTokenProgram: ACCOUNT,
         market: ACCOUNT,
         obligation: ACCOUNT,
         reserve: ACCOUNT,

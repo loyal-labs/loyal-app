@@ -369,7 +369,10 @@ async function prepareDeposit(args: {
 }): Promise<SmartAccountPreparedEarnUsdcDeposit> {
   const response = await postJson<EarnDepositPrepareResponse>(
     "/api/smart-accounts/yield-optimization/deposits/prepare",
-    { amountRaw: args.amountRaw.toString() },
+    {
+      amountRaw: args.amountRaw.toString(),
+      mint: EARN_TARGET.liquidityMint.toBase58(),
+    },
     args.cookie
   );
   return hydratePreparedEarnUsdcDeposit(response.body.preparedDeposit);

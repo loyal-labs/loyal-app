@@ -9,25 +9,25 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { PublicKey, type Connection } from "@solana/web3.js";
+import { type Connection, PublicKey } from "@solana/web3.js";
 import {
+  type Dispatch,
+  type SetStateAction,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type Dispatch,
-  type SetStateAction,
 } from "react";
 
 import {
-  selectEarnFullExitSources,
   type EarnWithdrawDraft,
   type EarnWithdrawSourceOption,
+  selectEarnFullExitSources,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
-  resolveEarnRealtimeRefreshPlan,
   type EarnExpectedMutationOperation,
   type EarnRealtimeInvalidation,
+  resolveEarnRealtimeRefreshPlan,
 } from "@/features/earn-realtime";
 import { normalizeLifecycleErrorCode } from "@/features/observability/lifecycle-contract";
 import {
@@ -227,6 +227,10 @@ export function toEarnWithdrawVaultsSource(
         source.tokenAccount,
         "token account"
       ),
+      tokenProgramId: parseEarnWithdrawPublicKey(
+        source.tokenProgramId,
+        "token program"
+      ),
       type: "idle",
     };
   }
@@ -269,7 +273,7 @@ export function parseEarnAutodepositExecuteResponse(value: unknown): {
       ?.slotId === "string"
       ? (value as { sweepRequest: { slotId: string } }).sweepRequest.slotId
       : null;
-  if (!slotId || !/^[1-9]\d{0,19}$/.test(slotId)) {
+  if (!(slotId && /^[1-9]\d{0,19}$/.test(slotId))) {
     throw new Error(
       "Autodeposit execution returned an invalid scheduled slot."
     );
@@ -304,8 +308,9 @@ export function toEarnWithdrawReserveTarget(
   };
 }
 
-// app-wallet-workspace.tsx:5006-5012 — the per-source target plus the
-// full-exit fan-out over every reserve the vault still holds.
+// app-wallet-workspace.tsx:5006-5012 — selected-source targeting. A full exit
+// is possible only when the selected source is the vault's sole positive
+// holding; cleanup is authorized later by a fresh all-source zero proof.
 export function selectFullExitWithdrawTargets(draft: EarnWithdrawDraft): {
   fullWithdrawalTargets: EarnWithdrawFullWithdrawalTarget[];
   target: EarnWithdrawFullWithdrawalTarget | null;
@@ -376,7 +381,7 @@ function toEarnDepositReserveTarget(
     "Kamino reserve"
   );
 
-  if (!market || !reserve) {
+  if (!(market && reserve)) {
     return null;
   }
 
@@ -659,7 +664,11 @@ export function buildPostDepositEarnPosition(args: {
       vaultUsdcAta: args.preparedDeposit.vault.usdcAta.toBase58(),
     },
     reserve,
+    sourceId: `reserve:${reserve}`,
     supplyApyBps,
+    tokenProgramId:
+      args.preparedDeposit.targetReserve.liquidityTokenProgram?.toBase58() ??
+      TOKEN_PROGRAM_ID.toBase58(),
   };
   const holdings = upsertPostDepositEarnHolding({
     amountRaw: args.amountRaw,
@@ -704,6 +713,9 @@ export function buildPostDepositEarnPosition(args: {
 export function getWithdrawSourceKeyForHolding(
   holding: ActiveEarnPositionHolding
 ): string {
+  if ("sourceId" in holding && typeof holding.sourceId === "string") {
+    return holding.sourceId;
+  }
   const tokenAccount =
     typeof holding.provenance.tokenAccount === "string"
       ? holding.provenance.tokenAccount
@@ -727,29 +739,20 @@ export function createWithdrawSourceOptions(
         return false;
       }
     }) ?? [];
-  const hasReserveHolding = positiveHoldings.some(
-    (holding) => holding.kind === "kamino"
-  );
-  const eligibleHoldings = hasReserveHolding
-    ? positiveHoldings.filter((holding) => holding.kind === "kamino")
-    : positiveHoldings;
-  return eligibleHoldings.map((holding): EarnWithdrawSourceOption => {
+  return positiveHoldings.map((holding): EarnWithdrawSourceOption => {
     const tokenAccount =
       typeof holding.provenance.tokenAccount === "string"
         ? holding.provenance.tokenAccount
         : null;
-    const sourceId =
-      holding.kind === "idle"
-        ? tokenAccount ?? holding.liquidityMint
-        : holding.reserve ?? holding.liquidityMint;
+    const sourceId = getWithdrawSourceKeyForHolding(holding);
     return {
       amountRaw: holding.amountRaw,
       balance: Number(BigInt(holding.amountRaw)) / 1_000_000,
-      id: getWithdrawSourceKeyForHolding(holding),
+      id: sourceId,
       icon: resolveEarnTransactionMarketIcon({ market: holding.market }),
       label:
         holding.kind === "idle"
-          ? "Idle vault USDC"
+          ? `Idle vault ${holding.marketName}`
           : `${holding.marketName} reserve`,
       liquidityMint: holding.liquidityMint,
       market: holding.market,
@@ -757,6 +760,7 @@ export function createWithdrawSourceOptions(
       sourceId,
       supplyApyBps: holding.supplyApyBps,
       tokenAccount,
+      tokenProgramId: holding.tokenProgramId,
       type: holding.kind === "idle" ? "idle" : "reserve",
     };
   });
@@ -780,7 +784,7 @@ export function useMainAccountUsdcBalance(args: {
   activeBalanceScopeRef.current = balanceScope;
 
   const readAmountRaw = useCallback(async (): Promise<bigint | null> => {
-    if (!walletAddress || !mint) {
+    if (!(walletAddress && mint)) {
       return null;
     }
 
@@ -795,12 +799,12 @@ export function useMainAccountUsdcBalance(args: {
       );
 
       const account = await connection.getAccountInfo(usdcAta, "confirmed");
-      if (!account || !account.owner.equals(TOKEN_PROGRAM_ID)) {
+      if (!(account && account.owner.equals(TOKEN_PROGRAM_ID))) {
         return BigInt(0);
       }
 
       const decoded = AccountLayout.decode(account.data);
-      if (!decoded.mint.equals(usdcMint) || !decoded.owner.equals(owner)) {
+      if (!(decoded.mint.equals(usdcMint) && decoded.owner.equals(owner))) {
         return BigInt(0);
       }
 
