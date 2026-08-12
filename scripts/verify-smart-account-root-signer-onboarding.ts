@@ -29,8 +29,11 @@ import {
 import {
   Settings,
   settingsDiscriminator,
-} from "../sdk/loyal-smart-accounts-core/src/index.ts";
-import { PROGRAM_ADDRESS, pda } from "../sdk/loyal-smart-accounts/src/index.ts";
+} from "../packages/loyal-smart-accounts-core/src/index.ts";
+import {
+  PROGRAM_ADDRESS,
+  pda,
+} from "../packages/loyal-smart-accounts/src/index.ts";
 
 mock.module("server-only", () => ({}));
 

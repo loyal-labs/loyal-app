@@ -40,22 +40,16 @@ export const mirrors = [
     description: "Generated mirror of loyal-app/extension",
   },
   {
-    source: "sdk",
-    repo: "loyal-labs/loyal-sdk",
-    kind: "source-tree",
-    description: "Generated mirror of loyal-app/sdk",
-  },
-  {
     source: "packages",
     repo: "loyal-labs/loyal-packages",
     kind: "source-tree",
     description: "Generated mirror of loyal-app/packages",
   },
   {
-    source: "cli",
+    source: "crates",
     repo: "loyal-labs/loyal-cli",
     kind: "rust-cli",
-    description: "Generated mirror of loyal-app/cli",
+    description: "Generated mirror of loyal-app/crates",
   },
   {
     source: "programs",
@@ -69,4 +63,5 @@ export const blockedMirrorRepos = new Set([
   "loyal-labs/loyal-solana",
   "loyal-labs/loyal-frontend",
   "loyal-labs/loyal-docs",
+  "loyal-labs/loyal-sdk",
 ]);

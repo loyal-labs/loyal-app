@@ -218,18 +218,18 @@ bun run frontend:build     # build loyal web frontend from repo root
 
 ### Directory Structure
 
-| Path                        | Purpose                                                                                                                                                                           |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/programs`                 | Anchor smart contracts. `telegram-private-transfer` handles deposit/claim/refund SOL transfers; `telegram-verification` handles on-chain Ed25519 Telegram signature verification. |
-| `/apps/telegram`            | Next.js 15 Telegram mini-app frontend and API routes.                                                                                                                             |
-| `/apps/web`                 | Next.js 15 Loyal web frontend.                                                                                                                                                    |
-| `/apps/mobile`              | Expo React Native mobile app.                                                                                                                                                     |
-| `/apps/admin`               | Next.js 15 internal admin dashboard.                                                                                                                                              |
-| `/packages`                 | Internal shared workspace packages such as `db-core`, `db-adapter-neon`, `auth-core`, and `shared`.                                                                               |
-| `/sdk/private-transactions` | Publishable `@loyal-labs/private-transactions` NPM package.                                                                                                                       |
-| `/workers`                  | Runtime services/workers.                                                                                                                                                         |
-| `/tests`                    | Anchor test suite.                                                                                                                                                                |
-| `/docs` and `/user-docs`    | Internal engineering docs and Mintlify-hosted user-facing docs.                                                                                                                   |
+| Path                             | Purpose                                                                                                                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/programs`                      | Anchor smart contracts. `telegram-private-transfer` handles deposit/claim/refund SOL transfers; `telegram-verification` handles on-chain Ed25519 Telegram signature verification. |
+| `/apps/telegram`                 | Next.js 15 Telegram mini-app frontend and API routes.                                                                                                                             |
+| `/apps/web`                      | Next.js 15 Loyal web frontend.                                                                                                                                                    |
+| `/apps/mobile`                   | Expo React Native mobile app.                                                                                                                                                     |
+| `/apps/admin`                    | Next.js 15 internal admin dashboard.                                                                                                                                              |
+| `/packages`                      | Internal shared workspace packages such as `db-core`, `db-adapter-neon`, `auth-core`, and `shared`.                                                                               |
+| `/packages/private-transactions` | Publishable `@loyal-labs/private-transactions` NPM package.                                                                                                                       |
+| `/workers`                       | Runtime services/workers.                                                                                                                                                         |
+| `/tests`                         | Anchor test suite.                                                                                                                                                                |
+| `/docs` and `/user-docs`         | Internal engineering docs and Mintlify-hosted user-facing docs.                                                                                                                   |
 
 ### Program Addresses
 

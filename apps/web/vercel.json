@@ -17,7 +17,7 @@
       "schedule": "7,17,27,37,47,57 * * * *"
     }
   ],
-  "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ] || ! git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA\" 2>/dev/null; then exit 1; fi; git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ../../packages ../../sdk",
+  "ignoreCommand": "if [ -z \"$VERCEL_GIT_PREVIOUS_SHA\" ] || ! git cat-file -e \"$VERCEL_GIT_PREVIOUS_SHA\" 2>/dev/null; then exit 1; fi; git diff \"$VERCEL_GIT_PREVIOUS_SHA\" HEAD --quiet -- . ../../packages",
   "installCommand": "rm -rf node_modules && cd ../.. && bun install --frozen-lockfile",
   "buildCommand": "bun run build"
 }

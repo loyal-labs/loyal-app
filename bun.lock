@@ -425,6 +425,62 @@
         "typescript": "^5",
       },
     },
+    "packages/loyal-smart-accounts": {
+      "name": "@loyal-labs/loyal-smart-accounts",
+      "version": "0.1.1",
+      "dependencies": {
+        "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "@types/node": "^24.0.15",
+        "typescript": "^5.7.3",
+      },
+      "peerDependencies": {
+        "@solana/web3.js": "^1.98.0",
+      },
+    },
+    "packages/loyal-smart-accounts-core": {
+      "name": "@loyal-labs/loyal-smart-accounts-core",
+      "version": "0.1.1",
+      "dependencies": {
+        "@loyal-labs/solana-rpc": "workspace:*",
+        "@metaplex-foundation/beet": "0.7.1",
+        "@metaplex-foundation/beet-solana": "0.4.0",
+        "@metaplex-foundation/cusper": "^0.0.2",
+        "@solana/spl-token": "^0.4.13",
+        "assert": "^2.1.0",
+        "bn.js": "^5.2.2",
+        "buffer": "^6.0.3",
+        "invariant": "^2.2.4",
+      },
+      "devDependencies": {
+        "@types/bn.js": "^5.1.6",
+        "@types/bun": "latest",
+        "@types/invariant": "^2.2.37",
+        "@types/node": "^24.0.15",
+        "typescript": "^5.7.3",
+      },
+      "peerDependencies": {
+        "@solana/web3.js": "^1.98.0",
+      },
+    },
+    "packages/private-transactions": {
+      "name": "@loyal-labs/private-transactions",
+      "version": "0.2.11",
+      "devDependencies": {
+        "@coral-xyz/anchor": "^0.32.1",
+        "@solana/web3.js": "^1.95.0",
+        "@types/bun": "latest",
+        "typescript": "^5",
+      },
+      "peerDependencies": {
+        "@coral-xyz/anchor": "^0.32.0",
+        "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1",
+        "@solana/spl-token": "^0.4.14",
+        "@solana/web3.js": "^1.95.0",
+      },
+    },
     "packages/shared": {
       "name": "@loyal-labs/shared",
       "version": "0.1.1",
@@ -516,62 +572,6 @@
         "@solana/web3.js": "^1.98.0",
         "@wallet-standard/base": "*",
         "react": "^18.0.0 || ^19.0.0",
-      },
-    },
-    "sdk/loyal-smart-accounts": {
-      "name": "@loyal-labs/loyal-smart-accounts",
-      "version": "0.1.1",
-      "dependencies": {
-        "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "@types/node": "^24.0.15",
-        "typescript": "^5.7.3",
-      },
-      "peerDependencies": {
-        "@solana/web3.js": "^1.98.0",
-      },
-    },
-    "sdk/loyal-smart-accounts-core": {
-      "name": "@loyal-labs/loyal-smart-accounts-core",
-      "version": "0.1.1",
-      "dependencies": {
-        "@loyal-labs/solana-rpc": "workspace:*",
-        "@metaplex-foundation/beet": "0.7.1",
-        "@metaplex-foundation/beet-solana": "0.4.0",
-        "@metaplex-foundation/cusper": "^0.0.2",
-        "@solana/spl-token": "^0.4.13",
-        "assert": "^2.1.0",
-        "bn.js": "^5.2.2",
-        "buffer": "^6.0.3",
-        "invariant": "^2.2.4",
-      },
-      "devDependencies": {
-        "@types/bn.js": "^5.1.6",
-        "@types/bun": "latest",
-        "@types/invariant": "^2.2.37",
-        "@types/node": "^24.0.15",
-        "typescript": "^5.7.3",
-      },
-      "peerDependencies": {
-        "@solana/web3.js": "^1.98.0",
-      },
-    },
-    "sdk/private-transactions": {
-      "name": "@loyal-labs/private-transactions",
-      "version": "0.2.11",
-      "devDependencies": {
-        "@coral-xyz/anchor": "^0.32.1",
-        "@solana/web3.js": "^1.95.0",
-        "@types/bun": "latest",
-        "typescript": "^5",
-      },
-      "peerDependencies": {
-        "@coral-xyz/anchor": "^0.32.0",
-        "@magicblock-labs/ephemeral-rollups-sdk": "^0.11.1",
-        "@solana/spl-token": "^0.4.14",
-        "@solana/web3.js": "^1.95.0",
       },
     },
     "workers/userbot": {
@@ -1305,11 +1305,11 @@
 
     "@loyal-labs/llm-server": ["@loyal-labs/llm-server@workspace:packages/llm-server"],
 
-    "@loyal-labs/loyal-smart-accounts": ["@loyal-labs/loyal-smart-accounts@workspace:sdk/loyal-smart-accounts"],
+    "@loyal-labs/loyal-smart-accounts": ["@loyal-labs/loyal-smart-accounts@workspace:packages/loyal-smart-accounts"],
 
-    "@loyal-labs/loyal-smart-accounts-core": ["@loyal-labs/loyal-smart-accounts-core@workspace:sdk/loyal-smart-accounts-core"],
+    "@loyal-labs/loyal-smart-accounts-core": ["@loyal-labs/loyal-smart-accounts-core@workspace:packages/loyal-smart-accounts-core"],
 
-    "@loyal-labs/private-transactions": ["@loyal-labs/private-transactions@workspace:sdk/private-transactions"],
+    "@loyal-labs/private-transactions": ["@loyal-labs/private-transactions@workspace:packages/private-transactions"],
 
     "@loyal-labs/privy-showcase": ["@loyal-labs/privy-showcase@workspace:examples/privy-showcase"],
 

@@ -59,8 +59,11 @@ import {
   generated,
   Policy,
   Settings,
-} from "../sdk/loyal-smart-accounts-core/src/index.ts";
-import { pda, PROGRAM_ADDRESS } from "../sdk/loyal-smart-accounts/src/index.ts";
+} from "../packages/loyal-smart-accounts-core/src/index.ts";
+import {
+  pda,
+  PROGRAM_ADDRESS,
+} from "../packages/loyal-smart-accounts/src/index.ts";
 import BN from "bn.js";
 
 mock.module("server-only", () => ({}));

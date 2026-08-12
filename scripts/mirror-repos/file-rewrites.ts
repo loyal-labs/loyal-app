@@ -258,15 +258,12 @@ function rewriteExtension(root: string, versions: Map<string, string>): void {
 
   replaceRequired(
     path.join(root, "wxt.config.ts"),
-    `\n  alias: {\n    "@loyal-labs/wallet-core": new URL(\n      "../../packages/wallet-core/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-rpc": new URL(\n      "../../packages/solana-rpc/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-wallet": new URL(\n      "../../packages/solana-wallet/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/shared": new URL("../../packages/shared/src", import.meta.url)\n      .pathname,\n    "@loyal-labs/private-transactions": new URL(\n      "../../sdk/private-transactions/dist/index.js",\n      import.meta.url\n    ).pathname,\n  },\n`,
+    `\n  alias: {\n    "@loyal-labs/wallet-core": new URL(\n      "../../packages/wallet-core/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-rpc": new URL(\n      "../../packages/solana-rpc/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/solana-wallet": new URL(\n      "../../packages/solana-wallet/src",\n      import.meta.url\n    ).pathname,\n    "@loyal-labs/shared": new URL("../../packages/shared/src", import.meta.url)\n      .pathname,\n    "@loyal-labs/private-transactions": new URL(\n      "../../packages/private-transactions/dist/index.js",\n      import.meta.url\n    ).pathname,\n  },\n`,
     "\n"
   );
 }
 
-function addSourceTreePackageJson(
-  root: string,
-  source: "packages" | "sdk"
-): void {
+function addSourceTreePackageJson(root: string, source: "packages"): void {
   writeJsonFile(path.join(root, "package.json"), {
     private: true,
     type: "module",
@@ -280,9 +277,10 @@ function addRustCliWorkspace(root: string): void {
     path.join(root, "Cargo.toml"),
     `[workspace]
 members = [
-    "cli/loyal-cli",
-    "cli/private-transfers-cli",
-    "cli/smart-accounts-cli",
+    "crates/loyal-cli",
+    "crates/private-transfers-cli",
+    "crates/smart-accounts-cli",
+    "crates/loyal-smart-accounts-rs",
 ]
 resolver = "2"
 
@@ -344,7 +342,7 @@ export function applyMirrorRewrites(
       removePackageLockfiles(root);
       break;
     case "source-tree":
-      addSourceTreePackageJson(root, mirror.source as "packages" | "sdk");
+      addSourceTreePackageJson(root, mirror.source as "packages");
       break;
     case "rust-cli":
       addRustCliWorkspace(root);

@@ -2,8 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
-import { PROGRAM_ADDRESS, pda } from "../sdk/loyal-smart-accounts/src/index.ts";
-import { createLoyalSmartAccountsClient } from "../sdk/loyal-smart-accounts/src/client.ts";
+import {
+  PROGRAM_ADDRESS,
+  pda,
+} from "../packages/loyal-smart-accounts/src/index.ts";
+import { createLoyalSmartAccountsClient } from "../packages/loyal-smart-accounts/src/client.ts";
 import {
   getSolanaEndpoints,
   resolveSolanaEnv,

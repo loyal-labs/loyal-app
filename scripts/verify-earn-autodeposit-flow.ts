@@ -30,8 +30,8 @@ import {
   getSolanaEndpoints,
   resolveSolanaEnv,
 } from "../packages/solana-rpc/src/index.ts";
-import { compilePreparedOperation } from "../sdk/loyal-smart-accounts-core/src/index.ts";
-import { PROGRAM_ADDRESS } from "../sdk/loyal-smart-accounts/src/index.ts";
+import { compilePreparedOperation } from "../packages/loyal-smart-accounts-core/src/index.ts";
+import { PROGRAM_ADDRESS } from "../packages/loyal-smart-accounts/src/index.ts";
 
 mock.module("server-only", () => ({}));
 

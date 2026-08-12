@@ -17,14 +17,14 @@ import {
   PROGRAM_ADDRESS,
   generated,
   pda,
-} from "../sdk/loyal-smart-accounts/src/index.ts";
+} from "../packages/loyal-smart-accounts/src/index.ts";
 import {
   Settings,
   freezePreparedOperation,
   settingsDiscriminator,
   toBigInt,
-} from "../sdk/loyal-smart-accounts-core/src/index.ts";
-import { createLoyalSmartAccountsClient } from "../sdk/loyal-smart-accounts/src/client.ts";
+} from "../packages/loyal-smart-accounts-core/src/index.ts";
+import { createLoyalSmartAccountsClient } from "../packages/loyal-smart-accounts/src/client.ts";
 import {
   getSolanaEndpoints,
   resolveSolanaEnv,
@@ -33,7 +33,7 @@ import {
   KLEND_PROGRAM_ID,
   USDC_MINT_DEVNET,
   USDC_MINT_MAINNET,
-} from "../sdk/private-transactions/src/constants.ts";
+} from "../packages/private-transactions/src/constants.ts";
 
 const KLEND_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR = Uint8Array.from([
   169, 201, 30, 126, 6, 205, 102, 68,
