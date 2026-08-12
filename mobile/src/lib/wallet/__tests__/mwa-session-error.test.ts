@@ -40,6 +40,8 @@ jest.mock("../mwa-account-storage", () => ({
 }));
 
 // eslint-disable-next-line import/first
+import { clearMwaAccount } from "../mwa-account-storage";
+// eslint-disable-next-line import/first
 import { MwaSigner } from "../mwa-signer";
 // eslint-disable-next-line import/first
 import { WalletRejectedError } from "../rejection";
@@ -77,6 +79,11 @@ function failAfterSession(error: unknown) {
       auth_token: authToken,
     }),
     signMessages: async () => {
+      throw error;
+    },
+    // Same session wrapper as `signMessages`, so both privileged calls can be
+    // exercised against an identical rejection.
+    signTransactions: async () => {
       throw error;
     },
   };
@@ -211,6 +218,49 @@ describe("MWA session error classification", () => {
       expect(await failureOf(signer().signMessage(new Uint8Array([1])))).toBe(raw);
     },
   );
+
+  // ERROR_AUTHORIZATION_FAILED is the one numeric code that is NOT our bug: it
+  // means the stored authorization is dead. `reauthorize` recovers when
+  // `authorize` raises it, but a wallet that accepts the reauthorization and
+  // then refuses the privileged method skipped that recovery entirely — the
+  // raw error kept its `code`, telemetry called it `request_failed`, and the
+  // stale token survived. One user retried 41 times over six hours against the
+  // same dead token, with 904 USDC stranded, and never saw a reconnect prompt.
+  describe("authorization revoked mid-session (ERROR_AUTHORIZATION_FAILED)", () => {
+    it("tells the user to reconnect instead of reporting a request failure", async () => {
+      failAfterSession(codedError(-1, "-1/authorization request failed"));
+
+      const error = await failureOf(signer().signMessage(new Uint8Array([1])));
+
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.",
+      );
+      // A surviving `code` is precisely what routed this to `request_failed`.
+      expect(error).not.toHaveProperty("code");
+    });
+
+    // Without this the app keeps showing a connected wallet that cannot sign,
+    // so every retry repeats the same failure and the user is stuck.
+    it("clears the dead authorization so the next launch can reconnect", async () => {
+      failAfterSession(codedError(-1, "-1/authorization request failed"));
+
+      await failureOf(signer().signMessage(new Uint8Array([1])));
+
+      expect(clearMwaAccount).toHaveBeenCalledTimes(1);
+    });
+
+    // Signing transactions goes through the same session wrapper, so a fix
+    // that only covered `signMessage` would still strand the send path.
+    it("recovers the same way when signing transactions", async () => {
+      failAfterSession(codedError(-1, "-1/authorization request failed"));
+
+      const error = await failureOf(signer().signAllTransactions([]));
+
+      expect((error as Error).message).toMatch(/reconnect your wallet/);
+      expect(clearMwaAccount).toHaveBeenCalledTimes(1);
+    });
+  });
 
   // User-facing copy replaces the native message, so the original has to stay
   // reachable or local debugging loses it entirely.

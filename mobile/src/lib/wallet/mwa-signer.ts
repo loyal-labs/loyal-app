@@ -360,11 +360,37 @@ export class MwaSigner implements Signer {
         // ERROR_NOT_SIGNED: the user tapped decline in the wallet app.
         throw new WalletRejectedError(SIGNING_DECLINED_MESSAGE);
       }
+      if (hasErrorCode(error, -1)) {
+        // ERROR_AUTHORIZATION_FAILED raised by the signing call rather than by
+        // `authorize`: some wallets accept the reauthorization and only refuse
+        // the privileged method, so `reauthorize`'s recovery never runs. It is
+        // the same dead authorization, so recover it the same way. Left to the
+        // fallback below it kept its raw protocol `code`, which telemetry maps
+        // to `request_failed` — naming an HTTP failure for a call that never
+        // reached the network, and leaving the stale token in place so every
+        // retry failed identically (ASK-1872 follow-up).
+        throw await this.forgetAuthorization();
+      }
       // Only session-layer rejections become wallet-session failures. Protocol
       // errors, `reauthorize`'s reconnect instructions and our signature checks
       // all keep their own identity so they stay alertable.
       throw toWalletSessionError(error, sessionEstablished) ?? error;
     }
+  }
+
+  /**
+   * Drop the stored authorization so the next launch lands in reconnect
+   * onboarding, and return the instruction to show the user. Returns the error
+   * rather than throwing it so call sites keep an explicit `throw` and stay
+   * readable as terminal branches.
+   *
+   * Clearing is the half that matters: without it the app keeps presenting a
+   * connected wallet whose every signature is refused, and the user has no way
+   * to reach the reconnect flow from inside the failing screen.
+   */
+  private async forgetAuthorization(): Promise<Error> {
+    await clearMwaAccount();
+    return new Error(RECONNECT_MESSAGE);
   }
 
   private async reauthorize(wallet: Web3MobileWallet): Promise<void> {
@@ -379,14 +405,12 @@ export class MwaSigner implements Signer {
       // ERROR_AUTHORIZATION_FAILED: the wallet revoked our authorization
       // (the user disconnected this app). Transient session errors rethrow.
       if (!hasErrorCode(error, -1)) throw error;
-      await clearMwaAccount();
-      throw new Error(RECONNECT_MESSAGE);
+      throw await this.forgetAuthorization();
     }
     const base64Address = toBase64Address(this.publicKey);
     if (!result.accounts.some((a) => a.address === base64Address)) {
       // The wallet reauthorized a different account than the one connected.
-      await clearMwaAccount();
-      throw new Error(RECONNECT_MESSAGE);
+      throw await this.forgetAuthorization();
     }
     if (result.auth_token !== this.authToken) {
       this.authToken = result.auth_token;
