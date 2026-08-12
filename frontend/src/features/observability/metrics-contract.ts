@@ -78,6 +78,11 @@ export type MobileLoadingOperation = (typeof MOBILE_LOADING_OPERATIONS)[number];
 
 export type MobileLoadingMetricEnvelope = {
   appSessionId: string;
+  /**
+   * Stable per-install UUID, the join key for a device's whole telemetry
+   * trail (ASK-2097). Optional: older clients predate it.
+   */
+  deviceId?: string;
   durationMs: number;
   environment: string;
   flowId?: string;
@@ -95,6 +100,7 @@ export type NormalizedLoadingMetric = {
   appSessionId?: string;
   dependency?: FrontendLoadingDependency;
   deploymentEnvironment: string;
+  deviceId?: string;
   durationMs: number;
   flowId?: string;
   metricName:
@@ -325,6 +331,7 @@ export function parseMobileLoadingMetricEnvelope(
   const record = value as Record<string, unknown>;
   const allowedKeys = new Set([
     "appSessionId",
+    "deviceId",
     "durationMs",
     "environment",
     "flowId",
@@ -347,7 +354,8 @@ export function parseMobileLoadingMetricEnvelope(
     !includes(["app_ready", "interaction_to_ui"] as const, record.phase) ||
     !includes(["android", "ios"] as const, record.platform) ||
     !isFiniteNumberInRange(record.durationMs, 0, MAX_METRIC_DURATION_MS) ||
-    !isCanonicalUuidV4(record.appSessionId)
+    !isCanonicalUuidV4(record.appSessionId) ||
+    (record.deviceId !== undefined && !isCanonicalUuidV4(record.deviceId))
   ) {
     throw new InvalidMetricsEnvelopeError();
   }

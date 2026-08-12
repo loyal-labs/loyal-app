@@ -58,6 +58,14 @@ export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
       stringAttribute("loyal.page_session.id", event.pageSessionId)
     );
   }
+  if (event.deviceId) {
+    attributes.push(stringAttribute("loyal.device.id", event.deviceId));
+  }
+  if (event.devicePlatform) {
+    attributes.push(
+      stringAttribute("loyal.device.platform", event.devicePlatform)
+    );
+  }
   const diagnostics = event.browserDiagnostics;
   if (diagnostics) {
     attributes.push(stringAttribute("loyal.chunk.url", diagnostics.chunkUrl));
@@ -161,6 +169,8 @@ export function buildOtlpLifecyclePayload(
   ];
 
   const strings: Array<[string, string | undefined]> = [
+    ["loyal.device.id", event.deviceId],
+    ["loyal.device.platform", event.devicePlatform],
     ["loyal.wallet.address", event.walletAddress],
     ["loyal.wallet.provider", event.walletProvider],
     ["loyal.error.code", event.errorCode],
@@ -268,6 +278,9 @@ export function buildOtlpLoadingMetricPayload(
     attributes.push(
       stringAttribute("loyal.app_session.id", event.appSessionId)
     );
+  }
+  if (event.deviceId) {
+    attributes.push(stringAttribute("loyal.device.id", event.deviceId));
   }
   if (event.platform) {
     attributes.push(stringAttribute("loyal.platform", event.platform));

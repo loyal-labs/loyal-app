@@ -78,6 +78,14 @@ export const MOBILE_ERROR_OPERATIONS = [
 
 export type MobileErrorOperation = (typeof MOBILE_ERROR_OPERATIONS)[number];
 
+// Same vocabulary as the metrics contract's `platform`; a device identity is
+// useless without knowing which OS fleet it belongs to (ASK-2097).
+export const MOBILE_DEVICE_PLATFORMS = ["android", "ios"] as const;
+export type MobileDevicePlatform = (typeof MOBILE_DEVICE_PLATFORMS)[number];
+
+const DEVICE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 export type ServerErrorOperation = "next.request.error";
 
 export type ObservabilityRuntime = "browser" | "mobile" | "node";
@@ -105,6 +113,13 @@ export type ParseBrowserErrorEnvelopeOptions = {
 // binary versions and OTA updates, so the server's Vercel release would be
 // meaningless for them.
 export type MobileErrorEnvelope = {
+  /**
+   * Stable per-install UUID, the join key for a device's whole telemetry
+   * trail across sessions and wallets (ASK-2097). Optional: older clients
+   * predate it.
+   */
+  deviceId?: string;
+  devicePlatform?: MobileDevicePlatform;
   environment: string;
   message: string;
   name: string;
@@ -119,6 +134,8 @@ export type NormalizedErrorEvent = {
   browserDiagnostics?: BrowserErrorDiagnostics;
   clientBuildId?: string;
   deploymentEnvironment: string;
+  deviceId?: string;
+  devicePlatform?: MobileDevicePlatform;
   exception: {
     message: string;
     name: string;
@@ -547,6 +564,8 @@ export function parseMobileErrorEnvelope(
 
   const record = value as Record<string, unknown>;
   const allowedKeys = new Set([
+    "deviceId",
+    "devicePlatform",
     "environment",
     "message",
     "name",
@@ -563,9 +582,30 @@ export function parseMobileErrorEnvelope(
   if (!isAllowedMobileOperation(record.operation)) {
     throw new InvalidObservabilityEnvelopeError();
   }
+  if (
+    record.deviceId !== undefined &&
+    (typeof record.deviceId !== "string" ||
+      !DEVICE_ID_PATTERN.test(record.deviceId))
+  ) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
+  if (
+    record.devicePlatform !== undefined &&
+    !MOBILE_DEVICE_PLATFORMS.includes(
+      record.devicePlatform as MobileDevicePlatform
+    )
+  ) {
+    throw new InvalidObservabilityEnvelopeError();
+  }
 
   return {
     ...parseCommonErrorEnvelopeFields(record, now),
+    ...(record.deviceId !== undefined
+      ? { deviceId: record.deviceId as string }
+      : {}),
+    ...(record.devicePlatform !== undefined
+      ? { devicePlatform: record.devicePlatform as MobileDevicePlatform }
+      : {}),
     environment: readResourceValue(
       record,
       "environment",
