@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 
+import { getObservabilityDeviceId } from "./device-identity";
 import {
   getObservabilityEnvironment,
   getObservabilityRelease,
@@ -77,6 +78,7 @@ function reportMetric(args: {
   try {
     const envelope = parseMobileLoadingMetricEnvelope({
       appSessionId,
+      deviceId: getObservabilityDeviceId(),
       durationMs: normalizeDuration(args.durationMs),
       environment: getObservabilityEnvironment(),
       ...(args.flowId ? { flowId: args.flowId } : {}),
