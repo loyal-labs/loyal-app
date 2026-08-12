@@ -119,7 +119,10 @@ The admin Earn funding view optionally accepts the public-only
 checks. Store only the public key in environment files; never place private
 keys there.
 
-The admin Metrics page at `/metrics` reads ClickStack telemetry server-side.
+The admin Metrics page at `/metrics` reads ClickStack telemetry and durable
+Earn rebalance latency data server-side. The `/earn/rebalance` page provides
+USDC Safe reserve APY, optimizer decision, executed rebalance, and audit/error
+monitoring.
 Configure `LOYAL_CLICKSTACK_API_KEY` for its API key; `HYPERDX_ACCESS_KEY`
 remains supported as a fallback. `LOYAL_CLICKSTACK_API_URL` and
 `LOYAL_CLICKSTACK_METRICS_SOURCE_ID` are optional overrides for the ClickStack
