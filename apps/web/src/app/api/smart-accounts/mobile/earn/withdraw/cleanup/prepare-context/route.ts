@@ -179,7 +179,10 @@ export async function POST(request: Request) {
       );
     }
     const serverMinContextSlot = Number(latestFullWithdrawal.confirmedSlot);
-    if (!Number.isSafeInteger(serverMinContextSlot) || serverMinContextSlot < 0) {
+    if (
+      !Number.isSafeInteger(serverMinContextSlot) ||
+      serverMinContextSlot < 0
+    ) {
       return jsonError(
         409,
         "missing_full_exit_verification_anchor",
@@ -235,9 +238,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       cleanupInput: {
-        closeVaultCollateralAtas: proof.closeableTokenAccounts,
-        idleAmountRaw: proof.idleAmountRaw,
         policySigner: getDeploymentPolicySignerPublicKey().toBase58(),
+        vaultTokenAccounts: proof.cleanupTokenAccounts,
         yieldRoutingPolicy: {
           account: cleanupState.routePolicy.policyAccount,
           seed: cleanupState.routePolicy.policySeed.toString(),

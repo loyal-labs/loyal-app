@@ -24,6 +24,7 @@ import {
   decodeRevokeInstruction,
   decodeTransferCheckedInstruction,
   getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 import {
@@ -40,6 +41,7 @@ import BN from "bn.js";
 import {
   calculateKaminoCollateralAmountForRedeemableLiquidityRaw,
   calculateKaminoRedeemableLiquidityAmountRaw,
+  createEarnVaultTokenCleanupInstructions,
   createSmartAccountVaultsClient,
   EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE,
   parseKaminoObligationAccount,
@@ -2307,7 +2309,7 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
   });
 
-  test("pins Earn vault refund reads to the withdrawal confirmation slot", async () => {
+  test("multi-program Earn cleanup pins both token-program reads to the withdrawal slot", async () => {
     const getTokenAccountsByOwner = mock(async () => ({
       context: { slot: 101 },
       value: [],
@@ -2322,7 +2324,7 @@ describe("prepareEarnUsdcWithdraw", () => {
       settingsPda,
     });
 
-    expect(getTokenAccountsByOwner).toHaveBeenCalledTimes(1);
+    expect(getTokenAccountsByOwner).toHaveBeenCalledTimes(2);
     const calls = getTokenAccountsByOwner.mock.calls as unknown as [
       PublicKey,
       unknown,
@@ -2332,6 +2334,75 @@ describe("prepareEarnUsdcWithdraw", () => {
       commitment: "confirmed",
       minContextSlot: 101,
     });
+    expect(calls[1]?.[2]).toEqual({
+      commitment: "confirmed",
+      minContextSlot: 101,
+    });
+    expect(calls[0]?.[1]).toEqual({ programId: TOKEN_PROGRAM_ID });
+    expect(calls[1]?.[1]).toEqual({ programId: TOKEN_2022_PROGRAM_ID });
+  });
+
+  test("multi-program Earn cleanup transfers and closes with each account's program", () => {
+    const usdtMint = STABLECOIN_MINTS[Stablecoin.USDT];
+    const cashMint = STABLECOIN_MINTS[Stablecoin.CASH];
+    const usdtAta = getAssociatedTokenAddressSync(
+      usdtMint,
+      deriveVault(),
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const cashAta = getAssociatedTokenAddressSync(
+      cashMint,
+      deriveVault(),
+      true,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const result = createEarnVaultTokenCleanupInstructions({
+      feePayer,
+      tokenAccounts: [
+        {
+          address: usdtAta,
+          amountRaw: BigInt(7),
+          decimals: 6,
+          mint: usdtMint,
+          tokenProgramId: TOKEN_PROGRAM_ID,
+        },
+        {
+          address: cashAta,
+          amountRaw: BigInt(9),
+          decimals: 6,
+          mint: cashMint,
+          tokenProgramId: TOKEN_2022_PROGRAM_ID,
+        },
+      ],
+      usdcMint: STABLECOIN_MINTS[Stablecoin.USDC],
+      vaultPda: deriveVault(),
+      walletAddress,
+    });
+
+    expect(result.walletAtaInstructions).toHaveLength(2);
+    expect(
+      result.tokenInstructions.map((instruction) =>
+        instruction.programId.toBase58()
+      )
+    ).toEqual([
+      TOKEN_PROGRAM_ID.toBase58(),
+      TOKEN_PROGRAM_ID.toBase58(),
+      TOKEN_2022_PROGRAM_ID.toBase58(),
+      TOKEN_2022_PROGRAM_ID.toBase58(),
+    ]);
+    expect(
+      decodeTransferCheckedInstruction(
+        result.tokenInstructions[0]!,
+        TOKEN_PROGRAM_ID
+      ).data.amount
+    ).toBe(BigInt(7));
+    expect(
+      decodeTransferCheckedInstruction(
+        result.tokenInstructions[2]!,
+        TOKEN_2022_PROGRAM_ID
+      ).data.amount
+    ).toBe(BigInt(9));
   });
 
   test("skips collateral cleanup when the token account is not vault-owned", async () => {

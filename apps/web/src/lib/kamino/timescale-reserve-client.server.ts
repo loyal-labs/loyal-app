@@ -59,6 +59,32 @@ export const timescaleLatestReserveUpdates = kaminoTimescaleSchema.table(
   }
 );
 
+export const timescaleLatestVerifiedReserveUpdates =
+  kaminoTimescaleSchema.table("latest_verified_reserve_updates", {
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    slot: bigint("slot", { mode: "number" }).notNull(),
+    source: text("source").notNull(),
+    reserve: text("reserve").notNull(),
+    market: text("market"),
+    marketName: text("market_name"),
+    symbol: text("symbol"),
+    liquidityMint: text("liquidity_mint").notNull(),
+    supplyApy: doublePrecision("supply_apy").notNull(),
+    borrowApy: doublePrecision("borrow_apy").notNull(),
+    utilization: doublePrecision("utilization").notNull(),
+    totalSupplyUsdEstimate: doublePrecision(
+      "total_supply_usd_estimate"
+    ).notNull(),
+    totalBorrowUsdEstimate: doublePrecision(
+      "total_borrow_usd_estimate"
+    ).notNull(),
+    reserveLastUpdateStale: boolean("reserve_last_update_stale").notNull(),
+    diffChanged: boolean("diff_changed").notNull(),
+    changedFields: text("changed_fields").array().notNull(),
+    diffSummary: text("diff_summary").notNull(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull(),
+  });
+
 export const timescaleSupportedReserves = kaminoTimescaleSchema.table(
   "supported_reserves",
   {
@@ -82,6 +108,7 @@ export type TimescaleReserveClientConfig = {
 
 export type TimescaleReserveClientTables = {
   latestReserveUpdates: typeof timescaleLatestReserveUpdates;
+  latestVerifiedReserveUpdates: typeof timescaleLatestVerifiedReserveUpdates;
   reserveUpdates: typeof timescaleReserveUpdates;
   supportedReserves: typeof timescaleSupportedReserves;
 };
@@ -106,6 +133,10 @@ export type CurrentEligibleSafeReserve = CurrentBestApyReserveByStablecoin;
 
 const DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE = 100_000;
 const DEFAULT_MAX_SUPPLY_APY = 0.5;
+// Keep this boundary aligned with the routing worker's confirmed-verification
+// hard expiry. A shorter app-only window would make otherwise routeable
+// reserves flap out of deposit eligibility.
+const VERIFIED_RESERVE_MAX_AGE_MS = 240 * 1000;
 
 const stablecoinByLiquidityMint = new Map<string, Stablecoin>(
   STABLECOINS.map((stablecoin) => [
@@ -221,6 +252,7 @@ export class TimescaleReserveClient {
   readonly db: PostgresJsDatabase;
   readonly tables: TimescaleReserveClientTables = {
     latestReserveUpdates: timescaleLatestReserveUpdates,
+    latestVerifiedReserveUpdates: timescaleLatestVerifiedReserveUpdates,
     reserveUpdates: timescaleReserveUpdates,
     supportedReserves: timescaleSupportedReserves,
   };
@@ -656,8 +688,9 @@ export class TimescaleReserveClient {
       return [];
     }
 
-    const reserveUpdates = this.tables.reserveUpdates;
-    const latestReserveUpdates = this.tables.latestReserveUpdates;
+    const latestVerifiedReserveUpdates =
+      this.tables.latestVerifiedReserveUpdates;
+    const now = new Date();
 
     // Deliberately no stale-flag or APY-bounds filters: presence in the
     // indexer's latest view is the eligibility signal (a hidden reserve is
@@ -666,21 +699,25 @@ export class TimescaleReserveClient {
     // picker.
     const rows = await this.db
       .select({
-        observedAt: reserveUpdates.observedAt,
-        reserve: reserveUpdates.reserve,
-        totalSupplyUsdEstimate: reserveUpdates.totalSupplyUsdEstimate,
+        observedAt: latestVerifiedReserveUpdates.observedAt,
+        reserve: latestVerifiedReserveUpdates.reserve,
+        totalSupplyUsdEstimate:
+          latestVerifiedReserveUpdates.totalSupplyUsdEstimate,
       })
-      .from(reserveUpdates)
-      .innerJoin(
-        latestReserveUpdates,
+      .from(latestVerifiedReserveUpdates)
+      .where(
         and(
-          eq(reserveUpdates.reserve, latestReserveUpdates.reserve),
-          eq(reserveUpdates.slot, latestReserveUpdates.slot),
-          eq(reserveUpdates.observedAt, latestReserveUpdates.observedAt)
+          inArray(latestVerifiedReserveUpdates.reserve, [
+            ...new Set(args.reserves),
+          ]),
+          gte(
+            latestVerifiedReserveUpdates.verifiedAt,
+            new Date(now.getTime() - VERIFIED_RESERVE_MAX_AGE_MS)
+          ),
+          lte(latestVerifiedReserveUpdates.verifiedAt, now)
         )
       )
-      .where(inArray(reserveUpdates.reserve, [...new Set(args.reserves)]))
-      .orderBy(asc(reserveUpdates.reserve));
+      .orderBy(asc(latestVerifiedReserveUpdates.reserve));
 
     return rows;
   }
@@ -708,8 +745,9 @@ export class TimescaleReserveClient {
       throw new Error(`unsupported risk profile: ${String(args.riskProfile)}`);
     }
 
-    const reserveUpdates = this.tables.reserveUpdates;
-    const latestReserveUpdates = this.tables.latestReserveUpdates;
+    const latestVerifiedReserveUpdates =
+      this.tables.latestVerifiedReserveUpdates;
+    const now = new Date();
     const marketAddresses = RISK_BASKET_MARKETS[args.riskProfile].map(
       (market) => market.toBase58()
     );
@@ -719,36 +757,33 @@ export class TimescaleReserveClient {
 
     const rows = await this.db
       .select()
-      .from(reserveUpdates)
-      .innerJoin(
-        latestReserveUpdates,
-        and(
-          eq(reserveUpdates.reserve, latestReserveUpdates.reserve),
-          eq(reserveUpdates.slot, latestReserveUpdates.slot),
-          eq(reserveUpdates.observedAt, latestReserveUpdates.observedAt)
-        )
-      )
+      .from(latestVerifiedReserveUpdates)
       .where(
         and(
-          eq(reserveUpdates.reserveLastUpdateStale, false),
           gt(
-            reserveUpdates.totalSupplyUsdEstimate,
+            latestVerifiedReserveUpdates.totalSupplyUsdEstimate,
             args.minTotalSupplyUsdEstimate ??
               DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE
           ),
-          gte(reserveUpdates.supplyApy, 0),
+          gte(latestVerifiedReserveUpdates.supplyApy, 0),
           lt(
-            reserveUpdates.supplyApy,
+            latestVerifiedReserveUpdates.supplyApy,
             args.maxSupplyApy ?? DEFAULT_MAX_SUPPLY_APY
           ),
-          inArray(reserveUpdates.market, marketAddresses),
-          inArray(reserveUpdates.liquidityMint, stablecoinLiquidityMints)
+          gte(
+            latestVerifiedReserveUpdates.verifiedAt,
+            new Date(now.getTime() - VERIFIED_RESERVE_MAX_AGE_MS)
+          ),
+          lte(latestVerifiedReserveUpdates.verifiedAt, now),
+          inArray(latestVerifiedReserveUpdates.market, marketAddresses),
+          inArray(
+            latestVerifiedReserveUpdates.liquidityMint,
+            stablecoinLiquidityMints
+          )
         )
       )
-      .orderBy(desc(reserveUpdates.supplyApy));
+      .orderBy(desc(latestVerifiedReserveUpdates.supplyApy));
 
-    return selectCurrentEligibleSafeReserves(
-      rows.map((row) => row.reserve_updates)
-    );
+    return selectCurrentEligibleSafeReserves(rows);
   }
 }

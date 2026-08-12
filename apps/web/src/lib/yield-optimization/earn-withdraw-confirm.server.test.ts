@@ -4,7 +4,10 @@ import { mock } from "bun:test";
 mock.module("server-only", () => ({}));
 
 const { pda } = await import("@loyal-labs/loyal-smart-accounts");
-const { Keypair } = await import("@solana/web3.js");
+const { Keypair, PublicKey } = await import("@solana/web3.js");
+const { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } = await import(
+  "@solana/spl-token"
+);
 const { createCanonicalWithdrawalInput } = await import(
   "./earn-withdraw-confirm.server"
 );
@@ -21,7 +24,13 @@ const USDT_MINT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const MAIN_MARKET = "7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF";
 const JLP_MARKET = "DxXdAyU3kCjnyggvHmY5nAwg5cRbbmdyX3npbDsjzsdA";
 
-function buildInput(overrides: { liquidityMint?: string; market?: string }) {
+function buildInput(overrides: {
+  liquidityMint?: string;
+  market?: string | null;
+  sourceTokenAccount?: string | null;
+  sourceType?: "idle" | "reserve";
+  targetReserve?: string;
+}) {
   const settings = Keypair.generate().publicKey;
   const policySeed = BigInt(7);
   const policyAccount = pda
@@ -35,14 +44,17 @@ function buildInput(overrides: { liquidityMint?: string; market?: string }) {
     confirmedSlot: BigInt(1),
     delegatedSigner: Keypair.generate().publicKey.toBase58(),
     liquidityMint: overrides.liquidityMint ?? USDT_MINT,
-    market: overrides.market ?? MAIN_MARKET,
+    market: overrides.market === undefined ? MAIN_MARKET : overrides.market,
     mode: "partial" as const,
     policyAccount,
     policyId: policySeed,
     policySeed,
     settings: settings.toBase58(),
     smartAccountAddress: vault,
-    targetReserve: Keypair.generate().publicKey.toBase58(),
+    sourceTokenAccount: overrides.sourceTokenAccount,
+    sourceType: overrides.sourceType ?? "reserve",
+    targetReserve:
+      overrides.targetReserve ?? Keypair.generate().publicKey.toBase58(),
     vaultIndex: 1,
     vaultPubkey: vault,
     walletAddress: Keypair.generate().publicKey.toBase58(),
@@ -65,10 +77,40 @@ describe("createCanonicalWithdrawalInput multi-mint support", () => {
     ).toThrow(/not a supported Earn product mint/);
   });
 
-  test("rejects a market outside the Safe universe", () => {
+  test("records reserve history even when the market left today's Safe catalog", () => {
+    expect(
+      createCanonicalWithdrawalInput(buildInput({ market: JLP_MARKET })).market
+    ).toBe(JLP_MARKET);
+  });
+
+  test("accepts idle withdrawal only from the mint's exact vault ATA", () => {
+    const base = buildInput({ market: null, sourceType: "idle" });
+    const vaultAta = getAssociatedTokenAddressSync(
+      new PublicKey(USDT_MINT),
+      new PublicKey(base.vaultPubkey),
+      true,
+      TOKEN_PROGRAM_ID
+    ).toBase58();
+    const canonical = createCanonicalWithdrawalInput({
+      ...base,
+      sourceMint: USDT_MINT,
+      sourceTokenAccount: vaultAta,
+      targetReserve: vaultAta,
+    });
+    expect(canonical.market).toBeNull();
+    expect(canonical.sourceTokenAccount).toBe(vaultAta);
+  });
+
+  test("rejects an idle withdrawal from any other token account", () => {
     expect(() =>
-      createCanonicalWithdrawalInput(buildInput({ market: JLP_MARKET }))
-    ).toThrow(/Safe universe/);
+      createCanonicalWithdrawalInput(
+        buildInput({
+          market: null,
+          sourceTokenAccount: Keypair.generate().publicKey.toBase58(),
+          sourceType: "idle",
+        })
+      )
+    ).toThrow(/vault mint account/);
   });
 
   test("catalog symbols stay in sync with the six planned stables", () => {

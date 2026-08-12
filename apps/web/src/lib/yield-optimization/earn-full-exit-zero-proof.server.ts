@@ -6,6 +6,7 @@ import {
   type SmartAccountEarnVaultRefundSnapshot,
 } from "@loyal-labs/smart-account-vaults";
 import type { Connection, PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 
 import {
   fetchEarnRpcHoldingsSnapshot,
@@ -13,6 +14,7 @@ import {
   type EarnRpcHoldingsSnapshot,
   type EarnRpcPolicyMetadata,
 } from "./earn-rpc-holdings.client";
+import { getEarnProductAssetsForCluster } from "./earn-product-mints.shared";
 import { EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW } from "./yield-deposit-repository.server";
 
 const SLOT_LAG_ATTEMPTS = 3;
@@ -23,10 +25,15 @@ export type EarnFullExitZeroProof = {
     address: string;
     amountRaw: string;
     mint: string;
+    tokenProgramId: string;
   }>;
-  closeableTokenAccounts: string[];
-  idleAmountRaw: string;
-  idleReadsAgree: boolean;
+  cleanupTokenAccounts: Array<{
+    address: string;
+    amountRaw: string;
+    decimals: number;
+    mint: string;
+    tokenProgramId: string;
+  }>;
   observedSlot: string;
   remainingHoldings: EarnRpcHolding[];
   status: "full_exit_incomplete" | "policy_close_required";
@@ -92,6 +99,7 @@ function positiveAmountRaw(amountRaw: string): bigint {
 }
 
 function classifyZeroProof(args: {
+  cluster: LoyalCluster;
   holdingsSnapshot: EarnRpcHoldingsSnapshot;
   minContextSlot: number;
   vaultSnapshot: SmartAccountEarnVaultRefundSnapshot;
@@ -105,61 +113,67 @@ function classifyZeroProof(args: {
       "Earn full-exit proof was observed before the withdrawal confirmation slot."
     );
   }
+  if (args.vaultSnapshot.observedSlot < args.minContextSlot) {
+    throw new Error(
+      "Earn vault token inventory was observed before the withdrawal confirmation slot."
+    );
+  }
 
   const remainingReserveHoldings = args.holdingsSnapshot.holdings.filter(
     (holding) =>
       holding.kind === "kamino" &&
       positiveAmountRaw(holding.amountRaw) > BigInt(0)
   );
-  const holdingsIdleAmountRaw = args.holdingsSnapshot.holdings.reduce(
-    (total, holding) =>
-      holding.kind === "idle"
-        ? total + positiveAmountRaw(holding.amountRaw)
-        : total,
-    BigInt(0)
+  const idleAssetByTokenAccount = new Map(
+    getEarnProductAssetsForCluster(args.cluster).map((asset) => [
+      getAssociatedTokenAddressSync(
+        asset.mint,
+        args.vaultSnapshot.vaultPda,
+        true,
+        asset.tokenProgramId
+      ).toBase58(),
+      asset,
+    ])
   );
-  const vaultIdleAmountRaw =
-    args.vaultSnapshot.tokenAccounts.find((account) =>
-      account.address.equals(args.vaultSnapshot.vaultUsdcAta)
-    )?.amountRaw ?? BigInt(0);
-  const idleReadsAgree = holdingsIdleAmountRaw === vaultIdleAmountRaw;
-  const idleAmountRaw =
-    holdingsIdleAmountRaw > vaultIdleAmountRaw
-      ? holdingsIdleAmountRaw
-      : vaultIdleAmountRaw;
   const blockingTokenAccounts = args.vaultSnapshot.tokenAccounts
-    .filter(
-      (account) =>
-        !account.address.equals(args.vaultSnapshot.vaultUsdcAta) &&
-        account.amountRaw > BigInt(0)
-    )
+    .filter((account) => {
+      if (account.amountRaw <= BigInt(0)) {
+        return false;
+      }
+      const asset = idleAssetByTokenAccount.get(account.address.toBase58());
+      return (
+        !asset ||
+        !asset.mint.equals(account.mint) ||
+        !asset.tokenProgramId.equals(account.tokenProgramId) ||
+        account.amountRaw >= EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW
+      );
+    })
     .map((account) => ({
       address: account.address.toBase58(),
       amountRaw: account.amountRaw.toString(),
       mint: account.mint.toBase58(),
+      tokenProgramId: account.tokenProgramId.toBase58(),
     }));
-  const closeableTokenAccounts = args.vaultSnapshot.tokenAccounts
-    .filter(
-      (account) =>
-        !account.address.equals(args.vaultSnapshot.vaultUsdcAta) &&
-        account.amountRaw === BigInt(0)
-    )
-    .map((account) => account.address.toBase58());
-  const idleWithinDustTolerance =
-    idleAmountRaw < EARN_FINAL_EXIT_IDLE_DUST_TOLERANCE_RAW;
+  const blockedAddresses = new Set(
+    blockingTokenAccounts.map((account) => account.address)
+  );
+  const cleanupTokenAccounts = args.vaultSnapshot.tokenAccounts
+    .filter((account) => !blockedAddresses.has(account.address.toBase58()))
+    .map((account) => ({
+      address: account.address.toBase58(),
+      amountRaw: account.amountRaw.toString(),
+      decimals: 6,
+      mint: account.mint.toBase58(),
+      tokenProgramId: account.tokenProgramId.toBase58(),
+    }));
   const status =
-    remainingReserveHoldings.length === 0 &&
-    blockingTokenAccounts.length === 0 &&
-    idleReadsAgree &&
-    idleWithinDustTolerance
+    remainingReserveHoldings.length === 0 && blockingTokenAccounts.length === 0
       ? "policy_close_required"
       : "full_exit_incomplete";
 
   return {
     blockingTokenAccounts,
-    closeableTokenAccounts,
-    idleAmountRaw: idleAmountRaw.toString(),
-    idleReadsAgree,
+    cleanupTokenAccounts,
     observedSlot: String(observedSlot),
     remainingHoldings: args.holdingsSnapshot.holdings.filter(
       (holding) => positiveAmountRaw(holding.amountRaw) > BigInt(0)
@@ -236,6 +250,7 @@ export async function verifyEarnFullExitZeroBalances(
   });
 
   return classifyZeroProof({
+    cluster: args.cluster,
     holdingsSnapshot,
     minContextSlot: args.minContextSlot,
     vaultSnapshot,

@@ -1,40 +1,24 @@
 import "server-only";
 
 import {
-  KAMINO_USER_METADATA_SEED,
-  KAMINO_VANILLA_OBLIGATION_ID,
-  KAMINO_VANILLA_OBLIGATION_TAG,
   RiskBasket,
   Stablecoin,
-  getKaminoUsdcEarnTargetForCluster,
   getRiskBasketMarketsForCluster,
   getStablecoinMintForCluster,
-  getStablecoinMintsForCluster,
   resolveLoyalClusterForSolanaEnv,
   type LoyalCluster,
 } from "@loyal-labs/actions";
 import { appUsers, appUserSmartAccounts } from "@loyal-labs/db-core/schema";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import {
-  Permission,
-  Policy,
-  generated,
-  toBigInt,
-} from "@loyal-labs/loyal-smart-accounts-core";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
-import {
-  TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddressSync,
-} from "@solana/spl-token";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   Connection,
   PublicKey,
-  SYSVAR_RENT_PUBKEY,
-  SystemProgram,
   type ParsedTransactionWithMeta,
   type TokenBalance,
 } from "@solana/web3.js";
-import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 
 import { reportEarnDepositQuestCompletion } from "@/features/solana-week/server/quest-completion-service";
 import { resolveLoyalSmartAccountsProgramIdFromEnv } from "@/lib/core/config/server";
@@ -55,6 +39,10 @@ import {
   type EarnRpcPolicyMetadata,
 } from "./earn-rpc-holdings.client";
 import {
+  getEarnProductAssetsForCluster,
+  resolveEarnProductAsset,
+} from "./earn-product-mints.shared";
+import {
   findActiveYieldRoutePolicyPair,
   recordConfirmedEarnDepositOnboardingPolicyStage,
   type ConfirmedYieldRoutePolicyInput,
@@ -63,32 +51,29 @@ import {
   earnDepositOnboardingAttempts,
   getYieldOptimizationClient,
   userYieldPositionDeposits,
-  userYieldPositions,
 } from "./yield-neon-client.server";
 
 // Adopts "invisible" Earn deposits: wallets whose deposit landed on-chain but
 // whose deposit-confirm call was lost or rejected, leaving the yield DB with no
 // rows at all — so /holdings shows nothing. For each affected wallet this
-// reconstructs the confirm payload the device would have sent (policy pair
-// recovered from chain, deposit signature+slot from the vault's USDC ATA
-// history) and replays it through `recordConfirmedEarnDeposit`, which
+// finds an unseen finalized signature in the selected mint's token history,
+// binds it to the reserve named by that transaction, and replays it through
+// `recordConfirmedEarnDeposit`, which
 // re-verifies everything on-chain before writing. Launch night 2026-07-08: 60
 // wallets / $355 went invisible this way; the same logic (as a manual script)
 // adopted 47 of them. Every adoption logged here is a lost confirm — if these
 // appear regularly, the confirm path is broken again.
 const EARN_VAULT_INDEX = 1;
-const POLICY_SEED_PROBE_MAX = 40; // policy seeds start at 1; first deposits use low seeds
 const SIGNATURE_PAGE_LIMIT = 1000;
 const SIGNATURE_MAX_PAGES = 8;
 const DEPOSIT_TX_SCAN_CAP = 80; // max parsed txs inspected per wallet
 const MIN_ADOPT_TOTAL_RAW = BigInt(10_000); // ignore sub-$0.01 dust vaults
 const DEFAULT_TIME_BUDGET_MS = 240_000;
 const SCAN_CONCURRENCY = 5;
-// Lost confirms happen to fresh signups (every adoption so far was a new
-// account), and the Helius budget is a hard 5 rps — so each run scans only
-// recently-touched accounts (~100 RPC calls) instead of the whole fleet
-// (~1,300). `full=1` on the cron route runs the unbounded sweep on demand.
-const RECENT_CANDIDATE_WINDOW_MS = 72 * 60 * 60 * 1000;
+// Cover the whole managed fleet without a second database cursor. The cron
+// runs every ten minutes; 24 stable shards give every wallet one bounded scan
+// per four hours while `full=1` remains available for an explicit sweep.
+const RECONCILE_SHARD_COUNT = 24;
 
 export type EarnDepositReconcileOutcome = {
   wallet: string;
@@ -127,6 +112,14 @@ export type EarnDepositReconcileSummary = {
 };
 
 type Candidate = { walletAddress: string; settingsPda: string };
+
+export function earnDepositReconcileShard(settingsPda: string): number {
+  let hash = 0;
+  for (const character of settingsPda) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  return hash % RECONCILE_SHARD_COUNT;
+}
 type PolicyOnlyCandidate = {
   delegatedSigner: string;
   liquidityMint: string;
@@ -182,8 +175,8 @@ function buildScanPolicyMetadata(cluster: LoyalCluster): EarnRpcPolicyMetadata {
   };
 }
 
-// Ready smart accounts (app DB) that have no active yield position (yield DB).
-// Newest accounts first: fresh signups are where confirms get lost.
+// Ready smart accounts. A missing confirmation is a transaction problem, not a
+// wallet-lifecycle state: existing positions remain eligible for recovery.
 async function listCandidates(
   solanaEnv: SolanaEnv,
   fullScan: boolean
@@ -198,30 +191,18 @@ async function listCandidates(
     .where(
       and(
         eq(appUserSmartAccounts.state, "ready"),
-        eq(appUserSmartAccounts.solanaEnv, solanaEnv),
-        ...(fullScan
-          ? []
-          : [
-              gte(
-                appUserSmartAccounts.updatedAt,
-                new Date(Date.now() - RECENT_CANDIDATE_WINDOW_MS)
-              ),
-            ])
+        eq(appUserSmartAccounts.solanaEnv, solanaEnv)
       )
     )
     .orderBy(desc(appUserSmartAccounts.updatedAt));
 
-  const activeRows = await getYieldOptimizationClient()
-    .db.selectDistinct({ walletAddress: userYieldPositions.walletAddress })
-    .from(userYieldPositions)
-    .where(eq(userYieldPositions.status, "active"));
-  const activeWallets = new Set(activeRows.map((row) => row.walletAddress));
-
+  const currentShard =
+    Math.floor(Date.now() / (10 * 60 * 1000)) % RECONCILE_SHARD_COUNT;
   return readyAccounts.filter(
     (row): row is Candidate =>
       Boolean(row.settingsPda) &&
       Boolean(row.walletAddress) &&
-      !activeWallets.has(row.walletAddress)
+      (fullScan || earnDepositReconcileShard(row.settingsPda!) === currentShard)
   );
 }
 
@@ -364,22 +345,39 @@ type DiscoveredDeposit = {
   signature: string;
   slot: number;
   proofPrincipalRaw: bigint;
+  target: EarnRpcHolding & { market: string; reserve: string };
 };
 
-// The deposit tx is the oldest successful tx on the vault's USDC ATA whose
-// parsed token deltas debit USDC from the wallet (preferred) or, failing that,
-// from the vault side. This is exactly the debit `recordConfirmedEarnDeposit`
-// re-verifies, so a discovered tx is guaranteed to satisfy the recorder.
+export function selectDepositRecoveryTarget(args: {
+  reserveCandidates: Array<
+    EarnRpcHolding & { market: string; reserve: string }
+  >;
+  transactionAccounts: ReadonlySet<string>;
+}): (EarnRpcHolding & { market: string; reserve: string }) | null {
+  const matches = args.reserveCandidates.filter((candidate) =>
+    args.transactionAccounts.has(candidate.reserve)
+  );
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+// Find one unseen finalized deposit and bind it to the one candidate reserve
+// actually named by that transaction. Never infer a target from current size.
 async function discoverDepositTransaction(args: {
   connection: Connection;
-  usdcMint: string;
+  knownSignatures: ReadonlySet<string>;
+  mint: string;
+  reserveCandidates: Array<
+    EarnRpcHolding & { market: string; reserve: string }
+  >;
+  tokenProgramId: PublicKey;
   vault: PublicKey;
   wallet: string;
 }): Promise<DiscoveredDeposit | null> {
   const vaultUsdcAta = getAssociatedTokenAddressSync(
-    new PublicKey(args.usdcMint),
+    new PublicKey(args.mint),
     args.vault,
-    true
+    true,
+    args.tokenProgramId
   );
   let signatures = await listSignaturesOldestFirst(
     args.connection,
@@ -394,7 +392,7 @@ async function discoverDepositTransaction(args: {
   let inspected = 0;
 
   for (const entry of signatures) {
-    if (entry.err !== null) {
+    if (entry.err !== null || args.knownSignatures.has(entry.signature)) {
       continue;
     }
     if (inspected >= DEPOSIT_TX_SCAN_CAP) {
@@ -408,7 +406,19 @@ async function discoverDepositTransaction(args: {
     if (!transaction || !transaction.meta || transaction.meta.err) {
       continue;
     }
-    const deltas = tokenDeltasByOwner(args.usdcMint, transaction);
+    const transactionAccounts = new Set(
+      transaction.transaction.message.accountKeys.map((account) =>
+        account.pubkey.toBase58()
+      )
+    );
+    const target = selectDepositRecoveryTarget({
+      reserveCandidates: args.reserveCandidates,
+      transactionAccounts,
+    });
+    if (!target) {
+      continue;
+    }
+    const deltas = tokenDeltasByOwner(args.mint, transaction);
     const walletDelta = deltas.get(args.wallet) ?? BigInt(0);
     const proof = [...new Set([args.wallet, vaultBase58])].reduce(
       (total, owner) => {
@@ -425,6 +435,7 @@ async function discoverDepositTransaction(args: {
       signature: entry.signature,
       slot: transaction.slot,
       proofPrincipalRaw: proof,
+      target,
     };
     if (walletDelta < BigInt(0)) {
       return candidate;
@@ -435,205 +446,6 @@ async function discoverDepositTransaction(args: {
   }
 
   return vaultOnlyFallback;
-}
-
-type DecodedPolicy = ReturnType<typeof Policy.fromAccountInfo>[0];
-
-function publicKeysEqual(
-  actual: readonly PublicKey[],
-  expected: readonly PublicKey[]
-): boolean {
-  return (
-    actual.length === expected.length &&
-    actual.every((key, index) => key.equals(expected[index]!))
-  );
-}
-
-function matchesPubkeyAccountConstraints(
-  instruction: generated.InstructionConstraint,
-  expected: ReadonlyArray<{
-    accountIndex: number;
-    owner?: PublicKey;
-    pubkeys: readonly PublicKey[];
-  }>
-): boolean {
-  if (instruction.accountConstraints.length !== expected.length) {
-    return false;
-  }
-  return expected.every((specification) => {
-    const constraint = instruction.accountConstraints.find(
-      (candidate) => candidate.accountIndex === specification.accountIndex
-    );
-    if (
-      !constraint ||
-      constraint.accountConstraint.__kind !== "Pubkey" ||
-      !publicKeysEqual(
-        constraint.accountConstraint.fields[0],
-        specification.pubkeys
-      )
-    ) {
-      return false;
-    }
-    if (specification.owner) {
-      return constraint.owner?.equals(specification.owner) === true;
-    }
-    return constraint.owner === null;
-  });
-}
-
-function matchesDataSliceEquals(
-  instruction: generated.InstructionConstraint,
-  expected: readonly number[]
-): boolean {
-  const [constraint] = instruction.dataConstraints;
-  return (
-    instruction.dataConstraints.length === 1 &&
-    constraint !== undefined &&
-    toBigInt(constraint.dataOffset) === BigInt(0) &&
-    constraint.operator === generated.DataOperator.Equals &&
-    constraint.dataValue.__kind === "U8Slice" &&
-    Buffer.from(constraint.dataValue.fields[0]).equals(Buffer.from(expected))
-  );
-}
-
-function canonicalPolicyBaseMismatch(args: {
-  expectedSeed: bigint;
-  expectedSettings: PublicKey;
-  expectedSigner: PublicKey;
-  policy: DecodedPolicy;
-}): string | null {
-  if (!args.policy.settings.equals(args.expectedSettings)) {
-    return "settings_mismatch";
-  }
-  if (toBigInt(args.policy.seed) !== args.expectedSeed) {
-    return "seed_mismatch";
-  }
-  if (args.policy.threshold !== 1) {
-    return "threshold_mismatch";
-  }
-  if (args.policy.timeLock !== 0) {
-    return "timelock_mismatch";
-  }
-  if (
-    args.policy.signers.length !== 1 ||
-    !args.policy.signers[0]?.key.equals(args.expectedSigner)
-  ) {
-    return "signer_mismatch";
-  }
-  const expectedPermissions =
-    Permission.Initiate | Permission.Vote | Permission.Execute;
-  if (args.policy.signers[0].permissions.mask !== expectedPermissions) {
-    return "signer_permissions_mismatch";
-  }
-  return null;
-}
-
-function canonicalEarnPolicyStateMismatch(args: {
-  cluster: LoyalCluster;
-  policy: DecodedPolicy;
-  stage: "route" | "setup";
-  vault: PublicKey;
-}): string | null {
-  const state = args.policy.policyState;
-  if (state.__kind !== "ProgramInteraction") {
-    return "policy_state_mismatch";
-  }
-  const [interaction] = state.fields;
-  if (
-    interaction.accountIndex !== EARN_VAULT_INDEX ||
-    interaction.preHook !== null ||
-    interaction.postHook !== null ||
-    interaction.spendingLimits.length !== 0
-  ) {
-    return "policy_interaction_mismatch";
-  }
-
-  const target = getKaminoUsdcEarnTargetForCluster(args.cluster);
-  const markets = getRiskBasketMarketsForCluster(args.cluster, RiskBasket.Safe);
-  const stableMints = getStablecoinMintsForCluster(args.cluster);
-
-  if (args.stage === "route") {
-    const [withdraw, deposit] = interaction.instructionsConstraints;
-    if (
-      interaction.instructionsConstraints.length !== 2 ||
-      !withdraw ||
-      !deposit
-    ) {
-      return "route_constraint_count_mismatch";
-    }
-    if (
-      !withdraw.programId.equals(target.lendProgramId) ||
-      !matchesPubkeyAccountConstraints(withdraw, [
-        { accountIndex: 0, pubkeys: [args.vault] },
-        { accountIndex: 2, pubkeys: markets },
-      ]) ||
-      !matchesDataSliceEquals(withdraw, target.withdrawDiscriminator)
-    ) {
-      return "route_withdraw_constraint_mismatch";
-    }
-    if (
-      !deposit.programId.equals(target.lendProgramId) ||
-      !matchesPubkeyAccountConstraints(deposit, [
-        { accountIndex: 0, pubkeys: [args.vault] },
-        { accountIndex: 2, pubkeys: markets },
-        {
-          accountIndex: 5,
-          owner: TOKEN_PROGRAM_ID,
-          pubkeys: stableMints,
-        },
-      ]) ||
-      !matchesDataSliceEquals(deposit, target.depositDiscriminator)
-    ) {
-      return "route_deposit_constraint_mismatch";
-    }
-    return null;
-  }
-
-  const [setup] = interaction.instructionsConstraints;
-  if (interaction.instructionsConstraints.length !== 1 || !setup) {
-    return "setup_constraint_count_mismatch";
-  }
-  const obligations = markets.map(
-    (market) =>
-      PublicKey.findProgramAddressSync(
-        [
-          Uint8Array.of(KAMINO_VANILLA_OBLIGATION_TAG),
-          Uint8Array.of(KAMINO_VANILLA_OBLIGATION_ID),
-          args.vault.toBytes(),
-          market.toBytes(),
-          PublicKey.default.toBytes(),
-          PublicKey.default.toBytes(),
-        ],
-        target.lendProgramId
-      )[0]
-  );
-  const userMetadata = PublicKey.findProgramAddressSync(
-    [KAMINO_USER_METADATA_SEED, args.vault.toBytes()],
-    target.lendProgramId
-  )[0];
-  const dataPrefix = [
-    ...target.initObligationDiscriminator,
-    KAMINO_VANILLA_OBLIGATION_TAG,
-    KAMINO_VANILLA_OBLIGATION_ID,
-  ];
-  if (
-    !setup.programId.equals(target.lendProgramId) ||
-    !matchesPubkeyAccountConstraints(setup, [
-      { accountIndex: 0, pubkeys: [args.vault] },
-      { accountIndex: 1, pubkeys: [args.vault] },
-      { accountIndex: 2, pubkeys: obligations },
-      { accountIndex: 3, pubkeys: markets },
-      { accountIndex: 4, pubkeys: [PublicKey.default] },
-      { accountIndex: 5, pubkeys: [PublicKey.default] },
-      { accountIndex: 6, pubkeys: [userMetadata] },
-      { accountIndex: 7, pubkeys: [SYSVAR_RENT_PUBKEY] },
-      { accountIndex: 8, pubkeys: [SystemProgram.programId] },
-    ]) ||
-    !matchesDataSliceEquals(setup, dataPrefix)
-  ) {
-    return "setup_constraint_mismatch";
-  }
-  return null;
 }
 
 async function validateCreationCitation(args: {
@@ -682,123 +494,6 @@ async function validateCreationCitation(args: {
     return "creation_transaction_wallet_mismatch";
   }
   return null;
-}
-
-type DiscoveredPolicyPair = {
-  routeAccount: PublicKey;
-  routeSeed: bigint;
-  setupAccount: PublicKey;
-  setupSeed: bigint;
-  delegatedSigner: string;
-};
-
-// Probe policy PDAs at seeds 1..N and classify with the SDK's own codec.
-// Classification must use the full canonical shape check, not constraint
-// counts: on 2026-07-29 a count-only version adopted a legacy-format pair
-// (single-mint allowlist, created by an external routing service) as the
-// wallet's route pair, which the web client then correctly refused to
-// deposit through — bricking web deposits for that wallet.
-async function discoverPolicyPairOnChain(args: {
-  cluster: LoyalCluster;
-  connection: Connection;
-  programId: PublicKey;
-  settingsPda: PublicKey;
-}): Promise<{ pair: DiscoveredPolicyPair } | { pair: null; reason: string }> {
-  const seeds = Array.from({ length: POLICY_SEED_PROBE_MAX }, (_, i) => i + 1);
-  const addresses = seeds.map(
-    (seed) =>
-      pda.getPolicyPda({
-        programId: args.programId,
-        settingsPda: args.settingsPda,
-        policySeed: seed,
-      })[0]
-  );
-  const policiesBySeed = new Map<
-    number,
-    ReturnType<typeof Policy.fromAccountInfo>[0]
-  >();
-  for (let offset = 0; offset < addresses.length; offset += 100) {
-    const chunk = addresses.slice(offset, offset + 100);
-    const infos = await args.connection.getMultipleAccountsInfo(chunk, {
-      commitment: "confirmed",
-    });
-    infos.forEach((info, index) => {
-      if (!info || !info.owner.equals(args.programId)) {
-        return;
-      }
-      try {
-        const [policy] = Policy.fromAccountInfo(info);
-        policiesBySeed.set(seeds[offset + index]!, policy);
-      } catch {
-        // Not a Policy account (different discriminator) — ignore.
-      }
-    });
-  }
-
-  const vault = deriveEarnVaultPda({
-    programId: args.programId,
-    settingsPda: args.settingsPda,
-  });
-  const isCanonical = (
-    policy: ReturnType<typeof Policy.fromAccountInfo>[0],
-    stage: "route" | "setup"
-  ): boolean =>
-    canonicalEarnPolicyStateMismatch({
-      cluster: args.cluster,
-      policy,
-      stage,
-      vault,
-    }) === null;
-
-  const routeSeeds = [...policiesBySeed.entries()]
-    .filter(([, policy]) => isCanonical(policy, "route"))
-    .map(([seed]) => seed)
-    .sort((a, b) => b - a);
-
-  if (routeSeeds.length === 0) {
-    return {
-      pair: null,
-      reason: `no canonical earn route policy found at seeds 1..${POLICY_SEED_PROBE_MAX}`,
-    };
-  }
-
-  for (const routeSeed of routeSeeds) {
-    const setup = policiesBySeed.get(routeSeed + 1);
-    if (!setup || !isCanonical(setup, "setup")) {
-      continue;
-    }
-    const route = policiesBySeed.get(routeSeed)!;
-    if (!route.settings.equals(args.settingsPda)) {
-      continue;
-    }
-    const delegatedSigner = route.signers[0]?.key.toBase58();
-    if (!delegatedSigner) {
-      return { pair: null, reason: "route policy has no signers" };
-    }
-    return {
-      pair: {
-        routeAccount: pda.getPolicyPda({
-          programId: args.programId,
-          settingsPda: args.settingsPda,
-          policySeed: routeSeed,
-        })[0],
-        routeSeed: toBigInt(route.seed),
-        setupAccount: pda.getPolicyPda({
-          programId: args.programId,
-          settingsPda: args.settingsPda,
-          policySeed: routeSeed + 1,
-        })[0],
-        setupSeed: toBigInt(setup.seed),
-        delegatedSigner,
-      },
-    };
-  }
-
-  return {
-    pair: null,
-    reason:
-      "canonical route policy found on-chain but its canonical setup twin (seed+1) is missing",
-  };
 }
 
 async function reconcilePolicyOnlyCandidate(args: {
@@ -869,11 +564,20 @@ async function reconcilePolicyOnlyCandidate(args: {
     return skip("setup_policy_metadata_mismatch");
   }
 
-  const target = getKaminoUsdcEarnTargetForCluster(args.cluster);
+  try {
+    resolveEarnProductAsset({
+      cluster: args.cluster,
+      mint: candidate.liquidityMint,
+    });
+    new PublicKey(candidate.targetReserve);
+  } catch {
+    return skip("earn_target_mismatch");
+  }
   if (
-    candidate.targetReserve !== target.reserve.toBase58() ||
-    candidate.market !== target.market.toBase58() ||
-    candidate.liquidityMint !== target.liquidityMint.toBase58()
+    !candidate.market ||
+    !getRiskBasketMarketsForCluster(args.cluster, RiskBasket.Safe).some(
+      (market) => market.toBase58() === candidate.market
+    )
   ) {
     return skip("earn_target_mismatch");
   }
@@ -890,51 +594,6 @@ async function reconcilePolicyOnlyCandidate(args: {
     !setupInfo.owner.equals(args.programId)
   ) {
     return skip("policy_owner_mismatch");
-  }
-
-  let routePolicy: DecodedPolicy;
-  let setupPolicy: DecodedPolicy;
-  try {
-    [routePolicy] = Policy.fromAccountInfo(routeInfo);
-    [setupPolicy] = Policy.fromAccountInfo(setupInfo);
-  } catch {
-    return skip("policy_decode_failed");
-  }
-  const routeBaseMismatch = canonicalPolicyBaseMismatch({
-    expectedSeed: routeSeed,
-    expectedSettings: settingsPda,
-    expectedSigner: delegatedSigner,
-    policy: routePolicy,
-  });
-  if (routeBaseMismatch) {
-    return skip(`route_policy_${routeBaseMismatch}`);
-  }
-  const setupBaseMismatch = canonicalPolicyBaseMismatch({
-    expectedSeed: setupSeed,
-    expectedSettings: settingsPda,
-    expectedSigner: delegatedSigner,
-    policy: setupPolicy,
-  });
-  if (setupBaseMismatch) {
-    return skip(`setup_policy_${setupBaseMismatch}`);
-  }
-  const routeStateMismatch = canonicalEarnPolicyStateMismatch({
-    cluster: args.cluster,
-    policy: routePolicy,
-    stage: "route",
-    vault,
-  });
-  if (routeStateMismatch) {
-    return skip(routeStateMismatch);
-  }
-  const setupStateMismatch = canonicalEarnPolicyStateMismatch({
-    cluster: args.cluster,
-    policy: setupPolicy,
-    stage: "setup",
-    vault,
-  });
-  if (setupStateMismatch) {
-    return skip(setupStateMismatch);
   }
 
   const routeCreation = await resolvePolicyCreationSignatureFromChain({
@@ -975,8 +634,8 @@ async function reconcilePolicyOnlyCandidate(args: {
     cluster: args.cluster,
     confirmedSlot: BigInt(routeCreation.slot),
     delegatedSigner: delegatedSigner.toBase58(),
-    liquidityMint: target.liquidityMint.toBase58(),
-    market: target.market.toBase58(),
+    liquidityMint: candidate.liquidityMint,
+    market: candidate.market,
     policyAccount: routeAccount.toBase58(),
     policyConfirmedSlot: BigInt(routeCreation.slot),
     policyId: routeSeed,
@@ -988,7 +647,7 @@ async function reconcilePolicyOnlyCandidate(args: {
     setupPolicyId: setupSeed,
     setupPolicySeed: setupSeed,
     setupPolicySignature: setupCreation.signature,
-    targetReserve: target.reserve.toBase58(),
+    targetReserve: candidate.targetReserve,
     vaultIndex: EARN_VAULT_INDEX,
     vaultPubkey: vault.toBase58(),
     walletAddress: wallet.toBase58(),
@@ -1016,7 +675,6 @@ async function reconcileWallet(args: {
   safeMarkets: Set<string>;
   scanPolicy: EarnRpcPolicyMetadata;
   solanaEnv: SolanaEnv;
-  usdcMint: string;
 }): Promise<EarnDepositReconcileOutcome> {
   const { candidate } = args;
   const base = {
@@ -1048,30 +706,23 @@ async function reconcileWallet(args: {
     );
   }
 
-  // 2. Idle-only wallets are not representable: ConfirmedYieldDepositInput has
-  // no idle target — recording one would fabricate a reserve holding.
-  const reserveHoldings = snapshot.holdings
-    .filter(
-      (holding): holding is EarnRpcHolding & { reserve: string } =>
-        holding.kind === "kamino" &&
-        holding.reserve !== null &&
-        BigInt(holding.amountRaw) > BigInt(0)
-    )
-    .sort((a, b) => (BigInt(a.amountRaw) > BigInt(b.amountRaw) ? -1 : 1));
+  // A recovery must name the reserve that appears in the finalized
+  // transaction. Current aggregate size is never used to guess the target.
+  const reserveHoldings = snapshot.holdings.filter(
+    (
+      holding
+    ): holding is EarnRpcHolding & { market: string; reserve: string } =>
+      holding.kind === "kamino" &&
+      holding.market !== null &&
+      holding.reserve !== null &&
+      BigInt(holding.amountRaw) > BigInt(0)
+  );
   if (reserveHoldings.length === 0) {
     return skip("idle_only_not_representable");
   }
-  const target = reserveHoldings[0]!;
-  if (target.liquidityMint !== args.usdcMint) {
-    return skip(`target_liquidity_mint_not_usdc: ${target.liquidityMint}`);
-  }
-  if (!target.market || !args.safeMarkets.has(target.market)) {
-    return skip(
-      `target_market_not_in_safe_universe: ${target.market ?? "null"}`
-    );
-  }
 
-  // 3. Already adopted? (Policy rows present ⇒ the read paths see the wallet.)
+  // Reuse the policy pair already accepted by normal prepare. Recovery does
+  // not rediscover, rebuild, or reinterpret policies.
   const existingPair = await findActiveYieldRoutePolicyPair({
     authority: candidate.walletAddress,
     cluster,
@@ -1079,70 +730,71 @@ async function reconcileWallet(args: {
     vaultIndex: EARN_VAULT_INDEX,
     vaultPubkey: vault.toBase58(),
   });
-  if (existingPair) {
-    return skip("db_policy_pair_exists");
+  if (!(existingPair?.routePolicy && existingPair.setupPolicy)) {
+    return skip("policy_update_required");
   }
-
-  // 4. Recover the on-chain policy pair and its creation signatures.
-  const discovery = await discoverPolicyPairOnChain({
-    cluster,
-    connection: args.connection,
-    programId: args.programId,
-    settingsPda,
-  });
-  if (!discovery.pair) {
-    return skip(`no_policy_pair_on_chain: ${discovery.reason}`);
+  const delegatedSigner = existingPair.routePolicy.delegatedSigners[0];
+  if (!delegatedSigner) {
+    return skip("policy_update_required");
   }
-  const pair = discovery.pair;
-  if (pair.setupSeed !== pair.routeSeed + BigInt(1)) {
-    return skip("policy_seed_mismatch");
+  const knownDepositRows = await getYieldOptimizationClient()
+    .db.select({ signature: userYieldPositionDeposits.depositSignature })
+    .from(userYieldPositionDeposits)
+    .where(
+      eq(userYieldPositionDeposits.walletAddress, candidate.walletAddress)
+    );
+  const knownSignatures = new Set(knownDepositRows.map((row) => row.signature));
+  let deposit: DiscoveredDeposit | null = null;
+  for (const asset of getEarnProductAssetsForCluster(cluster)) {
+    const candidates = reserveHoldings.filter(
+      (holding) => holding.liquidityMint === asset.mint.toBase58()
+    );
+    if (candidates.length === 0) {
+      continue;
+    }
+    deposit = await discoverDepositTransaction({
+      connection: args.connection,
+      knownSignatures,
+      mint: asset.mint.toBase58(),
+      reserveCandidates: candidates,
+      tokenProgramId: asset.tokenProgramId,
+      vault,
+      wallet: candidate.walletAddress,
+    });
+    if (deposit) {
+      break;
+    }
   }
-  const routeCreation = await resolvePolicyCreationSignatureFromChain({
-    cluster: args.solanaEnv,
-    policyAccount: pair.routeAccount.toBase58(),
-  });
-  const setupCreation = await resolvePolicyCreationSignatureFromChain({
-    cluster: args.solanaEnv,
-    policyAccount: pair.setupAccount.toBase58(),
-  });
-  if (!routeCreation || !setupCreation) {
-    return skip("policy_creation_signature_not_found");
-  }
-
-  // 5. Deposit signature + slot from the vault USDC ATA history.
-  const deposit = await discoverDepositTransaction({
-    connection: args.connection,
-    usdcMint: args.usdcMint,
-    vault,
-    wallet: candidate.walletAddress,
-  });
   if (!deposit) {
     return skip("deposit_transaction_not_found");
   }
+  const target = deposit.target;
+  if (!args.safeMarkets.has(target.market)) {
+    return skip(`target_market_not_in_safe_universe: ${target.market}`);
+  }
+  resolveEarnProductAsset({ cluster, mint: target.liquidityMint });
 
-  // 6. Build the canonical confirm body exactly as the mobile confirm route
-  // would have and replay it through the validating recorder.
+  // Replay the exact finalized signature through the normal validating
+  // recorder. Signature uniqueness is the only recovery concurrency boundary.
   const confirmBody = {
     cluster,
     confirmedSlot: deposit.slot.toString(),
-    delegatedSigner: pair.delegatedSigner,
-    depositMint: args.usdcMint,
+    delegatedSigner,
+    depositMint: target.liquidityMint,
     depositSignature: deposit.signature,
     liquidityMint: target.liquidityMint,
     market: target.market,
-    policyAccount: pair.routeAccount.toBase58(),
-    policyId: pair.routeSeed.toString(),
-    policyConfirmedSlot: routeCreation.slot,
-    policyInitialization: "create",
-    policySeed: pair.routeSeed.toString(),
-    policySignature: routeCreation.signature,
+    policyAccount: existingPair.routePolicy.policyAccount,
+    policyId: existingPair.routePolicy.policySeed.toString(),
+    policyInitialization: "reuse",
+    policySeed: existingPair.routePolicy.policySeed.toString(),
+    policySignature: existingPair.routePolicy.lastSeenSignature,
     principalAmountRaw: deposit.proofPrincipalRaw.toString(),
     settings: candidate.settingsPda,
-    setupPolicyAccount: pair.setupAccount.toBase58(),
-    setupPolicyConfirmedSlot: setupCreation.slot,
-    setupPolicyId: pair.setupSeed.toString(),
-    setupPolicySeed: pair.setupSeed.toString(),
-    setupPolicySignature: setupCreation.signature,
+    setupPolicyAccount: existingPair.setupPolicy.policyAccount,
+    setupPolicyId: existingPair.setupPolicy.policySeed.toString(),
+    setupPolicySeed: existingPair.setupPolicy.policySeed.toString(),
+    setupPolicySignature: existingPair.setupPolicy.lastSeenSignature,
     smartAccountAddress: vault.toBase58(),
     targetReserve: target.reserve,
     targetSupplyApyBps: null,
@@ -1204,10 +856,6 @@ export async function reconcileInvisibleEarnDeposits(args?: {
   const programId = new PublicKey(
     resolveLoyalSmartAccountsProgramIdFromEnv(process.env)
   );
-  const usdcMint = getStablecoinMintForCluster(
-    cluster,
-    Stablecoin.USDC
-  ).toBase58();
   const safeMarkets = new Set(
     getRiskBasketMarketsForCluster(cluster, RiskBasket.Safe).map((market) =>
       market.toBase58()
@@ -1318,7 +966,6 @@ export async function reconcileInvisibleEarnDeposits(args?: {
           safeMarkets,
           scanPolicy,
           solanaEnv,
-          usdcMint,
         });
         if (outcome.status === "adopted" || outcome.status === "ready") {
           // Each adoption is a deposit-confirm the normal path lost — loud on

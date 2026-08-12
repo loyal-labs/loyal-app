@@ -6,8 +6,9 @@ mock.module("server-only", () => ({}));
 const principal = {
   settingsPda: "11111111111111111111111111111112",
   smartAccountAddress: "11111111111111111111111111111113",
-  walletAddress: Keypair.fromSeed(new Uint8Array(32).fill(1))
-    .publicKey.toBase58(),
+  walletAddress: Keypair.fromSeed(
+    new Uint8Array(32).fill(1)
+  ).publicKey.toBase58(),
 };
 const canonical = {
   liquidityMint: "11111111111111111111111111111115",
@@ -140,9 +141,7 @@ mock.module(
       }
       return {
         blockingTokenAccounts: [],
-        closeableTokenAccounts: [],
-        idleAmountRaw: "0",
-        idleReadsAgree: true,
+        cleanupTokenAccounts: [],
         observedSlot: "300",
         remainingHoldings:
           fullExitProofStatus === "full_exit_incomplete"
@@ -162,12 +161,9 @@ mock.module(
   })
 );
 
-mock.module(
-  "@/lib/yield-optimization/earn-state-serializers.server",
-  () => ({
-    serializeRoutePolicyState: () => ({ vaultIndex: 1 }),
-  })
-);
+mock.module("@/lib/yield-optimization/earn-state-serializers.server", () => ({
+  serializeRoutePolicyState: () => ({ vaultIndex: 1 }),
+}));
 
 mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
   findActiveYieldRoutePolicy: async () => {

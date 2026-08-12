@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
 mock.module("server-only", () => ({}));
@@ -77,9 +78,15 @@ mock.module(
       }
       return {
         blockingTokenAccounts: [],
-        closeableTokenAccounts: [closeableTokenAccount],
-        idleAmountRaw: "9999",
-        idleReadsAgree: true,
+        cleanupTokenAccounts: [
+          {
+            address: closeableTokenAccount,
+            amountRaw: "9999",
+            decimals: 6,
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            tokenProgramId: TOKEN_PROGRAM_ID.toBase58(),
+          },
+        ],
         observedSlot: "500",
         remainingHoldings:
           proofStatus === "full_exit_incomplete"
@@ -202,9 +209,12 @@ describe("Earn cleanup prepare route", () => {
     expect(response.status).toBe(200);
     expect(proofCalls[0]?.minContextSlot).toBe(500);
     expect(prepareCalls).toHaveLength(1);
-    expect(prepareCalls[0]?.idleAmountRaw).toBe(BigInt(9999));
-    expect(
-      (prepareCalls[0]?.closeVaultCollateralAtas as PublicKey[])[0]?.toBase58()
-    ).toBe(closeableTokenAccount);
+    expect(prepareCalls[0]?.vaultTokenAccounts).toEqual([
+      expect.objectContaining({
+        address: new PublicKey(closeableTokenAccount),
+        amountRaw: BigInt(9999),
+        tokenProgramId: TOKEN_PROGRAM_ID,
+      }),
+    ]);
   });
 });

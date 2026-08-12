@@ -1,4 +1,9 @@
 import { describe, expect, mock, test } from "bun:test";
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 
 mock.module("server-only", () => ({}));
@@ -14,9 +19,16 @@ const { verifyEarnFullExitZeroBalances } = await import(
 const programId = new PublicKey("11111111111111111111111111111112");
 const settingsPda = new PublicKey("11111111111111111111111111111113");
 const vaultPda = new PublicKey("11111111111111111111111111111114");
-const vaultUsdcAta = new PublicKey("11111111111111111111111111111115");
 const collateralAta = new PublicKey("11111111111111111111111111111116");
-const usdcMint = new PublicKey("11111111111111111111111111111117");
+const usdcMint = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const usdtMint = new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
+const cashMint = new PublicKey("CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH");
+const vaultUsdcAta = getAssociatedTokenAddressSync(
+  usdcMint,
+  vaultPda,
+  true,
+  TOKEN_PROGRAM_ID
+);
 const collateralMint = new PublicKey("11111111111111111111111111111118");
 
 const connection = {
@@ -65,33 +77,22 @@ function createHoldingsSnapshot(
 }
 
 function createVaultSnapshot(args: {
-  collateralAmountRaw?: bigint;
-  idleAmountRaw?: bigint;
+  accounts?: Array<{
+    address: PublicKey;
+    amountRaw: bigint;
+    mint: PublicKey;
+    tokenProgramId: PublicKey;
+  }>;
+  observedSlot?: number;
 }) {
   return {
     lamports: BigInt(0),
-    tokenAccounts: [
-      {
-        address: vaultUsdcAta,
-        amountRaw: args.idleAmountRaw ?? BigInt(0),
-        isUsdc: true,
-        lamports: 1,
-        mint: usdcMint,
-        tokenProgramId: new PublicKey(
-          "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        ),
-      },
-      {
-        address: collateralAta,
-        amountRaw: args.collateralAmountRaw ?? BigInt(0),
-        isUsdc: false,
-        lamports: 1,
-        mint: collateralMint,
-        tokenProgramId: new PublicKey(
-          "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        ),
-      },
-    ],
+    observedSlot: args.observedSlot ?? 500,
+    tokenAccounts: (args.accounts ?? []).map((account) => ({
+      ...account,
+      isUsdc: account.mint.equals(usdcMint),
+      lamports: 1,
+    })),
     vaultPda,
     vaultUsdcAta,
   };
@@ -183,28 +184,115 @@ describe("Earn full-exit zero proof", () => {
           createHolding({ amountRaw: "9999", kind: "idle" }),
         ]) as never,
       fetchVaultSnapshot: async () =>
-        createVaultSnapshot({ idleAmountRaw: BigInt(9999) }),
+        createVaultSnapshot({
+          accounts: [
+            {
+              address: vaultUsdcAta,
+              amountRaw: BigInt(9999),
+              mint: usdcMint,
+              tokenProgramId: TOKEN_PROGRAM_ID,
+            },
+          ],
+        }),
     });
 
     expect(proof).toMatchObject({
-      closeableTokenAccounts: [collateralAta.toBase58()],
-      idleAmountRaw: "9999",
-      idleReadsAgree: true,
+      cleanupTokenAccounts: [
+        expect.objectContaining({
+          address: vaultUsdcAta.toBase58(),
+          amountRaw: "9999",
+          tokenProgramId: TOKEN_PROGRAM_ID.toBase58(),
+        }),
+      ],
       status: "policy_close_required",
     });
   });
 
-  test("blocks closure when independent idle-account reads disagree", async () => {
+  test("blocks closure when an unknown token account remains positive", async () => {
     const proof = await verifyEarnFullExitZeroBalances(createInput(), {
       fetchHoldingsSnapshot: async () => createHoldingsSnapshot([]) as never,
       fetchVaultSnapshot: async () =>
-        createVaultSnapshot({ idleAmountRaw: BigInt(1) }),
+        createVaultSnapshot({
+          accounts: [
+            {
+              address: collateralAta,
+              amountRaw: BigInt(1),
+              mint: collateralMint,
+              tokenProgramId: TOKEN_PROGRAM_ID,
+            },
+          ],
+        }),
     });
 
     expect(proof).toMatchObject({
-      idleAmountRaw: "1",
-      idleReadsAgree: false,
+      blockingTokenAccounts: [
+        expect.objectContaining({ address: collateralAta.toBase58() }),
+      ],
       status: "full_exit_incomplete",
     });
+  });
+
+  test("keeps legacy-SPL USDT cleanup on the legacy token program", async () => {
+    const address = getAssociatedTokenAddressSync(
+      usdtMint,
+      vaultPda,
+      true,
+      TOKEN_PROGRAM_ID
+    );
+    const proof = await verifyEarnFullExitZeroBalances(createInput(), {
+      fetchHoldingsSnapshot: async () => createHoldingsSnapshot([]) as never,
+      fetchVaultSnapshot: async () =>
+        createVaultSnapshot({
+          accounts: [
+            {
+              address,
+              amountRaw: BigInt(9),
+              mint: usdtMint,
+              tokenProgramId: TOKEN_PROGRAM_ID,
+            },
+          ],
+        }),
+    });
+    expect(proof.status).toBe("policy_close_required");
+    expect(proof.cleanupTokenAccounts[0]?.tokenProgramId).toBe(
+      TOKEN_PROGRAM_ID.toBase58()
+    );
+  });
+
+  test("keeps Token-2022 CASH cleanup on Token-2022", async () => {
+    const address = getAssociatedTokenAddressSync(
+      cashMint,
+      vaultPda,
+      true,
+      TOKEN_2022_PROGRAM_ID
+    );
+    const proof = await verifyEarnFullExitZeroBalances(createInput(), {
+      fetchHoldingsSnapshot: async () => createHoldingsSnapshot([]) as never,
+      fetchVaultSnapshot: async () =>
+        createVaultSnapshot({
+          accounts: [
+            {
+              address,
+              amountRaw: BigInt(9),
+              mint: cashMint,
+              tokenProgramId: TOKEN_2022_PROGRAM_ID,
+            },
+          ],
+        }),
+    });
+    expect(proof.status).toBe("policy_close_required");
+    expect(proof.cleanupTokenAccounts[0]?.tokenProgramId).toBe(
+      TOKEN_2022_PROGRAM_ID.toBase58()
+    );
+  });
+
+  test("rejects a vault inventory older than the confirmed withdrawal", async () => {
+    await expect(
+      verifyEarnFullExitZeroBalances(createInput(), {
+        fetchHoldingsSnapshot: async () => createHoldingsSnapshot([]) as never,
+        fetchVaultSnapshot: async () =>
+          createVaultSnapshot({ observedSlot: 499 }),
+      })
+    ).rejects.toThrow(/token inventory was observed before/);
   });
 });
