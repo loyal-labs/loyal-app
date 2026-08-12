@@ -102,6 +102,7 @@ export type TimescaleReserveApySample = Pick<
 export type CurrentBestApyReserveByStablecoin = TimescaleReserveUpdateRow & {
   stablecoin: Stablecoin;
 };
+export type CurrentEligibleSafeReserve = CurrentBestApyReserveByStablecoin;
 
 const DEFAULT_MIN_TOTAL_SUPPLY_USD_ESTIMATE = 100_000;
 const DEFAULT_MAX_SUPPLY_APY = 0.5;
@@ -136,6 +137,15 @@ export function selectCurrentBestApyReserveByStablecoin(
   });
 }
 
+export function selectCurrentEligibleSafeReserves(
+  rows: readonly TimescaleReserveUpdateRow[]
+): CurrentEligibleSafeReserve[] {
+  return rows.flatMap((row) => {
+    const stablecoin = stablecoinByLiquidityMint.get(row.liquidityMint);
+    return stablecoin ? [{ ...row, stablecoin }] : [];
+  });
+}
+
 export function getTimescaleReserveDatabaseUrl(): string | null {
   return process.env.TIMESCALEDB_URL ?? null;
 }
@@ -151,6 +161,22 @@ export async function getCurrentBestApyReserveByStablecoin(args: {
   const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
   try {
     return await client.getCurrentBestApyReserveByStablecoin(args);
+  } finally {
+    await client.close();
+  }
+}
+
+export async function getCurrentEligibleSafeReserves(args: {
+  riskProfile: RiskBasket;
+}): Promise<CurrentEligibleSafeReserve[] | null> {
+  const databaseUrl = getTimescaleReserveDatabaseUrl();
+  if (!databaseUrl) {
+    return null;
+  }
+
+  const client = new TimescaleReserveClient({ databaseUrl, maxConnections: 1 });
+  try {
+    return await client.getCurrentEligibleSafeReserves(args);
   } finally {
     await client.close();
   }
@@ -668,6 +694,20 @@ export class TimescaleReserveClient {
       throw new Error(`unsupported risk profile: ${String(args.riskProfile)}`);
     }
 
+    return selectCurrentBestApyReserveByStablecoin(
+      await this.getCurrentEligibleSafeReserves(args)
+    );
+  }
+
+  async getCurrentEligibleSafeReserves(args: {
+    riskProfile: RiskBasket;
+    minTotalSupplyUsdEstimate?: number;
+    maxSupplyApy?: number;
+  }): Promise<CurrentEligibleSafeReserve[]> {
+    if (!Object.values(RiskBasket).includes(args.riskProfile)) {
+      throw new Error(`unsupported risk profile: ${String(args.riskProfile)}`);
+    }
+
     const reserveUpdates = this.tables.reserveUpdates;
     const latestReserveUpdates = this.tables.latestReserveUpdates;
     const marketAddresses = RISK_BASKET_MARKETS[args.riskProfile].map(
@@ -707,7 +747,7 @@ export class TimescaleReserveClient {
       )
       .orderBy(desc(reserveUpdates.supplyApy));
 
-    return selectCurrentBestApyReserveByStablecoin(
+    return selectCurrentEligibleSafeReserves(
       rows.map((row) => row.reserve_updates)
     );
   }

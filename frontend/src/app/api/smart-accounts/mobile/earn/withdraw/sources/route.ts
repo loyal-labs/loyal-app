@@ -20,7 +20,7 @@ import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-s
 import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Read-only list of the wallet's Earn withdrawal sources (per-reserve positions
-// + idle vault USDC), keyed by wallet address (no signature, no provisioning).
+// + one idle account per policy mint), keyed by wallet address.
 //
 // Sourced from the LIVE on-chain holdings snapshot (`fetchEarnRpcHoldingsSnapshot`
 // — the same read `/holdings` and the positions sheet use), NOT the DB
@@ -42,6 +42,7 @@ type WithdrawSource = {
   liquidityMint: string;
   market: string | null;
   reserve: string | null;
+  sourceId: string;
   tokenAccount: string | null;
 };
 
@@ -97,12 +98,13 @@ function holdingToWithdrawSource(
     }
     return {
       type: "idle",
-      id: tokenAccount,
-      label: "Idle USDC",
+      id: holding.sourceId,
+      label: `${holding.label} ${holding.marketName}`,
       amountRaw: holding.amountRaw,
       liquidityMint: holding.liquidityMint,
       market: null,
       reserve: null,
+      sourceId: holding.sourceId,
       tokenAccount,
     };
   }
@@ -111,12 +113,13 @@ function holdingToWithdrawSource(
   }
   return {
     type: "reserve",
-    id: holding.reserve,
-    label: "USDC reserve",
+    id: holding.sourceId,
+    label: holding.label,
     amountRaw: holding.amountRaw,
     liquidityMint: holding.liquidityMint,
     market: holding.market,
     reserve: holding.reserve,
+    sourceId: holding.sourceId,
     tokenAccount: null,
   };
 }

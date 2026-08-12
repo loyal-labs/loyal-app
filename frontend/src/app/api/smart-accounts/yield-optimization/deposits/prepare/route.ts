@@ -1,9 +1,12 @@
-import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
-import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
+import {
+  createSmartAccountVaultsClient,
+  isEarnPolicyUpdateRequiredError,
+} from "@loyal-labs/smart-account-vaults";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { NextResponse } from "next/server";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import {
@@ -11,18 +14,27 @@ import {
   isSmartAccountProvisioningError,
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
+import { getPublicEnv } from "@/lib/core/config/public";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
+import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   parseEarnDepositPrepareRequestBody,
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
-import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
-import { resolveEligibleEarnDepositTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
-  findCurrentEarnDepositOnboardingAttempt,
+  EarnMintNotEnabledError,
+  type EarnProductAsset,
+  resolveEnabledEarnProductAsset,
+} from "@/lib/yield-optimization/earn-product-mints.shared";
+import {
+  findBestSafeEarnReserveTarget,
+  resolveEligibleEarnDepositTarget,
+} from "@/lib/yield-optimization/earn-reserve-target.server";
+import {
   findActiveYieldRoutePolicyPair,
+  findCurrentEarnDepositOnboardingAttempt,
   findReconciledActiveYieldPositionForVault,
   type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -68,8 +80,11 @@ export async function POST(request: Request) {
   }
 
   let amountRaw: bigint;
+  let mint: string;
   try {
-    ({ amountRaw } = parseEarnDepositPrepareRequestBody(await request.json()));
+    ({ amountRaw, mint } = parseEarnDepositPrepareRequestBody(
+      await request.json()
+    ));
   } catch (error) {
     return jsonError(
       400,
@@ -80,6 +95,24 @@ export async function POST(request: Request) {
 
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
+  const enabledStablecoins = getPublicEnv().earnEnabledStablecoins;
+  let productMint: EarnProductAsset;
+  try {
+    productMint = resolveEnabledEarnProductAsset({
+      cluster,
+      enabledStablecoins,
+      mint,
+    });
+  } catch (error) {
+    if (error instanceof EarnMintNotEnabledError) {
+      return jsonError(409, error.code, error.message);
+    }
+    return jsonError(
+      400,
+      "unsupported_mint",
+      error instanceof Error ? error.message : "Unsupported Earn mint."
+    );
+  }
   let policy: RoutePolicyRecord | null = null;
   let setupPolicy: RoutePolicyRecord | null = null;
   let resumeRouteOnly = false;
@@ -110,6 +143,7 @@ export async function POST(request: Request) {
         }),
         findReconciledActiveYieldPositionForVault({
           cluster,
+          liquidityMint: mint,
           settings: principal.settingsPda,
           vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
           walletAddress: principal.walletAddress,
@@ -195,14 +229,27 @@ export async function POST(request: Request) {
               : {}),
           }
         : undefined;
-    const target =
+    // Reuse a safe current reserve for same-mint top-ups; otherwise select the
+    // best eligible reserve for the requested mint. Never cross-mint fallback.
+    const existingTarget =
       policy && activePosition
         ? await resolveEligibleEarnDepositTarget({
             cluster,
+            liquidityMint: mint,
             logTag: "earn-deposit-prepare",
             position: activePosition,
           })
         : null;
+    const target =
+      existingTarget ??
+      (await findBestSafeEarnReserveTarget({ cluster, productMint }));
+    if (!target) {
+      return jsonError(
+        409,
+        "no_eligible_reserve",
+        "No eligible Safe Kamino reserve is available for this Earn mint."
+      );
+    }
     const preparedDeposit = await client.prepareEarnUsdcDeposit({
       amountRaw,
       cluster,
@@ -211,13 +258,16 @@ export async function POST(request: Request) {
       policySigner,
       settingsPda: new PublicKey(principal.settingsPda),
       walletAddress: new PublicKey(principal.walletAddress),
-      ...(target ? { target } : {}),
+      target,
       ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
     });
     return NextResponse.json({
       preparedDeposit: serializePreparedEarnUsdcDeposit(preparedDeposit),
     });
   } catch (error) {
+    if (isEarnPolicyUpdateRequiredError(error)) {
+      return jsonError(409, error.code, error.message);
+    }
     if (isSmartAccountProvisioningError(error)) {
       return jsonError(error.status, error.code, error.message);
     }
@@ -225,6 +275,7 @@ export async function POST(request: Request) {
     console.error("[earn-deposit-prepare] prepare failed", {
       amountRaw: amountRaw.toString(),
       cluster,
+      mint,
       errorMessage:
         error instanceof Error ? error.message : "Unknown prepare error.",
       errorName: error instanceof Error ? error.name : typeof error,

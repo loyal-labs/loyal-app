@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
 import {
-  LoyalCluster,
   getKaminoUsdcEarnTargetForCluster,
+  LoyalCluster,
   resolveLoyalClusterForSolanaEnv,
 } from "@loyal-labs/actions";
+import { NextResponse } from "next/server";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
@@ -12,12 +12,13 @@ import {
   type TimescaleReserveUpdateRow,
 } from "@/lib/kamino/timescale-reserve-client.server";
 import { resolveEarnPositionDisplay } from "@/lib/yield-optimization/earn-position-display";
+import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
 import {
+  type CurrentYieldVaultIdleTokenBalanceRecord,
+  type CurrentYieldVaultReservePositionRecord,
   findCurrentNonzeroYieldVaultReservePositions,
   findCurrentYieldVaultIdleTokenBalances,
   findReconciledActiveYieldPositionForVault,
-  type CurrentYieldVaultIdleTokenBalanceRecord,
-  type CurrentYieldVaultReservePositionRecord,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -62,7 +63,7 @@ function serializePosition(
   currentReserve: TimescaleReserveUpdateRow | null = null,
   holdings: ReturnType<typeof serializeHoldings> = []
 ) {
-  const currentTotalAmountRaw = sumSerializedHoldingsAmountRaw(holdings);
+  const currentTotalNominalUsdMicros = sumSerializedHoldingsAmountRaw(holdings);
   return {
     currentHolding: {
       amountRaw: position.currentAmountRaw.toString(),
@@ -92,7 +93,10 @@ function serializePosition(
       supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
     },
     holdings,
-    currentTotalAmountRaw: currentTotalAmountRaw.toString(),
+    // Deprecated compatibility field. This is a nominal stablecoin-par total,
+    // never a balance denominated in any one mint.
+    currentTotalAmountRaw: currentTotalNominalUsdMicros.toString(),
+    currentTotalNominalUsdMicros: currentTotalNominalUsdMicros.toString(),
     principalAmountRaw: position.principalAmountRaw.toString(),
     status: position.status,
   };
@@ -111,7 +115,10 @@ function sumSerializedHoldingsAmountRaw(
   return total > BigInt(0) ? total : BigInt(0);
 }
 
-function serializeKaminoHolding(row: CurrentYieldVaultReservePositionRecord) {
+function serializeKaminoHolding(
+  row: CurrentYieldVaultReservePositionRecord,
+  cluster: LoyalCluster
+) {
   const display = resolveEarnPositionDisplay({
     liquidityMint: row.liquidityMint,
     market: row.market,
@@ -131,18 +138,27 @@ function serializeKaminoHolding(row: CurrentYieldVaultReservePositionRecord) {
       source: "vault_reserve_positions_current",
     },
     reserve: row.reserve,
+    sourceId: `reserve:${row.reserve}`,
     supplyApyBps: row.supplyApyBps?.toString() ?? null,
+    tokenProgramId: resolveEarnProductAsset({
+      cluster,
+      mint: row.liquidityMint,
+    }).tokenProgramId.toBase58(),
   };
 }
 
-function serializeIdleHolding(row: CurrentYieldVaultIdleTokenBalanceRecord) {
+function serializeIdleHolding(
+  row: CurrentYieldVaultIdleTokenBalanceRecord,
+  cluster: LoyalCluster
+) {
+  const asset = resolveEarnProductAsset({ cluster, mint: row.mint });
   return {
     amountRaw: row.amountRaw.toString(),
     kind: "idle" as const,
     label: "Idle Balance",
     liquidityMint: row.mint,
     market: null,
-    marketName: "USDC",
+    marketName: asset.symbol,
     observedAt: row.observedAt.toISOString(),
     observedSlot: row.observedSlot.toString(),
     provenance: {
@@ -152,12 +168,15 @@ function serializeIdleHolding(row: CurrentYieldVaultIdleTokenBalanceRecord) {
       tokenAccount: row.tokenAccount,
     },
     reserve: null,
+    sourceId: `idle:${row.tokenAccount}`,
     supplyApyBps: null,
+    tokenProgramId: asset.tokenProgramId.toBase58(),
   };
 }
 
 function serializePositionCurrentHoldingAsKamino(
-  position: UserYieldPositionRecord
+  position: UserYieldPositionRecord,
+  cluster: LoyalCluster
 ) {
   const display = resolveEarnPositionDisplay({
     liquidityMint: position.currentLiquidityMint,
@@ -178,7 +197,12 @@ function serializePositionCurrentHoldingAsKamino(
       source: "user_yield_positions",
     },
     reserve: position.currentReserve,
+    sourceId: `reserve:${position.currentReserve}`,
     supplyApyBps: null,
+    tokenProgramId: resolveEarnProductAsset({
+      cluster,
+      mint: position.currentLiquidityMint,
+    }).tokenProgramId.toBase58(),
   };
 }
 
@@ -186,16 +210,27 @@ function serializeHoldings(args: {
   idleRows: CurrentYieldVaultIdleTokenBalanceRecord[];
   position: UserYieldPositionRecord;
   reserveRows: CurrentYieldVaultReservePositionRecord[];
+  cluster: LoyalCluster;
 }) {
   const idleHoldings = args.idleRows
     .filter((row) => row.amountRaw > BigInt(0))
-    .map(serializeIdleHolding);
-  const kaminoHoldings =
-    args.reserveRows.length > 0
-      ? args.reserveRows.map(serializeKaminoHolding)
-      : idleHoldings.length === 0 && args.position.currentAmountRaw > BigInt(0)
-      ? [serializePositionCurrentHoldingAsKamino(args.position)]
-      : [];
+    .map((row) => serializeIdleHolding(row, args.cluster));
+  let kaminoHoldings: Array<
+    | ReturnType<typeof serializeKaminoHolding>
+    | ReturnType<typeof serializePositionCurrentHoldingAsKamino>
+  > = [];
+  if (args.reserveRows.length > 0) {
+    kaminoHoldings = args.reserveRows.map((row) =>
+      serializeKaminoHolding(row, args.cluster)
+    );
+  } else if (
+    idleHoldings.length === 0 &&
+    args.position.currentAmountRaw > BigInt(0)
+  ) {
+    kaminoHoldings = [
+      serializePositionCurrentHoldingAsKamino(args.position, args.cluster),
+    ];
+  }
 
   return [...kaminoHoldings, ...idleHoldings];
 }
@@ -292,6 +327,7 @@ export async function GET(request: Request) {
             timescaleReserve ?? position.currentReserve
           ) ?? null,
           serializeHoldings({
+            cluster,
             idleRows: idleHoldings,
             position,
             reserveRows: reserveHoldings,

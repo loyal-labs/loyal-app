@@ -1,20 +1,3 @@
-import type {
-  ApprovalReviewDisplayItem,
-  ApprovalReviewDisplaySection,
-  ApprovalReviewPage,
-} from "@/components/wallet-sidebar/approval-review-content";
-import type {
-  EarnAutodepositDraft,
-  EarnDepositDraft,
-  EarnWithdrawDraft,
-} from "@/components/wallet-sidebar/earn-detail-view";
-import type {
-  SmartAccountPreparedEarnUsdcAutodepositClose,
-  SmartAccountPreparedEarnUsdcAutodepositSetup,
-  SmartAccountPreparedEarnUsdcCleanup,
-  SmartAccountPreparedEarnUsdcDeposit,
-  SmartAccountPreparedEarnUsdcWithdraw,
-} from "@loyal-labs/smart-account-vaults";
 import {
   KAMINO_ETHENA_MARKET,
   KAMINO_FIGURE_MARKET,
@@ -25,13 +8,30 @@ import {
   STABLECOIN_MINTS,
 } from "@loyal-labs/actions/constants";
 import { RiskBasket, Stablecoin } from "@loyal-labs/actions/types";
+import type {
+  SmartAccountPreparedEarnUsdcAutodepositClose,
+  SmartAccountPreparedEarnUsdcAutodepositSetup,
+  SmartAccountPreparedEarnUsdcCleanup,
+  SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdraw,
+} from "@loyal-labs/smart-account-vaults";
+import type {
+  ApprovalReviewDisplayItem,
+  ApprovalReviewDisplaySection,
+  ApprovalReviewPage,
+} from "@/components/wallet-sidebar/approval-review-content";
+import type {
+  EarnAutodepositDraft,
+  EarnDepositDraft,
+  EarnWithdrawDraft,
+} from "@/components/wallet-sidebar/earn-detail-view";
 
 import {
+  type EarnDepositReviewStage,
   getEarnDepositReviewStagePosition,
   getEarnDepositReviewStages,
   getFirstEarnDepositReviewStage,
   getNextEarnDepositReviewStage,
-  type EarnDepositReviewStage,
 } from "@/lib/yield-optimization/earn-deposit-flow.shared";
 
 const EARN_VAULT_LABEL = "Earn vault";
@@ -159,8 +159,9 @@ function getWithdrawTargetRows(
               },
             ]
           : []),
-        ...(withdrawal.executionReserve !== withdrawal.accountingReserve
-          ? [
+        ...(withdrawal.executionReserve === withdrawal.accountingReserve
+          ? []
+          : [
               {
                 label:
                   reserveWithdrawals.length > 1
@@ -168,8 +169,7 @@ function getWithdrawTargetRows(
                     : "Kamino execution reserve",
                 value: shortenAddress(withdrawal.executionReserve),
               },
-            ]
-          : []),
+            ]),
         {
           label:
             reserveWithdrawals.length > 1
@@ -181,20 +181,22 @@ function getWithdrawTargetRows(
     ];
   }
   const market =
-    step?.accountingReserve.market.toBase58() ??
-    preparedWithdraw?.targetReserve.market.toBase58();
+    step?.accountingReserve?.market.toBase58() ??
+    preparedWithdraw?.targetReserve?.market.toBase58();
   const reserve =
-    step?.accountingReserve.reserve.toBase58() ??
-    preparedWithdraw?.targetReserve.reserve.toBase58();
-  const executionReserve = step?.executionReserve.reserve.toBase58();
+    step?.accountingReserve?.reserve.toBase58() ??
+    preparedWithdraw?.targetReserve?.reserve.toBase58();
+  const executionReserve = step?.executionReserve?.reserve.toBase58();
   const liquidityMint =
-    step?.accountingReserve.liquidityMint.toBase58() ??
-    preparedWithdraw?.targetReserve.liquidityMint.toBase58();
+    step?.accountingReserve?.liquidityMint.toBase58() ??
+    preparedWithdraw?.targetReserve?.liquidityMint.toBase58();
 
   return [
     {
       label: "Route",
-      value: "Withdraw same-mint USDC from Kamino Safe",
+      value: market
+        ? "Withdraw same-mint asset from Kamino Safe"
+        : "Withdraw idle asset directly",
     },
     ...(market
       ? [{ label: "Market", value: formatKaminoMarketLabel(market) }]
@@ -386,7 +388,9 @@ export function buildEarnDepositReviewItem(args: {
           ? [
               {
                 label: "Policy account",
-                value: shortenAddress(preparedDeposit.policy.account.toBase58()),
+                value: shortenAddress(
+                  preparedDeposit.policy.account.toBase58()
+                ),
               },
             ]
           : []),
@@ -550,14 +554,13 @@ export function buildEarnDepositReviewItem(args: {
         })),
       }
     : null;
-  const pages =
-    batchPage
-      ? [batchPage]
-      : stage === "policy"
-      ? [policyPage]
-      : stage === "policy-finalize"
-      ? [finalizePage]
-      : [depositPage];
+  const pages = batchPage
+    ? [batchPage]
+    : stage === "policy"
+    ? [policyPage]
+    : stage === "policy-finalize"
+    ? [finalizePage]
+    : [depositPage];
 
   return {
     actionMode: "vote",
@@ -721,7 +724,7 @@ export function buildEarnWithdrawReviewItem(args: {
             mascotNote: isFinalWithdrawStep
               ? args.draft.mode === "full"
                 ? "I'm sorry to see you go. This transaction returns your money, closes the Earn accounts, and refunds the rent you've paid. You're always welcome back."
-                : "This returns USDC from the Earn source you selected. Your Earn setup stays active for the rest of your position."
+                : `This returns ${args.draft.symbol} from the Earn source you selected. Your Earn setup stays active for the rest of your position.`
               : "Your Earn balance is split across sources, so we'll withdraw this one first and then continue to the next step.",
             rows: [
               ...(step
@@ -756,9 +759,11 @@ export function buildEarnWithdrawReviewItem(args: {
 }
 
 export function buildEarnCleanupReviewItem(args: {
-  preparedCleanup?: (SmartAccountPreparedEarnUsdcCleanup & {
-    estimatedRefundLamports?: number | null;
-  }) | null;
+  preparedCleanup?:
+    | (SmartAccountPreparedEarnUsdcCleanup & {
+        estimatedRefundLamports?: number | null;
+      })
+    | null;
 }): ApprovalReviewDisplayItem {
   const preparedCleanup = args.preparedCleanup ?? null;
   const idleTransferRaw = preparedCleanup?.persistence.idleTransferAmountRaw
@@ -809,14 +814,14 @@ export function buildEarnCleanupReviewItem(args: {
           },
         ]
       : []),
-    ...(estimatedRefundLamports !== null
-      ? [
+    ...(estimatedRefundLamports === null
+      ? []
+      : [
           {
             label: "Estimated refund",
             value: formatSolLamports(estimatedRefundLamports),
           },
-        ]
-      : []),
+        ]),
   ];
 
   return {
@@ -891,83 +896,151 @@ export function buildEarnAutodepositSetupReviewItem(args: {
   const recurringDelegation =
     args.preparedSetup?.persistence.recurringDelegation ?? null;
   const policyAccount = args.preparedSetup?.persistence.policyAccount ?? null;
-  const onChainRows: ApprovalReviewDisplaySection["rows"] = !requiresSignature
-    ? [
+  const onChainRows: ApprovalReviewDisplaySection["rows"] = requiresSignature
+    ? isEdit && stage === "authority"
+      ? [
+          {
+            label: "Primitive",
+            value: "Initialize allowance authority",
+          },
+          {
+            label: "Policy",
+            value: "Keep existing Autodeposit policy seed",
+          },
+          ...(args.draft.existingPolicySeed
+            ? [
+                {
+                  label: "Policy seed",
+                  value: args.draft.existingPolicySeed,
+                },
+              ]
+            : []),
+        ]
+      : stage === "authority"
+      ? [
+          {
+            label: "Primitive",
+            value: "Initialize allowance authority",
+          },
+        ]
+      : stage === "policy"
+      ? [
+          {
+            label: "Primitive",
+            value: "Create Autodeposit policy",
+          },
+          ...(policyAccount
+            ? [
+                {
+                  label: "Policy account",
+                  value: shortenAddress(policyAccount),
+                },
+              ]
+            : []),
+        ]
+      : [
+          {
+            label: "Primitive",
+            value: "Create recurring allowance",
+          },
+          {
+            label: "Delegatee",
+            value: EARN_VAULT_LABEL,
+          },
+          ...(recurringDelegation
+            ? [
+                {
+                  label: "Delegation",
+                  value: shortenAddress(recurringDelegation),
+                },
+              ]
+            : []),
+          ...(policyAccount
+            ? [
+                {
+                  label: "Policy account",
+                  value: shortenAddress(policyAccount),
+                },
+              ]
+            : []),
+        ]
+    : [
         {
           label: "Update",
           value: "Save database-only Autodeposit setting",
         },
-      ]
-    : isEdit && stage === "authority"
-    ? [
-        {
-          label: "Primitive",
-          value: "Initialize allowance authority",
-        },
-        {
-          label: "Policy",
-          value: "Keep existing Autodeposit policy seed",
-        },
-        ...(args.draft.existingPolicySeed
-          ? [
-              {
-                label: "Policy seed",
-                value: args.draft.existingPolicySeed,
-              },
-            ]
-          : []),
-      ]
-    : stage === "authority"
-    ? [
-        {
-          label: "Primitive",
-          value: "Initialize allowance authority",
-        },
-      ]
-    : stage === "policy"
-    ? [
-        {
-          label: "Primitive",
-          value: "Create Autodeposit policy",
-        },
-        ...(policyAccount
-          ? [
-              {
-                label: "Policy account",
-                value: shortenAddress(policyAccount),
-              },
-            ]
-          : []),
-      ]
-    : [
-        {
-          label: "Primitive",
-          value: "Create recurring allowance",
-        },
-        {
-          label: "Delegatee",
-          value: EARN_VAULT_LABEL,
-        },
-        ...(recurringDelegation
-          ? [
-              {
-                label: "Delegation",
-                value: shortenAddress(recurringDelegation),
-              },
-            ]
-          : []),
-        ...(policyAccount
-          ? [
-              {
-                label: "Policy account",
-                value: shortenAddress(policyAccount),
-              },
-            ]
-          : []),
       ];
   const reviewSections: ApprovalReviewDisplaySection[] = [
-    ...(!requiresSignature
-      ? [
+    ...(requiresSignature
+      ? isEdit
+        ? [
+            {
+              title: "Approval #1",
+              rows: [
+                ...(changeRows.length > 0
+                  ? changeRows
+                  : [
+                      {
+                        label: "Changes",
+                        value: "No Autodeposit changes detected",
+                      },
+                    ]),
+                ...onChainRows,
+              ],
+            },
+          ]
+        : [
+            {
+              title: "Approval #1",
+              rows: [
+                {
+                  label: "Setup",
+                  value: "Initialize allowance authority",
+                },
+              ],
+            },
+            {
+              title: "Approval #2",
+              rows: [
+                {
+                  label: "Policy",
+                  value:
+                    "Create the Autodeposit policy for this recurring allowance",
+                },
+                {
+                  label: "Allowance",
+                  value: autodepositSweepRule,
+                },
+                {
+                  label: "Minimum balance",
+                  value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account`,
+                },
+              ],
+            },
+            {
+              title: "Approval #3",
+              rows: [
+                {
+                  label: "Allowance",
+                  value: autodepositSweepRule,
+                },
+                {
+                  label: "Minimum balance",
+                  value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account`,
+                },
+                { label: "Delegatee", value: EARN_VAULT_LABEL },
+                ...(recurringDelegation
+                  ? [
+                      {
+                        label: "Delegation",
+                        value: shortenAddress(recurringDelegation),
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ]
+      : [
           {
             title: "Database update",
             rows:
@@ -980,86 +1053,18 @@ export function buildEarnAutodepositSetupReviewItem(args: {
                     },
                   ],
           },
-        ]
-      : !isEdit
-      ? [
-          {
-            title: "Approval #1",
-            rows: [
-              {
-                label: "Setup",
-                value: "Initialize allowance authority",
-              },
-            ],
-          },
-          {
-            title: "Approval #2",
-            rows: [
-              {
-                label: "Policy",
-                value:
-                  "Create the Autodeposit policy for this recurring allowance",
-              },
-              {
-                label: "Allowance",
-                value: autodepositSweepRule,
-              },
-              {
-                label: "Minimum balance",
-                value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account`,
-              },
-            ],
-          },
-          {
-            title: "Approval #3",
-            rows: [
-              {
-                label: "Allowance",
-                value: autodepositSweepRule,
-              },
-              {
-                label: "Minimum balance",
-                value: `Keep ${args.draft.keepAmountLabel} ${args.draft.symbol} in Main Account`,
-              },
-              { label: "Delegatee", value: EARN_VAULT_LABEL },
-              ...(recurringDelegation
-                ? [
-                    {
-                      label: "Delegation",
-                      value: shortenAddress(recurringDelegation),
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ]
-      : [
-          {
-            title: "Approval #1",
-            rows: [
-              ...(changeRows.length > 0
-                ? changeRows
-                : [
-                    {
-                      label: "Changes",
-                      value: "No Autodeposit changes detected",
-                    },
-                  ]),
-              ...onChainRows,
-            ],
-          },
         ]),
   ];
-  const heading = !requiresSignature
-    ? "Save Autodeposit setting"
-    : isEdit
-    ? "Update recurring allowance"
-    : "Initialize allowance authority";
-  const firstPageTitle = !requiresSignature
-    ? "Autodeposit"
-    : isEdit
-    ? "Approval"
-    : "Approval 1 of 3";
+  const heading = requiresSignature
+    ? isEdit
+      ? "Update recurring allowance"
+      : "Initialize allowance authority"
+    : "Save Autodeposit setting";
+  const firstPageTitle = requiresSignature
+    ? isEdit
+      ? "Approval"
+      : "Approval 1 of 3"
+    : "Autodeposit";
 
   return {
     actionMode: "vote",
@@ -1070,11 +1075,11 @@ export function buildEarnAutodepositSetupReviewItem(args: {
         ? {
             title: firstPageTitle,
             heading,
-            mascotNote: !requiresSignature
-              ? "Saved. This only updates your Autodeposit rule in Loyal, so there's no wallet approval this time."
-              : isEdit
-              ? "This updates your signed Autodeposit settings while keeping the same policy in place."
-              : "Solana has native subscriptions now. Since this is your first Earn subscription, let's set up the authority that makes Autodeposit possible.",
+            mascotNote: requiresSignature
+              ? isEdit
+                ? "This updates your signed Autodeposit settings while keeping the same policy in place."
+                : "Solana has native subscriptions now. Since this is your first Earn subscription, let's set up the authority that makes Autodeposit possible."
+              : "Saved. This only updates your Autodeposit rule in Loyal, so there's no wallet approval this time.",
             rows: changeRows,
             collapsibles: [
               {
@@ -1123,13 +1128,13 @@ export function buildEarnAutodepositSetupReviewItem(args: {
             ],
           },
     ],
-    primaryActionLabel: !requiresSignature
-      ? "Save changes"
-      : stage === "authority"
-      ? "Initialize authority"
-      : stage === "policy"
-      ? "Create policy"
-      : "Create allowance",
+    primaryActionLabel: requiresSignature
+      ? stage === "authority"
+        ? "Initialize authority"
+        : stage === "policy"
+        ? "Create policy"
+        : "Create allowance"
+      : "Save changes",
     reviewSections,
     secondaryActionLabel: "Cancel",
     sourceLabel: args.draft.source.label,

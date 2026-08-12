@@ -97,6 +97,7 @@ const kaminoReserveOffsets = {
   liquidityAvailableAmount: kaminoReserveOffsetBase + 216,
   liquidityMintPubkey: kaminoReserveOffsetBase + 120,
   liquiditySupplyVault: kaminoReserveOffsetBase + 152,
+  liquidityTokenProgram: kaminoReserveOffsetBase + 400,
   collateralMintTotalSupply: kaminoReserveOffsetBase + 2584,
 } as const;
 const kaminoObligationOffsets = {
@@ -483,6 +484,10 @@ function createSerializedKaminoReserveAccount(args: {
   kaminoReserveLiquiditySupply
     .toBuffer()
     .copy(data, kaminoReserveOffsets.liquiditySupplyVault);
+  TOKEN_PROGRAM_ID.toBuffer().copy(
+    data,
+    kaminoReserveOffsets.liquidityTokenProgram
+  );
   kaminoReserveCollateralMint
     .toBuffer()
     .copy(data, kaminoReserveOffsets.collateralMintPubkey);
@@ -753,6 +758,11 @@ function expectEarnRoutePolicyPayloadUsesSafeUniverse(
   expect(
     generatedPubkeyConstraintValues(depositConstraint!.accountConstraints, 5)
   ).toEqual(expectedStableMints);
+  const depositMintConstraint = depositConstraint!.accountConstraints.find(
+    (constraint) => constraint.accountIndex === 5
+  );
+  expect(expectedStableMints).toHaveLength(6);
+  expect(depositMintConstraint?.owner).toBeNull();
 }
 
 function expectEarnSetupPolicyPayloadUsesSafeUniverse(
@@ -1597,10 +1607,10 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
 
     expect(result.withdrawSteps).toHaveLength(1);
-    expect(result.withdrawSteps[0]?.accountingReserve.reserve.toBase58()).toBe(
+    expect(result.withdrawSteps[0]?.accountingReserve?.reserve.toBase58()).toBe(
       kaminoReserve.toBase58()
     );
-    expect(result.withdrawSteps[0]?.executionReserve.reserve.toBase58()).toBe(
+    expect(result.withdrawSteps[0]?.executionReserve?.reserve.toBase58()).toBe(
       executionReserve.toBase58()
     );
     expect(result.withdrawSteps[0]?.persistence).toMatchObject({
@@ -1866,10 +1876,10 @@ describe("prepareEarnUsdcWithdraw", () => {
       { isWritable: true }
     );
     expect(result.mode).toBe("full");
-    expect(result.targetReserve.obligation.toBase58()).toBe(
+    expect(result.targetReserve?.obligation.toBase58()).toBe(
       deriveKaminoVanillaObligation(
         result.vault.pubkey,
-        result.targetReserve.market
+        result.targetReserve!.market
       ).toBase58()
     );
     expect(result.persistence).toMatchObject({
@@ -2196,6 +2206,7 @@ describe("prepareEarnUsdcWithdraw", () => {
         amountRaw: BigInt(1_000_000),
         mint: STABLECOIN_MINTS[Stablecoin.USDC],
         tokenAccount: deriveVaultUsdcAta(),
+        tokenProgramId: TOKEN_PROGRAM_ID,
       },
       yieldRoutingPolicy: {
         account: policyAccount,
@@ -2213,6 +2224,9 @@ describe("prepareEarnUsdcWithdraw", () => {
       result.autodepositClosePrepared?.prepared.instructions[1]?.programId.toBase58()
     ).toBe(programId.toBase58());
     expect(result.withdrawSteps).toHaveLength(1);
+    expect(result.targetReserve).toBeNull();
+    expect(result.withdrawSteps[0]?.accountingReserve).toBeNull();
+    expect(result.withdrawSteps[0]?.executionReserve).toBeNull();
     expect(result.withdrawSteps[0]?.persistence.autodepositClose).toMatchObject(
       {
         cluster: "mainnet-beta",

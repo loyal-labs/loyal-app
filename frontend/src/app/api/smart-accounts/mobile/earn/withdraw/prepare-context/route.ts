@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { NextResponse } from "next/server";
 
 import { getOrCreateCurrentUser } from "@/features/chat/server/app-user";
 import { authenticateMobileWalletRequest } from "@/features/identity/server/mobile-wallet-auth";
@@ -12,13 +12,13 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { parseEarnWithdrawPrepareRequestBody } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 import {
   EarnWithdrawResolveError,
   resolveEarnUsdcWithdrawInput,
   serializeEarnUsdcWithdrawInput,
 } from "@/lib/yield-optimization/earn-withdraw-input-resolution.server";
+import { parseEarnWithdrawPrepareRequestBody } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 
 // Context twin of `../prepare` for ON-DEVICE withdraw prepare: same auth and
 // source-selection/reconcile logic (shared via
@@ -81,17 +81,10 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "Mobile wallet auth failed.");
   }
 
-  let amountRaw: bigint;
-  let mode: "partial" | "full";
-  let selectedSourceRequest: ReturnType<
-    typeof parseEarnWithdrawPrepareRequestBody
-  >["source"];
+  let amountRaw: bigint | "max";
+  let sourceId: string;
   try {
-    ({
-      amountRaw,
-      mode,
-      source: selectedSourceRequest,
-    } = parseEarnWithdrawPrepareRequestBody(body));
+    ({ amountRaw, sourceId } = parseEarnWithdrawPrepareRequestBody(body));
   } catch (error) {
     return jsonError(
       400,
@@ -151,16 +144,15 @@ export async function POST(request: Request) {
       settingsPda: new PublicKey(settingsPda),
     });
     const resolved = await resolveEarnUsdcWithdrawInput({
-      amountRaw,
       cluster,
       connection: getConnection(solanaEnv),
       earnVaultPda,
       logTag: "mobile-earn-withdraw-prepare-context",
-      mode,
+      requestedAmountRaw: amountRaw,
       policySigner: getDeploymentPolicySignerPublicKey(),
       programId,
       settingsPda,
-      sourceRequest: selectedSourceRequest,
+      sourceId,
       walletAddress,
     });
 
@@ -176,12 +168,12 @@ export async function POST(request: Request) {
       return jsonError(error.status, error.code, error.message);
     }
     console.error("[mobile-earn-withdraw-prepare-context] context failed", {
-      amountRaw: amountRaw.toString(),
+      amountRaw: amountRaw === "max" ? amountRaw : amountRaw.toString(),
       cluster,
       errorMessage:
         error instanceof Error ? error.message : "Unknown context error.",
       errorName: error instanceof Error ? error.name : typeof error,
-      mode,
+      sourceId,
       settings: settingsPda,
       solanaEnv,
       stack: error instanceof Error ? error.stack : undefined,

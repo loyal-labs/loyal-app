@@ -11,10 +11,14 @@ import {
 import { PublicKey } from "@solana/web3.js";
 
 import {
+  type CurrentBestApyReserveByStablecoin,
   getCurrentBestApyReserveByStablecoin,
   getLatestReserveObservationsByReserve,
-  type CurrentBestApyReserveByStablecoin,
 } from "@/lib/kamino/timescale-reserve-client.server";
+import {
+  type EarnProductAsset,
+  resolveEarnProductAsset,
+} from "./earn-product-mints.shared";
 import type { UserYieldPositionRecord } from "./yield-deposit-repository.server";
 
 // A reserve this small cannot be a deliberate Earn venue — the hidden OnRe
@@ -31,8 +35,11 @@ export type EarnUsdcReserveTarget = {
   reserve: PublicKey;
   market: PublicKey;
   liquidityMint: PublicKey;
+  liquidityTokenProgram: PublicKey;
   supplyApyBps: bigint | null;
 };
+
+export type EarnReserveTarget = EarnUsdcReserveTarget;
 
 function supplyApyToBps(supplyApy: number): bigint {
   return BigInt(Math.round(supplyApy * 10_000));
@@ -51,7 +58,8 @@ function getSafeMarkets(cluster: LoyalCluster): Set<string> {
 }
 
 function reserveRowToTarget(
-  row: CurrentBestApyReserveByStablecoin
+  row: CurrentBestApyReserveByStablecoin,
+  productMint: EarnProductAsset
 ): EarnUsdcReserveTarget {
   if (!row.market) {
     throw new Error("Kamino reserve candidate is missing a market.");
@@ -59,6 +67,7 @@ function reserveRowToTarget(
 
   return {
     liquidityMint: new PublicKey(row.liquidityMint),
+    liquidityTokenProgram: productMint.tokenProgramId,
     market: new PublicKey(row.market),
     reserve: new PublicKey(row.reserve),
     supplyApyBps: supplyApyToBps(row.supplyApy),
@@ -71,6 +80,10 @@ export function getMainUsdcEarnReserveTarget(
   const target = getKaminoUsdcEarnTargetForCluster(cluster);
   return {
     liquidityMint: target.liquidityMint,
+    liquidityTokenProgram: resolveEarnProductAsset({
+      cluster,
+      mint: target.liquidityMint,
+    }).tokenProgramId,
     market: target.market,
     reserve: target.reserve,
     supplyApyBps: null,
@@ -80,24 +93,47 @@ export function getMainUsdcEarnReserveTarget(
 export async function findBestSafeUsdcEarnReserveTarget(
   cluster: LoyalCluster
 ): Promise<EarnUsdcReserveTarget | null> {
-  if (cluster === LoyalCluster.Devnet) {
-    return getMainUsdcEarnReserveTarget(cluster);
+  return findBestSafeEarnReserveTarget({
+    cluster,
+    productMint: resolveEarnProductAsset({
+      cluster,
+      mint: getUsdcMint(cluster),
+    }),
+  });
+}
+
+export async function findBestSafeEarnReserveTarget(args: {
+  cluster: LoyalCluster;
+  productMint: EarnProductAsset;
+}): Promise<EarnReserveTarget | null> {
+  if (args.cluster === LoyalCluster.Devnet) {
+    return args.productMint.stablecoin === Stablecoin.USDC
+      ? getMainUsdcEarnReserveTarget(args.cluster)
+      : null;
   }
 
-  const usdcMint = getUsdcMint(cluster).toBase58();
-  const safeMarkets = getSafeMarkets(cluster);
   const rows = await getCurrentBestApyReserveByStablecoin({
     riskProfile: RiskBasket.Safe,
   });
-  const row = rows.find(
+  return selectBestSafeEarnReserveTarget({ ...args, rows });
+}
+
+export function selectBestSafeEarnReserveTarget(args: {
+  cluster: LoyalCluster;
+  productMint: EarnProductAsset;
+  rows: CurrentBestApyReserveByStablecoin[];
+}): EarnReserveTarget | null {
+  const safeMarkets = getSafeMarkets(args.cluster);
+  const liquidityMint = args.productMint.mint.toBase58();
+  const row = args.rows.find(
     (candidate) =>
-      candidate.stablecoin === Stablecoin.USDC &&
-      candidate.liquidityMint === usdcMint &&
+      candidate.stablecoin === args.productMint.stablecoin &&
+      candidate.liquidityMint === liquidityMint &&
       typeof candidate.market === "string" &&
       safeMarkets.has(candidate.market)
   );
 
-  return row ? reserveRowToTarget(row) : null;
+  return row ? reserveRowToTarget(row, args.productMint) : null;
 }
 
 export function assertSafeUsdcEarnReserveMetadata(args: {
@@ -110,16 +146,32 @@ export function assertSafeUsdcEarnReserveMetadata(args: {
   market: string;
   targetReserve: string;
 } {
-  const expectedUsdcMint = getUsdcMint(args.cluster).toBase58();
+  return assertSafeEarnReserveMetadata({
+    ...args,
+    expectedLiquidityMint: getUsdcMint(args.cluster).toBase58(),
+  });
+}
+
+export function assertSafeEarnReserveMetadata(args: {
+  cluster: LoyalCluster;
+  expectedLiquidityMint: string;
+  liquidityMint: string;
+  market: string | null;
+  targetReserve: string;
+}): {
+  liquidityMint: string;
+  market: string;
+  targetReserve: string;
+} {
   const safeMarkets = getSafeMarkets(args.cluster);
 
-  if (args.liquidityMint !== expectedUsdcMint) {
+  if (args.liquidityMint !== args.expectedLiquidityMint) {
     throw new Error(
-      "Earn reserve liquidity mint must be the cluster USDC mint."
+      "Earn reserve liquidity mint does not match the deposit mint."
     );
   }
-  if (!args.market || !safeMarkets.has(args.market)) {
-    throw new Error("Earn reserve market is not in the Safe USDC universe.");
+  if (!(args.market && safeMarkets.has(args.market))) {
+    throw new Error("Earn reserve market is not in the Safe universe.");
   }
 
   new PublicKey(args.targetReserve);
@@ -137,7 +189,8 @@ export function earnReserveTargetFromActivePosition(
   position: Pick<
     UserYieldPositionRecord,
     "currentLiquidityMint" | "currentMarket" | "currentReserve"
-  >
+  >,
+  cluster: LoyalCluster = LoyalCluster.MainnetBeta
 ): EarnUsdcReserveTarget {
   if (!position.currentMarket) {
     throw new Error("Active Earn position is missing current reserve market.");
@@ -145,6 +198,10 @@ export function earnReserveTargetFromActivePosition(
 
   return {
     liquidityMint: new PublicKey(position.currentLiquidityMint),
+    liquidityTokenProgram: resolveEarnProductAsset({
+      cluster,
+      mint: position.currentLiquidityMint,
+    }).tokenProgramId,
     market: new PublicKey(position.currentMarket),
     reserve: new PublicKey(position.currentReserve),
     supplyApyBps: null,
@@ -190,19 +247,23 @@ export async function findEarnReserveTargetIneligibility(args: {
 
 // Deposit-routing wrapper around earnReserveTargetFromActivePosition:
 // refuses to follow a position into an ineligible reserve and lets the
-// caller fall through to the default main-market target instead.
-// ponytail: fallback is the hardcoded MAIN target, not the best eligible
-// same-market sibling — nobody currently holds an ineligible reserve, and
-// full exits unwind every market since #482.
+// caller select the best eligible reserve for that same mint instead.
 export async function resolveEligibleEarnDepositTarget(args: {
   cluster: LoyalCluster;
+  liquidityMint: string;
   logTag: string;
   position: Pick<
     UserYieldPositionRecord,
     "currentLiquidityMint" | "currentMarket" | "currentReserve"
   >;
 }): Promise<EarnUsdcReserveTarget | null> {
-  const target = earnReserveTargetFromActivePosition(args.position);
+  if (args.position.currentLiquidityMint !== args.liquidityMint) {
+    return null;
+  }
+  const target = earnReserveTargetFromActivePosition(
+    args.position,
+    args.cluster
+  );
   const ineligibility = await findEarnReserveTargetIneligibility({
     cluster: args.cluster,
     reserve: target.reserve.toBase58(),
@@ -212,7 +273,7 @@ export async function resolveEligibleEarnDepositTarget(args: {
   }
 
   console.error(
-    `[${args.logTag}] refusing ineligible Earn deposit target; falling back to the default reserve`,
+    `[${args.logTag}] refusing ineligible Earn deposit target; selecting another same-mint reserve`,
     {
       cluster: args.cluster,
       market: target.market.toBase58(),

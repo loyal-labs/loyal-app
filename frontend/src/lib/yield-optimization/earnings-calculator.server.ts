@@ -5,13 +5,28 @@ import {
   type EarningsRangeId,
 } from "./earnings.shared";
 
-export { EARNINGS_RANGE_IDS };
 export type { EarnEarningsBar, EarnEarningsResponse, EarningsRangeId };
+export { EARNINGS_RANGE_IDS };
 
 export type YieldPositionEvent = {
   amountRaw: bigint;
   confirmedAt: Date;
+  liquidityMint?: string;
   type: "deposit" | "withdrawal";
+};
+
+export type YieldPortfolioExposure = {
+  amountRaw: bigint;
+  kind: "idle" | "kamino";
+  liquidityMint: string;
+  reserve: string | null;
+  sourceId: string;
+};
+
+export type YieldPortfolioSnapshot = {
+  exposures: readonly YieldPortfolioExposure[];
+  observedAt: Date;
+  observedSlot: bigint;
 };
 
 export type YieldPositionPathEvent = {
@@ -46,7 +61,7 @@ type ZonedParts = {
   year: number;
 };
 
-const USDC_DECIMALS_FACTOR = 1_000_000;
+const STABLECOIN_MICROS_FACTOR = 1_000_000;
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
 export function isEarningsRangeId(value: string): value is EarningsRangeId {
@@ -262,7 +277,7 @@ export function createEarningsBuckets(args: {
 }
 
 function rawToUsd(raw: bigint): number {
-  return Number(raw) / USDC_DECIMALS_FACTOR;
+  return Number(raw) / STABLECOIN_MICROS_FACTOR;
 }
 
 function legacyEventsToPathEvents(
@@ -409,11 +424,155 @@ function deriveApyBps(args: {
   );
 }
 
+export function principalByMintAt(
+  events: readonly YieldPositionEvent[],
+  at: Date
+): Map<string, bigint> {
+  const principal = new Map<string, bigint>();
+  for (const event of events) {
+    if (event.confirmedAt.getTime() > at.getTime()) {
+      break;
+    }
+    const mint = event.liquidityMint ?? "";
+    const current = principal.get(mint) ?? BigInt(0);
+    principal.set(
+      mint,
+      event.type === "deposit"
+        ? current + event.amountRaw
+        : current > event.amountRaw
+        ? current - event.amountRaw
+        : BigInt(0)
+    );
+  }
+  return principal;
+}
+
+function sumPrincipal(principal: ReadonlyMap<string, bigint>): bigint {
+  return [...principal.values()].reduce(
+    (sum, amount) => sum + amount,
+    BigInt(0)
+  );
+}
+
+function getPortfolioSnapshotAt(
+  snapshots: readonly YieldPortfolioSnapshot[],
+  at: Date
+): YieldPortfolioSnapshot | null {
+  let current: YieldPortfolioSnapshot | null = null;
+  for (const snapshot of snapshots) {
+    if (snapshot.observedAt.getTime() > at.getTime()) {
+      break;
+    }
+    current = snapshot;
+  }
+  return current;
+}
+
+function portfolioApyAt(args: {
+  apySamples: readonly ReserveApySample[];
+  at: Date;
+  snapshot: YieldPortfolioSnapshot | null;
+}): number | null {
+  if (!args.snapshot) {
+    return null;
+  }
+  let weighted = 0;
+  let totalRaw = BigInt(0);
+  for (const exposure of args.snapshot.exposures) {
+    if (exposure.amountRaw <= BigInt(0)) {
+      continue;
+    }
+    totalRaw += exposure.amountRaw;
+    if (exposure.kind === "idle") {
+      continue;
+    }
+    const apy = getApyAt(args.apySamples, exposure.reserve, args.at);
+    if (apy === null) {
+      return null;
+    }
+    weighted += Number(exposure.amountRaw) * apy;
+  }
+  return totalRaw > BigInt(0) ? weighted / Number(totalRaw) : null;
+}
+
+function calculatePortfolioWindow(args: {
+  apySamples: readonly ReserveApySample[];
+  endAt: Date;
+  events: readonly YieldPositionEvent[];
+  snapshots: readonly YieldPortfolioSnapshot[];
+  startAt: Date;
+}) {
+  const startMs = args.startAt.getTime();
+  const endMs = args.endAt.getTime();
+  if (endMs <= startMs) {
+    const principalAmountRaw = sumPrincipal(
+      principalByMintAt(args.events, args.endAt)
+    );
+    return { avgPrincipalUsd: 0, earnedUsd: 0, principalAmountRaw };
+  }
+  const changeTimes = new Set<number>([startMs, endMs]);
+  for (const event of args.events) {
+    const time = event.confirmedAt.getTime();
+    if (time > startMs && time < endMs) {
+      changeTimes.add(time);
+    }
+  }
+  for (const snapshot of args.snapshots) {
+    const time = snapshot.observedAt.getTime();
+    if (time > startMs && time < endMs) {
+      changeTimes.add(time);
+    }
+  }
+  for (const sample of args.apySamples) {
+    const time = sample.observedAt.getTime();
+    if (time > startMs && time < endMs) {
+      changeTimes.add(time);
+    }
+  }
+
+  const sortedTimes = [...changeTimes].sort((left, right) => left - right);
+  let earnedUsd = 0;
+  let principalSeconds = 0;
+  for (let index = 0; index < sortedTimes.length - 1; index += 1) {
+    const segmentStart = new Date(sortedTimes[index]);
+    const segmentSeconds = (sortedTimes[index + 1] - sortedTimes[index]) / 1000;
+    const principalRaw = sumPrincipal(
+      principalByMintAt(args.events, segmentStart)
+    );
+    principalSeconds += rawToUsd(principalRaw) * segmentSeconds;
+    const snapshot = getPortfolioSnapshotAt(args.snapshots, segmentStart);
+    for (const exposure of snapshot?.exposures ?? []) {
+      if (
+        exposure.kind !== "kamino" ||
+        exposure.amountRaw <= BigInt(0) ||
+        !exposure.reserve
+      ) {
+        continue;
+      }
+      const apy = getApyAt(args.apySamples, exposure.reserve, segmentStart);
+      if (apy !== null) {
+        earnedUsd +=
+          (rawToUsd(exposure.amountRaw) * apy * segmentSeconds) /
+          SECONDS_PER_YEAR;
+      }
+    }
+  }
+  const bucketSeconds = (endMs - startMs) / 1000;
+  return {
+    avgPrincipalUsd: bucketSeconds > 0 ? principalSeconds / bucketSeconds : 0,
+    earnedUsd,
+    principalAmountRaw: sumPrincipal(
+      principalByMintAt(args.events, args.endAt)
+    ),
+  };
+}
+
 export function calculateEarnEarnings(args: {
   apySamples: readonly ReserveApySample[];
   events: readonly YieldPositionEvent[];
   now: Date;
   pathEvents?: readonly YieldPositionPathEvent[];
+  portfolioSnapshots?: readonly YieldPortfolioSnapshot[];
   range: EarningsRangeId;
   timezone: string;
 }): EarnEarningsResponse {
@@ -426,11 +585,20 @@ export function calculateEarnEarnings(args: {
   const apySamples = [...args.apySamples].sort(
     (a, b) => a.observedAt.getTime() - b.observedAt.getTime()
   );
+  const portfolioSnapshots = [...(args.portfolioSnapshots ?? [])].sort(
+    (a, b) => a.observedAt.getTime() - b.observedAt.getTime()
+  );
   const firstDepositAt =
-    pathEvents.find((event) => event.type === "deposit")?.confirmedAt ?? null;
+    events.find((event) => event.type === "deposit")?.confirmedAt ??
+    pathEvents.find((event) => event.type === "deposit")?.confirmedAt ??
+    null;
   const lastDepositAt =
+    [...events].reverse().find((event) => event.type === "deposit")
+      ?.confirmedAt ??
     [...pathEvents].reverse().find((event) => event.type === "deposit")
-      ?.confirmedAt ?? null;
+      ?.confirmedAt ??
+    null;
+  const usePortfolio = portfolioSnapshots.length > 0;
   const buckets = createEarningsBuckets({
     firstDepositAt,
     now: args.now,
@@ -438,12 +606,20 @@ export function calculateEarnEarnings(args: {
     timezone: args.timezone,
   });
   const bars = buckets.map((bucket) => {
-    const result = calculateWindow({
-      apySamples,
-      endAt: bucket.endAt,
-      pathEvents,
-      startAt: bucket.startAt,
-    });
+    const result = usePortfolio
+      ? calculatePortfolioWindow({
+          apySamples,
+          endAt: bucket.endAt,
+          events,
+          snapshots: portfolioSnapshots,
+          startAt: bucket.startAt,
+        })
+      : calculateWindow({
+          apySamples,
+          endAt: bucket.endAt,
+          pathEvents,
+          startAt: bucket.startAt,
+        });
     const bucketSeconds =
       (bucket.endAt.getTime() - bucket.startAt.getTime()) / 1000;
 
@@ -464,27 +640,35 @@ export function calculateEarnEarnings(args: {
     };
   });
   const lifetimeStart = firstDepositAt ?? args.now;
-  const lifetime = calculateWindow({
-    apySamples,
-    endAt: args.now,
-    pathEvents,
-    startAt: lifetimeStart,
-  });
-  const sinceLastDeposit = calculateWindow({
-    apySamples,
-    endAt: args.now,
-    pathEvents,
-    startAt: lastDepositAt ?? args.now,
-  });
-  const today = calculateWindow({
-    apySamples,
-    endAt: args.now,
-    pathEvents,
-    startAt: startOfLocalDay(args.now, args.timezone),
-  });
+  const calculateRange = (startAt: Date) =>
+    usePortfolio
+      ? calculatePortfolioWindow({
+          apySamples,
+          endAt: args.now,
+          events,
+          snapshots: portfolioSnapshots,
+          startAt,
+        })
+      : calculateWindow({
+          apySamples,
+          endAt: args.now,
+          pathEvents,
+          startAt,
+        });
+  const lifetime = calculateRange(lifetimeStart);
+  const sinceLastDeposit = calculateRange(lastDepositAt ?? args.now);
+  const today = calculateRange(startOfLocalDay(args.now, args.timezone));
   const currentPathState = getPathStateAt(pathEvents, args.now);
-  const principalAmountRaw = currentPathState?.principalAmountRaw ?? BigInt(0);
-  const currentApy = currentPathState
+  const principalAmountRaw = usePortfolio
+    ? sumPrincipal(principalByMintAt(events, args.now))
+    : currentPathState?.principalAmountRaw ?? BigInt(0);
+  const currentApy = usePortfolio
+    ? portfolioApyAt({
+        apySamples,
+        at: args.now,
+        snapshot: getPortfolioSnapshotAt(portfolioSnapshots, args.now),
+      })
+    : currentPathState
     ? getApyAt(apySamples, currentPathState.reserve, args.now)
     : null;
 

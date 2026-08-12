@@ -7,14 +7,12 @@
 // it). The client hook imports it just the same.
 
 import {
-  KAMINO_VANILLA_OBLIGATION_ID,
-  KAMINO_VANILLA_OBLIGATION_TAG,
-  LoyalCluster,
-  RiskBasket,
-  Stablecoin,
   getKaminoUsdcEarnTargetForCluster,
   getRiskBasketMarketsForCluster,
-  getStablecoinMintForCluster,
+  KAMINO_VANILLA_OBLIGATION_ID,
+  KAMINO_VANILLA_OBLIGATION_TAG,
+  type LoyalCluster,
+  RiskBasket,
 } from "@loyal-labs/actions";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import {
@@ -25,7 +23,6 @@ import {
 } from "@loyal-labs/smart-account-vaults";
 import {
   AccountLayout,
-  TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import type {
@@ -37,6 +34,10 @@ import type {
 import { PublicKey } from "@solana/web3.js";
 
 import { resolveEarnPositionDisplay } from "./earn-position-display";
+import {
+  type EarnProductAsset,
+  getEarnProductAssetsForCluster,
+} from "./earn-product-mints.shared";
 
 const EARN_VAULT_INDEX = 1;
 const GET_MULTIPLE_ACCOUNTS_LIMIT = 100;
@@ -75,7 +76,9 @@ export type EarnRpcHolding = {
   observedSlot: string;
   provenance: Record<string, string | null>;
   reserve: string | null;
+  sourceId: string;
   supplyApyBps: string | null;
+  tokenProgramId: string;
 };
 
 export type EarnRpcWatchedAccount = {
@@ -84,7 +87,10 @@ export type EarnRpcWatchedAccount = {
 };
 
 export type EarnRpcHoldingsSnapshot = {
+  completeness: "complete";
+  /** @deprecated Wire compatibility; value is nominal stablecoin-par micros. */
   currentTotalAmountRaw: string;
+  currentTotalNominalUsdMicros: string;
   holdings: EarnRpcHolding[];
   observedAt: string;
   observedSlot: string;
@@ -119,6 +125,7 @@ type AccountRole =
     }
   | {
       kind: "idle";
+      asset: EarnProductAsset;
       pubkey: PublicKey;
     };
 
@@ -131,6 +138,7 @@ type DiscoveredReserveDeposit = {
 };
 
 type ReconciledReserveCandidate = DiscoveredReserveDeposit & {
+  asset: EarnProductAsset;
   liquidityMint: PublicKey;
   reserveAccount: AccountInfo<Buffer>;
   reserveCollateralMint: PublicKey;
@@ -183,28 +191,30 @@ function assertPolicyUniverse(args: {
   policy: EarnRpcPolicyMetadata | null | undefined;
 }): {
   allowedMarkets: Set<string>;
-  usdcMint: PublicKey;
+  assets: readonly EarnProductAsset[];
 } {
   const policy = args.policy;
   if (!policy) {
-    throw new Error("Active Earn policy metadata is required for RPC holdings.");
+    throw new Error(
+      "Active Earn policy metadata is required for RPC holdings."
+    );
   }
   if (policy.vaultIndex !== EARN_VAULT_INDEX) {
     throw new Error("Active Earn policy is not for the Earn vault.");
   }
 
-  const usdcMint = getStablecoinMintForCluster(
-    args.cluster,
-    Stablecoin.USDC
-  );
-  const usdcMintText = usdcMint.toBase58();
   const policyStableMints = new Set(policy.stableMints ?? []);
   const policyKaminoLiquidityMints = new Set(policy.kaminoLiquidityMints ?? []);
-  if (
-    !policyStableMints.has(usdcMintText) ||
-    !policyKaminoLiquidityMints.has(usdcMintText)
-  ) {
-    throw new Error("Active Earn policy does not include cluster USDC.");
+  const assets = getEarnProductAssetsForCluster(args.cluster).filter(
+    (asset) => {
+      const mint = asset.mint.toBase58();
+      return (
+        policyStableMints.has(mint) && policyKaminoLiquidityMints.has(mint)
+      );
+    }
+  );
+  if (assets.length === 0) {
+    throw new Error("Active Earn policy includes no supported product mint.");
   }
 
   const safeMarkets = new Set(
@@ -219,7 +229,7 @@ function assertPolicyUniverse(args: {
     throw new Error("Active Earn policy has no Safe Kamino markets.");
   }
 
-  return { allowedMarkets, usdcMint };
+  return { allowedMarkets, assets };
 }
 
 async function readAccountsInChunks(args: {
@@ -236,14 +246,17 @@ async function readAccountsInChunks(args: {
     index < args.pubkeys.length;
     index += GET_MULTIPLE_ACCOUNTS_LIMIT
   ) {
-    const chunk = args.pubkeys.slice(index, index + GET_MULTIPLE_ACCOUNTS_LIMIT);
+    const chunk = args.pubkeys.slice(
+      index,
+      index + GET_MULTIPLE_ACCOUNTS_LIMIT
+    );
     const result = await args.connection.getMultipleAccountsInfoAndContext(
       chunk,
       {
         commitment: SOURCE_COMMITMENT,
-        ...(args.minContextSlot !== undefined
-          ? { minContextSlot: args.minContextSlot }
-          : {}),
+        ...(args.minContextSlot === undefined
+          ? {}
+          : { minContextSlot: args.minContextSlot }),
       } satisfies GetMultipleAccountsConfig
     );
     chunkCount += 1;
@@ -264,11 +277,12 @@ function validateTokenAccountAmount(args: {
   accountLabel: string;
   expectedMint: PublicKey;
   expectedOwner: PublicKey;
+  tokenProgramId: PublicKey;
 }): bigint {
   if (!args.account) {
     return BigInt(0);
   }
-  if (!args.account.owner.equals(TOKEN_PROGRAM_ID)) {
+  if (!args.account.owner.equals(args.tokenProgramId)) {
     throw new Error(`${args.accountLabel} is not owned by the token program.`);
   }
 
@@ -368,7 +382,9 @@ function toKaminoHolding(args: {
       sourceSlot: String(args.sourceSlot),
     },
     reserve,
+    sourceId: `reserve:${reserve}`,
     supplyApyBps: args.candidate.supplyApyBps,
+    tokenProgramId: args.candidate.asset.tokenProgramId.toBase58(),
   };
 }
 
@@ -377,21 +393,17 @@ function toIdleHolding(args: {
   observedAt: string;
   observedSlot: string;
   sourceSlot: number;
-  usdcMint: PublicKey;
+  asset: EarnProductAsset;
   vaultPda: PublicKey;
   vaultUsdcAta: PublicKey;
-}): EarnRpcHolding | null {
-  if (args.amountRaw <= BigInt(0)) {
-    return null;
-  }
-
+}): EarnRpcHolding {
   return {
     amountRaw: args.amountRaw.toString(),
     kind: "idle",
     label: "Idle Balance",
-    liquidityMint: args.usdcMint.toBase58(),
+    liquidityMint: args.asset.mint.toBase58(),
     market: null,
-    marketName: "USDC",
+    marketName: args.asset.symbol,
     observedAt: args.observedAt,
     observedSlot: args.observedSlot,
     provenance: {
@@ -402,7 +414,9 @@ function toIdleHolding(args: {
       tokenAccount: args.vaultUsdcAta.toBase58(),
     },
     reserve: null,
+    sourceId: `idle:${args.vaultUsdcAta.toBase58()}`,
     supplyApyBps: null,
+    tokenProgramId: args.asset.tokenProgramId.toBase58(),
   };
 }
 
@@ -424,7 +438,7 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
   settingsPda: PublicKey;
   now?: () => Date;
 }): Promise<EarnRpcHoldingsSnapshot> {
-  const { allowedMarkets, usdcMint } = assertPolicyUniverse({
+  const { allowedMarkets, assets } = assertPolicyUniverse({
     cluster: args.cluster,
     policy: args.policy,
   });
@@ -435,15 +449,20 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     programId: args.programId,
     settingsPda: args.settingsPda,
   });
-  const vaultUsdcAta = getAssociatedTokenAddressSync(
-    usdcMint,
-    vaultPda,
-    true,
-    TOKEN_PROGRAM_ID
+  const safeMarkets = [...allowedMarkets].map(
+    (market) => new PublicKey(market)
   );
-  const safeMarkets = [...allowedMarkets].map((market) => new PublicKey(market));
   const firstStageRoles: AccountRole[] = [
-    { kind: "idle", pubkey: vaultUsdcAta },
+    ...assets.map((asset) => ({
+      asset,
+      kind: "idle" as const,
+      pubkey: getAssociatedTokenAddressSync(
+        asset.mint,
+        vaultPda,
+        true,
+        asset.tokenProgramId
+      ),
+    })),
     ...safeMarkets.map((market) => {
       const obligation = deriveKaminoVanillaObligation({
         lendProgramId,
@@ -460,8 +479,6 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
   });
   const accountForRole = (role: AccountRole) =>
     firstStage.values[firstStageRoles.indexOf(role)] ?? null;
-  const idleRole = firstStageRoles[0]!;
-  const idleAccount = accountForRole(idleRole);
   const discoveredDeposits: DiscoveredReserveDeposit[] = [];
 
   for (const obligationRole of firstStageRoles) {
@@ -557,12 +574,23 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
     if (!reserveAccounts.lendingMarket.equals(discovered.market)) {
       throw new Error("Kamino reserve lending market mismatch.");
     }
-    if (!reserveAccounts.reserveLiquidityMint.equals(usdcMint)) {
-      throw new Error("Kamino reserve liquidity mint is not cluster USDC.");
+    const reserveAsset = assets.find((asset) =>
+      asset.mint.equals(reserveAccounts.reserveLiquidityMint)
+    );
+    if (!reserveAsset) {
+      throw new Error("Kamino reserve liquidity mint is outside the policy.");
+    }
+    if (
+      !reserveAccounts.reserveLiquidityTokenProgram.equals(
+        reserveAsset.tokenProgramId
+      )
+    ) {
+      throw new Error("Kamino reserve liquidity token program mismatch.");
     }
 
     reconciledCandidates.push({
       ...discovered,
+      asset: reserveAsset,
       liquidityMint: reserveAccounts.reserveLiquidityMint,
       reserveAccount,
       reserveCollateralMint: reserveAccounts.reserveCollateralMint,
@@ -576,12 +604,6 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
   );
   const observedSlot = String(observedSlotNumber);
   const observedAt = (args.now ?? (() => new Date()))().toISOString();
-  const idleAmountRaw = validateTokenAccountAmount({
-    account: idleAccount,
-    accountLabel: "Earn vault USDC ATA",
-    expectedMint: usdcMint,
-    expectedOwner: vaultPda,
-  });
   const holdings = [
     ...reconciledCandidates.flatMap((candidate) => {
       const amountRaw = calculateKaminoRedeemableLiquidityAmountRaw({
@@ -597,23 +619,36 @@ export async function fetchEarnRpcHoldingsSnapshot(args: {
       });
       return holding ? [holding] : [];
     }),
-    ...(() => {
-      const holding = toIdleHolding({
-        amountRaw: idleAmountRaw,
-        observedAt,
-        observedSlot,
-        sourceSlot: firstStage.maxObservedSlot,
-        usdcMint,
-        vaultPda,
-        vaultUsdcAta,
+    ...firstStageRoles.flatMap((role) => {
+      if (role.kind !== "idle") {
+        return [];
+      }
+      const amountRaw = validateTokenAccountAmount({
+        account: accountForRole(role),
+        accountLabel: `Earn vault ${role.asset.symbol} ATA`,
+        expectedMint: role.asset.mint,
+        expectedOwner: vaultPda,
+        tokenProgramId: role.asset.tokenProgramId,
       });
-      return holding ? [holding] : [];
-    })(),
+      return [
+        toIdleHolding({
+          amountRaw,
+          asset: role.asset,
+          observedAt,
+          observedSlot,
+          sourceSlot: firstStage.maxObservedSlot,
+          vaultPda,
+          vaultUsdcAta: role.pubkey,
+        }),
+      ];
+    }),
   ];
-  const currentTotalAmountRaw = sumEarnRpcHoldingsAmountRaw(holdings);
+  const currentTotalNominalUsdMicros = sumEarnRpcHoldingsAmountRaw(holdings);
 
   return {
-    currentTotalAmountRaw: currentTotalAmountRaw.toString(),
+    completeness: "complete",
+    currentTotalAmountRaw: currentTotalNominalUsdMicros.toString(),
+    currentTotalNominalUsdMicros: currentTotalNominalUsdMicros.toString(),
     holdings,
     observedAt,
     observedSlot,

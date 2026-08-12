@@ -582,7 +582,10 @@ async function prepareEarnDepositViaFrontend(args: {
   session: FrontendSession;
 }): Promise<SmartAccountPreparedEarnUsdcDeposit> {
   const response = await frontendPostJson<EarnDepositPrepareResponse>({
-    body: { amountRaw: args.amountRaw.toString() },
+    body: {
+      amountRaw: args.amountRaw.toString(),
+      mint: EARN_TARGET.liquidityMint.toBase58(),
+    },
     cookie: args.session.cookie,
     path: "/api/smart-accounts/yield-optimization/deposits/prepare",
     session: args.session,
@@ -3745,7 +3748,10 @@ async function main() {
         }),
       depositPrepareInvalidAmount:
         await verifyFrontendFailureCaseWithStableCounts({
-          body: { amountRaw: "0" },
+          body: {
+            amountRaw: "0",
+            mint: EARN_TARGET.liquidityMint.toBase58(),
+          },
           cookie: args.session.cookie,
           expectedStatus: 400,
           label: "dry-run deposit prepare invalid amount",
@@ -3754,7 +3760,10 @@ async function main() {
         }),
       depositPrepareMissingSession:
         await verifyFrontendFailureCaseWithStableCounts({
-          body: { amountRaw: FIRST_DEPOSIT_RAW.toString() },
+          body: {
+            amountRaw: FIRST_DEPOSIT_RAW.toString(),
+            mint: EARN_TARGET.liquidityMint.toBase58(),
+          },
           expectedStatus: 401,
           label: "dry-run deposit prepare missing session",
           path: "/api/smart-accounts/yield-optimization/deposits/prepare",

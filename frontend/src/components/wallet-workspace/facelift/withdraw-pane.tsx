@@ -7,13 +7,13 @@ import {
   Undo2,
   Wallet,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import {
   deriveEarnWithdrawMode,
-  sanitizeBucksAmountInput,
   type EarnWithdrawDraft,
   type EarnWithdrawSourceOption,
+  sanitizeBucksAmountInput,
 } from "@/components/wallet-sidebar/earn-detail-view";
 import {
   maskBalanceText,
@@ -34,41 +34,45 @@ import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
 import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
-import { resolveEarnTransactionMarketIcon } from "@/lib/yield-optimization/earn-position-display";
+import {
+  resolveEarnPositionDisplay,
+  resolveEarnTransactionMarketIcon,
+} from "@/lib/yield-optimization/earn-position-display";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
 // The exit path told as steps — the same route the deposit explainer walks,
-// run backwards (user-docs automations/routing-and-yield.mdx: lending market →
-// vault → Main Account, USDC stays USDC), ending on the rent-cleanup phase
-// this pane flips into after a full exit (automations/exit-and-lifecycle.mdx).
-const WITHDRAW_STEPS: readonly FlowStep[] = [
-  {
-    Icon: Landmark,
-    body: "Every Kamino USDC reserve you supplied, plus anything still idle in your Earn vault, is listed with its own balance.",
-    title: "Pick a position",
-  },
-  {
-    Icon: CircleDollarSign,
-    body: "Take part of it, or use Max to exit that position completely. There is no lock-up.",
-    title: "Choose an amount",
-  },
-  {
-    Icon: PenLine,
-    body: "One signature moves the funds through your own smart account — Loyal never takes custody of your funds.",
-    title: "Approve in your wallet",
-  },
-  {
-    Icon: Wallet,
-    body: "It leaves the lending market, passes back through your Earn vault, and lands in your stablecoins. USDC stays USDC — it is never swapped.",
-    title: "USDC returns to your wallet",
-  },
-  {
-    Icon: Undo2,
-    body: "Once a position is empty, close its Earn accounts to reclaim the SOL held as their rent.",
-    title: "A full exit frees the rent",
-  },
-];
+// run backwards from lending market through the vault to Main Account,
+// ending on the rent-cleanup phase after a full exit.
+function createWithdrawSteps(symbol: string): readonly FlowStep[] {
+  return [
+    {
+      Icon: Landmark,
+      body: `Every Kamino ${symbol} reserve you supplied, plus anything still idle in your Earn vault, is listed with its own balance.`,
+      title: "Pick a position",
+    },
+    {
+      Icon: CircleDollarSign,
+      body: "Take part of it, or use Max to exit that position completely. There is no lock-up.",
+      title: "Choose an amount",
+    },
+    {
+      Icon: PenLine,
+      body: "One signature moves the funds through your own smart account — Loyal never takes custody of your funds.",
+      title: "Approve in your wallet",
+    },
+    {
+      Icon: Wallet,
+      body: `It leaves the lending market, passes back through your Earn vault, and lands in your stablecoins. ${symbol} stays ${symbol} — it is never swapped.`,
+      title: `${symbol} returns to your wallet`,
+    },
+    {
+      Icon: Undo2,
+      body: "Once a position is empty, close its Earn accounts to reclaim the SOL held as their rent.",
+      title: "A full exit frees the rent",
+    },
+  ];
+}
 
 const WITHDRAW_FOOTNOTE =
   "Market liquidity can affect how quickly a withdrawal completes. Interest accrues until the moment funds leave the market.";
@@ -79,9 +83,13 @@ const WITHDRAW_DOCS_URL =
 // Display label matching the facelift rows: "Main Kamino USDC" for reserves
 // (the OG source label is "<market> reserve"), the OG label for idle vaults.
 function sourceDisplayLabel(source: EarnWithdrawSourceOption) {
+  const symbol = resolveEarnPositionDisplay({
+    liquidityMint: source.liquidityMint,
+    market: source.market,
+  }).mintSymbol;
   return source.type === "reserve"
-    ? `${source.label.replace(/ reserve$/, "")} USDC`
-    : source.label;
+    ? `${source.label.replace(/ reserve$/, "")} ${symbol}`
+    : `Idle vault ${symbol}`;
 }
 
 type WithdrawSourceOption = {
@@ -113,7 +121,7 @@ function SourceOptionRow({
     >
       <span className="flex items-center py-2 pr-3">{option.icon}</span>
       <span className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
-        <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+        <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
           {option.label}
         </span>
         <span className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
@@ -168,8 +176,8 @@ export function WithdrawPane({
     ? `${data.walletAddress.slice(0, 4)}…${data.walletAddress.slice(-4)}`
     : "";
 
-  // OG-eligible sources (kamino-only when any kamino holding exists), built
-  // by the same helper the old workspace's withdraw view uses.
+  // Every positive idle or reserve holding is an independently selectable
+  // withdrawal source, matching the old workspace's withdraw view.
   const sources = data.actions.withdrawSources;
   const options = useMemo<WithdrawSourceOption[]>(
     () =>
@@ -206,6 +214,16 @@ export function WithdrawPane({
   );
   // A picked row maps 1:1 to its source, same as the OG picker.
   const draftSource = selectedOption?.source ?? null;
+  const selectedSymbol = draftSource
+    ? resolveEarnPositionDisplay({
+        liquidityMint: draftSource.liquidityMint,
+        market: draftSource.market,
+      }).mintSymbol
+    : "stablecoin";
+  const withdrawSteps = useMemo(
+    () => createWithdrawSteps(selectedSymbol),
+    [selectedSymbol]
+  );
   const withdrawValidationError =
     sources.length === 0
       ? "No withdrawable Earn source"
@@ -240,7 +258,7 @@ export function WithdrawPane({
       fullExitSources,
       mode: withdrawMode,
       source: draftSource,
-      symbol: "USDC",
+      symbol: selectedSymbol,
       tokenDecimals: 6,
     };
     const didWithdraw = await data.actions.submitWithdraw(draft);
@@ -311,7 +329,7 @@ export function WithdrawPane({
           <div className="flex w-full flex-1 flex-col">
             <div className="w-full p-2">
               <label className="flex w-full flex-col gap-0.5 rounded-2xl px-4 py-2">
-                <span className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
+                <span className="whitespace-nowrap text-[16px] text-muted-foreground leading-5">
                   Amount
                 </span>
                 <span className="flex h-12 w-full items-baseline">
@@ -426,7 +444,7 @@ export function WithdrawPane({
                   )}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                  <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                  <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
                     <TextSwap
                       text={`from ${selectedOption?.label ?? "Earn"}`}
                     />
@@ -498,7 +516,7 @@ export function WithdrawPane({
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
-                <span className="truncate text-[13px] leading-4 text-muted-foreground">
+                <span className="truncate text-[13px] text-muted-foreground leading-4">
                   {`to Stablecoins · ${addressLabel}`}
                 </span>
                 <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
@@ -516,13 +534,13 @@ export function WithdrawPane({
               </div>
             </div>
 
-            <div className="-translate-y-1/2 absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 rounded-xl bg-border" />
+            <div className="absolute top-[calc(50%-2px)] left-[45px] h-3.5 w-0.5 -translate-y-1/2 rounded-xl bg-border" />
           </div>
         </div>
 
         <div className="w-full bg-card px-4 pt-2 pb-4">
           {data.actions.withdrawError ? (
-            <p className="px-4 pb-2 text-[13px] leading-4 text-destructive">
+            <p className="px-4 pb-2 text-[13px] text-destructive leading-4">
               {data.actions.withdrawError}
             </p>
           ) : null}
@@ -531,12 +549,12 @@ export function WithdrawPane({
               {/* Phase 2 of a full exit (slot-pinned zero proof happens
                   server-side in the prepare): close the empty Earn accounts
                   and reclaim their SOL rent. */}
-              <p className="px-4 pb-2 text-[13px] leading-4 text-muted-foreground">
+              <p className="px-4 pb-2 text-[13px] text-muted-foreground leading-4">
                 Your funds are withdrawn. Close the empty Earn accounts to
                 reclaim their SOL rent.
               </p>
               <button
-                className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90 enabled:active:translate-y-0"
+                className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-foreground font-medium text-[16px] text-background leading-5 enabled:active:translate-y-0 enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90"
                 disabled={data.actions.isCleanupPending}
                 onClick={() => void handleCleanup()}
                 type="button"
@@ -554,7 +572,7 @@ export function WithdrawPane({
             <button
               className={`t-hover flex h-12 w-full items-center justify-center rounded-full font-medium text-[16px] leading-5 ${
                 canWithdraw
-                  ? "bg-foreground text-background enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90 enabled:active:translate-y-0"
+                  ? "bg-foreground text-background enabled:active:translate-y-0 enabled:hover:-translate-y-0.5 enabled:hover:bg-foreground/90"
                   : "bg-destructive/[0.08] text-destructive"
               }`}
               disabled={!canWithdraw || isSubmitting}
@@ -565,7 +583,8 @@ export function WithdrawPane({
                 text={
                   isSubmitting
                     ? "Withdrawing…"
-                    : withdrawValidationError ?? `Withdraw ${amountLabel} USDC`
+                    : withdrawValidationError ??
+                      `Withdraw ${amountLabel} ${selectedSymbol}`
                 }
               />
             </button>
@@ -581,7 +600,7 @@ export function WithdrawPane({
         <FlowDiagram
           docsHref={WITHDRAW_DOCS_URL}
           footnote={WITHDRAW_FOOTNOTE}
-          steps={WITHDRAW_STEPS}
+          steps={withdrawSteps}
         />
       </FlowExplainerAside>
 
@@ -593,7 +612,7 @@ export function WithdrawPane({
         <FlowDiagram
           docsHref={WITHDRAW_DOCS_URL}
           footnote={WITHDRAW_FOOTNOTE}
-          steps={WITHDRAW_STEPS}
+          steps={withdrawSteps}
         />
       </FlowExplainerOverlay>
     </>

@@ -4,25 +4,27 @@ import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 
 import {
-  TimescaleReserveClient,
   getTimescaleReserveDatabaseUrl,
+  TimescaleReserveClient,
 } from "@/lib/kamino/timescale-reserve-client.server";
-import {
-  EARNINGS_RANGE_IDS,
-  calculateEarnEarnings,
-  normalizeEarningsTimezone,
-  type ReserveApySample,
-  type YieldPositionEvent,
-  type YieldPositionPathEvent,
-} from "./earnings-calculator.server";
 import type {
   EarnEarningsCoverage,
   EarnEarningsRangeSetResponse,
 } from "./earnings.shared";
 import {
-  findActiveYieldPositionForVault,
+  calculateEarnEarnings,
+  EARNINGS_RANGE_IDS,
+  normalizeEarningsTimezone,
+  principalByMintAt,
+  type ReserveApySample,
+  type YieldPortfolioSnapshot,
+  type YieldPositionEvent,
+  type YieldPositionPathEvent,
+} from "./earnings-calculator.server";
+import {
+  findActiveYieldPositionsForVault,
+  findCompleteYieldVaultExposureSnapshots,
   findYieldPositionEvents,
-  findYieldPositionHistoryEventsForVault,
   type UserYieldPositionHistoryEventRecord,
   type UserYieldPositionRecord,
 } from "./yield-deposit-repository.server";
@@ -60,17 +62,24 @@ export type EarnEarningsReadDependencies = {
   loadApySamples: (args: {
     end: Date;
     pathEvents: readonly YieldPositionPathEvent[];
+    portfolioSnapshots?: readonly YieldPortfolioSnapshot[];
     start: Date;
   }) => Promise<ReserveApySample[]>;
-  loadHoldingEvents: (
-    input: EarnEarningsReadInput
-  ) => Promise<UserYieldPositionHistoryEventRecord[]>;
   loadLedgerEvents: (
     input: EarnEarningsReadInput
   ) => Promise<YieldPositionEvent[]>;
-  loadPosition: (
+  loadHoldingEvents?: (
+    input: EarnEarningsReadInput
+  ) => Promise<UserYieldPositionHistoryEventRecord[]>;
+  loadPosition?: (
     input: EarnEarningsReadInput
   ) => Promise<UserYieldPositionRecord | null>;
+  loadPositions?: (
+    input: EarnEarningsReadInput
+  ) => Promise<UserYieldPositionRecord[]>;
+  loadPortfolioSnapshots?: (
+    input: EarnEarningsReadInput
+  ) => Promise<YieldPortfolioSnapshot[]>;
   loadSnapshot: (
     input: EarnEarningsReadInput,
     timezone: string
@@ -103,8 +112,7 @@ export class EarnEarningsUnavailableError extends Error {
   constructor(
     code: "earnings_unavailable" | "history_incomplete",
     message: string,
-    detailCode: EarnEarningsUnavailableError["detailCode"] =
-      "earnings_unavailable"
+    detailCode: EarnEarningsUnavailableError["detailCode"] = "earnings_unavailable"
   ) {
     super(message);
     this.code = code;
@@ -169,7 +177,7 @@ export function buildCanonicalEarningsPath(args: {
           holding.type === event.type &&
           Math.abs(
             holding.confirmedAt.getTime() - event.confirmedAt.getTime()
-          ) < 1_000
+          ) < 1000
       );
       const holding =
         matchingHolding ?? findHoldingAt(holdingEvents, event.confirmedAt);
@@ -269,6 +277,160 @@ export function getMaterialEarningsHistoryRevision(
   return createHash("sha256").update(JSON.stringify(material)).digest("hex");
 }
 
+export function getPortfolioEarningsHistoryRevision(args: {
+  events: readonly YieldPositionEvent[];
+  snapshots: readonly YieldPortfolioSnapshot[];
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        events: args.events.map((event) => [
+          event.type,
+          event.confirmedAt.toISOString(),
+          event.liquidityMint,
+          event.amountRaw.toString(),
+        ]),
+        snapshots: args.snapshots.map((snapshot) => [
+          snapshot.observedSlot.toString(),
+          snapshot.observedAt.toISOString(),
+          snapshot.exposures.map((exposure) => [
+            exposure.sourceId,
+            exposure.kind,
+            exposure.liquidityMint,
+            exposure.reserve,
+            exposure.amountRaw.toString(),
+          ]),
+        ]),
+      })
+    )
+    .digest("hex");
+}
+
+export function getPortfolioEarningsCoverage(args: {
+  apySamples: readonly ReserveApySample[];
+  now: Date;
+  snapshots: readonly YieldPortfolioSnapshot[];
+}): EarnEarningsCoverage {
+  const required = new Map<string, Date>();
+  for (const snapshot of args.snapshots) {
+    for (const exposure of snapshot.exposures) {
+      if (
+        exposure.kind !== "kamino" ||
+        exposure.amountRaw <= BigInt(0) ||
+        !exposure.reserve
+      ) {
+        continue;
+      }
+      const earliest = required.get(exposure.reserve);
+      if (!earliest || snapshot.observedAt < earliest) {
+        required.set(exposure.reserve, snapshot.observedAt);
+      }
+    }
+  }
+  const missingReserves = [...required]
+    .filter(([reserve, requiredAt]) =>
+      args.apySamples.every(
+        (sample) => sample.reserve !== reserve || sample.observedAt > requiredAt
+      )
+    )
+    .map(([reserve]) => reserve)
+    .sort();
+  const gappedReserves = new Set<string>();
+  let maxSampleGapMs: number | null = null;
+  for (let index = 0; index < args.snapshots.length; index += 1) {
+    const snapshot = args.snapshots[index];
+    const intervalEnd = args.snapshots[index + 1]?.observedAt ?? args.now;
+    for (const reserve of new Set(
+      snapshot.exposures.flatMap((exposure) =>
+        exposure.kind === "kamino" &&
+        exposure.amountRaw > BigInt(0) &&
+        exposure.reserve
+          ? [exposure.reserve]
+          : []
+      )
+    )) {
+      const samples = args.apySamples
+        .filter(
+          (sample) =>
+            sample.reserve === reserve && sample.observedAt <= intervalEnd
+        )
+        .sort(
+          (left, right) =>
+            left.observedAt.getTime() - right.observedAt.getTime()
+        );
+      const seed = [...samples]
+        .reverse()
+        .find((sample) => sample.observedAt <= snapshot.observedAt);
+      if (!seed) {
+        gappedReserves.add(reserve);
+        continue;
+      }
+      let cursor = snapshot.observedAt.getTime();
+      for (const sample of samples) {
+        const sampleTime = sample.observedAt.getTime();
+        if (sampleTime <= cursor) {
+          continue;
+        }
+        const gap = sampleTime - cursor;
+        maxSampleGapMs = Math.max(maxSampleGapMs ?? 0, gap);
+        if (gap > 36 * 60 * 60 * 1000) {
+          gappedReserves.add(reserve);
+        }
+        cursor = sampleTime;
+      }
+      const trailingGap = intervalEnd.getTime() - cursor;
+      maxSampleGapMs = Math.max(maxSampleGapMs ?? 0, trailingGap);
+      if (trailingGap > 36 * 60 * 60 * 1000) {
+        gappedReserves.add(reserve);
+      }
+    }
+  }
+  const currentReserves = new Set(
+    (args.snapshots.at(-1)?.exposures ?? []).flatMap((exposure) =>
+      exposure.kind === "kamino" &&
+      exposure.amountRaw > BigInt(0) &&
+      exposure.reserve
+        ? [exposure.reserve]
+        : []
+    )
+  );
+  const currentAges = [...currentReserves].map((reserve) => {
+    const latest = [...args.apySamples]
+      .reverse()
+      .find((sample) => sample.reserve === reserve);
+    return {
+      age: latest
+        ? Math.max(0, args.now.getTime() - latest.observedAt.getTime())
+        : null,
+      reserve,
+    };
+  });
+  const staleReserves = currentAges
+    .filter(({ age }) => age === null || age > 36 * 60 * 60 * 1000)
+    .map(({ reserve }) => reserve)
+    .sort();
+  return {
+    currentReserveSampleAgeMs:
+      currentAges.length > 0
+        ? Math.max(
+            ...currentAges.map(({ age }) => age ?? Number.POSITIVE_INFINITY)
+          )
+        : null,
+    eventCount: args.snapshots.length,
+    gappedReserves: [...gappedReserves].sort(),
+    maxSampleGapMs,
+    missingReserves,
+    reserveCount: required.size,
+    sampleCount: args.apySamples.length,
+    sampledReserveCount: new Set(
+      args.apySamples.flatMap((sample) =>
+        sample.reserve && required.has(sample.reserve) ? [sample.reserve] : []
+      )
+    ).size,
+    staleReserves,
+  };
+}
+
 export function getEarningsCoverage(args: {
   apySamples: readonly ReserveApySample[];
   now: Date;
@@ -315,14 +477,12 @@ export function getEarningsCoverage(args: {
           sample.observedAt.getTime() <= intervalEnd.getTime()
       )
       .sort(
-        (left, right) =>
-          left.observedAt.getTime() - right.observedAt.getTime()
+        (left, right) => left.observedAt.getTime() - right.observedAt.getTime()
       );
     const seed = [...samples]
       .reverse()
       .find(
-        (sample) =>
-          sample.observedAt.getTime() <= event.confirmedAt.getTime()
+        (sample) => sample.observedAt.getTime() <= event.confirmedAt.getTime()
       );
     if (!seed) {
       gappedReserves.add(event.reserve);
@@ -436,14 +596,24 @@ async function saveSnapshot(args: {
 async function loadApySamples(args: {
   end: Date;
   pathEvents: readonly YieldPositionPathEvent[];
+  portfolioSnapshots?: readonly YieldPortfolioSnapshot[];
   start: Date;
 }) {
   const reserves = [
-    ...new Set(
-      args.pathEvents
+    ...new Set([
+      ...args.pathEvents
         .filter((event) => event.principalAmountRaw > BigInt(0))
-        .map((event) => event.reserve)
-    ),
+        .map((event) => event.reserve),
+      ...(args.portfolioSnapshots ?? []).flatMap((snapshot) =>
+        snapshot.exposures.flatMap((exposure) =>
+          exposure.kind === "kamino" &&
+          exposure.amountRaw > BigInt(0) &&
+          exposure.reserve
+            ? [exposure.reserve]
+            : []
+        )
+      ),
+    ]),
   ]
     .filter(Boolean)
     .sort();
@@ -494,9 +664,7 @@ function normalizedError(error: unknown) {
         : "dependency_unavailable",
     errorName: error instanceof Error ? error.name : typeof error,
     errorDetailCode:
-      error instanceof EarnEarningsUnavailableError
-        ? error.detailCode
-        : null,
+      error instanceof EarnEarningsUnavailableError ? error.detailCode : null,
   };
 }
 
@@ -570,11 +738,11 @@ function walletScope(walletAddress: string) {
 export async function readEarnEarningsRangeSet(
   input: EarnEarningsReadInput,
   dependencies: EarnEarningsReadDependencies = {
-    apyTimeoutMs: 8_000,
+    apyTimeoutMs: 8000,
     loadApySamples,
-    loadHoldingEvents: findYieldPositionHistoryEventsForVault,
     loadLedgerEvents: findYieldPositionEvents,
-    loadPosition: findActiveYieldPositionForVault,
+    loadPortfolioSnapshots: findCompleteYieldVaultExposureSnapshots,
+    loadPositions: findActiveYieldPositionsForVault,
     loadSnapshot,
     now: () => new Date(),
     saveSnapshot,
@@ -597,41 +765,91 @@ export async function readEarnEarningsRangeSet(
 
   try {
     const historyStartedAt = Date.now();
-    const [position, ledgerEvents, holdingEvents] = await Promise.all([
-      dependencies.loadPosition(input),
-      dependencies.loadLedgerEvents(input),
-      dependencies.loadHoldingEvents(input),
-    ]);
+    const [positions, ledgerEvents, loadedPortfolioSnapshots, holdingEvents] =
+      await Promise.all([
+        dependencies.loadPositions
+          ? dependencies.loadPositions(input)
+          : dependencies.loadPosition
+          ? dependencies
+              .loadPosition(input)
+              .then((position) => (position ? [position] : []))
+          : [],
+        dependencies.loadLedgerEvents(input),
+        dependencies.loadPortfolioSnapshots
+          ? dependencies.loadPortfolioSnapshots(input)
+          : [],
+        dependencies.loadHoldingEvents
+          ? dependencies.loadHoldingEvents(input)
+          : [],
+      ]);
+    const portfolioSnapshots =
+      loadedPortfolioSnapshots.length > 0
+        ? loadedPortfolioSnapshots
+        : [...holdingEvents]
+            .sort(
+              (left, right) =>
+                left.confirmedAt.getTime() - right.confirmedAt.getTime()
+            )
+            .map((event) => ({
+              exposures:
+                event.amountRaw > BigInt(0)
+                  ? [
+                      {
+                        amountRaw: event.amountRaw,
+                        kind: "kamino" as const,
+                        liquidityMint: event.liquidityMint,
+                        reserve: event.reserve,
+                        sourceId: `reserve:${event.reserve}`,
+                      },
+                    ]
+                  : [],
+              observedAt: event.confirmedAt,
+              observedSlot: event.confirmedSlot,
+            }));
+    const effectiveLedgerEvents = ledgerEvents.map((event) => ({
+      ...event,
+      liquidityMint:
+        event.liquidityMint ?? positions[0]?.initialLiquidityMint ?? "",
+    }));
     historyMs = Date.now() - historyStartedAt;
 
-    if (!position) {
+    if (positions.length === 0) {
       return createEmptyEarnEarningsRangeSet({ now, timezone });
     }
 
-    const pathEvents = buildCanonicalEarningsPath({
-      holdingEvents,
-      ledgerEvents,
-      position,
+    const principalByMint = principalByMintAt(effectiveLedgerEvents, now);
+    const storedPrincipalByMint = new Map<string, bigint>();
+    for (const position of positions) {
+      storedPrincipalByMint.set(
+        position.initialLiquidityMint,
+        (storedPrincipalByMint.get(position.initialLiquidityMint) ??
+          BigInt(0)) + position.principalAmountRaw
+      );
+    }
+    const principalMatchesHistory = [
+      ...new Set([...principalByMint.keys(), ...storedPrincipalByMint.keys()]),
+    ].every(
+      (mint) =>
+        (principalByMint.get(mint) ?? BigInt(0)) ===
+        (storedPrincipalByMint.get(mint) ?? BigInt(0))
+    );
+    const projectedPrincipal = [...principalByMint.values()].reduce(
+      (sum, amount) => sum + amount,
+      BigInt(0)
+    );
+    const pathEvents: YieldPositionPathEvent[] = [];
+    const historyRevision = getPortfolioEarningsHistoryRevision({
+      events: effectiveLedgerEvents,
+      snapshots: portfolioSnapshots,
     });
-    const historyRevision = getMaterialEarningsHistoryRevision(pathEvents);
-    const projectedPrincipal =
-      pathEvents.at(-1)?.principalAmountRaw ?? BigInt(0);
-    const projectedHolding = pathEvents.at(-1) ?? null;
-    const principalMatchesHistory =
-      projectedPrincipal === position.principalAmountRaw;
-    const holdingMatchesHistory =
-      projectedHolding?.reserve === position.currentReserve &&
-      projectedHolding.liquidityMint === position.currentLiquidityMint;
     if (
       !principalMatchesHistory ||
-      !holdingMatchesHistory ||
-      ledgerEvents.length === 0
+      effectiveLedgerEvents.length === 0 ||
+      (projectedPrincipal > BigInt(0) && portfolioSnapshots.length === 0)
     ) {
-      const detailCode = !principalMatchesHistory
-        ? "principal_history_mismatch"
-        : !holdingMatchesHistory
-        ? "holding_history_mismatch"
-        : "deposit_history_incomplete";
+      const detailCode = principalMatchesHistory
+        ? "deposit_history_incomplete"
+        : "principal_history_mismatch";
       throw new EarnEarningsUnavailableError(
         "history_incomplete",
         "Earn principal history is incomplete.",
@@ -639,7 +857,7 @@ export async function readEarnEarningsRangeSet(
       );
     }
 
-    const firstDepositAt = pathEvents.find(
+    const firstDepositAt = effectiveLedgerEvents.find(
       (event) => event.type === "deposit"
     )?.confirmedAt;
     if (!firstDepositAt) {
@@ -657,6 +875,7 @@ export async function readEarnEarningsRangeSet(
         dependencies.loadApySamples({
           end: now,
           pathEvents,
+          portfolioSnapshots,
           start: firstDepositAt,
         }),
         dependencies.apyTimeoutMs
@@ -664,7 +883,11 @@ export async function readEarnEarningsRangeSet(
     } finally {
       apyMs = Date.now() - apyStartedAt;
     }
-    const coverage = getEarningsCoverage({ apySamples, now, pathEvents });
+    const coverage = getPortfolioEarningsCoverage({
+      apySamples,
+      now,
+      snapshots: portfolioSnapshots,
+    });
     if (
       coverage.missingReserves.length > 0 ||
       coverage.gappedReserves.length > 0 ||
@@ -683,9 +906,10 @@ export async function readEarnEarningsRangeSet(
         range,
         calculateEarnEarnings({
           apySamples,
-          events: [],
+          events: effectiveLedgerEvents,
           now,
           pathEvents,
+          portfolioSnapshots,
           range,
           timezone,
         }),
@@ -700,14 +924,14 @@ export async function readEarnEarningsRangeSet(
       principalMatchesHistory,
       ranges,
       snapshotAgeMs: null,
-      sourcePrincipalAmountRaw: position.principalAmountRaw.toString(),
+      sourcePrincipalAmountRaw: projectedPrincipal.toString(),
       staleReason: null,
     };
     await dependencies
       .saveSnapshot({
         input,
         payload,
-        principalAmountRaw: position.principalAmountRaw,
+        principalAmountRaw: projectedPrincipal,
         timezone,
       })
       .catch((error) => {

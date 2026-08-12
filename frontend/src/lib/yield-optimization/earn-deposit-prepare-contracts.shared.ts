@@ -13,6 +13,7 @@ import {
 
 export type EarnDepositPrepareRequestBody = {
   amountRaw: string;
+  mint: string;
 };
 
 export type WireSmartAccountPreparedEarnUsdcDeposit = {
@@ -38,6 +39,7 @@ export type WireSmartAccountPreparedEarnUsdcDeposit = {
   prepared: WirePreparedLoyalSmartAccountsOperation;
   targetReserve: {
     liquidityMint: string;
+    liquidityTokenProgram: string;
     market: string;
     obligation: string;
     reserve: string;
@@ -80,6 +82,7 @@ function readUnsignedIntegerString(
 
 export function parseEarnDepositPrepareRequestBody(body: unknown): {
   amountRaw: bigint;
+  mint: string;
 } {
   const record = assertRequestObject(body);
   const amountRaw = BigInt(readUnsignedIntegerString(record, "amountRaw"));
@@ -88,7 +91,13 @@ export function parseEarnDepositPrepareRequestBody(body: unknown): {
     throw new Error("amountRaw must be greater than 0.");
   }
 
-  return { amountRaw };
+  const mintValue = record.mint;
+  if (typeof mintValue !== "string") {
+    throw new Error("mint must be a mint public key.");
+  }
+  const mint = new PublicKey(mintValue).toBase58();
+
+  return { amountRaw, mint };
 }
 
 export function serializePreparedEarnUsdcDeposit(
@@ -128,6 +137,8 @@ export function serializePreparedEarnUsdcDeposit(
     prepared: serializePreparedOperation(preparedDeposit.prepared),
     targetReserve: {
       liquidityMint: preparedDeposit.targetReserve.liquidityMint.toBase58(),
+      liquidityTokenProgram:
+        preparedDeposit.targetReserve.liquidityTokenProgram.toBase58(),
       market: preparedDeposit.targetReserve.market.toBase58(),
       obligation: preparedDeposit.targetReserve.obligation.toBase58(),
       reserve: preparedDeposit.targetReserve.reserve.toBase58(),
@@ -179,6 +190,9 @@ export function hydratePreparedEarnUsdcDeposit(
     prepared: hydratePreparedOperation(wire.prepared),
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
+      liquidityTokenProgram: new PublicKey(
+        wire.targetReserve.liquidityTokenProgram
+      ),
       market: new PublicKey(wire.targetReserve.market),
       obligation: new PublicKey(wire.targetReserve.obligation),
       reserve: new PublicKey(wire.targetReserve.reserve),

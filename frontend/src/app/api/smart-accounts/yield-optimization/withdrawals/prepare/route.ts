@@ -47,8 +47,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -66,17 +65,12 @@ export async function POST(request: Request) {
     return jsonError(401, "unauthenticated", "No active auth session.");
   }
 
-  let amountRaw: bigint;
-  let mode: "partial" | "full";
-  let selectedSourceRequest: ReturnType<
-    typeof parseEarnWithdrawPrepareRequestBody
-  >["source"];
+  let amountRaw: bigint | "max";
+  let sourceId: string;
   try {
-    ({
-      amountRaw,
-      mode,
-      source: selectedSourceRequest,
-    } = parseEarnWithdrawPrepareRequestBody(await request.json()));
+    ({ amountRaw, sourceId } = parseEarnWithdrawPrepareRequestBody(
+      await request.json()
+    ));
   } catch (error) {
     return jsonError(
       400,
@@ -107,16 +101,15 @@ export async function POST(request: Request) {
     });
     const connection = getConnection(solanaEnv);
     const resolved = await resolveEarnUsdcWithdrawInput({
-      amountRaw,
       cluster,
       connection,
       earnVaultPda,
       logTag: "earn-withdraw-prepare",
-      mode,
+      requestedAmountRaw: amountRaw,
       policySigner: getDeploymentPolicySignerPublicKey(),
       programId,
       settingsPda: principal.settingsPda,
-      sourceRequest: selectedSourceRequest,
+      sourceId,
       walletAddress: principal.walletAddress,
     });
     policy = resolved.policy;
@@ -126,7 +119,9 @@ export async function POST(request: Request) {
       connection,
       programId,
     });
-    const preparedWithdraw = await client.prepareEarnUsdcWithdraw(resolved.input);
+    const preparedWithdraw = await client.prepareEarnUsdcWithdraw(
+      resolved.input
+    );
 
     return NextResponse.json({
       preparedWithdraw: serializePreparedEarnUsdcWithdraw(preparedWithdraw),
@@ -140,13 +135,13 @@ export async function POST(request: Request) {
     }
 
     console.error("[earn-withdraw-prepare] prepare failed", {
-      amountRaw: amountRaw.toString(),
+      amountRaw: amountRaw === "max" ? amountRaw : amountRaw.toString(),
       effectiveAmountRaw: effectiveAmountRaw?.toString() ?? null,
       cluster,
       errorMessage:
         error instanceof Error ? error.message : "Unknown prepare error.",
       errorName: error instanceof Error ? error.name : typeof error,
-      mode,
+      sourceId,
       policyAccount: policy?.policyAccount ?? null,
       policySeed: policy?.policySeed.toString() ?? null,
       settings: principal.settingsPda,

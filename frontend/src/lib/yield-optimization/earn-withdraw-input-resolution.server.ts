@@ -2,16 +2,13 @@ import "server-only";
 
 import type { LoyalCluster } from "@loyal-labs/actions";
 import type { SmartAccountEarnUsdcWithdrawInput } from "@loyal-labs/smart-account-vaults";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { type Connection, PublicKey } from "@solana/web3.js";
 
 import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
+import type { EarnUsdcReserveTarget } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
-  earnReserveTargetFromActivePosition,
-  type EarnUsdcReserveTarget,
-} from "@/lib/yield-optimization/earn-reserve-target.server";
-import {
-  fetchEarnRpcHoldingsSnapshot,
   type EarnRpcHolding,
+  fetchEarnRpcHoldingsSnapshot,
 } from "@/lib/yield-optimization/earn-rpc-holdings.client";
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import type { parseEarnWithdrawPrepareRequestBody } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
@@ -21,7 +18,7 @@ import {
   type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
-// Source selection + SDK-input assembly for a mobile Earn USDC withdrawal,
+// Source selection + SDK-input assembly for a mobile Earn withdrawal,
 // extracted VERBATIM from `mobile/earn/withdraw/prepare` so the route (server
 // build) and `mobile/earn/withdraw/prepare-context` (on-device build) resolve
 // the exact same input. Everything here is the decision "WHAT to withdraw";
@@ -46,9 +43,9 @@ export class EarnWithdrawResolveError extends Error {
   }
 }
 
-type EarnWithdrawSourceRequest = ReturnType<
+type EarnWithdrawSourceId = ReturnType<
   typeof parseEarnWithdrawPrepareRequestBody
->["source"];
+>["sourceId"];
 
 type SelectedEarnWithdrawSource =
   | {
@@ -57,6 +54,8 @@ type SelectedEarnWithdrawSource =
       liquidityMint: string;
       market: string;
       reserve: string;
+      sourceId: string;
+      tokenProgramId: string;
       type: "reserve";
     }
   | {
@@ -64,103 +63,32 @@ type SelectedEarnWithdrawSource =
       id: string;
       mint: string;
       tokenAccount: string;
+      sourceId: string;
+      tokenProgramId: string;
       type: "idle";
     };
 
-function publicKeyFromMetadata(
-  metadata: Record<string, unknown> | null | undefined,
-  keys: string[]
-): PublicKey | null {
-  if (!metadata) {
-    return null;
-  }
-
-  for (const key of keys) {
-    const value = metadata[key];
-    if (typeof value !== "string" || value.trim().length === 0) {
-      continue;
-    }
-    try {
-      return new PublicKey(value);
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
-
-function isNonEmptyString(value: string | null | undefined): value is string {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function sourceMatchesDirectIdentifier(
-  source: SelectedEarnWithdrawSource,
-  request: NonNullable<EarnWithdrawSourceRequest>
-): boolean {
-  if (source.type !== request.type) {
-    return false;
-  }
-
-  const identifiers = [
-    request.id,
-    request.reserve,
-    request.tokenAccount,
-  ].filter(isNonEmptyString);
-
-  if (identifiers.includes(source.id)) {
-    return true;
-  }
-
-  return source.type === "reserve" && identifiers.includes(source.reserve);
-}
-
-function sourceMatchesStableMint(
-  source: SelectedEarnWithdrawSource,
-  request: NonNullable<EarnWithdrawSourceRequest>
-): boolean {
-  if (source.type !== request.type) {
-    return false;
-  }
-
-  const identifiers = [request.id, request.liquidityMint, request.mint].filter(
-    isNonEmptyString
-  );
-
-  return source.type === "reserve"
-    ? identifiers.includes(source.liquidityMint)
-    : identifiers.includes(source.mint);
-}
-
 function selectRequestedEarnWithdrawSource(
   sources: SelectedEarnWithdrawSource[],
-  request: EarnWithdrawSourceRequest
-): SelectedEarnWithdrawSource | null {
-  if (!request) {
-    return sources.length === 1 ? sources[0] ?? null : null;
+  sourceId: EarnWithdrawSourceId
+): SelectedEarnWithdrawSource {
+  const matches = sources.filter((source) => source.sourceId === sourceId);
+  if (matches.length !== 1) {
+    throw new EarnWithdrawResolveError(
+      409,
+      "earn_withdraw_source_changed",
+      "The selected Earn source changed. Refresh and choose it again."
+    );
   }
-
-  const directMatch = sources.find((source) =>
-    sourceMatchesDirectIdentifier(source, request)
-  );
-  if (directMatch) {
-    return directMatch;
+  const selected = matches.at(0);
+  if (!selected) {
+    throw new EarnWithdrawResolveError(
+      409,
+      "earn_withdraw_source_changed",
+      "The selected Earn source changed. Refresh and choose it again."
+    );
   }
-
-  const stableMintMatches = sources.filter((source) =>
-    sourceMatchesStableMint(source, request)
-  );
-  if (stableMintMatches.length === 1) {
-    return stableMintMatches[0] ?? null;
-  }
-
-  const amountMatchedStableMintMatches = stableMintMatches.filter(
-    (source) => request.amountRaw === source.amountRaw.toString()
-  );
-
-  return amountMatchedStableMintMatches.length === 1
-    ? amountMatchedStableMintMatches[0] ?? null
-    : null;
+  return selected;
 }
 
 // Build withdrawal sources from the live on-chain holdings snapshot. The DB
@@ -189,12 +117,14 @@ function buildSnapshotWithdrawSources(
         amountRaw,
         id: tokenAccount,
         mint: holding.liquidityMint,
+        sourceId: holding.sourceId,
         tokenAccount,
+        tokenProgramId: holding.tokenProgramId,
         type: "idle",
       });
       continue;
     }
-    if (!holding.reserve || !holding.market) {
+    if (!(holding.reserve && holding.market)) {
       continue;
     }
     sources.push({
@@ -203,85 +133,12 @@ function buildSnapshotWithdrawSources(
       liquidityMint: holding.liquidityMint,
       market: holding.market,
       reserve: holding.reserve,
+      sourceId: holding.sourceId,
+      tokenProgramId: holding.tokenProgramId,
       type: "reserve",
     });
   }
   return sources;
-}
-
-// The deployed Kamino reserve target for a snapshot-sourced withdrawal — used
-// when withdrawing idle USDC (a reserve withdrawal targets its own reserve).
-// Null when the vault holds no Kamino reserve (fully idle).
-function snapshotReserveTarget(
-  holdings: EarnRpcHolding[]
-): EarnUsdcReserveTarget | null {
-  const kamino = holdings.find(
-    (holding) => holding.kind === "kamino" && holding.reserve && holding.market
-  );
-  if (!kamino || !kamino.reserve || !kamino.market) {
-    return null;
-  }
-  let supplyApyBps: bigint | null = null;
-  if (kamino.supplyApyBps) {
-    try {
-      supplyApyBps = BigInt(kamino.supplyApyBps);
-    } catch {
-      supplyApyBps = null;
-    }
-  }
-  return {
-    liquidityMint: new PublicKey(kamino.liquidityMint),
-    market: new PublicKey(kamino.market),
-    reserve: new PublicKey(kamino.reserve),
-    supplyApyBps,
-  };
-}
-
-// Full-withdrawal targets from every live Kamino holding. Collateral metadata
-// comes from the holding provenance when present; the SDK resolves omissions.
-function snapshotFullWithdrawalTargets(holdings: EarnRpcHolding[]): {
-  amountRaw: bigint;
-  liquidityMint: PublicKey;
-  market: PublicKey;
-  reserve: PublicKey;
-  reserveCollateralMint?: PublicKey;
-  supplyApyBps: bigint | null;
-}[] {
-  const targets = [];
-  for (const holding of holdings) {
-    if (holding.kind !== "kamino" || !holding.reserve || !holding.market) {
-      continue;
-    }
-    let amountRaw: bigint;
-    try {
-      amountRaw = BigInt(holding.amountRaw);
-    } catch {
-      continue;
-    }
-    if (amountRaw <= BigInt(0)) {
-      continue;
-    }
-    let supplyApyBps: bigint | null = null;
-    if (holding.supplyApyBps) {
-      try {
-        supplyApyBps = BigInt(holding.supplyApyBps);
-      } catch {
-        supplyApyBps = null;
-      }
-    }
-    const reserveCollateralMint = publicKeyFromMetadata(holding.provenance, [
-      "reserveCollateralMint",
-    ]);
-    targets.push({
-      amountRaw,
-      liquidityMint: new PublicKey(holding.liquidityMint),
-      market: new PublicKey(holding.market),
-      reserve: new PublicKey(holding.reserve),
-      ...(reserveCollateralMint ? { reserveCollateralMint } : {}),
-      supplyApyBps,
-    });
-  }
-  return targets;
 }
 
 export type ResolvedEarnUsdcWithdraw = {
@@ -299,9 +156,8 @@ export async function resolveEarnUsdcWithdrawInput(args: {
   walletAddress: string;
   settingsPda: string;
   earnVaultPda: PublicKey;
-  amountRaw: bigint;
-  mode: "partial" | "full";
-  sourceRequest: EarnWithdrawSourceRequest;
+  requestedAmountRaw: bigint | "max";
+  sourceId: EarnWithdrawSourceId;
   // Route-specific log prefix so on-call greps keep working per endpoint.
   logTag: string;
 }): Promise<ResolvedEarnUsdcWithdraw> {
@@ -311,8 +167,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     walletAddress,
     settingsPda,
     earnVaultPda,
-    amountRaw,
-    mode,
+    requestedAmountRaw,
     logTag,
   } = args;
   const settingsPdaKey = new PublicKey(settingsPda);
@@ -353,7 +208,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     throw new EarnWithdrawResolveError(
       409,
       "missing_earn_policy",
-      "Set up the Earn policy before withdrawing USDC."
+      "Set up the Earn policy before withdrawing."
     );
   }
   const policy = policyResult.routePolicy;
@@ -391,73 +246,31 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     );
   }
 
-  let selectedSource: SelectedEarnWithdrawSource;
-  let withdrawTarget: EarnUsdcReserveTarget;
-  let effectiveAmountRaw: bigint;
-  if (mode === "partial") {
-    const selected = selectRequestedEarnWithdrawSource(
-      snapshotSources,
-      args.sourceRequest
+  const selectedSource = selectRequestedEarnWithdrawSource(
+    snapshotSources,
+    args.sourceId
+  );
+  const effectiveAmountRaw =
+    requestedAmountRaw === "max"
+      ? selectedSource.amountRaw
+      : requestedAmountRaw;
+  if (effectiveAmountRaw > selectedSource.amountRaw) {
+    throw new EarnWithdrawResolveError(
+      409,
+      "earn_withdraw_amount_exceeds_source",
+      "Withdrawal exceeds the selected Earn source amount."
     );
-    if (!selected) {
-      throw new EarnWithdrawResolveError(
-        400,
-        "earn_withdraw_source_required",
-        "Select an Earn source before withdrawing."
-      );
-    }
-    if (amountRaw > selected.amountRaw) {
-      throw new EarnWithdrawResolveError(
-        409,
-        "earn_withdraw_amount_exceeds_source",
-        "Withdrawal exceeds the selected Earn source amount."
-      );
-    }
-    selectedSource = selected;
-    effectiveAmountRaw = amountRaw;
-    withdrawTarget =
-      selected.type === "reserve"
-        ? {
-            liquidityMint: new PublicKey(selected.liquidityMint),
-            market: new PublicKey(selected.market),
-            reserve: new PublicKey(selected.reserve),
-            supplyApyBps: null,
-          }
-        : snapshotReserveTarget(snapshot.holdings) ??
-          earnReserveTargetFromActivePosition(position);
-  } else {
-    const largestReserveSource = snapshotSources.reduce<Extract<
-      SelectedEarnWithdrawSource,
-      { type: "reserve" }
-    > | null>((largest, source) => {
-      if (source.type !== "reserve") {
-        return largest;
-      }
-      return !largest || source.amountRaw > largest.amountRaw
-        ? source
-        : largest;
-    }, null);
-    selectedSource =
-      largestReserveSource ??
-      snapshotSources.find((source) => source.type === "idle")!;
-    effectiveAmountRaw = snapshotSources.reduce(
-      (total, source) => total + source.amountRaw,
-      BigInt(0)
-    );
-    withdrawTarget =
-      selectedSource.type === "reserve"
-        ? {
-            liquidityMint: new PublicKey(selectedSource.liquidityMint),
-            market: new PublicKey(selectedSource.market),
-            reserve: new PublicKey(selectedSource.reserve),
-            supplyApyBps: null,
-          }
-        : snapshotReserveTarget(snapshot.holdings) ??
-          earnReserveTargetFromActivePosition(position);
   }
-
-  const fullWithdrawalTargets =
-    mode === "full" ? snapshotFullWithdrawalTargets(snapshot.holdings) : [];
+  const withdrawTarget: EarnUsdcReserveTarget | undefined =
+    selectedSource.type === "reserve"
+      ? {
+          liquidityMint: new PublicKey(selectedSource.liquidityMint),
+          liquidityTokenProgram: new PublicKey(selectedSource.tokenProgramId),
+          market: new PublicKey(selectedSource.market),
+          reserve: new PublicKey(selectedSource.reserve),
+          supplyApyBps: null,
+        }
+      : undefined;
 
   const yieldRoutingPolicy = {
     account: new PublicKey(policy.policyAccount),
@@ -478,7 +291,6 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     policySigner: args.policySigner,
     settingsPda: settingsPdaKey,
     target: withdrawTarget,
-    ...(fullWithdrawalTargets.length > 0 ? { fullWithdrawalTargets } : {}),
     // Full withdrawal and policy close are intentionally separate phases.
     closePoliciesOnFullWithdrawal: false,
     source:
@@ -488,6 +300,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
             id: selectedSource.id,
             mint: new PublicKey(selectedSource.mint),
             tokenAccount: new PublicKey(selectedSource.tokenAccount),
+            tokenProgramId: new PublicKey(selectedSource.tokenProgramId),
             type: "idle" as const,
           }
         : {
@@ -504,7 +317,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
 
   const input: SmartAccountEarnUsdcWithdrawInput = {
     ...withdrawInput,
-    mode,
+    mode: "partial",
   };
 
   return { input, policy, effectiveAmountRaw };
@@ -528,6 +341,7 @@ export function serializeEarnUsdcWithdrawInput(
             id: input.source.id,
             mint: input.source.mint.toBase58(),
             tokenAccount: input.source.tokenAccount.toBase58(),
+            tokenProgramId: input.source.tokenProgramId.toBase58(),
             type: "idle" as const,
           }
         : {

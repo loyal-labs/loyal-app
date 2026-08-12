@@ -171,7 +171,7 @@ function readVaultIndex(body: EarnConfirmRequestRecord): number {
     typeof value !== "number" ||
     !Number.isInteger(value) ||
     value < 0 ||
-    value > 32767
+    value > 32_767
   ) {
     throw new Error("vaultIndex must be an integer between 0 and 32767.");
   }
@@ -419,9 +419,16 @@ export function buildEarnWithdrawalConfirmRequestBody({
 }): EarnWithdrawalConfirmRequestBody {
   const source = preparedStep ?? preparedWithdraw;
   const { autodepositClose, ...persistence } = source.persistence;
+  const targetReserve =
+    persistence.targetReserve ?? persistence.sourceTokenAccount;
+  if (!targetReserve) {
+    throw new Error("Prepared Earn withdrawal is missing its source identity.");
+  }
 
   return {
     ...persistence,
+    market: persistence.market ?? null,
+    targetReserve,
     ...(autodepositClose
       ? {
           autodepositClose: {

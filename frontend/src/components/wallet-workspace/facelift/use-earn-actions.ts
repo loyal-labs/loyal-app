@@ -1,23 +1,19 @@
 "use client";
 
-import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
-import {
-  createSmartAccountVaultsClient,
-  type SmartAccountPreparedEarnUsdcAutodepositClose,
-  type SmartAccountPreparedEarnUsdcDeposit,
-  type SmartAccountPreparedEarnUsdcWithdraw,
+import type {
+  SmartAccountPreparedEarnUsdcAutodepositClose,
+  SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
-import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { PublicKey } from "@solana/web3.js";
 import {
+  type Dispatch,
+  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type Dispatch,
-  type SetStateAction,
 } from "react";
 
 import type { ApprovalReviewDisplayItem } from "@/components/wallet-sidebar/approval-review-content";
@@ -35,8 +31,8 @@ import {
   buildEarnDepositReviewItem,
   buildEarnWithdrawReviewItem,
   createSubmittedEarnDepositReviewState,
-  getNextEarnWithdrawReviewStage,
   type EarnWithdrawReviewStage,
+  getNextEarnWithdrawReviewStage,
 } from "@/components/wallet-workspace/earn-deposit-review";
 import {
   applySubmittedEarnWithdrawToPosition,
@@ -53,12 +49,8 @@ import {
   parseEarnAutodepositExecuteError,
   parseEarnAutodepositExecuteResponse,
   parseTokenAmountLabelToRaw,
-  resolveActiveEarnDepositTarget,
   resolveEarnMutationSmartAccountPlan,
   resolveEarnRealtimeResources,
-  selectFullExitWithdrawTargets,
-  toEarnWithdrawVaultsSource,
-  type EarnDepositYieldRoutingPolicy,
 } from "@/components/wallet-workspace/facelift/earn-actions-support";
 import {
   CONFIRM_IN_WALLET_MESSAGE,
@@ -70,14 +62,14 @@ import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
 import {
   EARN_REALTIME_EVENT_TYPES,
+  type EarnAutodepositProgress,
+  type EarnExpectedMutationOperation,
   EarnMutationReconciliationRegistry,
+  type EarnRealtimeInvalidation,
   fetchEarnAutodepositProgress,
   isEarnAutodepositTerminalState,
   mergeEarnAutodepositProgress,
   useEarnRealtime,
-  type EarnAutodepositProgress,
-  type EarnExpectedMutationOperation,
-  type EarnRealtimeInvalidation,
 } from "@/features/earn-realtime";
 import {
   captureBrowserLoadingMetric,
@@ -88,17 +80,17 @@ import {
   measureBrowserLoadingDependencies,
 } from "@/features/observability/client";
 import {
-  mapExecuteNowState,
-  normalizeLifecycleErrorCode,
   type ExecuteNowState,
   type LifecycleTracker,
+  mapExecuteNowState,
+  normalizeLifecycleErrorCode,
 } from "@/features/observability/lifecycle-contract";
 import { resolveBrowserLoadingFailurePhase } from "@/features/observability/metrics-contract";
 import {
+  type RealtimeResourceRefreshContext,
   useRealtimeResource,
   useRealtimeSync,
   useRealtimeSyncScope,
-  type RealtimeResourceRefreshContext,
 } from "@/features/realtime-sync";
 import type { ActiveEarnPosition } from "@/hooks/use-active-earn-position";
 import {
@@ -108,9 +100,12 @@ import {
 import {
   EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
   EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
+  EarnPolicyUpdateRequiredClientError,
   getEarnDepositUserErrorMessage,
   isConfirmedSlotUnavailableError,
   prepareEarnCleanupOnServer,
+  prepareEarnDepositOnServer,
+  prepareEarnWithdrawOnServer,
   type SmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useAuthCapability } from "@/lib/auth/capability";
@@ -174,13 +169,15 @@ export type EarnActions = {
   mainUsdcAmount: number | null;
   pendingApproval: PendingEarnApproval | null;
   pendingTransactionSignatures: string[];
-  prefetchDepositPreparation: (amountLabel: string) => void;
+  prefetchDepositPreparation: (amountLabel: string, mint: string) => void;
   requestAutodepositClose: () => void;
   runCleanup: () => Promise<boolean>;
   saveAutodeposit: (keepAmountLabel: string) => Promise<boolean>;
   submitDeposit: (args: {
     amountLabel: string;
     forecastApyBps: number;
+    mint: string;
+    symbol: string;
   }) => Promise<boolean>;
   submitWithdraw: (draft: EarnWithdrawDraft) => Promise<boolean>;
   autodepositError: string | null;
@@ -387,7 +384,7 @@ export function useEarnActions(deps: {
   );
   const refreshEarnTransactions = useCallback(
     async (context: RealtimeResourceRefreshContext) => {
-      if (!settingsPda || !walletAddress) {
+      if (!(settingsPda && walletAddress)) {
         return;
       }
       invalidateEarnTransactionsCache({
@@ -416,7 +413,7 @@ export function useEarnActions(deps: {
   ].join(":");
   const refreshEarnEarnings = useCallback(
     async (context: RealtimeResourceRefreshContext) => {
-      if (!settingsPda || !walletAddress) {
+      if (!(settingsPda && walletAddress)) {
         return;
       }
       const timezone =
@@ -479,7 +476,7 @@ export function useEarnActions(deps: {
   }
   const earnMutationSequenceRef = useRef(0);
   const earnRealtimeIdentity = useMemo(() => {
-    if (!walletAddress || !settingsPda || !earnVaultAddress) {
+    if (!(walletAddress && settingsPda && earnVaultAddress)) {
       return null;
     }
     return {
@@ -612,8 +609,7 @@ export function useEarnActions(deps: {
     ) => {
       const active = executeNowLifecycleRef.current;
       if (
-        !active ||
-        !active.scheduledSlotId ||
+        !(active && active.scheduledSlotId) ||
         active.scheduledSlotId !== progress.scheduledSlotId ||
         progress.state === "scheduled" ||
         progress.state === "requesting"
@@ -698,7 +694,7 @@ export function useEarnActions(deps: {
     let timer: number | null = null;
     const controller = new AbortController();
     const run = async () => {
-      for (const delayMs of [4_000, 8_000, 16_000, 30_000]) {
+      for (const delayMs of [4000, 8000, 16_000, 30_000]) {
         await new Promise<void>((resolve) => {
           timer = window.setTimeout(resolve, delayMs);
         });
@@ -781,103 +777,12 @@ export function useEarnActions(deps: {
     };
   }, [mainUsdc.amount, trackedKaminoUsdcMint, walletAddress]);
 
-  // ---- Browser prepares (app-wallet-workspace.tsx:4886-5061) ----
-  const prepareEarnDepositInBrowser = useCallback(
-    async (
-      draft: EarnDepositDraft
-    ): Promise<SmartAccountPreparedEarnUsdcDeposit> => {
-      const overview = smartAccountData.overview;
-      const policySignerPublicKey = smartAccountData.earnPolicySignerPublicKey;
-
-      if (!overview || !walletAddress) {
-        throw new Error("Smart-account overview is not loaded yet.");
-      }
-      if (!smartAccountData.hasEarnStateResolved) {
-        throw new Error("Earn state is still loading. Try again in a moment.");
-      }
-      if (!policySignerPublicKey) {
-        throw new Error("Earn policy signer metadata is not loaded yet.");
-      }
-
-      const amountRaw = parseTokenAmountLabelToRaw(
-        draft.amountLabel,
-        draft.tokenDecimals
-      );
-      const cluster = resolveLoyalClusterForSolanaEnv(
-        resolveSolanaEnv(publicEnv.solanaEnv)
-      );
-      const accountSettingsPda = new PublicKey(overview.settingsPda);
-      const userWallet = new PublicKey(walletAddress);
-      const policy = smartAccountData.earnPolicy;
-      const onboarding = smartAccountData.earnOnboarding;
-      const canResumeOnboardingPreparation =
-        !policy &&
-        (onboarding?.nextStep === "setup_policy" ||
-          onboarding?.nextStep === "deposit");
-      const onboardingPolicy =
-        canResumeOnboardingPreparation &&
-        onboarding?.policy?.lastSeenSignature &&
-        onboarding.policy.lastSeenSlot
-          ? onboarding.policy
-          : null;
-      const routePolicy = policy ?? onboardingPolicy;
-      const routeSetupPolicy =
-        policy?.setupPolicy ??
-        (onboardingPolicy &&
-        onboarding?.setupPolicy?.lastSeenSignature &&
-        onboarding.setupPolicy.lastSeenSlot
-          ? onboarding.setupPolicy
-          : null);
-      const yieldRoutingPolicy: EarnDepositYieldRoutingPolicy | undefined =
-        routePolicy && routeSetupPolicy
-          ? {
-              account: new PublicKey(routePolicy.account),
-              seed: BigInt(routePolicy.seed),
-              setupPolicy: {
-                account: new PublicKey(routeSetupPolicy.account),
-                seed: BigInt(routeSetupPolicy.seed),
-              },
-            }
-          : undefined;
-      const target = routePolicy
-        ? resolveActiveEarnDepositTarget(position)
-        : null;
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
-      });
-
-      return client.prepareEarnUsdcDeposit({
-        amountRaw,
-        cluster,
-        feePayer: userWallet,
-        initializeYieldRoutingPolicy: !yieldRoutingPolicy,
-        policySigner: new PublicKey(policySignerPublicKey),
-        settingsPda: accountSettingsPda,
-        walletAddress: userWallet,
-        ...(target ? { target } : {}),
-        ...(yieldRoutingPolicy ? { yieldRoutingPolicy } : {}),
-      });
-    },
-    [
-      position,
-      connection,
-      publicEnv.solanaEnv,
-      smartAccountData.earnOnboarding,
-      smartAccountData.earnPolicy,
-      smartAccountData.earnPolicySignerPublicKey,
-      smartAccountData.hasEarnStateResolved,
-      smartAccountData.overview,
-      walletAddress,
-    ]
-  );
-
   // Warms the Kamino instruction cache while the user is still on the amount
   // input, so the submit-time prepare skips its longest network leg. Fire and
   // forget: a miss (target drift, parse failure, API error) just means the
   // prepare falls back to a live fetch, exactly as without prefetching.
   const prefetchDepositPreparation = useCallback(
-    (amountLabel: string) => {
+    (amountLabel: string, mint: string) => {
       const overview = smartAccountData.overview;
       if (!overview) {
         return;
@@ -894,104 +799,22 @@ export function useEarnActions(deps: {
       if (amountRaw <= BigInt(0)) {
         return;
       }
-      const cluster = resolveLoyalClusterForSolanaEnv(
-        resolveSolanaEnv(publicEnv.solanaEnv)
-      );
-      const target = smartAccountData.earnPolicy
-        ? resolveActiveEarnDepositTarget(position)
-        : null;
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
-      });
-      void client.prefetchEarnUsdcDepositInstructions({
-        amountRaw,
-        cluster,
-        settingsPda: new PublicKey(overview.settingsPda),
-        ...(target ? { target } : {}),
-      });
+      void prepareEarnDepositOnServer({ amountRaw, mint }).catch(() => null);
     },
-    [
-      connection,
-      depositSource.decimals,
-      position,
-      publicEnv.solanaEnv,
-      smartAccountData.earnPolicy,
-      smartAccountData.overview,
-    ]
+    [depositSource.decimals, smartAccountData.overview]
   );
 
   const prepareEarnWithdrawInBrowser = useCallback(
     async (
       draft: EarnWithdrawDraft
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
-      const overview = smartAccountData.overview;
-      const policy = smartAccountData.earnPolicy;
-
-      if (!overview || !walletAddress) {
-        throw new Error("Smart-account overview is not loaded yet.");
-      }
-      if (!policy) {
-        throw new Error("Active Earn policy metadata is required to withdraw.");
-      }
-
-      const policySigner = policy.delegatedSigners[0];
-      if (!policySigner) {
-        throw new Error("Active Earn policy is missing its delegated signer.");
-      }
-
-      const source = toEarnWithdrawVaultsSource(draft.source);
       const requestedAmountRaw = getEarnWithdrawDraftAmountRaw(draft);
-      const effectiveAmountRaw =
-        draft.mode === "full" ? source.amountRaw : requestedAmountRaw;
-      const cluster = resolveLoyalClusterForSolanaEnv(
-        resolveSolanaEnv(publicEnv.solanaEnv)
-      );
-      const accountSettingsPda = new PublicKey(overview.settingsPda);
-      const userWallet = new PublicKey(walletAddress);
-      const { fullWithdrawalTargets, target } =
-        selectFullExitWithdrawTargets(draft);
-      const client = createSmartAccountVaultsClient({
-        connection,
-        programId: new PublicKey(overview.programId),
+      return prepareEarnWithdrawOnServer({
+        amountRaw: draft.mode === "full" ? "max" : requestedAmountRaw,
+        sourceId: draft.source.sourceId,
       });
-      const yieldRoutingPolicy = {
-        account: new PublicKey(policy.account),
-        seed: BigInt(policy.seed),
-        setupPolicy: policy.setupPolicy
-          ? {
-              account: new PublicKey(policy.setupPolicy.account),
-              seed: BigInt(policy.setupPolicy.seed),
-            }
-          : null,
-      };
-      const withdrawInput = {
-        amountRaw: effectiveAmountRaw,
-        // Policy teardown is prepared only after the server proves the
-        // post-withdraw balances at or after the confirmed withdrawal slot.
-        closePoliciesOnFullWithdrawal: false,
-        cluster,
-        feePayer: userWallet,
-        policySigner: new PublicKey(policySigner),
-        settingsPda: accountSettingsPda,
-        source,
-        ...(target ? { target } : {}),
-        ...(fullWithdrawalTargets.length > 0 ? { fullWithdrawalTargets } : {}),
-        walletAddress: userWallet,
-        yieldRoutingPolicy,
-      };
-
-      return draft.mode === "full"
-        ? client.prepareEarnUsdcWithdraw({ ...withdrawInput, mode: "full" })
-        : client.prepareEarnUsdcWithdraw({ ...withdrawInput, mode: "partial" });
     },
-    [
-      connection,
-      publicEnv.solanaEnv,
-      smartAccountData.earnPolicy,
-      smartAccountData.overview,
-      walletAddress,
-    ]
+    []
   );
 
   // ---- Deposit (app-wallet-workspace.tsx:5165-5332 + 5508-5843) ----
@@ -999,6 +822,8 @@ export function useEarnActions(deps: {
     async (args: {
       amountLabel: string;
       forecastApyBps: number;
+      mint: string;
+      symbol: string;
     }): Promise<boolean> => {
       if (!canMutateAccount) {
         openSignIn();
@@ -1009,10 +834,10 @@ export function useEarnActions(deps: {
         amount: Number(args.amountLabel.replace(/,/g, "")) || 0,
         amountLabel: args.amountLabel,
         forecastApyBps: args.forecastApyBps,
-        source: depositSource,
-        symbol: "USDC",
+        source: { ...depositSource, mint: args.mint },
+        symbol: args.symbol,
         tokenDecimals: depositSource.decimals,
-        tokenMint: depositSource.mint,
+        tokenMint: args.mint,
       };
       const requiresPolicySetup =
         smartAccountData.requiresEarnPolicySetupForDeposit;
@@ -1077,7 +902,12 @@ export function useEarnActions(deps: {
             preparedDeposit: commit.preparedDeposit,
           })
         );
-        debitMainAccountUsdcBalance(commit.amountRaw);
+        if (
+          trackedKaminoUsdcMint ===
+          commit.preparedDeposit.persistence.depositMint
+        ) {
+          debitMainAccountUsdcBalance(commit.amountRaw);
+        }
         suppressPositionRefreshThroughSlot(commit.result.confirmedSlot);
         if (walletSubmittedAtMs !== null) {
           captureBrowserLoadingMetricAfterPaint({
@@ -1110,7 +940,11 @@ export function useEarnActions(deps: {
           flowId: tracker.flowId,
           operation: "earn.deposit",
           rpcEndpoint: connection.rpcEndpoint,
-          run: () => prepareEarnDepositInBrowser(draft),
+          run: () =>
+            prepareEarnDepositOnServer({
+              amountRaw,
+              mint: args.mint,
+            }),
         });
         const shouldBypassTopUpPreview =
           hasPosition &&
@@ -1125,7 +959,19 @@ export function useEarnActions(deps: {
         // Only first deposits gate on the approval sheet; top-ups skip it
         // even when the prepare bundles policy repair — the wallet still
         // prompts per signature.
-        if (!hasPosition) {
+        if (hasPosition) {
+          captureBrowserLoadingMetric({
+            durationMs: Math.max(
+              0,
+              getBrowserPerformanceNow() - interactionStartedAtMs
+            ),
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            phase: "interaction_to_preview",
+            presentation: "wallet",
+          });
+          previewMetricSent = true;
+        } else {
           earnToast.loading("Waiting for approval");
           const approvalPromise = requestApproval(
             buildEarnDepositReviewItem({
@@ -1148,18 +994,6 @@ export function useEarnActions(deps: {
             tracker.cancel("review", { errorCode: "wallet_rejected" });
             return false;
           }
-        } else {
-          captureBrowserLoadingMetric({
-            durationMs: Math.max(
-              0,
-              getBrowserPerformanceNow() - interactionStartedAtMs
-            ),
-            flowId: tracker.flowId,
-            operation: "earn.deposit",
-            phase: "interaction_to_preview",
-            presentation: "wallet",
-          });
-          previewMetricSent = true;
         }
 
         if (!ensureCanSignAccountAction()) {
@@ -1176,6 +1010,7 @@ export function useEarnActions(deps: {
           });
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
+            mint: preparedDeposit.persistence.depositMint,
             observabilityFlowId: tracker.flowId,
             onWalletSubmitted: markWalletSubmitted,
             preparedDeposit,
@@ -1225,6 +1060,7 @@ export function useEarnActions(deps: {
           });
           const batchResult = await smartAccountData.executeEarnDepositBatch({
             amountRaw,
+            mint: preparedDeposit.persistence.depositMint,
             observabilityFlowId: tracker.flowId,
             onWalletSubmitted: markWalletSubmitted,
             preparedDeposit,
@@ -1349,6 +1185,7 @@ export function useEarnActions(deps: {
           earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
           const result = await smartAccountData.executeEarnDeposit({
             amountRaw,
+            mint: preparedDeposit.persistence.depositMint,
             observabilityFlowId: tracker.flowId,
             onWalletSubmitted: markWalletSubmitted,
             ...stageSignatures,
@@ -1383,7 +1220,9 @@ export function useEarnActions(deps: {
           haystack.includes("insufficient lamports") ||
           haystack.includes("would result in account being unable to pay rent");
         setDepositError(
-          isRentError && !haystack.includes("top up")
+          error instanceof EarnPolicyUpdateRequiredClientError
+            ? "Update your Earn policy to enable this stablecoin before depositing."
+            : isRentError && !haystack.includes("top up")
             ? "Stash must keep a minimum SOL balance for rent. Try a smaller amount."
             : raw
         );
@@ -1436,12 +1275,12 @@ export function useEarnActions(deps: {
       expectEarnTransaction,
       hasPosition,
       openSignIn,
-      prepareEarnDepositInBrowser,
       registerExpectedEarnMutation,
       requestApproval,
       setPosition,
       smartAccountData,
       suppressPositionRefreshThroughSlot,
+      trackedKaminoUsdcMint,
       wallet.signAllTransactions,
     ]
   );
@@ -1583,7 +1422,9 @@ export function useEarnActions(deps: {
           setPosition((current) =>
             applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
           );
-          creditMainAccountUsdcBalance(amountRaw);
+          if (draft.source.liquidityMint === trackedKaminoUsdcMint) {
+            creditMainAccountUsdcBalance(amountRaw);
+          }
           suppressPositionRefreshThroughSlot(latestConfirmedSlot);
           if (walletSubmittedAtMs !== null) {
             captureBrowserLoadingMetricAfterPaint({
@@ -1722,7 +1563,10 @@ export function useEarnActions(deps: {
           setPosition((current) =>
             applySubmittedEarnWithdrawToPosition({ amountRaw, current, draft })
           );
-          if (draft.mode === "partial") {
+          if (
+            draft.mode === "partial" &&
+            draft.source.liquidityMint === trackedKaminoUsdcMint
+          ) {
             creditMainAccountUsdcBalance(amountRaw);
             suppressPositionRefreshThroughSlot(result.confirmedSlot);
           }
@@ -1807,6 +1651,7 @@ export function useEarnActions(deps: {
       setPosition,
       smartAccountData,
       suppressPositionRefreshThroughSlot,
+      trackedKaminoUsdcMint,
     ]
   );
 
@@ -2043,8 +1888,10 @@ export function useEarnActions(deps: {
         keepAmountChanged
       ) {
         if (
-          !autodepositConfig.policyAccount ||
-          !autodepositConfig.recurringDelegation
+          !(
+            autodepositConfig.policyAccount &&
+            autodepositConfig.recurringDelegation
+          )
         ) {
           setAutodepositError("Autodeposit account metadata is missing.");
           return false;
@@ -2250,7 +2097,7 @@ export function useEarnActions(deps: {
             walletBalanceFloorRaw: keepAmountRaw,
           });
 
-          if (!result.success || !result.preparedSetup) {
+          if (!(result.success && result.preparedSetup)) {
             if (result.status === "confirmation_record_failed") {
               tracker.fail("backend_confirm", {
                 chainState: "confirmed",
@@ -2502,7 +2349,7 @@ export function useEarnActions(deps: {
       setAutodepositError("No Autodeposit rule is configured.");
       return false;
     }
-    if (!config.policyAccount || !config.recurringDelegation) {
+    if (!(config.policyAccount && config.recurringDelegation)) {
       setAutodepositError("Autodeposit account metadata is missing.");
       return false;
     }

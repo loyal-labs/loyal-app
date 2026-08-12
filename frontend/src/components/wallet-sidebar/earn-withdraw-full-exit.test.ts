@@ -2,16 +2,16 @@ import { describe, expect, test } from "bun:test";
 
 import {
   deriveEarnWithdrawMode,
-  selectEarnFullExitSources,
   type EarnWithdrawSourceOption,
+  selectEarnFullExitSources,
 } from "./earn-detail-view";
 
 // A full exit closes the position + policies and reclaims rent, so it may only
 // mean "empty ALL of Earn". These lock down the two halves of that:
 //   1. mode "full" is derived against the WHOLE position, never one source
 //      (maxing a small source next to a large one must stay partial).
-//   2. a full exit unwinds EVERY reserve, so a second Kamino market is never
-//      stranded (which fails the zero proof: no close, no rent refund).
+//   2. even a full exit authorizes only the selected source; cleanup is gated
+//      separately by a fresh all-source zero proof.
 // The single-source path — every ordinary wallet — must be unchanged.
 
 function reserveSource(
@@ -29,6 +29,7 @@ function reserveSource(
     reserve: sourceId,
     sourceId,
     tokenAccount: null,
+    tokenProgramId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
     type: "reserve",
   };
 }
@@ -60,15 +61,13 @@ describe("Earn withdraw mode derivation", () => {
     ).toBe("full");
   });
 
-  test("sub-cent dust in another reserve still allows a full exit", () => {
-    // Dust floors away at cent precision, so emptying the last real source is
-    // still a full exit — otherwise dust would trap the position open forever.
+  test("sub-cent dust in another reserve keeps the withdrawal partial", () => {
     expect(
       deriveEarnWithdrawMode({
         amount: 50,
-        sources: [secondReserve, reserveSource("dust", 0.000001)],
+        sources: [secondReserve, reserveSource("dust", 0.000_001)],
       })
-    ).toBe("full");
+    ).toBe("partial");
   });
 });
 
@@ -83,14 +82,14 @@ describe("Earn full-exit sources", () => {
     ).toEqual([mainReserve]);
   });
 
-  test("a full exit unwinds every reserve, selected first", () => {
+  test("a full exit never expands beyond the selected reserve", () => {
     expect(
       selectEarnFullExitSources({
         fullExitSources: [mainReserve, secondReserve],
         mode: "full",
         source: secondReserve,
       })
-    ).toEqual([secondReserve, mainReserve]);
+    ).toEqual([secondReserve]);
   });
 
   test("a partial withdrawal never unwinds other reserves", () => {
