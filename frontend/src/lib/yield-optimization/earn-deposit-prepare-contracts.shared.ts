@@ -3,6 +3,7 @@ import type {
   SmartAccountNativeSolRequirement,
   SmartAccountPreparedEarnUsdcDeposit,
 } from "@loyal-labs/smart-account-vaults";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 
 import {
@@ -39,7 +40,8 @@ export type WireSmartAccountPreparedEarnUsdcDeposit = {
   prepared: WirePreparedLoyalSmartAccountsOperation;
   targetReserve: {
     liquidityMint: string;
-    liquidityTokenProgram: string;
+    // Absent on legacy mobile wires (pre-token-2022, always USDC — ASK-2099).
+    liquidityTokenProgram?: string;
     market: string;
     obligation: string;
     reserve: string;
@@ -195,9 +197,11 @@ export function hydratePreparedEarnUsdcDeposit(
     prepared: hydratePreparedOperation(wire.prepared),
     targetReserve: {
       liquidityMint: new PublicKey(wire.targetReserve.liquidityMint),
-      liquidityTokenProgram: new PublicKey(
-        wire.targetReserve.liquidityTokenProgram
-      ),
+      // Legacy mobile wires predate token-2022 mints and omit the field; they
+      // are always classic-token USDC (ASK-2099).
+      liquidityTokenProgram: wire.targetReserve.liquidityTokenProgram
+        ? new PublicKey(wire.targetReserve.liquidityTokenProgram)
+        : TOKEN_PROGRAM_ID,
       market: new PublicKey(wire.targetReserve.market),
       obligation: new PublicKey(wire.targetReserve.obligation),
       reserve: new PublicKey(wire.targetReserve.reserve),
