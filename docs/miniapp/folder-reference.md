@@ -1,6 +1,6 @@
 # Folder Reference
 
-Detailed breakdown of `/app/src/lib/`.
+Detailed breakdown of `/apps/telegram/src/lib/`.
 
 ---
 

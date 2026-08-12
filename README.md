@@ -1,26 +1,35 @@
 # Loyal App
 
 Loyal App is a monorepo for Telegram-native Solana products.
-It combines on-chain Anchor programs, a Telegram mini-app, an internal admin dashboard,
-the Loyal web frontend, shared packages/SDKs, and worker services.
+It combines on-chain Anchor programs, a Telegram mini-app, the Loyal web frontend,
+mobile and browser-extension apps, an internal admin dashboard, shared packages,
+and Rust crates.
 
 ## Monorepo Structure
 
-| Directory | What it contains | Start here |
-| --- | --- | --- |
-| [`apps/telegram/`](./apps/telegram) | Next.js Telegram mini-app and API routes | [`apps/telegram/README.md`](./app/README.md) |
-| [`apps/web/`](./apps/web) | Next.js Loyal web frontend | [`apps/web/README.md`](./frontend/README.md) |
-| [`apps/admin/`](./apps/admin) | Internal Next.js admin dashboard | [`apps/admin/README.md`](./admin/README.md) |
-| [`programs/`](./programs) | Anchor smart contracts (`telegram-verification`, `telegram-private-transfer`) | [`programs/`](./programs) |
-| [`tests/`](./tests) | Anchor integration tests | [`tests/`](./tests) |
-| [`packages/`](./packages) | Shared workspace libraries and publishable SDKs (`db-core`, `shared`, `private-transactions`, `loyal-smart-accounts`) | [`packages/private-transactions/README.md`](./packages/private-transactions/README.md) |
-| [`crates/`](./crates) | Rust CLIs and the Rust smart-accounts SDK | [`crates/loyal-cli/README.md`](./crates/loyal-cli/README.md) |
-| [`workers/`](./workers) | Background workers and service runtimes | [`workers/userbot/README.md`](./workers/userbot/README.md) |
-| [`docs/`](./docs) | Internal engineering and operations documentation | [`docs/README.md`](./docs/README.md) |
-| [`user-docs/`](./user-docs) | Public Mintlify documentation content | [`user-docs/README.md`](./user-docs/README.md) |
-| [`scripts/`](./scripts) | Repository automation scripts and setup helpers | [`scripts/`](./scripts) |
-| [`githooks/`](./githooks) | Git hook scripts used by local workflow checks | [`githooks/`](./githooks) |
-| [`migrations/`](./migrations) | Root-level migration artifacts and migration history | [`migrations/`](./migrations) |
+Applications live in `apps/`, shared TypeScript libraries and publishable SDKs in
+`packages/`, Rust CLIs and SDK crates in `crates/`, and on-chain programs in
+`programs/`.
+
+| Directory                                       | What it contains                                                                                                      | Start here                                                                             |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [`apps/telegram/`](./apps/telegram)             | Next.js Telegram mini-app and API routes                                                                              | [`apps/telegram/README.md`](./apps/telegram/README.md)                                 |
+| [`apps/web/`](./apps/web)                       | Next.js Loyal web frontend (askloyal.com)                                                                             | [`apps/web/README.md`](./apps/web/README.md)                                           |
+| [`apps/admin/`](./apps/admin)                   | Internal Next.js admin dashboard                                                                                      | [`apps/admin/README.md`](./apps/admin/README.md)                                       |
+| [`apps/dashboard/`](./apps/dashboard)           | Public stats dashboard (stats.askloyal.com)                                                                           | [`apps/dashboard/README.md`](./apps/dashboard/README.md)                               |
+| [`apps/mobile/`](./apps/mobile)                 | Expo React Native mobile app                                                                                          | [`apps/mobile/README.md`](./apps/mobile/README.md)                                     |
+| [`apps/extension/`](./apps/extension)           | WXT browser extension wallet                                                                                          | [`apps/extension/README.md`](./apps/extension/README.md)                               |
+| [`apps/userbot/`](./apps/userbot)               | Telegram userbot worker service                                                                                       | [`apps/userbot/README.md`](./apps/userbot/README.md)                                   |
+| [`apps/privy-showcase/`](./apps/privy-showcase) | Privy integration example app                                                                                         | [`apps/privy-showcase/README.md`](./apps/privy-showcase/README.md)                     |
+| [`packages/`](./packages)                       | Shared workspace libraries and publishable SDKs (`db-core`, `shared`, `private-transactions`, `loyal-smart-accounts`) | [`packages/private-transactions/README.md`](./packages/private-transactions/README.md) |
+| [`crates/`](./crates)                           | Rust CLIs and the Rust smart-accounts SDK                                                                             | [`crates/loyal-cli/README.md`](./crates/loyal-cli/README.md)                           |
+| [`programs/`](./programs)                       | Anchor smart contracts (`telegram-verification`, `telegram-private-transfer`)                                         | [`programs/`](./programs)                                                              |
+| [`tests/`](./tests)                             | Anchor integration tests                                                                                              | [`tests/`](./tests)                                                                    |
+| [`docs/`](./docs)                               | Internal engineering and operations documentation                                                                     | [`docs/README.md`](./docs/README.md)                                                   |
+| [`user-docs/`](./user-docs)                     | Public Mintlify documentation content                                                                                 | [`user-docs/README.md`](./user-docs/README.md)                                         |
+| [`scripts/`](./scripts)                         | Repository automation scripts and setup helpers                                                                       | [`scripts/`](./scripts)                                                                |
+| [`githooks/`](./githooks)                       | Git hook scripts used by local workflow checks                                                                        | [`githooks/`](./githooks)                                                              |
+| [`migrations/`](./migrations)                   | Root-level migration artifacts and migration history                                                                  | [`migrations/`](./migrations)                                                          |
 
 ## Quick Start (Contributors)
 
@@ -91,6 +100,21 @@ bun run lint
 bun dev
 bun run build
 bun lint
+```
+
+### Mobile (`/apps/mobile`)
+
+```bash
+npx expo start --clear
+npx expo lint
+npm test
+```
+
+### Extension (`/apps/extension`)
+
+```bash
+bun dev
+bun run build
 ```
 
 ### Smart Contracts (`/`)

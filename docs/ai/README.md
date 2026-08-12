@@ -14,4 +14,4 @@ Internal documentation for the shared Ax backbone used by summary generation and
 ## Scope
 
 - Internal usage patterns only (no public/user-docs content)
-- Current reference implementation: group summaries in `app/src/lib/ai/ax/programs/summaries`
+- Current reference implementation: group summaries in `apps/telegram/src/lib/ai/ax/programs/summaries`

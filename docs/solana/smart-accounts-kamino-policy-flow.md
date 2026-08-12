@@ -118,7 +118,7 @@ frontend pieces are the generic smart-account flows listed below; the
 Kamino-specific opt-in should reuse those package APIs instead of adding direct
 Squads plumbing to the UI.
 
-For new users, keep `frontend/src/features/smart-accounts/server/onchain.ts`
+For new users, keep `apps/web/src/features/smart-accounts/server/onchain.ts`
 creating the root smart account as it does today: `settingsAuthority: null`,
 `threshold: 1`, one user signer in `signers`, and sponsor-paid creation.
 
@@ -134,11 +134,11 @@ signature, then store or index the resulting `policyPda` for the Agent worker.
 Do not add the Agent as a root `Settings` signer. The Agent should only appear in `Policy.signers[]`.
 
 Existing generic frontend smart-account plumbing already supports the pieces
-this flow would reuse. `frontend/src/features/smart-accounts/server/read-model.ts`
+this flow would reuse. `apps/web/src/features/smart-accounts/server/read-model.ts`
 loads `SmartAccountOverview` through `packages/smart-account-vaults`.
 `/api/smart-accounts/overview` returns the overview without eager activity
 scans, while `/api/smart-accounts/vault-activity` loads selected-vault activity.
-`frontend/src/hooks/use-smart-account-sidebar-data.ts` prepares proposal
+`apps/web/src/hooks/use-smart-account-sidebar-data.ts` prepares proposal
 execution, signer updates, and spending-limit actions with
 `createSmartAccountVaultsClient`.
 

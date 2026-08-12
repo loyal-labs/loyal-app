@@ -1,6 +1,6 @@
 # Mini App Library Structure
 
-Quick reference for `/app/src/lib/`.
+Quick reference for `/apps/telegram/src/lib/`.
 
 ## Folder Overview
 

@@ -15,7 +15,7 @@ The current reference implementation is Telegram group summary generation.
   - server-side Ax client factory, program runner, and telemetry sink
   - accepts config objects; no direct `process.env` reads
 
-### App layer (`/app/src/lib/ai/ax`)
+### App layer (`/apps/telegram/src/lib/ai/ax`)
 
 - `programs/summaries/spec.ts`
   - versioned program spec with typed signatures, examples, assertions, and defaults
@@ -28,9 +28,9 @@ The current reference implementation is Telegram group summary generation.
 
 ### Telegram orchestration boundary
 
-- `app/src/lib/telegram/bot-api/summaries.ts`
+- `apps/telegram/src/lib/telegram/bot-api/summaries.ts`
   - idempotency, DB writes, delivery
-- `app/src/lib/telegram/bot-api/summary-generation/service.ts`
+- `apps/telegram/src/lib/telegram/bot-api/summary-generation/service.ts`
   - production wiring for Ax summary generation service
 
 ## Program Authoring Pattern
@@ -89,8 +89,8 @@ Use these fields for operational dashboards and canary evaluation.
 
 Examples and rules are versioned assets under:
 
-- `app/src/lib/ai/ax/programs/summaries/assets/examples/<version>.json`
-- `app/src/lib/ai/ax/programs/summaries/assets/rules/<version>.json`
+- `apps/telegram/src/lib/ai/ax/programs/summaries/assets/examples/<version>.json`
+- `apps/telegram/src/lib/ai/ax/programs/summaries/assets/rules/<version>.json`
 
 Rules:
 
@@ -102,15 +102,15 @@ Rules:
 
 ## Files
 
-- `app/src/lib/ai/ax/evals/datasets/summaries-v1.json`
-- `app/src/lib/ai/ax/evals/datasets/summaries-v1-baseline.json`
-- `app/src/lib/ai/ax/evals/metrics/summaries.ts`
-- `app/src/lib/ai/ax/evals/runner.ts`
+- `apps/telegram/src/lib/ai/ax/evals/datasets/summaries-v1.json`
+- `apps/telegram/src/lib/ai/ax/evals/datasets/summaries-v1-baseline.json`
+- `apps/telegram/src/lib/ai/ax/evals/metrics/summaries.ts`
+- `apps/telegram/src/lib/ai/ax/evals/runner.ts`
 
 ## Command
 
 ```bash
-cd app
+cd apps/telegram
 bun run ai:eval:summaries
 ```
 
@@ -137,7 +137,7 @@ Example targets:
 Do:
 
 - keep signatures strongly typed (`AxSignature<TInput, TOutput>`)
-- keep env access in app/server boundary modules only
+- keep env access in apps/telegram/server boundary modules only
 - validate and normalize before returning data to storage paths
 - keep retries centralized in `llm-core`
 - prefer versioned JSON assets over inline prompt constants

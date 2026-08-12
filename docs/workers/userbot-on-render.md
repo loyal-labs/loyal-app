@@ -38,7 +38,7 @@ This guide explains how to run the mtcute userbot worker with persistent SQLite 
 4. Use start command:
 
 ```bash
-cd workers/userbot && bun install && bun run start
+cd apps/userbot && bun install && bun run start
 ```
 
 ## One-Time Authentication Bootstrap
@@ -46,7 +46,7 @@ cd workers/userbot && bun install && bun run start
 Open Render Shell for the worker service and run:
 
 ```bash
-cd workers/userbot
+cd apps/userbot
 bun install
 bun run auth:bootstrap
 ```
@@ -59,7 +59,7 @@ If bot token auth is configured (`TELEGRAM_USERBOT_BOT_TOKEN` or `ASKLOYAL_TGBOT
 ## Validate Session
 
 ```bash
-cd workers/userbot
+cd apps/userbot
 bun run auth:status
 ```
 
@@ -71,7 +71,7 @@ bun run auth:status
 Configure a Render cron job with:
 
 ```bash
-cd workers/userbot && bun install && bun run sync:once
+cd apps/userbot && bun install && bun run sync:once
 ```
 
 In user auth mode, `sync:once` first discovers active group/supergroup dialogs from
@@ -82,13 +82,13 @@ can be configured manually in admin.
 Optional recovery flags for targeted backfill:
 
 ```bash
-cd workers/userbot && bun install && bun run sync:once --parser-types=bot,userbot --lookback-days=2
+cd apps/userbot && bun install && bun run sync:once --parser-types=bot,userbot --lookback-days=2
 ```
 
 To only sync dialogs into communities (no message ingestion), run:
 
 ```bash
-cd workers/userbot && bun install && bun run sync:once --dialog-sync-only
+cd apps/userbot && bun install && bun run sync:once --dialog-sync-only
 ```
 
 ## Cron Summary Publishing (Delivery-only)
@@ -96,7 +96,7 @@ cd workers/userbot && bun install && bun run sync:once --dialog-sync-only
 Configure a Render cron job with:
 
 ```bash
-cd workers/userbot && bun install && bun run summary:publish:once
+cd apps/userbot && bun install && bun run summary:publish:once
 ```
 
 This command:
@@ -111,7 +111,7 @@ This command:
 For targeted retries, scope to specific groups:
 
 ```bash
-cd workers/userbot && bun install && bun run summary:publish:once --chat-ids=-100123,-100456
+cd apps/userbot && bun install && bun run summary:publish:once --chat-ids=-100123,-100456
 ```
 
 Note: this command requires user auth mode (session login), not bot token mode.
@@ -137,7 +137,7 @@ Operational logging for each run includes:
 If the session becomes invalid:
 
 ```bash
-cd workers/userbot
+cd apps/userbot
 bun run auth:clear
 bun run auth:bootstrap
 ```

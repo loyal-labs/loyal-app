@@ -41,5 +41,5 @@ op run --env-file=.env.1password -- sh -c 'REALTIME_EVENTS_URL=http://127.0.0.1:
 
 Run Yield Neon migrations only from `loyal-yield-routing` with its
 `yield-migrations` binary. The app repository does not provision realtime
-schema; SQL under `frontend/src/lib/yield-optimization/migrations` is retained
+schema; SQL under `apps/web/src/lib/yield-optimization/migrations` is retained
 only as historical compatibility context.

@@ -25,7 +25,7 @@ tests, and the M5 search.
 ## M2. Verified identity before Loyal starts — PASS
 
 - Installed-SDK RSA/JWKS fixtures exercise one complete signed launch through
-  both SDK and Loyal validation, plus trusted key, exact app/origin, expiry,
+  both SDK and Loyal validation, plus trusted key, exact apps/telegram/origin, expiry,
   not-before, issuer, and maximum-lifetime failures.
 - Loyal additionally enforces exact issuer, Solana `sub`, room, `jti`, integer
   issued-at/expiry, future skew, expiry, and a five-minute maximum lifetime.

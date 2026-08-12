@@ -68,10 +68,10 @@ Run:
 
 ```sh
 git diff --check
-bunx prettier --check frontend/src/features/cherry frontend/src/components/solana/wallet-provider.tsx frontend/src/app/app frontend/src/app/layout.tsx docs/integrations
-bun --conditions=react-server test frontend/src/features/cherry
+bunx prettier --check apps/web/src/features/cherry apps/web/src/components/solana/wallet-provider.tsx apps/web/src/app/app apps/web/src/app/layout.tsx docs/integrations
+bun --conditions=react-server test apps/web/src/features/cherry
 bun run frontend:lint
-rg -n "cherry_embed|signAndSendTransaction|frame-ancestors|loyal_cherry_session" frontend/src frontend/next.config.ts
+rg -n "cherry_embed|signAndSendTransaction|frame-ancestors|loyal_cherry_session" apps/web/src apps/web/next.config.ts
 ```
 
 Explain every search match. LOCAL PASS uses deterministic fixtures and never

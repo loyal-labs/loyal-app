@@ -35,7 +35,7 @@ Primary protocol references:
 
 ## Package Layers
 
-### `sdk/loyal-smart-accounts-core`
+### `packages/loyal-smart-accounts-core`
 
 The core package owns generated protocol bindings, PDA helpers, codecs,
 transport, prepared-operation compilation, and the operation registry. The
@@ -60,7 +60,7 @@ logging. The current frontend changes do not build a separate app-level log
 store; they use Solana simulation/wallet logs mainly for clearer user-facing
 spending-limit errors.
 
-### `sdk/loyal-smart-accounts`
+### `packages/loyal-smart-accounts`
 
 The TypeScript SDK is the public TS wrapper over the core package. It exports:
 
@@ -134,10 +134,10 @@ smart account through a sponsor path, and reconciles pending or failed records
 by checking whether the wallet is already a signer on the on-chain settings
 account.
 
-Key files are `frontend/src/features/smart-accounts/service.ts`,
-`frontend/src/features/smart-accounts/server/provisioner.ts`,
-`frontend/src/features/smart-accounts/server/onchain.ts`, and
-`frontend/src/features/smart-accounts/server/repository.ts`.
+Key files are `apps/web/src/features/smart-accounts/service.ts`,
+`apps/web/src/features/smart-accounts/server/provisioner.ts`,
+`apps/web/src/features/smart-accounts/server/onchain.ts`, and
+`apps/web/src/features/smart-accounts/server/repository.ts`.
 
 ### Read Model Routes
 
@@ -152,13 +152,13 @@ program id, and wallet data client:
 The read model has short cooldowns for RPC rate limits and retry/backoff for a
 newly created settings account that has not propagated yet.
 
-Key files are `frontend/src/app/api/smart-accounts/overview/route.ts`,
-`frontend/src/app/api/smart-accounts/vault-activity/route.ts`, and
-`frontend/src/features/smart-accounts/server/read-model.ts`.
+Key files are `apps/web/src/app/api/smart-accounts/overview/route.ts`,
+`apps/web/src/app/api/smart-accounts/vault-activity/route.ts`, and
+`apps/web/src/features/smart-accounts/server/read-model.ts`.
 
 ### React Hook and Wallet Actions
 
-`frontend/src/hooks/use-smart-account-sidebar-data.ts` is the main browser
+`apps/web/src/hooks/use-smart-account-sidebar-data.ts` is the main browser
 adapter. It fetches the server overview and vault activity routes, maps vaults
 and related account state into sidebar view models, prepares proposal actions
 with `createSmartAccountVaultsClient`, and sends prepared operations through
@@ -223,7 +223,7 @@ client cleanup or its confirmation was lost, the scheduled `GET`/`POST
 positions and re-proves zero balances at the recorded withdrawal slot before
 finalizing eligible ghost rows through the canonical cleanup writer. It requires
 `Authorization: Bearer <CRON_SECRET>`, runs every ten minutes at `7,17,27,37,47,57
-* * * *` from `frontend/vercel.json`, and supports `?dryRun=1` for a no-write
+* * * *` from `apps/web/vercel.json`, and supports `?dryRun=1` for a no-write
 scan or `?limit=N` to override the per-run candidate cap.
 
 Mobile clients prepare Earn instructions on-device. After mobile-wallet
@@ -269,31 +269,31 @@ display the current principal, and set the withdrawal maximum.
 
 | Area                     | Key file                                                                              |
 | ------------------------ | ------------------------------------------------------------------------------------- |
-| Workspace state          | `frontend/src/components/wallet-workspace/app-wallet-workspace.tsx`                   |
-| Earn detail UI           | `frontend/src/components/wallet-sidebar/earn-detail-view.tsx`                         |
-| Browser action adapter   | `frontend/src/hooks/use-smart-account-sidebar-data.ts`                                |
-| Active position route    | `frontend/src/app/api/smart-accounts/yield-optimization/position/route.ts`            |
-| Deposit confirm route    | `frontend/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`    |
-| Withdrawal confirm route | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts` |
-| Withdrawal cleanup prepare | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts` |
-| Withdrawal cleanup confirm | `frontend/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts` |
-| Cleanup reconciliation cron | `frontend/src/app/api/cron/earn-cleanup-reconcile/route.ts` |
-| Cleanup reconciliation logic | `frontend/src/lib/yield-optimization/earn-cleanup-reconcile.server.ts` |
-| Mobile deposit context   | `frontend/src/app/api/smart-accounts/mobile/earn/deposit/prepare-context/route.ts`    |
-| Mobile withdrawal context | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
-| Mobile cleanup context   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts` |
-| Mobile cleanup confirm   | `frontend/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts` |
-| Mobile Earn session mint | `frontend/src/app/api/smart-accounts/mobile/earn/session/route.ts` |
-| Mobile Earn session auth | `frontend/src/features/identity/server/mobile-earn-session.ts` |
-| Mobile Autodeposit progress | `frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute/route.ts` |
-| Mobile Autodeposit floor | `frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/floor/confirm/route.ts` |
-| Mobile Autodeposit toggle | `frontend/src/app/api/smart-accounts/mobile/earn/autodeposit/toggle/confirm/route.ts` |
-| Yield repository         | `frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
+| Workspace state          | `apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx`                   |
+| Earn detail UI           | `apps/web/src/components/wallet-sidebar/earn-detail-view.tsx`                         |
+| Browser action adapter   | `apps/web/src/hooks/use-smart-account-sidebar-data.ts`                                |
+| Active position route    | `apps/web/src/app/api/smart-accounts/yield-optimization/position/route.ts`            |
+| Deposit confirm route    | `apps/web/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`    |
+| Withdrawal confirm route | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts` |
+| Withdrawal cleanup prepare | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts` |
+| Withdrawal cleanup confirm | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts` |
+| Cleanup reconciliation cron | `apps/web/src/app/api/cron/earn-cleanup-reconcile/route.ts` |
+| Cleanup reconciliation logic | `apps/web/src/lib/yield-optimization/earn-cleanup-reconcile.server.ts` |
+| Mobile deposit context   | `apps/web/src/app/api/smart-accounts/mobile/earn/deposit/prepare-context/route.ts`    |
+| Mobile withdrawal context | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
+| Mobile cleanup context   | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts` |
+| Mobile cleanup confirm   | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts` |
+| Mobile Earn session mint | `apps/web/src/app/api/smart-accounts/mobile/earn/session/route.ts` |
+| Mobile Earn session auth | `apps/web/src/features/identity/server/mobile-earn-session.ts` |
+| Mobile Autodeposit progress | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute/route.ts` |
+| Mobile Autodeposit floor | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/floor/confirm/route.ts` |
+| Mobile Autodeposit toggle | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/toggle/confirm/route.ts` |
+| Yield repository         | `apps/web/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
 | Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
 
 ### CLI Agent Connect Flow
 
-`cli/loyal-cli` opens the frontend with `?connect=<CLI_PUBLIC_KEY>` during
+`crates/loyal-cli` opens the frontend with `?connect=<CLI_PUBLIC_KEY>` during
 `loyal auth`. The frontend detects that query parameter, opens the connection
 request view, and calls `addInitiateSigner`.
 
@@ -302,15 +302,15 @@ spending-limit policy. The CLI then detects the policy connection by scanning or
 subscribing to policy accounts where its public key appears in the configured
 signer index range.
 
-Key frontend files are `frontend/src/components/hero-section.tsx`,
-`frontend/src/components/wallet-sidebar/connect-request-content.tsx`,
-`frontend/src/components/wallet-workspace/app-wallet-workspace.tsx`, and
-`frontend/src/hooks/use-smart-account-sidebar-data.ts`.
+Key frontend files are `apps/web/src/components/hero-section.tsx`,
+`apps/web/src/components/wallet-sidebar/connect-request-content.tsx`,
+`apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx`, and
+`apps/web/src/hooks/use-smart-account-sidebar-data.ts`.
 
 ## CLI Split
 
-The branch separates `cli/private-transfers-cli`, whose binary is
-`loyal-private-transfers`, from `cli/loyal-cli`, whose binary is `loyal`.
+The branch separates `crates/private-transfers-cli`, whose binary is
+`loyal-private-transfers`, from `crates/loyal-cli`, whose binary is `loyal`.
 `loyal-private-transfers` targets `programs/telegram-private-transfer`; `loyal`
 targets Squads smart-account vault automation.
 
@@ -337,10 +337,10 @@ For package and frontend changes in this area, use:
 bun run --cwd packages/smart-account-vaults typecheck
 bun run --cwd packages/smart-account-vaults build
 bun test packages/smart-account-vaults/src/__tests__/spending-limits.test.ts
-bun run --cwd sdk/loyal-smart-accounts test
+bun run --cwd packages/loyal-smart-accounts test
 bun run --cwd frontend lint
-cargo check --manifest-path cli/loyal-cli/Cargo.toml
-cargo test --manifest-path cli/loyal-cli/Cargo.toml
+cargo check --manifest-path crates/loyal-cli/Cargo.toml
+cargo test --manifest-path crates/loyal-cli/Cargo.toml
 ```
 
 For protocol-sensitive docs changes, also inspect the Squads `policies` branch

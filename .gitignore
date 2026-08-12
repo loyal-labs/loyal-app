@@ -36,7 +36,7 @@ claude-report-second.md
 /apps/dashboard/out/
 /apps/web/.next/
 /apps/web/out/
-/examples/*/.next/
+/apps/privy-showcase/.next/
 
 # production
 /build
@@ -59,7 +59,7 @@ yarn-error.log*
 .env*
 /apps/web/.env*
 !/apps/dashboard/.env.example
-!/examples/privy-showcase/.env.example
+!/apps/privy-showcase/.env.example
 
 # vercel
 /apps/telegram/.vercel
@@ -71,7 +71,7 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 !/apps/dashboard/next-env.d.ts
-!/examples/privy-showcase/next-env.d.ts
+!/apps/privy-showcase/next-env.d.ts
 
 .anchor
 DS_Store
@@ -109,8 +109,8 @@ docs/scopes
 
 # userbot worker local storage overrides
 /.data/userbot/
-/workers/userbot/.data/
-/workers/userbot/node_modules/
+/apps/userbot/.data/
+/apps/userbot/node_modules/
 
 # turbo
 .turbo/

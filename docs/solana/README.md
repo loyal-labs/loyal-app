@@ -1,6 +1,6 @@
 # Solana Documentation
 
-Solana-related documentation for this project (Anchor programs + app/RPC integration).
+Solana-related documentation for this project (Anchor programs + apps/telegram/RPC integration).
 
 ## Programs
 

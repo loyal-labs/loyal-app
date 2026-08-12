@@ -104,15 +104,15 @@ routes to remain absent.
 In scope:
 
 - `packages/auth-core` wallet auth contracts and challenge-token claims;
-- `frontend/src/app/api/auth/wallet/challenge`;
-- `frontend/src/app/api/auth/wallet/complete`;
-- `frontend/src/features/identity/server/wallet-onboarding*`;
+- `apps/web/src/app/api/auth/wallet/challenge`;
+- `apps/web/src/app/api/auth/wallet/complete`;
+- `apps/web/src/features/identity/server/wallet-onboarding*`;
 - transaction-proof server helper code;
-- `frontend/src/lib/auth/wallet-proof-flow.ts`;
-- `frontend/src/lib/auth/wallet-proof-signer.ts`;
-- `frontend/src/components/auth/use-wallet-proof-auth.ts`;
-- `frontend/src/components/auth/wallet-tab.tsx`;
-- `frontend/src/components/auth/wallet-auto-reauth.tsx` only if needed to avoid
+- `apps/web/src/lib/auth/wallet-proof-flow.ts`;
+- `apps/web/src/lib/auth/wallet-proof-signer.ts`;
+- `apps/web/src/components/auth/use-wallet-proof-auth.ts`;
+- `apps/web/src/components/auth/wallet-tab.tsx`;
+- `apps/web/src/components/auth/wallet-auto-reauth.tsx` only if needed to avoid
   auto-reauth attempting an impossible proof.
 
 Out of scope:
@@ -150,7 +150,7 @@ Record exact commands or file inspections for each item:
 
 ## Focused Checks
 
-Do not run `bun run frontend:build`, `bun run build`, or `cd frontend && bun
+Do not run `bun run frontend:build`, `bun run build`, or `cd apps/web && bun
 run build` for this verifier.
 
 Run:
@@ -160,11 +160,11 @@ bun run --cwd packages/auth-core test
 ```
 
 ```sh
-bun test frontend/src/features/identity/server/wallet-auth-transaction.test.ts
+bun test apps/web/src/features/identity/server/wallet-auth-transaction.test.ts
 ```
 
 ```sh
-./node_modules/.bin/tsc --noEmit --project frontend/tsconfig.json --pretty false
+./node_modules/.bin/tsc --noEmit --project apps/web/tsconfig.json --pretty false
 ```
 
 ```sh
@@ -174,18 +174,18 @@ bun run --cwd frontend lint
 Required negative inspections:
 
 ```sh
-test ! -e frontend/src/app/api/solana
+test ! -e apps/web/src/app/api/solana
 ```
 
 ```sh
-rg -n "/api/solana/(create|verify)|createSignInData|verifySIWS" frontend/src/components frontend/src/contexts frontend/src/lib/auth frontend/src/app/api/auth -S
+rg -n "/api/solana/(create|verify)|createSignInData|verifySIWS" apps/web/src/components apps/web/src/contexts apps/web/src/lib/auth apps/web/src/app/api/auth -S
 ```
 
-Expected result: no product-auth hits; `frontend/src/app/api/solana` should not
+Expected result: no product-auth hits; `apps/web/src/app/api/solana` should not
 exist.
 
 ```sh
-rg -n "kind: \"transaction\"|signTransaction|MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr" packages/auth-core/src frontend/src/features/identity frontend/src/lib/auth frontend/src/components/auth -S
+rg -n "kind: \"transaction\"|signTransaction|MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr" packages/auth-core/src apps/web/src/features/identity apps/web/src/lib/auth apps/web/src/components/auth -S
 ```
 
 Expected result: all transaction-proof logic lives in the auth contract,

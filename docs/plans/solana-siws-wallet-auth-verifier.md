@@ -86,10 +86,10 @@ smart-account provisioning or replay, session cookie issuance, and
 In scope:
 
 - `packages/auth-core` wallet auth contracts and challenge-token claims;
-- `frontend/src/app/api/auth/wallet/challenge`;
-- `frontend/src/app/api/auth/wallet/complete`;
-- `frontend/src/features/identity/server/wallet-onboarding*`;
-- `frontend/src/components/auth/use-wallet-proof-auth.ts`;
+- `apps/web/src/app/api/auth/wallet/challenge`;
+- `apps/web/src/app/api/auth/wallet/complete`;
+- `apps/web/src/features/identity/server/wallet-onboarding*`;
+- `apps/web/src/components/auth/use-wallet-proof-auth.ts`;
 - client auth API helpers and wallet proof helpers;
 - focused contract/security tests for SIWS and message fallback.
 
@@ -125,7 +125,7 @@ Record exact commands or file inspections for each item:
 
 ## Focused Checks
 
-Do not run `bun run frontend:build`, `bun run build`, or `cd frontend && bun
+Do not run `bun run frontend:build`, `bun run build`, or `cd apps/web && bun
 run build` for this verifier.
 
 Run targeted checks that match the changed surface. Use package-native
@@ -136,7 +136,7 @@ bun run --cwd packages/auth-core test
 ```
 
 ```sh
-./node_modules/.bin/tsc --noEmit --project frontend/tsconfig.json --pretty false
+./node_modules/.bin/tsc --noEmit --project apps/web/tsconfig.json --pretty false
 ```
 
 ```sh
@@ -146,7 +146,7 @@ bun run --cwd frontend lint
 Required negative inspections:
 
 ```sh
-rg -n "/api/solana/(create|verify)|createSignInData|verifySIWS" frontend/src/components frontend/src/contexts frontend/src/lib/auth frontend/src/app/api/auth -S
+rg -n "/api/solana/(create|verify)|createSignInData|verifySIWS" apps/web/src/components apps/web/src/contexts apps/web/src/lib/auth apps/web/src/app/api/auth -S
 ```
 
 Allowed matches are shared SIWS helpers and this verifier. Product auth UI and
@@ -155,7 +155,7 @@ and the legacy `/api/solana/create` and `/api/solana/verify` route files should
 not exist.
 
 ```sh
-rg -n "chainId: solanaEnv|chainId.*mainnet|chainId.*devnet|DOMAIN_NAME" frontend/src/lib/solana frontend/src/features/identity packages/auth-core -S
+rg -n "chainId: solanaEnv|chainId.*mainnet|chainId.*devnet|DOMAIN_NAME" apps/web/src/lib/solana apps/web/src/features/identity packages/auth-core -S
 ```
 
 Any remaining app-internal SIWS chain ID or hardcoded production domain must be

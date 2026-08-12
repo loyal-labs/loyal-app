@@ -206,13 +206,13 @@ The implementation target is exhaustive. Page paths omit file extensions, as req
               {
                 "group": "Private Transactions",
                 "icon": "user-shield",
-                "root": "sdk/private-transactions/quick-start",
+                "root": "packages/private-transactions/quick-start",
                 "expanded": false,
                 "pages": [
-                  "sdk/private-transactions/how-it-works",
-                  "sdk/private-transactions/reference",
-                  "sdk/private-transactions/cli",
-                  "sdk/private-transactions/errors"
+                  "packages/private-transactions/how-it-works",
+                  "packages/private-transactions/reference",
+                  "packages/private-transactions/cli",
+                  "packages/private-transactions/errors"
                 ]
               },
               {
@@ -292,11 +292,11 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 | Market selection | `/earn/orchestrator` | Report the selected market. Link for the complete loop. |
 | Earn enforcement layers | `/earn/trust-model` | Product pages link to Trust instead. |
 | Smart Account model | `/smart-accounts/overview` | Child pages own their specific concepts and SDKs. |
-| Private transaction entry point | `/sdk/private-transactions/quick-start` | Child pages own protocol details and errors. |
-| Private transaction lifecycle | `/sdk/private-transactions/how-it-works` | Name the lifecycle stage and link. |
-| Private transaction API surface | `/sdk/private-transactions/reference` | Examples use only the methods they require. |
-| Private transaction CLI | `/sdk/private-transactions/cli` | Other pages may link to a command. |
-| Private transaction troubleshooting | `/sdk/private-transactions/errors` | Link with the observed symptom. |
+| Private transaction entry point | `/packages/private-transactions/quick-start` | Child pages own protocol details and errors. |
+| Private transaction lifecycle | `/packages/private-transactions/how-it-works` | Name the lifecycle stage and link. |
+| Private transaction API surface | `/packages/private-transactions/reference` | Examples use only the methods they require. |
+| Private transaction CLI | `/packages/private-transactions/cli` | Other pages may link to a command. |
+| Private transaction troubleshooting | `/packages/private-transactions/errors` | Link with the observed symptom. |
 | Developer reference index | `/build/reference` | Route readers to deployed identity or runtime evidence without copying either. |
 | Deployment identity and current verification | `/build/networks-and-deployments` | Other pages cite a status and link. Audit interpretation stays in Trust. |
 | Automation runtime evidence and diagnosis | `/build/state-events-and-receipts` | Examples show only the fields they consume. Product-specific recovery stays on its error page. |
@@ -366,11 +366,11 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 
 | Private route | User question | Required material | Format | Boundary and next page |
 | --- | --- | --- | --- | --- |
-| `/sdk/private-transactions/quick-start` retain; use as Private Transactions root | SDK user: How do I shield and transfer privately, then claim and unshield? | Installation, client, four actions, required environment, next verification. | Use a flow when order is unclear; use code when invocation is unclear. | No internal account catalog. Link to How it works and Errors. |
-| `/sdk/private-transactions/how-it-works` retain and reduce | Security-minded developer: What state and instructions implement the private lifecycle? | Lifecycle, source of truth, onchain data, instruction sequence, PER and Telegram boundaries. | Existing lifecycle diagram. | Move method signatures to Reference and fixes to Errors. |
-| `/sdk/private-transactions/reference` retain | SDK user: Which public methods exist, and which types or helpers support them? | Generated or verified API surface with concise examples. | Tables and code only. | No conceptual explanation. Link to Quick start. |
-| `/sdk/private-transactions/cli` retain | Operator: How do I run the supported private transaction commands? | Syntax, prerequisites, commands, environment, one end-to-end example. | Terminal examples. | No SDK method duplication. Link failed commands to Errors. |
-| `/sdk/private-transactions/errors` retain | Developer or operator: What failed and what should I inspect next? | Validation errors, onchain errors, symptom-to-check table, safe retry boundary. | Troubleshooting table. | No lifecycle explanation. Link to How it works. |
+| `/packages/private-transactions/quick-start` retain; use as Private Transactions root | SDK user: How do I shield and transfer privately, then claim and unshield? | Installation, client, four actions, required environment, next verification. | Use a flow when order is unclear; use code when invocation is unclear. | No internal account catalog. Link to How it works and Errors. |
+| `/packages/private-transactions/how-it-works` retain and reduce | Security-minded developer: What state and instructions implement the private lifecycle? | Lifecycle, source of truth, onchain data, instruction sequence, PER and Telegram boundaries. | Existing lifecycle diagram. | Move method signatures to Reference and fixes to Errors. |
+| `/packages/private-transactions/reference` retain | SDK user: Which public methods exist, and which types or helpers support them? | Generated or verified API surface with concise examples. | Tables and code only. | No conceptual explanation. Link to Quick start. |
+| `/packages/private-transactions/cli` retain | Operator: How do I run the supported private transaction commands? | Syntax, prerequisites, commands, environment, one end-to-end example. | Terminal examples. | No SDK method duplication. Link failed commands to Errors. |
+| `/packages/private-transactions/errors` retain | Developer or operator: What failed and what should I inspect next? | Validation errors, onchain errors, symptom-to-check table, safe retry boundary. | Troubleshooting table. | No lifecycle explanation. Link to How it works. |
 
 ### Developers: Reference
 
@@ -409,11 +409,11 @@ Mintlify top-level groups are always visible, so the Product tab uses them as th
 | `smart-accounts/frontend-and-vaults.mdx` | Retain. |
 | `smart-accounts/typescript-sdk.mdx` | Retain. |
 | `smart-accounts/rust-sdk.mdx` | Retain. |
-| `sdk/private-transactions/quick-start.mdx` | Retain as Private Transactions root. |
-| `sdk/private-transactions/how-it-works.mdx` | Retain and reduce overlap with Reference and Errors. |
-| `sdk/private-transactions/reference.mdx` | Retain as reference only. |
-| `sdk/private-transactions/cli.mdx` | Retain. |
-| `sdk/private-transactions/errors.mdx` | Retain as the troubleshooting owner. |
+| `packages/private-transactions/quick-start.mdx` | Retain as Private Transactions root. |
+| `packages/private-transactions/how-it-works.mdx` | Retain and reduce overlap with Reference and Errors. |
+| `packages/private-transactions/reference.mdx` | Retain as reference only. |
+| `packages/private-transactions/cli.mdx` | Retain. |
+| `packages/private-transactions/errors.mdx` | Retain as the troubleshooting owner. |
 
 ### Existing redirect disposition
 
@@ -452,13 +452,13 @@ These pages describe the former private-inference and agent-network product. Git
 | Current page | Page action | Route action |
 | --- | --- | --- |
 | `Introduction/index.mdx` | Delete | Redirect `/Introduction` to `/`. |
-| `Introduction/howitworks.mdx` | Delete; do not reuse unverified historical claims | Redirect: `/sdk/private-transactions/how-it-works` |
+| `Introduction/howitworks.mdx` | Delete; do not reuse unverified historical claims | Redirect: `/packages/private-transactions/how-it-works` |
 | `Introduction/solution.mdx` | Delete | Redirect: `/` |
 | `Introduction/usecases.mdx` | Delete | Redirect: `/business/use-cases` |
 | `Introduction/vision.mdx` | Delete | Redirect: `/` |
 | `architecture/network.mdx` | Delete | Redirect: `/build/system-architecture` |
 | `architecture/payments.mdx` | Delete | Redirect: `/build/system-architecture` |
-| `architecture/privacy.mdx` | Delete | Redirect: `/sdk/private-transactions/how-it-works` |
+| `architecture/privacy.mdx` | Delete | Redirect: `/packages/private-transactions/how-it-works` |
 | `quickstart.mdx` | Delete | Redirect `/quickstart` to `/build/first-automation`. |
 | `surveillance-crisis.mdx` | Delete | Redirect: `/` |
 | `launch/MetaDAO.mdx` | Delete | Redirect: `/launch/token` |

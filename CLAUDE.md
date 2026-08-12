@@ -108,7 +108,7 @@ bun run admin:build        # build admin workspace from repo root
 - **`/apps/admin`** - Next.js 15 internal admin dashboard
 - **`/packages`** - Internal shared workspace packages (e.g. `db-core`, `db-adapter-neon`, `grid-core`, `shared`)
 - **`/packages/private-transactions`** - Publishable `@loyal-labs/private-transactions` NPM package
-- **`/workers`** - Runtime services/workers
+- **`/apps/userbot`** - Telegram userbot worker service
 - **`/tests`** - Anchor test suite (Mocha/Chai)
 - **`/docs`** - Internal repository/engineering documentation
 - **`/user-docs`** - Mintlify-hosted public/user-facing documentation

@@ -101,7 +101,7 @@ verdict. Required commands:
 ```sh
 bun --conditions=react-server scripts/verify-loyal-webapp-error-remediation.ts
 bun run --cwd packages/smart-account-vaults typecheck
-bunx tsc --noEmit -p frontend/tsconfig.json
+bunx tsc --noEmit -p apps/web/tsconfig.json
 bun run --cwd frontend lint
 git diff --check
 ```

@@ -124,6 +124,39 @@
         "wxt": "^0.20.20",
       },
     },
+    "apps/privy-showcase": {
+      "name": "@loyal-labs/privy-showcase",
+      "version": "0.1.0",
+      "dependencies": {
+        "@loyal-labs/actions": "workspace:*",
+        "@loyal-labs/loyal-smart-accounts": "workspace:*",
+        "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
+        "@loyal-labs/smart-account-vaults": "workspace:*",
+        "@privy-io/node": "^0.20.0",
+        "@privy-io/react-auth": "^3.0.0",
+        "@solana-program/memo": "0.12.0",
+        "@solana-program/system": "0.13.0",
+        "@solana-program/token": "0.15.0",
+        "@solana/kit": "7.0.0",
+        "@solana/spl-token": "^0.4.13",
+        "@solana/web3.js": "^1.98.0",
+        "bs58": "^6.0.0",
+        "next": "^15.5.7",
+        "react": "^19.1.2",
+        "react-dom": "^19.1.2",
+        "tweetnacl": "^1.0.3",
+        "zod": "^4.1.12",
+      },
+      "devDependencies": {
+        "@eslint/eslintrc": "^3.3.1",
+        "@types/node": "^24.0.15",
+        "@types/react": "^19.1.16",
+        "@types/react-dom": "^19.1.9",
+        "eslint": "^9.39.1",
+        "eslint-config-next": "15.5.7",
+        "typescript": "^5.7.3",
+      },
+    },
     "apps/telegram": {
       "name": "frontend",
       "version": "0.1.0",
@@ -207,6 +240,22 @@
       "optionalDependencies": {
         "@tailwindcss/oxide-linux-x64-gnu": "^4",
         "lightningcss-linux-x64-gnu": "^1.30.0",
+      },
+    },
+    "apps/userbot": {
+      "name": "@loyal-labs/userbot-worker",
+      "dependencies": {
+        "@loyal-labs/db-adapter-neon": "workspace:*",
+        "@loyal-labs/db-core": "workspace:*",
+        "@mtcute/bun": "^0.28.1",
+        "@mtcute/core": "^0.28.1",
+        "@neondatabase/serverless": "^1.0.2",
+        "drizzle-orm": "^0.45.1",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "@types/node": "^20.19.0",
+        "typescript": "^5.7.3",
       },
     },
     "apps/web": {
@@ -314,39 +363,6 @@
         "tw-animate-css": "^1.3.6",
         "typescript": "^5",
         "ultracite": "^7.0.10",
-      },
-    },
-    "examples/privy-showcase": {
-      "name": "@loyal-labs/privy-showcase",
-      "version": "0.1.0",
-      "dependencies": {
-        "@loyal-labs/actions": "workspace:*",
-        "@loyal-labs/loyal-smart-accounts": "workspace:*",
-        "@loyal-labs/loyal-smart-accounts-core": "workspace:*",
-        "@loyal-labs/smart-account-vaults": "workspace:*",
-        "@privy-io/node": "^0.20.0",
-        "@privy-io/react-auth": "^3.0.0",
-        "@solana-program/memo": "0.12.0",
-        "@solana-program/system": "0.13.0",
-        "@solana-program/token": "0.15.0",
-        "@solana/kit": "7.0.0",
-        "@solana/spl-token": "^0.4.13",
-        "@solana/web3.js": "^1.98.0",
-        "bs58": "^6.0.0",
-        "next": "^15.5.7",
-        "react": "^19.1.2",
-        "react-dom": "^19.1.2",
-        "tweetnacl": "^1.0.3",
-        "zod": "^4.1.12",
-      },
-      "devDependencies": {
-        "@eslint/eslintrc": "^3.3.1",
-        "@types/node": "^24.0.15",
-        "@types/react": "^19.1.16",
-        "@types/react-dom": "^19.1.9",
-        "eslint": "^9.39.1",
-        "eslint-config-next": "15.5.7",
-        "typescript": "^5.7.3",
       },
     },
     "packages/auth-core": {
@@ -572,22 +588,6 @@
         "@solana/web3.js": "^1.98.0",
         "@wallet-standard/base": "*",
         "react": "^18.0.0 || ^19.0.0",
-      },
-    },
-    "workers/userbot": {
-      "name": "@loyal-labs/userbot-worker",
-      "dependencies": {
-        "@loyal-labs/db-adapter-neon": "workspace:*",
-        "@loyal-labs/db-core": "workspace:*",
-        "@mtcute/bun": "^0.28.1",
-        "@mtcute/core": "^0.28.1",
-        "@neondatabase/serverless": "^1.0.2",
-        "drizzle-orm": "^0.45.1",
-      },
-      "devDependencies": {
-        "@types/bun": "latest",
-        "@types/node": "^20.19.0",
-        "typescript": "^5.7.3",
       },
     },
   },
@@ -1311,7 +1311,7 @@
 
     "@loyal-labs/private-transactions": ["@loyal-labs/private-transactions@workspace:packages/private-transactions"],
 
-    "@loyal-labs/privy-showcase": ["@loyal-labs/privy-showcase@workspace:examples/privy-showcase"],
+    "@loyal-labs/privy-showcase": ["@loyal-labs/privy-showcase@workspace:apps/privy-showcase"],
 
     "@loyal-labs/shared": ["@loyal-labs/shared@workspace:packages/shared"],
 
@@ -1323,7 +1323,7 @@
 
     "@loyal-labs/solana-wallet": ["@loyal-labs/solana-wallet@workspace:packages/solana-wallet"],
 
-    "@loyal-labs/userbot-worker": ["@loyal-labs/userbot-worker@workspace:workers/userbot"],
+    "@loyal-labs/userbot-worker": ["@loyal-labs/userbot-worker@workspace:apps/userbot"],
 
     "@loyal-labs/wallet-core": ["@loyal-labs/wallet-core@workspace:packages/wallet-core"],
 
