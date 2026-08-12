@@ -84,8 +84,8 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
-// Sum the wallet's USDC across its token accounts (parsed RPC; no spl-token
-// dependency, mirroring the frontend asset provider).
+// Sum the selected mint across the wallet's token accounts (parsed RPC; no
+// spl-token dependency, mirroring the frontend asset provider).
 async function getWalletMintBalanceRaw(
   connection: Connection,
   owner: PublicKey,
@@ -167,7 +167,7 @@ export async function POST(request: Request) {
   // everywhere. `ensureWalletUserSmartAccount` is idempotent: an account
   // created on web is reused at no cost. The *first-ever* provisioning is
   // sponsored (Loyal pays rent), so gate it behind real funds — the wallet must
-  // already hold the USDC it is depositing. This makes free-account spam
+  // already hold the selected mint it is depositing. This makes free-account spam
   // economically infeasible (each new account needs a distinct funded wallet)
   // without depending on the captcha or external rate-limit infra.
   let settingsPda: string;
@@ -274,10 +274,10 @@ export async function POST(request: Request) {
             : {}),
         }
       : undefined;
-    // A top-up deposits into the reserve the position is already in (always a
-    // safe USDC reserve), mirroring the session deposit-prepare. The previous
-    // findBestSafeUsdcEarnReserveTarget re-picked the best fresh candidate and
-    // hard-failed ~1-in-5 attempts whenever every safe USDC reserve was
+    // A top-up deposits into the same-mint reserve the position is already in,
+    // mirroring the session deposit-prepare. The previous best-reserve lookup
+    // re-picked the best fresh candidate and hard-failed attempts whenever
+    // every safe reserve for the selected mint was
     // momentarily flagged reserveLastUpdateStale in the Timescale feed.
     // Exception (ASK-1764): an ineligible current reserve (hidden/unsampled
     // or drained) is never followed — choose the best eligible reserve for

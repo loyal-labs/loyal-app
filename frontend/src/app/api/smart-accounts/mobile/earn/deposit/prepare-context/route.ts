@@ -79,8 +79,8 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
-// Sum the wallet's USDC across its token accounts (parsed RPC; no spl-token
-// dependency, mirroring the frontend asset provider).
+// Sum the selected mint across the wallet's token accounts (parsed RPC; no
+// spl-token dependency, mirroring the frontend asset provider).
 async function getWalletMintBalanceRaw(
   connection: Connection,
   owner: PublicKey,
@@ -158,7 +158,7 @@ export async function POST(request: Request) {
 
   // Resolve (provisioning if needed) the canonical smart account for this
   // wallet — same gate as `../prepare`: the first-ever provisioning is
-  // sponsored, so require the wallet to already hold the USDC it is
+  // sponsored, so require the wallet to already hold the selected mint it is
   // depositing before minting an account for it.
   let settingsPda: string;
   let smartAccountAddress: string;
@@ -244,8 +244,8 @@ export async function POST(request: Request) {
     ]);
     policy = policyResult?.routePolicy ?? null;
     const policySigner = getDeploymentPolicySignerPublicKey();
-    // A top-up deposits into the reserve the position is already in (always a
-    // safe USDC reserve) — same rule as `../prepare` — unless that reserve is
+    // A top-up deposits into the same-mint reserve the position is already in
+    // — same rule as `../prepare` — unless that reserve is
     // ineligible (hidden/unsampled or drained); then fall back to the default
     // reserve instead of feeding it (ASK-1764).
     const existingTarget =
