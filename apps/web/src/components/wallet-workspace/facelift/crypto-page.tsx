@@ -208,7 +208,8 @@ export function CryptoPage({
   /** Bumped by the shell on every sidebar selection — abandons open actions. */
   navigationNonce: number;
   onBack: () => void;
-  onEarn: () => void;
+  /** Row-level Earn passes the clicked coin's mint; the header button none. */
+  onEarn: (sourceMint?: string | null) => void;
   page: CryptoPaneVariant;
 }) {
   const publicEnv = usePublicEnv();
@@ -788,11 +789,11 @@ export function CryptoPage({
     setDetailToken(tokenRowToSwapToken(row));
 
   const rowActions: CryptoRowActions = {
-    // ponytail: the deposit pane picks its own source token, so row-level
-    // Earn lands on the same screen as the header button.
+    // Row-level Earn lands on the deposit screen with the clicked coin
+    // preselected as the source; the header button keeps the default.
     onEarn: (row) => {
       selectRowDetail(row);
-      onEarn();
+      onEarn(row.id?.replace(/-secured$/, ""));
     },
     onSelect: (row) => {
       setDetailToken(tokenRowToSwapToken(row));
@@ -917,7 +918,7 @@ export function CryptoPage({
               balanceWhole={pageBalance.balanceWhole}
               isBalanceRevealed={isWalletDataRevealed}
               onBack={onBack}
-              onEarn={onEarn}
+              onEarn={() => onEarn()}
               onSend={() => openSend()}
               onShield={handleShield}
               onSwap={() => openSwap()}

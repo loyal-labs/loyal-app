@@ -140,10 +140,14 @@ const DEPOSIT_DOCS_URL =
 // sheet, system num keyboard under the focused amount input).
 export function DepositPane({
   data: earnData,
+  initialSourceKey,
   onBack,
   onOpenChart,
 }: {
   data: EarnPositionData;
+  /** Preselects the deposit source (keys are mints) — e.g. a stables-row
+   * Earn pill. Unknown or absent keys fall back to the default source. */
+  initialSourceKey?: string | null;
   onBack: () => void;
   onOpenChart: () => void;
 }) {
@@ -154,7 +158,9 @@ export function DepositPane({
   const [amount, setAmount] = useState("");
   const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [isSourceSheetOpen, setIsSourceSheetOpen] = useState(false);
-  const [selectedSourceKey, setSelectedSourceKey] = useState("");
+  const [selectedSourceKey, setSelectedSourceKey] = useState(
+    initialSourceKey ?? ""
+  );
   const { actions } = earnData;
   // The funding balance is only auto-refreshed after Earn transactions, so
   // re-read it on open to pick up swaps and external transfers (ASK-2096).
