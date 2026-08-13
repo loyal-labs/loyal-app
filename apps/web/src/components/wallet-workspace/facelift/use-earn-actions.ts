@@ -156,6 +156,7 @@ export type EarnActions = {
   closeReconnectPrompt: () => void;
   confirmAutodepositClose: () => Promise<boolean>;
   depositError: string | null;
+  depositPolicyUpdateRequiredMint: string | null;
   depositSource: EarnDepositSourceOption;
   dismissAutodepositClose: () => void;
   autodepositProgressBySlot: Readonly<Record<string, EarnAutodepositProgress>>;
@@ -186,6 +187,12 @@ export type EarnActions = {
     symbol: string;
   }) => Promise<boolean>;
   submitWithdraw: (draft: EarnWithdrawDraft) => Promise<boolean>;
+  updateDepositPolicyAndRetry: (args: {
+    amountLabel: string;
+    forecastApyBps: number;
+    mint: string;
+    symbol: string;
+  }) => Promise<boolean>;
   autodepositError: string | null;
   withdrawError: string | null;
   withdrawSources: EarnWithdrawSourceOption[];
@@ -314,6 +321,12 @@ export function useEarnActions(deps: {
   }, []);
 
   const [depositError, setDepositError] = useState<string | null>(null);
+  // Set to the draft mint when a deposit prepare fails with
+  // earn_policy_update_required: the wallet's legacy route policy cannot
+  // authorize Token-2022 mints. The pane then offers
+  // updateDepositPolicyAndRetry for that mint instead of a dead-end error.
+  const [depositPolicyUpdateRequiredMint, setDepositPolicyUpdateRequiredMint] =
+    useState<string | null>(null);
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
   const [autodepositError, setAutodepositError] = useState<string | null>(null);
   const [isDepositPending, setIsDepositPending] = useState(false);
@@ -870,6 +883,7 @@ export function useEarnActions(deps: {
         policyMode: requiresPolicySetup ? "create" : "reuse",
       });
       setDepositError(null);
+      setDepositPolicyUpdateRequiredMint(null);
       setIsDepositPending(true);
       earnToast.begin("deposit");
       earnToast.loading("Preparing deposit");
@@ -1237,6 +1251,9 @@ export function useEarnActions(deps: {
           haystack.includes("insufficient funds for rent") ||
           haystack.includes("insufficient lamports") ||
           haystack.includes("would result in account being unable to pay rent");
+        if (error instanceof EarnPolicyUpdateRequiredClientError) {
+          setDepositPolicyUpdateRequiredMint(draft.tokenMint);
+        }
         setDepositError(
           error instanceof EarnPolicyUpdateRequiredClientError
             ? "Update your Earn policy to enable this stablecoin before depositing."
@@ -1305,6 +1322,62 @@ export function useEarnActions(deps: {
       suppressPositionRefreshThroughSlot,
       trackedKaminoUsdcMint,
       wallet.signAllTransactions,
+    ]
+  );
+
+  // Recovery for earn_policy_update_required (ASK-2108): create the new
+  // owner-neutral policy pair (the legacy pair is left untouched on-chain),
+  // then retry the same deposit. The server rolls the active pair on confirm,
+  // so the retried prepare resolves the new policy.
+  const updateDepositPolicyAndRetry = useCallback(
+    async (args: {
+      amountLabel: string;
+      forecastApyBps: number;
+      mint: string;
+      symbol: string;
+    }): Promise<boolean> => {
+      if (!canMutateAccount) {
+        openSignIn();
+        return false;
+      }
+      if (!ensureCanSignAccountAction()) {
+        return false;
+      }
+      setDepositError(null);
+      setIsDepositPending(true);
+      earnToast.begin("deposit");
+      earnToast.loading("Updating Earn policy");
+      try {
+        const result = await smartAccountData.executeEarnPolicySetup({
+          force: true,
+        });
+        if (!result.success) {
+          setDepositError(result.error ?? "Failed to update Earn policy.");
+          earnToast.error("Policy update failed");
+          return false;
+        }
+        setDepositPolicyUpdateRequiredMint(null);
+      } catch (error) {
+        console.error("[earn.deposit] policy update failed", error);
+        setDepositError(
+          error instanceof Error
+            ? error.message
+            : "Failed to update Earn policy."
+        );
+        earnToast.error("Policy update failed");
+        return false;
+      } finally {
+        setIsDepositPending(false);
+        earnToast.settle();
+      }
+      return submitDeposit(args);
+    },
+    [
+      canMutateAccount,
+      ensureCanSignAccountAction,
+      openSignIn,
+      smartAccountData,
+      submitDeposit,
     ]
   );
 
@@ -2675,8 +2748,10 @@ export function useEarnActions(deps: {
     requestAutodepositClose,
     runCleanup,
     saveAutodeposit,
+    depositPolicyUpdateRequiredMint,
     submitDeposit,
     submitWithdraw,
+    updateDepositPolicyAndRetry,
     autodepositError,
     withdrawError,
     withdrawSources,
