@@ -1,6 +1,12 @@
 "use client";
 
 import {
+  getStablecoinMintForCluster,
+  resolveLoyalClusterForSolanaEnv,
+  Stablecoin,
+} from "@loyal-labs/actions";
+import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
+import {
   ArrowRightLeft,
   CalendarClock,
   Radar,
@@ -23,8 +29,12 @@ import {
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
-import { useStablecoinsUsd } from "@/components/wallet-workspace/facelift/use-stablecoins-usd";
-import { splitUsdBalance } from "@/hooks/use-wallet-desktop-data";
+import { usePublicEnv } from "@/contexts/public-env-context";
+import {
+  splitUsdBalance,
+  useWalletDesktopData,
+} from "@/hooks/use-wallet-desktop-data";
+import { getTokenIconUrl } from "@/lib/token-icon";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 
@@ -140,8 +150,22 @@ export function AutodepositPane({
     }
   };
 
-  const stablecoinsUsd = useStablecoinsUsd();
-  const stablecoinsBalance = splitUsdBalance(stablecoinsUsd);
+  // Autodeposit sweeps USDC only (ASK-2096 keeps it USDC-only), so the
+  // "from" cell shows the USDC balance, not the all-stablecoins sum. Same
+  // source precedence as the deposit pane: authoritative main-account USDC,
+  // portfolio value as the loading fallback.
+  const publicEnv = usePublicEnv();
+  const walletData = useWalletDesktopData({});
+  const usdcMint = getStablecoinMintForCluster(
+    resolveLoyalClusterForSolanaEnv(resolveSolanaEnv(publicEnv.solanaEnv)),
+    Stablecoin.USDC
+  ).toBase58();
+  const usdcPortfolioUsd =
+    walletData.positions.find((position) => position.asset.mint === usdcMint)
+      ?.totalValueUsd ?? 0;
+  const stablecoinsBalance = splitUsdBalance(
+    actions.mainUsdcAmount ?? usdcPortfolioUsd
+  );
   const earnBalance = splitUsdBalance(data.earnBalanceUsd);
   const addressLabel = data.walletAddress
     ? `${data.walletAddress.slice(0, 4)}…${data.walletAddress.slice(-4)}`
@@ -269,13 +293,13 @@ export function AutodepositPane({
                 <img
                   alt=""
                   aria-hidden="true"
-                  className="size-11"
-                  src={`${ASSET_BASE}/stablecoins-icon.svg`}
+                  className="size-11 rounded-full"
+                  src={getTokenIconUrl("USDC")}
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
                 <span className="truncate text-[13px] leading-4 text-muted-foreground">
-                  {`from Stablecoins · ${addressLabel}`}
+                  {`from USDC · ${addressLabel}`}
                 </span>
                 <p className="whitespace-nowrap font-semibold text-[20px] text-foreground leading-6">
                   <ScrambleText
