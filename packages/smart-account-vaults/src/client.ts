@@ -8972,7 +8972,7 @@ export function createSmartAccountVaultsClient(
               walletUsdcAta,
               args.walletAddress,
               usdcMint,
-              TOKEN_PROGRAM_ID
+              liquidityTokenProgram
             ),
             ...vaultAtaSetupInstructions,
             ...withdrawPrefixExecution.instructions,
@@ -9050,7 +9050,7 @@ export function createSmartAccountVaultsClient(
           walletTransferAmountRaw,
           EARN_DEPOSIT_USDC_DECIMALS,
           [],
-          TOKEN_PROGRAM_ID
+          liquidityTokenProgram
         ),
         vaultPda
       );
@@ -9115,7 +9115,7 @@ export function createSmartAccountVaultsClient(
             walletUsdcAta,
             args.walletAddress,
             usdcMint,
-            TOKEN_PROGRAM_ID
+            liquidityTokenProgram
           ),
           ...vaultAtaSetupInstructions,
           ...operations.flatMap((operation) => operation.instructions),
