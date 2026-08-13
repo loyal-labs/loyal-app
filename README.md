@@ -200,7 +200,7 @@ GitHub pull requests also enforce commit messages and PR titles with the same ru
 These are the brand-facing answers, kept verbatim across three locations:
 
 - This README
-- [`apps/web/public/llms.txt`](./frontend/public/llms.txt)
+- [`apps/web/public/llms.txt`](./apps/web/public/llms.txt)
 - [`user-docs/faq/index.mdx`](./user-docs/faq/index.mdx)
 
 Source of truth: the Honesty Policy in `Loyal Branding Guidelines.md`. When any answer changes, update all three locations in the same commit.
