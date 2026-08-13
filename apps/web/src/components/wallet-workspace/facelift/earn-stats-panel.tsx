@@ -226,7 +226,9 @@ export function EarnStatsPanel() {
           <div className="flex w-full flex-col px-2 pt-2">
             <div className="flex w-full flex-col gap-0.5 px-4 py-2">
               <div className="flex items-center gap-1">
-                <p className="text-[16px] leading-5 text-muted-foreground">Earn AUM</p>
+                <p className="text-[16px] leading-5 text-muted-foreground">
+                  Earn AUM
+                </p>
                 <InfoTooltip text={AUM_TOOLTIP} />
               </div>
               <p className="w-full font-semibold text-[40px] text-foreground leading-[48px]">
@@ -235,7 +237,12 @@ export function EarnStatsPanel() {
                   {splitUsdBalance(displayedAumUsd).balanceFraction}
                 </span>
               </p>
-              {displayedAumDeltaUsd !== null && displayedAumDeltaUsd !== 0 ? (
+              {/* The resting view hides negative deltas — the stats block
+                  advertises growth. Scrubbing the bars is data exploration,
+                  so historical deltas show in full, red included. */}
+              {displayedAumDeltaUsd !== null &&
+              displayedAumDeltaUsd !== 0 &&
+              (hoveredAumPoint !== null || displayedAumDeltaUsd > 0) ? (
                 <p
                   className="text-[16px] leading-5"
                   style={{
@@ -250,7 +257,10 @@ export function EarnStatsPanel() {
               ) : (
                 // Keeps the slot height while scrubbing the first bucket,
                 // which has no prior week to diff against.
-                <p aria-hidden="true" className="invisible text-[16px] leading-5">
+                <p
+                  aria-hidden="true"
+                  className="invisible text-[16px] leading-5"
+                >
                   &nbsp;
                 </p>
               )}

@@ -143,6 +143,9 @@ export function WorkspaceFaceliftShell() {
   const [withdrawSourceKey, setWithdrawSourceKey] = useState<string | null>(
     null
   );
+  // Same contract for deposit: a stables-row Earn pill preselects its coin
+  // (keys are mints); every other deposit entry point clears it.
+  const [depositSourceKey, setDepositSourceKey] = useState<string | null>(null);
   // Mirrored from the sidebar (which owns the unseen-activity computation)
   // so the mobile tab bar's clock shows the same badge.
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
@@ -346,6 +349,7 @@ export function WorkspaceFaceliftShell() {
             setMiddleView("autodeposit");
           }}
           onOpenDeposit={() => {
+            setDepositSourceKey(null);
             setActivePage("earn");
             setMiddleView("deposit");
           }}
@@ -386,9 +390,11 @@ export function WorkspaceFaceliftShell() {
             <CryptoPage
               navigationNonce={navigationNonce}
               onBack={() => handleSelectPage("wallet")}
-              onEarn={() => {
+              onEarn={(sourceMint) => {
                 // The stables Earn buttons jump straight to the deposit
-                // screen, not the Earn root.
+                // screen, not the Earn root — with the clicked coin
+                // preselected as the deposit source.
+                setDepositSourceKey(sourceMint ?? null);
                 setActivePage("earn");
                 setMiddleView("deposit");
               }}
@@ -413,6 +419,7 @@ export function WorkspaceFaceliftShell() {
                     ) : activeMiddleView === "deposit" ? (
                       <DepositPane
                         data={earnData}
+                        initialSourceKey={depositSourceKey}
                         onBack={() => setMiddleView("earn")}
                         onOpenChart={() => setIsChartExpanded(true)}
                       />
@@ -425,7 +432,10 @@ export function WorkspaceFaceliftShell() {
                     <PaneReveal>
                       <EarnPositionPane
                         data={earnData}
-                        onDeposit={() => setMiddleView("deposit")}
+                        onDeposit={() => {
+                          setDepositSourceKey(null);
+                          setMiddleView("deposit");
+                        }}
                         onOpenAutodeposit={() => setMiddleView("autodeposit")}
                         onOpenChart={() => setIsChartExpanded(true)}
                         onSelectChartTab={setChartTab}
@@ -444,7 +454,10 @@ export function WorkspaceFaceliftShell() {
                   ) : (
                     <PaneReveal>
                       <EarnEmptyPane
-                        onDeposit={() => setMiddleView("deposit")}
+                        onDeposit={() => {
+                          setDepositSourceKey(null);
+                          setMiddleView("deposit");
+                        }}
                         onOpenChart={() => setIsChartExpanded(true)}
                       />
                     </PaneReveal>

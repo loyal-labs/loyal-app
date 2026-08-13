@@ -953,17 +953,64 @@ export function useEarnActions(deps: {
           draft.amountLabel,
           draft.tokenDecimals
         );
-        const preparedDeposit = await measureBrowserLoadingDependencies({
-          flowId: tracker.flowId,
-          operation: "earn.deposit",
-          rpcEndpoint: connection.rpcEndpoint,
-          run: () =>
-            prepareEarnDepositOnServer({
-              amountRaw,
-              mint: args.mint,
-              observabilityFlowId: tracker.flowId,
-            }),
-        });
+        const runPrepareOnce = () =>
+          measureBrowserLoadingDependencies({
+            flowId: tracker.flowId,
+            operation: "earn.deposit",
+            rpcEndpoint: connection.rpcEndpoint,
+            run: () =>
+              prepareEarnDepositOnServer({
+                amountRaw,
+                mint: args.mint,
+                observabilityFlowId: tracker.flowId,
+              }),
+          });
+        // The reserve verification feed can flap a mint out of eligibility
+        // for up to a round (~1 min). Bounded auto-retry converts most of
+        // those into a slightly slower success instead of surfacing the
+        // no_eligible_reserve 409 for hand-retries (observed live
+        // 2026-08-13 during the multi-mint rollout).
+        const runPrepare = async () => {
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              return await runPrepareOnce();
+            } catch (error) {
+              if (
+                !(error instanceof EarnPrepareRequestError) ||
+                error.code !== "no_eligible_reserve" ||
+                attempt >= 3
+              ) {
+                throw error;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+          }
+        };
+        let preparedDeposit: Awaited<ReturnType<typeof runPrepare>>;
+        try {
+          preparedDeposit = await runPrepare();
+        } catch (error) {
+          if (!(error instanceof EarnPolicyUpdateRequiredClientError)) {
+            throw error;
+          }
+          // The wallet's legacy route policy cannot authorize this
+          // Token-2022 mint (ASK-2108). Create the owner-neutral pair as an
+          // inline toast step — the legacy pair is never mutated — then
+          // re-prepare: the server resolves the new pair after confirm. A
+          // second update-required failure falls through to the normal
+          // error path, so this cannot loop.
+          earnToast.begin("deposit-policy-update");
+          earnToast.loading("Updating Earn policy");
+          const policySetup = await smartAccountData.executeEarnPolicySetup({
+            force: true,
+          });
+          if (!policySetup.success) {
+            throw new Error(
+              policySetup.error ?? "Failed to update Earn policy."
+            );
+          }
+          preparedDeposit = await runPrepare();
+        }
         const shouldBypassTopUpPreview =
           hasPosition &&
           !requiresPolicySetup &&

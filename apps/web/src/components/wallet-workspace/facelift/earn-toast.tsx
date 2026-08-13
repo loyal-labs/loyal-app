@@ -25,6 +25,7 @@ export type EarnFlowId =
   | "autodeposit-setup"
   | "close-policies"
   | "deposit"
+  | "deposit-policy-update"
   | "withdraw";
 
 type EarnToastListener = {
@@ -59,9 +60,23 @@ const FLOW_STEPS: Record<EarnFlowId, readonly string[]> = {
     CONFIRM_IN_WALLET_MESSAGE,
     "Confirming",
   ],
-  "close-policies": ["Closing policies", CONFIRM_IN_WALLET_MESSAGE, "Confirming"],
+  "close-policies": [
+    "Closing policies",
+    CONFIRM_IN_WALLET_MESSAGE,
+    "Confirming",
+  ],
   deposit: [
     "Preparing deposit",
+    "Waiting for approval",
+    CONFIRM_IN_WALLET_MESSAGE,
+    "Confirming",
+  ],
+  // The deposit script re-armed mid-flow when a legacy-policy wallet needs
+  // the Token-2022 policy update (ASK-2108) — normal deposits never list
+  // the extra step.
+  "deposit-policy-update": [
+    "Preparing deposit",
+    "Updating Earn policy",
     "Waiting for approval",
     CONFIRM_IN_WALLET_MESSAGE,
     "Confirming",
@@ -240,10 +255,10 @@ export function EarnToastHost() {
                 index < stepIndex
                   ? "b"
                   : isActive
-                    ? detail.phase === "error"
-                      ? "c"
-                      : "a"
-                    : "p";
+                  ? detail.phase === "error"
+                    ? "c"
+                    : "a"
+                  : "p";
               return (
                 <div className="flex h-7 items-center gap-2.5" key={label}>
                   <span
@@ -265,7 +280,9 @@ export function EarnToastHost() {
                     </span>
                   </span>
                   <span
-                    className={`t-step-label min-w-0 truncate ${state === "p" ? "text-muted-foreground" : ""}`}
+                    className={`t-step-label min-w-0 truncate ${
+                      state === "p" ? "text-muted-foreground" : ""
+                    }`}
                   >
                     <TextSwap
                       className={state === "a" ? "t-step-active" : ""}

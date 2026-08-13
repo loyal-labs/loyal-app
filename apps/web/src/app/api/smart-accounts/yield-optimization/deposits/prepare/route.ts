@@ -29,7 +29,7 @@ import {
   resolveEnabledEarnProductAsset,
 } from "@/lib/yield-optimization/earn-product-mints.shared";
 import {
-  findBestSafeEarnReserveTarget,
+  findBestSafeEarnReserveTargetWithRetry,
   resolveEligibleEarnDepositTarget,
 } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
@@ -245,7 +245,7 @@ export async function POST(request: Request) {
         : null;
     const target =
       existingTarget ??
-      (await findBestSafeEarnReserveTarget({ cluster, productMint }));
+      (await findBestSafeEarnReserveTargetWithRetry({ cluster, productMint }));
     if (!target) {
       return jsonError(
         409,

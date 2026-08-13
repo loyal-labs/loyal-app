@@ -1119,7 +1119,9 @@ export type SmartAccountSidebarData = {
   executeEarnDepositPolicyStage: (
     request: EarnDepositPolicyStageRequest
   ) => Promise<EarnDepositPolicyStageResult>;
-  executeEarnPolicySetup: () => Promise<EarnPolicySetupResult>;
+  executeEarnPolicySetup: (options?: {
+    force?: boolean;
+  }) => Promise<EarnPolicySetupResult>;
   executeEarnWithdraw: (
     request: EarnWithdrawRequest
   ) => Promise<EarnWithdrawResult>;
@@ -5712,8 +5714,12 @@ export function useSmartAccountSidebarData(
     ]
   );
 
-  const executeEarnPolicySetup =
-    useCallback(async (): Promise<EarnPolicySetupResult> => {
+  const executeEarnPolicySetup = useCallback(
+    // `force` skips the has-policy short-circuit so a wallet whose only
+    // route pair is the legacy single-token-program generation can create
+    // the owner-neutral pair required for Token-2022 deposits (ASK-2108).
+    // The legacy pair is never mutated; the new pair lands at the next seed.
+    async (options?: { force?: boolean }): Promise<EarnPolicySetupResult> => {
       if (!wallet.publicKey) {
         return {
           success: false,
@@ -5749,6 +5755,7 @@ export function useSmartAccountSidebarData(
       }
       const currentEarnPolicy = currentEarnState?.policy ?? null;
       if (
+        !options?.force &&
         !shouldInitializeEarnYieldRoutingPolicyForDeposit({
           hasActiveEarnPosition:
             Boolean(currentEarnPolicy) &&
@@ -5872,7 +5879,9 @@ export function useSmartAccountSidebarData(
       } finally {
         setIsActionPending(false);
       }
-    }, [connection, earnState, solanaEnv, user?.walletAddress, wallet]);
+    },
+    [connection, earnState, solanaEnv, user?.walletAddress, wallet]
+  );
 
   const executeEarnDepositPolicyStage = useCallback(
     async (

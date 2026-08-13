@@ -1,5 +1,7 @@
 "use client";
 
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -60,6 +62,7 @@ import {
   getStablecoinMintSetForSolanaEnv,
   isStablecoinMint,
 } from "@/lib/wallet/stablecoin-classification";
+import { getEnabledEarnProductAssetsForCluster } from "@/lib/yield-optimization/earn-product-mints.shared";
 
 type ActionView = Exclude<SubView, null>;
 
@@ -208,7 +211,8 @@ export function CryptoPage({
   /** Bumped by the shell on every sidebar selection — abandons open actions. */
   navigationNonce: number;
   onBack: () => void;
-  onEarn: () => void;
+  /** Row-level Earn passes the clicked coin's mint; the header button none. */
+  onEarn: (sourceMint?: string | null) => void;
   page: CryptoPaneVariant;
 }) {
   const publicEnv = usePublicEnv();
@@ -417,6 +421,25 @@ export function CryptoPage({
     grouped.push(...securedByMint.values());
     return grouped;
   }, [derivedTokens, securedTokens]);
+  // Stables the Earn product currently accepts — badged "Can earn" in the
+  // receive selector and ranked right after LOYAL.
+  const earnProductAssets = useMemo(
+    () =>
+      getEnabledEarnProductAssetsForCluster({
+        cluster: resolveLoyalClusterForSolanaEnv(
+          resolveSolanaEnv(publicEnv.solanaEnv)
+        ),
+        enabledStablecoins: publicEnv.earnEnabledStablecoins,
+      }).map((asset) => ({
+        mint: asset.mint.toBase58(),
+        symbol: asset.symbol,
+      })),
+    [publicEnv.earnEnabledStablecoins, publicEnv.solanaEnv]
+  );
+  const earnEligibleMints = useMemo(
+    () => new Set(earnProductAssets.map((asset) => asset.mint)),
+    [earnProductAssets]
+  );
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -424,9 +447,36 @@ export function CryptoPage({
     const extras = popularTokens.filter(
       (token) => token.mint && !heldMints.has(token.mint)
     );
+    // Earn stables missing from held+popular (e.g. CASH) still belong in
+    // the receive list: synthesize them from the canonical product assets.
+    // The picker price is indicative only (quotes come by mint), so a flat
+    // $1 for a USD stable is fine.
+    const listedMints = new Set([
+      ...heldMints,
+      ...extras.map((token) => token.mint),
+    ]);
+    const missingEarnStables = earnProductAssets
+      .filter((asset) => !listedMints.has(asset.mint))
+      .map((asset) => ({
+        balance: 0,
+        icon: getTokenIconUrl(asset.symbol),
+        mint: asset.mint,
+        price: 1,
+        symbol: asset.symbol,
+      }));
+    // LOYAL first, then the Earn-eligible stables, then everything else —
+    // held-first order is preserved within each group (stable sort).
+    const rank = (token: SwapToken) =>
+      token.mint === LOYL_TOKEN.mint
+        ? 0
+        : token.mint && earnEligibleMints.has(token.mint)
+        ? 1
+        : 2;
 
-    return [...derivedTokens, ...extras];
-  }, [derivedTokens, popularTokens]);
+    return [...derivedTokens, ...extras, ...missingEarnStables].sort(
+      (a, b) => rank(a) - rank(b)
+    );
+  }, [derivedTokens, earnEligibleMints, earnProductAssets, popularTokens]);
 
   // Seed the flow tokens once the wallet's real tokens land.
   const prevHadTokensRef = useRef(false);
@@ -788,11 +838,11 @@ export function CryptoPage({
     setDetailToken(tokenRowToSwapToken(row));
 
   const rowActions: CryptoRowActions = {
-    // ponytail: the deposit pane picks its own source token, so row-level
-    // Earn lands on the same screen as the header button.
+    // Row-level Earn lands on the deposit screen with the clicked coin
+    // preselected as the source; the header button keeps the default.
     onEarn: (row) => {
       selectRowDetail(row);
-      onEarn();
+      onEarn(row.id?.replace(/-secured$/, ""));
     },
     onSelect: (row) => {
       setDetailToken(tokenRowToSwapToken(row));
@@ -917,7 +967,7 @@ export function CryptoPage({
               balanceWhole={pageBalance.balanceWhole}
               isBalanceRevealed={isWalletDataRevealed}
               onBack={onBack}
-              onEarn={onEarn}
+              onEarn={() => onEarn()}
               onSend={() => openSend()}
               onShield={handleShield}
               onSwap={() => openSwap()}
@@ -956,6 +1006,7 @@ export function CryptoPage({
             >
               <PaneReveal key={overlaySelectSide}>
                 <SwapTokenSelectPane
+                  earnEligibleMints={earnEligibleMints}
                   nameByMint={tokenNameByMint}
                   onClose={() => setSwapSelectSide(null)}
                   onSearch={
@@ -1031,6 +1082,7 @@ export function CryptoPage({
       >
         <PaneReveal key={overlaySelectSide}>
           <SwapTokenSelectPane
+            earnEligibleMints={earnEligibleMints}
             nameByMint={tokenNameByMint}
             onClose={() => setSwapSelectSide(null)}
             onSearch={overlaySelectSide === "to" ? searchTokens : undefined}
