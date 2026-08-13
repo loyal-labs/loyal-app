@@ -118,6 +118,34 @@ export async function findBestSafeEarnReserveTarget(args: {
   return selectBestSafeEarnReserveTarget({ ...args, rows });
 }
 
+// The routing worker's verified-reserve rounds can momentarily drop a mint
+// (mid-round rewrites, per-round verification misses — observed live
+// 2026-08-13 during the multi-mint rollout), which surfaces as a transient
+// empty selection and a user-facing no_eligible_reserve 409. A short re-read
+// bridges those blips; a genuine outage still returns null after the
+// retries. Devnet selection is deterministic, so it never retries.
+const RESERVE_SELECTION_RETRIES = 2;
+const RESERVE_SELECTION_RETRY_DELAY_MS = 700;
+
+export async function findBestSafeEarnReserveTargetWithRetry(args: {
+  cluster: LoyalCluster;
+  productMint: EarnProductAsset;
+}): Promise<EarnReserveTarget | null> {
+  for (let attempt = 0; ; attempt += 1) {
+    const target = await findBestSafeEarnReserveTarget(args);
+    if (
+      target ||
+      args.cluster === LoyalCluster.Devnet ||
+      attempt >= RESERVE_SELECTION_RETRIES
+    ) {
+      return target;
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, RESERVE_SELECTION_RETRY_DELAY_MS)
+    );
+  }
+}
+
 export function selectBestSafeEarnReserveTarget(args: {
   cluster: LoyalCluster;
   productMint: EarnProductAsset;

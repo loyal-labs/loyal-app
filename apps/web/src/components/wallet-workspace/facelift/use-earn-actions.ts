@@ -953,7 +953,7 @@ export function useEarnActions(deps: {
           draft.amountLabel,
           draft.tokenDecimals
         );
-        const runPrepare = () =>
+        const runPrepareOnce = () =>
           measureBrowserLoadingDependencies({
             flowId: tracker.flowId,
             operation: "earn.deposit",
@@ -965,6 +965,27 @@ export function useEarnActions(deps: {
                 observabilityFlowId: tracker.flowId,
               }),
           });
+        // The reserve verification feed can flap a mint out of eligibility
+        // for up to a round (~1 min). Bounded auto-retry converts most of
+        // those into a slightly slower success instead of surfacing the
+        // no_eligible_reserve 409 for hand-retries (observed live
+        // 2026-08-13 during the multi-mint rollout).
+        const runPrepare = async () => {
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              return await runPrepareOnce();
+            } catch (error) {
+              if (
+                !(error instanceof EarnPrepareRequestError) ||
+                error.code !== "no_eligible_reserve" ||
+                attempt >= 3
+              ) {
+                throw error;
+              }
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+          }
+        };
         let preparedDeposit: Awaited<ReturnType<typeof runPrepare>>;
         try {
           preparedDeposit = await runPrepare();
