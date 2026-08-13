@@ -696,12 +696,19 @@ function PositionsTab({
                   market: holding.market,
                 }).mintSymbol
               }`;
-        const amount = splitUsdBalance(
-          rawTokenAmountToNumber(holding.amountRaw, 6)
-        );
+        const usd = rawTokenAmountToNumber(holding.amountRaw, 6);
+        const amount = splitUsdBalance(usd);
+        // Dust that displays as $0.00 — shown grayed for completeness, but
+        // without hover affordances: withdrawing $0.00 is meaningless (the
+        // Max-exit cleanup path collects dust).
+        const isDust = usd < 0.005;
         return (
           <StaggerLine index={holdingIndex} key={holding.sourceId}>
-            <div className="group t-hover flex w-full items-center rounded-2xl px-4 hover:bg-accent">
+            <div
+              className={`flex w-full items-center rounded-2xl px-4 ${
+                isDust ? "opacity-40" : "group t-hover hover:bg-accent"
+              }`}
+            >
               <div className="flex items-center py-2 pr-3">
                 <DualIcon
                   backSrc={resolveEarnCoinIconSrc({
@@ -732,17 +739,19 @@ function PositionsTab({
               </div>
               {/* Reveal rides a short delay so quick pointer passes don't
                   flash the pill; un-hover drops the delay and hides at once. */}
-              <div className="pointer-events-none flex pl-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
-                <button
-                  className="t-hover min-w-16 rounded-full bg-accent px-4 py-2.5 text-center font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
-                  onClick={() =>
-                    onWithdrawSource(getWithdrawSourceKeyForHolding(holding))
-                  }
-                  type="button"
-                >
-                  Withdraw
-                </button>
-              </div>
+              {isDust ? null : (
+                <div className="pointer-events-none flex pl-3 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:delay-100">
+                  <button
+                    className="t-hover min-w-16 rounded-full bg-accent px-4 py-2.5 text-center font-medium text-[13px] text-foreground leading-4 hover:bg-accent-active"
+                    onClick={() =>
+                      onWithdrawSource(getWithdrawSourceKeyForHolding(holding))
+                    }
+                    type="button"
+                  >
+                    Withdraw
+                  </button>
+                </div>
+              )}
             </div>
           </StaggerLine>
         );
