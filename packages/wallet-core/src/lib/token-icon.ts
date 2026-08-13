@@ -32,6 +32,10 @@ const TOKEN_ICON_OVERRIDES: Record<string, string> = {
   // a letter placeholder (USDG, USDS); pin the issuers' canonical marks instead.
   CASH: "https://token-metadata.bridge.xyz/images/cash.png",
   USDG: "https://424565.fs1.hubspotusercontent-na1.net/hubfs/424565/GDN-USDG-Token-512x512.png",
+  // logo.dev serves the retired blue PayPal-USD mark; Paxos' current logo
+  // (also what Jupiter shows) is the black roundel.
+  PYUSD:
+    "https://424565.fs1.hubspotusercontent-na1.net/hubfs/424565/PYUSDLOGO.png",
   USDS: "https://coin-images.coingecko.com/coins/images/39926/large/usds.webp",
 };
 
