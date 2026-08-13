@@ -2744,7 +2744,15 @@ function validateKaminoWithdrawInstruction(args: {
   const vaultCollateralAccountIndex = usesCurrentWithdrawAccountOrder ? 6 : 7;
   const reserveCollateralMintIndex = usesCurrentWithdrawAccountOrder ? 7 : 5;
   const vaultUsdcAccountIndex = usesCurrentWithdrawAccountOrder ? 9 : 8;
-  const tokenProgramIndex = usesCurrentWithdrawAccountOrder ? 11 : 10;
+  // Current-order withdraws carry two token programs: collateral kTokens are
+  // always classic SPL (slot 11) while the liquidity mint's own program sits
+  // at slot 12. Asserting the liquidity program at 11 only ever passed
+  // because classic mints put TOKEN_PROGRAM_ID in both slots — it rejected
+  // every Token-2022 withdrawal (USDG/PYUSD/CASH).
+  const collateralTokenProgramIndex = usesCurrentWithdrawAccountOrder
+    ? 11
+    : null;
+  const tokenProgramIndex = usesCurrentWithdrawAccountOrder ? 12 : 10;
 
   assertKaminoAccountEquals({
     actual: requireKaminoAccount(instruction, marketIndex, "market"),
@@ -2801,6 +2809,17 @@ function validateKaminoWithdrawInstruction(args: {
     expected: args.liquidityTokenProgram,
     label: "liquidity token program",
   });
+  if (collateralTokenProgramIndex !== null) {
+    assertKaminoAccountEquals({
+      actual: requireKaminoAccount(
+        instruction,
+        collateralTokenProgramIndex,
+        "collateral token program"
+      ),
+      expected: TOKEN_PROGRAM_ID,
+      label: "collateral token program",
+    });
+  }
   return {
     executionMarket,
     executionReserve,

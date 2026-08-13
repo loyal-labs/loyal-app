@@ -223,9 +223,15 @@ function mockKaminoDepositInstruction() {
 
 function mockKaminoWithdrawInstruction(
   overrides: {
+    // Emits the current 14-account withdraw shape (market at 2, collateral
+    // token program at 11, liquidity token program at 12) instead of the
+    // legacy order the older fixtures model.
+    currentAccountOrder?: boolean;
     duplicateWithdrawInstruction?: boolean;
     executionReserve?: PublicKey;
     instructionAmountRaw?: (requestedLiquidityAmountRaw: bigint) => bigint;
+    liquidityMint?: PublicKey;
+    liquidityTokenProgram?: PublicKey;
     vaultUsdcAta?: PublicKey;
   } = {}
 ) {
@@ -240,6 +246,18 @@ function mockKaminoWithdrawInstruction(
       true,
       TOKEN_PROGRAM_ID
     );
+    const liquidityMint =
+      overrides.liquidityMint ?? STABLECOIN_MINTS[Stablecoin.USDC];
+    const liquidityTokenProgram =
+      overrides.liquidityTokenProgram ?? TOKEN_PROGRAM_ID;
+    const defaultVaultLiquidityAta = overrides.liquidityMint
+      ? getAssociatedTokenAddressSync(
+          liquidityMint,
+          deriveVault(),
+          true,
+          liquidityTokenProgram
+        )
+      : deriveVaultUsdcAta();
     const createInstruction = (rawAmount: bigint) => {
       const instructionData = Buffer.alloc(16);
       Buffer.from([235, 52, 119, 152, 149, 197, 20, 7]).copy(
@@ -247,6 +265,42 @@ function mockKaminoWithdrawInstruction(
         0
       );
       instructionData.writeBigUInt64LE(rawAmount, 8);
+      if (overrides.currentAccountOrder) {
+        return {
+          accounts: [
+            { address: deriveVault().toBase58(), role: "WRITABLE_SIGNER" },
+            { address: "11111111111111111111111111111111", role: "WRITABLE" },
+            { address: kaminoMarket.toBase58(), role: "READONLY" },
+            { address: "11111111111111111111111111111111", role: "READONLY" },
+            {
+              address: (overrides.executionReserve ?? kaminoReserve).toBase58(),
+              role: "WRITABLE",
+            },
+            { address: liquidityMint.toBase58(), role: "READONLY" },
+            { address: vaultCollateralAta.toBase58(), role: "WRITABLE" },
+            { address: reserveCollateralMint.toBase58(), role: "WRITABLE" },
+            {
+              address: kaminoReserveLiquiditySupply.toBase58(),
+              role: "WRITABLE",
+            },
+            {
+              address: (
+                overrides.vaultUsdcAta ?? defaultVaultLiquidityAta
+              ).toBase58(),
+              role: "WRITABLE",
+            },
+            { address: kaminoProgram.toBase58(), role: "READONLY" },
+            { address: TOKEN_PROGRAM_ID.toBase58(), role: "READONLY" },
+            { address: liquidityTokenProgram.toBase58(), role: "READONLY" },
+            {
+              address: "Sysvar1nstructions1111111111111111111111111",
+              role: "READONLY",
+            },
+          ],
+          data: instructionData.toString("base64"),
+          programAddress: kaminoProgram.toBase58(),
+        };
+      }
       return {
         accounts: [
           { address: deriveVault().toBase58(), role: "WRITABLE_SIGNER" },
@@ -2533,6 +2587,59 @@ describe("prepareEarnUsdcWithdraw", () => {
         },
       })
     ).rejects.toThrow("unexpected vault USDC account");
+  });
+
+  // Regression (2026-08-13): the current withdraw shape carries the classic
+  // collateral token program at slot 11 and the liquidity mint's program at
+  // slot 12. Reading the liquidity program from slot 11 only passed while
+  // every mint was classic SPL — it rejected all Token-2022 withdrawals.
+  test("accepts the Token-2022 liquidity program at its current-order slot", async () => {
+    const usdgMint = STABLECOIN_MINTS[Stablecoin.USDG];
+    mockKaminoWithdrawInstruction({
+      currentAccountOrder: true,
+      liquidityMint: usdgMint,
+      liquidityTokenProgram: TOKEN_2022_PROGRAM_ID,
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: {} as never,
+      programId,
+    });
+
+    const error = await client
+      .prepareEarnUsdcWithdraw({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        policySigner: backendSigner,
+        amountRaw: BigInt(1_000_000),
+        mode: "partial",
+        target: {
+          liquidityMint: usdgMint,
+          liquidityTokenProgram: TOKEN_2022_PROGRAM_ID,
+          market: kaminoMarket,
+          reserve: kaminoReserve,
+          reserveCollateralMint: kaminoReserveCollateralMint,
+          reserveLiquiditySupply: kaminoReserveLiquiditySupply,
+        },
+        yieldRoutingPolicy: {
+          account: policyAccount,
+          seed: BigInt(7),
+        },
+      })
+      .then(
+        () => null,
+        (thrown) =>
+          thrown instanceof Error ? thrown : new Error(String(thrown))
+      );
+
+    // Both token-program slots must validate; any remaining failure is a
+    // downstream mock gap, never the token-program assertion.
+    expect(error?.message ?? "").not.toContain(
+      "unexpected liquidity token program"
+    );
+    expect(error?.message ?? "").not.toContain(
+      "unexpected collateral token program"
+    );
   });
 });
 
