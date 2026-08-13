@@ -116,9 +116,13 @@ function SourceOptionRow({
 }) {
   const amount = splitUsdBalance(option.usd);
   const { isBalanceHidden } = useBalanceVisibility();
+  // $0.00 dust cannot be withdrawn on its own (Max-exit cleanup collects
+  // it) — the row stays listed but is not selectable.
+  const isDust = option.usd < 0.005;
   return (
     <button
-      className={`t-hover flex w-full items-center px-4 text-left hover:bg-accent ${rounded}`}
+      className={`t-hover flex w-full items-center px-4 text-left disabled:opacity-40 enabled:hover:bg-accent ${rounded}`}
+      disabled={isDust}
       onClick={onSelect}
       type="button"
     >
@@ -203,9 +207,23 @@ export function WithdrawPane({
       })),
     [sources]
   );
+  // The selector opens upward from the trigger, so withdrawable sources sit
+  // at the bottom (nearest the trigger) and $0.00 dust at the top — same
+  // contract as the deposit source selector.
+  const listedOptions = useMemo(
+    () =>
+      [...options].sort(
+        (a, b) => (a.usd >= 0.005 ? 1 : 0) - (b.usd >= 0.005 ? 1 : 0)
+      ),
+    [options]
+  );
   // Null while no sources exist (cleanup-only phase after a full exit).
+  // The fallback prefers a withdrawable source over $0.00 dust.
   const selectedOption =
-    options.find((option) => option.key === selectedKey) ?? options[0] ?? null;
+    options.find((option) => option.key === selectedKey) ??
+    options.find((option) => option.usd >= 0.005) ??
+    options[0] ??
+    null;
   const fromBalance = splitUsdBalance(selectedOption?.usd ?? 0);
 
   const amountUsd = Number.parseFloat(amount.replace(/,/g, "")) || 0;
@@ -380,7 +398,7 @@ export function WithdrawPane({
               isOpen={isSheetOpen}
               origin="bottom-center"
             >
-              {options.map((option) => (
+              {listedOptions.map((option) => (
                 <SourceOptionRow
                   isSelected={option.key === selectedOption?.key}
                   key={option.key}
@@ -416,7 +434,7 @@ export function WithdrawPane({
                 </button>
               </header>
               <div className="flex w-full flex-col py-2">
-                {options.map((option) => (
+                {listedOptions.map((option) => (
                   <SourceOptionRow
                     isSelected={option.key === selectedOption?.key}
                     key={option.key}
