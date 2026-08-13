@@ -421,19 +421,24 @@ export function CryptoPage({
     grouped.push(...securedByMint.values());
     return grouped;
   }, [derivedTokens, securedTokens]);
-  // Mints the Earn product currently accepts — badged "Can earn" in the
+  // Stables the Earn product currently accepts — badged "Can earn" in the
   // receive selector and ranked right after LOYAL.
-  const earnEligibleMints = useMemo(
+  const earnProductAssets = useMemo(
     () =>
-      new Set(
-        getEnabledEarnProductAssetsForCluster({
-          cluster: resolveLoyalClusterForSolanaEnv(
-            resolveSolanaEnv(publicEnv.solanaEnv)
-          ),
-          enabledStablecoins: publicEnv.earnEnabledStablecoins,
-        }).map((asset) => asset.mint.toBase58())
-      ),
+      getEnabledEarnProductAssetsForCluster({
+        cluster: resolveLoyalClusterForSolanaEnv(
+          resolveSolanaEnv(publicEnv.solanaEnv)
+        ),
+        enabledStablecoins: publicEnv.earnEnabledStablecoins,
+      }).map((asset) => ({
+        mint: asset.mint.toBase58(),
+        symbol: asset.symbol,
+      })),
     [publicEnv.earnEnabledStablecoins, publicEnv.solanaEnv]
+  );
+  const earnEligibleMints = useMemo(
+    () => new Set(earnProductAssets.map((asset) => asset.mint)),
+    [earnProductAssets]
   );
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
@@ -442,6 +447,23 @@ export function CryptoPage({
     const extras = popularTokens.filter(
       (token) => token.mint && !heldMints.has(token.mint)
     );
+    // Earn stables missing from held+popular (e.g. CASH) still belong in
+    // the receive list: synthesize them from the canonical product assets.
+    // The picker price is indicative only (quotes come by mint), so a flat
+    // $1 for a USD stable is fine.
+    const listedMints = new Set([
+      ...heldMints,
+      ...extras.map((token) => token.mint),
+    ]);
+    const missingEarnStables = earnProductAssets
+      .filter((asset) => !listedMints.has(asset.mint))
+      .map((asset) => ({
+        balance: 0,
+        icon: getTokenIconUrl(asset.symbol),
+        mint: asset.mint,
+        price: 1,
+        symbol: asset.symbol,
+      }));
     // LOYAL first, then the Earn-eligible stables, then everything else —
     // held-first order is preserved within each group (stable sort).
     const rank = (token: SwapToken) =>
@@ -451,8 +473,10 @@ export function CryptoPage({
         ? 1
         : 2;
 
-    return [...derivedTokens, ...extras].sort((a, b) => rank(a) - rank(b));
-  }, [derivedTokens, earnEligibleMints, popularTokens]);
+    return [...derivedTokens, ...extras, ...missingEarnStables].sort(
+      (a, b) => rank(a) - rank(b)
+    );
+  }, [derivedTokens, earnEligibleMints, earnProductAssets, popularTokens]);
 
   // Seed the flow tokens once the wallet's real tokens land.
   const prevHadTokensRef = useRef(false);
