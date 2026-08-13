@@ -59,11 +59,15 @@ function DepositSourceOptionRow({
 }) {
   const balance = splitUsdBalance(option.usd);
   const { isBalanceHidden } = useBalanceVisibility();
+  // Nothing to deposit from an empty balance — the row stays visible (so
+  // the product set reads complete) but cannot be picked.
+  const isEmpty = option.usd <= 0;
 
   return (
     <button
       aria-pressed={isSelected}
-      className={`t-hover flex w-full items-center px-4 text-left hover:bg-accent ${rounded}`}
+      className={`t-hover flex w-full items-center px-4 text-left disabled:opacity-40 enabled:hover:bg-accent ${rounded}`}
+      disabled={isEmpty}
       onClick={onSelect}
       type="button"
     >
@@ -219,6 +223,16 @@ export function DepositPane({
   const selectedSource =
     sourceOptions.find((source) => source.key === selectedSourceKey) ??
     defaultSource;
+  // The selector opens upward from the trigger, so funded coins sit at the
+  // bottom (nearest the trigger) and empty ones at the top — stable sort
+  // keeps the product order within each group.
+  const listedSourceOptions = useMemo(
+    () =>
+      [...sourceOptions].sort(
+        (a, b) => (a.usd > 0 ? 1 : 0) - (b.usd > 0 ? 1 : 0)
+      ),
+    [sourceOptions]
+  );
   const sourceUsd = selectedSource.usd;
   const depositSteps = useMemo(
     () => createDepositSteps(selectedSource.symbol),
@@ -402,7 +416,7 @@ export function DepositPane({
               isOpen={isSourceSheetOpen}
               origin="bottom-center"
             >
-              {sourceOptions.map((option) => (
+              {listedSourceOptions.map((option) => (
                 <DepositSourceOptionRow
                   isSelected={option.key === selectedSource.key}
                   key={option.key}
@@ -435,7 +449,7 @@ export function DepositPane({
                 </button>
               </header>
               <div className="flex w-full flex-col py-2">
-                {sourceOptions.map((option) => (
+                {listedSourceOptions.map((option) => (
                   <DepositSourceOptionRow
                     isSelected={option.key === selectedSource.key}
                     key={option.key}
