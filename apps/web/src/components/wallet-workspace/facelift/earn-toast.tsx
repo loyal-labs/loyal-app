@@ -59,9 +59,16 @@ const FLOW_STEPS: Record<EarnFlowId, readonly string[]> = {
     CONFIRM_IN_WALLET_MESSAGE,
     "Confirming",
   ],
-  "close-policies": ["Closing policies", CONFIRM_IN_WALLET_MESSAGE, "Confirming"],
+  "close-policies": [
+    "Closing policies",
+    CONFIRM_IN_WALLET_MESSAGE,
+    "Confirming",
+  ],
   deposit: [
     "Preparing deposit",
+    // Conditional: only legacy-policy wallets depositing a Token-2022 mint
+    // hit this stage (ASK-2108); the host auto-checks it for everyone else.
+    "Updating Earn policy",
     "Waiting for approval",
     CONFIRM_IN_WALLET_MESSAGE,
     "Confirming",
@@ -240,10 +247,10 @@ export function EarnToastHost() {
                 index < stepIndex
                   ? "b"
                   : isActive
-                    ? detail.phase === "error"
-                      ? "c"
-                      : "a"
-                    : "p";
+                  ? detail.phase === "error"
+                    ? "c"
+                    : "a"
+                  : "p";
               return (
                 <div className="flex h-7 items-center gap-2.5" key={label}>
                   <span
@@ -265,7 +272,9 @@ export function EarnToastHost() {
                     </span>
                   </span>
                   <span
-                    className={`t-step-label min-w-0 truncate ${state === "p" ? "text-muted-foreground" : ""}`}
+                    className={`t-step-label min-w-0 truncate ${
+                      state === "p" ? "text-muted-foreground" : ""
+                    }`}
                   >
                     <TextSwap
                       className={state === "a" ? "t-step-active" : ""}

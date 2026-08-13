@@ -249,20 +249,13 @@ export function DepositPane({
       setAmount(sanitized);
     }
   };
-  // Legacy-policy wallets cannot deposit Token-2022 mints until the Earn
-  // policy is recreated; the same pill then updates the policy and retries.
-  const needsPolicyUpdate =
-    actions.depositPolicyUpdateRequiredMint === selectedSource.mint;
   const handleSubmit = async () => {
-    const draft = {
+    const didDeposit = await actions.submitDeposit({
       amountLabel: amount,
       forecastApyBps: apy.apyBps,
       mint: selectedSource.mint,
       symbol: selectedSource.symbol,
-    };
-    const didDeposit = needsPolicyUpdate
-      ? await actions.updateDepositPolicyAndRetry(draft)
-      : await actions.submitDeposit(draft);
+    });
     if (didDeposit) {
       onBack();
     }
@@ -590,13 +583,9 @@ export function DepositPane({
             <TextSwap
               text={
                 isSubmitting
-                  ? needsPolicyUpdate
-                    ? "Updating policy…"
-                    : "Depositing…"
+                  ? "Depositing…"
                   : isInsufficient
                   ? "Insufficient balance"
-                  : needsPolicyUpdate && isValidAmount
-                  ? "Update policy & deposit"
                   : isValidAmount
                   ? `Deposit ${amountLabel} ${selectedSource.symbol}`
                   : `Minimum deposit is $${MIN_DEPOSIT_USD}`
