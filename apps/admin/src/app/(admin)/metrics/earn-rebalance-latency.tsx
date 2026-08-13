@@ -34,6 +34,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getEarnStablecoinSymbol } from "@/lib/earn/stablecoin-monitor.shared";
 
 import type {
   EarnLatencyPoint,
@@ -179,6 +180,9 @@ function LatencyTooltip({
         {formatShortAddress(point.sourceReserve)} →{" "}
         {formatShortAddress(point.targetReserve)}
       </div>
+      <div className="text-muted-foreground">
+        Mint {getEarnStablecoinSymbol(point.liquidityMint) ?? "unknown"}
+      </div>
       <div className="font-mono text-muted-foreground">
         Decision {point.decisionId}
       </div>
@@ -258,6 +262,7 @@ function LatencyTable({
           <TableRow>
             <TableHead>Submitted (UTC)</TableHead>
             <TableHead>Decision</TableHead>
+            <TableHead>Mint</TableHead>
             <TableHead>Route</TableHead>
             {selectedSeries.map((key) => (
               <TableHead className="text-right whitespace-nowrap" key={key}>
@@ -273,6 +278,9 @@ function LatencyTable({
                 {formatUtcTimestamp(point.submittedAt)}
               </TableCell>
               <TableCell className="font-mono">{point.decisionId}</TableCell>
+              <TableCell className="font-medium">
+                {getEarnStablecoinSymbol(point.liquidityMint) ?? "Unknown"}
+              </TableCell>
               <TableCell className="whitespace-nowrap font-mono">
                 {formatShortAddress(point.sourceReserve)} →{" "}
                 {formatShortAddress(point.targetReserve)}

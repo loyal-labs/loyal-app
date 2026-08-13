@@ -23,10 +23,14 @@ import { Suspense } from "react";
 
 import {
   getEarnData,
-  USDC_DECIMALS,
+  STABLECOIN_DECIMALS,
   type EarnFlowPoint,
   type EarnPositionRow,
 } from "./earn-data";
+import {
+  getEarnStablecoinMonitoring,
+  type EarnStablecoinHealthRow,
+} from "./earn-stablecoin-monitoring";
 import { CopyAddressButton } from "./copy-address-button";
 import {
   getEarnFundingData,
@@ -34,11 +38,18 @@ import {
   type EarnFundingWallet,
 } from "./earn-funding-data";
 import { getAdminEarnSnapshot, type AdminEarnSnapshot } from "./earn-snapshot";
+import {
+  EARN_STABLECOIN_DESCRIPTORS,
+  getEarnStablecoinBySymbol,
+  getEarnStablecoinSymbol,
+  type EarnStablecoinSymbol,
+  type RolloutState,
+} from "@/lib/earn/stablecoin-monitor.shared";
 
 export const dynamic = "force-dynamic";
 
 const POSITION_SORT_LABELS = {
-  idle: "Idle USDC",
+  idle: "Idle stablecoins",
   normalized: "Normalized current",
   observed: "Observed",
   pointerDelta: "Pointer delta",
@@ -54,6 +65,7 @@ type PositionSortState = {
   key: PositionSortKey;
 };
 type EarnPageSearchParams = {
+  mint?: string | string[];
   positionDirection?: string | string[];
   positionSort?: string | string[];
 };
@@ -63,25 +75,9 @@ const DEFAULT_POSITION_SORT: PositionSortState = {
   key: "normalized",
 };
 
-function formatUsdcRaw(raw: bigint) {
+function formatCompactStablecoinRaw(raw: bigint, unit: string) {
   const zero = BigInt(0);
-  const divisor = BigInt(10) ** BigInt(USDC_DECIMALS);
-  const sign = raw < zero ? "-" : "";
-  const absolute = raw < zero ? -raw : raw;
-  const whole = absolute / divisor;
-  const fraction = absolute % divisor;
-  const fractionText = fraction.toString().padStart(USDC_DECIMALS, "0");
-  const trimmedFraction = fractionText.replace(/0+$/, "");
-  const wholeText = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-
-  return `${sign}${wholeText}${
-    trimmedFraction ? `.${trimmedFraction}` : ""
-  } USDC`;
-}
-
-function formatCompactUsdcRaw(raw: bigint) {
-  const zero = BigInt(0);
-  const centScale = BigInt(10) ** BigInt(USDC_DECIMALS - 2);
+  const centScale = BigInt(10) ** BigInt(STABLECOIN_DECIMALS - 2);
   const sign = raw < zero ? "-" : "";
   const absolute = raw < zero ? -raw : raw;
   const roundedCents = (absolute + centScale / BigInt(2)) / centScale;
@@ -89,7 +85,11 @@ function formatCompactUsdcRaw(raw: bigint) {
   const cents = roundedCents % BigInt(100);
   const wholeText = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
-  return `${sign}${wholeText}.${cents.toString().padStart(2, "0")} USDC`;
+  return `${sign}${wholeText}.${cents.toString().padStart(2, "0")} ${unit}`;
+}
+
+function formatNominalUsdRaw(raw: bigint) {
+  return formatCompactStablecoinRaw(raw, "nominal USD");
 }
 
 function formatDateTime(value: string | null) {
@@ -118,6 +118,49 @@ function formatNumber(value: number) {
 
 function getSearchParamValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function parseSelectedMint(
+  searchParams: EarnPageSearchParams | undefined
+): EarnStablecoinSymbol | null {
+  const value = getSearchParamValue(searchParams?.mint);
+  return value && getEarnStablecoinBySymbol(value)
+    ? (value as EarnStablecoinSymbol)
+    : null;
+}
+
+function amountUnit(symbol: EarnStablecoinSymbol | null) {
+  return symbol ?? "nominal USD";
+}
+
+function aggregateFlowPoints(
+  points: readonly EarnFlowPoint[],
+  selectedMint: EarnStablecoinSymbol | null
+): EarnFlowPoint[] {
+  const selectedDescriptor = selectedMint
+    ? getEarnStablecoinBySymbol(selectedMint)
+    : null;
+  if (selectedDescriptor) {
+    return points.filter(
+      (point) => point.liquidityMint === selectedDescriptor.mint
+    );
+  }
+
+  const byDate = new Map<string, EarnFlowPoint>();
+  for (const point of points) {
+    const current = byDate.get(point.date);
+    byDate.set(point.date, {
+      date: point.date,
+      depositedRaw: (current?.depositedRaw ?? BigInt(0)) + point.depositedRaw,
+      liquidityMint: "all",
+      netRaw: (current?.netRaw ?? BigInt(0)) + point.netRaw,
+      withdrawnRaw: (current?.withdrawnRaw ?? BigInt(0)) + point.withdrawnRaw,
+    });
+  }
+
+  return [...byDate.values()].sort((left, right) =>
+    left.date.localeCompare(right.date)
+  );
 }
 
 function parsePositionSort(
@@ -419,7 +462,13 @@ function getTopPositionWarningCount(
   );
 }
 
-function FlowTable({ points }: { points: EarnFlowPoint[] }) {
+function FlowTable({
+  points,
+  unit,
+}: {
+  points: EarnFlowPoint[];
+  unit: string;
+}) {
   return (
     <Table>
       <TableHeader>
@@ -440,13 +489,13 @@ function FlowTable({ points }: { points: EarnFlowPoint[] }) {
                 {formatDate(point.date)}
               </TableCell>
               <TableCell className="text-right tabular-nums">
-                {formatCompactUsdcRaw(point.depositedRaw)}
+                {formatCompactStablecoinRaw(point.depositedRaw, unit)}
               </TableCell>
               <TableCell className="text-right tabular-nums">
-                {formatCompactUsdcRaw(point.withdrawnRaw)}
+                {formatCompactStablecoinRaw(point.withdrawnRaw, unit)}
               </TableCell>
               <TableCell className="text-right tabular-nums">
-                {formatCompactUsdcRaw(point.netRaw)}
+                {formatCompactStablecoinRaw(point.netRaw, unit)}
               </TableCell>
             </TableRow>
           ))}
@@ -458,10 +507,12 @@ function FlowTable({ points }: { points: EarnFlowPoint[] }) {
 function PositionSortHead({
   align = "right",
   currentSort,
+  selectedMint,
   sortKey,
 }: {
   align?: "left" | "right";
   currentSort: PositionSortState;
+  selectedMint: EarnStablecoinSymbol | null;
   sortKey: PositionSortKey;
 }) {
   const active = currentSort.key === sortKey;
@@ -480,7 +531,9 @@ function PositionSortHead({
         className={`inline-flex items-center gap-1 whitespace-nowrap ${
           align === "right" ? "justify-end" : ""
         }`}
-        href={`?positionSort=${sortKey}&positionDirection=${nextDirection}`}
+        href={`?positionSort=${sortKey}&positionDirection=${nextDirection}${
+          selectedMint ? `&mint=${selectedMint}` : ""
+        }`}
       >
         <span>{label}</span>
         <Icon aria-hidden="true" className="size-3.5" />
@@ -489,13 +542,182 @@ function PositionSortHead({
   );
 }
 
+function rolloutVariant(state: RolloutState) {
+  return state === "enabled"
+    ? ("outline" as const)
+    : state === "disabled"
+    ? ("destructive" as const)
+    : ("secondary" as const);
+}
+
+function StablecoinFilter({
+  selectedMint,
+}: {
+  selectedMint: EarnStablecoinSymbol | null;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2" aria-label="Stablecoin filter">
+      <Link href="?">
+        <Badge variant={selectedMint === null ? "default" : "outline"}>
+          All
+        </Badge>
+      </Link>
+      {EARN_STABLECOIN_DESCRIPTORS.map((stablecoin) => (
+        <Link href={`?mint=${stablecoin.symbol}`} key={stablecoin.mint}>
+          <Badge
+            variant={selectedMint === stablecoin.symbol ? "default" : "outline"}
+          >
+            {stablecoin.symbol}
+          </Badge>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function StablecoinHealthMatrix({ rows }: { rows: EarnStablecoinHealthRow[] }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="font-bold">Stablecoin health</CardTitle>
+        <CardDescription>
+          Mint-keyed rollout, verified reserve eligibility, holdings, confirmed
+          flow, and reconciliation signals. Unknown telemetry is never inferred
+          from balances.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Stablecoin</TableHead>
+              <TableHead>App rollout</TableHead>
+              <TableHead className="text-right">Eligible / best APY</TableHead>
+              <TableHead className="text-right">Positions</TableHead>
+              <TableHead className="text-right">Principal</TableHead>
+              <TableHead className="text-right">Reserve / idle</TableHead>
+              <TableHead className="text-right">30d in / out</TableHead>
+              <TableHead>Latest rebalance</TableHead>
+              <TableHead>Warnings</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.liquidityMint}>
+                <TableCell>
+                  <Link
+                    className="font-semibold underline-offset-4 hover:underline"
+                    href={`?mint=${row.symbol}`}
+                  >
+                    {row.symbol}
+                  </Link>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    <AddressLink address={row.liquidityMint} />
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col items-start gap-1">
+                    <Badge variant={rolloutVariant(row.appRollout)}>
+                      {row.appRollout}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {row.appRolloutSource}
+                    </span>
+                  </div>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <div>{formatNumber(row.eligibleReserveCount)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {row.bestSupplyApyPercent === null
+                      ? "No verified APY"
+                      : `${row.bestSupplyApyPercent.toFixed(2)}%`}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatNumber(row.activePositionCount)}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {formatCompactStablecoinRaw(
+                    row.activePrincipalRaw,
+                    row.symbol
+                  )}
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <div>
+                    {formatCompactStablecoinRaw(
+                      row.activeReserveRaw,
+                      row.symbol
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatCompactStablecoinRaw(row.activeIdleRaw, row.symbol)}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  <div>
+                    {formatCompactStablecoinRaw(
+                      row.deposited30dRaw,
+                      row.symbol
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatCompactStablecoinRaw(
+                      row.withdrawn30dRaw,
+                      row.symbol
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-sm">
+                  {formatDateTime(row.latestRebalanceAt)}
+                </TableCell>
+                <TableCell>
+                  <div className="flex max-w-64 flex-wrap gap-1">
+                    {row.warnings.length === 0 ? (
+                      <Badge variant="outline">Healthy</Badge>
+                    ) : (
+                      row.warnings.map((warning) => (
+                        <Badge
+                          key={warning.code}
+                          title={warning.message}
+                          variant={
+                            warning.level === "critical"
+                              ? "destructive"
+                              : warning.level === "warning"
+                              ? "secondary"
+                              : "outline"
+                          }
+                        >
+                          {warning.code.replaceAll("_", " ")}
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+
 async function EarnDetails({
   positionSort,
+  selectedMint,
 }: {
   positionSort: PositionSortState;
+  selectedMint: EarnStablecoinSymbol | null;
 }) {
-  const result = await Promise.all([getEarnData(), getEarnFundingData()])
-    .then(([data, fundingData]) => ({ data, fundingData }))
+  const result = await Promise.all([
+    getEarnStablecoinMonitoring(),
+    getEarnFundingData(),
+  ])
+    .then(([monitoring, fundingData]) => ({
+      data: monitoring.data,
+      fundingData,
+      stablecoinHealth: monitoring.rows,
+    }))
     .catch((error: unknown) => {
       console.error("[admin/earn] Detailed data failed to load", {
         error,
@@ -519,9 +741,41 @@ async function EarnDetails({
     );
   }
 
-  const { data, fundingData } = result;
-  const sortedTopPositions = sortTopPositions(data.topPositions, positionSort);
-  const netFlow30dRaw = data.totalDeposited30dRaw - data.totalWithdrawn30dRaw;
+  const { data, fundingData, stablecoinHealth } = result;
+  const selectedDescriptor = selectedMint
+    ? getEarnStablecoinBySymbol(selectedMint)
+    : null;
+  const selectedSummary = selectedDescriptor
+    ? data.stablecoins.find(
+        (stablecoin) => stablecoin.liquidityMint === selectedDescriptor.mint
+      )
+    : null;
+  const unit = amountUnit(selectedMint);
+  const selectedPositions = selectedDescriptor
+    ? data.topPositions.filter(
+        (position) => position.depositMint === selectedDescriptor.mint
+      )
+    : data.topPositions;
+  const sortedTopPositions = sortTopPositions(selectedPositions, positionSort);
+  const flowPoints = aggregateFlowPoints(data.flow30d, selectedMint);
+  const totalDeposited30dRaw =
+    selectedSummary?.deposited30dRaw ?? data.totalDeposited30dRaw;
+  const totalWithdrawn30dRaw =
+    selectedSummary?.withdrawn30dRaw ?? data.totalWithdrawn30dRaw;
+  const netFlow30dRaw = totalDeposited30dRaw - totalWithdrawn30dRaw;
+  const activeReserveRaw =
+    selectedSummary?.activeReserveRaw ?? data.activeReserveRaw;
+  const activeIdleRaw = selectedSummary?.activeIdleRaw ?? data.activeIdleRaw;
+  const activePointerDeltaRaw =
+    selectedSummary?.currentPointerDeltaRaw ??
+    data.activeCurrentPointerDeltaRaw;
+  const activeStoredCurrentPointerRaw =
+    selectedSummary?.activeStoredCurrentPointerRaw ??
+    data.activeStoredCurrentPointerRaw;
+  const activeExcludedReserveRaw =
+    selectedSummary?.activeExcludedReserveRaw ?? data.activeExcludedReserveRaw;
+  const formatSelectedAmount = (raw: bigint) =>
+    formatCompactStablecoinRaw(raw, unit);
   const activeHoldingWarningCount =
     data.activeMissingManagedVaultRows +
     data.activeMissingRedeemableMetadataRows +
@@ -530,6 +784,8 @@ async function EarnDetails({
   return (
     <>
       <div className="space-y-6">
+        <StablecoinFilter selectedMint={selectedMint} />
+        <StablecoinHealthMatrix rows={stablecoinHealth} />
         <OperationalWallets data={fundingData} />
 
         <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
@@ -537,7 +793,7 @@ async function EarnDetails({
             <CardHeader>
               <CardTitle className="font-bold">AUM breakdown</CardTitle>
               <CardDescription>
-                Normalized active reserve value plus idle vault USDC
+                Normalized active reserve value plus idle vault stablecoins
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -547,15 +803,15 @@ async function EarnDetails({
                     Reserve redeemable
                   </div>
                   <div className="mt-1 font-semibold tabular-nums">
-                    {formatCompactUsdcRaw(data.activeReserveRaw)}
+                    {formatSelectedAmount(activeReserveRaw)}
                   </div>
                 </div>
                 <div className="rounded-md border px-3 py-2">
                   <div className="text-sm text-muted-foreground">
-                    Idle vault USDC
+                    Idle vault stablecoins
                   </div>
                   <div className="mt-1 font-semibold tabular-nums">
-                    {formatCompactUsdcRaw(data.activeIdleRaw)}
+                    {formatSelectedAmount(activeIdleRaw)}
                   </div>
                 </div>
                 <div className="rounded-md border px-3 py-2">
@@ -563,7 +819,7 @@ async function EarnDetails({
                     Stored current pointer
                   </div>
                   <div className="mt-1 font-semibold tabular-nums">
-                    {formatCompactUsdcRaw(data.activeStoredCurrentPointerRaw)}
+                    {formatSelectedAmount(activeStoredCurrentPointerRaw)}
                   </div>
                 </div>
                 <div className="rounded-md border px-3 py-2">
@@ -571,7 +827,7 @@ async function EarnDetails({
                     Pointer delta
                   </div>
                   <div className="mt-1 font-semibold tabular-nums">
-                    {formatCompactUsdcRaw(data.activeCurrentPointerDeltaRaw)}
+                    {formatSelectedAmount(activePointerDeltaRaw)}
                   </div>
                 </div>
               </div>
@@ -619,7 +875,7 @@ async function EarnDetails({
                   Excluded reserve raw
                 </span>
                 <span className="font-medium tabular-nums">
-                  {formatCompactUsdcRaw(data.activeExcludedReserveRaw)}
+                  {formatSelectedAmount(activeExcludedReserveRaw)}
                 </span>
               </div>
             </CardContent>
@@ -631,7 +887,7 @@ async function EarnDetails({
             <CardHeader>
               <CardDescription>30d deposits</CardDescription>
               <CardTitle className="text-2xl font-bold tabular-nums">
-                {formatCompactUsdcRaw(data.totalDeposited30dRaw)}
+                {formatSelectedAmount(totalDeposited30dRaw)}
               </CardTitle>
             </CardHeader>
           </Card>
@@ -639,7 +895,7 @@ async function EarnDetails({
             <CardHeader>
               <CardDescription>30d withdrawals</CardDescription>
               <CardTitle className="text-2xl font-bold tabular-nums">
-                {formatCompactUsdcRaw(data.totalWithdrawn30dRaw)}
+                {formatSelectedAmount(totalWithdrawn30dRaw)}
               </CardTitle>
             </CardHeader>
           </Card>
@@ -647,7 +903,7 @@ async function EarnDetails({
             <CardHeader>
               <CardDescription>30d net flow</CardDescription>
               <CardTitle className="text-2xl font-bold tabular-nums">
-                {formatCompactUsdcRaw(netFlow30dRaw)}
+                {formatSelectedAmount(netFlow30dRaw)}
               </CardTitle>
             </CardHeader>
           </Card>
@@ -662,7 +918,7 @@ async function EarnDetails({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <FlowTable points={data.flow30d} />
+              <FlowTable points={flowPoints} unit={unit} />
             </CardContent>
           </Card>
 
@@ -705,7 +961,7 @@ async function EarnDetails({
                   <div>
                     <div className="text-sm text-muted-foreground">Open</div>
                     <div className="text-lg font-semibold tabular-nums">
-                      {formatCompactUsdcRaw(data.scheduledOpenAmountRaw)}
+                      {formatNominalUsdRaw(data.scheduledOpenAmountRaw)}
                     </div>
                   </div>
                   <Badge variant="outline">
@@ -718,7 +974,7 @@ async function EarnDetails({
                       Eligible now
                     </div>
                     <div className="text-lg font-semibold tabular-nums">
-                      {formatCompactUsdcRaw(data.scheduledEligibleAmountRaw)}
+                      {formatNominalUsdRaw(data.scheduledEligibleAmountRaw)}
                     </div>
                   </div>
                   <Badge variant="outline">
@@ -742,7 +998,7 @@ async function EarnDetails({
                       All time
                     </div>
                     <div className="text-lg font-semibold tabular-nums">
-                      {formatCompactUsdcRaw(data.autodepositExecutionAmountRaw)}
+                      {formatNominalUsdRaw(data.autodepositExecutionAmountRaw)}
                     </div>
                   </div>
                   <Badge variant="outline">
@@ -753,7 +1009,7 @@ async function EarnDetails({
                   <div>
                     <div className="text-sm text-muted-foreground">30d</div>
                     <div className="text-lg font-semibold tabular-nums">
-                      {formatCompactUsdcRaw(
+                      {formatNominalUsdRaw(
                         data.autodepositExecutionAmount30dRaw
                       )}
                     </div>
@@ -809,30 +1065,41 @@ async function EarnDetails({
                 <TableRow>
                   <TableHead>Wallet</TableHead>
                   <TableHead>Settings</TableHead>
+                  <TableHead>Mint</TableHead>
                   <TableHead>Reserve</TableHead>
                   <PositionSortHead
                     currentSort={positionSort}
+                    selectedMint={selectedMint}
                     sortKey="normalized"
                   />
                   <PositionSortHead
                     currentSort={positionSort}
+                    selectedMint={selectedMint}
                     sortKey="reserve"
                   />
-                  <PositionSortHead currentSort={positionSort} sortKey="idle" />
                   <PositionSortHead
                     currentSort={positionSort}
+                    selectedMint={selectedMint}
+                    sortKey="idle"
+                  />
+                  <PositionSortHead
+                    currentSort={positionSort}
+                    selectedMint={selectedMint}
                     sortKey="principal"
                   />
                   <PositionSortHead
                     currentSort={positionSort}
+                    selectedMint={selectedMint}
                     sortKey="pointerDelta"
                   />
                   <PositionSortHead
                     currentSort={positionSort}
+                    selectedMint={selectedMint}
                     sortKey="warnings"
                   />
                   <PositionSortHead
                     currentSort={positionSort}
+                    selectedMint={selectedMint}
                     sortKey="observed"
                   />
                 </TableRow>
@@ -840,14 +1107,14 @@ async function EarnDetails({
               <TableBody>
                 {sortedTopPositions.length === 0 ? (
                   <TableRow>
-                    <TableCell className="text-muted-foreground" colSpan={10}>
+                    <TableCell className="text-muted-foreground" colSpan={11}>
                       No active Earn positions found.
                     </TableCell>
                   </TableRow>
                 ) : (
                   sortedTopPositions.map((position) => (
                     <TableRow
-                      key={`${position.settings}-${position.currentReserve}`}
+                      key={`${position.settings}-${position.depositMint}-${position.currentReserve}`}
                     >
                       <TableCell>
                         <AddressLink address={position.walletAddress} />
@@ -855,23 +1122,47 @@ async function EarnDetails({
                       <TableCell>
                         <AddressLink address={position.settings} />
                       </TableCell>
+                      <TableCell className="font-medium">
+                        {getEarnStablecoinSymbol(position.depositMint) ??
+                          "Unknown"}
+                      </TableCell>
                       <TableCell>
                         <AddressLink address={position.currentReserve} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatCompactUsdcRaw(position.normalizedAumRaw)}
+                        {formatCompactStablecoinRaw(
+                          position.normalizedAumRaw,
+                          getEarnStablecoinSymbol(position.depositMint) ??
+                            "stablecoins"
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatCompactUsdcRaw(position.normalizedReserveRaw)}
+                        {formatCompactStablecoinRaw(
+                          position.normalizedReserveRaw,
+                          getEarnStablecoinSymbol(position.depositMint) ??
+                            "stablecoins"
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatCompactUsdcRaw(position.idleAmountRaw)}
+                        {formatCompactStablecoinRaw(
+                          position.idleAmountRaw,
+                          getEarnStablecoinSymbol(position.depositMint) ??
+                            "stablecoins"
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatCompactUsdcRaw(position.principalAmountRaw)}
+                        {formatCompactStablecoinRaw(
+                          position.principalAmountRaw,
+                          getEarnStablecoinSymbol(position.depositMint) ??
+                            "stablecoins"
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {formatCompactUsdcRaw(position.currentPointerDeltaRaw)}
+                        {formatCompactStablecoinRaw(
+                          position.currentPointerDeltaRaw,
+                          getEarnStablecoinSymbol(position.depositMint) ??
+                            "stablecoins"
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         <Badge
@@ -936,6 +1227,7 @@ export default async function EarnPage({
     searchParams ?? Promise.resolve(undefined),
   ]);
   const positionSort = parsePositionSort(resolvedSearchParams);
+  const selectedMint = parseSelectedMint(resolvedSearchParams);
 
   return (
     <PageContainer>
@@ -954,7 +1246,7 @@ export default async function EarnPage({
             )}
             title={
               snapshot
-                ? formatCompactUsdcRaw(snapshot.activeAumRaw)
+                ? formatNominalUsdRaw(snapshot.activeAumRaw)
                 : "Unavailable"
             }
           />
@@ -965,7 +1257,7 @@ export default async function EarnPage({
             )}
             title={
               snapshot
-                ? formatCompactUsdcRaw(snapshot.activePrincipalRaw)
+                ? formatNominalUsdRaw(snapshot.activePrincipalRaw)
                 : "Unavailable"
             }
           />
@@ -997,7 +1289,10 @@ export default async function EarnPage({
         </div>
 
         <Suspense fallback={<EarnDetailsFallback />}>
-          <EarnDetails positionSort={positionSort} />
+          <EarnDetails
+            positionSort={positionSort}
+            selectedMint={selectedMint}
+          />
         </Suspense>
       </div>
     </PageContainer>

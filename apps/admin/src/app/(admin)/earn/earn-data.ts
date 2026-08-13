@@ -1,8 +1,15 @@
 import "server-only";
 
+import {
+  EARN_STABLECOIN_DESCRIPTORS,
+  STABLECOIN_DECIMALS,
+  type EarnStablecoinSymbol,
+} from "@/lib/earn/stablecoin-monitor.shared";
 import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.server";
 
-const USDC_DECIMALS = 6;
+const STABLE_MINT_VALUES_SQL = EARN_STABLECOIN_DESCRIPTORS.map(
+  ({ mint }) => `('${mint}')`
+).join(", ");
 const ACTIVE_EARN_HOLDINGS_CTE = `
   WITH active_positions AS (
     SELECT
@@ -40,6 +47,7 @@ const ACTIVE_EARN_HOLDINGS_CTE = `
     FROM active_positions AS active
     INNER JOIN loyal_yield.vault_reserve_positions_current AS reserve
       ON reserve.vault_id = active.vault_id
+      AND reserve.liquidity_mint = active.deposit_mint
   ),
   normalized_reserve_by_position AS (
     SELECT
@@ -124,6 +132,7 @@ const ACTIVE_EARN_HOLDINGS_CTE = `
       active.position_id,
       active.wallet_address,
       active.settings,
+      active.deposit_mint,
       active.current_reserve,
       active.current_amount_raw,
       active.principal_amount_raw,
@@ -161,6 +170,7 @@ const ACTIVE_EARN_HOLDINGS_CTE = `
 export type EarnFlowPoint = {
   date: string;
   depositedRaw: bigint;
+  liquidityMint: string;
   netRaw: bigint;
   withdrawnRaw: bigint;
 };
@@ -171,6 +181,7 @@ export type EarnPositionRow = {
   currentObservedAt: string;
   currentPointerDeltaRaw: bigint;
   currentReserve: string;
+  depositMint: string;
   excludedReserveRaw: bigint;
   idleAmountRaw: bigint;
   missingManagedVaultRows: number;
@@ -183,6 +194,22 @@ export type EarnPositionRow = {
   storedCurrentPointerRaw: bigint;
   unknownReserveSemanticsRows: number;
   walletAddress: string;
+};
+
+export type EarnStablecoinSummary = {
+  activeAumRaw: bigint;
+  activeExcludedReserveRaw: bigint;
+  activeIdleRaw: bigint;
+  activePositionCount: number;
+  activePrincipalRaw: bigint;
+  activeReserveRaw: bigint;
+  activeStoredCurrentPointerRaw: bigint;
+  currentPointerDeltaRaw: bigint;
+  deposited30dRaw: bigint;
+  latestRebalanceAt: string | null;
+  liquidityMint: string;
+  symbol: EarnStablecoinSymbol;
+  withdrawn30dRaw: bigint;
 };
 
 export type EarnFreshnessMetric = {
@@ -221,6 +248,7 @@ export type EarnData = {
   scheduledEligibleLotCount: number;
   scheduledOpenAmountRaw: bigint;
   scheduledOpenLotCount: number;
+  stablecoins: EarnStablecoinSummary[];
   topPositions: EarnPositionRow[];
   totalDeposited30dRaw: bigint;
   totalWithdrawn30dRaw: bigint;
@@ -250,6 +278,7 @@ type HeadlineRow = {
 type FlowRow = {
   day: string;
   deposited_raw: string | number | bigint | null;
+  liquidity_mint: string;
   withdrawn_raw: string | number | bigint | null;
 };
 
@@ -287,6 +316,7 @@ type PositionRow = {
   current_observed_at: Date | string;
   current_pointer_delta_raw: string | number | bigint;
   current_reserve: string;
+  deposit_mint: string;
   excluded_reserve_raw: string | number | bigint;
   idle_raw: string | number | bigint;
   missing_managed_vault_rows: string | number | bigint;
@@ -299,6 +329,19 @@ type PositionRow = {
   stored_current_pointer_raw: string | number | bigint;
   unknown_reserve_semantics_rows: string | number | bigint;
   wallet_address: string;
+};
+
+type MintHoldingSummaryRow = {
+  active_aum_raw: string | number | bigint | null;
+  active_excluded_reserve_raw: string | number | bigint | null;
+  active_idle_raw: string | number | bigint | null;
+  active_position_count: string | number | bigint | null;
+  active_principal_raw: string | number | bigint | null;
+  active_reserve_raw: string | number | bigint | null;
+  active_stored_current_pointer_raw: string | number | bigint | null;
+  current_pointer_delta_raw: string | number | bigint | null;
+  deposit_mint: string;
+  latest_rebalance_at: Date | string | null;
 };
 
 function toBigInt(value: string | number | bigint | null | undefined): bigint {
@@ -374,6 +417,7 @@ async function loadEarnData(): Promise<EarnData> {
     scheduledRows,
     executionRows,
     freshnessRows,
+    mintHoldingSummaryRows,
     positionRows,
   ] = await Promise.all([
     queryRows<HeadlineRow>(
@@ -422,6 +466,9 @@ async function loadEarnData(): Promise<EarnData> {
             ((date_trunc('day', now() AT TIME ZONE 'UTC')::date + 1) - 30)::date AS start_day,
             (date_trunc('day', now() AT TIME ZONE 'UTC')::date + 1)::date AS end_day
         ),
+        stable_mints(liquidity_mint) AS (
+          VALUES ${STABLE_MINT_VALUES_SQL}
+        ),
         days AS (
           SELECT generate_series(
             (SELECT start_day FROM bounds),
@@ -435,6 +482,7 @@ async function loadEarnData(): Promise<EarnData> {
             'deposit'::text AS direction,
             'earn_deposit'::text AS source,
             deposit.id AS source_id,
+            deposit.deposit_mint AS liquidity_mint,
             deposit.principal_amount_raw AS amount_raw
           FROM loyal_yield.user_yield_position_deposits AS deposit
           WHERE deposit.confirmed_at >= (SELECT start_day FROM bounds)
@@ -445,6 +493,7 @@ async function loadEarnData(): Promise<EarnData> {
             'withdrawal'::text AS direction,
             'earn_withdrawal'::text AS source,
             withdrawal.id AS source_id,
+            withdrawal.liquidity_mint,
             withdrawal.withdrawn_amount_raw AS amount_raw
           FROM loyal_yield.user_yield_position_withdrawals AS withdrawal
           WHERE withdrawal.confirmed_at >= (SELECT start_day FROM bounds)
@@ -453,18 +502,23 @@ async function loadEarnData(): Promise<EarnData> {
         flow_by_day AS (
           SELECT
             day,
+            liquidity_mint,
             SUM(amount_raw) FILTER (WHERE direction = 'deposit') AS deposited_raw,
             SUM(amount_raw) FILTER (WHERE direction = 'withdrawal') AS withdrawn_raw
           FROM confirmed_flow_events
-          GROUP BY 1
+          GROUP BY day, liquidity_mint
         )
         SELECT
           to_char(days.day, 'YYYY-MM-DD') AS day,
+          stable_mints.liquidity_mint,
           COALESCE(flow_by_day.deposited_raw, 0)::text AS deposited_raw,
           COALESCE(flow_by_day.withdrawn_raw, 0)::text AS withdrawn_raw
         FROM days
-        LEFT JOIN flow_by_day ON flow_by_day.day = days.day
-        ORDER BY days.day ASC
+        CROSS JOIN stable_mints
+        LEFT JOIN flow_by_day
+          ON flow_by_day.day = days.day
+          AND flow_by_day.liquidity_mint = stable_mints.liquidity_mint
+        ORDER BY days.day ASC, stable_mints.liquidity_mint ASC
       `
     ),
     queryRows<AutodepositStatusRow>(
@@ -547,12 +601,56 @@ async function loadEarnData(): Promise<EarnData> {
           (SELECT MAX(projected_at) FROM loyal_yield.balance_sweep_wallet_balance_events) AS latest_wallet_balance_projected_at
       `
     ),
+    queryRows<MintHoldingSummaryRow>(
+      `
+        ${ACTIVE_EARN_HOLDINGS_CTE},
+        holdings_by_mint AS (
+          SELECT
+            deposit_mint,
+            COUNT(*)::text AS active_position_count,
+            COALESCE(SUM(normalized_aum_raw), 0)::text AS active_aum_raw,
+            COALESCE(SUM(excluded_reserve_raw), 0)::text AS active_excluded_reserve_raw,
+            COALESCE(SUM(normalized_reserve_raw), 0)::text AS active_reserve_raw,
+            COALESCE(SUM(idle_raw), 0)::text AS active_idle_raw,
+            COALESCE(SUM(principal_amount_raw), 0)::text AS active_principal_raw,
+            COALESCE(SUM(current_amount_raw), 0)::text AS active_stored_current_pointer_raw,
+            COALESCE(SUM(current_pointer_delta_raw), 0)::text AS current_pointer_delta_raw
+          FROM normalized_active_positions
+          GROUP BY deposit_mint
+        ),
+        latest_rebalance_by_mint AS (
+          SELECT
+            liquidity_mint AS deposit_mint,
+            MAX(updated_at) AS latest_rebalance_at
+          FROM loyal_yield.rebalance_decisions
+          WHERE status = 'confirmed'
+            AND execution_plan->>'kind' = 'same_mint'
+            AND liquidity_mint IS NOT NULL
+          GROUP BY liquidity_mint
+        )
+        SELECT
+          COALESCE(holdings.deposit_mint, rebalance.deposit_mint) AS deposit_mint,
+          COALESCE(holdings.active_position_count, '0') AS active_position_count,
+          COALESCE(holdings.active_aum_raw, '0') AS active_aum_raw,
+          COALESCE(holdings.active_excluded_reserve_raw, '0') AS active_excluded_reserve_raw,
+          COALESCE(holdings.active_reserve_raw, '0') AS active_reserve_raw,
+          COALESCE(holdings.active_idle_raw, '0') AS active_idle_raw,
+          COALESCE(holdings.active_principal_raw, '0') AS active_principal_raw,
+          COALESCE(holdings.active_stored_current_pointer_raw, '0') AS active_stored_current_pointer_raw,
+          COALESCE(holdings.current_pointer_delta_raw, '0') AS current_pointer_delta_raw,
+          rebalance.latest_rebalance_at
+        FROM holdings_by_mint AS holdings
+        FULL OUTER JOIN latest_rebalance_by_mint AS rebalance
+          ON rebalance.deposit_mint = holdings.deposit_mint
+      `
+    ),
     queryRows<PositionRow>(
       `
         ${ACTIVE_EARN_HOLDINGS_CTE}
         SELECT
           wallet_address,
           settings,
+          deposit_mint,
           current_reserve,
           normalized_aum_raw::text,
           normalized_reserve_raw::text,
@@ -600,8 +698,42 @@ async function loadEarnData(): Promise<EarnData> {
     return {
       date: row.day,
       depositedRaw,
+      liquidityMint: row.liquidity_mint,
       netRaw: depositedRaw - withdrawnRaw,
       withdrawnRaw,
+    };
+  });
+  const mintHoldingSummaryByMint = new Map(
+    mintHoldingSummaryRows.map((row) => [row.deposit_mint, row])
+  );
+  const stablecoins = EARN_STABLECOIN_DESCRIPTORS.map((descriptor) => {
+    const holding = mintHoldingSummaryByMint.get(descriptor.mint);
+    const mintFlow = flow30d.filter(
+      (point) => point.liquidityMint === descriptor.mint
+    );
+
+    return {
+      activeAumRaw: toBigInt(holding?.active_aum_raw),
+      activeExcludedReserveRaw: toBigInt(holding?.active_excluded_reserve_raw),
+      activeIdleRaw: toBigInt(holding?.active_idle_raw),
+      activePositionCount: toNumber(holding?.active_position_count),
+      activePrincipalRaw: toBigInt(holding?.active_principal_raw),
+      activeReserveRaw: toBigInt(holding?.active_reserve_raw),
+      activeStoredCurrentPointerRaw: toBigInt(
+        holding?.active_stored_current_pointer_raw
+      ),
+      currentPointerDeltaRaw: toBigInt(holding?.current_pointer_delta_raw),
+      deposited30dRaw: mintFlow.reduce(
+        (total, point) => total + point.depositedRaw,
+        BigInt(0)
+      ),
+      latestRebalanceAt: toIsoString(holding?.latest_rebalance_at),
+      liquidityMint: descriptor.mint,
+      symbol: descriptor.symbol,
+      withdrawn30dRaw: mintFlow.reduce(
+        (total, point) => total + point.withdrawnRaw,
+        BigInt(0)
+      ),
     };
   });
 
@@ -647,12 +779,14 @@ async function loadEarnData(): Promise<EarnData> {
     scheduledEligibleLotCount: toNumber(scheduled?.eligible_lot_count),
     scheduledOpenAmountRaw: toBigInt(scheduled?.open_amount_raw),
     scheduledOpenLotCount: toNumber(scheduled?.open_lot_count),
+    stablecoins,
     topPositions: positionRows.map((row) => ({
       collateralReserveRows: toNumber(row.collateral_reserve_rows),
       collateralStoredAmountRaw: toBigInt(row.collateral_stored_amount_raw),
       currentObservedAt: toIsoString(row.current_observed_at) ?? "",
       currentPointerDeltaRaw: toBigInt(row.current_pointer_delta_raw),
       currentReserve: row.current_reserve,
+      depositMint: row.deposit_mint,
       excludedReserveRaw: toBigInt(row.excluded_reserve_raw),
       idleAmountRaw: toBigInt(row.idle_raw),
       missingManagedVaultRows: toNumber(row.missing_managed_vault_rows),
@@ -685,4 +819,4 @@ export async function getEarnData(): Promise<EarnData> {
   return loadEarnData();
 }
 
-export { USDC_DECIMALS };
+export { STABLECOIN_DECIMALS };

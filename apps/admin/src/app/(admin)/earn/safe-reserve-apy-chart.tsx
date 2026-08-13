@@ -318,7 +318,7 @@ export function SafeReserveApyChart({
         <div>
           <CardTitle className="font-bold">Safe reserve APY</CardTitle>
           <CardDescription>
-            USDC Safe basket, last 7d,{" "}
+            Supported stablecoin Safe basket, last 7d,{" "}
             {showRawData
               ? `${data.sampleIntervalMinutes}m raw buckets`
               : "30m median view"}{" "}
@@ -447,7 +447,8 @@ export function SafeReserveApyChart({
           </ChartContainer>
         ) : (
           <div className="flex h-[300px] items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground">
-            No USDC Safe reserve APY samples found for this window.
+            No supported stablecoin Safe reserve APY samples found for this
+            window.
           </div>
         )}
 

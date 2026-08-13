@@ -34,6 +34,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  EARN_STABLECOIN_DESCRIPTORS,
+  getEarnStablecoinSymbol,
+  STABLECOIN_DECIMALS,
+} from "@/lib/earn/stablecoin-monitor.shared";
 import type {
   SafeReserveApyMonitorData,
   SafeReserveApyStatusRow,
@@ -64,8 +69,6 @@ import type {
   RebalanceAuditSummary,
   RebalanceAuditView,
 } from "./rebalance-data";
-
-const USDC_DECIMALS = 6;
 
 type SerializedActiveReserveRouteRow = Omit<
   EarnActiveReserveRouteRow,
@@ -130,10 +133,13 @@ const DEFAULT_AUDIT_RANGE: RebalanceAuditRange = "24h";
 const DEFAULT_AUDIT_VIEW: RebalanceAuditView = "completed_rebalances";
 const DEFAULT_ERROR_FILTER: RebalanceAuditErrorFilter = "all";
 
-function formatCompactUsdcRaw(raw: bigint | string) {
+function formatCompactStablecoinRaw(
+  raw: bigint | string,
+  liquidityMint: string | null
+) {
   const parsedRaw = typeof raw === "bigint" ? raw : BigInt(raw);
   const zero = BigInt(0);
-  const centScale = BigInt(10) ** BigInt(USDC_DECIMALS - 2);
+  const centScale = BigInt(10) ** BigInt(STABLECOIN_DECIMALS - 2);
   const sign = parsedRaw < zero ? "-" : "";
   const absolute = parsedRaw < zero ? -parsedRaw : parsedRaw;
   const roundedCents = (absolute + centScale / BigInt(2)) / centScale;
@@ -141,7 +147,8 @@ function formatCompactUsdcRaw(raw: bigint | string) {
   const cents = roundedCents % BigInt(100);
   const wholeText = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
-  return `${sign}${wholeText}.${cents.toString().padStart(2, "0")} USDC`;
+  const unit = getEarnStablecoinSymbol(liquidityMint) ?? "stablecoins";
+  return `${sign}${wholeText}.${cents.toString().padStart(2, "0")} ${unit}`;
 }
 
 function formatDateTime(value: string | null) {
@@ -227,6 +234,7 @@ function toDecisionMarkers(
       createdAt: row.createdAt,
       estimatedEdgeBps: row.estimatedEdgeBps,
       id: row.id,
+      liquidityMint: row.liquidityMint,
       sourceApyBps: row.sourceApyBps,
       sourceReserve: row.sourceReserve,
       status: row.status,
@@ -247,7 +255,10 @@ function CurrentReserveApyTable({
   const apyAriaSort = apySortDirection === "desc" ? "descending" : "ascending";
   const ApySortIcon = apySortDirection === "desc" ? ArrowDownIcon : ArrowUpIcon;
   const routeByReserve = new Map(
-    routes.map((route) => [route.currentReserve, route])
+    routes.map((route) => [
+      `${route.liquidityMint}:${route.currentReserve}`,
+      route,
+    ])
   );
   const sortedRows = rows.slice().sort((left, right) => {
     const leftApy = left.supplyApyPercent;
@@ -301,12 +312,21 @@ function CurrentReserveApyTable({
       </TableHeader>
       <TableBody>
         {sortedRows.map((row) => {
-          const route = routeByReserve.get(row.reserve);
+          const route = routeByReserve.get(
+            `${row.liquidityMint}:${row.reserve}`
+          );
 
           return (
-            <TableRow key={row.reserve}>
+            <TableRow key={`${row.liquidityMint}:${row.reserve}`}>
               <TableCell className="font-medium">
-                <div>{row.marketName ?? row.market}</div>
+                <div className="flex items-center gap-2">
+                  <span>{row.marketName ?? row.market}</span>
+                  <Badge variant="outline">
+                    {row.symbol ??
+                      getEarnStablecoinSymbol(row.liquidityMint) ??
+                      "Unknown mint"}
+                  </Badge>
+                </div>
                 <div className="mt-1 text-xs font-normal text-muted-foreground">
                   <AddressLink address={row.reserve} />
                 </div>
@@ -328,7 +348,10 @@ function CurrentReserveApyTable({
                   <div className="inline-flex flex-col items-end gap-1">
                     <Badge variant="outline">Current</Badge>
                     <span className="text-xs text-muted-foreground tabular-nums">
-                      {formatCompactUsdcRaw(route.activeAumRaw)}
+                      {formatCompactStablecoinRaw(
+                        route.activeAumRaw,
+                        route.liquidityMint
+                      )}
                     </span>
                   </div>
                 ) : (
@@ -375,8 +398,10 @@ function formatAuditStatus(row: SerializedRebalanceAuditRow) {
     : formatReason(row.status);
 }
 
-function formatAuditAmount(raw: string | null) {
-  return raw === null ? "No amount" : formatCompactUsdcRaw(raw);
+function formatAuditAmount(row: SerializedRebalanceAuditRow) {
+  return row.amountRaw === null
+    ? "No amount"
+    : formatCompactStablecoinRaw(row.amountRaw, row.liquidityMint);
 }
 
 function formatDuration(createdAt: string, updatedAt: string) {
@@ -464,6 +489,9 @@ function AuditDetails({
       <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-2 text-muted-foreground">
         <div className="break-words">{formatReason(reason)}</div>
         <div>Movement {row.id}</div>
+        <div>
+          Mint {getEarnStablecoinSymbol(row.liquidityMint) ?? "unknown"}
+        </div>
         <div>Source {formatAuditSource(row.source)}</div>
         <div>
           Vault {row.vaultPubkey ?? "record unavailable"} · index{" "}
@@ -563,7 +591,7 @@ function RebalanceAuditTable({
     : isDeposits
     ? "No completed deposits in this time range."
     : "No completed rebalances in this time range.";
-  const columnCount = isErrors ? 8 : isDeposits ? 7 : 6;
+  const columnCount = isErrors ? 9 : isDeposits ? 8 : 7;
 
   return (
     <Table>
@@ -572,6 +600,7 @@ function RebalanceAuditTable({
           <TableHead>{isErrors ? "Recorded at" : "Completed at"}</TableHead>
           {isErrors ? <TableHead>Type</TableHead> : null}
           <TableHead>Vault</TableHead>
+          <TableHead>Mint</TableHead>
           {isDeposits ? <TableHead>Source</TableHead> : null}
           <TableHead>{isDeposits ? "Target" : "Route"}</TableHead>
           <TableHead className="text-right">Amount</TableHead>
@@ -614,6 +643,9 @@ function RebalanceAuditTable({
               <TableCell>
                 <AuditVault row={row} />
               </TableCell>
+              <TableCell className="font-medium">
+                {getEarnStablecoinSymbol(row.liquidityMint) ?? "Unknown"}
+              </TableCell>
               {isDeposits ? (
                 <TableCell>
                   <Badge variant="outline">
@@ -623,7 +655,7 @@ function RebalanceAuditTable({
               ) : null}
               <TableCell>{formatAuditRoute(row, reserveLabels)}</TableCell>
               <TableCell className="text-right tabular-nums">
-                {formatAuditAmount(row.amountRaw)}
+                {formatAuditAmount(row)}
               </TableCell>
               <TableCell>
                 {isErrors ? (
@@ -680,6 +712,7 @@ function ActiveMovementTable({
           <TableHead>Started</TableHead>
           <TableHead>Type</TableHead>
           <TableHead>Vault</TableHead>
+          <TableHead>Mint</TableHead>
           <TableHead>Route / target</TableHead>
           <TableHead className="text-right">Amount</TableHead>
           <TableHead>Status</TableHead>
@@ -690,7 +723,7 @@ function ActiveMovementTable({
       <TableBody>
         {rows.length === 0 ? (
           <TableRow>
-            <TableCell className="text-muted-foreground" colSpan={8}>
+            <TableCell className="text-muted-foreground" colSpan={9}>
               No in-progress rows on this page.
             </TableCell>
           </TableRow>
@@ -715,9 +748,12 @@ function ActiveMovementTable({
                 <TableCell>
                   <AuditVault row={row} />
                 </TableCell>
+                <TableCell className="font-medium">
+                  {getEarnStablecoinSymbol(row.liquidityMint) ?? "Unknown"}
+                </TableCell>
                 <TableCell>{formatAuditRoute(row, reserveLabels)}</TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {formatAuditAmount(row.amountRaw)}
+                  {formatAuditAmount(row)}
                 </TableCell>
                 <TableCell>
                   <Badge variant={stale ? "destructive" : "secondary"}>
@@ -752,7 +788,9 @@ function CurrentReserveApyCard({
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="font-bold">Current Safe reserve APY</CardTitle>
-        <CardDescription>Active USDC Safe basket reserves</CardDescription>
+        <CardDescription>
+          Active verified Safe basket reserves across supported stablecoins
+        </CardDescription>
       </CardHeader>
       <CardContent className="min-w-0 overflow-x-auto">
         <CurrentReserveApyTable routes={routes} rows={rows} />
@@ -1289,6 +1327,7 @@ function RebalanceMonitorFallback() {
 
 export function RebalanceMonitorClient() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
+  const [selectedMint, setSelectedMint] = useState("all");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1346,20 +1385,77 @@ export function RebalanceMonitorClient() {
   }
 
   const reserveLabels = createReserveLabelMap(state.data.apyData);
+  const selectedDescriptor = EARN_STABLECOIN_DESCRIPTORS.find(
+    ({ symbol }) => symbol === selectedMint
+  );
+  const selectedMintAddress = selectedDescriptor?.mint ?? null;
+  const filteredApyData = selectedMintAddress
+    ? {
+        ...state.data.apyData,
+        series: state.data.apyData.series.filter(
+          (series) => series.liquidityMint === selectedMintAddress
+        ),
+        statuses: state.data.apyData.statuses.filter(
+          (status) => status.liquidityMint === selectedMintAddress
+        ),
+      }
+    : state.data.apyData;
+  const filteredRoutes = selectedMintAddress
+    ? state.data.routes.filter(
+        (route) => route.liquidityMint === selectedMintAddress
+      )
+    : state.data.routes;
+  const filteredDecisions = selectedMintAddress
+    ? state.data.decisions.filter(
+        (decision) => decision.liquidityMint === selectedMintAddress
+      )
+    : state.data.decisions;
+  const filteredExecutedRebalances = selectedMintAddress
+    ? {
+        ...state.data.executedRebalances,
+        executions: state.data.executedRebalances.executions.filter(
+          (execution) => execution.liquidityMint === selectedMintAddress
+        ),
+      }
+    : state.data.executedRebalances;
 
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="font-bold">Stablecoin filter</CardTitle>
+          <CardDescription>
+            Filters verified reserves and the confirmed execution chart. The
+            aggregate activity and paginated audit sections remain all-mint.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Select value={selectedMint} onValueChange={setSelectedMint}>
+            <SelectTrigger className="w-full sm:w-56">
+              <SelectValue placeholder="All stablecoins" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All stablecoins</SelectItem>
+              {EARN_STABLECOIN_DESCRIPTORS.map(({ mint, symbol }) => (
+                <SelectItem key={mint} value={symbol}>
+                  {symbol}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
       <CurrentReserveApyCard
-        routes={state.data.routes}
-        rows={state.data.apyData.statuses}
+        routes={filteredRoutes}
+        rows={filteredApyData.statuses}
       />
       <SafeReserveApyChart
-        data={state.data.apyData}
-        decisionMarkers={toDecisionMarkers(state.data.decisions)}
+        data={filteredApyData}
+        decisionMarkers={toDecisionMarkers(filteredDecisions)}
       />
       <RebalanceActivityChart data={state.data.activity} />
       <ExecutedEarnRebalancesChart
-        data={state.data.executedRebalances}
+        data={filteredExecutedRebalances}
         reserveLabels={reserveLabels}
       />
       <Last30DaysRebalanceChart data={state.data.last30DaysRebalances} />

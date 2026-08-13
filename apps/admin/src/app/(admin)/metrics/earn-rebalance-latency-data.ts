@@ -28,6 +28,7 @@ export type EarnLatencyPoint = {
   readyToDecisionMs: number | null;
   signedAt: string;
   signedToSubmittedMs: number;
+  liquidityMint: string | null;
   sourceReserve: string;
   submittedAt: string;
   submittedToConfirmedMs: number;
@@ -63,6 +64,7 @@ type EarnLatencySqlRow = {
   decision_at: Date | string;
   decision_to_signed_ms: SqlScalar;
   id: string;
+  liquidity_mint: string | null;
   monitor_to_submitted_ms: SqlScalar;
   observed_to_opportunity_ms: SqlScalar;
   opportunity_at: Date | string;
@@ -179,6 +181,7 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
         decision.id,
         decision.source_reserve,
         decision.target_reserve,
+        decision.liquidity_mint,
         opportunity.created_at AS opportunity_at,
         opportunity.ready_at,
         decision.created_at AS decision_at,
@@ -217,6 +220,7 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
       valid.id::text,
       valid.source_reserve,
       valid.target_reserve,
+      valid.liquidity_mint,
       valid.target_observed_at,
       valid.opportunity_at,
       valid.ready_at,
@@ -278,6 +282,7 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
       readyToDecisionMs: toNullableNumber(row.ready_to_decision_ms),
       signedAt: toIsoString(row.signed_at) ?? "",
       signedToSubmittedMs: toNumber(row.signed_to_submitted_ms),
+      liquidityMint: row.liquidity_mint,
       sourceReserve: row.source_reserve,
       submittedAt: toIsoString(row.submitted_at) ?? "",
       submittedToConfirmedMs: toNumber(row.submitted_to_confirmed_ms),

@@ -32,6 +32,7 @@ export type EarnActiveReserveRouteRow = {
   activeAumRaw: bigint;
   currentReserve: string;
   latestObservedAt: string | null;
+  liquidityMint: string;
   positionCount: number;
 };
 
@@ -44,6 +45,7 @@ export type EarnRebalanceDecisionRow = {
   decisionType: "rebalance" | null;
   estimatedEdgeBps: number | null;
   id: string;
+  liquidityMint: string | null;
   signature: string | null;
   sourceApyBps: number | null;
   sourceReserve: string | null;
@@ -105,6 +107,7 @@ export type ExecutedEarnRebalanceRow = {
   currentDepositRaw: bigint;
   executedAt: string;
   id: string;
+  liquidityMint: string | null;
   sourceReserve: string;
   targetReserve: string;
   userRank: number;
@@ -125,6 +128,7 @@ export type RebalanceAuditRow = {
   estimatedEdgeBps: number | null;
   id: string;
   lane: RebalanceAuditLane;
+  liquidityMint: string | null;
   movementKind: string | null;
   source: RebalanceAuditSource;
   signature: string | null;
@@ -175,6 +179,7 @@ type ActiveReserveRouteSqlRow = {
   active_aum_raw: SqlScalar;
   current_reserve: string;
   latest_observed_at: Date | string | null;
+  liquidity_mint: string;
   position_count: SqlScalar;
 };
 
@@ -187,6 +192,7 @@ type RebalanceDecisionSqlRow = {
   estimated_edge_bps: SqlScalar;
   execution_kind: string | null;
   id: string | number | bigint;
+  liquidity_mint: string | null;
   signature: string | null;
   source_apy_bps: SqlScalar;
   source_reserve: string | null;
@@ -242,6 +248,7 @@ type ExecutedEarnRebalanceSqlRow = {
   current_deposit_raw: SqlScalar;
   executed_at: Date | string;
   id: string;
+  liquidity_mint: string | null;
   source_reserve: string;
   target_reserve: string;
   user_count: SqlScalar;
@@ -259,6 +266,7 @@ type RebalanceAuditSqlRow = {
   execution_kind: string | null;
   id: string | number | bigint;
   lane: RebalanceAuditLane;
+  liquidity_mint: string | null;
   movement_source: RebalanceAuditSource;
   record_type: string;
   signature: string | null;
@@ -517,6 +525,7 @@ function mapRebalanceAuditRow(row: RebalanceAuditSqlRow): RebalanceAuditRow {
     estimatedEdgeBps: toNullableNumber(row.estimated_edge_bps),
     id: String(row.id),
     lane: mapAuditLane(row.lane),
+    liquidityMint: row.liquidity_mint,
     movementKind: row.execution_kind,
     source: mapAuditSource(row.movement_source),
     signature: row.signature,
@@ -555,6 +564,7 @@ const AUDIT_ROWS_CTE = `
         ELSE 'needs_review'
       END::text AS movement_source,
       decision.execution_plan->>'kind' AS execution_kind,
+      decision.liquidity_mint,
       decision.status::text AS status,
       decision.abandon_reason,
       decision.amount_raw,
@@ -604,6 +614,7 @@ const AUDIT_ROWS_CTE = `
         WHEN idle_decision.id IS NOT NULL THEN 'idle_vault_deposit'
         ELSE 'manual_deposit'
       END::text AS execution_kind,
+      deposit.liquidity_mint,
       'confirmed'::text AS status,
       NULL::text AS abandon_reason,
       deposit.principal_amount_raw AS amount_raw,
@@ -654,6 +665,7 @@ const AUDIT_ROWS_CTE = `
       'deposit'::text AS lane,
       'autodeposit'::text AS movement_source,
       'autodeposit'::text AS execution_kind,
+      execution.token_mint AS liquidity_mint,
       'failed'::text AS status,
       execution.completion_failure_code AS abandon_reason,
       execution.amount_raw,
@@ -736,6 +748,7 @@ export async function getActiveReserveRoutes(): Promise<
       WITH reserve_rows AS (
         SELECT
           reserve.reserve AS current_reserve,
+          reserve.liquidity_mint,
           reserve.observed_at,
           vault.id AS vault_id,
           reserve.amount_raw,
@@ -758,6 +771,7 @@ export async function getActiveReserveRoutes(): Promise<
       normalized_reserve_rows AS (
         SELECT
           current_reserve,
+          liquidity_mint,
           observed_at,
           vault_id,
           CASE
@@ -775,12 +789,13 @@ export async function getActiveReserveRoutes(): Promise<
       )
       SELECT
         current_reserve,
+        liquidity_mint,
         COUNT(DISTINCT vault_id)::text AS position_count,
         COALESCE(SUM(normalized_amount_raw), 0)::text AS active_aum_raw,
         MAX(observed_at) AS latest_observed_at
       FROM normalized_reserve_rows
       WHERE normalized_amount_raw > 0
-      GROUP BY current_reserve
+      GROUP BY current_reserve, liquidity_mint
       ORDER BY COALESCE(SUM(normalized_amount_raw), 0) DESC
     `
   );
@@ -789,6 +804,7 @@ export async function getActiveReserveRoutes(): Promise<
     activeAumRaw: toBigInt(row.active_aum_raw),
     currentReserve: row.current_reserve,
     latestObservedAt: toIsoString(row.latest_observed_at),
+    liquidityMint: row.liquidity_mint,
     positionCount: toNumber(row.position_count),
   }));
 }
@@ -803,6 +819,7 @@ export async function getRecentRebalanceDecisions(): Promise<
         status::text,
         source_reserve,
         target_reserve,
+        liquidity_mint,
         amount_raw::text,
         source_apy_bps::text,
         target_apy_bps::text,
@@ -830,6 +847,7 @@ export async function getRecentRebalanceDecisions(): Promise<
     decisionType: getDecisionType(row),
     estimatedEdgeBps: toNullableNumber(row.estimated_edge_bps),
     id: String(row.id),
+    liquidityMint: row.liquidity_mint,
     signature: row.signature,
     sourceApyBps: toNullableNumber(row.source_apy_bps),
     sourceReserve: row.source_reserve,
@@ -1400,6 +1418,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
           decision.amount_raw,
           decision.source_reserve,
           decision.target_reserve,
+          decision.liquidity_mint,
           decision.confirmed_slot,
           policy.authority
         FROM loyal_yield.rebalance_decisions AS decision
@@ -1501,6 +1520,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
         executed.amount_raw::text,
         executed.source_reserve,
         executed.target_reserve,
+        executed.liquidity_mint,
         executed.confirmed_slot::text,
         executed.authority,
         ranked_users.current_deposit_raw::text,
@@ -1521,6 +1541,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
       currentDepositRaw: toBigInt(row.current_deposit_raw),
       executedAt: toIsoString(row.executed_at) ?? "",
       id: row.id,
+      liquidityMint: row.liquidity_mint,
       sourceReserve: row.source_reserve,
       targetReserve: row.target_reserve,
       userRank: toNumber(row.user_rank),

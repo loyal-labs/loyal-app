@@ -23,6 +23,7 @@ export type SafeReserveApyStatusRow = {
 export type SafeReserveApySeries = {
   key: string;
   label: string;
+  liquidityMint: string;
   marketName: string | null;
   reserve: string;
 };
@@ -36,6 +37,7 @@ export type SafeReserveRebalanceDecisionMarker = {
   createdAt: string;
   estimatedEdgeBps: number | null;
   id: string;
+  liquidityMint: string | null;
   sourceApyBps: number | null;
   sourceReserve: string | null;
   status: string;
