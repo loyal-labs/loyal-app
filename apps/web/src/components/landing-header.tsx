@@ -367,7 +367,7 @@ function HeaderContent({
             aria-label={`View LOYAL token on Jupiter: ${usdPriceFormatter.format(
               tokenTicker.usdPrice
             )}`}
-            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-white px-5 py-3 text-[16px] font-normal leading-5 text-black transition duration-150 ease-out hover:-translate-y-0.5 hover:bg-[#ffe9ea] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
+            className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-white px-5 py-3 text-[16px] font-normal leading-5 text-black transition duration-150 ease-out [&>span]:translate-y-px hover:-translate-y-0.5 hover:bg-[#ffe9ea] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white active:translate-y-0"
             href={LOYAL_JUPITER_URL}
             rel="noopener noreferrer"
             tabIndex={linkTabIndex}
