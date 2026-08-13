@@ -978,6 +978,7 @@ export function useEarnActions(deps: {
           // re-prepare: the server resolves the new pair after confirm. A
           // second update-required failure falls through to the normal
           // error path, so this cannot loop.
+          earnToast.begin("deposit-policy-update");
           earnToast.loading("Updating Earn policy");
           const policySetup = await smartAccountData.executeEarnPolicySetup({
             force: true,

@@ -25,6 +25,7 @@ export type EarnFlowId =
   | "autodeposit-setup"
   | "close-policies"
   | "deposit"
+  | "deposit-policy-update"
   | "withdraw";
 
 type EarnToastListener = {
@@ -66,8 +67,15 @@ const FLOW_STEPS: Record<EarnFlowId, readonly string[]> = {
   ],
   deposit: [
     "Preparing deposit",
-    // Conditional: only legacy-policy wallets depositing a Token-2022 mint
-    // hit this stage (ASK-2108); the host auto-checks it for everyone else.
+    "Waiting for approval",
+    CONFIRM_IN_WALLET_MESSAGE,
+    "Confirming",
+  ],
+  // The deposit script re-armed mid-flow when a legacy-policy wallet needs
+  // the Token-2022 policy update (ASK-2108) — normal deposits never list
+  // the extra step.
+  "deposit-policy-update": [
+    "Preparing deposit",
     "Updating Earn policy",
     "Waiting for approval",
     CONFIRM_IN_WALLET_MESSAGE,
