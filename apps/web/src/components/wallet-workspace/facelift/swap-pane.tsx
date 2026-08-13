@@ -534,9 +534,7 @@ export function SwapPane({
                     <span className="text-foreground">1%</span>
                   </div>
                   <div className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] leading-4">
-                    <span className="text-muted-foreground">
-                      Network Fee
-                    </span>
+                    <span className="text-muted-foreground">Network Fee</span>
                     <span className="pl-3 text-right text-foreground">
                       {"0.00005 SOL ~ <$0.01"}
                     </span>
@@ -615,6 +613,7 @@ export function SwapPane({
 // OG token-select's debounced remote Jupiter search merged in (deduped by
 // mint). Held tokens surface their portfolio names via nameByMint.
 export function SwapTokenSelectPane({
+  earnEligibleMints,
   nameByMint,
   onClose,
   onSearch,
@@ -623,6 +622,8 @@ export function SwapTokenSelectPane({
   title,
   tokens,
 }: {
+  /** Mints the Earn product accepts — badged "Can earn" on the receive side. */
+  earnEligibleMints?: ReadonlySet<string>;
   nameByMint: Record<string, string>;
   onClose: () => void;
   onSearch?: (query: string) => Promise<SwapToken[]>;
@@ -741,9 +742,18 @@ export function SwapTokenSelectPane({
                 />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
-                  {(token.mint ? nameByMint[token.mint] : undefined) ??
-                    token.symbol}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
+                    {(token.mint ? nameByMint[token.mint] : undefined) ??
+                      token.symbol}
+                  </span>
+                  {side === "to" &&
+                  token.mint &&
+                  earnEligibleMints?.has(token.mint) ? (
+                    <span className="shrink-0 rounded-md bg-positive/[0.14] px-1.5 py-0.5 font-medium text-[11px] text-positive leading-3">
+                      Can earn
+                    </span>
+                  ) : null}
                 </span>
                 <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
                   {token.symbol}
@@ -756,7 +766,10 @@ export function SwapTokenSelectPane({
                   <span className="whitespace-nowrap text-right font-medium text-[16px] text-foreground leading-5">
                     <ScrambleText
                       isHidden={isBalanceHidden}
-                      text={splitUsdBalance(token.balance * token.price).balanceWhole}
+                      text={
+                        splitUsdBalance(token.balance * token.price)
+                          .balanceWhole
+                      }
                     />
                     <span className="text-tertiary">
                       <ScrambleText

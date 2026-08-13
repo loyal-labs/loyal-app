@@ -1,5 +1,7 @@
 "use client";
 
+import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
+import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import type { PortfolioPosition } from "@loyal-labs/solana-wallet";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -60,6 +62,7 @@ import {
   getStablecoinMintSetForSolanaEnv,
   isStablecoinMint,
 } from "@/lib/wallet/stablecoin-classification";
+import { getEnabledEarnProductAssetsForCluster } from "@/lib/yield-optimization/earn-product-mints.shared";
 
 type ActionView = Exclude<SubView, null>;
 
@@ -418,6 +421,20 @@ export function CryptoPage({
     grouped.push(...securedByMint.values());
     return grouped;
   }, [derivedTokens, securedTokens]);
+  // Mints the Earn product currently accepts — badged "Can earn" in the
+  // receive selector and ranked right after LOYAL.
+  const earnEligibleMints = useMemo(
+    () =>
+      new Set(
+        getEnabledEarnProductAssetsForCluster({
+          cluster: resolveLoyalClusterForSolanaEnv(
+            resolveSolanaEnv(publicEnv.solanaEnv)
+          ),
+          enabledStablecoins: publicEnv.earnEnabledStablecoins,
+        }).map((asset) => asset.mint.toBase58())
+      ),
+    [publicEnv.earnEnabledStablecoins, publicEnv.solanaEnv]
+  );
   const swapTargetTokens = useMemo<SwapToken[]>(() => {
     const heldMints = new Set(
       derivedTokens.map((token) => token.mint).filter(Boolean)
@@ -425,9 +442,17 @@ export function CryptoPage({
     const extras = popularTokens.filter(
       (token) => token.mint && !heldMints.has(token.mint)
     );
+    // LOYAL first, then the Earn-eligible stables, then everything else —
+    // held-first order is preserved within each group (stable sort).
+    const rank = (token: SwapToken) =>
+      token.mint === LOYL_TOKEN.mint
+        ? 0
+        : token.mint && earnEligibleMints.has(token.mint)
+        ? 1
+        : 2;
 
-    return [...derivedTokens, ...extras];
-  }, [derivedTokens, popularTokens]);
+    return [...derivedTokens, ...extras].sort((a, b) => rank(a) - rank(b));
+  }, [derivedTokens, earnEligibleMints, popularTokens]);
 
   // Seed the flow tokens once the wallet's real tokens land.
   const prevHadTokensRef = useRef(false);
@@ -957,6 +982,7 @@ export function CryptoPage({
             >
               <PaneReveal key={overlaySelectSide}>
                 <SwapTokenSelectPane
+                  earnEligibleMints={earnEligibleMints}
                   nameByMint={tokenNameByMint}
                   onClose={() => setSwapSelectSide(null)}
                   onSearch={
@@ -1032,6 +1058,7 @@ export function CryptoPage({
       >
         <PaneReveal key={overlaySelectSide}>
           <SwapTokenSelectPane
+            earnEligibleMints={earnEligibleMints}
             nameByMint={tokenNameByMint}
             onClose={() => setSwapSelectSide(null)}
             onSearch={overlaySelectSide === "to" ? searchTokens : undefined}
