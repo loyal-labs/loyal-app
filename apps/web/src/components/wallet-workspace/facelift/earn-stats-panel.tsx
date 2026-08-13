@@ -237,12 +237,20 @@ export function EarnStatsPanel() {
                   {splitUsdBalance(displayedAumUsd).balanceFraction}
                 </span>
               </p>
-              {/* Negative deltas are hidden, not shown in red — the stats
-                  block advertises growth, not drawdowns. */}
-              {displayedAumDeltaUsd !== null && displayedAumDeltaUsd > 0 ? (
+              {/* The resting view hides negative deltas — the stats block
+                  advertises growth. Scrubbing the bars is data exploration,
+                  so historical deltas show in full, red included. */}
+              {displayedAumDeltaUsd !== null &&
+              displayedAumDeltaUsd !== 0 &&
+              (hoveredAumPoint !== null || displayedAumDeltaUsd > 0) ? (
                 <p
                   className="text-[16px] leading-5"
-                  style={{ color: "var(--positive)" }}
+                  style={{
+                    color:
+                      displayedAumDeltaUsd > 0
+                        ? "var(--positive)"
+                        : "var(--destructive)",
+                  }}
                 >
                   {formatSignedUsd(displayedAumDeltaUsd)} vs prior week
                 </p>
