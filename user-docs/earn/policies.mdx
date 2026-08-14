@@ -36,4 +36,12 @@ For Earn, the policy checks these properties:
 
 The subscription delegation defines the period and its own per-period amount. The Autodeposit policy binds that delegation account and independently limits the maximum amount per period. Earn route and setup policies have no amount limit. The saved Main Account floor exists only in scheduler configuration. The policy does not contain that floor.
 
+## Updating older policies
+
+If an existing Earn route policy predates Token-2022 support, depositing a
+Token-2022 stablecoin such as CASH, USDG, or PYUSD can require a policy update
+first. Loyal creates a new owner-neutral route and setup policy pair, leaves the
+legacy policies untouched, and then retries the deposit. The update may appear
+as an additional wallet-approval step in the deposit flow.
+
 See [Rule enforcement](/trust/rule-enforcement) for the customer-facing allowed and rejected outcomes. Use [Build your first automation](/build/first-automation) to prove the policy with a negative test.
