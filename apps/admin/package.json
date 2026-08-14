@@ -11,10 +11,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "verify:earn-multi-stablecoin": "bun scripts/verify-earn-multi-stablecoin-monitoring.ts",
     "shadcn:init": "bunx shadcn@latest init",
     "shadcn:add": "bunx shadcn@latest add"
   },
   "dependencies": {
+    "@loyal-labs/actions": "workspace:*",
     "@loyal-labs/db-adapter-neon": "workspace:*",
     "@loyal-labs/db-core": "workspace:*",
     "@loyal-labs/shared": "workspace:*",

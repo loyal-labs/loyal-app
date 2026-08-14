@@ -32,6 +32,7 @@
       "name": "summaries-admin",
       "version": "0.1.0",
       "dependencies": {
+        "@loyal-labs/actions": "workspace:*",
         "@loyal-labs/db-adapter-neon": "workspace:*",
         "@loyal-labs/db-core": "workspace:*",
         "@loyal-labs/shared": "workspace:*",

@@ -1,24 +1,30 @@
 import "server-only";
 
+import { RiskBasket, RISK_BASKET_MARKETS } from "@loyal-labs/actions";
 import { neon } from "@neondatabase/serverless";
 import { sql } from "drizzle-orm";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 
 import { serverEnv } from "@/lib/core/config/server";
 import {
+  EARN_STABLECOIN_DESCRIPTORS,
+  getEarnStablecoinSymbol,
+} from "@/lib/earn/stablecoin-monitor.shared";
+import {
+  summarizeSafeReserveEligibilityByMint,
   type SafeReserveApyChartPoint,
   type SafeReserveApyMonitorData,
   type SafeReserveApySeries,
   type SafeReserveApyStatus,
   type SafeReserveApyStatusRow,
+  type SafeReserveMintEligibilitySummary,
 } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const SAMPLE_INTERVAL_SECONDS = 5 * 60;
 const MIN_TOTAL_SUPPLY_USD = 100_000;
 const MAX_SUPPLY_APY = 0.5;
-const SAFE_RISK_BASKET = "safe";
-const USDC_LIQUIDITY_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+export const VERIFIED_RESERVE_MAX_AGE_MS = 240 * 1000;
 const EXCLUDED_GRAPH_RESERVES = new Set([
   "CAPsU1H49e6WuiQdte1ZU6zJaSGWXBSogAa1w6mhiKo2",
 ]);
@@ -33,7 +39,6 @@ type CurrentCandidateRow = {
   marketName: string | null;
   observedAt: Date | string | null;
   reserve: string;
-  reserveLastUpdateStale: boolean | null;
   supplyApy: number | null;
   symbol: string | null;
   totalSupplyUsdEstimate: number | null;
@@ -103,10 +108,6 @@ function classifyCandidate(row: CurrentCandidateRow): SafeReserveApyStatus {
     return "no-current-row";
   }
 
-  if (row.reserveLastUpdateStale !== false) {
-    return "stale";
-  }
-
   if (
     typeof row.totalSupplyUsdEstimate !== "number" ||
     row.totalSupplyUsdEstimate <= MIN_TOTAL_SUPPLY_USD
@@ -138,15 +139,12 @@ function toSqlTextArrayLiteral(values: readonly string[]) {
 }
 
 function getReserveLabel(row: SafeReserveApyStatusRow) {
-  if (row.marketName) {
-    return row.marketName;
-  }
+  const symbol =
+    getEarnStablecoinSymbol(row.liquidityMint) ?? row.symbol ?? "Unknown";
+  const market = row.marketName ?? row.market;
+  const reserve = `${row.reserve.slice(0, 4)}...${row.reserve.slice(-4)}`;
 
-  if (row.market) {
-    return row.market;
-  }
-
-  return `${row.reserve.slice(0, 4)}...${row.reserve.slice(-4)}`;
+  return `${symbol} · ${market} · ${reserve}`;
 }
 
 function createStatusRows(
@@ -181,31 +179,27 @@ function createStatusRows(
     });
 }
 
-// Deliberately avoids the `kamino.latest_reserve_updates` view. That view is a
-// `DISTINCT ON (reserve) ... ORDER BY reserve, event_id DESC` over the
-// `kamino.reserve_updates` hypertable, and no index can serve that ordering
-// across chunks: Postgres seq-scans every chunk and external-sorts the result to
-// return one row per reserve. Selecting the newest row per reserve with a
-// LATERAL ordered by `observed_at` instead lets TimescaleDB's ChunkAppend stop
-// at the first chunk that yields a match.
-async function loadCurrentCandidates(args: {
-  db: KaminoTimescaleDb;
-  observedSince: Date;
-}): Promise<CurrentCandidateRow[]> {
-  // Inlined as a literal rather than bound as a parameter so that chunk
-  // exclusion happens while planning instead of at execution time.
-  const observedSince = sql.raw(
-    `${toSqlStringLiteral(args.observedSince.toISOString())}::timestamptz`
+async function loadCurrentCandidates(
+  db: KaminoTimescaleDb
+): Promise<CurrentCandidateRow[]> {
+  const stablecoinMints = sql.raw(
+    toSqlTextArrayLiteral(
+      EARN_STABLECOIN_DESCRIPTORS.map((descriptor) => descriptor.mint)
+    )
+  );
+  const safeMarkets = sql.raw(
+    toSqlTextArrayLiteral(
+      RISK_BASKET_MARKETS[RiskBasket.Safe].map((market) => market.toBase58())
+    )
   );
 
-  const result = await args.db.execute(sql<CurrentCandidateSqlRow>`
+  const result = await db.execute(sql<CurrentCandidateSqlRow>`
     SELECT
       supported.liquidity_mint AS "liquidityMint",
       supported.market AS "market",
       supported.market_name AS "marketName",
       latest.observed_at AS "observedAt",
       supported.reserve AS "reserve",
-      latest.reserve_last_update_stale AS "reserveLastUpdateStale",
       latest.supply_apy AS "supplyApy",
       supported.symbol AS "symbol",
       latest.total_supply_usd_estimate AS "totalSupplyUsdEstimate"
@@ -213,20 +207,22 @@ async function loadCurrentCandidates(args: {
     LEFT JOIN LATERAL (
       SELECT
         updates.observed_at,
-        updates.reserve_last_update_stale,
         updates.supply_apy,
         updates.total_supply_usd_estimate
-      FROM kamino.reserve_updates AS updates
+      FROM kamino.latest_verified_reserve_updates AS updates
       WHERE updates.reserve = supported.reserve
         AND updates.market = supported.market
         AND updates.liquidity_mint = supported.liquidity_mint
-        AND updates.observed_at >= ${observedSince}
-      ORDER BY updates.observed_at DESC
+        AND updates.verified_at >= now() - make_interval(
+          secs => ${VERIFIED_RESERVE_MAX_AGE_MS / 1000}
+        )
+        AND updates.verified_at <= now()
+      ORDER BY updates.verified_at DESC
       LIMIT 1
     ) AS latest ON true
     WHERE supported.active = true
-      AND supported.liquidity_mint = ${USDC_LIQUIDITY_MINT}
-      AND ${SAFE_RISK_BASKET} = ANY(supported.risk_baskets)
+      AND supported.liquidity_mint = ANY(${stablecoinMints})
+      AND supported.market = ANY(${safeMarkets})
   `);
 
   return (result.rows as CurrentCandidateSqlRow[]).map((row) => ({
@@ -235,11 +231,16 @@ async function loadCurrentCandidates(args: {
     marketName: row.marketName,
     observedAt: row.observedAt,
     reserve: row.reserve,
-    reserveLastUpdateStale: row.reserveLastUpdateStale,
     supplyApy: toNullableNumber(row.supplyApy),
     symbol: row.symbol,
     totalSupplyUsdEstimate: toNullableNumber(row.totalSupplyUsdEstimate),
   }));
+}
+
+async function loadCurrentReserveStatuses(
+  db: KaminoTimescaleDb
+): Promise<SafeReserveApyStatusRow[]> {
+  return createStatusRows(await loadCurrentCandidates(db));
 }
 
 async function loadApyHistoryRows(args: {
@@ -393,6 +394,7 @@ function createSeries(
   return statuses.map((row, index) => ({
     key: `reserve${index + 1}`,
     label: getReserveLabel(row),
+    liquidityMint: row.liquidityMint,
     marketName: row.marketName,
     reserve: row.reserve,
   }));
@@ -455,11 +457,7 @@ async function loadSafeReserveApyMonitorData(
   const db = getKaminoTimescaleDb();
   const endedAt = now;
   const startedAt = new Date(endedAt.getTime() - WINDOW_MS);
-  const currentRows = await loadCurrentCandidates({
-    db,
-    observedSince: startedAt,
-  });
-  const baseStatuses = createStatusRows(currentRows).filter(
+  const baseStatuses = (await loadCurrentReserveStatuses(db)).filter(
     (status) => !EXCLUDED_GRAPH_RESERVES.has(status.reserve)
   );
   const series = createSeries(baseStatuses);
@@ -532,4 +530,15 @@ export async function getSafeReserveApyMonitorData(
   }
 
   return monitorDataPromise;
+}
+
+export async function getCurrentVerifiedReserveEligibilityByMint(): Promise<
+  SafeReserveMintEligibilitySummary[]
+> {
+  const statuses = await loadCurrentReserveStatuses(getKaminoTimescaleDb());
+
+  return summarizeSafeReserveEligibilityByMint({
+    stablecoins: EARN_STABLECOIN_DESCRIPTORS,
+    statuses,
+  });
 }

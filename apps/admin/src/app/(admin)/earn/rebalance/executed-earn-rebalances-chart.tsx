@@ -32,8 +32,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  getEarnStablecoinSymbol,
+  STABLECOIN_DECIMALS,
+} from "@/lib/earn/stablecoin-monitor.shared";
 
-const USDC_DECIMALS = 6;
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const SOURCE_COLORS = [
   "var(--chart-1)",
@@ -50,6 +53,7 @@ export type SerializedExecutedEarnRebalanceRow = {
   currentDepositRaw: string;
   executedAt: string;
   id: string;
+  liquidityMint: string | null;
   sourceReserve: string;
   targetReserve: string;
   userRank: number;
@@ -94,16 +98,19 @@ function formatUtcTick(value: number): string {
   }).format(new Date(value));
 }
 
-function formatUsdcRaw(raw: string): string {
+function formatStablecoinRaw(
+  raw: string,
+  liquidityMint: string | null
+): string {
   const amount = BigInt(raw);
-  const scale = BigInt(10) ** BigInt(USDC_DECIMALS);
+  const scale = BigInt(10) ** BigInt(STABLECOIN_DECIMALS);
   const whole = amount / scale;
   const fractional = amount % scale;
 
   return `${whole.toLocaleString("en-US")}.${fractional
     .toString()
-    .padStart(USDC_DECIMALS, "0")
-    .slice(0, 2)} USDC`;
+    .padStart(STABLECOIN_DECIMALS, "0")
+    .slice(0, 2)} ${getEarnStablecoinSymbol(liquidityMint) ?? "nominal USD"}`;
 }
 
 function rangeLabel(range: RangeKey): string {
@@ -148,11 +155,11 @@ function ExecutedRebalanceTooltip({
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1">
         <dt className="text-muted-foreground">Executed</dt>
         <dd className="text-right font-medium tabular-nums">
-          {formatUsdcRaw(point.amountRaw)}
+          {formatStablecoinRaw(point.amountRaw, point.liquidityMint)}
         </dd>
         <dt className="text-muted-foreground">User deposit now</dt>
         <dd className="text-right font-medium tabular-nums">
-          {formatUsdcRaw(point.currentDepositRaw)}
+          {formatStablecoinRaw(point.currentDepositRaw, null)}
         </dd>
         <dt className="text-muted-foreground">User</dt>
         <dd className="text-right font-mono">
@@ -340,6 +347,7 @@ export function ExecutedEarnRebalancesChart({
                 <TableRow>
                   <TableHead>Executed (UTC)</TableHead>
                   <TableHead>User</TableHead>
+                  <TableHead>Mint</TableHead>
                   <TableHead>Route</TableHead>
                   <TableHead>Decision</TableHead>
                   <TableHead className="text-right">Confirmed slot</TableHead>
@@ -356,6 +364,10 @@ export function ExecutedEarnRebalancesChart({
                     <TableCell className="whitespace-nowrap font-mono">
                       {formatShortAddress(point.authority)} · {point.userRank}
                     </TableCell>
+                    <TableCell className="font-medium">
+                      {getEarnStablecoinSymbol(point.liquidityMint) ??
+                        "Unknown"}
+                    </TableCell>
                     <TableCell className="whitespace-nowrap">
                       {reserveLabels.get(point.sourceReserve) ??
                         formatShortAddress(point.sourceReserve)}{" "}
@@ -370,10 +382,13 @@ export function ExecutedEarnRebalancesChart({
                       {point.confirmedSlot}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap tabular-nums">
-                      {formatUsdcRaw(point.amountRaw)}
+                      {formatStablecoinRaw(
+                        point.amountRaw,
+                        point.liquidityMint
+                      )}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap tabular-nums">
-                      {formatUsdcRaw(point.currentDepositRaw)}
+                      {formatStablecoinRaw(point.currentDepositRaw, null)}
                     </TableCell>
                   </TableRow>
                 ))}

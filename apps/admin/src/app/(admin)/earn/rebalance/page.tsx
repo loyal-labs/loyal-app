@@ -10,7 +10,7 @@ export default function EarnRebalancePage() {
     <PageContainer>
       <SectionHeader
         breadcrumbs={[{ href: "/earn", label: "Earn" }, { label: "Rebalance" }]}
-        subtitle="USDC Safe reserve APY and optimizer decision monitoring"
+        subtitle="Stablecoin Safe reserve APY and optimizer decision monitoring"
         title="Rebalance"
       />
 
