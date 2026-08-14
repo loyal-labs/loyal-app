@@ -6,13 +6,18 @@ import { sql } from "drizzle-orm";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
 
 import { serverEnv } from "@/lib/core/config/server";
-import { EARN_STABLECOIN_DESCRIPTORS } from "@/lib/earn/stablecoin-monitor.shared";
 import {
+  EARN_STABLECOIN_DESCRIPTORS,
+  getEarnStablecoinSymbol,
+} from "@/lib/earn/stablecoin-monitor.shared";
+import {
+  summarizeSafeReserveEligibilityByMint,
   type SafeReserveApyChartPoint,
   type SafeReserveApyMonitorData,
   type SafeReserveApySeries,
   type SafeReserveApyStatus,
   type SafeReserveApyStatusRow,
+  type SafeReserveMintEligibilitySummary,
 } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
 const WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -54,18 +59,6 @@ type HistoryRow = {
   observed_at: Date | string;
   reserve: string;
   supply_apy: number | string;
-};
-
-type VerifiedReserveMintSummarySqlRow = {
-  bestSupplyApy: number | string | null;
-  eligibleReserveCount: number | string;
-  liquidityMint: string;
-};
-
-export type VerifiedReserveMintSummary = {
-  bestSupplyApyPercent: number | null;
-  eligibleReserveCount: number;
-  liquidityMint: string;
 };
 
 let timescaleDb: KaminoTimescaleDb | null = null;
@@ -146,15 +139,12 @@ function toSqlTextArrayLiteral(values: readonly string[]) {
 }
 
 function getReserveLabel(row: SafeReserveApyStatusRow) {
-  if (row.marketName) {
-    return row.marketName;
-  }
+  const symbol =
+    getEarnStablecoinSymbol(row.liquidityMint) ?? row.symbol ?? "Unknown";
+  const market = row.marketName ?? row.market;
+  const reserve = `${row.reserve.slice(0, 4)}...${row.reserve.slice(-4)}`;
 
-  if (row.market) {
-    return row.market;
-  }
-
-  return `${row.reserve.slice(0, 4)}...${row.reserve.slice(-4)}`;
+  return `${symbol} · ${market} · ${reserve}`;
 }
 
 function createStatusRows(
@@ -189,13 +179,9 @@ function createStatusRows(
     });
 }
 
-async function loadCurrentCandidates(args: {
-  db: KaminoTimescaleDb;
-  verifiedSince: Date;
-}): Promise<CurrentCandidateRow[]> {
-  const verifiedSince = sql.raw(
-    `${toSqlStringLiteral(args.verifiedSince.toISOString())}::timestamptz`
-  );
+async function loadCurrentCandidates(
+  db: KaminoTimescaleDb
+): Promise<CurrentCandidateRow[]> {
   const stablecoinMints = sql.raw(
     toSqlTextArrayLiteral(
       EARN_STABLECOIN_DESCRIPTORS.map((descriptor) => descriptor.mint)
@@ -207,7 +193,7 @@ async function loadCurrentCandidates(args: {
     )
   );
 
-  const result = await args.db.execute(sql<CurrentCandidateSqlRow>`
+  const result = await db.execute(sql<CurrentCandidateSqlRow>`
     SELECT
       supported.liquidity_mint AS "liquidityMint",
       supported.market AS "market",
@@ -227,7 +213,9 @@ async function loadCurrentCandidates(args: {
       WHERE updates.reserve = supported.reserve
         AND updates.market = supported.market
         AND updates.liquidity_mint = supported.liquidity_mint
-        AND updates.verified_at >= ${verifiedSince}
+        AND updates.verified_at >= now() - make_interval(
+          secs => ${VERIFIED_RESERVE_MAX_AGE_MS / 1000}
+        )
         AND updates.verified_at <= now()
       ORDER BY updates.verified_at DESC
       LIMIT 1
@@ -247,6 +235,12 @@ async function loadCurrentCandidates(args: {
     symbol: row.symbol,
     totalSupplyUsdEstimate: toNullableNumber(row.totalSupplyUsdEstimate),
   }));
+}
+
+async function loadCurrentReserveStatuses(
+  db: KaminoTimescaleDb
+): Promise<SafeReserveApyStatusRow[]> {
+  return createStatusRows(await loadCurrentCandidates(db));
 }
 
 async function loadApyHistoryRows(args: {
@@ -463,11 +457,7 @@ async function loadSafeReserveApyMonitorData(
   const db = getKaminoTimescaleDb();
   const endedAt = now;
   const startedAt = new Date(endedAt.getTime() - WINDOW_MS);
-  const currentRows = await loadCurrentCandidates({
-    db,
-    verifiedSince: new Date(now.getTime() - VERIFIED_RESERVE_MAX_AGE_MS),
-  });
-  const baseStatuses = createStatusRows(currentRows).filter(
+  const baseStatuses = (await loadCurrentReserveStatuses(db)).filter(
     (status) => !EXCLUDED_GRAPH_RESERVES.has(status.reserve)
   );
   const series = createSeries(baseStatuses);
@@ -542,49 +532,13 @@ export async function getSafeReserveApyMonitorData(
   return monitorDataPromise;
 }
 
-export async function getCurrentVerifiedReserveEligibilityByMint(
-  now = new Date()
-): Promise<VerifiedReserveMintSummary[]> {
-  const verifiedSince = sql.raw(
-    `${toSqlStringLiteral(
-      new Date(now.getTime() - VERIFIED_RESERVE_MAX_AGE_MS).toISOString()
-    )}::timestamptz`
-  );
-  const verifiedUntil = sql.raw(
-    `${toSqlStringLiteral(now.toISOString())}::timestamptz`
-  );
-  const stablecoinMints = sql.raw(
-    toSqlTextArrayLiteral(
-      EARN_STABLECOIN_DESCRIPTORS.map((descriptor) => descriptor.mint)
-    )
-  );
-  const safeMarkets = sql.raw(
-    toSqlTextArrayLiteral(
-      RISK_BASKET_MARKETS[RiskBasket.Safe].map((market) => market.toBase58())
-    )
-  );
+export async function getCurrentVerifiedReserveEligibilityByMint(): Promise<
+  SafeReserveMintEligibilitySummary[]
+> {
+  const statuses = await loadCurrentReserveStatuses(getKaminoTimescaleDb());
 
-  const result = await getKaminoTimescaleDb().execute(
-    sql<VerifiedReserveMintSummarySqlRow>`
-      SELECT
-        updates.liquidity_mint AS "liquidityMint",
-        COUNT(*)::text AS "eligibleReserveCount",
-        MAX(updates.supply_apy) AS "bestSupplyApy"
-      FROM kamino.latest_verified_reserve_updates AS updates
-      WHERE updates.total_supply_usd_estimate > ${MIN_TOTAL_SUPPLY_USD}
-        AND updates.supply_apy >= 0
-        AND updates.supply_apy < ${MAX_SUPPLY_APY}
-        AND updates.verified_at >= ${verifiedSince}
-        AND updates.verified_at <= ${verifiedUntil}
-        AND updates.market = ANY(${safeMarkets})
-        AND updates.liquidity_mint = ANY(${stablecoinMints})
-      GROUP BY updates.liquidity_mint
-    `
-  );
-
-  return (result.rows as VerifiedReserveMintSummarySqlRow[]).map((row) => ({
-    bestSupplyApyPercent: toApyPercent(toNullableNumber(row.bestSupplyApy)),
-    eligibleReserveCount: Number(row.eligibleReserveCount),
-    liquidityMint: row.liquidityMint,
-  }));
+  return summarizeSafeReserveEligibilityByMint({
+    stablecoins: EARN_STABLECOIN_DESCRIPTORS,
+    statuses,
+  });
 }

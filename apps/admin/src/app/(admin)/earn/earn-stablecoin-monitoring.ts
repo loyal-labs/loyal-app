@@ -1,25 +1,19 @@
 import "server-only";
 
-import { getStablecoinRolloutConfiguration } from "@/lib/earn/stablecoin-rollout.server";
 import {
   deriveStablecoinHealthWarnings,
-  rolloutStateFor,
-  type CycleHealth,
-  type ReconciliationHealth,
-  type RolloutState,
   type StablecoinHealthWarning,
 } from "@/lib/earn/stablecoin-monitor.shared";
 import { getCurrentVerifiedReserveEligibilityByMint } from "@/lib/kamino/timescale-reserve-client.server";
+import type { SafeReserveApyStatus } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
 import { getEarnData, type EarnData } from "./earn-data";
 
 export type EarnStablecoinHealthRow = EarnData["stablecoins"][number] & {
-  appRollout: RolloutState;
-  appRolloutSource: "app-api" | "unavailable";
   bestSupplyApyPercent: number | null;
-  cycleHealth: CycleHealth;
   eligibleReserveCount: number;
-  reconciliationHealth: ReconciliationHealth;
+  eligibilityReason: string;
+  eligibilityStatus: SafeReserveApyStatus;
   warnings: StablecoinHealthWarning[];
 };
 
@@ -27,10 +21,9 @@ export async function getEarnStablecoinMonitoring(): Promise<{
   data: EarnData;
   rows: EarnStablecoinHealthRow[];
 }> {
-  const [data, reserveEligibility, rollout] = await Promise.all([
+  const [data, reserveEligibility] = await Promise.all([
     getEarnData(),
     getCurrentVerifiedReserveEligibilityByMint(),
-    getStablecoinRolloutConfiguration(),
   ]);
 
   const rows = data.stablecoins.map((stablecoin) => {
@@ -38,27 +31,19 @@ export async function getEarnStablecoinMonitoring(): Promise<{
       (reserve) => reserve.liquidityMint === stablecoin.liquidityMint
     );
     const eligibleReserveCount = eligibility?.eligibleReserveCount ?? 0;
-    const appRollout = rolloutStateFor(rollout.appEnabled, stablecoin.symbol);
-    // Yield Neon does not currently persist per-mint planner/reconciler
-    // heartbeats or invisible-deposit adoption events. Keep these unknown
-    // instead of treating missing telemetry as healthy.
-    const cycleHealth: CycleHealth = "unknown";
-    const reconciliationHealth: ReconciliationHealth = "unknown";
+    const eligibilityReason =
+      eligibility?.reason ?? "No supported Safe reserve";
 
     return {
       ...stablecoin,
-      appRollout,
-      appRolloutSource: rollout.appSource,
       bestSupplyApyPercent: eligibility?.bestSupplyApyPercent ?? null,
-      cycleHealth,
       eligibleReserveCount,
-      reconciliationHealth,
+      eligibilityReason,
+      eligibilityStatus:
+        eligibility?.status ?? ("no-supported-reserve" as const),
       warnings: deriveStablecoinHealthWarnings({
-        appRollout,
-        cycleHealth,
         eligibleReserveCount,
-        projectionDeltaRaw: stablecoin.currentPointerDeltaRaw,
-        reconciliationHealth,
+        eligibilityReason,
         symbol: stablecoin.symbol,
       }),
     };

@@ -11,21 +11,7 @@ export const EARN_STABLECOIN_DESCRIPTORS = Object.freeze(
 );
 
 export type EarnStablecoinSymbol = Stablecoin;
-export type RolloutState = "disabled" | "enabled" | "unknown";
-export type ReconciliationHealth =
-  | "adoption"
-  | "failed"
-  | "healthy"
-  | "unknown";
-export type CycleHealth = "healthy" | "stale" | "unknown";
-
-export type StablecoinHealthWarningCode =
-  | "cycle_stale"
-  | "no_eligible_reserve"
-  | "projection_mismatch"
-  | "reconciliation_adoption"
-  | "reconciliation_failed"
-  | "telemetry_unavailable";
+export type StablecoinHealthWarningCode = "no_eligible_reserve";
 
 export type StablecoinHealthWarning = {
   code: StablecoinHealthWarningCode;
@@ -34,11 +20,8 @@ export type StablecoinHealthWarning = {
 };
 
 export type StablecoinHealthWarningInput = {
-  appRollout: RolloutState;
-  cycleHealth: CycleHealth;
   eligibleReserveCount: number;
-  projectionDeltaRaw: bigint;
-  reconciliationHealth: ReconciliationHealth;
+  eligibilityReason: string;
   symbol: EarnStablecoinSymbol;
 };
 
@@ -68,87 +51,16 @@ export function getEarnStablecoinSymbol(mint: string | null | undefined) {
   return getEarnStablecoinByMint(mint)?.symbol ?? null;
 }
 
-export function parseStablecoinSymbols(
-  values: readonly string[]
-): ReadonlySet<EarnStablecoinSymbol> | null {
-  const parsed = new Set<EarnStablecoinSymbol>();
-
-  for (const value of values) {
-    const descriptor = getEarnStablecoinBySymbol(value);
-    if (!descriptor || parsed.has(descriptor.symbol)) {
-      return null;
-    }
-    parsed.add(descriptor.symbol);
-  }
-
-  return parsed;
-}
-
-export function rolloutStateFor(
-  configured: ReadonlySet<EarnStablecoinSymbol> | null,
-  symbol: EarnStablecoinSymbol
-): RolloutState {
-  if (configured === null) {
-    return "unknown";
-  }
-
-  return configured.has(symbol) ? "enabled" : "disabled";
-}
-
 export function deriveStablecoinHealthWarnings(
   input: StablecoinHealthWarningInput
 ): StablecoinHealthWarning[] {
-  const warnings: StablecoinHealthWarning[] = [];
-
-  if (input.appRollout === "enabled" && input.eligibleReserveCount === 0) {
-    warnings.push({
-      code: "no_eligible_reserve",
-      level: "critical",
-      message: `${input.symbol} is deposit-enabled with no eligible verified reserve.`,
-    });
-  }
-
-  if (input.projectionDeltaRaw !== BigInt(0)) {
-    warnings.push({
-      code: "projection_mismatch",
-      level: "warning",
-      message: `${input.symbol} projected holdings differ from normalized holdings.`,
-    });
-  }
-
-  if (input.reconciliationHealth === "failed") {
-    warnings.push({
-      code: "reconciliation_failed",
-      level: "critical",
-      message: `${input.symbol} has a confirmed persistence or reconciliation failure.`,
-    });
-  } else if (input.reconciliationHealth === "adoption") {
-    warnings.push({
-      code: "reconciliation_adoption",
-      level: "warning",
-      message: `${input.symbol} required reconciliation to adopt an invisible deposit.`,
-    });
-  }
-
-  if (input.cycleHealth === "stale") {
-    warnings.push({
-      code: "cycle_stale",
-      level: "critical",
-      message: `${input.symbol} planner or reconciler telemetry is stale.`,
-    });
-  }
-
-  if (
-    input.appRollout === "unknown" ||
-    input.reconciliationHealth === "unknown" ||
-    input.cycleHealth === "unknown"
-  ) {
-    warnings.push({
-      code: "telemetry_unavailable",
-      level: "info",
-      message: `${input.symbol} app rollout or runtime telemetry is unavailable; state is not inferred from balances.`,
-    });
-  }
-
-  return warnings;
+  return input.eligibleReserveCount === 0
+    ? [
+        {
+          code: "no_eligible_reserve",
+          level: "critical",
+          message: `${input.symbol} has no eligible Safe reserve: ${input.eligibilityReason}.`,
+        },
+      ]
+    : [];
 }

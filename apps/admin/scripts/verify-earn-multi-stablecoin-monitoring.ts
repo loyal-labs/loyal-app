@@ -2,6 +2,10 @@ import {
   deriveStablecoinHealthWarnings,
   EARN_STABLECOIN_DESCRIPTORS,
 } from "../src/lib/earn/stablecoin-monitor.shared";
+import {
+  summarizeSafeReserveEligibilityByMint,
+  type SafeReserveApyStatusRow,
+} from "../src/lib/kamino/timescale-reserve-monitor.shared";
 
 type Check = {
   detail: string;
@@ -29,6 +33,27 @@ function attributeReserveHoldingsByMint(args: {
   }));
 }
 
+function statusRow(
+  liquidityMint: string,
+  status: SafeReserveApyStatusRow["status"],
+  supplyApyPercent: number | null = null
+): SafeReserveApyStatusRow {
+  return {
+    average24hApyPercent: null,
+    average7dApyPercent: null,
+    latestObservedAt:
+      status === "no-current-row" ? null : "2026-08-14T00:00:00.000Z",
+    liquidityMint,
+    market: `market-${status}`,
+    marketName: `Market ${status}`,
+    reserve: `reserve-${liquidityMint}-${status}`,
+    status,
+    supplyApyPercent,
+    symbol: null,
+    totalSupplyUsdEstimate: null,
+  };
+}
+
 async function read(relativePath: string, root = ADMIN_ROOT) {
   return Bun.file(new URL(relativePath, root)).text();
 }
@@ -42,15 +67,21 @@ check(
   `expected ${expectedSymbols.join(", ")}; received ${actualSymbols.join(", ")}`
 );
 
-const cashMint = EARN_STABLECOIN_DESCRIPTORS.find(
-  ({ symbol }) => symbol === "CASH"
-)?.mint;
-const usdtMint = EARN_STABLECOIN_DESCRIPTORS.find(
-  ({ symbol }) => symbol === "USDT"
-)?.mint;
-if (!(cashMint && usdtMint)) {
-  throw new Error("Canonical CASH or USDT mint is unavailable.");
+const cashDescriptor = EARN_STABLECOIN_DESCRIPTORS.find(
+  ({ symbol }) => String(symbol) === "CASH"
+);
+const usdcDescriptor = EARN_STABLECOIN_DESCRIPTORS.find(
+  ({ symbol }) => String(symbol) === "USDC"
+);
+const usdtDescriptor = EARN_STABLECOIN_DESCRIPTORS.find(
+  ({ symbol }) => String(symbol) === "USDT"
+);
+if (!(cashDescriptor && usdcDescriptor && usdtDescriptor)) {
+  throw new Error("Canonical CASH, USDC, or USDT mint is unavailable.");
 }
+const cashMint = cashDescriptor.mint;
+const usdcMint = usdcDescriptor.mint;
+const usdtMint = usdtDescriptor.mint;
 
 const attributed = attributeReserveHoldingsByMint({
   positions: [
@@ -73,40 +104,55 @@ check(
     .join(", ")}`
 );
 
-const warningCodes = new Set(
-  deriveStablecoinHealthWarnings({
-    appRollout: "enabled",
-    cycleHealth: "stale",
-    eligibleReserveCount: 0,
-    projectionDeltaRaw: BigInt(1),
-    reconciliationHealth: "failed",
-    symbol: actualSymbols[0],
-  }).map(({ code }) => code)
-);
-check(
-  "deterministic invariant warnings",
-  [
-    "cycle_stale",
-    "no_eligible_reserve",
-    "projection_mismatch",
-    "reconciliation_failed",
-  ].every((code) => warningCodes.has(code as never)) &&
-    !warningCodes.has("no_profitable_opportunity" as never),
-  `received ${[...warningCodes].join(", ")}`
-);
-
-const adoptionWarnings = deriveStablecoinHealthWarnings({
-  appRollout: "enabled",
-  cycleHealth: "healthy",
+const ineligibleWarnings = deriveStablecoinHealthWarnings({
+  eligibleReserveCount: 0,
+  eligibilityReason: "2 without a fresh verified row",
+  symbol: cashDescriptor.symbol,
+});
+const healthyWarnings = deriveStablecoinHealthWarnings({
   eligibleReserveCount: 1,
-  projectionDeltaRaw: BigInt(0),
-  reconciliationHealth: "adoption",
-  symbol: actualSymbols[0],
+  eligibilityReason: "1 eligible Safe reserve",
+  symbol: usdcDescriptor.symbol,
 });
 check(
-  "reconciliation adoption is distinct",
-  adoptionWarnings.some(({ code }) => code === "reconciliation_adoption"),
-  adoptionWarnings.map(({ code }) => code).join(", ")
+  "warnings use observed eligibility only",
+  ineligibleWarnings.length === 1 &&
+    ineligibleWarnings[0]?.code === "no_eligible_reserve" &&
+    ineligibleWarnings[0]?.message.includes("without a fresh verified row") &&
+    healthyWarnings.length === 0,
+  `ineligible=${ineligibleWarnings
+    .map(({ code }) => code)
+    .join(",")}; healthy=${healthyWarnings.length}`
+);
+
+const eligibilityFixture = summarizeSafeReserveEligibilityByMint({
+  stablecoins: EARN_STABLECOIN_DESCRIPTORS,
+  statuses: [
+    statusRow(cashMint, "no-current-row"),
+    statusRow(usdcMint, "eligible", 4.25),
+    statusRow(usdcMint, "eligible", 5.75),
+    statusRow(usdtMint, "below-liquidity"),
+    statusRow(usdtMint, "apy-out-of-range"),
+  ],
+});
+const cashEligibility = eligibilityFixture.find(
+  ({ liquidityMint }) => liquidityMint === cashMint
+);
+const usdcEligibility = eligibilityFixture.find(
+  ({ liquidityMint }) => liquidityMint === usdcMint
+);
+const usdsEligibility = eligibilityFixture.find(
+  ({ symbol }) => symbol === "USDS"
+);
+check(
+  "explicit per-mint eligibility reasons",
+  cashEligibility?.status === "no-current-row" &&
+    cashEligibility.reason.includes("without a fresh verified row") &&
+    usdcEligibility?.eligibleReserveCount === 2 &&
+    usdcEligibility.bestSupplyApyPercent === 5.75 &&
+    usdsEligibility?.status === "no-supported-reserve" &&
+    usdsEligibility.reason === "No supported Safe reserve",
+  JSON.stringify({ cashEligibility, usdcEligibility, usdsEligibility })
 );
 
 const earnDataSource = await read("src/app/(admin)/earn/earn-data.ts");
@@ -127,55 +173,81 @@ check(
 const reserveSource = await read(
   "src/lib/kamino/timescale-reserve-client.server.ts"
 );
-const classifyBody = reserveSource.slice(
-  reserveSource.indexOf("function classifyCandidate"),
-  reserveSource.indexOf("function compareStrings")
-);
+const currentStatusLoaderUses =
+  reserveSource.match(/loadCurrentReserveStatuses\(/g)?.length ?? 0;
 check(
-  "verified reserve eligibility contract",
+  "single database-clock eligibility implementation",
   reserveSource.includes("VERIFIED_RESERVE_MAX_AGE_MS = 240 * 1000") &&
     reserveSource.includes("kamino.latest_verified_reserve_updates") &&
-    reserveSource.includes("updates.verified_at >=") &&
-    reserveSource.includes("EARN_STABLECOIN_DESCRIPTORS.map") &&
-    !classifyBody.includes("reserveLastUpdateStale") &&
-    !reserveSource.includes("USDC_LIQUIDITY_MINT"),
-  "eligibility must use the six-mint verified view and 240-second age"
+    reserveSource.includes("now() - make_interval") &&
+    reserveSource.includes("updates.verified_at <= now()") &&
+    reserveSource.includes("summarizeSafeReserveEligibilityByMint") &&
+    currentStatusLoaderUses >= 3 &&
+    !reserveSource.includes("verifiedUntil") &&
+    !reserveSource.includes("VerifiedReserveMintSummarySqlRow"),
+  `shared current status loader uses=${currentStatusLoaderUses}`
 );
 
 const earnPageSource = await read("src/app/(admin)/earn/page.tsx");
+const monitoringSource = await read(
+  "src/app/(admin)/earn/earn-stablecoin-monitoring.ts"
+);
+const sharedHealthSource = await read(
+  "src/lib/earn/stablecoin-monitor.shared.ts"
+);
+const removedWarningPattern =
+  /telemetry_unavailable|projection_mismatch|cycle_stale|reconciliation_(?:adoption|failed)/;
 check(
-  "operator health matrix and filters",
+  "observed-only health matrix",
   earnPageSource.includes("Stablecoin health") &&
     earnPageSource.includes("StablecoinFilter") &&
     earnPageSource.includes("Eligible / best APY") &&
     earnPageSource.includes("30d in / out") &&
     earnPageSource.includes("Latest rebalance") &&
-    earnPageSource.includes("Warnings"),
-  "Earn UI must expose the six-row operator matrix and mint filter"
+    earnPageSource.includes("row.eligibilityReason") &&
+    !earnPageSource.includes("App rollout") &&
+    !monitoringSource.includes("appRollout") &&
+    !monitoringSource.includes('CycleHealth = "unknown"') &&
+    !monitoringSource.includes('ReconciliationHealth = "unknown"') &&
+    !removedWarningPattern.test(sharedHealthSource),
+  "health UI must show observed data without rollout or synthetic telemetry"
 );
 
-const rolloutSource = await read("src/lib/earn/stablecoin-rollout.server.ts");
-const adminConfigSource = await read("src/lib/core/config/server.ts");
-const appConfigRoute = await read(
-  "apps/web/src/app/api/earn/config/route.ts",
-  REPO_ROOT
+const rolloutFile = Bun.file(
+  new URL("src/lib/earn/stablecoin-rollout.server.ts", ADMIN_ROOT)
+);
+const appConfigRoute = Bun.file(
+  new URL("apps/web/src/app/api/earn/config/route.ts", REPO_ROOT)
 );
 check(
-  "canonical router universe and authoritative app rollout",
-  rolloutSource.includes("/api/earn/config") &&
-    appConfigRoute.includes("getPublicEnv().earnEnabledStablecoins") &&
-    !adminConfigSource.includes("EARN_ROUTER_ENABLED_STABLE_MINTS") &&
-    !rolloutSource.includes("routerEnabled") &&
-    !rolloutSource.includes("routerSource") &&
-    !earnPageSource.includes("Router "),
-  "router monitoring uses the canonical six-mint registry without duplicate rollout configuration"
+  "obsolete rollout plumbing removed",
+  !(await rolloutFile.exists()) &&
+    !(await appConfigRoute.exists()) &&
+    !sharedHealthSource.includes("RolloutState") &&
+    !sharedHealthSource.includes("parseStablecoinSymbols"),
+  "no admin-to-web rollout fetch, endpoint, parser, or state remains"
+);
+check(
+  "projection delta is diagnostic only",
+  earnPageSource.includes("Pointer delta") &&
+    !sharedHealthSource.includes("projectionDeltaRaw") &&
+    !sharedHealthSource.includes("projection_mismatch"),
+  "pointer delta stays visible but nonzero alone is not an alarm"
+);
+
+const rebalanceClientSource = await read(
+  "src/app/(admin)/earn/rebalance/rebalance-monitor-client.tsx"
+);
+check(
+  "single-mint chart default and unique labels",
+  rebalanceClientSource.includes('useState("USDC")') &&
+    rebalanceClientSource.includes('<SelectItem value="all">') &&
+    reserveSource.includes("`${symbol} · ${market} · ${reserve}`"),
+  "chart must default to USDC while preserving deliberate All and unique series identity"
 );
 
 const rebalanceDataSource = await read(
   "src/app/(admin)/earn/rebalance/rebalance-data.ts"
-);
-const rebalanceClientSource = await read(
-  "src/app/(admin)/earn/rebalance/rebalance-monitor-client.tsx"
 );
 const executedSource = await read(
   "src/app/(admin)/earn/rebalance/executed-earn-rebalances-chart.tsx"

@@ -43,7 +43,6 @@ import {
   getEarnStablecoinBySymbol,
   getEarnStablecoinSymbol,
   type EarnStablecoinSymbol,
-  type RolloutState,
 } from "@/lib/earn/stablecoin-monitor.shared";
 
 export const dynamic = "force-dynamic";
@@ -542,14 +541,6 @@ function PositionSortHead({
   );
 }
 
-function rolloutVariant(state: RolloutState) {
-  return state === "enabled"
-    ? ("outline" as const)
-    : state === "disabled"
-    ? ("destructive" as const)
-    : ("secondary" as const);
-}
-
 function StablecoinFilter({
   selectedMint,
 }: {
@@ -581,9 +572,8 @@ function StablecoinHealthMatrix({ rows }: { rows: EarnStablecoinHealthRow[] }) {
       <CardHeader>
         <CardTitle className="font-bold">Stablecoin health</CardTitle>
         <CardDescription>
-          Mint-keyed rollout, verified reserve eligibility, holdings, confirmed
-          flow, and reconciliation signals. Unknown telemetry is never inferred
-          from balances.
+          Mint-keyed verified reserve eligibility, holdings, confirmed flow, and
+          latest execution history.
         </CardDescription>
       </CardHeader>
       <CardContent className="overflow-x-auto">
@@ -591,7 +581,6 @@ function StablecoinHealthMatrix({ rows }: { rows: EarnStablecoinHealthRow[] }) {
           <TableHeader>
             <TableRow>
               <TableHead>Stablecoin</TableHead>
-              <TableHead>App rollout</TableHead>
               <TableHead className="text-right">Eligible / best APY</TableHead>
               <TableHead className="text-right">Positions</TableHead>
               <TableHead className="text-right">Principal</TableHead>
@@ -615,21 +604,11 @@ function StablecoinHealthMatrix({ rows }: { rows: EarnStablecoinHealthRow[] }) {
                     <AddressLink address={row.liquidityMint} />
                   </div>
                 </TableCell>
-                <TableCell>
-                  <div className="flex flex-col items-start gap-1">
-                    <Badge variant={rolloutVariant(row.appRollout)}>
-                      {row.appRollout}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">
-                      {row.appRolloutSource}
-                    </span>
-                  </div>
-                </TableCell>
                 <TableCell className="text-right tabular-nums">
                   <div>{formatNumber(row.eligibleReserveCount)}</div>
                   <div className="text-xs text-muted-foreground">
                     {row.bestSupplyApyPercent === null
-                      ? "No verified APY"
+                      ? row.eligibilityReason
                       : `${row.bestSupplyApyPercent.toFixed(2)}%`}
                   </div>
                 </TableCell>

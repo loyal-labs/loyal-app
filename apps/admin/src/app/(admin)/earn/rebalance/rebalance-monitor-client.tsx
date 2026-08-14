@@ -1327,7 +1327,7 @@ function RebalanceMonitorFallback() {
 
 export function RebalanceMonitorClient() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [selectedMint, setSelectedMint] = useState("all");
+  const [selectedMint, setSelectedMint] = useState("USDC");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1432,7 +1432,7 @@ export function RebalanceMonitorClient() {
         <CardContent>
           <Select value={selectedMint} onValueChange={setSelectedMint}>
             <SelectTrigger className="w-full sm:w-56">
-              <SelectValue placeholder="All stablecoins" />
+              <SelectValue placeholder="Select stablecoin" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All stablecoins</SelectItem>
