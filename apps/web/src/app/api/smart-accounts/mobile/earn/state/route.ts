@@ -12,8 +12,7 @@ import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/serv
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getCurrentReserveUpdatesByReserve } from "@/lib/kamino/timescale-reserve-client.server";
 import {
-  findCurrentNonzeroYieldVaultReservePositions,
-  findCurrentYieldVaultIdleTokenBalances,
+  findActiveYieldPositionsForVault,
   findReconciledActiveYieldPositionForVault,
   type UserYieldPositionRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
@@ -70,12 +69,15 @@ function resolveTimescaleReserveForPosition(position: UserYieldPositionRecord) {
 }
 
 // The wallet can hold one active position row per product mint (ASK-1355), so
-// the headline balance is the sum of the vault's current reserve + idle
-// snapshot rows across every mint — the reconciled single-row read below only
-// covers the mint it points at, which briefly showed a fresh $1 USDG deposit
-// as the whole balance on mobile. Mirrors the session `earn-state` route's
-// `loadCurrentTotalAmountRaw`; falls back to the single row's amount when the
-// snapshots are empty or the read fails.
+// the headline balance is the sum of every ACTIVE position row — exactly what
+// the deposit/withdraw confirms write synchronously, which is the value the
+// mobile client trusts in its short post-mutation window before live holdings
+// catch up. The vault snapshot tables are deliberately NOT used here: the
+// routing worker records reserve rows in collateral-unit semantics
+// (`kamino_obligation_collateral_deposited_amount`), which the user-facing
+// filter drops wholesale, collapsing that "total" to idle dust — the $0.00
+// balance regression right after a USDG deposit (2026-08-14). Falls back to
+// the reconciled single row's amount when the plural read is empty or fails.
 async function loadCurrentTotalAmountRaw(args: {
   cluster: ReturnType<typeof resolveConfiguredCluster>;
   position: UserYieldPositionRecord;
@@ -83,30 +85,20 @@ async function loadCurrentTotalAmountRaw(args: {
   walletAddress: string;
 }): Promise<bigint> {
   try {
-    const [reserveRows, idleRows] = await Promise.all([
-      findCurrentNonzeroYieldVaultReservePositions({
-        cluster: args.cluster,
-        settings: args.settings,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: args.position.vaultPubkey,
-        walletAddress: args.walletAddress,
-      }),
-      findCurrentYieldVaultIdleTokenBalances({
-        cluster: args.cluster,
-        settings: args.settings,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: args.position.vaultPubkey,
-        walletAddress: args.walletAddress,
-      }),
-    ]);
-    const total = [...reserveRows, ...idleRows].reduce(
-      (sum, row) => sum + row.amountRaw,
+    const rows = await findActiveYieldPositionsForVault({
+      cluster: args.cluster,
+      settings: args.settings,
+      vaultIndex: EARN_VAULT_INDEX,
+      walletAddress: args.walletAddress,
+    });
+    const total = rows.reduce(
+      (sum, row) => sum + row.currentAmountRaw,
       BigInt(0)
     );
     return total > BigInt(0) ? total : args.position.currentAmountRaw;
   } catch (error) {
     console.warn(
-      "[mobile-earn-state] failed to load current holdings total",
+      "[mobile-earn-state] failed to sum active position rows",
       error
     );
     return args.position.currentAmountRaw;
