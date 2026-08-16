@@ -5,10 +5,15 @@ import { reportFirstAutodepositSweepQuestCompletion } from "@/features/solana-we
 import { getOptionalEnv } from "@/lib/core/config/shared";
 import {
   autodepositSweepExecutedPush,
+  autodepositSweepFailedPush,
   autodepositSweepScheduledPush,
   sendWalletPush,
 } from "@/lib/push-notifications/wallet-push.server";
 import { findLatestEarnAutodepositExecutionForWallet } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import {
+  getYieldOptimizationClient,
+  pushCampaignSends,
+} from "@/lib/yield-optimization/yield-neon-client.server";
 
 // Internal backend-to-backend endpoint the autodeposit sweep worker calls the
 // moment it records a confirmed sweep, so Quest 2 ("first Earn deposit via
@@ -17,7 +22,9 @@ import { findLatestEarnAutodepositExecutionForWallet } from "@/lib/yield-optimiz
 // Authenticated with SOLANA_WEEK_NOTIFY_SECRET (Bearer).
 // Body: { walletAddress, kind?: "scheduled" | "executed", amountRaw?: string }.
 // `kind` defaults to "executed" (the only event the worker sent historically);
-// "scheduled" is push-only and skips quest reporting.
+// "scheduled" and "failed" are push-only and skip quest reporting. A failed
+// sweep is retried every cycle, so failures carry `dedupeKey` (the scheduled
+// slot id) and the sent-log keeps the push at-most-once per sweep (ASK-2091).
 function isAuthorized(request: Request): boolean {
   const secret = getOptionalEnv(process.env, "SOLANA_WEEK_NOTIFY_SECRET");
   if (!secret) {
@@ -58,7 +65,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const kind = record.kind === "scheduled" ? "scheduled" : "executed";
+  const kind =
+    record.kind === "scheduled" || record.kind === "failed"
+      ? record.kind
+      : "executed";
   let amountRaw = parseAmountRaw(record.amountRaw);
 
   if (kind === "scheduled") {
@@ -66,6 +76,14 @@ export async function POST(request: Request) {
       walletAddress,
       autodepositSweepScheduledPush(amountRaw)
     );
+    return NextResponse.json({ status: "accepted" });
+  }
+
+  if (kind === "failed") {
+    if (!(await claimFailurePush(walletAddress, record.dedupeKey))) {
+      return NextResponse.json({ status: "deduped" });
+    }
+    await sendWalletPush(walletAddress, autodepositSweepFailedPush(amountRaw));
     return NextResponse.json({ status: "accepted" });
   }
 
@@ -103,6 +121,38 @@ export async function POST(request: Request) {
 }
 
 const EXECUTION_AMOUNT_FRESHNESS_MS = 15 * 60 * 1000;
+
+// Insert-first sent-log, same pattern as the Mixpanel cohort receiver: the
+// push only goes out when this wallet has no row for the sweep yet. Without a
+// `dedupeKey` the campaign falls back to a per-day key, so an older worker
+// build can still only wake the user once a day.
+// ponytail: a write failure sends anyway — a silent auto-deposit failure is
+// the exact trust problem this push exists to fix, and a duplicate is the
+// cheaper error. Revisit if the yield DB ever flaps for hours.
+async function claimFailurePush(
+  walletAddress: string,
+  rawDedupeKey: unknown
+): Promise<boolean> {
+  const dedupeKey =
+    typeof rawDedupeKey === "string" && rawDedupeKey.trim()
+      ? rawDedupeKey.trim().slice(0, 120)
+      : new Date().toISOString().slice(0, 10);
+  try {
+    const inserted = await getYieldOptimizationClient()
+      .db.insert(pushCampaignSends)
+      .values({ campaign: `autodeposit-failed:${dedupeKey}`, walletAddress })
+      .onConflictDoNothing()
+      .returning({ id: pushCampaignSends.id });
+    return inserted.length > 0;
+  } catch (error) {
+    console.warn("[sweep-notify] failure sent-log write failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown write error.",
+      walletAddress,
+    });
+    return true;
+  }
+}
 
 function parseAmountRaw(value: unknown): bigint | null {
   if (typeof value !== "string" || !/^\d+$/.test(value)) {
