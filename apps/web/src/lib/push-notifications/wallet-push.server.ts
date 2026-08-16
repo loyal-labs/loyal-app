@@ -102,6 +102,23 @@ export function autodepositSweepExecutedPush(
   };
 }
 
+// The sweep either never reached Kamino or was blocked before it could:
+// either way the user was promised a move that did not land, and a silent
+// failure is what kills trust in automation (ASK-2091). The worker only
+// reports failures it will retry, so the copy promises the retry.
+export function autodepositSweepFailedPush(
+  amountRaw: bigint | null
+): WalletPushPayload {
+  const body = "We'll retry automatically within the hour.";
+  if (amountRaw !== null && amountRaw > BigInt(0)) {
+    return {
+      body,
+      title: `${formatUsdcAmountRaw(amountRaw)} didn't reach EARN.`,
+    };
+  }
+  return { body, title: "Auto-deposit didn't go through." };
+}
+
 export function quest1DonePush(): WalletPushPayload {
   return {
     body: "Now flip on auto-deposit for Quest 2 — your USDC starts earning.",
