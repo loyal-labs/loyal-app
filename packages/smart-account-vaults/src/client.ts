@@ -2525,6 +2525,22 @@ function readKaminoDepositInstruction(
   ).instruction;
 }
 
+// A non-OK response from Kamino's instruction API used to be a bare `Error`,
+// indistinguishable from a build/validation bug by anything upstream. Callers
+// need that distinction to decide whether retrying can help: a full exit fans
+// one of these calls out per reserve, so a single transient 5xx would
+// otherwise fail the whole prepare (ASK-1887). `status` is carried so the
+// caller — not this module — owns the retry policy.
+export class KaminoUpstreamError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "KaminoUpstreamError";
+    this.status = status;
+  }
+}
+
 // Kamino instruction templates are a pure function of (wallet, market,
 // reserve, amount) over short horizons, so a small single-flight TTL cache
 // lets a UI prefetch absorb the API round-trip and dedupes back-to-back
@@ -2607,7 +2623,8 @@ async function fetchKaminoDepositInstruction(args: {
       );
 
       if (!response.ok) {
-        throw new Error(
+        throw new KaminoUpstreamError(
+          response.status,
           `Kamino deposit instruction request failed with status ${response.status}.`
         );
       }
@@ -2657,7 +2674,8 @@ async function fetchKaminoWithdrawInstruction(args: {
 
       if (!response.ok) {
         const responseText = await response.text().catch(() => "");
-        throw new Error(
+        throw new KaminoUpstreamError(
+          response.status,
           `Kamino withdraw instruction request failed with status ${response.status}: ${responseText}`
         );
       }
