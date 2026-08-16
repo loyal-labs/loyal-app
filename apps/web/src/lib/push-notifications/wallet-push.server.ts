@@ -119,6 +119,55 @@ export function autodepositSweepFailedPush(
   return { body, title: "Auto-deposit didn't go through." };
 }
 
+function formatUsd(amountUsd: number): string {
+  return `$${amountUsd.toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  })}`;
+}
+
+// Earn "joy" layer (ASK-2091): the pushes that exist to make yield felt.
+// Every one of them carries a real number, because a reminder without an
+// amount is the marketing push these are meant not to be.
+//
+// Deliberately token-neutral, unlike the auto-deposit copy above: auto-deposit
+// sweeps one fixed mint (`getKaminoUsdcEarnTargetForCluster`), but Earn takes
+// any enabled stablecoin and the earnings these report are a USD total across
+// every position a wallet holds. Naming a token here would be wrong for a
+// USDG holder and unanswerable for a wallet holding two.
+export function firstYieldPush(amountUsd: number): WalletPushPayload {
+  return {
+    body: `${formatUsd(amountUsd)} so far, and it keeps going on its own.`,
+    title: "Your first yield just landed.",
+  };
+}
+
+export function yieldDigestPush(amountUsd: number): WalletPushPayload {
+  return {
+    body: "Your Earn balance kept working while you were away.",
+    title: `+${formatUsd(amountUsd)} earned.`,
+  };
+}
+
+export function totalEarnedMilestonePush(
+  milestoneUsd: number
+): WalletPushPayload {
+  return {
+    body: "All of it from your balance sitting in Earn.",
+    title: `${formatUsd(milestoneUsd)} earned in total.`,
+  };
+}
+
+export function loyalAnniversaryPush(
+  months: number,
+  amountUsd: number
+): WalletPushPayload {
+  return {
+    body: `${formatUsd(amountUsd)} earned since you joined.`,
+    title: months >= 12 ? "A year with Loyal." : "Six months with Loyal.",
+  };
+}
+
 export function quest1DonePush(): WalletPushPayload {
   return {
     body: "Now flip on auto-deposit for Quest 2 — your USDC starts earning.",
