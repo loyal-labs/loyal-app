@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   spawn,
   spawnSync,
@@ -281,10 +281,7 @@ function materializeWorktreePrivateTransactionsEntry(): void {
   if (!existsSync(entryPath) || !lstatSync(entryPath).isSymbolicLink()) return;
 
   const linkTarget = readlinkSync(entryPath);
-  const worktreeEntry = resolve(
-    import.meta.dir,
-    "../../../packages/private-transactions/dist/index.js",
-  );
+  const worktreeEntry = resolve(dirname(entryPath), linkTarget);
   unlinkSync(entryPath);
   copyFileSync(worktreeEntry, entryPath);
   materializedPrivateTransactionsEntry = { entryPath, linkTarget };
