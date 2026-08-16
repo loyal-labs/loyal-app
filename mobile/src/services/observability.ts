@@ -16,6 +16,7 @@ import {
   isConnectionFailure,
   isConnectionTimeout,
 } from "@/lib/network/connection-failure";
+import { isInsufficientSolError } from "@/lib/wallet/insufficient-sol-error";
 import { hasLandedProgress, isWalletRejection } from "@/lib/wallet/rejection";
 import {
   isWalletSessionError,
@@ -354,6 +355,7 @@ type LifecycleErrorCode =
   | "unconfirmed_signature"
   | "backend_confirmation_failed"
   | "send_failed"
+  | "insufficient_native_sol"
   | "wallet_rejected"
   | "wallet_unavailable"
   | "wallet_connection_failed"
@@ -471,6 +473,9 @@ export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
   if (isWalletSessionError(error)) {
     return WALLET_SESSION_ERROR_CODES[error.failure];
   }
+  // A wallet that can't fee-pay is user state, not an app defect — named so
+  // it neither pages as `unexpected_error` nor hides as `request_failed`.
+  if (isInsufficientSolError(error)) return "insufficient_native_sol";
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
     if (code === "unconfirmed_signature") return "unconfirmed_signature";

@@ -7,6 +7,7 @@ import {
 import { PublicKey } from "@solana/web3.js";
 
 import { getConnection } from "@/lib/solana/rpc/connection";
+import { assertSolForFees } from "@/lib/wallet/insufficient-sol-error";
 import { isWalletRejection } from "@/lib/wallet/rejection";
 import type { Signer } from "@/lib/wallet/signer";
 import {
@@ -42,6 +43,13 @@ import {
 } from "./wire";
 
 const USDC_DECIMALS = 6;
+// The wallet fee-pays every withdrawal transaction itself. Observed prod cost
+// is ~57k lamports for a withdraw step + cleanup (priority fees included);
+// 0.001 SOL clears that with wide headroom while staying too small to block
+// anyone plausible. ponytail: does NOT cover re-creating a closed wallet USDC
+// ATA (~0.002 SOL rent) — that rare case still surfaces as the raw prefix
+// simulation error; raise the floor if it ever shows up in ClickStack.
+const WITHDRAW_MIN_FEE_LAMPORTS = 1_000_000;
 // A wallet normally has one live Autodeposit, but historic duplicate setups
 // left some with several; each re-prepare surfaces the next one. The cap
 // guards against a close that never sticks in the read-model.
@@ -523,6 +531,18 @@ async function runEarnWithdraw(
   flow: LifecycleFlow<"earn.withdrawal">,
 ): Promise<EarnWithdrawResult> {
   const amountRaw = usdToUsdcRaw(args.amountUsd);
+  // A 0-lamport wallet doesn't exist on-chain and can't fee-pay, so on-device
+  // prepare would only die later in prefix simulation with a bare
+  // "AccountNotFound" (ASK-2107). Check before the wallet-auth prompt so the
+  // user gets advice instead of a biometric prompt for a doomed flow.
+  await assertSolForFees(
+    getConnection(),
+    args.signer.publicKey,
+    WITHDRAW_MIN_FEE_LAMPORTS,
+  ).catch((error) => {
+    flow.failFrom("prepare", error);
+    throw error;
+  });
   const prepareAuth = await signEarnAuth(
     args.signer,
     "earn-withdraw-prepare",
