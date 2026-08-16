@@ -25,8 +25,14 @@ op run --env-file=../loyal-apps/.env.1password -- sh -c 'REALTIME_ALLOWED_ORIGIN
 In another terminal, from `loyal-apps`, run Loyal:
 
 ```sh
-op run --env-file=.env.1password -- sh -c 'bun run --cwd frontend dev'
+bun run frontend:dev:1pass:dev
 ```
+
+The local devnet and mainnet launchers use `CAP_SECRET` from their environment
+when available and otherwise generate an ephemeral secret inside the `op run`
+subprocess. The secret is valid only for that local server lifetime and is
+never written to disk. Deployed environments still require their managed
+`CAP_SECRET`.
 
 Sign in at `http://localhost:3000`, open Earn, and inspect one connection to
 `127.0.0.1:10000/events`. Execute-now should make one POST and receive progress
@@ -34,7 +40,7 @@ on that stream. To test against a different endpoint, inject it only inside the
 1Password subprocess:
 
 ```sh
-op run --env-file=.env.1password -- sh -c 'REALTIME_EVENTS_URL=http://127.0.0.1:11000/events bun run --cwd frontend dev'
+REALTIME_EVENTS_URL=http://127.0.0.1:11000/events bun run frontend:dev:1pass:dev
 ```
 
 ## Schema ownership
