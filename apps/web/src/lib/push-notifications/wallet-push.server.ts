@@ -129,17 +129,22 @@ function formatUsd(amountUsd: number): string {
 // Earn "joy" layer (ASK-2091): the pushes that exist to make yield felt.
 // Every one of them carries a real number, because a reminder without an
 // amount is the marketing push these are meant not to be.
-
+//
+// Deliberately token-neutral, unlike the auto-deposit copy above: auto-deposit
+// sweeps one fixed mint (`getKaminoUsdcEarnTargetForCluster`), but Earn takes
+// any enabled stablecoin and the earnings these report are a USD total across
+// every position a wallet holds. Naming a token here would be wrong for a
+// USDG holder and unanswerable for a wallet holding two.
 export function firstYieldPush(amountUsd: number): WalletPushPayload {
   return {
     body: `${formatUsd(amountUsd)} so far, and it keeps going on its own.`,
-    title: "Your USDC just earned its first yield.",
+    title: "Your first yield just landed.",
   };
 }
 
 export function yieldDigestPush(amountUsd: number): WalletPushPayload {
   return {
-    body: "Your USDC kept working while you were away.",
+    body: "Your Earn balance kept working while you were away.",
     title: `+${formatUsd(amountUsd)} earned.`,
   };
 }
@@ -148,7 +153,7 @@ export function totalEarnedMilestonePush(
   milestoneUsd: number
 ): WalletPushPayload {
   return {
-    body: "All of it from USDC sitting in Earn.",
+    body: "All of it from your balance sitting in Earn.",
     title: `${formatUsd(milestoneUsd)} earned in total.`,
   };
 }
