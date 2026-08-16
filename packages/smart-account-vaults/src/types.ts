@@ -203,6 +203,19 @@ export type SendPreparedWithWalletArgs = {
   prepared: PreparedLoyalSmartAccountsOperation<string>;
   confirm?: boolean | "if-required";
   sendOptions?: SendOptions;
+  onTransactionSent?: (args: {
+    prepared: PreparedLoyalSmartAccountsOperation<string>;
+    signature: string;
+  }) => Promise<void> | void;
+  // Fires after the transaction's confirmation resolves. `slot` is the
+  // confirmation context's slot when the transport reported one — callers can
+  // use it instead of re-deriving the slot from a status probe, which can lag
+  // the confirmation by tens of seconds on a busy RPC indexer.
+  onTransactionConfirmed?: (args: {
+    prepared: PreparedLoyalSmartAccountsOperation<string>;
+    signature: string;
+    slot?: number;
+  }) => Promise<void> | void;
 };
 
 export type SendPreparedBatchWithWalletArgs = {
@@ -216,6 +229,9 @@ export type SendPreparedBatchWithWalletArgs = {
     index: number;
     prepared: PreparedLoyalSmartAccountsOperation<string>;
     signature: string;
+    // Confirmation-context slot when the transport reported one; see
+    // SendPreparedWithWalletArgs["onTransactionConfirmed"].
+    slot?: number;
   }) => Promise<void> | void;
   onTransactionSent?: (args: {
     index: number;
@@ -410,6 +426,7 @@ export type SmartAccountEarnUsdcReserveTargetInput = {
   reserve: PublicKey;
   market: PublicKey;
   liquidityMint: PublicKey;
+  liquidityTokenProgram?: PublicKey;
   supplyApyBps?: bigint | null;
   reserveCollateralMint?: PublicKey;
   reserveLiquiditySupply?: PublicKey;
@@ -499,6 +516,7 @@ export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    liquidityTokenProgram: PublicKey;
     obligation: PublicKey;
   };
   persistence: SmartAccountEarnUsdcYieldRoutingPolicyMetadata;
@@ -588,6 +606,7 @@ export type SmartAccountPreparedEarnUsdcDeposit = {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    liquidityTokenProgram: PublicKey;
     obligation: PublicKey;
     supplyApyBps: bigint | null;
   };
@@ -617,6 +636,7 @@ type SmartAccountEarnUsdcWithdrawBaseInput = {
         amountRaw: bigint;
         mint: PublicKey;
         tokenAccount: PublicKey;
+        tokenProgramId: PublicKey;
       };
   target?: SmartAccountEarnUsdcReserveTargetInput;
   fullWithdrawalTargets?: Array<
@@ -657,8 +677,13 @@ export type SmartAccountEarnUsdcCleanupInput = {
   feePayer: PublicKey;
   policySigner: PublicKey;
   cluster?: LoyalCluster;
-  idleAmountRaw?: bigint;
-  closeVaultCollateralAtas?: PublicKey[];
+  vaultTokenAccounts: Array<{
+    address: PublicKey;
+    amountRaw: bigint;
+    decimals: number;
+    mint: PublicKey;
+    tokenProgramId: PublicKey;
+  }>;
   yieldRoutingPolicy: {
     account: PublicKey;
     seed: bigint;
@@ -684,8 +709,8 @@ export type SmartAccountEarnUsdcWithdrawMetadata = {
   setupPolicyId?: string;
   setupPolicyAccount?: string;
   setupPolicySeed?: string;
-  targetReserve: string;
-  market: string;
+  targetReserve?: string;
+  market?: string;
   liquidityMint: string;
   requestedWithdrawAmountRaw: string;
   withdrawnAmountRaw: string;
@@ -727,18 +752,18 @@ export type SmartAccountPreparedEarnUsdcWithdrawStep = {
   stepCount: number;
   amountRaw: bigint;
   mode: "partial" | "full";
-  collateralAta: PublicKey;
+  collateralAta: PublicKey | null;
   accountingReserve: {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
     obligation: PublicKey;
-  };
+  } | null;
   executionReserve: {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
-  };
+  } | null;
   reserveWithdrawals: SmartAccountEarnUsdcReserveWithdrawalMetadata[];
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
 };
@@ -765,14 +790,15 @@ export type SmartAccountPreparedEarnUsdcWithdraw = {
     accountIndex: 1;
     pubkey: PublicKey;
     usdcAta: PublicKey;
-    collateralAta: PublicKey;
+    collateralAta: PublicKey | null;
   };
   targetReserve: {
     reserve: PublicKey;
     market: PublicKey;
     liquidityMint: PublicKey;
+    liquidityTokenProgram: PublicKey;
     obligation: PublicKey;
-  };
+  } | null;
   persistence: SmartAccountEarnUsdcWithdrawMetadata;
 };
 
@@ -822,10 +848,12 @@ export type SmartAccountEarnVaultRefundTokenAccount = {
   isUsdc: boolean;
   lamports: number;
   mint: PublicKey;
+  tokenProgramId: PublicKey;
 };
 
 export type SmartAccountEarnVaultRefundSnapshot = {
   lamports: bigint;
+  observedSlot: number;
   tokenAccounts: SmartAccountEarnVaultRefundTokenAccount[];
   vaultPda: PublicKey;
   vaultUsdcAta: PublicKey;
