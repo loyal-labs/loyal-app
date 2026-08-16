@@ -8,6 +8,7 @@ import android.util.Base64
 import com.solanamobile.seedvault.Bip32DerivationPath
 import com.solanamobile.seedvault.BipLevel
 import com.solanamobile.seedvault.SeedVault
+import com.solanamobile.seedvault.SigningRequest
 import com.solanamobile.seedvault.Wallet
 import com.solanamobile.seedvault.WalletContractV1
 import expo.modules.interfaces.permissions.PermissionsResponseListener
@@ -26,6 +27,7 @@ private enum class PendingKind {
     CREATE,
     IMPORT,
     SIGN_TRANSACTION,
+    SIGN_TRANSACTIONS,
     SIGN_MESSAGE,
 }
 
@@ -42,6 +44,11 @@ class ExpoSeedVaultModule : Module() {
     override fun definition() =
         ModuleDefinition {
             Name("ExpoSeedVault")
+
+            // Auth tokens are Kotlin Longs. They cross the bridge as decimal
+            // strings (a JS number would corrupt values above 2^53); this
+            // constant lets the JS side detect binaries that speak strings.
+            Constants("stringAuthTokens" to true)
 
             AsyncFunction("isAvailable") { promise: Promise ->
                 val context = appContext.reactContext
@@ -111,7 +118,7 @@ class ExpoSeedVaultModule : Module() {
                                 ?: continue
                             accounts.add(
                                 mapOf(
-                                    "authToken" to authToken.toDouble(),
+                                    "authToken" to authToken.toString(),
                                     "derivationPath" to derivationPath,
                                     "publicKey" to Base64.encodeToString(pk, Base64.NO_WRAP),
                                 ),
@@ -147,7 +154,7 @@ class ExpoSeedVaultModule : Module() {
                 }
             }
 
-            AsyncFunction("deauthorize") { authToken: Double, promise: Promise ->
+            AsyncFunction("deauthorize") { authToken: String, promise: Promise ->
                 val context = appContext.reactContext
                 if (context == null) {
                     promise.reject(SeedVaultException("NO_CONTEXT", "No React context"))
@@ -167,7 +174,7 @@ class ExpoSeedVaultModule : Module() {
             }
 
             AsyncFunction("signTransaction") {
-                authToken: Double,
+                authToken: String,
                 derivationPath: String,
                 txBase64: String,
                 promise: Promise,
@@ -200,8 +207,46 @@ class ExpoSeedVaultModule : Module() {
                 }
             }
 
+            AsyncFunction("signTransactions") {
+                authToken: String,
+                derivationPath: String,
+                txsBase64: List<String>,
+                promise: Promise,
+                ->
+                val activity = appContext.currentActivity
+                if (activity == null) {
+                    promise.reject(SeedVaultException("NO_ACTIVITY", "No current activity"))
+                    return@AsyncFunction
+                }
+                try {
+                    val pathUri = parseDerivationPath(derivationPath)
+                    val requests = ArrayList<SigningRequest>(txsBase64.size)
+                    for (txBase64 in txsBase64) {
+                        val bytes = Base64.decode(txBase64, Base64.NO_WRAP)
+                        requests.add(SigningRequest(bytes, arrayListOf(pathUri)))
+                    }
+                    val intent =
+                        Wallet.signTransactions(activity, authToken.toLong(), requests)
+                    val code = nextRequestCode.getAndIncrement()
+                    pending[code] =
+                        PendingRequest(
+                            PendingKind.SIGN_TRANSACTIONS,
+                            promise,
+                            derivationPath,
+                        )
+                    activity.startActivityForResult(intent, code)
+                } catch (e: Throwable) {
+                    promise.reject(
+                        SeedVaultException(
+                            "SIGN_TXS_FAILED",
+                            e.message ?: "signTransactions failed",
+                        ),
+                    )
+                }
+            }
+
             AsyncFunction("signMessage") {
-                authToken: Double,
+                authToken: String,
                 derivationPath: String,
                 messageBase64: String,
                 promise: Promise,
@@ -235,7 +280,7 @@ class ExpoSeedVaultModule : Module() {
             }
 
             AsyncFunction("getPublicKey") {
-                authToken: Double,
+                authToken: String,
                 derivationPath: String,
                 promise: Promise,
                 ->
@@ -288,7 +333,7 @@ class ExpoSeedVaultModule : Module() {
                                 )
                             request.promise.resolve(
                                 mapOf(
-                                    "authToken" to authToken.toDouble(),
+                                    "authToken" to authToken.toString(),
                                     "derivationPath" to request.derivationPath,
                                     "publicKey" to Base64.encodeToString(pk, Base64.NO_WRAP),
                                 ),
@@ -308,6 +353,24 @@ class ExpoSeedVaultModule : Module() {
                                         "Vault returned no signature",
                                     )
                             request.promise.resolve(Base64.encodeToString(sig, Base64.NO_WRAP))
+                        }
+
+                        PendingKind.SIGN_TRANSACTIONS -> {
+                            val responses =
+                                Wallet.onSignTransactionsResult(
+                                    payload.resultCode,
+                                    payload.data,
+                                )
+                            val signatures =
+                                responses.map { response ->
+                                    val sig = response.signatures.firstOrNull()
+                                        ?: throw SeedVaultException(
+                                            "NO_SIGNATURE",
+                                            "Vault returned no signature",
+                                        )
+                                    Base64.encodeToString(sig, Base64.NO_WRAP)
+                                }
+                            request.promise.resolve(signatures)
                         }
 
                         PendingKind.SIGN_MESSAGE -> {

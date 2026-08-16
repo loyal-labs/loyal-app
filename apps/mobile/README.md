@@ -23,6 +23,11 @@ In the output, you'll find options to open the app in a
 - [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
 - [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
+## Environment
+
+Set `EXPO_PUBLIC_GRID_AUTH_BASE_URL` to the shared passkey domain, typically
+`https://auth.askloyal.com`, when the app integrates with Grid auth flows.
+
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
 ## Get a fresh project

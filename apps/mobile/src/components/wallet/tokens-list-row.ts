@@ -62,10 +62,9 @@ function formatBalance(value: number): string {
   });
 }
 
-function formatPriceChange(value: number | null): {
-  text: string | null;
-  tone: TokenRowPriceChangeTone;
-} {
+function formatPriceChange(
+  value: number | null,
+): { text: string | null; tone: TokenRowPriceChangeTone } {
   if (!isFiniteNumber(value)) {
     return { text: null, tone: null };
   }
@@ -89,7 +88,7 @@ function formatPriceChange(value: number | null): {
 export function buildTokenRowContent(
   holding: TokenHolding,
   marketState: TokenRowMarketState,
-  overrides?: { name?: string | null; symbol?: string | null }
+  overrides?: { name?: string | null; symbol?: string | null },
 ): TokenRowContent {
   const name = resolveTokenName({
     mint: holding.mint,
@@ -101,13 +100,24 @@ export function buildTokenRowContent(
     detailSymbol: overrides?.symbol,
     holdingSymbol: holding.symbol,
   });
+  const resolvedPriceUsd =
+    marketState.status === "loaded" && isFiniteNumber(marketState.priceUsd)
+      ? marketState.priceUsd
+      : isFiniteNumber(holding.priceUsd)
+        ? holding.priceUsd
+        : null;
+
+  // Prefer the holding's own valueUsd, then derive from the resolved price.
+  // resolvedPriceUsd favors the CoinGecko market price over the flaky
+  // Helius/Jupiter holding price, so a token whose holding price never
+  // resolved (e.g. USDT) still shows a position value instead of "—".
   const resolvedUsdValue = isFiniteNumber(holding.valueUsd)
     ? holding.valueUsd
-    : isFiniteNumber(holding.priceUsd)
-    ? holding.balance * holding.priceUsd
-    : holding.balance === 0
-    ? 0
-    : null;
+    : isFiniteNumber(resolvedPriceUsd)
+      ? holding.balance * resolvedPriceUsd
+      : holding.balance === 0
+        ? 0
+        : null;
 
   if (marketState.status === "loading") {
     return {
@@ -120,13 +130,6 @@ export function buildTokenRowContent(
       showMarketSkeleton: true,
     };
   }
-
-  const resolvedPriceUsd =
-    marketState.status === "loaded" && isFiniteNumber(marketState.priceUsd)
-      ? marketState.priceUsd
-      : isFiniteNumber(holding.priceUsd)
-      ? holding.priceUsd
-      : null;
 
   const priceChange =
     marketState.status === "loaded"

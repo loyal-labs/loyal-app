@@ -83,12 +83,12 @@ export async function registerForPushNotifications(): Promise<string | null> {
     // Expo project (which silently fail to deliver).
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
-      (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig
-        ?.projectId;
+      (Constants as unknown as { easConfig?: { projectId?: string } })
+        .easConfig?.projectId;
 
     if (!projectId) {
       console.error(
-        "[push] Cannot generate Expo push token: no projectId in Constants"
+        "[push] Cannot generate Expo push token: no projectId in Constants",
       );
       return null;
     }
@@ -111,17 +111,16 @@ export async function registerForPushNotifications(): Promise<string | null> {
  * Listen for notification taps. Returns a cleanup function, or null if unavailable.
  */
 export async function addNotificationResponseListener(
-  callback: (data: Record<string, unknown>) => void
+  callback: (data: Record<string, unknown>) => void,
 ): Promise<(() => void) | null> {
   const Notifications = await getNotificationsModule();
   if (!Notifications) return null;
 
-  const subscription = Notifications.addNotificationResponseReceivedListener(
-    (response) => {
+  const subscription =
+    Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data;
       if (data) callback(data);
-    }
-  );
+    });
 
   return () => subscription.remove();
 }
@@ -133,7 +132,7 @@ export async function addNotificationResponseListener(
  */
 export async function registerPushToken(
   token: string,
-  walletPublicKey: string
+  walletPublicKey: string,
 ): Promise<void> {
   const url = `${env.apiBaseUrl}/api/push-tokens`;
   try {
@@ -150,7 +149,7 @@ export async function registerPushToken(
       const bodyText = await response.text().catch(() => "");
       console.error(
         `[push] Backend rejected push token (${response.status}):`,
-        bodyText.slice(0, 200)
+        bodyText.slice(0, 200),
       );
     }
   } catch (error) {

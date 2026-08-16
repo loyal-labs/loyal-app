@@ -40,6 +40,13 @@ import {
   storeKeypair,
   changePin as changeKeypairPin,
 } from "./keypair-storage";
+import {
+  clearMwaAccount,
+  loadMwaAccount,
+  storeMwaAccount,
+  type StoredMwaAccount,
+} from "./mwa-account-storage";
+import { deauthorizeMwaWallet, MwaSigner } from "./mwa-signer";
 import { SeedVaultSigner } from "./seed-vault-signer";
 import { LocalKeypairSigner, Signer } from "./signer";
 import {
@@ -49,6 +56,8 @@ import {
   storeVaultAccount,
 } from "./vault-account-storage";
 
+// "vault-unlocked" covers every external-wallet signer (Seed Vault legacy,
+// MWA): no local secret, so no lock/unlock lifecycle.
 export type WalletState =
   | "loading"
   | "noWallet"
@@ -75,6 +84,7 @@ interface WalletContextValue {
     pin: string,
     opts?: { alreadyStored?: boolean },
   ) => Promise<void>;
+  finalizeMwaSigner: (account: StoredMwaAccount) => Promise<void>;
   finalizeVaultSigner: (account: VaultAccount) => Promise<void>;
 
   // Lock / unlock
@@ -109,11 +119,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [biometricEnabled, setBiometricEnabledState] = useState(false);
   const [onboardingReplayActive, setOnboardingReplayActive] = useState(false);
 
-  // Initialize — check if a wallet exists (vault metadata wins over local
-  // encrypted storage; they are mutually exclusive on disk because resetWallet
-  // clears both).
+  // Initialize — check if a wallet exists (external-wallet metadata wins over
+  // local encrypted storage; they are mutually exclusive on disk because
+  // resetWallet clears all of them).
   useEffect(() => {
     (async () => {
+      const mwa = await loadMwaAccount();
+      if (mwa) {
+        const next = new MwaSigner(mwa.authToken, mwa.publicKey, mwa.label);
+        setSigner(next);
+        setPublicKey(mwa.publicKey);
+        setWalletSigner(next);
+        setState("vault-unlocked");
+        return;
+      }
+
       const vaultExists = await hasVaultAccount();
       if (vaultExists) {
         const vault = await loadVaultAccount();
@@ -221,8 +241,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [],
   );
 
-  // Seed Vault accounts finalize without PIN/biometric setup. The vault owns
-  // all authorization UI going forward.
+  // MWA accounts finalize without PIN/biometric setup. The user's wallet app
+  // owns all authorization UI going forward.
+  const finalizeMwaSigner = useCallback(async (account: StoredMwaAccount) => {
+    await storeMwaAccount(account);
+    const next = new MwaSigner(
+      account.authToken,
+      account.publicKey,
+      account.label,
+    );
+    setSigner(next);
+    setPublicKey(account.publicKey);
+    setWalletSigner(next);
+    setState("vault-unlocked");
+    identifyWallet(account.publicKey, "mwa");
+    track(WALLET_SETUP_EVENTS.walletCreated, { source: "mwa" });
+  }, []);
+
+  // Legacy direct Seed Vault connect — the onboarding fallback for binaries
+  // that predate the MWA native module (pre-42 builds receiving current JS
+  // via OTA). Like MWA, finalizes without PIN/biometric setup.
   const finalizeVaultSigner = useCallback(async (account: VaultAccount) => {
     await storeVaultAccount({
       authToken: account.authToken,
@@ -300,9 +338,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const resetWallet = useCallback(async () => {
-    // Deauthorize the vault first, if the current wallet is vault-backed.
-    // Swallow errors — if the vault rejects (already revoked, etc.), we
-    // still want local cleanup to proceed.
+    // Deauthorize the external wallet first, if there is one. Swallow errors
+    // — if the wallet rejects (already revoked, etc.), we still want local
+    // cleanup to proceed.
     if (signer instanceof SeedVaultSigner) {
       try {
         await SeedVault.deauthorize(signer.authToken);
@@ -310,7 +348,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         console.warn("[wallet] SeedVault.deauthorize failed", error);
       }
     }
+    if (signer instanceof MwaSigner) {
+      try {
+        await deauthorizeMwaWallet(signer.authToken);
+      } catch (error) {
+        console.warn("[wallet] MWA deauthorize failed", error);
+      }
+    }
 
+    await clearMwaAccount();
     await clearVaultAccount();
     await clearStoredKeypair();
     await disableBiometrics();
@@ -345,6 +391,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       createWallet,
       importWallet,
       finalizeSigner,
+      finalizeMwaSigner,
       finalizeVaultSigner,
       unlock,
       unlockWithBiometrics,
@@ -365,6 +412,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       createWallet,
       importWallet,
       finalizeSigner,
+      finalizeMwaSigner,
       finalizeVaultSigner,
       unlock,
       unlockWithBiometrics,

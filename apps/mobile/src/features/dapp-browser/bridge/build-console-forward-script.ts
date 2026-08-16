@@ -89,9 +89,7 @@ function formatArg(arg: unknown): string {
     (arg as { __error: unknown }).__error === true
   ) {
     const err = arg as { name?: string; message?: string; stack?: string };
-    return `${err.name ?? "Error"}: ${err.message ?? ""}\n${
-      err.stack ?? ""
-    }`.trim();
+    return `${err.name ?? "Error"}: ${err.message ?? ""}\n${err.stack ?? ""}`.trim();
   }
   try {
     return JSON.stringify(arg);
@@ -100,9 +98,7 @@ function formatArg(arg: unknown): string {
   }
 }
 
-export function forwardWebViewConsoleMessage(
-  message: WebViewConsoleMessage
-): void {
+export function forwardWebViewConsoleMessage(message: WebViewConsoleMessage): void {
   const formatted = `[webview] ${message.args.map(formatArg).join(" ")}`;
   switch (message.level) {
     case "error":
@@ -122,14 +118,15 @@ export function forwardWebViewConsoleMessage(
   }
 }
 
-export function tryParseConsoleMessage(
-  raw: string
-): WebViewConsoleMessage | null {
+export function tryParseConsoleMessage(raw: string): WebViewConsoleMessage | null {
   try {
     const parsed = JSON.parse(raw) as { source?: unknown };
     if (parsed.source !== CONSOLE_FORWARD_SOURCE) return null;
     const candidate = parsed as Partial<WebViewConsoleMessage>;
-    if (typeof candidate.level !== "string" || !Array.isArray(candidate.args)) {
+    if (
+      typeof candidate.level !== "string" ||
+      !Array.isArray(candidate.args)
+    ) {
       return null;
     }
     return {

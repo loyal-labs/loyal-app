@@ -1,4 +1,22 @@
 import type { ExpoConfig } from "expo/config";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+// Free-form release notes for the in-app OTA update banner. Edit ota-notes.txt
+// before running `eas update` — the text ships inside the update manifest, and
+// the bundle users are currently on reads it from the incoming update and shows
+// it in the banner. Leave the file empty to fall back to the generic copy.
+// Notes persist across publishes until edited, so clear/replace before each one.
+function readOtaNotes(): string | null {
+  try {
+    const text = readFileSync(join(__dirname, "ota-notes.txt"), "utf8").trim();
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+const OTA_NOTES = readOtaNotes();
 
 const IS_DEV = process.env.APP_VARIANT === "development";
 const IS_DAPP_STORE = process.env.DAPP_STORE_BUILD === "true";
@@ -25,6 +43,12 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: false,
     bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
+    infoPlist: {
+      UIBackgroundModes: ["remote-notification"],
+    },
+    entitlements: {
+      "aps-environment": IS_DEV ? "development" : "production",
+    },
   },
   android: {
     adaptiveIcon: {
@@ -52,6 +76,14 @@ const config: ExpoConfig = {
     favicon: "./assets/images/favicon.png",
   },
   plugins: [
+    // Must stay first in this array — later plugins otherwise break the
+    // generated iOS Notification Service Extension ("OneSignal.h not found").
+    [
+      "onesignal-expo-plugin",
+      {
+        mode: IS_DEV ? "development" : "production",
+      },
+    ],
     "expo-router",
     "expo-local-authentication",
     [
@@ -108,6 +140,11 @@ const config: ExpoConfig = {
     eas: {
       projectId: "7ecfef22-fa74-4fc9-b2f1-bf80acb81401",
     },
+    // Surfaced to the runtime so the client can hide quests in the public dApp
+    // Store build only (preview/development/Play Store keep them visible). Read
+    // via QUESTS_ENABLED in src/lib/feature-flags.ts.
+    isDappStoreBuild: IS_DAPP_STORE,
+    ...(OTA_NOTES ? { otaNotes: OTA_NOTES } : {}),
   },
   owner: "loyal-labs",
 };

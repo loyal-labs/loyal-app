@@ -41,7 +41,7 @@ export function OnboardingSlidesScreen({ onDone, surface = "replay" }: Props) {
   const isLast = currentIndex === ONBOARDING_SLIDES.length - 1;
 
   const imageHeight = useMemo(
-    () => Math.min(Math.max(height * 0.38, 240), 380),
+    () => Math.min(Math.max(height * 0.48, 300), 460),
     [height],
   );
 
@@ -129,20 +129,22 @@ export function OnboardingSlidesScreen({ onDone, surface = "replay" }: Props) {
       <View className="flex-1">
         <View className="relative flex-row items-center justify-center px-4 pb-2 pt-4">
           <View className="flex-row items-center gap-[6px]">
-            {ONBOARDING_SLIDES.map((slide, index) => (
-              <View
-                key={`dot-${slide.title}`}
-                style={[
-                  styles.dot,
-                  {
-                    backgroundColor:
-                      index === currentIndex
-                        ? "#F9363C"
-                        : "rgba(249, 54, 60, 0.25)",
-                  },
-                ]}
-              />
-            ))}
+            {ONBOARDING_SLIDES.length > 1
+              ? ONBOARDING_SLIDES.map((slide, index) => (
+                  <View
+                    key={`dot-${slide.title}`}
+                    style={[
+                      styles.dot,
+                      {
+                        backgroundColor:
+                          index === currentIndex
+                            ? "#F9363C"
+                            : "rgba(249, 54, 60, 0.25)",
+                      },
+                    ]}
+                  />
+                ))
+              : null}
           </View>
 
           {!isLast ? (
@@ -171,9 +173,9 @@ export function OnboardingSlidesScreen({ onDone, surface = "replay" }: Props) {
             <View
               key={slide.title}
               style={{ width }}
-              className="items-center justify-center px-8"
+              className="items-center justify-center"
             >
-              <View className="w-full items-center" style={{ maxWidth: 400 }}>
+              <View className="w-full items-center" style={{ maxWidth: 440 }}>
                 <View
                   className="w-full items-center justify-center"
                   style={{ height: imageHeight }}
@@ -186,7 +188,7 @@ export function OnboardingSlidesScreen({ onDone, surface = "replay" }: Props) {
                   />
                 </View>
 
-                <View className="mt-6 items-center gap-1">
+                <View className="mt-6 items-center gap-1 px-8">
                   <Text style={styles.title}>{slide.title}</Text>
                   <Text style={styles.description}>{slide.description}</Text>
                 </View>

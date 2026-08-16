@@ -12,8 +12,8 @@ import {
   Globe,
   Heart,
   Key,
+  Lightbulb,
   MessageSquare,
-  Network,
   RotateCcw,
   Trash2,
 } from "lucide-react-native";
@@ -22,11 +22,7 @@ import { Alert, StyleSheet, Switch } from "react-native";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
-import {
-  getSolanaEnv,
-  setSolanaEnvOverride,
-} from "@/lib/solana/rpc/connection";
-import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
+import { getShowTips, setShowTips } from "@/lib/settings";
 import { mmkv } from "@/lib/storage";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
@@ -159,7 +155,7 @@ export default function ProfileScreen() {
   const [analyticsOptIn, setAnalyticsOptIn] = useState(
     () => mmkv.getBoolean(ANALYTICS_OPT_IN_KEY) ?? true,
   );
-  const [isMainnet, setIsMainnet] = useState(() => getSolanaEnv() === "mainnet");
+  const [showTips, setShowTipsState] = useState(getShowTips);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
@@ -212,26 +208,12 @@ export default function ProfileScreen() {
     mmkv.setBoolean(ANALYTICS_OPT_IN_KEY, value);
   }, []);
 
-  const handleNetworkToggle = useCallback((value: boolean) => {
-    const nextEnv = value ? "mainnet" : "devnet";
-    Alert.alert(
-      `Switch to ${nextEnv}?`,
-      "The wallet will reload balances for the selected network.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Switch",
-          onPress: () => {
-            if (process.env.EXPO_OS !== "web") {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            }
-            setSolanaEnvOverride(nextEnv);
-            clearHoldingsCache();
-            setIsMainnet(value);
-          },
-        },
-      ],
-    );
+  const handleShowTipsToggle = useCallback((value: boolean) => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    setShowTipsState(value);
+    setShowTips(value);
   }, []);
 
   const handleBiometricToggle = useCallback(
@@ -325,7 +307,7 @@ export default function ProfileScreen() {
 
   return (
     <View className="flex-1 bg-white">
-      <LogoHeader />
+      <LogoHeader showSettings={false} />
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
@@ -347,13 +329,19 @@ export default function ProfileScreen() {
               onValueChange: handleNotificationToggle,
             }}
           />
+        </SettingsSection>
+
+        {/* Tips */}
+        <SettingsSection>
           <ProfileCell
-            icon={<Network size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
-            title="Mainnet"
-            subtitle={isMainnet ? "Using mainnet" : "Using devnet"}
+            icon={
+              <Lightbulb size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
+            }
+            title="Show tips"
+            subtitle="Show in-app hints, like the chart swipe hint"
             toggle={{
-              value: isMainnet,
-              onValueChange: handleNetworkToggle,
+              value: showTips,
+              onValueChange: handleShowTipsToggle,
             }}
           />
         </SettingsSection>

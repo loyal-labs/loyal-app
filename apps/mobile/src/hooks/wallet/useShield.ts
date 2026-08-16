@@ -47,7 +47,9 @@ function perAuthStorageKey(walletAddress: string): string {
   return `${PER_AUTH_TOKEN_STORAGE_PREFIX}${walletAddress}`;
 }
 
-function loadCachedPerAuthToken(walletAddress: string): PerAuthToken | null {
+function loadCachedPerAuthToken(
+  walletAddress: string,
+): PerAuthToken | null {
   const raw = mmkv.getString(perAuthStorageKey(walletAddress));
   if (!raw) return null;
   try {
@@ -68,7 +70,10 @@ function loadCachedPerAuthToken(walletAddress: string): PerAuthToken | null {
   }
 }
 
-function persistPerAuthToken(walletAddress: string, token: PerAuthToken): void {
+function persistPerAuthToken(
+  walletAddress: string,
+  token: PerAuthToken,
+): void {
   mmkv.setString(perAuthStorageKey(walletAddress), JSON.stringify(token));
 }
 
@@ -98,7 +103,7 @@ function encodeBase58(bytes: Uint8Array): string {
 }
 
 function getLastSignature(
-  result: ShieldFlowExecutionResult
+  result: ShieldFlowExecutionResult,
 ): string | undefined {
   return result.signatures.at(-1)?.signature;
 }
@@ -162,7 +167,7 @@ export function useShield(): {
   executeShield: (params: ShieldParams) => Promise<ShieldResult>;
   executeUnshield: (params: ShieldParams) => Promise<ShieldResult>;
   estimateFee: (
-    params: EstimateShieldFeeParams
+    params: EstimateShieldFeeParams,
   ) => Promise<ShieldFeeEstimate | null>;
   loading: boolean;
   error: string | null;
@@ -178,7 +183,7 @@ export function useShield(): {
   // real auth) — only for buildShield/UnshieldTokensTransactionPlan +
   // estimateShield/UnshieldTokensFee, which are pure reads.
   const estimateClientRef = useRef<LoyalPrivateTransactionsClientType | null>(
-    null
+    null,
   );
   const perAuthTokenRef = useRef<PerAuthToken | null>(null);
   const labelsRef = useRef<ConfirmLabels | undefined>(undefined);
@@ -192,7 +197,7 @@ export function useShield(): {
       signer
         ? withConfirmation(signer, signApproval, () => labelsRef.current)
         : null,
-    [signer, signApproval]
+    [signer, signApproval],
   );
 
   // Rehydrate the in-memory ref from MMKV on mount / signer change so
@@ -214,10 +219,7 @@ export function useShield(): {
   const getPerAuthToken = useCallback(
     async (perRpcEndpoint: string): Promise<PerAuthToken> => {
       const cached = perAuthTokenRef.current;
-      if (
-        cached &&
-        cached.expiresAt > Date.now() + PER_AUTH_REFRESH_WINDOW_MS
-      ) {
+      if (cached && cached.expiresAt > Date.now() + PER_AUTH_REFRESH_WINDOW_MS) {
         return cached;
       }
 
@@ -241,10 +243,7 @@ export function useShield(): {
         throw new Error(`PER auth challenge failed: ${reason}`);
       }
 
-      if (
-        typeof challengeData.challenge !== "string" ||
-        !challengeData.challenge
-      ) {
+      if (typeof challengeData.challenge !== "string" || !challengeData.challenge) {
         throw new Error("PER auth challenge is missing");
       }
 
@@ -279,11 +278,7 @@ export function useShield(): {
         error?: unknown;
       };
 
-      if (
-        !loginResponse.ok ||
-        typeof loginData.token !== "string" ||
-        !loginData.token
-      ) {
+      if (!loginResponse.ok || typeof loginData.token !== "string" || !loginData.token) {
         const reason =
           typeof loginData.error === "string" && loginData.error
             ? loginData.error
@@ -300,11 +295,11 @@ export function useShield(): {
       persistPerAuthToken(walletAddress, token);
       return token;
     },
-    [confirmingSigner]
+    [confirmingSigner],
   );
 
-  const getClient =
-    useCallback(async (): Promise<LoyalPrivateTransactionsClientType> => {
+  const getClient = useCallback(
+    async (): Promise<LoyalPrivateTransactionsClientType> => {
       if (clientRef.current) return clientRef.current;
 
       if (!confirmingSigner) {
@@ -313,9 +308,10 @@ export function useShield(): {
 
       const { rpcEndpoint, websocketEndpoint } = getEndpoints(solanaEnv);
       const { perRpcEndpoint, perWsEndpoint } = getPerEndpoints(solanaEnv);
-      const authToken = perRpcEndpoint.includes("tee")
-        ? await getPerAuthToken(perRpcEndpoint)
-        : undefined;
+      const authToken =
+        perRpcEndpoint.includes("tee")
+          ? await getPerAuthToken(perRpcEndpoint)
+          : undefined;
 
       const client = await LoyalPrivateTransactionsClient.fromConfig({
         signer: confirmingSigner,
@@ -328,10 +324,12 @@ export function useShield(): {
 
       clientRef.current = client;
       return client;
-    }, [getPerAuthToken, confirmingSigner, solanaEnv]);
+    },
+    [getPerAuthToken, confirmingSigner, solanaEnv],
+  );
 
-  const getEstimateClient =
-    useCallback(async (): Promise<LoyalPrivateTransactionsClientType> => {
+  const getEstimateClient = useCallback(
+    async (): Promise<LoyalPrivateTransactionsClientType> => {
       // Prefer the fully-authed real client if we already have it (it
       // can estimate too, and reuses the cached auth token).
       if (clientRef.current) return clientRef.current;
@@ -373,7 +371,9 @@ export function useShield(): {
 
       estimateClientRef.current = client;
       return client;
-    }, [confirmingSigner, solanaEnv]);
+    },
+    [confirmingSigner, solanaEnv],
+  );
 
   const executeShield = useCallback(
     async (params: ShieldParams): Promise<ShieldResult> => {
@@ -445,7 +445,7 @@ export function useShield(): {
               } catch (err) {
                 console.warn(
                   "[useShield] failed to persist Kamino USDC shield basis",
-                  err
+                  err,
                 );
               }
             }
@@ -453,7 +453,7 @@ export function useShield(): {
         } catch (err) {
           console.warn(
             `[useShield] post-shield bookkeeping failed (signature=${signature})`,
-            err
+            err,
           );
         }
 
@@ -474,7 +474,7 @@ export function useShield(): {
         return { success: false, error: errorMessage };
       }
     },
-    [signer, confirmingSigner, getClient, solanaEnv]
+    [signer, confirmingSigner, getClient, solanaEnv],
   );
 
   const executeUnshield = useCallback(
@@ -512,7 +512,8 @@ export function useShield(): {
         // shares. Skip the Kamino quote when the user chose MAX — we'll
         // burn the deposit directly from its on-chain amount instead.
         const trackedKaminoMint = resolveTrackedKaminoUsdcMint(solanaEnv);
-        const isTrackedKaminoToken = trackedKaminoMint === tokenMint.toBase58();
+        const isTrackedKaminoToken =
+          trackedKaminoMint === tokenMint.toBase58();
         const wantsMax = params.isMax === true;
 
         const currentDepositRaw = await getDepositAmount({
@@ -572,7 +573,7 @@ export function useShield(): {
             } catch (err) {
               console.warn(
                 "[useShield] failed to persist Kamino USDC unshield basis",
-                err
+                err,
               );
             }
           }
@@ -595,12 +596,12 @@ export function useShield(): {
         return { success: false, error: errorMessage };
       }
     },
-    [signer, confirmingSigner, getClient, solanaEnv]
+    [signer, confirmingSigner, getClient, solanaEnv],
   );
 
   const estimateFee = useCallback(
     async (
-      params: EstimateShieldFeeParams
+      params: EstimateShieldFeeParams,
     ): Promise<ShieldFeeEstimate | null> => {
       if (!signer || !confirmingSigner) return null;
 
@@ -610,7 +611,7 @@ export function useShield(): {
 
       const decimals = getShieldTokenDecimals(params);
       const requestedRawAmount = BigInt(
-        Math.floor(params.amount * 10 ** decimals)
+        Math.floor(params.amount * 10 ** decimals),
       );
       if (requestedRawAmount <= BigInt(0)) return null;
 
@@ -668,7 +669,7 @@ export function useShield(): {
         return null;
       }
     },
-    [signer, confirmingSigner, getEstimateClient]
+    [signer, confirmingSigner, getEstimateClient],
   );
 
   return { executeShield, executeUnshield, estimateFee, loading, error };
