@@ -7,27 +7,40 @@ const VAULT_ACCOUNT_KEY = "loyal.seedVaultAccount";
  * inside the vault; we only need to remember the auth token, which
  * derivation path we authorized, and the resolved base58 Solana address
  * so the wallet can display it before any signing operation runs.
+ *
+ * `authToken` is a native Kotlin Long carried as a decimal string — a JS
+ * number would corrupt values above 2^53.
  */
 export type StoredVaultAccount = {
-  authToken: number;
+  authToken: string;
   derivationPath: string;
   /** Base58-encoded Solana public key. */
   publicKey: string;
 };
 
-function isStoredVaultAccount(value: unknown): value is StoredVaultAccount {
-  if (typeof value !== "object" || value === null) return false;
+function parseStoredVaultAccount(value: unknown): StoredVaultAccount | null {
+  if (typeof value !== "object" || value === null) return null;
   const v = value as Record<string, unknown>;
-  return (
-    typeof v.authToken === "number" &&
-    Number.isFinite(v.authToken) &&
-    typeof v.derivationPath === "string" &&
-    typeof v.publicKey === "string"
-  );
+  if (typeof v.derivationPath !== "string" || typeof v.publicKey !== "string") {
+    return null;
+  }
+  // Records written before the string-token migration hold a number.
+  const authToken =
+    typeof v.authToken === "string" && /^\d+$/.test(v.authToken)
+      ? v.authToken
+      : typeof v.authToken === "number" && Number.isFinite(v.authToken)
+        ? String(v.authToken)
+        : null;
+  if (authToken === null) return null;
+  return {
+    authToken,
+    derivationPath: v.derivationPath,
+    publicKey: v.publicKey,
+  };
 }
 
 export async function storeVaultAccount(
-  account: StoredVaultAccount
+  account: StoredVaultAccount,
 ): Promise<void> {
   await SecureStore.setItemAsync(VAULT_ACCOUNT_KEY, JSON.stringify(account));
 }
@@ -36,8 +49,7 @@ export async function loadVaultAccount(): Promise<StoredVaultAccount | null> {
   const raw = await SecureStore.getItemAsync(VAULT_ACCOUNT_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw);
-    return isStoredVaultAccount(parsed) ? parsed : null;
+    return parseStoredVaultAccount(JSON.parse(raw));
   } catch {
     return null;
   }

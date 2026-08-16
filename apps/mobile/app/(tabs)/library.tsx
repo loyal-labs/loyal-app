@@ -80,7 +80,7 @@ export default function LibraryScreen() {
 
   return (
     <View className="flex-1 bg-white">
-      <LogoHeader />
+      <LogoHeader showLibrary={false} />
       <ScrollView
         className="flex-1 bg-white"
         contentInsetAdjustmentBehavior="automatic"

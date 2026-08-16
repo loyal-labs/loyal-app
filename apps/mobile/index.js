@@ -7,6 +7,13 @@ if (typeof globalThis.crypto === "undefined") {
   globalThis.crypto = {};
 }
 
+// Capture cold-start time before expo-router evaluates the application graph.
+// Loading telemetry reads this marker after the authenticated Earn screen has
+// painted its initial wallet, position, and Autodeposit state.
+if (typeof globalThis.__loyalMobileAppStartedAtMs !== "number") {
+  globalThis.__loyalMobileAppStartedAtMs = Date.now();
+}
+
 // Polyfills must load before any route module evaluation.
 require("./src/polyfills");
 

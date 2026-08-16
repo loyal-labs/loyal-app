@@ -48,7 +48,7 @@ function makeCtx() {
   let nextDecision = true;
 
   const requestApproval: SignApprovalContextValue["requestApproval"] = (
-    request
+    request,
   ) => {
     requests.push(request);
     return Promise.resolve(nextDecision);
@@ -74,7 +74,7 @@ function buildTransferTx(payer: Keypair = Keypair.generate()) {
       fromPubkey: payer.publicKey,
       toPubkey: to.publicKey,
       lamports: LAMPORTS_PER_SOL,
-    })
+    }),
   );
   return tx;
 }
@@ -92,7 +92,10 @@ describe("withConfirmation", () => {
     await wrapped.signTransaction(buildTransferTx(keypair));
 
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.kind).toBe("transaction");
+    expect(requests[0]).toMatchObject({
+      kind: "transaction",
+      title: "Send 1 SOL",
+    });
   });
 
   it("throws and does not call the keypair signer when rejected", async () => {
@@ -104,7 +107,7 @@ describe("withConfirmation", () => {
     const wrapped = withConfirmation(inner, ctx);
 
     await expect(
-      wrapped.signTransaction(buildTransferTx(keypair))
+      wrapped.signTransaction(buildTransferTx(keypair)),
     ).rejects.toBeInstanceOf(UserRejectedSigningError);
     expect(signTransactionSpy).not.toHaveBeenCalled();
   });
@@ -120,9 +123,13 @@ describe("withConfirmation", () => {
     const tx = buildTransferTx();
     await wrapped.signTransaction(tx);
 
-    expect(inner.mocks.signTransaction).toHaveBeenCalledTimes(1);
+    expect(inner.mocks.signTransaction).toHaveBeenCalledWith(tx);
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.kind).toBe("transaction");
+    expect(requests[0]).toMatchObject({
+      kind: "transaction",
+      title: "Shield 4 USDC",
+      subtitle: "Loyal → Kamino",
+    });
   });
 
   it("throws UserRejectedSigningError when the user rejects", async () => {
@@ -131,9 +138,9 @@ describe("withConfirmation", () => {
     setDecision(false);
     const wrapped = withConfirmation(inner, ctx);
 
-    await expect(
-      wrapped.signTransaction(buildTransferTx())
-    ).rejects.toBeInstanceOf(UserRejectedSigningError);
+    await expect(wrapped.signTransaction(buildTransferTx())).rejects.toBeInstanceOf(
+      UserRejectedSigningError,
+    );
     expect(inner.mocks.signTransaction).not.toHaveBeenCalled();
   });
 
@@ -147,7 +154,10 @@ describe("withConfirmation", () => {
 
     expect(inner.mocks.signAllTransactions).toHaveBeenCalledTimes(1);
     expect(requests).toHaveLength(1);
-    expect(requests[0]?.kind).toBe("transaction");
+    expect(requests[0]).toMatchObject({
+      kind: "transaction",
+      title: "Approve transactions",
+    });
   });
 
   it("asks for approval before a signMessage call", async () => {
@@ -158,7 +168,10 @@ describe("withConfirmation", () => {
     const bytes = new Uint8Array([1, 2, 3, 4]);
     await wrapped.signMessage(bytes);
 
-    expect(inner.mocks.signMessage).toHaveBeenCalledTimes(1);
-    expect(requests[0]?.kind).toBe("message");
+    expect(inner.mocks.signMessage).toHaveBeenCalledWith(bytes);
+    expect(requests[0]).toMatchObject({
+      kind: "message",
+      title: "Sign in to Jup",
+    });
   });
 });

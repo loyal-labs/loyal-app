@@ -26,7 +26,5 @@ export function derivePriceChange24hPercent({
     return null;
   }
 
-  return (
-    ((lastPoint.priceUsd - firstPoint.priceUsd) / firstPoint.priceUsd) * 100
-  );
+  return ((lastPoint.priceUsd - firstPoint.priceUsd) / firstPoint.priceUsd) * 100;
 }

@@ -4,18 +4,17 @@ import type { TokenHolding } from "@/lib/solana/token-holdings/types";
 import {
   fetchTokenDetailMarket,
   type MobileTokenDetailResponse,
+  type TokenDetailTimeframe,
 } from "@/services/api";
 import type { Transaction } from "@/types/wallet";
 
-import {
-  buildTokenDetailViewModel,
-  type TokenDetailViewModel,
-} from "./view-model";
+import { buildTokenDetailViewModel, type TokenDetailViewModel } from "./view-model";
 
 type UseTokenDetailInput = {
   mint: string;
   holdings: TokenHolding[];
   transactions: Transaction[];
+  timeframe?: TokenDetailTimeframe;
 };
 
 type UseTokenDetailResult = {
@@ -29,6 +28,7 @@ export function useTokenDetail({
   mint,
   holdings,
   transactions,
+  timeframe = "1d",
 }: UseTokenDetailInput): UseTokenDetailResult {
   const [market, setMarket] = useState<MobileTokenDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,25 +41,28 @@ export function useTokenDetail({
     setError(null);
 
     try {
-      const detail = await fetchTokenDetailMarket(mint);
+      const detail = await fetchTokenDetailMarket(mint, timeframe);
       if (fetchId === fetchIdRef.current) {
         setMarket(detail);
       }
     } catch (err) {
       if (fetchId === fetchIdRef.current) {
-        setError(
-          err instanceof Error ? err.message : "Failed to fetch token detail"
-        );
+        setError(err instanceof Error ? err.message : "Failed to fetch token detail");
       }
     } finally {
       if (fetchId === fetchIdRef.current) {
         setLoading(false);
       }
     }
+  }, [mint, timeframe]);
+
+  // Drop stale data when the token changes, but keep the previous chart on
+  // timeframe switches so the page doesn't flash back to its loading state.
+  useEffect(() => {
+    setMarket(null);
   }, [mint]);
 
   useEffect(() => {
-    setMarket(null);
     setLoading(true);
     setError(null);
     void reload();

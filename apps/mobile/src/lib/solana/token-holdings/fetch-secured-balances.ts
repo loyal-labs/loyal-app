@@ -4,7 +4,7 @@ import {
   type DepositData,
   type WalletLike,
 } from "@loyal-labs/private-transactions";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 
 import type { Signer } from "@/lib/wallet/signer";
 
@@ -216,16 +216,17 @@ async function getDeposits(args: {
     };
   }
 
-  const connection = getConnection();
-  const { perRpcEndpoint } = getPerEndpoints(args.solanaEnv);
-  const ephemeralConnection = new Connection(perRpcEndpoint, "confirmed");
-
+  // Read-only path (no signed client): enumerate from the base chain only.
+  // The ephemeral PER/TEE endpoint requires an auth token we deliberately do
+  // NOT mint here — minting it signs a message, which on Seeker triggers a
+  // Seed Vault prompt on every wallet view. An unauthenticated ephemeral
+  // connection just 401s ("Missing token query param") and logs a noisy
+  // warning; base-delegated reads already surface shielded balances.
   return {
     client: null,
     deposits: await enumerateDepositsByUser({
       user: args.owner,
-      baseConnection: connection,
-      ephemeralConnection,
+      baseConnection: getConnection(),
     }),
   };
 }

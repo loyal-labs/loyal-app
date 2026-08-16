@@ -12,13 +12,13 @@ import {
  */
 export interface Signer {
   readonly publicKey: PublicKey;
-  readonly kind: "local" | "seed-vault";
+  readonly kind: "local" | "seed-vault" | "mwa";
   signMessage(bytes: Uint8Array): Promise<Uint8Array>;
   signTransaction<T extends Transaction | VersionedTransaction>(
-    tx: T
+    tx: T,
   ): Promise<T>;
   signAllTransactions<T extends Transaction | VersionedTransaction>(
-    txs: T[]
+    txs: T[],
   ): Promise<T[]>;
 }
 
@@ -58,7 +58,7 @@ export class LocalKeypairSigner implements Signer {
   }
 
   async signTransaction<T extends Transaction | VersionedTransaction>(
-    tx: T
+    tx: T,
   ): Promise<T> {
     if (tx instanceof VersionedTransaction) {
       tx.sign([this.keypair]);
@@ -69,7 +69,7 @@ export class LocalKeypairSigner implements Signer {
   }
 
   async signAllTransactions<T extends Transaction | VersionedTransaction>(
-    txs: T[]
+    txs: T[],
   ): Promise<T[]> {
     for (const tx of txs) {
       await this.signTransaction(tx);

@@ -19,13 +19,10 @@ export class FetchTimeoutError extends Error {
 
 export async function fetchWithTimeout(
   input: RequestInfo,
-  init: RequestInit & { timeoutMs?: number } = {}
+  init: RequestInit & { timeoutMs?: number } = {},
 ): Promise<Response> {
-  const {
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    signal: externalSignal,
-    ...rest
-  } = init;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal: externalSignal, ...rest } =
+    init;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -42,8 +39,10 @@ export async function fetchWithTimeout(
   try {
     return await fetch(input, { ...rest, signal: controller.signal });
   } catch (error) {
+    // Hermes has no DOMException global — referencing it throws
+    // "Property 'DOMException' doesn't exist", so match aborts by name.
     if (
-      error instanceof DOMException &&
+      error instanceof Error &&
       error.name === "AbortError" &&
       !externalSignal?.aborted
     ) {

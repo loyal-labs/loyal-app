@@ -1,7 +1,8 @@
+import { WalletRejectedError } from "../rejection";
 import type { Signer } from "../signer";
 import type { SignApprovalContextValue } from "./types";
 
-export class UserRejectedSigningError extends Error {
+export class UserRejectedSigningError extends WalletRejectedError {
   constructor(message = "User rejected signing request.") {
     super(message);
     this.name = "UserRejectedSigningError";
@@ -13,13 +14,9 @@ export type ConfirmLabels = {
   subtitle?: string;
 };
 
-export type ConfirmLabelsSource =
-  | ConfirmLabels
-  | (() => ConfirmLabels | undefined);
+export type ConfirmLabelsSource = ConfirmLabels | (() => ConfirmLabels | undefined);
 
-function resolveLabels(
-  source?: ConfirmLabelsSource
-): ConfirmLabels | undefined {
+function resolveLabels(source?: ConfirmLabelsSource): ConfirmLabels | undefined {
   if (!source) return undefined;
   return typeof source === "function" ? source() : source;
 }
@@ -38,7 +35,7 @@ function resolveLabels(
 export function withConfirmation(
   signer: Signer,
   ctx: SignApprovalContextValue,
-  labels?: ConfirmLabelsSource
+  labels?: ConfirmLabelsSource,
 ): Signer {
   const { requestApproval } = ctx;
 

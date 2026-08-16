@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 
 import { fetchWithTimeout } from "@/lib/network/fetch-with-timeout";
-import type { Signer } from "@/lib/wallet/signer";
 
 import { NATIVE_SOL_DECIMALS, NATIVE_SOL_MINT } from "../constants";
 import { getSolanaEnv } from "../rpc/connection";
@@ -133,9 +132,9 @@ function resolveImageUrl(asset: HeliusAsset): string | null {
   return imageUrl.length > 0 ? imageUrl : null;
 }
 
-// Helius getAssetsByOwner returns NFTs/cNFTs/SBTs (e.g. Seeker Genesis Token)
-// alongside fungibles when showFungible is true. Only the fungible interfaces
-// belong in the wallet's token list.
+// searchAssets tokenType "fungible" should only return these interfaces, but
+// keep the filter as a backstop so an NFT/SBT (e.g. Seeker Genesis Token) can
+// never leak into the wallet's token list.
 const FUNGIBLE_ASSET_INTERFACES: ReadonlySet<string> = new Set([
   "FungibleToken",
   "FungibleAsset",
@@ -268,16 +267,21 @@ async function fetchHoldingsFromHelius(
   const response = await fetchWithTimeout(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    // searchAssets with tokenType "fungible", NOT getAssetsByOwner with
+    // showFungible: getAssetsByOwner pages NFTs and fungibles together, so a
+    // wallet with 1000+ airdrop-spam NFTs (common on Seeker) fills page 1
+    // entirely with NFTs and the wallet's actual tokens never arrive — USDC
+    // and the rest silently vanish from the app.
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: "token-holdings",
-      method: "getAssetsByOwner",
+      method: "searchAssets",
       params: {
         ownerAddress: publicKey,
+        tokenType: "fungible",
         page: 1,
         limit: 1000,
-        displayOptions: {
-          showFungible: true,
+        options: {
           showNativeBalance: true,
         },
       },
@@ -309,8 +313,7 @@ async function fetchHoldingsFromHelius(
 
 export async function fetchTokenHoldings(
   publicKey: string,
-  forceRefresh = false,
-  signer?: Signer | null
+  forceRefresh = false
 ): Promise<TokenHolding[]> {
   try {
     new PublicKey(publicKey);
@@ -319,13 +322,21 @@ export async function fetchTokenHoldings(
   }
 
   const cached = holdingsCache.get(publicKey);
-  const canUseCache = !forceRefresh && !signer;
-  if (canUseCache && isCacheValid(cached)) {
+  if (!forceRefresh && isCacheValid(cached)) {
     return cached!.holdings;
   }
 
+  // Coalesce concurrent fetches for the same wallet — including forced ones.
+  // One holdings fetch fans out into several RPC calls (searchAssets +
+  // getProgramAccounts via enumerateDepositsByUser + per-mint reads + a Kamino
+  // quote); getProgramAccounts in particular is heavily rate-limited. With many
+  // mounted useTokenHoldings instances and several `forceRefresh` callers firing
+  // together (deposit/withdraw/sweep + mutation refresh + polls), letting forced
+  // calls skip this dedup launched that whole fan-out in parallel and tripped
+  // Helius into 429s with a single user. An in-flight request is already a live
+  // fetch, so joining it returns equally-fresh data without duplicating load.
   const inflight = inflightRequests.get(publicKey);
-  if (inflight && canUseCache) {
+  if (inflight) {
     return inflight;
   }
 
@@ -339,11 +350,7 @@ export async function fetchTokenHoldings(
     async (holdings) => {
       let allHoldings = holdings;
       try {
-        const securedHoldings = await fetchSecuredBalances(
-          publicKey,
-          holdings,
-          signer
-        );
+        const securedHoldings = await fetchSecuredBalances(publicKey, holdings);
         allHoldings = [...holdings, ...securedHoldings];
       } catch (error) {
         console.warn(

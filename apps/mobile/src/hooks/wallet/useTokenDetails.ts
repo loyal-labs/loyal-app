@@ -15,7 +15,7 @@ export type TokenDetailsByMint = Record<
 async function fetchTokenDetailWithRetry(
   mint: string,
   maxAttempts = 3,
-  retryDelayMs = 250
+  retryDelayMs = 250,
 ): Promise<MobileTokenDetailResponse> {
   let lastDetail: MobileTokenDetailResponse | null = null;
   let lastError: unknown = null;
@@ -48,11 +48,11 @@ async function fetchTokenDetailWithRetry(
 // Helius-supplied holding data or the KNOWN_TOKEN_* last-resort maps.
 export function useTokenDetails(
   mints: string[],
-  resetKey: number = 0
+  resetKey: number = 0,
 ): TokenDetailsByMint {
   const mintsKey = useMemo(
     () => Array.from(new Set(mints)).sort().join("|"),
-    [mints]
+    [mints],
   );
 
   const [detailsByMint, setDetailsByMint] = useState<TokenDetailsByMint>({});
@@ -71,6 +71,22 @@ export function useTokenDetails(
   // showing skeletons against an empty state until `mintsKey` next shifts.
   const lastResetKeyRef = useRef(resetKey);
 
+  // Track mounted state at the hook level — NOT per effect run. The previous
+  // per-run `cancelled` flag discarded a run's in-flight results whenever
+  // `mintsKey` changed (which happens 2-3x during load as holdings then
+  // transactions arrive). Those mints were already marked attempted, so they
+  // were never re-fetched and stayed permanently without market data — that
+  // is the "some tokens never load a price" bug (e.g. USDT). We now only skip
+  // applying results after a real unmount, so a superseded run's valid
+  // results still merge in.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (lastResetKeyRef.current !== resetKey) {
       lastResetKeyRef.current = resetKey;
@@ -86,13 +102,12 @@ export function useTokenDetails(
 
     const uniqueMints = mintsKey.split("|");
     const missing = uniqueMints.filter(
-      (mint) => !attemptedRef.current.has(mint)
+      (mint) => !attemptedRef.current.has(mint),
     );
     if (missing.length === 0) return;
 
     for (const mint of missing) attemptedRef.current.add(mint);
 
-    let cancelled = false;
     void Promise.allSettled(
       missing.map(async (mint) => {
         try {
@@ -105,13 +120,13 @@ export function useTokenDetails(
           });
           return { mint, ok: false as const };
         }
-      })
+      }),
     ).then((results) => {
-      if (cancelled) return;
+      if (!mountedRef.current) return;
       const successes = results.flatMap((r) =>
         r.status === "fulfilled" && r.value.ok
           ? [[r.value.mint, r.value.detail] as const]
-          : []
+          : [],
       );
       if (successes.length === 0) return;
       setDetailsByMint((current) => {
@@ -120,10 +135,6 @@ export function useTokenDetails(
         return next;
       });
     });
-
-    return () => {
-      cancelled = true;
-    };
   }, [mintsKey, resetKey]);
 
   return detailsByMint;

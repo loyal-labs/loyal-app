@@ -6,20 +6,22 @@ export function normalizeTokenChartTimestamp(timestamp: number) {
   return timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
 }
 
+// Scrub label under the finger, e.g. "Jun 18, 6:00 PM" (Figma 316:9540).
 export function formatTokenChartTimeLabel(timestamp: number) {
   const date = new Date(normalizeTokenChartTimestamp(timestamp));
-  const hasMinutes = date.getMinutes() !== 0;
 
   return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
     hour: "numeric",
-    ...(hasMinutes ? { minute: "2-digit" } : {}),
+    minute: "2-digit",
   }).format(date);
 }
 
 export function getTokenChartPointIndex(
   points: TokenChartPoint[],
   chartWidth: number,
-  locationX: number
+  locationX: number,
 ) {
   if (points.length === 0 || chartWidth <= 0) {
     return null;
@@ -40,7 +42,7 @@ export function buildTokenChartCoordinates(
   options?: {
     topInset?: number;
     bottomInset?: number;
-  }
+  },
 ) {
   if (points.length === 0 || width <= 0 || height <= 0) {
     return [];
@@ -55,14 +57,11 @@ export function buildTokenChartCoordinates(
   const priceRange = maxPrice - minPrice;
 
   return points.map((point, index) => {
-    const x =
-      points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
+    const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
     const y =
       priceRange === 0
         ? topInset + drawableHeight / 2
-        : topInset +
-          drawableHeight -
-          ((point.priceUsd - minPrice) / priceRange) * drawableHeight;
+        : topInset + drawableHeight - ((point.priceUsd - minPrice) / priceRange) * drawableHeight;
 
     return {
       ...point,
@@ -72,16 +71,15 @@ export function buildTokenChartCoordinates(
   });
 }
 
-export function buildTokenChartPath(coordinates: { x: number; y: number }[]) {
+export function buildTokenChartPath(
+  coordinates: { x: number; y: number }[],
+) {
   if (coordinates.length === 0) {
     return "";
   }
 
   return coordinates
-    .map(
-      (point, index) =>
-        `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
-    )
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
     .join(" ");
 }
 
@@ -94,7 +92,7 @@ export function buildTokenChartPath(coordinates: { x: number; y: number }[]) {
  */
 export function downsampleTokenChartPoints(
   points: TokenChartPoint[],
-  targetCount: number
+  targetCount: number,
 ): TokenChartPoint[] {
   if (targetCount <= 0) return [];
   if (points.length <= targetCount) return points;
@@ -122,7 +120,7 @@ export function downsampleTokenChartPoints(
  * about the price ever exceeding the data range.
  */
 export function buildTokenChartSplinePath(
-  coordinates: { x: number; y: number }[]
+  coordinates: { x: number; y: number }[],
 ) {
   const n = coordinates.length;
   if (n === 0) return "";
