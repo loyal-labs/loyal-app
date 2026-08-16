@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   type CoinGeckoChartPoint,
+  type CoinGeckoChartTimeframe,
   type CoinGeckoTokenData,
   type CoinGeckoTokenInfo,
   fetchCoinGeckoCoinChart,
@@ -13,6 +14,25 @@ import {
 const TOKEN_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
 
 export type MobileTokenDetailChartPoint = CoinGeckoChartPoint;
+
+export type MobileTokenDetailTimeframe = CoinGeckoChartTimeframe;
+
+const MOBILE_TOKEN_DETAIL_TIMEFRAMES: readonly MobileTokenDetailTimeframe[] = [
+  "1d",
+  "1w",
+  "1m",
+  "1y",
+];
+
+export function parseMobileTokenDetailTimeframe(
+  value: string | null
+): MobileTokenDetailTimeframe {
+  return (MOBILE_TOKEN_DETAIL_TIMEFRAMES as readonly string[]).includes(
+    value ?? ""
+  )
+    ? (value as MobileTokenDetailTimeframe)
+    : "1d";
+}
 
 export type MobileTokenDetailLinks = {
   website: string | null;
@@ -75,15 +95,15 @@ async function getSettledValue<T>(promise: Promise<T>): Promise<T | null> {
   }
 }
 
-function getCachedTokenDetail(mint: string): MobileTokenDetailResponse | null {
-  const cached = tokenDetailCache.get(mint);
+function getCachedTokenDetail(key: string): MobileTokenDetailResponse | null {
+  const cached = tokenDetailCache.get(key);
 
   if (!cached) {
     return null;
   }
 
   if (cached.expiresAt <= Date.now()) {
-    tokenDetailCache.delete(mint);
+    tokenDetailCache.delete(key);
     return null;
   }
 
@@ -99,13 +119,14 @@ function canCacheTokenDetail(detail: MobileTokenDetailResponse): boolean {
 }
 
 function setCachedTokenDetail(
+  key: string,
   detail: MobileTokenDetailResponse
 ): MobileTokenDetailResponse {
   if (!canCacheTokenDetail(detail)) {
     return detail;
   }
 
-  tokenDetailCache.set(detail.mint, {
+  tokenDetailCache.set(key, {
     expiresAt: Date.now() + TOKEN_DETAIL_CACHE_TTL_MS,
     value: detail,
   });
@@ -131,11 +152,12 @@ function derivePriceChange24hPercent(
 }
 
 async function loadChartFor(
-  token: CoinGeckoTokenData
+  token: CoinGeckoTokenData,
+  timeframe: MobileTokenDetailTimeframe
 ): Promise<{ chart: MobileTokenDetailChartPoint[]; volumeOverride: number | null }> {
   if (token.coingeckoCoinId) {
     const result = await getSettledValue(
-      fetchCoinGeckoCoinChart(token.coingeckoCoinId)
+      fetchCoinGeckoCoinChart(token.coingeckoCoinId, timeframe)
     );
 
     if (result && result.points.length > 0) {
@@ -145,7 +167,7 @@ async function loadChartFor(
 
   if (token.topPoolIds.length > 0) {
     const points = await getSettledValue(
-      fetchCoinGeckoPoolOhlcv(token.topPoolIds[0])
+      fetchCoinGeckoPoolOhlcv(token.topPoolIds[0], timeframe)
     );
 
     if (points && points.length > 0) {
@@ -207,14 +229,16 @@ function buildResponse(
 }
 
 export async function fetchTokenDetailByMint(
-  mint: string
+  mint: string,
+  timeframe: MobileTokenDetailTimeframe = "1d"
 ): Promise<MobileTokenDetailResponse> {
-  const cached = getCachedTokenDetail(mint);
+  const cacheKey = `${mint}:${timeframe}`;
+  const cached = getCachedTokenDetail(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const inflight = tokenDetailInflight.get(mint);
+  const inflight = tokenDetailInflight.get(cacheKey);
   if (inflight) {
     return inflight;
   }
@@ -226,16 +250,17 @@ export async function fetchTokenDetailByMint(
     ]);
 
     const { chart, volumeOverride } = token
-      ? await loadChartFor(token)
+      ? await loadChartFor(token, timeframe)
       : { chart: [] as MobileTokenDetailChartPoint[], volumeOverride: null };
 
     return setCachedTokenDetail(
+      cacheKey,
       buildResponse(mint, token, info, chart, volumeOverride)
     );
   })().finally(() => {
-    tokenDetailInflight.delete(mint);
+    tokenDetailInflight.delete(cacheKey);
   });
 
-  tokenDetailInflight.set(mint, request);
+  tokenDetailInflight.set(cacheKey, request);
   return request;
 }

@@ -113,7 +113,7 @@ describe("fetchTokenDetailByMint", () => {
     expect(fetchCoinGeckoTokenInfo).toHaveBeenCalledWith(
       "So11111111111111111111111111111111111111112"
     );
-    expect(fetchCoinGeckoCoinChart).toHaveBeenCalledWith("loyal");
+    expect(fetchCoinGeckoCoinChart).toHaveBeenCalledWith("loyal", "1d");
     expect(fetchCoinGeckoPoolOhlcv).not.toHaveBeenCalled();
   });
 
@@ -131,7 +131,7 @@ describe("fetchTokenDetailByMint", () => {
       market: { volume24hUsd: 100_000 },
     });
 
-    expect(fetchCoinGeckoPoolOhlcv).toHaveBeenCalledWith("pool-one");
+    expect(fetchCoinGeckoPoolOhlcv).toHaveBeenCalledWith("pool-one", "1d");
   });
 
   test("returns nullable defaults when CoinGecko sections fail", async () => {

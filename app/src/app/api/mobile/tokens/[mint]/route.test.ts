@@ -40,6 +40,8 @@ const fetchTokenDetailByMint = mock(async () => ({
 
 mock.module("@/lib/market/token-detail.server", () => ({
   fetchTokenDetailByMint,
+  parseMobileTokenDetailTimeframe: (value: string | null) =>
+    ["1d", "1w", "1m", "1y"].includes(value ?? "") ? value : "1d",
 }));
 
 let GET: typeof import("./route").GET;
@@ -73,7 +75,7 @@ describe("mobile token detail route", () => {
       { params: Promise.resolve({ mint: "target-mint" }) }
     );
 
-    expect(fetchTokenDetailByMint).toHaveBeenCalledWith("target-mint");
+    expect(fetchTokenDetailByMint).toHaveBeenCalledWith("target-mint", "1d");
     expect(response.status).toBe(200);
     expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(await response.json()).toEqual({
