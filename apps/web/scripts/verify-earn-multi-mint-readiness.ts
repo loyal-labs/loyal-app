@@ -14,10 +14,8 @@ import {
   TimescaleReserveClient,
 } from "../src/lib/kamino/timescale-reserve-client.server";
 import {
-  EARN_ENABLED_STABLECOINS_ENV_NAME,
   type EarnProductAsset,
   getEarnProductAssetsForCluster,
-  parseEnabledEarnStablecoins,
 } from "../src/lib/yield-optimization/earn-product-mints.shared";
 
 const APY_FRESHNESS_MS = 36 * 60 * 60 * 1000;
@@ -83,7 +81,6 @@ async function buildProductReport(args: {
   asset: EarnProductAsset;
   connection: Connection | null;
   eligibleRows: CurrentEligibleSafeReserve[] | null;
-  enabledStablecoins: readonly string[];
   history: readonly (TimescaleReserveApySample & { reserve: string })[];
   klendProgramId: PublicKey;
   now: Date;
@@ -128,7 +125,7 @@ async function buildProductReport(args: {
     apyCurrentFresh: selected ? apyFresh : null,
     apyHistorySampleCount: selected ? sampleCount : null,
     blockers: productBlockers,
-    depositEnabled: args.enabledStablecoins.includes(args.asset.stablecoin),
+    depositEnabled: true,
     eligibleSafeReserveCount: args.eligibleRows ? rows.length : null,
     mint,
     reserveIdentity: reserveIdentity.status,
@@ -143,9 +140,6 @@ async function main() {
   const now = new Date();
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
-  const enabledStablecoins = parseEnabledEarnStablecoins(
-    process.env[EARN_ENABLED_STABLECOINS_ENV_NAME]
-  );
   const assets = getEarnProductAssetsForCluster(cluster);
   const databaseUrl = getTimescaleReserveDatabaseUrl();
   const rpcEndpoint = explicitRpcEndpoint(solanaEnv);
@@ -192,7 +186,6 @@ async function main() {
           asset,
           connection,
           eligibleRows,
-          enabledStablecoins,
           history,
           klendProgramId,
           now,

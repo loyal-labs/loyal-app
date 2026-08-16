@@ -62,7 +62,7 @@ import {
   getStablecoinMintSetForSolanaEnv,
   isStablecoinMint,
 } from "@/lib/wallet/stablecoin-classification";
-import { getEnabledEarnProductAssetsForCluster } from "@/lib/yield-optimization/earn-product-mints.shared";
+import { getEarnProductAssetsForCluster } from "@/lib/yield-optimization/earn-product-mints.shared";
 
 type ActionView = Exclude<SubView, null>;
 
@@ -425,16 +425,13 @@ export function CryptoPage({
   // receive selector and ranked right after LOYAL.
   const earnProductAssets = useMemo(
     () =>
-      getEnabledEarnProductAssetsForCluster({
-        cluster: resolveLoyalClusterForSolanaEnv(
-          resolveSolanaEnv(publicEnv.solanaEnv)
-        ),
-        enabledStablecoins: publicEnv.earnEnabledStablecoins,
-      }).map((asset) => ({
+      getEarnProductAssetsForCluster(
+        resolveLoyalClusterForSolanaEnv(resolveSolanaEnv(publicEnv.solanaEnv))
+      ).map((asset) => ({
         mint: asset.mint.toBase58(),
         symbol: asset.symbol,
       })),
-    [publicEnv.earnEnabledStablecoins, publicEnv.solanaEnv]
+    [publicEnv.solanaEnv]
   );
   const earnEligibleMints = useMemo(
     () => new Set(earnProductAssets.map((asset) => asset.mint)),

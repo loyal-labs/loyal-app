@@ -20,7 +20,6 @@ import {
   isSmartAccountProvisioningError,
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
-import { getPublicEnv } from "@/lib/core/config/public";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
@@ -31,9 +30,8 @@ import {
   serializePreparedEarnUsdcDeposit,
 } from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
 import {
-  EarnMintNotEnabledError,
   type EarnProductAsset,
-  resolveEnabledEarnProductAsset,
+  resolveEarnProductAsset,
 } from "@/lib/yield-optimization/earn-product-mints.shared";
 import {
   findBestSafeEarnReserveTargetWithRetry,
@@ -143,18 +141,13 @@ export async function POST(request: Request) {
   const solanaEnv = getConfiguredSolanaEnv();
   const cluster = resolveLoyalClusterForSolanaEnv(solanaEnv);
   const connection = getConnection(solanaEnv);
-  const enabledStablecoins = getPublicEnv().earnEnabledStablecoins;
   let productMint: EarnProductAsset;
   try {
-    productMint = resolveEnabledEarnProductAsset({
+    productMint = resolveEarnProductAsset({
       cluster,
-      enabledStablecoins,
       mint,
     });
   } catch (error) {
-    if (error instanceof EarnMintNotEnabledError) {
-      return jsonError(409, error.code, error.message);
-    }
     return jsonError(
       400,
       "unsupported_mint",

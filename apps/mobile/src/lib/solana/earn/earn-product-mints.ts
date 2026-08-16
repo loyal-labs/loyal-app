@@ -72,10 +72,6 @@ const DEVNET_ASSETS: EarnProductAsset[] = [
   },
 ];
 
-// ponytail: no enabled-set env mirror — the server rejects disabled mints
-// with 409 earn_mint_not_enabled; add EXPO_PUBLIC_EARN_ENABLED_STABLECOINS
-// parsing if a client-side rollout gate is ever needed.
-
 // Product list for the app's configured Solana env (pass `env.solanaEnv`).
 // Localnet has no Earn product mints; fall back to the mainnet catalog so dev
 // builds still render a coherent selector.

@@ -34,7 +34,7 @@ import {
 } from "@/hooks/use-wallet-desktop-data";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
 import { getTokenIconUrl } from "@/lib/token-icon";
-import { getEnabledEarnProductAssetsForCluster } from "@/lib/yield-optimization/earn-product-mints.shared";
+import { getEarnProductAssetsForCluster } from "@/lib/yield-optimization/earn-product-mints.shared";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
 const MIN_DEPOSIT_USD = 1;
@@ -177,10 +177,7 @@ export function DepositPane({
     const cluster = resolveLoyalClusterForSolanaEnv(
       resolveSolanaEnv(publicEnv.solanaEnv)
     );
-    return getEnabledEarnProductAssetsForCluster({
-      cluster,
-      enabledStablecoins: publicEnv.earnEnabledStablecoins,
-    }).map((asset) => {
+    return getEarnProductAssetsForCluster(cluster).map((asset) => {
       const mint = asset.mint.toBase58();
       const position = data.positions.find(
         (candidate) => candidate.asset.mint === mint
@@ -198,12 +195,7 @@ export function DepositPane({
             : portfolioUsd,
       };
     });
-  }, [
-    actions.mainUsdcAmount,
-    data.positions,
-    publicEnv.earnEnabledStablecoins,
-    publicEnv.solanaEnv,
-  ]);
+  }, [actions.mainUsdcAmount, data.positions, publicEnv.solanaEnv]);
   // Default to USDC, but when it has no balance prefer the funded stablecoin
   // (largest balance) so a fully swapped wallet doesn't open on a $0 source.
   const defaultSource = useMemo(() => {

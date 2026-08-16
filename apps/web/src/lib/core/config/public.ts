@@ -2,11 +2,6 @@ import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import {
-  EARN_ENABLED_STABLECOINS_ENV_NAME,
-  type EarnProductStablecoin,
-  parseEnabledEarnStablecoins,
-} from "@/lib/yield-optimization/earn-product-mints.shared";
-import {
   getOptionalEnv,
   isStrictTrue,
   type AppEnvironment,
@@ -44,7 +39,6 @@ export type PublicEnv = {
   swap: SwapConfig;
   skillsEnabled: boolean;
   demoRecipeEnabled: boolean;
-  earnEnabledStablecoins: readonly EarnProductStablecoin[];
   mixpanelToken: string | undefined;
   mixpanelProxyPath: string;
   usercentricsSettingsId: string | undefined;
@@ -118,9 +112,6 @@ export function createPublicEnv(env: EnvSource): PublicEnv {
       getOptionalEnv(env, SKILLS_ENABLED_ENV_NAME) ?? "true"
     ),
     demoRecipeEnabled: isStrictTrue(getOptionalEnv(env, DEMO_RECIPE_ENV_NAME)),
-    earnEnabledStablecoins: parseEnabledEarnStablecoins(
-      getOptionalEnv(env, EARN_ENABLED_STABLECOINS_ENV_NAME)
-    ),
     mixpanelToken: getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_TOKEN"),
     mixpanelProxyPath: (() => {
       const value = getOptionalEnv(env, "NEXT_PUBLIC_MIXPANEL_PROXY_PATH");
