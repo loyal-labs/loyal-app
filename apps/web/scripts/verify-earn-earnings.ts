@@ -70,9 +70,12 @@ function fixtureHolding(args: {
   return {
     amountRaw: rawUsdc(100),
     confirmedAt: args.at,
+    confirmedSlot: BigInt(args.at.getTime()),
+    id: BigInt(args.at.getTime()),
     liquidityMint: "USDC",
     market: reserve === "reserve-a" ? "market-a" : "market-b",
     principalAmountRaw: rawUsdc(100),
+    positionId: BigInt(1),
     reserve,
     type: args.type,
   } as UserYieldPositionHistoryEventRecord;
@@ -176,9 +179,7 @@ async function verifyFixtures() {
   );
 
   const lifecyclePath = buildCanonicalEarningsPath({
-    holdingEvents: [
-      fixtureHolding({ at: DEPOSIT_AT, type: "deposit" }),
-    ],
+    holdingEvents: [fixtureHolding({ at: DEPOSIT_AT, type: "deposit" })],
     ledgerEvents: [
       ...ledgerEvents,
       {
@@ -374,8 +375,7 @@ async function verifyFixtures() {
     "principal/history lag retains verified snapshot as updating",
     lagged.freshness === "stale" &&
       lagged.staleReason === "history_incomplete" &&
-      lagged.ranges.ALL.lifetimeEarnedUsd ===
-        fresh.ranges.ALL.lifetimeEarnedUsd
+      lagged.ranges.ALL.lifetimeEarnedUsd === fresh.ranges.ALL.lifetimeEarnedUsd
   );
 
   const materialRevision = await readEarnEarningsRangeSet(

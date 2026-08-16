@@ -111,6 +111,7 @@ export type UserYieldPositionHistoryEventRecord = {
   destinationMarket?: string | null;
   destinationLiquidityMint?: string | null;
   principalAmountRaw: bigint;
+  positionId: bigint;
   signature: string;
   type: "deposit" | "withdrawal" | "rebalance" | "reconciliation";
 };
@@ -3931,6 +3932,7 @@ async function findYieldPositionHistoryEventsForPosition(
       market: event.market,
       principalDeltaRaw: event.principalDeltaRaw,
       principalAmountRaw,
+      positionId: position.id,
       reserve: event.reserve,
       signature:
         event.signature ??

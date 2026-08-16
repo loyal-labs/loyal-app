@@ -24,6 +24,7 @@ import {
 import {
   findActiveYieldPositionsForVault,
   findCompleteYieldVaultExposureSnapshots,
+  findYieldPositionHistoryEventsForVault,
   findYieldPositionEvents,
   type UserYieldPositionHistoryEventRecord,
   type UserYieldPositionRecord,
@@ -152,6 +153,51 @@ function findHoldingAt(
     current = event;
   }
   return current;
+}
+
+export function buildHoldingBackedPortfolioSnapshots(args: {
+  completeSnapshots: readonly YieldPortfolioSnapshot[];
+  holdingEvents: readonly UserYieldPositionHistoryEventRecord[];
+}): YieldPortfolioSnapshot[] {
+  const completeSnapshots = [...args.completeSnapshots].sort(
+    (left, right) => left.observedAt.getTime() - right.observedAt.getTime()
+  );
+  const firstCompleteSnapshotAt =
+    completeSnapshots[0]?.observedAt.getTime() ?? Number.POSITIVE_INFINITY;
+  const currentExposureByPosition = new Map<
+    bigint,
+    YieldPortfolioSnapshot["exposures"][number]
+  >();
+  const holdingBackedSnapshots: YieldPortfolioSnapshot[] = [];
+
+  for (const event of [...args.holdingEvents].sort((left, right) =>
+    comparePathEvents(left, right)
+  )) {
+    if (event.confirmedAt.getTime() >= firstCompleteSnapshotAt) {
+      break;
+    }
+
+    const positionId = event.positionId;
+    if (event.amountRaw > BigInt(0)) {
+      currentExposureByPosition.set(positionId, {
+        amountRaw: event.amountRaw,
+        kind: "kamino",
+        liquidityMint: event.liquidityMint,
+        reserve: event.reserve,
+        sourceId: `position:${positionId.toString()}:reserve:${event.reserve}`,
+      });
+    } else {
+      currentExposureByPosition.delete(positionId);
+    }
+
+    holdingBackedSnapshots.push({
+      exposures: [...currentExposureByPosition.values()],
+      observedAt: event.confirmedAt,
+      observedSlot: event.confirmedSlot,
+    });
+  }
+
+  return [...holdingBackedSnapshots, ...completeSnapshots];
 }
 
 export function buildCanonicalEarningsPath(args: {
@@ -741,6 +787,7 @@ export async function readEarnEarningsRangeSet(
     apyTimeoutMs: 8000,
     loadApySamples,
     loadLedgerEvents: findYieldPositionEvents,
+    loadHoldingEvents: findYieldPositionHistoryEventsForVault,
     loadPortfolioSnapshots: findCompleteYieldVaultExposureSnapshots,
     loadPositions: findActiveYieldPositionsForVault,
     loadSnapshot,
@@ -782,30 +829,10 @@ export async function readEarnEarningsRangeSet(
           ? dependencies.loadHoldingEvents(input)
           : [],
       ]);
-    const portfolioSnapshots =
-      loadedPortfolioSnapshots.length > 0
-        ? loadedPortfolioSnapshots
-        : [...holdingEvents]
-            .sort(
-              (left, right) =>
-                left.confirmedAt.getTime() - right.confirmedAt.getTime()
-            )
-            .map((event) => ({
-              exposures:
-                event.amountRaw > BigInt(0)
-                  ? [
-                      {
-                        amountRaw: event.amountRaw,
-                        kind: "kamino" as const,
-                        liquidityMint: event.liquidityMint,
-                        reserve: event.reserve,
-                        sourceId: `reserve:${event.reserve}`,
-                      },
-                    ]
-                  : [],
-              observedAt: event.confirmedAt,
-              observedSlot: event.confirmedSlot,
-            }));
+    const portfolioSnapshots = buildHoldingBackedPortfolioSnapshots({
+      completeSnapshots: loadedPortfolioSnapshots,
+      holdingEvents,
+    });
     const effectiveLedgerEvents = ledgerEvents.map((event) => ({
       ...event,
       liquidityMint:
