@@ -189,9 +189,16 @@ describe("executeEarnWithdraw", () => {
     fetchEarnWithdrawPrepareContext.mockResolvedValue(fullFinalExitContext());
     fetchEarnWithdrawCleanupPrepareContext.mockResolvedValue({
       cleanupInput: {
-        closeVaultCollateralAtas: [],
-        idleAmountRaw: "7",
         policySigner: address,
+        vaultTokenAccounts: [
+          {
+            address,
+            amountRaw: "7",
+            decimals: 6,
+            mint: address,
+            tokenProgramId: address,
+          },
+        ],
         yieldRoutingPolicy: {
           account: address,
           seed: "1",
@@ -249,7 +256,7 @@ describe("executeEarnWithdraw", () => {
     );
     expect(prepareEarnUsdcCleanup).toHaveBeenCalledWith(
       expect.objectContaining({
-        idleAmountRaw: BigInt(7),
+        vaultTokenAccounts: [expect.objectContaining({ amountRaw: BigInt(7) })],
         walletAddress: PublicKey.default,
       }),
     );
@@ -283,7 +290,12 @@ describe("executeEarnWithdraw", () => {
     expect(result).toEqual({
       withdrawalSignatures: ["withdraw-signature"],
     });
-    expect(warn).toHaveBeenCalledTimes(1);
+    // Message-matched, not counted: the fixture's placeholder mint also draws
+    // a benign catalog-miss warning from tokenProgramForEarnMint.
+    expect(warn).toHaveBeenCalledWith(
+      "[earn-withdraw] cleanup skipped after landed withdrawal",
+      expect.anything(),
+    );
     warn.mockRestore();
   });
 

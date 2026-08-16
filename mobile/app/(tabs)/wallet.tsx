@@ -61,7 +61,9 @@ import {
   SOLANA_USDC_MINT_DEVNET,
   SOLANA_USDC_MINT_MAINNET,
 } from "@/lib/solana/constants";
+import { env } from "@/config/env";
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
+import { getEarnProductAssets } from "@/lib/solana/earn/earn-product-mints";
 import { getSolanaEnv, onSolanaEnvChange } from "@/lib/solana/rpc/connection";
 import { clearHoldingsCache } from "@/lib/solana/token-holdings/fetch-token-holdings";
 import type { ShieldDirection } from "@/lib/solana/shielding";
@@ -248,14 +250,18 @@ export default function WalletScreen() {
     );
   }, [earnLoaded, earnUsd, earnPolicyMissing, solBalanceLamports]);
 
-  // Wallet USDC balance feeds the Deposit sheet's available/insufficient state.
-  const usdcAvailable = useMemo(() => {
-    const holding = tokenHoldings.find(
-      (h) =>
-        h.mint === SOLANA_USDC_MINT_MAINNET ||
-        h.mint === SOLANA_USDC_MINT_DEVNET,
-    );
-    return holding && Number.isFinite(holding.balance) ? holding.balance : null;
+  // Wallet stablecoin balances feed the Deposit sheet's coin selector and its
+  // available/insufficient state (token units ≈ dollars for every 6-decimal
+  // Earn product stablecoin).
+  const stableBalancesByMint = useMemo(() => {
+    const balances: Record<string, number> = {};
+    for (const asset of getEarnProductAssets(env.solanaEnv)) {
+      const holding = tokenHoldings.find((h) => h.mint === asset.mint);
+      if (holding && Number.isFinite(holding.balance)) {
+        balances[asset.mint] = holding.balance;
+      }
+    }
+    return balances;
   }, [tokenHoldings]);
 
   const [isSendOpen, setIsSendOpen] = useState(false);
@@ -348,11 +354,11 @@ export default function WalletScreen() {
   // Deposit straight into Earn from the card's "+" — runs inline while the
   // sheet's button shows its loading state, so there's no jerky tab-hop.
   const handleDepositConfirmed = useCallback(
-    async (amountUsd: number) => {
+    async (amountUsd: number, mint: string) => {
       if (!signer || !isWalletUnlocked(state)) {
         throw new Error("Unlock your wallet to deposit.");
       }
-      await executeEarnDeposit({ signer, amountUsd });
+      await executeEarnDeposit({ signer, amountUsd, mint });
       void refreshEarnPosition();
       // The confirm also records quest progress — check now so a completion
       // celebrates immediately instead of on the watcher's next poll tick.
@@ -569,7 +575,7 @@ export default function WalletScreen() {
         open={isDepositOpen}
         onClose={() => setIsDepositOpen(false)}
         onDeposit={handleDepositConfirmed}
-        availableUsdc={usdcAvailable}
+        stableBalancesByMint={stableBalancesByMint}
         firstDepositSolShortfall={firstDepositSolShortfall}
         isFirstDeposit={earnLoaded && (earnUsd <= 0 || earnPolicyMissing)}
       />

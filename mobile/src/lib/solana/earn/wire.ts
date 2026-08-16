@@ -165,6 +165,8 @@ export function serializePreparedEarnUsdcDeposit(
     prepared: serializePreparedOperation(deposit.prepared),
     targetReserve: {
       liquidityMint: deposit.targetReserve.liquidityMint.toBase58(),
+      liquidityTokenProgram:
+        deposit.targetReserve.liquidityTokenProgram.toBase58(),
       market: deposit.targetReserve.market.toBase58(),
       obligation: deposit.targetReserve.obligation.toBase58(),
       reserve: deposit.targetReserve.reserve.toBase58(),
@@ -271,19 +273,25 @@ export function serializePreparedEarnUsdcWithdraw(
       : {}),
     prepared: serializePreparedOperation(withdraw.prepared),
     withdrawSteps: withdraw.withdrawSteps.map((step) => ({
-      accountingReserve: {
-        liquidityMint: step.accountingReserve.liquidityMint.toBase58(),
-        market: step.accountingReserve.market.toBase58(),
-        obligation: step.accountingReserve.obligation.toBase58(),
-        reserve: step.accountingReserve.reserve.toBase58(),
-      },
+      // Reserve/collateral step fields are null for idle-only withdrawals
+      // (vault stablecoin balance with no Kamino position).
+      accountingReserve: step.accountingReserve
+        ? {
+            liquidityMint: step.accountingReserve.liquidityMint.toBase58(),
+            market: step.accountingReserve.market.toBase58(),
+            obligation: step.accountingReserve.obligation.toBase58(),
+            reserve: step.accountingReserve.reserve.toBase58(),
+          }
+        : null,
       amountRaw: step.amountRaw.toString(),
-      collateralAta: step.collateralAta.toBase58(),
-      executionReserve: {
-        liquidityMint: step.executionReserve.liquidityMint.toBase58(),
-        market: step.executionReserve.market.toBase58(),
-        reserve: step.executionReserve.reserve.toBase58(),
-      },
+      collateralAta: step.collateralAta?.toBase58() ?? null,
+      executionReserve: step.executionReserve
+        ? {
+            liquidityMint: step.executionReserve.liquidityMint.toBase58(),
+            market: step.executionReserve.market.toBase58(),
+            reserve: step.executionReserve.reserve.toBase58(),
+          }
+        : null,
       mode: step.mode,
       persistence: step.persistence,
       prepared: serializePreparedOperation(step.prepared),
@@ -291,15 +299,19 @@ export function serializePreparedEarnUsdcWithdraw(
       stepCount: step.stepCount,
       stepIndex: step.stepIndex,
     })),
-    targetReserve: {
-      liquidityMint: withdraw.targetReserve.liquidityMint.toBase58(),
-      market: withdraw.targetReserve.market.toBase58(),
-      obligation: withdraw.targetReserve.obligation.toBase58(),
-      reserve: withdraw.targetReserve.reserve.toBase58(),
-    },
+    targetReserve: withdraw.targetReserve
+      ? {
+          liquidityMint: withdraw.targetReserve.liquidityMint.toBase58(),
+          liquidityTokenProgram:
+            withdraw.targetReserve.liquidityTokenProgram.toBase58(),
+          market: withdraw.targetReserve.market.toBase58(),
+          obligation: withdraw.targetReserve.obligation.toBase58(),
+          reserve: withdraw.targetReserve.reserve.toBase58(),
+        }
+      : null,
     vault: {
       accountIndex: withdraw.vault.accountIndex,
-      collateralAta: withdraw.vault.collateralAta.toBase58(),
+      collateralAta: withdraw.vault.collateralAta?.toBase58() ?? null,
       pubkey: withdraw.vault.pubkey.toBase58(),
       usdcAta: withdraw.vault.usdcAta.toBase58(),
     },

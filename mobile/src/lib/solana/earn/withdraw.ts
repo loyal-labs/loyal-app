@@ -18,6 +18,7 @@ import {
 
 import { executeEarnAutodepositClose } from "./autodeposit";
 import { withConnectionRetry } from "./connection-retry";
+import { tokenProgramForEarnMint } from "./earn-product-mints";
 import {
   confirmEarnWithdraw,
   confirmEarnWithdrawCleanup,
@@ -89,6 +90,9 @@ function hydrateEarnWithdrawInput(
                   id: wire.source.id,
                   mint: new PublicKey(wire.source.mint),
                   tokenAccount: new PublicKey(wire.source.tokenAccount),
+                  tokenProgramId: wire.source.tokenProgramId
+                    ? new PublicKey(wire.source.tokenProgramId)
+                    : tokenProgramForEarnMint(wire.source.mint),
                   type: "idle" as const,
                 }
               : {
@@ -101,10 +105,16 @@ function hydrateEarnWithdrawInput(
                 },
         }
       : {}),
+    // The context serializes targets without their token program, so it is
+    // re-derived from the mint here — the SDK requires it on any non-USDC
+    // target and validates it against the reserve account.
     ...(wire.target
       ? {
           target: {
             liquidityMint: new PublicKey(wire.target.liquidityMint),
+            liquidityTokenProgram: tokenProgramForEarnMint(
+              wire.target.liquidityMint,
+            ),
             market: new PublicKey(wire.target.market),
             reserve: new PublicKey(wire.target.reserve),
             supplyApyBps: wire.target.supplyApyBps
@@ -120,6 +130,9 @@ function hydrateEarnWithdrawInput(
               ? { amountRaw: BigInt(target.amountRaw) }
               : {}),
             liquidityMint: new PublicKey(target.liquidityMint),
+            liquidityTokenProgram: tokenProgramForEarnMint(
+              target.liquidityMint,
+            ),
             market: new PublicKey(target.market),
             reserve: new PublicKey(target.reserve),
             ...(target.reserveCollateralMint
@@ -171,13 +184,16 @@ function hydrateEarnWithdrawCleanupInput(
 ): SmartAccountEarnUsdcCleanupInput {
   const wire = context.cleanupInput;
   return {
-    closeVaultCollateralAtas: wire.closeVaultCollateralAtas.map(
-      (account) => new PublicKey(account),
-    ),
     cluster: normalizeLoyalCluster(context.cluster),
     feePayer: walletAddress,
-    idleAmountRaw: BigInt(wire.idleAmountRaw),
     policySigner: new PublicKey(wire.policySigner),
+    vaultTokenAccounts: wire.vaultTokenAccounts.map((account) => ({
+      address: new PublicKey(account.address),
+      amountRaw: BigInt(account.amountRaw),
+      decimals: account.decimals,
+      mint: new PublicKey(account.mint),
+      tokenProgramId: new PublicKey(account.tokenProgramId),
+    })),
     settingsPda: new PublicKey(context.settingsPda),
     walletAddress,
     yieldRoutingPolicy: {

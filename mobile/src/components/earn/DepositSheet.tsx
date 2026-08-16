@@ -31,15 +31,21 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { env } from "@/config/env";
+import { getEarnProductAssets } from "@/lib/solana/earn/earn-product-mints";
+import {
+  DEFAULT_TOKEN_ICON,
+  KNOWN_TOKEN_ICONS,
+} from "@/lib/solana/token-holdings/constants";
 
 const usdcLogo = require("../../../assets/images/earn/usdc.png");
 
-// Which stablecoin funds the deposit. Only USDC today, so the picker opens a
-// one-row list — it exists so another stablecoin is one more entry in
-// `sourceOptions` and nothing else. Mirrors the web deposit pane's
-// DepositSourceOption; the picker chrome is the withdraw sheet's source selector.
+// Which stablecoin funds the deposit — one row per Earn product asset
+// (CASH/USDG/PYUSD/USDC/USDT/USDS on mainnet). Mirrors the web deposit
+// pane's DepositSourceOption; the picker chrome is the withdraw sheet's
+// source selector.
 type DepositSourceOption = {
   symbol: string;
+  mint: string;
   logo: ImageSourcePropType;
   usd: number;
 };
@@ -148,14 +154,15 @@ function amountToUsd(raw: string): number {
 type DepositSheetProps = {
   open: boolean;
   onClose: () => void;
-  // Called with the entered USD amount when the user taps Deposit (after the
-  // minimum/balance checks pass). May return a Promise — while it's pending the
-  // Deposit button shows a loading spinner and the sheet stays open; it
-  // dismisses on success and surfaces the error in-place on failure.
-  onDeposit?: (amountUsd: number) => void | Promise<void>;
-  // The wallet's spendable USDC balance (token units ≈ dollars). `null` while
-  // holdings are still loading or the wallet has no USDC.
-  availableUsdc?: number | null;
+  // Called with the entered USD amount and the selected stablecoin's mint
+  // when the user taps Deposit (after the minimum/balance checks pass). May
+  // return a Promise — while it's pending the Deposit button shows a loading
+  // spinner and the sheet stays open; it dismisses on success and surfaces
+  // the error in-place on failure.
+  onDeposit?: (amountUsd: number, mint: string) => void | Promise<void>;
+  // The wallet's spendable balance per Earn product mint (token units ≈
+  // dollars). `null`/missing entries render as $0.00 while holdings load.
+  stableBalancesByMint?: Record<string, number> | null;
   // SOL still needed to cover the first-deposit minimum (see
   // computeFirstDepositSolShortfall). Non-null disables the CTA with a top-up
   // prompt; parents pass null when this isn't the wallet's first deposit.
@@ -171,7 +178,7 @@ export function DepositSheet({
   open,
   onClose,
   onDeposit,
-  availableUsdc,
+  stableBalancesByMint,
   firstDepositSolShortfall,
   isFirstDeposit,
 }: DepositSheetProps) {
@@ -201,13 +208,27 @@ export function DepositSheet({
   }, [submitting, isFirstDeposit]);
 
   const snapPoints = useMemo(() => ["94%"], []);
-  const usdcAvailable = Number.isFinite(availableUsdc ?? NaN)
-    ? (availableUsdc as number)
-    : 0;
-  const sourceOptions = useMemo<DepositSourceOption[]>(
-    () => [{ symbol: "USDC", logo: usdcLogo, usd: usdcAvailable }],
-    [usdcAvailable],
-  );
+  // One row per Earn product asset, funded coins first (the sheet opens
+  // downward, so funded rows sit nearest the trigger); product order within
+  // each group. Empty rows stay visible but disabled so the coin set reads
+  // complete — mirrors the web deposit selector.
+  const sourceOptions = useMemo<DepositSourceOption[]>(() => {
+    const options = getEarnProductAssets(env.solanaEnv).map((asset) => {
+      const balance = stableBalancesByMint?.[asset.mint];
+      return {
+        symbol: asset.symbol,
+        mint: asset.mint,
+        logo:
+          asset.symbol === "USDC"
+            ? usdcLogo
+            : { uri: KNOWN_TOKEN_ICONS[asset.mint] ?? DEFAULT_TOKEN_ICON },
+        usd: Number.isFinite(balance ?? NaN) ? (balance as number) : 0,
+      };
+    });
+    return options.sort(
+      (a, b) => (b.usd > 0 ? 1 : 0) - (a.usd > 0 ? 1 : 0),
+    );
+  }, [stableBalancesByMint]);
   const selectedSource =
     sourceOptions.find((option) => option.symbol === selectedSymbol) ??
     sourceOptions[0];
@@ -218,10 +239,25 @@ export function DepositSheet({
       setAmount("");
       setSubmitError(null);
       setSubmitting(false);
+      // Default selection: USDC when funded, else the largest funded stable,
+      // else USDC. Chosen once per open so the pill doesn't jump under the
+      // user's finger when balances refresh mid-entry.
+      const options = sourceOptions;
+      const usdc = options.find((option) => option.symbol === "USDC");
+      const richest = [...options].sort((a, b) => b.usd - a.usd)[0];
+      setSelectedSymbol(
+        usdc && usdc.usd > 0
+          ? "USDC"
+          : richest && richest.usd > 0
+            ? richest.symbol
+            : "USDC",
+      );
       sheetRef.current?.present();
     } else {
       sheetRef.current?.dismiss();
     }
+    // sourceOptions is intentionally read once per open/close transition.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Custom caret blink — native caret is hidden so we control timing/size.
@@ -282,7 +318,7 @@ export function DepositSheet({
     void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Keyboard.dismiss();
     setSubmitError(null);
-    const result = onDeposit?.(usd);
+    const result = onDeposit?.(usd, selectedSource.mint);
     // Synchronous handler (or none) → close immediately, as before.
     if (!(result instanceof Promise)) {
       sheetRef.current?.dismiss();
@@ -303,7 +339,7 @@ export function DepositSheet({
     } finally {
       setSubmitting(false);
     }
-  }, [amount, available, onDeposit]);
+  }, [amount, available, onDeposit, selectedSource.mint]);
 
   const renderBackdrop = useCallback(
     (props: React.ComponentProps<typeof BottomSheetBackdrop>) => (
@@ -553,33 +589,39 @@ export function DepositSheet({
           }}
         >
           <Text style={styles.sourceListTitle}>Stablecoins</Text>
-          {sourceOptions.map((option) => (
-            <Pressable
-              key={option.symbol}
-              onPress={() => selectSource(option.symbol)}
-              accessibilityRole="button"
-              accessibilityLabel={option.symbol}
-              style={({ pressed }) => [
-                styles.sourceRow,
-                { backgroundColor: pressed ? COLOR_CHIP_BG : "transparent" },
-              ]}
-            >
-              <Image
-                source={option.logo}
-                style={styles.sourceRowLogo}
+          {sourceOptions.map((option) => {
+            const isEmpty = option.usd <= 0;
+            return (
+              <Pressable
+                key={option.symbol}
+                onPress={() => selectSource(option.symbol)}
+                disabled={isEmpty}
+                accessibilityRole="button"
                 accessibilityLabel={option.symbol}
-              />
-              <View style={styles.sourceRowMiddle}>
-                <Text style={styles.sourceRowLabel}>{option.symbol}</Text>
-                <Text style={styles.sourceRowBalance}>
-                  {BALANCE_FORMATTER.format(option.usd)}
-                </Text>
-              </View>
-              {option.symbol === selectedSource.symbol ? (
-                <Check size={22} color={COLOR_BLACK} strokeWidth={2} />
-              ) : null}
-            </Pressable>
-          ))}
+                accessibilityState={{ disabled: isEmpty }}
+                style={({ pressed }) => [
+                  styles.sourceRow,
+                  { backgroundColor: pressed ? COLOR_CHIP_BG : "transparent" },
+                  isEmpty && styles.sourceRowDisabled,
+                ]}
+              >
+                <Image
+                  source={option.logo}
+                  style={styles.sourceRowLogo}
+                  accessibilityLabel={option.symbol}
+                />
+                <View style={styles.sourceRowMiddle}>
+                  <Text style={styles.sourceRowLabel}>{option.symbol}</Text>
+                  <Text style={styles.sourceRowBalance}>
+                    {BALANCE_FORMATTER.format(option.usd)}
+                  </Text>
+                </View>
+                {option.symbol === selectedSource.symbol ? (
+                  <Check size={22} color={COLOR_BLACK} strokeWidth={2} />
+                ) : null}
+              </Pressable>
+            );
+          })}
         </BottomSheetView>
       </BottomSheetModal>
     </>
@@ -802,6 +844,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 10,
     borderRadius: 16,
+  },
+  sourceRowDisabled: {
+    opacity: 0.4,
   },
   sourceRowLogo: {
     width: 32,

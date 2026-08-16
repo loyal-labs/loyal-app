@@ -53,7 +53,9 @@ import {
   type EarnWithdrawSourceInfo,
 } from "@/lib/solana/earn/earn-api";
 import { getVisibleEarnScheduledSweeps } from "@/lib/solana/earn/earn-scheduled-sweep";
+import { env } from "@/config/env";
 import { executeEarnDeposit } from "@/lib/solana/earn/deposit";
+import { getEarnProductAssets } from "@/lib/solana/earn/earn-product-mints";
 import { executeEarnWithdraw } from "@/lib/solana/earn/withdraw";
 import { useEarnAutodeposit } from "@/hooks/wallet/useEarnAutodeposit";
 import { useEarnAutodepositToggle } from "@/hooks/wallet/useEarnAutodepositToggle";
@@ -165,6 +167,18 @@ export default function EarnScreen() {
         h.mint === SOLANA_USDC_MINT_DEVNET,
     );
     return holding && Number.isFinite(holding.balance) ? holding.balance : null;
+  }, [tokenHoldings]);
+  // Per-mint spendable balances for the deposit coin selector (token units ≈
+  // dollars — every Earn product stablecoin is 6-decimal).
+  const stableBalancesByMint = useMemo(() => {
+    const balances: Record<string, number> = {};
+    for (const asset of getEarnProductAssets(env.solanaEnv)) {
+      const holding = tokenHoldings.find((h) => h.mint === asset.mint);
+      if (holding && Number.isFinite(holding.balance)) {
+        balances[asset.mint] = holding.balance;
+      }
+    }
+    return balances;
   }, [tokenHoldings]);
   // Real on-chain Earn position (read-only, no signing). Drives the funded
   // state + balance once it loads; the optimistic just-deposited value below
@@ -595,7 +609,7 @@ export default function EarnScreen() {
   }, []);
 
   const handleDepositConfirmed = useCallback(
-    async (amountUsd: number) => {
+    async (amountUsd: number, mint: string) => {
       const metric = startMobileLoadingMetric("earn.deposit");
       // Runs inline while the Deposit button shows its loading state — no
       // separate process screen. Throwing surfaces the error in the sheet.
@@ -603,7 +617,12 @@ export default function EarnScreen() {
         if (!signer || !isWalletUnlocked(state)) {
           throw new Error("Unlock your wallet to deposit.");
         }
-        await executeEarnDeposit({ signer, amountUsd, flowId: metric.flowId });
+        await executeEarnDeposit({
+          signer,
+          amountUsd,
+          mint,
+          flowId: metric.flowId,
+        });
         // Trust the read-model for the next reads — confirmEarnDeposit (inside
         // executeEarnDeposit, just awaited) wrote it with the deposited total, so
         // the next `/state` read is correct immediately while live `/holdings` lags.
@@ -1195,7 +1214,7 @@ export default function EarnScreen() {
         open={depositOpen}
         onClose={handleCloseDeposit}
         onDeposit={handleDepositConfirmed}
-        availableUsdc={usdcAvailable}
+        stableBalancesByMint={stableBalancesByMint}
         firstDepositSolShortfall={firstDepositSolShortfall}
         isFirstDeposit={
           earnPositionLoaded && (!hasDeposit || earnPolicyMissing)

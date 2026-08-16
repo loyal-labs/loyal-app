@@ -37,15 +37,20 @@ const usdcLogo = require("../../../assets/images/earn/usdc.png");
 // backend only sends the generic "USDC reserve"/"Idle USDC" label plus the
 // market pubkey, so the market name + venue badge are resolved on the client.
 function sourceLabel(source: EarnWithdrawSourceInfo): string {
-  if (source.type === "idle") {
-    return "Idle vault USDC";
-  }
-  const { marketName } = resolveEarnPositionDisplay({
+  const { marketName, mintSymbol } = resolveEarnPositionDisplay({
     market: source.market,
     liquidityMint: source.liquidityMint,
   });
-  return `${marketName} reserve`;
+  if (source.type === "idle") {
+    return `Idle vault ${mintSymbol}`;
+  }
+  return `${marketName} · ${mintSymbol} reserve`;
 }
+
+// Sources under this are dust a partial withdraw can't clear on its own — the
+// Max-exit cleanup collects them, so the picker disables their rows (mirrors
+// the web withdraw pane's dust rule).
+const DUST_SOURCE_USD = 0.005;
 
 // Token coin with the market's venue badge overlaid (same stack as the Positions
 // sheet). `tokenSize` sets the coin diameter; the box grows to fit the badge.
@@ -56,7 +61,7 @@ function SourceIcon({
   source: EarnWithdrawSourceInfo;
   tokenSize?: number;
 }) {
-  const { venue } = resolveEarnPositionDisplay({
+  const { mintSymbol, venue } = resolveEarnPositionDisplay({
     market: source.market,
     liquidityMint: source.liquidityMint,
   });
@@ -74,7 +79,7 @@ function SourceIcon({
           height: tokenSize,
           borderRadius: tokenSize / 2,
         }}
-        accessibilityLabel="USDC"
+        accessibilityLabel={mintSymbol}
       />
       <View style={{ position: "absolute", bottom: 0, right: 0 }}>
         <VenueBadge venue={venue} size={tokenSize} />
@@ -579,35 +584,43 @@ export function WithdrawSheet({
           }}
         >
           <Text style={styles.sourceListTitle}>Withdraw from</Text>
-          {sourceList.map((source) => {
-            const isSelected = source.id === selectedSourceId;
-            const label = sourceLabel(source);
-            return (
-              <Pressable
-                key={source.id}
-                onPress={() => selectSource(source.id)}
-                accessibilityRole="button"
-                accessibilityLabel={label}
-                style={({ pressed }) => [
-                  styles.sourceRow,
-                  { backgroundColor: pressed ? COLOR_CHIP_BG : "transparent" },
-                ]}
-              >
-                <SourceIcon source={source} />
-                <View style={styles.sourceRowMiddle}>
-                  <Text style={styles.sourceRowLabel} numberOfLines={1}>
-                    {label}
-                  </Text>
-                  <Text style={styles.sourceRowBalance}>
-                    {BALANCE_FORMATTER.format(sourceBalanceUsd(source))}
-                  </Text>
-                </View>
-                {isSelected ? (
-                  <Check size={22} color={COLOR_BLACK} strokeWidth={2} />
-                ) : null}
-              </Pressable>
-            );
-          })}
+          {[...sourceList]
+            .sort((a, b) => sourceBalanceUsd(b) - sourceBalanceUsd(a))
+            .map((source) => {
+              const isSelected = source.id === selectedSourceId;
+              const isDust = sourceBalanceUsd(source) < DUST_SOURCE_USD;
+              const label = sourceLabel(source);
+              return (
+                <Pressable
+                  key={source.id}
+                  onPress={() => selectSource(source.id)}
+                  disabled={isDust}
+                  accessibilityRole="button"
+                  accessibilityLabel={label}
+                  accessibilityState={{ disabled: isDust }}
+                  style={({ pressed }) => [
+                    styles.sourceRow,
+                    {
+                      backgroundColor: pressed ? COLOR_CHIP_BG : "transparent",
+                    },
+                    isDust && styles.sourceRowDisabled,
+                  ]}
+                >
+                  <SourceIcon source={source} />
+                  <View style={styles.sourceRowMiddle}>
+                    <Text style={styles.sourceRowLabel} numberOfLines={1}>
+                      {label}
+                    </Text>
+                    <Text style={styles.sourceRowBalance}>
+                      {BALANCE_FORMATTER.format(sourceBalanceUsd(source))}
+                    </Text>
+                  </View>
+                  {isSelected ? (
+                    <Check size={22} color={COLOR_BLACK} strokeWidth={2} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
         </BottomSheetView>
       </BottomSheetModal>
     </>
@@ -819,6 +832,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 10,
     borderRadius: 16,
+  },
+  sourceRowDisabled: {
+    opacity: 0.4,
   },
   sourceRowMiddle: {
     flex: 1,

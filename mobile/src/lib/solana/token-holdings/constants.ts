@@ -28,6 +28,22 @@ export const KNOWN_TOKEN_ICONS: Record<string, string> = {
     "https://assets.coingecko.com/coins/images/6319/standard/usdc.png",
   [SOLANA_USDT_MINT_MAINNET]:
     "https://assets.coingecko.com/coins/images/325/standard/Tether.png",
+  // Earn product stablecoins (mint literals; canonical PublicKeys live in
+  // @loyal-labs/actions). Art pinned to match the web catalog's icon
+  // overrides — CASH isn't listed on CoinGecko, and the issuer art for
+  // USDG/PYUSD is the canonical current mark (ASK-1355).
+  // CASH
+  CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH:
+    "https://token-metadata.bridge.xyz/images/cash.png",
+  // USDG
+  "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH":
+    "https://424565.fs1.hubspotusercontent-na1.net/hubfs/424565/GDN-USDG-Token-512x512.png",
+  // PYUSD
+  "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo":
+    "https://424565.fs1.hubspotusercontent-na1.net/hubfs/424565/PYUSDLOGO.png",
+  // USDS
+  USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA:
+    "https://coin-images.coingecko.com/coins/images/39926/large/usds.webp",
 };
 
 export const KNOWN_TOKEN_SYMBOLS: Record<string, string> = {
@@ -36,6 +52,10 @@ export const KNOWN_TOKEN_SYMBOLS: Record<string, string> = {
   [SOLANA_USDC_MINT_MAINNET]: "USDC",
   [SOLANA_USDC_MINT_DEVNET]: "USDC",
   [SOLANA_USDT_MINT_MAINNET]: "USDT",
+  CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH: "CASH",
+  "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH": "USDG",
+  "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo": "PYUSD",
+  USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA: "USDS",
 };
 
 // Mints where we override the token-detail endpoint's label. Native SOL

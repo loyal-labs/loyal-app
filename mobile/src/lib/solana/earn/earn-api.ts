@@ -151,6 +151,9 @@ export type EarnDepositPrepareContext = {
     reserve: string;
     market: string;
     liquidityMint: string;
+    // Absent from backends that predate multi-mint Earn (those only ever
+    // target USDC, where the SDK defaults the program itself).
+    liquidityTokenProgram?: string;
     supplyApyBps: string | null;
   } | null;
 };
@@ -158,9 +161,12 @@ export type EarnDepositPrepareContext = {
 // Resolves the on-device prepare context (auth + provisioning + DB reads only
 // — no instruction building server-side). Returns null when the backend
 // predates the endpoint so the caller can fall back to the server prepare.
+// `mint` selects the Earn product stablecoin; the server defaults omitted
+// mints to USDC (legacy-client shim, ASK-2099).
 export async function fetchEarnDepositPrepareContext(args: {
   auth: EarnAuthFields;
   amountRaw: string;
+  mint: string;
   flowId?: string;
 }): Promise<EarnDepositPrepareContext | null> {
   let res: Response;
@@ -173,6 +179,7 @@ export async function fetchEarnDepositPrepareContext(args: {
         body: JSON.stringify({
           ...args.auth,
           amountRaw: args.amountRaw,
+          mint: args.mint,
         }),
         timeoutMs: PREPARE_TIMEOUT_MS,
       },
@@ -198,6 +205,7 @@ export async function fetchEarnDepositPrepareContext(args: {
 export async function prepareEarnDeposit(args: {
   auth: EarnAuthFields;
   amountRaw: string;
+  mint: string;
   sponsored?: boolean;
   flowId?: string;
 }): Promise<EarnDepositPrepareResponse> {
@@ -211,6 +219,7 @@ export async function prepareEarnDeposit(args: {
         body: JSON.stringify({
           ...args.auth,
           amountRaw: args.amountRaw,
+          mint: args.mint,
           ...(args.sponsored ? { sponsored: true } : {}),
         }),
         timeoutMs: PREPARE_TIMEOUT_MS,
@@ -331,6 +340,9 @@ export type EarnWithdrawPrepareContext = {
           amountRaw: string;
           mint: string;
           tokenAccount: string;
+          // Absent from backends that predate multi-mint Earn; the hydrator
+          // derives it from `mint` via the product catalog then.
+          tokenProgramId?: string;
         }
       | null;
     target: {
@@ -397,15 +409,21 @@ export async function fetchEarnWithdrawPrepareContext(args: {
 
 // Fresh post-withdraw inputs for the device-side cleanup prepare. The backend
 // verifies that no Kamino holding remains at or after `minContextSlot` and
-// returns the exact stable vault-USDC balance; it does not build a transaction.
+// returns the full vault token-account inventory (any product mint, either
+// token program); it does not build a transaction.
 export type EarnWithdrawCleanupPrepareContext = {
   cluster: string;
   programId: string;
   settingsPda: string;
   cleanupInput: {
-    closeVaultCollateralAtas: string[];
-    idleAmountRaw: string;
     policySigner: string;
+    vaultTokenAccounts: {
+      address: string;
+      amountRaw: string;
+      decimals: number;
+      mint: string;
+      tokenProgramId: string;
+    }[];
     yieldRoutingPolicy: {
       account: string;
       seed: string;
@@ -487,11 +505,15 @@ export async function confirmEarnWithdraw(
   }
 }
 
-// A withdrawable Earn source (a Kamino reserve position or idle vault USDC),
-// with both display fields and the identifiers `withdraw/prepare` needs.
+// A withdrawable Earn source (a Kamino reserve position or an idle vault
+// stablecoin balance), with both display fields and the identifiers
+// `withdraw/prepare` needs. `sourceId` is the new-style stable identifier
+// (`reserve:<reserve>` / `idle:<tokenAccount>`); requests still use the
+// legacy `{ mode, source }` shape, which the backend keeps supporting.
 export type EarnWithdrawSourceInfo = {
   type: "reserve" | "idle";
   id: string;
+  sourceId?: string;
   label: string;
   amountRaw: string;
   liquidityMint: string;
@@ -1007,6 +1029,9 @@ export type EarnTransactionItem = {
   signature: string;
   sortTimestamp?: string;
   confirmedSlot: string;
+  // The moved stablecoin's mint; null on legacy (USDC-only) rows. Lets the
+  // client render per-mint coin icons.
+  liquidityMint?: string | null;
   source: EarnTransactionAccount;
   destination: EarnTransactionAccount;
 };

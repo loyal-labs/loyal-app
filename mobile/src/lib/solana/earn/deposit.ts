@@ -1,5 +1,8 @@
 import { normalizeLoyalCluster } from "@loyal-labs/actions";
-import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
+import {
+  createSmartAccountVaultsClient,
+  isEarnPolicyUpdateRequiredError,
+} from "@loyal-labs/smart-account-vaults";
 import { PublicKey } from "@solana/web3.js";
 
 import { env } from "@/config/env";
@@ -21,6 +24,10 @@ import {
   type EarnAuthFields,
   type WirePreparedEarnDeposit,
 } from "./earn-api";
+import {
+  EARN_PRODUCT_DECIMALS,
+  tokenProgramForEarnMint,
+} from "./earn-product-mints";
 import { signEarnAuth, withEarnAuth } from "./earn-auth";
 import {
   signAndSendPreparedOperations,
@@ -32,16 +39,15 @@ import {
   type HydratedPreparedOperation,
 } from "./wire";
 
-const USDC_DECIMALS = 6;
-
 const DEPOSIT_NETWORK_MESSAGE =
   "We couldn't reach the network to prepare the deposit. No funds moved — check your connection and try again.";
 
-function usdToUsdcRaw(amountUsd: number): string {
+// Every Earn product stablecoin is 6-decimal, so one conversion covers them all.
+function usdToStableRaw(amountUsd: number): string {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0) {
     throw new Error("Deposit amount must be greater than 0.");
   }
-  return BigInt(Math.round(amountUsd * 10 ** USDC_DECIMALS)).toString();
+  return BigInt(Math.round(amountUsd * 10 ** EARN_PRODUCT_DECIMALS)).toString();
 }
 
 export type EarnDepositResult = {
@@ -151,6 +157,41 @@ async function signSendAndConfirmDeposit(args: {
   return { depositSignature: deposit.signature };
 }
 
+// Policies are immutable permission records, so a legacy (classic-token-only)
+// Earn route policy is "updated" by creating a NEW owner-neutral route+setup
+// pair at the next seed — two signed transactions, one wallet prompt (the
+// Seed Vault batches them). The legacy pair stays on-chain and only strands
+// its rent. No dedicated confirm endpoint: `deposit/confirm` adopts a
+// chain-discovered policy pair (creation signature resolved from chain) when
+// the re-prepared deposit references one the DB doesn't know.
+async function runEarnPolicyUpdate(args: {
+  client: ReturnType<typeof createSmartAccountVaultsClient>;
+  context: { cluster: string; policySigner: string; settingsPda: string };
+  signer: Signer;
+}): Promise<void> {
+  const preparedPolicy = await withConnectionRetry(
+    "deposit policy update prepare",
+    DEPOSIT_NETWORK_MESSAGE,
+    () =>
+      args.client.prepareEarnUsdcYieldRoutingPolicy({
+        cluster: normalizeLoyalCluster(args.context.cluster),
+        feePayer: args.signer.publicKey,
+        settingsPda: new PublicKey(args.context.settingsPda),
+        signer: new PublicKey(args.context.policySigner),
+        walletAddress: args.signer.publicKey,
+      }),
+  );
+  // Route policy create must land before the setup finalize; strict order is
+  // what signAndSendPreparedOperations guarantees.
+  await signAndSendPreparedOperations({
+    connection: getConnection(),
+    signer: args.signer,
+    operations: [preparedPolicy.prepared, preparedPolicy.finalizePrepared].filter(
+      (operation) => operation != null,
+    ),
+  });
+}
+
 // Hydrate a server-prepared deposit's stages for the self-paid sign-and-send.
 function hydrateWireStages(
   preparedDeposit: WirePreparedEarnDeposit,
@@ -179,6 +220,9 @@ function hydrateWireStages(
 export async function executeEarnDeposit(args: {
   signer: Signer;
   amountUsd: number;
+  // The Earn product stablecoin being deposited (base58 mint, from the
+  // deposit sheet's coin selector).
+  mint: string;
   // The caller's loading-metric flow id, so the metric point and this flow's
   // events share one `loyal.flow.id`.
   flowId?: string;
@@ -209,10 +253,11 @@ async function runEarnDeposit(
   args: {
     signer: Signer;
     amountUsd: number;
+    mint: string;
   },
   flow: LifecycleFlow<"earn.deposit">,
 ): Promise<EarnDepositResult> {
-  const amountRaw = usdToUsdcRaw(args.amountUsd);
+  const amountRaw = usdToStableRaw(args.amountUsd);
   const walletAddress = args.signer.publicKey;
   const prepareAuth = await signEarnAuth(args.signer, "earn-deposit-prepare");
 
@@ -230,6 +275,7 @@ async function runEarnDeposit(
         prepareEarnDeposit({
           auth: prepareAuth,
           amountRaw,
+          mint: args.mint,
           sponsored: true,
           flowId: flow.flowId,
         }),
@@ -320,6 +366,7 @@ async function runEarnDeposit(
       fetchEarnDepositPrepareContext({
         auth: prepareAuth,
         amountRaw,
+        mint: args.mint,
         flowId: flow.flowId,
       }),
   );
@@ -332,6 +379,7 @@ async function runEarnDeposit(
         prepareEarnDeposit({
           auth: prepareAuth,
           amountRaw,
+          mint: args.mint,
           flowId: flow.flowId,
         }),
     );
@@ -359,15 +407,17 @@ async function runEarnDeposit(
     connection: getConnection(),
     programId: new PublicKey(context.programId),
   });
-  const preparedDeposit = await withConnectionRetry(
-    "deposit device prepare",
-    DEPOSIT_NETWORK_MESSAGE,
-    () =>
+  // After a policy update the DB-known route (the legacy pair) is stale, so
+  // the retry prepares WITHOUT the known route: the SDK's policy scan sorts
+  // compatible pairs first and picks up the freshly created one from chain.
+  const prepareOnDevice = (options: { scanPolicies: boolean }) =>
+    withConnectionRetry("deposit device prepare", DEPOSIT_NETWORK_MESSAGE, () =>
       client.prepareEarnUsdcDeposit({
         amountRaw: BigInt(amountRaw),
         cluster: normalizeLoyalCluster(context.cluster),
         feePayer: walletAddress,
-        initializeYieldRoutingPolicy: !context.yieldRoutingPolicy,
+        initializeYieldRoutingPolicy:
+          options.scanPolicies || !context.yieldRoutingPolicy,
         policySigner: new PublicKey(context.policySigner),
         revokeStrayUsdcDelegate: context.revokeStrayUsdcDelegate,
         settingsPda: new PublicKey(context.settingsPda),
@@ -376,6 +426,12 @@ async function runEarnDeposit(
           ? {
               target: {
                 liquidityMint: new PublicKey(context.target.liquidityMint),
+                liquidityTokenProgram: new PublicKey(
+                  context.target.liquidityTokenProgram ??
+                    tokenProgramForEarnMint(
+                      context.target.liquidityMint,
+                    ).toBase58(),
+                ),
                 market: new PublicKey(context.target.market),
                 reserve: new PublicKey(context.target.reserve),
                 supplyApyBps: context.target.supplyApyBps
@@ -384,7 +440,7 @@ async function runEarnDeposit(
               },
             }
           : {}),
-        ...(context.yieldRoutingPolicy
+        ...(!options.scanPolicies && context.yieldRoutingPolicy
           ? {
               yieldRoutingPolicy: {
                 account: new PublicKey(context.yieldRoutingPolicy.account),
@@ -405,7 +461,23 @@ async function runEarnDeposit(
             }
           : {}),
       }),
-  );
+    );
+  let preparedDeposit;
+  try {
+    preparedDeposit = await prepareOnDevice({ scanPolicies: false });
+  } catch (error) {
+    // A route policy from before Token-2022 support pins the liquidity mint's
+    // owner to the classic token program and cannot authorize CASH/USDG/PYUSD
+    // deposits. The remedy runs inline (mirroring web's forced policy setup):
+    // create a new owner-neutral pair, then re-prepare once — a second
+    // update-required error propagates normally.
+    if (!isEarnPolicyUpdateRequiredError(error)) {
+      throw error;
+    }
+    console.log("[earn-deposit] route policy predates Token-2022; updating");
+    await runEarnPolicyUpdate({ client, context, signer: args.signer });
+    preparedDeposit = await prepareOnDevice({ scanPolicies: true });
+  }
   flow.observe("prepare", {
     policyMode: context.yieldRoutingPolicy ? "reuse" : "create",
   });

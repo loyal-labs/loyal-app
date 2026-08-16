@@ -50,6 +50,12 @@ const MINT_SYMBOLS: Record<string, string> = {
   [SOLANA_USDC_MINT_MAINNET]: "USDC",
   [SOLANA_USDC_MINT_DEVNET]: "USDC",
   [SOLANA_USDT_MINT_MAINNET]: "USDT",
+  // Remaining Earn product stablecoins (canonical mints in
+  // `@loyal-labs/actions`; inlined per this module's convention).
+  CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH: "CASH",
+  "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH": "USDG",
+  "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo": "PYUSD",
+  USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA: "USDS",
 };
 
 function shortenAddress(address: string): string {

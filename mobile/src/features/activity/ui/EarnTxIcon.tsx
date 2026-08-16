@@ -1,4 +1,9 @@
-import { Image, StyleSheet, View } from "react-native";
+import {
+  Image,
+  type ImageSourcePropType,
+  StyleSheet,
+  View,
+} from "react-native";
 import Svg, { Ellipse, Path, Rect } from "react-native-svg";
 
 import { env } from "@/config/env";
@@ -6,6 +11,10 @@ import type {
   EarnTransactionAccount,
   EarnTransactionItem,
 } from "@/lib/solana/earn/earn-api";
+import {
+  KNOWN_TOKEN_ICONS,
+  KNOWN_TOKEN_SYMBOLS,
+} from "@/lib/solana/token-holdings/constants";
 
 import MainAvatar from "../../../../assets/images/earn/main-avatar.svg";
 import MapleVenue from "../../../../assets/images/earn/venues/earn-maple.svg";
@@ -26,6 +35,19 @@ const INLINE_SIZE = 16;
 
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
+}
+
+// The wallet-side coin of a deposit/withdraw row. Rows carry the moved
+// stablecoin's mint (null on legacy USDC-only rows); non-USDC mints resolve to
+// their pinned remote icon, USDC keeps the bundled asset for instant paint.
+function walletCoinSource(
+  liquidityMint: string | null | undefined,
+): ImageSourcePropType {
+  if (!liquidityMint || KNOWN_TOKEN_SYMBOLS[liquidityMint] === "USDC") {
+    return USDC_ICON;
+  }
+  const icon = KNOWN_TOKEN_ICONS[liquidityMint];
+  return icon ? { uri: icon } : USDC_ICON;
 }
 
 function absoluteUrl(icon: string): string {
@@ -58,7 +80,7 @@ function CompoundCoin({
   slot,
 }: {
   src: string | null;
-  fallback: number;
+  fallback: ImageSourcePropType;
   slot: "back" | "front";
 }) {
   const slotStyle = slot === "back" ? styles.iconBack : styles.iconFront;
@@ -92,6 +114,7 @@ export function EarnTxCompoundIcon({
 }: {
   item: {
     kind: EarnTransactionItem["kind"];
+    liquidityMint?: string | null;
     source?: EarnTransactionAccount;
     destination?: EarnTransactionAccount;
   };
@@ -113,17 +136,21 @@ export function EarnTxCompoundIcon({
     isMovement || item.kind === "deposit"
       ? (item.destination?.icon ?? null)
       : null;
+  // The wallet-side coin shows the actual moved stablecoin (deposits flow
+  // coin -> venue, withdrawals venue -> coin); the venue side comes from the
+  // server-provided icons above.
+  const coin = walletCoinSource(item.liquidityMint);
 
   return (
     <View style={styles.iconWrap}>
       <CompoundCoin
         src={backSrc}
-        fallback={isWithdraw ? KAMINO_ICON : USDC_ICON}
+        fallback={isWithdraw ? KAMINO_ICON : coin}
         slot="back"
       />
       <CompoundCoin
         src={frontSrc}
-        fallback={isWithdraw ? USDC_ICON : KAMINO_ICON}
+        fallback={isWithdraw ? coin : KAMINO_ICON}
         slot="front"
       />
     </View>
