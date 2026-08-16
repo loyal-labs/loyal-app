@@ -752,6 +752,36 @@ export const pushTokens = pgTable(
   ]
 );
 
+// Per-wallet bookkeeping for the automated Earn "joy" pushes (ASK-2091).
+// One row per wallet holds both halves of the decision: the lifetime earnings
+// the user was last told about (so a digest reports the delta, not the total)
+// and the one-time pushes already sent. The joy cron is the only writer, so a
+// JSON set is enough and keeps this to a single upsert per wallet.
+export const earnYieldPushState = pgTable(
+  "earn_yield_push_state",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    walletPublicKey: text("wallet_public_key").notNull(),
+    lastPushedEarnedUsd: numeric("last_pushed_earned_usd", {
+      precision: 20,
+      scale: 6,
+    })
+      .notNull()
+      .default("0"),
+    lastPushedAt: timestamp("last_pushed_at", { withTimezone: true }),
+    sentCampaigns: jsonb("sent_campaigns").$type<string[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_yield_push_state_wallet_uidx").on(table.walletPublicKey),
+  ]
+);
+
 export const pushNotificationSends = pgTable(
   "push_notification_sends",
   {
@@ -2080,6 +2110,8 @@ export type InsertBotMessage = typeof botMessages.$inferInsert;
 
 export type PushToken = typeof pushTokens.$inferSelect;
 export type InsertPushToken = typeof pushTokens.$inferInsert;
+export type EarnYieldPushState = typeof earnYieldPushState.$inferSelect;
+export type InsertEarnYieldPushState = typeof earnYieldPushState.$inferInsert;
 
 export type PushNotificationSend = typeof pushNotificationSends.$inferSelect;
 export type InsertPushNotificationSend =
