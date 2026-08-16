@@ -220,8 +220,10 @@ module.exports = nativewindConfig;
   writeText(path.join(root, "metro.config.js"), metroConfig);
 
   const jestConfigPath = path.join(root, "jest.config.js");
+  // Workspace aliases only exist in the monorepo; the mirror resolves
+  // @loyal-labs/* from node_modules, so drop every mapper pointing at packages/.
   const jestConfig = readText(jestConfigPath).replace(
-    `    "^@loyal-labs/shared$": "<rootDir>/../../packages/shared/src/index",\n`,
+    /^[ \t]*"\^@loyal-labs\/[^"]+"\s*:\s*"[^"]*\.\.\/\.\.\/packages[^"]*",[ \t]*\r?\n/gm,
     ""
   );
   writeText(jestConfigPath, jestConfig);
