@@ -696,7 +696,12 @@ function formatTimestamp(value: string): string {
   return `${parsed.toISOString().slice(11, 19)} UTC`;
 }
 
-function escapeHtml(value: string): string {
+/**
+ * Exported because redaction has to match it: a secret that reaches the log
+ * through formatted text arrives escaped, so `stripSecrets` strips this form of
+ * every credential as well as the raw one. Two escapers would drift.
+ */
+export function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
