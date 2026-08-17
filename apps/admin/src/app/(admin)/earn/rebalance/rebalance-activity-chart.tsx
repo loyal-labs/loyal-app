@@ -23,7 +23,36 @@ const chartConfig = {
     color: "var(--chart-2)",
     label: "Confirmed",
   },
+  expiredSubmissions: {
+    color: "var(--muted-foreground)",
+    label: "Expired submissions",
+  },
+  failedDecisions: {
+    color: "var(--chart-5)",
+    label: "Failed decisions",
+  },
+  failedOpportunities: {
+    color: "var(--chart-4)",
+    label: "Failed opportunities",
+  },
+  fleetClaims: {
+    color: "var(--chart-3)",
+    label: "Fleet claims",
+  },
+  terminalAttempts: {
+    color: "var(--chart-1)",
+    label: "Terminal attempts",
+  },
 } satisfies ChartConfig;
+
+const activitySeries = [
+  { key: "confirmed", yAxisId: "events" },
+  { key: "terminalAttempts", yAxisId: "events" },
+  { key: "fleetClaims", yAxisId: "claims" },
+  { key: "failedDecisions", yAxisId: "events" },
+  { key: "failedOpportunities", yAxisId: "events" },
+  { key: "expiredSubmissions", yAxisId: "events" },
+] as const;
 
 function formatTickDate(value: unknown) {
   if (typeof value !== "string") {
@@ -69,28 +98,28 @@ function ActivityTimeSeries({ data }: { data: RebalanceActivityPoint[] }) {
   return (
     <div className="min-w-0 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2 px-2 text-xs">
-        <span className="font-medium text-muted-foreground">
-          Confirmed rebalances
-        </span>
+        <span className="font-medium text-muted-foreground">Activity</span>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span
-              aria-hidden
-              className="h-0.5 w-3 rounded-full"
-              style={{ backgroundColor: chartConfig.confirmed.color }}
-            />
-            {chartConfig.confirmed.label}
-          </span>
+          {activitySeries.map(({ key }) => (
+            <span className="flex items-center gap-1.5" key={key}>
+              <span
+                aria-hidden
+                className="h-0.5 w-3 rounded-full"
+                style={{ backgroundColor: chartConfig[key].color }}
+              />
+              {chartConfig[key].label}
+            </span>
+          ))}
         </div>
       </div>
       <ChartContainer
-        className="aspect-auto h-[220px] w-full min-w-0 sm:h-[260px]"
+        className="aspect-auto h-[260px] w-full min-w-0 sm:h-[300px]"
         config={chartConfig}
       >
         <LineChart
           accessibilityLayer
           data={data}
-          margin={{ bottom: 20, left: 4, right: 16, top: 8 }}
+          margin={{ bottom: 20, left: 4, right: 4, top: 8 }}
         >
           <CartesianGrid vertical={false} />
           <XAxis
@@ -108,7 +137,17 @@ function ActivityTimeSeries({ data }: { data: RebalanceActivityPoint[] }) {
             axisLine={false}
             domain={[0, (maximum: number) => Math.max(1, maximum)]}
             tickLine={false}
-            width={36}
+            width={40}
+            yAxisId="events"
+          />
+          <YAxis
+            allowDecimals={false}
+            axisLine={false}
+            domain={[0, (maximum: number) => Math.max(1, maximum)]}
+            orientation="right"
+            tickLine={false}
+            width={48}
+            yAxisId="claims"
           />
           <ChartTooltip
             content={
@@ -118,13 +157,17 @@ function ActivityTimeSeries({ data }: { data: RebalanceActivityPoint[] }) {
               />
             }
           />
-          <Line
-            dataKey="confirmed"
-            dot={false}
-            stroke="var(--color-confirmed)"
-            strokeWidth={2}
-            type="linear"
-          />
+          {activitySeries.map(({ key, yAxisId }) => (
+            <Line
+              dataKey={key}
+              dot={false}
+              key={key}
+              stroke={`var(--color-${key})`}
+              strokeWidth={2}
+              type="linear"
+              yAxisId={yAxisId}
+            />
+          ))}
         </LineChart>
       </ChartContainer>
     </div>
@@ -154,8 +197,9 @@ export function RebalanceActivityChart({
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">Rebalance activity</CardTitle>
           <CardDescription>
-            Confirmed executions from the last 72 hours in two-hour UTC buckets
-            from Yield Neon. Render-only errors are not included.
+            Last 72 hours in two-hour UTC buckets from Yield Neon. Fleet claims
+            use the right axis; all other series use the left axis. Render-only
+            errors are not included.
           </CardDescription>
         </div>
         <div className="flex">
