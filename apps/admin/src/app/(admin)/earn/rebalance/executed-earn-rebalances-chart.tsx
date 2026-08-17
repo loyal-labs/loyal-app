@@ -113,6 +113,16 @@ function formatStablecoinRaw(
     .slice(0, 2)} ${getEarnStablecoinSymbol(liquidityMint) ?? "nominal USD"}`;
 }
 
+function formatCompactStablecoinRaw(raw: string): string {
+  const amount = Number(BigInt(raw)) / 10 ** STABLECOIN_DECIMALS;
+
+  return `$${new Intl.NumberFormat("en-US", {
+    compactDisplay: "short",
+    maximumFractionDigits: 2,
+    notation: "compact",
+  }).format(amount)}`;
+}
+
 function rangeLabel(range: RangeKey): string {
   if (range === "7d") {
     return "Last 7 days";
@@ -227,7 +237,6 @@ export function ExecutedEarnRebalancesChart({
     points.map((point) => [
       point.userRank,
       {
-        authority: point.authority,
         currentDepositRaw: point.currentDepositRaw,
       },
     ])
@@ -420,10 +429,12 @@ export function ExecutedEarnRebalancesChart({
                 axisLine={false}
                 dataKey="userRank"
                 domain={[1, Math.max(data.userCount, 1)]}
-                name="User ordered by current deposit"
+                name="Current deposit amount"
                 tickFormatter={(rank: number) => {
                   const user = userByRank.get(rank);
-                  return user ? formatShortAddress(user.authority) : `#${rank}`;
+                  return user
+                    ? formatCompactStablecoinRaw(user.currentDepositRaw)
+                    : `#${rank}`;
                 }}
                 tickLine={false}
                 ticks={yTicks}
@@ -452,7 +463,7 @@ export function ExecutedEarnRebalancesChart({
         )}
         {!showTable ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Y-axis labels sample the ordered user ranks; hover a dot for the
+            Y-axis labels sample current deposit amounts; hover a dot for the
             exact wallet, current deposit, route, amount, decision, and slot.
           </p>
         ) : (
