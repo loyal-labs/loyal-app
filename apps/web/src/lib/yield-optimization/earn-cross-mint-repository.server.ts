@@ -235,7 +235,13 @@ export async function setEarnCrossMintEnabled(
     return false;
   }
   if (current.enabled === scope.enabled) {
-    return true;
+    if (
+      current.generation === scope.expectedGeneration ||
+      current.generation === scope.expectedGeneration + BigInt(1)
+    ) {
+      return true;
+    }
+    throw new Error("Autoswap state changed. Refresh and try again.");
   }
   if (current.generation !== scope.expectedGeneration) {
     throw new Error("Autoswap state changed. Refresh and try again.");
@@ -257,7 +263,10 @@ export async function setEarnCrossMintEnabled(
     .returning({ generation: crossMintVaultOptIns.generation });
   if (rows.length !== 1) {
     const latest = await loadEarnCrossMintOptIn(scope);
-    if (latest?.enabled === scope.enabled) {
+    if (
+      latest?.enabled === scope.enabled &&
+      latest.generation === scope.expectedGeneration + BigInt(1)
+    ) {
       return true;
     }
     throw new Error("Autoswap state changed. Refresh and try again.");

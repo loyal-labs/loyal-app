@@ -682,6 +682,53 @@ function generatedValuesEqual(left: unknown, right: unknown): boolean {
   );
 }
 
+function normalizePolicyCreationStateForComparison(value: unknown): unknown {
+  const normalized = normalizeComparableGeneratedValue(value);
+  if (!normalized || typeof normalized !== "object") {
+    return normalized;
+  }
+
+  const state = normalized as {
+    __kind?: string;
+    fields?: Array<{
+      spendingLimits?: Array<{
+        mint?: unknown;
+        quantityConstraints?: Record<string, unknown>;
+        timeConstraints?: Record<string, unknown>;
+        usage?: unknown;
+      }>;
+    }>;
+  };
+  if (state.__kind !== "ProgramInteraction") {
+    return normalized;
+  }
+
+  for (const field of state.fields ?? []) {
+    for (const spendingLimit of field.spendingLimits ?? []) {
+      if (spendingLimit.timeConstraints) {
+        delete spendingLimit.timeConstraints.start;
+        spendingLimit.timeConstraints.accumulateUnused ??= false;
+      }
+      if (spendingLimit.quantityConstraints) {
+        spendingLimit.quantityConstraints.maxPerUse ??= "0";
+        spendingLimit.quantityConstraints.enforceExactQuantity ??= false;
+      }
+      delete spendingLimit.usage;
+    }
+    field.spendingLimits?.sort((left, right) =>
+      JSON.stringify(left.mint).localeCompare(JSON.stringify(right.mint))
+    );
+  }
+  return normalizeComparableGeneratedValue(normalized);
+}
+
+function policyCreationStatesEqual(left: unknown, right: unknown): boolean {
+  return (
+    JSON.stringify(normalizePolicyCreationStateForComparison(left)) ===
+    JSON.stringify(normalizePolicyCreationStateForComparison(right))
+  );
+}
+
 function policyRentSpace(args: {
   feePayer: PublicKey;
   policyPayload: generated.PolicyCreationPayload;
@@ -6109,7 +6156,7 @@ export function createSmartAccountVaultsClient(
       throw new Error(`${args.label} signer permissions are not canonical.`);
     }
     if (
-      !generatedValuesEqual(
+      !policyCreationStatesEqual(
         policy.policyState,
         policyCreationPayloadToState(args.expectedState)
       )
@@ -6161,10 +6208,10 @@ export function createSmartAccountVaultsClient(
       };
       console.error(`[smart-account-vaults] ${args.label} canonical mismatch`);
       collectDiffs(
-        normalizeComparableGeneratedValue(
+        normalizePolicyCreationStateForComparison(
           policyCreationPayloadToState(args.expectedState)
         ),
-        normalizeComparableGeneratedValue(policy.policyState),
+        normalizePolicyCreationStateForComparison(policy.policyState),
         "policyState"
       );
       const describeRawEntry = (value: unknown) => {
@@ -8222,7 +8269,7 @@ export function createSmartAccountVaultsClient(
                 createPolicySigner(args.signer).permissions
               )
           ) &&
-          generatedValuesEqual(policy.policyState, expectedState)
+          policyCreationStatesEqual(policy.policyState, expectedState)
         );
       });
       if (matches.length > 1) {

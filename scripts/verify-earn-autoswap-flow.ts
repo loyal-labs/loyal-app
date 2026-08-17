@@ -194,6 +194,7 @@ const CANARY_GATE_ACTOR = "autoswap-user-rollout-verifier";
 const CANARY_GATE_OWNER = `${CANARY_GATE_ACTOR}:${randomUUID()}`;
 const CANARY_POLL_INTERVAL_MS = 1000;
 const CANARY_TRANSITION_POLL_INTERVAL_MS = 250;
+const POLICY_DISCOVERY_TIMEOUT_MS = 60_000;
 const CANARY_PRODUCTION_DATABASE_HOST_SHA256 =
   "bf4fd3f4262f3de5fa1885a99ab89fb4d2a7e262868af85b44bcd9026ad03092";
 
@@ -493,6 +494,28 @@ async function preparePolicies(
   return prepared;
 }
 
+async function waitForFinalizedPolicyDiscovery(args: {
+  session: Session;
+  sourceShard: "classic" | "token_2022";
+}): Promise<WirePreparedPolicySet> {
+  const deadline = Date.now() + POLICY_DISCOVERY_TIMEOUT_MS;
+  while (true) {
+    const prepared = await preparePolicies(args.session);
+    const policy = prepared.policies.find(
+      (candidate) => candidate.sourceShard === args.sourceShard
+    );
+    if (policy?.existing && !policy.prepared) {
+      return prepared;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Finalized ${args.sourceShard} policy was not discoverable within ${POLICY_DISCOVERY_TIMEOUT_MS}ms.`
+      );
+    }
+    await Bun.sleep(CANARY_POLL_INTERVAL_MS);
+  }
+}
+
 async function simulatePreparedTransaction(args: {
   connection: Connection;
   keypair: Keypair;
@@ -770,6 +793,13 @@ async function verifyReadOnly(args: {
   requireStatus(missingDelete, 404, "off-state delete", "autoswap_not_found");
   return {
     preparedPolicyCount: prepared.policies.length,
+    preparedPolicies: prepared.policies.map((policy) => ({
+      account: policy.policy.account,
+      delegatedSigner: policy.persistence.delegatedSigner,
+      existing: policy.existing,
+      seed: policy.policy.seed,
+      sourceShard: policy.sourceShard,
+    })),
     dependentSimulationLogCounts,
     rejectedMismatchedConfirmation: true,
     simulationLogCounts,
@@ -962,14 +992,19 @@ function requireCanaryDatabaseUrl(): string {
 
 function requireProductionCanaryConfig(): void {
   const baseUrl = new URL(BASE_URL);
-  if (baseUrl.protocol !== "https:" || baseUrl.hostname !== "askloyal.com") {
+  const deployedApi =
+    baseUrl.protocol === "https:" && baseUrl.hostname === "askloyal.com";
+  const localApi =
+    baseUrl.protocol === "http:" &&
+    ["127.0.0.1", "::1", "localhost"].includes(baseUrl.hostname);
+  if (!(deployedApi || localApi)) {
     throw new Error(
-      "Autoswap canaries must use the deployed https://askloyal.com API."
+      "Autoswap canaries must use the deployed API or a loopback-local API."
     );
   }
-  if (EXPECTED_LIVE_POLICY_CREATES !== 2) {
+  if (![1, 2].includes(EXPECTED_LIVE_POLICY_CREATES)) {
     throw new Error(
-      "Autoswap canaries require a clean two-policy installation."
+      "Autoswap canaries require a clean two-policy install or a one-policy interrupted-setup resume."
     );
   }
   requireCanaryDatabaseUrl();
@@ -1905,7 +1940,10 @@ async function verifyLive(args: {
       signature,
     });
 
-    const resumed = await preparePolicies(args.session);
+    const resumed = await waitForFinalizedPolicyDiscovery({
+      session: args.session,
+      sourceShard: firstMissing.sourceShard,
+    });
     const resumedFirst = resumed.policies.find(
       (policy) => policy.sourceShard === firstMissing.sourceShard
     );
@@ -2493,6 +2531,18 @@ async function verifyLocalState(args: {
     ) {
       throw new Error("Blocked deletion did not durably pause Autoswap.");
     }
+    const stalePause = await apiRequest({
+      body: { enabled: false, expectedGeneration: "1" },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: TOGGLE_PATH,
+    });
+    requireStatus(
+      stalePause,
+      409,
+      "ABA-stale Autoswap pause",
+      "autoswap_toggle_failed"
+    );
 
     await database`
       delete from loyal_yield.rebalance_decisions where id = ${movementId}
@@ -2525,6 +2575,7 @@ async function verifyLocalState(args: {
       movementDeletePausedAndBlocked: true,
       pauseGeneration: pause.generation,
       pauseRetryGeneration: pauseRetry.generation,
+      staleGenerationRejectedAfterAba: true,
     };
   } finally {
     if (positionIds.length > 0) {
