@@ -220,7 +220,7 @@ export async function POST(request: Request) {
         },
       ],
     });
-    await recordEarnCrossMintEnrollment({
+    const enabled = await recordEarnCrossMintEnrollment({
       authority: principal.walletAddress,
       boundPolicies: [
         {
@@ -241,7 +241,10 @@ export async function POST(request: Request) {
       maxSlippageBps: input.maxSlippageBps,
       dailySourceMintSpendingCap: BigInt(input.dailySourceMintSpendingCap),
     });
-    return NextResponse.json({ enabled: true, status: "finalizing" });
+    return NextResponse.json({
+      enabled,
+      status: enabled ? "finalizing" : "paused",
+    });
   } catch (error) {
     console.error("[earn-cross-mint-policy-confirm] confirm failed", {
       errorName: error instanceof Error ? error.name : "UnknownError",

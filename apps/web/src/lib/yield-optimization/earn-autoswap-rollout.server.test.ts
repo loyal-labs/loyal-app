@@ -24,16 +24,16 @@ describe("Autoswap enrollment rollout", () => {
     expect(isEarnAutoswapEnrollmentEnabled(WALLET_B, env)).toBe(false);
   });
 
-  test("supports an explicit all-wallet rollout", async () => {
+  test("rejects wildcard rollout configuration", async () => {
     const { isEarnAutoswapEnrollmentEnabled } = await import(
       "./earn-autoswap-rollout.server"
     );
 
-    expect(
+    expect(() =>
       isEarnAutoswapEnrollmentEnabled(WALLET_A, {
         EARN_AUTOSWAP_ENABLED_WALLETS: "*",
       })
-    ).toBe(true);
+    ).toThrow("invalid wallet");
   });
 
   test("rejects ambiguous or invalid configuration", async () => {
@@ -46,11 +46,6 @@ describe("Autoswap enrollment rollout", () => {
         EARN_AUTOSWAP_ENABLED_WALLETS: `${WALLET_A},${WALLET_A}`,
       })
     ).toThrow("duplicate wallet");
-    expect(() =>
-      isEarnAutoswapEnrollmentEnabled(WALLET_A, {
-        EARN_AUTOSWAP_ENABLED_WALLETS: `*,${WALLET_A}`,
-      })
-    ).toThrow("cannot mix");
     expect(() =>
       isEarnAutoswapEnrollmentEnabled(WALLET_A, {
         EARN_AUTOSWAP_ENABLED_WALLETS: "not-a-wallet",

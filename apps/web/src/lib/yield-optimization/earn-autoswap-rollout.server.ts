@@ -27,14 +27,6 @@ export function isEarnAutoswapEnrollmentEnabled(
   if (unique.size !== entries.length) {
     throw new Error(`${AUTOSWAP_WALLETS_ENV} contains a duplicate wallet.`);
   }
-  if (unique.has("*")) {
-    if (unique.size !== 1) {
-      throw new Error(
-        `${AUTOSWAP_WALLETS_ENV} cannot mix '*' with wallet addresses.`
-      );
-    }
-    return true;
-  }
   for (const entry of entries) {
     let canonical: string;
     try {

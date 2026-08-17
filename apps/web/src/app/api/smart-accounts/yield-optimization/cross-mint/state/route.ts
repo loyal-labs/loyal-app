@@ -58,7 +58,7 @@ export async function GET(request: Request) {
     }
     return NextResponse.json({
       autoswap,
-      autoswapAvailable: canEnroll || autoswap !== null,
+      autoswapAvailable: autoswap !== null || (canEnroll && hasPosition),
       position: hasPosition ? { status: "active" } : null,
       settingsPda: principal.settingsPda,
       vault: {

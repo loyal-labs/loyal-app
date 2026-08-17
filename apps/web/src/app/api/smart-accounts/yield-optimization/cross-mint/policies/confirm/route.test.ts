@@ -17,7 +17,7 @@ const assertEarnCrossMintCanonicalArtifacts = mock(async () => {});
 const findEarnCrossMintState = mock(async () => null);
 const hasActiveEarnPosition = mock(async () => true);
 const hasActiveEarnRoutePolicyPair = mock(async () => true);
-const recordEarnCrossMintEnrollment = mock(async () => {});
+const recordEarnCrossMintEnrollment = mock(async () => true);
 const getSignatureStatuses = spyOn(
   Connection.prototype,
   "getSignatureStatuses"
@@ -74,6 +74,7 @@ beforeEach(() => {
   hasActiveEarnRoutePolicyPair.mockClear();
   hasActiveEarnRoutePolicyPair.mockResolvedValue(true);
   recordEarnCrossMintEnrollment.mockClear();
+  recordEarnCrossMintEnrollment.mockResolvedValue(true);
   getSignatureStatuses.mockResolvedValue({
     context: { slot: 120 },
     value: [
@@ -134,6 +135,43 @@ test("Autoswap setup reads both policies no earlier than the newest finalized cr
     expect.objectContaining({ minContextSlot: 120 })
   );
   expect(recordEarnCrossMintEnrollment).toHaveBeenCalledTimes(1);
+});
+
+test("Autoswap setup replay reports a preserved paused enrollment", async () => {
+  recordEarnCrossMintEnrollment.mockResolvedValueOnce(false);
+
+  const response = await POST(
+    new Request("https://loyal.local/policies/confirm", {
+      body: JSON.stringify({
+        dailySourceMintSpendingCap: "100000000",
+        maxSlippageBps: 50,
+        policies: [
+          {
+            account: "11111111111111111111111111111115",
+            finalizedSlot: "100",
+            seed: "11",
+            signature: "classic-create-signature",
+            sourceShard: "classic",
+          },
+          {
+            account: "11111111111111111111111111111116",
+            finalizedSlot: "120",
+            seed: "12",
+            signature: "token-2022-create-signature",
+            sourceShard: "token_2022",
+          },
+        ],
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    })
+  );
+
+  expect(response.status).toBe(200);
+  await expect(response.json()).resolves.toEqual({
+    enabled: false,
+    status: "paused",
+  });
 });
 
 test("Autoswap first enrollment requires an active Earn position", async () => {

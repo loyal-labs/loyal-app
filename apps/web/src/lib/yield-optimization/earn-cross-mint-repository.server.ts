@@ -167,7 +167,7 @@ export async function recordEarnCrossMintEnrollment(
     dailySourceMintSpendingCap: bigint;
     maxSlippageBps: number;
   }
-): Promise<void> {
+): Promise<boolean> {
   const client = getYieldOptimizationClient();
   const { crossMintVaultOptIns } = client.tables;
   const byShard = new Map(
@@ -200,7 +200,7 @@ export async function recordEarnCrossMintEnrollment(
     .onConflictDoNothing()
     .returning({ generation: crossMintVaultOptIns.generation });
   if (inserted.length === 1) {
-    return;
+    return true;
   }
 
   const existing = await loadEarnCrossMintOptIn(args);
@@ -219,6 +219,7 @@ export async function recordEarnCrossMintEnrollment(
   }
   // Preserve the existing `enabled` value: an old setup-confirm retry must not
   // silently resume an enrollment the user paused after setup.
+  return existing.enabled;
 }
 
 export async function setEarnCrossMintEnabled(

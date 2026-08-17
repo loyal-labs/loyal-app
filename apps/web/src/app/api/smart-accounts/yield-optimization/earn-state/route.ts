@@ -540,7 +540,8 @@ export async function GET(request: Request) {
   return NextResponse.json({
     autodeposit: autodeposit ? serializeAutodepositState(autodeposit) : null,
     autoswap: autoswapResult.data,
-    autoswapAvailable: autoswapCanEnroll || autoswapResult.data !== null,
+    autoswapAvailable:
+      autoswapResult.data !== null || (autoswapCanEnroll && position !== null),
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
     loadErrors,
     onboarding: serializeEarnDepositOnboardingState({
