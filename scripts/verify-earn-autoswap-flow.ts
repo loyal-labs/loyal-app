@@ -33,6 +33,9 @@ mock.module("server-only", () => ({}));
 //
 // Explicitly approved mainnet lifecycle:
 // AUTOSWAP_VERIFY_MODE=live AUTOSWAP_VERIFY_BASE_URL=http://localhost:3000 bun scripts/verify-earn-autoswap-flow.ts
+// Use AUTOSWAP_VERIFY_LIVE_ACTION=install to leave the verified enrollment on
+// for worker canaries, pause/resume around a controlled recovery check, and
+// cleanup after terminalization. The default `full` action remains atomic.
 // Set AUTOSWAP_VERIFY_EXPECTED_POLICY_CREATES=1 only to resume a deliberately
 // interrupted setup; a clean-install live run requires two creates by default.
 //
@@ -42,6 +45,7 @@ mock.module("server-only", () => ({}));
 // only a name-guarded disposable localhost database and cleans its fixtures.
 
 type VerifyMode = "live" | "local-state" | "read-only";
+type LiveAction = "cleanup" | "full" | "install" | "pause" | "resume";
 type JsonRecord = Record<string, unknown>;
 type ApiResult<T> = {
   body: T;
@@ -101,6 +105,8 @@ const BASE_URL = (
   process.env.AUTOSWAP_VERIFY_BASE_URL ?? "http://localhost:3000"
 ).replace(/\/+$/, "");
 const MODE = (process.env.AUTOSWAP_VERIFY_MODE ?? "read-only") as VerifyMode;
+const LIVE_ACTION = (process.env.AUTOSWAP_VERIFY_LIVE_ACTION ??
+  "full") as LiveAction;
 const DAILY_CAP_RAW = BigInt(
   process.env.AUTOSWAP_VERIFY_DAILY_CAP_RAW ?? "100000000"
 );
@@ -709,12 +715,182 @@ async function verifyReadOnly(args: {
   };
 }
 
+async function changeLiveAutoswapState(args: {
+  enabled: boolean;
+  initialState: EarnState;
+  session: Session;
+}): Promise<JsonRecord> {
+  const current = args.initialState.autoswap;
+  if (!current || current.status === "finalizing") {
+    throw new Error(
+      `Autoswap ${args.enabled ? "resume" : "pause"} requires a settled enrollment.`
+    );
+  }
+  if (current.enabled === args.enabled) {
+    return {
+      action: args.enabled ? "resume" : "pause",
+      finalState: current.status,
+      generation: current.generation,
+      idempotent: true,
+    };
+  }
+  const changed = requireOk(
+    await apiRequest<{
+      enabled: boolean;
+      generation: string;
+      status: string;
+    }>({
+      body: {
+        enabled: args.enabled,
+        expectedGeneration: current.generation,
+      },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: TOGGLE_PATH,
+    }),
+    `Autoswap ${args.enabled ? "resume" : "pause"}`
+  );
+  if (
+    changed.enabled !== args.enabled ||
+    BigInt(changed.generation) !== BigInt(current.generation) + BigInt(1)
+  ) {
+    throw new Error(
+      `Autoswap ${args.enabled ? "resume" : "pause"} did not advance generation exactly once.`
+    );
+  }
+  const expectedStatus = args.enabled ? "on" : "paused";
+  await waitForAutoswap(
+    args.session,
+    (state) => state?.status === expectedStatus,
+    expectedStatus
+  );
+  return {
+    action: args.enabled ? "resume" : "pause",
+    finalState: expectedStatus,
+    generation: changed.generation,
+    idempotent: false,
+  };
+}
+
+async function cleanupLiveAutoswap(args: {
+  connection: Connection;
+  generation: string;
+  keypair: Keypair;
+  session: Session;
+}): Promise<JsonRecord> {
+  const canceledDelete = requireOk(
+    await apiRequest<DeletePreparation>({
+      body: { expectedGeneration: args.generation },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: DELETE_PREPARE_PATH,
+    }),
+    "Autoswap delete preparation"
+  );
+  if (canceledDelete.status !== "prepared" || !canceledDelete.prepared) {
+    throw new Error(
+      "Autoswap delete preparation did not return one revocation transaction."
+    );
+  }
+  const pausedAfterCancel = await getEarnState(args.session);
+  if (
+    pausedAfterCancel.autoswap?.status !== "paused" ||
+    pausedAfterCancel.autoswap.generation !==
+      canceledDelete.expectedGeneration
+  ) {
+    throw new Error("Canceled deletion did not leave Autoswap durably paused.");
+  }
+  const retryDelete = requireOk(
+    await apiRequest<DeletePreparation>({
+      body: { expectedGeneration: canceledDelete.expectedGeneration },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: DELETE_PREPARE_PATH,
+    }),
+    "Autoswap delete retry"
+  );
+  if (retryDelete.status !== "prepared" || !retryDelete.prepared) {
+    throw new Error(
+      "Autoswap delete retry did not recover the revocation transaction."
+    );
+  }
+  await simulatePrepared({
+    connection: args.connection,
+    keypair: args.keypair,
+    wire: retryDelete.prepared,
+  });
+  const deleteSignature = await sendPrepared({
+    connection: args.connection,
+    keypair: args.keypair,
+    wire: retryDelete.prepared,
+  });
+  const deleteSlot = await finalizedSlot(args.connection, deleteSignature);
+  const recoveredAfterLostConfirm = requireOk(
+    await apiRequest<DeletePreparation>({
+      body: { expectedGeneration: retryDelete.expectedGeneration },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: DELETE_PREPARE_PATH,
+    }),
+    "Autoswap lost-confirmation recovery"
+  );
+  if (
+    recoveredAfterLostConfirm.status !== "off" ||
+    recoveredAfterLostConfirm.prepared
+  ) {
+    throw new Error(
+      "Finalized policy removal did not recover to off without another transaction."
+    );
+  }
+  requireOk(
+    await apiRequest({
+      body: {
+        expectedGeneration: retryDelete.expectedGeneration,
+        finalizedSlot: deleteSlot,
+        policies: retryDelete.policies,
+        signature: deleteSignature,
+      },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: DELETE_CONFIRM_PATH,
+    }),
+    "Autoswap delete confirmation replay"
+  );
+  await waitForAutoswap(args.session, (state) => state === null, "off");
+  return {
+    action: "cleanup",
+    canceledDeleteLeftPaused: true,
+    deleteTransactionCount: 1,
+    finalState: "off",
+    lostDeleteConfirmationRecovered: true,
+  };
+}
+
 async function verifyLive(args: {
+  action: LiveAction;
   connection: Connection;
   initialState: EarnState;
   keypair: Keypair;
   session: Session;
 }): Promise<JsonRecord> {
+  if (args.action === "pause" || args.action === "resume") {
+    return changeLiveAutoswapState({
+      enabled: args.action === "resume",
+      initialState: args.initialState,
+      session: args.session,
+    });
+  }
+  if (args.action === "cleanup") {
+    if (!args.initialState.autoswap) {
+      throw new Error("Autoswap cleanup requires an existing enrollment.");
+    }
+    return cleanupLiveAutoswap({
+      connection: args.connection,
+      generation: args.initialState.autoswap.generation,
+      keypair: args.keypair,
+      session: args.session,
+    });
+  }
   if (args.initialState.autoswap) {
     throw new Error(
       `Live Autoswap verification requires off state; found ${args.initialState.autoswap.status}.`
@@ -913,91 +1089,25 @@ async function verifyLive(args: {
   ) {
     throw new Error("Autoswap resume did not advance generation exactly once.");
   }
-
-  const canceledDelete = requireOk(
-    await apiRequest<DeletePreparation>({
-      body: { expectedGeneration: resume.generation },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: DELETE_PREPARE_PATH,
-    }),
-    "Autoswap delete preparation"
-  );
-  if (canceledDelete.status !== "prepared" || !canceledDelete.prepared) {
-    throw new Error(
-      "Autoswap delete preparation did not return one revocation transaction."
-    );
+  if (args.action === "install") {
+    return {
+      action: "install",
+      createdPolicyTransactions: submitted.size,
+      finalState: "on",
+      pauseGeneration: pause.generation,
+      resumeGeneration: resume.generation,
+    };
   }
-  const pausedAfterCancel = await getEarnState(args.session);
-  if (
-    pausedAfterCancel.autoswap?.status !== "paused" ||
-    pausedAfterCancel.autoswap.generation !== canceledDelete.expectedGeneration
-  ) {
-    throw new Error("Canceled deletion did not leave Autoswap durably paused.");
-  }
-  const retryDelete = requireOk(
-    await apiRequest<DeletePreparation>({
-      body: { expectedGeneration: canceledDelete.expectedGeneration },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: DELETE_PREPARE_PATH,
-    }),
-    "Autoswap delete retry"
-  );
-  if (retryDelete.status !== "prepared" || !retryDelete.prepared) {
-    throw new Error(
-      "Autoswap delete retry did not recover the revocation transaction."
-    );
-  }
-  await simulatePrepared({
+  const cleanup = await cleanupLiveAutoswap({
     connection: args.connection,
+    generation: resume.generation,
     keypair: args.keypair,
-    wire: retryDelete.prepared,
+    session: args.session,
   });
-  const deleteSignature = await sendPrepared({
-    connection: args.connection,
-    keypair: args.keypair,
-    wire: retryDelete.prepared,
-  });
-  const deleteSlot = await finalizedSlot(args.connection, deleteSignature);
-  const recoveredAfterLostConfirm = requireOk(
-    await apiRequest<DeletePreparation>({
-      body: { expectedGeneration: retryDelete.expectedGeneration },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: DELETE_PREPARE_PATH,
-    }),
-    "Autoswap lost-confirmation recovery"
-  );
-  if (
-    recoveredAfterLostConfirm.status !== "off" ||
-    recoveredAfterLostConfirm.prepared
-  ) {
-    throw new Error(
-      "Finalized policy removal did not recover to off without another transaction."
-    );
-  }
-  requireOk(
-    await apiRequest({
-      body: {
-        expectedGeneration: retryDelete.expectedGeneration,
-        finalizedSlot: deleteSlot,
-        policies: retryDelete.policies,
-        signature: deleteSignature,
-      },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: DELETE_CONFIRM_PATH,
-    }),
-    "Autoswap delete confirmation replay"
-  );
-  await waitForAutoswap(args.session, (state) => state === null, "off");
   return {
-    canceledDeleteLeftPaused: true,
+    ...cleanup,
+    action: "full",
     createdPolicyTransactions: submitted.size,
-    deleteTransactionCount: 1,
-    finalState: "off",
-    lostDeleteConfirmationRecovered: true,
     pauseGeneration: pause.generation,
     resumeGeneration: resume.generation,
   };
@@ -1448,6 +1558,18 @@ async function main(): Promise<void> {
       "AUTOSWAP_VERIFY_MODE must be read-only, local-state, or live."
     );
   }
+  if (
+    MODE === "live" &&
+    LIVE_ACTION !== "cleanup" &&
+    LIVE_ACTION !== "full" &&
+    LIVE_ACTION !== "install" &&
+    LIVE_ACTION !== "pause" &&
+    LIVE_ACTION !== "resume"
+  ) {
+    throw new Error(
+      "AUTOSWAP_VERIFY_LIVE_ACTION must be cleanup, full, install, pause, or resume."
+    );
+  }
   if (SOLANA_ENV !== "mainnet") {
     throw new Error(
       "Autoswap API verification currently requires mainnet configuration."
@@ -1492,7 +1614,13 @@ async function main(): Promise<void> {
 
   const lifecycle =
     MODE === "live"
-      ? await verifyLive({ connection, initialState, keypair, session })
+      ? await verifyLive({
+          action: LIVE_ACTION,
+          connection,
+          initialState,
+          keypair,
+          session,
+        })
       : MODE === "local-state"
       ? await verifyLocalState({ connection, initialState, keypair, session })
       : await verifyReadOnly({ connection, initialState, keypair, session });
