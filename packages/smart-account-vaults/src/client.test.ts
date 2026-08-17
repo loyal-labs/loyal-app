@@ -14,6 +14,7 @@ import {
 import {
   generated,
   compilePreparedOperation,
+  pda,
   Policy,
   Settings,
 } from "@loyal-labs/loyal-smart-accounts-core";
@@ -1523,6 +1524,123 @@ describe("prepareEarnUsdcDeposit", () => {
         walletAddress: walletAddress.toBase58(),
       });
     }
+  });
+
+  test("reuses a finalized cross-mint policy with materialized spending usage", async () => {
+    const initialClient = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async (address: PublicKey) =>
+          address.equals(settingsPda)
+            ? createSerializedSettingsAccount(new BN(6))
+            : null
+        ),
+        getProgramAccounts: mock(async () => []),
+      } as never,
+      programId,
+    });
+    const initial = await initialClient.prepareEarnCrossMintSwapPolicies({
+      settingsPda,
+      walletAddress,
+      signer: backendSigner,
+      feePayer,
+      maxSlippageBps: 50,
+      dailySourceMintSpendingCap: BigInt(300_000_000),
+    });
+    const classic = initial.policies[0];
+    const create = decodeGeneratedPolicyCreate(
+      classic.prepared?.instructions[0]
+    );
+    if (create.policyCreationPayload.__kind !== "ProgramInteraction") {
+      throw new Error("Expected ProgramInteraction policy payload.");
+    }
+    const [payload] = create.policyCreationPayload.fields;
+    const runtimeTimestamp = new BN(1_786_936_896);
+    const runtimeState = {
+      __kind: "ProgramInteraction" as const,
+      fields: [
+        {
+          ...payload,
+          spendingLimits: [...payload.spendingLimits]
+            .reverse()
+            .map((limit) => ({
+              ...limit,
+              quantityConstraints: {
+                ...limit.quantityConstraints,
+                enforceExactQuantity: false,
+                maxPerUse: new BN(0),
+              },
+              timeConstraints: {
+                ...limit.timeConstraints,
+                accumulateUnused: false,
+                start: runtimeTimestamp,
+              },
+              usage: {
+                lastReset: runtimeTimestamp,
+                remainingInPeriod: limit.quantityConstraints.maxPerPeriod,
+              },
+            })),
+        },
+      ],
+    };
+    const [, bump] = pda.getPolicyPda({
+      policySeed: Number(classic.policy.seed),
+      programId,
+      settingsPda,
+    });
+    const [data] = Policy.fromArgs({
+      bump,
+      expiration: null,
+      policyState: runtimeState as never,
+      rentCollector: feePayer,
+      seed: new BN(classic.policy.seed.toString()),
+      settings: settingsPda,
+      signers: create.signers,
+      staleTransactionIndex: new BN(0),
+      start: runtimeTimestamp,
+      threshold: create.threshold,
+      timeLock: create.timeLock,
+      transactionIndex: new BN(0),
+    }).serialize();
+    const finalizedClassic = {
+      data,
+      executable: false,
+      lamports: 1,
+      owner: programId,
+      rentEpoch: 0,
+    };
+    const resumedClient = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async (address: PublicKey) =>
+          address.equals(settingsPda)
+            ? createSerializedSettingsAccount(new BN(7))
+            : null
+        ),
+        getProgramAccounts: mock(async () => [
+          { account: finalizedClassic, pubkey: classic.policy.account },
+        ]),
+      } as never,
+      programId,
+    });
+
+    const resumed = await resumedClient.prepareEarnCrossMintSwapPolicies({
+      settingsPda,
+      walletAddress,
+      signer: backendSigner,
+      feePayer,
+      maxSlippageBps: 50,
+      dailySourceMintSpendingCap: BigInt(300_000_000),
+    });
+
+    expect(
+      resumed.policies.map((entry) => ({
+        existing: entry.existing,
+        seed: entry.policy.seed,
+        shard: entry.sourceShard,
+      }))
+    ).toEqual([
+      { existing: true, seed: BigInt(7), shard: "classic" },
+      { existing: false, seed: BigInt(8), shard: "token_2022" },
+    ]);
   });
 
   test("rejects zero amount deposits", async () => {
