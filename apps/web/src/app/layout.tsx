@@ -59,7 +59,7 @@ const siteJsonLd = {
       "@id": "https://askloyal.com/#app",
       name: "Loyal",
       url: "https://askloyal.com",
-      image: "https://askloyal.com/og-image.png",
+      image: "https://askloyal.com/og-home-2026-08.png",
       applicationCategory: "FinanceApplication",
       operatingSystem: "Android",
       description:
@@ -105,9 +105,9 @@ export const metadata: Metadata = {
       "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
     images: [
       {
-        url: "https://askloyal.com/og-image.png",
+        url: "https://askloyal.com/og-home-2026-08.png",
         width: 1200,
-        height: 630,
+        height: 640,
         alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],
@@ -119,7 +119,7 @@ export const metadata: Metadata = {
       "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
     images: [
       {
-        url: "https://askloyal.com/og-image.png",
+        url: "https://askloyal.com/og-home-2026-08.png",
         alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],

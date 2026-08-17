@@ -26,13 +26,13 @@ export const metadata: Metadata = {
     title: "Loyal: Solana Wallet That Earns Yield Automatically",
     description:
       "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
-    url: "https://askloyal.com",
+    url: "https://app.askloyal.com",
     type: "website",
     images: [
       {
-        url: "https://askloyal.com/og-image.png",
+        url: "https://askloyal.com/og-home-2026-08.png",
         width: 1200,
-        height: 630,
+        height: 640,
         alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
       "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
     images: [
       {
-        url: "https://askloyal.com/og-image.png",
+        url: "https://askloyal.com/og-home-2026-08.png",
         alt: "Loyal: Solana wallet that earns stablecoin yield automatically",
       },
     ],
