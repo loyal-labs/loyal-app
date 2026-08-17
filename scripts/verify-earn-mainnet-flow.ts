@@ -34,16 +34,16 @@ import {
 import {
   hydratePreparedEarnUsdcDeposit,
   type EarnDepositPrepareResponse,
-} from "../frontend/src/lib/yield-optimization/earn-deposit-prepare-contracts.shared.ts";
+} from "../apps/web/src/lib/yield-optimization/earn-deposit-prepare-contracts.shared.ts";
 import {
   buildEarnDepositConfirmRequestBody,
   buildEarnWithdrawalConfirmRequestBody,
-} from "../frontend/src/lib/yield-optimization/earn-confirm-contracts.shared.ts";
+} from "../apps/web/src/lib/yield-optimization/earn-confirm-contracts.shared.ts";
 import {
   hydratePreparedEarnUsdcWithdraw,
-  type EarnWithdrawPrepareRequestBody,
+  type EarnWithdrawLegacySourceRequest,
   type EarnWithdrawPrepareResponse,
-} from "../frontend/src/lib/yield-optimization/earn-withdraw-prepare-contracts.shared.ts";
+} from "../apps/web/src/lib/yield-optimization/earn-withdraw-prepare-contracts.shared.ts";
 import type {
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
@@ -208,6 +208,9 @@ const FIRST_DEPOSIT_RAW = parseRawAmount(
 const TOP_UP_DEPOSIT_RAW = parseRawAmount(
   process.env.EARN_TOP_UP_DEPOSIT_RAW ?? "5000"
 );
+const TOP_UP_DEPOSIT_MINT =
+  process.env.EARN_TOP_UP_DEPOSIT_MINT?.trim() || null;
+const TOP_UP_ONLY = process.env.EARN_TOP_UP_ONLY === "1";
 const PARTIAL_WITHDRAW_RAW = parseRawAmount(
   process.env.EARN_PARTIAL_WITHDRAW_RAW ?? "7000"
 );
@@ -582,12 +585,13 @@ async function authenticateFrontendSession(args: {
 
 async function prepareEarnDepositViaFrontend(args: {
   amountRaw: bigint;
+  mint?: PublicKey;
   session: FrontendSession;
 }): Promise<SmartAccountPreparedEarnUsdcDeposit> {
   const response = await frontendPostJson<EarnDepositPrepareResponse>({
     body: {
       amountRaw: args.amountRaw.toString(),
-      mint: EARN_TARGET.liquidityMint.toBase58(),
+      mint: (args.mint ?? EARN_TARGET.liquidityMint).toBase58(),
     },
     cookie: args.session.cookie,
     path: "/api/smart-accounts/yield-optimization/deposits/prepare",
@@ -615,7 +619,7 @@ function buildEarnDepositConfirmFrontendBody(args: {
     setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot?.toString(),
     setupPolicySignature: args.setupPolicySignature,
     signature: args.signature,
-    smartAccountAddress: args.session.smartAccountAddress,
+    smartAccountAddress: args.prepared.persistence.vaultPubkey,
   });
 }
 
@@ -643,13 +647,14 @@ async function prepareEarnWithdrawViaFrontend(args: {
   amountRaw: bigint;
   mode: "partial" | "full";
   session: FrontendSession;
-  source?: EarnWithdrawPrepareRequestBody["source"];
+  source?: EarnWithdrawLegacySourceRequest;
 }): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
   const response = await frontendPostJson<EarnWithdrawPrepareResponse>({
     body: {
       amountRaw: args.amountRaw.toString(),
-      mode: args.mode,
-      ...(args.source ? { source: args.source } : {}),
+      ...(args.source
+        ? { sourceId: `${args.source.type}:${args.source.id}` }
+        : { mode: args.mode, source: null }),
     },
     cookie: args.session.cookie,
     path: "/api/smart-accounts/yield-optimization/withdrawals/prepare",
@@ -706,7 +711,7 @@ function buildEarnWithdrawConfirmFrontendBody(args: {
     confirmedSlot: args.confirmedSlot.toString(),
     preparedWithdraw: args.prepared,
     signature: args.signature,
-    smartAccountAddress: args.session.smartAccountAddress,
+    smartAccountAddress: args.prepared.persistence.vaultPubkey,
   });
 }
 
@@ -1318,7 +1323,7 @@ function requireSingleEarnHolding(args: {
 
 function withdrawSourceFromHolding(
   holding: EarnSourceHoldingEvidence
-): NonNullable<EarnWithdrawPrepareRequestBody["source"]> {
+): NonNullable<EarnWithdrawLegacySourceRequest> {
   if (holding.kind === "idle") {
     const tokenAccount = getStringField(holding.provenance, "tokenAccount");
     if (!tokenAccount) {
@@ -1351,7 +1356,7 @@ function withdrawSourceFromCurrentRows(args: {
   idleRows: unknown[];
   label: string;
   reserveRows: unknown[];
-}): NonNullable<EarnWithdrawPrepareRequestBody["source"]> {
+}): NonNullable<EarnWithdrawLegacySourceRequest> {
   const activeReserveRows = args.reserveRows.filter(
     (row) => (getRawAmountField(row, "amountRaw") ?? 0n) > 0n
   );
@@ -1434,7 +1439,7 @@ function withdrawSourceFromCurrentRows(args: {
 }
 
 function toClientWithdrawSource(
-  source: NonNullable<EarnWithdrawPrepareRequestBody["source"]>
+  source: NonNullable<EarnWithdrawLegacySourceRequest>
 ): SmartAccountEarnUsdcWithdrawInput["source"] {
   if (source.type === "idle") {
     return {
@@ -1459,7 +1464,7 @@ function toClientWithdrawSource(
 function assertPreparedSourceMetadata(args: {
   label: string;
   prepared: SmartAccountPreparedEarnUsdcWithdraw;
-  source: NonNullable<EarnWithdrawPrepareRequestBody["source"]>;
+  source: NonNullable<EarnWithdrawLegacySourceRequest>;
 }) {
   const persistence = asRecord(args.prepared.persistence);
   if (!persistence) {
@@ -1692,7 +1697,7 @@ function sameMintReserveSwapSetupObligationCommand(args: {
 
 async function loadTopSafeUsdcCandidateEvidence() {
   const { getCurrentBestApyReserveByStablecoin } = await import(
-    "../frontend/src/lib/kamino/timescale-reserve-client.server.ts"
+    "../apps/web/src/lib/kamino/timescale-reserve-client.server.ts"
   );
   const safeMarkets = new Set(EARN_POLICY_UNIVERSE.kaminoMarkets);
   const usdcMint = EARN_TARGET.liquidityMint.toBase58();
@@ -2268,10 +2273,10 @@ async function loadState(args: {
   walletUsdcAta: PublicKey;
   yieldClient: Awaited<
     ReturnType<
-      typeof import("../frontend/src/lib/yield-optimization/yield-neon-client.server.ts")["getYieldOptimizationClient"]
+      typeof import("../apps/web/src/lib/yield-optimization/yield-neon-client.server.ts")["getYieldOptimizationClient"]
     >
   >;
-  schema: typeof import("../frontend/src/lib/yield-optimization/yield-neon-client.server.ts");
+  schema: typeof import("../apps/web/src/lib/yield-optimization/yield-neon-client.server.ts");
 }) {
   const {
     managedVaults,
@@ -2736,7 +2741,7 @@ async function runPolicyResumeReadiness(): Promise<void> {
     };
 
     const schema = await import(
-      "../frontend/src/lib/yield-optimization/yield-neon-client.server.ts"
+      "../apps/web/src/lib/yield-optimization/yield-neon-client.server.ts"
     );
     const yieldClient = schema.getYieldOptimizationClient();
     const vaultPubkey = pda.getSmartAccountPda({
@@ -2947,7 +2952,7 @@ async function runPolicyOnlyReconcileDryRun(): Promise<void> {
       );
     }
     const { reconcileInvisibleEarnDeposits } = await import(
-      "../frontend/src/lib/yield-optimization/earn-deposit-reconcile.server.ts"
+      "../apps/web/src/lib/yield-optimization/earn-deposit-reconcile.server.ts"
     );
     const summary = await reconcileInvisibleEarnDeposits({
       dryRun: true,
@@ -3252,10 +3257,10 @@ async function main() {
     programId: PROGRAM_ID,
   });
   const repository = await import(
-    "../frontend/src/lib/yield-optimization/yield-deposit-repository.server.ts"
+    "../apps/web/src/lib/yield-optimization/yield-deposit-repository.server.ts"
   );
   const schema = await import(
-    "../frontend/src/lib/yield-optimization/yield-neon-client.server.ts"
+    "../apps/web/src/lib/yield-optimization/yield-neon-client.server.ts"
   );
   const yieldClient = schema.getYieldOptimizationClient();
   const vaultPubkey = pda.getSmartAccountPda({
@@ -3816,7 +3821,7 @@ async function main() {
       throw new Error("full-withdraw-cleanup requires an active Earn policy.");
     }
 
-    let selectedSource: NonNullable<EarnWithdrawPrepareRequestBody["source"]>;
+    let selectedSource: NonNullable<EarnWithdrawLegacySourceRequest>;
     if (frontendSession) {
       const position = await fetchEarnPositionViaFrontend({
         session: frontendSession,
@@ -5604,6 +5609,9 @@ async function main() {
     const topUp = frontendSession
       ? await prepareEarnDepositViaFrontend({
           amountRaw: TOP_UP_DEPOSIT_RAW,
+          ...(TOP_UP_DEPOSIT_MINT
+            ? { mint: new PublicKey(TOP_UP_DEPOSIT_MINT) }
+            : {}),
           session: frontendSession,
         })
       : await client.prepareEarnUsdcDeposit({
@@ -5715,7 +5723,7 @@ async function main() {
         simulationLogs: topUpSent.simulationLogs.slice(-12),
         status: "success",
       };
-      if (!options.includePartialWithdrawal) {
+      if (!options.includePartialWithdrawal || TOP_UP_ONLY) {
         evidence.verifierFailures = await assertNoVerifierFailures({
           settings: SETTINGS_PDA.toBase58(),
           verifyUserYieldPositions: repository.verifyUserYieldPositions,
@@ -5730,6 +5738,14 @@ async function main() {
           amountRaw: PARTIAL_WITHDRAW_RAW,
           mode: "partial",
           session: frontendSession,
+          source: {
+            amountRaw: before.principalAmountRaw.toString(),
+            id: before.currentReserve,
+            liquidityMint: before.currentLiquidityMint,
+            market: before.currentMarket,
+            reserve: before.currentReserve,
+            type: "reserve",
+          },
         })
       : await client.prepareEarnUsdcWithdraw({
           amountRaw: PARTIAL_WITHDRAW_RAW,
