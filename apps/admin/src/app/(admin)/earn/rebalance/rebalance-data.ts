@@ -119,6 +119,26 @@ export type ExecutedEarnRebalanceHistory = {
   userCount: number;
 };
 
+export type EarnVaultRebalanceFrequencyRow = {
+  allCount: number;
+  currentDepositRaw: bigint;
+  currentReserve: string | null;
+  depositRank: number;
+  last12hCount: number;
+  last2hCount: number;
+  last7dCount: number;
+  liquidityMint: string | null;
+  positionCount: number;
+  vaultId: string;
+  vaultPubkey: string;
+};
+
+export type EarnVaultRebalanceFrequency = {
+  generatedAt: string;
+  vaultCount: number;
+  vaults: EarnVaultRebalanceFrequencyRow[];
+};
+
 export type RebalanceAuditRow = {
   abandonReason: string | null;
   amountRaw: bigint | null;
@@ -253,6 +273,21 @@ type ExecutedEarnRebalanceSqlRow = {
   target_reserve: string;
   user_count: SqlScalar;
   user_rank: SqlScalar;
+};
+
+type EarnVaultRebalanceFrequencySqlRow = {
+  all_count: SqlScalar;
+  current_deposit_raw: SqlScalar;
+  current_reserve: string | null;
+  deposit_rank: SqlScalar;
+  last_12h_count: SqlScalar;
+  last_2h_count: SqlScalar;
+  last_7d_count: SqlScalar;
+  liquidity_mint: string | null;
+  position_count: SqlScalar;
+  vault_count: SqlScalar;
+  vault_id: string;
+  vault_pubkey: string;
 };
 
 type RebalanceAuditSqlRow = {
@@ -1548,6 +1583,210 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
     })),
     generatedAt: new Date().toISOString(),
     userCount: rows.length > 0 ? toNumber(rows[0].user_count) : 0,
+  };
+}
+
+export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalanceFrequency> {
+  const rows = await queryRows<EarnVaultRebalanceFrequencySqlRow>(
+    `
+      WITH active_vaults AS MATERIALIZED (
+        SELECT id, vault_pubkey
+        FROM loyal_yield.managed_vaults
+        WHERE active = true
+          AND vault_index = 1
+      ),
+      normalized_positions AS MATERIALIZED (
+        SELECT
+          position.vault_id,
+          position.reserve,
+          position.liquidity_mint,
+          position.observed_at,
+          CASE
+            WHEN COALESCE(
+              position.planning_metadata->>'amountSemantics',
+              position.planning_metadata->>'amount_semantics'
+            ) IN (
+              'kamino_redeemable_liquidity',
+              'redeemable_liquidity_amount'
+            )
+              THEN position.amount_raw
+            WHEN COALESCE(
+              position.planning_metadata->>'amountSemantics',
+              position.planning_metadata->>'amount_semantics'
+            ) = 'kamino_obligation_collateral_deposited_amount'
+              AND COALESCE(
+                position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+              ) ~ '^[0-9]+$'
+              THEN COALESCE(
+                position.planning_metadata->>'redeemable_liquidity_amount_raw',
+                position.planning_metadata->>'redeemable_source_liquidity_amount_raw'
+              )::bigint
+            ELSE 0::bigint
+          END AS normalized_amount_raw
+        FROM active_vaults AS vault
+        INNER JOIN LATERAL (
+          SELECT position.*
+          FROM loyal_yield.vault_reserve_positions_current AS position
+          WHERE position.vault_id = vault.id
+            AND position.has_value = true
+            AND position.amount_raw > 0
+          OFFSET 0
+        ) AS position ON true
+      ),
+      positive_positions AS MATERIALIZED (
+        SELECT *
+        FROM normalized_positions
+        WHERE normalized_amount_raw > 0
+      ),
+      position_totals AS MATERIALIZED (
+        SELECT
+          vault_id,
+          SUM(normalized_amount_raw)::bigint AS amount_raw,
+          COUNT(*)::integer AS position_count
+        FROM positive_positions
+        GROUP BY vault_id
+      ),
+      primary_positions AS MATERIALIZED (
+        SELECT vault_id, reserve, liquidity_mint
+        FROM (
+          SELECT
+            position.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY position.vault_id
+              ORDER BY
+                position.normalized_amount_raw DESC,
+                position.observed_at DESC NULLS LAST,
+                position.reserve ASC
+            ) AS priority
+          FROM positive_positions AS position
+        ) AS ranked
+        WHERE priority = 1
+      ),
+      positive_idle AS MATERIALIZED (
+        SELECT idle.*
+        FROM active_vaults AS vault
+        INNER JOIN LATERAL (
+          SELECT idle.*
+          FROM loyal_yield.vault_idle_token_balances_current AS idle
+          WHERE idle.vault_id = vault.id
+            AND idle.amount_raw > 0
+          OFFSET 0
+        ) AS idle ON true
+      ),
+      idle_totals AS MATERIALIZED (
+        SELECT vault_id, SUM(amount_raw)::bigint AS amount_raw
+        FROM positive_idle
+        GROUP BY vault_id
+      ),
+      primary_idle AS MATERIALIZED (
+        SELECT vault_id, mint
+        FROM (
+          SELECT
+            idle.*,
+            ROW_NUMBER() OVER (
+              PARTITION BY idle.vault_id
+              ORDER BY
+                idle.amount_raw DESC,
+                idle.observed_at DESC NULLS LAST,
+                idle.mint ASC
+            ) AS priority
+          FROM positive_idle AS idle
+        ) AS ranked
+        WHERE priority = 1
+      ),
+      rebalance_counts AS MATERIALIZED (
+        SELECT
+          decision.vault_id,
+          COUNT(*)::integer AS all_count,
+          COUNT(*) FILTER (
+            WHERE decision.updated_at >= NOW() - INTERVAL '7 days'
+          )::integer AS last_7d_count,
+          COUNT(*) FILTER (
+            WHERE decision.updated_at >= NOW() - INTERVAL '12 hours'
+          )::integer AS last_12h_count,
+          COUNT(*) FILTER (
+            WHERE decision.updated_at >= NOW() - INTERVAL '2 hours'
+          )::integer AS last_2h_count
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.status = 'confirmed'
+          AND decision.source_reserve IS NOT NULL
+          AND decision.target_reserve IS NOT NULL
+        GROUP BY decision.vault_id
+      ),
+      current_vaults AS MATERIALIZED (
+        SELECT
+          vault.id,
+          vault.vault_pubkey,
+          primary_position.reserve AS current_reserve,
+          COALESCE(primary_position.liquidity_mint, primary_idle.mint)
+            AS liquidity_mint,
+          COALESCE(position_total.amount_raw, 0::bigint)
+            + COALESCE(idle_total.amount_raw, 0::bigint)
+            AS current_deposit_raw,
+          COALESCE(position_total.position_count, 0) AS position_count,
+          COALESCE(rebalance.all_count, 0) AS all_count,
+          COALESCE(rebalance.last_7d_count, 0) AS last_7d_count,
+          COALESCE(rebalance.last_12h_count, 0) AS last_12h_count,
+          COALESCE(rebalance.last_2h_count, 0) AS last_2h_count
+        FROM active_vaults AS vault
+        LEFT JOIN position_totals AS position_total
+          ON position_total.vault_id = vault.id
+        LEFT JOIN primary_positions AS primary_position
+          ON primary_position.vault_id = vault.id
+        LEFT JOIN idle_totals AS idle_total
+          ON idle_total.vault_id = vault.id
+        LEFT JOIN primary_idle
+          ON primary_idle.vault_id = vault.id
+        LEFT JOIN rebalance_counts AS rebalance
+          ON rebalance.vault_id = vault.id
+        WHERE COALESCE(position_total.amount_raw, 0::bigint)
+          + COALESCE(idle_total.amount_raw, 0::bigint) > 0
+      ),
+      ranked_vaults AS MATERIALIZED (
+        SELECT
+          current_vault.*,
+          ROW_NUMBER() OVER (
+            ORDER BY
+              current_vault.current_deposit_raw ASC,
+              current_vault.vault_pubkey ASC
+          )::integer AS deposit_rank
+        FROM current_vaults AS current_vault
+      )
+      SELECT
+        ranked_vault.id::text AS vault_id,
+        ranked_vault.vault_pubkey,
+        ranked_vault.current_reserve,
+        ranked_vault.liquidity_mint,
+        ranked_vault.current_deposit_raw::text,
+        ranked_vault.position_count::text,
+        ranked_vault.all_count::text,
+        ranked_vault.last_7d_count::text,
+        ranked_vault.last_12h_count::text,
+        ranked_vault.last_2h_count::text,
+        ranked_vault.deposit_rank::text,
+        MAX(ranked_vault.deposit_rank) OVER ()::text AS vault_count
+      FROM ranked_vaults AS ranked_vault
+      ORDER BY ranked_vault.deposit_rank ASC
+    `
+  );
+
+  return {
+    generatedAt: new Date().toISOString(),
+    vaultCount: rows.length > 0 ? toNumber(rows[0].vault_count) : 0,
+    vaults: rows.map((row) => ({
+      allCount: toNumber(row.all_count),
+      currentDepositRaw: toBigInt(row.current_deposit_raw),
+      currentReserve: row.current_reserve,
+      depositRank: toNumber(row.deposit_rank),
+      last12hCount: toNumber(row.last_12h_count),
+      last2hCount: toNumber(row.last_2h_count),
+      last7dCount: toNumber(row.last_7d_count),
+      liquidityMint: row.liquidity_mint,
+      positionCount: toNumber(row.position_count),
+      vaultId: row.vault_id,
+      vaultPubkey: row.vault_pubkey,
+    })),
   };
 }
 

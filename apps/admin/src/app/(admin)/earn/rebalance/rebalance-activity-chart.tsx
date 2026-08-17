@@ -28,7 +28,7 @@ const chartConfig = {
     label: "Expired submissions",
   },
   failedDecisions: {
-    color: "var(--chart-2)",
+    color: "var(--chart-5)",
     label: "Failed decisions",
   },
   failedOpportunities: {
@@ -45,7 +45,14 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-type SeriesKey = keyof typeof chartConfig;
+const activitySeries = [
+  { key: "confirmed", yAxisId: "events" },
+  { key: "terminalAttempts", yAxisId: "events" },
+  { key: "fleetClaims", yAxisId: "claims" },
+  { key: "failedDecisions", yAxisId: "events" },
+  { key: "failedOpportunities", yAxisId: "events" },
+  { key: "expiredSubmissions", yAxisId: "events" },
+] as const;
 
 function formatTickDate(value: unknown) {
   if (typeof value !== "string") {
@@ -87,21 +94,13 @@ function formatTooltipDate(value: unknown) {
   }).format(date);
 }
 
-function ActivityPanel({
-  data,
-  label,
-  series,
-}: {
-  data: RebalanceActivityPoint[];
-  label: string;
-  series: SeriesKey[];
-}) {
+function ActivityTimeSeries({ data }: { data: RebalanceActivityPoint[] }) {
   return (
     <div className="min-w-0 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2 px-2 text-xs">
-        <span className="font-medium text-muted-foreground">{label}</span>
+        <span className="font-medium text-muted-foreground">Activity</span>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-          {series.map((key) => (
+          {activitySeries.map(({ key }) => (
             <span className="flex items-center gap-1.5" key={key}>
               <span
                 aria-hidden
@@ -114,13 +113,13 @@ function ActivityPanel({
         </div>
       </div>
       <ChartContainer
-        className="aspect-auto h-[150px] w-full min-w-0"
+        className="aspect-auto h-[260px] w-full min-w-0 sm:h-[300px]"
         config={chartConfig}
       >
         <LineChart
           accessibilityLayer
           data={data}
-          margin={{ bottom: 20, left: 4, right: 16, top: 8 }}
+          margin={{ bottom: 20, left: 4, right: 4, top: 8 }}
         >
           <CartesianGrid vertical={false} />
           <XAxis
@@ -138,7 +137,17 @@ function ActivityPanel({
             axisLine={false}
             domain={[0, (maximum: number) => Math.max(1, maximum)]}
             tickLine={false}
-            width={36}
+            width={40}
+            yAxisId="events"
+          />
+          <YAxis
+            allowDecimals={false}
+            axisLine={false}
+            domain={[0, (maximum: number) => Math.max(1, maximum)]}
+            orientation="right"
+            tickLine={false}
+            width={48}
+            yAxisId="claims"
           />
           <ChartTooltip
             content={
@@ -148,7 +157,7 @@ function ActivityPanel({
               />
             }
           />
-          {series.map((key) => (
+          {activitySeries.map(({ key, yAxisId }) => (
             <Line
               dataKey={key}
               dot={false}
@@ -156,6 +165,7 @@ function ActivityPanel({
               stroke={`var(--color-${key})`}
               strokeWidth={2}
               type="linear"
+              yAxisId={yAxisId}
             />
           ))}
         </LineChart>
@@ -187,9 +197,9 @@ export function RebalanceActivityChart({
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">Rebalance activity</CardTitle>
           <CardDescription>
-            Last 72 hours in two-hour UTC buckets from Yield Neon. Failures are
-            persisted states; fleet claims are current attempt counts attributed
-            to opportunity creation time. Render-only errors are not included.
+            Last 72 hours in two-hour UTC buckets from Yield Neon. Fleet claims
+            use the right axis; all other series use the left axis. Render-only
+            errors are not included.
           </CardDescription>
         </div>
         <div className="flex">
@@ -209,22 +219,8 @@ export function RebalanceActivityChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5 px-2 pt-6 sm:p-6">
-        <ActivityPanel
-          data={data}
-          label="Outcomes"
-          series={["confirmed", "terminalAttempts"]}
-        />
-        <ActivityPanel data={data} label="Claims" series={["fleetClaims"]} />
-        <ActivityPanel
-          data={data}
-          label="Failures"
-          series={[
-            "failedDecisions",
-            "failedOpportunities",
-            "expiredSubmissions",
-          ]}
-        />
+      <CardContent className="px-2 pt-6 sm:p-6">
+        <ActivityTimeSeries data={data} />
       </CardContent>
     </Card>
   );

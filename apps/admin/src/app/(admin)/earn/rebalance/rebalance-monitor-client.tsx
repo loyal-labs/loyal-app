@@ -51,6 +51,10 @@ import {
   type SerializedAutodepositFailureRange,
 } from "./autodeposit-failures-chart";
 import {
+  EarnVaultRebalanceFrequencyChart,
+  type SerializedEarnVaultRebalanceFrequency,
+} from "./earn-vault-rebalance-frequency-chart";
+import {
   ExecutedEarnRebalancesChart,
   type SerializedExecutedEarnRebalanceHistory,
 } from "./executed-earn-rebalances-chart";
@@ -102,6 +106,7 @@ type RebalanceApiData = {
   executedRebalances: SerializedExecutedEarnRebalanceHistory;
   last30DaysRebalances: Last30DaysRebalancePoint[];
   routes: SerializedActiveReserveRouteRow[];
+  vaultRebalanceFrequency: SerializedEarnVaultRebalanceFrequency;
 };
 
 type LoadState =
@@ -1418,6 +1423,16 @@ export function RebalanceMonitorClient() {
         ),
       }
     : state.data.executedRebalances;
+  const filteredFrequencyVaults = selectedMintAddress
+    ? state.data.vaultRebalanceFrequency.vaults.filter(
+        (vault) => vault.liquidityMint === selectedMintAddress
+      )
+    : state.data.vaultRebalanceFrequency.vaults;
+  const filteredVaultRebalanceFrequency = {
+    ...state.data.vaultRebalanceFrequency,
+    vaultCount: filteredFrequencyVaults.length,
+    vaults: filteredFrequencyVaults,
+  };
 
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-6">
@@ -1425,8 +1440,9 @@ export function RebalanceMonitorClient() {
         <CardHeader>
           <CardTitle className="font-bold">Stablecoin filter</CardTitle>
           <CardDescription>
-            Filters verified reserves and the confirmed execution chart. The
-            aggregate activity and paginated audit sections remain all-mint.
+            Filters verified reserves, confirmed executions, and vault
+            frequency. The aggregate activity and paginated audit sections
+            remain all-mint.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1457,6 +1473,10 @@ export function RebalanceMonitorClient() {
       <ExecutedEarnRebalancesChart
         data={filteredExecutedRebalances}
         reserveLabels={reserveLabels}
+      />
+      <EarnVaultRebalanceFrequencyChart
+        data={filteredVaultRebalanceFrequency}
+        reserveStatuses={filteredApyData.statuses}
       />
       <Last30DaysRebalanceChart data={state.data.last30DaysRebalances} />
       <AutodepositFailuresChart data={state.data.autodeposit} />

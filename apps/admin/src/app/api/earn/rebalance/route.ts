@@ -7,6 +7,7 @@ import { DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
 import {
   getActiveReserveRoutes,
   getAutodepositTimeSeries,
+  getEarnVaultRebalanceFrequency,
   getExecutedEarnRebalanceHistory,
   getLast30DaysRebalanceSeries,
   getRebalanceActivity,
@@ -17,22 +18,6 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function loadRebalanceMonitorData() {
-  const executedRebalancesPromise = getExecutedEarnRebalanceHistory()
-    .then((history) => ({ ...history, status: "available" as const }))
-    .catch((error) => {
-      console.error("Executed Earn rebalance history query failed", {
-        errorMessage:
-          error instanceof Error ? error.message : "Unknown database error",
-        errorName: error instanceof Error ? error.name : "Error",
-      });
-
-      return {
-        executions: [],
-        generatedAt: new Date().toISOString(),
-        status: "unavailable" as const,
-        userCount: 0,
-      };
-    });
   const [
     apyData,
     routes,
@@ -40,7 +25,6 @@ async function loadRebalanceMonitorData() {
     activity,
     last30DaysRebalances,
     autodeposit,
-    executedRebalances,
   ] = await Promise.all([
     getSafeReserveApyMonitorData(),
     getActiveReserveRoutes(),
@@ -48,7 +32,6 @@ async function loadRebalanceMonitorData() {
     getRebalanceActivity(),
     getLast30DaysRebalanceSeries(),
     getAutodepositTimeSeries(),
-    executedRebalancesPromise,
   ]);
 
   return {
@@ -73,21 +56,70 @@ async function loadRebalanceMonitorData() {
       amountRaw: decision.amountRaw?.toString() ?? null,
       confirmedSlot: decision.confirmedSlot?.toString() ?? null,
     })),
-    executedRebalances: {
-      ...executedRebalances,
-      executions: executedRebalances.executions.map((execution) => ({
-        ...execution,
-        amountRaw: execution.amountRaw.toString(),
-        confirmedSlot: execution.confirmedSlot.toString(),
-        currentDepositRaw: execution.currentDepositRaw.toString(),
-      })),
-    },
     last30DaysRebalances,
     routes: routes.map((route) => ({
       ...route,
       activeAumRaw: route.activeAumRaw.toString(),
     })),
   };
+}
+
+async function loadExecutedRebalances() {
+  try {
+    const history = await getExecutedEarnRebalanceHistory();
+
+    return {
+      ...history,
+      status: "available" as const,
+      executions: history.executions.map((execution) => ({
+        ...execution,
+        amountRaw: execution.amountRaw.toString(),
+        confirmedSlot: execution.confirmedSlot.toString(),
+        currentDepositRaw: execution.currentDepositRaw.toString(),
+      })),
+    };
+  } catch (error) {
+    console.error("Executed Earn rebalance history query failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown database error",
+      errorName: error instanceof Error ? error.name : "Error",
+    });
+
+    return {
+      executions: [],
+      generatedAt: new Date().toISOString(),
+      status: "unavailable" as const,
+      userCount: 0,
+    };
+  }
+}
+
+async function loadVaultRebalanceFrequency() {
+  try {
+    const frequency = await getEarnVaultRebalanceFrequency();
+
+    return {
+      ...frequency,
+      status: "available" as const,
+      vaults: frequency.vaults.map((vault) => ({
+        ...vault,
+        currentDepositRaw: vault.currentDepositRaw.toString(),
+      })),
+    };
+  } catch (error) {
+    console.error("Earn vault rebalance frequency query failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown database error",
+      errorName: error instanceof Error ? error.name : "Error",
+    });
+
+    return {
+      generatedAt: new Date().toISOString(),
+      status: "unavailable" as const,
+      vaultCount: 0,
+      vaults: [],
+    };
+  }
 }
 
 const getCachedRebalanceMonitorData = unstable_cache(
@@ -97,9 +129,19 @@ const getCachedRebalanceMonitorData = unstable_cache(
 );
 
 export async function GET() {
-  return NextResponse.json(await getCachedRebalanceMonitorData(), {
-    headers: {
-      "Cache-Control": "private, no-store",
-    },
-  });
+  const [monitorData, executedRebalances, vaultRebalanceFrequency] =
+    await Promise.all([
+      getCachedRebalanceMonitorData(),
+      loadExecutedRebalances(),
+      loadVaultRebalanceFrequency(),
+    ]);
+
+  return NextResponse.json(
+    { ...monitorData, executedRebalances, vaultRebalanceFrequency },
+    {
+      headers: {
+        "Cache-Control": "private, no-store",
+      },
+    }
+  );
 }
