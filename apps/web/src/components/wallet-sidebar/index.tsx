@@ -94,16 +94,6 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   // Captcha gate for sign-in tab
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const captchaMode = publicEnv.captcha.mode;
-
-  // Auto-resolve only for misconfigured environments (no CAP_SECRET); in
-  // widget mode every env — localhost and previews included — runs the real
-  // captcha, since Cap is same-origin with no domain allowlist.
-  useEffect(() => {
-    if (captchaMode === "misconfigured" && captchaToken === null) {
-      setCaptchaToken("captcha-skipped");
-    }
-  }, [captchaToken, captchaMode]);
 
   // Reset captcha when sidebar closes
   useEffect(() => {
