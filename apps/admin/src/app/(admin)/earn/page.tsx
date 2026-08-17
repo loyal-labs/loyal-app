@@ -38,6 +38,7 @@ import {
   type EarnFundingWallet,
 } from "./earn-funding-data";
 import { getAdminEarnSnapshot, type AdminEarnSnapshot } from "./earn-snapshot";
+import { OperationalWalletSpendingCharts } from "./operational-wallet-spending-charts";
 import {
   EARN_STABLECOIN_DESCRIPTORS,
   getEarnStablecoinBySymbol,
@@ -447,6 +448,13 @@ function OperationalWallets({ data }: { data: EarnFundingData }) {
           {data.missingRoles.map((role) => role.label).join(", ")}
         </div>
       ) : null}
+
+      <OperationalWalletSpendingCharts
+        events={data.spendEvents}
+        sourceErrors={data.spendSourceErrors}
+        wallets={data.wallets}
+        window={data.spendWindow}
+      />
     </div>
   );
 }
