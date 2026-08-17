@@ -14,6 +14,7 @@ export type { AppEnvironment } from "./shared";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const APP_URL_ENV_NAME = "NEXT_PUBLIC_APP_URL";
 const CAP_SECRET_ENV_NAME = "CAP_SECRET";
+const LOCAL_CAPTCHA_BYPASS_TOKEN = "local-bypass";
 const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
@@ -22,6 +23,7 @@ const USERCENTRICS_SETTINGS_ID_ENV_NAME =
   "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
 export type CaptchaConfig =
+  | { mode: "bypass"; verificationToken: string }
   | { mode: "widget" }
   | { mode: "misconfigured"; reason: string };
 
@@ -48,15 +50,21 @@ export type PublicEnv = {
 
 const DEFAULT_MIXPANEL_PROXY_PATH = "/ingest";
 
-// Resolved server-side (root layout) and passed down via PublicEnvProvider,
-// so the mode can key off the server-only CAP_SECRET — only the mode string
-// ever reaches the client. Cap runs same-origin with no domain allowlist, so
-// unlike Turnstile the real widget works on localhost and Vercel previews —
-// no local bypass mode needed.
+// Resolved server-side (root layout) and passed down via PublicEnvProvider.
+// Local development follows the old Turnstile contract: authentication stays
+// wired, but the captcha itself is optional. Deployed environments still fail
+// closed when CAP_SECRET is missing.
 function resolveCaptchaConfig(
   env: EnvSource,
   appEnvironment: AppEnvironment
 ): CaptchaConfig {
+  if (appEnvironment === "local") {
+    return {
+      mode: "bypass",
+      verificationToken: LOCAL_CAPTCHA_BYPASS_TOKEN,
+    };
+  }
+
   if (getOptionalEnv(env, CAP_SECRET_ENV_NAME)) {
     return { mode: "widget" };
   }

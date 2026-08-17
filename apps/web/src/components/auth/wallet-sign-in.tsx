@@ -3,8 +3,6 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useEffect, useState } from "react";
 
-import { usePublicEnv } from "@/contexts/public-env-context";
-
 import { CapWidget } from "./cap-widget";
 import { WalletTab } from "./wallet-tab";
 
@@ -14,8 +12,6 @@ import { WalletTab } from "./wallet-tab";
  * coordination lives in one place.
  */
 export function WalletSignIn() {
-  const publicEnv = usePublicEnv();
-  const captchaMode = publicEnv.captcha.mode;
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   // No installed wallet extension and no connected wallet means sign-in
   // cannot proceed, so asking for captcha verification is pointless noise
@@ -25,15 +21,6 @@ export function WalletSignIn() {
   const hasWalletOption =
     connected ||
     wallets.some((candidate) => candidate.readyState === "Installed");
-
-  // Auto-resolve only for misconfigured environments (no CAP_SECRET); in
-  // widget mode every env — localhost and previews included — runs the real
-  // captcha, since Cap is same-origin with no domain allowlist.
-  useEffect(() => {
-    if (captchaMode === "misconfigured" && captchaToken === null) {
-      setCaptchaToken("captcha-skipped");
-    }
-  }, [captchaToken, captchaMode]);
 
   // Collapse the verification block a beat AFTER solving so the widget's
   // checkmark lands before the accordion folds; a consumed token (sign-in

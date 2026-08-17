@@ -10,14 +10,16 @@ import {
   type ValidateChallengeResult,
 } from "capjs-core";
 
-import { getOptionalEnv, type EnvSource } from "@/lib/core/config/shared";
-
 import {
-  consumeCaptchaKey,
-  putCaptchaKey,
-} from "./captcha-key-store";
+  getOptionalEnv,
+  resolveAppEnvironment,
+  type EnvSource,
+} from "@/lib/core/config/shared";
+
+import { consumeCaptchaKey, putCaptchaKey } from "./captcha-key-store";
 
 const CAP_SECRET_ENV_NAME = "CAP_SECRET";
+const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 
 /** Binds challenges to the wallet sign-in flow on both generate and validate. */
 const CHALLENGE_SCOPE = "wallet-signin";
@@ -25,9 +27,7 @@ const CHALLENGE_SCOPE = "wallet-signin";
 const NONCE_KEY_PREFIX = "cap-nonce:";
 const TOKEN_KEY_PREFIX = "cap-token:";
 
-export function getCapSecret(
-  env: EnvSource = process.env
-): string | undefined {
+export function getCapSecret(env: EnvSource = process.env): string | undefined {
   return getOptionalEnv(env, CAP_SECRET_ENV_NAME);
 }
 
@@ -66,9 +66,7 @@ export async function redeemCapChallenge(
   return result;
 }
 
-export type CaptchaVerification =
-  | { ok: true }
-  | { ok: false; reason: string };
+export type CaptchaVerification = { ok: true } | { ok: false; reason: string };
 
 /** The default capjs-core redeem token is `id:secret`; the stored key hashes
  *  the secret half so a DB leak alone can't mint valid tokens. */
@@ -77,21 +75,21 @@ function deriveCapTokenKey(token: string): string | null {
   if (!(id && verificationToken)) {
     return null;
   }
-  return `${id}:${createHash("sha256").update(verificationToken).digest("hex")}`;
+  return `${id}:${createHash("sha256")
+    .update(verificationToken)
+    .digest("hex")}`;
 }
 
 /**
  * Server-side enforcement for the Cap captcha. Mirrors the client mode
  * resolution in `lib/core/config/public.ts`:
  *
+ * - local app environment → bypass: local API and UI work can authenticate
+ *   without solving a captcha, matching the previous Turnstile behavior.
  * - `CAP_SECRET` set → enforce: the redeem token is consumed from the
  *   single-use store. Missing, forged, expired, replayed tokens and an
- *   unreachable store all fail closed. Cap runs same-origin with no domain
- *   allowlist, so this holds for localhost and Vercel previews too — there
- *   is no local bypass.
- * - no secret → misconfigured: verification is skipped (parity with the
- *   client, which auto-skips when Cap is not configured), logged loudly so
- *   it is noticed.
+ *   unreachable store all fail closed.
+ * - no secret outside local → misconfigured and fail closed.
  *
  * The mode is resolved from server env only — a client-supplied token can
  * never downgrade it.
@@ -101,10 +99,16 @@ export async function verifyCaptchaToken(
   dependencies: { env?: EnvSource } = {}
 ): Promise<CaptchaVerification> {
   const env = dependencies.env ?? process.env;
+  const appEnvironment = resolveAppEnvironment(
+    getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
+  );
+  if (appEnvironment === "local") {
+    return { ok: true };
+  }
+
   const secret = getCapSecret(env);
   if (!secret) {
-    console.warn("[cap] verification skipped — CAP_SECRET is not set");
-    return { ok: true };
+    return { ok: false, reason: "captcha_verify_unavailable" };
   }
 
   if (!args.token) {
