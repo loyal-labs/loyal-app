@@ -3,6 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 import { sql } from "drizzle-orm";
 import { drizzle, type NeonHttpDatabase } from "drizzle-orm/neon-http";
+import { drizzle as drizzlePostgres } from "drizzle-orm/postgres-js";
 import {
   bigint,
   bigserial,
@@ -19,6 +20,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import postgres from "postgres";
 
 import { getRequiredEnv } from "@/lib/core/config/shared";
 import type {
@@ -29,6 +31,8 @@ import type { EarnEarningsRangeSetResponse } from "./earnings.shared";
 
 const loyalYieldSchema = pgSchema("loyal_yield");
 const YIELD_OPTIMIZATION_DATABASE_URL_ENV_NAME = "NEON_DATABASE_URL";
+const LOCAL_YIELD_OPTIMIZATION_DATABASE_URL_ENV_NAME =
+  "YIELD_OPTIMIZATION_LOCAL_DATABASE_URL";
 
 export const decisionStatus = loyalYieldSchema.enum("decision_status", [
   "planned",
@@ -217,6 +221,71 @@ export const routePolicies = loyalYieldSchema.table(
   },
   (table) => [
     uniqueIndex("route_policies_policy_account_uidx").on(table.policyAccount),
+  ]
+);
+
+export const crossMintSwapPolicies = loyalYieldSchema.table(
+  "cross_mint_swap_policies",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    cluster: text("cluster").notNull(),
+    settings: text("settings").notNull(),
+    authority: text("authority").notNull(),
+    policySeed: bigint("policy_seed", { mode: "bigint" }),
+    policyAccount: text("policy_account").notNull(),
+    vaultIndex: smallint("vault_index"),
+    vaultPubkey: text("vault_pubkey"),
+    delegatedSigner: text("delegated_signer"),
+    sourceShard: text("source_shard"),
+    maxSlippageBps: integer("max_slippage_bps"),
+    dailySourceMintSpendingCap: bigint("daily_source_mint_spending_cap", {
+      mode: "bigint",
+    }),
+    manifestFingerprint: text("manifest_fingerprint"),
+    active: boolean("active").notNull(),
+    startEligible: boolean("start_eligible").notNull(),
+    lastMutation: text("last_mutation").notNull(),
+    sourceCommitment: text("source_commitment").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+    lastSeenSlot: bigint("last_seen_slot", { mode: "bigint" }).notNull(),
+    lastSeenSignature: text("last_seen_signature").notNull(),
+  }
+);
+
+export const crossMintVaultOptIns = loyalYieldSchema.table(
+  "cross_mint_vault_opt_ins",
+  {
+    cluster: text("cluster").notNull(),
+    settings: text("settings").notNull(),
+    vaultIndex: smallint("vault_index").notNull(),
+    vaultPubkey: text("vault_pubkey").notNull(),
+    enabled: boolean("enabled").notNull(),
+    classicPolicyAccount: text("classic_policy_account").notNull(),
+    classicPolicySeed: bigint("classic_policy_seed", {
+      mode: "bigint",
+    }).notNull(),
+    token2022PolicyAccount: text("token_2022_policy_account").notNull(),
+    token2022PolicySeed: bigint("token_2022_policy_seed", {
+      mode: "bigint",
+    }).notNull(),
+    maxSlippageBps: integer("max_slippage_bps").notNull(),
+    dailySourceMintSpendingCap: bigint("daily_source_mint_spending_cap", {
+      mode: "bigint",
+    }).notNull(),
+    generation: bigint("generation", { mode: "bigint" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.cluster,
+        table.settings,
+        table.vaultIndex,
+        table.vaultPubkey,
+      ],
+    }),
   ]
 );
 
@@ -1013,6 +1082,8 @@ export const rebalanceDecisions = loyalYieldSchema.table(
     confirmedSlot: bigint("confirmed_slot", { mode: "bigint" }),
     preflightChainSlot: bigint("preflight_chain_slot", { mode: "bigint" }),
     postSnapshotId: bigint("post_snapshot_id", { mode: "bigint" }),
+    movementRoute: text("movement_route").notNull(),
+    terminalOutcome: text("terminal_outcome"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   }
@@ -1053,9 +1124,7 @@ export const routeLookupTables = loyalYieldSchema.table(
       .defaultNow(),
   },
   (table) => [
-    uniqueIndex("route_lookup_tables_table_address_key").on(
-      table.tableAddress
-    ),
+    uniqueIndex("route_lookup_tables_table_address_key").on(table.tableAddress),
     index("route_lookup_tables_active_scope_idx")
       .on(table.cluster, table.scope, table.authority, table.status)
       .where(
@@ -1125,9 +1194,7 @@ export const pushCampaignSends = loyalYieldSchema.table(
     walletAddress: text("wallet_address").notNull(),
     campaign: text("campaign").notNull(),
     cohortId: text("cohort_id"),
-    sentAt: timestamp("sent_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("push_campaign_send_wallet_campaign_uidx").on(
@@ -1192,6 +1259,8 @@ export const yieldOptimizationSchema = {
   balanceSweepTargets,
   balanceSweepWalletBalanceEvents,
   balanceSweepWalletBalancesCurrent,
+  crossMintSwapPolicies,
+  crossMintVaultOptIns,
   earnDepositOnboardingAttempts,
   earnEarningsSnapshots,
   earnApyHourlySnapshots,
@@ -1231,6 +1300,8 @@ export type YieldOptimizationClientTables = {
   balanceSweepTargets: typeof balanceSweepTargets;
   balanceSweepWalletBalanceEvents: typeof balanceSweepWalletBalanceEvents;
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
+  crossMintSwapPolicies: typeof crossMintSwapPolicies;
+  crossMintVaultOptIns: typeof crossMintVaultOptIns;
   earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
   earnEarningsSnapshots: typeof earnEarningsSnapshots;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
@@ -1263,6 +1334,8 @@ export class YieldOptimizationClient {
     balanceSweepTargets,
     balanceSweepWalletBalanceEvents,
     balanceSweepWalletBalancesCurrent,
+    crossMintSwapPolicies,
+    crossMintVaultOptIns,
     earnDepositOnboardingAttempts,
     earnEarningsSnapshots,
     earnApyHourlySnapshots,
@@ -1284,6 +1357,20 @@ export class YieldOptimizationClient {
   };
 
   constructor(config: YieldOptimizationClientConfig) {
+    const localDatabaseUrl =
+      process.env[LOCAL_YIELD_OPTIMIZATION_DATABASE_URL_ENV_NAME]?.trim();
+    if (localDatabaseUrl) {
+      if (process.env.NODE_ENV === "production") {
+        throw new Error(
+          `${LOCAL_YIELD_OPTIMIZATION_DATABASE_URL_ENV_NAME} is development-only.`
+        );
+      }
+      const localClient = postgres(localDatabaseUrl, { max: 1 });
+      this.db = drizzlePostgres(localClient, {
+        schema: yieldOptimizationSchema,
+      }) as unknown as YieldOptimizationDatabase;
+      return;
+    }
     const sql = neon(config.databaseUrl);
     this.db = drizzle({ client: sql, schema: yieldOptimizationSchema });
   }

@@ -99,6 +99,14 @@ import {
   type EarnAutodepositToggleConfirmResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
+  DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
+  hydratePreparedEarnCrossMintSwapPolicies,
+  type EarnCrossMintDeletePrepareResponse,
+  type EarnCrossMintPolicyPrepareResponse,
+  type EarnCrossMintToggleResponse,
+} from "@/lib/yield-optimization/earn-cross-mint-policy-contracts.shared";
+import { hydratePreparedOperation } from "@/lib/smart-accounts/prepared-operation-wire.shared";
+import {
   buildEarnDepositConfirmRequestBody,
   buildEarnDepositPolicyStageConfirmRequestBody,
   buildEarnPolicyConfirmRequestBody,
@@ -181,9 +189,37 @@ type EarnStateResponse = {
     walletBalanceFloorRaw: string | null;
     walletUsdcAta: string;
   } | null;
+  autoswap: {
+    boundPolicies: readonly [
+      {
+        account: string;
+        seed: string;
+        sourceShard: "classic" | "token_2022";
+      },
+      {
+        account: string;
+        seed: string;
+        sourceShard: "classic" | "token_2022";
+      }
+    ];
+    enabled: boolean;
+    status: "finalizing" | "on" | "paused";
+    maxSlippageBps: number;
+    dailySourceMintSpendingCap: string;
+    policies: {
+      account: string;
+      seed: string;
+      sourceShard: "classic" | "token_2022";
+      lastSeenSignature: string;
+      lastSeenSlot: string;
+    }[];
+    generation: string;
+  } | null;
+  autoswapAvailable: boolean;
   canonicalVaultPubkey: string;
   loadErrors: {
     autodeposit?: true;
+    autoswap?: true;
     onboarding?: true;
     policy?: true;
     position?: true;
@@ -655,6 +691,25 @@ export type EarnAutodepositToggleResult = {
   error?: string;
 };
 
+export type EarnAutoswapSetupResult = {
+  success: boolean;
+  completedPolicies?: number;
+  error?: string;
+};
+
+export type EarnAutoswapToggleResult = {
+  enabled?: boolean;
+  generation?: string;
+  status?: "on" | "paused";
+  success: boolean;
+  error?: string;
+};
+
+export type EarnAutoswapDeleteResult = {
+  success: boolean;
+  error?: string;
+};
+
 type PreparedEarnOperation =
   | "autodeposit close"
   | "autodeposit setup"
@@ -984,6 +1039,8 @@ type SmartAccountDetailLoadOptions = {
 export type SmartAccountSidebarData = {
   overview: SmartAccountOverview | null;
   earnAutodeposit: EarnStateResponse["autodeposit"];
+  earnAutoswap: EarnStateResponse["autoswap"];
+  earnAutoswapAvailable: boolean;
   earnOnboarding: EarnStateResponse["onboarding"] | null;
   earnPolicy: EarnStateResponse["policy"];
   earnPolicySignerPublicKey: string | null;
@@ -1146,6 +1203,16 @@ export type SmartAccountSidebarData = {
   executeEarnAutodepositToggle: (
     request: EarnAutodepositToggleRequest
   ) => Promise<EarnAutodepositToggleResult>;
+  executeEarnAutoswapSetup: (request: {
+    dailySourceMintSpendingCap: bigint;
+  }) => Promise<EarnAutoswapSetupResult>;
+  executeEarnAutoswapToggle: (request: {
+    enabled: boolean;
+    expectedGeneration: string;
+  }) => Promise<EarnAutoswapToggleResult>;
+  executeEarnAutoswapDelete: (request: {
+    expectedGeneration: string;
+  }) => Promise<EarnAutoswapDeleteResult>;
   isActionPending: boolean;
   requiresEarnPolicySetupForDeposit: boolean;
   pendingProposalId: string | null;
@@ -1917,6 +1984,153 @@ async function prepareEarnPolicyOnServer(): Promise<SmartAccountPreparedEarnUsdc
 
   const payload = (await response.json()) as EarnPolicyPrepareResponse;
   return hydratePreparedEarnUsdcYieldRoutingPolicy(payload.preparedPolicy);
+}
+
+async function prepareEarnAutoswapOnServer(args: {
+  dailySourceMintSpendingCap: bigint;
+}) {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/cross-mint/policies/prepare",
+    {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      body: JSON.stringify({
+        maxSlippageBps: DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
+        dailySourceMintSpendingCap: args.dailySourceMintSpendingCap.toString(),
+      }),
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare Autoswap policies."
+    );
+  }
+  const payload = (await response.json()) as EarnCrossMintPolicyPrepareResponse;
+  return hydratePreparedEarnCrossMintSwapPolicies(payload.preparedPolicies);
+}
+
+async function postConfirmedEarnAutoswap(args: {
+  dailySourceMintSpendingCap: bigint;
+  maxSlippageBps: number;
+  policies: readonly [
+    {
+      account: string;
+      finalizedSlot?: string;
+      seed: string;
+      signature?: string;
+      sourceShard: "classic" | "token_2022";
+    },
+    {
+      account: string;
+      finalizedSlot?: string;
+      seed: string;
+      signature?: string;
+      sourceShard: "classic" | "token_2022";
+    }
+  ];
+}) {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/cross-mint/policies/confirm",
+    {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      body: JSON.stringify({
+        ...args,
+        dailySourceMintSpendingCap: args.dailySourceMintSpendingCap.toString(),
+      }),
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to confirm Autoswap policies."
+    );
+  }
+}
+
+async function postEarnAutoswapToggle(args: {
+  enabled: boolean;
+  expectedGeneration: string;
+}): Promise<EarnCrossMintToggleResponse> {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/cross-mint/toggle",
+    {
+      body: JSON.stringify(args),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(payload?.error?.message ?? "Failed to update Autoswap.");
+  }
+  return (await response.json()) as EarnCrossMintToggleResponse;
+}
+
+async function prepareEarnAutoswapDeleteOnServer(args: {
+  expectedGeneration: string;
+}) {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/cross-mint/delete/prepare",
+    {
+      body: JSON.stringify(args),
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to prepare Autoswap deletion."
+    );
+  }
+  const payload = (await response.json()) as EarnCrossMintDeletePrepareResponse;
+  return {
+    expectedGeneration: payload.expectedGeneration,
+    policies: payload.policies,
+    prepared: payload.prepared
+      ? hydratePreparedOperation(payload.prepared)
+      : null,
+    status: payload.status,
+  };
+}
+
+async function postConfirmedEarnAutoswapDelete(args: {
+  expectedGeneration: string;
+  finalizedSlot: string;
+  policies: readonly [string, string];
+  signature: string;
+}) {
+  const response = await fetch(
+    "/api/smart-accounts/yield-optimization/cross-mint/delete/confirm",
+    {
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      body: JSON.stringify(args),
+    }
+  );
+  if (!response.ok) {
+    const payload = (await response
+      .json()
+      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
+    throw new Error(
+      payload?.error?.message ?? "Failed to confirm Autoswap deletion."
+    );
+  }
 }
 
 async function postConfirmedEarnPolicySetup(args: {
@@ -2779,6 +2993,40 @@ async function resolveConfirmedSignatureSlot(args: {
       lastStatus ? ` (${lastStatus})` : ""
     }.`
   );
+}
+
+async function resolveFinalizedSignatureSlot(args: {
+  connection: Connection;
+  signature: string;
+}): Promise<string> {
+  for (
+    let attempt = 0;
+    attempt < CONFIRMED_SIGNATURE_SLOT_ATTEMPTS;
+    attempt += 1
+  ) {
+    const { value } = await args.connection.getSignatureStatuses(
+      [args.signature],
+      { searchTransactionHistory: true }
+    );
+    const status = value[0] ?? null;
+    if (
+      status &&
+      !status.err &&
+      status.confirmationStatus === "finalized" &&
+      typeof status.slot === "number"
+    ) {
+      return String(status.slot);
+    }
+    if (attempt < CONFIRMED_SIGNATURE_SLOT_ATTEMPTS - 1) {
+      await waitForConfirmedSignatureSlotRetry(
+        Math.min(
+          CONFIRMED_SIGNATURE_SLOT_RETRY_MS * 2 ** attempt,
+          CONFIRMED_SIGNATURE_SLOT_RETRY_MAX_MS
+        )
+      );
+    }
+  }
+  throw new Error("Finalized transaction slot is unavailable.");
 }
 
 async function decompileVersionedTransaction(args: {
@@ -5883,6 +6131,234 @@ export function useSmartAccountSidebarData(
     [connection, earnState, solanaEnv, user?.walletAddress, wallet]
   );
 
+  const executeEarnAutoswapSetup = useCallback(
+    async (request: {
+      dailySourceMintSpendingCap: bigint;
+    }): Promise<EarnAutoswapSetupResult> => {
+      if (!(wallet.publicKey && user?.walletAddress)) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      setIsActionPending(true);
+      let completedPolicies = 0;
+      try {
+        const expectedCluster = resolveEarnLoyalCluster(solanaEnv);
+        let preparedSet = await prepareEarnAutoswapOnServer(request);
+        const evidence = new Map<
+          "classic" | "token_2022",
+          {
+            account: string;
+            finalizedSlot?: string;
+            seed: string;
+            signature?: string;
+            sourceShard: "classic" | "token_2022";
+          }
+        >();
+
+        // PolicyCreate must use the current Settings seed. Finalize one
+        // approval, then re-prepare so the next approval targets the advanced
+        // seed. A retry discovers and preserves any policy already created.
+        for (let step = 0; step < 3; step += 1) {
+          for (const policy of preparedSet.policies) {
+            if (policy.persistence.cluster !== expectedCluster) {
+              throw new Error(
+                `Internal Autoswap configuration error: prepared ${policy.sourceShard} policy cluster ${policy.persistence.cluster} does not match configured cluster ${expectedCluster}.`
+              );
+            }
+            if (!policy.prepared && !evidence.has(policy.sourceShard)) {
+              evidence.set(policy.sourceShard, {
+                account: policy.policy.account.toBase58(),
+                seed: policy.policy.seed.toString(),
+                sourceShard: policy.sourceShard,
+              });
+            }
+          }
+          completedPolicies = evidence.size;
+
+          const nextPolicy = preparedSet.policies
+            .filter((policy) => Boolean(policy.prepared))
+            .sort((left, right) =>
+              left.policy.seed < right.policy.seed ? -1 : 1
+            )[0];
+          if (!nextPolicy) {
+            break;
+          }
+          if (!nextPolicy.prepared) {
+            throw new Error(
+              "Autoswap policy preparation omitted its wallet transaction."
+            );
+          }
+
+          const signature = await sendPreparedWithWallet({
+            connection,
+            wallet: walletBridge,
+            prepared: nextPolicy.prepared,
+            confirm: true,
+          });
+          const finalizedSlot = await resolveFinalizedSignatureSlot({
+            connection,
+            signature,
+          });
+          evidence.set(nextPolicy.sourceShard, {
+            account: nextPolicy.policy.account.toBase58(),
+            finalizedSlot,
+            seed: nextPolicy.policy.seed.toString(),
+            signature,
+            sourceShard: nextPolicy.sourceShard,
+          });
+          completedPolicies = evidence.size;
+          preparedSet = await prepareEarnAutoswapOnServer(request);
+        }
+
+        const classic = evidence.get("classic");
+        const token2022 = evidence.get("token_2022");
+        if (!(classic && token2022) || evidence.size !== 2) {
+          throw new Error("Autoswap setup did not resolve both policy shards.");
+        }
+        const confirmedPolicies: Parameters<
+          typeof postConfirmedEarnAutoswap
+        >[0]["policies"] = [classic, token2022];
+        await postConfirmedEarnAutoswap({
+          dailySourceMintSpendingCap: request.dailySourceMintSpendingCap,
+          maxSlippageBps: DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
+          policies: confirmedPolicies,
+        });
+        await refreshEarnState();
+        return { success: true, completedPolicies };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Autoswap setup failed.";
+        reportWalletActionFailure(
+          "executeEarnAutoswapSetup",
+          "earn.autoswap_setup.execute",
+          err
+        );
+        return { success: false, completedPolicies, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [connection, refreshEarnState, solanaEnv, user?.walletAddress, wallet]
+  );
+
+  const executeEarnAutoswapToggle = useCallback(
+    async (request: {
+      enabled: boolean;
+      expectedGeneration: string;
+    }): Promise<EarnAutoswapToggleResult> => {
+      setIsActionPending(true);
+      try {
+        const response = await postEarnAutoswapToggle(request);
+        return { success: true, ...response };
+      } catch (err) {
+        const error =
+          err instanceof Error ? err.message : "Autoswap update failed.";
+        reportWalletActionFailure(
+          "executeEarnAutoswapToggle",
+          "earn.autoswap_toggle.execute",
+          err
+        );
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    []
+  );
+
+  const executeEarnAutoswapDelete = useCallback(
+    async (request: {
+      expectedGeneration: string;
+    }): Promise<EarnAutoswapDeleteResult> => {
+      if (!(wallet.publicKey && user?.walletAddress)) {
+        return {
+          success: false,
+          error: "Connect the authenticated wallet to sign this action.",
+        };
+      }
+      if (wallet.publicKey.toBase58() !== user.walletAddress) {
+        return {
+          success: false,
+          error: "Connected wallet does not match the authenticated wallet.",
+        };
+      }
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
+      if (!walletBridge) {
+        return {
+          success: false,
+          error: "Connected wallet cannot sign transactions.",
+        };
+      }
+
+      setIsActionPending(true);
+      try {
+        // The prepare endpoint disables orchestration before returning this
+        // revocation transaction, so a canceled wallet prompt remains safe.
+        const removal = await prepareEarnAutoswapDeleteOnServer(request);
+        if (removal.status === "off") {
+          await refreshEarnState();
+          return { success: true };
+        }
+        if (!removal.prepared) {
+          throw new Error(
+            "Autoswap deletion did not return a revocation transaction."
+          );
+        }
+        const signature = await sendPreparedWithWallet({
+          connection,
+          wallet: walletBridge,
+          prepared: removal.prepared,
+          confirm: true,
+        });
+        const finalizedSlot = await resolveFinalizedSignatureSlot({
+          connection,
+          signature,
+        });
+        await postConfirmedEarnAutoswapDelete({
+          expectedGeneration: removal.expectedGeneration,
+          finalizedSlot,
+          policies: removal.policies,
+          signature,
+        });
+        await refreshEarnState();
+        return { success: true };
+      } catch (err) {
+        await refreshEarnState().catch(() => undefined);
+        const error =
+          err instanceof Error ? err.message : "Autoswap removal failed.";
+        reportWalletActionFailure(
+          "executeEarnAutoswapDelete",
+          "earn.autoswap_delete.execute",
+          err
+        );
+        return { success: false, error };
+      } finally {
+        setIsActionPending(false);
+      }
+    },
+    [connection, refreshEarnState, user?.walletAddress, wallet]
+  );
+
   const executeEarnDepositPolicyStage = useCallback(
     async (
       request: EarnDepositPolicyStageRequest
@@ -7828,6 +8304,8 @@ export function useSmartAccountSidebarData(
   return {
     overview,
     earnAutodeposit: earnState?.autodeposit ?? null,
+    earnAutoswap: earnState?.autoswap ?? null,
+    earnAutoswapAvailable: earnState?.autoswapAvailable ?? false,
     earnOnboarding: earnState?.onboarding ?? null,
     earnPolicy,
     earnPolicySignerPublicKey: earnState?.policySignerPublicKey ?? null,
@@ -7880,6 +8358,9 @@ export function useSmartAccountSidebarData(
     executeEarnAutodepositFloorUpdate,
     executeEarnAutodepositToggle,
     executeEarnAutodepositClose,
+    executeEarnAutoswapSetup,
+    executeEarnAutoswapToggle,
+    executeEarnAutoswapDelete,
     isActionPending,
     requiresEarnPolicySetupForDeposit,
     pendingProposalId,

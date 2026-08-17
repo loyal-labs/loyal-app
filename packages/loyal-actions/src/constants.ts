@@ -231,6 +231,39 @@ export const JUPITER_SWAP_DISCRIMINATOR = [
   187, 100, 250, 204, 49, 196, 175, 20,
 ] as const;
 export const JUPITER_SWAP_SLIPPAGE_BPS_OFFSET = 24;
+export const JUPITER_SWAP_PLATFORM_FEE_BPS_OFFSET = 26;
+export const JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR = [
+  209, 152, 83, 147, 124, 254, 216, 233,
+] as const;
+export const JUPITER_SHARED_ACCOUNTS_ROUTE_V2_SLIPPAGE_BPS_OFFSET = 25;
+export const JUPITER_SHARED_ACCOUNTS_ROUTE_V2_PLATFORM_FEE_BPS_OFFSET = 27;
+
+export const TOKEN_2022_PROGRAM_ID = new PublicKey(
+  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+);
+
+export const STABLECOIN_TOKEN_PROGRAMS: Record<Stablecoin, Address> = {
+  [Stablecoin.CASH]: TOKEN_2022_PROGRAM_ID,
+  [Stablecoin.USDG]: TOKEN_2022_PROGRAM_ID,
+  [Stablecoin.PYUSD]: TOKEN_2022_PROGRAM_ID,
+  [Stablecoin.USDC]: new PublicKey(
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+  ),
+  [Stablecoin.USDT]: new PublicKey(
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+  ),
+  [Stablecoin.USDS]: new PublicKey(
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+  ),
+};
+
+export function getStablecoinTokenProgramForCluster(
+  cluster: LoyalCluster,
+  stablecoin: Stablecoin
+): Address {
+  getStablecoinMintForCluster(cluster, stablecoin);
+  return STABLECOIN_TOKEN_PROGRAMS[stablecoin];
+}
 
 export const YIELD_ROUTE_STANDALONE_ACTION_SEED = BigInt(1);
 

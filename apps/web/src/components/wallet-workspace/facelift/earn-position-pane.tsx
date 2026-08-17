@@ -28,8 +28,6 @@ import { formatAutodepositUsdLabel } from "@/lib/yield-optimization/earn-autodep
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
-// Figma 5200:128576. Preview only: the Set up CTA is intentionally unwired.
-const SHOW_AUTOSWAP_CONTROL = false;
 
 // Figma 4693:67399 (Transactions) / 4693:67728 (Positions) — Earn middle pane
 // when a position exists: balance + autodeposit card, then the activity card.
@@ -39,6 +37,7 @@ export function EarnPositionPane({
   data,
   onDeposit,
   onOpenAutodeposit,
+  onOpenAutoswap,
   onOpenChart,
   onSelectChartTab,
   onSelectTransaction,
@@ -50,6 +49,7 @@ export function EarnPositionPane({
   data: EarnPositionData;
   onDeposit: () => void;
   onOpenAutodeposit: () => void;
+  onOpenAutoswap: () => void;
   onOpenChart: () => void;
   onSelectChartTab: (tab: ChartTab) => void;
   onSelectTransaction: (item: EarnTransactionItem) => void;
@@ -60,6 +60,7 @@ export function EarnPositionPane({
 }) {
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
   const autodeposit = data.autodepositConfig;
+  const autoswap = data.autoswapConfig;
   const { isBalanceHidden } = useBalanceVisibility();
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
@@ -81,6 +82,25 @@ export function EarnPositionPane({
   const autodepositLabelHasAmount = Boolean(
     autodeposit && !isAutodepositToggling && autodepositState !== "paused"
   );
+  const isAutoswapToggling =
+    autoswap?.status === "pausing" || autoswap?.status === "resuming";
+  const autoswapLabel = autoswap
+    ? autoswap.status === "on"
+      ? `Up to $${(
+          Number(autoswap.dailySourceMintSpendingCap) / 1_000_000
+        ).toLocaleString(undefined, {
+          maximumFractionDigits: 6,
+        })}/day per stablecoin`
+      : autoswap.status === "pausing"
+      ? "Pausing…"
+      : autoswap.status === "resuming"
+      ? "Resuming…"
+      : autoswap.status === "paused"
+      ? "Paused"
+      : autoswap.status === "finalizing"
+      ? `Verifying ${autoswap.policies.length} of 2 policy permissions…`
+      : "Paused"
+    : "Move funds when another stablecoin route pays more";
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col">
@@ -258,35 +278,80 @@ export function EarnPositionPane({
                 {data.autodepositToggleError}
               </p>
             ) : null}
-            {SHOW_AUTOSWAP_CONTROL ? (
-              <div className="flex w-full items-center rounded-2xl px-4">
-                <div className="py-2 pr-3">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="size-11 shrink-0"
-                    src={`${ASSET_BASE}/autoswap-icon.svg`}
-                  />
+            {data.autoswapAvailable || autoswap ? (
+              <>
+                <div className="flex w-full items-center rounded-2xl px-4">
+                  <div className="py-2 pr-3">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="size-11 shrink-0"
+                      src={`${ASSET_BASE}/autoswap-icon.svg`}
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
+                    <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
+                      Autoswap
+                    </p>
+                    <p className="text-[13px] leading-4 text-muted-foreground">
+                      <TextSwap text={autoswapLabel} />
+                    </p>
+                  </div>
+                  {autoswap ? (
+                    <div className="flex items-center gap-1 pl-3">
+                      <button
+                        aria-label="Autoswap settings"
+                        className="t-hover flex size-11 items-center justify-center rounded-[20px] hover:bg-accent"
+                        onClick={onOpenAutoswap}
+                        type="button"
+                      >
+                        <ThemedIcon
+                          className="size-6 text-muted-foreground"
+                          src={`${ASSET_BASE}/icon-settings-slider.svg`}
+                        />
+                      </button>
+                      <AutodepositToggle
+                        ariaLabel={
+                          autoswap.status === "on"
+                            ? "Pause Autoswap"
+                            : "Resume Autoswap"
+                        }
+                        disabled={
+                          data.isAutoswapPending ||
+                          autoswap.status === "finalizing"
+                        }
+                        isOn={
+                          isAutoswapToggling
+                            ? autoswap.status === "resuming"
+                            : autoswap.status === "on"
+                        }
+                        isPending={
+                          data.isAutoswapPending ||
+                          isAutoswapToggling ||
+                          autoswap.status === "finalizing"
+                        }
+                        onToggle={() => void data.toggleAutoswap()}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center pl-3">
+                      <button
+                        className="t-hover min-w-16 rounded-full bg-primary px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 hover:-translate-y-0.5 hover:bg-primary/90 active:translate-y-0"
+                        onClick={onOpenAutoswap}
+                        type="button"
+                      >
+                        Set up
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
-                  <p className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
-                    Autoswap
+                {data.autoswapError ? (
+                  <p className="px-4 pt-1 pb-2 text-[13px] leading-4 text-destructive">
+                    {data.autoswapError}
                   </p>
-                  <p className="text-[13px] leading-4 text-muted-foreground">
-                    Description text
-                  </p>
-                </div>
-                <div className="flex items-center pl-3">
-                  <button
-                    className="min-w-16 cursor-default rounded-full bg-primary px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4"
-                    disabled
-                    type="button"
-                  >
-                    Set up
-                  </button>
-                </div>
-              </div>
+                ) : null}
+              </>
             ) : null}
           </div>
         </section>

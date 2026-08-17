@@ -52,6 +52,9 @@ export const BROWSER_ERROR_OPERATIONS = [
   "earn.autodeposit_floor_update.execute",
   "earn.autodeposit_toggle.execute",
   "earn.autodeposit_close.execute",
+  "earn.autoswap_setup.execute",
+  "earn.autoswap_toggle.execute",
+  "earn.autoswap_delete.execute",
   "vault.transfer.execute",
   "vault.swap.execute",
 ] as const;

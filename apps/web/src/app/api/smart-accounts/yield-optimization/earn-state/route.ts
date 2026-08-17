@@ -17,6 +17,7 @@ import {
 import { readEarnAutodepositBootstrapWalletBalanceSnapshot } from "@/lib/yield-optimization/earn-autodeposit-bootstrap.server";
 import { reconcileEarnAutodepositPositionPause } from "@/lib/yield-optimization/earn-autodeposit-position-pause.server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
+import { isEarnAutoswapEnrollmentEnabled } from "@/lib/yield-optimization/earn-autoswap-rollout.server";
 import {
   findCurrentEarnAutodepositState,
   findPendingEarnAutodepositScheduledSweeps,
@@ -28,6 +29,7 @@ import {
   sumEarnAutodepositCurrentPeriodDeposits,
   type CurrentEarnAutodepositState,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { findEarnCrossMintState } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
 import {
   serializeEarnDepositOnboardingState,
   serializeAutodepositState,
@@ -289,7 +291,7 @@ async function loadCurrentTotalAmountRaw(args: {
 }
 
 async function loadEarnStatePart<T>(
-  name: "autodeposit" | "onboarding" | "policy" | "position",
+  name: "autodeposit" | "autoswap" | "onboarding" | "policy" | "position",
   loader: () => Promise<T | null>
 ): Promise<{ data: T | null; error: boolean }> {
   try {
@@ -331,162 +333,173 @@ export async function GET(request: Request) {
     programId,
     settingsPda,
   });
-  const [positionResult, policyResult, onboardingResult, autodepositResult] =
-    await Promise.all([
-      loadEarnStatePart("position", () =>
-        findReconciledActiveYieldPositionForVault({
-          cluster,
+  const [
+    positionResult,
+    policyResult,
+    onboardingResult,
+    autodepositResult,
+    autoswapResult,
+  ] = await Promise.all([
+    loadEarnStatePart("position", () =>
+      findReconciledActiveYieldPositionForVault({
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      })
+    ),
+    loadEarnStatePart("policy", () =>
+      findActiveYieldRoutePolicyPair({
+        authority: principal.walletAddress,
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
+      })
+    ),
+    loadEarnStatePart("onboarding", () =>
+      findCurrentEarnDepositOnboardingAttempt({
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
+        walletAddress: principal.walletAddress,
+      })
+    ),
+    loadEarnStatePart(
+      "autodeposit",
+      async (): Promise<CurrentEarnAutodepositStateWithProgress | null> => {
+        const state = await findCurrentEarnAutodepositState({
           settings: principal.settingsPda,
           vaultIndex: EARN_VAULT_INDEX,
           walletAddress: principal.walletAddress,
-        })
-      ),
-      loadEarnStatePart("policy", () =>
-        findActiveYieldRoutePolicyPair({
-          authority: principal.walletAddress,
-          cluster,
+        });
+        if (!state) {
+          return null;
+        }
+        let reconciledState = await reconcileAutodepositArtifacts({
+          connection,
           settings: principal.settingsPda,
-          vaultIndex: EARN_VAULT_INDEX,
-          vaultPubkey: earnVaultPda.toBase58(),
-        })
-      ),
-      loadEarnStatePart("onboarding", () =>
-        findCurrentEarnDepositOnboardingAttempt({
-          settings: principal.settingsPda,
-          vaultIndex: EARN_VAULT_INDEX,
-          vaultPubkey: earnVaultPda.toBase58(),
+          smartAccountsProgramId: programId,
+          state,
           walletAddress: principal.walletAddress,
-        })
-      ),
-      loadEarnStatePart(
-        "autodeposit",
-        async (): Promise<CurrentEarnAutodepositStateWithProgress | null> => {
-          const state = await findCurrentEarnAutodepositState({
-            settings: principal.settingsPda,
-            vaultIndex: EARN_VAULT_INDEX,
-            walletAddress: principal.walletAddress,
-          });
-          if (!state) {
-            return null;
-          }
-          let reconciledState = await reconcileAutodepositArtifacts({
-            connection,
-            settings: principal.settingsPda,
-            smartAccountsProgramId: programId,
-            state,
-            walletAddress: principal.walletAddress,
-          });
-          // Reconcile (or a concurrent close confirm surfaced by its write
-          // guards) concluded the autodeposit is closed — same as no row.
-          if (reconciledState.target.lifecycleStatus === "closed") {
-            return null;
-          }
-          // Pause the autodeposit while the wallet has no Earn position to
-          // sweep into (and auto-resume once a deposit recreates the policy
-          // pair) — otherwise the worker perma-fails and the pane shows an
-          // eternal "Execute now".
-          const positionPause = await reconcileEarnAutodepositPositionPause({
-            cluster,
-            settingsPda: principal.settingsPda,
-            state: reconciledState,
-            vaultIndex: EARN_VAULT_INDEX,
-            walletAddress: principal.walletAddress,
-          });
-          reconciledState = positionPause.state;
-          const activatedFromPending =
-            (state.status === "pending" &&
-              reconciledState.status === "active") ||
-            positionPause.resumed;
-          if (activatedFromPending) {
-            try {
-              const snapshotResult =
-                await readEarnAutodepositBootstrapWalletBalanceSnapshot({
-                  connection,
-                  source: RECONCILE_BOOTSTRAP_BALANCE_SOURCE,
-                  sourceCommitment:
-                    RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
-                  target: reconciledState.target,
-                });
-              if (snapshotResult.status === "ok") {
-                await scheduleBootstrapEarnAutodepositSweep({
-                  snapshot: snapshotResult.snapshot,
-                  target: reconciledState.target,
-                });
-              }
-            } catch (error) {
-              console.warn(
-                "[earn-state] autodeposit bootstrap reconcile failed",
-                {
-                  errorMessage:
-                    error instanceof Error
-                      ? error.message
-                      : "Unknown bootstrap reconcile error.",
-                  policyAccount: reconciledState.target.policyAccount,
-                  walletAddress: principal.walletAddress,
-                }
-              );
+        });
+        // Reconcile (or a concurrent close confirm surfaced by its write
+        // guards) concluded the autodeposit is closed — same as no row.
+        if (reconciledState.target.lifecycleStatus === "closed") {
+          return null;
+        }
+        // Pause the autodeposit while the wallet has no Earn position to
+        // sweep into (and auto-resume once a deposit recreates the policy
+        // pair) — otherwise the worker perma-fails and the pane shows an
+        // eternal "Execute now".
+        const positionPause = await reconcileEarnAutodepositPositionPause({
+          cluster,
+          settingsPda: principal.settingsPda,
+          state: reconciledState,
+          vaultIndex: EARN_VAULT_INDEX,
+          walletAddress: principal.walletAddress,
+        });
+        reconciledState = positionPause.state;
+        const activatedFromPending =
+          (state.status === "pending" && reconciledState.status === "active") ||
+          positionPause.resumed;
+        if (activatedFromPending) {
+          try {
+            const snapshotResult =
+              await readEarnAutodepositBootstrapWalletBalanceSnapshot({
+                connection,
+                source: RECONCILE_BOOTSTRAP_BALANCE_SOURCE,
+                sourceCommitment: RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
+                target: reconciledState.target,
+              });
+            if (snapshotResult.status === "ok") {
+              await scheduleBootstrapEarnAutodepositSweep({
+                snapshot: snapshotResult.snapshot,
+                target: reconciledState.target,
+              });
             }
-          }
-
-          const [depositedThisPeriodRaw, initialScheduledSweeps] =
-            await Promise.all([
-              sumEarnAutodepositCurrentPeriodDeposits(reconciledState.target),
-              reconciledState.status !== "active"
-                ? []
-                : findPendingEarnAutodepositScheduledSweeps(
-                    reconciledState.target
-                  ),
-            ]);
-          let scheduledSweeps = initialScheduledSweeps;
-          // Clear stale scheduled sweeps the wallet can no longer back (surplus
-          // already swept or spent) so the row disappears instead of lingering
-          // as a phantom "Execute now". Only runs when there's a sweep to check.
-          if (scheduledSweeps.length > 0) {
-            try {
-              const balanceSnapshot =
-                await readEarnAutodepositBootstrapWalletBalanceSnapshot({
-                  connection,
-                  source: RECONCILE_BOOTSTRAP_BALANCE_SOURCE,
-                  sourceCommitment:
-                    RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
-                  target: reconciledState.target,
-                });
-              if (balanceSnapshot.status === "ok") {
-                const reconcile =
-                  await reconcileStaleEarnAutodepositScheduledSweeps({
-                    target: reconciledState.target,
-                    walletTokenBalanceRaw: balanceSnapshot.snapshot.amountRaw,
-                  });
-                if (
-                  reconcile.canceledSlotCount > 0 ||
-                  reconcile.suppressedLotCount > 0
-                ) {
-                  scheduledSweeps =
-                    await findPendingEarnAutodepositScheduledSweeps(
-                      reconciledState.target
-                    );
-                }
-              }
-            } catch (error) {
-              console.warn("[earn-state] stale sweep reconcile failed", {
+          } catch (error) {
+            console.warn(
+              "[earn-state] autodeposit bootstrap reconcile failed",
+              {
                 errorMessage:
                   error instanceof Error
                     ? error.message
-                    : "Unknown reconcile error.",
+                    : "Unknown bootstrap reconcile error.",
                 policyAccount: reconciledState.target.policyAccount,
                 walletAddress: principal.walletAddress,
-              });
-            }
+              }
+            );
           }
-
-          return {
-            ...reconciledState,
-            depositedThisPeriodRaw,
-            scheduledSweeps,
-          };
         }
-      ),
-    ]);
+
+        const [depositedThisPeriodRaw, initialScheduledSweeps] =
+          await Promise.all([
+            sumEarnAutodepositCurrentPeriodDeposits(reconciledState.target),
+            reconciledState.status !== "active"
+              ? []
+              : findPendingEarnAutodepositScheduledSweeps(
+                  reconciledState.target
+                ),
+          ]);
+        let scheduledSweeps = initialScheduledSweeps;
+        // Clear stale scheduled sweeps the wallet can no longer back (surplus
+        // already swept or spent) so the row disappears instead of lingering
+        // as a phantom "Execute now". Only runs when there's a sweep to check.
+        if (scheduledSweeps.length > 0) {
+          try {
+            const balanceSnapshot =
+              await readEarnAutodepositBootstrapWalletBalanceSnapshot({
+                connection,
+                source: RECONCILE_BOOTSTRAP_BALANCE_SOURCE,
+                sourceCommitment: RECONCILE_BOOTSTRAP_BALANCE_SOURCE_COMMITMENT,
+                target: reconciledState.target,
+              });
+            if (balanceSnapshot.status === "ok") {
+              const reconcile =
+                await reconcileStaleEarnAutodepositScheduledSweeps({
+                  target: reconciledState.target,
+                  walletTokenBalanceRaw: balanceSnapshot.snapshot.amountRaw,
+                });
+              if (
+                reconcile.canceledSlotCount > 0 ||
+                reconcile.suppressedLotCount > 0
+              ) {
+                scheduledSweeps =
+                  await findPendingEarnAutodepositScheduledSweeps(
+                    reconciledState.target
+                  );
+              }
+            }
+          } catch (error) {
+            console.warn("[earn-state] stale sweep reconcile failed", {
+              errorMessage:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown reconcile error.",
+              policyAccount: reconciledState.target.policyAccount,
+              walletAddress: principal.walletAddress,
+            });
+          }
+        }
+
+        return {
+          ...reconciledState,
+          depositedThisPeriodRaw,
+          scheduledSweeps,
+        };
+      }
+    ),
+    loadEarnStatePart("autoswap", () =>
+      findEarnCrossMintState({
+        authority: principal.walletAddress,
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        vaultPubkey: earnVaultPda.toBase58(),
+      })
+    ),
+  ]);
   const position = positionResult.data;
   const policyPair = policyResult.data;
   const policy = policyPair?.routePolicy ?? null;
@@ -505,15 +518,29 @@ export async function GET(request: Request) {
     ...(policyResult.error ? { policy: true } : {}),
     ...(onboardingResult.error ? { onboarding: true } : {}),
     ...(autodepositResult.error ? { autodeposit: true } : {}),
+    ...(autoswapResult.error ? { autoswap: true } : {}),
   };
   const onboardingNextStep = deriveEarnDepositOnboardingNextStep({
     attempt: onboarding,
     hasActivePosition: Boolean(position),
     policyPair,
   });
+  let autoswapCanEnroll = false;
+  try {
+    autoswapCanEnroll = isEarnAutoswapEnrollmentEnabled(
+      principal.walletAddress
+    );
+  } catch (error) {
+    console.warn("[earn-state] Autoswap rollout configuration is invalid", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown rollout error.",
+    });
+  }
 
   return NextResponse.json({
     autodeposit: autodeposit ? serializeAutodepositState(autodeposit) : null,
+    autoswap: autoswapResult.data,
+    autoswapAvailable: autoswapCanEnroll || autoswapResult.data !== null,
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
     loadErrors,
     onboarding: serializeEarnDepositOnboardingState({

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import {
   PublicKey,
   TransactionMessage,
@@ -13,6 +14,9 @@ import {
   KAMINO_SOLSTICE_MARKET,
   KAMINO_SUPERSTATE_OPENING_BELL_MARKET,
   KAMINO_XSTOCKS_MARKET,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR,
+  JUPITER_SWAP_DISCRIMINATOR,
+  JupiterCrossMintSourceShard,
   LoyalCluster,
   MaxFeeBps,
   RISK_BASKET_MARKETS,
@@ -36,6 +40,8 @@ import {
   SwapLane,
   YIELD_ROUTE_STANDALONE_ACTION_SEED,
   createSubscriptionSweepPolicyPlan,
+  createJupiterCrossMintPolicyPlan,
+  createJupiterCrossMintPolicySet,
   createVaultSubscriptionSweepPolicyPlan,
   createVaultYieldRoutingPolicyPlan,
   createLoyalActionsSdk,
@@ -44,6 +50,9 @@ import {
   deriveRecurringDelegation,
   deriveSubscriptionAuthority,
   deriveSubscriptionEventAuthority,
+  getStablecoinMintForCluster,
+  getStablecoinsForCluster,
+  getStablecoinTokenProgramForCluster,
   normalizeLoyalCluster,
   resolveLoyalClusterForSolanaEnv,
   subscriptionCreateRecurringDelegationData,
@@ -122,16 +131,249 @@ function derivePolicy(settingsPda: PublicKey, policySeed: bigint): PublicKey {
   )[0];
 }
 
-function deriveAta(owner: PublicKey, mint: PublicKey): PublicKey {
+function deriveAta(
+  owner: PublicKey,
+  mint: PublicKey,
+  tokenProgram = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [
-      owner.toBytes(),
-      new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").toBytes(),
-      mint.toBytes(),
-    ],
+    [owner.toBytes(), tokenProgram.toBytes(), mint.toBytes()],
     new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
   )[0];
 }
+
+function crossMintSemanticFingerprintForFixture(
+  plan: ReturnType<typeof createJupiterCrossMintPolicySet>["classic"]
+): string {
+  const digest = createHash("sha256");
+  const field = (value: string) => {
+    digest.update(value);
+    digest.update(Uint8Array.of(0));
+  };
+  for (const value of [
+    "canonical_stables_v1",
+    settings.toBase58(),
+    vault.toBase58(),
+    delegatedSigner.toBase58(),
+    "0",
+    String(plan.spec.maxSlippageBps),
+  ]) {
+    field(value);
+  }
+
+  const stablecoins = getStablecoinsForCluster(LoyalCluster.MainnetBeta);
+  const firstSource = stablecoins.find((stablecoin) =>
+    getStablecoinMintForCluster(LoyalCluster.MainnetBeta, stablecoin).equals(
+      plan.spec.sourceMints[0]!
+    )
+  );
+  if (!firstSource) {
+    throw new Error("cross-mint source mint is outside the Earn registry");
+  }
+  const sourceTokenProgram = getStablecoinTokenProgramForCluster(
+    LoyalCluster.MainnetBeta,
+    firstSource
+  );
+  const cap = Buffer.alloc(8);
+  cap.writeBigUInt64LE(plan.spec.dailySourceMintSpendingCap);
+  for (const mint of plan.spec.sourceMints) {
+    field(mint.toBase58());
+    field(sourceTokenProgram.toBase58());
+    digest.update(cap);
+  }
+  for (const stablecoin of stablecoins) {
+    field(
+      getStablecoinMintForCluster(
+        LoyalCluster.MainnetBeta,
+        stablecoin
+      ).toBase58()
+    );
+    field(
+      getStablecoinTokenProgramForCluster(
+        LoyalCluster.MainnetBeta,
+        stablecoin
+      ).toBase58()
+    );
+  }
+  digest.update("route_v2");
+  digest.update(Uint8Array.from([0, 0]));
+  digest.update("shared_accounts_route_v2");
+  digest.update(Uint8Array.from([0, 1]));
+  return digest.digest("hex");
+}
+
+describe("Jupiter cross-mint policies", () => {
+  test("builds two immutable source shards with both Jupiter V2 dialects", () => {
+    const set = createJupiterCrossMintPolicySet({
+      cluster: LoyalCluster.MainnetBeta,
+      policySeeds: { classic: BigInt(43), token2022: BigInt(44) },
+      maxSlippageBps: 50,
+      dailySourceMintSpendingCap: BigInt(1_000_000),
+      squads,
+    });
+
+    expect(set.classic.spec.sourceMints.map((mint) => mint.toBase58())).toEqual(
+      [
+        STABLECOIN_MINTS.USDC.toBase58(),
+        STABLECOIN_MINTS.USDT.toBase58(),
+        STABLECOIN_MINTS.USDS.toBase58(),
+      ]
+    );
+    expect(
+      set.token2022.spec.sourceMints.map((mint) => mint.toBase58())
+    ).toEqual([
+      STABLECOIN_MINTS.CASH.toBase58(),
+      STABLECOIN_MINTS.USDG.toBase58(),
+      STABLECOIN_MINTS.PYUSD.toBase58(),
+    ]);
+    const canonicalOutputAccounts = getStablecoinsForCluster(
+      LoyalCluster.MainnetBeta
+    ).map((stablecoin) =>
+      deriveAta(
+        vault,
+        getStablecoinMintForCluster(LoyalCluster.MainnetBeta, stablecoin),
+        getStablecoinTokenProgramForCluster(
+          LoyalCluster.MainnetBeta,
+          stablecoin
+        )
+      ).toBase58()
+    );
+
+    for (const plan of [set.classic, set.token2022]) {
+      const decoded = decodePolicyCreate(plan.instructions[0]!.data);
+      expect(plan.spec.maxSlippageBps).toBe(50);
+      expect(decoded.payload.instructionConstraints).toHaveLength(2);
+      expect(plan.routes.routeV2.instructionConstraintIndexes).toEqual([0]);
+      expect(
+        plan.routes.sharedAccountsRouteV2.instructionConstraintIndexes
+      ).toEqual([1]);
+      expect(
+        decoded.payload.instructionConstraints.map((constraint) =>
+          constraint.accountConstraints.map((account) => account.accountIndex)
+        )
+      ).toEqual([
+        [0, 2],
+        [1, 5],
+      ]);
+      expect(
+        decoded.payload.instructionConstraints.map((constraint) =>
+          constraint.dataConstraints.map((data) => Number(data.dataOffset))
+        )
+      ).toEqual([
+        [0, 24, 26],
+        [0, 25, 27],
+      ]);
+      expect(
+        decoded.payload.instructionConstraints.map((constraint) =>
+          constraint.dataConstraints.map((data) => ({
+            dataValue: data.dataValue,
+            operator: data.operator,
+          }))
+        )
+      ).toEqual([
+        [
+          {
+            dataValue: {
+              type: "u8Slice",
+              value: [...JUPITER_SWAP_DISCRIMINATOR],
+            },
+            operator: "equals",
+          },
+          {
+            dataValue: { type: "u16Le", value: 50 },
+            operator: "lessThanOrEqualTo",
+          },
+          {
+            dataValue: { type: "u8", value: 0 },
+            operator: "equals",
+          },
+        ],
+        [
+          {
+            dataValue: {
+              type: "u8Slice",
+              value: [...JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR],
+            },
+            operator: "equals",
+          },
+          {
+            dataValue: { type: "u16Le", value: 50 },
+            operator: "lessThanOrEqualTo",
+          },
+          {
+            dataValue: { type: "u8", value: 0 },
+            operator: "equals",
+          },
+        ],
+      ]);
+      for (const constraint of decoded.payload.instructionConstraints) {
+        const outputConstraint = constraint.accountConstraints[1];
+        if (outputConstraint?.kind.type !== "pubkey") {
+          throw new Error("expected canonical output pubkey constraint");
+        }
+        expect(
+          outputConstraint.kind.pubkeyIndexes.map((index) =>
+            decoded.payload.pubkeyTable[index]!.toBase58()
+          )
+        ).toEqual(canonicalOutputAccounts);
+      }
+      expect(decoded.payload.spendingLimits).toHaveLength(3);
+      expect(
+        decoded.payload.spendingLimits.map((limit) => ({
+          mint: limit.mint.toBase58(),
+          period: limit.period,
+          maxPerPeriod: limit.maxPerPeriod,
+        }))
+      ).toEqual(
+        plan.spec.sourceMints.map((mint) => ({
+          mint: mint.toBase58(),
+          period: 1,
+          maxPerPeriod: BigInt(1_000_000),
+        }))
+      );
+      const transaction = new VersionedTransaction(
+        new TransactionMessage({
+          payerKey: authority,
+          recentBlockhash: "11111111111111111111111111111111",
+          instructions: plan.instructions,
+        }).compileToV0Message()
+      );
+      expect(transaction.serialize().length).toBeLessThanOrEqual(1232);
+    }
+
+    // Golden outputs from Rust's generalized_cross_mint_manifest_fingerprint
+    // for this fixture and the policy shape used by the finalized 30-pair run.
+    expect(crossMintSemanticFingerprintForFixture(set.classic)).toBe(
+      "654c354d3d6089caf94f7210229dfbef49bf78e39e0a457d1ce68ee54bb1632c"
+    );
+    expect(crossMintSemanticFingerprintForFixture(set.token2022)).toBe(
+      "ec4021d2e8dbc66814e7672f4f62319acf7b386754ccaf72da98952c89fc14f9"
+    );
+  });
+
+  test("rejects duplicate seeds and unbounded risk", () => {
+    const common = {
+      cluster: LoyalCluster.MainnetBeta,
+      dailySourceMintSpendingCap: BigInt(1),
+      maxSlippageBps: 100,
+      squads,
+    };
+    expect(() =>
+      createJupiterCrossMintPolicySet({
+        ...common,
+        policySeeds: { classic: BigInt(7), token2022: BigInt(7) },
+      })
+    ).toThrow("must be distinct");
+    expect(() =>
+      createJupiterCrossMintPolicyPlan({
+        ...common,
+        maxSlippageBps: 10_001,
+        policySeed: BigInt(7),
+        sourceShard: JupiterCrossMintSourceShard.Classic,
+      })
+    ).toThrow("between 1 and 10000");
+  });
+});
 
 type DecodedDataConstraint = {
   dataOffset: bigint;
@@ -165,6 +407,11 @@ function decodePolicyCreate(data: Uint8Array): {
     accountIndex: number;
     pubkeyTable: PublicKey[];
     instructionConstraints: DecodedInstructionConstraint[];
+    spendingLimits: Array<{
+      mint: PublicKey;
+      maxPerPeriod: bigint;
+      period: number;
+    }>;
   };
 } {
   const cursor = new Cursor(data);
@@ -188,7 +435,17 @@ function decodeProgramInteractionPayload(cursor: Cursor) {
     ),
     dataConstraints: cursor.readSmallVec(() => decodeDataConstraint(cursor)),
   }));
-  return { accountIndex, pubkeyTable, instructionConstraints };
+  expect(cursor.readOption(() => cursor.readU8())).toBeUndefined();
+  expect(cursor.readOption(() => cursor.readU8())).toBeUndefined();
+  const spendingLimits = cursor.readSmallVec(() => {
+    const mint = cursor.readPubkey();
+    expect(cursor.readU64()).toBe(BigInt(0));
+    expect(cursor.readOption(() => cursor.readU64())).toBeUndefined();
+    const period = cursor.readU8();
+    const maxPerPeriod = cursor.readU64();
+    return { mint, maxPerPeriod, period };
+  });
+  return { accountIndex, pubkeyTable, instructionConstraints, spendingLimits };
 }
 
 function decodeAccountConstraint(cursor: Cursor): DecodedAccountConstraint {

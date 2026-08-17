@@ -1,6 +1,10 @@
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   JUPITER_SWAP_DISCRIMINATOR,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_PLATFORM_FEE_BPS_OFFSET,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_SLIPPAGE_BPS_OFFSET,
+  JUPITER_SWAP_PLATFORM_FEE_BPS_OFFSET,
   JUPITER_SWAP_SLIPPAGE_BPS_OFFSET,
   KAMINO_DEPOSIT_RESERVE_LIQUIDITY_DISCRIMINATOR,
   KAMINO_INIT_OBLIGATION_DISCRIMINATOR,
@@ -142,6 +146,55 @@ export function jupiterConstraint(
   };
 }
 
+export type JupiterV2Dialect = "route_v2" | "shared_accounts_route_v2";
+
+export function jupiterCrossMintConstraint(
+  config: LoyalClusterConfig,
+  vault: PublicKey,
+  destinationMints: readonly {
+    mint: PublicKey;
+    tokenProgram: PublicKey;
+  }[],
+  dialect: JupiterV2Dialect,
+  maxSlippageBps: number
+): InstructionConstraint {
+  const layout =
+    dialect === "route_v2"
+      ? {
+          authority: 0,
+          outputTokenAccount: 2,
+          discriminator: JUPITER_SWAP_DISCRIMINATOR,
+          slippageOffset: JUPITER_SWAP_SLIPPAGE_BPS_OFFSET,
+          platformFeeOffset: JUPITER_SWAP_PLATFORM_FEE_BPS_OFFSET,
+        }
+      : {
+          authority: 1,
+          outputTokenAccount: 5,
+          discriminator: JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR,
+          slippageOffset: JUPITER_SHARED_ACCOUNTS_ROUTE_V2_SLIPPAGE_BPS_OFFSET,
+          platformFeeOffset:
+            JUPITER_SHARED_ACCOUNTS_ROUTE_V2_PLATFORM_FEE_BPS_OFFSET,
+        };
+  const canonicalVaultAtas = uniquePubkeys(
+    destinationMints.map(({ mint, tokenProgram }) =>
+      deriveAssociatedTokenAccount(config, vault, mint, tokenProgram)
+    )
+  );
+
+  return {
+    programId: config.jupiterV6ProgramId,
+    accountConstraints: [
+      pubkeyConstraint(layout.authority, [vault]),
+      pubkeyConstraint(layout.outputTokenAccount, canonicalVaultAtas),
+    ],
+    dataConstraints: [
+      dataSliceEquals(BigInt(0), layout.discriminator),
+      dataU16LeLessThanOrEqualTo(BigInt(layout.slippageOffset), maxSlippageBps),
+      dataU8Equals(BigInt(layout.platformFeeOffset), 0),
+    ],
+  };
+}
+
 export function loyalHubConstraint(
   config: LoyalClusterConfig,
   vault: PublicKey,
@@ -253,6 +306,18 @@ export function subscriptionSweepConstraint(
 
 export function deriveLoyalHubConfig(loyalHubProgramId: PublicKey): PublicKey {
   return PublicKey.findProgramAddressSync([CONFIG_SEED], loyalHubProgramId)[0];
+}
+
+function deriveAssociatedTokenAccount(
+  config: LoyalClusterConfig,
+  owner: PublicKey,
+  mint: PublicKey,
+  tokenProgram: PublicKey
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [owner.toBytes(), tokenProgram.toBytes(), mint.toBytes()],
+    config.associatedTokenProgramId
+  )[0];
 }
 
 export function deriveKaminoVanillaObligation(

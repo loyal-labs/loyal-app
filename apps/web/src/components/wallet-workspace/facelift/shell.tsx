@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { WalletReconnectPrompt } from "@/components/auth/wallet-reconnect-prompt";
 import { ActivityPage } from "@/components/wallet-workspace/facelift/activity-page";
 import { AutodepositPane } from "@/components/wallet-workspace/facelift/autodeposit-pane";
+import { AutoswapPane } from "@/components/wallet-workspace/facelift/autoswap-pane";
 import {
   BalanceVisibilityProvider,
   HiddenBalanceFilterDefs,
@@ -53,7 +54,7 @@ export type WorkspacePage =
   | "earn"
   | "wallet";
 
-type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit";
+type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit" | "autoswap";
 
 const PAGE_STORAGE_KEY = "loyal:workspace-page";
 const WORKSPACE_PAGES: WorkspacePage[] = [
@@ -416,6 +417,11 @@ export function WorkspaceFaceliftShell() {
                         data={earnData}
                         onBack={() => setMiddleView("earn")}
                       />
+                    ) : activeMiddleView === "autoswap" ? (
+                      <AutoswapPane
+                        data={earnData}
+                        onBack={() => setMiddleView("earn")}
+                      />
                     ) : activeMiddleView === "deposit" ? (
                       <DepositPane
                         data={earnData}
@@ -437,6 +443,7 @@ export function WorkspaceFaceliftShell() {
                           setMiddleView("deposit");
                         }}
                         onOpenAutodeposit={() => setMiddleView("autodeposit")}
+                        onOpenAutoswap={() => setMiddleView("autoswap")}
                         onOpenChart={() => setIsChartExpanded(true)}
                         onSelectChartTab={setChartTab}
                         onSelectTransaction={setSelectedEarnTransaction}
@@ -458,14 +465,20 @@ export function WorkspaceFaceliftShell() {
                           setDepositSourceKey(null);
                           setMiddleView("deposit");
                         }}
+                        onManageAutoswap={
+                          earnData.autoswapConfig
+                            ? () => setMiddleView("autoswap")
+                            : undefined
+                        }
                         onOpenChart={() => setIsChartExpanded(true)}
                       />
                     </PaneReveal>
                   )}
                 </MiddlePaneSlide>
                 {activeMiddleView === "withdraw" ||
+                activeMiddleView === "autodeposit" ||
                 activeMiddleView ===
-                  "autodeposit" ? null : selectedEarnTransaction &&
+                  "autoswap" ? null : selectedEarnTransaction &&
                   earnTransactionDetail &&
                   activeMiddleView === "earn" ? (
                   <aside className="hidden h-full w-[400px] shrink-0 flex-col overflow-clip rounded-3xl bg-card min-[1204px]:flex">

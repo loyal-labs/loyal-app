@@ -972,7 +972,10 @@ describe("root Settings signer changes", () => {
       createSerializedSettingsAccount()
     );
     const client = createSmartAccountVaultsClient({
-      connection: { getAccountInfo } as never,
+      connection: {
+        getAccountInfo,
+        getProgramAccounts: mock(async () => []),
+      } as never,
       programId,
     });
 
@@ -1450,6 +1453,76 @@ describe("prepareEarnUsdcDeposit", () => {
     expect(getAccountInfo.mock.calls[0]?.[0]?.toBase58()).toBe(
       settingsPda.toBase58()
     );
+  });
+
+  test("prepares separate canonical cross-mint policy shards", async () => {
+    const getAccountInfo = mock(async (address: PublicKey) =>
+      address.equals(settingsPda)
+        ? createSerializedSettingsAccount(new BN(6))
+        : null
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo,
+        getProgramAccounts: mock(async () => []),
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnCrossMintSwapPolicies({
+      settingsPda,
+      walletAddress,
+      signer: backendSigner,
+      feePayer,
+      maxSlippageBps: 100,
+      dailySourceMintSpendingCap: BigInt(1_000_000_000),
+    });
+
+    expect(result.policies.map((policy) => policy.sourceShard)).toEqual([
+      "classic",
+      "token_2022",
+    ]);
+    expect(result.policies.map((policy) => policy.policy.seed)).toEqual([
+      BigInt(7),
+      BigInt(8),
+    ]);
+    for (const policy of result.policies) {
+      expect(policy.prepared).toBeDefined();
+      const create = decodeGeneratedPolicyCreate(
+        policy.prepared?.instructions[0]
+      );
+      expect(create.policyCreationPayload.__kind).toBe("ProgramInteraction");
+      if (create.policyCreationPayload.__kind !== "ProgramInteraction") {
+        throw new Error("Expected ProgramInteraction policy payload.");
+      }
+      const [payload] = create.policyCreationPayload.fields;
+      expect(payload.accountIndex).toBe(1);
+      expect(payload.instructionsConstraints).toHaveLength(2);
+      expect(
+        payload.instructionsConstraints.map((constraint) =>
+          constraint.accountConstraints.map((account) => account.accountIndex)
+        )
+      ).toEqual([
+        [0, 2],
+        [1, 5],
+      ]);
+      expect(payload.spendingLimits).toHaveLength(3);
+      expect(
+        payload.spendingLimits.map((limit) => limit.timeConstraints.period)
+      ).toEqual([
+        { __kind: "Daily" },
+        { __kind: "Daily" },
+        { __kind: "Daily" },
+      ]);
+      expect(policy.persistence).toMatchObject({
+        dailySourceMintSpendingCap: "1000000000",
+        delegatedSigner: backendSigner.toBase58(),
+        maxSlippageBps: 100,
+        settings: settingsPda.toBase58(),
+        vaultIndex: 1,
+        walletAddress: walletAddress.toBase58(),
+      });
+    }
   });
 
   test("rejects zero amount deposits", async () => {

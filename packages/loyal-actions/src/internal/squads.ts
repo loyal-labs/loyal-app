@@ -48,6 +48,11 @@ export type InstructionConstraint = {
   dataConstraints: readonly DataConstraint[];
 };
 
+export type DailySpendingLimit = {
+  mint: PublicKey;
+  maxPerPeriod: bigint;
+};
+
 export type SquadsContext = {
   settings: PublicKey;
   authority: PublicKey;
@@ -74,7 +79,8 @@ export function createProgramInteractionPolicyInstruction(
   config: LoyalClusterConfig,
   context: SquadsContext,
   constraints: readonly InstructionConstraint[],
-  policySeed: PolicySeed
+  policySeed: PolicySeed,
+  spendingLimits: readonly DailySpendingLimit[] = []
 ): TransactionInstruction {
   const normalizedSeed = normalizeU64(policySeed, "policySeed");
   const actionAccount = deriveActionAccount(
@@ -85,7 +91,11 @@ export function createProgramInteractionPolicyInstruction(
   const data = serializeSettingsActions(
     context.delegatedSigner,
     normalizedSeed,
-    compileProgramInteractionPayload(context.accountIndex, constraints)
+    compileProgramInteractionPayload(
+      context.accountIndex,
+      constraints,
+      spendingLimits
+    )
   );
 
   return new TransactionInstruction({
@@ -110,6 +120,7 @@ type CompiledPayload = {
   accountIndex: number;
   pubkeyTable: PublicKey[];
   instructionConstraints: CompiledInstructionConstraint[];
+  spendingLimits: readonly DailySpendingLimit[];
 };
 
 type CompiledInstructionConstraint = {
@@ -128,7 +139,8 @@ type CompiledAccountConstraint = {
 
 function compileProgramInteractionPayload(
   accountIndex: number,
-  constraints: readonly InstructionConstraint[]
+  constraints: readonly InstructionConstraint[],
+  spendingLimits: readonly DailySpendingLimit[]
 ): CompiledPayload {
   const pubkeyTable: PublicKey[] = [];
   return {
@@ -137,6 +149,7 @@ function compileProgramInteractionPayload(
     instructionConstraints: constraints.map((constraint) =>
       compileInstructionConstraint(constraint, pubkeyTable)
     ),
+    spendingLimits,
   };
 }
 
@@ -267,7 +280,16 @@ function encodeProgramInteractionPayload(
   });
   encoder.pushOption<never>(undefined, () => undefined);
   encoder.pushOption<never>(undefined, () => undefined);
-  encoder.pushSmallVec([], () => undefined);
+  encoder.pushSmallVec(payload.spendingLimits, (spendingLimit) => {
+    encoder.pushPubkey(spendingLimit.mint);
+    encoder.pushI64(BigInt(0));
+    encoder.pushOption<bigint>(undefined, (expiration) =>
+      encoder.pushI64(expiration)
+    );
+    // Squads PeriodV2::Daily.
+    encoder.pushU8(1);
+    encoder.pushU64(spendingLimit.maxPerPeriod);
+  });
 }
 
 function encodeDataConstraint(

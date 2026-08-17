@@ -3,7 +3,10 @@ import { PublicKey } from "@solana/web3.js";
 
 import { getServerEnv } from "@/lib/core/config/server";
 
-import { findActiveYieldRoutePolicyPair } from "./yield-deposit-repository.server";
+import {
+  findActiveYieldPositionForVault,
+  findActiveYieldRoutePolicyPair,
+} from "./yield-deposit-repository.server";
 
 // An Autodeposit sweep can only route into an ACTIVE Earn position — the
 // route policy is created by a user-signed deposit, and the sweep worker
@@ -38,4 +41,18 @@ export async function hasActiveEarnRoutePolicyPair(input: {
     vaultPubkey: earnVaultPda.toBase58(),
   });
   return Boolean(policyPair?.routePolicy);
+}
+
+export async function hasActiveEarnPosition(input: {
+  cluster: string;
+  settingsPda: string;
+  walletAddress: string;
+}): Promise<boolean> {
+  const position = await findActiveYieldPositionForVault({
+    cluster: input.cluster,
+    settings: input.settingsPda,
+    vaultIndex: EARN_VAULT_INDEX,
+    walletAddress: input.walletAddress,
+  });
+  return Boolean(position);
 }

@@ -1745,11 +1745,13 @@ function EarningsBlock({
 }
 
 export function AutodepositToggle({
+  ariaLabel,
   disabled = false,
   isOn,
   isPending = false,
   onToggle,
 }: {
+  ariaLabel?: string;
   disabled?: boolean;
   isOn: boolean;
   isPending?: boolean;
@@ -1771,7 +1773,9 @@ export function AutodepositToggle({
     <button
       aria-busy={isPending}
       aria-checked={isOn}
-      aria-label={isOn ? "Pause Autodeposit" : "Resume Autodeposit"}
+      aria-label={
+        ariaLabel ?? (isOn ? "Pause Autodeposit" : "Resume Autodeposit")
+      }
       className={`t-toggle${isInit ? "is-init" : ""}`}
       data-on={isOn}
       disabled={disabled}

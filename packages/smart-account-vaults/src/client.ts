@@ -9,6 +9,8 @@ import {
 } from "@loyal-labs/loyal-smart-accounts";
 import {
   LoyalCluster,
+  LOYAL_CLUSTER_CONFIGS,
+  JupiterCrossMintSourceShard,
   RiskBasket,
   Stablecoin,
   SUBSCRIPTIONS_PROGRAM_ID,
@@ -27,6 +29,13 @@ import {
   KAMINO_USER_METADATA_SEED,
   KAMINO_VANILLA_OBLIGATION_ID,
   KAMINO_VANILLA_OBLIGATION_TAG,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_PLATFORM_FEE_BPS_OFFSET,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_SLIPPAGE_BPS_OFFSET,
+  JUPITER_SWAP_DISCRIMINATOR,
+  JUPITER_SWAP_PLATFORM_FEE_BPS_OFFSET,
+  JUPITER_SWAP_SLIPPAGE_BPS_OFFSET,
+  createJupiterCrossMintPolicySet,
   createYieldRoutePolicyPlan,
   createYieldRouteSetupPolicyPlan,
   deriveRecurringDelegation,
@@ -36,6 +45,8 @@ import {
   getRiskBasketMarketsForCluster,
   getStablecoinMintForCluster,
   getStablecoinMintsForCluster,
+  getStablecoinsForCluster,
+  getStablecoinTokenProgramForCluster,
   subscriptionCreateRecurringDelegationData,
   subscriptionInitAuthorityData,
   subscriptionRevokeDelegationData,
@@ -121,6 +132,8 @@ import type {
   SmartAccountEarnVaultRefundSnapshot,
   SmartAccountEarnUsdcReserveTargetInput,
   SmartAccountEarnUsdcYieldRoutingPolicyInput,
+  SmartAccountEarnCrossMintCanonicalArtifactsInput,
+  SmartAccountEarnCrossMintSwapPoliciesInput,
   SmartAccountNativeSolRequirement,
   SmartAccountNativeSolRequirementItem,
   SmartAccountEarnUsdcWithdrawInput,
@@ -135,6 +148,7 @@ import type {
   SmartAccountPreparedEarnVaultRefund,
   SmartAccountPreparedEarnUsdcWithdrawStep,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
+  SmartAccountPreparedEarnCrossMintSwapPolicies,
   SmartAccountPreparedEarnUsdcWithdraw,
   SmartAccountPreparedSettingsChange,
   SmartAccountProposalPayloadType,
@@ -1764,6 +1778,17 @@ function dataU8Equals(offset: bigint, value: number): generated.DataConstraint {
   };
 }
 
+function dataU16LessThanOrEqualTo(
+  offset: bigint,
+  value: number
+): generated.DataConstraint {
+  return {
+    dataOffset: toBn(offset),
+    dataValue: { __kind: "U16Le", fields: [value] },
+    operator: generated.DataOperator.LessThanOrEqualTo,
+  };
+}
+
 function dataU64LessThanOrEqualTo(
   offset: bigint,
   value: bigint
@@ -2015,6 +2040,84 @@ function createEarnProgramInteractionPolicyCreationPayload(args: {
         preHook: null,
         postHook: null,
         spendingLimits: [],
+      },
+    ],
+  };
+}
+
+function createEarnCrossMintPolicyCreationPayload(args: {
+  cluster: LoyalCluster;
+  plan: ReturnType<typeof createJupiterCrossMintPolicySet>["classic"];
+  vaultPda: PublicKey;
+}): generated.PolicyCreationPayload {
+  const config = LOYAL_CLUSTER_CONFIGS[args.cluster];
+  const canonicalVaultAtas = getStablecoinsForCluster(args.cluster).map(
+    (stablecoin) =>
+      getAssociatedTokenAddressSync(
+        getStablecoinMintForCluster(args.cluster, stablecoin),
+        args.vaultPda,
+        true,
+        getStablecoinTokenProgramForCluster(args.cluster, stablecoin)
+      )
+  );
+  const constraint = (dialect: "route_v2" | "shared_accounts_route_v2") => {
+    const layout =
+      dialect === "route_v2"
+        ? {
+            authority: 0,
+            outputTokenAccount: 2,
+            discriminator: JUPITER_SWAP_DISCRIMINATOR,
+            slippageOffset: JUPITER_SWAP_SLIPPAGE_BPS_OFFSET,
+            platformFeeOffset: JUPITER_SWAP_PLATFORM_FEE_BPS_OFFSET,
+          }
+        : {
+            authority: 1,
+            outputTokenAccount: 5,
+            discriminator: JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR,
+            slippageOffset:
+              JUPITER_SHARED_ACCOUNTS_ROUTE_V2_SLIPPAGE_BPS_OFFSET,
+            platformFeeOffset:
+              JUPITER_SHARED_ACCOUNTS_ROUTE_V2_PLATFORM_FEE_BPS_OFFSET,
+          };
+    return {
+      programId: config.jupiterV6ProgramId,
+      accountConstraints: [
+        pubkeyAccountConstraint(layout.authority, [args.vaultPda]),
+        pubkeyAccountConstraint(layout.outputTokenAccount, canonicalVaultAtas),
+      ],
+      dataConstraints: [
+        dataSliceEquals(layout.discriminator),
+        dataU16LessThanOrEqualTo(
+          BigInt(layout.slippageOffset),
+          args.plan.spec.maxSlippageBps
+        ),
+        dataU8Equals(BigInt(layout.platformFeeOffset), 0),
+      ],
+    } satisfies generated.InstructionConstraint;
+  };
+
+  return {
+    __kind: "ProgramInteraction",
+    fields: [
+      {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        instructionsConstraints: [
+          constraint("route_v2"),
+          constraint("shared_accounts_route_v2"),
+        ],
+        preHook: null,
+        postHook: null,
+        spendingLimits: args.plan.spec.sourceMints.map((mint) => ({
+          mint,
+          timeConstraints: {
+            start: toBn(BigInt(0)),
+            expiration: null,
+            period: { __kind: "Daily" },
+          },
+          quantityConstraints: {
+            maxPerPeriod: toBn(args.plan.spec.dailySourceMintSpendingCap),
+          },
+        })),
       },
     ],
   };
@@ -5914,7 +6017,9 @@ export function createSmartAccountVaultsClient(
 
   async function fetchRawPolicyAtAddress(args: {
     account: PublicKey;
+    commitment?: "confirmed" | "finalized";
     label: string;
+    minContextSlot?: number;
   }): Promise<RawPolicyEntry | null> {
     if (typeof config.connection.getAccountInfo !== "function") {
       throw new Error(
@@ -5924,7 +6029,12 @@ export function createSmartAccountVaultsClient(
 
     const accountInfo = await config.connection.getAccountInfo(
       args.account,
-      "confirmed"
+      args.minContextSlot === undefined
+        ? args.commitment ?? "confirmed"
+        : {
+            commitment: args.commitment ?? "confirmed",
+            minContextSlot: args.minContextSlot,
+          }
     );
     if (!accountInfo) {
       return null;
@@ -8053,6 +8163,280 @@ export function createSmartAccountVaultsClient(
         ...persistence,
       },
     };
+  }
+
+  async function prepareEarnCrossMintSwapPolicies(
+    args: SmartAccountEarnCrossMintSwapPoliciesInput
+  ): Promise<SmartAccountPreparedEarnCrossMintSwapPolicies> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const settings =
+      await smartAccountsClient.smartAccounts.queries.fetchSettings(
+        args.settingsPda
+      );
+    const nextSeed = resolveNextPolicySeed(settings).bigint;
+    const commonPlanInput = {
+      cluster,
+      maxSlippageBps: args.maxSlippageBps,
+      dailySourceMintSpendingCap: args.dailySourceMintSpendingCap,
+      squads: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        authority: args.walletAddress,
+        delegatedSigner: args.signer,
+        settings: args.settingsPda,
+        vault: vaultPda,
+      },
+    };
+    const candidatePlans = createJupiterCrossMintPolicySet({
+      ...commonPlanInput,
+      policySeeds: {
+        classic: nextSeed,
+        token2022: nextSeed + BigInt(1),
+      },
+    });
+    const rawPolicies = await listRawPolicies({
+      settingsPda: args.settingsPda,
+    });
+    const findExisting = (
+      plan: typeof candidatePlans.classic,
+      sourceShard: "classic" | "token_2022"
+    ) => {
+      const expectedState = policyCreationPayloadToState(
+        createEarnCrossMintPolicyCreationPayload({ cluster, plan, vaultPda })
+      );
+      const matches = rawPolicies.filter(({ policy }) => {
+        const [signer] = policy.signers;
+        return (
+          policy.threshold === 1 &&
+          policy.timeLock === 0 &&
+          policy.signers.length === 1 &&
+          Boolean(signer?.key.equals(args.signer)) &&
+          Boolean(
+            signer &&
+              generatedValuesEqual(
+                signer.permissions,
+                createPolicySigner(args.signer).permissions
+              )
+          ) &&
+          generatedValuesEqual(policy.policyState, expectedState)
+        );
+      });
+      if (matches.length > 1) {
+        throw new Error(
+          `Multiple canonical cross-mint ${sourceShard} policies exist; enrollment is ambiguous.`
+        );
+      }
+      return matches[0] ?? null;
+    };
+    const existingClassic = findExisting(candidatePlans.classic, "classic");
+    const existingToken2022 = findExisting(
+      candidatePlans.token2022,
+      "token_2022"
+    );
+    const classicSeed = existingClassic
+      ? toBigInt(existingClassic.policy.seed)
+      : nextSeed;
+    const token2022Seed = existingToken2022
+      ? toBigInt(existingToken2022.policy.seed)
+      : existingClassic
+      ? nextSeed
+      : nextSeed + BigInt(1);
+    if (
+      classicSeed > BigInt(Number.MAX_SAFE_INTEGER) ||
+      token2022Seed > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      throw new Error("Cross-mint policy seed is too large for this client.");
+    }
+    const plans = createJupiterCrossMintPolicySet({
+      ...commonPlanInput,
+      policySeeds: { classic: classicSeed, token2022: token2022Seed },
+    });
+
+    const prepare = async (
+      plan: typeof plans.classic,
+      sourceShard: "classic" | "token_2022",
+      existing: RawPolicyEntry | null
+    ) => {
+      const policySeed = plan.metadata.policySeed;
+      const policyAccount =
+        existing?.address ??
+        pda.getPolicyPda({
+          programId: smartAccountsClient.programId,
+          settingsPda: args.settingsPda,
+          policySeed: Number(policySeed),
+        })[0];
+      const policyCreationPayload = createEarnCrossMintPolicyCreationPayload({
+        cluster,
+        plan,
+        vaultPda,
+      });
+      const occupied = existing
+        ? null
+        : await config.connection.getAccountInfo(policyAccount, "confirmed");
+      if (occupied) {
+        throw new Error(
+          `Cross-mint ${sourceShard} policy seed is already occupied. Refresh and try again.`
+        );
+      }
+      const prepared = existing
+        ? undefined
+        : await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
+            {
+              feePayer: args.feePayer,
+              settingsPda: args.settingsPda,
+              signers: [args.walletAddress],
+              actions: [
+                {
+                  __kind: "PolicyCreate",
+                  seed: toBn(policySeed),
+                  policyCreationPayload,
+                  signers: [createPolicySigner(args.signer)],
+                  threshold: 1,
+                  timeLock: 0,
+                  startTimestamp: null,
+                  expirationArgs: null,
+                },
+              ],
+              remainingAccounts: [
+                {
+                  pubkey: policyAccount,
+                  isWritable: true,
+                  isSigner: false,
+                },
+              ],
+            } as never
+          );
+      const packetLength = prepared ? preparedPacketLength(prepared) : null;
+      if (
+        packetLength !== null &&
+        packetLength > EARN_POLICY_PACKET_DATA_SIZE
+      ) {
+        throw new Error(
+          `Cross-mint ${sourceShard} policy setup exceeds the Solana transaction size limit.`
+        );
+      }
+      return {
+        prepared,
+        existing: Boolean(existing),
+        policy: {
+          account: policyAccount,
+          id: policySeed,
+          seed: policySeed,
+        },
+        sourceShard,
+        persistence: {
+          cluster,
+          walletAddress: args.walletAddress.toBase58(),
+          delegatedSigner: args.signer.toBase58(),
+          settings: args.settingsPda.toBase58(),
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: vaultPda.toBase58(),
+          sourceShard,
+          policyId: policySeed.toString(),
+          policyAccount: policyAccount.toBase58(),
+          policySeed: policySeed.toString(),
+          maxSlippageBps: plan.spec.maxSlippageBps,
+          dailySourceMintSpendingCap:
+            plan.spec.dailySourceMintSpendingCap.toString(),
+        },
+      } as const;
+    };
+
+    const classic = await prepare(plans.classic, "classic", existingClassic);
+    const token2022 = await prepare(
+      plans.token2022,
+      "token_2022",
+      existingToken2022
+    );
+    return {
+      policies: [classic, token2022],
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+      },
+      maxSlippageBps: args.maxSlippageBps,
+      dailySourceMintSpendingCap: args.dailySourceMintSpendingCap,
+    };
+  }
+
+  async function assertEarnCrossMintCanonicalArtifacts(
+    args: SmartAccountEarnCrossMintCanonicalArtifactsInput
+  ): Promise<void> {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const byShard = new Map(
+      args.policies.map((policy) => [policy.sourceShard, policy] as const)
+    );
+    const classic = byShard.get("classic");
+    const token2022 = byShard.get("token_2022");
+    if (!(classic && token2022) || byShard.size !== 2) {
+      throw new Error(
+        "Cross-mint enrollment requires one classic and one Token-2022 policy."
+      );
+    }
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const plans = createJupiterCrossMintPolicySet({
+      cluster,
+      policySeeds: {
+        classic: classic.seed,
+        token2022: token2022.seed,
+      },
+      maxSlippageBps: args.maxSlippageBps,
+      dailySourceMintSpendingCap: args.dailySourceMintSpendingCap,
+      squads: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        authority: args.walletAddress,
+        delegatedSigner: args.signer,
+        settings: args.settingsPda,
+        vault: vaultPda,
+      },
+    });
+
+    for (const [policy, plan] of [
+      [classic, plans.classic],
+      [token2022, plans.token2022],
+    ] as const) {
+      const expectedAccount = pda.getPolicyPda({
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+        policySeed: Number(policy.seed),
+      })[0];
+      if (!policy.account.equals(expectedAccount)) {
+        throw new Error(
+          `Cross-mint ${policy.sourceShard} policy account does not match its seed.`
+        );
+      }
+      const entry = await fetchRawPolicyAtAddress({
+        account: policy.account,
+        commitment: "finalized",
+        label: `Cross-mint ${policy.sourceShard} policy`,
+        minContextSlot: args.minContextSlot,
+      });
+      if (!entry) {
+        throw new Error(
+          `Cross-mint ${policy.sourceShard} policy is not finalized on-chain.`
+        );
+      }
+      assertCanonicalEarnPolicy({
+        entry,
+        expectedState: createEarnCrossMintPolicyCreationPayload({
+          cluster,
+          plan,
+          vaultPda,
+        }),
+        label: `Cross-mint ${policy.sourceShard} policy`,
+        policySigner: args.signer,
+        seed: policy.seed,
+        settingsPda: args.settingsPda,
+      });
+    }
   }
 
   async function prepareEarnUsdcWithdraw(
@@ -11570,6 +11954,8 @@ export function createSmartAccountVaultsClient(
     prepareRemoveSpendingLimitPolicy,
     prepareRemoveSpendingLimitProposal: prepareRemoveSpendingLimitPolicy,
     prepareEarnUsdcYieldRoutingPolicy,
+    prepareEarnCrossMintSwapPolicies,
+    assertEarnCrossMintCanonicalArtifacts,
     prefetchEarnUsdcDepositInstructions,
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,

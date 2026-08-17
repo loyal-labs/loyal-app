@@ -21,6 +21,7 @@ import {
 } from "@/hooks/use-active-earn-position";
 import {
   useSmartAccountSidebarData,
+  type SmartAccountSidebarData,
   type SmartAccountRefreshCommitContext,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { resolveTrackedKaminoUsdcMint } from "@/lib/kamino/kamino-usdc-position";
@@ -33,17 +34,33 @@ import {
 
 export type { EarnAutodepositConfigView };
 
+export type EarnAutoswapConfigView = Omit<
+  NonNullable<SmartAccountSidebarData["earnAutoswap"]>,
+  "status"
+> & {
+  status: "finalizing" | "on" | "paused" | "pausing" | "resuming";
+};
+
 export type EarnPositionData = {
   actions: EarnActions;
   autodepositConfig: EarnAutodepositConfigView | null;
   autodepositToggleError: string | null;
+  autoswapAvailable: boolean;
+  autoswapConfig: EarnAutoswapConfigView | null;
+  autoswapError: string | null;
+  deleteAutoswap: () => Promise<boolean>;
   earnBalanceUsd: number;
   hasPosition: boolean;
   hasResolvedPosition: boolean;
+  isAutoswapPending: boolean;
   position: ActiveEarnPosition | null;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
+  setupAutoswap: (request: {
+    dailySourceMintSpendingCap: bigint;
+  }) => Promise<boolean>;
   settingsPda: string | null | undefined;
   toggleAutodeposit: () => Promise<void>;
+  toggleAutoswap: () => Promise<void>;
   walletAddress: string | null;
 };
 
@@ -206,6 +223,118 @@ export function useEarnPositionData(): EarnPositionData {
     });
     tracker.complete("ui_commit", { persistenceState: "recorded" });
   }, [autodepositConfig, executeToggle]);
+
+  const [autoswapError, setAutoswapError] = useState<string | null>(null);
+  const [autoswapOverride, setAutoswapOverride] = useState<{
+    config: EarnAutoswapConfigView | null;
+  } | null>(null);
+  const autoswapMutationInFlightRef = useRef(false);
+  const loadedAutoswapConfig = smartAccountData.earnAutoswap;
+  useEffect(() => {
+    if (!autoswapMutationInFlightRef.current) {
+      setAutoswapOverride(null);
+    }
+  }, [loadedAutoswapConfig]);
+  const autoswapConfig = autoswapOverride
+    ? autoswapOverride.config
+    : loadedAutoswapConfig;
+  const refreshEarnState = smartAccountData.refreshEarnState;
+  const executeAutoswapSetup = smartAccountData.executeEarnAutoswapSetup;
+  const executeAutoswapToggle = smartAccountData.executeEarnAutoswapToggle;
+  const executeAutoswapDelete = smartAccountData.executeEarnAutoswapDelete;
+  const setupAutoswap = useCallback(
+    async (request: { dailySourceMintSpendingCap: bigint }) => {
+      setAutoswapError(null);
+      const result = await executeAutoswapSetup(request);
+      if (!result.success) {
+        setAutoswapError(result.error ?? "Autoswap setup failed.");
+        return false;
+      }
+      return true;
+    },
+    [executeAutoswapSetup]
+  );
+  const toggleAutoswap = useCallback(async () => {
+    const config = autoswapConfig;
+    if (!config || (config.status !== "on" && config.status !== "paused")) {
+      return;
+    }
+    const nextEnabled = config.status === "paused";
+    setAutoswapError(null);
+    autoswapMutationInFlightRef.current = true;
+    setAutoswapOverride({
+      config: {
+        ...config,
+        status: nextEnabled ? "resuming" : "pausing",
+      },
+    });
+    const result = await executeAutoswapToggle({
+      enabled: nextEnabled,
+      expectedGeneration: config.generation,
+    });
+    autoswapMutationInFlightRef.current = false;
+    if (!(result.success && result.generation && result.status)) {
+      setAutoswapOverride(null);
+      setAutoswapError(result.error ?? "Autoswap update failed.");
+      await refreshEarnState().catch(() => undefined);
+      return;
+    }
+    setAutoswapOverride({
+      config: {
+        ...config,
+        enabled: result.enabled ?? nextEnabled,
+        generation: result.generation,
+        status: result.status,
+      },
+    });
+    await refreshEarnState().catch(() => undefined);
+  }, [autoswapConfig, executeAutoswapToggle, refreshEarnState]);
+  const deleteAutoswap = useCallback(async () => {
+    const config = autoswapConfig;
+    if (!config) {
+      return true;
+    }
+    if (config.status === "pausing" || config.status === "resuming") {
+      return false;
+    }
+    setAutoswapError(null);
+    const result = await executeAutoswapDelete({
+      expectedGeneration: config.generation,
+    });
+    if (!result.success) {
+      setAutoswapError(result.error ?? "Autoswap removal failed.");
+      return false;
+    }
+    setAutoswapOverride({ config: null });
+    return true;
+  }, [autoswapConfig, executeAutoswapDelete]);
+  const autoswapStatus = loadedAutoswapConfig?.status;
+
+  // The chain confirmation deliberately precedes the worker's finalized
+  // policy-catalog observation. Poll only that short-lived reconciliation
+  // state so the card turns on without requiring a page reload.
+  useEffect(() => {
+    if (autoswapStatus !== "finalizing") {
+      return;
+    }
+    let canceled = false;
+    let attempts = 0;
+    const poll = async () => {
+      if (canceled) {
+        return;
+      }
+      attempts += 1;
+      await refreshEarnState().catch(() => undefined);
+      if (!canceled && attempts < 20) {
+        window.setTimeout(() => void poll(), 3000);
+      }
+    };
+    const timer = window.setTimeout(() => void poll(), 3000);
+    return () => {
+      canceled = true;
+      window.clearTimeout(timer);
+    };
+  }, [autoswapStatus, refreshEarnState]);
   // ponytail: walletBalance caps not wired yet — null reproduces the existing
   // "balance not loaded" path (threshold-only filtering) of the old workspace.
   const scheduledSweeps = useMemo(
@@ -237,13 +366,20 @@ export function useEarnPositionData(): EarnPositionData {
     actions,
     autodepositConfig,
     autodepositToggleError,
+    autoswapAvailable: smartAccountData.earnAutoswapAvailable,
+    autoswapConfig,
+    autoswapError,
+    deleteAutoswap,
     earnBalanceUsd,
     hasPosition,
     hasResolvedPosition,
+    isAutoswapPending: smartAccountData.isActionPending,
     position,
     scheduledSweeps,
+    setupAutoswap,
     settingsPda,
     toggleAutodeposit,
+    toggleAutoswap,
     walletAddress,
   };
 }

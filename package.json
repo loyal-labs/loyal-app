@@ -34,6 +34,7 @@
     "frontend:dev:1pass:main": "bun run --cwd apps/web dev:1pass:main",
     "frontend:build": "bun run --cwd apps/web build",
     "frontend:lint": "bun run --cwd apps/web lint",
+    "verify:earn-autoswap-flow": "bun --conditions=react-server scripts/verify-earn-autoswap-flow.ts",
     "loyal-smart-accounts:update": "bun run scripts/update-loyal-smart-accounts.ts",
     "loyal-smart-accounts:update:check": "bun run scripts/update-loyal-smart-accounts.ts --check",
     "loyal-smart-accounts:build": "bun run --cwd packages/loyal-smart-accounts-core build && bun run --cwd packages/loyal-smart-accounts build",

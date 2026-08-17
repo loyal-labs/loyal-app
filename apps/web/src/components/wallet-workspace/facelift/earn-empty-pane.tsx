@@ -22,9 +22,11 @@ function formatHeadlineUsd(value: number): string {
 
 export function EarnEmptyPane({
   onDeposit,
+  onManageAutoswap,
   onOpenChart,
 }: {
   onDeposit: () => void;
+  onManageAutoswap?: () => void;
   onOpenChart: () => void;
 }) {
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
@@ -135,19 +137,30 @@ export function EarnEmptyPane({
             );
           }
           return (
-            <button
-              className="t-hover flex h-14 items-center justify-center gap-2 rounded-full bg-foreground px-6 text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
-              onClick={onDeposit}
-              type="button"
-            >
-              <ThemedIcon
-                className="size-6"
-                src={`${ASSET_BASE}/icon-plus.svg`}
-              />
-              <span className="whitespace-nowrap pr-2.5 font-medium text-[20px] leading-6">
-                Deposit
-              </span>
-            </button>
+            <div className="flex flex-col items-center gap-2">
+              <button
+                className="t-hover flex h-14 items-center justify-center gap-2 rounded-full bg-foreground px-6 text-background hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
+                onClick={onDeposit}
+                type="button"
+              >
+                <ThemedIcon
+                  className="size-6"
+                  src={`${ASSET_BASE}/icon-plus.svg`}
+                />
+                <span className="whitespace-nowrap pr-2.5 font-medium text-[20px] leading-6">
+                  Deposit
+                </span>
+              </button>
+              {onManageAutoswap ? (
+                <button
+                  className="t-hover rounded-full px-4 py-2 font-medium text-[14px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={onManageAutoswap}
+                  type="button"
+                >
+                  Manage Autoswap
+                </button>
+              ) : null}
+            </div>
           );
         })()}
       </div>

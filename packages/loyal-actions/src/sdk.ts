@@ -6,6 +6,7 @@ import {
   getStablecoinMintForCluster,
   getStablecoinMintsForCluster,
   getStablecoinsForCluster,
+  getStablecoinTokenProgramForCluster,
 } from "./constants.ts";
 import { clusterConfigFor } from "./cluster.ts";
 import {
@@ -13,6 +14,7 @@ import {
   kaminoInitObligationConstraint,
   kaminoWithdrawConstraint,
   jupiterConstraint,
+  jupiterCrossMintConstraint,
   loyalHubConstraint,
   subscriptionSweepConstraint,
   uniquePubkeys,
@@ -28,6 +30,7 @@ import {
 } from "./subscriptions.ts";
 import {
   LoyalCluster,
+  JupiterCrossMintSourceShard,
   MaxFeeBps,
   RiskBasket,
   Stablecoin,
@@ -35,12 +38,16 @@ import {
 } from "./types.ts";
 import type {
   CreateSubscriptionSweepPolicyPlanInput,
+  CreateJupiterCrossMintPolicyPlanInput,
+  CreateJupiterCrossMintPolicySetInput,
   CreateVaultYieldRoutingPolicyPlanInput,
   CreateVaultSubscriptionSweepPolicyPlanInput,
   CreateYieldRoutePolicyPlanInput,
   CreateYieldRouteSetupPolicyPlanInput,
   CreateLoyalActionsSdkConfig,
   InitSubscriptionSweepPolicyInput,
+  JupiterCrossMintPolicyPlan,
+  JupiterCrossMintPolicySet,
   InitYieldRoutePolicyInput,
   InitYieldRoutePolicyResult,
   InitYieldRouteSetupPolicyInput,
@@ -203,6 +210,136 @@ export function createYieldRoutePolicyPlan<
       swapLanes: persistenceSwapLanes,
       threshold: YIELD_ROUTE_POLICY_THRESHOLD,
     },
+  };
+}
+
+export function createJupiterCrossMintPolicyPlan(
+  input: CreateJupiterCrossMintPolicyPlanInput
+): JupiterCrossMintPolicyPlan {
+  validateJupiterCrossMintPolicyInput(input);
+  const clusterConfig = clusterConfigFor(input.cluster);
+  const policySeed = requirePolicySeed(input.policySeed);
+  const dailySourceMintSpendingCap = normalizeU64(
+    input.dailySourceMintSpendingCap,
+    "dailySourceMintSpendingCap"
+  );
+  const stablecoins = getStablecoinsForCluster(input.cluster);
+  if (stablecoins.length !== 6) {
+    throw new Error(
+      "cross-mint policies require the complete six-mint Earn registry"
+    );
+  }
+  const destinations = stablecoins.map((stablecoin) => ({
+    mint: getStablecoinMintForCluster(input.cluster, stablecoin),
+    tokenProgram: getStablecoinTokenProgramForCluster(
+      input.cluster,
+      stablecoin
+    ),
+  }));
+  const sourceMints = destinations
+    .filter(({ tokenProgram }) =>
+      input.sourceShard === JupiterCrossMintSourceShard.Classic
+        ? tokenProgram.equals(clusterConfig.tokenProgramId)
+        : !tokenProgram.equals(clusterConfig.tokenProgramId)
+    )
+    .map(({ mint }) => mint);
+  if (sourceMints.length !== 3) {
+    throw new Error("cross-mint source shard must contain exactly three mints");
+  }
+
+  const actionAccount = deriveActionAccount(
+    clusterConfig,
+    input.squads.settings,
+    policySeed
+  );
+  const constraints = [
+    jupiterCrossMintConstraint(
+      clusterConfig,
+      input.squads.vault,
+      destinations,
+      "route_v2",
+      input.maxSlippageBps
+    ),
+    jupiterCrossMintConstraint(
+      clusterConfig,
+      input.squads.vault,
+      destinations,
+      "shared_accounts_route_v2",
+      input.maxSlippageBps
+    ),
+  ];
+  const instruction = createProgramInteractionPolicyInstruction(
+    clusterConfig,
+    input.squads,
+    constraints,
+    policySeed,
+    sourceMints.map((mint) => ({
+      mint,
+      maxPerPeriod: dailySourceMintSpendingCap,
+    }))
+  );
+
+  return {
+    instructions: [instruction],
+    actionAccount,
+    routes: {
+      routeV2: {
+        actionAccount,
+        instructionConstraintIndexes: [0],
+      },
+      sharedAccountsRouteV2: {
+        actionAccount,
+        instructionConstraintIndexes: [1],
+      },
+    },
+    spec: {
+      sourceShard: input.sourceShard,
+      sourceMints,
+      destinationMints: destinations.map(({ mint }) => mint),
+      maxSlippageBps: input.maxSlippageBps,
+      dailySourceMintSpendingCap,
+    },
+    metadata: {
+      policySeed,
+      vaultIndex: input.squads.accountIndex,
+      vault: input.squads.vault,
+      lockKey: `${input.squads.settings.toBase58()}:${
+        input.squads.accountIndex
+      }`,
+    },
+    persistence: {
+      sourceShard: input.sourceShard,
+      maxSlippageBps: input.maxSlippageBps,
+      dailySourceMintSpendingCap: dailySourceMintSpendingCap.toString(),
+    },
+  };
+}
+
+export function createJupiterCrossMintPolicySet(
+  input: CreateJupiterCrossMintPolicySetInput
+): JupiterCrossMintPolicySet {
+  const classicSeed = requirePolicySeed(input.policySeeds.classic);
+  const token2022Seed = requirePolicySeed(input.policySeeds.token2022);
+  if (classicSeed === token2022Seed) {
+    throw new Error("cross-mint policy seeds must be distinct");
+  }
+  const common = {
+    cluster: input.cluster,
+    dailySourceMintSpendingCap: input.dailySourceMintSpendingCap,
+    maxSlippageBps: input.maxSlippageBps,
+    squads: input.squads,
+  };
+  return {
+    classic: createJupiterCrossMintPolicyPlan({
+      ...common,
+      policySeed: classicSeed,
+      sourceShard: JupiterCrossMintSourceShard.Classic,
+    }),
+    token2022: createJupiterCrossMintPolicyPlan({
+      ...common,
+      policySeed: token2022Seed,
+      sourceShard: JupiterCrossMintSourceShard.Token2022,
+    }),
   };
 }
 
@@ -526,6 +663,40 @@ function validateInput(input: InitYieldRoutePolicyInput): void {
     }
     if (!(value instanceof PublicKey)) {
       throw new Error(`squads.${name} must be a PublicKey`);
+    }
+  }
+}
+
+function validateJupiterCrossMintPolicyInput(
+  input: CreateJupiterCrossMintPolicyPlanInput
+): void {
+  if (!Object.values(LoyalCluster).includes(input.cluster)) {
+    throw new Error(`unsupported Loyal cluster: ${String(input.cluster)}`);
+  }
+  if (!Object.values(JupiterCrossMintSourceShard).includes(input.sourceShard)) {
+    throw new Error(
+      `unsupported cross-mint source shard: ${String(input.sourceShard)}`
+    );
+  }
+  if (
+    !Number.isInteger(input.maxSlippageBps) ||
+    input.maxSlippageBps <= 0 ||
+    input.maxSlippageBps > 10_000
+  ) {
+    throw new Error("maxSlippageBps must be an integer between 1 and 10000");
+  }
+  const dailyCap = normalizeU64(
+    input.dailySourceMintSpendingCap,
+    "dailySourceMintSpendingCap"
+  );
+  if (dailyCap === BigInt(0)) {
+    throw new Error("dailySourceMintSpendingCap must be positive");
+  }
+  requirePolicySeed(input.policySeed);
+  validateVaultIndex(input.squads.accountIndex, "squads.accountIndex");
+  for (const [name, value] of Object.entries(input.squads)) {
+    if (name !== "accountIndex") {
+      requirePublicKey(value, `squads.${name}`);
     }
   }
 }

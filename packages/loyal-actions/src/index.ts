@@ -24,10 +24,17 @@ export {
   KAMINO_VANILLA_OBLIGATION_TAG,
   KAMINO_XSTOCKS_MARKET,
   KAMINO_WITHDRAW_RESERVE_LIQUIDITY_DISCRIMINATOR,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_PLATFORM_FEE_BPS_OFFSET,
+  JUPITER_SHARED_ACCOUNTS_ROUTE_V2_SLIPPAGE_BPS_OFFSET,
+  JUPITER_SWAP_PLATFORM_FEE_BPS_OFFSET,
+  JUPITER_SWAP_DISCRIMINATOR,
+  JUPITER_SWAP_SLIPPAGE_BPS_OFFSET,
   RISK_BASKET_MARKETS,
   RISK_BASKET_MARKETS_BY_CLUSTER,
   STABLECOIN_MINTS,
   STABLECOIN_MINTS_BY_CLUSTER,
+  STABLECOIN_TOKEN_PROGRAMS,
   SUBSCRIPTIONS_CREATE_RECURRING_DELEGATION,
   SUBSCRIPTIONS_INIT_AUTHORITY,
   SUBSCRIPTIONS_PROGRAM_ID,
@@ -49,12 +56,14 @@ export {
   SUBSCRIPTION_TRANSFER_AMOUNT_OFFSET,
   SUBSCRIPTION_TRANSFER_DELEGATOR_OFFSET,
   SUBSCRIPTION_TRANSFER_MINT_OFFSET,
+  TOKEN_2022_PROGRAM_ID,
   YIELD_ROUTE_STANDALONE_ACTION_SEED,
   getKaminoUsdcEarnTargetForCluster,
   getRiskBasketMarketsForCluster,
   getStablecoinMintForCluster,
   getStablecoinMintsForCluster,
   getStablecoinsForCluster,
+  getStablecoinTokenProgramForCluster,
 } from "./constants.ts";
 export {
   LOYAL_CLUSTER_CONFIGS,
@@ -62,6 +71,8 @@ export {
   resolveLoyalClusterForSolanaEnv,
 } from "./cluster.ts";
 export {
+  createJupiterCrossMintPolicyPlan,
+  createJupiterCrossMintPolicySet,
   createSubscriptionSweepPolicyPlan,
   createLoyalActionsSdk,
   createVaultSubscriptionSweepPolicyPlan,
@@ -79,6 +90,7 @@ export {
   subscriptionTransferRecurringData,
 } from "./subscriptions.ts";
 export {
+  JupiterCrossMintSourceShard,
   LoyalCluster,
   MaxFeeBps,
   RiskBasket,
@@ -87,6 +99,8 @@ export {
 } from "./types.ts";
 export type {
   Address,
+  CreateJupiterCrossMintPolicyPlanInput,
+  CreateJupiterCrossMintPolicySetInput,
   CreateSubscriptionSweepPolicyPlanInput,
   CreateVaultSubscriptionSweepPolicyPlanInput,
   CreateVaultYieldRoutingPolicyPlanInput,
@@ -101,6 +115,8 @@ export type {
   InitYieldRouteSetupPolicyInput,
   InitYieldRoutingPolicyInput,
   InitYieldRoutingPolicyResult,
+  JupiterCrossMintPolicyPlan,
+  JupiterCrossMintPolicySet,
   LoyalActionRoute1,
   LoyalActionRoute2,
   LoyalActionRoute3,

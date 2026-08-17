@@ -522,6 +522,78 @@ export type SmartAccountPreparedEarnUsdcYieldRoutingPolicy = {
   persistence: SmartAccountEarnUsdcYieldRoutingPolicyMetadata;
 };
 
+export type SmartAccountEarnCrossMintSwapPoliciesInput = {
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  signer: PublicKey;
+  feePayer: PublicKey;
+  maxSlippageBps: number;
+  dailySourceMintSpendingCap: bigint;
+  cluster?: LoyalCluster;
+};
+
+export type SmartAccountEarnCrossMintSwapPolicyMetadata = {
+  cluster: LoyalCluster;
+  walletAddress: string;
+  delegatedSigner: string;
+  settings: string;
+  vaultIndex: 1;
+  vaultPubkey: string;
+  sourceShard: "classic" | "token_2022";
+  policyId: string;
+  policyAccount: string;
+  policySeed: string;
+  maxSlippageBps: number;
+  dailySourceMintSpendingCap: string;
+};
+
+export type SmartAccountPreparedEarnCrossMintSwapPolicy = {
+  prepared?: PreparedLoyalSmartAccountsOperation<string>;
+  existing: boolean;
+  policy: {
+    account: PublicKey;
+    id: bigint;
+    seed: bigint;
+  };
+  sourceShard: "classic" | "token_2022";
+  persistence: SmartAccountEarnCrossMintSwapPolicyMetadata;
+};
+
+export type SmartAccountPreparedEarnCrossMintSwapPolicies = {
+  policies: readonly [
+    SmartAccountPreparedEarnCrossMintSwapPolicy,
+    SmartAccountPreparedEarnCrossMintSwapPolicy
+  ];
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+  };
+  maxSlippageBps: number;
+  dailySourceMintSpendingCap: bigint;
+};
+
+export type SmartAccountEarnCrossMintCanonicalArtifactsInput = {
+  cluster?: LoyalCluster;
+  minContextSlot?: number;
+  settingsPda: PublicKey;
+  walletAddress: PublicKey;
+  signer: PublicKey;
+  maxSlippageBps: number;
+  dailySourceMintSpendingCap: bigint;
+  policies: readonly [
+    {
+      account: PublicKey;
+      seed: bigint;
+      sourceShard: "classic" | "token_2022";
+    },
+    {
+      account: PublicKey;
+      seed: bigint;
+      sourceShard: "classic" | "token_2022";
+    }
+  ];
+};
+
 export type SmartAccountEarnUsdcDepositMetadata = {
   cluster: LoyalCluster;
   walletAddress: string;

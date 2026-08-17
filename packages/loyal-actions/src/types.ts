@@ -22,6 +22,11 @@ export enum SwapLane {
   Loyal = "loyal",
 }
 
+export enum JupiterCrossMintSourceShard {
+  Classic = "classic",
+  Token2022 = "token_2022",
+}
+
 export enum MaxFeeBps {
   Bps50 = 50,
   Bps75 = 75,
@@ -63,6 +68,63 @@ export type LoyalActionRoute1 = {
 export type LoyalActionRoute3 = {
   actionAccount: Address;
   instructionConstraintIndexes: readonly [number, number, number];
+};
+
+export type CreateJupiterCrossMintPolicyPlanInput = {
+  cluster: LoyalCluster;
+  policySeed: PolicySeed;
+  sourceShard: JupiterCrossMintSourceShard;
+  maxSlippageBps: number;
+  dailySourceMintSpendingCap: U64Amount;
+  squads: {
+    settings: Address;
+    authority: Address;
+    delegatedSigner: Address;
+    accountIndex: number;
+    vault: Address;
+  };
+};
+
+export type JupiterCrossMintPolicyPlan = {
+  instructions: IInstruction[];
+  actionAccount: Address;
+  routes: {
+    routeV2: LoyalActionRoute1;
+    sharedAccountsRouteV2: LoyalActionRoute1;
+  };
+  spec: {
+    sourceShard: JupiterCrossMintSourceShard;
+    sourceMints: Address[];
+    destinationMints: Address[];
+    maxSlippageBps: number;
+    dailySourceMintSpendingCap: bigint;
+  };
+  metadata: {
+    policySeed: bigint;
+    vaultIndex: number;
+    vault: Address;
+    lockKey: string;
+  };
+  persistence: {
+    sourceShard: JupiterCrossMintSourceShard;
+    maxSlippageBps: number;
+    dailySourceMintSpendingCap: string;
+  };
+};
+
+export type CreateJupiterCrossMintPolicySetInput = Omit<
+  CreateJupiterCrossMintPolicyPlanInput,
+  "policySeed" | "sourceShard"
+> & {
+  policySeeds: {
+    classic: PolicySeed;
+    token2022: PolicySeed;
+  };
+};
+
+export type JupiterCrossMintPolicySet = {
+  classic: JupiterCrossMintPolicyPlan;
+  token2022: JupiterCrossMintPolicyPlan;
 };
 
 export type InitYieldRoutePolicyInput<
