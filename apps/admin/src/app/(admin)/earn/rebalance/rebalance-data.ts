@@ -1,8 +1,37 @@
 import "server-only";
 
 import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.server";
+import type {
+  ConfirmedRebalanceMarker,
+  RebalanceOpportunitySummary,
+  RebalancePerformanceFleetAumRow,
+} from "@/lib/earn/rebalance-performance.shared";
 
 type SqlScalar = string | number | bigint | null;
+
+type RebalancePerformanceFleetAumSqlRow = {
+  aum_raw: SqlScalar;
+  bucket_started_at: Date | string;
+  reserve: string;
+};
+
+type RebalancePerformanceOpportunitySummarySqlRow = {
+  confirmed: SqlScalar;
+  failed: SqlScalar;
+  pending: SqlScalar;
+  qualified: SqlScalar;
+};
+
+type RebalancePerformanceMarkerSqlRow = {
+  confirmed_at: Date | string;
+  id: SqlScalar;
+};
+
+export type EarnRebalancePerformanceYieldData = {
+  confirmedRebalances: ConfirmedRebalanceMarker[];
+  fleetAumRows: RebalancePerformanceFleetAumRow[];
+  opportunitySummary: RebalanceOpportunitySummary;
+};
 
 export type RebalanceAuditRange = "24h" | "7d" | "30d" | "all";
 export type RebalanceAuditView =
@@ -891,6 +920,184 @@ export async function getRecentRebalanceDecisions(): Promise<
     targetReserve: row.target_reserve,
     updatedAt: toIsoString(row.updated_at) ?? "",
   }));
+}
+
+export async function getEarnRebalancePerformanceYieldData(args: {
+  endedAt: Date;
+  liquidityMint: string;
+  startedAt: Date;
+}): Promise<EarnRebalancePerformanceYieldData> {
+  const liquidityMint = escapeSqlLiteral(args.liquidityMint);
+  const startedAt = escapeSqlLiteral(args.startedAt.toISOString());
+  const endedAt = escapeSqlLiteral(args.endedAt.toISOString());
+  const [fleetRows, opportunitySummaryRows, markerRows] = await Promise.all([
+    queryRows<RebalancePerformanceFleetAumSqlRow>(
+      `
+        WITH bounds AS (
+          SELECT
+            '${startedAt}'::timestamptz AS started_at,
+            '${endedAt}'::timestamptz AS ended_at
+        ),
+        buckets AS (
+          SELECT generate_series(
+            date_bin(
+              interval '5 minutes',
+              (SELECT started_at FROM bounds),
+              timestamptz '1970-01-01 00:00:00+00'
+            ),
+            date_bin(
+              interval '5 minutes',
+              (SELECT ended_at FROM bounds),
+              timestamptz '1970-01-01 00:00:00+00'
+            ),
+            interval '5 minutes'
+          ) AS bucket_started_at
+        ),
+        candidate_positions AS (
+          SELECT position.id
+          FROM loyal_yield.user_yield_positions AS position
+          WHERE position.deposit_mint = '${liquidityMint}'
+            AND position.created_at <= (SELECT ended_at FROM bounds)
+        ),
+        seed_events AS (
+          SELECT DISTINCT ON (event.position_id)
+            event.id,
+            event.position_id,
+            event.reserve,
+            event.liquidity_mint,
+            event.amount_raw,
+            event.observed_slot,
+            event.observed_at
+          FROM loyal_yield.user_yield_position_holding_events AS event
+          INNER JOIN candidate_positions AS position
+            ON position.id = event.position_id
+          WHERE event.observed_at <= (SELECT started_at FROM bounds)
+          ORDER BY
+            event.position_id,
+            event.observed_at DESC,
+            event.observed_slot DESC,
+            event.id DESC
+        ),
+        window_events AS (
+          SELECT
+            event.id,
+            event.position_id,
+            event.reserve,
+            event.liquidity_mint,
+            event.amount_raw,
+            event.observed_slot,
+            event.observed_at
+          FROM loyal_yield.user_yield_position_holding_events AS event
+          INNER JOIN candidate_positions AS position
+            ON position.id = event.position_id
+          WHERE event.observed_at > (SELECT started_at FROM bounds)
+            AND event.observed_at <= (SELECT ended_at FROM bounds)
+        ),
+        holding_intervals AS (
+          SELECT
+            event.position_id,
+            event.reserve,
+            event.liquidity_mint,
+            event.amount_raw,
+            event.observed_at,
+            LEAD(
+              event.observed_at,
+              1,
+              (SELECT ended_at FROM bounds) + interval '5 minutes'
+            ) OVER (
+              PARTITION BY event.position_id
+              ORDER BY event.observed_at, event.observed_slot, event.id
+            ) AS next_observed_at
+          FROM (
+            SELECT * FROM seed_events
+            UNION ALL
+            SELECT * FROM window_events
+          ) AS event
+        )
+        SELECT
+          bucket.bucket_started_at,
+          holding.reserve,
+          SUM(holding.amount_raw)::text AS aum_raw
+        FROM buckets AS bucket
+        INNER JOIN holding_intervals AS holding
+          ON holding.observed_at <= bucket.bucket_started_at
+          AND holding.next_observed_at > bucket.bucket_started_at
+        WHERE holding.liquidity_mint = '${liquidityMint}'
+          AND holding.amount_raw > 0
+        GROUP BY bucket.bucket_started_at, holding.reserve
+        ORDER BY bucket.bucket_started_at, holding.reserve
+      `
+    ),
+    queryRows<RebalancePerformanceOpportunitySummarySqlRow>(
+      `
+        WITH opportunity_outcomes AS (
+          SELECT
+            opportunity.id,
+            CASE
+              WHEN decision.status::text = 'confirmed' THEN 'confirmed'
+              WHEN decision.status::text = 'failed'
+                OR opportunity.opportunity_state IN (
+                  'failed', 'cancelled', 'stale', 'superseded'
+                ) THEN 'failed'
+              ELSE 'pending'
+            END AS outcome
+          FROM loyal_yield.rebalance_opportunities AS opportunity
+          LEFT JOIN loyal_yield.rebalance_decisions AS decision
+            ON decision.id = opportunity.decision_id
+          WHERE opportunity.execution_plan->>'kind' = 'same_mint'
+            AND opportunity.liquidity_mint = '${liquidityMint}'
+            AND opportunity.created_at >= '${startedAt}'::timestamptz
+            AND opportunity.created_at <= '${endedAt}'::timestamptz
+        )
+        SELECT
+          COUNT(DISTINCT id)::text AS qualified,
+          COUNT(DISTINCT id) FILTER (
+            WHERE outcome = 'confirmed'
+          )::text AS confirmed,
+          COUNT(DISTINCT id) FILTER (
+            WHERE outcome = 'failed'
+          )::text AS failed,
+          COUNT(DISTINCT id) FILTER (
+            WHERE outcome = 'pending'
+          )::text AS pending
+        FROM opportunity_outcomes
+      `
+    ),
+    queryRows<RebalancePerformanceMarkerSqlRow>(
+      `
+        SELECT
+          decision.id::text AS id,
+          decision.updated_at AS confirmed_at
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.execution_plan->>'kind' = 'same_mint'
+          AND decision.liquidity_mint = '${liquidityMint}'
+          AND decision.status::text = 'confirmed'
+          AND decision.updated_at >= '${startedAt}'::timestamptz
+          AND decision.updated_at <= '${endedAt}'::timestamptz
+        ORDER BY decision.updated_at, decision.id
+      `
+    ),
+  ]);
+
+  const opportunitySummary = opportunitySummaryRows[0];
+
+  return {
+    confirmedRebalances: markerRows.map((row) => ({
+      confirmedAt: toIsoString(row.confirmed_at) ?? "",
+      id: String(row.id),
+    })),
+    fleetAumRows: fleetRows.map((row) => ({
+      aumRaw: toBigInt(row.aum_raw),
+      bucketStartedAt: toIsoString(row.bucket_started_at) ?? "",
+      reserve: row.reserve,
+    })),
+    opportunitySummary: {
+      confirmed: toNumber(opportunitySummary?.confirmed),
+      failed: toNumber(opportunitySummary?.failed),
+      pending: toNumber(opportunitySummary?.pending),
+      qualified: toNumber(opportunitySummary?.qualified),
+    },
+  };
 }
 
 export async function getRebalanceActivity(): Promise<

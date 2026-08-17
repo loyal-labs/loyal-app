@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "verify:earn-rebalance-performance": "bun scripts/verify-earn-rebalance-performance.ts",
     "verify:earn-multi-stablecoin": "bun scripts/verify-earn-multi-stablecoin-monitoring.ts",
     "shadcn:init": "bunx shadcn@latest init",
     "shadcn:add": "bunx shadcn@latest add"

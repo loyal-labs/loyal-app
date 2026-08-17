@@ -40,31 +40,15 @@ import {
   STABLECOIN_DECIMALS,
 } from "@/lib/earn/stablecoin-monitor.shared";
 import type {
-  SafeReserveApyMonitorData,
-  SafeReserveApyStatusRow,
-  SafeReserveRebalanceDecisionMarker,
-} from "@/lib/kamino/timescale-reserve-monitor.shared";
+  RebalanceOpportunitySummary,
+  RebalancePerformancePoint,
+  RebalancePerformanceSummary,
+} from "@/lib/earn/rebalance-performance.shared";
+import type { SafeReserveApyStatusRow } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
-import { SafeReserveApyChart } from "../safe-reserve-apy-chart";
-import {
-  AutodepositFailuresChart,
-  type SerializedAutodepositFailureRange,
-} from "./autodeposit-failures-chart";
-import {
-  EarnVaultRebalanceFrequencyChart,
-  type SerializedEarnVaultRebalanceFrequency,
-} from "./earn-vault-rebalance-frequency-chart";
-import {
-  ExecutedEarnRebalancesChart,
-  type SerializedExecutedEarnRebalanceHistory,
-} from "./executed-earn-rebalances-chart";
-import { Last30DaysRebalanceChart } from "./last-30-days-rebalance-chart";
-import { RebalanceActivityChart } from "./rebalance-activity-chart";
+import { EarnRebalancePerformanceChart } from "./earn-rebalance-performance-chart";
 import type {
   EarnActiveReserveRouteRow,
-  EarnRebalanceDecisionRow,
-  Last30DaysRebalancePoint,
-  RebalanceActivityPoint,
   RebalanceAuditErrorFilter,
   RebalanceAuditLane,
   RebalanceAuditRange,
@@ -81,14 +65,6 @@ type SerializedActiveReserveRouteRow = Omit<
   activeAumRaw: string;
 };
 
-type SerializedRebalanceDecisionRow = Omit<
-  EarnRebalanceDecisionRow,
-  "amountRaw" | "confirmedSlot"
-> & {
-  amountRaw: string | null;
-  confirmedSlot: string | null;
-};
-
 type SerializedRebalanceAuditRow = Omit<
   RebalanceAuditRow,
   "amountRaw" | "confirmedSlot" | "submittedSlot"
@@ -99,14 +75,25 @@ type SerializedRebalanceAuditRow = Omit<
 };
 
 type RebalanceApiData = {
-  activity: RebalanceActivityPoint[];
-  apyData: SafeReserveApyMonitorData;
-  autodeposit: SerializedAutodepositFailureRange[];
-  decisions: SerializedRebalanceDecisionRow[];
-  executedRebalances: SerializedExecutedEarnRebalanceHistory;
-  last30DaysRebalances: Last30DaysRebalancePoint[];
-  routes: SerializedActiveReserveRouteRow[];
-  vaultRebalanceFrequency: SerializedEarnVaultRebalanceFrequency;
+  bucketMinutes: number;
+  current: {
+    routes: SerializedActiveReserveRouteRow[];
+    statuses: SafeReserveApyStatusRow[];
+  };
+  generatedAt: string;
+  liquidityMint: string;
+  opportunities: RebalanceOpportunitySummary | null;
+  points: RebalancePerformancePoint[];
+  sources: {
+    fleet: "available" | "unavailable";
+    market: "available" | "unavailable";
+  };
+  summary: RebalancePerformanceSummary;
+  symbol: string;
+  window: {
+    endedAt: string;
+    startedAt: string;
+  };
 };
 
 type LoadState =
@@ -210,9 +197,9 @@ function formatReason(value: string | null) {
   return value.replaceAll("_", " ");
 }
 
-function createReserveLabelMap(data: SafeReserveApyMonitorData) {
+function createReserveLabelMap(rows: readonly SafeReserveApyStatusRow[]) {
   return new Map(
-    data.statuses.map((row) => [
+    rows.map((row) => [
       row.reserve,
       row.marketName ?? row.market ?? formatShortAddress(row.reserve),
     ])
@@ -228,24 +215,6 @@ function getReserveLabel(
   }
 
   return labels.get(reserve) ?? formatShortAddress(reserve);
-}
-
-function toDecisionMarkers(
-  rows: readonly SerializedRebalanceDecisionRow[]
-): SafeReserveRebalanceDecisionMarker[] {
-  return rows
-    .filter((row) => row.decisionType === "rebalance")
-    .map((row) => ({
-      createdAt: row.createdAt,
-      estimatedEdgeBps: row.estimatedEdgeBps,
-      id: row.id,
-      liquidityMint: row.liquidityMint,
-      sourceApyBps: row.sourceApyBps,
-      sourceReserve: row.sourceReserve,
-      status: row.status,
-      targetApyBps: row.targetApyBps,
-      targetReserve: row.targetReserve,
-    }));
 }
 
 function CurrentReserveApyTable({
@@ -1273,11 +1242,11 @@ function CurrentReserveApyFallback() {
 
 function ApyChartFallback() {
   return (
-    <Card className="mx-auto w-full max-w-4xl">
+    <Card className="mx-auto w-full min-w-0 max-w-4xl">
       <CardHeader className="border-b">
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-4 w-96 max-w-full" />
+          <Skeleton className="h-4 w-full max-w-96" />
         </div>
       </CardHeader>
       <CardContent className="px-2 pt-6 sm:p-6">
@@ -1297,7 +1266,7 @@ function RebalanceDecisionAuditFallback() {
     <Card className="min-w-0">
       <CardHeader>
         <Skeleton className="h-5 w-52" />
-        <Skeleton className="h-4 w-96 max-w-full" />
+        <Skeleton className="h-4 w-full max-w-96" />
       </CardHeader>
       <CardContent className="space-y-3">
         {Array.from({ length: 6 }).map((_, index) => (
@@ -1320,12 +1289,9 @@ function RebalanceDecisionAuditFallback() {
 
 function RebalanceMonitorFallback() {
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
+    <div className="grid min-w-0 gap-6">
       <CurrentReserveApyFallback />
       <ApyChartFallback />
-      <ApyChartFallback />
-      <ApyChartFallback />
-      <RebalanceDecisionAuditFallback />
     </div>
   );
 }
@@ -1333,16 +1299,25 @@ function RebalanceMonitorFallback() {
 export function RebalanceMonitorClient() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [selectedMint, setSelectedMint] = useState("USDC");
+  const selectedDescriptor =
+    EARN_STABLECOIN_DESCRIPTORS.find(({ symbol }) => symbol === selectedMint) ??
+    EARN_STABLECOIN_DESCRIPTORS[0];
 
   useEffect(() => {
     const controller = new AbortController();
+    setState({ status: "loading" });
 
     async function loadMonitor() {
       try {
-        const response = await fetch("/api/earn/rebalance", {
-          credentials: "same-origin",
-          signal: controller.signal,
-        });
+        const response = await fetch(
+          `/api/earn/rebalance?mint=${encodeURIComponent(
+            selectedDescriptor.mint
+          )}`,
+          {
+            credentials: "same-origin",
+            signal: controller.signal,
+          }
+        );
 
         if (!response.ok) {
           throw new Error(
@@ -1351,6 +1326,9 @@ export function RebalanceMonitorClient() {
         }
 
         const data = (await response.json()) as RebalanceApiData;
+        if (data.liquidityMint !== selectedDescriptor.mint) {
+          throw new Error("Rebalance monitor returned a different stablecoin.");
+        }
         setState({ data, status: "ready" });
       } catch (error) {
         if (controller.signal.aborted) {
@@ -1370,116 +1348,72 @@ export function RebalanceMonitorClient() {
     void loadMonitor();
 
     return () => controller.abort();
-  }, []);
+  }, [selectedDescriptor.mint]);
 
-  if (state.status === "loading") {
-    return <RebalanceMonitorFallback />;
-  }
+  const currentData =
+    state.status === "ready" &&
+    state.data.liquidityMint === selectedDescriptor.mint
+      ? state.data
+      : null;
+  const reserveLabels = createReserveLabelMap(
+    currentData?.current.statuses ?? []
+  );
 
-  if (state.status === "error") {
-    return (
-      <div className="mx-auto w-full max-w-4xl">
+  return (
+    <div className="mx-auto grid w-full min-w-0 max-w-4xl gap-6">
+      <Card className="min-w-0">
+        <CardHeader>
+          <CardTitle className="font-bold">Stablecoin</CardTitle>
+          <CardDescription>
+            Select one Earn mint. Performance metrics never blend stablecoins.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="min-w-0">
+          <Tabs
+            onValueChange={(value) => {
+              setState({ status: "loading" });
+              setSelectedMint(value);
+            }}
+            value={selectedMint}
+          >
+            <TabsList className="h-auto w-full justify-start overflow-x-auto">
+              {EARN_STABLECOIN_DESCRIPTORS.map(({ mint, symbol }) => (
+                <TabsTrigger key={mint} value={symbol}>
+                  {symbol}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {state.status === "loading" ? <RebalanceMonitorFallback /> : null}
+      {state.status === "error" ? (
         <Card>
           <CardHeader>
-            <CardTitle className="font-bold">Rebalance monitor</CardTitle>
+            <CardTitle className="font-bold">
+              {selectedMint} rebalance performance
+            </CardTitle>
             <CardDescription>{state.message}</CardDescription>
           </CardHeader>
         </Card>
-      </div>
-    );
-  }
+      ) : null}
+      {currentData ? (
+        <>
+          <CurrentReserveApyCard
+            routes={currentData.current.routes}
+            rows={currentData.current.statuses}
+          />
+          <EarnRebalancePerformanceChart
+            opportunities={currentData.opportunities}
+            points={currentData.points}
+            sources={currentData.sources}
+            summary={currentData.summary}
+            symbol={currentData.symbol}
+          />
+        </>
+      ) : null}
 
-  const reserveLabels = createReserveLabelMap(state.data.apyData);
-  const selectedDescriptor = EARN_STABLECOIN_DESCRIPTORS.find(
-    ({ symbol }) => symbol === selectedMint
-  );
-  const selectedMintAddress = selectedDescriptor?.mint ?? null;
-  const filteredApyData = selectedMintAddress
-    ? {
-        ...state.data.apyData,
-        series: state.data.apyData.series.filter(
-          (series) => series.liquidityMint === selectedMintAddress
-        ),
-        statuses: state.data.apyData.statuses.filter(
-          (status) => status.liquidityMint === selectedMintAddress
-        ),
-      }
-    : state.data.apyData;
-  const filteredRoutes = selectedMintAddress
-    ? state.data.routes.filter(
-        (route) => route.liquidityMint === selectedMintAddress
-      )
-    : state.data.routes;
-  const filteredDecisions = selectedMintAddress
-    ? state.data.decisions.filter(
-        (decision) => decision.liquidityMint === selectedMintAddress
-      )
-    : state.data.decisions;
-  const filteredExecutedRebalances = selectedMintAddress
-    ? {
-        ...state.data.executedRebalances,
-        executions: state.data.executedRebalances.executions.filter(
-          (execution) => execution.liquidityMint === selectedMintAddress
-        ),
-      }
-    : state.data.executedRebalances;
-  const filteredFrequencyVaults = selectedMintAddress
-    ? state.data.vaultRebalanceFrequency.vaults.filter(
-        (vault) => vault.liquidityMint === selectedMintAddress
-      )
-    : state.data.vaultRebalanceFrequency.vaults;
-  const filteredVaultRebalanceFrequency = {
-    ...state.data.vaultRebalanceFrequency,
-    vaultCount: filteredFrequencyVaults.length,
-    vaults: filteredFrequencyVaults,
-  };
-
-  return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-bold">Stablecoin filter</CardTitle>
-          <CardDescription>
-            Filters verified reserves, confirmed executions, and vault
-            frequency. The aggregate activity and paginated audit sections
-            remain all-mint.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Select value={selectedMint} onValueChange={setSelectedMint}>
-            <SelectTrigger className="w-full sm:w-56">
-              <SelectValue placeholder="Select stablecoin" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All stablecoins</SelectItem>
-              {EARN_STABLECOIN_DESCRIPTORS.map(({ mint, symbol }) => (
-                <SelectItem key={mint} value={symbol}>
-                  {symbol}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
-      <CurrentReserveApyCard
-        routes={filteredRoutes}
-        rows={filteredApyData.statuses}
-      />
-      <SafeReserveApyChart
-        data={filteredApyData}
-        decisionMarkers={toDecisionMarkers(filteredDecisions)}
-      />
-      <RebalanceActivityChart data={state.data.activity} />
-      <ExecutedEarnRebalancesChart
-        data={filteredExecutedRebalances}
-        reserveLabels={reserveLabels}
-      />
-      <EarnVaultRebalanceFrequencyChart
-        data={filteredVaultRebalanceFrequency}
-        reserveStatuses={filteredApyData.statuses}
-      />
-      <Last30DaysRebalanceChart data={state.data.last30DaysRebalances} />
-      <AutodepositFailuresChart data={state.data.autodeposit} />
       <RebalanceAuditCard reserveLabels={reserveLabels} />
     </div>
   );
