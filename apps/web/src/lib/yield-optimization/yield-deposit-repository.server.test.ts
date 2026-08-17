@@ -340,18 +340,19 @@ describe("yield deposit repository idempotency", () => {
           }),
           query: {
             managedVaults: {
-              findFirst: mock(async () => ({
-                active: true,
-                activePolicyId: BigInt(7),
-                id: BigInt(44),
-                settings: "settings",
-                setupPolicyId: BigInt(8),
-                vaultIndex: 1,
-                vaultPubkey: "vault",
-              })),
+              findFirst: mock(async () => null),
             },
             userYieldPositionWithdrawals: {
-              findFirst: mock(async () => createPersistedWithdrawal()),
+              findFirst: mock(async () =>
+                createPersistedWithdrawal({
+                  sourceId: "reserve:reserve",
+                  sourceMetadata: {
+                    amountRaw: "1000",
+                    requestedWithdrawAmountRaw: "900",
+                  },
+                  sourceType: "reserve",
+                })
+              ),
             },
             userYieldPositions: {
               findFirst: mock(async () => position),
@@ -398,7 +399,12 @@ describe("yield deposit repository idempotency", () => {
     };
 
     const result = await recordConfirmedYieldWithdrawal(
-      createWithdrawalInput(),
+      createWithdrawalInput({
+        requestedWithdrawAmountRaw: BigInt(900),
+        sourceAmountRaw: BigInt(1000),
+        sourceId: "reserve:reserve",
+        sourceType: "reserve",
+      }),
       dependencies as never
     );
 

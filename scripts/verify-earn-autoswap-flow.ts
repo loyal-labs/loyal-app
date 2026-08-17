@@ -44,7 +44,7 @@ function createCanaryDatabase(
 // AUTOSWAP_VERIFY_BASE_URL=http://localhost:3000 bun scripts/verify-earn-autoswap-flow.ts
 //
 // Disposable localhost database state verification (no on-chain writes):
-// AUTOSWAP_VERIFY_MODE=local-state YIELD_OPTIMIZATION_LOCAL_DATABASE_URL=postgresql://localhost/loyal_autoswap_api_verify_<suffix> bun scripts/verify-earn-autoswap-flow.ts
+// AUTOSWAP_VERIFY_MODE=local-state AUTOSWAP_VERIFY_LOCAL_AUTH_ACK=disposable-local-auth YIELD_OPTIMIZATION_LOCAL_DATABASE_URL=postgresql://localhost/loyal_autoswap_api_verify_<suffix> bun scripts/verify-earn-autoswap-flow.ts
 //
 // Explicitly approved mainnet lifecycle:
 // AUTOSWAP_VERIFY_MODE=live AUTOSWAP_VERIFY_BASE_URL=http://localhost:3000 bun scripts/verify-earn-autoswap-flow.ts
@@ -54,6 +54,9 @@ function createCanaryDatabase(
 // Use AUTOSWAP_VERIFY_LIVE_ACTION=canary only for the explicitly acknowledged
 // production run. It installs policies, exercises two bounded movements,
 // proves pause/recovery/delete behavior, and cleans up in one auth session.
+// Use canary-existing to exercise one already-installed mint family and leave
+// the enrollment paused, allowing inventory to be restaged before the other
+// family is verified without reopening the global start gate in between.
 // It requires NEON_DATABASE_URL and:
 // AUTOSWAP_VERIFY_CANARY_ACK=mainnet-production-bounded-autoswap-canaries
 // Set AUTOSWAP_VERIFY_EXPECTED_POLICY_CREATES=1 only to resume a deliberately
@@ -67,6 +70,7 @@ function createCanaryDatabase(
 type VerifyMode = "live" | "local-state" | "read-only";
 type LiveAction =
   | "canary"
+  | "canary-existing"
   | "cleanup"
   | "full"
   | "install"
@@ -189,6 +193,8 @@ const DELETE_CONFIRM_PATH =
 const FAKE_SIGNATURE = "1".repeat(88);
 const SQUADS_MISSING_ACCOUNT_ERROR_CODE = 6024;
 const CANARY_ACKNOWLEDGEMENT = "mainnet-production-bounded-autoswap-canaries";
+const LOCAL_AUTH_ACKNOWLEDGEMENT = "disposable-local-auth";
+const WALLET_SESSION_COOKIE_NAME = "loyal_wallet_session";
 const CANARY_CLUSTER = "mainnet-beta";
 const CANARY_GATE_ACTOR = "autoswap-user-rollout-verifier";
 const CANARY_GATE_OWNER = `${CANARY_GATE_ACTOR}:${randomUUID()}`;
@@ -370,6 +376,71 @@ async function authenticate(keypair: Keypair): Promise<Session> {
     settingsPda,
     smartAccountAddress,
   };
+}
+
+async function authenticateDisposableLocalFixture(
+  keypair: Keypair
+): Promise<Session> {
+  if (
+    process.env.AUTOSWAP_VERIFY_LOCAL_AUTH_ACK?.trim() !==
+    LOCAL_AUTH_ACKNOWLEDGEMENT
+  ) {
+    throw new Error(
+      `Local fixture auth requires AUTOSWAP_VERIFY_LOCAL_AUTH_ACK=${LOCAL_AUTH_ACKNOWLEDGEMENT}.`
+    );
+  }
+
+  const database = postgres(requireDisposableLocalDatabaseUrl(), { max: 1 });
+  try {
+    const rows = await database<{ settings: string }[]>`
+      select distinct settings
+      from loyal_yield.user_yield_positions
+      where wallet_address = ${keypair.publicKey.toBase58()}
+        and status = 'active'
+    `;
+    if (rows.length !== 1) {
+      throw new Error(
+        "Disposable local auth requires exactly one active testing-wallet smart account."
+      );
+    }
+
+    const secret = process.env.AUTH_JWT_SECRET?.trim();
+    if (!secret) {
+      throw new Error("Disposable local auth requires AUTH_JWT_SECRET.");
+    }
+    const [sessionTokenModule, derivationModule, configModule] =
+      await Promise.all([
+        import("../apps/web/src/features/identity/server/session-token.ts"),
+        import("../apps/web/src/features/smart-accounts/derivation.ts"),
+        import("../apps/web/src/lib/core/config/server.ts"),
+      ]);
+    const walletAddress = keypair.publicKey.toBase58();
+    const smartAccountAddress =
+      derivationModule.deriveCanonicalSmartAccountAddress({
+        programId: configModule.getServerEnv().loyalSmartAccounts.programId,
+        settingsPda: rows[0]!.settings,
+      });
+    const token = await sessionTokenModule.issueAuthSessionToken(
+      {
+        authMethod: "wallet",
+        displayAddress: walletAddress,
+        provider: "solana",
+        settingsPda: rows[0]!.settings,
+        smartAccountAddress,
+        subjectAddress: walletAddress,
+        walletAddress,
+      },
+      secret,
+      15 * 60
+    );
+    return {
+      cookie: `${WALLET_SESSION_COOKIE_NAME}=${token}`,
+      settingsPda: rows[0]!.settings,
+      smartAccountAddress,
+    };
+  } finally {
+    await database.end({ timeout: 5 });
+  }
 }
 
 async function getEarnState(session: Session): Promise<EarnState> {
@@ -1858,6 +1929,70 @@ async function verifyProductionCanaries(args: {
   }
 }
 
+async function verifyExistingProductionCanary(args: {
+  connection: Connection;
+  keypair: Keypair;
+  session: Session;
+}): Promise<JsonRecord> {
+  const database = createCanaryDatabase(requireCanaryDatabaseUrl());
+  const gateLease: CanaryGateLease = { generation: null };
+  let baselineVerified = false;
+  try {
+    const initialState = await getEarnState(args.session);
+    const installed = initialState.autoswap;
+    if (installed?.status !== "on") {
+      throw new Error(
+        "Existing Autoswap canary requires an installed on enrollment."
+      );
+    }
+    const vaultId = await assertCanaryProductionBaseline({
+      database,
+      session: args.session,
+      state: installed,
+      vaultPubkey: initialState.vault.pubkey,
+    });
+    baselineVerified = true;
+    const canary = await runProductionCanary({
+      connection: args.connection,
+      controlledPause: true,
+      database,
+      gateLease,
+      keypair: args.keypair,
+      session: args.session,
+      state: installed,
+      vaultId,
+    });
+    await provePausedEnrollmentStartsNothing({
+      database,
+      gateLease,
+      session: args.session,
+      vaultId,
+    });
+    return {
+      action: "canary-existing",
+      canary,
+      finalState: "paused",
+      pausedEnrollmentStartedNewMovements: false,
+    };
+  } catch (error) {
+    await ensureAutoswapEnrollmentFailClosed(args.session);
+    throw error;
+  } finally {
+    let gateError: unknown;
+    if (baselineVerified) {
+      try {
+        await ensureCanaryStartGateClosed(database, gateLease);
+      } catch (error) {
+        gateError = error;
+      }
+    }
+    await database.end({ timeout: 5 });
+    if (gateError) {
+      throw gateError;
+    }
+  }
+}
+
 async function verifyLive(args: {
   action: LiveAction;
   connection: Connection;
@@ -2616,6 +2751,7 @@ async function main(): Promise<void> {
   if (
     MODE === "live" &&
     LIVE_ACTION !== "canary" &&
+    LIVE_ACTION !== "canary-existing" &&
     LIVE_ACTION !== "cleanup" &&
     LIVE_ACTION !== "full" &&
     LIVE_ACTION !== "install" &&
@@ -2623,7 +2759,7 @@ async function main(): Promise<void> {
     LIVE_ACTION !== "resume"
   ) {
     throw new Error(
-      "AUTOSWAP_VERIFY_LIVE_ACTION must be canary, cleanup, full, install, pause, or resume."
+      "AUTOSWAP_VERIFY_LIVE_ACTION must be canary, canary-existing, cleanup, full, install, pause, or resume."
     );
   }
   if (SOLANA_ENV !== "mainnet") {
@@ -2648,13 +2784,19 @@ async function main(): Promise<void> {
       "AUTOSWAP_VERIFY_EXPECTED_POLICY_CREATES must be 1 or 2 in live mode."
     );
   }
-  if (MODE === "live" && LIVE_ACTION === "canary") {
+  if (
+    MODE === "live" &&
+    (LIVE_ACTION === "canary" || LIVE_ACTION === "canary-existing")
+  ) {
     requireProductionCanaryConfig();
   }
 
   const keypair = loadKeypair("SOLANA_TESTING_PK");
   const connection = new Connection(RPC_URL, "confirmed");
-  const session = await authenticate(keypair);
+  const session =
+    MODE === "local-state"
+      ? await authenticateDisposableLocalFixture(keypair)
+      : await authenticate(keypair);
   await verifyRouteBoundaries(session);
   const initialState = await getEarnState(session);
   if (
@@ -2681,6 +2823,12 @@ async function main(): Promise<void> {
             action: LIVE_ACTION,
             connection,
             initialState,
+            keypair,
+            session,
+          })
+        : LIVE_ACTION === "canary-existing"
+        ? await verifyExistingProductionCanary({
+            connection,
             keypair,
             session,
           })
