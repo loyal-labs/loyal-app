@@ -1637,6 +1637,23 @@ async function runProductionCanary(args: {
     args.gateLease.generation = null;
     gateOpen = false;
     movement = await waitForFinalizedWithdrawal(args.database, movement.id);
+    if (args.controlledPause) {
+      const resumed = await changeLiveAutoswapState({
+        enabled: true,
+        initialState: await getEarnState(args.session),
+        session: args.session,
+      });
+      await changeLiveAutoswapState({
+        enabled: false,
+        initialState: await getEarnState(args.session),
+        session: args.session,
+      });
+      if (resumed.finalState !== "on") {
+        throw new Error(
+          "Controlled post-withdrawal resume did not settle before the final pause."
+        );
+      }
+    }
   } finally {
     if (gateOpen) {
       await ensureCanaryStartGateClosed(args.database, args.gateLease);
@@ -1649,7 +1666,10 @@ async function runProductionCanary(args: {
     args.database,
     movement.id
   );
-  return verifyCanaryMovementEvidence(args.database, terminal);
+  return {
+    ...(await verifyCanaryMovementEvidence(args.database, terminal)),
+    controlledPauseAfterFinalizedWithdrawal: args.controlledPause,
+  };
 }
 
 async function provePausedEnrollmentStartsNothing(args: {
