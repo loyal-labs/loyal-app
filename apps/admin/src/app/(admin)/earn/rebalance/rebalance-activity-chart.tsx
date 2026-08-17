@@ -23,29 +23,7 @@ const chartConfig = {
     color: "var(--chart-2)",
     label: "Confirmed",
   },
-  expiredSubmissions: {
-    color: "var(--muted-foreground)",
-    label: "Expired submissions",
-  },
-  failedDecisions: {
-    color: "var(--chart-2)",
-    label: "Failed decisions",
-  },
-  failedOpportunities: {
-    color: "var(--chart-4)",
-    label: "Failed opportunities",
-  },
-  fleetClaims: {
-    color: "var(--chart-3)",
-    label: "Fleet claims",
-  },
-  terminalAttempts: {
-    color: "var(--chart-1)",
-    label: "Terminal attempts",
-  },
 } satisfies ChartConfig;
-
-type SeriesKey = keyof typeof chartConfig;
 
 function formatTickDate(value: unknown) {
   if (typeof value !== "string") {
@@ -87,34 +65,26 @@ function formatTooltipDate(value: unknown) {
   }).format(date);
 }
 
-function ActivityPanel({
-  data,
-  label,
-  series,
-}: {
-  data: RebalanceActivityPoint[];
-  label: string;
-  series: SeriesKey[];
-}) {
+function ActivityTimeSeries({ data }: { data: RebalanceActivityPoint[] }) {
   return (
     <div className="min-w-0 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2 px-2 text-xs">
-        <span className="font-medium text-muted-foreground">{label}</span>
+        <span className="font-medium text-muted-foreground">
+          Confirmed rebalances
+        </span>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-          {series.map((key) => (
-            <span className="flex items-center gap-1.5" key={key}>
-              <span
-                aria-hidden
-                className="h-0.5 w-3 rounded-full"
-                style={{ backgroundColor: chartConfig[key].color }}
-              />
-              {chartConfig[key].label}
-            </span>
-          ))}
+          <span className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="h-0.5 w-3 rounded-full"
+              style={{ backgroundColor: chartConfig.confirmed.color }}
+            />
+            {chartConfig.confirmed.label}
+          </span>
         </div>
       </div>
       <ChartContainer
-        className="aspect-auto h-[150px] w-full min-w-0"
+        className="aspect-auto h-[220px] w-full min-w-0 sm:h-[260px]"
         config={chartConfig}
       >
         <LineChart
@@ -148,16 +118,13 @@ function ActivityPanel({
               />
             }
           />
-          {series.map((key) => (
-            <Line
-              dataKey={key}
-              dot={false}
-              key={key}
-              stroke={`var(--color-${key})`}
-              strokeWidth={2}
-              type="linear"
-            />
-          ))}
+          <Line
+            dataKey="confirmed"
+            dot={false}
+            stroke="var(--color-confirmed)"
+            strokeWidth={2}
+            type="linear"
+          />
         </LineChart>
       </ChartContainer>
     </div>
@@ -187,9 +154,8 @@ export function RebalanceActivityChart({
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">Rebalance activity</CardTitle>
           <CardDescription>
-            Last 72 hours in two-hour UTC buckets from Yield Neon. Failures are
-            persisted states; fleet claims are current attempt counts attributed
-            to opportunity creation time. Render-only errors are not included.
+            Confirmed executions from the last 72 hours in two-hour UTC buckets
+            from Yield Neon. Render-only errors are not included.
           </CardDescription>
         </div>
         <div className="flex">
@@ -209,22 +175,8 @@ export function RebalanceActivityChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5 px-2 pt-6 sm:p-6">
-        <ActivityPanel
-          data={data}
-          label="Outcomes"
-          series={["confirmed", "terminalAttempts"]}
-        />
-        <ActivityPanel data={data} label="Claims" series={["fleetClaims"]} />
-        <ActivityPanel
-          data={data}
-          label="Failures"
-          series={[
-            "failedDecisions",
-            "failedOpportunities",
-            "expiredSubmissions",
-          ]}
-        />
+      <CardContent className="px-2 pt-6 sm:p-6">
+        <ActivityTimeSeries data={data} />
       </CardContent>
     </Card>
   );
