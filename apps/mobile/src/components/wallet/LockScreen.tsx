@@ -27,6 +27,13 @@ export function LockScreen() {
   // transitioning to background or when user manually locked.
   const didAttemptBiometric = useRef(false);
 
+  // Set only on a real background transition, so returning from the system
+  // biometric sheet (inactive -> active) does not count as a re-entry.
+  const wasBackgrounded = useRef(false);
+
+  // Guards against two overlapping prompts (mount effect + AppState listener).
+  const biometricInFlight = useRef(false);
+
   // Resolve biometric type on mount
   useEffect(() => {
     if (biometricEnabled) {
@@ -42,31 +49,58 @@ export function LockScreen() {
     if (AppState.currentState !== "active") return;
 
     didAttemptBiometric.current = true;
+    biometricInFlight.current = true;
     setUnlocking(true);
-    unlockWithBiometrics().then((ok) => {
-      if (!ok) {
-        setBiometricFailed(true);
-        setUnlocking(false);
-      }
-      // If ok, state transitions to unlocked — component unmounts
-    });
+    unlockWithBiometrics()
+      .then((ok) => {
+        if (!ok) {
+          setBiometricFailed(true);
+          setUnlocking(false);
+        }
+        // If ok, state transitions to unlocked — component unmounts
+      })
+      .finally(() => {
+        biometricInFlight.current = false;
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-trigger biometric when app comes back to foreground
+  // Re-trigger biometric when app comes back to foreground.
+  //
+  // Only after a real "background", never after a bare "inactive". On iOS the
+  // prompt is presented by the keychain (SecureStore requireAuthentication),
+  // and showing it drives the app through inactive -> active. Re-arming on
+  // "active" alone therefore re-prompts every time the user dismisses the
+  // sheet, and because `unlocking` renders a full-screen overlay in place of
+  // the PIN pad, there is no way out of the loop. Android's BiometricPrompt
+  // keeps the activity resumed, which is why this only bites on iOS.
   useEffect(() => {
     if (!biometricEnabled) return;
 
     const subscription = AppState.addEventListener("change", (next) => {
-      if (next === "active") {
-        setUnlocking(true);
-        unlockWithBiometrics().then((ok) => {
+      if (next === "background") {
+        wasBackgrounded.current = true;
+        return;
+      }
+      if (next !== "active") return;
+      if (!wasBackgrounded.current) return;
+      wasBackgrounded.current = false;
+
+      // A prompt raised by the mount effect may still be on screen.
+      if (biometricInFlight.current) return;
+      biometricInFlight.current = true;
+
+      setUnlocking(true);
+      unlockWithBiometrics()
+        .then((ok) => {
           if (!ok) {
             setBiometricFailed(true);
             setUnlocking(false);
           }
+        })
+        .finally(() => {
+          biometricInFlight.current = false;
         });
-      }
     });
     return () => subscription.remove();
   }, [biometricEnabled, unlockWithBiometrics]);
