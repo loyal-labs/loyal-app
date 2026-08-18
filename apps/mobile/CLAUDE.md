@@ -74,16 +74,28 @@ Expo uses `EXPO_PUBLIC_` prefix for client-accessible env vars.
 ```env
 EXPO_PUBLIC_API_BASE_URL=https://your-app.vercel.app
 EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
+EXPO_PUBLIC_EARN_API_BASE_URL=https://askloyal.com
+EXPO_PUBLIC_SOLANA_ENV=mainnet
 ```
 
-**EAS builds** (`eas.json` env blocks — source of truth for cloud builds):
-```env
-EXPO_PUBLIC_API_BASE_URL=https://solana-telegram-transactions.vercel.app
-EXPO_PUBLIC_GRID_AUTH_BASE_URL=https://auth.askloyal.com
-```
+- `EXPO_PUBLIC_API_BASE_URL` selects the chat/wallet API; its fallback is
+  `https://solana-telegram-transactions.vercel.app`.
+- `EXPO_PUBLIC_GRID_AUTH_BASE_URL` selects the passkey auth domain; its fallback
+  is `https://auth.askloyal.com`.
+- `EXPO_PUBLIC_EARN_API_BASE_URL` selects the mobile Earn API; its fallback is
+  `https://askloyal.com`.
+- `EXPO_PUBLIC_SOLANA_ENV` selects the Solana cluster.
+- `EXPO_PUBLIC_VERCEL_PROTECTION_BYPASS` is optional and is sent only when
+  testing a protected preview deployment.
+- `EXPO_PUBLIC_EARN_SPONSORED_DEPOSITS` enables sponsored deposits only when set
+  to `true`; other values keep the self-paid flow.
+- `EXPO_PUBLIC_MIXPANEL_TOKEN` and `EXPO_PUBLIC_ONESIGNAL_APP_ID` configure
+  optional telemetry and push notification services. The EAS profiles currently
+  set `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_SOLANA_ENV=mainnet`, and
+  `EXPO_PUBLIC_ONESIGNAL_APP_ID` in `eas.json`.
 
 - `.env` files are NOT uploaded to EAS build servers — `eas.json` is the only way to set env vars for EAS builds
-- `src/config/env.ts` provides a hardcoded fallback if neither source sets the var
+- `src/config/env.ts` provides a hardcoded fallback when a variable is unset
 - Non-public env vars (no `EXPO_PUBLIC_` prefix) are build-time only, not embedded in the JS bundle
 - Mobile should call the passkey auth domain via `EXPO_PUBLIC_GRID_AUTH_BASE_URL`; do not import browser/WebAuthn flow code from `passkey`
 
