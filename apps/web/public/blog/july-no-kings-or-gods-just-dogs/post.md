@@ -33,7 +33,7 @@ People connected wallets, approved policies for their smart accounts, and truste
 
 You can track the numbers at [stats.askloyal.com](https://stats.askloyal.com/).
 
-![Loyal stats panel showing an Earn AUM figure of $696,655.31 under the caption "Current normalized Earn AUM"](img-2.jpg)
+![Loyal stats panel labelled "Earn AUM" showing $696,655.31, with the note "Current normalized Earn AUM" beneath it](img-2.jpg)
 
 > Loyal hit 700k in TVL since our earn launch a month ago.
 >
@@ -55,7 +55,7 @@ This is the model we are building around: useful financial automation without gi
 
 ![Red card reading "Meet the new web app" with the Loyal mascot's eye above the text and askloyal.com underneath](img-3.png)
 
-![Three Loyal web app cards: an Earn panel projecting $6,000 into $6,593 in a year at 9.89% APY, an APY chart putting Loyal Earn at 9.89% against Main Market at 5.66% and T-Bill at 4.22%, and a total balance of $31,106.46 split across Earn, stablecoins and crypto](img-4.png "Welcome to the future of agentic finance. New webapp is live.")
+![Overlapping Loyal web app cards: an Earn panel projecting $6,000 into $6,593 in a year at 9.89% APY, an APY chart putting Loyal Earn at 9.89% against Main Market at 5.66% and T-Bill at 4.22%, a total balance of $31,106.46 split across Earn, stablecoins and crypto, and a partly hidden $LOYAL token card](img-4.png "Welcome to the future of agentic finance. New webapp is live.")
 
 ## Governance Updates
 
