@@ -10,6 +10,7 @@ Disallow: /ingest/
 Disallow: /app
 Disallow: /app/
 Disallow: /500
+Disallow: /landing
 Disallow: /_next/
 Disallow: /*.json$
 
@@ -48,6 +49,7 @@ Disallow: /ingest/
 Disallow: /app
 Disallow: /app/
 Disallow: /500
+Disallow: /landing
 Disallow: /_next/
 Disallow: /*.json$
 

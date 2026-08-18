@@ -8,6 +8,7 @@ import { XPixelBootstrap } from "@/components/analytics/x-pixel-bootstrap";
 import { AppTransitionBridge } from "@/components/app-transition/app-transition-bridge";
 import { PublicEnvProvider } from "@/contexts/public-env-context";
 import { createPublicEnv } from "@/lib/core/config/public";
+import { SITE_URL } from "@/lib/seo/site";
 
 const geistSans = GeistSans;
 const geistMono = GeistMono;
@@ -86,7 +87,7 @@ export const metadata: Metadata = {
   title: "Loyal: Solana Wallet That Earns Yield Automatically",
   description:
     "Self-custody Solana wallet that routes your stablecoins to the best available yield automatically. Agent guardrails, private transfers, open-source.",
-  metadataBase: new URL("https://askloyal.com"),
+  metadataBase: new URL(SITE_URL),
   alternates: {
     canonical: "/",
   },
