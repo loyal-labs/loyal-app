@@ -43,11 +43,53 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: false,
     bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
+    // Answers App Store Connect's export-compliance question at build time.
+    // Without it every upload lands in "Missing Compliance" and cannot be
+    // distributed to any tester until a human answers the questionnaire, per
+    // build. `false` = the app qualifies for the exemption: the only
+    // non-Apple crypto is standard AES-256-GCM + PBKDF2 (@noble/ciphers,
+    // src/lib/wallet/crypto.ts) used to encrypt the wallet key at rest, with
+    // no proprietary algorithm.
+    config: {
+      usesNonExemptEncryption: false,
+    },
     infoPlist: {
       UIBackgroundModes: ["remote-notification"],
     },
     entitlements: {
       "aps-environment": IS_DEV ? "development" : "production",
+    },
+    // Apple requires a reason for each "required reason API" a binary links.
+    // Expo emits PrivacyInfo.xcprivacy only when this key is present, and the
+    // manifests shipped by static CocoaPods dependencies are not reliably
+    // parsed, so the app target declares the union used by its Expo modules:
+    // expo-constants (UserDefaults), expo-application/expo-file-system (file
+    // timestamps, disk space) and expo-device (system boot time). Omitting
+    // this produces ITMS-91053 on upload.
+    privacyManifests: {
+      NSPrivacyAccessedAPITypes: [
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryUserDefaults",
+          NSPrivacyAccessedAPITypeReasons: ["CA92.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryFileTimestamp",
+          NSPrivacyAccessedAPITypeReasons: ["C617.1", "0A2A.1", "3B52.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategoryDiskSpace",
+          NSPrivacyAccessedAPITypeReasons: ["E174.1", "85F4.1"],
+        },
+        {
+          NSPrivacyAccessedAPIType: "NSPrivacyAccessedAPICategorySystemBootTime",
+          NSPrivacyAccessedAPITypeReasons: ["35F9.1"],
+        },
+      ],
+      // No SDK collects IDFA: Firebase (the only IDFA-capable dependency) is
+      // excluded from Apple autolinking in package.json, Mixpanel uses IDFV
+      // and Datadog its own session id. Keep this false unless that changes,
+      // and do not add NSUserTrackingUsageDescription without calling ATT.
+      NSPrivacyTracking: false,
     },
   },
   android: {
@@ -82,14 +124,32 @@ const config: ExpoConfig = {
       "onesignal-expo-plugin",
       {
         mode: IS_DEV ? "development" : "production",
+        // The plugin otherwise hardcodes the Notification Service Extension
+        // target to iOS 11.0, while Expo SDK 54 builds everything else at
+        // 15.1. That mismatch is what produces the "OneSignal.h not found"
+        // class of pod failure the comment above refers to.
+        iPhoneDeploymentTarget: "15.1",
       },
     ],
     "expo-router",
-    "expo-local-authentication",
+    [
+      "expo-local-authentication",
+      {
+        // Ships instead of the plugin default ("Allow Loyal to use Face ID").
+        // Face ID gates wallet-key unlock, and Guideline 5.1.1 expects the
+        // purpose string to say what it is used for.
+        faceIDPermission: "Use Face ID to unlock your Loyal wallet.",
+      },
+    ],
     [
       "expo-camera",
       {
         cameraPermission: "Allow Loyal to scan wallet QR codes",
+        // The plugin injects a default NSMicrophoneUsageDescription unless
+        // this is explicitly false. The camera is only ever used for QR
+        // scanning (SendSheet), so declaring the microphone would be an
+        // unused sensitive permission on the privacy label.
+        microphonePermission: false,
       },
     ],
     [
