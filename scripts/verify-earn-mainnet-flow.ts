@@ -3396,7 +3396,23 @@ async function main() {
     return Number(row?.count ?? 0);
   }
 
-  async function loadVerifierRowCounts() {
+  function readConfirmSourceSignature(body: unknown): string | null {
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return null;
+    }
+
+    const record = body as Record<string, unknown>;
+    for (const key of ["depositSignature", "withdrawalSignature"] as const) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+
+    return null;
+  }
+
+  async function loadVerifierRowCounts(sourceSignature?: string | null) {
     const settings = SETTINGS_PDA.toBase58();
     const walletAddress = wallet.publicKey.toBase58();
     const selectedVaultPubkey = vaultPubkey.toBase58();
@@ -3465,7 +3481,15 @@ async function main() {
         where: and(
           eq(schema.userYieldPositionDeposits.settings, settings),
           eq(schema.userYieldPositionDeposits.vaultIndex, 1),
-          eq(schema.userYieldPositionDeposits.walletAddress, walletAddress)
+          eq(schema.userYieldPositionDeposits.walletAddress, walletAddress),
+          ...(sourceSignature
+            ? [
+                eq(
+                  schema.userYieldPositionDeposits.depositSignature,
+                  sourceSignature
+                ),
+              ]
+            : [])
         ),
       }),
       holdingEvents:
@@ -3475,9 +3499,20 @@ async function main() {
               from: schema.userYieldPositionHoldingEvents,
               where: or(
                 ...positionIdList.map((positionId) =>
-                  eq(
-                    schema.userYieldPositionHoldingEvents.positionId,
-                    positionId
+                  and(
+                    eq(
+                      schema.userYieldPositionHoldingEvents.positionId,
+                      positionId
+                    ),
+                    ...(sourceSignature
+                      ? [
+                          eq(
+                            schema.userYieldPositionHoldingEvents
+                              .sourceSignature,
+                            sourceSignature
+                          ),
+                        ]
+                      : [])
                   )
                 )
               ),
@@ -3488,7 +3523,15 @@ async function main() {
         where: and(
           eq(schema.userYieldPositionWithdrawals.settings, settings),
           eq(schema.userYieldPositionWithdrawals.vaultIndex, 1),
-          eq(schema.userYieldPositionWithdrawals.walletAddress, walletAddress)
+          eq(schema.userYieldPositionWithdrawals.walletAddress, walletAddress),
+          ...(sourceSignature
+            ? [
+                eq(
+                  schema.userYieldPositionWithdrawals.withdrawalSignature,
+                  sourceSignature
+                ),
+              ]
+            : [])
         ),
       }),
     };
@@ -3536,7 +3579,8 @@ async function main() {
     path: string;
     session: FrontendSession;
   }) {
-    const before = await loadVerifierRowCounts();
+    const sourceSignature = readConfirmSourceSignature(args.body);
+    const before = await loadVerifierRowCounts(sourceSignature);
     const replay = await frontendPostJsonRaw({
       body: args.body,
       cookie: args.cookie,
@@ -3548,7 +3592,7 @@ async function main() {
         `${args.label} replay failed with ${replay.response.status}: ${replay.text}`
       );
     }
-    const after = await loadVerifierRowCounts();
+    const after = await loadVerifierRowCounts(sourceSignature);
     if (JSON.stringify(before) !== JSON.stringify(after)) {
       throw new Error(
         `${args.label} replay changed row counts: ${JSON.stringify({
@@ -3691,9 +3735,10 @@ async function main() {
     path: string;
     session: FrontendSession;
   }) {
-    const before = await loadVerifierRowCounts();
+    const sourceSignature = readConfirmSourceSignature(args.body);
+    const before = await loadVerifierRowCounts(sourceSignature);
     const failure = await expectFrontendPostFailure(args);
-    const after = await loadVerifierRowCounts();
+    const after = await loadVerifierRowCounts(sourceSignature);
     if (JSON.stringify(before) !== JSON.stringify(after)) {
       throw new Error(
         `${args.label} changed row counts: ${JSON.stringify({
@@ -5835,8 +5880,12 @@ async function main() {
       simulationLogs: partialSent.simulationLogs.slice(-12),
       status: "success",
     };
+    const principalBeforeWithdrawal =
+      before.principalAmountRaw + TOP_UP_DEPOSIT_RAW;
     const expected =
-      before.principalAmountRaw + TOP_UP_DEPOSIT_RAW - PARTIAL_WITHDRAW_RAW;
+      principalBeforeWithdrawal > PARTIAL_WITHDRAW_RAW
+        ? principalBeforeWithdrawal - PARTIAL_WITHDRAW_RAW
+        : BigInt(0);
     const actualPrincipal = readPositionPrincipalAmountRaw(after);
     if (actualPrincipal !== expected) {
       throw new Error(
