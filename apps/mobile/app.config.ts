@@ -46,7 +46,11 @@ const config: ExpoConfig = {
     // Extension — without it that target builds with DEVELOPMENT_TEAM unset,
     // which EAS papers over but local `expo run:ios` does not.
     appleTeamId: "AP32T55T29",
-    bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
+    // NOT com.loyal.app — that identifier is already taken in Apple's global
+    // App ID namespace and cannot be registered. Unrelated to the Android
+    // package of the same name, which is the shipped dApp Store build and
+    // stays as-is. Must never change after the first App Store release.
+    bundleIdentifier: IS_DEV ? "com.askloyal.app.dev" : "com.askloyal.app",
     // Answers App Store Connect's export-compliance question at build time.
     // Without it every upload lands in "Missing Compliance" and cannot be
     // distributed to any tester until a human answers the questionnaire, per
