@@ -1722,6 +1722,12 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           AND decision.target_reserve IS NOT NULL
         GROUP BY decision.vault_id
       ),
+      -- Evidence that a vault was genuinely actionable, used to keep it in the
+      -- eligible denominator even when it now sits under the modelled floor.
+      -- The reserve filter must mirror rebalance_counts above: idle-vault
+      -- deposits carry a NULL source_reserve and can never produce a confirmed
+      -- reserve-to-reserve decision, so counting them would admit vaults the
+      -- numerator is structurally unable to match.
       opportunity_counts AS MATERIALIZED (
         SELECT
           opportunity.vault_id,
@@ -1736,6 +1742,8 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
             WHERE opportunity.created_at >= NOW() - INTERVAL '2 hours'
           )::integer AS last_2h_count
         FROM loyal_yield.rebalance_opportunities AS opportunity
+        WHERE opportunity.source_reserve IS NOT NULL
+          AND opportunity.target_reserve IS NOT NULL
         GROUP BY opportunity.vault_id
       ),
       current_vaults AS MATERIALIZED (
