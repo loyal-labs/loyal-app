@@ -95,8 +95,13 @@ export function BrowserHome({
   return (
     <ScrollView
       className="flex-1 bg-white"
-      contentContainerClassName="px-5 pb-10"
-      contentContainerStyle={{ paddingTop: insets.top + 16 }}
+      contentContainerClassName="px-5"
+      contentContainerStyle={{
+        paddingTop: insets.top + 16,
+        // Clears the floating tab bar (70pt) plus the home-indicator inset;
+        // the previous flat pb-10 (40pt) left the last dapp row unreachable.
+        paddingBottom: Math.max(insets.bottom, 12) + 90,
+      }}
       keyboardShouldPersistTaps="handled"
     >
       <Text className="text-[28px] font-[Geist_700Bold] text-black">

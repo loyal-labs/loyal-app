@@ -9,6 +9,7 @@ import {
   View,
   type AppStateStatus,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const CHECK_COOLDOWN_MS = 10 * 60 * 1000;
 
@@ -28,6 +29,7 @@ function readManifestNotes(manifest: unknown): string | null {
 }
 
 export function OtaUpdateBanner() {
+  const insets = useSafeAreaInsets();
   const [isVisible, setIsVisible] = useState(false);
   const [notes, setNotes] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState(false);
@@ -122,7 +124,14 @@ export function OtaUpdateBanner() {
   if (!isVisible) return null;
 
   return (
-    <View pointerEvents="box-none" style={styles.overlay}>
+    <View
+      pointerEvents="box-none"
+      // Mounted outside the tab navigator at zIndex 1000, so it must clear
+      // both the floating tab bar and the home-indicator inset itself —
+      // otherwise it covers the tab buttons and its Restart button lands in
+      // the strip where iOS owns the first upward swipe.
+      style={[styles.overlay, { bottom: Math.max(insets.bottom, 12) + 94 }]}
+    >
       <View style={styles.banner}>
         <View style={styles.copy}>
           <Text style={styles.title}>Update available</Text>
@@ -151,7 +160,6 @@ export function OtaUpdateBanner() {
 
 const styles = StyleSheet.create({
   overlay: {
-    bottom: 24,
     left: 16,
     position: "absolute",
     right: 16,
