@@ -196,3 +196,15 @@ export async function getAllBlogSlugs(): Promise<string[]> {
   const all = await loadAllPosts();
   return all.map((post) => post.slug);
 }
+
+/**
+ * Returns metadata for every post, newest first, unpaginated.
+ *
+ * The sitemap and the llms.txt files enumerate the whole archive, so they read
+ * from here rather than walking getBlogPosts() page by page. Sharing the loader
+ * is the point: a post that exists on disk is in the sitemap by construction.
+ */
+export async function getAllBlogPosts(): Promise<BlogPost[]> {
+  const all = await loadAllPosts();
+  return all.map(toMeta);
+}

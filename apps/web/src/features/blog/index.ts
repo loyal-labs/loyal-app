@@ -1,5 +1,6 @@
 export {
   BLOG_POSTS_PER_PAGE,
+  getAllBlogPosts,
   getAllBlogSlugs,
   getBlogPost,
   getBlogPosts,
