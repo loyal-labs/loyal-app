@@ -34,12 +34,10 @@ export function WalletAutoReauth() {
     useWallet();
   const { captcha } = usePublicEnv();
 
-  // Silent re-auth has no captcha UI, so resolve a captcha token for the
-  // gated challenge endpoint without one. Misconfigured envs resolve
-  // immediately; in widget mode there is no token to obtain silently, so we
-  // defer to the interactive sign-in (which renders the widget).
+  // Silent re-auth has no captcha UI. Local development uses the explicit
+  // bypass token; deployed environments defer to interactive sign-in.
   const silentCaptchaToken =
-    captcha.mode === "misconfigured" ? "captcha-skipped" : null;
+    captcha.mode === "bypass" ? captcha.verificationToken : null;
 
   const attemptedAddressRef = useRef<string | null>(null);
   const failedRef = useRef(false);

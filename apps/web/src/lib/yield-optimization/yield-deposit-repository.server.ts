@@ -1760,8 +1760,8 @@ async function findIdempotentWithdrawalPosition(
     }
     if (
       normalizeSourceMetadataForCompare(withdrawal.sourceMetadata ?? {}) !==
-      normalizeSourceMetadataForCompare(
-        buildStoredWithdrawalSourceMetadata({
+      normalizeSourceMetadataForCompare({
+        ...buildStoredWithdrawalSourceMetadata({
           sourceAmountRaw:
             source.sourceAmountRaw ??
             BigInt(
@@ -1772,8 +1772,15 @@ async function findIdempotentWithdrawalPosition(
           sourceMetadata: source.sourceMetadata,
           sourceMint: source.sourceMint,
           sourceTokenAccount: source.sourceTokenAccount,
-        })
-      )
+        }),
+        ...(input.requestedWithdrawAmountRaw !== undefined &&
+        input.requestedWithdrawAmountRaw !== null
+          ? {
+              requestedWithdrawAmountRaw:
+                input.requestedWithdrawAmountRaw.toString(),
+            }
+          : {}),
+      })
     ) {
       throw new Error("Duplicate withdrawal source metadata mismatch.");
     }
