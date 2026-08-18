@@ -117,12 +117,45 @@ describe("summarizeRebalanceEligibility", () => {
     { currentDepositRaw: "500000", rebalanceCount: 3 },
   ];
 
-  test("counts only vaults that clear the floor", () => {
+  test("counts vaults that clear the floor plus those with recorded activity", () => {
+    // The 0.5 USDC vault is far under the floor but actually rebalanced three
+    // times, so it is demonstrably eligible and must stay in the denominator.
     const summary = summarizeRebalanceEligibility(vaults, BigInt(74_790_000));
 
-    expect(summary.eligibleCount).toBe(2);
-    expect(summary.eligibleRebalancedCount).toBe(1);
-    expect(summary.ineligibleCount).toBe(3);
+    expect(summary.eligibleCount).toBe(3);
+    expect(summary.eligibleRebalancedCount).toBe(2);
+    expect(summary.ineligibleCount).toBe(2);
+  });
+
+  test("keeps a dust vault the planner raised an opportunity for", () => {
+    // This is the case that would otherwise flatter the numbers: a real
+    // opportunity that never converted, on a vault under today's floor.
+    const summary = summarizeRebalanceEligibility(
+      [
+        { currentDepositRaw: "9780000", opportunityCount: 4, rebalanceCount: 0 },
+        { currentDepositRaw: "9780000", opportunityCount: 0, rebalanceCount: 0 },
+      ],
+      BigInt(37_288_959)
+    );
+
+    expect(summary.eligibleCount).toBe(1);
+    expect(summary.eligibleRebalancedCount).toBe(0);
+    expect(summary.ineligibleCount).toBe(1);
+  });
+
+  test("never lets the floor hide a miss", () => {
+    // A vault with opportunities and no rebalances must drag the ratio down,
+    // not vanish from it.
+    const withMiss = summarizeRebalanceEligibility(
+      [
+        { currentDepositRaw: "500000000", opportunityCount: 2, rebalanceCount: 5 },
+        { currentDepositRaw: "1000", opportunityCount: 3, rebalanceCount: 0 },
+      ],
+      BigInt(37_288_959)
+    );
+
+    expect(withMiss.eligibleCount).toBe(2);
+    expect(withMiss.eligibleRebalancedCount).toBe(1);
   });
 
   test("keeps every vault eligible when the floor is unknown", () => {

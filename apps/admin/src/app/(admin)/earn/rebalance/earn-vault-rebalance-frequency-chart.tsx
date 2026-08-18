@@ -64,6 +64,10 @@ export type SerializedEarnVaultRebalanceFrequencyRow = {
   last2hCount: number;
   last7dCount: number;
   liquidityMint: string | null;
+  opportunity12hCount: number;
+  opportunity2hCount: number;
+  opportunity7dCount: number;
+  opportunityAllCount: number;
   positionCount: number;
   vaultId: string;
   vaultPubkey: string;
@@ -78,11 +82,17 @@ export type SerializedEarnVaultRebalanceFrequency = {
 
 type RangeKey = "12h" | "2h" | "7d" | "all";
 type CountKey = "allCount" | "last7dCount" | "last12hCount" | "last2hCount";
+type OpportunityKey =
+  | "opportunityAllCount"
+  | "opportunity7dCount"
+  | "opportunity12hCount"
+  | "opportunity2hCount";
 type ScaleKey = "linear" | "log";
 
 type ChartPoint = SerializedEarnVaultRebalanceFrequencyRow & {
   depositAmount: number;
   depositRank: number;
+  opportunityCount: number;
   rebalanceCount: number;
 };
 
@@ -99,25 +109,35 @@ const RANGE_OPTIONS: ReadonlyArray<{
   countKey: CountKey;
   key: RangeKey;
   label: string;
+  opportunityKey: OpportunityKey;
   tabLabel: string;
 }> = [
-  { countKey: "allCount", key: "all", label: "All history", tabLabel: "All" },
+  {
+    countKey: "allCount",
+    key: "all",
+    label: "All history",
+    opportunityKey: "opportunityAllCount",
+    tabLabel: "All",
+  },
   {
     countKey: "last7dCount",
     key: "7d",
     label: "Last 7 days",
+    opportunityKey: "opportunity7dCount",
     tabLabel: "7 days",
   },
   {
     countKey: "last12hCount",
     key: "12h",
     label: "Last 12 hours",
+    opportunityKey: "opportunity12hCount",
     tabLabel: "12 hours",
   },
   {
     countKey: "last2hCount",
     key: "2h",
     label: "Last 2 hours",
+    opportunityKey: "opportunity2hCount",
     tabLabel: "2 hours",
   },
 ];
@@ -250,6 +270,10 @@ function VaultFrequencyTooltip({
         <dd className="text-right">
           {series?.apyStatus?.status ?? "No reserve position"}
         </dd>
+        <dt className="text-muted-foreground">Opportunities raised</dt>
+        <dd className="text-right tabular-nums">
+          {point.opportunityCount.toLocaleString("en-US")}
+        </dd>
         <dt className="text-muted-foreground">Positive positions</dt>
         <dd className="text-right tabular-nums">{point.positionCount}</dd>
         <dt className="text-muted-foreground">All / 7d / 12h / 2h</dt>
@@ -301,10 +325,11 @@ export function EarnVaultRebalanceFrequencyChart({
         (vault): ChartPoint => ({
           ...vault,
           depositAmount: toDepositAmount(vault.currentDepositRaw),
+          opportunityCount: vault[rangeOption.opportunityKey],
           rebalanceCount: vault[rangeOption.countKey],
         })
       ),
-    [rangeOption.countKey, rankedVaults]
+    [rangeOption.countKey, rangeOption.opportunityKey, rankedVaults]
   );
   const apyByReserve = useMemo(
     () => new Map(reserveStatuses.map((status) => [status.reserve, status])),

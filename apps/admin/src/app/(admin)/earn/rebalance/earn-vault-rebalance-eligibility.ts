@@ -78,9 +78,21 @@ function toRawAmount(amount: number, decimals: number): bigint {
  * Splits funded vaults into the set the planner could act on and the dust it
  * will always decline. `floorRaw` of `null` means the spread is unknown, so
  * every vault stays eligible rather than being silently hidden.
+ *
+ * The floor alone is not enough. It is modelled from the spread as it stands
+ * *now*, while the counts are historical, so a vault that was genuinely
+ * actionable last week can sit under today's floor - and dropping it would hide
+ * a real miss and flatter the numbers. Recorded evidence therefore wins over the
+ * model: if the planner actually raised an opportunity for a vault in this
+ * window, or the vault actually rebalanced, it is eligible regardless of what
+ * it holds today.
  */
 export function summarizeRebalanceEligibility<
-  Vault extends { currentDepositRaw: string; rebalanceCount: number },
+  Vault extends {
+    currentDepositRaw: string;
+    opportunityCount?: number;
+    rebalanceCount: number;
+  },
 >(
   vaults: readonly Vault[],
   floorRaw: bigint | null
@@ -93,7 +105,11 @@ export function summarizeRebalanceEligibility<
   let eligibleRebalancedCount = 0;
 
   for (const vault of vaults) {
-    if (floorRaw !== null && BigInt(vault.currentDepositRaw) < floorRaw) {
+    const hasEvidence =
+      vault.rebalanceCount > 0 || (vault.opportunityCount ?? 0) > 0;
+    const clearsFloor =
+      floorRaw === null || BigInt(vault.currentDepositRaw) >= floorRaw;
+    if (!hasEvidence && !clearsFloor) {
       continue;
     }
     eligibleCount += 1;
