@@ -37,6 +37,8 @@ import {
   STABLECOIN_DECIMALS,
 } from "@/lib/earn/stablecoin-monitor.shared";
 
+import { buildLogTicks, formatLogTick } from "./earn-vault-rebalance-axis";
+
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const SOURCE_COLORS = [
   "var(--chart-1)",
@@ -67,10 +69,17 @@ export type SerializedExecutedEarnRebalanceHistory = {
 };
 
 type ChartPoint = SerializedExecutedEarnRebalanceRow & {
+  depositAmount: number;
   executedAtMs: number;
 };
 
 type RangeKey = "7d" | "30d" | "all";
+type ScaleKey = "linear" | "log";
+
+const SCALE_OPTIONS: ReadonlyArray<{ key: ScaleKey; label: string }> = [
+  { key: "log", label: "Log scale" },
+  { key: "linear", label: "As is" },
+];
 
 function formatUtcTimestamp(value: number | string): string {
   const date = new Date(value);
@@ -192,6 +201,7 @@ export function ExecutedEarnRebalancesChart({
   reserveLabels: ReadonlyMap<string, string>;
 }) {
   const [range, setRange] = useState<RangeKey>("all");
+  const [scale, setScale] = useState<ScaleKey>("log");
   const [showTable, setShowTable] = useState(false);
 
   const points = useMemo(
@@ -199,6 +209,9 @@ export function ExecutedEarnRebalancesChart({
       data.executions
         .map((execution) => ({
           ...execution,
+          depositAmount:
+            Number(BigInt(execution.currentDepositRaw)) /
+            10 ** STABLECOIN_DECIMALS,
           executedAtMs: Date.parse(execution.executedAt),
         }))
         .filter((execution) => Number.isFinite(execution.executedAtMs)),
@@ -257,6 +270,26 @@ export function ExecutedEarnRebalancesChart({
       )
     )
   );
+  const positiveDeposits = filteredPoints
+    .map((point) => point.depositAmount)
+    .filter((amount) => amount > 0 && Number.isFinite(amount));
+  const useLogScale = scale === "log" && positiveDeposits.length > 0;
+  // Users who fully withdrew after rebalancing now hold nothing, and a log axis
+  // has no room for zero. Pin them to one decade below the smallest real
+  // deposit so the execution still shows up instead of being dropped.
+  const logFloor = useLogScale
+    ? 10 ** (Math.floor(Math.log10(Math.min(...positiveDeposits))) - 1)
+    : 1;
+  const logTicks = buildLogTicks(
+    logFloor,
+    useLogScale ? Math.max(...positiveDeposits) : 1
+  );
+  const zeroDepositCount = filteredPoints.length - positiveDeposits.length;
+  const scatterPoints = filteredPoints.map((point) => ({
+    ...point,
+    logDepositAmount:
+      point.depositAmount > 0 ? point.depositAmount : logFloor,
+  }));
   const tableRows = [...filteredPoints].reverse().slice(0, 50);
 
   if (data.status === "unavailable") {
@@ -287,9 +320,9 @@ export function ExecutedEarnRebalancesChart({
               Executed Earn rebalances
             </CardTitle>
             <CardDescription>
-              One dot per confirmed reserve-to-reserve decision. Users are
-              ordered by their current Earn deposit, smallest at the bottom and
-              largest at the top. Times are UTC.
+              One dot per confirmed reserve-to-reserve decision. Y is the
+              user&rsquo;s current Earn deposit on a log scale, or ordered
+              smallest to largest under &ldquo;As is&rdquo;. Times are UTC.
             </CardDescription>
           </div>
           <div
@@ -317,6 +350,25 @@ export function ExecutedEarnRebalancesChart({
             >
               Table
             </Button>
+            <div
+              aria-label="Deposit axis scale"
+              className="flex w-fit items-center gap-1 rounded-lg bg-muted p-1"
+              role="group"
+            >
+              {SCALE_OPTIONS.map((option) => (
+                <Button
+                  aria-pressed={scale === option.key}
+                  className="h-7 px-3 text-xs"
+                  key={option.key}
+                  onClick={() => setScale(option.key)}
+                  size="sm"
+                  type="button"
+                  variant={scale === option.key ? "secondary" : "ghost"}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -424,23 +476,41 @@ export function ExecutedEarnRebalancesChart({
                 tickMargin={8}
                 type="number"
               />
-              <YAxis
-                allowDecimals={false}
-                axisLine={false}
-                dataKey="userRank"
-                domain={[1, Math.max(data.userCount, 1)]}
-                name="Current deposit amount"
-                tickFormatter={(rank: number) => {
-                  const user = userByRank.get(rank);
-                  return user
-                    ? formatCompactStablecoinRaw(user.currentDepositRaw)
-                    : `#${rank}`;
-                }}
-                tickLine={false}
-                ticks={yTicks}
-                type="number"
-                width={78}
-              />
+              {useLogScale ? (
+                <YAxis
+                  allowDataOverflow
+                  axisLine={false}
+                  dataKey="logDepositAmount"
+                  domain={[logTicks[0], logTicks[logTicks.length - 1] ?? 1]}
+                  name="Current deposit amount"
+                  scale="log"
+                  tickFormatter={(amount: number) =>
+                    formatLogTick(amount, null)
+                  }
+                  tickLine={false}
+                  ticks={logTicks}
+                  type="number"
+                  width={78}
+                />
+              ) : (
+                <YAxis
+                  allowDecimals={false}
+                  axisLine={false}
+                  dataKey="userRank"
+                  domain={[1, Math.max(data.userCount, 1)]}
+                  name="Current deposit amount"
+                  tickFormatter={(rank: number) => {
+                    const user = userByRank.get(rank);
+                    return user
+                      ? formatCompactStablecoinRaw(user.currentDepositRaw)
+                      : `#${rank}`;
+                  }}
+                  tickLine={false}
+                  ticks={yTicks}
+                  type="number"
+                  width={78}
+                />
+              )}
               <ZAxis range={[18, 18]} />
               <ChartTooltip
                 content={
@@ -450,7 +520,7 @@ export function ExecutedEarnRebalancesChart({
               />
               {sources.map((source) => (
                 <Scatter
-                  data={filteredPoints.filter(
+                  data={scatterPoints.filter(
                     (point) => point.sourceReserve === source.reserve
                   )}
                   fill={`var(--color-${source.key})`}
@@ -463,8 +533,16 @@ export function ExecutedEarnRebalancesChart({
         )}
         {!showTable ? (
           <p className="mt-3 text-xs text-muted-foreground">
-            Y-axis labels sample current deposit amounts; hover a dot for the
-            exact wallet, current deposit, route, amount, decision, and slot.
+            {useLogScale
+              ? "Y-axis is a log scale of current deposit amounts"
+              : "Y-axis labels sample current deposit amounts"}
+            ; hover a dot for the exact wallet, current deposit, route, amount,
+            decision, and slot.
+            {useLogScale && zeroDepositCount > 0
+              ? ` ${zeroDepositCount.toLocaleString("en-US")} fully withdrawn ${
+                  zeroDepositCount === 1 ? "execution sits" : "executions sit"
+                } on the axis floor.`
+              : ""}
           </p>
         ) : (
           <p className="mt-3 text-xs text-muted-foreground">
