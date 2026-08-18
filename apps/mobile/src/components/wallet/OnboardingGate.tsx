@@ -20,6 +20,11 @@ import {
   type WalletConnectMode,
 } from "@/components/wallet/onboarding-slides";
 import { WalletSetupOnboardingScreen } from "@/components/wallet/WalletSetupOnboardingScreen";
+import {
+  findCloudBackup,
+  restoreCloudBackup,
+  type WalletBackupEnvelope,
+} from "@/lib/wallet/icloud-backup";
 import { connectMwaWallet, isMwaSupported } from "@/lib/wallet/mwa-signer";
 import { WalletRejectedError } from "@/lib/wallet/rejection";
 import { isSeedVaultUserDecline } from "@/lib/wallet/seed-vault-signer";
@@ -56,8 +61,12 @@ const SCREEN_EXITING_ANIMATION = FadeOut.duration(160).easing(
 );
 
 export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
-  const { finalizeSigner, finalizeMwaSigner, finalizeVaultSigner } =
-    useWallet();
+  const {
+    finalizeSigner,
+    finalizeMwaSigner,
+    finalizeVaultSigner,
+    refreshFromStorage,
+  } = useWallet();
 
   const [step, setStep] = useState<Step>(() => getSetupStartStep(mode));
   const [flow, setFlow] = useState<Flow>(null);
@@ -109,6 +118,32 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     if (isMwaSupported()) return;
     SeedVault.isAvailable().then(setSeedVaultAvailable);
   }, []);
+
+  // iCloud Drive wallet backup, if the user made one on a previous install
+  // (iOS only — findCloudBackup resolves null everywhere else).
+  const [cloudBackup, setCloudBackup] = useState<WalletBackupEnvelope | null>(
+    null,
+  );
+  useEffect(() => {
+    if (mode !== "setup") return;
+    findCloudBackup().then(setCloudBackup);
+  }, [mode]);
+
+  const handleRestoreCloudBackup = useCallback(async () => {
+    if (!cloudBackup) return;
+    setFinalizing(true);
+    try {
+      await restoreCloudBackup(cloudBackup);
+      // Transitions the provider to "locked"; the auth gate swaps this
+      // screen for the PIN lock screen.
+      await refreshFromStorage();
+    } catch (e) {
+      setFinalizing(false);
+      setConnectWalletError(
+        e instanceof Error ? e.message : "Restoring the backup failed",
+      );
+    }
+  }, [cloudBackup, refreshFromStorage]);
 
   useEffect(() => {
     setScreenAnimationsReady(true);
@@ -278,8 +313,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     content = (
       <WalletSetupOnboardingScreen
         connectMode={connectMode}
+        hasCloudBackup={cloudBackup != null}
         connectWalletPending={connectWalletPending}
         connectWalletError={connectWalletError}
+        onRestoreCloudBackup={() => {
+          void handleRestoreCloudBackup();
+        }}
         onConnectWallet={() => {
           setFlow(null);
           void handleConnectWallet();

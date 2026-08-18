@@ -28,6 +28,11 @@ import { getShowTips, setShowTips } from "@/lib/settings";
 import { mmkv } from "@/lib/storage";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
 import {
+  getLastCloudBackupAt,
+  isCloudBackupSupported,
+  writeCloudBackup,
+} from "@/lib/wallet/icloud-backup";
+import {
   isICloudSyncEnabled,
   isICloudSyncSupported,
   setICloudSyncEnabled,
@@ -170,6 +175,8 @@ export default function ProfileScreen() {
   const [showTips, setShowTipsState] = useState(getShowTips);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
   const [icloudSyncOn, setICloudSyncOn] = useState(isICloudSyncEnabled);
+  const [lastBackupAt, setLastBackupAt] = useState(getLastCloudBackupAt);
+  const [backingUp, setBackingUp] = useState(false);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
   const [bioPinError, setBioPinError] = useState<string | null>(null);
@@ -246,6 +253,35 @@ export default function ProfileScreen() {
     },
     [wallet],
   );
+
+  const handleICloudBackup = useCallback(() => {
+    if (backingUp) return;
+    Alert.alert(
+      "Back Up Wallet to iCloud",
+      "Stores your encrypted wallet in your iCloud. Restoring it on a new phone requires your wallet PIN.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Back Up",
+          onPress: () => {
+            setBackingUp(true);
+            writeCloudBackup()
+              .then((envelope) => {
+                setLastBackupAt(envelope.createdAt);
+                Alert.alert("Backed Up", "Your wallet is backed up to iCloud.");
+              })
+              .catch((error: unknown) => {
+                Alert.alert(
+                  "Backup Failed",
+                  error instanceof Error ? error.message : "Please try again.",
+                );
+              })
+              .finally(() => setBackingUp(false));
+          },
+        },
+      ],
+    );
+  }, [backingUp]);
 
   const handleICloudSyncToggle = useCallback((value: boolean) => {
     if (process.env.EXPO_OS !== "web") {
@@ -460,6 +496,23 @@ export default function ProfileScreen() {
                   value: icloudSyncOn,
                   onValueChange: handleICloudSyncToggle,
                 }}
+              />
+            )}
+
+            {!isVaultBacked && isCloudBackupSupported() && (
+              <ProfileCell
+                icon={
+                  <Cloud size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
+                }
+                title={backingUp ? "Backing Up..." : "Back Up Wallet to iCloud"}
+                subtitle={
+                  lastBackupAt
+                    ? `Last backup ${new Date(lastBackupAt).toLocaleDateString()}`
+                    : undefined
+                }
+                showChevron
+                disabled={backingUp}
+                onPress={handleICloudBackup}
               />
             )}
 

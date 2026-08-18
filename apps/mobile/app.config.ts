@@ -170,6 +170,17 @@ const config: ExpoConfig = {
       },
     ],
     [
+      // iCloud Drive wallet backup (ASK-2163). The plugin writes the iCloud
+      // entitlements and derives the container from the bundle identifier
+      // (iCloud.com.askloyal.app / .dev). Backups go to the hidden AppData
+      // scope, so no folder shows up in the Files app despite the plugin's
+      // public-scope Info.plist default.
+      "react-native-cloud-storage",
+      {
+        iCloudContainerEnvironment: "Production",
+      },
+    ],
+    [
       "expo-notifications",
       {
         // Android requires a transparent PNG with a white silhouette for the

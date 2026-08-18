@@ -30,6 +30,7 @@ import {
   enableBiometrics,
   isBiometricEnabled,
 } from "./biometrics";
+import { deleteCloudBackup } from "./icloud-backup";
 import {
   clearStoredKeypair,
   generateKeypairInMemory,
@@ -100,6 +101,8 @@ interface WalletContextValue {
   // Management
   changePin: (newPin: string) => Promise<void>;
   resetWallet: () => Promise<void>;
+  /** Re-read storage after an out-of-band restore (e.g. iCloud backup). */
+  refreshFromStorage: () => Promise<void>;
   getSecretKeyHex: () => string | null;
   startOnboardingReplay: () => void;
   finishOnboardingReplay: () => void;
@@ -286,6 +289,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     track(WALLET_SETUP_EVENTS.walletCreated, { source: "vault" });
   }, []);
 
+  // After a restore path wrote the encrypted keypair directly to storage,
+  // transition noWallet -> locked so the normal PIN flow takes over.
+  const refreshFromStorage = useCallback(async () => {
+    const exists = await hasStoredKeypair();
+    if (!exists) return;
+    setPublicKey(await getStoredPublicKey());
+    setBiometricEnabledState(await isBiometricEnabled());
+    setState("locked");
+  }, []);
+
   const unlock = useCallback(async (pin: string) => {
     const kp = await loadKeypair(pin);
     if (!kp) throw new Error("Incorrect PIN");
@@ -365,6 +378,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     await clearMwaAccount();
     await clearVaultAccount();
     await clearStoredKeypair();
+    // Reset means gone everywhere we put it — a later fresh install must not
+    // offer to restore a wallet the user deliberately deleted.
+    await deleteCloudBackup();
     await disableBiometrics();
     setSigner(null);
     setPublicKey(null);
@@ -406,6 +422,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setBiometricEnabled,
       changePin: changePinAction,
       resetWallet,
+      refreshFromStorage,
       getSecretKeyHex,
       startOnboardingReplay,
       finishOnboardingReplay,
@@ -427,6 +444,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setBiometricEnabled,
       changePinAction,
       resetWallet,
+      refreshFromStorage,
       getSecretKeyHex,
       startOnboardingReplay,
       finishOnboardingReplay,
