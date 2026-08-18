@@ -1363,7 +1363,14 @@ async function waitForNewCanaryMovement(args: {
   database: CanaryDatabase;
   vaultId: string;
 }): Promise<CanaryMovement> {
-  for (let attempt = 0; attempt < 180; attempt += 1) {
+  const maximumAttempts = Number.parseInt(
+    process.env.AUTOSWAP_VERIFY_MOVEMENT_WAIT_ATTEMPTS ?? "180",
+    10
+  );
+  if (!Number.isSafeInteger(maximumAttempts) || maximumAttempts < 1) {
+    throw new Error("AUTOSWAP_VERIFY_MOVEMENT_WAIT_ATTEMPTS must be a positive integer.");
+  }
+  for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     const [row] = await args.database<{ id: string }[]>`
       select id::text as id
       from loyal_yield.rebalance_decisions
