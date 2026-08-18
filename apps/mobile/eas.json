@@ -89,6 +89,9 @@
     }
   },
   "submit": {
+    "production-ios": {
+      "extends": "production"
+    },
     "production": {
       "ios": {
         "appleId": "vlad@askloyal.com",
