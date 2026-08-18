@@ -5,7 +5,7 @@ export type OnboardingSlide = {
 };
 
 export type WalletSetupAction = {
-  id: "connect-wallet" | "create" | "import";
+  id: "connect-wallet" | "create" | "import" | "restore-icloud";
   label: string;
   helperText?: string;
 };
@@ -33,7 +33,20 @@ export const ONBOARDING_SLIDES: OnboardingSlide[] = [
 
 export function buildWalletSetupActions(
   connectMode: WalletConnectMode,
+  hasCloudBackup = false,
 ): WalletSetupAction[] {
+  // A found iCloud backup outranks everything: the user already has a wallet
+  // and almost certainly wants it back, so restore renders as the primary.
+  const restore: WalletSetupAction[] = hasCloudBackup
+    ? [
+        {
+          id: "restore-icloud",
+          label: "Restore from iCloud",
+          helperText: "Wallet backup found in your iCloud",
+        },
+      ]
+    : [];
+
   const createAndImport: WalletSetupAction[] = [
     { id: "create", label: "Create New Wallet" },
     { id: "import", label: "Import Existing Wallet" },
@@ -43,9 +56,10 @@ export function buildWalletSetupActions(
   // Adapter). Drop the action entirely rather than rendering a disabled
   // primary CTA — a dead first button that names another mobile platform is
   // both a bad first impression and an App Review flag.
-  if (connectMode === "none") return createAndImport;
+  if (connectMode === "none") return [...restore, ...createAndImport];
 
   return [
+    ...restore,
     connectMode === "seed-vault"
       ? { id: "connect-wallet", label: "Use Seed Vault" }
       : {

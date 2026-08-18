@@ -1,5 +1,8 @@
 import { Keypair } from "@solana/web3.js";
 import * as SecureStore from "expo-secure-store";
+import * as SyncedKeychain from "expo-synced-keychain";
+
+import { mmkv } from "@/lib/storage";
 
 import { decryptSecret, encryptSecret } from "./crypto";
 import { isValidWalletPin } from "./pin";
@@ -16,6 +19,11 @@ const KEYCHAIN_OPTIONS: SecureStore.SecureStoreOptions = {
 
 const ENCRYPTED_KEYPAIR_KEY = "wallet_encrypted_keypair";
 const WALLET_PUBLIC_KEY = "wallet_public_key";
+
+// Opt-in mirror of the two items above into the iCloud Keychain (ASK-2162).
+// The mirrored copy is the same PIN-encrypted blob — accepted risk, see the
+// Linear issue: "we protect on our level, icloud is user's responsibility."
+const ICLOUD_SYNC_ENABLED_KEY = "settings.icloudKeychainSync";
 const FAILED_ATTEMPTS_KEY = "wallet_failed_attempts";
 const LOCKED_UNTIL_KEY = "wallet_locked_until";
 
@@ -87,6 +95,107 @@ export async function storeKeypair(
     keypair.publicKey.toBase58(),
     KEYCHAIN_OPTIONS,
   );
+  if (isICloudSyncEnabled()) {
+    // Best-effort: a failed mirror must not fail wallet creation/PIN change.
+    try {
+      await mirrorToSyncedKeychain(encrypted, keypair.publicKey.toBase58());
+    } catch (error) {
+      console.warn("[wallet] iCloud Keychain mirror failed", error);
+    }
+  }
+}
+
+/**
+ * Whether the wallet items are mirrored to the iCloud Keychain. Off by
+ * default; toggled from Settings on iOS builds that ship the native module.
+ */
+export function isICloudSyncEnabled(): boolean {
+  return mmkv.getBoolean(ICLOUD_SYNC_ENABLED_KEY) ?? false;
+}
+
+/** True when the running binary can talk to the synced keychain (iOS only). */
+export function isICloudSyncSupported(): boolean {
+  return SyncedKeychain.isAvailable();
+}
+
+async function mirrorToSyncedKeychain(
+  encrypted: string,
+  publicKey: string,
+): Promise<void> {
+  await SyncedKeychain.setItem(ENCRYPTED_KEYPAIR_KEY, encrypted);
+  await SyncedKeychain.setItem(WALLET_PUBLIC_KEY, publicKey);
+}
+
+/**
+ * Toggle the iCloud Keychain mirror. Enabling copies the current items up;
+ * disabling removes the synced copies. The device-local items are untouched
+ * either way.
+ */
+export async function setICloudSyncEnabled(enabled: boolean): Promise<void> {
+  mmkv.setBoolean(ICLOUD_SYNC_ENABLED_KEY, enabled);
+  if (!SyncedKeychain.isAvailable()) return;
+  if (enabled) {
+    const encrypted = await SecureStore.getItemAsync(ENCRYPTED_KEYPAIR_KEY);
+    const publicKey = await SecureStore.getItemAsync(WALLET_PUBLIC_KEY);
+    if (encrypted && publicKey) {
+      await mirrorToSyncedKeychain(encrypted, publicKey);
+    }
+  } else {
+    await SyncedKeychain.deleteItem(ENCRYPTED_KEYPAIR_KEY);
+    await SyncedKeychain.deleteItem(WALLET_PUBLIC_KEY);
+  }
+}
+
+/**
+ * Write an already-encrypted keypair blob into local storage. Shared by the
+ * restore paths (iCloud Keychain, iCloud Drive backup); the caller lands on
+ * the normal locked state and the user unlocks with the original PIN.
+ */
+export async function adoptEncryptedKeypair(
+  encrypted: string,
+  publicKey: string,
+): Promise<void> {
+  await SecureStore.setItemAsync(
+    ENCRYPTED_KEYPAIR_KEY,
+    encrypted,
+    KEYCHAIN_OPTIONS,
+  );
+  await SecureStore.setItemAsync(WALLET_PUBLIC_KEY, publicKey, KEYCHAIN_OPTIONS);
+  await resetAttempts();
+}
+
+/**
+ * On a fresh install, pull the wallet from the iCloud Keychain if the user
+ * synced one from another device. Returns true when a wallet was adopted.
+ */
+export async function restoreFromSyncedKeychain(): Promise<boolean> {
+  if (!SyncedKeychain.isAvailable()) return false;
+  try {
+    const encrypted = await SyncedKeychain.getItem(ENCRYPTED_KEYPAIR_KEY);
+    const publicKey = await SyncedKeychain.getItem(WALLET_PUBLIC_KEY);
+    if (!encrypted || !publicKey) return false;
+    await adoptEncryptedKeypair(encrypted, publicKey);
+    // A synced wallet exists, so keep mirroring PIN changes on this device.
+    mmkv.setBoolean(ICLOUD_SYNC_ENABLED_KEY, true);
+    return true;
+  } catch (error) {
+    console.warn("[wallet] iCloud Keychain restore failed", error);
+    return false;
+  }
+}
+
+/**
+ * The stored (already encrypted) wallet payload, for explicit backups.
+ * Returns null when no wallet exists.
+ */
+export async function getStoredBackupPayload(): Promise<{
+  encrypted: string;
+  publicKey: string;
+} | null> {
+  const encrypted = await SecureStore.getItemAsync(ENCRYPTED_KEYPAIR_KEY);
+  const publicKey = await SecureStore.getItemAsync(WALLET_PUBLIC_KEY);
+  if (!encrypted || !publicKey) return null;
+  return { encrypted, publicKey };
 }
 
 export function generateKeypairInMemory(): Keypair {
@@ -130,6 +239,14 @@ export async function getStoredPublicKey(): Promise<string | null> {
 export async function clearStoredKeypair(): Promise<void> {
   await SecureStore.deleteItemAsync(ENCRYPTED_KEYPAIR_KEY);
   await SecureStore.deleteItemAsync(WALLET_PUBLIC_KEY);
+  // Always clear the synced copies too — a reset must not leave key material
+  // in iCloud regardless of the toggle state at the time.
+  try {
+    await SyncedKeychain.deleteItem(ENCRYPTED_KEYPAIR_KEY);
+    await SyncedKeychain.deleteItem(WALLET_PUBLIC_KEY);
+  } catch (error) {
+    console.warn("[wallet] iCloud Keychain cleanup failed", error);
+  }
   await resetAttempts();
 }
 

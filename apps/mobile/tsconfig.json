@@ -39,6 +39,9 @@
       ],
       "expo-seed-vault": [
         "./modules/expo-seed-vault/src/index.ts"
+      ],
+      "expo-synced-keychain": [
+        "./modules/expo-synced-keychain/src/index.ts"
       ]
     }
   },

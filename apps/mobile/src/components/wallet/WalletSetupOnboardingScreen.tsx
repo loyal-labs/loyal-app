@@ -31,20 +31,24 @@ import { Image } from "@/tw/image";
 
 type Props = {
   connectMode: WalletConnectMode;
+  hasCloudBackup?: boolean;
   connectWalletPending?: boolean;
   connectWalletError?: string | null;
   onConnectWallet: () => void;
   onCreateWallet: () => void;
   onImportWallet: () => void;
+  onRestoreCloudBackup?: () => void;
 };
 
 export function WalletSetupOnboardingScreen({
   connectMode,
+  hasCloudBackup = false,
   connectWalletPending = false,
   connectWalletError = null,
   onConnectWallet,
   onCreateWallet,
   onImportWallet,
+  onRestoreCloudBackup,
 }: Props) {
   const scrollRef = useRef<ScrollView>(null);
   const { bottom } = useSafeAreaInsets();
@@ -55,8 +59,8 @@ export function WalletSetupOnboardingScreen({
   const currentIndex = playbackState.currentIndex;
 
   const actions = useMemo(
-    () => buildWalletSetupActions(connectMode),
-    [connectMode],
+    () => buildWalletSetupActions(connectMode, hasCloudBackup),
+    [connectMode, hasCloudBackup],
   );
   const imageHeight = useMemo(
     () => Math.min(Math.max(height * 0.34, 220), 340),
@@ -71,7 +75,10 @@ export function WalletSetupOnboardingScreen({
   );
 
   const wrapWithEnded = useCallback(
-    (flow: "connect-wallet" | "create" | "import", handler: () => void) =>
+    (
+      flow: "connect-wallet" | "create" | "import" | "restore-icloud",
+      handler: () => void,
+    ) =>
       () => {
         track(ONBOARDING_EVENTS.ended, {
           method: ONBOARDING_COMPLETION_METHODS.completed,
@@ -88,8 +95,18 @@ export function WalletSetupOnboardingScreen({
       "connect-wallet": wrapWithEnded("connect-wallet", onConnectWallet),
       create: wrapWithEnded("create", onCreateWallet),
       import: wrapWithEnded("import", onImportWallet),
+      "restore-icloud": wrapWithEnded(
+        "restore-icloud",
+        onRestoreCloudBackup ?? (() => {}),
+      ),
     }),
-    [onConnectWallet, onCreateWallet, onImportWallet, wrapWithEnded],
+    [
+      onConnectWallet,
+      onCreateWallet,
+      onImportWallet,
+      onRestoreCloudBackup,
+      wrapWithEnded,
+    ],
   );
 
   useEffect(() => {
