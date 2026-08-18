@@ -134,9 +134,6 @@ export default function SummariesListScreen() {
       <LogoHeader />
       <View style={styles.titleRow}>
         <Text style={styles.titleInRow}>Chat Highlights</Text>
-        <Pressable onPress={() => router.push("/login")}>
-          <Text style={styles.devLink}>Login flow →</Text>
-        </Pressable>
       </View>
       <GroupsTab count={groups.length} />
       {groups.map((group) => (
@@ -175,11 +172,6 @@ const styles = StyleSheet.create({
     fontFamily: "Geist_700Bold",
     fontSize: 28,
     color: "#000",
-  },
-  devLink: {
-    fontFamily: "Geist_500Medium",
-    fontSize: 13,
-    color: "rgba(0,0,0,0.35)",
   },
   tabContainer: {
     paddingHorizontal: 16,

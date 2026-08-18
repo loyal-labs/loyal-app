@@ -58,8 +58,12 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
     () =>
       state.routes
         .map((route, index) => ({ route, index }))
-        .filter(({ route }) =>
-          (TAB_ORDER as readonly string[]).includes(route.name),
+        .filter(
+          ({ route }) =>
+            (TAB_ORDER as readonly string[]).includes(route.name) &&
+            // handlePress already no-ops on a disabled quests tab, but the
+            // icon still rendered — drop the cell entirely instead.
+            (QUESTS_ENABLED || route.name !== "quests"),
         )
         .sort(
           (left, right) =>

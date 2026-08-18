@@ -4,6 +4,16 @@ import * as SecureStore from "expo-secure-store";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { isValidWalletPin } from "./pin";
 
+// The encrypted keypair must never leave the device. expo-secure-store's iOS
+// default (WHEN_UNLOCKED) is included in encrypted iTunes/Finder and iCloud
+// backups, and the blob's only protection is a 4-digit PIN at PBKDF2-10k —
+// trivially brute-forced offline once exported. THIS_DEVICE_ONLY excludes it
+// from every backup. The option is ignored on Android, where the equivalent
+// blob is already bound to the Keystore, so no platform branch is needed.
+const KEYCHAIN_OPTIONS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+};
+
 const ENCRYPTED_KEYPAIR_KEY = "wallet_encrypted_keypair";
 const WALLET_PUBLIC_KEY = "wallet_public_key";
 const FAILED_ATTEMPTS_KEY = "wallet_failed_attempts";
@@ -67,10 +77,15 @@ export async function storeKeypair(
   }
   const serialized = JSON.stringify(Array.from(keypair.secretKey));
   const encrypted = await encryptSecret(serialized, pin);
-  await SecureStore.setItemAsync(ENCRYPTED_KEYPAIR_KEY, encrypted);
+  await SecureStore.setItemAsync(
+    ENCRYPTED_KEYPAIR_KEY,
+    encrypted,
+    KEYCHAIN_OPTIONS,
+  );
   await SecureStore.setItemAsync(
     WALLET_PUBLIC_KEY,
     keypair.publicKey.toBase58(),
+    KEYCHAIN_OPTIONS,
   );
 }
 

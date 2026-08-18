@@ -19,6 +19,7 @@ import {
 } from "lucide-react-native";
 import { useCallback, useEffect, useState } from "react";
 import { Alert, StyleSheet, Switch } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoHeader } from "@/components/LogoHeader";
 import { PinPadInput } from "@/components/wallet/PinPadInput";
@@ -33,7 +34,11 @@ const SUPPORT_URL = "https://t.me/spacesymmetry";
 const FEEDBACK_URL = "https://tally.so/r/ZjRpev";
 const ANALYTICS_OPT_IN_KEY = "settings_analytics_opt_in";
 
-const TAB_BAR_HEIGHT = 90;
+// Height of the floating tab bar above the home-indicator inset (TabBar.tsx:
+// paddingTop 8 + BLUR_PADDING 4*2 + TAB_CELL_HEIGHT 54). The inset itself is
+// added per-device by the consumer — on an iPhone with a home indicator it is
+// 34pt, which a flat 90 does not cover.
+const TAB_BAR_HEIGHT = 70;
 
 function SettingsSection({ children }: { children: React.ReactNode }) {
   return <View style={styles.section}>{children}</View>;
@@ -151,6 +156,7 @@ function getBuildInfo(): BuildInfo {
 }
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const [pushNotifications, setPushNotifications] = useState(true);
   const [analyticsOptIn, setAnalyticsOptIn] = useState(
     () => mmkv.getBoolean(ANALYTICS_OPT_IN_KEY) ?? true,
@@ -310,7 +316,9 @@ export default function ProfileScreen() {
       <LogoHeader showSettings={false} />
       <ScrollView
         className="flex-1"
-        contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT }}
+        contentContainerStyle={{
+          paddingBottom: TAB_BAR_HEIGHT + Math.max(insets.bottom, 12) + 20,
+        }}
       >
         <View style={styles.container}>
         {/* Language + Push Notifications */}

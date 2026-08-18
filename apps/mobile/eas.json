@@ -8,6 +8,7 @@
       "autoIncrement": true,
       "distribution": "internal",
       "channel": "preview",
+      "environment": "preview",
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
         "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
@@ -32,8 +33,22 @@
     "production": {
       "autoIncrement": true,
       "channel": "production",
+      "environment": "production",
       "env": {
         "PLAY_STORE_BUILD": "true",
+        "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
+        "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
+        "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
+      },
+      "ios": {
+        "resourceClass": "m-medium"
+      }
+    },
+    "production-ios": {
+      "autoIncrement": true,
+      "channel": "production",
+      "environment": "production",
+      "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
         "EXPO_PUBLIC_SOLANA_ENV": "mainnet",
         "EXPO_PUBLIC_ONESIGNAL_APP_ID": "6c7083a8-8707-4359-abad-e14ca436a9e9"
@@ -74,6 +89,11 @@
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "vlad@askloyal.com",
+        "appleTeamId": "AP32T55T29"
+      }
+    }
   }
 }

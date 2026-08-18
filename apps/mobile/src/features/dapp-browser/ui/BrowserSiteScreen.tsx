@@ -234,6 +234,12 @@ export function BrowserSiteScreen({ initialUrl }: BrowserSiteScreenProps) {
         ref={webViewRef}
         source={{ uri: initialUrl }}
         originWhitelist={["http://*", "https://*", "blob:*", "data:*"]}
+        // iOS-only. Without it the left-edge swipe is consumed by the native
+        // stack and pops the whole browser route, killing the dApp session
+        // mid-flow; Android has a hardware back button instead. WKWebView
+        // takes the gesture while web history exists and lets it fall
+        // through to the stack when there is nothing left to go back to.
+        allowsBackForwardNavigationGestures
         onNavigationStateChange={handleNavigationStateChange}
         onMessage={handleWebViewMessage}
         injectedJavaScriptBeforeContentLoaded={

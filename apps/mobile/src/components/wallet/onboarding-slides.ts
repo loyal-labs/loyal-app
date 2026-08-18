@@ -7,7 +7,6 @@ export type OnboardingSlide = {
 export type WalletSetupAction = {
   id: "connect-wallet" | "create" | "import";
   label: string;
-  disabled: boolean;
   helperText?: string;
 };
 
@@ -35,32 +34,26 @@ export const ONBOARDING_SLIDES: OnboardingSlide[] = [
 export function buildWalletSetupActions(
   connectMode: WalletConnectMode,
 ): WalletSetupAction[] {
+  const createAndImport: WalletSetupAction[] = [
+    { id: "create", label: "Create New Wallet" },
+    { id: "import", label: "Import Existing Wallet" },
+  ];
+
+  // No external wallet backend (iOS: no Seed Vault, no Mobile Wallet
+  // Adapter). Drop the action entirely rather than rendering a disabled
+  // primary CTA — a dead first button that names another mobile platform is
+  // both a bad first impression and an App Review flag.
+  if (connectMode === "none") return createAndImport;
+
   return [
     connectMode === "seed-vault"
-      ? {
-          id: "connect-wallet",
-          label: "Use Seed Vault",
-          disabled: false,
-        }
+      ? { id: "connect-wallet", label: "Use Seed Vault" }
       : {
           id: "connect-wallet",
           label: "Connect Wallet",
-          disabled: connectMode === "none",
-          helperText:
-            connectMode === "none"
-              ? "Only available on Android"
-              : "Phantom, Solflare, or Seed Vault",
+          helperText: "Phantom, Solflare, or Seed Vault",
         },
-    {
-      id: "create",
-      label: "Create New Wallet",
-      disabled: false,
-    },
-    {
-      id: "import",
-      label: "Import Existing Wallet",
-      disabled: false,
-    },
+    ...createAndImport,
   ];
 }
 

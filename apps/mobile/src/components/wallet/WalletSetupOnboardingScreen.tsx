@@ -205,7 +205,7 @@ export function WalletSetupOnboardingScreen({
             const isPrimary = index === 0;
             const isConnectWallet = action.id === "connect-wallet";
             const showSpinner = isConnectWallet && connectWalletPending;
-            const isDisabled = action.disabled || connectWalletPending;
+            const isDisabled = connectWalletPending;
             const pressableStyle = [
               isPrimary ? styles.primaryButton : styles.secondaryButton,
               isDisabled && styles.disabledButton,

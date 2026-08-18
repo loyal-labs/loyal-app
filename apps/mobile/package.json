@@ -110,6 +110,16 @@
     "typescript": "~5.9.2"
   },
   "private": true,
+  "expo": {
+    "autolinking": {
+      "ios": {
+        "exclude": [
+          "@react-native-firebase/app",
+          "@react-native-firebase/analytics"
+        ]
+      }
+    }
+  },
   "resolutions": {
     "lightningcss": "1.30.1"
   }
