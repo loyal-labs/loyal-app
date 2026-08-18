@@ -3,8 +3,6 @@
 // (e.g. during Jest tests or web bundle evaluation), so callers never
 // have to branch on environment.
 
-import { MMKV } from "react-native-mmkv";
-
 interface StorageAdapter {
   getString(key: string): string | undefined;
   getNumber(key: string): number | undefined;
@@ -43,6 +41,11 @@ function createInMemoryStorage(): StorageAdapter {
 
 function createMmkvStorage(): StorageAdapter | null {
   try {
+    // Lazy so environments where the import itself throws (Jest's node env
+    // has no react-native runtime) reach the in-memory fallback below instead
+    // of failing at module load — which took every importer down with it.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { MMKV } = require("react-native-mmkv") as typeof import("react-native-mmkv");
     const instance = new MMKV({ id: "loyal-app-storage" });
     return {
       getString: (key) => instance.getString(key),

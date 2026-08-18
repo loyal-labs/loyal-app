@@ -37,6 +37,7 @@ import {
   hasStoredKeypair,
   importKeypair,
   loadKeypair,
+  restoreFromSyncedKeychain as restoreFromSyncedKeypair,
   storeKeypair,
   changePin as changeKeypairPin,
 } from "./keypair-storage";
@@ -157,6 +158,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setPublicKey(pk);
         const bioEnabled = await isBiometricEnabled();
         setBiometricEnabledState(bioEnabled);
+        setState("locked");
+      } else if (await restoreFromSyncedKeypair()) {
+        // Fresh install, but iCloud Keychain carried a wallet from another
+        // device — land on the lock screen and let the PIN unlock it.
+        setPublicKey(await getStoredPublicKey());
         setState("locked");
       } else {
         setState("noWallet");

@@ -1,0 +1,8 @@
+{
+  "name": "expo-synced-keychain",
+  "version": "0.1.0",
+  "description": "iCloud Keychain (kSecAttrSynchronizable) storage for the wallet keypair",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "private": true
+}

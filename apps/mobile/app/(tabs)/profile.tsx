@@ -8,6 +8,7 @@ import {
   Bell,
   ChevronRight,
   CircleHelp,
+  Cloud,
   Fingerprint,
   Globe,
   Heart,
@@ -26,6 +27,11 @@ import { PinPadInput } from "@/components/wallet/PinPadInput";
 import { getShowTips, setShowTips } from "@/lib/settings";
 import { mmkv } from "@/lib/storage";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
+import {
+  isICloudSyncEnabled,
+  isICloudSyncSupported,
+  setICloudSyncEnabled,
+} from "@/lib/wallet/keypair-storage";
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
@@ -163,6 +169,7 @@ export default function ProfileScreen() {
   );
   const [showTips, setShowTipsState] = useState(getShowTips);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
+  const [icloudSyncOn, setICloudSyncOn] = useState(isICloudSyncEnabled);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
   const [bioPinError, setBioPinError] = useState<string | null>(null);
@@ -239,6 +246,18 @@ export default function ProfileScreen() {
     },
     [wallet],
   );
+
+  const handleICloudSyncToggle = useCallback((value: boolean) => {
+    if (process.env.EXPO_OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+    // Optimistic — the keychain write is fast and failures are logged.
+    setICloudSyncOn(value);
+    setICloudSyncEnabled(value).catch((error) => {
+      console.warn("[settings] iCloud Keychain toggle failed", error);
+      setICloudSyncOn(!value);
+    });
+  }, []);
 
   const handleBioPinSubmit = useCallback(async () => {
     if (bioPin.length !== WALLET_PIN_LENGTH) {
@@ -431,6 +450,17 @@ export default function ProfileScreen() {
                   </View>
                 )}
               </>
+            )}
+
+            {!isVaultBacked && isICloudSyncSupported() && (
+              <ProfileCell
+                icon={<Cloud size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
+                title="Sync Wallet to iCloud Keychain"
+                toggle={{
+                  value: icloudSyncOn,
+                  onValueChange: handleICloudSyncToggle,
+                }}
+              />
             )}
 
             {!isVaultBacked && (
