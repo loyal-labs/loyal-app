@@ -42,6 +42,10 @@ const config: ExpoConfig = {
   },
   ios: {
     supportsTablet: false,
+    // Signs every native target, including the OneSignal Notification Service
+    // Extension — without it that target builds with DEVELOPMENT_TEAM unset,
+    // which EAS papers over but local `expo run:ios` does not.
+    appleTeamId: "AP32T55T29",
     bundleIdentifier: IS_DEV ? "com.loyal.app.dev" : "com.loyal.app",
     // Answers App Store Connect's export-compliance question at build time.
     // Without it every upload lands in "Missing Compliance" and cannot be

@@ -91,7 +91,8 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "vlad@askloyal.com"
+        "appleId": "vlad@askloyal.com",
+        "appleTeamId": "AP32T55T29"
       }
     }
   }
