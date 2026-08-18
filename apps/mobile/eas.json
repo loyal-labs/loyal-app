@@ -92,6 +92,7 @@
     "production": {
       "ios": {
         "appleId": "vlad@askloyal.com",
+        "ascAppId": "6802734319",
         "appleTeamId": "AP32T55T29"
       }
     }
