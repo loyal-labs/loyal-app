@@ -37,7 +37,11 @@ import {
   STABLECOIN_DECIMALS,
 } from "@/lib/earn/stablecoin-monitor.shared";
 
-import { buildLogTicks, formatLogTick } from "./earn-vault-rebalance-axis";
+import { buildLogTicks, formatDepositTick } from "./earn-vault-rebalance-axis";
+import {
+  DepositScaleSwitch,
+  type DepositScale,
+} from "./deposit-scale-switch";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const SOURCE_COLORS = [
@@ -74,12 +78,7 @@ type ChartPoint = SerializedExecutedEarnRebalanceRow & {
 };
 
 type RangeKey = "7d" | "30d" | "all";
-type ScaleKey = "linear" | "log";
 
-const SCALE_OPTIONS: ReadonlyArray<{ key: ScaleKey; label: string }> = [
-  { key: "log", label: "Log scale" },
-  { key: "linear", label: "As is" },
-];
 
 function formatUtcTimestamp(value: number | string): string {
   const date = new Date(value);
@@ -201,7 +200,7 @@ export function ExecutedEarnRebalancesChart({
   reserveLabels: ReadonlyMap<string, string>;
 }) {
   const [range, setRange] = useState<RangeKey>("all");
-  const [scale, setScale] = useState<ScaleKey>("log");
+  const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
 
   const points = useMemo(
@@ -285,6 +284,8 @@ export function ExecutedEarnRebalancesChart({
     useLogScale ? Math.max(...positiveDeposits) : 1
   );
   const zeroDepositCount = filteredPoints.length - positiveDeposits.length;
+  const maxDepositAmount =
+    positiveDeposits.length > 0 ? Math.max(...positiveDeposits) : 1;
   const scatterPoints = filteredPoints.map((point) => ({
     ...point,
     logDepositAmount:
@@ -321,8 +322,8 @@ export function ExecutedEarnRebalancesChart({
             </CardTitle>
             <CardDescription>
               One dot per confirmed reserve-to-reserve decision. Y is the
-              user&rsquo;s current Earn deposit on a log scale, or ordered
-              smallest to largest under &ldquo;As is&rdquo;. Times are UTC.
+              user&rsquo;s current Earn deposit, on a log or linear scale. Times
+              are UTC.
             </CardDescription>
           </div>
           <div
@@ -350,25 +351,11 @@ export function ExecutedEarnRebalancesChart({
             >
               Table
             </Button>
-            <div
-              aria-label="Deposit axis scale"
-              className="flex w-fit items-center gap-1 rounded-lg bg-muted p-1"
-              role="group"
-            >
-              {SCALE_OPTIONS.map((option) => (
-                <Button
-                  aria-pressed={scale === option.key}
-                  className="h-7 px-3 text-xs"
-                  key={option.key}
-                  onClick={() => setScale(option.key)}
-                  size="sm"
-                  type="button"
-                  variant={scale === option.key ? "secondary" : "ghost"}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
+            <DepositScaleSwitch
+              id="executed-earn-rebalances-scale"
+              onScaleChange={setScale}
+              scale={scale}
+            />
           </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -485,7 +472,7 @@ export function ExecutedEarnRebalancesChart({
                   name="Current deposit amount"
                   scale="log"
                   tickFormatter={(amount: number) =>
-                    formatLogTick(amount, null)
+                    formatDepositTick(amount, null)
                   }
                   tickLine={false}
                   ticks={logTicks}
@@ -494,19 +481,14 @@ export function ExecutedEarnRebalancesChart({
                 />
               ) : (
                 <YAxis
-                  allowDecimals={false}
                   axisLine={false}
-                  dataKey="userRank"
-                  domain={[1, Math.max(data.userCount, 1)]}
+                  dataKey="depositAmount"
+                  domain={[0, Math.max(maxDepositAmount, 1)]}
                   name="Current deposit amount"
-                  tickFormatter={(rank: number) => {
-                    const user = userByRank.get(rank);
-                    return user
-                      ? formatCompactStablecoinRaw(user.currentDepositRaw)
-                      : `#${rank}`;
-                  }}
+                  tickFormatter={(amount: number) =>
+                    formatDepositTick(amount, null)
+                  }
                   tickLine={false}
-                  ticks={yTicks}
                   type="number"
                   width={78}
                 />

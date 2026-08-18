@@ -39,7 +39,11 @@ import {
 } from "@/lib/earn/stablecoin-monitor.shared";
 import type { SafeReserveApyStatusRow } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
-import { buildLogTicks, formatLogTick } from "./earn-vault-rebalance-axis";
+import { buildLogTicks, formatDepositTick } from "./earn-vault-rebalance-axis";
+import {
+  DepositScaleSwitch,
+  type DepositScale,
+} from "./deposit-scale-switch";
 import {
   computeRebalanceEligibilityFloorRaw,
   summarizeRebalanceEligibility,
@@ -87,7 +91,6 @@ type OpportunityKey =
   | "opportunity7dCount"
   | "opportunity12hCount"
   | "opportunity2hCount";
-type ScaleKey = "linear" | "log";
 
 type ChartPoint = SerializedEarnVaultRebalanceFrequencyRow & {
   depositAmount: number;
@@ -140,14 +143,6 @@ const RANGE_OPTIONS: ReadonlyArray<{
     opportunityKey: "opportunity2hCount",
     tabLabel: "2 hours",
   },
-];
-
-const SCALE_OPTIONS: ReadonlyArray<{
-  key: ScaleKey;
-  label: string;
-}> = [
-  { key: "log", label: "Log scale" },
-  { key: "linear", label: "As is" },
 ];
 
 function compareRawAmounts(left: string, right: string): number {
@@ -207,23 +202,6 @@ function formatUtcTimestamp(value: string): string {
 
 function toDepositAmount(raw: string): number {
   return Number(BigInt(raw)) / 10 ** STABLECOIN_DECIMALS;
-}
-
-function buildRankTicks(vaultCount: number): number[] {
-  const tickCount = Math.min(7, Math.max(vaultCount, 1));
-  return Array.from(
-    new Set(
-      Array.from({ length: tickCount }, (_, index) =>
-        Math.max(
-          1,
-          Math.round(
-            1 +
-              (index * Math.max(vaultCount - 1, 0)) / Math.max(tickCount - 1, 1)
-          )
-        )
-      )
-    )
-  );
 }
 
 function VaultFrequencyTooltip({
@@ -296,7 +274,7 @@ export function EarnVaultRebalanceFrequencyChart({
   reserveStatuses: SafeReserveApyStatusRow[];
 }) {
   const [range, setRange] = useState<RangeKey>("all");
-  const [scale, setScale] = useState<ScaleKey>("log");
+  const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
 
   const rangeOption =
@@ -385,10 +363,6 @@ export function EarnVaultRebalanceFrequencyChart({
       { color: series.color, label: series.label },
     ])
   ) satisfies ChartConfig;
-  const vaultByRank = new Map(
-    points.map((point) => [point.depositRank, point])
-  );
-  const rankTicks = buildRankTicks(points.length);
   const maxCount = points.reduce(
     (maximum, point) => Math.max(maximum, point.rebalanceCount),
     0
@@ -417,10 +391,16 @@ export function EarnVaultRebalanceFrequencyChart({
   const maxDepositAmount =
     positiveDeposits.length > 0 ? Math.max(...positiveDeposits) : 1;
   const logTicks = buildLogTicks(minDepositAmount, maxDepositAmount);
-  // A log axis cannot place a zero or rounded-to-zero deposit, so fall back to
-  // the rank axis rather than dropping those vaults from the chart.
-  const useLogScale =
-    scale === "log" && positiveDeposits.length === points.length;
+  // A log axis has nowhere to put a deposit that rounds to zero, so pin those
+  // to the bottom decade instead of dropping the vault off the chart.
+  const logFloor = logTicks[0];
+  const useLogScale = scale === "log" && positiveDeposits.length > 0;
+  const zeroDepositCount = points.length - positiveDeposits.length;
+  const scatterPoints = points.map((point) => ({
+    ...point,
+    plottedDeposit:
+      point.depositAmount > 0 ? point.depositAmount : logFloor,
+  }));
 
   if (data.status === "unavailable") {
     return (
@@ -454,12 +434,12 @@ export function EarnVaultRebalanceFrequencyChart({
                 Earn vault rebalance frequency
               </CardTitle>
               <CardDescription>
-                One dot per funded active vault. X is the current deposit on a
-                log scale, or ordered smallest to largest under &ldquo;As
-                is&rdquo;; Y shows confirmed reserve-to-reserve rebalances in the
-                selected window. Dot color is the largest current reserve
-                position. Vaults below the eligibility floor cannot clear the
-                planner&rsquo;s economic gate, so they sit at zero by design.
+                One dot per funded active vault. X is the current deposit, on a
+                log or linear scale; Y shows confirmed reserve-to-reserve
+                rebalances in the selected window. Dot color is the largest
+                current reserve position. Vaults below the eligibility floor
+                cannot clear the planner&rsquo;s economic gate, so they sit at
+                zero by design.
               </CardDescription>
             </div>
             <Button
@@ -483,25 +463,11 @@ export function EarnVaultRebalanceFrequencyChart({
                 </TabsTrigger>
               ))}
             </TabsList>
-            <div
-              aria-label="Deposit axis scale"
-              className="flex w-fit items-center gap-1 rounded-lg bg-muted p-1"
-              role="group"
-            >
-              {SCALE_OPTIONS.map((option) => (
-                <Button
-                  aria-pressed={scale === option.key}
-                  className="h-7 px-3 text-xs"
-                  key={option.key}
-                  onClick={() => setScale(option.key)}
-                  size="sm"
-                  type="button"
-                  variant={scale === option.key ? "secondary" : "ghost"}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
+            <DepositScaleSwitch
+              id="vault-rebalance-frequency-scale"
+              onScaleChange={setScale}
+              scale={scale}
+            />
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
             {eligibilityFloorRaw === null ? (
@@ -647,7 +613,7 @@ export function EarnVaultRebalanceFrequencyChart({
                         <XAxis
                           allowDataOverflow
                           axisLine={false}
-                          dataKey="depositAmount"
+                          dataKey="plottedDeposit"
                           domain={[
                             logTicks[0],
                             logTicks[logTicks.length - 1] ?? 1,
@@ -655,7 +621,7 @@ export function EarnVaultRebalanceFrequencyChart({
                           name="Current deposit amount"
                           scale="log"
                           tickFormatter={(amount: number) =>
-                            formatLogTick(amount, primaryLiquidityMint)
+                            formatDepositTick(amount, primaryLiquidityMint)
                           }
                           tickLine={false}
                           tickMargin={8}
@@ -664,23 +630,15 @@ export function EarnVaultRebalanceFrequencyChart({
                         />
                       ) : (
                         <XAxis
-                          allowDecimals={false}
                           axisLine={false}
-                          dataKey="depositRank"
-                          domain={[1, Math.max(points.length, 1)]}
+                          dataKey="depositAmount"
+                          domain={[0, Math.max(maxDepositAmount, 1)]}
                           name="Current deposit amount"
-                          tickFormatter={(rank: number) => {
-                            const vault = vaultByRank.get(rank);
-                            return vault
-                              ? formatCompactDeposit(
-                                  vault.currentDepositRaw,
-                                  vault.liquidityMint
-                                )
-                              : `#${rank}`;
-                          }}
+                          tickFormatter={(amount: number) =>
+                            formatDepositTick(amount, primaryLiquidityMint)
+                          }
                           tickLine={false}
                           tickMargin={8}
-                          ticks={rankTicks}
                           type="number"
                         />
                       )}
@@ -705,7 +663,7 @@ export function EarnVaultRebalanceFrequencyChart({
                       />
                       {reserveSeries.map((series) => (
                         <Scatter
-                          data={points.filter(
+                          data={scatterPoints.filter(
                             (point) =>
                               (point.currentReserve ?? NO_RESERVE_KEY) ===
                               series.reserveKey
@@ -725,8 +683,10 @@ export function EarnVaultRebalanceFrequencyChart({
                   {showTable
                     ? " The table shows the 100 largest current deposits."
                     : " Idle-only vaults use the neutral legend color."}
-                  {!showTable && scale === "log" && !useLogScale
-                    ? " Some deposits round to zero, so the log axis fell back to deposit order."
+                  {!showTable && useLogScale && zeroDepositCount > 0
+                    ? ` ${zeroDepositCount.toLocaleString("en-US")} vault${
+                        zeroDepositCount === 1 ? "" : "s"
+                      } with a zero deposit sit on the axis floor.`
                     : ""}
                 </p>
               </CardContent>

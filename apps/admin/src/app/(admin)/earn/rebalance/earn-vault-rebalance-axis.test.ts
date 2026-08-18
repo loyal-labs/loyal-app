@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildLogTicks, formatLogTick } from "./earn-vault-rebalance-axis";
+import { buildLogTicks, formatDepositTick } from "./earn-vault-rebalance-axis";
 
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
@@ -47,16 +47,24 @@ describe("buildLogTicks", () => {
   });
 });
 
-describe("formatLogTick", () => {
+describe("formatDepositTick", () => {
   test("compacts large amounts and spells out small ones", () => {
-    expect(formatLogTick(100_000, USDC_MINT)).toBe("100K USDC");
-    expect(formatLogTick(1_000, USDC_MINT)).toBe("1K USDC");
-    expect(formatLogTick(1, USDC_MINT)).toBe("1 USDC");
-    expect(formatLogTick(0.01, USDC_MINT)).toBe("0.01 USDC");
-    expect(formatLogTick(0.000001, USDC_MINT)).toBe("0.000001 USDC");
+    expect(formatDepositTick(100_000, USDC_MINT)).toBe("100K USDC");
+    expect(formatDepositTick(1_000, USDC_MINT)).toBe("1K USDC");
+    expect(formatDepositTick(1, USDC_MINT)).toBe("1 USDC");
+    expect(formatDepositTick(0.01, USDC_MINT)).toBe("0.01 USDC");
+    expect(formatDepositTick(0.000001, USDC_MINT)).toBe("0.000001 USDC");
   });
 
   test("falls back to a neutral unit for an unknown mint", () => {
-    expect(formatLogTick(1, null)).toBe("1 USD");
+    expect(formatDepositTick(1, null)).toBe("1 USD");
+  });
+
+  test("renders the zero tick a linear axis asks for", () => {
+    // log10(0) is -Infinity, which would throw a RangeError once it reached
+    // maximumFractionDigits. A linear axis always requests a zero tick.
+    expect(() => formatDepositTick(0, USDC_MINT)).not.toThrow();
+    expect(formatDepositTick(0, USDC_MINT)).toBe("0 USDC");
+    expect(formatDepositTick(-1, USDC_MINT)).toBe("0 USDC");
   });
 });

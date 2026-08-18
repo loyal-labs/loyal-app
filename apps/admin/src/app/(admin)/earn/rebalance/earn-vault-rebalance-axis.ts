@@ -36,11 +36,17 @@ export function buildLogTicks(
   return ticks;
 }
 
-export function formatLogTick(
+export function formatDepositTick(
   value: number,
   liquidityMint: string | null
 ): string {
   const symbol = getEarnStablecoinSymbol(liquidityMint) ?? "USD";
+  // A linear axis puts a tick on zero, and log10(0) is -Infinity, which would
+  // blow up the fraction-digit count below.
+  if (!(value > 0)) {
+    return `0 ${symbol}`;
+  }
+
   const formatted =
     value >= 1000
       ? new Intl.NumberFormat("en-US", {
