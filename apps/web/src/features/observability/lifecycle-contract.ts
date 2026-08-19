@@ -16,6 +16,7 @@ export const LIFECYCLE_FLOW_NAMES = [
   "earn.withdrawal",
   "earn.autodeposit.configuration",
   "earn.autodeposit.execute_now",
+  "earn.autoswap.configuration",
   "wallet.swap",
 ] as const;
 
@@ -61,6 +62,7 @@ export const LIFECYCLE_VARIANTS = {
     "close",
   ],
   "earn.autodeposit.execute_now": ["execute_now"],
+  "earn.autoswap.configuration": ["setup", "pause", "resume", "delete"],
   // Direct wallet-adapter signing vs the smart-account execution context.
   "wallet.swap": ["wallet_adapter", "smart_account"],
 } as const satisfies Record<LifecycleFlowName, readonly string[]>;
@@ -128,6 +130,17 @@ export const LIFECYCLE_STAGES = {
     "intent",
     "request",
     "state_observed",
+    "ui_commit",
+  ],
+  // Setup/delete sign wallet transactions (two shard policies on setup, one
+  // revocation on delete); pause/resume are backend-only generation bumps.
+  "earn.autoswap.configuration": [
+    "intent",
+    "prepare",
+    "wallet_approval",
+    "create_policy",
+    "slot_resolve",
+    "backend_confirm",
     "ui_commit",
   ],
   "wallet.swap": [
@@ -691,7 +704,9 @@ export function parseBrowserLifecycleEnvelope(
   const isMoneyFlow =
     flowName === "earn.deposit" || flowName === "earn.withdrawal";
   const isTransactionFlow =
-    isMoneyFlow || flowName === "earn.autodeposit.configuration";
+    isMoneyFlow ||
+    flowName === "earn.autodeposit.configuration" ||
+    flowName === "earn.autoswap.configuration";
   if (
     (record.chainState !== undefined ||
       record.persistenceState !== undefined ||

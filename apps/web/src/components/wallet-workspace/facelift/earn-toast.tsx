@@ -23,6 +23,8 @@ type EarnToastDetail = { message: string; phase: EarnToastPhase };
 export type EarnFlowId =
   | "autodeposit-delete"
   | "autodeposit-setup"
+  | "autoswap-delete"
+  | "autoswap-setup"
   | "close-policies"
   | "deposit"
   | "deposit-policy-update"
@@ -58,6 +60,23 @@ const FLOW_STEPS: Record<EarnFlowId, readonly string[]> = {
     "Waiting for approval",
     "Preparing Autodeposit",
     CONFIRM_IN_WALLET_MESSAGE,
+    "Confirming",
+  ],
+  // Autoswap scripts avoid CONFIRM_IN_WALLET_MESSAGE on purpose: the wallet
+  // bridge's signed() shortcut would jump the card straight to "Confirming"
+  // and skip the finalization steps, so the flow drives every step itself.
+  "autoswap-delete": [
+    "Preparing removal",
+    "Confirm removal in wallet",
+    "Finalizing removal",
+    "Confirming",
+  ],
+  "autoswap-setup": [
+    "Preparing Autoswap",
+    "Confirm policy 1 of 2",
+    "Finalizing policy 1 of 2",
+    "Confirm policy 2 of 2",
+    "Finalizing policy 2 of 2",
     "Confirming",
   ],
   "close-policies": [

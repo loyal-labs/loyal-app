@@ -18,7 +18,10 @@ import {
   type ChartTab,
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
-import { ApyRevealText } from "@/components/wallet-workspace/facelift/skeleton-reveal";
+import {
+  ApyRevealText,
+  SkeletonReveal,
+} from "@/components/wallet-workspace/facelift/skeleton-reveal";
 import { TextSwap } from "@/components/wallet-workspace/facelift/text-swap";
 import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
@@ -84,6 +87,10 @@ export function EarnPositionPane({
   );
   const isAutoswapToggling =
     autoswap?.status === "pausing" || autoswap?.status === "resuming";
+  // Unknown until the first Earn state lands; the row shows as a skeleton
+  // instead of popping in after Autodeposit.
+  const isAutoswapResolved =
+    data.autoswapAvailable !== null || autoswap !== null;
   const autoswapLabel = autoswap
     ? autoswap.status === "on"
       ? `Up to $${(
@@ -278,7 +285,7 @@ export function EarnPositionPane({
                 {data.autodepositToggleError}
               </p>
             ) : null}
-            {data.autoswapAvailable || autoswap ? (
+            {data.autoswapAvailable !== false || autoswap ? (
               <>
                 <div className="flex w-full items-center rounded-2xl px-4">
                   <div className="py-2 pr-3">
@@ -295,7 +302,9 @@ export function EarnPositionPane({
                       Autoswap
                     </p>
                     <p className="text-[13px] leading-4 text-muted-foreground">
-                      <TextSwap text={autoswapLabel} />
+                      <SkeletonReveal isRevealed={isAutoswapResolved}>
+                        <TextSwap text={autoswapLabel} />
+                      </SkeletonReveal>
                     </p>
                   </div>
                   {autoswap ? (
@@ -336,13 +345,19 @@ export function EarnPositionPane({
                     </div>
                   ) : (
                     <div className="flex items-center pl-3">
-                      <button
-                        className="t-hover min-w-16 rounded-full bg-primary px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 hover:-translate-y-0.5 hover:bg-primary/90 active:translate-y-0"
-                        onClick={onOpenAutoswap}
-                        type="button"
+                      <SkeletonReveal
+                        isRevealed={isAutoswapResolved}
+                        skeletonClassName="rounded-full bg-accent-selected"
                       >
-                        Set up
-                      </button>
+                        <button
+                          className="t-hover min-w-16 rounded-full bg-primary px-4 py-2.5 text-center font-medium text-[13px] text-white leading-4 enabled:hover:-translate-y-0.5 enabled:hover:bg-primary/90 enabled:active:translate-y-0 disabled:pointer-events-none"
+                          disabled={!isAutoswapResolved}
+                          onClick={onOpenAutoswap}
+                          type="button"
+                        >
+                          Set up
+                        </button>
+                      </SkeletonReveal>
                     </div>
                   )}
                 </div>

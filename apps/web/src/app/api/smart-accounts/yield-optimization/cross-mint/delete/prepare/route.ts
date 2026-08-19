@@ -182,7 +182,10 @@ export async function POST(request: Request) {
       return jsonError(error.status, error.code, error.message);
     }
     console.error("[earn-cross-mint-delete-prepare] prepare failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown error.",
       errorName: error instanceof Error ? error.name : "UnknownError",
+      stack: error instanceof Error ? error.stack : undefined,
     });
     return jsonError(
       409,

@@ -45,7 +45,7 @@ export type EarnPositionData = {
   actions: EarnActions;
   autodepositConfig: EarnAutodepositConfigView | null;
   autodepositToggleError: string | null;
-  autoswapAvailable: boolean;
+  autoswapAvailable: boolean | null;
   autoswapConfig: EarnAutoswapConfigView | null;
   autoswapError: string | null;
   deleteAutoswap: () => Promise<boolean>;
@@ -260,6 +260,12 @@ export function useEarnPositionData(): EarnPositionData {
       return;
     }
     const nextEnabled = config.status === "paused";
+    const tracker = createBrowserLifecycleTracker({
+      flowName: "earn.autoswap.configuration",
+      flowVariant: nextEnabled ? "resume" : "pause",
+    });
+    tracker.start("intent");
+    tracker.observe("backend_confirm", { persistenceState: "not_started" });
     setAutoswapError(null);
     autoswapMutationInFlightRef.current = true;
     setAutoswapOverride({
@@ -271,9 +277,14 @@ export function useEarnPositionData(): EarnPositionData {
     const result = await executeAutoswapToggle({
       enabled: nextEnabled,
       expectedGeneration: config.generation,
+      observabilityFlowId: tracker.flowId,
     });
     autoswapMutationInFlightRef.current = false;
     if (!(result.success && result.generation && result.status)) {
+      tracker.fail("backend_confirm", {
+        errorCode: "record_failed",
+        persistenceState: "failed",
+      });
       setAutoswapOverride(null);
       setAutoswapError(result.error ?? "Autoswap update failed.");
       await refreshEarnState().catch(() => undefined);
@@ -287,6 +298,7 @@ export function useEarnPositionData(): EarnPositionData {
         status: result.status,
       },
     });
+    tracker.complete("ui_commit", { persistenceState: "recorded" });
     await refreshEarnState().catch(() => undefined);
   }, [autoswapConfig, executeAutoswapToggle, refreshEarnState]);
   const deleteAutoswap = useCallback(async () => {

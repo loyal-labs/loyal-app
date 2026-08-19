@@ -247,7 +247,10 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("[earn-cross-mint-policy-confirm] confirm failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown error.",
       errorName: error instanceof Error ? error.name : "UnknownError",
+      stack: error instanceof Error ? error.stack : undefined,
     });
     return jsonError(
       409,
