@@ -44,6 +44,7 @@ claude-report-second.md
 
 # misc
 .DS_Store
+._*
 *.pem
 /apps/web/refs/
 .claude/
