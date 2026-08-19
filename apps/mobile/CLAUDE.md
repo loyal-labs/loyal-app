@@ -36,9 +36,8 @@ npx eas build --profile production --platform all
 mobile/
   app/                     # Expo Router file-based routes
     _layout.tsx            # Root layout (fonts, splash, navigation)
-    index.tsx              # Home screen (chat list)
+    (tabs)/                # Main tab routes (home, wallet, browser, etc.)
     +not-found.tsx         # 404 screen
-    login/                 # Login flow (phone → code → password)
     summaries/             # Summary detail screens
   src/
     components/            # Reusable UI components
