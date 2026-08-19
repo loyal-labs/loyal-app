@@ -4,6 +4,11 @@ import {
   appSmartAccountSponsorshipTransactions,
   gaslessClaimTransactions,
 } from "@loyal-labs/db-core/schema";
+import {
+  Connection,
+  PublicKey,
+  type ParsedTransactionWithMeta,
+} from "@solana/web3.js";
 import { and, count, desc, eq, gte, inArray, max } from "drizzle-orm";
 
 import { getDatabase } from "@/lib/core/database";
@@ -18,6 +23,10 @@ const MAINNET_APP_ENV = "mainnet";
 const MAINNET_YIELD_CLUSTER = "mainnet-beta";
 const DEFAULT_MAINNET_RPC_URL =
   "https://fredra-z7l52f-fast-mainnet.helius-rpc.com";
+const SETTINGS_AUTHORITY_SIGNATURE_PAGE_LIMIT = 1_000;
+const SETTINGS_AUTHORITY_MAX_SIGNATURE_PAGES = 10;
+const SETTINGS_AUTHORITY_TRANSACTION_BATCH_SIZE = 100;
+const SETTINGS_AUTHORITY_TRANSACTION_BATCH_CONCURRENCY = 4;
 
 type FundingRole =
   | "sponsorship"
@@ -26,10 +35,17 @@ type FundingRole =
   | "route_fee_payer"
   | "settings_authority";
 
-// Roles whose outflow lands in a table this page reads. A wallet with no such
-// role has no spend history to consult, which is different from having one that
-// came back empty — see loadWalletSpend and calculateStatus.
+// Roles whose outflow can be measured by this page. Most use persisted App or
+// Yield rows; the settings authority uses finalized mainnet transactions.
 const SPEND_TRACKED_ROLES = new Set<FundingRole>([
+  "sponsorship",
+  "policy",
+  "deployment",
+  "route_fee_payer",
+  "settings_authority",
+]);
+
+const DATABASE_SPEND_TRACKED_ROLES = new Set<FundingRole>([
   "sponsorship",
   "policy",
   "deployment",
@@ -727,6 +743,176 @@ async function loadWalletSpend(
   };
 }
 
+function calculateFinalizedPayerOutflow(
+  transaction: ParsedTransactionWithMeta,
+  payerAddress: string
+): bigint | null {
+  if (!transaction.meta) {
+    return null;
+  }
+
+  const feePayer =
+    transaction.transaction.message.accountKeys[0]?.pubkey.toBase58();
+  if (feePayer !== payerAddress) {
+    return BigInt(0);
+  }
+
+  const preBalance = transaction.meta.preBalances[0];
+  const postBalance = transaction.meta.postBalances[0];
+  if (typeof preBalance !== "number" || typeof postBalance !== "number") {
+    return null;
+  }
+
+  return BigInt(Math.max(0, preBalance - postBalance));
+}
+
+// The settings authority is not represented in the App or Yield spend tables.
+// Read its finalized mainnet history directly and count only transactions where
+// it is the fee payer. This includes failed transactions that still burned fees
+// and nets same-transaction rent refunds through the payer balance delta.
+async function loadSettingsAuthoritySpend(
+  addresses: string[],
+  window: { endedAt: Date; startedAt: Date }
+): Promise<{ error: string | null; spend: Map<string, WalletSpend> }> {
+  if (addresses.length === 0) {
+    return { error: null, spend: new Map() };
+  }
+
+  try {
+    const connection = new Connection(
+      serverEnv.solanaMainnetRpcUrl ?? DEFAULT_MAINNET_RPC_URL,
+      "finalized"
+    );
+    const spend = new Map<string, WalletSpend>();
+    const cutoff24h = window.endedAt.getTime() - 24 * 60 * 60 * 1_000;
+    const startedAtMs = window.startedAt.getTime();
+    const endedAtMs = window.endedAt.getTime();
+
+    for (const address of addresses) {
+      const publicKey = new PublicKey(address);
+      const signatures: string[] = [];
+      let before: string | undefined;
+      let reachedWindowStart = false;
+
+      for (
+        let pageIndex = 0;
+        pageIndex < SETTINGS_AUTHORITY_MAX_SIGNATURE_PAGES;
+        pageIndex += 1
+      ) {
+        const page = await connection.getSignaturesForAddress(
+          publicKey,
+          {
+            before,
+            limit: SETTINGS_AUTHORITY_SIGNATURE_PAGE_LIMIT,
+          },
+          "finalized"
+        );
+        signatures.push(...page.map((row) => row.signature));
+
+        const oldestKnownBlockTime = page
+          .toReversed()
+          .find((row) => typeof row.blockTime === "number")?.blockTime;
+        if (
+          page.length < SETTINGS_AUTHORITY_SIGNATURE_PAGE_LIMIT ||
+          (typeof oldestKnownBlockTime === "number" &&
+            oldestKnownBlockTime * 1_000 < startedAtMs)
+        ) {
+          reachedWindowStart = true;
+          break;
+        }
+
+        before = page.at(-1)?.signature;
+        if (!before) {
+          reachedWindowStart = true;
+          break;
+        }
+      }
+
+      if (!reachedWindowStart) {
+        throw new Error("Settings authority signature history was truncated");
+      }
+
+      let lamports24h = BigInt(0);
+      let lamports7d = BigInt(0);
+      const transactionBatches: string[][] = [];
+      for (
+        let start = 0;
+        start < signatures.length;
+        start += SETTINGS_AUTHORITY_TRANSACTION_BATCH_SIZE
+      ) {
+        transactionBatches.push(
+          signatures.slice(
+            start,
+            start + SETTINGS_AUTHORITY_TRANSACTION_BATCH_SIZE
+          )
+        );
+      }
+
+      for (
+        let start = 0;
+        start < transactionBatches.length;
+        start += SETTINGS_AUTHORITY_TRANSACTION_BATCH_CONCURRENCY
+      ) {
+        const transactions = (
+          await Promise.all(
+            transactionBatches
+              .slice(
+                start,
+                start + SETTINGS_AUTHORITY_TRANSACTION_BATCH_CONCURRENCY
+              )
+              .map((batch) =>
+                connection.getParsedTransactions(batch, {
+                  commitment: "finalized",
+                  maxSupportedTransactionVersion: 0,
+                })
+              )
+          )
+        ).flat();
+
+        for (const transaction of transactions) {
+          if (!transaction || typeof transaction.blockTime !== "number") {
+            throw new Error(
+              "Settings authority finalized transaction data was unavailable"
+            );
+          }
+
+          const occurredAt = transaction.blockTime * 1_000;
+          if (occurredAt < startedAtMs || occurredAt > endedAtMs) {
+            continue;
+          }
+
+          const payerOutflow = calculateFinalizedPayerOutflow(
+            transaction,
+            address
+          );
+          if (payerOutflow === null) {
+            throw new Error(
+              "Settings authority payer balance data was unavailable"
+            );
+          }
+
+          lamports7d += payerOutflow;
+          if (occurredAt >= cutoff24h) {
+            lamports24h += payerOutflow;
+          }
+        }
+      }
+
+      spend.set(address, {
+        spend24hLamports: lamports24h.toString(),
+        spend7dLamports: lamports7d.toString(),
+      });
+    }
+
+    return { error: null, spend };
+  } catch {
+    return {
+      error: "Settings authority finalized spend history unavailable",
+      spend: new Map(),
+    };
+  }
+}
+
 async function loadBalances(addresses: string[]): Promise<{
   balances: Map<string, string>;
   slot: number | null;
@@ -1143,24 +1329,49 @@ async function loadFundingData(): Promise<EarnFundingData> {
       ...definition.observation.observedAddresses.map((row) => row.address),
     ])
   );
-  const balanceResult = await loadBalances(addresses);
-  if (balanceResult.error) {
-    sourceErrors.push(balanceResult.error);
-  }
-
-  // Only addresses with a spend-tracked role are queried. Seeding a zero for a
-  // wallet no source covers would report "spent nothing" for outflow that is
-  // simply never recorded.
-  const spendTrackedAddresses = uniqueAddresses(
+  const settingsAuthorityAddresses = uniqueAddresses(
     definitions
-      .filter((definition) => SPEND_TRACKED_ROLES.has(definition.key))
+      .filter((definition) => definition.key === "settings_authority")
       .flatMap((definition) => [
         ...definition.observation.configuredAddresses,
         ...definition.observation.observedAddresses.map((row) => row.address),
       ])
   );
-  const spendResult = await loadWalletSpend(spendTrackedAddresses, spendWindow);
+
+  // Only addresses with a database-backed spend role are sent to the App/Yield
+  // loaders. The settings authority is measured independently from finalized
+  // RPC transactions so an RPC failure cannot erase known spend for the other
+  // operational wallets.
+  const databaseSpendTrackedAddresses = uniqueAddresses(
+    definitions
+      .filter((definition) => DATABASE_SPEND_TRACKED_ROLES.has(definition.key))
+      .flatMap((definition) => [
+        ...definition.observation.configuredAddresses,
+        ...definition.observation.observedAddresses.map((row) => row.address),
+      ])
+  );
+  const [balanceResult, spendResult, settingsAuthoritySpendResult] =
+    await Promise.all([
+      loadBalances(addresses),
+      loadWalletSpend(databaseSpendTrackedAddresses, spendWindow),
+      loadSettingsAuthoritySpend(settingsAuthorityAddresses, {
+        endedAt: spendWindow.endedAt,
+        startedAt: new Date(
+          spendWindow.endedAt.getTime() - 7 * 24 * 60 * 60 * 1_000
+        ),
+      }),
+    ]);
+  if (balanceResult.error) {
+    sourceErrors.push(balanceResult.error);
+  }
   sourceErrors.push(...spendResult.sourceErrors);
+  if (settingsAuthoritySpendResult.error) {
+    sourceErrors.push(settingsAuthoritySpendResult.error);
+  }
+  const spend = new Map(spendResult.spend);
+  for (const [address, value] of settingsAuthoritySpendResult.spend) {
+    spend.set(address, value);
+  }
 
   const walletResult = createWallets({
     balances: balanceResult.balances,
@@ -1168,7 +1379,7 @@ async function loadFundingData(): Promise<EarnFundingData> {
     rpcError: balanceResult.error,
     rpcObservedAt: balanceResult.observedAt,
     rpcSlot: balanceResult.slot,
-    spend: spendResult.spend,
+    spend,
   });
 
   return {

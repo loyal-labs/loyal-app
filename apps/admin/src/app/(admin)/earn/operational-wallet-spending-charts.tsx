@@ -392,7 +392,7 @@ export function OperationalWalletSpendingCharts({
             const walletScatter = scatterByWallet.get(wallet.address);
             const walletGroups = walletScatter?.groups ?? [];
             const walletPoints = walletScatter?.points ?? [];
-            const isUntrackedSettingsAuthority = wallet.roles.some(
+            const isSettingsAuthority = wallet.roles.some(
               (role) => role.key === "settings_authority"
             );
 
@@ -413,8 +413,8 @@ export function OperationalWalletSpendingCharts({
                 </div>
                 {walletPoints.length === 0 || walletGroups.length === 0 ? (
                   <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-                    {isUntrackedSettingsAuthority
-                      ? "No App/Yield spend table tracks this settings authority yet; zero rows does not mean zero on-chain fees."
+                    {isSettingsAuthority
+                      ? "The card above uses finalized seven-day on-chain spend; this longer historical chart remains limited to persisted App/Yield spend rows."
                       : "No recorded spending since " + startLabel + "."}
                   </div>
                 ) : (
@@ -525,7 +525,10 @@ export function OperationalWalletSpendingCharts({
             {primaryWallets.some((wallet) =>
               wallet.roles.some((role) => role.key === "settings_authority")
             ) ? (
-              <span>Settings authority excluded: no spend table coverage</span>
+              <span>
+                Settings authority excluded: historical charts use persisted
+                spend rows
+              </span>
             ) : null}
           </div>
         </CardHeader>
