@@ -170,6 +170,7 @@ export type RebalanceAuditRow = {
   liquidityMint: string | null;
   movementKind: string | null;
   source: RebalanceAuditSource;
+  sourceLiquidityMint: string | null;
   signature: string | null;
   secondarySignature: string | null;
   sourceApyBps: number | null;
@@ -177,6 +178,7 @@ export type RebalanceAuditRow = {
   status: string;
   submittedSlot: bigint | null;
   targetApyBps: number | null;
+  targetLiquidityMint: string | null;
   targetReserve: string | null;
   updatedAt: string;
   vaultId: string | null;
@@ -205,6 +207,7 @@ export type RebalanceAuditQuery = {
   errorFilter?: RebalanceAuditErrorFilter;
   limit?: number;
   range: RebalanceAuditRange;
+  routeMode: RebalanceRouteMode;
   view: RebalanceAuditView;
 };
 
@@ -212,6 +215,7 @@ export type RebalanceAuditActiveQuery = {
   cursor?: RebalanceAuditCursor | null;
   limit?: number;
   range: RebalanceAuditRange;
+  routeMode: RebalanceRouteMode;
 };
 
 type ActiveReserveRouteSqlRow = {
@@ -345,10 +349,12 @@ type RebalanceAuditSqlRow = {
   sort_id: string | number | bigint;
   sort_source: SqlScalar;
   source_apy_bps: SqlScalar;
+  source_liquidity_mint: string | null;
   source_reserve: string | null;
   status: string;
   submitted_slot: SqlScalar;
   target_apy_bps: SqlScalar;
+  target_liquidity_mint: string | null;
   target_reserve: string | null;
   updated_at: Date | string;
   vault_id: string | number | bigint | null;
@@ -463,6 +469,17 @@ function rangePredicate(range: RebalanceAuditRange): string {
     case "all":
       return "TRUE";
   }
+}
+
+function routeModePredicate(routeMode: RebalanceRouteMode): string {
+  const executionKind =
+    routeMode === "cross_mint" ? "cross_mint_jupiter" : "same_mint";
+
+  return `(
+    audit.record_type <> 'decision'
+    OR audit.movement_source <> 'rebalance'
+    OR audit.execution_kind = '${executionKind}'
+  )`;
 }
 
 function viewPredicate(
@@ -606,6 +623,7 @@ function mapRebalanceAuditRow(row: RebalanceAuditSqlRow): RebalanceAuditRow {
     liquidityMint: row.liquidity_mint,
     movementKind: row.execution_kind,
     source: mapAuditSource(row.movement_source),
+    sourceLiquidityMint: row.source_liquidity_mint,
     signature: row.signature,
     secondarySignature: row.secondary_signature,
     sourceApyBps: toNullableNumber(row.source_apy_bps),
@@ -613,6 +631,7 @@ function mapRebalanceAuditRow(row: RebalanceAuditSqlRow): RebalanceAuditRow {
     status: row.status,
     submittedSlot: toNullableBigInt(row.submitted_slot),
     targetApyBps: toNullableNumber(row.target_apy_bps),
+    targetLiquidityMint: row.target_liquidity_mint,
     targetReserve: row.target_reserve,
     updatedAt: toIsoString(row.updated_at) ?? "",
     vaultId: row.vault_id === null ? null : String(row.vault_id),
@@ -649,6 +668,8 @@ const AUDIT_ROWS_CTE = `
       END::text AS movement_source,
       decision.execution_plan->>'kind' AS execution_kind,
       decision.liquidity_mint,
+      decision.source_liquidity_mint,
+      decision.target_liquidity_mint,
       decision.status::text AS status,
       decision.abandon_reason,
       decision.amount_raw,
@@ -699,6 +720,8 @@ const AUDIT_ROWS_CTE = `
         ELSE 'manual_deposit'
       END::text AS execution_kind,
       deposit.liquidity_mint,
+      NULL::text AS source_liquidity_mint,
+      NULL::text AS target_liquidity_mint,
       'confirmed'::text AS status,
       NULL::text AS abandon_reason,
       deposit.principal_amount_raw AS amount_raw,
@@ -750,6 +773,8 @@ const AUDIT_ROWS_CTE = `
       'autodeposit'::text AS movement_source,
       'autodeposit'::text AS execution_kind,
       execution.token_mint AS liquidity_mint,
+      NULL::text AS source_liquidity_mint,
+      NULL::text AS target_liquidity_mint,
       'failed'::text AS status,
       execution.completion_failure_code AS abandon_reason,
       execution.amount_raw,
@@ -786,11 +811,13 @@ async function getRebalanceAuditPageByPredicate({
   limit: requestedLimit,
   predicate,
   range,
+  routeMode,
 }: {
   cursor?: RebalanceAuditCursor | null;
   limit?: number;
   predicate: string;
   range: RebalanceAuditRange;
+  routeMode: RebalanceRouteMode;
 }): Promise<RebalanceAuditPage> {
   const limit = Math.min(Math.max(requestedLimit ?? 25, 1), 50);
   const rows = await queryRows<RebalanceAuditSqlRow>(
@@ -800,6 +827,7 @@ async function getRebalanceAuditPageByPredicate({
         audit.*
       FROM audit_rows AS audit
       WHERE ${rangePredicate(range)}
+        AND ${routeModePredicate(routeMode)}
         AND ${predicate}
         ${cursorPredicate(cursor)}
       ORDER BY audit.event_at DESC, audit.sort_source DESC, audit.sort_id DESC
@@ -2058,7 +2086,8 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
 }
 
 export async function getRebalanceAuditSummary(
-  range: RebalanceAuditRange
+  range: RebalanceAuditRange,
+  routeMode: RebalanceRouteMode
 ): Promise<RebalanceAuditSummary> {
   const rows = await queryRows<RebalanceAuditSummarySqlRow>(
     `
@@ -2145,6 +2174,7 @@ export async function getRebalanceAuditSummary(
         )::text AS stale_active
       FROM audit_rows AS audit
       WHERE ${rangePredicate(range)}
+        AND ${routeModePredicate(routeMode)}
     `
   );
 
@@ -2170,6 +2200,7 @@ export async function getRebalanceAuditPage(
     limit: query.limit,
     predicate: viewPredicate(query.view, errorFilter),
     range: query.range,
+    routeMode: query.routeMode,
   });
 }
 
@@ -2181,5 +2212,6 @@ export async function getRebalanceAuditActivePage(
     limit: query.limit,
     predicate: activeStatusPredicate,
     range: query.range,
+    routeMode: query.routeMode,
   });
 }

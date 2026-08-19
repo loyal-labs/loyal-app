@@ -16,7 +16,7 @@ export function RouteModeSwitch({
   const isCrossMint = mode === "cross_mint";
 
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs">
       <span
         className={
           isCrossMint ? "text-muted-foreground" : "font-medium text-foreground"

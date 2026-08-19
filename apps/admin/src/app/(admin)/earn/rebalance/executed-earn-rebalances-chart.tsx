@@ -335,41 +335,45 @@ export function ExecutedEarnRebalancesChart({
               deposit, on a log or linear scale. Times are UTC.
             </CardDescription>
           </div>
-          <div
-            className="flex flex-wrap gap-1"
-            aria-label="Execution history range"
-          >
-            {(["7d", "30d", "all"] as const).map((value) => (
+          <div className="flex shrink-0 flex-col gap-2 lg:items-end">
+            <div
+              className="flex flex-wrap gap-1"
+              aria-label="Execution history range"
+            >
+              {(["7d", "30d", "all"] as const).map((value) => (
+                <Button
+                  aria-pressed={range === value}
+                  key={value}
+                  onClick={() => setRange(value)}
+                  size="sm"
+                  type="button"
+                  variant={range === value ? "secondary" : "outline"}
+                >
+                  {value === "all" ? "All" : value}
+                </Button>
+              ))}
               <Button
-                aria-pressed={range === value}
-                key={value}
-                onClick={() => setRange(value)}
+                aria-pressed={showTable}
+                onClick={() => setShowTable((value) => !value)}
                 size="sm"
                 type="button"
-                variant={range === value ? "secondary" : "outline"}
+                variant={showTable ? "secondary" : "outline"}
               >
-                {value === "all" ? "All" : value}
+                Table
               </Button>
-            ))}
-            <Button
-              aria-pressed={showTable}
-              onClick={() => setShowTable((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showTable ? "secondary" : "outline"}
-            >
-              Table
-            </Button>
-            <RouteModeSwitch
-              id="executed-earn-rebalances-route-mode"
-              mode={routeMode}
-              onModeChange={setRouteMode}
-            />
-            <DepositScaleSwitch
-              id="executed-earn-rebalances-scale"
-              onScaleChange={setScale}
-              scale={scale}
-            />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <RouteModeSwitch
+                id="executed-earn-rebalances-route-mode"
+                mode={routeMode}
+                onModeChange={setRouteMode}
+              />
+              <DepositScaleSwitch
+                id="executed-earn-rebalances-scale"
+                onScaleChange={setScale}
+                scale={scale}
+              />
+            </div>
           </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
@@ -406,7 +410,9 @@ export function ExecutedEarnRebalancesChart({
       <CardContent className="min-w-0">
         {points.length === 0 ? (
           <div className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-            No confirmed Earn rebalances are available.
+            No confirmed{" "}
+            {routeMode === "cross_mint" ? "Crossmint" : "same-mint"} Earn
+            rebalances are available.
           </div>
         ) : showTable ? (
           <div className="max-h-[420px] overflow-auto rounded-md border">

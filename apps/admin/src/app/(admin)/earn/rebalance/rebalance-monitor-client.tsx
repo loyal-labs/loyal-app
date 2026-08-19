@@ -229,6 +229,36 @@ function createReserveLabelMap(data: SafeReserveApyMonitorData) {
   );
 }
 
+function getCrossMintApyData(
+  data: SafeReserveApyMonitorData
+): SafeReserveApyMonitorData {
+  const bestReserveByMint = new Map<string, SafeReserveApyStatusRow>();
+
+  for (const status of data.statuses) {
+    if (status.status !== "eligible" || status.supplyApyPercent === null) {
+      continue;
+    }
+
+    const current = bestReserveByMint.get(status.liquidityMint);
+    if (
+      !current ||
+      current.supplyApyPercent === null ||
+      status.supplyApyPercent > current.supplyApyPercent
+    ) {
+      bestReserveByMint.set(status.liquidityMint, status);
+    }
+  }
+
+  const reserveSet = new Set(
+    [...bestReserveByMint.values()].map((status) => status.reserve)
+  );
+
+  return {
+    ...data,
+    series: data.series.filter((series) => reserveSet.has(series.reserve)),
+  };
+}
+
 function getReserveLabel(
   labels: ReadonlyMap<string, string>,
   reserve: string | null
@@ -416,7 +446,21 @@ function formatAuditStatus(row: SerializedRebalanceAuditRow) {
 function formatAuditAmount(row: SerializedRebalanceAuditRow) {
   return row.amountRaw === null
     ? "No amount"
-    : formatCompactStablecoinRaw(row.amountRaw, row.liquidityMint);
+    : formatCompactStablecoinRaw(
+        row.amountRaw,
+        row.liquidityMint ?? row.sourceLiquidityMint
+      );
+}
+
+function formatAuditMint(row: SerializedRebalanceAuditRow) {
+  const source = getEarnStablecoinSymbol(
+    row.sourceLiquidityMint ?? row.liquidityMint
+  );
+  const target = getEarnStablecoinSymbol(row.targetLiquidityMint);
+
+  return source && target && source !== target
+    ? `${source} → ${target}`
+    : source ?? target ?? "Unknown";
 }
 
 function formatDuration(createdAt: string, updatedAt: string) {
@@ -659,7 +703,7 @@ function RebalanceAuditTable({
                 <AuditVault row={row} />
               </TableCell>
               <TableCell className="font-medium">
-                {getEarnStablecoinSymbol(row.liquidityMint) ?? "Unknown"}
+                {formatAuditMint(row)}
               </TableCell>
               {isDeposits ? (
                 <TableCell>
@@ -764,7 +808,7 @@ function ActiveMovementTable({
                   <AuditVault row={row} />
                 </TableCell>
                 <TableCell className="font-medium">
-                  {getEarnStablecoinSymbol(row.liquidityMint) ?? "Unknown"}
+                  {formatAuditMint(row)}
                 </TableCell>
                 <TableCell>{formatAuditRoute(row, reserveLabels)}</TableCell>
                 <TableCell className="text-right tabular-nums">
@@ -812,7 +856,7 @@ function CurrentReserveApyCard({
         <CardTitle className="font-bold">Current Safe reserve APY</CardTitle>
         <CardDescription>
           {routeMode === "cross_mint"
-            ? "All active verified Safe basket targets across supported stablecoins"
+            ? "Best currently eligible Safe reserve for each Crossmint target mint"
             : "Active verified Safe basket reserves for the selected stablecoin"}
         </CardDescription>
         <RouteModeSwitch
@@ -858,12 +902,14 @@ function updateAuditUrl(values: {
   cursor?: string | null;
   errorFilter: RebalanceAuditErrorFilter;
   range: RebalanceAuditRange;
+  routeMode: RebalanceRouteMode;
   view: RebalanceAuditView;
 }) {
   const params = new URLSearchParams(window.location.search);
   params.set("auditView", values.view);
   params.set("auditRange", values.range);
   params.set("auditError", values.errorFilter);
+  params.set("auditRouteMode", values.routeMode);
 
   if (values.cursor !== undefined) {
     if (values.cursor) {
@@ -960,6 +1006,7 @@ function RebalanceAuditCard({
 }) {
   const [view, setView] = useState<RebalanceAuditView>(DEFAULT_AUDIT_VIEW);
   const [range, setRange] = useState<RebalanceAuditRange>(DEFAULT_AUDIT_RANGE);
+  const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
   const [errorFilter, setErrorFilter] =
     useState<RebalanceAuditErrorFilter>(DEFAULT_ERROR_FILTER);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -973,6 +1020,7 @@ function RebalanceAuditCard({
     const nextView = params.get("auditView");
     const nextRange = params.get("auditRange");
     const nextError = params.get("auditError");
+    const nextRouteMode = params.get("auditRouteMode");
 
     if (isAuditView(nextView)) {
       setView(nextView);
@@ -982,6 +1030,9 @@ function RebalanceAuditCard({
     }
     if (isErrorFilter(nextError)) {
       setErrorFilter(nextError);
+    }
+    if (nextRouteMode === "same_mint" || nextRouteMode === "cross_mint") {
+      setRouteMode(nextRouteMode);
     }
     setCursor(params.get("auditCursor"));
     setActiveCursor(params.get("auditActiveCursor"));
@@ -1000,6 +1051,7 @@ function RebalanceAuditCard({
       const params = new URLSearchParams({
         errorFilter,
         range,
+        routeMode,
         view,
       });
       if (cursor) {
@@ -1045,7 +1097,16 @@ function RebalanceAuditCard({
       controller.abort();
       window.clearInterval(interval);
     };
-  }, [activeCursor, cursor, errorFilter, hydrated, range, refreshToken, view]);
+  }, [
+    activeCursor,
+    cursor,
+    errorFilter,
+    hydrated,
+    range,
+    refreshToken,
+    routeMode,
+    view,
+  ]);
 
   function selectView(nextView: RebalanceAuditView) {
     setView(nextView);
@@ -1056,6 +1117,7 @@ function RebalanceAuditCard({
       cursor: null,
       errorFilter,
       range,
+      routeMode,
       view: nextView,
     });
   }
@@ -1069,6 +1131,7 @@ function RebalanceAuditCard({
       cursor: null,
       errorFilter,
       range: nextRange,
+      routeMode,
       view,
     });
   }
@@ -1082,6 +1145,7 @@ function RebalanceAuditCard({
       cursor: null,
       errorFilter: nextErrorFilter,
       range,
+      routeMode,
       view,
     });
   }
@@ -1098,10 +1162,28 @@ function RebalanceAuditCard({
               Confirmed rebalances, user/autodeposits, idle-vault deposits,
               persisted autodeposit failures, and needs-review records. Worker
               failures before a decision or execution is persisted remain
-              outside this view.
+              outside this view. The mode switch filters rebalance records;
+              deposit records remain shared.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <RouteModeSwitch
+              id="movement-audit-route-mode"
+              mode={routeMode}
+              onModeChange={(nextRouteMode) => {
+                setRouteMode(nextRouteMode);
+                setCursor(null);
+                setActiveCursor(null);
+                updateAuditUrl({
+                  activeCursor: null,
+                  cursor: null,
+                  errorFilter,
+                  range,
+                  routeMode: nextRouteMode,
+                  view,
+                });
+              }}
+            />
             <span className="text-xs text-muted-foreground">Range</span>
             <Select
               value={range}
@@ -1157,6 +1239,7 @@ function RebalanceAuditCard({
                   activeCursor: nextCursor,
                   errorFilter,
                   range,
+                  routeMode,
                   view,
                 });
               }}
@@ -1251,6 +1334,7 @@ function RebalanceAuditCard({
                     updateAuditUrl({
                       errorFilter,
                       range,
+                      routeMode,
                       view,
                       cursor: nextCursor,
                     });
@@ -1437,9 +1521,8 @@ export function RebalanceMonitorClient() {
   const filteredDecisions = selectedMintAddress
     ? state.data.decisions.filter(
         (decision) =>
-          (decision.routeMode === "same_mint"
-            ? decision.liquidityMint
-            : decision.sourceLiquidityMint) === selectedMintAddress
+          decision.routeMode === "cross_mint" ||
+          decision.liquidityMint === selectedMintAddress
       )
     : state.data.decisions;
   const filteredExecutedRebalances = selectedMintAddress
@@ -1447,15 +1530,16 @@ export function RebalanceMonitorClient() {
         ...state.data.executedRebalances,
         executions: state.data.executedRebalances.executions.filter(
           (execution) =>
-            (execution.routeMode === "same_mint"
-              ? execution.liquidityMint
-              : execution.sourceLiquidityMint) === selectedMintAddress
+            execution.routeMode === "cross_mint" ||
+            execution.liquidityMint === selectedMintAddress
         ),
       }
     : state.data.executedRebalances;
   const filteredFrequencyVaults = selectedMintAddress
     ? state.data.vaultRebalanceFrequency.vaults.filter(
-        (vault) => vault.liquidityMint === selectedMintAddress
+        (vault) =>
+          vault.routeMode === "cross_mint" ||
+          vault.liquidityMint === selectedMintAddress
       )
     : state.data.vaultRebalanceFrequency.vaults;
   const filteredVaultRebalanceFrequency = {
@@ -1463,6 +1547,7 @@ export function RebalanceMonitorClient() {
     vaultCount: filteredFrequencyVaults.length,
     vaults: filteredFrequencyVaults,
   };
+  const crossMintApyData = getCrossMintApyData(state.data.apyData);
 
   return (
     <div className="mx-auto grid w-full max-w-4xl gap-6">
@@ -1470,10 +1555,9 @@ export function RebalanceMonitorClient() {
         <CardHeader>
           <CardTitle className="font-bold">Stablecoin filter</CardTitle>
           <CardDescription>
-            Filters verified reserves, confirmed executions, and vault frequency
-            by same-mint or Crossmint source. Crossmint APY views still include
-            every supported target mint for comparison. The aggregate activity
-            and paginated audit sections remain all-mint.
+            Filters same-mint reserves, executions, and vault frequency.
+            Crossmint cards show all Crossmint routes and the best currently
+            eligible Safe reserve for each supported target mint.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1495,8 +1579,16 @@ export function RebalanceMonitorClient() {
       <CurrentReserveApyCard
         dataByRouteMode={{
           cross_mint: {
-            routes: state.data.routes,
-            rows: state.data.apyData.statuses,
+            routes: state.data.routes.filter((route) =>
+              crossMintApyData.series.some(
+                (series) => series.reserve === route.currentReserve
+              )
+            ),
+            rows: state.data.apyData.statuses.filter((status) =>
+              crossMintApyData.series.some(
+                (series) => series.reserve === status.reserve
+              )
+            ),
           },
           same_mint: {
             routes: filteredRoutes,
@@ -1506,7 +1598,7 @@ export function RebalanceMonitorClient() {
       />
       <SafeReserveApyChart
         dataByRouteMode={{
-          cross_mint: state.data.apyData,
+          cross_mint: crossMintApyData,
           same_mint: filteredApyData,
         }}
         decisionMarkersByRouteMode={{

@@ -446,7 +446,7 @@ export function EarnVaultRebalanceFrequencyChart({
                 zero by design.
               </CardDescription>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex shrink-0 flex-wrap items-center gap-3">
               <RouteModeSwitch
                 id="vault-rebalance-frequency-route-mode"
                 mode={routeMode}
@@ -481,7 +481,13 @@ export function EarnVaultRebalanceFrequencyChart({
             />
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-            {eligibilityFloorRaw === null ? (
+            {points.length === 0 ? (
+              <span className="font-medium text-foreground">
+                {routeMode === "cross_mint"
+                  ? "No enabled Crossmint vaults"
+                  : "No funded active Earn vaults"}
+              </span>
+            ) : eligibilityFloorRaw === null ? (
               <span>
                 {rebalancedVaultCount.toLocaleString("en-US")} of{" "}
                 {points.length.toLocaleString("en-US")} funded vaults rebalanced
@@ -493,11 +499,13 @@ export function EarnVaultRebalanceFrequencyChart({
                 vaults rebalanced
               </span>
             )}
-            <span>
-              {points.length.toLocaleString("en-US")} funded vaults ·{" "}
-              {rebalancedVaultCount.toLocaleString("en-US")} with rebalances
-            </span>
-            {eligibilityFloorRaw === null ? null : (
+            {points.length > 0 ? (
+              <span>
+                {points.length.toLocaleString("en-US")} funded vaults ·{" "}
+                {rebalancedVaultCount.toLocaleString("en-US")} with rebalances
+              </span>
+            ) : null}
+            {points.length === 0 || eligibilityFloorRaw === null ? null : (
               <span>
                 Eligible at{" "}
                 {formatDeposit(
@@ -507,10 +515,12 @@ export function EarnVaultRebalanceFrequencyChart({
                 +
               </span>
             )}
-            <span>
-              {totalRebalances.toLocaleString("en-US")} confirmed executions ·{" "}
-              {rangeOption.label}
-            </span>
+            {points.length > 0 ? (
+              <span>
+                {totalRebalances.toLocaleString("en-US")} confirmed executions ·{" "}
+                {rangeOption.label}
+              </span>
+            ) : null}
             <span>Updated {formatUtcTimestamp(data.generatedAt)}</span>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -536,7 +546,9 @@ export function EarnVaultRebalanceFrequencyChart({
               <CardContent className="min-w-0">
                 {points.length === 0 ? (
                   <div className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-                    No funded active Earn vaults are available.
+                    {routeMode === "cross_mint"
+                      ? "Crossmint is not enabled for any active Earn vault."
+                      : "No funded active Earn vaults are available."}
                   </div>
                 ) : showTable ? (
                   <div className="max-h-[460px] overflow-auto rounded-md border">
@@ -687,19 +699,21 @@ export function EarnVaultRebalanceFrequencyChart({
                     </ScatterChart>
                   </ChartContainer>
                 )}
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {maxCount === 0
-                    ? "No confirmed rebalances occurred in this window; every vault is shown at zero."
-                    : "Hover a dot for the exact vault, current deposit, reserve APY, and counts for every window."}
-                  {showTable
-                    ? " The table shows the 100 largest current deposits."
-                    : " Idle-only vaults use the neutral legend color."}
-                  {!showTable && useLogScale && zeroDepositCount > 0
-                    ? ` ${zeroDepositCount.toLocaleString("en-US")} vault${
-                        zeroDepositCount === 1 ? "" : "s"
-                      } with a zero deposit sit on the axis floor.`
-                    : ""}
-                </p>
+                {points.length > 0 ? (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {maxCount === 0
+                      ? "No confirmed rebalances occurred in this window; every vault is shown at zero."
+                      : "Hover a dot for the exact vault, current deposit, reserve APY, and counts for every window."}
+                    {showTable
+                      ? " The table shows the 100 largest current deposits."
+                      : " Idle-only vaults use the neutral legend color."}
+                    {!showTable && useLogScale && zeroDepositCount > 0
+                      ? ` ${zeroDepositCount.toLocaleString("en-US")} vault${
+                          zeroDepositCount === 1 ? "" : "s"
+                        } with a zero deposit sit on the axis floor.`
+                      : ""}
+                  </p>
+                ) : null}
               </CardContent>
             ) : null}
           </TabsContent>

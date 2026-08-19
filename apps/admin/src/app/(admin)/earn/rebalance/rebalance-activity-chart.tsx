@@ -266,6 +266,9 @@ function SwapFeeTimeSeries({
               <ChartTooltipContent
                 className="min-w-[190px]"
                 labelFormatter={formatTooltipDate}
+                valueFormatter={(value) =>
+                  typeof value === "number" ? `${value.toFixed(6)} SOL` : value
+                }
               />
             }
           />

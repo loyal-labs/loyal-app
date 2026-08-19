@@ -327,7 +327,7 @@ export function SafeReserveApyChart({
           <CardTitle className="font-bold">Safe reserve APY</CardTitle>
           <CardDescription>
             {routeMode === "cross_mint"
-              ? "All supported stablecoin targets for Crossmint comparison"
+              ? "Best currently eligible Safe reserve for each Crossmint target mint"
               : "Selected stablecoin Safe basket"}
             , last 7d,{" "}
             {showRawData
