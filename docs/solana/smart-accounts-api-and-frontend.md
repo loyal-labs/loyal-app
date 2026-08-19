@@ -217,14 +217,10 @@ the wallet-signed cleanup to `POST
 re-proves zero balances and policy closure before finalizing the full exit; when
 Autodeposit is active, its close transaction is confirmed as part of this flow.
 
-To recover an active Earn position when a full withdrawal is recorded but the
-client cleanup or its confirmation was lost, the scheduled `GET`/`POST
-/api/cron/earn-cleanup-reconcile` route scans active Earn vault index `1`
-positions and re-proves zero balances at the recorded withdrawal slot before
-finalizing eligible ghost rows through the canonical cleanup writer. It requires
-`Authorization: Bearer <CRON_SECRET>`, runs every ten minutes at `7,17,27,37,47,57
-* * * *` from `apps/web/vercel.json`, and supports `?dryRun=1` for a no-write
-scan or `?limit=N` to override the per-run candidate cap.
+When a deposit or full-exit confirmation is lost after the transaction lands,
+the yield-routing service observes the affected smart-account state through
+LaserStream and performs the recovery. Loyal App no longer runs periodic Earn
+deposit or cleanup chain scans.
 
 Mobile clients prepare Earn instructions on-device. After mobile-wallet
 authentication, `POST
@@ -267,29 +263,27 @@ depending only on reserves already recorded in the database. `AppWalletWorkspace
 uses the position response to decide whether to show the active Earn view,
 display the current principal, and set the withdrawal maximum.
 
-| Area                     | Key file                                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------- |
-| Workspace state          | `apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx`                   |
-| Earn detail UI           | `apps/web/src/components/wallet-sidebar/earn-detail-view.tsx`                         |
-| Browser action adapter   | `apps/web/src/hooks/use-smart-account-sidebar-data.ts`                                |
-| Active position route    | `apps/web/src/app/api/smart-accounts/yield-optimization/position/route.ts`            |
-| Deposit confirm route    | `apps/web/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`    |
-| Withdrawal confirm route | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts` |
-| Withdrawal cleanup prepare | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts` |
-| Withdrawal cleanup confirm | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts` |
-| Cleanup reconciliation cron | `apps/web/src/app/api/cron/earn-cleanup-reconcile/route.ts` |
-| Cleanup reconciliation logic | `apps/web/src/lib/yield-optimization/earn-cleanup-reconcile.server.ts` |
-| Mobile deposit context   | `apps/web/src/app/api/smart-accounts/mobile/earn/deposit/prepare-context/route.ts`    |
-| Mobile withdrawal context | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`  |
-| Mobile cleanup context   | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts` |
-| Mobile cleanup confirm   | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts` |
-| Mobile Earn session mint | `apps/web/src/app/api/smart-accounts/mobile/earn/session/route.ts` |
-| Mobile Earn session auth | `apps/web/src/features/identity/server/mobile-earn-session.ts` |
-| Mobile Autodeposit progress | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute/route.ts` |
-| Mobile Autodeposit floor | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/floor/confirm/route.ts` |
-| Mobile Autodeposit toggle | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/toggle/confirm/route.ts` |
-| Yield repository         | `apps/web/src/lib/yield-optimization/yield-deposit-repository.server.ts`              |
-| Instruction builder      | `packages/smart-account-vaults/src/client.ts`                                         |
+| Area                        | Key file                                                                                      |
+| --------------------------- | --------------------------------------------------------------------------------------------- |
+| Workspace state             | `apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx`                           |
+| Earn detail UI              | `apps/web/src/components/wallet-sidebar/earn-detail-view.tsx`                                 |
+| Browser action adapter      | `apps/web/src/hooks/use-smart-account-sidebar-data.ts`                                        |
+| Active position route       | `apps/web/src/app/api/smart-accounts/yield-optimization/position/route.ts`                    |
+| Deposit confirm route       | `apps/web/src/app/api/smart-accounts/yield-optimization/deposits/confirm/route.ts`            |
+| Withdrawal confirm route    | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/confirm/route.ts`         |
+| Withdrawal cleanup prepare  | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.ts` |
+| Withdrawal cleanup confirm  | `apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.ts` |
+| Mobile deposit context      | `apps/web/src/app/api/smart-accounts/mobile/earn/deposit/prepare-context/route.ts`            |
+| Mobile withdrawal context   | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/prepare-context/route.ts`           |
+| Mobile cleanup context      | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context/route.ts`   |
+| Mobile cleanup confirm      | `apps/web/src/app/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm/route.ts`           |
+| Mobile Earn session mint    | `apps/web/src/app/api/smart-accounts/mobile/earn/session/route.ts`                            |
+| Mobile Earn session auth    | `apps/web/src/features/identity/server/mobile-earn-session.ts`                                |
+| Mobile Autodeposit progress | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/sweeps/execute/route.ts`         |
+| Mobile Autodeposit floor    | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/floor/confirm/route.ts`          |
+| Mobile Autodeposit toggle   | `apps/web/src/app/api/smart-accounts/mobile/earn/autodeposit/toggle/confirm/route.ts`         |
+| Yield repository            | `apps/web/src/lib/yield-optimization/yield-deposit-repository.server.ts`                      |
+| Instruction builder         | `packages/smart-account-vaults/src/client.ts`                                                 |
 
 ### CLI Agent Connect Flow
 

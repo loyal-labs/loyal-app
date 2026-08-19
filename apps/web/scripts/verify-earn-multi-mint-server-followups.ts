@@ -8,7 +8,6 @@ const repoRoot = resolve(import.meta.dir, "../../..");
 const appTests = [
   "apps/web/src/lib/kamino/timescale-reserve-client.server.test.ts",
   "apps/web/src/lib/yield-optimization/earn-withdraw-confirm.server.test.ts",
-  "apps/web/src/lib/yield-optimization/earn-deposit-reconcile.server.test.ts",
   "apps/web/src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts",
 ] as const;
 const packageTest = "packages/smart-account-vaults/src/client.test.ts";
@@ -75,19 +74,6 @@ check(
 check(
   "withdraw confirmation does not re-run current Safe routing eligibility",
   !withdrawSource.includes("assertSafeEarnReserveMetadata")
-);
-
-const reconcileSource = source(
-  "apps/web/src/lib/yield-optimization/earn-deposit-reconcile.server.ts"
-);
-check(
-  "deposit recovery is not restricted to USDC",
-  !reconcileSource.includes("getKaminoUsdcEarnTargetForCluster") &&
-    !reconcileSource.includes("targetHolding.liquidityMint !== usdcMint")
-);
-check(
-  "deposit recovery does not choose the largest current holding",
-  !reconcileSource.includes("sortedReserveHoldings[0]")
 );
 
 const vaultSource = source("packages/smart-account-vaults/src/client.ts");

@@ -63,7 +63,7 @@ export async function pollRpcRead<T>(
 }
 
 // Every rejection here strands a confirmed on-chain deposit outside the
-// read-model until the earn-deposit-reconcile cron adopts it — so a rejection
+// read-model until yield routing observes and reconciles it — so a rejection
 // must never be silent (the launch-night 400s were).
 function rejectConfirm(args: {
   status: number;
