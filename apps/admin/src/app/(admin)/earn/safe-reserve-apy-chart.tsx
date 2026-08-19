@@ -321,57 +321,64 @@ export function SafeReserveApyChart({
     .slice(0, 25);
 
   return (
-    <Card className="mx-auto w-full max-w-4xl py-4 sm:py-0">
-      <CardHeader className="flex flex-col items-start justify-between gap-3 border-b sm:flex-row sm:items-center">
-        <div>
-          <CardTitle className="font-bold">Safe reserve APY</CardTitle>
-          <CardDescription>
-            {routeMode === "cross_mint"
-              ? "Best currently eligible Safe reserve for each Crossmint target mint"
-              : "Selected stablecoin Safe basket"}
-            , last 7d,{" "}
-            {showRawData
-              ? `${data.sampleIntervalMinutes}m raw buckets`
-              : "30m median view"}{" "}
-            from Kamino Timescale
-          </CardDescription>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <RouteModeSwitch
-            id="safe-reserve-apy-route-mode"
-            mode={routeMode}
-            onModeChange={setRouteMode}
-          />
-          <Button
-            onClick={() => setShowRawData((value) => !value)}
-            size="sm"
-            type="button"
-            variant={showRawData ? "secondary" : "outline"}
-          >
-            {showRawData ? "Clean view" : "Raw 5m"}
-          </Button>
-          {decisionMarkers.length > 0 ? (
-            <Button
-              onClick={() => setShowDecisionMarkers((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showDecisionMarkers ? "secondary" : "outline"}
-            >
-              {showDecisionMarkers ? "Hide markers" : "Show markers"}
-            </Button>
-          ) : null}
-          {fullYMax > normalYMax ? (
-            <Button
-              onClick={() => setShowOutliers((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showOutliers ? "secondary" : "outline"}
-            >
-              {showOutliers ? "Hide outliers" : "Show outliers"}
-            </Button>
-          ) : null}
-          <div className="text-right text-xs text-muted-foreground tabular-nums">
-            Updated {formatTooltipDate(data.generatedAt)}
+    <Card className="w-full py-4 sm:py-0">
+      <CardHeader className="gap-4 border-b">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div>
+            <CardTitle className="font-bold">Safe reserve APY</CardTitle>
+            <CardDescription>
+              {routeMode === "cross_mint"
+                ? "Best currently eligible Safe reserve for each Crossmint target mint"
+                : "Selected stablecoin Safe basket"}
+              , last 7d,{" "}
+              {showRawData
+                ? `${data.sampleIntervalMinutes}m raw buckets`
+                : "30m median view"}{" "}
+              from Kamino Timescale
+            </CardDescription>
+          </div>
+          <div className="flex min-w-0 flex-col items-start gap-2 lg:items-end">
+            <RouteModeSwitch
+              id="safe-reserve-apy-route-mode"
+              mode={routeMode}
+              onModeChange={setRouteMode}
+            />
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <Button
+                aria-pressed={showRawData}
+                onClick={() => setShowRawData((value) => !value)}
+                size="sm"
+                type="button"
+                variant={showRawData ? "secondary" : "outline"}
+              >
+                Raw samples
+              </Button>
+              {decisionMarkers.length > 0 ? (
+                <Button
+                  aria-pressed={showDecisionMarkers}
+                  onClick={() => setShowDecisionMarkers((value) => !value)}
+                  size="sm"
+                  type="button"
+                  variant={showDecisionMarkers ? "secondary" : "outline"}
+                >
+                  Markers
+                </Button>
+              ) : null}
+              {fullYMax > normalYMax ? (
+                <Button
+                  aria-pressed={showOutliers}
+                  onClick={() => setShowOutliers((value) => !value)}
+                  size="sm"
+                  type="button"
+                  variant={showOutliers ? "secondary" : "outline"}
+                >
+                  Outliers
+                </Button>
+              ) : null}
+            </div>
+            <div className="text-xs text-muted-foreground tabular-nums">
+              Updated {formatTooltipDate(data.generatedAt)}
+            </div>
           </div>
         </div>
       </CardHeader>

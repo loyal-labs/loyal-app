@@ -1,6 +1,7 @@
 "use client";
 
-import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 import type { RebalanceRouteMode } from "./rebalance-data";
 
@@ -13,32 +14,46 @@ export function RouteModeSwitch({
   mode: RebalanceRouteMode;
   onModeChange: (mode: RebalanceRouteMode) => void;
 }) {
-  const isCrossMint = mode === "cross_mint";
-
   return (
-    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs">
-      <span
-        className={
-          isCrossMint ? "text-muted-foreground" : "font-medium text-foreground"
-        }
+    <div
+      aria-label="Rebalance route"
+      className="inline-flex shrink-0 items-center rounded-lg bg-muted p-1"
+      role="group"
+    >
+      <Button
+        aria-label="Show same-mint monitoring"
+        aria-pressed={mode === "same_mint"}
+        className={cn(
+          "h-7 rounded-md px-2.5 text-xs shadow-none",
+          mode === "same_mint"
+            ? "bg-background text-foreground shadow-xs hover:bg-background"
+            : "text-muted-foreground"
+        )}
+        id={`${id}-same-mint`}
+        onClick={() => onModeChange("same_mint")}
+        size="sm"
+        type="button"
+        variant="ghost"
       >
         Same-mint
-      </span>
-      <Switch
+      </Button>
+      <Button
         aria-label="Show Crossmint monitoring"
-        checked={isCrossMint}
+        aria-pressed={mode === "cross_mint"}
+        className={cn(
+          "h-7 rounded-md px-2.5 text-xs shadow-none",
+          mode === "cross_mint"
+            ? "bg-background text-foreground shadow-xs hover:bg-background"
+            : "text-muted-foreground"
+        )}
         id={id}
-        onCheckedChange={(checked) =>
-          onModeChange(checked ? "cross_mint" : "same_mint")
-        }
-      />
-      <span
-        className={
-          isCrossMint ? "font-medium text-foreground" : "text-muted-foreground"
-        }
+        onClick={() => onModeChange("cross_mint")}
+        size="sm"
+        type="button"
+        variant="ghost"
       >
         Crossmint
-      </span>
+      </Button>
     </div>
   );
 }

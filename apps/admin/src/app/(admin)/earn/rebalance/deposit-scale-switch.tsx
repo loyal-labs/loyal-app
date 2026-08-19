@@ -1,11 +1,12 @@
 "use client";
 
-import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export type DepositScale = "linear" | "log";
 
 /**
- * Log/linear switch for the deposit axis, shared by the Earn rebalance scatter
+ * Log/linear selector for the deposit axis, shared by the Earn rebalance scatter
  * charts. Both ends are labelled because neither reading is the obvious
  * default: log is right for the fleet's long dust tail, linear is right when
  * you care about absolute size.
@@ -19,30 +20,46 @@ export function DepositScaleSwitch({
   onScaleChange: (scale: DepositScale) => void;
   scale: DepositScale;
 }) {
-  const isLog = scale === "log";
-
   return (
-    <div className="flex items-center gap-2 text-xs">
-      <span
-        className={
-          isLog ? "text-muted-foreground" : "font-medium text-foreground"
-        }
+    <div
+      aria-label="Deposit axis scale"
+      className="inline-flex shrink-0 items-center rounded-lg bg-muted p-1"
+      role="group"
+    >
+      <Button
+        aria-label="Use a linear deposit axis"
+        aria-pressed={scale === "linear"}
+        className={cn(
+          "h-7 rounded-md px-2.5 text-xs shadow-none",
+          scale === "linear"
+            ? "bg-background text-foreground shadow-xs hover:bg-background"
+            : "text-muted-foreground"
+        )}
+        id={`${id}-linear`}
+        onClick={() => onScaleChange("linear")}
+        size="sm"
+        type="button"
+        variant="ghost"
       >
-        Linear scale
-      </span>
-      <Switch
+        Linear
+      </Button>
+      <Button
         aria-label="Use a logarithmic deposit axis"
-        checked={isLog}
+        aria-pressed={scale === "log"}
+        className={cn(
+          "h-7 rounded-md px-2.5 text-xs shadow-none",
+          scale === "log"
+            ? "bg-background text-foreground shadow-xs hover:bg-background"
+            : "text-muted-foreground"
+        )}
         id={id}
-        onCheckedChange={(checked) => onScaleChange(checked ? "log" : "linear")}
-      />
-      <span
-        className={
-          isLog ? "font-medium text-foreground" : "text-muted-foreground"
-        }
+        onClick={() => onScaleChange("log")}
+        size="sm"
+        type="button"
+        variant="ghost"
       >
-        Log scale
-      </span>
+        Log
+      </Button>
     </div>
   );
 }

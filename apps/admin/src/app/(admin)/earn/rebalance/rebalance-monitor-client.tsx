@@ -1166,7 +1166,7 @@ function RebalanceAuditCard({
               deposit records remain shared.
             </CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
             <RouteModeSwitch
               id="movement-audit-route-mode"
               mode={routeMode}
@@ -1184,35 +1184,40 @@ function RebalanceAuditCard({
                 });
               }}
             />
-            <span className="text-xs text-muted-foreground">Range</span>
-            <Select
-              value={range}
-              onValueChange={(value) => {
-                if (isAuditRange(value)) {
-                  selectRange(value);
-                }
-              }}
-            >
-              <SelectTrigger className="w-[7.5rem]" size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="24h">Last 24 hours</SelectItem>
-                <SelectItem value="7d">Last 7 days</SelectItem>
-                <SelectItem value="30d">Last 30 days</SelectItem>
-                <SelectItem value="all">All time</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              aria-label="Refresh movement audit"
-              onClick={() => setRefreshToken((value) => value + 1)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <RefreshCwIcon aria-hidden="true" />
-              Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <Select
+                value={range}
+                onValueChange={(value) => {
+                  if (isAuditRange(value)) {
+                    selectRange(value);
+                  }
+                }}
+              >
+                <SelectTrigger
+                  aria-label="Movement audit range"
+                  className="w-[9rem]"
+                  size="sm"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="24h">Last 24 hours</SelectItem>
+                  <SelectItem value="7d">Last 7 days</SelectItem>
+                  <SelectItem value="30d">Last 30 days</SelectItem>
+                  <SelectItem value="all">All time</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                aria-label="Refresh movement audit"
+                onClick={() => setRefreshToken((value) => value + 1)}
+                size="sm"
+                type="button"
+                variant="outline"
+              >
+                <RefreshCwIcon aria-hidden="true" />
+                Refresh
+              </Button>
+            </div>
           </div>
         </div>
         {state.status === "ready" ? (

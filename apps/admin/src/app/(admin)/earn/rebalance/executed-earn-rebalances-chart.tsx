@@ -335,23 +335,36 @@ export function ExecutedEarnRebalancesChart({
               deposit, on a log or linear scale. Times are UTC.
             </CardDescription>
           </div>
-          <div className="flex shrink-0 flex-col gap-2 lg:items-end">
-            <div
-              className="flex flex-wrap gap-1"
-              aria-label="Execution history range"
-            >
-              {(["7d", "30d", "all"] as const).map((value) => (
-                <Button
-                  aria-pressed={range === value}
-                  key={value}
-                  onClick={() => setRange(value)}
-                  size="sm"
-                  type="button"
-                  variant={range === value ? "secondary" : "outline"}
-                >
-                  {value === "all" ? "All" : value}
-                </Button>
-              ))}
+          <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
+            <RouteModeSwitch
+              id="executed-earn-rebalances-route-mode"
+              mode={routeMode}
+              onModeChange={setRouteMode}
+            />
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div
+                aria-label="Execution history range"
+                className="inline-flex items-center rounded-lg bg-muted p-1"
+                role="group"
+              >
+                {(["7d", "30d", "all"] as const).map((value) => (
+                  <Button
+                    aria-pressed={range === value}
+                    className={
+                      range === value
+                        ? "h-7 bg-background px-2.5 text-xs shadow-xs hover:bg-background"
+                        : "h-7 px-2.5 text-xs text-muted-foreground shadow-none"
+                    }
+                    key={value}
+                    onClick={() => setRange(value)}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    {value === "all" ? "All" : value}
+                  </Button>
+                ))}
+              </div>
               <Button
                 aria-pressed={showTable}
                 onClick={() => setShowTable((value) => !value)}
@@ -362,18 +375,13 @@ export function ExecutedEarnRebalancesChart({
                 Table
               </Button>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <RouteModeSwitch
-                id="executed-earn-rebalances-route-mode"
-                mode={routeMode}
-                onModeChange={setRouteMode}
-              />
+            {showTable ? null : (
               <DepositScaleSwitch
                 id="executed-earn-rebalances-scale"
                 onScaleChange={setScale}
                 scale={scale}
               />
-            </div>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
