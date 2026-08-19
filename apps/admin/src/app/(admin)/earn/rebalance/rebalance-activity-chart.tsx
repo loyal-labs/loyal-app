@@ -329,7 +329,7 @@ export function RebalanceActivityChart({
       : BigInt(0);
 
   return (
-    <Card className="w-full py-4 sm:py-0">
+    <Card className="w-full gap-0 py-0">
       <CardHeader className="flex flex-col items-stretch border-b !p-0 sm:flex-row">
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">Rebalance activity</CardTitle>
@@ -363,7 +363,7 @@ export function RebalanceActivityChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-2 pt-6 sm:p-6">
+      <CardContent className="p-4 sm:p-6">
         {routeMode === "cross_mint" ? (
           <div className="mb-5 grid gap-3 px-2 text-xs text-muted-foreground sm:grid-cols-3">
             <span>

@@ -425,6 +425,7 @@ export function EarnVaultRebalanceFrequencyChart({
   return (
     <Card className="min-w-0" aria-labelledby="vault-rebalance-frequency-title">
       <Tabs
+        className="gap-6"
         value={range}
         onValueChange={(value) => setRange(value as RangeKey)}
       >

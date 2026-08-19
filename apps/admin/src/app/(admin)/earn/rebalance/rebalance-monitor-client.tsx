@@ -1386,14 +1386,14 @@ function CurrentReserveApyFallback() {
 
 function ApyChartFallback() {
   return (
-    <Card className="mx-auto w-full max-w-4xl">
+    <Card className="w-full">
       <CardHeader className="border-b">
         <div className="flex flex-col gap-2">
           <Skeleton className="h-5 w-40" />
           <Skeleton className="h-4 w-96 max-w-full" />
         </div>
       </CardHeader>
-      <CardContent className="px-2 pt-6 sm:p-6">
+      <CardContent className="px-2 sm:px-6">
         <Skeleton className="h-[300px] w-full" />
         <div className="mt-4 flex flex-wrap gap-3">
           {Array.from({ length: 4 }).map((_, index) => (

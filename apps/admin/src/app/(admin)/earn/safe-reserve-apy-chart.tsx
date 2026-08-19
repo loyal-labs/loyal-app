@@ -321,7 +321,7 @@ export function SafeReserveApyChart({
     .slice(0, 25);
 
   return (
-    <Card className="w-full py-4 sm:py-0">
+    <Card className="w-full">
       <CardHeader className="gap-4 border-b">
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div>
@@ -382,7 +382,7 @@ export function SafeReserveApyChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-2 pt-6 sm:p-6">
+      <CardContent className="px-2 sm:px-6">
         {hasChartData ? (
           <ChartContainer
             config={chartConfig}

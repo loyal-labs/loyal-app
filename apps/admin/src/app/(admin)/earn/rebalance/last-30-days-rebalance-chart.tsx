@@ -83,7 +83,7 @@ export function Last30DaysRebalanceChart({
     { confirmed: 0, failed: 0 }
   );
   return (
-    <Card className="w-full py-4 sm:py-0">
+    <Card className="w-full gap-0 py-0">
       <CardHeader className="flex flex-col items-stretch border-b !p-0 sm:flex-row">
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">
@@ -116,7 +116,7 @@ export function Last30DaysRebalanceChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-2 pt-6 sm:p-6">
+      <CardContent className="p-4 sm:p-6">
         <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 px-2 text-xs text-muted-foreground">
           {Object.entries(chartConfig).map(([key, config]) => (
             <span className="flex items-center gap-1.5" key={key}>
