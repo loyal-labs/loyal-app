@@ -59,6 +59,11 @@ const SIDEBAR_LINKS = [
     icon: "icon-support.svg",
     label: "Support",
   },
+  {
+    href: "https://askloyal.com",
+    icon: "icon-globe.svg",
+    label: "Visit askloyal.com",
+  },
 ] as const;
 
 export function SplitAmount({
