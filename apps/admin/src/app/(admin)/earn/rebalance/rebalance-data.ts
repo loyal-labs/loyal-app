@@ -128,6 +128,10 @@ export type EarnVaultRebalanceFrequencyRow = {
   last2hCount: number;
   last7dCount: number;
   liquidityMint: string | null;
+  opportunity12hCount: number;
+  opportunity2hCount: number;
+  opportunity7dCount: number;
+  opportunityAllCount: number;
   positionCount: number;
   vaultId: string;
   vaultPubkey: string;
@@ -277,6 +281,10 @@ type ExecutedEarnRebalanceSqlRow = {
 
 type EarnVaultRebalanceFrequencySqlRow = {
   all_count: SqlScalar;
+  opportunity_all_count: SqlScalar;
+  opportunity_last_12h_count: SqlScalar;
+  opportunity_last_2h_count: SqlScalar;
+  opportunity_last_7d_count: SqlScalar;
   current_deposit_raw: SqlScalar;
   current_reserve: string | null;
   deposit_rank: SqlScalar;
@@ -1714,6 +1722,30 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           AND decision.target_reserve IS NOT NULL
         GROUP BY decision.vault_id
       ),
+      -- Evidence that a vault was genuinely actionable, used to keep it in the
+      -- eligible denominator even when it now sits under the modelled floor.
+      -- The reserve filter must mirror rebalance_counts above: idle-vault
+      -- deposits carry a NULL source_reserve and can never produce a confirmed
+      -- reserve-to-reserve decision, so counting them would admit vaults the
+      -- numerator is structurally unable to match.
+      opportunity_counts AS MATERIALIZED (
+        SELECT
+          opportunity.vault_id,
+          COUNT(*)::integer AS all_count,
+          COUNT(*) FILTER (
+            WHERE opportunity.created_at >= NOW() - INTERVAL '7 days'
+          )::integer AS last_7d_count,
+          COUNT(*) FILTER (
+            WHERE opportunity.created_at >= NOW() - INTERVAL '12 hours'
+          )::integer AS last_12h_count,
+          COUNT(*) FILTER (
+            WHERE opportunity.created_at >= NOW() - INTERVAL '2 hours'
+          )::integer AS last_2h_count
+        FROM loyal_yield.rebalance_opportunities AS opportunity
+        WHERE opportunity.source_reserve IS NOT NULL
+          AND opportunity.target_reserve IS NOT NULL
+        GROUP BY opportunity.vault_id
+      ),
       current_vaults AS MATERIALIZED (
         SELECT
           vault.id,
@@ -1728,7 +1760,11 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           COALESCE(rebalance.all_count, 0) AS all_count,
           COALESCE(rebalance.last_7d_count, 0) AS last_7d_count,
           COALESCE(rebalance.last_12h_count, 0) AS last_12h_count,
-          COALESCE(rebalance.last_2h_count, 0) AS last_2h_count
+          COALESCE(rebalance.last_2h_count, 0) AS last_2h_count,
+          COALESCE(opportunity.all_count, 0) AS opportunity_all_count,
+          COALESCE(opportunity.last_7d_count, 0) AS opportunity_last_7d_count,
+          COALESCE(opportunity.last_12h_count, 0) AS opportunity_last_12h_count,
+          COALESCE(opportunity.last_2h_count, 0) AS opportunity_last_2h_count
         FROM active_vaults AS vault
         LEFT JOIN position_totals AS position_total
           ON position_total.vault_id = vault.id
@@ -1740,6 +1776,8 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           ON primary_idle.vault_id = vault.id
         LEFT JOIN rebalance_counts AS rebalance
           ON rebalance.vault_id = vault.id
+        LEFT JOIN opportunity_counts AS opportunity
+          ON opportunity.vault_id = vault.id
         WHERE COALESCE(position_total.amount_raw, 0::bigint)
           + COALESCE(idle_total.amount_raw, 0::bigint) > 0
       ),
@@ -1764,6 +1802,10 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         ranked_vault.last_7d_count::text,
         ranked_vault.last_12h_count::text,
         ranked_vault.last_2h_count::text,
+        ranked_vault.opportunity_all_count::text,
+        ranked_vault.opportunity_last_7d_count::text,
+        ranked_vault.opportunity_last_12h_count::text,
+        ranked_vault.opportunity_last_2h_count::text,
         ranked_vault.deposit_rank::text,
         MAX(ranked_vault.deposit_rank) OVER ()::text AS vault_count
       FROM ranked_vaults AS ranked_vault
@@ -1783,6 +1825,10 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
       last2hCount: toNumber(row.last_2h_count),
       last7dCount: toNumber(row.last_7d_count),
       liquidityMint: row.liquidity_mint,
+      opportunity12hCount: toNumber(row.opportunity_last_12h_count),
+      opportunity2hCount: toNumber(row.opportunity_last_2h_count),
+      opportunity7dCount: toNumber(row.opportunity_last_7d_count),
+      opportunityAllCount: toNumber(row.opportunity_all_count),
       positionCount: toNumber(row.position_count),
       vaultId: row.vault_id,
       vaultPubkey: row.vault_pubkey,
