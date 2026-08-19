@@ -35,6 +35,14 @@ function envelope(overrides: Record<string, unknown> = {}) {
 }
 
 describe("lifecycle errorDetail", () => {
+  test("accepts the bounded expired wallet authorization code", () => {
+    const parsed = parseBrowserLifecycleEnvelope(
+      envelope({ errorCode: "wallet_authorization_expired" })
+    );
+
+    expect(parsed.errorCode).toBe("wallet_authorization_expired");
+  });
+
   test("is accepted alongside a category error code", () => {
     const parsed = parseBrowserLifecycleEnvelope(
       envelope({

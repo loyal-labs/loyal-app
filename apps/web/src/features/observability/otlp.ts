@@ -31,6 +31,53 @@ function toUnixNano(timestamp: string): string {
   return (BigInt(Date.parse(timestamp)) * BigInt(1_000_000)).toString();
 }
 
+const EXPECTED_LOCAL_WALLET_FAILURES = new Set([
+  "wallet_authorization_expired",
+  "wallet_connection_failed",
+  "wallet_connection_timeout",
+  "wallet_signing_failed",
+  "wallet_unavailable",
+]);
+
+/**
+ * The generic Errors alert is a service-health page, not a feed of every
+ * user-visible failure. Keep expected device/session and caller-state failures
+ * observable at INFO while failing closed for unknown causes, our own bugs,
+ * upstream/RPC incidents and anything that may need money-movement recovery.
+ */
+export function isAlertableLifecycleEvent(
+  event: NormalizedLifecycleEvent
+): boolean {
+  if (event.recoveryRequired === true) return true;
+  if (event.outcome !== "failed") return false;
+  if (event.errorCode && EXPECTED_LOCAL_WALLET_FAILURES.has(event.errorCode)) {
+    return false;
+  }
+  if (event.errorCode !== "request_failed") return true;
+  if (
+    event.errorDetail === "kamino_upstream_unavailable" ||
+    event.errorDetail === "rpc_request_failed"
+  ) {
+    return true;
+  }
+  if (
+    event.errorDetail === "network_unreachable" ||
+    event.errorDetail === "request_timeout"
+  ) {
+    return false;
+  }
+  if (
+    event.httpStatus !== undefined &&
+    event.httpStatus >= 400 &&
+    event.httpStatus < 500
+  ) {
+    return false;
+  }
+  // Old clients do not carry a cause token. Keep unknown statusless failures
+  // alertable until their cause is known rather than silently hiding a bug.
+  return true;
+}
+
 export function buildOtlpErrorPayload(event: NormalizedErrorEvent): unknown {
   const attributes = [
     stringAttribute("loyal.runtime", event.runtime),
@@ -214,7 +261,7 @@ export function buildOtlpLifecyclePayload(
   }
 
   const timeUnixNano = toUnixNano(event.timestamp);
-  const isError = event.outcome === "failed" || event.recoveryRequired === true;
+  const isError = isAlertableLifecycleEvent(event);
   return {
     resourceLogs: [
       {

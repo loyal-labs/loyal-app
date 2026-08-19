@@ -52,6 +52,10 @@ function codedError(code: string | number, message = "native failure"): Error {
   return Object.assign(new Error(message), { code });
 }
 
+function plainCodedError(code: string | number, message = "native failure") {
+  return { code, message };
+}
+
 const publicKey = PublicKey.unique().toBase58();
 const authToken = "auth-token";
 
@@ -84,6 +88,18 @@ function failAfterSession(error: unknown) {
     // Same session wrapper as `signMessages`, so both privileged calls can be
     // exercised against an identical rejection.
     signTransactions: async () => {
+      throw error;
+    },
+  };
+  mockTransact.mockImplementation(async (callback: (w: unknown) => unknown) =>
+    callback(wallet),
+  );
+}
+
+/** Opens the session, then rejects while reauthorizing the stored token. */
+function failDuringReauthorization(error: unknown) {
+  const wallet = {
+    authorize: async () => {
       throw error;
     },
   };
@@ -233,11 +249,43 @@ describe("MWA session error classification", () => {
       const error = await failureOf(signer().signMessage(new Uint8Array([1])));
 
       expect(error).toBeInstanceOf(Error);
+      expect(error).toMatchObject({
+        failure: "authorization_expired",
+        walletCode: -1,
+      });
       expect((error as Error).message).toBe(
         "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.",
       );
       // A surviving `code` is precisely what routed this to `request_failed`.
       expect(error).not.toHaveProperty("code");
+    });
+
+    it("recovers a plain-object native rejection after reauthorization", async () => {
+      const native = plainCodedError(-1, "authorization request failed");
+      failAfterSession(native);
+
+      const error = await failureOf(signer().signMessage(new Uint8Array([1])));
+
+      expect(error).toMatchObject({
+        failure: "authorization_expired",
+        walletCode: -1,
+      });
+      expect((error as Error).cause).toBe(native);
+      expect(clearMwaAccount).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers a plain-object rejection during reauthorization", async () => {
+      const native = plainCodedError(-1, "authorization request failed");
+      failDuringReauthorization(native);
+
+      const error = await failureOf(signer().signMessage(new Uint8Array([1])));
+
+      expect(error).toMatchObject({
+        failure: "authorization_expired",
+        walletCode: -1,
+      });
+      expect((error as Error).cause).toBe(native);
+      expect(clearMwaAccount).toHaveBeenCalledTimes(1);
     });
 
     // Without this the app keeps showing a connected wallet that cannot sign,

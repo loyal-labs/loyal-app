@@ -20,6 +20,8 @@
 // the actual failure instead of a blanket `request_failed`.
 
 export type WalletSessionFailure =
+  /** The wallet revoked the authorization token stored by Loyal. */
+  | "authorization_expired"
   /** No MWA-capable wallet app is installed. */
   | "unavailable"
   /** The wallet app never connected back — the session never opened. */
@@ -33,6 +35,8 @@ export type WalletSessionFailure =
 // from the reason: telling someone to update a wallet app that simply was not
 // running sends them down the wrong path.
 const WALLET_SESSION_MESSAGES: Record<WalletSessionFailure, string> = {
+  authorization_expired:
+    "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.",
   connection_failed:
     "Couldn't reach your wallet app. Open it once so it's running, then try again.",
   signing_failed:

@@ -167,6 +167,9 @@ describe("wallet session classification", () => {
     expect(mapLifecycleErrorCode(new WalletSessionError("signing_failed"))).toBe(
       "wallet_signing_failed",
     );
+    expect(
+      mapLifecycleErrorCode(new WalletSessionError("authorization_expired")),
+    ).toBe("wallet_authorization_expired");
   });
 
   // The native module's own codes must not leak through the generic probe.
@@ -201,6 +204,23 @@ describe("wallet session classification", () => {
       errorCode: "wallet_connection_failed",
     });
     expect(sent[0].httpStatus).toBeUndefined();
+  });
+
+  it("emits a bounded expired-authorization code, not a request failure", () => {
+    const sent = captureEnvelopes();
+    const native = { code: -1, message: "authorization request failed" };
+    newFlow().failFrom(
+      "prepare",
+      new WalletSessionError("authorization_expired", -1, native),
+    );
+
+    expect(sent[0]).toMatchObject({
+      outcome: "failed",
+      errorCode: "wallet_authorization_expired",
+    });
+    expect(JSON.stringify(sent[0])).not.toContain(
+      "authorization request failed",
+    );
   });
 });
 

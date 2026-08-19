@@ -62,15 +62,15 @@ async function getMwa() {
 // for session-level errors, negative number for wallet protocol errors.
 // Property check instead of instanceof avoids coupling to the class exports.
 function hasErrorCode(error: unknown, code: string | number): boolean {
-  return (
-    error instanceof Error &&
-    (error as { code?: string | number }).code === code
-  );
+  return errorCodeOf(error) === code;
 }
 
 function errorCodeOf(error: unknown): string | number | undefined {
-  if (!(error instanceof Error)) return undefined;
-  return (error as { code?: string | number }).code;
+  if (!error || typeof error !== "object") return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" || typeof code === "number"
+    ? code
+    : undefined;
 }
 
 // Backing out of the wallet chooser rejects with a *sentence* as the code:
@@ -369,7 +369,7 @@ export class MwaSigner implements Signer {
         // to `request_failed` — naming an HTTP failure for a call that never
         // reached the network, and leaving the stale token in place so every
         // retry failed identically (ASK-1872 follow-up).
-        throw await this.forgetAuthorization();
+        throw await this.forgetAuthorization(error);
       }
       // Only session-layer rejections become wallet-session failures. Protocol
       // errors, `reauthorize`'s reconnect instructions and our signature checks
@@ -388,9 +388,18 @@ export class MwaSigner implements Signer {
    * connected wallet whose every signature is refused, and the user has no way
    * to reach the reconnect flow from inside the failing screen.
    */
-  private async forgetAuthorization(): Promise<Error> {
+  private async forgetAuthorization(cause?: unknown): Promise<Error> {
     await clearMwaAccount();
-    return new Error(RECONNECT_MESSAGE);
+    // A different reauthorized account is a deterministic protocol mismatch,
+    // not an expired native authorization. Keep its existing unexpected-error
+    // identity so the alert policy does not hide a Loyal/wallet integration
+    // defect behind the expected revoked-token recovery path.
+    if (cause === undefined) return new Error(RECONNECT_MESSAGE);
+    return new WalletSessionError(
+      "authorization_expired",
+      errorCodeOf(cause),
+      cause,
+    );
   }
 
   private async reauthorize(wallet: Web3MobileWallet): Promise<void> {
@@ -405,7 +414,7 @@ export class MwaSigner implements Signer {
       // ERROR_AUTHORIZATION_FAILED: the wallet revoked our authorization
       // (the user disconnected this app). Transient session errors rethrow.
       if (!hasErrorCode(error, -1)) throw error;
-      throw await this.forgetAuthorization();
+      throw await this.forgetAuthorization(error);
     }
     const base64Address = toBase64Address(this.publicKey);
     if (!result.accounts.some((a) => a.address === base64Address)) {
