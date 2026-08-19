@@ -1776,7 +1776,7 @@ export function AutodepositToggle({
       aria-label={
         ariaLabel ?? (isOn ? "Pause Autodeposit" : "Resume Autodeposit")
       }
-      className={`t-toggle${isInit ? "is-init" : ""}`}
+      className={`t-toggle${isInit ? " is-init" : ""}`}
       data-on={isOn}
       disabled={disabled}
       onClick={onToggle}
