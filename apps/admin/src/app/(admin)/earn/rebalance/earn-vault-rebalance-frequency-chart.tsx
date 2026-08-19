@@ -451,39 +451,37 @@ export function EarnVaultRebalanceFrequencyChart({
               mode={routeMode}
               onModeChange={setRouteMode}
             />
-            <TabsList
-              aria-label="Vault rebalance frequency window"
-              className="w-fit max-w-full"
-            >
-              {RANGE_OPTIONS.map((option) => (
-                <TabsTrigger key={option.key} value={option.key}>
-                  {option.tabLabel}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            <DepositScaleSwitch
-              id="vault-rebalance-frequency-scale"
-              onScaleChange={setScale}
-              scale={scale}
-            />
-            <Button
-              aria-pressed={showTable}
-              onClick={() => setShowTable((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showTable ? "secondary" : "outline"}
-            >
-              Table
-            </Button>
+            {points.length > 0 ? (
+              <>
+                <TabsList
+                  aria-label="Vault rebalance frequency window"
+                  className="w-fit max-w-full"
+                >
+                  {RANGE_OPTIONS.map((option) => (
+                    <TabsTrigger key={option.key} value={option.key}>
+                      {option.tabLabel}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                <DepositScaleSwitch
+                  id="vault-rebalance-frequency-scale"
+                  onScaleChange={setScale}
+                  scale={scale}
+                />
+                <Button
+                  aria-pressed={showTable}
+                  onClick={() => setShowTable((value) => !value)}
+                  size="sm"
+                  type="button"
+                  variant={showTable ? "secondary" : "outline"}
+                >
+                  Table
+                </Button>
+              </>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-            {points.length === 0 ? (
-              <span className="font-medium text-foreground">
-                {routeMode === "cross_mint"
-                  ? "No enabled Crossmint vaults"
-                  : "No funded active Earn vaults"}
-              </span>
-            ) : eligibilityFloorRaw === null ? (
+            {points.length === 0 ? null : eligibilityFloorRaw === null ? (
               <span>
                 {rebalancedVaultCount.toLocaleString("en-US")} of{" "}
                 {points.length.toLocaleString("en-US")} funded vaults rebalanced
@@ -541,9 +539,9 @@ export function EarnVaultRebalanceFrequencyChart({
             {range === option.key ? (
               <CardContent className="min-w-0">
                 {points.length === 0 ? (
-                  <div className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                  <div className="flex min-h-40 items-center justify-center rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
                     {routeMode === "cross_mint"
-                      ? "Crossmint is not enabled for any active Earn vault."
+                      ? "No active Earn vaults have Crossmint enabled."
                       : "No funded active Earn vaults are available."}
                   </div>
                 ) : showTable ? (

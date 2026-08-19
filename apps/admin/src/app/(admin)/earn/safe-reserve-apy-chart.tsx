@@ -205,9 +205,24 @@ function getApyValues(args: {
 }
 
 function ApyTooltip({ active, label, labels, payload }: ApyTooltipProps) {
-  const visiblePayload = (payload ?? []).filter(
-    (item) => typeof item.value === "number"
-  );
+  const visiblePayload = (payload ?? [])
+    .filter(
+      (item): item is TooltipPayloadItem & { value: number } =>
+        typeof item.value === "number"
+    )
+    .sort((left, right) => {
+      const valueOrder = right.value - left.value;
+      if (valueOrder !== 0) {
+        return valueOrder;
+      }
+
+      const leftKey = String(left.dataKey ?? left.name ?? "");
+      const rightKey = String(right.dataKey ?? right.name ?? "");
+      return (labels[leftKey] ?? leftKey).localeCompare(
+        labels[rightKey] ?? rightKey,
+        "en-US"
+      );
+    });
 
   if (!active || visiblePayload.length === 0) {
     return null;
