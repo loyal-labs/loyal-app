@@ -66,8 +66,8 @@ type EarnDepositStages = {
 // prompt (Seed Vault batches them), send strictly in order (the policy stages
 // must land before the deposit), then record into the web read-model via the
 // confirm call — best-effort with retries, never undoing a confirmed on-chain
-// deposit because the DB write failed (the backend earn-deposit-reconcile
-// cron adopts any deposit whose confirm is still lost).
+// deposit because the DB write failed (yield routing adopts any deposit whose
+// confirm is still lost after observing the account update).
 async function signSendAndConfirmDeposit(args: {
   signer: Signer;
   prepareAuth: EarnAuthFields;
@@ -102,7 +102,7 @@ async function signSendAndConfirmDeposit(args: {
   const deposit = sent[cursor];
 
   // Retried because a confirm loss makes the deposit invisible in the app
-  // until the reconcile cron adopts it (launch night: ~10% of confirms were
+  // until yield routing reconciles it (launch night: ~10% of confirms were
   // lost to RPC-lag rejections; the server now retries its reads too, but
   // network drops on this call remain). Each attempt is idempotent
   // server-side.
@@ -131,7 +131,7 @@ async function signSendAndConfirmDeposit(args: {
     } catch (error) {
       if (attempt === CONFIRM_ATTEMPTS) {
         console.warn(
-          "[earn-deposit] confirm failed after retries; the earn-deposit-reconcile cron will adopt this deposit",
+          "[earn-deposit] confirm failed after retries; yield routing will adopt this deposit",
           error,
         );
         break;

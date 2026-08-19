@@ -229,7 +229,7 @@ const WITHDRAW_NETWORK_MESSAGE =
 // its node reaches `minContextSlot`. Those and network blips heal on retry;
 // 4xx codes (missing endpoint, genuine leftover sources) never do. The user
 // is already on the success screen here, so the budget is generous: giving up
-// strands the rent refund until the earn-cleanup-reconcile cron adopts it.
+// strands the rent refund until yield routing observes and reconciles it.
 const RETRYABLE_CLEANUP_CONTEXT_CODES = new Set([
   "context_failed",
   "resolve_failed",
@@ -239,8 +239,8 @@ const CLEANUP_CONTEXT_RETRY_DELAY_MS = 2_500;
 
 // The cleanup confirm 503s (`full_exit_verification_retryable`) while the
 // backend's RPC catches up to the cleanup slot for its zero proof. A dropped
-// confirm leaves the position row active-at-$0 (a ghost) until the reconcile
-// cron adopts it, so retry here first.
+// confirm leaves the position row active-at-$0 (a ghost) until yield routing
+// reconciles it, so retry here first.
 const RETRYABLE_CLEANUP_CONFIRM_CODES = new Set([
   "full_exit_verification_retryable",
 ]);

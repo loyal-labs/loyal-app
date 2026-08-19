@@ -92,7 +92,6 @@ type VerifyPhase =
   | "full-withdraw-cleanup"
   | "initial-deposit-from-clean"
   | "initial-deposit-then-withdraw-cleanup"
-  | "policy-only-reconcile-dry-run"
   | "policy-resume-readiness"
   | "rpc-holdings-withdrawal-preview"
   | "same-mint-frontend-sdk-live"
@@ -363,7 +362,6 @@ function assertVerifyPhase(phase: string): asserts phase is VerifyPhase {
     phase !== "full-withdraw-cleanup" &&
     phase !== "initial-deposit-from-clean" &&
     phase !== "initial-deposit-then-withdraw-cleanup" &&
-    phase !== "policy-only-reconcile-dry-run" &&
     phase !== "policy-resume-readiness" &&
     phase !== "rpc-holdings-withdrawal-preview" &&
     phase !== "same-mint-frontend-sdk-live" &&
@@ -2935,56 +2933,6 @@ async function runPolicyResumeReadiness(): Promise<void> {
   }
 }
 
-async function runPolicyOnlyReconcileDryRun(): Promise<void> {
-  const evidence: Record<string, unknown> = {
-    cluster: LoyalCluster.MainnetBeta,
-    dryRun: true,
-    env: SOLANA_ENV,
-    evidencePath: EVIDENCE_PATH,
-    phase: "policy-only-reconcile-dry-run",
-    sendsTransactions: false,
-    status: "failed",
-    writesDatabase: false,
-  };
-
-  try {
-    if (!DRY_RUN) {
-      throw new Error(
-        "policy-only-reconcile-dry-run is read-only. Set EARN_VERIFY_DRY_RUN=1."
-      );
-    }
-    const { reconcileInvisibleEarnDeposits } = await import(
-      "../apps/web/src/lib/yield-optimization/earn-deposit-reconcile.server.ts"
-    );
-    const summary = await reconcileInvisibleEarnDeposits({
-      dryRun: true,
-      policyOnly: true,
-    });
-    evidence.summary = summary;
-    if (summary.policyOnlyErrors > 0 || summary.truncated) {
-      throw new Error(
-        `Policy-only reconciliation dry-run was incomplete: ${summary.policyOnlyErrors} errors; truncated=${summary.truncated}.`
-      );
-    }
-    if (summary.policyOnlyAdopted.length > 0) {
-      throw new Error(
-        "Policy-only reconciliation dry-run unexpectedly reported a database adoption."
-      );
-    }
-    evidence.status = "success";
-    await writeEvidence(evidence);
-    console.log("[earn-mainnet] PASS policy-only reconciliation dry-run");
-    console.log(`[earn-mainnet] evidence ${EVIDENCE_PATH}`);
-  } catch (error) {
-    evidence.error =
-      error instanceof Error
-        ? `${error.name}: ${error.message}`
-        : String(error);
-    await writeEvidence(evidence);
-    throw error;
-  }
-}
-
 async function assertNoVerifierFailures(args: {
   settings: string;
   verifyUserYieldPositions: () => Promise<Array<{ settings: string }>>;
@@ -3239,11 +3187,6 @@ async function main() {
 
   if (VERIFY_PHASE === "policy-resume-readiness") {
     await runPolicyResumeReadiness();
-    return;
-  }
-
-  if (VERIFY_PHASE === "policy-only-reconcile-dry-run") {
-    await runPolicyOnlyReconcileDryRun();
     return;
   }
 
