@@ -35,7 +35,11 @@ async function loadRebalanceMonitorData() {
   ]);
 
   return {
-    activity,
+    activity: activity.map((point) => ({
+      ...point,
+      maxSwapFeeLamports: point.maxSwapFeeLamports.toString(),
+      swapFeeLamports: point.swapFeeLamports.toString(),
+    })),
     apyData,
     autodeposit: autodeposit.map((range) => ({
       bucketHours: range.bucketHours,
@@ -76,6 +80,7 @@ async function loadExecutedRebalances() {
         amountRaw: execution.amountRaw.toString(),
         confirmedSlot: execution.confirmedSlot.toString(),
         currentDepositRaw: execution.currentDepositRaw.toString(),
+        swapFeeLamports: execution.swapFeeLamports.toString(),
       })),
     };
   } catch (error) {

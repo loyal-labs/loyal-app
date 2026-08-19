@@ -40,14 +40,13 @@ import {
 import type { SafeReserveApyStatusRow } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
 import { buildLogTicks, formatDepositTick } from "./earn-vault-rebalance-axis";
-import {
-  DepositScaleSwitch,
-  type DepositScale,
-} from "./deposit-scale-switch";
+import { DepositScaleSwitch, type DepositScale } from "./deposit-scale-switch";
 import {
   computeRebalanceEligibilityFloorRaw,
   summarizeRebalanceEligibility,
 } from "./earn-vault-rebalance-eligibility";
+import type { RebalanceRouteMode } from "./rebalance-data";
+import { RouteModeSwitch } from "./route-mode-switch";
 
 const NO_RESERVE_KEY = "__no_current_reserve__";
 const RESERVE_COLORS = [
@@ -73,6 +72,7 @@ export type SerializedEarnVaultRebalanceFrequencyRow = {
   opportunity7dCount: number;
   opportunityAllCount: number;
   positionCount: number;
+  routeMode: RebalanceRouteMode;
   vaultId: string;
   vaultPubkey: string;
 };
@@ -274,6 +274,7 @@ export function EarnVaultRebalanceFrequencyChart({
   reserveStatuses: SafeReserveApyStatusRow[];
 }) {
   const [range, setRange] = useState<RangeKey>("all");
+  const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
   const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
 
@@ -282,6 +283,7 @@ export function EarnVaultRebalanceFrequencyChart({
   const rankedVaults = useMemo(
     () =>
       [...data.vaults]
+        .filter((vault) => vault.routeMode === routeMode)
         .sort((left, right) => {
           const amountOrder = compareRawAmounts(
             left.currentDepositRaw,
@@ -295,7 +297,7 @@ export function EarnVaultRebalanceFrequencyChart({
           ...vault,
           depositRank: index + 1,
         })),
-    [data.vaults]
+    [data.vaults, routeMode]
   );
   const points = useMemo(
     () =>
@@ -398,8 +400,7 @@ export function EarnVaultRebalanceFrequencyChart({
   const zeroDepositCount = points.length - positiveDeposits.length;
   const scatterPoints = points.map((point) => ({
     ...point,
-    plottedDeposit:
-      point.depositAmount > 0 ? point.depositAmount : logFloor,
+    plottedDeposit: point.depositAmount > 0 ? point.depositAmount : logFloor,
   }));
 
   if (data.status === "unavailable") {
@@ -434,23 +435,33 @@ export function EarnVaultRebalanceFrequencyChart({
                 Earn vault rebalance frequency
               </CardTitle>
               <CardDescription>
-                One dot per funded active vault. X is the current deposit, on a
-                log or linear scale; Y shows confirmed reserve-to-reserve
+                One dot per funded active{" "}
+                {routeMode === "cross_mint" ? "Crossmint-enrolled" : "Earn"}{" "}
+                vault. X is the current deposit, on a log or linear scale; Y
+                shows confirmed{" "}
+                {routeMode === "cross_mint" ? "Crossmint" : "same-mint"}{" "}
                 rebalances in the selected window. Dot color is the largest
                 current reserve position. Vaults below the eligibility floor
                 cannot clear the planner&rsquo;s economic gate, so they sit at
                 zero by design.
               </CardDescription>
             </div>
-            <Button
-              aria-pressed={showTable}
-              onClick={() => setShowTable((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showTable ? "secondary" : "outline"}
-            >
-              Table
-            </Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <RouteModeSwitch
+                id="vault-rebalance-frequency-route-mode"
+                mode={routeMode}
+                onModeChange={setRouteMode}
+              />
+              <Button
+                aria-pressed={showTable}
+                onClick={() => setShowTable((value) => !value)}
+                size="sm"
+                type="button"
+                variant={showTable ? "secondary" : "outline"}
+              >
+                Table
+              </Button>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <TabsList

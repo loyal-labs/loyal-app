@@ -4,6 +4,8 @@ import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.serv
 
 type SqlScalar = string | number | bigint | null;
 
+export type RebalanceRouteMode = "same_mint" | "cross_mint";
+
 export type RebalanceAuditRange = "24h" | "7d" | "30d" | "all";
 export type RebalanceAuditView =
   | "completed_rebalances"
@@ -46,11 +48,14 @@ export type EarnRebalanceDecisionRow = {
   estimatedEdgeBps: number | null;
   id: string;
   liquidityMint: string | null;
+  routeMode: RebalanceRouteMode;
   signature: string | null;
+  sourceLiquidityMint: string | null;
   sourceApyBps: number | null;
   sourceReserve: string | null;
   status: string;
   targetApyBps: number | null;
+  targetLiquidityMint: string | null;
   targetReserve: string | null;
   updatedAt: string;
 };
@@ -58,10 +63,14 @@ export type EarnRebalanceDecisionRow = {
 export type RebalanceActivityPoint = {
   bucketStartedAt: string;
   confirmed: number;
+  finalizedSwapLegs: number;
   expiredSubmissions: number;
   failedDecisions: number;
   failedOpportunities: number;
   fleetClaims: number;
+  maxSwapFeeLamports: bigint;
+  routeMode: RebalanceRouteMode;
+  swapFeeLamports: bigint;
   terminalAttempts: number;
 };
 
@@ -97,6 +106,7 @@ export type Last30DaysRebalancePoint = {
   confirmed: number;
   date: string;
   failed: number;
+  routeMode: RebalanceRouteMode;
   terminalAttempts: number;
 };
 
@@ -108,8 +118,12 @@ export type ExecutedEarnRebalanceRow = {
   executedAt: string;
   id: string;
   liquidityMint: string | null;
+  routeMode: RebalanceRouteMode;
   sourceReserve: string;
+  sourceLiquidityMint: string | null;
+  swapFeeLamports: bigint;
   targetReserve: string;
+  targetLiquidityMint: string | null;
   userRank: number;
 };
 
@@ -133,6 +147,7 @@ export type EarnVaultRebalanceFrequencyRow = {
   opportunity7dCount: number;
   opportunityAllCount: number;
   positionCount: number;
+  routeMode: RebalanceRouteMode;
   vaultId: string;
   vaultPubkey: string;
 };
@@ -217,11 +232,14 @@ type RebalanceDecisionSqlRow = {
   execution_kind: string | null;
   id: string | number | bigint;
   liquidity_mint: string | null;
+  route_mode: string;
   signature: string | null;
+  source_liquidity_mint: string | null;
   source_apy_bps: SqlScalar;
   source_reserve: string | null;
   status: string;
   target_apy_bps: SqlScalar;
+  target_liquidity_mint: string | null;
   target_reserve: string | null;
   updated_at: Date | string;
 };
@@ -229,10 +247,14 @@ type RebalanceDecisionSqlRow = {
 type RebalanceActivitySqlRow = {
   bucket_started_at: Date | string;
   confirmed: SqlScalar;
+  finalized_swap_legs: SqlScalar;
   expired_submissions: SqlScalar;
   failed_decisions: SqlScalar;
   failed_opportunities: SqlScalar;
   fleet_claims: SqlScalar;
+  max_swap_fee_lamports: SqlScalar;
+  route_mode: string;
+  swap_fee_lamports: SqlScalar;
   terminal_attempts: SqlScalar;
 };
 
@@ -262,6 +284,7 @@ type Last30DaysRebalanceSqlRow = {
   confirmed: SqlScalar;
   date: string;
   failed: SqlScalar;
+  route_mode: string;
   terminal_attempts: SqlScalar;
 };
 
@@ -273,8 +296,12 @@ type ExecutedEarnRebalanceSqlRow = {
   executed_at: Date | string;
   id: string;
   liquidity_mint: string | null;
+  route_mode: string;
   source_reserve: string;
+  source_liquidity_mint: string | null;
+  swap_fee_lamports: SqlScalar;
   target_reserve: string;
+  target_liquidity_mint: string | null;
   user_count: SqlScalar;
   user_rank: SqlScalar;
 };
@@ -293,6 +320,7 @@ type EarnVaultRebalanceFrequencySqlRow = {
   last_7d_count: SqlScalar;
   liquidity_mint: string | null;
   position_count: SqlScalar;
+  route_mode: string;
   vault_count: SqlScalar;
   vault_id: string;
   vault_pubkey: string;
@@ -389,11 +417,18 @@ function queryRows<T>(query: string): Promise<T[]> {
 function getDecisionType(
   row: Pick<RebalanceDecisionSqlRow, "execution_kind">
 ): EarnRebalanceDecisionRow["decisionType"] {
-  if (row.execution_kind === "same_mint") {
+  if (
+    row.execution_kind === "same_mint" ||
+    row.execution_kind === "cross_mint_jupiter"
+  ) {
     return "rebalance";
   }
 
   return null;
+}
+
+function mapRouteMode(value: string | null): RebalanceRouteMode {
+  return value === "cross_mint_jupiter" ? "cross_mint" : "same_mint";
 }
 
 function mapAuditLane(value: string | null): RebalanceAuditLane {
@@ -597,12 +632,18 @@ const AUDIT_ROWS_CTE = `
       decision.created_at,
       decision.updated_at,
       CASE
-        WHEN decision.execution_plan->>'kind' = 'same_mint' THEN 'rebalance'
+        WHEN decision.execution_plan->>'kind' IN (
+          'same_mint',
+          'cross_mint_jupiter'
+        ) THEN 'rebalance'
         WHEN decision.execution_plan->>'kind' = 'idle_vault_deposit' THEN 'deposit'
         ELSE 'needs_review'
       END::text AS lane,
       CASE
-        WHEN decision.execution_plan->>'kind' = 'same_mint' THEN 'rebalance'
+        WHEN decision.execution_plan->>'kind' IN (
+          'same_mint',
+          'cross_mint_jupiter'
+        ) THEN 'rebalance'
         WHEN decision.execution_plan->>'kind' = 'idle_vault_deposit' THEN 'idle_vault_deposit'
         ELSE 'needs_review'
       END::text AS movement_source,
@@ -857,12 +898,27 @@ export async function getRecentRebalanceDecisions(): Promise<
 > {
   const rows = await queryRows<RebalanceDecisionSqlRow>(
     `
+      WITH ranked_decisions AS MATERIALIZED (
+        SELECT
+          decision.*,
+          ROW_NUMBER() OVER (
+            PARTITION BY decision.execution_plan->>'kind'
+            ORDER BY decision.created_at DESC, decision.id DESC
+          ) AS route_mode_rank
+        FROM loyal_yield.rebalance_decisions AS decision
+        WHERE decision.execution_plan->>'kind' IN (
+          'same_mint',
+          'cross_mint_jupiter'
+        )
+      )
       SELECT
         id::text,
         status::text,
         source_reserve,
         target_reserve,
         liquidity_mint,
+        source_liquidity_mint,
+        target_liquidity_mint,
         amount_raw::text,
         source_apy_bps::text,
         target_apy_bps::text,
@@ -873,11 +929,11 @@ export async function getRecentRebalanceDecisions(): Promise<
         confirmed_slot::text,
         created_at,
         updated_at,
-        execution_plan->>'kind' AS execution_kind
-      FROM loyal_yield.rebalance_decisions
-      WHERE execution_plan->>'kind' = 'same_mint'
+        execution_plan->>'kind' AS execution_kind,
+        execution_plan->>'kind' AS route_mode
+      FROM ranked_decisions
+      WHERE route_mode_rank <= 25
       ORDER BY created_at DESC, id DESC
-      LIMIT 25
     `
   );
 
@@ -891,11 +947,14 @@ export async function getRecentRebalanceDecisions(): Promise<
     estimatedEdgeBps: toNullableNumber(row.estimated_edge_bps),
     id: String(row.id),
     liquidityMint: row.liquidity_mint,
+    routeMode: mapRouteMode(row.route_mode),
     signature: row.signature,
+    sourceLiquidityMint: row.source_liquidity_mint,
     sourceApyBps: toNullableNumber(row.source_apy_bps),
     sourceReserve: row.source_reserve,
     status: row.status,
     targetApyBps: toNullableNumber(row.target_apy_bps),
+    targetLiquidityMint: row.target_liquidity_mint,
     targetReserve: row.target_reserve,
     updatedAt: toIsoString(row.updated_at) ?? "",
   }));
@@ -920,15 +979,23 @@ export async function getRebalanceActivity(): Promise<
             timestamptz '1970-01-01 00:00:00+00'
           ) AS ended_at
       ),
+      route_modes AS (
+        SELECT *
+        FROM (VALUES ('same_mint'), ('cross_mint_jupiter')) AS modes(route_mode)
+      ),
       buckets AS (
-        SELECT generate_series(
-          (SELECT started_at FROM bounds),
-          (SELECT ended_at FROM bounds),
-          interval '2 hours'
-        ) AS bucket_started_at
+        SELECT
+          route_mode.route_mode,
+          generate_series(
+            (SELECT started_at FROM bounds),
+            (SELECT ended_at FROM bounds),
+            interval '2 hours'
+          ) AS bucket_started_at
+        FROM route_modes AS route_mode
       ),
       decision_activity AS (
         SELECT
+          decision.execution_plan->>'kind' AS route_mode,
           date_bin(
             interval '2 hours',
             decision.updated_at,
@@ -944,12 +1011,16 @@ export async function getRebalanceActivity(): Promise<
             WHERE decision.status = 'failed'
           )::bigint AS failed_decisions
         FROM loyal_yield.rebalance_decisions AS decision
-        WHERE decision.execution_plan->>'kind' = 'same_mint'
+        WHERE decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
           AND decision.updated_at >= (SELECT window_started_at FROM bounds)
-        GROUP BY 1
+        GROUP BY 1, 2
       ),
       opportunity_activity AS (
         SELECT
+          opportunity.execution_plan->>'kind' AS route_mode,
           date_bin(
             interval '2 hours',
             opportunity.state_entered_at,
@@ -957,15 +1028,19 @@ export async function getRebalanceActivity(): Promise<
           ) AS bucket_started_at,
           COUNT(*)::bigint AS failed_opportunities
         FROM loyal_yield.rebalance_opportunities AS opportunity
-        WHERE opportunity.execution_plan->>'kind' = 'same_mint'
+        WHERE opportunity.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
           AND opportunity.opportunity_state = 'failed'
           AND opportunity.state_entered_at >= (
             SELECT window_started_at FROM bounds
           )
-        GROUP BY 1
+        GROUP BY 1, 2
       ),
       submission_activity AS (
         SELECT
+          decision.execution_plan->>'kind' AS route_mode,
           date_bin(
             interval '2 hours',
             submission.submission_state_entered_at,
@@ -973,14 +1048,21 @@ export async function getRebalanceActivity(): Promise<
           ) AS bucket_started_at,
           COUNT(*)::bigint AS expired_submissions
         FROM loyal_yield.signed_route_submissions AS submission
+        INNER JOIN loyal_yield.rebalance_decisions AS decision
+          ON decision.id = submission.decision_id
         WHERE submission.submission_state = 'expired'
+          AND decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
           AND submission.submission_state_entered_at >= (
             SELECT window_started_at FROM bounds
           )
-        GROUP BY 1
+        GROUP BY 1, 2
       ),
       opportunity_claims AS (
         SELECT
+          opportunity.execution_plan->>'kind' AS route_mode,
           date_bin(
             interval '2 hours',
             opportunity.created_at,
@@ -988,11 +1070,39 @@ export async function getRebalanceActivity(): Promise<
           ) AS bucket_started_at,
           COALESCE(SUM(opportunity.attempt_count), 0)::bigint AS fleet_claims
         FROM loyal_yield.rebalance_opportunities AS opportunity
-        WHERE opportunity.execution_plan->>'kind' = 'same_mint'
+        WHERE opportunity.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
           AND opportunity.created_at >= (SELECT window_started_at FROM bounds)
-        GROUP BY 1
+        GROUP BY 1, 2
+      ),
+      swap_fee_activity AS (
+        SELECT
+          'cross_mint_jupiter'::text AS route_mode,
+          date_bin(
+            interval '2 hours',
+            submission.finalized_at,
+            timestamptz '1970-01-01 00:00:00+00'
+          ) AS bucket_started_at,
+          COUNT(*)::bigint AS finalized_swap_legs,
+          COALESCE(SUM(submission.compiled_fee_lamports), 0)::bigint
+            AS swap_fee_lamports,
+          COALESCE(MAX(submission.compiled_fee_lamports), 0)::bigint
+            AS max_swap_fee_lamports
+        FROM loyal_yield.signed_route_submissions AS submission
+        INNER JOIN loyal_yield.rebalance_decisions AS decision
+          ON decision.id = submission.decision_id
+        WHERE decision.execution_plan->>'kind' = 'cross_mint_jupiter'
+          AND submission.movement_leg = 'swap'
+          AND submission.finalized_at IS NOT NULL
+          AND submission.finalized_at >= (
+            SELECT window_started_at FROM bounds
+          )
+        GROUP BY 1, 2
       )
       SELECT
+        bucket.route_mode,
         bucket.bucket_started_at,
         COALESCE(decision.confirmed, 0)::text AS confirmed,
         COALESCE(decision.terminal_attempts, 0)::text AS terminal_attempts,
@@ -1001,23 +1111,39 @@ export async function getRebalanceActivity(): Promise<
           AS failed_opportunities,
         COALESCE(submission.expired_submissions, 0)::text
           AS expired_submissions,
-        COALESCE(claim.fleet_claims, 0)::text AS fleet_claims
+        COALESCE(claim.fleet_claims, 0)::text AS fleet_claims,
+        COALESCE(swap_fee.finalized_swap_legs, 0)::text
+          AS finalized_swap_legs,
+        COALESCE(swap_fee.swap_fee_lamports, 0)::text
+          AS swap_fee_lamports,
+        COALESCE(swap_fee.max_swap_fee_lamports, 0)::text
+          AS max_swap_fee_lamports
       FROM buckets AS bucket
-      LEFT JOIN decision_activity AS decision USING (bucket_started_at)
-      LEFT JOIN opportunity_activity AS opportunity USING (bucket_started_at)
-      LEFT JOIN submission_activity AS submission USING (bucket_started_at)
-      LEFT JOIN opportunity_claims AS claim USING (bucket_started_at)
-      ORDER BY bucket.bucket_started_at ASC
+      LEFT JOIN decision_activity AS decision
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN opportunity_activity AS opportunity
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN submission_activity AS submission
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN opportunity_claims AS claim
+        USING (route_mode, bucket_started_at)
+      LEFT JOIN swap_fee_activity AS swap_fee
+        USING (route_mode, bucket_started_at)
+      ORDER BY bucket.route_mode ASC, bucket.bucket_started_at ASC
     `
   );
 
   return rows.map((row) => ({
     bucketStartedAt: toIsoString(row.bucket_started_at) ?? "",
     confirmed: toNumber(row.confirmed),
+    finalizedSwapLegs: toNumber(row.finalized_swap_legs),
     expiredSubmissions: toNumber(row.expired_submissions),
     failedDecisions: toNumber(row.failed_decisions),
     failedOpportunities: toNumber(row.failed_opportunities),
     fleetClaims: toNumber(row.fleet_claims),
+    maxSwapFeeLamports: toBigInt(row.max_swap_fee_lamports),
+    routeMode: mapRouteMode(row.route_mode),
+    swapFeeLamports: toBigInt(row.swap_fee_lamports),
     terminalAttempts: toNumber(row.terminal_attempts),
   }));
 }
@@ -1404,14 +1530,20 @@ export async function getLast30DaysRebalanceSeries(): Promise<
           now() AT TIME ZONE 'UTC' AS ended_at
       ),
       days AS (
-        SELECT generate_series(
-          (SELECT started_at::date FROM bounds),
-          (SELECT ended_at::date FROM bounds),
-          interval '1 day'
-        )::date AS date
+        SELECT
+          route_mode.route_mode,
+          generate_series(
+            (SELECT started_at::date FROM bounds),
+            (SELECT ended_at::date FROM bounds),
+            interval '1 day'
+          )::date AS date
+        FROM (
+          VALUES ('same_mint'), ('cross_mint_jupiter')
+        ) AS route_mode(route_mode)
       ),
       daily AS (
         SELECT
+          decision.execution_plan->>'kind' AS route_mode,
           (decision.updated_at AT TIME ZONE 'UTC')::date AS date,
           COUNT(*) FILTER (
             WHERE decision.status = 'confirmed'
@@ -1420,7 +1552,10 @@ export async function getLast30DaysRebalanceSeries(): Promise<
             WHERE decision.status = 'failed'
           )::bigint AS failed
         FROM loyal_yield.rebalance_decisions AS decision
-        WHERE decision.execution_plan->>'kind' = 'same_mint'
+        WHERE decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
           AND decision.status IN ('confirmed', 'failed')
           AND decision.updated_at >= (
             SELECT started_at AT TIME ZONE 'UTC' FROM bounds
@@ -1428,9 +1563,10 @@ export async function getLast30DaysRebalanceSeries(): Promise<
           AND decision.updated_at < (
             SELECT ended_at AT TIME ZONE 'UTC' FROM bounds
           )
-        GROUP BY 1
+        GROUP BY 1, 2
       )
       SELECT
+        day.route_mode,
         to_char(day.date, 'YYYY-MM-DD') AS date,
         COALESCE(daily.confirmed, 0)::text AS confirmed,
         COALESCE(daily.failed, 0)::text AS failed,
@@ -1438,8 +1574,8 @@ export async function getLast30DaysRebalanceSeries(): Promise<
           COALESCE(daily.confirmed, 0) + COALESCE(daily.failed, 0)
         )::text AS terminal_attempts
       FROM days AS day
-      LEFT JOIN daily USING (date)
-      ORDER BY day.date ASC
+      LEFT JOIN daily USING (route_mode, date)
+      ORDER BY day.route_mode ASC, day.date ASC
     `
   );
 
@@ -1447,6 +1583,7 @@ export async function getLast30DaysRebalanceSeries(): Promise<
     confirmed: toNumber(row.confirmed),
     date: row.date,
     failed: toNumber(row.failed),
+    routeMode: mapRouteMode(row.route_mode),
     terminalAttempts: toNumber(row.terminal_attempts),
   }));
 }
@@ -1462,6 +1599,9 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
           decision.source_reserve,
           decision.target_reserve,
           decision.liquidity_mint,
+          decision.source_liquidity_mint,
+          decision.target_liquidity_mint,
+          decision.execution_plan->>'kind' AS route_mode,
           decision.confirmed_slot,
           policy.authority
         FROM loyal_yield.rebalance_decisions AS decision
@@ -1470,21 +1610,38 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
         INNER JOIN loyal_yield.route_policies AS policy
           ON policy.id = vault.active_policy_id
         WHERE decision.status = 'confirmed'
+          AND decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
           AND decision.source_reserve IS NOT NULL
           AND decision.target_reserve IS NOT NULL
           AND decision.amount_raw IS NOT NULL
           AND decision.confirmed_slot IS NOT NULL
       ),
+      swap_fees AS MATERIALIZED (
+        SELECT
+          submission.decision_id,
+          COALESCE(SUM(submission.compiled_fee_lamports), 0)::bigint
+            AS swap_fee_lamports
+        FROM loyal_yield.signed_route_submissions AS submission
+        WHERE submission.movement_leg = 'swap'
+          AND submission.finalized_at IS NOT NULL
+        GROUP BY submission.decision_id
+      ),
       executed_users AS MATERIALIZED (
-        SELECT DISTINCT authority FROM executed
+        SELECT DISTINCT authority, route_mode FROM executed
       ),
       relevant_vaults AS MATERIALIZED (
-        SELECT vault.id AS vault_id, policy.authority
+        SELECT vault.id AS vault_id, policy.authority, executed_user.route_mode
         FROM loyal_yield.managed_vaults AS vault
         INNER JOIN loyal_yield.route_policies AS policy
           ON policy.id = vault.active_policy_id
-        INNER JOIN executed_users
-          ON executed_users.authority = policy.authority
+        INNER JOIN executed_users AS executed_user
+          ON executed_user.authority = policy.authority
+      ),
+      relevant_vault_ids AS MATERIALIZED (
+        SELECT DISTINCT vault_id FROM relevant_vaults
       ),
       current_reserve_by_vault AS MATERIALIZED (
         SELECT
@@ -1514,7 +1671,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
               ELSE 0::bigint
             END
           )::bigint AS amount_raw
-        FROM relevant_vaults AS relevant
+        FROM relevant_vault_ids AS relevant
         INNER JOIN loyal_yield.vault_reserve_positions_current AS position
           ON position.vault_id = relevant.vault_id
         WHERE position.has_value = true
@@ -1523,7 +1680,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
       ),
       current_idle_by_vault AS MATERIALIZED (
         SELECT idle.vault_id, SUM(idle.amount_raw)::bigint AS amount_raw
-        FROM relevant_vaults AS relevant
+        FROM relevant_vault_ids AS relevant
         INNER JOIN loyal_yield.vault_idle_token_balances_current AS idle
           ON idle.vault_id = relevant.vault_id
         WHERE idle.amount_raw > 0
@@ -1532,6 +1689,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
       current_user_deposits AS MATERIALIZED (
         SELECT
           relevant.authority,
+          relevant.route_mode,
           SUM(
             COALESCE(reserve.amount_raw, 0::bigint)
             + COALESCE(idle.amount_raw, 0::bigint)
@@ -1541,14 +1699,16 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
           ON reserve.vault_id = relevant.vault_id
         LEFT JOIN current_idle_by_vault AS idle
           ON idle.vault_id = relevant.vault_id
-        GROUP BY relevant.authority
+        GROUP BY relevant.authority, relevant.route_mode
       ),
       ranked_users AS MATERIALIZED (
         SELECT
           executed_user.authority,
+          executed_user.route_mode,
           COALESCE(deposit_total.current_deposit_raw, 0::bigint)
             AS current_deposit_raw,
           ROW_NUMBER() OVER (
+            PARTITION BY executed_user.route_mode
             ORDER BY
               COALESCE(deposit_total.current_deposit_raw, 0::bigint) ASC,
               executed_user.authority ASC
@@ -1556,6 +1716,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
         FROM executed_users AS executed_user
         LEFT JOIN current_user_deposits AS deposit_total
           ON deposit_total.authority = executed_user.authority
+          AND deposit_total.route_mode = executed_user.route_mode
       )
       SELECT
         executed.id::text,
@@ -1564,14 +1725,23 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
         executed.source_reserve,
         executed.target_reserve,
         executed.liquidity_mint,
+        executed.source_liquidity_mint,
+        executed.target_liquidity_mint,
+        executed.route_mode,
+        COALESCE(swap_fee.swap_fee_lamports, 0)::text AS swap_fee_lamports,
         executed.confirmed_slot::text,
         executed.authority,
         ranked_users.current_deposit_raw::text,
         ranked_users.user_rank::text,
-        MAX(ranked_users.user_rank) OVER ()::text AS user_count
+        MAX(ranked_users.user_rank) OVER (
+          PARTITION BY executed.route_mode
+        )::text AS user_count
       FROM executed
       INNER JOIN ranked_users
         ON ranked_users.authority = executed.authority
+        AND ranked_users.route_mode = executed.route_mode
+      LEFT JOIN swap_fees AS swap_fee
+        ON swap_fee.decision_id = executed.id
       ORDER BY executed.executed_at ASC, executed.id ASC
     `
   );
@@ -1585,8 +1755,12 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
       executedAt: toIsoString(row.executed_at) ?? "",
       id: row.id,
       liquidityMint: row.liquidity_mint,
+      routeMode: mapRouteMode(row.route_mode),
       sourceReserve: row.source_reserve,
+      sourceLiquidityMint: row.source_liquidity_mint,
+      swapFeeLamports: toBigInt(row.swap_fee_lamports),
       targetReserve: row.target_reserve,
+      targetLiquidityMint: row.target_liquidity_mint,
       userRank: toNumber(row.user_rank),
     })),
     generatedAt: new Date().toISOString(),
@@ -1598,10 +1772,36 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
   const rows = await queryRows<EarnVaultRebalanceFrequencySqlRow>(
     `
       WITH active_vaults AS MATERIALIZED (
-        SELECT id, vault_pubkey
-        FROM loyal_yield.managed_vaults
-        WHERE active = true
-          AND vault_index = 1
+        SELECT
+          vault.id,
+          policy.cluster,
+          vault.settings,
+          vault.vault_index,
+          vault.vault_pubkey
+        FROM loyal_yield.managed_vaults AS vault
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        WHERE vault.active = true
+          AND vault.vault_index = 1
+      ),
+      route_modes AS MATERIALIZED (
+        SELECT *
+        FROM (VALUES ('same_mint'), ('cross_mint_jupiter')) AS modes(route_mode)
+      ),
+      monitored_vault_modes AS MATERIALIZED (
+        SELECT vault.*, route_mode.route_mode
+        FROM active_vaults AS vault
+        CROSS JOIN route_modes AS route_mode
+        WHERE route_mode.route_mode = 'same_mint'
+          OR EXISTS (
+            SELECT 1
+            FROM loyal_yield.cross_mint_vault_opt_ins AS opt_in
+            WHERE opt_in.cluster = vault.cluster
+              AND opt_in.settings = vault.settings
+              AND opt_in.vault_index = vault.vault_index
+              AND opt_in.vault_pubkey = vault.vault_pubkey
+              AND opt_in.enabled = true
+          )
       ),
       normalized_positions AS MATERIALIZED (
         SELECT
@@ -1706,6 +1906,7 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
       rebalance_counts AS MATERIALIZED (
         SELECT
           decision.vault_id,
+          decision.execution_plan->>'kind' AS route_mode,
           COUNT(*)::integer AS all_count,
           COUNT(*) FILTER (
             WHERE decision.updated_at >= NOW() - INTERVAL '7 days'
@@ -1718,9 +1919,13 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           )::integer AS last_2h_count
         FROM loyal_yield.rebalance_decisions AS decision
         WHERE decision.status = 'confirmed'
+          AND decision.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
           AND decision.source_reserve IS NOT NULL
           AND decision.target_reserve IS NOT NULL
-        GROUP BY decision.vault_id
+        GROUP BY decision.vault_id, decision.execution_plan->>'kind'
       ),
       -- Evidence that a vault was genuinely actionable, used to keep it in the
       -- eligible denominator even when it now sits under the modelled floor.
@@ -1731,6 +1936,7 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
       opportunity_counts AS MATERIALIZED (
         SELECT
           opportunity.vault_id,
+          opportunity.execution_plan->>'kind' AS route_mode,
           COUNT(*)::integer AS all_count,
           COUNT(*) FILTER (
             WHERE opportunity.created_at >= NOW() - INTERVAL '7 days'
@@ -1744,12 +1950,17 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         FROM loyal_yield.rebalance_opportunities AS opportunity
         WHERE opportunity.source_reserve IS NOT NULL
           AND opportunity.target_reserve IS NOT NULL
-        GROUP BY opportunity.vault_id
+          AND opportunity.execution_plan->>'kind' IN (
+            'same_mint',
+            'cross_mint_jupiter'
+          )
+        GROUP BY opportunity.vault_id, opportunity.execution_plan->>'kind'
       ),
       current_vaults AS MATERIALIZED (
         SELECT
           vault.id,
           vault.vault_pubkey,
+          vault.route_mode,
           primary_position.reserve AS current_reserve,
           COALESCE(primary_position.liquidity_mint, primary_idle.mint)
             AS liquidity_mint,
@@ -1765,7 +1976,7 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           COALESCE(opportunity.last_7d_count, 0) AS opportunity_last_7d_count,
           COALESCE(opportunity.last_12h_count, 0) AS opportunity_last_12h_count,
           COALESCE(opportunity.last_2h_count, 0) AS opportunity_last_2h_count
-        FROM active_vaults AS vault
+        FROM monitored_vault_modes AS vault
         LEFT JOIN position_totals AS position_total
           ON position_total.vault_id = vault.id
         LEFT JOIN primary_positions AS primary_position
@@ -1776,8 +1987,10 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           ON primary_idle.vault_id = vault.id
         LEFT JOIN rebalance_counts AS rebalance
           ON rebalance.vault_id = vault.id
+          AND rebalance.route_mode = vault.route_mode
         LEFT JOIN opportunity_counts AS opportunity
           ON opportunity.vault_id = vault.id
+          AND opportunity.route_mode = vault.route_mode
         WHERE COALESCE(position_total.amount_raw, 0::bigint)
           + COALESCE(idle_total.amount_raw, 0::bigint) > 0
       ),
@@ -1785,6 +1998,7 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         SELECT
           current_vault.*,
           ROW_NUMBER() OVER (
+            PARTITION BY current_vault.route_mode
             ORDER BY
               current_vault.current_deposit_raw ASC,
               current_vault.vault_pubkey ASC
@@ -1796,6 +2010,7 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         ranked_vault.vault_pubkey,
         ranked_vault.current_reserve,
         ranked_vault.liquidity_mint,
+        ranked_vault.route_mode,
         ranked_vault.current_deposit_raw::text,
         ranked_vault.position_count::text,
         ranked_vault.all_count::text,
@@ -1807,15 +2022,20 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         ranked_vault.opportunity_last_12h_count::text,
         ranked_vault.opportunity_last_2h_count::text,
         ranked_vault.deposit_rank::text,
-        MAX(ranked_vault.deposit_rank) OVER ()::text AS vault_count
+        MAX(ranked_vault.deposit_rank) OVER (
+          PARTITION BY ranked_vault.route_mode
+        )::text AS vault_count
       FROM ranked_vaults AS ranked_vault
-      ORDER BY ranked_vault.deposit_rank ASC
+      ORDER BY ranked_vault.route_mode ASC, ranked_vault.deposit_rank ASC
     `
   );
 
   return {
     generatedAt: new Date().toISOString(),
-    vaultCount: rows.length > 0 ? toNumber(rows[0].vault_count) : 0,
+    vaultCount: rows.reduce(
+      (maximum, row) => Math.max(maximum, toNumber(row.vault_count)),
+      0
+    ),
     vaults: rows.map((row) => ({
       allCount: toNumber(row.all_count),
       currentDepositRaw: toBigInt(row.current_deposit_raw),
@@ -1830,6 +2050,7 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
       opportunity7dCount: toNumber(row.opportunity_last_7d_count),
       opportunityAllCount: toNumber(row.opportunity_all_count),
       positionCount: toNumber(row.position_count),
+      routeMode: mapRouteMode(row.route_mode),
       vaultId: row.vault_id,
       vaultPubkey: row.vault_pubkey,
     })),

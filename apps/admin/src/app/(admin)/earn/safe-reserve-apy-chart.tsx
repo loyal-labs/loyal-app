@@ -28,6 +28,8 @@ import type {
   SafeReserveApyMonitorData,
   SafeReserveRebalanceDecisionMarker,
 } from "@/lib/kamino/timescale-reserve-monitor.shared";
+import type { RebalanceRouteMode } from "./rebalance/rebalance-data";
+import { RouteModeSwitch } from "./rebalance/route-mode-switch";
 
 const COLLAPSED_REASON_LENGTH = 96;
 
@@ -247,12 +249,18 @@ function ApyTooltip({ active, label, labels, payload }: ApyTooltipProps) {
 }
 
 export function SafeReserveApyChart({
-  data,
-  decisionMarkers,
+  dataByRouteMode,
+  decisionMarkersByRouteMode,
 }: {
-  data: SafeReserveApyMonitorData;
-  decisionMarkers: SafeReserveRebalanceDecisionMarker[];
+  dataByRouteMode: Record<RebalanceRouteMode, SafeReserveApyMonitorData>;
+  decisionMarkersByRouteMode: Record<
+    RebalanceRouteMode,
+    SafeReserveRebalanceDecisionMarker[]
+  >;
 }) {
+  const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
+  const data = dataByRouteMode[routeMode];
+  const decisionMarkers = decisionMarkersByRouteMode[routeMode];
   const [focusedSeriesKey, setFocusedSeriesKey] = useState<string | null>(null);
   const [showDecisionMarkers, setShowDecisionMarkers] = useState(false);
   const [showOutliers, setShowOutliers] = useState(false);
@@ -318,7 +326,10 @@ export function SafeReserveApyChart({
         <div>
           <CardTitle className="font-bold">Safe reserve APY</CardTitle>
           <CardDescription>
-            Supported stablecoin Safe basket, last 7d,{" "}
+            {routeMode === "cross_mint"
+              ? "All supported stablecoin targets for Crossmint comparison"
+              : "Selected stablecoin Safe basket"}
+            , last 7d,{" "}
             {showRawData
               ? `${data.sampleIntervalMinutes}m raw buckets`
               : "30m median view"}{" "}
@@ -326,6 +337,11 @@ export function SafeReserveApyChart({
           </CardDescription>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <RouteModeSwitch
+            id="safe-reserve-apy-route-mode"
+            mode={routeMode}
+            onModeChange={setRouteMode}
+          />
           <Button
             onClick={() => setShowRawData((value) => !value)}
             size="sm"

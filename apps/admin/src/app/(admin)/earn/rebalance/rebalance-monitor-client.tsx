@@ -72,7 +72,9 @@ import type {
   RebalanceAuditSource,
   RebalanceAuditSummary,
   RebalanceAuditView,
+  RebalanceRouteMode,
 } from "./rebalance-data";
+import { RouteModeSwitch } from "./route-mode-switch";
 
 type SerializedActiveReserveRouteRow = Omit<
   EarnActiveReserveRouteRow,
@@ -98,8 +100,16 @@ type SerializedRebalanceAuditRow = Omit<
   submittedSlot: string | null;
 };
 
+type SerializedRebalanceActivityPoint = Omit<
+  RebalanceActivityPoint,
+  "maxSwapFeeLamports" | "swapFeeLamports"
+> & {
+  maxSwapFeeLamports: string;
+  swapFeeLamports: string;
+};
+
 type RebalanceApiData = {
-  activity: RebalanceActivityPoint[];
+  activity: SerializedRebalanceActivityPoint[];
   apyData: SafeReserveApyMonitorData;
   autodeposit: SerializedAutodepositFailureRange[];
   decisions: SerializedRebalanceDecisionRow[];
@@ -783,19 +793,33 @@ function ActiveMovementTable({
 }
 
 function CurrentReserveApyCard({
-  routes,
-  rows,
+  dataByRouteMode,
 }: {
-  routes: SerializedActiveReserveRouteRow[];
-  rows: SafeReserveApyStatusRow[];
+  dataByRouteMode: Record<
+    RebalanceRouteMode,
+    {
+      routes: SerializedActiveReserveRouteRow[];
+      rows: SafeReserveApyStatusRow[];
+    }
+  >;
 }) {
+  const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
+  const { routes, rows } = dataByRouteMode[routeMode];
+
   return (
     <Card className="min-w-0">
       <CardHeader>
         <CardTitle className="font-bold">Current Safe reserve APY</CardTitle>
         <CardDescription>
-          Active verified Safe basket reserves across supported stablecoins
+          {routeMode === "cross_mint"
+            ? "All active verified Safe basket targets across supported stablecoins"
+            : "Active verified Safe basket reserves for the selected stablecoin"}
         </CardDescription>
+        <RouteModeSwitch
+          id="current-safe-reserve-apy-route-mode"
+          mode={routeMode}
+          onModeChange={setRouteMode}
+        />
       </CardHeader>
       <CardContent className="min-w-0 overflow-x-auto">
         <CurrentReserveApyTable routes={routes} rows={rows} />
@@ -1412,14 +1436,20 @@ export function RebalanceMonitorClient() {
     : state.data.routes;
   const filteredDecisions = selectedMintAddress
     ? state.data.decisions.filter(
-        (decision) => decision.liquidityMint === selectedMintAddress
+        (decision) =>
+          (decision.routeMode === "same_mint"
+            ? decision.liquidityMint
+            : decision.sourceLiquidityMint) === selectedMintAddress
       )
     : state.data.decisions;
   const filteredExecutedRebalances = selectedMintAddress
     ? {
         ...state.data.executedRebalances,
         executions: state.data.executedRebalances.executions.filter(
-          (execution) => execution.liquidityMint === selectedMintAddress
+          (execution) =>
+            (execution.routeMode === "same_mint"
+              ? execution.liquidityMint
+              : execution.sourceLiquidityMint) === selectedMintAddress
         ),
       }
     : state.data.executedRebalances;
@@ -1440,9 +1470,10 @@ export function RebalanceMonitorClient() {
         <CardHeader>
           <CardTitle className="font-bold">Stablecoin filter</CardTitle>
           <CardDescription>
-            Filters verified reserves, confirmed executions, and vault
-            frequency. The aggregate activity and paginated audit sections
-            remain all-mint.
+            Filters verified reserves, confirmed executions, and vault frequency
+            by same-mint or Crossmint source. Crossmint APY views still include
+            every supported target mint for comparison. The aggregate activity
+            and paginated audit sections remain all-mint.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -1462,12 +1493,34 @@ export function RebalanceMonitorClient() {
         </CardContent>
       </Card>
       <CurrentReserveApyCard
-        routes={filteredRoutes}
-        rows={filteredApyData.statuses}
+        dataByRouteMode={{
+          cross_mint: {
+            routes: state.data.routes,
+            rows: state.data.apyData.statuses,
+          },
+          same_mint: {
+            routes: filteredRoutes,
+            rows: filteredApyData.statuses,
+          },
+        }}
       />
       <SafeReserveApyChart
-        data={filteredApyData}
-        decisionMarkers={toDecisionMarkers(filteredDecisions)}
+        dataByRouteMode={{
+          cross_mint: state.data.apyData,
+          same_mint: filteredApyData,
+        }}
+        decisionMarkersByRouteMode={{
+          cross_mint: toDecisionMarkers(
+            filteredDecisions.filter(
+              (decision) => decision.routeMode === "cross_mint"
+            )
+          ),
+          same_mint: toDecisionMarkers(
+            filteredDecisions.filter(
+              (decision) => decision.routeMode === "same_mint"
+            )
+          ),
+        }}
       />
       <RebalanceActivityChart data={state.data.activity} />
       <ExecutedEarnRebalancesChart

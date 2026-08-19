@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { CartesianGrid, Label, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import {
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/chart";
 
 import type { Last30DaysRebalancePoint } from "./rebalance-data";
+import { RouteModeSwitch } from "./route-mode-switch";
 
 const chartConfig = {
   confirmed: {
@@ -70,7 +72,10 @@ export function Last30DaysRebalanceChart({
 }: {
   data: Last30DaysRebalancePoint[];
 }) {
-  const totals = data.reduce(
+  const [routeMode, setRouteMode] =
+    useState<Last30DaysRebalancePoint["routeMode"]>("same_mint");
+  const visibleData = data.filter((point) => point.routeMode === routeMode);
+  const totals = visibleData.reduce(
     (result, point) => ({
       confirmed: result.confirmed + point.confirmed,
       failed: result.failed + point.failed,
@@ -85,10 +90,16 @@ export function Last30DaysRebalanceChart({
             Last 30 days of rebalance outcomes
           </CardTitle>
           <CardDescription>
-            Daily terminal same-mint decisions for the current UTC day and the
-            preceding 29 calendar days. Today is partial. Render-only errors are
-            not included.
+            Daily terminal{" "}
+            {routeMode === "cross_mint" ? "Crossmint" : "same-mint"} decisions
+            for the current UTC day and the preceding 29 calendar days. Today is
+            partial. Render-only errors are not included.
           </CardDescription>
+          <RouteModeSwitch
+            id="last-30-days-rebalance-route-mode"
+            mode={routeMode}
+            onModeChange={setRouteMode}
+          />
         </div>
         <div className="flex">
           <div className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left sm:border-t-0 sm:border-l sm:px-8 sm:py-6">
@@ -124,7 +135,7 @@ export function Last30DaysRebalanceChart({
         >
           <LineChart
             accessibilityLayer
-            data={data}
+            data={visibleData}
             margin={{ bottom: 24, left: 8, right: 16, top: 8 }}
           >
             <CartesianGrid vertical={false} />
