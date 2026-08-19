@@ -48,6 +48,7 @@ claude-report-second.md
 *.pem
 /apps/web/refs/
 .claude/
+.codex/
 /scripts/.state/
 
 # debug
