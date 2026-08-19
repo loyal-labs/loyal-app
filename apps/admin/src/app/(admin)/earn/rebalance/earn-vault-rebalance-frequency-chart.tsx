@@ -430,41 +430,27 @@ export function EarnVaultRebalanceFrequencyChart({
         onValueChange={(value) => setRange(value as RangeKey)}
       >
         <CardHeader className="gap-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <CardTitle id="vault-rebalance-frequency-title">
-                Earn vault rebalance frequency
-              </CardTitle>
-              <CardDescription>
-                One dot per funded active{" "}
-                {routeMode === "cross_mint" ? "Crossmint-enrolled" : "Earn"}{" "}
-                vault. X is the current deposit, on a log or linear scale; Y
-                shows confirmed{" "}
-                {routeMode === "cross_mint" ? "Crossmint" : "same-mint"}{" "}
-                rebalances in the selected window. Dot color is the largest
-                current reserve position. Vaults below the eligibility floor
-                cannot clear the planner&rsquo;s economic gate, so they sit at
-                zero by design.
-              </CardDescription>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-3">
-              <RouteModeSwitch
-                id="vault-rebalance-frequency-route-mode"
-                mode={routeMode}
-                onModeChange={setRouteMode}
-              />
-              <Button
-                aria-pressed={showTable}
-                onClick={() => setShowTable((value) => !value)}
-                size="sm"
-                type="button"
-                variant={showTable ? "secondary" : "outline"}
-              >
-                Table
-              </Button>
-            </div>
+          <div>
+            <CardTitle id="vault-rebalance-frequency-title">
+              Earn vault rebalance frequency
+            </CardTitle>
+            <CardDescription>
+              One dot per funded active{" "}
+              {routeMode === "cross_mint" ? "Crossmint-enrolled" : "Earn"}{" "}
+              vault. X is the current deposit, on a log or linear scale; Y shows
+              confirmed {routeMode === "cross_mint" ? "Crossmint" : "same-mint"}{" "}
+              rebalances in the selected window. Dot color is the largest
+              current reserve position. Vaults below the eligibility floor
+              cannot clear the planner&rsquo;s economic gate, so they sit at
+              zero by design.
+            </CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <RouteModeSwitch
+              id="vault-rebalance-frequency-route-mode"
+              mode={routeMode}
+              onModeChange={setRouteMode}
+            />
             <TabsList
               aria-label="Vault rebalance frequency window"
               className="w-fit max-w-full"
@@ -480,6 +466,15 @@ export function EarnVaultRebalanceFrequencyChart({
               onScaleChange={setScale}
               scale={scale}
             />
+            <Button
+              aria-pressed={showTable}
+              onClick={() => setShowTable((value) => !value)}
+              size="sm"
+              type="button"
+              variant={showTable ? "secondary" : "outline"}
+            >
+              Table
+            </Button>
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
             {points.length === 0 ? (

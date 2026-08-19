@@ -23,7 +23,7 @@ export function DepositScaleSwitch({
   return (
     <div
       aria-label="Deposit axis scale"
-      className="inline-flex shrink-0 items-center rounded-lg bg-muted p-1"
+      className="inline-flex w-fit shrink-0 self-start rounded-lg bg-muted p-1"
       role="group"
     >
       <Button
