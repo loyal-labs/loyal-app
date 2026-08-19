@@ -34,10 +34,9 @@ export function WalletAutoReauth() {
     useWallet();
   const { captcha } = usePublicEnv();
 
-  // Silent re-auth has no captcha UI. Local development uses the explicit
-  // bypass token; deployed environments defer to interactive sign-in.
-  const silentCaptchaToken =
-    captcha.mode === "bypass" ? captcha.verificationToken : null;
+  // Silent re-auth has no captcha UI. It is available only when local
+  // development explicitly disables captcha server-side.
+  const captchaDisabled = captcha.mode === "disabled";
 
   const attemptedAddressRef = useRef<string | null>(null);
   const failedRef = useRef(false);
@@ -63,7 +62,7 @@ export function WalletAutoReauth() {
       return;
     }
 
-    if (!silentCaptchaToken) {
+    if (!captchaDisabled) {
       return;
     }
 
@@ -90,7 +89,6 @@ export function WalletAutoReauth() {
             lifecycle,
             onStatusChange: setStatus,
             signIn,
-            captchaToken: silentCaptchaToken ?? undefined,
             walletName: wallet.adapter.name,
           });
         } else {
@@ -100,7 +98,6 @@ export function WalletAutoReauth() {
             lifecycle,
             messageSigner: signMessage,
             onStatusChange: setStatus,
-            captchaToken: silentCaptchaToken ?? undefined,
             walletAddress,
           });
         }
@@ -143,7 +140,7 @@ export function WalletAutoReauth() {
     refreshSession,
     signIn,
     signMessage,
-    silentCaptchaToken,
+    captchaDisabled,
     retryCount,
     wallet,
   ]);

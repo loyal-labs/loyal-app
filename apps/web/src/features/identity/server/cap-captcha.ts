@@ -12,14 +12,13 @@ import {
 
 import {
   getOptionalEnv,
-  resolveAppEnvironment,
   type EnvSource,
+  isLocalCaptchaBypassConfigured,
 } from "@/lib/core/config/shared";
 
 import { consumeCaptchaKey, putCaptchaKey } from "./captcha-key-store";
 
 const CAP_SECRET_ENV_NAME = "CAP_SECRET";
-const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 
 /** Binds challenges to the wallet sign-in flow on both generate and validate. */
 const CHALLENGE_SCOPE = "wallet-signin";
@@ -84,7 +83,7 @@ function deriveCapTokenKey(token: string): string | null {
  * Server-side enforcement for the Cap captcha. Mirrors the client mode
  * resolution in `lib/core/config/public.ts`:
  *
- * - local app environment → bypass: local API and UI work can authenticate
+ * - explicit non-production local bypass + loopback request → authenticate
  *   without solving a captcha, matching the previous Turnstile behavior.
  * - `CAP_SECRET` set → enforce: the redeem token is consumed from the
  *   single-use store. Missing, forged, expired, replayed tokens and an
@@ -95,14 +94,24 @@ function deriveCapTokenKey(token: string): string | null {
  * never downgrade it.
  */
 export async function verifyCaptchaToken(
-  args: { token: string | undefined },
-  dependencies: { env?: EnvSource } = {}
+  args: { requestUrl: string; token: string | undefined },
+  dependencies: {
+    consumeToken?: (key: string) => Promise<boolean>;
+    env?: EnvSource;
+  } = {}
 ): Promise<CaptchaVerification> {
   const env = dependencies.env ?? process.env;
-  const appEnvironment = resolveAppEnvironment(
-    getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)
-  );
-  if (appEnvironment === "local") {
+  let requestHostname: string | null = null;
+  try {
+    requestHostname = new URL(args.requestUrl).hostname.toLowerCase();
+  } catch {
+    requestHostname = null;
+  }
+  const isLoopbackRequest =
+    requestHostname === "localhost" ||
+    requestHostname === "127.0.0.1" ||
+    requestHostname === "::1";
+  if (isLocalCaptchaBypassConfigured(env) && isLoopbackRequest) {
     return { ok: true };
   }
 
@@ -121,7 +130,9 @@ export async function verifyCaptchaToken(
   }
 
   try {
-    const consumed = await consumeCaptchaKey(`${TOKEN_KEY_PREFIX}${tokenKey}`);
+    const consumed = await (dependencies.consumeToken ?? consumeCaptchaKey)(
+      `${TOKEN_KEY_PREFIX}${tokenKey}`
+    );
     return consumed
       ? { ok: true }
       : { ok: false, reason: "captcha_verification_failed" };

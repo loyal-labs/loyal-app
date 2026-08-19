@@ -25,6 +25,16 @@ export type EarnCrossMintState = {
   status: "finalizing" | "on" | "paused";
 };
 
+export type EarnCrossMintEnrollment = Omit<
+  EarnCrossMintState,
+  "policies" | "status"
+>;
+
+export type EarnCrossMintTransitionResult =
+  | { enrollment: EarnCrossMintEnrollment; kind: "applied" | "idempotent" }
+  | { enrollment: EarnCrossMintEnrollment; kind: "stale" }
+  | { enrollment: null; kind: "missing" };
+
 export type EarnCrossMintScope = {
   authority: string;
   cluster: string;
@@ -74,6 +84,18 @@ function boundPoliciesFromOptIn(
       sourceShard: "token_2022",
     },
   ];
+}
+
+function getExecuteRows(result: unknown): Record<string, unknown>[] {
+  if (
+    result &&
+    typeof result === "object" &&
+    "rows" in result &&
+    Array.isArray((result as { rows: unknown }).rows)
+  ) {
+    return (result as { rows: Record<string, unknown>[] }).rows;
+  }
+  return Array.isArray(result) ? (result as Record<string, unknown>[]) : [];
 }
 
 export async function findEarnCrossMintState(
@@ -227,51 +249,104 @@ export async function setEarnCrossMintEnabled(
     enabled: boolean;
     expectedGeneration: bigint;
   }
-): Promise<boolean> {
+): Promise<EarnCrossMintTransitionResult> {
   const client = getYieldOptimizationClient();
   const { crossMintVaultOptIns } = client.tables;
-  const current = await loadEarnCrossMintOptIn(scope);
-  if (!current) {
-    return false;
-  }
-  if (current.enabled === scope.enabled) {
-    if (
-      current.generation === scope.expectedGeneration ||
-      current.generation === scope.expectedGeneration + BigInt(1)
-    ) {
-      return true;
-    }
-    throw new Error("Autoswap state changed. Refresh and try again.");
-  }
-  if (current.generation !== scope.expectedGeneration) {
-    throw new Error("Autoswap state changed. Refresh and try again.");
-  }
-  const rows = await client.db
-    .update(crossMintVaultOptIns)
-    .set({
-      enabled: scope.enabled,
-      generation: sql`${crossMintVaultOptIns.generation} + 1`,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        optInWhere(scope, crossMintVaultOptIns),
-        eq(crossMintVaultOptIns.enabled, current.enabled),
-        eq(crossMintVaultOptIns.generation, scope.expectedGeneration)
-      )
+  const queryResult = await client.db.execute(sql`
+    WITH current_enrollment AS (
+      SELECT *
+      FROM ${crossMintVaultOptIns}
+      WHERE ${crossMintVaultOptIns.cluster} = ${scope.cluster}
+        AND ${crossMintVaultOptIns.settings} = ${scope.settings}
+        AND ${crossMintVaultOptIns.vaultIndex} = ${scope.vaultIndex}
+        AND ${crossMintVaultOptIns.vaultPubkey} = ${scope.vaultPubkey}
+      FOR UPDATE
+    ),
+    updated_enrollment AS (
+      UPDATE ${crossMintVaultOptIns} AS enrollment
+      SET enabled = ${scope.enabled},
+          generation = enrollment.generation + 1,
+          updated_at = CURRENT_TIMESTAMP
+      FROM current_enrollment AS current
+      WHERE enrollment.cluster = current.cluster
+        AND enrollment.settings = current.settings
+        AND enrollment.vault_index = current.vault_index
+        AND enrollment.vault_pubkey = current.vault_pubkey
+        AND current.generation = ${scope.expectedGeneration}
+        AND current.enabled <> ${scope.enabled}
+      RETURNING enrollment.*
     )
-    .returning({ generation: crossMintVaultOptIns.generation });
-  if (rows.length !== 1) {
-    const latest = await loadEarnCrossMintOptIn(scope);
-    if (
-      latest?.enabled === scope.enabled &&
-      latest.generation === scope.expectedGeneration + BigInt(1)
-    ) {
-      return true;
-    }
-    throw new Error("Autoswap state changed. Refresh and try again.");
+    SELECT
+      CASE
+        WHEN updated.generation IS NOT NULL THEN 'applied'
+        WHEN current.enabled = ${scope.enabled}
+          AND current.generation IN (
+            ${scope.expectedGeneration},
+            ${scope.expectedGeneration + BigInt(1)}
+          ) THEN 'idempotent'
+        ELSE 'stale'
+      END AS kind,
+      COALESCE(updated.enabled, current.enabled) AS enabled,
+      COALESCE(updated.generation, current.generation) AS generation,
+      COALESCE(updated.classic_policy_account, current.classic_policy_account)
+        AS "classicPolicyAccount",
+      COALESCE(updated.classic_policy_seed, current.classic_policy_seed)
+        AS "classicPolicySeed",
+      COALESCE(updated.token_2022_policy_account, current.token_2022_policy_account)
+        AS "token2022PolicyAccount",
+      COALESCE(updated.token_2022_policy_seed, current.token_2022_policy_seed)
+        AS "token2022PolicySeed",
+      COALESCE(updated.max_slippage_bps, current.max_slippage_bps)
+        AS "maxSlippageBps",
+      COALESCE(
+        updated.daily_source_mint_spending_cap,
+        current.daily_source_mint_spending_cap
+      ) AS "dailySourceMintSpendingCap"
+    FROM current_enrollment AS current
+    LEFT JOIN updated_enrollment AS updated ON true
+    UNION ALL
+    SELECT
+      'missing' AS kind,
+      NULL AS enabled,
+      NULL AS generation,
+      NULL AS "classicPolicyAccount",
+      NULL AS "classicPolicySeed",
+      NULL AS "token2022PolicyAccount",
+      NULL AS "token2022PolicySeed",
+      NULL AS "maxSlippageBps",
+      NULL AS "dailySourceMintSpendingCap"
+    WHERE NOT EXISTS (SELECT 1 FROM current_enrollment)
+  `);
+  const [row] = getExecuteRows(queryResult);
+  if (!row || row.kind === "missing") {
+    return { enrollment: null, kind: "missing" };
   }
-  return true;
+  if (
+    row.kind !== "applied" &&
+    row.kind !== "idempotent" &&
+    row.kind !== "stale"
+  ) {
+    throw new Error("Autoswap transition returned an invalid outcome.");
+  }
+  const enrollment: EarnCrossMintEnrollment = {
+    boundPolicies: [
+      {
+        account: String(row.classicPolicyAccount),
+        seed: String(row.classicPolicySeed),
+        sourceShard: "classic",
+      },
+      {
+        account: String(row.token2022PolicyAccount),
+        seed: String(row.token2022PolicySeed),
+        sourceShard: "token_2022",
+      },
+    ],
+    dailySourceMintSpendingCap: String(row.dailySourceMintSpendingCap),
+    enabled: row.enabled === true,
+    generation: String(row.generation),
+    maxSlippageBps: Number(row.maxSlippageBps),
+  };
+  return { enrollment, kind: row.kind };
 }
 
 export async function hasNonTerminalEarnCrossMintMovement(

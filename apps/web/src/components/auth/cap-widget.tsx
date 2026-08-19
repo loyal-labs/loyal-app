@@ -61,18 +61,8 @@ type CapWidgetContentProps = CapWidgetProps & {
 };
 
 export function CapWidgetContent({ captcha, onVerify }: CapWidgetContentProps) {
-  if (captcha.mode === "bypass") {
-    return (
-      <div className="flex justify-center py-3">
-        <button
-          className="rounded-lg border border-amber-300 border-dashed bg-amber-50 px-4 py-2 font-medium text-amber-900 text-sm transition hover:bg-amber-100"
-          onClick={() => onVerify(captcha.verificationToken)}
-          type="button"
-        >
-          Continue with local verification bypass
-        </button>
-      </div>
-    );
+  if (captcha.mode === "disabled") {
+    return null;
   }
 
   if (captcha.mode === "misconfigured") {

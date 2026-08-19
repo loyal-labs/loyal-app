@@ -16,7 +16,6 @@ import { serializePreparedOperation } from "@/lib/smart-accounts/prepared-operat
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import {
-  findEarnCrossMintState,
   hasNonTerminalEarnCrossMintMovement,
   removeEarnCrossMintOptIn,
   setEarnCrossMintEnabled,
@@ -103,26 +102,21 @@ export async function POST(request: Request) {
       smartAccountAddress: principal.smartAccountAddress,
       walletAddress: principal.walletAddress,
     });
-    const initial = await findEarnCrossMintState(scope);
-    if (!initial) {
+    const transition = await setEarnCrossMintEnabled({
+      cluster,
+      enabled: false,
+      expectedGeneration,
+      settings: principal.settingsPda,
+      vaultIndex: EARN_VAULT_INDEX,
+      vaultPubkey: vaultPubkey.toBase58(),
+    });
+    if (transition.kind === "missing") {
       return jsonError(404, "autoswap_not_found", "Autoswap is not installed.");
     }
-    if (
-      !(await setEarnCrossMintEnabled({
-        cluster,
-        enabled: false,
-        expectedGeneration,
-        settings: principal.settingsPda,
-        vaultIndex: EARN_VAULT_INDEX,
-        vaultPubkey: vaultPubkey.toBase58(),
-      }))
-    ) {
-      return jsonError(404, "autoswap_not_found", "Autoswap is not installed.");
+    if (transition.kind === "stale") {
+      throw new Error("Autoswap state changed. Refresh and try again.");
     }
-    const paused = await findEarnCrossMintState(scope);
-    if (!paused) {
-      throw new Error("Autoswap disappeared while pausing for deletion.");
-    }
+    const paused = transition.enrollment;
     if (await hasNonTerminalEarnCrossMintMovement(scope)) {
       return jsonError(
         409,

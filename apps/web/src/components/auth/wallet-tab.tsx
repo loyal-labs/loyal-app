@@ -132,10 +132,12 @@ function LedgerModeToggle({
 }
 
 export function WalletTab({
+  captchaSatisfied,
   captchaToken,
   onCaptchaConsumed,
   onFlowStart,
 }: {
+  captchaSatisfied: boolean;
   captchaToken?: string | null;
   onCaptchaConsumed?: () => void;
   onFlowStart?: () => void;
@@ -166,7 +168,7 @@ export function WalletTab({
     useLedgerProof: ledgerProofActive,
   });
 
-  const isVerified = Boolean(captchaToken);
+  const isVerified = captchaSatisfied;
 
   const isMobile = useIsMobile();
 
@@ -255,13 +257,15 @@ export function WalletTab({
             lands here as an opaque wallet error. Keep the Ledger escape hatch
             visible so those users can self-serve — but not after a deliberate
             cancellation, which is not a capability problem. */}
-        {state.status !== "rejected" && !isCherryEmbedded && supportsLedgerProof && (
-          <LedgerModeToggle
-            checked={useLedgerProof}
-            disabled={!isVerified}
-            onChange={setUseLedgerProof}
-          />
-        )}
+        {state.status !== "rejected" &&
+          !isCherryEmbedded &&
+          supportsLedgerProof && (
+            <LedgerModeToggle
+              checked={useLedgerProof}
+              disabled={!isVerified}
+              onChange={setUseLedgerProof}
+            />
+          )}
         <button
           className="h-12 rounded-full bg-foreground px-4 font-medium text-background text-sm transition hover:bg-foreground/90"
           onClick={

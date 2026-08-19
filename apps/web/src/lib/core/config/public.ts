@@ -3,6 +3,7 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getFrontendSolanaEndpoints } from "@/lib/solana/rpc-endpoints";
 import {
   getOptionalEnv,
+  isLocalCaptchaBypassConfigured,
   isStrictTrue,
   type AppEnvironment,
   type EnvSource,
@@ -14,7 +15,6 @@ export type { AppEnvironment } from "./shared";
 const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
 const APP_URL_ENV_NAME = "NEXT_PUBLIC_APP_URL";
 const CAP_SECRET_ENV_NAME = "CAP_SECRET";
-const LOCAL_CAPTCHA_BYPASS_TOKEN = "local-bypass";
 const FLAGS_MANIFEST_URL_ENV_NAME = "NEXT_PUBLIC_FLAGS_MANIFEST_URL";
 const JUPITER_API_KEY_ENV_NAME = "NEXT_PUBLIC_JUPITER_API_KEY";
 const SKILLS_ENABLED_ENV_NAME = "NEXT_PUBLIC_SKILLS_ENABLED";
@@ -23,7 +23,7 @@ const USERCENTRICS_SETTINGS_ID_ENV_NAME =
   "NEXT_PUBLIC_USERCENTRICS_SETTINGS_ID";
 
 export type CaptchaConfig =
-  | { mode: "bypass"; verificationToken: string }
+  | { mode: "disabled" }
   | { mode: "widget" }
   | { mode: "misconfigured"; reason: string };
 
@@ -58,11 +58,8 @@ function resolveCaptchaConfig(
   env: EnvSource,
   appEnvironment: AppEnvironment
 ): CaptchaConfig {
-  if (appEnvironment === "local") {
-    return {
-      mode: "bypass",
-      verificationToken: LOCAL_CAPTCHA_BYPASS_TOKEN,
-    };
+  if (isLocalCaptchaBypassConfigured(env)) {
+    return { mode: "disabled" };
   }
 
   if (getOptionalEnv(env, CAP_SECRET_ENV_NAME)) {

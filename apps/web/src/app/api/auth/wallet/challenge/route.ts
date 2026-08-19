@@ -24,7 +24,10 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => ({}))) as unknown;
     const { captchaToken, challengeBody } = splitCaptchaToken(body);
 
-    const verification = await verifyCaptchaToken({ token: captchaToken });
+    const verification = await verifyCaptchaToken({
+      requestUrl: request.url,
+      token: captchaToken,
+    });
     if (!verification.ok) {
       return NextResponse.json(
         {

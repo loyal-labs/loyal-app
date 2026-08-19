@@ -94,6 +94,8 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
 
   // Captcha gate for sign-in tab
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaSatisfied =
+    publicEnv.captcha.mode === "disabled" || captchaToken !== null;
 
   // Reset captcha when sidebar closes
   useEffect(() => {
@@ -1513,7 +1515,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                     </button>
                   </div>
                   <div style={{ padding: "8px 20px", flex: 1 }}>
-                    {captchaToken === null ? (
+                    {!captchaSatisfied ? (
                       <div
                         style={{
                           display: "flex",
@@ -1571,6 +1573,7 @@ export function HeroRightSidebar(props: HeroRightSidebarProps) {
                           </div>
                         ) : (
                           <WalletTab
+                            captchaSatisfied={captchaSatisfied}
                             onCaptchaConsumed={() => setCaptchaToken(null)}
                             captchaToken={captchaToken}
                           />

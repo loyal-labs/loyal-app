@@ -3,6 +3,8 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useEffect, useState } from "react";
 
+import { usePublicEnv } from "@/contexts/public-env-context";
+
 import { CapWidget } from "./cap-widget";
 import { WalletTab } from "./wallet-tab";
 
@@ -12,7 +14,9 @@ import { WalletTab } from "./wallet-tab";
  * coordination lives in one place.
  */
 export function WalletSignIn() {
+  const { captcha } = usePublicEnv();
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const captchaSatisfied = captcha.mode === "disabled" || captchaToken !== null;
   // No installed wallet extension and no connected wallet means sign-in
   // cannot proceed, so asking for captcha verification is pointless noise
   // (ASK-2066). Mirrors the `readyState === "Installed"` filter in
@@ -42,7 +46,7 @@ export function WalletSignIn() {
 
   return (
     <div className="flex flex-col">
-      {hasWalletOption ? (
+      {hasWalletOption && captcha.mode !== "disabled" ? (
         <div className="t-acc" data-open={isCollapsed ? "false" : "true"}>
           <div className="t-acc-panel">
             <div className="t-acc-panel-inner">
@@ -60,6 +64,7 @@ export function WalletSignIn() {
         Choose your preferred sign-in method.
       </p>
       <WalletTab
+        captchaSatisfied={captchaSatisfied}
         captchaToken={captchaToken}
         onCaptchaConsumed={() => {
           setCaptchaToken(null);

@@ -96,11 +96,15 @@ export async function POST(request: Request) {
   };
 
   try {
-    const state = await findEarnCrossMintState(scope);
-    if (!state) {
-      return jsonError(404, "autoswap_not_found", "Autoswap is not installed.");
-    }
     if (input.enabled) {
+      const state = await findEarnCrossMintState(scope);
+      if (!state) {
+        return jsonError(
+          404,
+          "autoswap_not_found",
+          "Autoswap is not installed."
+        );
+      }
       if (state.policies.length !== 2) {
         return jsonError(
           409,
@@ -133,7 +137,7 @@ export async function POST(request: Request) {
         walletAddress: new PublicKey(principal.walletAddress),
       });
     }
-    const changed = await setEarnCrossMintEnabled({
+    const transition = await setEarnCrossMintEnabled({
       cluster,
       enabled: input.enabled,
       expectedGeneration: BigInt(input.expectedGeneration),
@@ -141,17 +145,16 @@ export async function POST(request: Request) {
       vaultIndex: EARN_VAULT_INDEX,
       vaultPubkey: vaultPubkey.toBase58(),
     });
-    if (!changed) {
+    if (transition.kind === "missing") {
       return jsonError(404, "autoswap_not_found", "Autoswap is not installed.");
     }
-    const updated = await findEarnCrossMintState(scope);
-    if (!updated) {
-      throw new Error("Autoswap disappeared during its state transition.");
+    if (transition.kind === "stale") {
+      throw new Error("Autoswap state changed. Refresh and try again.");
     }
     return NextResponse.json({
-      enabled: updated.enabled,
-      generation: updated.generation,
-      status: updated.enabled ? "on" : "paused",
+      enabled: transition.enrollment.enabled,
+      generation: transition.enrollment.generation,
+      status: transition.enrollment.enabled ? "on" : "paused",
     });
   } catch (error) {
     return jsonError(

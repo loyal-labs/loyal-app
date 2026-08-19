@@ -17,8 +17,7 @@ const settingsPda = new PublicKey(principal.settingsPda);
 const policyAccounts = [11, 12].map((policySeed) =>
   pda.getPolicyPda({ policySeed, programId, settingsPda })[0].toBase58()
 ) as [string, string];
-const setEarnCrossMintEnabled = mock(async () => true);
-const findEarnCrossMintState = mock(async () => ({
+const pausedEnrollment = {
   boundPolicies: [
     {
       account: policyAccounts[0],
@@ -35,8 +34,10 @@ const findEarnCrossMintState = mock(async () => ({
   enabled: false,
   generation: "2",
   maxSlippageBps: 50,
-  policies: [],
-  status: "paused" as const,
+};
+const setEarnCrossMintEnabled = mock(async () => ({
+  enrollment: pausedEnrollment,
+  kind: "applied" as const,
 }));
 const hasNonTerminalEarnCrossMintMovement = mock(async () => true);
 const prepareClosePoliciesSync = mock(async () => ({ operation: "close" }));
@@ -71,7 +72,6 @@ mock.module("@/lib/smart-accounts/prepared-operation-wire.shared", () => ({
 mock.module(
   "@/lib/yield-optimization/earn-cross-mint-repository.server",
   () => ({
-    findEarnCrossMintState,
     hasNonTerminalEarnCrossMintMovement,
     removeEarnCrossMintOptIn: async () => {},
     setEarnCrossMintEnabled,

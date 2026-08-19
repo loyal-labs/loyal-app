@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "predev": "bun run --cwd ../.. build:packages",
-    "dev": "next dev --turbopack",
+    "dev": "ALLOW_LOCAL_CAPTCHA_BYPASS=1 NEXT_PUBLIC_APP_ENVIRONMENT=local next dev --turbopack",
     "dev:1pass": "bun run dev:1pass:main",
     "dev:1pass:dev": "op run --env-file=../../.env.1password -- sh -c 'CAP_SECRET=\"${CAP_SECRET:-$(openssl rand -hex 32)}\" bun dev'",
     "dev:1pass:main": "op run --env-file=../../.env.mainnet.1password -- sh -c 'CAP_SECRET=\"${CAP_SECRET:-$(openssl rand -hex 32)}\" bun dev'",

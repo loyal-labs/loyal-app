@@ -40,42 +40,6 @@ function createCanaryDatabase(
   });
 }
 
-// Read-only API verification (default):
-// AUTOSWAP_VERIFY_BASE_URL=http://localhost:3000 bun scripts/verify-earn-autoswap-flow.ts
-//
-// Disposable localhost database state verification (no on-chain writes):
-// AUTOSWAP_VERIFY_MODE=local-state AUTOSWAP_VERIFY_LOCAL_AUTH_ACK=disposable-local-auth YIELD_OPTIMIZATION_LOCAL_DATABASE_URL=postgresql://localhost/loyal_autoswap_api_verify_<suffix> bun scripts/verify-earn-autoswap-flow.ts
-//
-// Explicitly approved mainnet lifecycle:
-// AUTOSWAP_VERIFY_MODE=live AUTOSWAP_VERIFY_BASE_URL=http://localhost:3000 bun scripts/verify-earn-autoswap-flow.ts
-// Use AUTOSWAP_VERIFY_LIVE_ACTION=install to leave the verified enrollment on
-// for worker canaries, pause/resume around a controlled recovery check, and
-// cleanup after terminalization. The default `full` action remains atomic.
-// Use AUTOSWAP_VERIFY_LIVE_ACTION=canary only for the explicitly acknowledged
-// production run. It installs policies, exercises two bounded movements,
-// proves pause/recovery/delete behavior, and cleans up in one auth session.
-// Use canary-existing to exercise one already-installed mint family and leave
-// the enrollment paused, allowing inventory to be restaged before the other
-// family is verified without reopening the global start gate in between.
-// It requires NEON_DATABASE_URL and:
-// AUTOSWAP_VERIFY_CANARY_ACK=mainnet-production-bounded-autoswap-canaries
-// Set AUTOSWAP_VERIFY_EXPECTED_POLICY_CREATES=1 only to resume a deliberately
-// interrupted setup; a clean-install live run requires two creates by default.
-//
-// Run inside the Loyal Apps 1Password environment. The script never prints
-// the test key, auth cookie, RPC URL, or serialized transaction bytes. Live
-// mode is the only mode that submits transactions. Local-state mode mutates
-// only a name-guarded disposable localhost database and cleans its fixtures.
-
-type VerifyMode = "live" | "local-state" | "read-only";
-type LiveAction =
-  | "canary"
-  | "canary-existing"
-  | "cleanup"
-  | "full"
-  | "install"
-  | "pause"
-  | "resume";
 type JsonRecord = Record<string, unknown>;
 type CanaryDatabase = ReturnType<typeof createCanaryDatabase>;
 type CanaryGateLease = { generation: string | null };
@@ -131,6 +95,7 @@ type Session = {
   cookie: string;
   settingsPda: string;
   smartAccountAddress: string;
+  walletAddress: string;
 };
 type CanaryMovement = {
   amountRaw: string;
@@ -161,9 +126,6 @@ type CanarySubmission = {
 const BASE_URL = (
   process.env.AUTOSWAP_VERIFY_BASE_URL ?? "http://localhost:3000"
 ).replace(/\/+$/, "");
-const MODE = (process.env.AUTOSWAP_VERIFY_MODE ?? "read-only") as VerifyMode;
-const LIVE_ACTION = (process.env.AUTOSWAP_VERIFY_LIVE_ACTION ??
-  "full") as LiveAction;
 const DAILY_CAP_RAW = BigInt(
   process.env.AUTOSWAP_VERIFY_DAILY_CAP_RAW ?? "100000000"
 );
@@ -190,7 +152,6 @@ const DELETE_PREPARE_PATH =
   "/api/smart-accounts/yield-optimization/cross-mint/delete/prepare";
 const DELETE_CONFIRM_PATH =
   "/api/smart-accounts/yield-optimization/cross-mint/delete/confirm";
-const FAKE_SIGNATURE = "1".repeat(88);
 const SQUADS_MISSING_ACCOUNT_ERROR_CODE = 6024;
 const CANARY_ACKNOWLEDGEMENT = "mainnet-production-bounded-autoswap-canaries";
 const LOCAL_AUTH_ACKNOWLEDGEMENT = "disposable-local-auth";
@@ -201,8 +162,8 @@ const CANARY_GATE_OWNER = `${CANARY_GATE_ACTOR}:${randomUUID()}`;
 const CANARY_POLL_INTERVAL_MS = 1000;
 const CANARY_TRANSITION_POLL_INTERVAL_MS = 250;
 const POLICY_DISCOVERY_TIMEOUT_MS = 60_000;
-const CANARY_PRODUCTION_DATABASE_HOST_SHA256 =
-  "bf4fd3f4262f3de5fa1885a99ab89fb4d2a7e262868af85b44bcd9026ad03092";
+const CANARY_PRODUCTION_DATABASE_ENDPOINT_SHA256 =
+  "f5bf9367f769718e58899375cb0c5ada166190f87b7141402d2057c9cfd3fd66";
 
 function loadKeypair(envName: string): Keypair {
   const raw = process.env[envName]?.trim();
@@ -375,12 +336,11 @@ async function authenticate(keypair: Keypair): Promise<Session> {
     cookie: extractCookieHeader(completion.headers),
     settingsPda,
     smartAccountAddress,
+    walletAddress: keypair.publicKey.toBase58(),
   };
 }
 
-async function authenticateDisposableLocalFixture(
-  keypair: Keypair
-): Promise<Session> {
+async function authenticateDisposableLocalFixture(): Promise<Session> {
   if (
     process.env.AUTOSWAP_VERIFY_LOCAL_AUTH_ACK?.trim() !==
     LOCAL_AUTH_ACKNOWLEDGEMENT
@@ -392,15 +352,16 @@ async function authenticateDisposableLocalFixture(
 
   const database = postgres(requireDisposableLocalDatabaseUrl(), { max: 1 });
   try {
-    const rows = await database<{ settings: string }[]>`
-      select distinct settings
+    const rows = await database<{ settings: string; walletAddress: string }[]>`
+      select distinct
+        settings,
+        wallet_address as "walletAddress"
       from loyal_yield.user_yield_positions
-      where wallet_address = ${keypair.publicKey.toBase58()}
-        and status = 'active'
+      where status = 'active'
     `;
     if (rows.length !== 1) {
       throw new Error(
-        "Disposable local auth requires exactly one active testing-wallet smart account."
+        "Disposable local auth requires exactly one active wallet and smart account."
       );
     }
 
@@ -414,7 +375,7 @@ async function authenticateDisposableLocalFixture(
         import("../apps/web/src/features/smart-accounts/derivation.ts"),
         import("../apps/web/src/lib/core/config/server.ts"),
       ]);
-    const walletAddress = keypair.publicKey.toBase58();
+    const walletAddress = rows[0]!.walletAddress;
     const smartAccountAddress =
       derivationModule.deriveCanonicalSmartAccountAddress({
         programId: configModule.getServerEnv().loyalSmartAccounts.programId,
@@ -437,6 +398,7 @@ async function authenticateDisposableLocalFixture(
       cookie: `${WALLET_SESSION_COOKIE_NAME}=${token}`,
       settingsPda: rows[0]!.settings,
       smartAccountAddress,
+      walletAddress,
     };
   } finally {
     await database.end({ timeout: 5 });
@@ -719,225 +681,6 @@ async function waitForAutoswap(
   throw new Error(`Timed out waiting for Autoswap to become ${label}.`);
 }
 
-async function verifyReadOnly(args: {
-  connection: Connection;
-  initialState: EarnState;
-  keypair: Keypair;
-  session: Session;
-}): Promise<JsonRecord> {
-  const current = args.initialState.autoswap;
-  if (current) {
-    if (current.status !== "finalizing") {
-      const idempotent = requireOk(
-        await apiRequest<{ generation: string }>({
-          body: {
-            enabled: current.enabled,
-            expectedGeneration: current.generation,
-          },
-          cookie: args.session.cookie,
-          method: "POST",
-          path: TOGGLE_PATH,
-        }),
-        "idempotent Autoswap toggle"
-      );
-      if (idempotent.generation !== current.generation) {
-        throw new Error("An idempotent Autoswap toggle advanced generation.");
-      }
-    }
-    const fakeDelete = await apiRequest({
-      body: {
-        expectedGeneration: current.generation,
-        finalizedSlot: "1",
-        policies: current.boundPolicies.map((policy) => policy.account),
-        signature: FAKE_SIGNATURE,
-      },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: DELETE_CONFIRM_PATH,
-    });
-    requireStatus(
-      fakeDelete,
-      409,
-      "unfinalized delete confirmation",
-      "delete_confirmation_failed"
-    );
-    return {
-      existingState: current.status,
-      generation: current.generation,
-      idempotentToggle:
-        current.status === "finalizing" ? "not_applicable" : "passed",
-      unfinalizedDeleteRejected: true,
-    };
-  }
-
-  if (!args.initialState.position) {
-    const missingPosition = await apiRequest({
-      body: {
-        dailySourceMintSpendingCap: DAILY_CAP_RAW.toString(),
-        maxSlippageBps: MAX_SLIPPAGE_BPS,
-      },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: PREPARE_PATH,
-    });
-    requireStatus(
-      missingPosition,
-      409,
-      "missing-position setup",
-      "earn_position_required"
-    );
-    return { missingPositionRejected: true };
-  }
-
-  const prepared = await preparePolicies(args.session);
-  if (prepared.vault.pubkey !== args.initialState.vault.pubkey) {
-    throw new Error(
-      "Prepared Autoswap policies target a different Earn vault."
-    );
-  }
-  const simulationLogCounts: number[] = [];
-  const pending = pendingPolicies(prepared);
-  const nextPolicy = pending[0];
-  if (nextPolicy?.prepared) {
-    simulationLogCounts.push(
-      await simulatePrepared({
-        connection: args.connection,
-        keypair: args.keypair,
-        wire: nextPolicy.prepared,
-      })
-    );
-  }
-  const dependentSimulationLogCounts: number[] = [];
-  for (const policy of pending.slice(1)) {
-    if (policy.prepared) {
-      dependentSimulationLogCounts.push(
-        await assertPreparedAwaitsPreviousPolicy({
-          connection: args.connection,
-          keypair: args.keypair,
-          wire: policy.prepared,
-        })
-      );
-    }
-  }
-  const wrongSeedPolicies = prepared.policies.map((policy, index) => ({
-    account: policy.policy.account,
-    seed:
-      index === 0
-        ? (BigInt(policy.policy.seed) + BigInt(1)).toString()
-        : policy.policy.seed,
-    sourceShard: policy.sourceShard,
-  })) as [AutoswapPolicyState, AutoswapPolicyState];
-  const rejectedConfirmation = await apiRequest({
-    body: {
-      dailySourceMintSpendingCap: DAILY_CAP_RAW.toString(),
-      maxSlippageBps: MAX_SLIPPAGE_BPS,
-      policies: wrongSeedPolicies,
-    },
-    cookie: args.session.cookie,
-    method: "POST",
-    path: CONFIRM_PATH,
-  });
-  requireStatus(
-    rejectedConfirmation,
-    409,
-    "mismatched policy confirmation",
-    "confirmation_failed"
-  );
-  if ((await getEarnState(args.session)).autoswap !== null) {
-    throw new Error("Rejected policy confirmation created an enrollment row.");
-  }
-  const [missingToggle, missingDelete] = await Promise.all([
-    apiRequest({
-      body: { enabled: false, expectedGeneration: "1" },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: TOGGLE_PATH,
-    }),
-    apiRequest({
-      body: { expectedGeneration: "1" },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: DELETE_PREPARE_PATH,
-    }),
-  ]);
-  requireStatus(missingToggle, 404, "off-state toggle", "autoswap_not_found");
-  requireStatus(missingDelete, 404, "off-state delete", "autoswap_not_found");
-  return {
-    preparedPolicyCount: prepared.policies.length,
-    preparedPolicies: prepared.policies.map((policy) => ({
-      account: policy.policy.account,
-      delegatedSigner: policy.persistence.delegatedSigner,
-      existing: policy.existing,
-      seed: policy.policy.seed,
-      sourceShard: policy.sourceShard,
-    })),
-    dependentSimulationLogCounts,
-    rejectedMismatchedConfirmation: true,
-    simulationLogCounts,
-  };
-}
-
-async function changeLiveAutoswapState(args: {
-  enabled: boolean;
-  initialState: EarnState;
-  session: Session;
-}): Promise<JsonRecord> {
-  const current = args.initialState.autoswap;
-  if (!current || current.status === "finalizing") {
-    throw new Error(
-      `Autoswap ${
-        args.enabled ? "resume" : "pause"
-      } requires a settled enrollment.`
-    );
-  }
-  if (current.enabled === args.enabled) {
-    return {
-      action: args.enabled ? "resume" : "pause",
-      finalState: current.status,
-      generation: current.generation,
-      idempotent: true,
-    };
-  }
-  const changed = requireOk(
-    await apiRequest<{
-      enabled: boolean;
-      generation: string;
-      status: string;
-    }>({
-      body: {
-        enabled: args.enabled,
-        expectedGeneration: current.generation,
-      },
-      cookie: args.session.cookie,
-      method: "POST",
-      path: TOGGLE_PATH,
-    }),
-    `Autoswap ${args.enabled ? "resume" : "pause"}`
-  );
-  if (
-    changed.enabled !== args.enabled ||
-    BigInt(changed.generation) !== BigInt(current.generation) + BigInt(1)
-  ) {
-    throw new Error(
-      `Autoswap ${
-        args.enabled ? "resume" : "pause"
-      } did not advance generation exactly once.`
-    );
-  }
-  const expectedStatus = args.enabled ? "on" : "paused";
-  await waitForAutoswap(
-    args.session,
-    (state) => state?.status === expectedStatus,
-    expectedStatus
-  );
-  return {
-    action: args.enabled ? "resume" : "pause",
-    finalState: expectedStatus,
-    generation: changed.generation,
-    idempotent: false,
-  };
-}
-
 async function cleanupLiveAutoswap(args: {
   connection: Connection;
   generation: string;
@@ -1031,6 +774,14 @@ async function cleanupLiveAutoswap(args: {
   };
 }
 
+export function autoswapCanaryDatabaseEndpointFingerprint(raw: string): string {
+  const url = new URL(raw);
+  const endpointIdentity = `${url.hostname.toLowerCase()}:${
+    url.port || "5432"
+  }${url.pathname}`;
+  return createHash("sha256").update(endpointIdentity).digest("hex");
+}
+
 function requireCanaryDatabaseUrl(): string {
   if (
     process.env.AUTOSWAP_VERIFY_CANARY_ACK?.trim() !== CANARY_ACKNOWLEDGEMENT
@@ -1050,10 +801,8 @@ function requireCanaryDatabaseUrl(): string {
   if (["127.0.0.1", "::1", "localhost"].includes(url.hostname)) {
     throw new Error("Autoswap canaries require the production database.");
   }
-  const hostFingerprint = createHash("sha256")
-    .update(url.hostname)
-    .digest("hex");
-  if (hostFingerprint !== CANARY_PRODUCTION_DATABASE_HOST_SHA256) {
+  const endpointFingerprint = autoswapCanaryDatabaseEndpointFingerprint(raw);
+  if (endpointFingerprint !== CANARY_PRODUCTION_DATABASE_ENDPOINT_SHA256) {
     throw new Error(
       "NEON_DATABASE_URL is not the pinned Autoswap production database endpoint."
     );
@@ -1061,7 +810,7 @@ function requireCanaryDatabaseUrl(): string {
   return raw;
 }
 
-function requireProductionCanaryConfig(): void {
+function requireApprovedAutoswapApiEndpoint(): void {
   const baseUrl = new URL(BASE_URL);
   const deployedApi =
     baseUrl.protocol === "https:" && baseUrl.hostname === "askloyal.com";
@@ -1070,9 +819,13 @@ function requireProductionCanaryConfig(): void {
     ["127.0.0.1", "::1", "localhost"].includes(baseUrl.hostname);
   if (!(deployedApi || localApi)) {
     throw new Error(
-      "Autoswap canaries must use the deployed API or a loopback-local API."
+      "Autoswap production commands must use the deployed API or a loopback-local API."
     );
   }
+}
+
+function requireProductionCanaryConfig(): void {
+  requireApprovedAutoswapApiEndpoint();
   if (![1, 2].includes(EXPECTED_LIVE_POLICY_CREATES)) {
     throw new Error(
       "Autoswap canaries require a clean two-policy install or a one-policy interrupted-setup resume."
@@ -1263,6 +1016,49 @@ async function ensureCanaryStartGateClosed(
   );
 }
 
+async function setAutoswapEnrollmentEnabled(args: {
+  enabled: boolean;
+  session: Session;
+  state: AutoswapState;
+}): Promise<{ finalState: "on" | "paused"; generation: string }> {
+  const changed = requireOk(
+    await apiRequest<{
+      enabled: boolean;
+      generation: string;
+      status: string;
+    }>({
+      body: {
+        enabled: args.enabled,
+        expectedGeneration: args.state.generation,
+      },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: TOGGLE_PATH,
+    }),
+    `Autoswap ${args.enabled ? "resume" : "pause"}`
+  );
+  const finalState = args.enabled ? "on" : "paused";
+  if (
+    changed.enabled !== args.enabled ||
+    changed.status !== finalState ||
+    BigInt(changed.generation) !== BigInt(args.state.generation) + BigInt(1)
+  ) {
+    throw new Error(
+      `Autoswap ${
+        args.enabled ? "resume" : "pause"
+      } did not advance generation exactly once.`
+    );
+  }
+  return { finalState, generation: changed.generation };
+}
+
+async function pauseAutoswapEnrollment(
+  session: Session,
+  state: AutoswapState
+): Promise<void> {
+  await setAutoswapEnrollmentEnabled({ enabled: false, session, state });
+}
+
 async function ensureAutoswapEnrollmentFailClosed(
   session: Session
 ): Promise<void> {
@@ -1273,12 +1069,11 @@ async function ensureAutoswapEnrollmentFailClosed(
       if (!state.autoswap || state.autoswap.status === "paused") {
         return;
       }
-      if (state.autoswap.status === "on") {
-        await changeLiveAutoswapState({
-          enabled: false,
-          initialState: state,
-          session,
-        });
+      if (
+        state.autoswap.status === "on" ||
+        state.autoswap.status === "finalizing"
+      ) {
+        await pauseAutoswapEnrollment(session, state.autoswap);
       }
     } catch (error) {
       lastError = error;
@@ -1368,7 +1163,9 @@ async function waitForNewCanaryMovement(args: {
     10
   );
   if (!Number.isSafeInteger(maximumAttempts) || maximumAttempts < 1) {
-    throw new Error("AUTOSWAP_VERIFY_MOVEMENT_WAIT_ATTEMPTS must be a positive integer.");
+    throw new Error(
+      "AUTOSWAP_VERIFY_MOVEMENT_WAIT_ATTEMPTS must be a positive integer."
+    );
   }
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     const [row] = await args.database<{ id: string }[]>`
@@ -1751,15 +1548,15 @@ async function runProductionCanary(args: {
     gateOpen = false;
     movement = await waitForFinalizedWithdrawal(args.database, movement.id);
     if (args.controlledPause) {
-      const resumed = await changeLiveAutoswapState({
+      const resumed = await setAutoswapEnrollmentEnabled({
         enabled: true,
-        initialState: await getEarnState(args.session),
         session: args.session,
+        state: (await getEarnState(args.session)).autoswap!,
       });
-      await changeLiveAutoswapState({
+      await setAutoswapEnrollmentEnabled({
         enabled: false,
-        initialState: await getEarnState(args.session),
         session: args.session,
+        state: (await getEarnState(args.session)).autoswap!,
       });
       if (resumed.finalState !== "on") {
         throw new Error(
@@ -1854,10 +1651,10 @@ async function verifyProductionCanaries(args: {
       session: args.session,
       vaultId,
     });
-    await changeLiveAutoswapState({
+    await setAutoswapEnrollmentEnabled({
       enabled: true,
-      initialState: await getEarnState(args.session),
       session: args.session,
+      state: (await getEarnState(args.session)).autoswap!,
     });
     const resumed = (await getEarnState(args.session)).autoswap;
     if (resumed?.status !== "on") {
@@ -1936,95 +1733,12 @@ async function verifyProductionCanaries(args: {
   }
 }
 
-async function verifyExistingProductionCanary(args: {
-  connection: Connection;
-  keypair: Keypair;
-  session: Session;
-}): Promise<JsonRecord> {
-  const database = createCanaryDatabase(requireCanaryDatabaseUrl());
-  const gateLease: CanaryGateLease = { generation: null };
-  let baselineVerified = false;
-  try {
-    const initialState = await getEarnState(args.session);
-    const installed = initialState.autoswap;
-    if (installed?.status !== "on") {
-      throw new Error(
-        "Existing Autoswap canary requires an installed on enrollment."
-      );
-    }
-    const vaultId = await assertCanaryProductionBaseline({
-      database,
-      session: args.session,
-      state: installed,
-      vaultPubkey: initialState.vault.pubkey,
-    });
-    baselineVerified = true;
-    const canary = await runProductionCanary({
-      connection: args.connection,
-      controlledPause: true,
-      database,
-      gateLease,
-      keypair: args.keypair,
-      session: args.session,
-      state: installed,
-      vaultId,
-    });
-    await provePausedEnrollmentStartsNothing({
-      database,
-      gateLease,
-      session: args.session,
-      vaultId,
-    });
-    return {
-      action: "canary-existing",
-      canary,
-      finalState: "paused",
-      pausedEnrollmentStartedNewMovements: false,
-    };
-  } catch (error) {
-    await ensureAutoswapEnrollmentFailClosed(args.session);
-    throw error;
-  } finally {
-    let gateError: unknown;
-    if (baselineVerified) {
-      try {
-        await ensureCanaryStartGateClosed(database, gateLease);
-      } catch (error) {
-        gateError = error;
-      }
-    }
-    await database.end({ timeout: 5 });
-    if (gateError) {
-      throw gateError;
-    }
-  }
-}
-
 async function verifyLive(args: {
-  action: LiveAction;
   connection: Connection;
   initialState: EarnState;
   keypair: Keypair;
   session: Session;
 }): Promise<JsonRecord> {
-  if (args.action === "pause" || args.action === "resume") {
-    return changeLiveAutoswapState({
-      enabled: args.action === "resume",
-      initialState: args.initialState,
-      session: args.session,
-    });
-  }
-  if (args.action === "cleanup") {
-    if (!args.initialState.autoswap) {
-      throw new Error("Autoswap cleanup requires an existing enrollment.");
-    }
-    return cleanupLiveAutoswap({
-      connection: args.connection,
-      generation: args.initialState.autoswap.generation,
-      keypair: args.keypair,
-      session: args.session,
-    });
-  }
   if (args.initialState.autoswap) {
     throw new Error(
       `Live Autoswap verification requires off state; found ${args.initialState.autoswap.status}.`
@@ -2226,45 +1940,20 @@ async function verifyLive(args: {
   ) {
     throw new Error("Autoswap resume did not advance generation exactly once.");
   }
-  if (args.action === "install") {
-    return {
-      action: "install",
-      createdPolicyTransactions: submitted.size,
-      finalState: "on",
-      pauseGeneration: pause.generation,
-      resumeGeneration: resume.generation,
-    };
-  }
-  if (args.action === "canary") {
-    return {
-      action: "canary",
-      createdPolicyTransactions: submitted.size,
-      pauseGeneration: pause.generation,
-      resumeGeneration: resume.generation,
-      ...(await verifyProductionCanaries({
-        connection: args.connection,
-        keypair: args.keypair,
-        session: args.session,
-      })),
-    };
-  }
-  const cleanup = await cleanupLiveAutoswap({
-    connection: args.connection,
-    generation: resume.generation,
-    keypair: args.keypair,
-    session: args.session,
-  });
   return {
-    ...cleanup,
-    action: "full",
+    action: "canary",
     createdPolicyTransactions: submitted.size,
     pauseGeneration: pause.generation,
     resumeGeneration: resume.generation,
+    ...(await verifyProductionCanaries({
+      connection: args.connection,
+      keypair: args.keypair,
+      session: args.session,
+    })),
   };
 }
 
 async function verifyProductionCanaryLifecycle(args: {
-  action: LiveAction;
   connection: Connection;
   initialState: EarnState;
   keypair: Keypair;
@@ -2301,7 +1990,7 @@ function requireDisposableLocalDatabaseUrl(): string {
   const raw = process.env.YIELD_OPTIMIZATION_LOCAL_DATABASE_URL?.trim();
   if (!raw) {
     throw new Error(
-      "local-state mode requires YIELD_OPTIMIZATION_LOCAL_DATABASE_URL."
+      "Deterministic Autoswap verification requires YIELD_OPTIMIZATION_LOCAL_DATABASE_URL."
     );
   }
   const databaseUrl = new URL(raw);
@@ -2314,16 +2003,14 @@ function requireDisposableLocalDatabaseUrl(): string {
     !databaseName.startsWith("loyal_autoswap_api_verify_")
   ) {
     throw new Error(
-      "local-state mode only runs against localhost and a loyal_autoswap_api_verify_* database."
+      "Deterministic Autoswap verification only runs against localhost and a loyal_autoswap_api_verify_* database."
     );
   }
   return raw;
 }
 
 async function verifyLocalState(args: {
-  connection: Connection;
   initialState: EarnState;
-  keypair: Keypair;
   session: Session;
 }): Promise<JsonRecord> {
   if (args.initialState.autoswap) {
@@ -2337,26 +2024,7 @@ async function verifyLocalState(args: {
 
   const database = postgres(requireDisposableLocalDatabaseUrl(), { max: 1 });
   const prepared = await preparePolicies(args.session);
-  const pending = pendingPolicies(prepared);
-  const nextPolicy = pending[0];
-  if (nextPolicy?.prepared) {
-    await simulatePrepared({
-      connection: args.connection,
-      keypair: args.keypair,
-      wire: nextPolicy.prepared,
-    });
-  }
-  for (const policy of pending.slice(1)) {
-    if (policy.prepared) {
-      await assertPreparedAwaitsPreviousPolicy({
-        connection: args.connection,
-        keypair: args.keypair,
-        wire: policy.prepared,
-      });
-    }
-  }
-
-  const walletAddress = args.keypair.publicKey.toBase58();
+  const walletAddress = args.session.walletAddress;
   const scope = {
     cluster: prepared.policies[0].persistence.cluster,
     settings: args.session.settingsPda,
@@ -2540,8 +2208,8 @@ async function verifyLocalState(args: {
       "autoswap_already_installed"
     );
 
-    const pause = requireOk(
-      await apiRequest<{
+    const [pauseResponse, concurrentPauseResponse] = await Promise.all([
+      apiRequest<{
         enabled: boolean;
         generation: string;
         status: string;
@@ -2551,8 +2219,14 @@ async function verifyLocalState(args: {
         method: "POST",
         path: TOGGLE_PATH,
       }),
-      "local Autoswap pause"
-    );
+      apiRequest<{ generation: string }>({
+        body: { enabled: false, expectedGeneration: "1" },
+        cookie: args.session.cookie,
+        method: "POST",
+        path: TOGGLE_PATH,
+      }),
+    ]);
+    const pause = requireOk(pauseResponse, "local Autoswap pause");
     if (
       pause.enabled ||
       pause.generation !== "2" ||
@@ -2561,13 +2235,8 @@ async function verifyLocalState(args: {
       throw new Error("Autoswap pause did not advance generation to 2.");
     }
     const pauseRetry = requireOk(
-      await apiRequest<{ generation: string }>({
-        body: { enabled: false, expectedGeneration: "1" },
-        cookie: args.session.cookie,
-        method: "POST",
-        path: TOGGLE_PATH,
-      }),
-      "local Autoswap pause retry"
+      concurrentPauseResponse,
+      "concurrent local Autoswap pause retry"
     );
     if (pauseRetry.generation !== "2") {
       throw new Error("Autoswap pause retry advanced generation.");
@@ -2707,13 +2376,27 @@ async function verifyLocalState(args: {
     if ((await getEarnState(args.session)).autoswap !== null) {
       throw new Error("Local Autoswap enrollment remained after cleanup.");
     }
+    const missingToggle = await apiRequest({
+      body: { enabled: false, expectedGeneration: "4" },
+      cookie: args.session.cookie,
+      method: "POST",
+      path: TOGGLE_PATH,
+    });
+    requireStatus(
+      missingToggle,
+      404,
+      "missing Autoswap transition",
+      "autoswap_not_found"
+    );
 
     return {
+      concurrentPauseAdvancedOnce: true,
       duplicateSetupRejected: true,
       failedResumeLeftPaused: true,
       lostConfirmationRecoveredOff: true,
       missingPositionConfirmRejected: true,
       missingPositionPrepareRejected: true,
+      missingTransitionRejected: true,
       movementDeletePausedAndBlocked: true,
       pauseGeneration: pause.generation,
       pauseRetryGeneration: pauseRetry.generation,
@@ -2749,26 +2432,7 @@ async function verifyLocalState(args: {
   }
 }
 
-async function main(): Promise<void> {
-  if (MODE !== "read-only" && MODE !== "local-state" && MODE !== "live") {
-    throw new Error(
-      "AUTOSWAP_VERIFY_MODE must be read-only, local-state, or live."
-    );
-  }
-  if (
-    MODE === "live" &&
-    LIVE_ACTION !== "canary" &&
-    LIVE_ACTION !== "canary-existing" &&
-    LIVE_ACTION !== "cleanup" &&
-    LIVE_ACTION !== "full" &&
-    LIVE_ACTION !== "install" &&
-    LIVE_ACTION !== "pause" &&
-    LIVE_ACTION !== "resume"
-  ) {
-    throw new Error(
-      "AUTOSWAP_VERIFY_LIVE_ACTION must be canary, canary-existing, cleanup, full, install, pause, or resume."
-    );
-  }
+function validateAutoswapConfiguration(): void {
   if (SOLANA_ENV !== "mainnet") {
     throw new Error(
       "Autoswap API verification currently requires mainnet configuration."
@@ -2782,30 +2446,12 @@ async function main(): Promise<void> {
       "AUTOSWAP_VERIFY_DAILY_CAP_RAW must be between $1 and $1,000."
     );
   }
-  if (
-    MODE === "live" &&
-    EXPECTED_LIVE_POLICY_CREATES !== 1 &&
-    EXPECTED_LIVE_POLICY_CREATES !== 2
-  ) {
-    throw new Error(
-      "AUTOSWAP_VERIFY_EXPECTED_POLICY_CREATES must be 1 or 2 in live mode."
-    );
-  }
-  if (
-    MODE === "live" &&
-    (LIVE_ACTION === "canary" || LIVE_ACTION === "canary-existing")
-  ) {
-    requireProductionCanaryConfig();
-  }
+}
 
-  const keypair = loadKeypair("SOLANA_TESTING_PK");
-  const connection = new Connection(RPC_URL, "confirmed");
-  const session =
-    MODE === "local-state"
-      ? await authenticateDisposableLocalFixture(keypair)
-      : await authenticate(keypair);
-  await verifyRouteBoundaries(session);
-  const initialState = await getEarnState(session);
+function assertAuthenticatedEarnState(
+  initialState: EarnState,
+  session: Session
+): void {
   if (
     initialState.settingsPda !== session.settingsPda ||
     initialState.vault.accountIndex !== 1
@@ -2819,65 +2465,108 @@ async function main(): Promise<void> {
       "The authenticated testing wallet is not enabled by EARN_AUTOSWAP_ENABLED_WALLETS."
     );
   }
-  if (MODE === "live" && LIVE_ACTION === "canary") {
-    await verifyProductionCanaryDatabasePreflight({ initialState, session });
-  }
-
-  const lifecycle =
-    MODE === "live"
-      ? LIVE_ACTION === "canary"
-        ? await verifyProductionCanaryLifecycle({
-            action: LIVE_ACTION,
-            connection,
-            initialState,
-            keypair,
-            session,
-          })
-        : LIVE_ACTION === "canary-existing"
-        ? await verifyExistingProductionCanary({
-            connection,
-            keypair,
-            session,
-          })
-        : await verifyLive({
-            action: LIVE_ACTION,
-            connection,
-            initialState,
-            keypair,
-            session,
-          })
-      : MODE === "local-state"
-      ? await verifyLocalState({ connection, initialState, keypair, session })
-      : await verifyReadOnly({ connection, initialState, keypair, session });
-  console.log(
-    JSON.stringify(
-      {
-        evidence: {
-          authenticatedIdentityBound: true,
-          lifecycle,
-          routeBoundaries: "passed",
-        },
-        mode: MODE,
-        verdict:
-          MODE === "live"
-            ? "PASS_AUTOSWAP_API_LIFECYCLE"
-            : MODE === "local-state"
-            ? "PASS_AUTOSWAP_API_LOCAL_STATE"
-            : "PASS_AUTOSWAP_API_READ_ONLY",
-      },
-      null,
-      2
-    )
-  );
 }
 
-main().catch((error) => {
-  console.error(
-    JSON.stringify({
-      error: error instanceof Error ? error.message : String(error),
-      mode: MODE,
-      verdict: "FAIL_AUTOSWAP_API_VERIFICATION",
-    })
-  );
-  process.exitCode = 1;
-});
+export async function verifyAutoswapContract(): Promise<JsonRecord> {
+  validateAutoswapConfiguration();
+  requireDisposableLocalDatabaseUrl();
+  const session = await authenticateDisposableLocalFixture();
+  await verifyRouteBoundaries(session);
+  const initialState = await getEarnState(session);
+  assertAuthenticatedEarnState(initialState, session);
+  return {
+    evidence: {
+      authenticatedIdentityBound: true,
+      lifecycle: await verifyLocalState({
+        initialState,
+        session,
+      }),
+      routeBoundaries: "passed",
+    },
+    verdict: "PASS_AUTOSWAP_API_LOCAL_STATE",
+  };
+}
+
+export async function runAutoswapCanary(): Promise<JsonRecord> {
+  validateAutoswapConfiguration();
+  requireProductionCanaryConfig();
+  const keypair = loadKeypair("SOLANA_TESTING_PK");
+  const connection = new Connection(RPC_URL, "confirmed");
+  const session = await authenticate(keypair);
+  await verifyRouteBoundaries(session);
+  const initialState = await getEarnState(session);
+  assertAuthenticatedEarnState(initialState, session);
+  await verifyProductionCanaryDatabasePreflight({ initialState, session });
+  return {
+    evidence: {
+      authenticatedIdentityBound: true,
+      lifecycle: await verifyProductionCanaryLifecycle({
+        connection,
+        initialState,
+        keypair,
+        session,
+      }),
+      routeBoundaries: "passed",
+    },
+    verdict: "PASS_AUTOSWAP_API_LIFECYCLE",
+  };
+}
+
+export async function recoverAutoswapCanary(): Promise<JsonRecord> {
+  validateAutoswapConfiguration();
+  requireApprovedAutoswapApiEndpoint();
+  const database = createCanaryDatabase(requireCanaryDatabaseUrl());
+  try {
+    await ensureCanaryStartGateClosed(database, { generation: null });
+  } finally {
+    await database.end({ timeout: 5 });
+  }
+
+  const keypair = loadKeypair("SOLANA_TESTING_PK");
+  const session = await authenticate(keypair);
+  await ensureAutoswapEnrollmentFailClosed(session);
+  const state = await getEarnState(session);
+  const readback = createCanaryDatabase(requireCanaryDatabaseUrl());
+  try {
+    const [remaining] = await readback<
+      {
+        activeMovementCount: string;
+        queuedCrossMintCount: string;
+        startNewMovements: boolean;
+      }[]
+    >`
+      select
+        (
+          select count(*)::text
+          from loyal_yield.rebalance_decisions
+          where movement_route = 'cross_mint_jupiter'
+            and terminal_outcome is null
+        ) as "activeMovementCount",
+        (
+          select count(*)::text
+          from loyal_yield.rebalance_opportunities
+          where execution_plan ->> 'kind' = 'cross_mint_jupiter'
+            and opportunity_state in (
+              'waiting_alt', 'revalidate', 'ready', 'leased', 'decision_created'
+            )
+        ) as "queuedCrossMintCount",
+        start_new_movements as "startNewMovements"
+      from loyal_yield.cross_mint_movement_controls
+      where cluster = ${CANARY_CLUSTER}
+    `;
+    if (!remaining || remaining.startNewMovements) {
+      throw new Error("Autoswap recovery could not verify starts are closed.");
+    }
+    return {
+      evidence: {
+        activeMovementCount: remaining.activeMovementCount,
+        enrollmentState: state.autoswap?.status ?? "off",
+        queuedCrossMintCount: remaining.queuedCrossMintCount,
+        startNewMovements: false,
+      },
+      verdict: "PASS_AUTOSWAP_CANARY_RECOVERY",
+    };
+  } finally {
+    await readback.end({ timeout: 5 });
+  }
+}

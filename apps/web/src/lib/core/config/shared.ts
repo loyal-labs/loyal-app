@@ -2,6 +2,9 @@ export type AppEnvironment = "local" | "dev" | "prod";
 
 export type EnvSource = Readonly<Record<string, string | undefined>>;
 
+const APP_ENVIRONMENT_ENV_NAME = "NEXT_PUBLIC_APP_ENVIRONMENT";
+const LOCAL_CAPTCHA_BYPASS_ENV_NAME = "ALLOW_LOCAL_CAPTCHA_BYPASS";
+
 const APP_ENVIRONMENT_VALUES: readonly AppEnvironment[] = [
   "local",
   "dev",
@@ -78,4 +81,15 @@ export function resolveAppEnvironment(
   return normalized && isAppEnvironment(normalized)
     ? normalized
     : DEFAULT_APP_ENVIRONMENT;
+}
+
+export function isLocalCaptchaBypassConfigured(env: EnvSource): boolean {
+  const isNonProductionRuntime =
+    env.NODE_ENV === "development" || env.NODE_ENV === "test";
+  return (
+    isNonProductionRuntime &&
+    resolveAppEnvironment(getOptionalEnv(env, APP_ENVIRONMENT_ENV_NAME)) ===
+      "local" &&
+    getOptionalEnv(env, LOCAL_CAPTCHA_BYPASS_ENV_NAME) === "1"
+  );
 }

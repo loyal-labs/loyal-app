@@ -111,6 +111,10 @@ import {
   isSupportedTokenProgram,
   resolveVaultAccountIndex,
 } from "./messages";
+import {
+  programInteractionPolicySecurityEquals,
+  projectProgramInteractionPolicySecurity,
+} from "./program-interaction-policy-security";
 import type {
   SmartAccountOverview,
   SmartAccountOverviewBase,
@@ -679,53 +683,6 @@ function generatedValuesEqual(left: unknown, right: unknown): boolean {
   return (
     JSON.stringify(normalizeComparableGeneratedValue(left)) ===
     JSON.stringify(normalizeComparableGeneratedValue(right))
-  );
-}
-
-function normalizePolicyCreationStateForComparison(value: unknown): unknown {
-  const normalized = normalizeComparableGeneratedValue(value);
-  if (!normalized || typeof normalized !== "object") {
-    return normalized;
-  }
-
-  const state = normalized as {
-    __kind?: string;
-    fields?: Array<{
-      spendingLimits?: Array<{
-        mint?: unknown;
-        quantityConstraints?: Record<string, unknown>;
-        timeConstraints?: Record<string, unknown>;
-        usage?: unknown;
-      }>;
-    }>;
-  };
-  if (state.__kind !== "ProgramInteraction") {
-    return normalized;
-  }
-
-  for (const field of state.fields ?? []) {
-    for (const spendingLimit of field.spendingLimits ?? []) {
-      if (spendingLimit.timeConstraints) {
-        delete spendingLimit.timeConstraints.start;
-        spendingLimit.timeConstraints.accumulateUnused ??= false;
-      }
-      if (spendingLimit.quantityConstraints) {
-        spendingLimit.quantityConstraints.maxPerUse ??= "0";
-        spendingLimit.quantityConstraints.enforceExactQuantity ??= false;
-      }
-      delete spendingLimit.usage;
-    }
-    field.spendingLimits?.sort((left, right) =>
-      JSON.stringify(left.mint).localeCompare(JSON.stringify(right.mint))
-    );
-  }
-  return normalizeComparableGeneratedValue(normalized);
-}
-
-function policyCreationStatesEqual(left: unknown, right: unknown): boolean {
-  return (
-    JSON.stringify(normalizePolicyCreationStateForComparison(left)) ===
-    JSON.stringify(normalizePolicyCreationStateForComparison(right))
   );
 }
 
@@ -6156,98 +6113,18 @@ export function createSmartAccountVaultsClient(
       throw new Error(`${args.label} signer permissions are not canonical.`);
     }
     if (
-      !policyCreationStatesEqual(
+      !programInteractionPolicySecurityEquals(
         policy.policyState,
         policyCreationPayloadToState(args.expectedState)
       )
     ) {
-      // The message alone cannot tell WHICH constraint diverged; log each
-      // divergent path on its own console line (with values capped) so the
-      // mismatch is diagnosable without console truncation. Array-length
-      // mismatches log lengths plus the raw (pre-normalize) entry types to
-      // separate decode divergence from normalize divergence.
-      const cap = (value: unknown) => {
-        const text = JSON.stringify(value) ?? String(value);
-        return text.length > 120 ? `${text.slice(0, 117)}...` : text;
-      };
-      const logDiff = (line: string) =>
-        console.error(`[canonical-diff] ${line}`);
-      const collectDiffs = (left: unknown, right: unknown, path: string) => {
-        if (JSON.stringify(left) === JSON.stringify(right)) {
-          return;
-        }
-        if (Array.isArray(left) && Array.isArray(right)) {
-          if (left.length !== right.length) {
-            logDiff(
-              `${path}: length expected=${left.length} onChain=${right.length}`
-            );
-          }
-          const max = Math.max(left.length, right.length);
-          for (let index = 0; index < max; index += 1) {
-            collectDiffs(left[index], right[index], `${path}.${index}`);
-          }
-          return;
-        }
-        const leftIsObject = left !== null && typeof left === "object";
-        const rightIsObject = right !== null && typeof right === "object";
-        if (!leftIsObject || !rightIsObject) {
-          logDiff(`${path}: expected=${cap(left)} onChain=${cap(right)}`);
-          return;
-        }
-        const keys = new Set([
-          ...Object.keys(left as Record<string, unknown>),
-          ...Object.keys(right as Record<string, unknown>),
-        ]);
-        for (const key of keys) {
-          collectDiffs(
-            (left as Record<string, unknown>)[key],
-            (right as Record<string, unknown>)[key],
-            `${path}.${key}`
-          );
-        }
-      };
       console.error(`[smart-account-vaults] ${args.label} canonical mismatch`);
-      collectDiffs(
-        normalizePolicyCreationStateForComparison(
+      console.error({
+        actual: projectProgramInteractionPolicySecurity(policy.policyState),
+        expected: projectProgramInteractionPolicySecurity(
           policyCreationPayloadToState(args.expectedState)
         ),
-        normalizePolicyCreationStateForComparison(policy.policyState),
-        "policyState"
-      );
-      const describeRawEntry = (value: unknown) => {
-        if (value === null || typeof value !== "object") {
-          return typeof value;
-        }
-        const name = (value as object).constructor?.name ?? "object";
-        return value instanceof Map ? `Map(size=${value.size})` : name;
-      };
-      const rawConstraints = (
-        policy.policyState as unknown as {
-          fields?: { instructionsConstraints?: unknown[] }[];
-        }
-      ).fields?.[0]?.instructionsConstraints;
-      if (Array.isArray(rawConstraints)) {
-        for (const [index, constraint] of rawConstraints.entries()) {
-          if (constraint && typeof constraint === "object") {
-            for (const [key, value] of Object.entries(constraint)) {
-              if (Array.isArray(value)) {
-                logDiff(
-                  `raw onChain constraint ${index}.${key}: length=${
-                    value.length
-                  } entryTypes=[${value
-                    .slice(0, 8)
-                    .map((entry) => describeRawEntry(entry))
-                    .join(",")}]`
-                );
-              } else if (value instanceof Map) {
-                logDiff(
-                  `raw onChain constraint ${index}.${key}: Map size=${value.size}`
-                );
-              }
-            }
-          }
-        }
-      }
+      });
       throw new Error(
         `${args.label} instruction constraints are not canonical.`
       );
@@ -8269,7 +8146,10 @@ export function createSmartAccountVaultsClient(
                 createPolicySigner(args.signer).permissions
               )
           ) &&
-          policyCreationStatesEqual(policy.policyState, expectedState)
+          programInteractionPolicySecurityEquals(
+            policy.policyState,
+            expectedState
+          )
         );
       });
       if (matches.length > 1) {

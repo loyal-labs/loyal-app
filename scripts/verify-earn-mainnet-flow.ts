@@ -187,7 +187,7 @@ const FRONTEND_BASE_URL =
 const FRONTEND_SESSION_COOKIE =
   process.env.EARN_VERIFY_FRONTEND_COOKIE?.trim() || null;
 const FRONTEND_TURNSTILE_TOKEN =
-  process.env.EARN_VERIFY_TURNSTILE_TOKEN?.trim() || "local-bypass";
+  process.env.EARN_VERIFY_TURNSTILE_TOKEN?.trim() || null;
 const YIELD_ROUTING_REPO =
   process.env.EARN_YIELD_ROUTING_REPO?.trim() || "../loyal-yield-routing";
 const RPC_URL =
@@ -552,7 +552,9 @@ async function authenticateFrontendSession(args: {
     message: string;
   }>({
     body: {
-      turnstileToken: FRONTEND_TURNSTILE_TOKEN,
+      ...(FRONTEND_TURNSTILE_TOKEN
+        ? { turnstileToken: FRONTEND_TURNSTILE_TOKEN }
+        : {}),
       walletAddress: args.keypair.publicKey.toBase58(),
     },
     path: "/api/auth/wallet/challenge",
