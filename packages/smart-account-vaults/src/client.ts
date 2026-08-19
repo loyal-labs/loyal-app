@@ -3792,6 +3792,87 @@ function createSettingsTransactionFilters(
   ];
 }
 
+type ProgramAccountsV2Page = {
+  accounts?: {
+    pubkey: string;
+    account: {
+      data: [string, string];
+      executable: boolean;
+      lamports: number;
+      owner: string;
+      rentEpoch?: number;
+    };
+  }[];
+  paginationKey?: string | null;
+};
+
+const GET_PROGRAM_ACCOUNTS_V2_PAGE_LIMIT = 1_000;
+const JSON_RPC_METHOD_NOT_FOUND = -32601;
+
+// Helius deprioritizes plain getProgramAccounts on account-heavy programs and
+// requires getProgramAccountsV2 with pagination, so prefer V2 when the
+// connection exposes a raw RPC channel and fall back for RPCs without it
+// (local test validators, mocked connections).
+async function getProgramAccountsCompat(
+  connection: Connection,
+  programId: PublicKey,
+  config: {
+    commitment: "confirmed";
+    filters: GetProgramAccountsFilter[];
+  }
+): Promise<readonly { pubkey: PublicKey; account: AccountInfo<Buffer> }[]> {
+  const rpcRequest = (
+    connection as Connection & {
+      _rpcRequest?: (methodName: string, args: unknown[]) => Promise<unknown>;
+    }
+  )._rpcRequest?.bind(connection);
+  if (!rpcRequest) {
+    return connection.getProgramAccounts(programId, config);
+  }
+  const collected: { pubkey: PublicKey; account: AccountInfo<Buffer> }[] = [];
+  let paginationKey: string | null = null;
+  do {
+    const response = (await rpcRequest("getProgramAccountsV2", [
+      programId.toBase58(),
+      {
+        commitment: config.commitment,
+        encoding: "base64",
+        filters: config.filters,
+        limit: GET_PROGRAM_ACCOUNTS_V2_PAGE_LIMIT,
+        ...(paginationKey ? { paginationKey } : {}),
+      },
+    ])) as {
+      error?: { code?: number; message?: string };
+      result?: ProgramAccountsV2Page & { value?: ProgramAccountsV2Page };
+    };
+    if (response.error) {
+      if (response.error.code === JSON_RPC_METHOD_NOT_FOUND) {
+        return connection.getProgramAccounts(programId, config);
+      }
+      throw new Error(
+        response.error.message ?? "getProgramAccountsV2 request failed."
+      );
+    }
+    const page = response.result?.accounts
+      ? response.result
+      : response.result?.value;
+    for (const entry of page?.accounts ?? []) {
+      collected.push({
+        pubkey: new PublicKey(entry.pubkey),
+        account: {
+          data: Buffer.from(entry.account.data[0], "base64"),
+          executable: entry.account.executable,
+          lamports: entry.account.lamports,
+          owner: new PublicKey(entry.account.owner),
+          rentEpoch: entry.account.rentEpoch,
+        },
+      });
+    }
+    paginationKey = page?.paginationKey ?? null;
+  } while (paginationKey);
+  return collected;
+}
+
 function createPolicyFilters(
   settingsPda: PublicKey
 ): GetProgramAccountsFilter[] {
@@ -4998,7 +5079,8 @@ export function createSmartAccountVaultsClient(
   async function fetchPolicyAccounts(args: {
     settingsPda: PublicKey;
   }): Promise<DeserializedPolicyAccount[]> {
-    const policyAccounts = await config.connection.getProgramAccounts(
+    const policyAccounts = await getProgramAccountsCompat(
+      config.connection,
       smartAccountsClient.programId,
       {
         commitment: "confirmed",
@@ -5974,7 +6056,8 @@ export function createSmartAccountVaultsClient(
   }
 
   async function listRawPolicies(args: { settingsPda: PublicKey }) {
-    const policyAccounts = await config.connection.getProgramAccounts(
+    const policyAccounts = await getProgramAccountsCompat(
+      config.connection,
       smartAccountsClient.programId,
       {
         commitment: "confirmed",

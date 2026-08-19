@@ -19,6 +19,7 @@ const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
   "getLatestBlockhash",
   "getMultipleAccounts",
   "getProgramAccounts",
+  "getProgramAccountsV2",
   "getTokenAccountsByOwner",
 ]);
 
