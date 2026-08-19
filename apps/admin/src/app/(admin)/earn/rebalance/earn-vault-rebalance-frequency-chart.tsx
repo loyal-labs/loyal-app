@@ -40,14 +40,13 @@ import {
 import type { SafeReserveApyStatusRow } from "@/lib/kamino/timescale-reserve-monitor.shared";
 
 import { buildLogTicks, formatDepositTick } from "./earn-vault-rebalance-axis";
-import {
-  DepositScaleSwitch,
-  type DepositScale,
-} from "./deposit-scale-switch";
+import { DepositScaleSwitch, type DepositScale } from "./deposit-scale-switch";
 import {
   computeRebalanceEligibilityFloorRaw,
   summarizeRebalanceEligibility,
 } from "./earn-vault-rebalance-eligibility";
+import type { RebalanceRouteMode } from "./rebalance-data";
+import { RouteModeSwitch } from "./route-mode-switch";
 
 const NO_RESERVE_KEY = "__no_current_reserve__";
 const RESERVE_COLORS = [
@@ -73,6 +72,7 @@ export type SerializedEarnVaultRebalanceFrequencyRow = {
   opportunity7dCount: number;
   opportunityAllCount: number;
   positionCount: number;
+  routeMode: RebalanceRouteMode;
   vaultId: string;
   vaultPubkey: string;
 };
@@ -274,6 +274,7 @@ export function EarnVaultRebalanceFrequencyChart({
   reserveStatuses: SafeReserveApyStatusRow[];
 }) {
   const [range, setRange] = useState<RangeKey>("all");
+  const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
   const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
 
@@ -282,6 +283,7 @@ export function EarnVaultRebalanceFrequencyChart({
   const rankedVaults = useMemo(
     () =>
       [...data.vaults]
+        .filter((vault) => vault.routeMode === routeMode)
         .sort((left, right) => {
           const amountOrder = compareRawAmounts(
             left.currentDepositRaw,
@@ -295,7 +297,7 @@ export function EarnVaultRebalanceFrequencyChart({
           ...vault,
           depositRank: index + 1,
         })),
-    [data.vaults]
+    [data.vaults, routeMode]
   );
   const points = useMemo(
     () =>
@@ -398,8 +400,7 @@ export function EarnVaultRebalanceFrequencyChart({
   const zeroDepositCount = points.length - positiveDeposits.length;
   const scatterPoints = points.map((point) => ({
     ...point,
-    plottedDeposit:
-      point.depositAmount > 0 ? point.depositAmount : logFloor,
+    plottedDeposit: point.depositAmount > 0 ? point.depositAmount : logFloor,
   }));
 
   if (data.status === "unavailable") {
@@ -424,53 +425,63 @@ export function EarnVaultRebalanceFrequencyChart({
   return (
     <Card className="min-w-0" aria-labelledby="vault-rebalance-frequency-title">
       <Tabs
+        className="gap-6"
         value={range}
         onValueChange={(value) => setRange(value as RangeKey)}
       >
         <CardHeader className="gap-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <CardTitle id="vault-rebalance-frequency-title">
-                Earn vault rebalance frequency
-              </CardTitle>
-              <CardDescription>
-                One dot per funded active vault. X is the current deposit, on a
-                log or linear scale; Y shows confirmed reserve-to-reserve
-                rebalances in the selected window. Dot color is the largest
-                current reserve position. Vaults below the eligibility floor
-                cannot clear the planner&rsquo;s economic gate, so they sit at
-                zero by design.
-              </CardDescription>
-            </div>
-            <Button
-              aria-pressed={showTable}
-              onClick={() => setShowTable((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showTable ? "secondary" : "outline"}
-            >
-              Table
-            </Button>
+          <div>
+            <CardTitle id="vault-rebalance-frequency-title">
+              Earn vault rebalance frequency
+            </CardTitle>
+            <CardDescription>
+              One dot per funded active{" "}
+              {routeMode === "cross_mint" ? "Crossmint-enrolled" : "Earn"}{" "}
+              vault. X is the current deposit, on a log or linear scale; Y shows
+              confirmed {routeMode === "cross_mint" ? "Crossmint" : "same-mint"}{" "}
+              rebalances in the selected window. Dot color is the largest
+              current reserve position. Vaults below the eligibility floor
+              cannot clear the planner&rsquo;s economic gate, so they sit at
+              zero by design.
+            </CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <TabsList
-              aria-label="Vault rebalance frequency window"
-              className="w-fit max-w-full"
-            >
-              {RANGE_OPTIONS.map((option) => (
-                <TabsTrigger key={option.key} value={option.key}>
-                  {option.tabLabel}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-            <DepositScaleSwitch
-              id="vault-rebalance-frequency-scale"
-              onScaleChange={setScale}
-              scale={scale}
+          <div className="flex flex-wrap items-center gap-2">
+            <RouteModeSwitch
+              id="vault-rebalance-frequency-route-mode"
+              mode={routeMode}
+              onModeChange={setRouteMode}
             />
+            {points.length > 0 ? (
+              <>
+                <TabsList
+                  aria-label="Vault rebalance frequency window"
+                  className="w-fit max-w-full"
+                >
+                  {RANGE_OPTIONS.map((option) => (
+                    <TabsTrigger key={option.key} value={option.key}>
+                      {option.tabLabel}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+                <DepositScaleSwitch
+                  id="vault-rebalance-frequency-scale"
+                  onScaleChange={setScale}
+                  scale={scale}
+                />
+                <Button
+                  aria-pressed={showTable}
+                  onClick={() => setShowTable((value) => !value)}
+                  size="sm"
+                  type="button"
+                  variant={showTable ? "secondary" : "outline"}
+                >
+                  Table
+                </Button>
+              </>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
-            {eligibilityFloorRaw === null ? (
+            {points.length === 0 ? null : eligibilityFloorRaw === null ? (
               <span>
                 {rebalancedVaultCount.toLocaleString("en-US")} of{" "}
                 {points.length.toLocaleString("en-US")} funded vaults rebalanced
@@ -482,11 +493,13 @@ export function EarnVaultRebalanceFrequencyChart({
                 vaults rebalanced
               </span>
             )}
-            <span>
-              {points.length.toLocaleString("en-US")} funded vaults ·{" "}
-              {rebalancedVaultCount.toLocaleString("en-US")} with rebalances
-            </span>
-            {eligibilityFloorRaw === null ? null : (
+            {points.length > 0 ? (
+              <span>
+                {points.length.toLocaleString("en-US")} funded vaults ·{" "}
+                {rebalancedVaultCount.toLocaleString("en-US")} with rebalances
+              </span>
+            ) : null}
+            {points.length === 0 || eligibilityFloorRaw === null ? null : (
               <span>
                 Eligible at{" "}
                 {formatDeposit(
@@ -496,10 +509,12 @@ export function EarnVaultRebalanceFrequencyChart({
                 +
               </span>
             )}
-            <span>
-              {totalRebalances.toLocaleString("en-US")} confirmed executions ·{" "}
-              {rangeOption.label}
-            </span>
+            {points.length > 0 ? (
+              <span>
+                {totalRebalances.toLocaleString("en-US")} confirmed executions ·{" "}
+                {rangeOption.label}
+              </span>
+            ) : null}
             <span>Updated {formatUtcTimestamp(data.generatedAt)}</span>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -524,8 +539,10 @@ export function EarnVaultRebalanceFrequencyChart({
             {range === option.key ? (
               <CardContent className="min-w-0">
                 {points.length === 0 ? (
-                  <div className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-                    No funded active Earn vaults are available.
+                  <div className="flex min-h-40 items-center justify-center rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
+                    {routeMode === "cross_mint"
+                      ? "No active Earn vaults have Crossmint enabled."
+                      : "No funded active Earn vaults are available."}
                   </div>
                 ) : showTable ? (
                   <div className="max-h-[460px] overflow-auto rounded-md border">
@@ -676,19 +693,21 @@ export function EarnVaultRebalanceFrequencyChart({
                     </ScatterChart>
                   </ChartContainer>
                 )}
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {maxCount === 0
-                    ? "No confirmed rebalances occurred in this window; every vault is shown at zero."
-                    : "Hover a dot for the exact vault, current deposit, reserve APY, and counts for every window."}
-                  {showTable
-                    ? " The table shows the 100 largest current deposits."
-                    : " Idle-only vaults use the neutral legend color."}
-                  {!showTable && useLogScale && zeroDepositCount > 0
-                    ? ` ${zeroDepositCount.toLocaleString("en-US")} vault${
-                        zeroDepositCount === 1 ? "" : "s"
-                      } with a zero deposit sit on the axis floor.`
-                    : ""}
-                </p>
+                {points.length > 0 ? (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {maxCount === 0
+                      ? "No confirmed rebalances occurred in this window; every vault is shown at zero."
+                      : "Hover a dot for the exact vault, current deposit, reserve APY, and counts for every window."}
+                    {showTable
+                      ? " The table shows the 100 largest current deposits."
+                      : " Idle-only vaults use the neutral legend color."}
+                    {!showTable && useLogScale && zeroDepositCount > 0
+                      ? ` ${zeroDepositCount.toLocaleString("en-US")} vault${
+                          zeroDepositCount === 1 ? "" : "s"
+                        } with a zero deposit sit on the axis floor.`
+                      : ""}
+                  </p>
+                ) : null}
               </CardContent>
             ) : null}
           </TabsContent>

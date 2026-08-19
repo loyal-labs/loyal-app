@@ -158,7 +158,7 @@ export function AutodepositFailuresChart({
     : "No range available";
 
   return (
-    <Card className="w-full py-4 sm:py-0">
+    <Card className="w-full gap-0 py-0">
       <CardHeader className="flex flex-col items-stretch border-b !p-0 xl:flex-row">
         <div className="flex flex-1 flex-col justify-center gap-1 px-6 py-4 sm:py-6">
           <CardTitle className="font-bold">Failed attempts by cause</CardTitle>
@@ -188,7 +188,7 @@ export function AutodepositFailuresChart({
           </span>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2 px-2 pt-6 sm:p-6">
+      <CardContent className="space-y-2 p-4 sm:p-6">
         {chartData.length > 0 ? (
           <>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 text-xs text-muted-foreground">

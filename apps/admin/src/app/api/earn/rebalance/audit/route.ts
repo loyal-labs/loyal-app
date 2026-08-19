@@ -7,6 +7,7 @@ import {
   getRebalanceAuditSummary,
   type RebalanceAuditErrorFilter,
   type RebalanceAuditRange,
+  type RebalanceRouteMode,
   type RebalanceAuditView,
 } from "../../../../(admin)/earn/rebalance/rebalance-data";
 
@@ -19,6 +20,7 @@ const views = new Set<RebalanceAuditView>([
   "errors",
 ]);
 const ranges = new Set<RebalanceAuditRange>(["24h", "7d", "30d", "all"]);
+const routeModes = new Set<RebalanceRouteMode>(["same_mint", "cross_mint"]);
 const errorFilters = new Set<RebalanceAuditErrorFilter>([
   "all",
   "rebalance",
@@ -42,6 +44,11 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const view = parseEnum(url.searchParams.get("view"), views, "errors");
   const range = parseEnum(url.searchParams.get("range"), ranges, "24h");
+  const routeMode = parseEnum(
+    url.searchParams.get("routeMode"),
+    routeModes,
+    "same_mint"
+  );
   const errorFilter = parseEnum(
     url.searchParams.get("errorFilter"),
     errorFilters,
@@ -55,6 +62,7 @@ export async function GET(request: Request) {
   if (
     !view ||
     !range ||
+    !routeMode ||
     !errorFilter ||
     (rawCursor && !cursor) ||
     (rawActiveCursor && !activeCursor)
@@ -66,16 +74,18 @@ export async function GET(request: Request) {
   }
 
   const [summary, page, activePage] = await Promise.all([
-    getRebalanceAuditSummary(range),
+    getRebalanceAuditSummary(range, routeMode),
     getRebalanceAuditPage({
       cursor,
       errorFilter,
       range,
+      routeMode,
       view,
     }),
     getRebalanceAuditActivePage({
       cursor: activeCursor,
       range,
+      routeMode,
     }),
   ]);
 

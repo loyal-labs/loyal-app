@@ -66,20 +66,22 @@ const ChartContainer = React.forwardRef<HTMLDivElement, ChartContainerProps>(
             "[&_.recharts-layer]:outline-none",
             "[&_.recharts-sector[stroke='#fff']]:stroke-transparent",
             "[&_.recharts-dot[stroke='#fff']]:stroke-transparent",
-            className,
+            className
           )}
           {...props}
         >
           <ChartStyle id={chartId} config={config} />
           <RechartsPrimitive.ResponsiveContainer>
-            {children as React.ComponentProps<
-              typeof RechartsPrimitive.ResponsiveContainer
-            >["children"]}
+            {
+              children as React.ComponentProps<
+                typeof RechartsPrimitive.ResponsiveContainer
+              >["children"]
+            }
           </RechartsPrimitive.ResponsiveContainer>
         </div>
       </ChartContext.Provider>
     );
-  },
+  }
 );
 ChartContainer.displayName = "ChartContainer";
 
@@ -97,12 +99,28 @@ type ChartTooltipContentProps = React.ComponentProps<"div"> &
     hideLabel?: boolean;
     nameKey?: string;
     labelFormatter?: (value: unknown) => React.ReactNode;
+    valueFormatter?: (
+      value: number | string | undefined,
+      dataKey: string
+    ) => React.ReactNode;
   };
 
-const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltipContentProps>(
+const ChartTooltipContent = React.forwardRef<
+  HTMLDivElement,
+  ChartTooltipContentProps
+>(
   (
-    { active, payload, className, hideLabel = false, label, labelFormatter, nameKey: _nameKey },
-    ref,
+    {
+      active,
+      payload,
+      className,
+      hideLabel = false,
+      label,
+      labelFormatter,
+      nameKey: _nameKey,
+      valueFormatter,
+    },
+    ref
   ) => {
     const { config } = useChart();
 
@@ -113,28 +131,35 @@ const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltipContent
     const renderedLabel = hideLabel
       ? null
       : labelFormatter
-        ? labelFormatter(label)
-        : label;
+      ? labelFormatter(label)
+      : label;
 
     return (
       <div
         ref={ref}
         className={cn(
           "grid min-w-[8rem] gap-1.5 rounded-lg border border-border/70 bg-background px-2.5 py-1.5 text-xs shadow-xl",
-          className,
+          className
         )}
       >
-        {renderedLabel ? <div className="font-medium text-foreground">{renderedLabel}</div> : null}
+        {renderedLabel ? (
+          <div className="font-medium text-foreground">{renderedLabel}</div>
+        ) : null}
         <div className="grid gap-1">
           {payload.map((item, index) => {
             const payloadItem = item as unknown as TooltipPayloadItem;
             const seriesKey = payloadItem.dataKey ?? "";
             const seriesConfig = config[seriesKey];
-            const seriesLabel = seriesConfig?.label ?? payloadItem.name ?? seriesKey;
-            const seriesColor = payloadItem.color ?? `var(--color-${seriesKey})`;
+            const seriesLabel =
+              seriesConfig?.label ?? payloadItem.name ?? seriesKey;
+            const seriesColor =
+              payloadItem.color ?? `var(--color-${seriesKey})`;
 
             return (
-              <div key={`${seriesKey}-${index}`} className="flex items-center justify-between gap-2">
+              <div
+                key={`${seriesKey}-${index}`}
+                className="flex items-center justify-between gap-2"
+              >
                 <div className="flex items-center gap-2">
                   <span
                     className="h-2.5 w-2.5 rounded-[2px]"
@@ -144,7 +169,9 @@ const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltipContent
                   <span className="text-muted-foreground">{seriesLabel}</span>
                 </div>
                 <span className="font-mono font-medium tabular-nums text-foreground">
-                  {typeof payloadItem.value === "number"
+                  {valueFormatter
+                    ? valueFormatter(payloadItem.value, seriesKey)
+                    : typeof payloadItem.value === "number"
                     ? payloadItem.value.toLocaleString()
                     : payloadItem.value}
                 </span>
@@ -154,7 +181,7 @@ const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltipContent
         </div>
       </div>
     );
-  },
+  }
 );
 ChartTooltipContent.displayName = "ChartTooltipContent";
 

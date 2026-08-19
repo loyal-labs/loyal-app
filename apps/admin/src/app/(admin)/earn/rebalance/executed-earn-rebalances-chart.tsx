@@ -38,10 +38,9 @@ import {
 } from "@/lib/earn/stablecoin-monitor.shared";
 
 import { buildLogTicks, formatDepositTick } from "./earn-vault-rebalance-axis";
-import {
-  DepositScaleSwitch,
-  type DepositScale,
-} from "./deposit-scale-switch";
+import { DepositScaleSwitch, type DepositScale } from "./deposit-scale-switch";
+import type { RebalanceRouteMode } from "./rebalance-data";
+import { RouteModeSwitch } from "./route-mode-switch";
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const SOURCE_COLORS = [
@@ -60,8 +59,12 @@ export type SerializedExecutedEarnRebalanceRow = {
   executedAt: string;
   id: string;
   liquidityMint: string | null;
+  routeMode: RebalanceRouteMode;
   sourceReserve: string;
+  sourceLiquidityMint: string | null;
+  swapFeeLamports: string;
   targetReserve: string;
+  targetLiquidityMint: string | null;
   userRank: number;
 };
 
@@ -78,7 +81,6 @@ type ChartPoint = SerializedExecutedEarnRebalanceRow & {
 };
 
 type RangeKey = "7d" | "30d" | "all";
-
 
 function formatUtcTimestamp(value: number | string): string {
   const date = new Date(value);
@@ -131,6 +133,10 @@ function formatCompactStablecoinRaw(raw: string): string {
   }).format(amount)}`;
 }
 
+function formatSwapFee(raw: string): string {
+  return `${(Number(BigInt(raw)) / 1_000_000_000).toFixed(6)} SOL`;
+}
+
 function rangeLabel(range: RangeKey): string {
   if (range === "7d") {
     return "Last 7 days";
@@ -173,8 +179,27 @@ function ExecutedRebalanceTooltip({
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1">
         <dt className="text-muted-foreground">Executed</dt>
         <dd className="text-right font-medium tabular-nums">
-          {formatStablecoinRaw(point.amountRaw, point.liquidityMint)}
+          {formatStablecoinRaw(
+            point.amountRaw,
+            point.routeMode === "cross_mint"
+              ? point.sourceLiquidityMint
+              : point.liquidityMint
+          )}
         </dd>
+        {point.routeMode === "cross_mint" ? (
+          <>
+            <dt className="text-muted-foreground">Swap pair</dt>
+            <dd className="text-right font-medium">
+              {getEarnStablecoinSymbol(point.sourceLiquidityMint) ?? "Unknown"}{" "}
+              →{" "}
+              {getEarnStablecoinSymbol(point.targetLiquidityMint) ?? "Unknown"}
+            </dd>
+            <dt className="text-muted-foreground">Swap fee</dt>
+            <dd className="text-right font-medium tabular-nums">
+              {formatSwapFee(point.swapFeeLamports)}
+            </dd>
+          </>
+        ) : null}
         <dt className="text-muted-foreground">User deposit now</dt>
         <dd className="text-right font-medium tabular-nums">
           {formatStablecoinRaw(point.currentDepositRaw, null)}
@@ -200,12 +225,14 @@ export function ExecutedEarnRebalancesChart({
   reserveLabels: ReadonlyMap<string, string>;
 }) {
   const [range, setRange] = useState<RangeKey>("all");
+  const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
   const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
 
   const points = useMemo(
     () =>
       data.executions
+        .filter((execution) => execution.routeMode === routeMode)
         .map((execution) => ({
           ...execution,
           depositAmount:
@@ -214,7 +241,7 @@ export function ExecutedEarnRebalancesChart({
           executedAtMs: Date.parse(execution.executedAt),
         }))
         .filter((execution) => Number.isFinite(execution.executedAtMs)),
-    [data.executions]
+    [data.executions, routeMode]
   );
 
   const filteredPoints = useMemo(() => {
@@ -245,30 +272,8 @@ export function ExecutedEarnRebalancesChart({
     ])
   ) satisfies ChartConfig;
 
-  const userByRank = new Map(
-    points.map((point) => [
-      point.userRank,
-      {
-        currentDepositRaw: point.currentDepositRaw,
-      },
-    ])
-  );
-  const yTicks = Array.from(
-    new Set(
-      Array.from(
-        { length: Math.min(7, Math.max(data.userCount, 1)) },
-        (_, index) =>
-          Math.max(
-            1,
-            Math.round(
-              1 +
-                (index * Math.max(data.userCount - 1, 0)) /
-                  Math.max(Math.min(7, data.userCount) - 1, 1)
-            )
-          )
-      )
-    )
-  );
+  const distinctUserCount = new Set(points.map((point) => point.authority))
+    .size;
   const positiveDeposits = filteredPoints
     .map((point) => point.depositAmount)
     .filter((amount) => amount > 0 && Number.isFinite(amount));
@@ -288,10 +293,13 @@ export function ExecutedEarnRebalancesChart({
     positiveDeposits.length > 0 ? Math.max(...positiveDeposits) : 1;
   const scatterPoints = filteredPoints.map((point) => ({
     ...point,
-    logDepositAmount:
-      point.depositAmount > 0 ? point.depositAmount : logFloor,
+    logDepositAmount: point.depositAmount > 0 ? point.depositAmount : logFloor,
   }));
   const tableRows = [...filteredPoints].reverse().slice(0, 50);
+  const swapFeeLamports = points.reduce(
+    (total, point) => total + BigInt(point.swapFeeLamports),
+    BigInt(0)
+  );
 
   if (data.status === "unavailable") {
     return (
@@ -321,54 +329,78 @@ export function ExecutedEarnRebalancesChart({
               Executed Earn rebalances
             </CardTitle>
             <CardDescription>
-              One dot per confirmed reserve-to-reserve decision. Y is the
-              user&rsquo;s current Earn deposit, on a log or linear scale. Times
-              are UTC.
+              One dot per confirmed{" "}
+              {routeMode === "cross_mint" ? "Crossmint" : "same-mint"}{" "}
+              reserve-to-reserve decision. Y is the user&rsquo;s current Earn
+              deposit, on a log or linear scale. Times are UTC.
             </CardDescription>
           </div>
-          <div
-            className="flex flex-wrap gap-1"
-            aria-label="Execution history range"
-          >
-            {(["7d", "30d", "all"] as const).map((value) => (
+          <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
+            <RouteModeSwitch
+              id="executed-earn-rebalances-route-mode"
+              mode={routeMode}
+              onModeChange={setRouteMode}
+            />
+            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div
+                aria-label="Execution history range"
+                className="inline-flex items-center rounded-lg bg-muted p-1"
+                role="group"
+              >
+                {(["7d", "30d", "all"] as const).map((value) => (
+                  <Button
+                    aria-pressed={range === value}
+                    className={
+                      range === value
+                        ? "h-7 bg-background px-2.5 text-xs shadow-xs hover:bg-background"
+                        : "h-7 px-2.5 text-xs text-muted-foreground shadow-none"
+                    }
+                    key={value}
+                    onClick={() => setRange(value)}
+                    size="sm"
+                    type="button"
+                    variant="ghost"
+                  >
+                    {value === "all" ? "All" : value}
+                  </Button>
+                ))}
+              </div>
               <Button
-                aria-pressed={range === value}
-                key={value}
-                onClick={() => setRange(value)}
+                aria-pressed={showTable}
+                onClick={() => setShowTable((value) => !value)}
                 size="sm"
                 type="button"
-                variant={range === value ? "secondary" : "outline"}
+                variant={showTable ? "secondary" : "outline"}
               >
-                {value === "all" ? "All" : value}
+                Table
               </Button>
-            ))}
-            <Button
-              aria-pressed={showTable}
-              onClick={() => setShowTable((value) => !value)}
-              size="sm"
-              type="button"
-              variant={showTable ? "secondary" : "outline"}
-            >
-              Table
-            </Button>
-            <DepositScaleSwitch
-              id="executed-earn-rebalances-scale"
-              onScaleChange={setScale}
-              scale={scale}
-            />
+            </div>
+            {showTable ? null : (
+              <DepositScaleSwitch
+                id="executed-earn-rebalances-scale"
+                onScaleChange={setScale}
+                scale={scale}
+              />
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
           <span>
-            {data.executions.length.toLocaleString("en-US")} confirmed
-            executions
+            {points.length.toLocaleString("en-US")} confirmed executions
           </span>
-          <span>{data.userCount.toLocaleString("en-US")} distinct users</span>
+          <span>
+            {distinctUserCount.toLocaleString("en-US")} distinct users
+          </span>
           <span>
             {filteredPoints.length.toLocaleString("en-US")} shown ·{" "}
             {rangeLabel(range)}
           </span>
           <span>Updated {formatUtcTimestamp(data.generatedAt)}</span>
+          {routeMode === "cross_mint" ? (
+            <span className="font-medium text-foreground">
+              {formatSwapFee(swapFeeLamports.toString())} finalized swap fees
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           {sources.map((source) => (
@@ -386,7 +418,9 @@ export function ExecutedEarnRebalancesChart({
       <CardContent className="min-w-0">
         {points.length === 0 ? (
           <div className="rounded-md border border-dashed px-4 py-10 text-center text-sm text-muted-foreground">
-            No confirmed Earn rebalances are available.
+            No confirmed{" "}
+            {routeMode === "cross_mint" ? "Crossmint" : "same-mint"} Earn
+            rebalances are available.
           </div>
         ) : showTable ? (
           <div className="max-h-[420px] overflow-auto rounded-md border">
@@ -395,11 +429,21 @@ export function ExecutedEarnRebalancesChart({
                 <TableRow>
                   <TableHead>Executed (UTC)</TableHead>
                   <TableHead>User</TableHead>
-                  <TableHead>Mint</TableHead>
+                  {routeMode === "cross_mint" ? (
+                    <>
+                      <TableHead>Source mint</TableHead>
+                      <TableHead>Target mint</TableHead>
+                    </>
+                  ) : (
+                    <TableHead>Mint</TableHead>
+                  )}
                   <TableHead>Route</TableHead>
                   <TableHead>Decision</TableHead>
                   <TableHead className="text-right">Confirmed slot</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
+                  {routeMode === "cross_mint" ? (
+                    <TableHead className="text-right">Swap fee</TableHead>
+                  ) : null}
                   <TableHead className="text-right">Current deposit</TableHead>
                 </TableRow>
               </TableHeader>
@@ -412,10 +456,23 @@ export function ExecutedEarnRebalancesChart({
                     <TableCell className="whitespace-nowrap font-mono">
                       {formatShortAddress(point.authority)} · {point.userRank}
                     </TableCell>
-                    <TableCell className="font-medium">
-                      {getEarnStablecoinSymbol(point.liquidityMint) ??
-                        "Unknown"}
-                    </TableCell>
+                    {routeMode === "cross_mint" ? (
+                      <>
+                        <TableCell className="font-medium">
+                          {getEarnStablecoinSymbol(point.sourceLiquidityMint) ??
+                            "Unknown"}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {getEarnStablecoinSymbol(point.targetLiquidityMint) ??
+                            "Unknown"}
+                        </TableCell>
+                      </>
+                    ) : (
+                      <TableCell className="font-medium">
+                        {getEarnStablecoinSymbol(point.liquidityMint) ??
+                          "Unknown"}
+                      </TableCell>
+                    )}
                     <TableCell className="whitespace-nowrap">
                       {reserveLabels.get(point.sourceReserve) ??
                         formatShortAddress(point.sourceReserve)}{" "}
@@ -432,9 +489,16 @@ export function ExecutedEarnRebalancesChart({
                     <TableCell className="text-right whitespace-nowrap tabular-nums">
                       {formatStablecoinRaw(
                         point.amountRaw,
-                        point.liquidityMint
+                        point.routeMode === "cross_mint"
+                          ? point.sourceLiquidityMint
+                          : point.liquidityMint
                       )}
                     </TableCell>
+                    {routeMode === "cross_mint" ? (
+                      <TableCell className="text-right whitespace-nowrap tabular-nums">
+                        {formatSwapFee(point.swapFeeLamports)}
+                      </TableCell>
+                    ) : null}
                     <TableCell className="text-right whitespace-nowrap tabular-nums">
                       {formatStablecoinRaw(point.currentDepositRaw, null)}
                     </TableCell>
