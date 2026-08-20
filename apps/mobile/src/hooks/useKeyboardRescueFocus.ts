@@ -4,22 +4,25 @@ import { Keyboard } from "react-native";
 type FocusableInput = { focus: () => void; blur?: () => void };
 
 /**
- * iOS rescue for the transparent amount inputs inside bottom sheets.
+ * Deterministic keyboard summon for the transparent amount inputs inside
+ * bottom sheets.
  *
- * The money sheets dismiss the keyboard imperatively (MAX buttons, token
- * pickers call Keyboard.dismiss()). After that, tapping the overlay
- * BottomSheetTextInput on iOS sometimes never re-summons the keyboard —
- * @gorhom/bottom-sheet v5's keyboard state gets stuck and the native focus
- * path produces nothing (no fix in 5.2.9–5.2.14). Android is unaffected.
+ * On iPad the keyboard's dismiss key hides the keyboard WITHOUT blurring the
+ * input: the input stays first responder, so both native taps and focus()
+ * become no-ops and the user is stuck with no keyboard. The same stuck state
+ * can follow Keyboard.dismiss() with @gorhom/bottom-sheet v5 on iOS. The only
+ * reliable escape is blur-then-focus.
  *
- * Attach the returned handler to the input's onPressIn. It waits long enough
- * for the native path to work; if no keyboard appeared, it blurs and
- * refocuses the input, which reliably brings the keyboard back. When the
- * native path works (first focus, Android, healthy iOS), it is a no-op.
+ * The tap must reach JS deterministically, so the amount row is a Pressable
+ * whose onPress calls the returned openKeyboard, and the overlay input gets
+ * pointerEvents="none" (typing still works — keyboard events go to the
+ * focused input regardless of pointer events). An earlier attempt used
+ * onPressIn on the gesture-handler input; those touches never fired in the
+ * stuck state.
  */
 export function useKeyboardRescueFocus(
   inputRef: React.RefObject<FocusableInput | null>,
-): { onPressIn: () => void } {
+): { openKeyboard: () => void } {
   const keyboardVisible = useRef(false);
 
   useEffect(() => {
@@ -35,15 +38,17 @@ export function useKeyboardRescueFocus(
     };
   }, []);
 
-  const onPressIn = useCallback(() => {
-    setTimeout(() => {
-      if (keyboardVisible.current) return;
-      const input = inputRef.current;
-      if (!input) return;
-      input.blur?.();
-      setTimeout(() => input.focus(), 60);
-    }, 160);
+  const openKeyboard = useCallback(() => {
+    // Keyboard already up: the input is focused and typing works — a tap on
+    // the row must not bounce the keyboard.
+    if (keyboardVisible.current) return;
+    const input = inputRef.current;
+    if (!input) return;
+    // Unconditional: if the input silently stayed first responder, focus()
+    // alone is a no-op; blurring first always breaks the stuck state.
+    input.blur?.();
+    setTimeout(() => input.focus(), 60);
   }, [inputRef]);
 
-  return { onPressIn };
+  return { openKeyboard };
 }

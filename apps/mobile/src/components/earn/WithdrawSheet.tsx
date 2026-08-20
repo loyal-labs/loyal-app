@@ -204,7 +204,7 @@ export function WithdrawSheet({
   const inputRef = useRef<{ focus: () => void; blur?: () => void } | null>(
     null,
   );
-  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
+  const { openKeyboard } = useKeyboardRescueFocus(inputRef);
   const submitInFlightRef = useRef(false);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
@@ -436,7 +436,7 @@ export function WithdrawSheet({
 
           <View style={styles.body}>
             <View style={styles.amountInputWrap}>
-              <View style={styles.amountRow}>
+              <Pressable style={styles.amountRow} onPress={openKeyboard}>
                 <View style={styles.amountVisual} pointerEvents="none">
                   <Text
                     style={[styles.amountText, { fontSize: amountFontSize }]}
@@ -457,7 +457,6 @@ export function WithdrawSheet({
                 </View>
                 <BottomSheetTextInput
                   ref={inputRef as unknown as React.Ref<never>}
-                  onPressIn={rescueKeyboardFocus}
                   value={displayValue}
                   onChangeText={handleAmountChange}
                   onFocus={() => setIsFocused(true)}
@@ -466,10 +465,11 @@ export function WithdrawSheet({
                   inputMode="decimal"
                   maxLength={15}
                   caretHidden
+                  pointerEvents="none"
                   style={styles.overlayInput}
                   accessibilityLabel="Withdraw amount"
                 />
-              </View>
+              </Pressable>
             </View>
           </View>
 
@@ -700,7 +700,9 @@ const styles = StyleSheet.create({
     width: 2,
     height: 40,
     marginHorizontal: 2,
-    marginBottom: 4,
+    // Centered like the glyphs: both platforms center text in the 58pt line
+    // box, so a bottom-pinned caret rendered below the digits on iOS.
+    alignSelf: "center",
     borderRadius: 1,
     backgroundColor: COLOR_BLACK,
   },

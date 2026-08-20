@@ -155,7 +155,7 @@ export function AutodepositSetupSheet({
   const inputRef = useRef<{ focus: () => void; blur?: () => void } | null>(
     null,
   );
-  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
+  const { openKeyboard } = useKeyboardRescueFocus(inputRef);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -375,7 +375,7 @@ export function AutodepositSetupSheet({
 
         <View style={styles.body}>
           <Text style={styles.inputLabel}>Deposit anything above</Text>
-          <View style={styles.amountRow}>
+          <Pressable style={styles.amountRow} onPress={openKeyboard}>
             <View style={styles.amountVisual} pointerEvents="none">
               <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
                 $
@@ -392,7 +392,6 @@ export function AutodepositSetupSheet({
             </View>
             <BottomSheetTextInput
               ref={inputRef as unknown as React.Ref<never>}
-              onPressIn={rescueKeyboardFocus}
               value={displayValue}
               onChangeText={handleAmountChange}
               onFocus={() => setIsFocused(true)}
@@ -401,10 +400,11 @@ export function AutodepositSetupSheet({
               inputMode="decimal"
               maxLength={15}
               caretHidden
+              pointerEvents="none"
               style={styles.overlayInput}
               accessibilityLabel="Autodeposit threshold"
             />
-          </View>
+          </Pressable>
           <View style={styles.caption}>
             <Info size={20} color={COLOR_RED} strokeWidth={2} />
             <Text style={styles.captionText}>
@@ -577,7 +577,9 @@ const styles = StyleSheet.create({
     width: 2,
     height: 40,
     marginHorizontal: 2,
-    marginBottom: 4,
+    // Centered like the glyphs: both platforms center text in the 58pt line
+    // box, so a bottom-pinned caret rendered below the digits on iOS.
+    alignSelf: "center",
     borderRadius: 1,
     backgroundColor: COLOR_BLACK,
   },

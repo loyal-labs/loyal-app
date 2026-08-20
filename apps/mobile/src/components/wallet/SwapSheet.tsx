@@ -1309,8 +1309,7 @@ function FormStep({
   onReview: () => void;
   swapInputRef: React.RefObject<TextInput | null>;
 }) {
-  const { onPressIn: rescueKeyboardFocus } =
-    useKeyboardRescueFocus(swapInputRef);
+  const { openKeyboard } = useKeyboardRescueFocus(swapInputRef);
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard();
   const footerStyle = useAnimatedStyle(() => ({
@@ -1420,7 +1419,7 @@ function FormStep({
                 position: "relative",
                 justifyContent: "center",
               }}
-              onPress={() => swapInputRef.current?.focus()}
+              onPress={openKeyboard}
             >
               <View
                 className="flex-row items-center"
@@ -1447,7 +1446,6 @@ function FormStep({
               </View>
               <BottomSheetTextInput
                 ref={swapInputRef as unknown as React.Ref<never>}
-                onPressIn={rescueKeyboardFocus}
                 value={amountStr}
                 onChangeText={(t) => onAmountChange(stripAmountInput(t))}
                 onFocus={() => setIsFocused(true)}
@@ -1456,6 +1454,7 @@ function FormStep({
                 inputMode="decimal"
                 maxLength={15}
                 caretHidden
+                pointerEvents="none"
                 style={{
                   position: "absolute",
                   top: 0,
