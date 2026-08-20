@@ -682,8 +682,7 @@ function FormStep({
   onClose: () => void;
   amountInputRef: React.RefObject<TextInput | null>;
 }) {
-  const { onPressIn: rescueKeyboardFocus } =
-    useKeyboardRescueFocus(amountInputRef);
+  const { openKeyboard } = useKeyboardRescueFocus(amountInputRef);
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard();
   const footerStyle = useAnimatedStyle(() => ({
@@ -772,7 +771,7 @@ function FormStep({
         <View className="flex-row items-center" style={{ height: 58 }}>
           <Pressable
             style={{ flex: 1, position: "relative", justifyContent: "center" }}
-            onPress={() => amountInputRef.current?.focus()}
+            onPress={openKeyboard}
           >
             <View
               className="flex-row items-center"
@@ -800,7 +799,6 @@ function FormStep({
             </View>
             <BottomSheetTextInput
               ref={amountInputRef as unknown as React.Ref<never>}
-              onPressIn={rescueKeyboardFocus}
               value={amountStr}
               onChangeText={onAmountChange}
               onFocus={() => setIsFocused(true)}
@@ -809,6 +807,7 @@ function FormStep({
               inputMode="decimal"
               maxLength={15}
               caretHidden
+              pointerEvents="none"
               style={{
                 position: "absolute",
                 top: 0,

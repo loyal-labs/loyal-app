@@ -189,7 +189,7 @@ export function DepositSheet({
   const inputRef = useRef<{ focus: () => void; blur?: () => void } | null>(
     null,
   );
-  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
+  const { openKeyboard } = useKeyboardRescueFocus(inputRef);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [selectedSymbol, setSelectedSymbol] = useState("USDC");
@@ -443,7 +443,7 @@ export function DepositSheet({
               re-focusing. The value is entered in dollars (USDC ≈ $1). */}
           <View style={styles.body}>
             <View style={styles.amountInputWrap}>
-              <View style={styles.amountRow}>
+              <Pressable style={styles.amountRow} onPress={openKeyboard}>
                 <View style={styles.amountVisual} pointerEvents="none">
                   <Text style={[styles.amountText, { fontSize: amountFontSize }]}>
                     $
@@ -458,12 +458,13 @@ export function DepositSheet({
                     ]}
                   />
                 </View>
-                {/* Transparent overlay input — sits on top of the row, captures
-                    taps directly so re-focus after keyboard dismiss is just a
-                    tap (no JS .focus() roundtrip needed). */}
+                {/* Transparent overlay input. pointerEvents none: taps go to
+                    the wrapping Pressable, whose openKeyboard blur+focus
+                    escapes the iPad stuck-responder state (dismiss key hides
+                    the keyboard without blurring). Typing still reaches the
+                    focused input. */}
                 <BottomSheetTextInput
                   ref={inputRef as unknown as React.Ref<never>}
-                  onPressIn={rescueKeyboardFocus}
                   value={displayValue}
                   onChangeText={handleAmountChange}
                   onFocus={handleFocus}
@@ -472,10 +473,11 @@ export function DepositSheet({
                   inputMode="decimal"
                   maxLength={15}
                   caretHidden
+                  pointerEvents="none"
                   style={styles.overlayInput}
                   accessibilityLabel="Deposit amount"
                 />
-              </View>
+              </Pressable>
             </View>
           </View>
 
@@ -707,7 +709,9 @@ const styles = StyleSheet.create({
     width: 2,
     height: 40,
     marginHorizontal: 2,
-    marginBottom: 4,
+    // Centered like the glyphs: both platforms center text in the 58pt line
+    // box, so a bottom-pinned caret rendered below the digits on iOS.
+    alignSelf: "center",
     borderRadius: 1,
     backgroundColor: COLOR_BLACK,
   },

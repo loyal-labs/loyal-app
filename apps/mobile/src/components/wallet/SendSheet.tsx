@@ -1316,7 +1316,7 @@ function AmountStep({
     blur?: () => void;
   } | null>;
 }) {
-  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
+  const { openKeyboard } = useKeyboardRescueFocus(inputRef);
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard();
   const footerStyle = useAnimatedStyle(() => ({
@@ -1423,8 +1423,9 @@ function AmountStep({
           taps/keyboard; the visible "$"+digits + custom caret render on top
           (pointerEvents="none"). */}
       <View style={{ paddingTop: 36, paddingHorizontal: 16 }}>
-        <View
+        <Pressable
           style={{ position: "relative", height: 58, justifyContent: "flex-end" }}
+          onPress={openKeyboard}
         >
           <View
             style={{
@@ -1443,7 +1444,9 @@ function AmountStep({
                 width: 2,
                 height: 40,
                 marginHorizontal: 2,
-                marginBottom: 4,
+                // Centered like the glyphs — both platforms center text in
+                // the 58pt line box; bottom-pinned sat below the digits.
+                alignSelf: "center",
                 borderRadius: 1,
                 backgroundColor: "#000",
                 opacity: isFocused && caretOn ? 1 : 0,
@@ -1452,7 +1455,6 @@ function AmountStep({
           </View>
           <BottomSheetTextInput
             ref={inputRef as unknown as React.Ref<never>}
-            onPressIn={rescueKeyboardFocus}
             value={displayAmount}
             onChangeText={(t) => onAmountChange(stripAmountInput(t))}
             onFocus={() => setIsFocused(true)}
@@ -1461,6 +1463,7 @@ function AmountStep({
             inputMode="decimal"
             maxLength={15}
             caretHidden
+            pointerEvents="none"
             style={{
               position: "absolute",
               top: 0,
@@ -1492,7 +1495,7 @@ function AmountStep({
               <SwapCurrencyIcon width={28} height={28} />
             </Pressable>
           ) : null}
-        </View>
+        </Pressable>
         <Text
           className="text-[15px] font-normal"
           style={{
