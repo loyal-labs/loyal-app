@@ -116,7 +116,9 @@ DATABASE_URL=postgresql://...   # Neon PostgreSQL connection string
 
 The admin Earn funding view optionally accepts the public-only
 `EARN_SETTINGS_AUTHORITY_PUBLIC_KEY` for config-vs-observed operational-wallet
-checks. Store only the public key in environment files; never place private
+checks. Its finalized mainnet balance and spend reads can use the optional
+`SOLANA_MAINNET_RPC_URL` override; when unset, the built-in RPC endpoint is
+used. Store only public keys for wallet configuration; never place private
 keys there.
 
 The admin Metrics page at `/metrics` reads ClickStack telemetry and durable
