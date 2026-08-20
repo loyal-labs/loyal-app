@@ -75,12 +75,23 @@ async function loadExecutedRebalances() {
     return {
       ...history,
       status: "available" as const,
-      executions: history.executions.map((execution) => ({
+      chartPoints: history.chartPoints.map((execution) => ({
         ...execution,
         amountRaw: execution.amountRaw.toString(),
         confirmedSlot: execution.confirmedSlot.toString(),
         currentDepositRaw: execution.currentDepositRaw.toString(),
         swapFeeLamports: execution.swapFeeLamports.toString(),
+      })),
+      details: history.details.map((execution) => ({
+        ...execution,
+        amountRaw: execution.amountRaw.toString(),
+        confirmedSlot: execution.confirmedSlot.toString(),
+        currentDepositRaw: execution.currentDepositRaw.toString(),
+        swapFeeLamports: execution.swapFeeLamports.toString(),
+      })),
+      summaries: history.summaries.map((summary) => ({
+        ...summary,
+        swapFeeLamports: summary.swapFeeLamports.toString(),
       })),
     };
   } catch (error) {
@@ -91,10 +102,11 @@ async function loadExecutedRebalances() {
     });
 
     return {
-      executions: [],
+      chartPoints: [],
+      details: [],
       generatedAt: new Date().toISOString(),
       status: "unavailable" as const,
-      userCount: 0,
+      summaries: [],
     };
   }
 }
@@ -106,7 +118,11 @@ async function loadVaultRebalanceFrequency() {
     return {
       ...frequency,
       status: "available" as const,
-      vaults: frequency.vaults.map((vault) => ({
+      chartPoints: frequency.chartPoints.map((vault) => ({
+        ...vault,
+        currentDepositRaw: vault.currentDepositRaw.toString(),
+      })),
+      details: frequency.details.map((vault) => ({
         ...vault,
         currentDepositRaw: vault.currentDepositRaw.toString(),
       })),
@@ -121,8 +137,10 @@ async function loadVaultRebalanceFrequency() {
     return {
       generatedAt: new Date().toISOString(),
       status: "unavailable" as const,
+      chartPoints: [],
+      details: [],
+      summaries: [],
       vaultCount: 0,
-      vaults: [],
     };
   }
 }

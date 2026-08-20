@@ -174,6 +174,14 @@ function SpendEventTooltip({
             </dd>
           </>
         ) : null}
+        {point.transactionCount > 1 ? (
+          <>
+            <dt className="text-muted-foreground">Transactions</dt>
+            <dd className="text-right font-medium tabular-nums">
+              {point.transactionCount.toLocaleString("en-US")}
+            </dd>
+          </>
+        ) : null}
       </dl>
     </div>
   );
@@ -392,6 +400,10 @@ export function OperationalWalletSpendingCharts({
             const walletScatter = scatterByWallet.get(wallet.address);
             const walletGroups = walletScatter?.groups ?? [];
             const walletPoints = walletScatter?.points ?? [];
+            const walletTransactionCount = walletPoints.reduce(
+              (total, point) => total + point.transactionCount,
+              0
+            );
             const isSettingsAuthority = wallet.roles.some(
               (role) => role.key === "settings_authority"
             );
@@ -408,7 +420,8 @@ export function OperationalWalletSpendingCharts({
                     </p>
                   </div>
                   <p className="text-xs text-muted-foreground tabular-nums">
-                    {walletPoints.length.toLocaleString("en-US")} transactions
+                    {walletTransactionCount.toLocaleString("en-US")}{" "}
+                    transactions
                   </p>
                 </div>
                 {walletPoints.length === 0 || walletGroups.length === 0 ? (

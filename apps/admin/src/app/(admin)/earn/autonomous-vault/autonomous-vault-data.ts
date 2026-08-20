@@ -1,6 +1,10 @@
 import "server-only";
 
-import DLMM from "@meteora-ag/dlmm";
+import DLMM, {
+  createProgram,
+  getPriceOfBinByBinId,
+  wrapPosition,
+} from "@meteora-ag/dlmm";
 import {
   calculateKaminoRedeemableLiquidityAmountRaw,
   parseKaminoObligationAccount,
@@ -12,7 +16,12 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { type AccountInfo, Connection, PublicKey } from "@solana/web3.js";
+import {
+  AccountInfo,
+  Connection,
+  PublicKey,
+  SYSVAR_CLOCK_PUBKEY,
+} from "@solana/web3.js";
 
 import { serverEnv } from "@/lib/core/config/server";
 
@@ -158,17 +167,45 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
       true
     );
 
-    const [kaminoAccounts, dlmm] = await Promise.all([
-      connection.getMultipleAccountsInfoAndContext(
-        [
-          MANIFEST.kaminoObligation,
-          MANIFEST.kaminoReserve,
-          vaultUsdc,
-          vaultLoyal,
-        ],
-        { commitment: "finalized" }
-      ),
-      DLMM.create(connection, MANIFEST.meteoraPool),
+    const kaminoAccountsPromise = connection.getMultipleAccountsInfoAndContext(
+      [
+        MANIFEST.kaminoObligation,
+        MANIFEST.kaminoReserve,
+        vaultUsdc,
+        vaultLoyal,
+        MANIFEST.meteoraPosition,
+      ],
+      { commitment: "finalized" }
+    );
+    const dlmmPromise = DLMM.create(connection, MANIFEST.meteoraPool);
+    const kaminoAccounts = await kaminoAccountsPromise;
+    const positionAccount = kaminoAccounts.value[4] ?? null;
+    if (!positionAccount) {
+      throw new Error(
+        "Meteora position is missing from finalized mainnet state."
+      );
+    }
+
+    // Decode the already-fetched position to derive its bin-array coverage.
+    // This starts the only position-specific batch while DLMM.create is still
+    // fetching the pool's reserve and mint accounts.
+    const positionProgram = createProgram(connection);
+    const decodedPosition = wrapPosition(
+      positionProgram,
+      MANIFEST.meteoraPosition,
+      positionAccount
+    );
+    const positionAccountKeys = [
+      SYSVAR_CLOCK_PUBKEY,
+      ...decodedPosition.getBinArrayKeysCoverage(positionProgram.programId),
+    ];
+    const positionAccountsPromise = connection.getMultipleAccountsInfo(
+      positionAccountKeys,
+      { commitment: "finalized" }
+    );
+    const [dlmm, positionAccounts] = await Promise.all([
+      dlmmPromise,
+      positionAccountsPromise,
     ]);
     const obligationAccount = requireAccount(
       kaminoAccounts.value[0] ?? null,
@@ -224,14 +261,50 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
     ) {
       throw new Error("Meteora pool mints differ from the manifest.");
     }
-    const [position, activeBin] = await Promise.all([
-      dlmm.getPosition(MANIFEST.meteoraPosition),
-      dlmm.getActiveBin(),
-    ]);
+    requireAccount(positionAccount, "Meteora position", dlmm.program.programId);
+    const originalGetAccountInfo = connection.getAccountInfo;
+    const originalGetAccountInfoBound = originalGetAccountInfo.bind(connection);
+    const originalGetMultipleAccountsInfo = connection.getMultipleAccountsInfo;
+    const originalGetMultipleAccountsInfoBound =
+      originalGetMultipleAccountsInfo.bind(connection);
+    connection.getAccountInfo = (async (...args) => {
+      const [publicKey] = args;
+      if (publicKey.equals(MANIFEST.meteoraPosition)) {
+        return positionAccount;
+      }
+      return originalGetAccountInfoBound(...args);
+    }) as typeof connection.getAccountInfo;
+    connection.getMultipleAccountsInfo = (async (...args) => {
+      const [publicKeys] = args;
+      const isPositionAccountsRead =
+        publicKeys.length === positionAccountKeys.length &&
+        publicKeys.every((publicKey, index) =>
+          publicKey.equals(positionAccountKeys[index]!)
+        );
+      if (isPositionAccountsRead) {
+        return positionAccounts;
+      }
+      return originalGetMultipleAccountsInfoBound(...args);
+    }) as typeof connection.getMultipleAccountsInfo;
+
+    let position;
+    try {
+      position = await dlmm.getPosition(MANIFEST.meteoraPosition);
+    } finally {
+      connection.getAccountInfo = originalGetAccountInfo;
+      connection.getMultipleAccountsInfo = originalGetMultipleAccountsInfo;
+    }
     if (!position.positionData.owner.equals(MANIFEST.vault)) {
       throw new Error("Meteora position is not owned by the autonomous vault.");
     }
-    const priceUsdcPerLoyal = parseReferencePrice(activeBin.pricePerToken);
+    // DLMM.create already fetched the finalized pool account. Reuse its active
+    // bin instead of fetching the same pool and bin-array accounts again.
+    const activeBinId = dlmm.lbPair.activeId;
+    const priceUsdcPerLoyal = parseReferencePrice(
+      dlmm.fromPricePerLamport(
+        getPriceOfBinByBinId(activeBinId, dlmm.lbPair.binStep).toNumber()
+      )
+    );
     const feesLoyalRaw = bigintFromSdk(position.positionData.feeX);
     const feesUsdcRaw = bigintFromSdk(position.positionData.feeY);
     const meteoraLoyalRaw =
@@ -241,13 +314,10 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
     const fundedRange = getFundedRange(position.positionData.positionBinData);
     const inFundedRange =
       fundedRange !== null &&
-      activeBin.binId >= fundedRange.min &&
-      activeBin.binId <= fundedRange.max;
+      activeBinId >= fundedRange.min &&
+      activeBinId <= fundedRange.max;
     const poolEnabled = Number(dlmm.lbPair.status) === 0;
-    const observedSlot = Math.max(
-      kaminoAccounts.context.slot,
-      await connection.getSlot("finalized")
-    );
+    const snapshotSlot = kaminoAccounts.context.slot;
     const deployedUsdcRaw = kaminoValueUsdcRaw + meteoraUsdcRaw;
 
     return {
@@ -262,14 +332,14 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
         valueUsdcRaw: kaminoValueUsdcRaw,
       },
       meteora: {
-        activeBin: activeBin.binId,
+        activeBin: activeBinId,
         loyalRaw: meteoraLoyalRaw,
         position: MANIFEST.meteoraPosition.toBase58(),
         priceUsdcPerLoyal,
         usdcRaw: meteoraUsdcRaw,
       },
       observedAt,
-      observedSlot,
+      observedSlot: snapshotSlot,
       status: poolEnabled && inFundedRange ? "healthy" : "attention",
       totalLoyalRaw: meteoraLoyalRaw + idleLoyalRaw,
       totalUsdcRaw: deployedUsdcRaw + idleUsdcRaw,

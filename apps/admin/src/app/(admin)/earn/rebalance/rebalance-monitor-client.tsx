@@ -1533,24 +1533,53 @@ export function RebalanceMonitorClient() {
   const filteredExecutedRebalances = selectedMintAddress
     ? {
         ...state.data.executedRebalances,
-        executions: state.data.executedRebalances.executions.filter(
+        chartPoints: state.data.executedRebalances.chartPoints.filter(
           (execution) =>
             execution.routeMode === "cross_mint" ||
             execution.liquidityMint === selectedMintAddress
         ),
+        details: state.data.executedRebalances.details.filter(
+          (execution) =>
+            execution.routeMode === "cross_mint" ||
+            execution.liquidityMint === selectedMintAddress
+        ),
+        summaries: state.data.executedRebalances.summaries.filter(
+          (summary) =>
+            summary.routeMode === "cross_mint" ||
+            summary.liquidityMint === selectedMintAddress
+        ),
       }
     : state.data.executedRebalances;
   const filteredFrequencyVaults = selectedMintAddress
-    ? state.data.vaultRebalanceFrequency.vaults.filter(
+    ? state.data.vaultRebalanceFrequency.chartPoints.filter(
         (vault) =>
           vault.routeMode === "cross_mint" ||
           vault.liquidityMint === selectedMintAddress
       )
-    : state.data.vaultRebalanceFrequency.vaults;
+    : state.data.vaultRebalanceFrequency.chartPoints;
+  const filteredFrequencyDetails = selectedMintAddress
+    ? state.data.vaultRebalanceFrequency.details.filter(
+        (vault) =>
+          vault.routeMode === "cross_mint" ||
+          vault.liquidityMint === selectedMintAddress
+      )
+    : state.data.vaultRebalanceFrequency.details;
+  const filteredFrequencySummaries = selectedMintAddress
+    ? state.data.vaultRebalanceFrequency.summaries.filter(
+        (summary) =>
+          summary.routeMode === "cross_mint" ||
+          summary.liquidityMint === selectedMintAddress
+      )
+    : state.data.vaultRebalanceFrequency.summaries;
   const filteredVaultRebalanceFrequency = {
     ...state.data.vaultRebalanceFrequency,
-    vaultCount: filteredFrequencyVaults.length,
-    vaults: filteredFrequencyVaults,
+    chartPoints: filteredFrequencyVaults,
+    details: filteredFrequencyDetails,
+    summaries: filteredFrequencySummaries,
+    vaultCount: filteredFrequencySummaries.reduce(
+      (total, summary) => total + summary.vaultCount,
+      0
+    ),
   };
   const crossMintApyData = getCrossMintApyData(state.data.apyData);
 

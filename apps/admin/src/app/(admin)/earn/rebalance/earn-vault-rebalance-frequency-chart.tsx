@@ -78,10 +78,29 @@ export type SerializedEarnVaultRebalanceFrequencyRow = {
 };
 
 export type SerializedEarnVaultRebalanceFrequency = {
+  chartPoints: SerializedEarnVaultRebalanceFrequencyRow[];
+  details: SerializedEarnVaultRebalanceFrequencyRow[];
   generatedAt: string;
   status: "available" | "unavailable";
+  summaries: SerializedEarnVaultRebalanceFrequencySummary[];
   vaultCount: number;
-  vaults: SerializedEarnVaultRebalanceFrequencyRow[];
+};
+
+export type SerializedEarnVaultRebalanceFrequencySummary = {
+  eligibleCount: number;
+  liquidityMint: string | null;
+  opportunity12hCount: number;
+  opportunity2hCount: number;
+  opportunity7dCount: number;
+  opportunityAllCount: number;
+  positionCount: number;
+  rebalance12hCount: number;
+  rebalance2hCount: number;
+  rebalance7dCount: number;
+  rebalanceAllCount: number;
+  rebalancedVaultCount: number;
+  routeMode: RebalanceRouteMode;
+  vaultCount: number;
 };
 
 type RangeKey = "12h" | "2h" | "7d" | "all";
@@ -282,7 +301,7 @@ export function EarnVaultRebalanceFrequencyChart({
     RANGE_OPTIONS.find((option) => option.key === range) ?? RANGE_OPTIONS[0];
   const rankedVaults = useMemo(
     () =>
-      [...data.vaults]
+      [...data.chartPoints]
         .filter((vault) => vault.routeMode === routeMode)
         .sort((left, right) => {
           const amountOrder = compareRawAmounts(
@@ -297,7 +316,7 @@ export function EarnVaultRebalanceFrequencyChart({
           ...vault,
           depositRank: index + 1,
         })),
-    [data.vaults, routeMode]
+    [data.chartPoints, routeMode]
   );
   const points = useMemo(
     () =>
@@ -369,22 +388,66 @@ export function EarnVaultRebalanceFrequencyChart({
     (maximum, point) => Math.max(maximum, point.rebalanceCount),
     0
   );
-  const rebalancedVaultCount = points.filter(
-    (point) => point.rebalanceCount > 0
-  ).length;
-  const totalRebalances = points.reduce(
-    (total, point) => total + point.rebalanceCount,
+  const tableRows = useMemo(
+    () =>
+      data.details
+        .filter((vault) => vault.routeMode === routeMode)
+        .sort((left, right) => {
+          const amountOrder = compareRawAmounts(
+            right.currentDepositRaw,
+            left.currentDepositRaw
+          );
+          return (
+            amountOrder || right.vaultPubkey.localeCompare(left.vaultPubkey)
+          );
+        })
+        .map(
+          (vault): ChartPoint => ({
+            ...vault,
+            depositAmount: toDepositAmount(vault.currentDepositRaw),
+            opportunityCount: vault[rangeOption.opportunityKey],
+            rebalanceCount: vault[rangeOption.countKey],
+          })
+        ),
+    [data.details, rangeOption.countKey, rangeOption.opportunityKey, routeMode]
+  );
+  const summaries = data.summaries.filter(
+    (summary) => summary.routeMode === routeMode
+  );
+  const exactVaultCount = summaries.reduce(
+    (total, summary) => total + summary.vaultCount,
     0
   );
-  const tableRows = [...points].reverse().slice(0, 100);
+  const exactEligibleCount = summaries.reduce(
+    (total, summary) => total + summary.eligibleCount,
+    0
+  );
+  const exactRebalancedVaultCount = summaries.reduce(
+    (total, summary) => total + summary.rebalancedVaultCount,
+    0
+  );
+  const exactRebalanceCount = summaries.reduce(
+    (total, summary) =>
+      total +
+      (range === "all"
+        ? summary.rebalanceAllCount
+        : range === "7d"
+        ? summary.rebalance7dCount
+        : range === "12h"
+        ? summary.rebalance12hCount
+        : summary.rebalance2hCount),
+    0
+  );
   const primaryLiquidityMint =
     points.find((point) => point.liquidityMint !== null)?.liquidityMint ?? null;
   const eligibilityFloorRaw = computeRebalanceEligibilityFloorRaw(
     reserveStatuses,
     STABLECOIN_DECIMALS
   );
-  const { eligibleCount, eligibleRebalancedCount } =
-    summarizeRebalanceEligibility(points, eligibilityFloorRaw);
+  const {
+    eligibleCount: sampledEligibleCount,
+    eligibleRebalancedCount: sampledEligibleRebalancedCount,
+  } = summarizeRebalanceEligibility(points, eligibilityFloorRaw);
   const positiveDeposits = points
     .map((point) => point.depositAmount)
     .filter((amount) => amount > 0 && Number.isFinite(amount));
@@ -483,20 +546,21 @@ export function EarnVaultRebalanceFrequencyChart({
           <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
             {points.length === 0 ? null : eligibilityFloorRaw === null ? (
               <span>
-                {rebalancedVaultCount.toLocaleString("en-US")} of{" "}
-                {points.length.toLocaleString("en-US")} funded vaults rebalanced
+                {exactRebalancedVaultCount.toLocaleString("en-US")} of{" "}
+                {exactEligibleCount.toLocaleString("en-US")} exact funded vaults
+                rebalanced
               </span>
             ) : (
               <span className="text-foreground">
-                {eligibleRebalancedCount.toLocaleString("en-US")} of{" "}
-                {eligibleCount.toLocaleString("en-US")} economically eligible
-                vaults rebalanced
+                {sampledEligibleRebalancedCount.toLocaleString("en-US")} of{" "}
+                {sampledEligibleCount.toLocaleString("en-US")} sampled
+                economically eligible points rebalanced
               </span>
             )}
             {points.length > 0 ? (
               <span>
-                {points.length.toLocaleString("en-US")} funded vaults ·{" "}
-                {rebalancedVaultCount.toLocaleString("en-US")} with rebalances
+                {points.length.toLocaleString("en-US")} representative points ·{" "}
+                {exactVaultCount.toLocaleString("en-US")} exact funded vaults
               </span>
             ) : null}
             {points.length === 0 || eligibilityFloorRaw === null ? null : (
@@ -511,8 +575,8 @@ export function EarnVaultRebalanceFrequencyChart({
             )}
             {points.length > 0 ? (
               <span>
-                {totalRebalances.toLocaleString("en-US")} confirmed executions ·{" "}
-                {rangeOption.label}
+                {exactRebalanceCount.toLocaleString("en-US")} exact confirmed
+                executions · {rangeOption.label}
               </span>
             ) : null}
             <span>Updated {formatUtcTimestamp(data.generatedAt)}</span>
@@ -699,7 +763,7 @@ export function EarnVaultRebalanceFrequencyChart({
                       ? "No confirmed rebalances occurred in this window; every vault is shown at zero."
                       : "Hover a dot for the exact vault, current deposit, reserve APY, and counts for every window."}
                     {showTable
-                      ? " The table shows the 100 largest current deposits."
+                      ? " The table shows the exact top 100 current deposits; chart points are representative samples."
                       : " Idle-only vaults use the neutral legend color."}
                     {!showTable && useLogScale && zeroDepositCount > 0
                       ? ` ${zeroDepositCount.toLocaleString("en-US")} vault${
