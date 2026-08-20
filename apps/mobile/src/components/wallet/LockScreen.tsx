@@ -65,15 +65,20 @@ export function LockScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Re-trigger biometric when app comes back to foreground.
+  // Re-trigger biometric when the app becomes active.
   //
-  // Only after a real "background", never after a bare "inactive". On iOS the
-  // prompt is presented by the keychain (SecureStore requireAuthentication),
-  // and showing it drives the app through inactive -> active. Re-arming on
-  // "active" alone therefore re-prompts every time the user dismisses the
-  // sheet, and because `unlocking` renders a full-screen overlay in place of
-  // the PIN pad, there is no way out of the loop. Android's BiometricPrompt
-  // keeps the activity resumed, which is why this only bites on iOS.
+  // Two legitimate triggers, nothing else:
+  //  - The FIRST activation. An iOS cold start runs JS while the app is
+  //    still "inactive", so the mount effect's currentState check bails and
+  //    the first inactive -> active transition must own the attempt —
+  //    otherwise biometric unlock never fires on launch and users always
+  //    land on the PIN pad.
+  //  - A real background -> active return.
+  // Never a bare inactive -> active after the first: on iOS the keychain's
+  // own Face ID sheet drives that transition, so re-arming on every "active"
+  // re-prompts each time the user dismisses the sheet, and the `unlocking`
+  // overlay hides the PIN pad with no way out of the loop. Android's
+  // BiometricPrompt keeps the activity resumed, so neither quirk exists.
   useEffect(() => {
     if (!biometricEnabled) return;
 
@@ -83,8 +88,10 @@ export function LockScreen() {
         return;
       }
       if (next !== "active") return;
-      if (!wasBackgrounded.current) return;
+      const firstActivation = !didAttemptBiometric.current;
+      if (!firstActivation && !wasBackgrounded.current) return;
       wasBackgrounded.current = false;
+      didAttemptBiometric.current = true;
 
       // A prompt raised by the mount effect may still be on screen.
       if (biometricInFlight.current) return;
