@@ -52,6 +52,10 @@ function codedError(code: string | number, message = "native failure"): Error {
   return Object.assign(new Error(message), { code });
 }
 
+function plainCodedError(code: string | number, message = "native failure") {
+  return { code, message };
+}
+
 const publicKey = PublicKey.unique().toBase58();
 const authToken = "auth-token";
 
@@ -227,37 +231,75 @@ describe("MWA session error classification", () => {
   // stale token survived. One user retried 41 times over six hours against the
   // same dead token, with 904 USDC stranded, and never saw a reconnect prompt.
   describe("authorization revoked mid-session (ERROR_AUTHORIZATION_FAILED)", () => {
-    it("tells the user to reconnect instead of reporting a request failure", async () => {
-      failAfterSession(codedError(-1, "-1/authorization request failed"));
+    it("recovers a plain native rejection and retains it only as the cause", async () => {
+      const nativeError = plainCodedError(-1, "authorization request failed");
+      failAfterSession(nativeError);
 
       const error = await failureOf(signer().signMessage(new Uint8Array([1])));
 
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toBe(
-        "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.",
-      );
-      // A surviving `code` is precisely what routed this to `request_failed`.
+      expect(error).toMatchObject({
+        failure: "authorization_expired",
+        walletCode: -1,
+        cause: nativeError,
+      });
+      expect((error as Error).message).toMatch(/reconnect your wallet/);
       expect(error).not.toHaveProperty("code");
-    });
-
-    // Without this the app keeps showing a connected wallet that cannot sign,
-    // so every retry repeats the same failure and the user is stuck.
-    it("clears the dead authorization so the next launch can reconnect", async () => {
-      failAfterSession(codedError(-1, "-1/authorization request failed"));
-
-      await failureOf(signer().signMessage(new Uint8Array([1])));
-
       expect(clearMwaAccount).toHaveBeenCalledTimes(1);
     });
 
     // Signing transactions goes through the same session wrapper, so a fix
     // that only covered `signMessage` would still strand the send path.
-    it("recovers the same way when signing transactions", async () => {
-      failAfterSession(codedError(-1, "-1/authorization request failed"));
+    it("recovers a plain rejection when signing transactions", async () => {
+      failAfterSession(plainCodedError(-1, "authorization request failed"));
 
       const error = await failureOf(signer().signAllTransactions([]));
 
-      expect((error as Error).message).toMatch(/reconnect your wallet/);
+      expect(error).toMatchObject({ failure: "authorization_expired" });
+      expect(clearMwaAccount).toHaveBeenCalledTimes(1);
+    });
+
+    it("recovers a plain rejection during token reauthorization", async () => {
+      const nativeError = plainCodedError(-1, "authorization request failed");
+      mockTransact.mockImplementation(
+        async (callback: (wallet: unknown) => unknown) =>
+          callback({
+            authorize: async () => {
+              throw nativeError;
+            },
+          }),
+      );
+
+      const error = await failureOf(signer().signMessage(new Uint8Array([1])));
+
+      expect(error).toMatchObject({
+        failure: "authorization_expired",
+        cause: nativeError,
+      });
+      expect(clearMwaAccount).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps a reauthorized account mismatch alertable", async () => {
+      const otherPublicKey = PublicKey.unique();
+      mockTransact.mockImplementation(
+        async (callback: (wallet: unknown) => unknown) =>
+          callback({
+            authorize: async () => ({
+              accounts: [
+                {
+                  address: Buffer.from(otherPublicKey.toBytes()).toString(
+                    "base64",
+                  ),
+                },
+              ],
+              auth_token: authToken,
+            }),
+          }),
+      );
+
+      const error = await failureOf(signer().signMessage(new Uint8Array([1])));
+
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(WalletSessionError);
       expect(clearMwaAccount).toHaveBeenCalledTimes(1);
     });
   });
