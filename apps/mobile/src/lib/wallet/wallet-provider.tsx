@@ -30,7 +30,10 @@ import {
   enableBiometrics,
   isBiometricEnabled,
 } from "./biometrics";
-import { deleteCloudBackup } from "./icloud-backup";
+import {
+  deleteCloudBackup,
+  refreshCloudBackupIfEnabled,
+} from "./icloud-backup";
 import {
   clearStoredKeypair,
   generateKeypairInMemory,
@@ -246,6 +249,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           : WALLET_SETUP_EVENTS.walletCreated,
         { source },
       );
+      // Default-on iCloud backup: keep the Drive file in step with the new
+      // wallet. Best-effort; the keychain mirror already ran in storeKeypair.
+      void refreshCloudBackupIfEnabled();
     },
     [],
   );
@@ -352,6 +358,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (biometricEnabled) {
         await enableBiometrics(newPin);
       }
+      // The Drive backup holds the old-PIN blob after a PIN change — refresh
+      // it so restore always works with the current PIN.
+      void refreshCloudBackupIfEnabled();
     },
     [signer, biometricEnabled],
   );

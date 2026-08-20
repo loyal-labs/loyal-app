@@ -57,6 +57,15 @@ beforeEach(async () => {
   await setICloudSyncEnabled(false);
 });
 
+test("iCloud backup is ON by default: a fresh install mirrors a new wallet with no toggle touched", async () => {
+  mmkv.delete("settings.icloudKeychainSync"); // brand-new install: flag unset
+  await storeKeypair(keypair, PIN);
+  expect(syncedStore.get("wallet_public_key")).toBe(
+    keypair.publicKey.toBase58(),
+  );
+  expect(syncedStore.get("wallet_encrypted_keypair")).toBeTruthy();
+});
+
 test("storeKeypair does not touch the synced keychain when sync is off", async () => {
   await storeKeypair(keypair, PIN);
   expect(localStore.size).toBeGreaterThan(0);
