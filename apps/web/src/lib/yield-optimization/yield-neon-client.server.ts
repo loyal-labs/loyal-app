@@ -253,26 +253,14 @@ export const crossMintSwapPolicies = loyalYieldSchema.table(
   }
 );
 
-export const crossMintVaultOptIns = loyalYieldSchema.table(
-  "cross_mint_vault_opt_ins",
+export const crossMintVaultControls = loyalYieldSchema.table(
+  "cross_mint_vault_controls",
   {
     cluster: text("cluster").notNull(),
     settings: text("settings").notNull(),
     vaultIndex: smallint("vault_index").notNull(),
     vaultPubkey: text("vault_pubkey").notNull(),
     enabled: boolean("enabled").notNull(),
-    classicPolicyAccount: text("classic_policy_account").notNull(),
-    classicPolicySeed: bigint("classic_policy_seed", {
-      mode: "bigint",
-    }).notNull(),
-    token2022PolicyAccount: text("token_2022_policy_account").notNull(),
-    token2022PolicySeed: bigint("token_2022_policy_seed", {
-      mode: "bigint",
-    }).notNull(),
-    maxSlippageBps: integer("max_slippage_bps").notNull(),
-    dailySourceMintSpendingCap: bigint("daily_source_mint_spending_cap", {
-      mode: "bigint",
-    }).notNull(),
     generation: bigint("generation", { mode: "bigint" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
@@ -1260,7 +1248,7 @@ export const yieldOptimizationSchema = {
   balanceSweepWalletBalanceEvents,
   balanceSweepWalletBalancesCurrent,
   crossMintSwapPolicies,
-  crossMintVaultOptIns,
+  crossMintVaultControls,
   earnDepositOnboardingAttempts,
   earnEarningsSnapshots,
   earnApyHourlySnapshots,
@@ -1301,7 +1289,7 @@ export type YieldOptimizationClientTables = {
   balanceSweepWalletBalanceEvents: typeof balanceSweepWalletBalanceEvents;
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
   crossMintSwapPolicies: typeof crossMintSwapPolicies;
-  crossMintVaultOptIns: typeof crossMintVaultOptIns;
+  crossMintVaultControls: typeof crossMintVaultControls;
   earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
   earnEarningsSnapshots: typeof earnEarningsSnapshots;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
@@ -1335,7 +1323,7 @@ export class YieldOptimizationClient {
     balanceSweepWalletBalanceEvents,
     balanceSweepWalletBalancesCurrent,
     crossMintSwapPolicies,
-    crossMintVaultOptIns,
+    crossMintVaultControls,
     earnDepositOnboardingAttempts,
     earnEarningsSnapshots,
     earnApyHourlySnapshots,

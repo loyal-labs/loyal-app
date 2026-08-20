@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { resolveLoyalClusterForSolanaEnv } from "@loyal-labs/actions";
-import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import { pda } from "@loyal-labs/loyal-smart-accounts";
 import type { SolanaEnv } from "@loyal-labs/solana-rpc";
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -12,12 +11,10 @@ import {
 } from "@/features/smart-accounts/server/service";
 import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { serializePreparedOperation } from "@/lib/smart-accounts/prepared-operation-wire.shared";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import {
   hasNonTerminalEarnCrossMintMovement,
-  removeEarnCrossMintOptIn,
   setEarnCrossMintEnabled,
 } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
 
@@ -44,12 +41,11 @@ function getConnection(cluster: SolanaEnv): Connection {
   return connection;
 }
 
-function parseRequest(value: unknown): bigint {
-  if (!value || typeof value !== "object") {
-    throw new Error("Autoswap deletion input is required.");
-  }
-  const expectedGeneration = (value as Record<string, unknown>)
-    .expectedGeneration;
+function parseExpectedGeneration(value: unknown): bigint {
+  const expectedGeneration =
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>).expectedGeneration
+      : undefined;
   if (
     typeof expectedGeneration !== "string" ||
     !/^\d+$/.test(expectedGeneration) ||
@@ -67,7 +63,7 @@ export async function POST(request: Request) {
   }
   let expectedGeneration: bigint;
   try {
-    expectedGeneration = parseRequest(await request.json());
+    expectedGeneration = parseExpectedGeneration(await request.json());
   } catch (error) {
     return jsonError(
       400,
@@ -113,7 +109,6 @@ export async function POST(request: Request) {
     if (transition.kind === "stale") {
       throw new Error("Autoswap state changed. Refresh and try again.");
     }
-    const paused = transition.enrollment;
     if (await hasNonTerminalEarnCrossMintMovement(scope)) {
       return jsonError(
         409,
@@ -122,73 +117,31 @@ export async function POST(request: Request) {
       );
     }
 
-    const policies = paused.boundPolicies.map((policy) => {
-      const seed = BigInt(policy.seed);
-      if (seed > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error("Autoswap policy seed is too large for this client.");
-      }
-      const account = new PublicKey(policy.account);
-      const expectedAccount = pda.getPolicyPda({
-        policySeed: Number(seed),
-        programId,
-        settingsPda,
-      })[0];
-      if (!account.equals(expectedAccount)) {
-        throw new Error(
-          `Autoswap ${policy.sourceShard} permission does not match its enrolled seed.`
-        );
-      }
-      return account;
-    }) as [PublicKey, PublicKey];
-    const connection = getConnection(solanaEnv);
-    const accounts = await connection.getMultipleAccountsInfo(
+    const policies = transition.enrollment.boundPolicies.map(
+      (policy) => new PublicKey(policy.account)
+    );
+    const accounts = await getConnection(solanaEnv).getMultipleAccountsInfo(
       policies,
       "finalized"
     );
-    if (accounts.every((account) => account === null)) {
-      await removeEarnCrossMintOptIn({
-        ...scope,
-        expectedGeneration: BigInt(paused.generation),
-        expectedPolicyAccounts: policies.map((policy) => policy.toBase58()),
-      });
-      return NextResponse.json({
-        expectedGeneration: paused.generation,
-        policies: policies.map((policy) => policy.toBase58()),
-        status: "off",
-      });
-    }
     const remainingPolicies = policies.filter(
       (_policy, index) => accounts[index] !== null
     );
-
-    const client = createSmartAccountVaultsClient({ connection, programId });
-    const prepared = await client.prepareClosePoliciesSync({
-      feePayer: new PublicKey(principal.walletAddress),
-      policies: remainingPolicies,
-      settingsPda,
-      signers: [new PublicKey(principal.walletAddress)],
-    });
     return NextResponse.json({
-      expectedGeneration: paused.generation,
-      policies: policies.map((policy) => policy.toBase58()),
-      prepared: serializePreparedOperation(prepared),
-      status: "prepared",
+      expectedGeneration: transition.enrollment.generation,
+      policies: remainingPolicies.map((policy) => policy.toBase58()),
+      status: remainingPolicies.length === 0 ? "off" : "ready",
     });
   } catch (error) {
     if (isSmartAccountProvisioningError(error)) {
       return jsonError(error.status, error.code, error.message);
     }
-    console.error("[earn-cross-mint-delete-prepare] prepare failed", {
-      errorMessage: error instanceof Error ? error.message : "Unknown error.",
-      errorName: error instanceof Error ? error.name : "UnknownError",
-      stack: error instanceof Error ? error.stack : undefined,
-    });
     return jsonError(
       409,
-      "delete_prepare_failed",
+      "delete_readiness_failed",
       error instanceof Error
         ? error.message
-        : "Failed to prepare Autoswap deletion."
+        : "Failed to check Autoswap deletion readiness."
     );
   }
 }

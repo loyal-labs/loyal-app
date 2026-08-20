@@ -103,12 +103,12 @@ import {
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
   DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
-  hydratePreparedEarnCrossMintSwapPolicies,
-  type EarnCrossMintDeletePrepareResponse,
-  type EarnCrossMintPolicyPrepareResponse,
   type EarnCrossMintToggleResponse,
 } from "@/lib/yield-optimization/earn-cross-mint-policy-contracts.shared";
-import { hydratePreparedOperation } from "@/lib/smart-accounts/prepared-operation-wire.shared";
+import {
+  executeEarnAutoswapSetupClient,
+  prepareEarnAutoswapDeletionClient,
+} from "@/lib/yield-optimization/earn-autoswap-client-flow";
 import {
   buildEarnDepositConfirmRequestBody,
   buildEarnDepositPolicyStageConfirmRequestBody,
@@ -1991,78 +1991,6 @@ async function prepareEarnPolicyOnServer(): Promise<SmartAccountPreparedEarnUsdc
   return hydratePreparedEarnUsdcYieldRoutingPolicy(payload.preparedPolicy);
 }
 
-async function prepareEarnAutoswapOnServer(args: {
-  dailySourceMintSpendingCap: bigint;
-  observabilityFlowId?: string;
-}) {
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/cross-mint/policies/prepare",
-    {
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      method: "POST",
-      body: JSON.stringify({
-        maxSlippageBps: DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
-        dailySourceMintSpendingCap: args.dailySourceMintSpendingCap.toString(),
-      }),
-    }
-  );
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to prepare Autoswap policies."
-    );
-  }
-  const payload = (await response.json()) as EarnCrossMintPolicyPrepareResponse;
-  return hydratePreparedEarnCrossMintSwapPolicies(payload.preparedPolicies);
-}
-
-async function postConfirmedEarnAutoswap(args: {
-  dailySourceMintSpendingCap: bigint;
-  maxSlippageBps: number;
-  policies: readonly [
-    {
-      account: string;
-      finalizedSlot?: string;
-      seed: string;
-      signature?: string;
-      sourceShard: "classic" | "token_2022";
-    },
-    {
-      account: string;
-      finalizedSlot?: string;
-      seed: string;
-      signature?: string;
-      sourceShard: "classic" | "token_2022";
-    }
-  ];
-  observabilityFlowId?: string;
-}) {
-  const { observabilityFlowId, ...body } = args;
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/cross-mint/policies/confirm",
-    {
-      credentials: "include",
-      headers: observabilityJsonHeaders(observabilityFlowId),
-      method: "POST",
-      body: JSON.stringify({
-        ...body,
-        dailySourceMintSpendingCap: args.dailySourceMintSpendingCap.toString(),
-      }),
-    }
-  );
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to confirm Autoswap policies."
-    );
-  }
-}
-
 async function postEarnAutoswapToggle(args: {
   enabled: boolean;
   expectedGeneration: string;
@@ -2087,13 +2015,13 @@ async function postEarnAutoswapToggle(args: {
   return (await response.json()) as EarnCrossMintToggleResponse;
 }
 
-async function prepareEarnAutoswapDeleteOnServer(args: {
+async function fetchEarnAutoswapDeleteReadiness(args: {
   expectedGeneration: string;
   observabilityFlowId?: string;
 }) {
   const { observabilityFlowId, ...body } = args;
   const response = await fetch(
-    "/api/smart-accounts/yield-optimization/cross-mint/delete/prepare",
+    "/api/smart-accounts/yield-optimization/cross-mint/delete/readiness",
     {
       body: JSON.stringify(body),
       credentials: "include",
@@ -2106,45 +2034,14 @@ async function prepareEarnAutoswapDeleteOnServer(args: {
       .json()
       .catch(() => null)) as SmartAccountRouteErrorResponse | null;
     throw new Error(
-      payload?.error?.message ?? "Failed to prepare Autoswap deletion."
+      payload?.error?.message ?? "Autoswap deletion is not ready."
     );
   }
-  const payload = (await response.json()) as EarnCrossMintDeletePrepareResponse;
-  return {
-    expectedGeneration: payload.expectedGeneration,
-    policies: payload.policies,
-    prepared: payload.prepared
-      ? hydratePreparedOperation(payload.prepared)
-      : null,
-    status: payload.status,
+  return (await response.json()) as {
+    expectedGeneration: string;
+    policies: string[];
+    status: "off" | "ready";
   };
-}
-
-async function postConfirmedEarnAutoswapDelete(args: {
-  expectedGeneration: string;
-  finalizedSlot: string;
-  observabilityFlowId?: string;
-  policies: readonly [string, string];
-  signature: string;
-}) {
-  const { observabilityFlowId, ...body } = args;
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/cross-mint/delete/confirm",
-    {
-      credentials: "include",
-      headers: observabilityJsonHeaders(observabilityFlowId),
-      method: "POST",
-      body: JSON.stringify(body),
-    }
-  );
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to confirm Autoswap deletion."
-    );
-  }
 }
 
 async function postConfirmedEarnPolicySetup(args: {
@@ -3007,40 +2904,6 @@ async function resolveConfirmedSignatureSlot(args: {
       lastStatus ? ` (${lastStatus})` : ""
     }.`
   );
-}
-
-async function resolveFinalizedSignatureSlot(args: {
-  connection: Connection;
-  signature: string;
-}): Promise<string> {
-  for (
-    let attempt = 0;
-    attempt < CONFIRMED_SIGNATURE_SLOT_ATTEMPTS;
-    attempt += 1
-  ) {
-    const { value } = await args.connection.getSignatureStatuses(
-      [args.signature],
-      { searchTransactionHistory: true }
-    );
-    const status = value[0] ?? null;
-    if (
-      status &&
-      !status.err &&
-      status.confirmationStatus === "finalized" &&
-      typeof status.slot === "number"
-    ) {
-      return String(status.slot);
-    }
-    if (attempt < CONFIRMED_SIGNATURE_SLOT_ATTEMPTS - 1) {
-      await waitForConfirmedSignatureSlotRetry(
-        Math.min(
-          CONFIRMED_SIGNATURE_SLOT_RETRY_MS * 2 ** attempt,
-          CONFIRMED_SIGNATURE_SLOT_RETRY_MAX_MS
-        )
-      );
-    }
-  }
-  throw new Error("Finalized transaction slot is unavailable.");
 }
 
 async function decompileVersionedTransaction(args: {
@@ -5569,7 +5432,6 @@ export function useSmartAccountSidebarData(
           mint: args.mint,
         };
       }
-
       const settingsSigner = overview.signers.find(
         (signer) =>
           signer.scope === "settings" &&
@@ -6170,134 +6032,72 @@ export function useSmartAccountSidebarData(
           error: "Connected wallet cannot sign transactions.",
         };
       }
+      if (!(overview && earnState?.policySignerPublicKey)) {
+        return {
+          success: false,
+          error:
+            "Autoswap account context is still loading. Refresh and try again.",
+        };
+      }
 
       const tracker = createBrowserLifecycleTracker({
         flowName: "earn.autoswap.configuration",
         flowVariant: "setup",
       });
       tracker.start("intent");
-      let trackerStage: "prepare" | "create_policy" | "slot_resolve" | "backend_confirm" =
-        "prepare";
+      let trackerStage: "prepare" | "create_policy" = "prepare";
       setIsActionPending(true);
       let completedPolicies = 0;
       try {
-        const expectedCluster = resolveEarnLoyalCluster(solanaEnv);
         earnToast.begin("autoswap-setup");
         earnToast.loading("Preparing Autoswap");
         tracker.observe("prepare");
-        let preparedSet = await prepareEarnAutoswapOnServer({
-          ...request,
-          observabilityFlowId: tracker.flowId,
+        const client = createSmartAccountVaultsClient({
+          connection,
+          programId: new PublicKey(overview.programId),
         });
-        const evidence = new Map<
-          "classic" | "token_2022",
-          {
-            account: string;
-            finalizedSlot?: string;
-            seed: string;
-            signature?: string;
-            sourceShard: "classic" | "token_2022";
-          }
-        >();
-
-        // PolicyCreate must use the current Settings seed. Finalize one
-        // approval, then re-prepare so the next approval targets the advanced
-        // seed. A retry discovers and preserves any policy already created.
-        for (let step = 0; step < 3; step += 1) {
-          for (const policy of preparedSet.policies) {
-            if (policy.persistence.cluster !== expectedCluster) {
-              throw new Error(
-                `Internal Autoswap configuration error: prepared ${policy.sourceShard} policy cluster ${policy.persistence.cluster} does not match configured cluster ${expectedCluster}.`
-              );
-            }
-            if (!policy.prepared && !evidence.has(policy.sourceShard)) {
-              evidence.set(policy.sourceShard, {
-                account: policy.policy.account.toBase58(),
-                seed: policy.policy.seed.toString(),
-                sourceShard: policy.sourceShard,
-              });
-            }
-          }
-          completedPolicies = evidence.size;
-
-          const nextPolicy = preparedSet.policies
-            .filter((policy) => Boolean(policy.prepared))
-            .sort((left, right) =>
-              left.policy.seed < right.policy.seed ? -1 : 1
-            )[0];
-          if (!nextPolicy) {
-            break;
-          }
-          if (!nextPolicy.prepared) {
-            throw new Error(
-              "Autoswap policy preparation omitted its wallet transaction."
-            );
-          }
-
-          const policyNumber = Math.min(evidence.size + 1, 2);
-          trackerStage = "create_policy";
-          tracker.observe("create_policy", {
-            chainState: "not_submitted",
-            stageCount: 2,
-            stageIndex: policyNumber - 1,
-          });
-          tracker.observe("wallet_approval", {
-            chainState: "submitted",
-            executionMode: "sequential",
-          });
-          earnToast.loading(`Confirm policy ${policyNumber} of 2`);
-          const signature = await sendPreparedWithWallet({
-            connection,
-            wallet: walletBridge,
-            prepared: nextPolicy.prepared,
-            confirm: true,
-          });
-          earnToast.loading(`Finalizing policy ${policyNumber} of 2`);
-          trackerStage = "slot_resolve";
-          const finalizedSlot = await resolveFinalizedSignatureSlot({
-            connection,
-            signature,
-          });
-          evidence.set(nextPolicy.sourceShard, {
-            account: nextPolicy.policy.account.toBase58(),
-            finalizedSlot,
-            seed: nextPolicy.policy.seed.toString(),
-            signature,
-            sourceShard: nextPolicy.sourceShard,
-          });
-          completedPolicies = evidence.size;
-          trackerStage = "prepare";
-          preparedSet = await prepareEarnAutoswapOnServer({
-            ...request,
-            observabilityFlowId: tracker.flowId,
-          });
-        }
-
-        const classic = evidence.get("classic");
-        const token2022 = evidence.get("token_2022");
-        if (!(classic && token2022) || evidence.size !== 2) {
-          throw new Error("Autoswap setup did not resolve both policy shards.");
-        }
-        const confirmedPolicies: Parameters<
-          typeof postConfirmedEarnAutoswap
-        >[0]["policies"] = [classic, token2022];
-        earnToast.loading("Confirming");
-        trackerStage = "backend_confirm";
-        await postConfirmedEarnAutoswap({
-          dailySourceMintSpendingCap: request.dailySourceMintSpendingCap,
-          maxSlippageBps: DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
-          observabilityFlowId: tracker.flowId,
-          policies: confirmedPolicies,
+        const setup = await executeEarnAutoswapSetupClient({
+          client,
+          input: {
+            cluster: resolveEarnLoyalCluster(solanaEnv),
+            dailySourceMintSpendingCap: request.dailySourceMintSpendingCap,
+            feePayer: wallet.publicKey,
+            maxSlippageBps: DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
+            settingsPda: new PublicKey(overview.settingsPda),
+            signer: new PublicKey(earnState.policySignerPublicKey),
+            walletAddress: wallet.publicKey,
+          },
+          sendPrepared: async (prepared, context) => {
+            trackerStage = "create_policy";
+            tracker.observe("create_policy", {
+              chainState: "not_submitted",
+              stageCount: 2,
+              stageIndex: context.policyNumber - 1,
+            });
+            tracker.observe("wallet_approval", {
+              chainState: "submitted",
+              executionMode: "sequential",
+            });
+            earnToast.loading(`Confirm policy ${context.policyNumber} of 2`);
+            const signature = await sendPreparedWithWallet({
+              connection,
+              wallet: walletBridge,
+              prepared,
+              confirm: true,
+            });
+            completedPolicies = context.policyNumber;
+            trackerStage = "prepare";
+            return signature;
+          },
         });
-        tracker.observe("backend_confirm", {
+        completedPolicies = setup.completedPolicies;
+        tracker.observe("ui_commit", {
           chainState: "confirmed",
-          persistenceState: "recorded",
         });
-        await refreshEarnState();
-        earnToast.success("Autoswap enabled");
+        await refreshEarnState().catch(() => undefined);
+        earnToast.success("Autoswap setup submitted");
         tracker.complete("ui_commit", {
           chainState: "confirmed",
-          persistenceState: "recorded",
           stageCount: 2,
           stageIndex: completedPolicies,
         });
@@ -6316,20 +6116,9 @@ export function useSmartAccountSidebarData(
             stageCount: 2,
             stageIndex: completedPolicies,
           });
-        } else if (trackerStage === "backend_confirm") {
-          tracker.fail("backend_confirm", {
-            chainState: "confirmed",
-            errorCode: "record_failed",
-            persistenceState: "failed",
-            stageCount: 2,
-            stageIndex: completedPolicies,
-          });
         } else {
           tracker.fail(trackerStage, {
-            errorCode:
-              trackerStage === "slot_resolve"
-                ? "slot_resolution_failed"
-                : "unexpected_error",
+            errorCode: "unexpected_error",
             stageCount: 2,
             stageIndex: completedPolicies,
           });
@@ -6343,7 +6132,15 @@ export function useSmartAccountSidebarData(
         earnToast.settle();
       }
     },
-    [connection, refreshEarnState, solanaEnv, user?.walletAddress, wallet]
+    [
+      connection,
+      earnState?.policySignerPublicKey,
+      overview,
+      refreshEarnState,
+      solanaEnv,
+      user?.walletAddress,
+      wallet,
+    ]
   );
 
   const executeEarnAutoswapToggle = useCallback(
@@ -6397,22 +6194,27 @@ export function useSmartAccountSidebarData(
           error: "Connected wallet cannot sign transactions.",
         };
       }
+      if (!overview) {
+        return {
+          success: false,
+          error: "Autoswap account context is still loading. Refresh and try again.",
+        };
+      }
 
       const tracker = createBrowserLifecycleTracker({
         flowName: "earn.autoswap.configuration",
         flowVariant: "delete",
       });
       tracker.start("intent");
-      let trackerStage: "prepare" | "wallet_approval" | "slot_resolve" | "backend_confirm" =
-        "prepare";
+      let trackerStage: "prepare" | "wallet_approval" = "prepare";
       setIsActionPending(true);
       try {
         earnToast.begin("autoswap-delete");
         earnToast.loading("Preparing removal");
         tracker.observe("prepare");
-        // The prepare endpoint disables orchestration before returning this
-        // revocation transaction, so a canceled wallet prompt remains safe.
-        const removal = await prepareEarnAutoswapDeleteOnServer({
+        // The backend commits the pause and checks movement readiness. The
+        // browser then builds the revocation from public chain/account data.
+        const removal = await fetchEarnAutoswapDeleteReadiness({
           ...request,
           observabilityFlowId: tracker.flowId,
         });
@@ -6422,9 +6224,20 @@ export function useSmartAccountSidebarData(
           tracker.complete("ui_commit", { persistenceState: "recorded" });
           return { success: true };
         }
-        if (!removal.prepared) {
+        const client = createSmartAccountVaultsClient({
+          connection,
+          programId: new PublicKey(overview.programId),
+        });
+        const prepared = await prepareEarnAutoswapDeletionClient({
+          client,
+          feePayer: wallet.publicKey,
+          policies: removal.policies.map((policy) => new PublicKey(policy)),
+          settingsPda: new PublicKey(overview.settingsPda),
+          signer: wallet.publicKey,
+        });
+        if (!prepared) {
           throw new Error(
-            "Autoswap deletion did not return a revocation transaction."
+            "Autoswap deletion is already reflected on-chain. Refresh shortly."
           );
         }
         earnToast.loading("Confirm removal in wallet");
@@ -6433,36 +6246,19 @@ export function useSmartAccountSidebarData(
           chainState: "submitted",
           executionMode: "single",
         });
-        const signature = await sendPreparedWithWallet({
+        await sendPreparedWithWallet({
           connection,
           wallet: walletBridge,
-          prepared: removal.prepared,
+          prepared,
           confirm: true,
         });
-        earnToast.loading("Finalizing removal");
-        trackerStage = "slot_resolve";
-        const finalizedSlot = await resolveFinalizedSignatureSlot({
-          connection,
-          signature,
-        });
-        earnToast.loading("Confirming");
-        trackerStage = "backend_confirm";
-        await postConfirmedEarnAutoswapDelete({
-          expectedGeneration: removal.expectedGeneration,
-          finalizedSlot,
-          observabilityFlowId: tracker.flowId,
-          policies: removal.policies,
-          signature,
-        });
-        tracker.observe("backend_confirm", {
+        tracker.observe("ui_commit", {
           chainState: "confirmed",
-          persistenceState: "recorded",
         });
-        await refreshEarnState();
-        earnToast.success("Autoswap removed");
+        await refreshEarnState().catch(() => undefined);
+        earnToast.success("Autoswap removal submitted");
         tracker.complete("ui_commit", {
           chainState: "confirmed",
-          persistenceState: "recorded",
         });
         return { success: true };
       } catch (err) {
@@ -6476,18 +6272,9 @@ export function useSmartAccountSidebarData(
         );
         if (isWalletCancellationError(err)) {
           tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
-        } else if (trackerStage === "backend_confirm") {
-          tracker.fail("backend_confirm", {
-            chainState: "confirmed",
-            errorCode: "record_failed",
-            persistenceState: "failed",
-          });
         } else {
           tracker.fail(trackerStage, {
-            errorCode:
-              trackerStage === "slot_resolve"
-                ? "slot_resolution_failed"
-                : "unexpected_error",
+            errorCode: "unexpected_error",
           });
         }
         if (!isWalletCancellationError(err)) {
@@ -6499,7 +6286,7 @@ export function useSmartAccountSidebarData(
         earnToast.settle();
       }
     },
-    [connection, refreshEarnState, user?.walletAddress, wallet]
+    [connection, overview, refreshEarnState, user?.walletAddress, wallet]
   );
 
   const executeEarnDepositPolicyStage = useCallback(

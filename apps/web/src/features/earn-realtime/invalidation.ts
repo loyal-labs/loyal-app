@@ -40,9 +40,14 @@ export function resolveEarnRealtimeRefreshPlan(
       } else if (event.state === "released" || event.state === "canceled") {
         plan.earnState = true;
       }
-    } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.allowance) {
+    } else if (
+      event.eventType === EARN_REALTIME_EVENT_TYPES.allowance ||
+      event.eventType === EARN_REALTIME_EVENT_TYPES.autoswap
+    ) {
       plan.earnState = true;
-      plan.transactions = true;
+      if (event.eventType === EARN_REALTIME_EVENT_TYPES.allowance) {
+        plan.transactions = true;
+      }
     } else if (event.eventType === EARN_REALTIME_EVENT_TYPES.rebalance) {
       plan.position = true;
       plan.transactions = true;
