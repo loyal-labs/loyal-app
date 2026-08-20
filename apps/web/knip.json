@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "next.config.test.ts",
+    "scripts/*.ts",
+    "src/**/*.test.{ts,tsx}",
+    "src/**/__tests__/**/*.{ts,tsx}",
+    "tests/**/*.{ts,tsx}"
+  ],
+  "ignore": ["src/lib/generated/**"],
+  "ignoreDependencies": [
+    "@biomejs/biome",
+    "@bufbuild/protoc-gen-es",
+    "@bufbuild/protoc-gen-connect-es",
+    "eslint-config-next",
+    "shadcn"
+  ],
+  "ignoreBinaries": ["op"]
+}
