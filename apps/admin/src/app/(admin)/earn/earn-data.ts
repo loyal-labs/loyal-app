@@ -55,6 +55,7 @@ const ACTIVE_EARN_HOLDINGS_CTE = `
       FROM loyal_yield.vault_reserve_positions_current AS reserve
       WHERE reserve.vault_id = active.vault_id
         AND reserve.liquidity_mint = active.deposit_mint
+      OFFSET 0
     ) AS reserve
   ),
   normalized_reserve_by_position AS (
