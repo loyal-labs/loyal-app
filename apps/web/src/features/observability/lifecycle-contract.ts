@@ -163,6 +163,9 @@ export const LIFECYCLE_ERROR_CODES = [
   // `wallet_connection_timeout`, which means one of our settle watchdogs
   // elapsed while the adapter never resolved either way.
   "wallet_connection_failed",
+  // A stored Mobile Wallet Adapter authorization was revoked. The app clears
+  // it and sends the user through reconnect; no backend request was made.
+  "wallet_authorization_expired",
   // The wallet could not produce a signature. Distinct from
   // `invalid_wallet_signature`, which means a signature was produced and the
   // backend rejected it during verification.

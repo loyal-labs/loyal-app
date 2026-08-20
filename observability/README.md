@@ -186,6 +186,15 @@ more matched rows. It delivers to a generic webhook pointing at
 `loyal-clickstack-telegram-relay` over the private network, which posts to
 Telegram.
 
+Lifecycle export decides which failures receive ERROR severity. Expected local
+wallet-session failures, device network/timeouts, and ordinary HTTP 4xx
+rejections stay visible at INFO and do not page through this broad alert.
+Unknown legacy failures, Loyal bugs, HTTP 5xx responses, exhausted Kamino/RPC
+failures, and every recovery-required event remain ERROR. A dedicated
+wallet-health alert should be added only after measuring normal traffic, and
+should require recurrence across multiple wallets or a single build rather
+than paging on one device losing its wallet session.
+
 The relay, not ClickStack, decides what the chats see. Each accepted alert is
 sent to both Telegram and Loyal Slack `#logs`. The first delivery for a
 signature is posted immediately; repeats of it are held until the next daily
