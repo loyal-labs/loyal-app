@@ -24,14 +24,22 @@ describe("Autoswap enrollment rollout", () => {
     expect(isEarnAutoswapEnrollmentEnabled(WALLET_B, env)).toBe(false);
   });
 
-  test("rejects wildcard rollout configuration", async () => {
+  test("wildcard opens enrollment to every wallet", async () => {
     const { isEarnAutoswapEnrollmentEnabled } = await import(
       "./earn-autoswap-rollout.server"
     );
+    const env = { EARN_AUTOSWAP_ENABLED_WALLETS: "*" };
 
+    expect(isEarnAutoswapEnrollmentEnabled(WALLET_A, env)).toBe(true);
+    expect(isEarnAutoswapEnrollmentEnabled(WALLET_B, env)).toBe(true);
+    expect(
+      isEarnAutoswapEnrollmentEnabled(WALLET_A, {
+        EARN_AUTOSWAP_ENABLED_WALLETS: " * ",
+      })
+    ).toBe(true);
     expect(() =>
       isEarnAutoswapEnrollmentEnabled(WALLET_A, {
-        EARN_AUTOSWAP_ENABLED_WALLETS: "*",
+        EARN_AUTOSWAP_ENABLED_WALLETS: `*,${WALLET_A}`,
       })
     ).toThrow("invalid wallet");
   });
