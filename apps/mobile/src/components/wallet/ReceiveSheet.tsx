@@ -27,15 +27,15 @@ const CARD_WIDTH = 256;
 // Red Loyal mascot rendered in the center of the QR. Passed to the QR as a raw
 // SVG string so react-native-qrcode-svg renders it via SvgXml (preserving the
 // mark's own fills) instead of going through the asset/transformer path.
+// Mask-free on purpose: the original asset clipped the pupil with an SVG
+// <mask> (mask-type:alpha, userSpaceOnUse), which react-native-svg renders on
+// Android but silently drops on iOS — the pupil disappeared and the dog lost
+// its eye. The mask only trimmed a sub-pixel of pupil overflow, so a slightly
+// smaller pupil nudged into the eye white needs no clipping at all.
 const QR_MARK_SVG = `<svg width="35" height="28" viewBox="0 0 35 28" fill="none" xmlns="http://www.w3.org/2000/svg">
 <path d="M5.24998 24.4999L0 12.25H15.75V0L22.7499 12.25L24.4999 0L34.9999 27.9999L5.24998 24.4999Z" fill="#F9363C"/>
 <path d="M19.369 15.141C22.2645 15.2927 24.5052 17.45 24.3737 19.9595L13.8881 19.41C14.0196 16.9005 16.4735 14.9892 19.369 15.141Z" fill="white"/>
-<mask id="qrmask" style="mask-type:alpha" maskUnits="userSpaceOnUse" x="13" y="15" width="12" height="5">
-<path d="M19.3693 15.141C22.2648 15.2927 24.5054 17.45 24.3739 19.9595L13.8883 19.41C14.0199 16.9005 16.4737 14.9892 19.3693 15.141Z" fill="white"/>
-</mask>
-<g mask="url(#qrmask)">
-<circle cx="19.2498" cy="17.4126" r="2.36249" transform="rotate(3 19.2498 17.4126)" fill="black"/>
-</g>
+<circle cx="19.2498" cy="17.7" r="2.1" transform="rotate(3 19.2498 17.7)" fill="black"/>
 </svg>`;
 
 type ReceiveSheetProps = {
