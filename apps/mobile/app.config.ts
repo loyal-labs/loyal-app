@@ -63,6 +63,13 @@ const config: ExpoConfig = {
     },
     infoPlist: {
       UIBackgroundModes: ["remote-notification"],
+      // The app never requests location and this prompt never shows. The
+      // OneSignal XCFramework ships an optional location module whose bare
+      // CLLocationManager reference makes App Store Connect demand a purpose
+      // string for every delivery (ITMS-90683). Honest copy on purpose — do
+      // not reword this to imply the app uses location.
+      NSLocationWhenInUseUsageDescription:
+        "Loyal does not use your location. This notice exists because a notifications library includes optional location code.",
     },
     entitlements: {
       "aps-environment": IS_DEV ? "development" : "production",
