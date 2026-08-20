@@ -2,14 +2,20 @@ import type { ExpoConfig } from "expo/config";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Free-form release notes for the in-app OTA update banner. Edit ota-notes.txt
-// before running `eas update` — the text ships inside the update manifest, and
-// the bundle users are currently on reads it from the incoming update and shows
-// it in the banner. Leave the file empty to fall back to the generic copy.
-// Notes persist across publishes until edited, so clear/replace before each one.
+// Free-form release notes for the in-app OTA update banner. The text ships
+// inside the update manifest; the bundle users are currently on reads it from
+// the incoming update and shows it in the banner. Leave the file empty to
+// fall back to the generic copy. Notes persist across publishes until edited,
+// so clear/replace before each one.
+//
+// Two files so platform-scoped publishes don't reuse each other's copy:
+//   eas update --platform ios     -> OTA_NOTES_FILE=ios ... reads ota-notes-ios.txt
+//   everything else               -> ota-notes.txt
 function readOtaNotes(): string | null {
+  const file =
+    process.env.OTA_NOTES_FILE === "ios" ? "ota-notes-ios.txt" : "ota-notes.txt";
   try {
-    const text = readFileSync(join(__dirname, "ota-notes.txt"), "utf8").trim();
+    const text = readFileSync(join(__dirname, file), "utf8").trim();
     return text.length > 0 ? text : null;
   } catch {
     return null;
