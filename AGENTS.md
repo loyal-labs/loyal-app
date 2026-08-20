@@ -378,7 +378,8 @@ application code only when needed.
 ### Loyal Web Earn Flow
 
 The Loyal web Earn UI lives under
-`/apps/web/src/components/wallet-workspace/app-wallet-workspace.tsx` and
+`/apps/web/src/components/wallet-workspace/facelift/` (mounted via
+`/apps/web/src/app/app/app-workspace-shell.tsx`) and
 `/apps/web/src/components/wallet-sidebar/earn-detail-view.tsx`.
 User-initiated Earn uses smart-account vault `accountIndex = 1` and the
 canonical Kamino USDC reserve. Older auto-yield planning docs may discuss
