@@ -280,6 +280,32 @@ export function SafeReserveApyChart({
   const [showDecisionMarkers, setShowDecisionMarkers] = useState(false);
   const [showOutliers, setShowOutliers] = useState(false);
   const [showRawData, setShowRawData] = useState(false);
+  const [rawData, setRawData] = useState<SafeReserveApyMonitorData | null>(
+    null
+  );
+  const [rawLoadStatus, setRawLoadStatus] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
+  const rawDataForSelection = useMemo(() => {
+    if (!rawData) {
+      return null;
+    }
+    const selectedReserves = new Set(
+      data.series.map((series) => series.reserve)
+    );
+
+    return {
+      ...rawData,
+      series: rawData.series.filter((series) =>
+        selectedReserves.has(series.reserve)
+      ),
+      statuses: rawData.statuses.filter((status) =>
+        selectedReserves.has(status.reserve)
+      ),
+    };
+  }, [data.series, rawData]);
+  const chartData =
+    showRawData && rawDataForSelection ? rawDataForSelection : data;
   const chartConfig = data.series.reduce<ChartConfig>(
     (config, series, index) => {
       const style = SERIES_STYLES[index % SERIES_STYLES.length];
@@ -309,12 +335,14 @@ export function SafeReserveApyChart({
     );
   const chartPoints = useMemo(
     () =>
-      showRawData ? data.chartPoints : bucketChartPoints(data, 30 * 60 * 1000),
-    [data, showRawData]
+      showRawData
+        ? chartData.chartPoints
+        : bucketChartPoints(chartData, 30 * 60 * 1000),
+    [chartData, showRawData]
   );
   const apyValues = useMemo(
-    () => getApyValues({ chartPoints, data }),
-    [chartPoints, data]
+    () => getApyValues({ chartPoints, data: chartData }),
+    [chartData, chartPoints]
   );
   const fullYMax = Math.max(8, Math.ceil(Math.max(...apyValues, 0) + 1));
   const normalYMax = Math.max(
@@ -335,6 +363,33 @@ export function SafeReserveApyChart({
     })
     .slice(0, 25);
 
+  async function toggleRawData() {
+    if (showRawData) {
+      setShowRawData(false);
+      return;
+    }
+    if (rawData) {
+      setShowRawData(true);
+      return;
+    }
+
+    setRawLoadStatus("loading");
+    try {
+      const response = await fetch("/api/earn/rebalance/apy-samples", {
+        cache: "no-store",
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        throw new Error(`APY samples request failed: ${response.status}`);
+      }
+      setRawData((await response.json()) as SafeReserveApyMonitorData);
+      setRawLoadStatus("idle");
+      setShowRawData(true);
+    } catch {
+      setRawLoadStatus("error");
+    }
+  }
+
   return (
     <Card className="w-full">
       <CardHeader className="gap-4 border-b">
@@ -347,7 +402,7 @@ export function SafeReserveApyChart({
                 : "Selected stablecoin Safe basket"}
               , last 7d,{" "}
               {showRawData
-                ? `${data.sampleIntervalMinutes}m raw buckets`
+                ? `${chartData.sampleIntervalMinutes}m raw buckets`
                 : "30m median view"}{" "}
               from Kamino Timescale
             </CardDescription>
@@ -361,12 +416,17 @@ export function SafeReserveApyChart({
             <div className="flex flex-wrap items-center gap-2 lg:justify-end">
               <Button
                 aria-pressed={showRawData}
-                onClick={() => setShowRawData((value) => !value)}
+                disabled={rawLoadStatus === "loading"}
+                onClick={() => void toggleRawData()}
                 size="sm"
                 type="button"
                 variant={showRawData ? "secondary" : "outline"}
               >
-                Raw samples
+                {rawLoadStatus === "loading"
+                  ? "Loading samples…"
+                  : rawLoadStatus === "error"
+                  ? "Retry raw samples"
+                  : "Raw samples"}
               </Button>
               {decisionMarkers.length > 0 ? (
                 <Button

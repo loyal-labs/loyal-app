@@ -80,6 +80,9 @@ export type SerializedExecutedEarnRebalanceSummary = {
   executionCount: number;
   executionCount30d: number;
   executionCount7d: number;
+  fullyWithdrawnCount: number;
+  fullyWithdrawnCount30d: number;
+  fullyWithdrawnCount7d: number;
   liquidityMint: string | null;
   routeMode: RebalanceRouteMode;
   swapFeeLamports: string;
@@ -239,6 +242,10 @@ export function ExecutedEarnRebalancesChart({
   const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
   const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
+  const [detailRows, setDetailRows] = useState(data.details);
+  const [detailStatus, setDetailStatus] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
 
   const points = useMemo(
     () =>
@@ -257,7 +264,7 @@ export function ExecutedEarnRebalancesChart({
 
   const details = useMemo(
     () =>
-      data.details
+      detailRows
         .filter((execution) => execution.routeMode === routeMode)
         .map((execution) => ({
           ...execution,
@@ -267,8 +274,41 @@ export function ExecutedEarnRebalancesChart({
           executedAtMs: Date.parse(execution.executedAt),
         }))
         .filter((execution) => Number.isFinite(execution.executedAtMs)),
-    [data.details, routeMode]
+    [detailRows, routeMode]
   );
+
+  async function toggleTable() {
+    if (showTable) {
+      setShowTable(false);
+      return;
+    }
+    if (detailRows.length > 0 || data.status !== "available") {
+      setShowTable(true);
+      return;
+    }
+
+    setDetailStatus("loading");
+    try {
+      const response = await fetch(
+        "/api/earn/rebalance/details?kind=executed",
+        {
+          cache: "no-store",
+          credentials: "same-origin",
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Execution details request failed: ${response.status}`);
+      }
+      const result = (await response.json()) as {
+        details: SerializedExecutedEarnRebalanceRow[];
+      };
+      setDetailRows(result.details);
+      setDetailStatus("idle");
+      setShowTable(true);
+    } catch {
+      setDetailStatus("error");
+    }
+  }
 
   const filteredPoints = useMemo(() => {
     if (range === "all" || points.length === 0) {
@@ -322,6 +362,16 @@ export function ExecutedEarnRebalancesChart({
         : item.executionCount7d),
     0
   );
+  const exactFullyWithdrawnCount = routeSummaries.reduce(
+    (total, item) =>
+      total +
+      (range === "all"
+        ? item.fullyWithdrawnCount
+        : range === "30d"
+        ? item.fullyWithdrawnCount30d
+        : item.fullyWithdrawnCount7d),
+    0
+  );
   const distinctUserCount = routeSummaries.reduce(
     (total, item) => total + item.userCount,
     0
@@ -340,7 +390,6 @@ export function ExecutedEarnRebalancesChart({
     logFloor,
     useLogScale ? Math.max(...positiveDeposits) : 1
   );
-  const zeroDepositCount = filteredPoints.length - positiveDeposits.length;
   const maxDepositAmount =
     positiveDeposits.length > 0 ? Math.max(...positiveDeposits) : 1;
   const scatterPoints = filteredPoints.map((point) => ({
@@ -418,12 +467,17 @@ export function ExecutedEarnRebalancesChart({
               </div>
               <Button
                 aria-pressed={showTable}
-                onClick={() => setShowTable((value) => !value)}
+                disabled={detailStatus === "loading"}
+                onClick={() => void toggleTable()}
                 size="sm"
                 type="button"
                 variant={showTable ? "secondary" : "outline"}
               >
-                Table
+                {detailStatus === "loading"
+                  ? "Loading table…"
+                  : detailStatus === "error"
+                  ? "Retry table"
+                  : "Table"}
               </Button>
             </div>
             {showTable ? null : (
@@ -635,9 +689,13 @@ export function ExecutedEarnRebalancesChart({
               : "Y-axis labels sample current deposit amounts"}
             ; hover a dot for the exact wallet, current deposit, route, amount,
             decision, and slot.
-            {useLogScale && zeroDepositCount > 0
-              ? ` ${zeroDepositCount.toLocaleString("en-US")} fully withdrawn ${
-                  zeroDepositCount === 1 ? "execution sits" : "executions sit"
+            {useLogScale && exactFullyWithdrawnCount > 0
+              ? ` ${exactFullyWithdrawnCount.toLocaleString(
+                  "en-US"
+                )} fully withdrawn ${
+                  exactFullyWithdrawnCount === 1
+                    ? "execution sits"
+                    : "executions sit"
                 } on the axis floor.`
               : ""}
           </p>

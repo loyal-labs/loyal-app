@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CartesianGrid,
   Scatter,
@@ -41,10 +41,7 @@ import type { SafeReserveApyStatusRow } from "@/lib/kamino/timescale-reserve-mon
 
 import { buildLogTicks, formatDepositTick } from "./earn-vault-rebalance-axis";
 import { DepositScaleSwitch, type DepositScale } from "./deposit-scale-switch";
-import {
-  computeRebalanceEligibilityFloorRaw,
-  summarizeRebalanceEligibility,
-} from "./earn-vault-rebalance-eligibility";
+import { computeRebalanceEligibilityFloorRaw } from "./earn-vault-rebalance-eligibility";
 import type { RebalanceRouteMode } from "./rebalance-data";
 import { RouteModeSwitch } from "./route-mode-switch";
 
@@ -67,10 +64,6 @@ export type SerializedEarnVaultRebalanceFrequencyRow = {
   last2hCount: number;
   last7dCount: number;
   liquidityMint: string | null;
-  opportunity12hCount: number;
-  opportunity2hCount: number;
-  opportunity7dCount: number;
-  opportunityAllCount: number;
   positionCount: number;
   routeMode: RebalanceRouteMode;
   vaultId: string;
@@ -88,11 +81,10 @@ export type SerializedEarnVaultRebalanceFrequency = {
 
 export type SerializedEarnVaultRebalanceFrequencySummary = {
   eligibleCount: number;
+  eligibleCount12h: number;
+  eligibleCount2h: number;
+  eligibleCount7d: number;
   liquidityMint: string | null;
-  opportunity12hCount: number;
-  opportunity2hCount: number;
-  opportunity7dCount: number;
-  opportunityAllCount: number;
   positionCount: number;
   rebalance12hCount: number;
   rebalance2hCount: number;
@@ -105,17 +97,20 @@ export type SerializedEarnVaultRebalanceFrequencySummary = {
 
 type RangeKey = "12h" | "2h" | "7d" | "all";
 type CountKey = "allCount" | "last7dCount" | "last12hCount" | "last2hCount";
-type OpportunityKey =
-  | "opportunityAllCount"
-  | "opportunity7dCount"
-  | "opportunity12hCount"
-  | "opportunity2hCount";
 
 type ChartPoint = SerializedEarnVaultRebalanceFrequencyRow & {
   depositAmount: number;
   depositRank: number;
-  opportunityCount: number;
   rebalanceCount: number;
+};
+
+type VaultOpportunityCounts = {
+  allCount: number;
+  last12hCount: number;
+  last2hCount: number;
+  last7dCount: number;
+  routeMode: RebalanceRouteMode;
+  vaultId: string;
 };
 
 type ReserveSeries = {
@@ -131,35 +126,30 @@ const RANGE_OPTIONS: ReadonlyArray<{
   countKey: CountKey;
   key: RangeKey;
   label: string;
-  opportunityKey: OpportunityKey;
   tabLabel: string;
 }> = [
   {
     countKey: "allCount",
     key: "all",
     label: "All history",
-    opportunityKey: "opportunityAllCount",
     tabLabel: "All",
   },
   {
     countKey: "last7dCount",
     key: "7d",
     label: "Last 7 days",
-    opportunityKey: "opportunity7dCount",
     tabLabel: "7 days",
   },
   {
     countKey: "last12hCount",
     key: "12h",
     label: "Last 12 hours",
-    opportunityKey: "opportunity12hCount",
     tabLabel: "12 hours",
   },
   {
     countKey: "last2hCount",
     key: "2h",
     label: "Last 2 hours",
-    opportunityKey: "opportunity2hCount",
     tabLabel: "2 hours",
   },
 ];
@@ -226,18 +216,71 @@ function toDepositAmount(raw: string): number {
 function VaultFrequencyTooltip({
   active,
   payload,
+  range,
   rangeLabel,
   reserveSeriesByKey,
 }: {
   active?: boolean;
   payload?: Array<{ payload?: ChartPoint }>;
+  range: RangeKey;
   rangeLabel: string;
   reserveSeriesByKey: ReadonlyMap<string, ReserveSeries>;
 }) {
   const point = payload?.[0]?.payload;
+  const vaultId = point?.vaultId;
+  const routeMode = point?.routeMode;
+  const [opportunityCounts, setOpportunityCounts] = useState<
+    | { data: VaultOpportunityCounts; status: "ready" }
+    | { status: "error" | "idle" | "loading" }
+  >({ status: "idle" });
+
+  useEffect(() => {
+    if (!vaultId || !routeMode) {
+      setOpportunityCounts({ status: "idle" });
+      return;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams({ routeMode, vaultId });
+    setOpportunityCounts({ status: "loading" });
+
+    void fetch(`/api/earn/rebalance/vault-opportunities?${params}`, {
+      credentials: "same-origin",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Vault opportunity request failed: ${response.status}`
+          );
+        }
+
+        return (await response.json()) as VaultOpportunityCounts;
+      })
+      .then((data) => setOpportunityCounts({ data, status: "ready" }))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setOpportunityCounts({ status: "error" });
+        }
+      });
+
+    return () => controller.abort();
+  }, [routeMode, vaultId]);
+
   if (!active || !point) {
     return null;
   }
+
+  const opportunityCount =
+    opportunityCounts.status === "ready"
+      ? range === "all"
+        ? opportunityCounts.data.allCount
+        : range === "7d"
+        ? opportunityCounts.data.last7dCount
+        : range === "12h"
+        ? opportunityCounts.data.last12hCount
+        : opportunityCounts.data.last2hCount
+      : null;
 
   const series = reserveSeriesByKey.get(point.currentReserve ?? NO_RESERVE_KEY);
 
@@ -269,7 +312,11 @@ function VaultFrequencyTooltip({
         </dd>
         <dt className="text-muted-foreground">Opportunities raised</dt>
         <dd className="text-right tabular-nums">
-          {point.opportunityCount.toLocaleString("en-US")}
+          {opportunityCount === null
+            ? opportunityCounts.status === "error"
+              ? "Unavailable"
+              : "Loading exact count…"
+            : opportunityCount.toLocaleString("en-US")}
         </dd>
         <dt className="text-muted-foreground">Positive positions</dt>
         <dd className="text-right tabular-nums">{point.positionCount}</dd>
@@ -296,6 +343,10 @@ export function EarnVaultRebalanceFrequencyChart({
   const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
   const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
+  const [detailRows, setDetailRows] = useState(data.details);
+  const [detailStatus, setDetailStatus] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
 
   const rangeOption =
     RANGE_OPTIONS.find((option) => option.key === range) ?? RANGE_OPTIONS[0];
@@ -311,11 +362,7 @@ export function EarnVaultRebalanceFrequencyChart({
           return (
             amountOrder || left.vaultPubkey.localeCompare(right.vaultPubkey)
           );
-        })
-        .map((vault, index) => ({
-          ...vault,
-          depositRank: index + 1,
-        })),
+        }),
     [data.chartPoints, routeMode]
   );
   const points = useMemo(
@@ -324,11 +371,10 @@ export function EarnVaultRebalanceFrequencyChart({
         (vault): ChartPoint => ({
           ...vault,
           depositAmount: toDepositAmount(vault.currentDepositRaw),
-          opportunityCount: vault[rangeOption.opportunityKey],
           rebalanceCount: vault[rangeOption.countKey],
         })
       ),
-    [rangeOption.countKey, rangeOption.opportunityKey, rankedVaults]
+    [rangeOption.countKey, rankedVaults]
   );
   const apyByReserve = useMemo(
     () => new Map(reserveStatuses.map((status) => [status.reserve, status])),
@@ -390,7 +436,7 @@ export function EarnVaultRebalanceFrequencyChart({
   );
   const tableRows = useMemo(
     () =>
-      data.details
+      detailRows
         .filter((vault) => vault.routeMode === routeMode)
         .sort((left, right) => {
           const amountOrder = compareRawAmounts(
@@ -405,12 +451,41 @@ export function EarnVaultRebalanceFrequencyChart({
           (vault): ChartPoint => ({
             ...vault,
             depositAmount: toDepositAmount(vault.currentDepositRaw),
-            opportunityCount: vault[rangeOption.opportunityKey],
             rebalanceCount: vault[rangeOption.countKey],
           })
         ),
-    [data.details, rangeOption.countKey, rangeOption.opportunityKey, routeMode]
+    [detailRows, rangeOption.countKey, routeMode]
   );
+
+  async function toggleTable() {
+    if (showTable) {
+      setShowTable(false);
+      return;
+    }
+    if (detailRows.length > 0 || data.status !== "available") {
+      setShowTable(true);
+      return;
+    }
+
+    setDetailStatus("loading");
+    try {
+      const response = await fetch(
+        "/api/earn/rebalance/details?kind=frequency",
+        { cache: "no-store", credentials: "same-origin" }
+      );
+      if (!response.ok) {
+        throw new Error(`Vault details request failed: ${response.status}`);
+      }
+      const result = (await response.json()) as {
+        details: SerializedEarnVaultRebalanceFrequencyRow[];
+      };
+      setDetailRows(result.details);
+      setDetailStatus("idle");
+      setShowTable(true);
+    } catch {
+      setDetailStatus("error");
+    }
+  }
   const summaries = data.summaries.filter(
     (summary) => summary.routeMode === routeMode
   );
@@ -419,7 +494,15 @@ export function EarnVaultRebalanceFrequencyChart({
     0
   );
   const exactEligibleCount = summaries.reduce(
-    (total, summary) => total + summary.eligibleCount,
+    (total, summary) =>
+      total +
+      (range === "all"
+        ? summary.eligibleCount
+        : range === "7d"
+        ? summary.eligibleCount7d
+        : range === "12h"
+        ? summary.eligibleCount12h
+        : summary.eligibleCount2h),
     0
   );
   const exactRebalancedVaultCount = summaries.reduce(
@@ -444,10 +527,6 @@ export function EarnVaultRebalanceFrequencyChart({
     reserveStatuses,
     STABLECOIN_DECIMALS
   );
-  const {
-    eligibleCount: sampledEligibleCount,
-    eligibleRebalancedCount: sampledEligibleRebalancedCount,
-  } = summarizeRebalanceEligibility(points, eligibilityFloorRaw);
   const positiveDeposits = points
     .map((point) => point.depositAmount)
     .filter((amount) => amount > 0 && Number.isFinite(amount));
@@ -533,12 +612,17 @@ export function EarnVaultRebalanceFrequencyChart({
                 />
                 <Button
                   aria-pressed={showTable}
-                  onClick={() => setShowTable((value) => !value)}
+                  disabled={detailStatus === "loading"}
+                  onClick={() => void toggleTable()}
                   size="sm"
                   type="button"
                   variant={showTable ? "secondary" : "outline"}
                 >
-                  Table
+                  {detailStatus === "loading"
+                    ? "Loading table…"
+                    : detailStatus === "error"
+                    ? "Retry table"
+                    : "Table"}
                 </Button>
               </>
             ) : null}
@@ -547,20 +631,21 @@ export function EarnVaultRebalanceFrequencyChart({
             {points.length === 0 ? null : eligibilityFloorRaw === null ? (
               <span>
                 {exactRebalancedVaultCount.toLocaleString("en-US")} of{" "}
-                {exactEligibleCount.toLocaleString("en-US")} exact funded vaults
+                {exactEligibleCount.toLocaleString("en-US")} funded vaults
                 rebalanced
               </span>
             ) : (
               <span className="text-foreground">
-                {sampledEligibleRebalancedCount.toLocaleString("en-US")} of{" "}
-                {sampledEligibleCount.toLocaleString("en-US")} sampled
-                economically eligible points rebalanced
+                {exactRebalancedVaultCount.toLocaleString("en-US")} of{" "}
+                {exactEligibleCount.toLocaleString("en-US")} economically
+                eligible vaults rebalanced
               </span>
             )}
             {points.length > 0 ? (
               <span>
-                {points.length.toLocaleString("en-US")} representative points ·{" "}
-                {exactVaultCount.toLocaleString("en-US")} exact funded vaults
+                {exactVaultCount.toLocaleString("en-US")} funded vaults ·{" "}
+                {exactRebalancedVaultCount.toLocaleString("en-US")} with
+                rebalances
               </span>
             ) : null}
             {points.length === 0 || eligibilityFloorRaw === null ? null : (
@@ -575,7 +660,7 @@ export function EarnVaultRebalanceFrequencyChart({
             )}
             {points.length > 0 ? (
               <span>
-                {exactRebalanceCount.toLocaleString("en-US")} exact confirmed
+                {exactRebalanceCount.toLocaleString("en-US")} confirmed
                 executions · {rangeOption.label}
               </span>
             ) : null}
@@ -736,6 +821,7 @@ export function EarnVaultRebalanceFrequencyChart({
                       <ChartTooltip
                         content={
                           <VaultFrequencyTooltip
+                            range={range}
                             rangeLabel={rangeOption.label}
                             reserveSeriesByKey={reserveSeriesByKey}
                           />

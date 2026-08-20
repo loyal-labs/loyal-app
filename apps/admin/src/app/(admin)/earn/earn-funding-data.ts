@@ -144,6 +144,21 @@ type SpendSourceResult = {
   spend: Map<string, WalletSpend>;
 };
 
+type YieldSpendPayloadRow = {
+  lookup_rows: SpendEventObservationRow[];
+  lookup_summary_rows: Array<{
+    address: string;
+    spend24h_lamports: string;
+    spend7d_lamports: string;
+  }>;
+  route_rows: SpendEventObservationRow[];
+  route_summary_rows: Array<{
+    address: string;
+    spend24h_lamports: string;
+    spend7d_lamports: string;
+  }>;
+};
+
 type SpendWindow = { endedAt: Date; startedAt: Date };
 
 type WalletSpend = {
@@ -739,37 +754,41 @@ async function loadYieldSpendRows(
     const sevenDayCutoff = new Date(
       window.endedAt.getTime() - 7 * 24 * 60 * 60 * 1_000
     );
-    const [routeRows, lookupTableRows, routeSummaryRows, lookupSummaryRows] =
-      await Promise.all([
-        sql.query(
-          `
-        WITH source_rows AS (
+    const payloadRows = (await sql.query(
+      `
+        WITH route_source_rows AS MATERIALIZED (
           SELECT fee_payer AS address, compiled_fee_lamports AS lamports,
             confirmed_at AS occurred_at, transaction_signature AS signature
           FROM loyal_yield.signed_route_submissions
           WHERE cluster = $1 AND confirmed_at IS NOT NULL
             AND fee_payer = ANY($2::text[]) AND confirmed_at >= $3::timestamptz
-        )
-        SELECT address, 'compiled_fee' AS amount_basis,
-          'yield_route_fee' AS group_key, lamports::text, occurred_at, signature,
-          1::text AS transaction_count
-        FROM source_rows WHERE occurred_at >= $4::timestamptz
-        UNION ALL
-        SELECT address, 'compiled_fee', 'yield_route_fee', SUM(lamports)::text,
-          date_trunc('day', occurred_at), NULL, COUNT(*)::text
-        FROM source_rows WHERE occurred_at < $4::timestamptz
-        GROUP BY address, date_trunc('day', occurred_at)
-      `,
-          [
-            MAINNET_YIELD_CLUSTER,
-            addresses,
-            window.startedAt.toISOString(),
-            recentCutoff.toISOString(),
-          ]
-        ) as unknown as Promise<SpendEventObservationRow[]>,
-        sql.query(
-          `
-        WITH source_rows AS (
+        ),
+        route_event_rows AS (
+          SELECT address, 'compiled_fee' AS amount_basis,
+            'yield_route_fee' AS group_key, lamports::text, occurred_at,
+            signature, 1::text AS transaction_count
+          FROM route_source_rows
+          WHERE occurred_at >= $4::timestamptz
+          UNION ALL
+          SELECT address, 'compiled_fee', 'yield_route_fee',
+            SUM(lamports)::text, date_trunc('day', occurred_at), NULL,
+            COUNT(*)::text
+          FROM route_source_rows
+          WHERE occurred_at < $4::timestamptz
+          GROUP BY address, date_trunc('day', occurred_at)
+        ),
+        route_summary_rows AS (
+          SELECT address,
+            COALESCE(SUM(lamports) FILTER (
+              WHERE occurred_at >= $4::timestamptz
+            ), 0)::text AS spend24h_lamports,
+            COALESCE(SUM(lamports) FILTER (
+              WHERE occurred_at >= $5::timestamptz
+            ), 0)::text AS spend7d_lamports
+          FROM route_source_rows
+          GROUP BY address
+        ),
+        lookup_source_rows AS MATERIALIZED (
           SELECT family.payer AS address,
             'lookup_table_' || operation.operation_kind AS group_key,
             GREATEST(COALESCE(operation.actual_fee_lamports, 0) + COALESCE(operation.actual_rent_lamports, 0) - COALESCE(operation.reclaimed_rent_lamports, 0), 0) AS lamports,
@@ -779,73 +798,68 @@ async function loadYieldSpendRows(
           JOIN loyal_yield.lookup_table_families AS family ON family.id = operation.family_id
           WHERE family.cluster = $1 AND operation.confirmed_at IS NOT NULL
             AND family.payer = ANY($2::text[]) AND operation.confirmed_at >= $3::timestamptz
+        ),
+        lookup_event_rows AS (
+          SELECT address, 'confirmed_payer_outflow' AS amount_basis,
+            group_key, lamports::text, occurred_at, signature,
+            1::text AS transaction_count
+          FROM lookup_source_rows
+          WHERE occurred_at >= $4::timestamptz
+          UNION ALL
+          SELECT address, 'confirmed_payer_outflow', group_key,
+            SUM(lamports)::text, date_trunc('day', occurred_at), NULL,
+            COUNT(*)::text
+          FROM lookup_source_rows
+          WHERE occurred_at < $4::timestamptz
+          GROUP BY address, group_key, date_trunc('day', occurred_at)
+        ),
+        lookup_summary_rows AS (
+          SELECT address,
+            COALESCE(SUM(lamports) FILTER (
+              WHERE occurred_at >= $4::timestamptz
+            ), 0)::text AS spend24h_lamports,
+            COALESCE(SUM(lamports) FILTER (
+              WHERE occurred_at >= $5::timestamptz
+            ), 0)::text AS spend7d_lamports
+          FROM lookup_source_rows
+          GROUP BY address
         )
-        SELECT address, 'confirmed_payer_outflow' AS amount_basis, group_key,
-          lamports::text, occurred_at, signature, 1::text AS transaction_count
-        FROM source_rows WHERE occurred_at >= $4::timestamptz
-        UNION ALL
-        SELECT address, 'confirmed_payer_outflow', group_key, SUM(lamports)::text,
-          date_trunc('day', occurred_at), NULL, COUNT(*)::text
-        FROM source_rows WHERE occurred_at < $4::timestamptz
-        GROUP BY address, group_key, date_trunc('day', occurred_at)
+        SELECT
+          COALESCE((
+            SELECT json_agg(route_event_rows ORDER BY occurred_at, signature)
+            FROM route_event_rows
+          ), '[]'::json) AS route_rows,
+          COALESCE((
+            SELECT json_agg(lookup_event_rows ORDER BY occurred_at, signature)
+            FROM lookup_event_rows
+          ), '[]'::json) AS lookup_rows,
+          COALESCE((
+            SELECT json_agg(route_summary_rows ORDER BY address)
+            FROM route_summary_rows
+          ), '[]'::json) AS route_summary_rows,
+          COALESCE((
+            SELECT json_agg(lookup_summary_rows ORDER BY address)
+            FROM lookup_summary_rows
+          ), '[]'::json) AS lookup_summary_rows
       `,
-          [
-            MAINNET_YIELD_CLUSTER,
-            addresses,
-            window.startedAt.toISOString(),
-            recentCutoff.toISOString(),
-          ]
-        ) as unknown as Promise<SpendEventObservationRow[]>,
-        sql.query(
-          `
-        SELECT fee_payer AS address,
-          COALESCE(SUM(compiled_fee_lamports) FILTER (WHERE confirmed_at >= $4::timestamptz), 0)::text AS spend24h_lamports,
-          COALESCE(SUM(compiled_fee_lamports) FILTER (WHERE confirmed_at >= $5::timestamptz), 0)::text AS spend7d_lamports
-        FROM loyal_yield.signed_route_submissions
-        WHERE cluster = $1 AND confirmed_at IS NOT NULL
-          AND fee_payer = ANY($2::text[]) AND confirmed_at >= $3::timestamptz
-        GROUP BY fee_payer
-      `,
-          [
-            MAINNET_YIELD_CLUSTER,
-            addresses,
-            window.startedAt.toISOString(),
-            recentCutoff.toISOString(),
-            sevenDayCutoff.toISOString(),
-          ]
-        ) as unknown as Promise<
-          Array<{
-            address: string;
-            spend24h_lamports: string;
-            spend7d_lamports: string;
-          }>
-        >,
-        sql.query(
-          `
-        SELECT family.payer AS address,
-          COALESCE(SUM(GREATEST(COALESCE(operation.actual_fee_lamports, 0) + COALESCE(operation.actual_rent_lamports, 0) - COALESCE(operation.reclaimed_rent_lamports, 0), 0)) FILTER (WHERE operation.confirmed_at >= $4::timestamptz), 0)::text AS spend24h_lamports,
-          COALESCE(SUM(GREATEST(COALESCE(operation.actual_fee_lamports, 0) + COALESCE(operation.actual_rent_lamports, 0) - COALESCE(operation.reclaimed_rent_lamports, 0), 0)) FILTER (WHERE operation.confirmed_at >= $5::timestamptz), 0)::text AS spend7d_lamports
-        FROM loyal_yield.lookup_table_operations AS operation
-        JOIN loyal_yield.lookup_table_families AS family ON family.id = operation.family_id
-        WHERE family.cluster = $1 AND operation.confirmed_at IS NOT NULL
-          AND family.payer = ANY($2::text[]) AND operation.confirmed_at >= $3::timestamptz
-        GROUP BY family.payer
-      `,
-          [
-            MAINNET_YIELD_CLUSTER,
-            addresses,
-            window.startedAt.toISOString(),
-            recentCutoff.toISOString(),
-            sevenDayCutoff.toISOString(),
-          ]
-        ) as unknown as Promise<
-          Array<{
-            address: string;
-            spend24h_lamports: string;
-            spend7d_lamports: string;
-          }>
-        >,
-      ]);
+      [
+        MAINNET_YIELD_CLUSTER,
+        addresses,
+        window.startedAt.toISOString(),
+        recentCutoff.toISOString(),
+        sevenDayCutoff.toISOString(),
+      ]
+    )) as unknown as YieldSpendPayloadRow[];
+    const payload = payloadRows[0] ?? {
+      lookup_rows: [],
+      lookup_summary_rows: [],
+      route_rows: [],
+      route_summary_rows: [],
+    };
+    const routeRows = payload.route_rows;
+    const lookupTableRows = payload.lookup_rows;
+    const routeSummaryRows = payload.route_summary_rows;
+    const lookupSummaryRows = payload.lookup_summary_rows;
 
     const spend = new Map<string, WalletSpend>();
     for (const row of [...routeSummaryRows, ...lookupSummaryRows]) {

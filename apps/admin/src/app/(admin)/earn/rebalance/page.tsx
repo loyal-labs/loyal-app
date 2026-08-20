@@ -1,11 +1,14 @@
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
+import { loadRebalancePageData } from "../../../api/earn/rebalance/route";
 
 import { RebalanceMonitorClient } from "./rebalance-monitor-client";
 
 export const dynamic = "force-dynamic";
 
-export default function EarnRebalancePage() {
+export default async function EarnRebalancePage() {
+  const initialData = await loadRebalancePageData();
+
   return (
     <PageContainer>
       <SectionHeader
@@ -14,7 +17,7 @@ export default function EarnRebalancePage() {
         title="Rebalance"
       />
 
-      <RebalanceMonitorClient />
+      <RebalanceMonitorClient initialData={initialData} />
     </PageContainer>
   );
 }

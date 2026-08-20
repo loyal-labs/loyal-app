@@ -138,6 +138,9 @@ export type ExecutedEarnRebalanceSummary = {
   executionCount: number;
   executionCount30d: number;
   executionCount7d: number;
+  fullyWithdrawnCount: number;
+  fullyWithdrawnCount30d: number;
+  fullyWithdrawnCount7d: number;
   liquidityMint: string | null;
   routeMode: RebalanceRouteMode;
   swapFeeLamports: bigint;
@@ -153,10 +156,6 @@ export type EarnVaultRebalanceFrequencyRow = {
   last2hCount: number;
   last7dCount: number;
   liquidityMint: string | null;
-  opportunity12hCount: number;
-  opportunity2hCount: number;
-  opportunity7dCount: number;
-  opportunityAllCount: number;
   positionCount: number;
   routeMode: RebalanceRouteMode;
   vaultId: string;
@@ -173,11 +172,10 @@ export type EarnVaultRebalanceFrequency = {
 
 export type EarnVaultRebalanceFrequencySummary = {
   eligibleCount: number;
+  eligibleCount12h: number;
+  eligibleCount2h: number;
+  eligibleCount7d: number;
   liquidityMint: string | null;
-  opportunity12hCount: number;
-  opportunity2hCount: number;
-  opportunity7dCount: number;
-  opportunityAllCount: number;
   positionCount: number;
   rebalance12hCount: number;
   rebalance2hCount: number;
@@ -186,6 +184,15 @@ export type EarnVaultRebalanceFrequencySummary = {
   rebalancedVaultCount: number;
   routeMode: RebalanceRouteMode;
   vaultCount: number;
+};
+
+export type EarnVaultOpportunityCounts = {
+  allCount: number;
+  last12hCount: number;
+  last2hCount: number;
+  last7dCount: number;
+  routeMode: RebalanceRouteMode;
+  vaultId: string;
 };
 
 export type RebalanceAuditRow = {
@@ -322,27 +329,13 @@ type Last30DaysRebalanceSqlRow = {
   terminal_attempts: SqlScalar;
 };
 
-type ExecutedEarnRebalanceSqlRow = {
-  amount_raw: SqlScalar;
-  authority: string;
-  confirmed_slot: SqlScalar;
-  current_deposit_raw: SqlScalar;
-  executed_at: Date | string;
-  id: string;
-  liquidity_mint: string | null;
-  route_mode: string;
-  source_reserve: string;
-  source_liquidity_mint: string | null;
-  swap_fee_lamports: SqlScalar;
-  target_reserve: string;
-  target_liquidity_mint: string | null;
-  user_rank: SqlScalar;
-};
-
 type ExecutedEarnRebalanceSummarySqlRow = {
   execution_count: SqlScalar;
   execution_count_30d: SqlScalar;
   execution_count_7d: SqlScalar;
+  fully_withdrawn_count: SqlScalar;
+  fully_withdrawn_count_30d: SqlScalar;
+  fully_withdrawn_count_7d: SqlScalar;
   liquidity_mint: string | null;
   route_mode: string;
   swap_fee_lamports: SqlScalar;
@@ -350,38 +343,34 @@ type ExecutedEarnRebalanceSummarySqlRow = {
 };
 
 type ExecutedEarnRebalancePayloadSqlRow = {
-  chart_points: ExecutedEarnRebalanceSqlRow[];
-  details: ExecutedEarnRebalanceSqlRow[];
+  chart_points: ExecutedEarnRebalanceSqlTuple[];
+  details: ExecutedEarnRebalanceSqlTuple[];
   summaries: ExecutedEarnRebalanceSummarySqlRow[];
 };
 
-type EarnVaultRebalanceFrequencySqlRow = {
-  all_count: SqlScalar;
-  opportunity_all_count: SqlScalar;
-  opportunity_last_12h_count: SqlScalar;
-  opportunity_last_2h_count: SqlScalar;
-  opportunity_last_7d_count: SqlScalar;
-  current_deposit_raw: SqlScalar;
-  current_reserve: string | null;
-  deposit_rank: SqlScalar;
-  last_12h_count: SqlScalar;
-  last_2h_count: SqlScalar;
-  last_7d_count: SqlScalar;
-  liquidity_mint: string | null;
-  position_count: SqlScalar;
-  route_mode: string;
-  vault_count: SqlScalar;
-  vault_id: string;
-  vault_pubkey: string;
-};
+type ExecutedEarnRebalanceSqlTuple = [
+  amountRaw: SqlScalar,
+  authority: string,
+  confirmedSlot: SqlScalar,
+  currentDepositRaw: SqlScalar,
+  executedAt: Date | string,
+  id: string,
+  liquidityMint: string | null,
+  routeMode: string,
+  sourceReserve: string,
+  sourceLiquidityMint: string | null,
+  swapFeeLamports: SqlScalar,
+  targetReserve: string,
+  targetLiquidityMint: string | null,
+  userRank: SqlScalar
+];
 
 type EarnVaultRebalanceFrequencySummarySqlRow = {
   eligible_count: SqlScalar;
+  eligible_count_12h: SqlScalar;
+  eligible_count_2h: SqlScalar;
+  eligible_count_7d: SqlScalar;
   liquidity_mint: string | null;
-  opportunity_last_12h_count: SqlScalar;
-  opportunity_last_2h_count: SqlScalar;
-  opportunity_last_7d_count: SqlScalar;
-  opportunity_all_count: SqlScalar;
   position_count: SqlScalar;
   rebalance_last_12h_count: SqlScalar;
   rebalance_last_2h_count: SqlScalar;
@@ -393,9 +382,33 @@ type EarnVaultRebalanceFrequencySummarySqlRow = {
 };
 
 type EarnVaultRebalanceFrequencyPayloadSqlRow = {
-  chart_points: EarnVaultRebalanceFrequencySqlRow[];
-  details: EarnVaultRebalanceFrequencySqlRow[];
+  chart_points: EarnVaultRebalanceFrequencySqlTuple[];
+  details: EarnVaultRebalanceFrequencySqlTuple[];
   summaries: EarnVaultRebalanceFrequencySummarySqlRow[];
+};
+
+type EarnVaultRebalanceFrequencySqlTuple = [
+  allCount: SqlScalar,
+  currentDepositRaw: SqlScalar,
+  currentReserve: string | null,
+  depositRank: SqlScalar,
+  last12hCount: SqlScalar,
+  last2hCount: SqlScalar,
+  last7dCount: SqlScalar,
+  liquidityMint: string | null,
+  positionCount: SqlScalar,
+  routeMode: string,
+  vaultId: string,
+  vaultPubkey: string
+];
+
+type EarnVaultOpportunityCountsSqlRow = {
+  all_count: SqlScalar;
+  last_12h_count: SqlScalar;
+  last_2h_count: SqlScalar;
+  last_7d_count: SqlScalar;
+  route_mode: string;
+  vault_id: SqlScalar;
 };
 
 type RebalanceAuditSqlRow = {
@@ -1709,7 +1722,9 @@ export async function getLast30DaysRebalanceSeries(): Promise<
   }));
 }
 
-export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnRebalanceHistory> {
+export async function getExecutedEarnRebalanceHistory({
+  includeDetails = true,
+}: { includeDetails?: boolean } = {}): Promise<ExecutedEarnRebalanceHistory> {
   const rows = await queryRows<ExecutedEarnRebalancePayloadSqlRow>(
     `
       WITH executed AS MATERIALIZED (
@@ -1795,18 +1810,26 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
             END
           )::bigint AS amount_raw
         FROM relevant_vault_ids AS relevant
-        INNER JOIN loyal_yield.vault_reserve_positions_current AS position
-          ON position.vault_id = relevant.vault_id
-        WHERE position.has_value = true
-          AND position.amount_raw > 0
+        CROSS JOIN LATERAL (
+          SELECT position.*
+          FROM loyal_yield.vault_reserve_positions_current AS position
+          WHERE position.vault_id = relevant.vault_id
+            AND position.has_value = true
+            AND position.amount_raw > 0
+          OFFSET 0
+        ) AS position
         GROUP BY position.vault_id
       ),
       current_idle_by_vault AS MATERIALIZED (
         SELECT idle.vault_id, SUM(idle.amount_raw)::bigint AS amount_raw
         FROM relevant_vault_ids AS relevant
-        INNER JOIN loyal_yield.vault_idle_token_balances_current AS idle
-          ON idle.vault_id = relevant.vault_id
-        WHERE idle.amount_raw > 0
+        CROSS JOIN LATERAL (
+          SELECT idle.*
+          FROM loyal_yield.vault_idle_token_balances_current AS idle
+          WHERE idle.vault_id = relevant.vault_id
+            AND idle.amount_raw > 0
+          OFFSET 0
+        ) AS idle
         GROUP BY idle.vault_id
       ),
       current_user_deposits AS MATERIALIZED (
@@ -1861,7 +1884,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
             PARTITION BY executed.route_mode, executed.liquidity_mint
             ORDER BY executed.executed_at DESC, executed.id DESC
           )::integer AS detail_rank,
-          NTILE(200) OVER (
+          NTILE(50) OVER (
             PARTITION BY executed.route_mode, executed.liquidity_mint
             ORDER BY executed.executed_at ASC, executed.id ASC
           )::integer AS chart_bucket
@@ -1908,7 +1931,7 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
           current_deposit_raw::text AS current_deposit_raw,
           user_rank
         FROM execution_rows
-        WHERE detail_rank <= 50
+        WHERE detail_rank <= ${includeDetails ? 50 : 0}
       ),
       summary_rows AS (
         SELECT
@@ -1921,6 +1944,17 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
           COUNT(*) FILTER (
             WHERE executed_at >= now() - interval '7 days'
           )::integer AS execution_count_7d,
+          COUNT(*) FILTER (
+            WHERE current_deposit_raw::bigint = 0
+          )::integer AS fully_withdrawn_count,
+          COUNT(*) FILTER (
+            WHERE current_deposit_raw::bigint = 0
+              AND executed_at >= now() - interval '30 days'
+          )::integer AS fully_withdrawn_count_30d,
+          COUNT(*) FILTER (
+            WHERE current_deposit_raw::bigint = 0
+              AND executed_at >= now() - interval '7 days'
+          )::integer AS fully_withdrawn_count_7d,
           COUNT(DISTINCT authority)::integer AS user_count,
           COALESCE(SUM(swap_fee_lamports::bigint), 0)::text AS swap_fee_lamports
         FROM execution_rows
@@ -1937,6 +1971,9 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
                 execution_count,
                 execution_count_30d,
                 execution_count_7d,
+                fully_withdrawn_count,
+                fully_withdrawn_count_30d,
+                fully_withdrawn_count_7d,
                 user_count,
                 swap_fee_lamports
               FROM summary_rows
@@ -1946,14 +1983,50 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
         ) AS summaries,
         COALESCE(
           (
-            SELECT json_agg(chart_row ORDER BY executed_at ASC, id ASC)
+            SELECT json_agg(
+              json_build_array(
+                chart_row.amount_raw,
+                chart_row.authority,
+                chart_row.confirmed_slot,
+                chart_row.current_deposit_raw,
+                chart_row.executed_at,
+                chart_row.id,
+                chart_row.liquidity_mint,
+                chart_row.route_mode,
+                chart_row.source_reserve,
+                chart_row.source_liquidity_mint,
+                chart_row.swap_fee_lamports,
+                chart_row.target_reserve,
+                chart_row.target_liquidity_mint,
+                chart_row.user_rank
+              )
+              ORDER BY chart_row.executed_at ASC, chart_row.id ASC
+            )
             FROM chart_rows AS chart_row
           ),
           '[]'::json
         ) AS chart_points,
         COALESCE(
           (
-            SELECT json_agg(detail_row ORDER BY executed_at DESC, id DESC)
+            SELECT json_agg(
+              json_build_array(
+                detail_row.amount_raw,
+                detail_row.authority,
+                detail_row.confirmed_slot,
+                detail_row.current_deposit_raw,
+                detail_row.executed_at,
+                detail_row.id,
+                detail_row.liquidity_mint,
+                detail_row.route_mode,
+                detail_row.source_reserve,
+                detail_row.source_liquidity_mint,
+                detail_row.swap_fee_lamports,
+                detail_row.target_reserve,
+                detail_row.target_liquidity_mint,
+                detail_row.user_rank
+              )
+              ORDER BY detail_row.executed_at DESC, detail_row.id DESC
+            )
             FROM detail_rows AS detail_row
           ),
           '[]'::json
@@ -1962,21 +2035,21 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
   );
 
   const payload = rows[0];
-  const mapRow = (row: ExecutedEarnRebalanceSqlRow) => ({
-    amountRaw: toBigInt(row.amount_raw),
-    authority: row.authority,
-    confirmedSlot: toBigInt(row.confirmed_slot),
-    currentDepositRaw: toBigInt(row.current_deposit_raw),
-    executedAt: toIsoString(row.executed_at) ?? "",
-    id: row.id,
-    liquidityMint: row.liquidity_mint,
-    routeMode: mapRouteMode(row.route_mode),
-    sourceReserve: row.source_reserve,
-    sourceLiquidityMint: row.source_liquidity_mint,
-    swapFeeLamports: toBigInt(row.swap_fee_lamports),
-    targetReserve: row.target_reserve,
-    targetLiquidityMint: row.target_liquidity_mint,
-    userRank: toNumber(row.user_rank),
+  const mapRow = (row: ExecutedEarnRebalanceSqlTuple) => ({
+    amountRaw: toBigInt(row[0]),
+    authority: row[1],
+    confirmedSlot: toBigInt(row[2]),
+    currentDepositRaw: toBigInt(row[3]),
+    executedAt: toIsoString(row[4]) ?? "",
+    id: row[5],
+    liquidityMint: row[6],
+    routeMode: mapRouteMode(row[7]),
+    sourceReserve: row[8],
+    sourceLiquidityMint: row[9],
+    swapFeeLamports: toBigInt(row[10]),
+    targetReserve: row[11],
+    targetLiquidityMint: row[12],
+    userRank: toNumber(row[13]),
   });
 
   return {
@@ -1988,6 +2061,9 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
         executionCount: toNumber(row.execution_count),
         executionCount30d: toNumber(row.execution_count_30d),
         executionCount7d: toNumber(row.execution_count_7d),
+        fullyWithdrawnCount: toNumber(row.fully_withdrawn_count),
+        fullyWithdrawnCount30d: toNumber(row.fully_withdrawn_count_30d),
+        fullyWithdrawnCount7d: toNumber(row.fully_withdrawn_count_7d),
         liquidityMint: row.liquidity_mint,
         routeMode: mapRouteMode(row.route_mode),
         swapFeeLamports: toBigInt(row.swap_fee_lamports),
@@ -1996,7 +2072,19 @@ export async function getExecutedEarnRebalanceHistory(): Promise<ExecutedEarnReb
   };
 }
 
-export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalanceFrequency> {
+export async function getEarnVaultRebalanceFrequency({
+  eligibilityFloorRaw = null,
+  includeDetails = true,
+}: {
+  eligibilityFloorRaw?: bigint | null;
+  includeDetails?: boolean;
+} = {}): Promise<EarnVaultRebalanceFrequency> {
+  const eligibleWhen = (countColumn: string, includeOpportunity = false) =>
+    eligibilityFloorRaw === null
+      ? "TRUE"
+      : `(current_deposit_raw >= ${eligibilityFloorRaw.toString()}::bigint OR ${countColumn} > 0${
+          includeOpportunity ? " OR has_opportunity" : ""
+        })`;
   const rows = await queryRows<EarnVaultRebalanceFrequencyPayloadSqlRow>(
     `
       WITH active_vaults AS MATERIALIZED (
@@ -2061,10 +2149,14 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
             ELSE 0::bigint
           END AS normalized_amount_raw
         FROM active_vaults AS vault
-        INNER JOIN loyal_yield.vault_reserve_positions_current AS position
-          ON position.vault_id = vault.id
-          AND position.has_value = true
-          AND position.amount_raw > 0
+        CROSS JOIN LATERAL (
+          SELECT position.*
+          FROM loyal_yield.vault_reserve_positions_current AS position
+          WHERE position.vault_id = vault.id
+            AND position.has_value = true
+            AND position.amount_raw > 0
+          OFFSET 0
+        ) AS position
       ),
       positive_positions AS MATERIALIZED (
         SELECT *
@@ -2098,9 +2190,13 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
       positive_idle AS MATERIALIZED (
         SELECT idle.*
         FROM active_vaults AS vault
-        INNER JOIN loyal_yield.vault_idle_token_balances_current AS idle
-          ON idle.vault_id = vault.id
-          AND idle.amount_raw > 0
+        CROSS JOIN LATERAL (
+          SELECT idle.*
+          FROM loyal_yield.vault_idle_token_balances_current AS idle
+          WHERE idle.vault_id = vault.id
+            AND idle.amount_raw > 0
+          OFFSET 0
+        ) AS idle
       ),
       idle_totals AS MATERIALIZED (
         SELECT vault_id, SUM(amount_raw)::bigint AS amount_raw
@@ -2149,58 +2245,10 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           AND decision.target_reserve IS NOT NULL
         GROUP BY decision.vault_id, decision.execution_plan->>'kind'
       ),
-      -- Evidence that a vault was genuinely actionable, used to keep it in the
-      -- eligible denominator even when it now sits under the modelled floor.
-      -- The reserve filter must mirror rebalance_counts above: idle-vault
-      -- deposits carry a NULL source_reserve and can never produce a confirmed
-      -- reserve-to-reserve decision, so counting them would admit vaults the
-      -- numerator is structurally unable to match.
-      opportunity_counts AS MATERIALIZED (
-        SELECT
-          opportunity.vault_id,
-          'same_mint'::text AS route_mode,
-          COUNT(*)::integer AS all_count,
-          COUNT(*) FILTER (
-            WHERE opportunity.created_at >= NOW() - INTERVAL '7 days'
-          )::integer AS last_7d_count,
-          COUNT(*) FILTER (
-            WHERE opportunity.created_at >= NOW() - INTERVAL '12 hours'
-          )::integer AS last_12h_count,
-          COUNT(*) FILTER (
-            WHERE opportunity.created_at >= NOW() - INTERVAL '2 hours'
-          )::integer AS last_2h_count
-        FROM loyal_yield.rebalance_opportunities AS opportunity
-        INNER JOIN active_vaults AS active_vault
-          ON active_vault.id = opportunity.vault_id
-        WHERE opportunity.source_reserve IS NOT NULL
-          AND opportunity.target_reserve IS NOT NULL
-          AND opportunity.execution_plan->>'kind' = 'same_mint'
-        GROUP BY opportunity.vault_id
-        UNION ALL
-        SELECT
-          opportunity.vault_id,
-          'cross_mint_jupiter'::text AS route_mode,
-          COUNT(*)::integer AS all_count,
-          COUNT(*) FILTER (
-            WHERE opportunity.created_at >= NOW() - INTERVAL '7 days'
-          )::integer AS last_7d_count,
-          COUNT(*) FILTER (
-            WHERE opportunity.created_at >= NOW() - INTERVAL '12 hours'
-          )::integer AS last_12h_count,
-          COUNT(*) FILTER (
-            WHERE opportunity.created_at >= NOW() - INTERVAL '2 hours'
-          )::integer AS last_2h_count
-        FROM loyal_yield.rebalance_opportunities AS opportunity
-        INNER JOIN active_vaults AS active_vault
-          ON active_vault.id = opportunity.vault_id
-        WHERE opportunity.source_reserve IS NOT NULL
-          AND opportunity.target_reserve IS NOT NULL
-          AND opportunity.execution_plan->>'kind' = 'cross_mint_jupiter'
-        GROUP BY opportunity.vault_id
-      ),
-      current_vaults AS MATERIALIZED (
+      current_vaults_base AS MATERIALIZED (
         SELECT
           vault.id,
+          vault.cluster,
           vault.vault_pubkey,
           vault.route_mode,
           primary_position.reserve AS current_reserve,
@@ -2213,11 +2261,7 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           COALESCE(rebalance.all_count, 0) AS all_count,
           COALESCE(rebalance.last_7d_count, 0) AS last_7d_count,
           COALESCE(rebalance.last_12h_count, 0) AS last_12h_count,
-          COALESCE(rebalance.last_2h_count, 0) AS last_2h_count,
-          COALESCE(opportunity.all_count, 0) AS opportunity_all_count,
-          COALESCE(opportunity.last_7d_count, 0) AS opportunity_last_7d_count,
-          COALESCE(opportunity.last_12h_count, 0) AS opportunity_last_12h_count,
-          COALESCE(opportunity.last_2h_count, 0) AS opportunity_last_2h_count
+          COALESCE(rebalance.last_2h_count, 0) AS last_2h_count
         FROM monitored_vault_modes AS vault
         LEFT JOIN position_totals AS position_total
           ON position_total.vault_id = vault.id
@@ -2230,11 +2274,44 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         LEFT JOIN rebalance_counts AS rebalance
           ON rebalance.vault_id = vault.id
           AND rebalance.route_mode = vault.route_mode
-        LEFT JOIN opportunity_counts AS opportunity
-          ON opportunity.vault_id = vault.id
-          AND opportunity.route_mode = vault.route_mode
         WHERE COALESCE(position_total.amount_raw, 0::bigint)
           + COALESCE(idle_total.amount_raw, 0::bigint) > 0
+      ),
+      current_vaults AS MATERIALIZED (
+        SELECT
+          base.*,
+          CASE
+            WHEN ${
+              eligibilityFloorRaw === null
+                ? "FALSE"
+                : `base.current_deposit_raw < ${eligibilityFloorRaw.toString()}::bigint AND base.all_count = 0`
+            }
+              THEN CASE
+                WHEN base.route_mode = 'same_mint' THEN EXISTS (
+                  SELECT 1
+                  FROM loyal_yield.rebalance_opportunities AS opportunity
+                  WHERE opportunity.cluster = base.cluster
+                    AND opportunity.vault_id = base.id
+                    AND opportunity.source_reserve IS NOT NULL
+                    AND opportunity.target_reserve IS NOT NULL
+                    AND opportunity.execution_plan->>'kind' = 'same_mint'
+                  LIMIT 1
+                )
+                WHEN base.route_mode = 'cross_mint_jupiter' THEN EXISTS (
+                  SELECT 1
+                  FROM loyal_yield.rebalance_opportunities AS opportunity
+                  WHERE opportunity.cluster = base.cluster
+                    AND opportunity.vault_id = base.id
+                    AND opportunity.source_reserve IS NOT NULL
+                    AND opportunity.target_reserve IS NOT NULL
+                    AND opportunity.execution_plan->>'kind' = 'cross_mint_jupiter'
+                  LIMIT 1
+                )
+                ELSE FALSE
+              END
+            ELSE FALSE
+          END AS has_opportunity
+        FROM current_vaults_base AS base
       ),
       ranked_vaults AS MATERIALIZED (
         SELECT
@@ -2254,18 +2331,29 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
             PARTITION BY ranked_vault.route_mode
           )::integer AS vault_count,
           ROW_NUMBER() OVER (
-            PARTITION BY ranked_vault.route_mode, ranked_vault.liquidity_mint
+            PARTITION BY
+              ranked_vault.route_mode,
+              ranked_vault.liquidity_mint,
+              ranked_vault.current_reserve
             ORDER BY ranked_vault.current_deposit_raw DESC, ranked_vault.vault_pubkey DESC
           )::integer AS detail_rank,
-          NTILE(150) OVER (
-            PARTITION BY ranked_vault.route_mode, ranked_vault.liquidity_mint
+          NTILE(50) OVER (
+            PARTITION BY
+              ranked_vault.route_mode,
+              ranked_vault.liquidity_mint,
+              ranked_vault.current_reserve
             ORDER BY ranked_vault.current_deposit_raw ASC, ranked_vault.vault_pubkey ASC
           )::integer AS chart_bucket
         FROM ranked_vaults AS ranked_vault
       ),
       chart_rows AS (
-        SELECT DISTINCT ON (route_mode, liquidity_mint, chart_bucket)
-          id,
+        SELECT DISTINCT ON (
+          route_mode,
+          liquidity_mint,
+          current_reserve,
+          chart_bucket
+        )
+          id::text AS vault_id,
           vault_pubkey,
           current_reserve,
           liquidity_mint,
@@ -2276,19 +2364,15 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           last_7d_count,
           last_12h_count,
           last_2h_count,
-          opportunity_all_count,
-          opportunity_last_7d_count,
-          opportunity_last_12h_count,
-          opportunity_last_2h_count,
           deposit_rank
           ,vault_count
         FROM frequency_rows
-        ORDER BY route_mode, liquidity_mint, chart_bucket,
+        ORDER BY route_mode, liquidity_mint, current_reserve, chart_bucket,
           current_deposit_raw DESC, vault_pubkey DESC
       ),
       detail_rows AS (
         SELECT
-          id,
+          id::text AS vault_id,
           vault_pubkey,
           current_reserve,
           liquidity_mint,
@@ -2299,31 +2383,34 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
           last_7d_count,
           last_12h_count,
           last_2h_count,
-          opportunity_all_count,
-          opportunity_last_7d_count,
-          opportunity_last_12h_count,
-          opportunity_last_2h_count,
           deposit_rank
           ,vault_count
         FROM frequency_rows
-        WHERE detail_rank <= 100
+        WHERE detail_rank <= ${includeDetails ? 100 : 0}
       ),
       summary_rows AS (
         SELECT
           route_mode,
           liquidity_mint,
           COUNT(*)::integer AS vault_count,
-          COUNT(*)::integer AS eligible_count,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("all_count", true)}
+          )::integer AS eligible_count,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("last_7d_count")}
+          )::integer AS eligible_count_7d,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("last_12h_count")}
+          )::integer AS eligible_count_12h,
+          COUNT(*) FILTER (
+            WHERE ${eligibleWhen("last_2h_count")}
+          )::integer AS eligible_count_2h,
           COUNT(*) FILTER (WHERE all_count > 0)::integer AS rebalanced_vault_count,
           COALESCE(SUM(position_count), 0)::integer AS position_count,
           COALESCE(SUM(all_count), 0)::integer AS rebalance_all_count,
           COALESCE(SUM(last_7d_count), 0)::integer AS rebalance_last_7d_count,
           COALESCE(SUM(last_12h_count), 0)::integer AS rebalance_last_12h_count,
-          COALESCE(SUM(last_2h_count), 0)::integer AS rebalance_last_2h_count,
-          COALESCE(SUM(opportunity_all_count), 0)::integer AS opportunity_all_count,
-          COALESCE(SUM(opportunity_last_7d_count), 0)::integer AS opportunity_last_7d_count,
-          COALESCE(SUM(opportunity_last_12h_count), 0)::integer AS opportunity_last_12h_count,
-          COALESCE(SUM(opportunity_last_2h_count), 0)::integer AS opportunity_last_2h_count
+          COALESCE(SUM(last_2h_count), 0)::integer AS rebalance_last_2h_count
         FROM current_vaults
         GROUP BY route_mode, liquidity_mint
       )
@@ -2337,14 +2424,46 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         ) AS summaries,
         COALESCE(
           (
-            SELECT json_agg(chart_row ORDER BY route_mode, deposit_rank)
+            SELECT json_agg(
+              json_build_array(
+                chart_row.all_count,
+                chart_row.current_deposit_raw,
+                chart_row.current_reserve,
+                chart_row.deposit_rank,
+                chart_row.last_12h_count,
+                chart_row.last_2h_count,
+                chart_row.last_7d_count,
+                chart_row.liquidity_mint,
+                chart_row.position_count,
+                chart_row.route_mode,
+                chart_row.vault_id,
+                chart_row.vault_pubkey
+              )
+              ORDER BY chart_row.route_mode, chart_row.deposit_rank
+            )
             FROM chart_rows AS chart_row
           ),
           '[]'::json
         ) AS chart_points,
         COALESCE(
           (
-            SELECT json_agg(detail_row ORDER BY route_mode, detail_row.deposit_rank)
+            SELECT json_agg(
+              json_build_array(
+                detail_row.all_count,
+                detail_row.current_deposit_raw,
+                detail_row.current_reserve,
+                detail_row.deposit_rank,
+                detail_row.last_12h_count,
+                detail_row.last_2h_count,
+                detail_row.last_7d_count,
+                detail_row.liquidity_mint,
+                detail_row.position_count,
+                detail_row.route_mode,
+                detail_row.vault_id,
+                detail_row.vault_pubkey
+              )
+              ORDER BY detail_row.route_mode, detail_row.deposit_rank
+            )
             FROM detail_rows AS detail_row
           ),
           '[]'::json
@@ -2353,23 +2472,19 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
   );
 
   const payload = rows[0];
-  const mapRow = (row: EarnVaultRebalanceFrequencySqlRow) => ({
-    allCount: toNumber(row.all_count),
-    currentDepositRaw: toBigInt(row.current_deposit_raw),
-    currentReserve: row.current_reserve,
-    depositRank: toNumber(row.deposit_rank),
-    last12hCount: toNumber(row.last_12h_count),
-    last2hCount: toNumber(row.last_2h_count),
-    last7dCount: toNumber(row.last_7d_count),
-    liquidityMint: row.liquidity_mint,
-    opportunity12hCount: toNumber(row.opportunity_last_12h_count),
-    opportunity2hCount: toNumber(row.opportunity_last_2h_count),
-    opportunity7dCount: toNumber(row.opportunity_last_7d_count),
-    opportunityAllCount: toNumber(row.opportunity_all_count),
-    positionCount: toNumber(row.position_count),
-    routeMode: mapRouteMode(row.route_mode),
-    vaultId: row.vault_id,
-    vaultPubkey: row.vault_pubkey,
+  const mapRow = (row: EarnVaultRebalanceFrequencySqlTuple) => ({
+    allCount: toNumber(row[0]),
+    currentDepositRaw: toBigInt(row[1]),
+    currentReserve: row[2],
+    depositRank: toNumber(row[3]),
+    last12hCount: toNumber(row[4]),
+    last2hCount: toNumber(row[5]),
+    last7dCount: toNumber(row[6]),
+    liquidityMint: row[7],
+    positionCount: toNumber(row[8]),
+    routeMode: mapRouteMode(row[9]),
+    vaultId: row[10],
+    vaultPubkey: row[11],
   });
 
   return {
@@ -2379,11 +2494,10 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
     summaries:
       payload?.summaries?.map((row) => ({
         eligibleCount: toNumber(row.eligible_count),
+        eligibleCount12h: toNumber(row.eligible_count_12h),
+        eligibleCount2h: toNumber(row.eligible_count_2h),
+        eligibleCount7d: toNumber(row.eligible_count_7d),
         liquidityMint: row.liquidity_mint,
-        opportunity12hCount: toNumber(row.opportunity_last_12h_count),
-        opportunity2hCount: toNumber(row.opportunity_last_2h_count),
-        opportunity7dCount: toNumber(row.opportunity_last_7d_count),
-        opportunityAllCount: toNumber(row.opportunity_all_count),
         positionCount: toNumber(row.position_count),
         rebalance12hCount: toNumber(row.rebalance_last_12h_count),
         rebalance2hCount: toNumber(row.rebalance_last_2h_count),
@@ -2398,6 +2512,66 @@ export async function getEarnVaultRebalanceFrequency(): Promise<EarnVaultRebalan
         (total, row) => total + toNumber(row.vault_count),
         0
       ) ?? 0,
+  };
+}
+
+export async function getEarnVaultOpportunityCounts(
+  vaultId: string,
+  routeMode: RebalanceRouteMode
+): Promise<EarnVaultOpportunityCounts | null> {
+  if (!/^\d+$/.test(vaultId)) {
+    return null;
+  }
+
+  const databaseRouteMode =
+    routeMode === "cross_mint" ? "cross_mint_jupiter" : "same_mint";
+  const rows = await queryRows<EarnVaultOpportunityCountsSqlRow>(
+    `
+      WITH target_vault AS MATERIALIZED (
+        SELECT vault.id, policy.cluster
+        FROM loyal_yield.managed_vaults AS vault
+        INNER JOIN loyal_yield.route_policies AS policy
+          ON policy.id = vault.active_policy_id
+        WHERE vault.id = ${vaultId}::bigint
+          AND vault.active = true
+          AND vault.vault_index = 1
+      )
+      SELECT
+        target.id::text AS vault_id,
+        '${databaseRouteMode}'::text AS route_mode,
+        COUNT(opportunity.id)::integer AS all_count,
+        COUNT(opportunity.id) FILTER (
+          WHERE opportunity.created_at >= NOW() - INTERVAL '7 days'
+        )::integer AS last_7d_count,
+        COUNT(opportunity.id) FILTER (
+          WHERE opportunity.created_at >= NOW() - INTERVAL '12 hours'
+        )::integer AS last_12h_count,
+        COUNT(opportunity.id) FILTER (
+          WHERE opportunity.created_at >= NOW() - INTERVAL '2 hours'
+        )::integer AS last_2h_count
+      FROM target_vault AS target
+      LEFT JOIN loyal_yield.rebalance_opportunities AS opportunity
+        ON opportunity.cluster = target.cluster
+        AND opportunity.vault_id = target.id
+        AND opportunity.source_reserve IS NOT NULL
+        AND opportunity.target_reserve IS NOT NULL
+        AND opportunity.execution_plan->>'kind' = '${databaseRouteMode}'
+      GROUP BY target.id
+    `
+  );
+  const row = rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    allCount: toNumber(row.all_count),
+    last12hCount: toNumber(row.last_12h_count),
+    last2hCount: toNumber(row.last_2h_count),
+    last7dCount: toNumber(row.last_7d_count),
+    routeMode: mapRouteMode(row.route_mode),
+    vaultId: String(row.vault_id),
   };
 }
 

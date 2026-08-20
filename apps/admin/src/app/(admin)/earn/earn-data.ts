@@ -10,6 +10,7 @@ import { getYieldNeonSql } from "@/lib/yield-optimization/yield-neon-client.serv
 const STABLE_MINT_VALUES_SQL = EARN_STABLECOIN_DESCRIPTORS.map(
   ({ mint }) => `('${mint}')`
 ).join(", ");
+
 const ACTIVE_EARN_HOLDINGS_CTE = `
   WITH active_positions AS (
     SELECT
@@ -278,6 +279,7 @@ type HeadlineRow = {
   active_stored_current_pointer_raw: string | number | bigint | null;
   active_unknown_reserve_semantics_rows: string | number | bigint | null;
   active_autodeposit_policies: string | number | bigint | null;
+  latest_position_observed_at: Date | string | null;
   unique_earn_policies: string | number | bigint | null;
   unique_earn_users: string | number | bigint | null;
 };
@@ -306,6 +308,7 @@ type ExecutionRow = {
   amount_raw: string | number | bigint | null;
   count_30d: string | number | bigint | null;
   count: string | number | bigint | null;
+  latest_received_at: Date | string | null;
 };
 
 type FreshnessRow = {
@@ -480,7 +483,8 @@ async function loadEarnData(): Promise<EarnData> {
         COALESCE(SUM(missing_redeemable_metadata_rows), 0)::text AS active_missing_redeemable_metadata_rows,
         COALESCE(SUM(unknown_reserve_semantics_rows), 0)::text AS active_unknown_reserve_semantics_rows,
         COALESCE(SUM(missing_managed_vault_rows), 0)::text AS active_missing_managed_vault_rows,
-        (SELECT COUNT(DISTINCT COALESCE(NULLIF(wallet_address, ''), settings))::text FROM loyal_yield.user_yield_positions WHERE status = 'active') AS unique_earn_users,
+        MAX(current_observed_at) AS latest_position_observed_at,
+        COUNT(DISTINCT COALESCE(NULLIF(wallet_address, ''), settings))::text AS unique_earn_users,
         (SELECT COUNT(DISTINCT policy_account)::text FROM loyal_yield.route_policies WHERE active = true) AS unique_earn_policies,
         (SELECT COUNT(DISTINCT policy.policy_account)::text FROM loyal_yield.balance_sweep_policies AS policy
           INNER JOIN loyal_yield.balance_sweep_targets AS target ON target.balance_sweep_policy_id = policy.id
@@ -571,8 +575,9 @@ async function loadEarnData(): Promise<EarnData> {
       ) AS value
       FROM flow_rows
     ),
-    classified_statuses AS (
+    target_observations AS MATERIALIZED (
       SELECT
+        target.last_seen_at,
         CASE
           WHEN policy.active = true
             AND target.active = true
@@ -597,7 +602,7 @@ async function loadEarnData(): Promise<EarnData> {
       ) AS value
       FROM (
         SELECT status, COUNT(*)::text AS total
-        FROM classified_statuses
+        FROM target_observations
         GROUP BY status
       ) AS status_rows
     ),
@@ -637,7 +642,8 @@ async function loadEarnData(): Promise<EarnData> {
         ))::text AS count_30d,
         COALESCE(SUM(amount_raw) FILTER (
           WHERE received_at >= now() - interval '30 days'
-        ), 0)::text AS amount_30d_raw
+        ), 0)::text AS amount_30d_raw,
+        MAX(received_at) AS latest_received_at
       FROM loyal_yield.balance_sweep_executions
     ),
     wallet_balance_event_freshness AS (
@@ -657,20 +663,11 @@ async function loadEarnData(): Promise<EarnData> {
     ),
     freshness AS (
       SELECT
-        (SELECT MAX(current_observed_at)
-         FROM loyal_yield.user_yield_positions
-         WHERE status = 'active') AS latest_position_observed_at,
-        (
-          SELECT MAX(target.last_seen_at)
-          FROM loyal_yield.balance_sweep_targets AS target
-          LEFT JOIN loyal_yield.balance_sweep_policies AS policy
-            ON policy.id = target.balance_sweep_policy_id
-          WHERE policy.active = true
-            AND target.active = true
-            AND target.lifecycle_status = 'active'
-        ) AS latest_target_seen_at,
-        (SELECT MAX(received_at)
-         FROM loyal_yield.balance_sweep_executions)
+        NULL::timestamptz AS latest_position_observed_at,
+        (SELECT MAX(last_seen_at)
+         FROM target_observations
+         WHERE status = 'active') AS latest_target_seen_at,
+        (SELECT latest_received_at FROM executions)
           AS latest_sweep_execution_received_at,
         (SELECT MAX(observed_at)
          FROM loyal_yield.balance_sweep_wallet_balances_current)
@@ -709,6 +706,14 @@ async function loadEarnData(): Promise<EarnData> {
   };
   const scheduled = smallMetrics.scheduled;
   const executions = smallMetrics.executions;
+  const freshness = smallMetrics.freshness
+    ? {
+        ...smallMetrics.freshness,
+        latest_position_observed_at:
+          headline?.latest_position_observed_at ??
+          smallMetrics.freshness.latest_position_observed_at,
+      }
+    : null;
   const autodepositStatusCounts = {
     active: 0,
     closed: 0,
@@ -807,7 +812,7 @@ async function loadEarnData(): Promise<EarnData> {
     autodepositExecutionCount: toNumber(executions?.count),
     autodepositStatusCounts,
     flow30d,
-    freshness: createFreshnessMetrics(smallMetrics.freshness ?? undefined),
+    freshness: createFreshnessMetrics(freshness ?? undefined),
     scheduledEligibleAmountRaw: toBigInt(scheduled?.eligible_amount_raw),
     scheduledEligibleLotCount: toNumber(scheduled?.eligible_lot_count),
     scheduledOpenAmountRaw: toBigInt(scheduled?.open_amount_raw),
