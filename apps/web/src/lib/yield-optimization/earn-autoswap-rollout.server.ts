@@ -19,6 +19,9 @@ export function isEarnAutoswapEnrollmentEnabled(
   if (!raw) {
     return false;
   }
+  if (raw === "*") {
+    return true;
+  }
   const entries = raw.split(",").map((entry) => entry.trim());
   if (entries.some((entry) => entry.length === 0)) {
     throw new Error(`${AUTOSWAP_WALLETS_ENV} contains an empty wallet entry.`);
