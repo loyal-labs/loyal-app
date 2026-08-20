@@ -46,6 +46,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
+import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
 import { useShield } from "@/hooks/wallet/useShield";
 import { useWalletTransactions } from "@/hooks/wallet/useWalletTransactions";
@@ -143,13 +145,12 @@ function formatFeeUsd(feeUsd: number | null): string {
   return `≈ ${formatUsdAmount(feeUsd)}`;
 }
 
-// Sheet is pinned to a definite height (matches the 94% snap, like
-// DepositSheet) so the absolute keyboard-riding footer's `bottom: 0` lands at
-// the sheet bottom rather than the content bottom.
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
+// Sheet is pinned to a definite height so the absolute keyboard-riding
+// footer's `bottom: 0` lands at the sheet bottom rather than the content
+// bottom. Height + snap point both come from useFixedSheetLayout so they can
+// never diverge (screen-height math overshot the sheet on iPad/notched
+// iPhones and clipped the CTA).
 const SCREEN_WIDTH = Dimensions.get("screen").width;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
-const SEND_SNAP_POINTS = ["94%"];
 
 // Amount auto-shrink (ported from DepositSheet): keep the big amount on one
 // line by scaling the font down; lineHeight stays pinned so the baseline holds.
@@ -413,6 +414,7 @@ export function SendSheet({
 }: SendSheetProps) {
   const { signer, publicKey } = useWallet();
   const bottomSheetRef = useRef<BottomSheetModal>(null);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
   const recipientInputRef = useRef<{ focus: () => void } | null>(null);
   const amountInputRef = useRef<{ focus: () => void } | null>(null);
   const sheetSettledRef = useRef(false);
@@ -842,7 +844,7 @@ export function SendSheet({
     <>
     <BottomSheetModal
       ref={bottomSheetRef}
-      snapPoints={SEND_SNAP_POINTS}
+      snapPoints={snapPoints}
       enableDynamicSizing={false}
       enablePanDownToClose={step !== "result" || !isSending}
       backdropComponent={renderBackdrop}
@@ -856,7 +858,7 @@ export function SendSheet({
     >
       <BottomSheetView
         style={{
-          height: SHEET_HEIGHT,
+          height: sheetHeight,
           backgroundColor: "#fff",
           borderTopLeftRadius: 38,
           borderTopRightRadius: 38,
@@ -1056,7 +1058,10 @@ function RecipientStep({
   onPickRecipient: (address: string) => void;
   onProceed: () => void;
   recentRecipients: RecentRecipient[];
-  inputRef: React.MutableRefObject<{ focus: () => void } | null>;
+  inputRef: React.MutableRefObject<{
+    focus: () => void;
+    blur?: () => void;
+  } | null>;
 }) {
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard();
@@ -1306,8 +1311,12 @@ function AmountStep({
   isValidAmount: boolean;
   isFormValid: boolean;
   onNext: () => void;
-  inputRef: React.MutableRefObject<{ focus: () => void } | null>;
+  inputRef: React.MutableRefObject<{
+    focus: () => void;
+    blur?: () => void;
+  } | null>;
 }) {
+  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard();
   const footerStyle = useAnimatedStyle(() => ({
@@ -1361,7 +1370,8 @@ function AmountStep({
   const amountTextStyle = {
     fontFamily: "Geist_600SemiBold",
     fontSize: amountFontSize,
-    lineHeight: 48,
+    // 58pt line box: iOS clips Geist's ascenders at lineHeight == fontSize.
+    lineHeight: 58,
     color: "#000",
     includeFontPadding: false,
   } as const;
@@ -1414,7 +1424,7 @@ function AmountStep({
           (pointerEvents="none"). */}
       <View style={{ paddingTop: 36, paddingHorizontal: 16 }}>
         <View
-          style={{ position: "relative", height: 48, justifyContent: "flex-end" }}
+          style={{ position: "relative", height: 58, justifyContent: "flex-end" }}
         >
           <View
             style={{
@@ -1442,6 +1452,7 @@ function AmountStep({
           </View>
           <BottomSheetTextInput
             ref={inputRef as unknown as React.Ref<never>}
+            onPressIn={rescueKeyboardFocus}
             value={displayAmount}
             onChangeText={(t) => onAmountChange(stripAmountInput(t))}
             onFocus={() => setIsFocused(true)}

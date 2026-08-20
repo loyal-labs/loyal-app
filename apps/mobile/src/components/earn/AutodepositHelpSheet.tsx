@@ -4,9 +4,8 @@ import {
   BottomSheetView,
 } from "@gorhom/bottom-sheet";
 import { X } from "lucide-react-native";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
-  Dimensions,
   Pressable,
   StyleSheet,
   Text,
@@ -22,13 +21,12 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
 import HelpCoin from "../../../assets/images/earn/help-coin.svg";
 import HelpDog from "../../../assets/images/earn/help-dog.svg";
 
 // Autodeposit "?" help sheet (Figma 137-6178). Red dog mascot peeking up with
 // three gold coins floating above its head; each coin hovers independently.
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 
 // Hero artboard is 400×500 in Figma; everything below is expressed in that base
 // space and scaled by `s = heroWidth / 400` so the layout stays pixel-faithful.
@@ -147,7 +145,7 @@ export function AutodepositHelpSheet({
   const sheetRef = useRef<BottomSheetModal>(null);
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
-  const snapPoints = useMemo(() => ["94%"], []);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
 
   const heroWidth = windowWidth;
   const heroHeight = heroWidth * HERO_ASPECT;
@@ -193,7 +191,7 @@ export function AutodepositHelpSheet({
       handleComponent={null}
       backgroundStyle={styles.sheetBackground}
     >
-      <BottomSheetView style={styles.container}>
+      <BottomSheetView style={[styles.container, { height: sheetHeight }]}>
         <View style={[styles.hero, { width: heroWidth, height: heroHeight }]}>
           <HelpDog width={heroWidth} height={heroHeight} />
           {COINS.map((spec) => (
@@ -248,7 +246,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 38,
   },
   container: {
-    height: SHEET_HEIGHT,
     backgroundColor: "#FFF",
     borderTopLeftRadius: 38,
     borderTopRightRadius: 38,
