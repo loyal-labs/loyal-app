@@ -9,8 +9,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "test": "jest",
-    "verify:withdraw-latency:e2e": "bun run scripts/verify-withdraw-latency-e2e.ts",
-    "verify:mwa-authorization:e2e": "bun run scripts/verify-mwa-authorization-e2e.ts"
+    "verify:withdraw-latency:e2e": "bun run scripts/verify-withdraw-latency-e2e.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
