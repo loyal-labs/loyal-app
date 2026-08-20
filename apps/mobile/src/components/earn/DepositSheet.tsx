@@ -29,6 +29,8 @@ import Animated, {
   useAnimatedStyle,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
+import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
 import { env } from "@/config/env";
 import { getEarnProductAssets } from "@/lib/solana/earn/earn-product-mints";
@@ -97,9 +99,7 @@ const COLOR_ERROR_TEXT = "#F9363C";
 // NOT shrink when the keyboard opens (unlike `useWindowDimensions`, which
 // follows the window and can be racy inside the modal portal). This lets us
 // pin BottomSheetView to a definite height matching the modal's snap point.
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SCREEN_WIDTH = Dimensions.get("screen").width;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 
 // Amount auto-shrink: when "$12,345.67" gets too wide for the row, the font
 // scales down so it stays on one line, while `lineHeight` stays pinned at the
@@ -186,7 +186,10 @@ export function DepositSheet({
   const sourceSheetRef = useRef<BottomSheetModal>(null);
   // The underlying input is gesture-handler's TextInput (forwarded through
   // @gorhom/bottom-sheet); only `.focus()` is called here.
-  const inputRef = useRef<{ focus: () => void } | null>(null);
+  const inputRef = useRef<{ focus: () => void; blur?: () => void } | null>(
+    null,
+  );
+  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [selectedSymbol, setSelectedSymbol] = useState("USDC");
@@ -207,7 +210,7 @@ export function DepositSheet({
     return () => clearTimeout(timer);
   }, [submitting, isFirstDeposit]);
 
-  const snapPoints = useMemo(() => ["94%"], []);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
   // One row per Earn product asset, funded coins first (the sheet opens
   // downward, so funded rows sit nearest the trigger); product order within
   // each group. Empty rows stay visible but disabled so the coin set reads
@@ -414,7 +417,7 @@ export function DepositSheet({
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
       >
-        <BottomSheetView style={styles.container}>
+        <BottomSheetView style={[styles.container, { height: sheetHeight }]}>
           {/* Toolbar — three flex children so the absolute title doesn't eat
               taps on the close button (the bug in the previous version). */}
           <View style={styles.toolbar}>
@@ -460,6 +463,7 @@ export function DepositSheet({
                     tap (no JS .focus() roundtrip needed). */}
                 <BottomSheetTextInput
                   ref={inputRef as unknown as React.Ref<never>}
+                  onPressIn={rescueKeyboardFocus}
                   value={displayValue}
                   onChangeText={handleAmountChange}
                   onFocus={handleFocus}
@@ -638,7 +642,6 @@ const styles = StyleSheet.create({
     // Definite height matching the modal's snap point. Without an explicit
     // height, BottomSheetView sizes to content and absolute `bottom: 0`
     // children land at the content's bottom, not the sheet's bottom.
-    height: SHEET_HEIGHT,
     backgroundColor: "#FFF",
     borderTopLeftRadius: 38,
     borderTopRightRadius: 38,
@@ -679,7 +682,8 @@ const styles = StyleSheet.create({
   },
   amountRow: {
     position: "relative",
-    height: 48,
+    // Matches the amount text's 58pt line box (see amountText).
+    height: 58,
     justifyContent: "flex-end",
   },
   amountVisual: {
@@ -692,7 +696,10 @@ const styles = StyleSheet.create({
   amountText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 48,
-    lineHeight: 48,
+    // iOS clips Geist's ascenders when lineHeight == fontSize (Android
+    // forgave it via includeFontPadding). Bottom alignment keeps the
+    // baseline and caret in place; the headroom goes to the top.
+    lineHeight: 58,
     color: COLOR_BLACK,
     includeFontPadding: false,
   },

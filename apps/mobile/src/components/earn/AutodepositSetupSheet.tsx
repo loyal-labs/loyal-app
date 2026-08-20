@@ -21,6 +21,8 @@ import Animated, {
   useAnimatedStyle,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
+import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
 import AutodepositIcon from "../../../assets/images/earn/autodeposit.svg";
 
@@ -28,9 +30,7 @@ import AutodepositIcon from "../../../assets/images/earn/autodeposit.svg";
 // anything above it auto-routes to Earn. The "edit" mode (settings icon on the
 // control) is identical except the CTA reads "Confirm". Mirrors DepositSheet's
 // input + keyboard-riding footer mechanics.
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SCREEN_WIDTH = Dimensions.get("screen").width;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 
 const AMOUNT_MAX_FONT_SIZE = 48;
 const AMOUNT_MIN_FONT_SIZE = 22;
@@ -152,7 +152,10 @@ export function AutodepositSetupSheet({
   setupSolShortfall?: number | null;
 }) {
   const sheetRef = useRef<BottomSheetModal>(null);
-  const inputRef = useRef<{ focus: () => void } | null>(null);
+  const inputRef = useRef<{ focus: () => void; blur?: () => void } | null>(
+    null,
+  );
+  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -160,7 +163,7 @@ export function AutodepositSetupSheet({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const snapPoints = useMemo(() => ["94%"], []);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
   // The two flow cells show the CURRENT balances of the two accounts (wallet
   // USDC → Earn), so they reflect reality and don't move as you type a
   // threshold. The threshold only governs the future sweep, not these numbers.
@@ -335,7 +338,7 @@ export function AutodepositSetupSheet({
       keyboardBlurBehavior="restore"
       android_keyboardInputMode="adjustResize"
     >
-      <BottomSheetView style={styles.container}>
+      <BottomSheetView style={[styles.container, { height: sheetHeight }]}>
         <View style={styles.toolbar}>
           <Pressable
             onPress={handleClose}
@@ -389,6 +392,7 @@ export function AutodepositSetupSheet({
             </View>
             <BottomSheetTextInput
               ref={inputRef as unknown as React.Ref<never>}
+              onPressIn={rescueKeyboardFocus}
               value={displayValue}
               onChangeText={handleAmountChange}
               onFocus={() => setIsFocused(true)}
@@ -504,7 +508,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 38,
   },
   container: {
-    height: SHEET_HEIGHT,
     backgroundColor: "#FFF",
     borderTopLeftRadius: 38,
     borderTopRightRadius: 38,
@@ -551,7 +554,8 @@ const styles = StyleSheet.create({
   },
   amountRow: {
     position: "relative",
-    height: 48,
+    // Matches the amount text's 58pt line box (see amountText).
+    height: 58,
     justifyContent: "flex-end",
     marginTop: 4,
   },
@@ -562,7 +566,10 @@ const styles = StyleSheet.create({
   amountText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 48,
-    lineHeight: 48,
+    // iOS clips Geist's ascenders when lineHeight == fontSize (Android
+    // forgave it via includeFontPadding). Bottom alignment keeps the
+    // baseline and caret in place; the headroom goes to the top.
+    lineHeight: 58,
     color: COLOR_BLACK,
     includeFontPadding: false,
   },

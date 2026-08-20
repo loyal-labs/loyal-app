@@ -7,7 +7,6 @@ import * as Haptics from "expo-haptics";
 import { ArrowUp, Plus } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  Dimensions,
   Image,
   Pressable,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
 
 import type { EarnWithdrawSourceInfo } from "@/lib/solana/earn/earn-api";
 import { resolveEarnPositionDisplay } from "@/lib/solana/earn/earn-position-display";
@@ -33,8 +33,6 @@ const COLOR_LABEL_DIM = "rgba(60, 60, 67, 0.6)";
 const COLOR_VALUE_DIM = "rgba(60, 60, 67, 0.4)";
 const COLOR_WITHDRAW_BG = "#F5F5F5";
 
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.92);
 
 // Round to integer cents BEFORE splitting — trunc-then-round-cents renders
 // 3.999999 (Kamino floor-valued $4) as "$3.100" (see the Earn balance twin).
@@ -78,7 +76,7 @@ export function PositionsSheet({
 }: PositionsSheetProps) {
   const sheetRef = useRef<BottomSheetModal>(null);
   const insets = useSafeAreaInsets();
-  const snapPoints = useMemo(() => ["92%"], []);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout(0.92);
 
   useEffect(() => {
     if (open) {
@@ -128,7 +126,7 @@ export function PositionsSheet({
       backgroundStyle={styles.sheetBackground}
     >
       <BottomSheetScrollView
-        style={{ height: SHEET_HEIGHT }}
+        style={{ height: sheetHeight }}
         contentContainerStyle={{ paddingBottom: insets.bottom + 16 }}
         showsVerticalScrollIndicator={false}
       >

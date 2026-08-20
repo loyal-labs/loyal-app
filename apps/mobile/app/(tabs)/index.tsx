@@ -1316,14 +1316,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 2,
     paddingHorizontal: 12,
-    paddingVertical: 3,
+    // The 48pt line box below already carries the vertical breathing room;
+    // pill height stays ~the same as the old 40+3+3.
+    paddingVertical: 0,
     borderRadius: 48,
     backgroundColor: COLOR_BADGE_GREEN,
   },
   heroBadgeText: {
     fontFamily: "Geist_900Black",
     fontSize: 40,
-    lineHeight: 40,
+    // iOS renders Geist Black's caps above a line box pinned to the font
+    // size, so the text overflowed the pill's top while the pill hugged the
+    // box ("green bg misplaced towards the lower"). 48pt centers the glyphs
+    // on both platforms; do not pin this back to the font size.
+    lineHeight: 48,
     letterSpacing: -0.4,
     color: "#FFF",
   },

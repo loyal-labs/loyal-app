@@ -22,6 +22,8 @@ import Animated, {
   useAnimatedStyle,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
+import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
 import type { EarnWithdrawSourceInfo } from "@/lib/solana/earn/earn-api";
 import { resolveEarnPositionDisplay } from "@/lib/solana/earn/earn-position-display";
@@ -102,9 +104,7 @@ const COLOR_BLACK = "#000";
 const COLOR_ERROR_BG = "rgba(249, 54, 60, 0.14)";
 const COLOR_ERROR_TEXT = "#F9363C";
 
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
 const SCREEN_WIDTH = Dimensions.get("screen").width;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 
 const AMOUNT_MAX_FONT_SIZE = 48;
 const AMOUNT_MIN_FONT_SIZE = 22;
@@ -201,7 +201,10 @@ export function WithdrawSheet({
 }: WithdrawSheetProps) {
   const sheetRef = useRef<BottomSheetModal>(null);
   const sourceSheetRef = useRef<BottomSheetModal>(null);
-  const inputRef = useRef<{ focus: () => void } | null>(null);
+  const inputRef = useRef<{ focus: () => void; blur?: () => void } | null>(
+    null,
+  );
+  const { onPressIn: rescueKeyboardFocus } = useKeyboardRescueFocus(inputRef);
   const submitInFlightRef = useRef(false);
   const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
@@ -214,7 +217,7 @@ export function WithdrawSheet({
   // balance (5.939), so we display a floored value but submit the exact amount.
   const [maxSelected, setMaxSelected] = useState(false);
 
-  const snapPoints = useMemo(() => ["94%"], []);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
   const sourceList = useMemo(() => sources ?? [], [sources]);
   const hasPicker = sourceList.length > 0;
   const isDropdown = sourceList.length > 1;
@@ -413,7 +416,7 @@ export function WithdrawSheet({
         keyboardBlurBehavior="restore"
         android_keyboardInputMode="adjustResize"
       >
-        <BottomSheetView style={styles.container}>
+        <BottomSheetView style={[styles.container, { height: sheetHeight }]}>
           <View style={styles.toolbar}>
             <Pressable
               onPress={handleClose}
@@ -454,6 +457,7 @@ export function WithdrawSheet({
                 </View>
                 <BottomSheetTextInput
                   ref={inputRef as unknown as React.Ref<never>}
+                  onPressIn={rescueKeyboardFocus}
                   value={displayValue}
                   onChangeText={handleAmountChange}
                   onFocus={() => setIsFocused(true)}
@@ -634,7 +638,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 38,
   },
   container: {
-    height: SHEET_HEIGHT,
     backgroundColor: "#FFF",
     borderTopLeftRadius: 38,
     borderTopRightRadius: 38,
@@ -675,7 +678,8 @@ const styles = StyleSheet.create({
   },
   amountRow: {
     position: "relative",
-    height: 48,
+    // Matches the amount text's 58pt line box (see amountText).
+    height: 58,
     justifyContent: "flex-end",
   },
   amountVisual: {
@@ -685,7 +689,10 @@ const styles = StyleSheet.create({
   amountText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 48,
-    lineHeight: 48,
+    // iOS clips Geist's ascenders when lineHeight == fontSize (Android
+    // forgave it via includeFontPadding). Bottom alignment keeps the
+    // baseline and caret in place; the headroom goes to the top.
+    lineHeight: 58,
     color: COLOR_BLACK,
     includeFontPadding: false,
   },

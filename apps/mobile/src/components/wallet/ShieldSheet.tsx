@@ -9,7 +9,7 @@ import { Image } from "expo-image";
 import * as Haptics from "expo-haptics";
 import { ArrowLeft, ChevronDown, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Keyboard, Linking, TextInput } from "react-native";
+import { Keyboard, Linking, TextInput } from "react-native";
 import Animated, {
   cancelAnimation,
   Easing,
@@ -21,6 +21,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
+import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
 import { useShield, type ShieldFeeEstimate } from "@/hooks/wallet/useShield";
 import type { TokenDetailsByMint } from "@/hooks/wallet/useTokenDetails";
@@ -50,9 +52,8 @@ const shieldBadge = require("../../../assets/images/shield-badge.png");
 
 // Fixed-height sheet (mirrors SendSheet/SwapSheet). A fixed height lets each
 // step's flex-1 region size + center correctly and keeps the footer pinned.
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
-const SHIELD_SNAP_POINTS = ["94%"];
+// Height + snap point both come from useFixedSheetLayout so they can never
+// diverge (screen-height math overshot the sheet on iPad/notched iPhones).
 const LAMPORTS_PER_SOL_NUM = 1_000_000_000;
 
 type ShieldStep = "form" | "confirm" | "result";
@@ -158,6 +159,7 @@ export function ShieldSheet({
   initialDirection,
 }: ShieldSheetProps) {
   const bottomSheetRef = useRef<BottomSheetModal>(null);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
   const sheetSettledRef = useRef(false);
   const amountInputRef = useRef<TextInput | null>(null);
   const [step, setStep] = useState<ShieldStep>("form");
@@ -499,7 +501,7 @@ export function ShieldSheet({
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      snapPoints={SHIELD_SNAP_POINTS}
+      snapPoints={snapPoints}
       enableDynamicSizing={false}
       enablePanDownToClose={step !== "result" || !isProcessing}
       backdropComponent={renderBackdrop}
@@ -513,7 +515,7 @@ export function ShieldSheet({
     >
       <BottomSheetView
         style={{
-          height: SHEET_HEIGHT,
+          height: sheetHeight,
           backgroundColor: "#fff",
           borderTopLeftRadius: 38,
           borderTopRightRadius: 38,
@@ -680,6 +682,8 @@ function FormStep({
   onClose: () => void;
   amountInputRef: React.RefObject<TextInput | null>;
 }) {
+  const { onPressIn: rescueKeyboardFocus } =
+    useKeyboardRescueFocus(amountInputRef);
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard();
   const footerStyle = useAnimatedStyle(() => ({
@@ -765,7 +769,7 @@ function FormStep({
 
       {/* Amount */}
       <View style={{ paddingHorizontal: 16, paddingTop: 36 }}>
-        <View className="flex-row items-center" style={{ height: 48 }}>
+        <View className="flex-row items-center" style={{ height: 58 }}>
           <Pressable
             style={{ flex: 1, position: "relative", justifyContent: "center" }}
             onPress={() => amountInputRef.current?.focus()}
@@ -777,7 +781,8 @@ function FormStep({
             >
               <Text
                 className="font-semibold text-black"
-                style={{ fontSize: 48, lineHeight: 48, flexShrink: 1 }}
+                // 58pt line box: iOS clips ascenders at lineHeight == fontSize.
+                style={{ fontSize: 48, lineHeight: 58, flexShrink: 1 }}
                 numberOfLines={1}
               >
                 {bigText}
@@ -795,6 +800,7 @@ function FormStep({
             </View>
             <BottomSheetTextInput
               ref={amountInputRef as unknown as React.Ref<never>}
+              onPressIn={rescueKeyboardFocus}
               value={amountStr}
               onChangeText={onAmountChange}
               onFocus={() => setIsFocused(true)}

@@ -18,7 +18,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Dimensions,
   Keyboard,
   Linking,
   TextInput,
@@ -34,6 +33,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
+import { useKeyboardRescueFocus } from "@/hooks/useKeyboardRescueFocus";
 
 import type { PopularToken } from "@/hooks/wallet/usePopularTokens";
 import { usePopularTokens } from "@/hooks/wallet/usePopularTokens";
@@ -75,9 +77,9 @@ const shieldBadge = require("../../../assets/images/shield-badge.png");
 
 // Fixed-height sheet (mirrors SendSheet). A fixed height is what lets each
 // step's `flex-1` regions size + center correctly and keeps the footer pinned.
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
-const SWAP_SNAP_POINTS = ["94%"];
+// Height and snap point come from useFixedSheetLayout — the same pixel value
+// for both, so the box can never overshoot the visible sheet (it did on
+// iPad/notched iPhones when this was screen-height math vs a "94%" snap).
 const DEFAULT_SOL_MAX_FEE_RESERVE_LAMPORTS = 50_000;
 
 type SwapStep = "form" | "confirm" | "result";
@@ -289,6 +291,7 @@ export function SwapSheet({
 }: SwapSheetProps) {
   const { signer } = useWallet();
   const bottomSheetRef = useRef<BottomSheetModal>(null);
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
   const sheetSettledRef = useRef(false);
   const swapInputRef = useRef<TextInput | null>(null);
   const [step, setStep] = useState<SwapStep>("form");
@@ -801,7 +804,7 @@ export function SwapSheet({
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      snapPoints={SWAP_SNAP_POINTS}
+      snapPoints={snapPoints}
       enableDynamicSizing={false}
       enablePanDownToClose={step !== "result" || !isSwapping}
       backdropComponent={renderBackdrop}
@@ -815,7 +818,7 @@ export function SwapSheet({
     >
       <BottomSheetView
         style={{
-          height: SHEET_HEIGHT,
+          height: sheetHeight,
           backgroundColor: "#fff",
           borderTopLeftRadius: 38,
           borderTopRightRadius: 38,
@@ -1306,6 +1309,8 @@ function FormStep({
   onReview: () => void;
   swapInputRef: React.RefObject<TextInput | null>;
 }) {
+  const { onPressIn: rescueKeyboardFocus } =
+    useKeyboardRescueFocus(swapInputRef);
   const insets = useSafeAreaInsets();
   const keyboard = useAnimatedKeyboard();
   const footerStyle = useAnimatedStyle(() => ({
@@ -1442,6 +1447,7 @@ function FormStep({
               </View>
               <BottomSheetTextInput
                 ref={swapInputRef as unknown as React.Ref<never>}
+                onPressIn={rescueKeyboardFocus}
                 value={amountStr}
                 onChangeText={(t) => onAmountChange(stripAmountInput(t))}
                 onFocus={() => setIsFocused(true)}

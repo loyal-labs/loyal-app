@@ -7,16 +7,15 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { Copy, Share as ShareIcon, X } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Dimensions, Share, StyleSheet } from "react-native";
+import { Share, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useFixedSheetLayout } from "@/hooks/useFixedSheetLayout";
 import QRCode from "react-native-qrcode-svg";
 
 import { Pressable, Text, View } from "@/tw";
 
 const COPIED_RESET_MS = 2000;
 
-const SCREEN_HEIGHT = Dimensions.get("screen").height;
-const SHEET_HEIGHT = Math.floor(SCREEN_HEIGHT * 0.94);
 
 const COLOR_CARD_BG = "#F2F2F7";
 const COLOR_ICON = "#3C3C43";
@@ -50,6 +49,7 @@ export function ReceiveSheet({
   onClose,
   walletAddress,
 }: ReceiveSheetProps) {
+  const { sheetHeight, snapPoints } = useFixedSheetLayout();
   const bottomSheetRef = useRef<BottomSheetModal>(null);
   const insets = useSafeAreaInsets();
   const [copied, setCopied] = useState(false);
@@ -98,7 +98,7 @@ export function ReceiveSheet({
   return (
     <BottomSheetModal
       ref={bottomSheetRef}
-      snapPoints={["94%"]}
+      snapPoints={snapPoints}
       enableDynamicSizing={false}
       enablePanDownToClose
       backdropComponent={renderBackdrop}
@@ -106,7 +106,7 @@ export function ReceiveSheet({
       handleComponent={null}
       backgroundStyle={styles.sheetBackground}
     >
-      <BottomSheetView style={styles.container}>
+      <BottomSheetView style={[styles.container, { height: sheetHeight }]}>
         {/* Header: close (left) + centered title */}
         <View className="flex-row items-center justify-between px-4 py-4">
           <Pressable
@@ -268,7 +268,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 38,
   },
   container: {
-    height: SHEET_HEIGHT,
     backgroundColor: "#FFF",
     borderTopLeftRadius: 38,
     borderTopRightRadius: 38,
