@@ -216,8 +216,18 @@ export function WalletHomePage({
                   </span>
                 </div>
               )}
-              <div className="flex min-w-0 flex-1 items-center justify-end pl-3">
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-1 pl-3">
                 {/* ponytail: settings icon returns when its screen ships */}
+                <a
+                  aria-label="Visit askloyal.com"
+                  className="t-hover flex size-11 items-center justify-center rounded-3xl hover:bg-accent"
+                  href="https://askloyal.com"
+                >
+                  <ThemedIcon
+                    className="size-6 text-tertiary"
+                    src={`${ASSET_BASE}/icon-globe.svg`}
+                  />
+                </a>
                 {cherryRuntime.mode === "standalone" ? (
                   <button
                     aria-label="Disconnect wallet"
