@@ -106,11 +106,13 @@ export async function storeKeypair(
 }
 
 /**
- * Whether the wallet items are mirrored to the iCloud Keychain. Off by
- * default; toggled from Settings on iOS builds that ship the native module.
+ * Whether the wallet is backed up to iCloud (keychain mirror + Drive file —
+ * one user-facing switch drives both). ON by default per Vlad's 2026-08-20
+ * decision, so new wallets are recoverable out of the box; the Settings
+ * toggle opts out. Only consulted on iOS — both backends no-op elsewhere.
  */
 export function isICloudSyncEnabled(): boolean {
-  return mmkv.getBoolean(ICLOUD_SYNC_ENABLED_KEY) ?? false;
+  return mmkv.getBoolean(ICLOUD_SYNC_ENABLED_KEY) ?? true;
 }
 
 /** True when the running binary can talk to the synced keychain (iOS only). */

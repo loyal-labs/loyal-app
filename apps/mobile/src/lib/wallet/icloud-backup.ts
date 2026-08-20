@@ -7,12 +7,14 @@
 // react-native-cloud-storage is a TurboModule; it is loaded lazily so OTA
 // bundles running on binaries without it (and Jest) degrade to
 // "unsupported" instead of throwing at import time.
-import { mmkv } from "@/lib/storage";
-
-import { adoptEncryptedKeypair, getStoredBackupPayload } from "./keypair-storage";
+import {
+  adoptEncryptedKeypair,
+  getStoredBackupPayload,
+  isICloudSyncEnabled,
+  setICloudSyncEnabled,
+} from "./keypair-storage";
 
 const BACKUP_PATH = "/loyal-wallet-backup.json";
-const LAST_BACKUP_AT_KEY = "wallet.icloudBackup.lastAt";
 const READ_RETRIES = 3;
 const READ_RETRY_DELAY_MS = 800;
 
@@ -143,8 +145,46 @@ export async function writeCloudBackup(): Promise<WalletBackupEnvelope> {
     JSON.stringify(envelope),
     CloudStorageScope.AppData,
   );
-  mmkv.setString(LAST_BACKUP_AT_KEY, envelope.createdAt);
   return envelope;
+}
+
+/**
+ * The single user-facing "iCloud Backup" switch. Drives BOTH backends:
+ * the iCloud Keychain mirror (continuous, restores automatically on a new
+ * device) and the Drive file (explicit "Restore from iCloud" fallback for
+ * users who keep iCloud Keychain disabled). Off deletes both copies.
+ */
+export async function setICloudBackupEnabled(enabled: boolean): Promise<void> {
+  await setICloudSyncEnabled(enabled);
+  if (enabled) {
+    // Best-effort: the keychain mirror is the primary backend; a Drive
+    // failure (no iCloud Drive, offline) must not fail the toggle.
+    try {
+      await writeCloudBackup();
+    } catch (error) {
+      console.warn("[wallet] iCloud Drive backup failed", error);
+    }
+  } else {
+    await deleteCloudBackup();
+  }
+}
+
+export function isICloudBackupEnabled(): boolean {
+  return isICloudSyncEnabled();
+}
+
+/**
+ * Keep the Drive file in step with wallet changes (create/import/PIN change)
+ * while the switch is on. Fire-and-forget from the wallet provider.
+ */
+export async function refreshCloudBackupIfEnabled(): Promise<void> {
+  if (!isICloudSyncEnabled()) return;
+  if (!isCloudBackupSupported()) return;
+  try {
+    await writeCloudBackup();
+  } catch (error) {
+    console.warn("[wallet] iCloud Drive backup refresh failed", error);
+  }
 }
 
 /** Adopt a found backup locally; the user unlocks with the original PIN. */
@@ -162,12 +202,8 @@ export async function deleteCloudBackup(): Promise<void> {
     if (await CloudStorage.exists(BACKUP_PATH, CloudStorageScope.AppData)) {
       await CloudStorage.unlink(BACKUP_PATH, CloudStorageScope.AppData);
     }
-    mmkv.delete(LAST_BACKUP_AT_KEY);
   } catch (error) {
     console.warn("[wallet] iCloud backup deletion failed", error);
   }
 }
 
-export function getLastCloudBackupAt(): string | null {
-  return mmkv.getString(LAST_BACKUP_AT_KEY) ?? null;
-}

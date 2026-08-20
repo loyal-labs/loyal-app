@@ -28,15 +28,10 @@ import { getShowTips, setShowTips } from "@/lib/settings";
 import { mmkv } from "@/lib/storage";
 import { isBiometricAvailable } from "@/lib/wallet/biometrics";
 import {
-  getLastCloudBackupAt,
-  isCloudBackupSupported,
-  writeCloudBackup,
+  isICloudBackupEnabled,
+  setICloudBackupEnabled,
 } from "@/lib/wallet/icloud-backup";
-import {
-  isICloudSyncEnabled,
-  isICloudSyncSupported,
-  setICloudSyncEnabled,
-} from "@/lib/wallet/keypair-storage";
+import { isICloudSyncSupported } from "@/lib/wallet/keypair-storage";
 import { WALLET_PIN_LENGTH } from "@/lib/wallet/pin";
 import { isWalletUnlocked, useWallet } from "@/lib/wallet/wallet-provider";
 import { Pressable, ScrollView, Text, View } from "@/tw";
@@ -174,9 +169,7 @@ export default function ProfileScreen() {
   );
   const [showTips, setShowTipsState] = useState(getShowTips);
   const [biometricsAvailable, setBiometricsAvailable] = useState(false);
-  const [icloudSyncOn, setICloudSyncOn] = useState(isICloudSyncEnabled);
-  const [lastBackupAt, setLastBackupAt] = useState(getLastCloudBackupAt);
-  const [backingUp, setBackingUp] = useState(false);
+  const [icloudBackupOn, setICloudBackupOn] = useState(isICloudBackupEnabled);
   const [showBioPinInput, setShowBioPinInput] = useState(false);
   const [bioPin, setBioPin] = useState("");
   const [bioPinError, setBioPinError] = useState<string | null>(null);
@@ -254,44 +247,16 @@ export default function ProfileScreen() {
     [wallet],
   );
 
-  const handleICloudBackup = useCallback(() => {
-    if (backingUp) return;
-    Alert.alert(
-      "Back Up Wallet to iCloud",
-      "Stores your encrypted wallet in your iCloud. Restoring it on a new phone requires your wallet PIN.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Back Up",
-          onPress: () => {
-            setBackingUp(true);
-            writeCloudBackup()
-              .then((envelope) => {
-                setLastBackupAt(envelope.createdAt);
-                Alert.alert("Backed Up", "Your wallet is backed up to iCloud.");
-              })
-              .catch((error: unknown) => {
-                Alert.alert(
-                  "Backup Failed",
-                  error instanceof Error ? error.message : "Please try again.",
-                );
-              })
-              .finally(() => setBackingUp(false));
-          },
-        },
-      ],
-    );
-  }, [backingUp]);
-
-  const handleICloudSyncToggle = useCallback((value: boolean) => {
+  const handleICloudBackupToggle = useCallback((value: boolean) => {
     if (process.env.EXPO_OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    // Optimistic — the keychain write is fast and failures are logged.
-    setICloudSyncOn(value);
-    setICloudSyncEnabled(value).catch((error) => {
-      console.warn("[settings] iCloud Keychain toggle failed", error);
-      setICloudSyncOn(!value);
+    // Optimistic — drives both backends (keychain mirror + Drive file);
+    // failures are logged and the switch reverts.
+    setICloudBackupOn(value);
+    setICloudBackupEnabled(value).catch((error) => {
+      console.warn("[settings] iCloud backup toggle failed", error);
+      setICloudBackupOn(!value);
     });
   }, []);
 
@@ -491,28 +456,11 @@ export default function ProfileScreen() {
             {!isVaultBacked && isICloudSyncSupported() && (
               <ProfileCell
                 icon={<Cloud size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />}
-                title="Sync Wallet to iCloud Keychain"
+                title="iCloud Backup"
                 toggle={{
-                  value: icloudSyncOn,
-                  onValueChange: handleICloudSyncToggle,
+                  value: icloudBackupOn,
+                  onValueChange: handleICloudBackupToggle,
                 }}
-              />
-            )}
-
-            {!isVaultBacked && isCloudBackupSupported() && (
-              <ProfileCell
-                icon={
-                  <Cloud size={28} strokeWidth={1.5} color="rgba(0,0,0,0.6)" />
-                }
-                title={backingUp ? "Backing Up..." : "Back Up Wallet to iCloud"}
-                subtitle={
-                  lastBackupAt
-                    ? `Last backup ${new Date(lastBackupAt).toLocaleDateString()}`
-                    : undefined
-                }
-                showChevron
-                disabled={backingUp}
-                onPress={handleICloudBackup}
               />
             )}
 
