@@ -1323,11 +1323,6 @@ export async function getAutodepositTimeSeries(): Promise<
           AND base.base_bucket < range.ended_at + range.bucket_size
         GROUP BY 1, 2
       ),
-      -- The scheduled-slot id is derived once per claim so the join key is a
-      -- plain column and the planner can hash-join the slots rather than run a
-      -- nested-loop index probe per claim per range. Claims whose token does
-      -- not match the autodeposit pattern keep a NULL id, so they still fall
-      -- through the LEFT JOIN to 'no_linked_error' as before.
       pre_pull_claims AS (
         SELECT
           claim.updated_at AS event_at,
@@ -1344,37 +1339,47 @@ export async function getAutodepositTimeSeries(): Promise<
           AND claim.status::text IN ('released', 'failed')
           AND claim.execution_id IS NULL
       ),
-      -- Slot ids are 1:1 with claims, so probing the slot primary key per claim
-      -- means ~187k random index lookups (~750k buffer hits). Classifying every
-      -- slot once behind MATERIALIZED forces a single sequential pass plus a
-      -- hash join on a narrow (id, cause) tuple instead.
+      -- Claim transitions also touch their scheduled slot, so slots linked to
+      -- the 30-day claim window are in the same slot-update window. Normalize
+      -- the bounded error text once, encode it narrowly, and avoid classifying
+      -- or materializing the older scheduled-slot history.
       slot_causes AS MATERIALIZED (
         SELECT
-          slot.id,
+          normalized.id,
           CASE
-            WHEN slot.last_error ILIKE '%AccountNotFound%'
-              THEN 'account_not_found'
-            WHEN slot.last_error ILIKE '%InsufficientFundsForRent%'
-              THEN 'insufficient_rent'
-            WHEN slot.last_error ILIKE '%owner does not match%'
-              OR slot.last_error ILIKE '%missing token delegate%'
-              THEN 'missing_token_delegate'
-            WHEN slot.last_error ILIKE '%unable to confirm transaction%'
-              OR slot.last_error ILIKE '%timed out%'
-              OR slot.last_error ILIKE '%BlockhashNotFound%'
-              THEN 'confirmation_or_timeout'
-            WHEN slot.last_error IS NULL OR slot.last_error = ''
-              THEN 'no_linked_error'
-            ELSE 'other_pre_pull'
-          END AS cause
-        FROM loyal_yield.balance_sweep_scheduled_slots AS slot
+            WHEN strpos(normalized.error_text, 'accountnotfound') > 0 THEN 1
+            WHEN strpos(normalized.error_text, 'insufficientfundsforrent') > 0
+              THEN 2
+            WHEN strpos(normalized.error_text, 'owner does not match') > 0
+              OR strpos(normalized.error_text, 'missing token delegate') > 0
+              THEN 3
+            WHEN strpos(
+              normalized.error_text,
+              'unable to confirm transaction'
+            ) > 0
+              OR strpos(normalized.error_text, 'timed out') > 0
+              OR strpos(normalized.error_text, 'blockhashnotfound') > 0
+              THEN 4
+            WHEN normalized.error_text IS NULL
+              OR normalized.error_text = ''
+              THEN 5
+            ELSE 6
+          END::smallint AS cause
+        FROM (
+          SELECT slot.id, lower(slot.last_error) AS error_text
+          FROM loyal_yield.balance_sweep_scheduled_slots AS slot
+          WHERE slot.updated_at >= (
+            SELECT started_at AT TIME ZONE 'UTC'
+            FROM window_bounds
+          )
+            AND slot.updated_at <= now()
+          OFFSET 0
+        ) AS normalized
       ),
       pre_pull_failure_events AS (
-        -- A claim with no matching slot has no linked error, which is the same
-        -- bucket a matched slot with an empty last_error falls into.
         SELECT
           claim.event_at,
-          COALESCE(slot.cause, 'no_linked_error') AS cause
+          COALESCE(slot.cause, 5::smallint) AS cause
         FROM pre_pull_claims AS claim
         LEFT JOIN slot_causes AS slot
           ON slot.id = claim.scheduled_slot_id
@@ -1386,24 +1391,18 @@ export async function getAutodepositTimeSeries(): Promise<
             failure.event_at AT TIME ZONE 'UTC',
             timestamp '1970-01-01 00:00:00'
           ) AS base_bucket,
-          COUNT(*) FILTER (
-            WHERE failure.cause = 'account_not_found'
-          )::bigint AS account_not_found,
-          COUNT(*) FILTER (
-            WHERE failure.cause = 'insufficient_rent'
-          )::bigint AS insufficient_rent,
-          COUNT(*) FILTER (
-            WHERE failure.cause = 'missing_token_delegate'
-          )::bigint AS missing_token_delegate,
-          COUNT(*) FILTER (
-            WHERE failure.cause = 'confirmation_or_timeout'
-          )::bigint AS confirmation_or_timeout,
-          COUNT(*) FILTER (
-            WHERE failure.cause = 'no_linked_error'
-          )::bigint AS no_linked_error,
-          COUNT(*) FILTER (
-            WHERE failure.cause = 'other_pre_pull'
-          )::bigint AS other_pre_pull
+          COUNT(*) FILTER (WHERE failure.cause = 1)::bigint
+            AS account_not_found,
+          COUNT(*) FILTER (WHERE failure.cause = 2)::bigint
+            AS insufficient_rent,
+          COUNT(*) FILTER (WHERE failure.cause = 3)::bigint
+            AS missing_token_delegate,
+          COUNT(*) FILTER (WHERE failure.cause = 4)::bigint
+            AS confirmation_or_timeout,
+          COUNT(*) FILTER (WHERE failure.cause = 5)::bigint
+            AS no_linked_error,
+          COUNT(*) FILTER (WHERE failure.cause = 6)::bigint
+            AS other_pre_pull
         FROM pre_pull_failure_events AS failure
         GROUP BY 1
       ),
