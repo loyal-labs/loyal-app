@@ -3,7 +3,21 @@ import "server-only";
 const COINGECKO_BASE_URL = "https://pro-api.coingecko.com/api/v3";
 const SOLANA_NETWORK = "solana";
 const SOLANA_POOL_PREFIX = "solana_";
-const TOKEN_DETAIL_CACHE_TTL_MS = 5 * 60 * 1000;
+const TOKEN_DETAIL_CACHE_TTL_SECONDS = 5 * 60;
+const TOKEN_DETAIL_CACHE_TTL_MS = TOKEN_DETAIL_CACHE_TTL_SECONDS * 1000;
+
+// CDN cache header for the public token detail/market routes so repeated
+// unauthenticated reads are served by the CDN instead of invoking a function
+// (see ASK-2203: same-URL spam throttled the whole Vercel project).
+export const TOKEN_DETAIL_RESPONSE_CACHE_CONTROL = `public, max-age=60, s-maxage=${TOKEN_DETAIL_CACHE_TTL_SECONDS}, stale-while-revalidate=3600`;
+
+const BASE58_MINT_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+// ponytail: charset/length check only, not full base58 32-byte decode;
+// CoinGecko handles the rare well-formed-but-nonexistent mint.
+export function isLikelySolanaMint(mint: string): boolean {
+  return BASE58_MINT_PATTERN.test(mint);
+}
 
 export type TokenDetailChartPoint = {
   timestamp: number;
