@@ -767,6 +767,7 @@ export function EarnActivityCard({
   onViewAllActivity,
   onWithdrawSource,
   pendingSignatures,
+  placeholderSecondaryTab,
   refreshKey,
   scheduledSweeps,
   selectedTransactionId,
@@ -779,6 +780,8 @@ export function EarnActivityCard({
   onViewAllActivity: () => void;
   onWithdrawSource: (sourceKey: string) => void;
   pendingSignatures: string[];
+  /** Earn MAX mock: swaps the Positions tab for a non-functional gray tab. */
+  placeholderSecondaryTab?: string;
   refreshKey: number;
   scheduledSweeps: LoadedEarnAutodepositScheduledSweep[];
   selectedTransactionId: string | null;
@@ -917,7 +920,10 @@ export function EarnActivityCard({
           className="t-tabs-underline"
           ref={underlineRef}
         />
-        {ACTIVITY_TABS.map((tab) => {
+        {(placeholderSecondaryTab
+          ? (["Transactions", placeholderSecondaryTab] as const)
+          : ACTIVITY_TABS
+        ).map((tab) => {
           const isActive = activeTab === tab;
           return (
             <button
@@ -928,7 +934,12 @@ export function EarnActivityCard({
                   : "rounded-3xl text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
               key={tab}
-              onClick={() => selectTab(tab)}
+              onClick={() => {
+                // The placeholder tab is a mock — never switches content.
+                if (!placeholderSecondaryTab) {
+                  selectTab(tab as ActivityTab);
+                }
+              }}
               role="tab"
               type="button"
             >

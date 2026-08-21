@@ -20,6 +20,7 @@ import {
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
+import { EarnMaxPage } from "@/components/wallet-workspace/facelift/earn-max-pane";
 import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
@@ -52,6 +53,7 @@ export type WorkspacePage =
   | "stables"
   | "activity"
   | "earn"
+  | "earnmax"
   | "wallet";
 
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit" | "autoswap";
@@ -62,6 +64,7 @@ const WORKSPACE_PAGES: WorkspacePage[] = [
   "stables",
   "activity",
   "earn",
+  "earnmax",
   "wallet",
 ];
 
@@ -386,6 +389,16 @@ export function WorkspaceFaceliftShell() {
               refreshKey={earnData.actions.earnTransactionsRefreshKey}
               settingsPda={earnData.settingsPda}
               walletAddress={earnData.walletAddress}
+            />
+          ) : activePage === "earnmax" ? (
+            // Mocked Earn MAX section — owns its own main/deposit view state.
+            <EarnMaxPage
+              chartTab={chartTab}
+              data={earnData}
+              isChartExpanded={isChartExpanded}
+              onChartExpandedChange={setIsChartExpanded}
+              onSelectChartTab={setChartTab}
+              onViewAllActivity={() => handleSelectPage("activity")}
             />
           ) : activePage !== "earn" ? (
             <CryptoPage
