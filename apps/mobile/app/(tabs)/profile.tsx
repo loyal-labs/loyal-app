@@ -312,24 +312,46 @@ export default function ProfileScreen() {
     if (process.env.EXPO_OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
+    const finishReset = async (keepCloudBackup: boolean) => {
+      await wallet.resetWallet({ keepCloudBackup });
+      // Land on the wallet tab so re-onboarding completion reveals the
+      // wallet UI rather than the Settings page the user just left.
+      router.replace("/");
+    };
+    // iCloud backup ON (iOS, local wallet): resetting only this device must
+    // not silently delete the user's iCloud backup (ASK-2206).
+    if (!isVaultBacked && isICloudSyncSupported() && isICloudBackupEnabled()) {
+      Alert.alert(
+        "Reset Wallet",
+        "Your wallet is backed up to iCloud.\n\n“Remove from this device” keeps the iCloud backup so you can restore this wallet later.\n\n“Delete everywhere” also deletes the iCloud backup. Deletion syncs through iCloud asynchronously, so other devices may keep a copy for a while. Make sure you have backed up your secret key.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Remove from this device",
+            onPress: () => void finishReset(true),
+          },
+          {
+            text: "Delete everywhere",
+            style: "destructive",
+            onPress: () => void finishReset(false),
+          },
+        ],
+      );
+      return;
+    }
     Alert.alert(
       "Reset Wallet",
-      "This will permanently delete your wallet from this device. Make sure you have backed up your secret key. This action cannot be undone.",
+      `This will permanently delete your wallet from this device${isICloudSyncSupported() ? " and remove any iCloud copies" : ""}. Make sure you have backed up your secret key. This action cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Reset",
           style: "destructive",
-          onPress: async () => {
-            await wallet.resetWallet();
-            // Land on the wallet tab so re-onboarding completion reveals the
-            // wallet UI rather than the Settings page the user just left.
-            router.replace("/");
-          },
+          onPress: () => void finishReset(false),
         },
       ],
     );
-  }, [router, wallet]);
+  }, [isVaultBacked, router, wallet]);
 
   return (
     <View className="flex-1 bg-white">

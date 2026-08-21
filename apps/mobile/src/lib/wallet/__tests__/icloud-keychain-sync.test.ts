@@ -102,6 +102,26 @@ test("clearStoredKeypair removes the synced copies even when sync is on", async 
   expect(syncedStore.size).toBe(0);
 });
 
+// ASK-2206: "Remove from this device" must leave the iCloud Keychain mirror
+// restorable; only "Delete everywhere" wipes it.
+test("device-only clear keeps the synced copies restorable; full clear wipes them", async () => {
+  await setICloudSyncEnabled(true);
+  await storeKeypair(keypair, PIN);
+
+  await clearStoredKeypair({ keepSyncedKeychain: true });
+  expect(localStore.has("wallet_encrypted_keypair")).toBe(false);
+  expect(localStore.has("wallet_public_key")).toBe(false);
+  expect(syncedStore.has("wallet_encrypted_keypair")).toBe(true);
+
+  // A later install can still restore and unlock with the original PIN.
+  expect(await restoreFromSyncedKeychain()).toBe(true);
+  const unlocked = await loadKeypair(PIN);
+  expect(unlocked?.publicKey.toBase58()).toBe(keypair.publicKey.toBase58());
+
+  await clearStoredKeypair();
+  expect(syncedStore.size).toBe(0);
+});
+
 test("restore round-trip: synced blob adopts locally and unlocks with the original PIN", async () => {
   // Device A: wallet exists and syncs.
   await setICloudSyncEnabled(true);

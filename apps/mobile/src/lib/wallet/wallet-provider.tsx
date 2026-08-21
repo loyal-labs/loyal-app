@@ -36,6 +36,7 @@ import {
 } from "./icloud-backup";
 import {
   clearStoredKeypair,
+  consumeBiometricRestorePending,
   generateKeypairInMemory,
   getStoredPublicKey,
   hasStoredKeypair,
@@ -111,7 +112,7 @@ interface WalletContextValue {
 
   // Management
   changePin: (newPin: string) => Promise<void>;
-  resetWallet: () => Promise<void>;
+  resetWallet: (opts?: { keepCloudBackup?: boolean }) => Promise<void>;
   /** Re-read storage after an out-of-band restore (e.g. iCloud backup). */
   refreshFromStorage: () => Promise<void>;
   getSecretKeyHex: () => string | null;
@@ -349,6 +350,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setWalletSigner(next);
     setState("unlocked");
     identifyWallet(pk, "imported");
+    // Restored wallets (iCloud Keychain / Drive backup) skipped onboarding's
+    // biometric setup — re-run it with the PIN we just verified (ASK-2205).
+    // enableBiometrics no-ops without hardware/enrollment, like the create flow.
+    if (consumeBiometricRestorePending()) {
+      try {
+        const enabled = await enableBiometrics(pin);
+        setBiometricEnabledState(enabled);
+      } catch (error) {
+        console.warn("[wallet] biometric re-enable after restore failed", error);
+      }
+    }
   }, []);
 
   const unlockWithBiometrics = useCallback(async () => {
@@ -399,48 +411,57 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     [signer, biometricEnabled],
   );
 
-  const resetWallet = useCallback(async () => {
-    // Deauthorize the external wallet first, if there is one. Swallow errors
-    // — if the wallet rejects (already revoked, etc.), we still want local
-    // cleanup to proceed.
-    if (signer instanceof SeedVaultSigner) {
-      try {
-        await SeedVault.deauthorize(signer.authToken);
-      } catch (error) {
-        console.warn("[wallet] SeedVault.deauthorize failed", error);
+  const resetWallet = useCallback(
+    async (opts?: { keepCloudBackup?: boolean }) => {
+      const keepCloudBackup = opts?.keepCloudBackup ?? false;
+      // Deauthorize the external wallet first, if there is one. Swallow errors
+      // — if the wallet rejects (already revoked, etc.), we still want local
+      // cleanup to proceed.
+      if (signer instanceof SeedVaultSigner) {
+        try {
+          await SeedVault.deauthorize(signer.authToken);
+        } catch (error) {
+          console.warn("[wallet] SeedVault.deauthorize failed", error);
+        }
       }
-    }
-    if (signer instanceof MwaSigner) {
-      try {
-        await deauthorizeMwaWallet(signer.authToken);
-      } catch (error) {
-        console.warn("[wallet] MWA deauthorize failed", error);
+      if (signer instanceof MwaSigner) {
+        try {
+          await deauthorizeMwaWallet(signer.authToken);
+        } catch (error) {
+          console.warn("[wallet] MWA deauthorize failed", error);
+        }
       }
-    }
-    if (signer instanceof DeeplinkSigner) {
-      try {
-        await disconnectDeeplinkWallet(signer.session);
-      } catch (error) {
-        console.warn("[wallet] deeplink disconnect failed", error);
+      if (signer instanceof DeeplinkSigner) {
+        try {
+          await disconnectDeeplinkWallet(signer.session);
+        } catch (error) {
+          console.warn("[wallet] deeplink disconnect failed", error);
+        }
       }
-    }
 
-    await clearMwaAccount();
-    await clearDeeplinkSession();
-    await clearVaultAccount();
-    await clearStoredKeypair();
-    // Reset means gone everywhere we put it — a later fresh install must not
-    // offer to restore a wallet the user deliberately deleted.
-    await deleteCloudBackup();
-    await disableBiometrics();
-    setSigner(null);
-    setPublicKey(null);
-    clearWalletSignerCache();
-    setBiometricEnabledState(false);
-    setState("noWallet");
-    track(WALLET_SETUP_EVENTS.walletReset);
-    resetAnalytics();
-  }, [signer]);
+      await clearMwaAccount();
+      await clearDeeplinkSession();
+      await clearVaultAccount();
+      await clearStoredKeypair({ keepSyncedKeychain: keepCloudBackup });
+      if (!keepCloudBackup) {
+        // "Delete everywhere" — a later fresh install must not offer to
+        // restore a wallet the user deliberately deleted. "Remove from this
+        // device" keeps the iCloud copies restorable (ASK-2206).
+        await deleteCloudBackup();
+      }
+      await disableBiometrics();
+      setSigner(null);
+      setPublicKey(null);
+      clearWalletSignerCache();
+      setBiometricEnabledState(false);
+      setState("noWallet");
+      track(WALLET_SETUP_EVENTS.walletReset, {
+        scope: keepCloudBackup ? "device" : "everywhere",
+      });
+      resetAnalytics();
+    },
+    [signer],
+  );
 
   const getSecretKeyHex = useCallback(() => {
     if (!signer || !(signer instanceof LocalKeypairSigner)) return null;
