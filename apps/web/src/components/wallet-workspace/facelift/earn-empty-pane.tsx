@@ -68,6 +68,20 @@ export function EarnEmptyPane({
             text="Earn yield on your idle USDC"
           />
         </div>
+        {isHydrated && !isSignedIn ? (
+          <a
+            className="t-hover flex h-11 shrink-0 items-center gap-2 rounded-3xl px-4 hover:bg-accent"
+            href="https://askloyal.com"
+          >
+            <ThemedIcon
+              className="size-6 text-tertiary"
+              src={`${ASSET_BASE}/icon-globe.svg`}
+            />
+            <span className="whitespace-nowrap font-medium text-[14px] text-muted-foreground">
+              askloyal.com
+            </span>
+          </a>
+        ) : null}
         <button
           aria-label="Open chart"
           className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
