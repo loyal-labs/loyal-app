@@ -32,6 +32,7 @@ function toUnixNano(timestamp: string): string {
 }
 
 const EXPECTED_LOCAL_WALLET_FAILURES = new Set([
+  "wallet_account_mismatch",
   "wallet_authorization_expired",
   "wallet_connection_failed",
   "wallet_connection_timeout",

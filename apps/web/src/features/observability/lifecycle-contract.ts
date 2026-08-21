@@ -166,6 +166,9 @@ export const LIFECYCLE_ERROR_CODES = [
   // A stored Mobile Wallet Adapter authorization was revoked. The app clears
   // it and sends the user through reconnect; no backend request was made.
   "wallet_authorization_expired",
+  // MWA reauthorized a different account than the one stored by Loyal. The
+  // app clears the stale account and tells the user to reconnect it.
+  "wallet_account_mismatch",
   // The wallet could not produce a signature. Distinct from
   // `invalid_wallet_signature`, which means a signature was produced and the
   // backend rejected it during verification.
