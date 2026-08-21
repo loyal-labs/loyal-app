@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-
 import { DogLottie } from "@/components/wallet-workspace/facelift/dog-lottie";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
@@ -71,12 +69,18 @@ export function EarnEmptyPane({
           />
         </div>
         {isHydrated && !isSignedIn ? (
-          <Link
-            className="t-hover flex h-11 shrink-0 items-center rounded-3xl px-4 font-medium text-[14px] text-muted-foreground hover:bg-accent hover:text-foreground"
-            href="/"
+          <a
+            className="t-hover flex h-11 shrink-0 items-center gap-2 rounded-3xl px-4 hover:bg-accent"
+            href="https://askloyal.com"
           >
-            About Loyal
-          </Link>
+            <ThemedIcon
+              className="size-6 text-tertiary"
+              src={`${ASSET_BASE}/icon-globe.svg`}
+            />
+            <span className="whitespace-nowrap font-medium text-[14px] text-muted-foreground">
+              askloyal.com
+            </span>
+          </a>
         ) : null}
         <button
           aria-label="Open chart"
