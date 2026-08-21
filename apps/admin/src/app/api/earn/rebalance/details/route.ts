@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { getEarnStablecoinByMint } from "@/lib/earn/stablecoin-monitor.shared";
+
 import {
   getEarnVaultRebalanceFrequency,
   getExecutedEarnRebalanceHistory,
@@ -9,13 +11,33 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const kind = new URL(request.url).searchParams.get("kind");
+  const searchParams = new URL(request.url).searchParams;
+  const kind = searchParams.get("kind");
+  const liquidityMint = searchParams.get("liquidityMint");
+
+  if (
+    liquidityMint !== null &&
+    getEarnStablecoinByMint(liquidityMint) === null
+  ) {
+    return NextResponse.json(
+      { error: "Invalid stablecoin mint." },
+      { status: 400 }
+    );
+  }
+
+  const matchesStablecoin = (row: {
+    liquidityMint: string | null;
+    routeMode: "cross_mint" | "same_mint";
+  }) =>
+    liquidityMint === null ||
+    row.routeMode === "cross_mint" ||
+    row.liquidityMint === liquidityMint;
 
   if (kind === "executed") {
     const history = await getExecutedEarnRebalanceHistory();
     return NextResponse.json(
       {
-        details: history.details.map((execution) => ({
+        details: history.details.filter(matchesStablecoin).map((execution) => ({
           ...execution,
           amountRaw: execution.amountRaw.toString(),
           confirmedSlot: execution.confirmedSlot.toString(),
@@ -31,7 +53,7 @@ export async function GET(request: Request) {
     const frequency = await getEarnVaultRebalanceFrequency();
     return NextResponse.json(
       {
-        details: frequency.details.map((vault) => ({
+        details: frequency.details.filter(matchesStablecoin).map((vault) => ({
           ...vault,
           currentDepositRaw: vault.currentDepositRaw.toString(),
         })),

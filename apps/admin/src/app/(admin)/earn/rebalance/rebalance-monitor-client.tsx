@@ -1138,8 +1138,8 @@ function AuditSummaryStrip({
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>
-          Showing {activePage.rows.length.toLocaleString("en-US")} newest in-progress
-          rows
+          Showing {activePage.rows.length.toLocaleString("en-US")} newest
+          in-progress rows
         </span>
         {activePage.nextCursor ? (
           <Button
@@ -1445,13 +1445,17 @@ function RebalanceAuditCard({
                 <TabsTrigger value="completed_rebalances" className="h-10">
                   Completed rebalances
                   <Badge variant="outline">
-                    {state.data.summary.completedRebalances.toLocaleString("en-US")}
+                    {state.data.summary.completedRebalances.toLocaleString(
+                      "en-US"
+                    )}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="completed_deposits" className="h-10">
                   Completed deposits
                   <Badge variant="outline">
-                    {state.data.summary.completedDeposits.toLocaleString("en-US")}
+                    {state.data.summary.completedDeposits.toLocaleString(
+                      "en-US"
+                    )}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="errors" className="h-10">
@@ -1509,8 +1513,8 @@ function RebalanceAuditCard({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
               <span>
-                Showing {state.data.page.rows.length.toLocaleString("en-US")} newest
-                rows
+                Showing {state.data.page.rows.length.toLocaleString("en-US")}{" "}
+                newest rows
               </span>
               <Button
                 disabled={!state.data.page.nextCursor}
@@ -1877,10 +1881,14 @@ export function RebalanceMonitorClient({
       <RebalanceActivityChart data={state.data.activity} />
       <ExecutedEarnRebalancesChart
         data={filteredExecutedRebalances}
+        key={`executed-${selectedMint}`}
+        liquidityMint={selectedMintAddress}
         reserveLabels={reserveLabels}
       />
       <EarnVaultRebalanceFrequencyChart
         data={filteredVaultRebalanceFrequency}
+        key={`frequency-${selectedMint}`}
+        liquidityMint={selectedMintAddress}
         reserveStatuses={filteredApyData.statuses}
       />
       <Last30DaysRebalanceChart data={state.data.last30DaysRebalances} />

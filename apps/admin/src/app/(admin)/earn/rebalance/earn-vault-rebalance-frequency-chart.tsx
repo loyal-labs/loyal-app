@@ -334,9 +334,11 @@ function VaultFrequencyTooltip({
 
 export function EarnVaultRebalanceFrequencyChart({
   data,
+  liquidityMint,
   reserveStatuses,
 }: {
   data: SerializedEarnVaultRebalanceFrequency;
+  liquidityMint: string | null;
   reserveStatuses: SafeReserveApyStatusRow[];
 }) {
   const [range, setRange] = useState<RangeKey>("all");
@@ -469,8 +471,12 @@ export function EarnVaultRebalanceFrequencyChart({
 
     setDetailStatus("loading");
     try {
+      const searchParams = new URLSearchParams({ kind: "frequency" });
+      if (liquidityMint !== null) {
+        searchParams.set("liquidityMint", liquidityMint);
+      }
       const response = await fetch(
-        "/api/earn/rebalance/details?kind=frequency",
+        `/api/earn/rebalance/details?${searchParams.toString()}`,
         { cache: "no-store", credentials: "same-origin" }
       );
       if (!response.ok) {

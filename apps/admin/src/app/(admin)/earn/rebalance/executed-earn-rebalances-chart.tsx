@@ -233,9 +233,11 @@ function ExecutedRebalanceTooltip({
 
 export function ExecutedEarnRebalancesChart({
   data,
+  liquidityMint,
   reserveLabels,
 }: {
   data: SerializedExecutedEarnRebalanceHistory;
+  liquidityMint: string | null;
   reserveLabels: ReadonlyMap<string, string>;
 }) {
   const [range, setRange] = useState<RangeKey>("all");
@@ -289,8 +291,12 @@ export function ExecutedEarnRebalancesChart({
 
     setDetailStatus("loading");
     try {
+      const searchParams = new URLSearchParams({ kind: "executed" });
+      if (liquidityMint !== null) {
+        searchParams.set("liquidityMint", liquidityMint);
+      }
       const response = await fetch(
-        "/api/earn/rebalance/details?kind=executed",
+        `/api/earn/rebalance/details?${searchParams.toString()}`,
         {
           cache: "no-store",
           credentials: "same-origin",
@@ -372,10 +378,9 @@ export function ExecutedEarnRebalancesChart({
         : item.fullyWithdrawnCount7d),
     0
   );
-  const distinctUserCount = routeSummaries.reduce(
-    (total, item) => total + item.userCount,
-    0
-  );
+  const distinctUserCount = new Set(
+    filteredPoints.map((point) => point.authority)
+  ).size;
   const positiveDeposits = filteredPoints
     .map((point) => point.depositAmount)
     .filter((amount) => amount > 0 && Number.isFinite(amount));

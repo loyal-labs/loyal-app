@@ -7,7 +7,14 @@ import { RebalanceMonitorClient } from "./rebalance-monitor-client";
 export const dynamic = "force-dynamic";
 
 export default async function EarnRebalancePage() {
-  const initialData = await loadRebalancePageData();
+  const initialData = await loadRebalancePageData().catch((error) => {
+    console.error("Initial rebalance page data load failed", {
+      errorMessage:
+        error instanceof Error ? error.message : "Unknown data load error",
+      errorName: error instanceof Error ? error.name : "Error",
+    });
+    return undefined;
+  });
 
   return (
     <PageContainer>
