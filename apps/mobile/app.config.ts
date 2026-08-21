@@ -69,6 +69,10 @@ const config: ExpoConfig = {
     },
     infoPlist: {
       UIBackgroundModes: ["remote-notification"],
+      // Lets Linking.canOpenURL probe for installed deeplink wallets
+      // (src/lib/wallet/deeplink-signer.ts). iOS answers false for any
+      // scheme not declared here.
+      LSApplicationQueriesSchemes: ["phantom", "solflare"],
       // The app never requests location and this prompt never shows. The
       // OneSignal XCFramework ships an optional location module whose bare
       // CLLocationManager reference makes App Store Connect demand a purpose

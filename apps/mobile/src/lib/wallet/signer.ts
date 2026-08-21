@@ -12,7 +12,7 @@ import {
  */
 export interface Signer {
   readonly publicKey: PublicKey;
-  readonly kind: "local" | "seed-vault" | "mwa";
+  readonly kind: "local" | "seed-vault" | "mwa" | "deeplink";
   signMessage(bytes: Uint8Array): Promise<Uint8Array>;
   signTransaction<T extends Transaction | VersionedTransaction>(
     tx: T,
@@ -85,5 +85,62 @@ export class LocalKeypairSigner implements Signer {
     return Array.from(this.keypair.secretKey)
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
+  }
+}
+
+type TweetNaclVerify = (
+  message: Uint8Array,
+  signature: Uint8Array,
+  publicKey: Uint8Array,
+) => boolean;
+
+// Lazy-loaded for the same reason as getTweetNaclSign above.
+async function getTweetNaclVerify(): Promise<TweetNaclVerify> {
+  const mod = (await import("tweetnacl")) as unknown as {
+    sign?: { detached?: { verify?: TweetNaclVerify } };
+    default?: { sign?: { detached?: { verify?: TweetNaclVerify } } };
+  };
+  const verify =
+    mod.sign?.detached?.verify ?? mod.default?.sign?.detached?.verify;
+  if (typeof verify !== "function") {
+    throw new Error("tweetnacl sign.detached.verify is unavailable");
+  }
+  return verify;
+}
+
+/**
+ * Assert an external wallet actually signed `tx` with `publicKey`. Wallet apps
+ * (MWA or deeplink) may return a modified transaction, so after adopting the
+ * returned message + signatures this check fails with a precise error instead
+ * of an opaque RPC preflight failure. `index` is 0-based and only used for the
+ * error copy.
+ */
+export async function assertOwnVersionedSignature(
+  tx: VersionedTransaction,
+  publicKey: PublicKey,
+  index: number,
+): Promise<void> {
+  const address = publicKey.toBase58();
+  const signerIndex = tx.message.staticAccountKeys.findIndex((key) =>
+    key.equals(publicKey),
+  );
+  if (
+    signerIndex < 0 ||
+    signerIndex >= tx.message.header.numRequiredSignatures
+  ) {
+    throw new Error(
+      `Wallet returned transaction ${index + 1} without ${address} as a signer.`,
+    );
+  }
+  const verify = await getTweetNaclVerify();
+  const valid = verify(
+    tx.message.serialize(),
+    tx.signatures[signerIndex],
+    publicKey.toBytes(),
+  );
+  if (!valid) {
+    throw new Error(
+      `The wallet returned an invalid signature for ${address} on transaction ${index + 1}. It may have signed with a different account — reset your wallet in Settings and reconnect.`,
+    );
   }
 }

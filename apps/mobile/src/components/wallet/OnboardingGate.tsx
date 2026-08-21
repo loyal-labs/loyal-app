@@ -1,6 +1,6 @@
 import { Keypair } from "@solana/web3.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet } from "react-native";
+import { ActionSheetIOS, ActivityIndicator, Platform, StyleSheet } from "react-native";
 import * as SeedVault from "expo-seed-vault";
 import Animated, {
   Easing,
@@ -27,8 +27,18 @@ import {
   restoreCloudBackup,
   type WalletBackupEnvelope,
 } from "@/lib/wallet/icloud-backup";
+import {
+  DeeplinkResponseError,
+  type DeeplinkWalletProvider,
+} from "@/lib/wallet/deeplink-protocol";
+import {
+  connectDeeplinkWallet,
+  DEEPLINK_WALLET_LABELS,
+  getInstalledDeeplinkWallets,
+} from "@/lib/wallet/deeplink-signer";
 import { connectMwaWallet, isMwaSupported } from "@/lib/wallet/mwa-signer";
 import { WalletRejectedError } from "@/lib/wallet/rejection";
+import { isWalletSessionError } from "@/lib/wallet/wallet-session-error";
 import { isSeedVaultUserDecline } from "@/lib/wallet/seed-vault-signer";
 import { useWallet } from "@/lib/wallet/wallet-provider";
 import {
@@ -62,10 +72,41 @@ const SCREEN_EXITING_ANIMATION = FadeOut.duration(160).easing(
   Easing.out(Easing.quad),
 );
 
+// iOS-only by construction: the deeplink connect mode is only reachable on
+// iOS, where ActionSheetIOS is the native chooser.
+function chooseDeeplinkProvider(
+  providers: DeeplinkWalletProvider[],
+): Promise<DeeplinkWalletProvider | null> {
+  if (providers.length === 1) return Promise.resolve(providers[0]);
+  return new Promise((resolve) => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: "Connect Wallet",
+        options: [
+          ...providers.map((provider) => DEEPLINK_WALLET_LABELS[provider]),
+          "Cancel",
+        ],
+        cancelButtonIndex: providers.length,
+      },
+      (index) => resolve(index >= providers.length ? null : providers[index]),
+    );
+  });
+}
+
+// `reason` prop for wallet_connect_failed (contract shared with ASK-2199).
+function connectFailureReason(error: unknown): string {
+  if (isWalletSessionError(error)) return error.failure;
+  if (error instanceof DeeplinkResponseError) {
+    return `wallet_error_${error.errorCode}`;
+  }
+  return "unexpected_error";
+}
+
 export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const {
     finalizeSigner,
     finalizeMwaSigner,
+    finalizeDeeplinkSigner,
     finalizeVaultSigner,
     refreshFromStorage,
   } = useWallet();
@@ -76,6 +117,9 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   const [pendingPin, setPendingPin] = useState<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [seedVaultAvailable, setSeedVaultAvailable] = useState(false);
+  const [deeplinkWallets, setDeeplinkWallets] = useState<
+    DeeplinkWalletProvider[]
+  >([]);
   const [connectWalletPending, setConnectWalletPending] = useState(false);
   const [connectWalletError, setConnectWalletError] = useState<string | null>(
     null,
@@ -109,16 +153,24 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
   );
 
   // MWA when the binary has the native module; direct Seed Vault as the
-  // legacy fallback on pre-MWA Seeker builds receiving this bundle via OTA.
+  // legacy fallback on pre-MWA Seeker builds receiving this bundle via OTA;
+  // Phantom/Solflare deeplinks on iOS when either wallet is installed.
   const connectMode: WalletConnectMode = isMwaSupported()
     ? "mwa"
     : seedVaultAvailable
       ? "seed-vault"
-      : "none";
+      : deeplinkWallets.length > 0
+        ? "deeplink"
+        : "none";
 
   useEffect(() => {
     if (isMwaSupported()) return;
     SeedVault.isAvailable().then(setSeedVaultAvailable);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    getInstalledDeeplinkWallets().then(setDeeplinkWallets);
   }, []);
 
   // iCloud Drive wallet backup, if the user made one on a previous install
@@ -257,6 +309,46 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     authFlowRef.current?.complete("completion");
   }, [finalizeMwaSigner]);
 
+  // iOS external-wallet connect over Phantom-style deeplinks. Null from the
+  // connect call means the user declined in the wallet or switched back
+  // without answering — a choice, not an error.
+  const connectDeeplink = useCallback(async () => {
+    const provider = await chooseDeeplinkProvider(deeplinkWallets);
+    if (!provider) {
+      authFlowRef.current?.cancel("wallet_connect");
+      return;
+    }
+    track(WALLET_CONNECT_EVENTS.pressed, { provider, surface: "onboarding" });
+    try {
+      const session = await connectDeeplinkWallet(provider);
+      if (!session) {
+        track(WALLET_CONNECT_EVENTS.failed, {
+          provider,
+          surface: "onboarding",
+          reason: "cancelled",
+        });
+        authFlowRef.current?.cancel("wallet_connect");
+        return;
+      }
+      track(WALLET_CONNECT_EVENTS.returned, {
+        provider,
+        surface: "onboarding",
+      });
+      authFlowRef.current?.setWalletAddress(session.publicKey);
+      authFlowRef.current?.observe("wallet_connect");
+      setFinalizing(true);
+      await finalizeDeeplinkSigner(session);
+      authFlowRef.current?.complete("completion");
+    } catch (e) {
+      track(WALLET_CONNECT_EVENTS.failed, {
+        provider,
+        surface: "onboarding",
+        reason: connectFailureReason(e),
+      });
+      throw e;
+    }
+  }, [deeplinkWallets, finalizeDeeplinkSigner]);
+
   const handleConnectWallet = useCallback(async () => {
     if (connectWalletPending) return;
     setConnectWalletError(null);
@@ -271,6 +363,8 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     try {
       if (connectMode === "seed-vault") {
         await connectSeedVault();
+      } else if (connectMode === "deeplink") {
+        await connectDeeplink();
       } else {
         await connectMwa();
       }
@@ -293,6 +387,7 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     connectWalletPending,
     connectMode,
     connectSeedVault,
+    connectDeeplink,
     connectMwa,
     beginAuthFlow,
   ]);
