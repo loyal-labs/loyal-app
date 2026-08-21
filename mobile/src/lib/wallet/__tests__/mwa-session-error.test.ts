@@ -278,7 +278,7 @@ describe("MWA session error classification", () => {
       expect(clearMwaAccount).toHaveBeenCalledTimes(1);
     });
 
-    it("keeps a reauthorized account mismatch alertable", async () => {
+    it("classifies a reauthorized account mismatch and preserves recovery", async () => {
       const otherPublicKey = PublicKey.unique();
       mockTransact.mockImplementation(
         async (callback: (wallet: unknown) => unknown) =>
@@ -298,8 +298,12 @@ describe("MWA session error classification", () => {
 
       const error = await failureOf(signer().signMessage(new Uint8Array([1])));
 
-      expect(error).toBeInstanceOf(Error);
-      expect(error).not.toBeInstanceOf(WalletSessionError);
+      expect(error).toBeInstanceOf(WalletSessionError);
+      expect(error).toMatchObject({
+        failure: "account_mismatch",
+        message:
+          "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.",
+      });
       expect(clearMwaAccount).toHaveBeenCalledTimes(1);
     });
   });

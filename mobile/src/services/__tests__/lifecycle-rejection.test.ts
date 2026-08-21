@@ -170,6 +170,9 @@ describe("wallet session classification", () => {
     expect(
       mapLifecycleErrorCode(new WalletSessionError("authorization_expired")),
     ).toBe("wallet_authorization_expired");
+    expect(
+      mapLifecycleErrorCode(new WalletSessionError("account_mismatch")),
+    ).toBe("wallet_account_mismatch");
   });
 
   // The native module's own codes must not leak through the generic probe.
@@ -220,6 +223,23 @@ describe("wallet session classification", () => {
     });
     expect(JSON.stringify(sent[0])).not.toContain("authorization request failed");
     expect(sent[0]).not.toHaveProperty("httpStatus");
+  });
+
+  it("emits only the bounded account-mismatch lifecycle event", () => {
+    const sent = captureEnvelopes();
+    startLifecycleFlow({
+      flowName: "earn.withdrawal",
+      flowVariant: "partial",
+      reportUnexpectedErrors: true,
+    }).failFrom("prepare", new WalletSessionError("account_mismatch"));
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        errorCode: "wallet_account_mismatch",
+      }),
+    ]);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 });
 
