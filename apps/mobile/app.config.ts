@@ -76,9 +76,30 @@ const config: ExpoConfig = {
       // not reword this to imply the app uses location.
       NSLocationWhenInUseUsageDescription:
         "Loyal does not use your location. This notice exists because a notifications library includes optional location code.",
+      // SKAdNetwork install attribution for paid campaigns. Deliberately a
+      // short, sourced list — X (Twitter) Ads is the active channel, Meta and
+      // Google are the likely next ones. IDs per AppsFlyer's SKAN integrated
+      // partners list (support.appsflyer.com/hc/en-us/articles/360012640377):
+      // twitter_int -> 9yg77x724h + n66cz3y3bx, Facebook Ads -> v9wttpbfk9 +
+      // n38lu8286q, Google -> cstr6suwn9 + eqhxz8m8av.
+      SKAdNetworkItems: [
+        { SKAdNetworkIdentifier: "9yg77x724h.skadnetwork" }, // X Ads
+        { SKAdNetworkIdentifier: "n66cz3y3bx.skadnetwork" }, // X Ads
+        { SKAdNetworkIdentifier: "v9wttpbfk9.skadnetwork" }, // Meta
+        { SKAdNetworkIdentifier: "n38lu8286q.skadnetwork" }, // Meta
+        { SKAdNetworkIdentifier: "cstr6suwn9.skadnetwork" }, // Google
+        { SKAdNetworkIdentifier: "eqhxz8m8av.skadnetwork" }, // Google
+      ],
     },
     entitlements: {
       "aps-environment": IS_DEV ? "development" : "production",
+      // Universal Links for wallet deeplink returns (https://askloyal.com/ul/*).
+      // The matching AASA file lives in apps/web/public/.well-known/ and is
+      // served on both hosts; it only claims the /ul/* path prefix.
+      "com.apple.developer.associated-domains": [
+        "applinks:askloyal.com",
+        "applinks:app.askloyal.com",
+      ],
     },
     // Apple requires a reason for each "required reason API" a binary links.
     // Expo emits PrivacyInfo.xcprivacy only when this key is present, and the

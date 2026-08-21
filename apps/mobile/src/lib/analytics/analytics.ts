@@ -62,6 +62,24 @@ export function getWorkspaceEventName(event: string): string {
   return event.startsWith(prefix) ? event : `${prefix}${event}`;
 }
 
+// Merged into the init-time super props too, so registrations that happen
+// before the client finishes initializing are not lost.
+export function registerSuperProperties(
+  properties: AnalyticsProperties,
+): void {
+  Object.assign(registeredProperties, properties);
+  if (!canTrack()) return;
+  void (async () => {
+    const c = await getClient();
+    if (!c) return;
+    try {
+      c.registerSuperProperties(properties);
+    } catch (error) {
+      console.warn("[analytics] registerSuperProperties failed", error);
+    }
+  })();
+}
+
 export function track(event: string, properties?: AnalyticsProperties): void {
   if (!canTrack()) return;
   void (async () => {

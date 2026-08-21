@@ -20,6 +20,8 @@ import {
   type WalletConnectMode,
 } from "@/components/wallet/onboarding-slides";
 import { WalletSetupOnboardingScreen } from "@/components/wallet/WalletSetupOnboardingScreen";
+import { track } from "@/lib/analytics/analytics";
+import { WALLET_CONNECT_EVENTS } from "@/lib/analytics/wallet-connect-events";
 import {
   findCloudBackup,
   restoreCloudBackup,
@@ -244,6 +246,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     }
     authFlowRef.current?.setWalletAddress(account.publicKey);
     authFlowRef.current?.observe("wallet_connect");
+    // Fires when the app regains control with an authorized account
+    // (shared contract with ASK-2202).
+    track(WALLET_CONNECT_EVENTS.returned, {
+      provider: "mwa",
+      surface: "onboarding",
+    });
     setFinalizing(true);
     await finalizeMwaSigner(account);
     authFlowRef.current?.complete("completion");
@@ -253,6 +261,12 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
     if (connectWalletPending) return;
     setConnectWalletError(null);
     setConnectWalletPending(true);
+    if (connectMode === "mwa") {
+      track(WALLET_CONNECT_EVENTS.pressed, {
+        provider: "mwa",
+        surface: "onboarding",
+      });
+    }
     beginAuthFlow(connectMode === "seed-vault" ? "seed_vault" : "wallet_adapter");
     try {
       if (connectMode === "seed-vault") {
@@ -264,6 +278,13 @@ export function OnboardingGate({ mode = "setup", onReplayDone }: Props) {
       authFlowRef.current?.failFrom("wallet_connect", e);
       const msg =
         e instanceof Error ? e.message : "Wallet connection failed";
+      if (connectMode === "mwa") {
+        track(WALLET_CONNECT_EVENTS.failed, {
+          provider: "mwa",
+          surface: "onboarding",
+          reason: msg,
+        });
+      }
       setConnectWalletError(msg);
     } finally {
       setConnectWalletPending(false);
