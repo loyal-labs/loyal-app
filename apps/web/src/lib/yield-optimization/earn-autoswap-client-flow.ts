@@ -1,7 +1,7 @@
-import {
+import type {
   createSmartAccountVaultsClient,
-  type SmartAccountEarnCrossMintProjectedPolicyInput,
-  type SmartAccountPreparedEarnCrossMintSwapPolicy,
+  SmartAccountEarnCrossMintProjectedPolicyInput,
+  SmartAccountPreparedEarnCrossMintSwapPolicy,
 } from "@loyal-labs/smart-account-vaults";
 import type { PublicKey } from "@solana/web3.js";
 
@@ -17,6 +17,9 @@ type PreparedPolicy = NonNullable<
 export async function executeEarnAutoswapSetupClient(args: {
   client: AutoswapClient;
   input: Parameters<AutoswapClient["prepareEarnCrossMintSwapPolicies"]>[0];
+  onPolicyConfirmed?: (
+    policy: SmartAccountEarnCrossMintProjectedPolicyInput
+  ) => void;
   sendPrepared: (
     prepared: PreparedPolicy,
     context: {
@@ -63,14 +66,13 @@ export async function executeEarnAutoswapSetupClient(args: {
       sourceShard: nextPolicy.sourceShard,
     });
     installed.add(nextPolicy.sourceShard);
-    projectedPolicies = [
-      ...projectedPolicies,
-      {
-        account: nextPolicy.policy.account,
-        seed: nextPolicy.policy.seed,
-        sourceShard: nextPolicy.sourceShard,
-      },
-    ];
+    const confirmedPolicy = {
+      account: nextPolicy.policy.account,
+      seed: nextPolicy.policy.seed,
+      sourceShard: nextPolicy.sourceShard,
+    };
+    args.onPolicyConfirmed?.(confirmedPolicy);
+    projectedPolicies = [...projectedPolicies, confirmedPolicy];
     if (installed.size === 2) {
       return { completedPolicies: 2 };
     }
@@ -81,7 +83,7 @@ export async function executeEarnAutoswapSetupClient(args: {
   );
 }
 
-export async function prepareEarnAutoswapDeletionClient(args: {
+export function prepareEarnAutoswapDeletionClient(args: {
   client: AutoswapClient;
   feePayer: PublicKey;
   policies: PublicKey[];

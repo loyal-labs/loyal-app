@@ -7,6 +7,7 @@ import {
 import {
   combineSmartAccountNativeSolRequirements,
   createSmartAccountVaultsClient,
+  type SmartAccountEarnCrossMintProjectedPolicyInput,
   type SmartAccountNativeSolRequirement,
   type SmartAccountOverview,
   type SmartAccountOverviewBase,
@@ -3197,6 +3198,10 @@ export function useSmartAccountSidebarData(
     user?.settingsPda ?? "no-settings",
     user?.walletAddress ?? "no-wallet",
   ].join(":");
+  const confirmedAutoswapPoliciesRef = useRef<{
+    policies: SmartAccountEarnCrossMintProjectedPolicyInput[];
+    scope: string;
+  }>({ policies: [], scope: smartAccountScope });
   const smartAccountScopeGenerationRef =
     useRef<SmartAccountScopeGeneration | null>(null);
   if (!smartAccountScopeGenerationRef.current) {
@@ -3238,6 +3243,19 @@ export function useSmartAccountSidebarData(
     proposals: null,
     bestApyReserves: null,
   });
+  useEffect(() => {
+    const confirmed = confirmedAutoswapPoliciesRef.current;
+    if (confirmed.scope !== smartAccountScope) {
+      confirmedAutoswapPoliciesRef.current = {
+        policies: [],
+        scope: smartAccountScope,
+      };
+      return;
+    }
+    if (earnState?.autoswapIndex?.state === "complete") {
+      confirmed.policies = [];
+    }
+  }, [earnState?.autoswapIndex?.state, smartAccountScope]);
   const error = resolveSmartAccountRefreshError(scopedErrors);
   const [selectedVaultIndex, setSelectedVaultIndex] = useState(0);
   const [isActionPending, setIsActionPending] = useState(false);
@@ -6084,6 +6102,23 @@ export function useSmartAccountSidebarData(
           programId: new PublicKey(overview.programId),
         });
         const [indexedPolicy] = earnState.autoswapIndex.policies;
+        const localPolicies =
+          confirmedAutoswapPoliciesRef.current.scope === smartAccountScope
+            ? confirmedAutoswapPoliciesRef.current.policies
+            : [];
+        const projectedPolicies = Array.from(
+          new Map(
+            [
+              ...earnState.autoswapIndex.policies.map((policy) => ({
+                account: new PublicKey(policy.account),
+                lastSeenSlot: BigInt(policy.lastSeenSlot),
+                seed: BigInt(policy.seed),
+                sourceShard: policy.sourceShard,
+              })),
+              ...localPolicies,
+            ].map((policy) => [policy.account.toBase58(), policy])
+          ).values()
+        );
         const setup = await executeEarnAutoswapSetupClient({
           client,
           input: {
@@ -6095,17 +6130,26 @@ export function useSmartAccountSidebarData(
             maxSlippageBps:
               indexedPolicy?.maxSlippageBps ??
               DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
-            projectedPolicies: earnState.autoswapIndex.policies.map(
-              (policy) => ({
-                account: new PublicKey(policy.account),
-                lastSeenSlot: BigInt(policy.lastSeenSlot),
-                seed: BigInt(policy.seed),
-                sourceShard: policy.sourceShard,
-              })
-            ),
+            projectedPolicies,
             settingsPda: new PublicKey(overview.settingsPda),
             signer: new PublicKey(earnState.policySignerPublicKey),
             walletAddress: wallet.publicKey,
+          },
+          onPolicyConfirmed: (policy) => {
+            const current = confirmedAutoswapPoliciesRef.current;
+            const policies =
+              current.scope === smartAccountScope ? current.policies : [];
+            confirmedAutoswapPoliciesRef.current = {
+              policies: [
+                ...policies.filter(
+                  (existing) =>
+                    existing.sourceShard !== policy.sourceShard &&
+                    !existing.account.equals(policy.account)
+                ),
+                policy,
+              ],
+              scope: smartAccountScope,
+            };
           },
           sendPrepared: async (prepared, context) => {
             trackerStage = "create_policy";
@@ -6179,6 +6223,7 @@ export function useSmartAccountSidebarData(
       earnState?.policySignerPublicKey,
       overview,
       refreshEarnState,
+      smartAccountScope,
       solanaEnv,
       user?.walletAddress,
       wallet,

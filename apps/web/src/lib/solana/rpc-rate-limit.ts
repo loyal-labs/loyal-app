@@ -1,16 +1,16 @@
-// The dedicated frontend Helius endpoints tolerate concurrent bursts (a
-// 12-request burst returns all-200 in ~100ms — verified while debugging
-// ASK-2043), so the limiter is a rolling one-second window rather than the
-// old strict 250ms serial spacing. Serial spacing taxed every multi-read
-// flow with 250ms per request — a deposit prepare's ~12 reads took ~3s in
-// the browser no matter how parallel the calling code was.
-const DEFAULT_FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_WINDOW = 15;
-const FRONTEND_SOLANA_RPC_WINDOW_MS = 1_000;
+// Keep a small rolling window because a confirmation can release several
+// independent refreshes at once. Helius may answer that browser burst with a
+// 429 whose missing CORS headers surface only as `TypeError: Failed to fetch`.
+const DEFAULT_FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_WINDOW = 5;
+const FRONTEND_SOLANA_RPC_WINDOW_MS = 1000;
+const FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS = 3;
+const FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS = 250;
+const FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS = 2000;
 const FRONTEND_SOLANA_RPC_MAX_REQUESTS_ENV_NAME =
   "FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND";
 const FRONTEND_SOLANA_RPC_MIN_INTERVAL_ENV_NAME =
   "FRONTEND_SOLANA_RPC_MIN_INTERVAL_MS";
-const FRONTEND_SOLANA_RPC_COMPLETED_RESULT_TTL_MS = 1_000;
+const FRONTEND_SOLANA_RPC_COMPLETED_RESULT_TTL_MS = 1000;
 const FRONTEND_SOLANA_RPC_COMPLETED_RESULT_MAX_ENTRIES = 256;
 const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
   "getAccountInfo",
@@ -22,32 +22,33 @@ const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
   "getProgramAccountsV2",
   "getTokenAccountsByOwner",
 ]);
+const RETRYABLE_RPC_METHODS = RECENTLY_CACHEABLE_RPC_METHODS;
 
 type RpcFetch = typeof fetch;
 
-type RpcWindowState = {
+interface RpcWindowState {
   dispatchedAt: number[];
-};
+}
 
-type RpcRequestKey = {
+interface RpcRequestKey {
   cacheKey: string;
+  hasRequestId: boolean;
   method: string;
   requestId: unknown;
-  hasRequestId: boolean;
-};
+}
 
-type RpcResponseSnapshot = {
+interface RpcResponseSnapshot {
   bodyText: string;
   headers: [string, string][];
   ok: boolean;
   status: number;
   statusText: string;
-};
+}
 
-type RecentRpcResponseSnapshot = {
+interface RecentRpcResponseSnapshot {
   expiresAt: number;
   snapshot: RpcResponseSnapshot;
-};
+}
 
 declare global {
   // eslint-disable-next-line no-var
@@ -176,10 +177,14 @@ async function runQueuedFetch(
 
   for (;;) {
     const now = Date.now();
-    while (
-      window.dispatchedAt.length > 0 &&
-      window.dispatchedAt[0]! <= now - FRONTEND_SOLANA_RPC_WINDOW_MS
-    ) {
+    while (true) {
+      const oldestDispatch = window.dispatchedAt[0];
+      if (
+        oldestDispatch === undefined ||
+        oldestDispatch > now - FRONTEND_SOLANA_RPC_WINDOW_MS
+      ) {
+        break;
+      }
       window.dispatchedAt.shift();
     }
 
@@ -190,8 +195,89 @@ async function runQueuedFetch(
       return fetchImpl(input, init);
     }
 
-    await wait(window.dispatchedAt[0]! + FRONTEND_SOLANA_RPC_WINDOW_MS - now);
+    const oldestDispatch = window.dispatchedAt[0];
+    if (oldestDispatch !== undefined) {
+      await wait(oldestDispatch + FRONTEND_SOLANA_RPC_WINDOW_MS - now);
+    }
   }
+}
+
+function isRetryableRpcResponse(response: Response): boolean {
+  return (
+    response.status === 429 ||
+    response.status === 500 ||
+    response.status === 502 ||
+    response.status === 503 ||
+    response.status === 504
+  );
+}
+
+function getRetryDelayMs(response: Response | null, attempt: number): number {
+  const retryAfter = response?.headers.get("retry-after")?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds > 0) {
+      return Math.min(
+        FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS,
+        Math.max(
+          FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS,
+          Math.ceil(seconds * 1000)
+        )
+      );
+    }
+
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(
+        FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS,
+        Math.max(FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS, retryAt - Date.now())
+      );
+    }
+  }
+
+  return Math.min(
+    FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS,
+    FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS * 2 ** attempt
+  );
+}
+
+async function runRpcFetch(
+  fetchImpl: RpcFetch,
+  input: Parameters<RpcFetch>[0],
+  init: Parameters<RpcFetch>[1],
+  requestKey: RpcRequestKey | null
+): Promise<Response> {
+  const retryable = Boolean(
+    requestKey && RETRYABLE_RPC_METHODS.has(requestKey.method)
+  );
+
+  for (
+    let attempt = 0;
+    attempt < FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS;
+    attempt += 1
+  ) {
+    let response: Response | null = null;
+    try {
+      response = await runQueuedFetch(fetchImpl, input, init);
+      if (
+        !(retryable && isRetryableRpcResponse(response)) ||
+        attempt === FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS - 1
+      ) {
+        return response;
+      }
+    } catch (error) {
+      if (
+        !(retryable && error instanceof TypeError) ||
+        attempt === FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS - 1
+      ) {
+        throw error;
+      }
+    }
+
+    await wait(getRetryDelayMs(response, attempt));
+  }
+
+  throw new Error("Frontend Solana RPC retry loop exhausted unexpectedly.");
 }
 
 async function snapshotResponse(
@@ -356,7 +442,7 @@ export function getFrontendSolanaRpcFetch(fetchImpl?: RpcFetch): RpcFetch {
       return createResponseFromSnapshot(snapshot, requestKey);
     }
 
-    const request = runQueuedFetch(runFetch, input, init)
+    const request = runRpcFetch(runFetch, input, init, requestKey)
       .then(snapshotResponse)
       .then((snapshot) => {
         if (

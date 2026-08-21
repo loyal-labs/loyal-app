@@ -7,7 +7,7 @@ import {
 } from "./earn-autoswap-client-flow";
 
 const key = () => PublicKey.unique();
-const prepared = (id: string) => ({ id } as never);
+const prepared = (id: string) => ({ id }) as never;
 const policy = (
   sourceShard: "classic" | "token_2022",
   seed: bigint,
@@ -45,9 +45,10 @@ describe("Autoswap client flow", () => {
     expect(result).toEqual({ completedPolicies: 2 });
     expect(prepare).toHaveBeenCalledTimes(2);
     expect(sendPrepared).toHaveBeenCalledTimes(2);
-    const calls = sendPrepared.mock.calls as unknown as Array<
-      [unknown, { sourceShard: string }]
-    >;
+    const calls = sendPrepared.mock.calls as unknown as [
+      unknown,
+      { sourceShard: string },
+    ][];
     expect(calls.map((call) => call[1].sourceShard)).toEqual([
       "classic",
       "token_2022",
@@ -82,13 +83,60 @@ describe("Autoswap client flow", () => {
 
     expect(result).toEqual({ completedPolicies: 2 });
     expect(sendPrepared).toHaveBeenCalledTimes(1);
-    const sendCalls = sendPrepared.mock.calls as unknown as Array<
-      [unknown, { policyNumber: number; sourceShard: string }]
-    >;
+    const sendCalls = sendPrepared.mock.calls as unknown as [
+      unknown,
+      { policyNumber: number; sourceShard: string },
+    ][];
     expect(sendCalls[0]?.[1]).toEqual({
       policyNumber: 2,
       sourceShard: "token_2022",
     });
+  });
+
+  test("exposes a confirmed shard so a new invocation cannot duplicate it", async () => {
+    const classic = policy("classic", BigInt(10), false);
+    const token2022 = policy("token_2022", BigInt(11), false);
+    const confirmed: Array<{
+      account: PublicKey;
+      seed: bigint;
+      sourceShard: "classic" | "token_2022";
+    }> = [];
+    const interruptedPrepare = mock()
+      .mockResolvedValueOnce({ policies: [classic, token2022] })
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    await expect(
+      executeEarnAutoswapSetupClient({
+        client: {
+          prepareEarnCrossMintSwapPolicies: interruptedPrepare,
+        } as never,
+        input: {} as never,
+        onPolicyConfirmed: (identity) => confirmed.push(identity),
+        sendPrepared: mock(async () => "signature"),
+      })
+    ).rejects.toThrow("Failed to fetch");
+    expect(confirmed).toEqual([
+      expect.objectContaining({ seed: BigInt(10), sourceShard: "classic" }),
+    ]);
+
+    const resumedPrepare = mock(async (_input: unknown) => ({
+      policies: [
+        { ...classic, existing: true, prepared: undefined },
+        token2022,
+      ],
+    }));
+    const resumedSend = mock(async () => "signature");
+    await executeEarnAutoswapSetupClient({
+      client: { prepareEarnCrossMintSwapPolicies: resumedPrepare } as never,
+      input: { projectedPolicies: confirmed } as never,
+      sendPrepared: resumedSend,
+    });
+
+    expect(resumedSend).toHaveBeenCalledTimes(1);
+    const resumedInput = resumedPrepare.mock.calls[0]?.[0] as
+      | { projectedPolicies: unknown[] }
+      | undefined;
+    expect(resumedInput?.projectedPolicies).toEqual(confirmed);
   });
 
   test("submits nothing when both projected shards validate", async () => {

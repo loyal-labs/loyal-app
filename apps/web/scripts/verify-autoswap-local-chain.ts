@@ -8,6 +8,7 @@ import {
   smartAccounts,
 } from "@loyal-labs/loyal-smart-accounts";
 import { LoyalCluster } from "@loyal-labs/actions";
+import type { SmartAccountEarnCrossMintProjectedPolicyInput } from "@loyal-labs/smart-account-vaults";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import {
   Connection,
@@ -207,6 +208,7 @@ async function setup(args: Args) {
     programId: PROGRAM_ID,
   });
   const signatures: string[] = [];
+  const projectedPolicies: SmartAccountEarnCrossMintProjectedPolicyInput[] = [];
   const result = await executeEarnAutoswapSetupClient({
     client: vaults,
     input: {
@@ -218,6 +220,7 @@ async function setup(args: Args) {
       signer: delegatedSigner.publicKey,
       walletAddress: wallet.publicKey,
     },
+    onPolicyConfirmed: (policy) => projectedPolicies.push(policy),
     sendPrepared: async (prepared) => {
       const signature = await vaults.sdk.send(prepared, {
         confirm: true,
@@ -238,6 +241,7 @@ async function setup(args: Args) {
     settingsPda,
     signer: delegatedSigner.publicKey,
     walletAddress: wallet.publicKey,
+    projectedPolicies,
   });
   if (installed.policies.some((policy) => !policy.existing)) {
     throw new Error("Submitted Autoswap policies are not readable from chain.");
