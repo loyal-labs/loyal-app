@@ -303,21 +303,91 @@ function legacyEventsToPathEvents(
   });
 }
 
+const pathTimesCache = new WeakMap<
+  readonly YieldPositionPathEvent[],
+  number[]
+>();
+
 function getPathStateAt(
   pathEvents: readonly YieldPositionPathEvent[],
   at: Date
 ): YieldPositionPathEvent | null {
-  let current: YieldPositionPathEvent | null = null;
-  const atMs = at.getTime();
-
-  for (const event of pathEvents) {
-    if (event.confirmedAt.getTime() > atMs) {
-      break;
-    }
-    current = event;
+  let times = pathTimesCache.get(pathEvents);
+  if (!times) {
+    times = pathEvents.map((event) => event.confirmedAt.getTime());
+    pathTimesCache.set(pathEvents, times);
   }
+  const found = lastIndexAtOrBefore(times, at.getTime());
+  return found === -1 ? null : pathEvents[found];
+}
 
-  return current;
+// ---- Sorted-array lookup indexes (ASK-2209) ----
+// Long-history wallets produce tens of thousands of APY samples, and each
+// window segment used to rescan every array from the start (O(S²) overall —
+// enough to blow Vercel's 300s limit). The lookups below binary-search
+// WeakMap-cached indexes instead; callers pass time-sorted arrays (see
+// calculateEarnEarnings) and reuse the same array instances, so each index is
+// built once per request.
+
+/** Last index with times[i] <= atMs, or -1. `times` must be ascending. */
+function lastIndexAtOrBefore(times: readonly number[], atMs: number): number {
+  let low = 0;
+  let high = times.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (times[mid] <= atMs) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found;
+}
+
+type ApySeries = { apys: number[]; positions: number[]; times: number[] };
+
+type ApyIndex = {
+  all: ApySeries;
+  byReserve: Map<string, ApySeries>;
+  unscoped: ApySeries;
+};
+
+const apyIndexCache = new WeakMap<readonly ReserveApySample[], ApyIndex>();
+
+function getApyIndex(samples: readonly ReserveApySample[]): ApyIndex {
+  const cached = apyIndexCache.get(samples);
+  if (cached) {
+    return cached;
+  }
+  const makeSeries = (): ApySeries => ({ apys: [], positions: [], times: [] });
+  const index: ApyIndex = {
+    all: makeSeries(),
+    byReserve: new Map(),
+    unscoped: makeSeries(),
+  };
+  samples.forEach((sample, position) => {
+    const time = sample.observedAt.getTime();
+    const push = (series: ApySeries) => {
+      series.apys.push(sample.supplyApy);
+      series.positions.push(position);
+      series.times.push(time);
+    };
+    push(index.all);
+    if (sample.reserve === undefined || sample.reserve === null) {
+      push(index.unscoped);
+    } else {
+      let series = index.byReserve.get(sample.reserve);
+      if (!series) {
+        series = makeSeries();
+        index.byReserve.set(sample.reserve, series);
+      }
+      push(series);
+    }
+  });
+  apyIndexCache.set(samples, index);
+  return index;
 }
 
 function getApyAt(
@@ -325,25 +395,27 @@ function getApyAt(
   reserve: string | null,
   at: Date
 ): number | null {
-  let apy: number | null = null;
+  const index = getApyIndex(samples);
   const atMs = at.getTime();
-
-  for (const sample of samples) {
-    if (
-      reserve &&
-      sample.reserve !== undefined &&
-      sample.reserve !== null &&
-      sample.reserve !== reserve
-    ) {
-      continue;
-    }
-    if (sample.observedAt.getTime() > atMs) {
-      break;
-    }
-    apy = sample.supplyApy;
+  if (!reserve) {
+    const found = lastIndexAtOrBefore(index.all.times, atMs);
+    return found === -1 ? null : index.all.apys[found];
   }
-
-  return apy;
+  // Reserve-scoped lookups also match unscoped samples; on ties the later
+  // array position wins, matching the old overwrite-in-order scan.
+  const scoped = index.byReserve.get(reserve);
+  const scopedFound = scoped ? lastIndexAtOrBefore(scoped.times, atMs) : -1;
+  const unscopedFound = lastIndexAtOrBefore(index.unscoped.times, atMs);
+  const scopedPosition =
+    scoped && scopedFound !== -1 ? scoped.positions[scopedFound] : -1;
+  const unscopedPosition =
+    unscopedFound === -1 ? -1 : index.unscoped.positions[unscopedFound];
+  if (scopedPosition === -1 && unscopedPosition === -1) {
+    return null;
+  }
+  return scoped && scopedPosition > unscopedPosition
+    ? scoped.apys[scopedFound]
+    : index.unscoped.apys[unscopedFound];
 }
 
 function calculateWindow(args: {
@@ -424,18 +496,29 @@ function deriveApyBps(args: {
   );
 }
 
-export function principalByMintAt(
-  events: readonly YieldPositionEvent[],
-  at: Date
-): Map<string, bigint> {
-  const principal = new Map<string, bigint>();
+type PrincipalIndex = {
+  prefixes: Map<string, bigint>[];
+  times: number[];
+};
+
+const principalIndexCache = new WeakMap<
+  readonly YieldPositionEvent[],
+  PrincipalIndex
+>();
+
+function getPrincipalIndex(
+  events: readonly YieldPositionEvent[]
+): PrincipalIndex {
+  const cached = principalIndexCache.get(events);
+  if (cached) {
+    return cached;
+  }
+  const index: PrincipalIndex = { prefixes: [], times: [] };
+  const running = new Map<string, bigint>();
   for (const event of events) {
-    if (event.confirmedAt.getTime() > at.getTime()) {
-      break;
-    }
     const mint = event.liquidityMint ?? "";
-    const current = principal.get(mint) ?? BigInt(0);
-    principal.set(
+    const current = running.get(mint) ?? BigInt(0);
+    running.set(
       mint,
       event.type === "deposit"
         ? current + event.amountRaw
@@ -443,8 +526,20 @@ export function principalByMintAt(
         ? current - event.amountRaw
         : BigInt(0)
     );
+    index.prefixes.push(new Map(running));
+    index.times.push(event.confirmedAt.getTime());
   }
-  return principal;
+  principalIndexCache.set(events, index);
+  return index;
+}
+
+export function principalByMintAt(
+  events: readonly YieldPositionEvent[],
+  at: Date
+): Map<string, bigint> {
+  const index = getPrincipalIndex(events);
+  const found = lastIndexAtOrBefore(index.times, at.getTime());
+  return found === -1 ? new Map() : new Map(index.prefixes[found]);
 }
 
 function sumPrincipal(principal: ReadonlyMap<string, bigint>): bigint {
@@ -454,18 +549,22 @@ function sumPrincipal(principal: ReadonlyMap<string, bigint>): bigint {
   );
 }
 
+const snapshotTimesCache = new WeakMap<
+  readonly YieldPortfolioSnapshot[],
+  number[]
+>();
+
 function getPortfolioSnapshotAt(
   snapshots: readonly YieldPortfolioSnapshot[],
   at: Date
 ): YieldPortfolioSnapshot | null {
-  let current: YieldPortfolioSnapshot | null = null;
-  for (const snapshot of snapshots) {
-    if (snapshot.observedAt.getTime() > at.getTime()) {
-      break;
-    }
-    current = snapshot;
+  let times = snapshotTimesCache.get(snapshots);
+  if (!times) {
+    times = snapshots.map((snapshot) => snapshot.observedAt.getTime());
+    snapshotTimesCache.set(snapshots, times);
   }
-  return current;
+  const found = lastIndexAtOrBefore(times, at.getTime());
+  return found === -1 ? null : snapshots[found];
 }
 
 function portfolioApyAt(args: {
