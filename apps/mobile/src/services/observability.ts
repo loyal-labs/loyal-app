@@ -357,6 +357,8 @@ type LifecycleErrorCode =
   | "send_failed"
   | "insufficient_native_sol"
   | "wallet_rejected"
+  | "wallet_account_mismatch"
+  | "wallet_authorization_expired"
   | "wallet_unavailable"
   | "wallet_connection_failed"
   | "wallet_connection_timeout"
@@ -458,6 +460,8 @@ const WALLET_SESSION_ERROR_CODES: Record<
   WalletSessionFailure,
   LifecycleErrorCode
 > = {
+  account_mismatch: "wallet_account_mismatch",
+  authorization_expired: "wallet_authorization_expired",
   connection_failed: "wallet_connection_failed",
   signing_failed: "wallet_signing_failed",
   timeout: "wallet_connection_timeout",
