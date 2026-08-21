@@ -283,7 +283,12 @@ export async function signAndSendPreparedOperations(args: {
   // guards are stale and it fails on-chain with Lighthouse AssertionFailed
   // (custom error 0x1900). Sign each stage in its own wallet session, after
   // the previous stage confirmed, so the wallet simulates against real state.
-  if (signer.kind === "mwa" && operations.length > 1) {
+  // Deeplink signers (Solflare on iOS) have the same transaction-protection
+  // behavior, and each of their sign calls is a full app switch anyway.
+  if (
+    (signer.kind === "mwa" || signer.kind === "deeplink") &&
+    operations.length > 1
+  ) {
     const sent: SentTransaction[] = [];
     for (const operation of operations) {
       try {

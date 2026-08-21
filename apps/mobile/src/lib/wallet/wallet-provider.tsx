@@ -46,6 +46,13 @@ import {
   changePin as changeKeypairPin,
 } from "./keypair-storage";
 import {
+  clearDeeplinkSession,
+  loadDeeplinkSession,
+  storeDeeplinkSession,
+  type StoredDeeplinkSession,
+} from "./deeplink-session-storage";
+import { DeeplinkSigner, disconnectDeeplinkWallet } from "./deeplink-signer";
+import {
   clearMwaAccount,
   loadMwaAccount,
   storeMwaAccount,
@@ -90,6 +97,7 @@ interface WalletContextValue {
     opts?: { alreadyStored?: boolean },
   ) => Promise<void>;
   finalizeMwaSigner: (account: StoredMwaAccount) => Promise<void>;
+  finalizeDeeplinkSigner: (session: StoredDeeplinkSession) => Promise<void>;
   finalizeVaultSigner: (account: VaultAccount) => Promise<void>;
 
   // Lock / unlock
@@ -136,6 +144,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const next = new MwaSigner(mwa.authToken, mwa.publicKey, mwa.label);
         setSigner(next);
         setPublicKey(mwa.publicKey);
+        setWalletSigner(next);
+        setState("vault-unlocked");
+        return;
+      }
+
+      const deeplink = await loadDeeplinkSession();
+      if (deeplink) {
+        const next = new DeeplinkSigner(deeplink);
+        setSigner(next);
+        setPublicKey(deeplink.publicKey);
         setWalletSigner(next);
         setState("vault-unlocked");
         return;
@@ -273,6 +291,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     track(WALLET_SETUP_EVENTS.walletCreated, { source: "mwa" });
   }, []);
 
+  // Deeplink (Phantom/Solflare on iOS) accounts finalize without
+  // PIN/biometric setup, like MWA: the wallet app owns all approval UI.
+  const finalizeDeeplinkSigner = useCallback(
+    async (session: StoredDeeplinkSession) => {
+      await storeDeeplinkSession(session);
+      const next = new DeeplinkSigner(session);
+      setSigner(next);
+      setPublicKey(session.publicKey);
+      setWalletSigner(next);
+      setState("vault-unlocked");
+      identifyWallet(session.publicKey, "deeplink");
+      track(WALLET_SETUP_EVENTS.walletCreated, { source: session.provider });
+    },
+    [],
+  );
+
   // Legacy direct Seed Vault connect — the onboarding fallback for binaries
   // that predate the MWA native module (pre-42 builds receiving current JS
   // via OTA). Like MWA, finalizes without PIN/biometric setup.
@@ -383,8 +417,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         console.warn("[wallet] MWA deauthorize failed", error);
       }
     }
+    if (signer instanceof DeeplinkSigner) {
+      try {
+        await disconnectDeeplinkWallet(signer.session);
+      } catch (error) {
+        console.warn("[wallet] deeplink disconnect failed", error);
+      }
+    }
 
     await clearMwaAccount();
+    await clearDeeplinkSession();
     await clearVaultAccount();
     await clearStoredKeypair();
     // Reset means gone everywhere we put it — a later fresh install must not
@@ -423,6 +465,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       importWallet,
       finalizeSigner,
       finalizeMwaSigner,
+      finalizeDeeplinkSigner,
       finalizeVaultSigner,
       unlock,
       unlockWithBiometrics,
@@ -445,6 +488,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       importWallet,
       finalizeSigner,
       finalizeMwaSigner,
+      finalizeDeeplinkSigner,
       finalizeVaultSigner,
       unlock,
       unlockWithBiometrics,

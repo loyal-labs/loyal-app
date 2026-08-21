@@ -93,6 +93,7 @@
         "tailwind-merge": "^3.5.0",
         "tailwindcss": "^4",
         "text-encoding": "^0.7.0",
+        "tweetnacl": "^1.0.3",
       },
       "devDependencies": {
         "@types/bn.js": "^5.1.6",

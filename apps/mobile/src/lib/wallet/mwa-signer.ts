@@ -7,7 +7,7 @@ import { Platform, TurboModuleRegistry } from "react-native";
 import { env } from "@/config/env";
 
 import { WalletRejectedError } from "./rejection";
-import type { Signer } from "./signer";
+import { assertOwnVersionedSignature, type Signer } from "./signer";
 import {
   clearMwaAccount,
   storeMwaAccount,
@@ -164,27 +164,6 @@ function toWalletSessionFailure(
   return null;
 }
 
-type TweetNaclVerify = (
-  message: Uint8Array,
-  signature: Uint8Array,
-  publicKey: Uint8Array,
-) => boolean;
-
-// Lazy-loaded so tweetnacl's Buffer access never runs at module top-level
-// (same pattern as signer.ts).
-async function getTweetNaclVerify(): Promise<TweetNaclVerify> {
-  const mod = (await import("tweetnacl")) as unknown as {
-    sign?: { detached?: { verify?: TweetNaclVerify } };
-    default?: { sign?: { detached?: { verify?: TweetNaclVerify } } };
-  };
-  const verify =
-    mod.sign?.detached?.verify ?? mod.default?.sign?.detached?.verify;
-  if (typeof verify !== "function") {
-    throw new Error("tweetnacl sign.detached.verify is unavailable");
-  }
-  return verify;
-}
-
 function toBase64Address(publicKey: PublicKey): string {
   return Buffer.from(publicKey.toBytes()).toString("base64");
 }
@@ -299,41 +278,12 @@ export class MwaSigner implements Signer {
         const src = source as VersionedTransaction;
         tx.message = src.message;
         tx.signatures = src.signatures;
-        await this.assertOwnSignature(tx, index);
+        await assertOwnVersionedSignature(tx, this.publicKey, index);
       } else {
         (tx as Transaction).signatures = (source as Transaction).signatures;
       }
     }
     return txs;
-  }
-
-  private async assertOwnSignature(
-    tx: VersionedTransaction,
-    index: number,
-  ): Promise<void> {
-    const address = this.publicKey.toBase58();
-    const signerIndex = tx.message.staticAccountKeys.findIndex((key) =>
-      key.equals(this.publicKey),
-    );
-    if (
-      signerIndex < 0 ||
-      signerIndex >= tx.message.header.numRequiredSignatures
-    ) {
-      throw new Error(
-        `Wallet returned transaction ${index + 1} without ${address} as a signer.`,
-      );
-    }
-    const verify = await getTweetNaclVerify();
-    const valid = verify(
-      tx.message.serialize(),
-      tx.signatures[signerIndex],
-      this.publicKey.toBytes(),
-    );
-    if (!valid) {
-      throw new Error(
-        `The wallet returned an invalid signature for ${address} on transaction ${index + 1}. It may have signed with a different account — reset your wallet in Settings and reconnect.`,
-      );
-    }
   }
 
   private async withWallet<T>(

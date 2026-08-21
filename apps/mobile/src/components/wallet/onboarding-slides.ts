@@ -13,10 +13,10 @@ export type WalletSetupAction = {
 /**
  * Which external-wallet connect path this binary supports: "mwa" on builds
  * with the MWA native module, "seed-vault" as the legacy fallback on older
- * Seeker builds receiving this bundle via OTA, "none" elsewhere (iOS,
- * non-Seeker Android without MWA).
+ * Seeker builds receiving this bundle via OTA, "deeplink" on iOS with
+ * Phantom/Solflare installed, "none" elsewhere.
  */
-export type WalletConnectMode = "mwa" | "seed-vault" | "none";
+export type WalletConnectMode = "mwa" | "seed-vault" | "deeplink" | "none";
 
 export type OnboardingMode = "setup" | "replay";
 
@@ -65,7 +65,10 @@ export function buildWalletSetupActions(
       : {
           id: "connect-wallet",
           label: "Connect Wallet",
-          helperText: "Phantom, Solflare, or Seed Vault",
+          helperText:
+            connectMode === "deeplink"
+              ? "Phantom or Solflare"
+              : "Phantom, Solflare, or Seed Vault",
         },
     ...createAndImport,
   ];
