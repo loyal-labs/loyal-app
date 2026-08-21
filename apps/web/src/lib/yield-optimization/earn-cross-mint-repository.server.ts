@@ -7,10 +7,6 @@ import {
   type EarnCrossMintPolicyIndex,
 } from "./earn-cross-mint-policy-index.shared";
 import { getYieldOptimizationClient } from "./yield-neon-client.server";
-import {
-  deriveEarnCrossMintPolicyIndex,
-  type EarnCrossMintPolicyIndex,
-} from "./earn-cross-mint-policy-index.shared";
 
 export type EarnCrossMintBoundPolicy = {
   account: string;
