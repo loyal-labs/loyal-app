@@ -399,12 +399,19 @@ export default function WalletScreen() {
   return (
     <View className="flex-1 bg-white">
       <LogoHeader onScanPress={() => openSend(true)} />
+      {/* Fits the viewport and stretches (grid rows compress before anything
+          scrolls); the ScrollView stays for pull-to-refresh and as overflow
+          fallback on screens shorter than the grid's compression floor.
+          alwaysBounceVertical keeps the refresh gesture working when content
+          fits exactly and there is nothing to scroll. */}
       <ScrollView
         className="flex-1"
         contentContainerStyle={{
           flexGrow: 1,
           paddingBottom: insets.bottom + 78,
         }}
+        alwaysBounceVertical
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} />
         }
