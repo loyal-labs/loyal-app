@@ -30,7 +30,13 @@ const CELL_BG_SOFT = "rgba(0, 0, 0, 0.03)";
 // minimum row height keeps the two rows visually balanced.
 const GRID_PADDING = 16;
 const GRID_GAP = 8;
-const ROW_MIN_HEIGHT = 188;
+// Compression floor, not a target: rows stretch to split the free space
+// evenly and only stop shrinking here. Mirrors the web wallet home, where
+// the grid rows are minmax(0,1fr) inside a min-h-[400px] grid (~133px/row) —
+// the page fits the viewport on every current iPhone and the ScrollView
+// only actually scrolls below this floor. Designer call 2026-08-21:
+// stretch, don't scroll.
+const ROW_MIN_HEIGHT = 132;
 
 // Red pill that deposits straight into Earn without leaving the wallet. Anchored
 // to the right of the Earn card's bottom row (Figma 257:82753).
