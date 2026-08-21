@@ -24,6 +24,9 @@ const WALLET_PUBLIC_KEY = "wallet_public_key";
 // The mirrored copy is the same PIN-encrypted blob — accepted risk, see the
 // Linear issue: "we protect on our level, icloud is user's responsibility."
 const ICLOUD_SYNC_ENABLED_KEY = "settings.icloudKeychainSync";
+// Restored wallets skip onboarding's biometric-setup step (ASK-2205). Set on
+// adopt, consumed by the wallet provider on the first successful PIN unlock.
+const BIOMETRIC_RESTORE_PENDING_KEY = "wallet.biometricRestorePending";
 const FAILED_ATTEMPTS_KEY = "wallet_failed_attempts";
 const LOCKED_UNTIL_KEY = "wallet_locked_until";
 
@@ -164,6 +167,17 @@ export async function adoptEncryptedKeypair(
   );
   await SecureStore.setItemAsync(WALLET_PUBLIC_KEY, publicKey, KEYCHAIN_OPTIONS);
   await resetAttempts();
+  mmkv.setBoolean(BIOMETRIC_RESTORE_PENDING_KEY, true);
+}
+
+/**
+ * True exactly once after a restore adopted a keypair: the caller (wallet
+ * provider) re-runs biometric setup on the first PIN unlock (ASK-2205).
+ */
+export function consumeBiometricRestorePending(): boolean {
+  const pending = mmkv.getBoolean(BIOMETRIC_RESTORE_PENDING_KEY) ?? false;
+  if (pending) mmkv.delete(BIOMETRIC_RESTORE_PENDING_KEY);
+  return pending;
 }
 
 /**
@@ -238,17 +252,26 @@ export async function getStoredPublicKey(): Promise<string | null> {
   return SecureStore.getItemAsync(WALLET_PUBLIC_KEY);
 }
 
-export async function clearStoredKeypair(): Promise<void> {
+export async function clearStoredKeypair(opts?: {
+  /**
+   * "Remove from this device" (ASK-2206): wipe only local key material and
+   * leave the iCloud Keychain mirror in place so another install can restore.
+   */
+  keepSyncedKeychain?: boolean;
+}): Promise<void> {
   await SecureStore.deleteItemAsync(ENCRYPTED_KEYPAIR_KEY);
   await SecureStore.deleteItemAsync(WALLET_PUBLIC_KEY);
-  // Always clear the synced copies too — a reset must not leave key material
-  // in iCloud regardless of the toggle state at the time.
-  try {
-    await SyncedKeychain.deleteItem(ENCRYPTED_KEYPAIR_KEY);
-    await SyncedKeychain.deleteItem(WALLET_PUBLIC_KEY);
-  } catch (error) {
-    console.warn("[wallet] iCloud Keychain cleanup failed", error);
+  if (!opts?.keepSyncedKeychain) {
+    // "Delete everywhere": a full reset must not leave key material in
+    // iCloud regardless of the toggle state at the time.
+    try {
+      await SyncedKeychain.deleteItem(ENCRYPTED_KEYPAIR_KEY);
+      await SyncedKeychain.deleteItem(WALLET_PUBLIC_KEY);
+    } catch (error) {
+      console.warn("[wallet] iCloud Keychain cleanup failed", error);
+    }
   }
+  mmkv.delete(BIOMETRIC_RESTORE_PENDING_KEY);
   await resetAttempts();
 }
 
