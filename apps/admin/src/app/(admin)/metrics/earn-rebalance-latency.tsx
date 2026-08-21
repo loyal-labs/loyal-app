@@ -37,6 +37,7 @@ import {
 import { getEarnStablecoinSymbol } from "@/lib/earn/stablecoin-monitor.shared";
 
 import type {
+  EarnLatencyChartPoint,
   EarnLatencyPoint,
   EarnLatencyStageKey,
   EarnLatencyStageSummary,
@@ -48,10 +49,10 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 type LatencySeriesKey = EarnLatencyStageKey | "monitorToSubmittedMs";
 type RangeKey = "7d" | "30d" | "all";
 
-type ScatterPoint = EarnLatencyPoint & {
+type ScatterPoint = EarnLatencyChartPoint & {
   durationMs: number;
   seriesLabel: string;
-  submittedAtMs: number;
+  bucketStartedAtMs: number;
 };
 
 const SERIES: ReadonlyArray<{
@@ -174,17 +175,8 @@ function LatencyTooltip({
         {formatDuration(point.durationMs)}
       </div>
       <div className="text-muted-foreground">
-        Submitted {formatUtcTimestamp(point.submittedAtMs)}
-      </div>
-      <div className="text-muted-foreground">
-        {formatShortAddress(point.sourceReserve)} →{" "}
-        {formatShortAddress(point.targetReserve)}
-      </div>
-      <div className="text-muted-foreground">
-        Mint {getEarnStablecoinSymbol(point.liquidityMint) ?? "unknown"}
-      </div>
-      <div className="font-mono text-muted-foreground">
-        Decision {point.decisionId}
+        Bucket {formatUtcTimestamp(point.bucketStartedAtMs)} ·{" "}
+        {point.sampleCount.toLocaleString("en-US")} bucket samples
       </div>
     </div>
   );
@@ -253,7 +245,7 @@ function LatencyTable({
   points: EarnLatencyPoint[];
   selectedSeries: LatencySeriesKey[];
 }) {
-  const rows = [...points].reverse().slice(0, 50);
+  const rows = points.slice(0, 50);
 
   return (
     <div className="max-h-[420px] overflow-auto rounded-md border">
@@ -317,12 +309,18 @@ export function EarnRebalanceLatency({
     if (range === "all" || data.points.length === 0) {
       return data.points;
     }
-    const latest = Date.parse(data.points[data.points.length - 1].submittedAt);
+    const latest = Date.parse(
+      data.points[data.points.length - 1].bucketStartedAt
+    );
     const days = range === "7d" ? 7 : 30;
     return data.points.filter(
-      (point) => Date.parse(point.submittedAt) >= latest - days * DAY_MS
+      (point) => Date.parse(point.bucketStartedAt) >= latest - days * DAY_MS
     );
   }, [data.points, range]);
+  const filteredExecutionCount = filteredPoints.reduce(
+    (total, point) => total + point.sampleCount,
+    0
+  );
 
   const scatterBySeries = useMemo(
     () =>
@@ -339,7 +337,7 @@ export function EarnRebalanceLatency({
                 ...point,
                 durationMs: duration,
                 seriesLabel: series.label,
-                submittedAtMs: Date.parse(point.submittedAt),
+                bucketStartedAtMs: Date.parse(point.bucketStartedAt),
               },
             ];
           }),
@@ -495,14 +493,14 @@ export function EarnRebalanceLatency({
             })}
           </div>
           <p className="text-xs text-muted-foreground">
-            {filteredPoints.length.toLocaleString("en-US")} executions in the
+            {filteredExecutionCount.toLocaleString("en-US")} executions in the
             selected range · updated {formatUtcTimestamp(data.fetchedAt)}
           </p>
         </CardHeader>
         <CardContent className="min-w-0">
           {showTable ? (
             <LatencyTable
-              points={filteredPoints}
+              points={data.latestPoints}
               selectedSeries={selectedSeries}
             />
           ) : (
@@ -517,9 +515,9 @@ export function EarnRebalanceLatency({
                 <CartesianGrid />
                 <XAxis
                   axisLine={false}
-                  dataKey="submittedAtMs"
+                  dataKey="bucketStartedAtMs"
                   domain={["dataMin", "dataMax"]}
-                  name="First submission time"
+                  name="Bucket start time"
                   tickFormatter={formatUtcTick}
                   tickLine={false}
                   tickMargin={8}

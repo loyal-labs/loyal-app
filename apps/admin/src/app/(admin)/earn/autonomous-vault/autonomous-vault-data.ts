@@ -1,6 +1,13 @@
 import "server-only";
 
-import DLMM from "@meteora-ag/dlmm";
+import DLMM, {
+  createProgram,
+  decodeAccount,
+  deriveBinArrayBitmapExtension,
+  getPriceOfBinByBinId,
+  type LbPair,
+  wrapPosition,
+} from "@meteora-ag/dlmm";
 import {
   calculateKaminoRedeemableLiquidityAmountRaw,
   parseKaminoObligationAccount,
@@ -12,7 +19,12 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { type AccountInfo, Connection, PublicKey } from "@solana/web3.js";
+import {
+  AccountInfo,
+  Connection,
+  PublicKey,
+  SYSVAR_CLOCK_PUBKEY,
+} from "@solana/web3.js";
 
 import { serverEnv } from "@/lib/core/config/server";
 
@@ -158,18 +170,128 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
       true
     );
 
-    const [kaminoAccounts, dlmm] = await Promise.all([
-      connection.getMultipleAccountsInfoAndContext(
-        [
-          MANIFEST.kaminoObligation,
-          MANIFEST.kaminoReserve,
-          vaultUsdc,
-          vaultLoyal,
-        ],
-        { commitment: "finalized" }
-      ),
-      DLMM.create(connection, MANIFEST.meteoraPool),
-    ]);
+    const positionProgram = createProgram(connection);
+    const [binArrayBitmapExtension] = deriveBinArrayBitmapExtension(
+      MANIFEST.meteoraPool,
+      positionProgram.programId
+    );
+    const initialAccountKeys = [
+      MANIFEST.kaminoObligation,
+      MANIFEST.kaminoReserve,
+      vaultUsdc,
+      vaultLoyal,
+      MANIFEST.meteoraPosition,
+      MANIFEST.meteoraPool,
+      binArrayBitmapExtension,
+      SYSVAR_CLOCK_PUBKEY,
+    ];
+    // The pool and position are independent of Kamino state, so fetch every
+    // account needed to derive the dependent keys in one finalized round.
+    const kaminoAccounts = await connection.getMultipleAccountsInfoAndContext(
+      initialAccountKeys,
+      { commitment: "finalized" }
+    );
+    const positionAccount = kaminoAccounts.value[4] ?? null;
+    const poolAccount = kaminoAccounts.value[5] ?? null;
+    if (!positionAccount) {
+      throw new Error(
+        "Meteora position is missing from finalized mainnet state."
+      );
+    }
+    if (!poolAccount) {
+      throw new Error("Meteora pool is missing from finalized mainnet state.");
+    }
+
+    const decodedPosition = wrapPosition(
+      positionProgram,
+      MANIFEST.meteoraPosition,
+      positionAccount
+    );
+    const lbPair = decodeAccount<LbPair>(
+      positionProgram,
+      "lbPair",
+      poolAccount.data
+    );
+    const positionAccountKeys = [
+      SYSVAR_CLOCK_PUBKEY,
+      ...decodedPosition.getBinArrayKeysCoverage(positionProgram.programId),
+    ];
+    const dlmmAccountKeys = [
+      lbPair.reserveX,
+      lbPair.reserveY,
+      lbPair.tokenXMint,
+      lbPair.tokenYMint,
+      lbPair.rewardInfos[0].vault,
+      lbPair.rewardInfos[1].vault,
+      lbPair.rewardInfos[0].mint,
+      lbPair.rewardInfos[1].mint,
+    ];
+    const initialAccountKeySet = new Set(
+      initialAccountKeys.map((publicKey) => publicKey.toBase58())
+    );
+    const dependentAccountKeys = [
+      ...new Map(
+        [...dlmmAccountKeys, ...positionAccountKeys]
+          .filter(
+            (publicKey) => !initialAccountKeySet.has(publicKey.toBase58())
+          )
+          .map((publicKey) => [publicKey.toBase58(), publicKey])
+      ).values(),
+    ];
+    const dependentAccounts = await connection.getMultipleAccountsInfo(
+      dependentAccountKeys,
+      { commitment: "finalized" }
+    );
+    const accountCache = new Map<string, AccountInfo<Buffer> | null>();
+    for (const [index, publicKey] of initialAccountKeys.entries()) {
+      accountCache.set(
+        publicKey.toBase58(),
+        kaminoAccounts.value[index] ?? null
+      );
+    }
+    for (const [index, publicKey] of dependentAccountKeys.entries()) {
+      accountCache.set(publicKey.toBase58(), dependentAccounts[index] ?? null);
+    }
+    const cachedAccountsFor = (publicKeys: PublicKey[]) => {
+      if (
+        !publicKeys.every((publicKey) => accountCache.has(publicKey.toBase58()))
+      ) {
+        return null;
+      }
+      return publicKeys.map(
+        (publicKey) => accountCache.get(publicKey.toBase58()) ?? null
+      );
+    };
+    const originalGetAccountInfo = connection.getAccountInfo;
+    const originalGetAccountInfoBound = originalGetAccountInfo.bind(connection);
+    const originalGetMultipleAccountsInfo = connection.getMultipleAccountsInfo;
+    const originalGetMultipleAccountsInfoBound =
+      originalGetMultipleAccountsInfo.bind(connection);
+    connection.getAccountInfo = (async (...args) => {
+      const [publicKey] = args;
+      if (accountCache.has(publicKey.toBase58())) {
+        return accountCache.get(publicKey.toBase58()) ?? null;
+      }
+      return originalGetAccountInfoBound(...args);
+    }) as typeof connection.getAccountInfo;
+    connection.getMultipleAccountsInfo = (async (...args) => {
+      const [publicKeys] = args;
+      const cachedAccounts = cachedAccountsFor(publicKeys);
+      if (cachedAccounts) {
+        return cachedAccounts;
+      }
+      return originalGetMultipleAccountsInfoBound(...args);
+    }) as typeof connection.getMultipleAccountsInfo;
+
+    let dlmm;
+    let position;
+    try {
+      dlmm = await DLMM.create(connection, MANIFEST.meteoraPool);
+      position = await dlmm.getPosition(MANIFEST.meteoraPosition);
+    } finally {
+      connection.getAccountInfo = originalGetAccountInfo;
+      connection.getMultipleAccountsInfo = originalGetMultipleAccountsInfo;
+    }
     const obligationAccount = requireAccount(
       kaminoAccounts.value[0] ?? null,
       "Kamino obligation",
@@ -224,14 +346,18 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
     ) {
       throw new Error("Meteora pool mints differ from the manifest.");
     }
-    const [position, activeBin] = await Promise.all([
-      dlmm.getPosition(MANIFEST.meteoraPosition),
-      dlmm.getActiveBin(),
-    ]);
+    requireAccount(positionAccount, "Meteora position", dlmm.program.programId);
     if (!position.positionData.owner.equals(MANIFEST.vault)) {
       throw new Error("Meteora position is not owned by the autonomous vault.");
     }
-    const priceUsdcPerLoyal = parseReferencePrice(activeBin.pricePerToken);
+    // DLMM.create already fetched the finalized pool account. Reuse its active
+    // bin instead of fetching the same pool and bin-array accounts again.
+    const activeBinId = dlmm.lbPair.activeId;
+    const priceUsdcPerLoyal = parseReferencePrice(
+      dlmm.fromPricePerLamport(
+        getPriceOfBinByBinId(activeBinId, dlmm.lbPair.binStep).toNumber()
+      )
+    );
     const feesLoyalRaw = bigintFromSdk(position.positionData.feeX);
     const feesUsdcRaw = bigintFromSdk(position.positionData.feeY);
     const meteoraLoyalRaw =
@@ -241,13 +367,10 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
     const fundedRange = getFundedRange(position.positionData.positionBinData);
     const inFundedRange =
       fundedRange !== null &&
-      activeBin.binId >= fundedRange.min &&
-      activeBin.binId <= fundedRange.max;
+      activeBinId >= fundedRange.min &&
+      activeBinId <= fundedRange.max;
     const poolEnabled = Number(dlmm.lbPair.status) === 0;
-    const observedSlot = Math.max(
-      kaminoAccounts.context.slot,
-      await connection.getSlot("finalized")
-    );
+    const snapshotSlot = kaminoAccounts.context.slot;
     const deployedUsdcRaw = kaminoValueUsdcRaw + meteoraUsdcRaw;
 
     return {
@@ -262,14 +385,14 @@ async function loadAutonomousVaultData(): Promise<AutonomousVaultData> {
         valueUsdcRaw: kaminoValueUsdcRaw,
       },
       meteora: {
-        activeBin: activeBin.binId,
+        activeBin: activeBinId,
         loyalRaw: meteoraLoyalRaw,
         position: MANIFEST.meteoraPosition.toBase58(),
         priceUsdcPerLoyal,
         usdcRaw: meteoraUsdcRaw,
       },
       observedAt,
-      observedSlot,
+      observedSlot: snapshotSlot,
       status: poolEnabled && inFundedRange ? "healthy" : "attention",
       totalLoyalRaw: meteoraLoyalRaw + idleLoyalRaw,
       totalUsdcRaw: deployedUsdcRaw + idleUsdcRaw,

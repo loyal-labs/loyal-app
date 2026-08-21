@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react";
 
 import {
@@ -114,10 +114,171 @@ type RebalanceApiData = {
   autodeposit: SerializedAutodepositFailureRange[];
   decisions: SerializedRebalanceDecisionRow[];
   executedRebalances: SerializedExecutedEarnRebalanceHistory;
+  initialAudit: AuditApiData;
   last30DaysRebalances: Last30DaysRebalancePoint[];
   routes: SerializedActiveReserveRouteRow[];
   vaultRebalanceFrequency: SerializedEarnVaultRebalanceFrequency;
 };
+
+type SerializedSafeReserveApyMonitorData = Omit<
+  SafeReserveApyMonitorData,
+  "chartPoints"
+> & {
+  observedAtMs: number[];
+  values: Array<Array<number | null>>;
+};
+
+type SerializedExecutedRebalanceTuple = readonly [
+  amountRaw: string,
+  authorityIndex: number,
+  confirmedSlot: string,
+  currentDepositRaw: string,
+  executedAt: string,
+  id: string,
+  liquidityMintIndex: number | null,
+  routeMode: RebalanceRouteMode,
+  sourceReserveIndex: number,
+  sourceLiquidityMintIndex: number | null,
+  swapFeeLamports: string,
+  targetReserveIndex: number,
+  targetLiquidityMintIndex: number | null,
+  userRank: number
+];
+
+type SerializedVaultFrequencyTuple = readonly [
+  allCount: number,
+  currentDepositRaw: string,
+  currentReserve: string | null,
+  depositRank: number,
+  last12hCount: number,
+  last2hCount: number,
+  last7dCount: number,
+  liquidityMint: string | null,
+  positionCount: number,
+  routeMode: RebalanceRouteMode,
+  vaultId: string,
+  vaultPubkey: string
+];
+
+type RebalanceApiWireData = Omit<
+  RebalanceApiData,
+  "apyData" | "executedRebalances" | "vaultRebalanceFrequency"
+> & {
+  apyData: SerializedSafeReserveApyMonitorData;
+  executedRebalances: Omit<
+    SerializedExecutedEarnRebalanceHistory,
+    "chartPoints" | "details"
+  > & {
+    chartPoints: ReadonlyArray<SerializedExecutedRebalanceTuple>;
+    details: ReadonlyArray<SerializedExecutedRebalanceTuple>;
+    strings: string[];
+  };
+  vaultRebalanceFrequency: Omit<
+    SerializedEarnVaultRebalanceFrequency,
+    "chartPoints" | "details"
+  > & {
+    chartPoints: ReadonlyArray<SerializedVaultFrequencyTuple>;
+    details: ReadonlyArray<SerializedVaultFrequencyTuple>;
+  };
+};
+
+function deserializeExecutedRebalance(
+  [
+    amountRaw,
+    authorityIndex,
+    confirmedSlot,
+    currentDepositRaw,
+    executedAt,
+    id,
+    liquidityMintIndex,
+    routeMode,
+    sourceReserveIndex,
+    sourceLiquidityMintIndex,
+    swapFeeLamports,
+    targetReserveIndex,
+    targetLiquidityMintIndex,
+    userRank,
+  ]: SerializedExecutedRebalanceTuple,
+  strings: readonly string[]
+): SerializedExecutedEarnRebalanceHistory["chartPoints"][number] {
+  return {
+    amountRaw,
+    authority: strings[authorityIndex] ?? "",
+    confirmedSlot,
+    currentDepositRaw,
+    executedAt,
+    id,
+    liquidityMint:
+      liquidityMintIndex === null ? null : strings[liquidityMintIndex] ?? null,
+    routeMode,
+    sourceLiquidityMint:
+      sourceLiquidityMintIndex === null
+        ? null
+        : strings[sourceLiquidityMintIndex] ?? null,
+    sourceReserve: strings[sourceReserveIndex] ?? "",
+    swapFeeLamports,
+    targetLiquidityMint:
+      targetLiquidityMintIndex === null
+        ? null
+        : strings[targetLiquidityMintIndex] ?? null,
+    targetReserve: strings[targetReserveIndex] ?? "",
+    userRank,
+  };
+}
+
+function deserializeVaultFrequency([
+  allCount,
+  currentDepositRaw,
+  currentReserve,
+  depositRank,
+  last12hCount,
+  last2hCount,
+  last7dCount,
+  liquidityMint,
+  positionCount,
+  routeMode,
+  vaultId,
+  vaultPubkey,
+]: SerializedVaultFrequencyTuple): SerializedEarnVaultRebalanceFrequency["chartPoints"][number] {
+  return {
+    allCount,
+    currentDepositRaw,
+    currentReserve,
+    depositRank,
+    last12hCount,
+    last2hCount,
+    last7dCount,
+    liquidityMint,
+    positionCount,
+    routeMode,
+    vaultId,
+    vaultPubkey,
+  };
+}
+
+function deserializeApyData(
+  data: SerializedSafeReserveApyMonitorData
+): SafeReserveApyMonitorData {
+  return {
+    chartPoints: data.observedAtMs.map((observedAtMs, pointIndex) => {
+      const point: SafeReserveApyMonitorData["chartPoints"][number] = {
+        observedAt: new Date(observedAtMs).toISOString(),
+        observedAtMs,
+      };
+
+      for (const [seriesIndex, series] of data.series.entries()) {
+        point[series.key] = data.values[seriesIndex]?.[pointIndex] ?? null;
+      }
+
+      return point;
+    }),
+    generatedAt: data.generatedAt,
+    sampleIntervalMinutes: data.sampleIntervalMinutes,
+    series: data.series,
+    statuses: data.statuses,
+    window: data.window,
+  };
+}
 
 type LoadState =
   | { status: "loading" }
@@ -977,8 +1138,8 @@ function AuditSummaryStrip({
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>
-          Showing {activePage.rows.length.toLocaleString()} newest in-progress
-          rows
+          Showing {activePage.rows.length.toLocaleString("en-US")} newest
+          in-progress rows
         </span>
         {activePage.nextCursor ? (
           <Button
@@ -1000,8 +1161,10 @@ function AuditSummaryStrip({
 }
 
 function RebalanceAuditCard({
+  initialData,
   reserveLabels,
 }: {
+  initialData: AuditApiData;
   reserveLabels: ReadonlyMap<string, string>;
 }) {
   const [view, setView] = useState<RebalanceAuditView>(DEFAULT_AUDIT_VIEW);
@@ -1013,7 +1176,11 @@ function RebalanceAuditCard({
   const [activeCursor, setActiveCursor] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [state, setState] = useState<AuditLoadState>({ status: "loading" });
+  const [state, setState] = useState<AuditLoadState>({
+    data: initialData,
+    status: "ready",
+  });
+  const skipInitialDefaultLoad = useRef(true);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1043,6 +1210,21 @@ function RebalanceAuditCard({
     if (!hydrated) {
       return;
     }
+
+    if (
+      skipInitialDefaultLoad.current &&
+      view === DEFAULT_AUDIT_VIEW &&
+      range === DEFAULT_AUDIT_RANGE &&
+      routeMode === "same_mint" &&
+      errorFilter === DEFAULT_ERROR_FILTER &&
+      cursor === null &&
+      activeCursor === null &&
+      refreshToken === 0
+    ) {
+      skipInitialDefaultLoad.current = false;
+      return;
+    }
+    skipInitialDefaultLoad.current = false;
 
     const controller = new AbortController();
     let mounted = true;
@@ -1263,13 +1445,17 @@ function RebalanceAuditCard({
                 <TabsTrigger value="completed_rebalances" className="h-10">
                   Completed rebalances
                   <Badge variant="outline">
-                    {state.data.summary.completedRebalances.toLocaleString()}
+                    {state.data.summary.completedRebalances.toLocaleString(
+                      "en-US"
+                    )}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="completed_deposits" className="h-10">
                   Completed deposits
                   <Badge variant="outline">
-                    {state.data.summary.completedDeposits.toLocaleString()}
+                    {state.data.summary.completedDeposits.toLocaleString(
+                      "en-US"
+                    )}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="errors" className="h-10">
@@ -1279,7 +1465,7 @@ function RebalanceAuditCard({
                       state.data.summary.errors > 0 ? "destructive" : "outline"
                     }
                   >
-                    {state.data.summary.errors.toLocaleString()}
+                    {state.data.summary.errors.toLocaleString("en-US")}
                   </Badge>
                 </TabsTrigger>
               </TabsList>
@@ -1313,7 +1499,7 @@ function RebalanceAuditCard({
                     type="button"
                     variant={errorFilter === value ? "secondary" : "ghost"}
                   >
-                    {label} ({count.toLocaleString()})
+                    {label} ({count.toLocaleString("en-US")})
                   </Button>
                 ))}
               </div>
@@ -1327,8 +1513,8 @@ function RebalanceAuditCard({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
               <span>
-                Showing {state.data.page.rows.length.toLocaleString()} newest
-                rows
+                Showing {state.data.page.rows.length.toLocaleString("en-US")}{" "}
+                newest rows
               </span>
               <Button
                 disabled={!state.data.page.nextCursor}
@@ -1443,11 +1629,50 @@ function RebalanceMonitorFallback() {
   );
 }
 
-export function RebalanceMonitorClient() {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+function deserializeRebalanceApiData(
+  wireData: RebalanceApiWireData
+): RebalanceApiData {
+  return {
+    ...wireData,
+    apyData: deserializeApyData(wireData.apyData),
+    executedRebalances: {
+      ...wireData.executedRebalances,
+      chartPoints: wireData.executedRebalances.chartPoints.map((row) =>
+        deserializeExecutedRebalance(row, wireData.executedRebalances.strings)
+      ),
+      details: wireData.executedRebalances.details.map((row) =>
+        deserializeExecutedRebalance(row, wireData.executedRebalances.strings)
+      ),
+    },
+    vaultRebalanceFrequency: {
+      ...wireData.vaultRebalanceFrequency,
+      chartPoints: wireData.vaultRebalanceFrequency.chartPoints.map(
+        deserializeVaultFrequency
+      ),
+      details: wireData.vaultRebalanceFrequency.details.map(
+        deserializeVaultFrequency
+      ),
+    },
+  };
+}
+
+export function RebalanceMonitorClient({
+  initialData,
+}: {
+  initialData?: RebalanceApiWireData;
+}) {
+  const [state, setState] = useState<LoadState>(() =>
+    initialData
+      ? { data: deserializeRebalanceApiData(initialData), status: "ready" }
+      : { status: "loading" }
+  );
   const [selectedMint, setSelectedMint] = useState("USDC");
 
   useEffect(() => {
+    if (initialData) {
+      return;
+    }
+
     const controller = new AbortController();
 
     async function loadMonitor() {
@@ -1463,8 +1688,11 @@ export function RebalanceMonitorClient() {
           );
         }
 
-        const data = (await response.json()) as RebalanceApiData;
-        setState({ data, status: "ready" });
+        const wireData = (await response.json()) as RebalanceApiWireData;
+        setState({
+          data: deserializeRebalanceApiData(wireData),
+          status: "ready",
+        });
       } catch (error) {
         if (controller.signal.aborted) {
           return;
@@ -1483,7 +1711,7 @@ export function RebalanceMonitorClient() {
     void loadMonitor();
 
     return () => controller.abort();
-  }, []);
+  }, [initialData]);
 
   if (state.status === "loading") {
     return <RebalanceMonitorFallback />;
@@ -1533,24 +1761,53 @@ export function RebalanceMonitorClient() {
   const filteredExecutedRebalances = selectedMintAddress
     ? {
         ...state.data.executedRebalances,
-        executions: state.data.executedRebalances.executions.filter(
+        chartPoints: state.data.executedRebalances.chartPoints.filter(
           (execution) =>
             execution.routeMode === "cross_mint" ||
             execution.liquidityMint === selectedMintAddress
         ),
+        details: state.data.executedRebalances.details.filter(
+          (execution) =>
+            execution.routeMode === "cross_mint" ||
+            execution.liquidityMint === selectedMintAddress
+        ),
+        summaries: state.data.executedRebalances.summaries.filter(
+          (summary) =>
+            summary.routeMode === "cross_mint" ||
+            summary.liquidityMint === selectedMintAddress
+        ),
       }
     : state.data.executedRebalances;
   const filteredFrequencyVaults = selectedMintAddress
-    ? state.data.vaultRebalanceFrequency.vaults.filter(
+    ? state.data.vaultRebalanceFrequency.chartPoints.filter(
         (vault) =>
           vault.routeMode === "cross_mint" ||
           vault.liquidityMint === selectedMintAddress
       )
-    : state.data.vaultRebalanceFrequency.vaults;
+    : state.data.vaultRebalanceFrequency.chartPoints;
+  const filteredFrequencyDetails = selectedMintAddress
+    ? state.data.vaultRebalanceFrequency.details.filter(
+        (vault) =>
+          vault.routeMode === "cross_mint" ||
+          vault.liquidityMint === selectedMintAddress
+      )
+    : state.data.vaultRebalanceFrequency.details;
+  const filteredFrequencySummaries = selectedMintAddress
+    ? state.data.vaultRebalanceFrequency.summaries.filter(
+        (summary) =>
+          summary.routeMode === "cross_mint" ||
+          summary.liquidityMint === selectedMintAddress
+      )
+    : state.data.vaultRebalanceFrequency.summaries;
   const filteredVaultRebalanceFrequency = {
     ...state.data.vaultRebalanceFrequency,
-    vaultCount: filteredFrequencyVaults.length,
-    vaults: filteredFrequencyVaults,
+    chartPoints: filteredFrequencyVaults,
+    details: filteredFrequencyDetails,
+    summaries: filteredFrequencySummaries,
+    vaultCount: filteredFrequencySummaries.reduce(
+      (total, summary) => total + summary.vaultCount,
+      0
+    ),
   };
   const crossMintApyData = getCrossMintApyData(state.data.apyData);
 
@@ -1568,7 +1825,9 @@ export function RebalanceMonitorClient() {
         <CardContent>
           <Select value={selectedMint} onValueChange={setSelectedMint}>
             <SelectTrigger className="w-full sm:w-56">
-              <SelectValue placeholder="Select stablecoin" />
+              <SelectValue>
+                {selectedMint === "all" ? "All stablecoins" : selectedMint}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All stablecoins</SelectItem>
@@ -1622,15 +1881,22 @@ export function RebalanceMonitorClient() {
       <RebalanceActivityChart data={state.data.activity} />
       <ExecutedEarnRebalancesChart
         data={filteredExecutedRebalances}
+        key={`executed-${selectedMint}`}
+        liquidityMint={selectedMintAddress}
         reserveLabels={reserveLabels}
       />
       <EarnVaultRebalanceFrequencyChart
         data={filteredVaultRebalanceFrequency}
+        key={`frequency-${selectedMint}`}
+        liquidityMint={selectedMintAddress}
         reserveStatuses={filteredApyData.statuses}
       />
       <Last30DaysRebalanceChart data={state.data.last30DaysRebalances} />
       <AutodepositFailuresChart data={state.data.autodeposit} />
-      <RebalanceAuditCard reserveLabels={reserveLabels} />
+      <RebalanceAuditCard
+        initialData={state.data.initialAudit}
+        reserveLabels={reserveLabels}
+      />
     </div>
   );
 }

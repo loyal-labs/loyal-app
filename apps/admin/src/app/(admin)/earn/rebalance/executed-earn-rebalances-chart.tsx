@@ -69,9 +69,23 @@ export type SerializedExecutedEarnRebalanceRow = {
 };
 
 export type SerializedExecutedEarnRebalanceHistory = {
-  executions: SerializedExecutedEarnRebalanceRow[];
+  chartPoints: SerializedExecutedEarnRebalanceRow[];
+  details: SerializedExecutedEarnRebalanceRow[];
   generatedAt: string;
   status: "available" | "unavailable";
+  summaries: SerializedExecutedEarnRebalanceSummary[];
+};
+
+export type SerializedExecutedEarnRebalanceSummary = {
+  executionCount: number;
+  executionCount30d: number;
+  executionCount7d: number;
+  fullyWithdrawnCount: number;
+  fullyWithdrawnCount30d: number;
+  fullyWithdrawnCount7d: number;
+  liquidityMint: string | null;
+  routeMode: RebalanceRouteMode;
+  swapFeeLamports: string;
   userCount: number;
 };
 
@@ -219,19 +233,25 @@ function ExecutedRebalanceTooltip({
 
 export function ExecutedEarnRebalancesChart({
   data,
+  liquidityMint,
   reserveLabels,
 }: {
   data: SerializedExecutedEarnRebalanceHistory;
+  liquidityMint: string | null;
   reserveLabels: ReadonlyMap<string, string>;
 }) {
   const [range, setRange] = useState<RangeKey>("all");
   const [routeMode, setRouteMode] = useState<RebalanceRouteMode>("same_mint");
   const [scale, setScale] = useState<DepositScale>("log");
   const [showTable, setShowTable] = useState(false);
+  const [detailRows, setDetailRows] = useState(data.details);
+  const [detailStatus, setDetailStatus] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
 
   const points = useMemo(
     () =>
-      data.executions
+      data.chartPoints
         .filter((execution) => execution.routeMode === routeMode)
         .map((execution) => ({
           ...execution,
@@ -241,8 +261,60 @@ export function ExecutedEarnRebalancesChart({
           executedAtMs: Date.parse(execution.executedAt),
         }))
         .filter((execution) => Number.isFinite(execution.executedAtMs)),
-    [data.executions, routeMode]
+    [data.chartPoints, routeMode]
   );
+
+  const details = useMemo(
+    () =>
+      detailRows
+        .filter((execution) => execution.routeMode === routeMode)
+        .map((execution) => ({
+          ...execution,
+          depositAmount:
+            Number(BigInt(execution.currentDepositRaw)) /
+            10 ** STABLECOIN_DECIMALS,
+          executedAtMs: Date.parse(execution.executedAt),
+        }))
+        .filter((execution) => Number.isFinite(execution.executedAtMs)),
+    [detailRows, routeMode]
+  );
+
+  async function toggleTable() {
+    if (showTable) {
+      setShowTable(false);
+      return;
+    }
+    if (detailRows.length > 0 || data.status !== "available") {
+      setShowTable(true);
+      return;
+    }
+
+    setDetailStatus("loading");
+    try {
+      const searchParams = new URLSearchParams({ kind: "executed" });
+      if (liquidityMint !== null) {
+        searchParams.set("liquidityMint", liquidityMint);
+      }
+      const response = await fetch(
+        `/api/earn/rebalance/details?${searchParams.toString()}`,
+        {
+          cache: "no-store",
+          credentials: "same-origin",
+        }
+      );
+      if (!response.ok) {
+        throw new Error(`Execution details request failed: ${response.status}`);
+      }
+      const result = (await response.json()) as {
+        details: SerializedExecutedEarnRebalanceRow[];
+      };
+      setDetailRows(result.details);
+      setDetailStatus("idle");
+      setShowTable(true);
+    } catch {
+      setDetailStatus("error");
+    }
+  }
 
   const filteredPoints = useMemo(() => {
     if (range === "all" || points.length === 0) {
@@ -254,6 +326,17 @@ export function ExecutedEarnRebalancesChart({
       (point) => point.executedAtMs >= latest - days * DAY_MS
     );
   }, [points, range]);
+
+  const filteredDetails = useMemo(() => {
+    if (range === "all" || details.length === 0) {
+      return details;
+    }
+    const latest = details[0].executedAtMs;
+    const days = range === "7d" ? 7 : 30;
+    return details.filter(
+      (point) => point.executedAtMs >= latest - days * DAY_MS
+    );
+  }, [details, range]);
 
   const sourceReserves = useMemo(
     () => [...new Set(points.map((point) => point.sourceReserve))].sort(),
@@ -272,8 +355,32 @@ export function ExecutedEarnRebalancesChart({
     ])
   ) satisfies ChartConfig;
 
-  const distinctUserCount = new Set(points.map((point) => point.authority))
-    .size;
+  const routeSummaries = data.summaries.filter(
+    (item) => item.routeMode === routeMode
+  );
+  const exactExecutionCount = routeSummaries.reduce(
+    (total, item) =>
+      total +
+      (range === "all"
+        ? item.executionCount
+        : range === "30d"
+        ? item.executionCount30d
+        : item.executionCount7d),
+    0
+  );
+  const exactFullyWithdrawnCount = routeSummaries.reduce(
+    (total, item) =>
+      total +
+      (range === "all"
+        ? item.fullyWithdrawnCount
+        : range === "30d"
+        ? item.fullyWithdrawnCount30d
+        : item.fullyWithdrawnCount7d),
+    0
+  );
+  const distinctUserCount = new Set(
+    filteredPoints.map((point) => point.authority)
+  ).size;
   const positiveDeposits = filteredPoints
     .map((point) => point.depositAmount)
     .filter((amount) => amount > 0 && Number.isFinite(amount));
@@ -288,18 +395,16 @@ export function ExecutedEarnRebalancesChart({
     logFloor,
     useLogScale ? Math.max(...positiveDeposits) : 1
   );
-  const zeroDepositCount = filteredPoints.length - positiveDeposits.length;
   const maxDepositAmount =
     positiveDeposits.length > 0 ? Math.max(...positiveDeposits) : 1;
   const scatterPoints = filteredPoints.map((point) => ({
     ...point,
     logDepositAmount: point.depositAmount > 0 ? point.depositAmount : logFloor,
   }));
-  const tableRows = [...filteredPoints].reverse().slice(0, 50);
-  const swapFeeLamports = points.reduce(
-    (total, point) => total + BigInt(point.swapFeeLamports),
-    BigInt(0)
-  );
+  const tableRows = filteredDetails.slice(0, 50);
+  const swapFeeLamports = routeSummaries
+    .reduce((total, item) => total + BigInt(item.swapFeeLamports), BigInt(0))
+    .toString();
 
   if (data.status === "unavailable") {
     return (
@@ -367,12 +472,17 @@ export function ExecutedEarnRebalancesChart({
               </div>
               <Button
                 aria-pressed={showTable}
-                onClick={() => setShowTable((value) => !value)}
+                disabled={detailStatus === "loading"}
+                onClick={() => void toggleTable()}
                 size="sm"
                 type="button"
                 variant={showTable ? "secondary" : "outline"}
               >
-                Table
+                {detailStatus === "loading"
+                  ? "Loading table…"
+                  : detailStatus === "error"
+                  ? "Retry table"
+                  : "Table"}
               </Button>
             </div>
             {showTable ? null : (
@@ -386,19 +496,19 @@ export function ExecutedEarnRebalancesChart({
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
           <span>
-            {points.length.toLocaleString("en-US")} confirmed executions
+            {exactExecutionCount.toLocaleString("en-US")} confirmed executions
           </span>
           <span>
             {distinctUserCount.toLocaleString("en-US")} distinct users
           </span>
           <span>
-            {filteredPoints.length.toLocaleString("en-US")} shown ·{" "}
+            {exactExecutionCount.toLocaleString("en-US")} shown ·{" "}
             {rangeLabel(range)}
           </span>
           <span>Updated {formatUtcTimestamp(data.generatedAt)}</span>
           {routeMode === "cross_mint" ? (
             <span className="font-medium text-foreground">
-              {formatSwapFee(swapFeeLamports.toString())} finalized swap fees
+              {formatSwapFee(swapFeeLamports)} finalized swap fees
             </span>
           ) : null}
         </div>
@@ -584,15 +694,19 @@ export function ExecutedEarnRebalancesChart({
               : "Y-axis labels sample current deposit amounts"}
             ; hover a dot for the exact wallet, current deposit, route, amount,
             decision, and slot.
-            {useLogScale && zeroDepositCount > 0
-              ? ` ${zeroDepositCount.toLocaleString("en-US")} fully withdrawn ${
-                  zeroDepositCount === 1 ? "execution sits" : "executions sit"
+            {useLogScale && exactFullyWithdrawnCount > 0
+              ? ` ${exactFullyWithdrawnCount.toLocaleString(
+                  "en-US"
+                )} fully withdrawn ${
+                  exactFullyWithdrawnCount === 1
+                    ? "execution sits"
+                    : "executions sit"
                 } on the axis floor.`
               : ""}
           </p>
         ) : (
           <p className="mt-3 text-xs text-muted-foreground">
-            Showing the 50 most recent executions in the selected range.
+            Showing the exact 50 most recent executions in the selected range.
           </p>
         )}
       </CardContent>

@@ -237,7 +237,7 @@ async function loadCurrentCandidates(
   }));
 }
 
-async function loadCurrentReserveStatuses(
+export async function getCurrentSafeReserveApyStatuses(
   db: KaminoTimescaleDb
 ): Promise<SafeReserveApyStatusRow[]> {
   return createStatusRows(await loadCurrentCandidates(db));
@@ -452,14 +452,15 @@ function withApySummaries(args: {
 }
 
 async function loadSafeReserveApyMonitorData(
-  now = new Date()
+  now = new Date(),
+  currentStatuses?: readonly SafeReserveApyStatusRow[]
 ): Promise<SafeReserveApyMonitorData> {
   const db = getKaminoTimescaleDb();
   const endedAt = now;
   const startedAt = new Date(endedAt.getTime() - WINDOW_MS);
-  const baseStatuses = (await loadCurrentReserveStatuses(db)).filter(
-    (status) => !EXCLUDED_GRAPH_RESERVES.has(status.reserve)
-  );
+  const baseStatuses = (
+    currentStatuses ?? (await getCurrentSafeReserveApyStatuses(db))
+  ).filter((status) => !EXCLUDED_GRAPH_RESERVES.has(status.reserve));
   const series = createSeries(baseStatuses);
   const historyRows = await loadApyHistoryRows({
     db,
@@ -493,6 +494,13 @@ async function loadSafeReserveApyMonitorData(
   };
 
   return data;
+}
+
+export async function getSafeReserveApyMonitorDataFromStatuses(
+  currentStatuses: readonly SafeReserveApyStatusRow[],
+  now = new Date()
+): Promise<SafeReserveApyMonitorData> {
+  return loadSafeReserveApyMonitorData(now, currentStatuses);
 }
 
 export async function getSafeReserveApyMonitorData(
@@ -535,7 +543,9 @@ export async function getSafeReserveApyMonitorData(
 export async function getCurrentVerifiedReserveEligibilityByMint(): Promise<
   SafeReserveMintEligibilitySummary[]
 > {
-  const statuses = await loadCurrentReserveStatuses(getKaminoTimescaleDb());
+  const statuses = await getCurrentSafeReserveApyStatuses(
+    getKaminoTimescaleDb()
+  );
 
   return summarizeSafeReserveEligibilityByMint({
     stablecoins: EARN_STABLECOIN_DESCRIPTORS,

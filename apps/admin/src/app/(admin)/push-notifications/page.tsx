@@ -3,7 +3,7 @@ import {
   pushNotificationTickets,
   pushTokens,
 } from "@loyal-labs/db-core/schema";
-import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
@@ -52,38 +52,14 @@ function toSingleValue(value: string | string[] | undefined) {
   return value;
 }
 
-function getActionMessage(result: string | undefined, message: string | undefined) {
+function getActionMessage(
+  result: string | undefined,
+  message: string | undefined
+) {
   if (!message) return null;
   if (result === "success") return { kind: "success" as const, message };
   if (result === "error") return { kind: "error" as const, message };
   return null;
-}
-
-function getTicketError(row: {
-  ticketError: string | null;
-  ticketMessage: string | null;
-}) {
-  if (row.ticketError && row.ticketMessage) {
-    return `${row.ticketError}: ${row.ticketMessage}`;
-  }
-  return row.ticketError ?? row.ticketMessage;
-}
-
-async function getPushTokenCount(platform?: "ios" | "android") {
-  const db = getDatabase();
-  const [row] = await db
-    .select({ count: count() })
-    .from(pushTokens)
-    .where(
-      platform
-        ? and(
-            isNotNull(pushTokens.walletPublicKey),
-            eq(pushTokens.platform, platform)
-          )
-        : isNotNull(pushTokens.walletPublicKey)
-    );
-
-  return row?.count ?? 0;
 }
 
 export default async function PushNotificationsPage({
@@ -94,10 +70,22 @@ export default async function PushNotificationsPage({
   const message = toSingleValue(resolvedSearchParams.message);
   const actionMessage = getActionMessage(result, message);
   const db = getDatabase();
-  const [all, ios, android, recentSendRows] = await Promise.all([
-    getPushTokenCount(),
-    getPushTokenCount("ios"),
-    getPushTokenCount("android"),
+  const [[tokenCounts], recentSendRows] = await Promise.all([
+    db
+      .select({
+        all: sql<number>`count(*) FILTER (
+          WHERE ${pushTokens.walletPublicKey} IS NOT NULL
+        )`,
+        android: sql<number>`count(*) FILTER (
+          WHERE ${pushTokens.walletPublicKey} IS NOT NULL
+            AND ${pushTokens.platform} = 'android'
+        )`,
+        ios: sql<number>`count(*) FILTER (
+          WHERE ${pushTokens.walletPublicKey} IS NOT NULL
+            AND ${pushTokens.platform} = 'ios'
+        )`,
+      })
+      .from(pushTokens),
     db
       .select({
         id: pushNotificationSends.id,
@@ -122,15 +110,27 @@ export default async function PushNotificationsPage({
       .orderBy(desc(pushNotificationSends.createdAt))
       .limit(20) as Promise<RecentSendBaseRow[]>,
   ]);
-  const ticketRows =
+  const ticketMetaRows =
     recentSendRows.length > 0
       ? await db
           .select({
             sendId: pushNotificationTickets.sendId,
-            ticketId: pushNotificationTickets.ticketId,
-            ticketStatus: pushNotificationTickets.ticketStatus,
-            ticketMessage: pushNotificationTickets.ticketMessage,
-            ticketError: pushNotificationTickets.ticketError,
+            receiptIdCount: sql<number>`count(*) FILTER (
+              WHERE ${pushNotificationTickets.ticketId} IS NOT NULL
+            )`,
+            lastTicketError: sql<string | null>`(
+              ARRAY_AGG(
+                NULLIF(
+                  CONCAT_WS(
+                    ': ',
+                    ${pushNotificationTickets.ticketError},
+                    ${pushNotificationTickets.ticketMessage}
+                  ),
+                  ''
+                )
+                ORDER BY ${pushNotificationTickets.updatedAt} DESC
+              ) FILTER (WHERE ${pushNotificationTickets.ticketStatus} = 'error')
+            )[1]`,
           })
           .from(pushNotificationTickets)
           .where(
@@ -139,28 +139,16 @@ export default async function PushNotificationsPage({
               recentSendRows.map((send) => send.id)
             )
           )
+          .groupBy(pushNotificationTickets.sendId)
       : [];
-  const ticketMetaBySendId = new Map<
-    string,
-    { receiptIdCount: number; lastTicketError: string | null }
-  >();
-
-  for (const row of ticketRows) {
-    const meta = ticketMetaBySendId.get(row.sendId) ?? {
-      receiptIdCount: 0,
-      lastTicketError: null,
-    };
-    if (row.ticketId) {
-      meta.receiptIdCount += 1;
-    }
-    if (row.ticketStatus === "error") {
-      meta.lastTicketError = getTicketError(row);
-    }
-    ticketMetaBySendId.set(row.sendId, meta);
-  }
+  const ticketMetaBySendId = new Map(
+    ticketMetaRows.map((row) => [row.sendId, row])
+  );
   const recentSends = recentSendRows.map((send) => ({
     ...send,
-    receiptIdCount: ticketMetaBySendId.get(send.id)?.receiptIdCount ?? 0,
+    receiptIdCount: Number(
+      ticketMetaBySendId.get(send.id)?.receiptIdCount ?? 0
+    ),
     lastTicketError: ticketMetaBySendId.get(send.id)?.lastTicketError ?? null,
   }));
 
@@ -172,7 +160,11 @@ export default async function PushNotificationsPage({
         subtitle="Manual mobile broadcasts and Expo delivery cleanup."
       />
       <ManualPushPanel
-        counts={{ all, ios, android }}
+        counts={{
+          all: Number(tokenCounts?.all ?? 0),
+          android: Number(tokenCounts?.android ?? 0),
+          ios: Number(tokenCounts?.ios ?? 0),
+        }}
         actionMessage={actionMessage}
         recentSends={recentSends.map((send) => ({
           ...send,

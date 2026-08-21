@@ -105,13 +105,13 @@ export function Last30DaysRebalanceChart({
           <div className="flex flex-1 flex-col justify-center gap-1 border-t px-6 py-4 text-left sm:border-t-0 sm:border-l sm:px-8 sm:py-6">
             <span className="text-xs text-muted-foreground">Successful</span>
             <span className="text-lg leading-none font-bold tabular-nums sm:text-3xl">
-              {totals.confirmed.toLocaleString()}
+              {totals.confirmed.toLocaleString("en-US")}
             </span>
           </div>
           <div className="flex flex-1 flex-col justify-center gap-1 border-t border-l px-6 py-4 text-left sm:border-t-0 sm:px-8 sm:py-6">
             <span className="text-xs text-muted-foreground">Failed</span>
             <span className="text-lg leading-none font-bold tabular-nums sm:text-3xl">
-              {totals.failed.toLocaleString()}
+              {totals.failed.toLocaleString("en-US")}
             </span>
           </div>
         </div>
