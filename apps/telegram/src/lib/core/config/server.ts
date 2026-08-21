@@ -148,6 +148,12 @@ export const serverEnv = {
   get slackStatsWebhookUrl(): string | undefined {
     return getOptionalEnv("SLACK_STATS_WEBHOOK_URL");
   },
+  get observabilityOtlpEndpoint(): string | undefined {
+    return getOptionalEnv("OBSERVABILITY_OTLP_ENDPOINT");
+  },
+  get observabilityIngestionApiKey(): string | undefined {
+    return getOptionalEnv("OBSERVABILITY_INGESTION_API_KEY");
+  },
   get privateMainnetRpcUrl(): string {
     return getRequiredEnv("PRIVATE_MAINNET_RPC_URL");
   },

@@ -10,12 +10,12 @@ import {
 import { SYSVAR_INSTRUCTIONS_PUBKEY } from "@solana/web3.js";
 import { NextResponse } from "next/server";
 
-import { RECIPIENT_TARGET_LAMPORTS } from "@/features/private-transfer-analytics/server/constants";
 import { recordGaslessClaimTransactionBySignature } from "@/features/private-transfer-analytics/server/gasless-claims";
 import {
   TELEGRAM_PUBLIC_KEY_PROD,
   TELEGRAM_PUBLIC_KEY_PROD_UINT8ARRAY,
 } from "@/lib/constants";
+import { reportClickStackError } from "@/lib/core/clickstack.server";
 import { getEndpoints, getSolanaEnv } from "@/lib/solana/rpc/connection";
 import {
   getSessionPda,
@@ -270,39 +270,6 @@ const verifyInitDataGasless = async (
   return verifyResult;
 };
 
-const ensureRecipientBalance = async (
-  provider: AnchorProvider,
-  payerWallet: Wallet,
-  recipient: PublicKey
-): Promise<string | null> => {
-  const balance = await provider.connection.getBalance(recipient);
-  if (balance >= RECIPIENT_TARGET_LAMPORTS) {
-    return null;
-  }
-
-  const deficit = RECIPIENT_TARGET_LAMPORTS - balance;
-  const tx = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: payerWallet.publicKey,
-      toPubkey: recipient,
-      lamports: deficit,
-    })
-  );
-
-  const { blockhash, lastValidBlockHeight } =
-    await provider.connection.getLatestBlockhash();
-  tx.feePayer = payerWallet.publicKey;
-  tx.recentBlockhash = blockhash;
-  tx.lastValidBlockHeight = lastValidBlockHeight;
-
-  const result = await sendSignedTransaction(provider, tx, payerWallet);
-  if (!result.ok) {
-    throw new Error(`Failed to fund recipient: ${result.message}`);
-  }
-
-  return result.signature;
-};
-
 const verifyAndClaimDeposit = async (
   provider: AnchorProvider,
   payerWallet: Wallet,
@@ -312,7 +279,10 @@ const verifyAndClaimDeposit = async (
   processedInitDataBytes: Uint8Array,
   telegramSignatureBytes: Uint8Array,
   telegramPublicKeyBytes: Uint8Array
-) => {
+): Promise<
+  | { ok: false }
+  | { ok: true; topUpSignature: string | null; verifySignature: string }
+> => {
   if (amount <= 0) {
     throw new Error("Amount must be greater than 0");
   }
@@ -343,17 +313,24 @@ const verifyAndClaimDeposit = async (
   //   username,
   //   perAuthToken
   // );
-  const topUpSignature = await ensureRecipientBalance(
-    provider,
-    payerWallet,
-    recipient
-  );
-
-  return {
-    ok: true as const,
-    topUpSignature,
-    verifySignature: verified.signature,
-  };
+  const error = new Error("Gasless claim top-up fallback is disabled");
+  error.name = "GaslessClaimDisabledError";
+  await reportClickStackError({
+    error,
+    errorCode: "gasless_claim_disabled",
+    operation: "gasless.claim.disabled_top_up_attempt",
+    pathname: "/api/gasless/claim",
+    stage: "top_up",
+    walletAddress: recipient.toBase58(),
+  });
+  console.error("[gasless][claim] disabled top-up fallback attempted", {
+    errorMessage: error.message,
+    errorName: error.name,
+    recipientAddress: recipient.toBase58(),
+    route: "/api/gasless/claim",
+    stack: error.stack,
+  });
+  throw error;
 };
 
 const recordGaslessClaimAnalyticsBestEffort = async (args: {
