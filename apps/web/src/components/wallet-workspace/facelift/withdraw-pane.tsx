@@ -507,8 +507,12 @@ export function WithdrawPane({
                     if (usd > 0) {
                       // Floor to cents so the label never rounds above the
                       // real balance (full exits withdraw the exact raw).
+                      // Sub-cent dust floors to $0.00 and blocks the exit;
+                      // use the exact 6-decimal amount so the position can
+                      // still close (ASK-2207).
+                      const floored = Math.floor(usd * 100) / 100;
                       handleAmountChange(
-                        (Math.floor(usd * 100) / 100).toFixed(2)
+                        floored > 0 ? floored.toFixed(2) : usd.toFixed(6)
                       );
                     }
                   }}
