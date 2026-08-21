@@ -759,7 +759,7 @@ export function EarnDetailsContent({
         <StablecoinFilter selectedMint={selectedMint} />
         <StablecoinHealthMatrix rows={stablecoinHealth} />
         <div
-          className="h-[1800px]"
+          className={fundingData ? undefined : "h-[1800px]"}
           data-progressive-section="earn-funding"
           data-progressive-state={fundingData ? "ready" : "loading"}
           ref={fundingRef}
@@ -772,7 +772,7 @@ export function EarnDetailsContent({
         </div>
 
         <div
-          className="min-h-[2200px]"
+          className={activityReady ? undefined : "min-h-[2200px]"}
           data-progressive-section="earn-activity"
           data-progressive-state={activityReady ? "ready" : "loading"}
           ref={activityRef}
@@ -1073,7 +1073,7 @@ export function EarnDetailsContent({
         </div>
 
         <div
-          className="h-[1200px]"
+          className={positionsReady ? undefined : "h-[1200px]"}
           data-progressive-section="earn-positions"
           data-progressive-state={positionsReady ? "ready" : "loading"}
           ref={positionsRef}

@@ -10,8 +10,10 @@
  * - Lower expensive sections do not start before the first section is ready.
  * - Each deferred data request starts exactly once when its section is reached;
  *   scrolling away and back must not repeat it.
- * - Every section has a size-preserving skeleton, total post-navigation CLS is
- *   <= 0.02, and the final page has no skeletons, hydration errors, or overlays.
+ * - Skeletons reserve space only while loading. After data settles, cards use
+ *   normal document flow with no overflow, overlap, or oversized empty tail.
+ * - Total post-navigation CLS is <= 0.02, and a hard reload settles with the
+ *   same healthy layout and no skeletons, hydration errors, or overlays.
  * - Fully loaded candidate content is at least 99.5% similar to merged-main
  *   baseline content backed by the same read-only data.
  * - The diff adds no cache, revalidation shortcut, table, view, index, or
@@ -364,6 +366,115 @@ async function warmCandidate(
   }
 }
 
+async function auditLoadedLayout(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const visible = (element: Element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return (
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        rect.width > 0 &&
+        rect.height > 0
+      );
+    };
+    const label = (element: Element) =>
+      element.getAttribute("data-progressive-section") ??
+      element.getAttribute("data-slot") ??
+      element.tagName.toLowerCase();
+    const issues: string[] = [];
+
+    for (const section of document.querySelectorAll<HTMLElement>(
+      '[data-progressive-section][data-progressive-state="ready"]'
+    )) {
+      if (section.scrollHeight > section.clientHeight + 2) {
+        issues.push(
+          `${label(section)} content overflows by ${Math.round(
+            section.scrollHeight - section.clientHeight
+          )}px`
+        );
+      }
+
+      const sectionRect = section.getBoundingClientRect();
+      const children = [...section.children].filter(visible);
+      if (children.length > 0) {
+        const lastChildBottom = Math.max(
+          ...children.map((child) => child.getBoundingClientRect().bottom)
+        );
+        const emptyTail = sectionRect.bottom - lastChildBottom;
+        if (emptyTail > 96) {
+          issues.push(
+            `${label(section)} has ${Math.round(emptyTail)}px empty tail`
+          );
+        }
+      }
+    }
+
+    const sections = [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-progressive-section][data-progressive-state="ready"]'
+      ),
+    ].filter(visible);
+    for (let index = 0; index < sections.length; index += 1) {
+      const left = sections[index]!;
+      const leftRect = left.getBoundingClientRect();
+      for (
+        let nextIndex = index + 1;
+        nextIndex < sections.length;
+        nextIndex += 1
+      ) {
+        const right = sections[nextIndex]!;
+        if (left.contains(right) || right.contains(left)) {
+          continue;
+        }
+        const rightRect = right.getBoundingClientRect();
+        const horizontalOverlap =
+          Math.min(leftRect.right, rightRect.right) -
+          Math.max(leftRect.left, rightRect.left);
+        const verticalOverlap =
+          Math.min(leftRect.bottom, rightRect.bottom) -
+          Math.max(leftRect.top, rightRect.top);
+        if (horizontalOverlap > 2 && verticalOverlap > 2) {
+          issues.push(
+            `${label(left)} overlaps ${label(right)} by ${Math.round(
+              verticalOverlap
+            )}px`
+          );
+        }
+      }
+    }
+
+    return [...new Set(issues)].slice(0, 20);
+  });
+}
+
+async function fullyLoadAfterReload(page: Page, route: RouteContract) {
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(`[data-progressive-page="${route.href}"]`).waitFor();
+  await page.waitForFunction(
+    (section) =>
+      document
+        .querySelector(`[data-progressive-section="${section}"]`)
+        ?.getAttribute("data-progressive-state") === "ready",
+    route.firstSection
+  );
+  for (const deferred of route.deferred) {
+    await page
+      .locator(`[data-progressive-section="${deferred.section}"]`)
+      .scrollIntoViewIfNeeded();
+    await page.waitForFunction(
+      (section) =>
+        document
+          .querySelector(`[data-progressive-section="${section}"]`)
+          ?.getAttribute("data-progressive-state") === "ready",
+      deferred.section
+    );
+  }
+  await page.waitForFunction(
+    () => document.querySelectorAll('[data-slot="skeleton"]').length === 0
+  );
+}
+
 async function verifyRoute(
   browser: Browser,
   baselineUrl: string,
@@ -451,7 +562,6 @@ async function verifyRoute(
   const firstSectionMs = median(firstSectionSamples);
   await page.waitForTimeout(250);
   const measuredCls: ClsState = await readCls(page, true);
-  const geometryJumps: string[] = [];
   const earlyDeferred = route.deferred
     .filter((item) => item.request)
     .filter((item) =>
@@ -466,14 +576,6 @@ async function verifyRoute(
     const section = page.locator(
       `[data-progressive-section="${deferred.section}"]`
     );
-    const beforeGeometry = await section.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const nextRect = element.nextElementSibling?.getBoundingClientRect();
-      return {
-        height: rect.height,
-        nextTop: nextRect ? nextRect.top + window.scrollY : null,
-      };
-    });
     await section.scrollIntoViewIfNeeded();
     await page.evaluate(
       () => new Promise((resolve) => requestAnimationFrame(() => resolve(null)))
@@ -493,26 +595,6 @@ async function verifyRoute(
     );
     await page.waitForTimeout(250);
     await readCls(page, true, sectionMeasurementStartedAt);
-    const afterGeometry = await section.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const nextRect = element.nextElementSibling?.getBoundingClientRect();
-      return {
-        height: rect.height,
-        nextTop: nextRect ? nextRect.top + window.scrollY : null,
-      };
-    });
-    const heightDelta = Math.abs(afterGeometry.height - beforeGeometry.height);
-    const nextTopDelta =
-      afterGeometry.nextTop === null || beforeGeometry.nextTop === null
-        ? 0
-        : Math.abs(afterGeometry.nextTop - beforeGeometry.nextTop);
-    if (heightDelta > 2 || nextTopDelta > 2) {
-      geometryJumps.push(
-        `${deferred.section} height delta ${heightDelta.toFixed(
-          1
-        )}px, next-section delta ${nextTopDelta.toFixed(1)}px`
-      );
-    }
     if (deferred.request) {
       const count = requests.filter((request) =>
         matchesRequest(request.url, deferred.request!)
@@ -539,6 +621,10 @@ async function verifyRoute(
       requests.filter((request) => matchesRequest(request.url, item.request!))
         .length !== 1
   );
+  const initialLayoutIssues = await auditLoadedLayout(page);
+  page.off("request", requestListener);
+  await fullyLoadAfterReload(page, route);
+  const reloadLayoutIssues = await auditLoadedLayout(page);
   const clsState = measuredCls;
   const cls = clsState.value;
   const remainingSkeletons = await page
@@ -613,8 +699,15 @@ async function verifyRoute(
       )}`
     );
   }
-  if (geometryJumps.length > 0) {
-    failures.push(`section geometry changed: ${geometryJumps.join(" | ")}`);
+  if (initialLayoutIssues.length > 0) {
+    failures.push(
+      `loaded layout is broken: ${initialLayoutIssues.join(" | ")}`
+    );
+  }
+  if (reloadLayoutIssues.length > 0) {
+    failures.push(
+      `reloaded layout is broken: ${reloadLayoutIssues.join(" | ")}`
+    );
   }
   if (remainingSkeletons > 0) {
     failures.push(`${remainingSkeletons} skeletons remain after full load`);
@@ -647,7 +740,6 @@ async function verifyRoute(
   );
   failures.forEach((failure) => console.error(`  - ${failure}`));
 
-  page.off("request", requestListener);
   page.off("console", consoleListener);
   await Promise.all([baselineContext.close(), candidateContext.close()]);
   return pass;

@@ -1751,14 +1751,17 @@ function ProgressiveSection<T>({
     "rebalance-operations": "min-h-[44rem]",
     "rebalance-overview": "h-[42rem]",
   };
+  const reservedHeight =
+    section.status === "idle" || section.status === "loading"
+      ? reservedHeightBySection[name]
+      : undefined;
 
   return (
     <section
-      className={`grid gap-6 ${reservedHeightBySection[name] ?? ""}`}
+      className={`grid gap-6 ${reservedHeight ?? ""}`}
       data-progressive-section={name}
       data-progressive-state={section.status}
       ref={section.ref}
-      style={{ overflowAnchor: "none" }}
     >
       {section.status === "ready" ? (
         children
@@ -2018,7 +2021,6 @@ export function RebalanceMonitorClient() {
     <div
       className="mx-auto grid w-full max-w-4xl gap-6"
       data-progressive-page="/earn/rebalance"
-      style={{ overflowAnchor: "none" }}
     >
       <ProgressiveSection
         fallback={<OverviewFallback />}
@@ -2143,7 +2145,7 @@ export function RebalanceMonitorClient() {
           />
         ) : null}
       </ProgressiveSection>
-      <div className="grid min-h-[52rem] gap-6">
+      <div className={`grid gap-6 ${operationsData ? "" : "min-h-[52rem]"}`}>
         {operationsData ? (
           <>
             <Last30DaysRebalanceChart

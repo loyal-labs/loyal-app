@@ -176,7 +176,7 @@ export function EarnProgressiveClient({
 
   return (
     <section
-      className="min-h-[4200px] space-y-6"
+      className="space-y-6"
       data-progressive-section="earn-monitoring"
       data-progressive-state={monitoringState}
     >

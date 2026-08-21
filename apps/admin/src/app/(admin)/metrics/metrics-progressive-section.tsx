@@ -87,9 +87,7 @@ export function MetricsProgressiveSection<T>({
 
   return (
     <div
-      className={`min-w-0 ${
-        section === "metrics-dashboard" ? "min-h-[3000px]" : ""
-      }`}
+      className="min-w-0"
       data-progressive-section={section}
       data-progressive-state={state}
       ref={sectionRef}
