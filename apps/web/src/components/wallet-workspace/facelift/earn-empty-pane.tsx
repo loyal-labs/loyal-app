@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { DogLottie } from "@/components/wallet-workspace/facelift/dog-lottie";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
@@ -68,6 +70,14 @@ export function EarnEmptyPane({
             text="Earn yield on your idle USDC"
           />
         </div>
+        {isHydrated && !isSignedIn ? (
+          <Link
+            className="t-hover flex h-11 shrink-0 items-center rounded-3xl px-4 font-medium text-[14px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            href="/"
+          >
+            About Loyal
+          </Link>
+        ) : null}
         <button
           aria-label="Open chart"
           className="t-hover flex size-11 shrink-0 items-center justify-center rounded-3xl hover:bg-accent min-[1204px]:hidden"
