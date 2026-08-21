@@ -22,6 +22,8 @@
 export type WalletSessionFailure =
   /** The wallet revoked the stored authorization; reconnect is required. */
   | "authorization_expired"
+  /** The wallet reauthorized a different account; reconnect is required. */
+  | "account_mismatch"
   /** No MWA-capable wallet app is installed. */
   | "unavailable"
   /** The wallet app never connected back — the session never opened. */
@@ -35,6 +37,8 @@ export type WalletSessionFailure =
 // from the reason: telling someone to update a wallet app that simply was not
 // running sends them down the wrong path.
 const WALLET_SESSION_MESSAGES: Record<WalletSessionFailure, string> = {
+  account_mismatch:
+    "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.",
   authorization_expired:
     "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.",
   connection_failed:

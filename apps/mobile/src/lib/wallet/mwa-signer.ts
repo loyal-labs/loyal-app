@@ -33,9 +33,6 @@ const APP_IDENTITY = {
 const MWA_CHAIN =
   env.solanaEnv === "mainnet" ? "solana:mainnet" : "solana:devnet";
 
-const RECONNECT_MESSAGE =
-  "Wallet authorization is no longer valid. Reset your wallet in Settings and reconnect your wallet.";
-
 const SIGNING_CANCELLED_MESSAGE =
   "Signing was cancelled in your wallet app. Try again and approve each prompt without switching apps or locking the screen.";
 
@@ -370,7 +367,7 @@ export class MwaSigner implements Signer {
         // to `request_failed` — naming an HTTP failure for a call that never
         // reached the network, and leaving the stale token in place so every
         // retry failed identically (ASK-1872 follow-up).
-        throw await this.forgetAuthorization(error);
+        throw await this.forgetAuthorization("authorization_expired", error);
       }
       // Only session-layer rejections become wallet-session failures. Protocol
       // errors, `reauthorize`'s reconnect instructions and our signature checks
@@ -389,16 +386,12 @@ export class MwaSigner implements Signer {
    * connected wallet whose every signature is refused, and the user has no way
    * to reach the reconnect flow from inside the failing screen.
    */
-  private async forgetAuthorization(cause?: unknown): Promise<Error> {
+  private async forgetAuthorization(
+    failure: "account_mismatch" | "authorization_expired",
+    cause?: unknown,
+  ): Promise<WalletSessionError> {
     await clearMwaAccount();
-    if (cause !== undefined) {
-      return new WalletSessionError(
-        "authorization_expired",
-        errorCodeOf(cause),
-        cause,
-      );
-    }
-    return new Error(RECONNECT_MESSAGE);
+    return new WalletSessionError(failure, errorCodeOf(cause), cause);
   }
 
   private async reauthorize(wallet: Web3MobileWallet): Promise<void> {
@@ -413,12 +406,12 @@ export class MwaSigner implements Signer {
       // ERROR_AUTHORIZATION_FAILED: the wallet revoked our authorization
       // (the user disconnected this app). Transient session errors rethrow.
       if (!hasErrorCode(error, -1)) throw error;
-      throw await this.forgetAuthorization(error);
+      throw await this.forgetAuthorization("authorization_expired", error);
     }
     const base64Address = toBase64Address(this.publicKey);
     if (!result.accounts.some((a) => a.address === base64Address)) {
       // The wallet reauthorized a different account than the one connected.
-      throw await this.forgetAuthorization();
+      throw await this.forgetAuthorization("account_mismatch");
     }
     if (result.auth_token !== this.authToken) {
       this.authToken = result.auth_token;
