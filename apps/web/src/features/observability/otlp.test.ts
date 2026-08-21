@@ -39,6 +39,7 @@ function severityText(event: NormalizedLifecycleEvent): string | undefined {
 
 describe("lifecycle alert severity", () => {
   test.each([
+    "wallet_account_mismatch",
     "wallet_authorization_expired",
     "wallet_connection_failed",
     "wallet_connection_timeout",
@@ -101,6 +102,22 @@ describe("lifecycle alert severity", () => {
   });
 
   test.each([
+    {
+      errorCode: "wallet_account_mismatch" as const,
+      recoveryRequired: true,
+    },
+    {
+      errorCode: "wallet_account_mismatch" as const,
+      persistenceState: "failed" as const,
+    },
+    {
+      chainState: "failed" as const,
+      errorCode: "wallet_account_mismatch" as const,
+    },
+    {
+      errorCode: "wallet_account_mismatch" as const,
+      httpStatus: 503,
+    },
     { errorCode: "wallet_authorization_expired" as const, httpStatus: 503 },
     {
       errorCode: "wallet_connection_failed" as const,
