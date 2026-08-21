@@ -589,42 +589,58 @@ export class TimescaleReserveClient {
           LIMIT 1
         ) sample
       ),
-      range_candidates AS (
-        SELECT
-          reserve,
-          date_bin(
-            make_interval(secs => ${sampleIntervalSeconds}),
-            observed_at,
-            ${startIso}::timestamptz
-          ) AS sample_bucket,
-          observed_at,
-          supply_apy
-        FROM (
-          SELECT reserve, observed_at, supply_apy
-          FROM kamino.reserve_updates
-          WHERE reserve = ANY(${reserves}::text[])
-            AND reserve_last_update_stale = false
-            AND supply_apy >= 0
-            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-            AND observed_at >= ${startIso}::timestamptz
-            AND observed_at <= ${endIso}::timestamptz
-          UNION ALL
-          SELECT reserve, observed_at, supply_apy
-          FROM kamino.reserve_apy_backfill
-          WHERE reserve = ANY(${reserves}::text[])
-            AND supply_apy >= 0
-            AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
-            AND observed_at >= ${startIso}::timestamptz
-            AND observed_at <= ${endIso}::timestamptz
-        ) sources
-      ),
+      -- One index probe per reserve × bucket instead of scanning every raw
+      -- row in the window: months of reserve_updates collapse to a handful
+      -- of binned samples, and the raw scan took tens of seconds against the
+      -- 8s earnings budget (ASK-2209). Buckets are anchored at start, so
+      -- they match the previous date_bin(..., start) binning; each LATERAL
+      -- keeps the same validity filters and picks the latest sample in the
+      -- bucket, like DISTINCT ON ... ORDER BY observed_at DESC did.
       range_samples AS (
-        SELECT DISTINCT ON (reserve, sample_bucket)
-          reserve,
-          observed_at,
-          supply_apy
-        FROM range_candidates
-        ORDER BY reserve, sample_bucket, observed_at DESC
+        SELECT r.reserve, sample.observed_at, sample.supply_apy
+        FROM requested_reserves r
+        CROSS JOIN generate_series(
+          ${startIso}::timestamptz,
+          ${endIso}::timestamptz,
+          make_interval(secs => ${sampleIntervalSeconds})
+        ) AS bucket(bucket_start)
+        CROSS JOIN LATERAL (
+          SELECT observed_at, supply_apy
+          FROM (
+            (
+              SELECT observed_at, supply_apy
+              FROM kamino.reserve_updates
+              WHERE reserve = r.reserve
+                AND reserve_last_update_stale = false
+                AND supply_apy >= 0
+                AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+                AND observed_at >= bucket.bucket_start
+                AND observed_at <
+                  bucket.bucket_start
+                    + make_interval(secs => ${sampleIntervalSeconds})
+                AND observed_at <= ${endIso}::timestamptz
+              ORDER BY observed_at DESC
+              LIMIT 1
+            )
+            UNION ALL
+            (
+              SELECT observed_at, supply_apy
+              FROM kamino.reserve_apy_backfill
+              WHERE reserve = r.reserve
+                AND supply_apy >= 0
+                AND supply_apy < ${DEFAULT_MAX_SUPPLY_APY}
+                AND observed_at >= bucket.bucket_start
+                AND observed_at <
+                  bucket.bucket_start
+                    + make_interval(secs => ${sampleIntervalSeconds})
+                AND observed_at <= ${endIso}::timestamptz
+              ORDER BY observed_at DESC
+              LIMIT 1
+            )
+          ) candidates
+          ORDER BY observed_at DESC
+          LIMIT 1
+        ) sample
       )
       SELECT reserve, observed_at, supply_apy
       FROM (

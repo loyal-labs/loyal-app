@@ -2988,11 +2988,39 @@ export async function findCompleteYieldVaultExposureSnapshots(
   if (snapshots.length === 0) {
     return [];
   }
-  const snapshotIds = snapshots.map((snapshot) => snapshot.id);
+  // Long-lived vaults accumulate tens of thousands of snapshots; an
+  // inArray(snapshotIds) query here built a giant parameter list that
+  // Postgres could only satisfy by scanning the ~400GB positions table
+  // (ASK-2209: 295s, then killed). Join on vault_id and filter has_value
+  // (written as amountRaw > 0) so the (snapshot_id, has_value, ...) index
+  // drives the scan, and group rows by snapshot to avoid the O(S×R) join.
   const reserveRows = await dependencies.client.db
-    .select()
+    .select({
+      amountRaw: vaultPositionSnapshotPositions.amountRaw,
+      liquidityMint: vaultPositionSnapshotPositions.liquidityMint,
+      reserve: vaultPositionSnapshotPositions.reserve,
+      snapshotId: vaultPositionSnapshotPositions.snapshotId,
+    })
     .from(vaultPositionSnapshotPositions)
-    .where(inArray(vaultPositionSnapshotPositions.snapshotId, snapshotIds));
+    .innerJoin(
+      vaultPositionSnapshots,
+      eq(vaultPositionSnapshotPositions.snapshotId, vaultPositionSnapshots.id)
+    )
+    .where(
+      and(
+        eq(vaultPositionSnapshots.vaultId, vault.id),
+        eq(vaultPositionSnapshotPositions.hasValue, true)
+      )
+    );
+  const reserveRowsBySnapshotId = new Map<bigint, typeof reserveRows>();
+  for (const row of reserveRows) {
+    const rows = reserveRowsBySnapshotId.get(row.snapshotId);
+    if (rows) {
+      rows.push(row);
+    } else {
+      reserveRowsBySnapshotId.set(row.snapshotId, [row]);
+    }
+  }
   const idleRows = await dependencies.client.db
     .select()
     .from(vaultIdleTokenBalancesCurrent)
@@ -3001,10 +3029,8 @@ export async function findCompleteYieldVaultExposureSnapshots(
 
   return snapshots.map((snapshot) => ({
     exposures: [
-      ...reserveRows
-        .filter(
-          (row) => row.snapshotId === snapshot.id && row.amountRaw > BigInt(0)
-        )
+      ...(reserveRowsBySnapshotId.get(snapshot.id) ?? [])
+        .filter((row) => row.amountRaw > BigInt(0))
         .map((row) => ({
           amountRaw: row.amountRaw,
           kind: "kamino" as const,
