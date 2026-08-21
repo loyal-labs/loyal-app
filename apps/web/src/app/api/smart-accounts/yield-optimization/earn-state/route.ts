@@ -29,7 +29,7 @@ import {
   sumEarnAutodepositCurrentPeriodDeposits,
   type CurrentEarnAutodepositState,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
-import { findEarnCrossMintState } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
+import { findEarnCrossMintSnapshot } from "@/lib/yield-optimization/earn-cross-mint-repository.server";
 import {
   serializeEarnDepositOnboardingState,
   serializeAutodepositState,
@@ -491,7 +491,7 @@ export async function GET(request: Request) {
       }
     ),
     loadEarnStatePart("autoswap", () =>
-      findEarnCrossMintState({
+      findEarnCrossMintSnapshot({
         authority: principal.walletAddress,
         cluster,
         settings: principal.settingsPda,
@@ -539,9 +539,11 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     autodeposit: autodeposit ? serializeAutodepositState(autodeposit) : null,
-    autoswap: autoswapResult.data,
+    autoswap: autoswapResult.data?.autoswap ?? null,
+    autoswapIndex: autoswapResult.data?.autoswapIndex ?? null,
     autoswapAvailable:
-      autoswapResult.data !== null || (autoswapCanEnroll && position !== null),
+      Boolean(autoswapResult.data?.autoswap) ||
+      (autoswapCanEnroll && position !== null),
     canonicalVaultPubkey: canonicalVaultPda.toBase58(),
     loadErrors,
     onboarding: serializeEarnDepositOnboardingState({

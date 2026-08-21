@@ -1462,10 +1462,14 @@ describe("prepareEarnUsdcDeposit", () => {
         ? createSerializedSettingsAccount(new BN(6))
         : null
     );
+    const getProgramAccounts = mock(async () => []);
+    const rpcRequest = mock(async () => ({ result: [] }));
     const client = createSmartAccountVaultsClient({
       connection: {
+        _rpcRequest: rpcRequest,
         getAccountInfo,
-        getProgramAccounts: mock(async () => []),
+        getMultipleAccountsInfo: mock(async () => []),
+        getProgramAccounts,
       } as never,
       programId,
     });
@@ -1524,6 +1528,8 @@ describe("prepareEarnUsdcDeposit", () => {
         walletAddress: walletAddress.toBase58(),
       });
     }
+    expect(getProgramAccounts).not.toHaveBeenCalled();
+    expect(rpcRequest).not.toHaveBeenCalled();
   });
 
   test("reuses a finalized cross-mint policy with materialized spending usage", async () => {
@@ -1534,7 +1540,7 @@ describe("prepareEarnUsdcDeposit", () => {
             ? createSerializedSettingsAccount(new BN(6))
             : null
         ),
-        getProgramAccounts: mock(async () => []),
+        getMultipleAccountsInfo: mock(async () => []),
       } as never,
       programId,
     });
@@ -1546,78 +1552,88 @@ describe("prepareEarnUsdcDeposit", () => {
       maxSlippageBps: 50,
       dailySourceMintSpendingCap: BigInt(300_000_000),
     });
-    const classic = initial.policies[0];
-    const create = decodeGeneratedPolicyCreate(
-      classic.prepared?.instructions[0]
-    );
-    if (create.policyCreationPayload.__kind !== "ProgramInteraction") {
-      throw new Error("Expected ProgramInteraction policy payload.");
-    }
-    const [payload] = create.policyCreationPayload.fields;
     const runtimeTimestamp = new BN(1_786_936_896);
-    const runtimeState = {
-      __kind: "ProgramInteraction" as const,
-      fields: [
-        {
-          ...payload,
-          spendingLimits: [...payload.spendingLimits]
-            .reverse()
-            .map((limit) => ({
-              ...limit,
-              quantityConstraints: {
-                ...limit.quantityConstraints,
-                enforceExactQuantity: false,
-                maxPerUse: new BN(0),
-              },
-              timeConstraints: {
-                ...limit.timeConstraints,
-                accumulateUnused: false,
-                start: runtimeTimestamp,
-              },
-              usage: {
-                lastReset: runtimeTimestamp,
-                remainingInPeriod: limit.quantityConstraints.maxPerPeriod,
-              },
-            })),
-        },
-      ],
+    const materializePolicy = (
+      preparedPolicy: (typeof initial.policies)[number]
+    ) => {
+      const create = decodeGeneratedPolicyCreate(
+        preparedPolicy.prepared?.instructions[0]
+      );
+      if (create.policyCreationPayload.__kind !== "ProgramInteraction") {
+        throw new Error("Expected ProgramInteraction policy payload.");
+      }
+      const [payload] = create.policyCreationPayload.fields;
+      const runtimeState = {
+        __kind: "ProgramInteraction" as const,
+        fields: [
+          {
+            ...payload,
+            spendingLimits: [...payload.spendingLimits]
+              .reverse()
+              .map((limit) => ({
+                ...limit,
+                quantityConstraints: {
+                  ...limit.quantityConstraints,
+                  enforceExactQuantity: false,
+                  maxPerUse: new BN(0),
+                },
+                timeConstraints: {
+                  ...limit.timeConstraints,
+                  accumulateUnused: false,
+                  start: runtimeTimestamp,
+                },
+                usage: {
+                  lastReset: runtimeTimestamp,
+                  remainingInPeriod: limit.quantityConstraints.maxPerPeriod,
+                },
+              })),
+          },
+        ],
+      };
+      const [, bump] = pda.getPolicyPda({
+        policySeed: Number(preparedPolicy.policy.seed),
+        programId,
+        settingsPda,
+      });
+      const [data] = Policy.fromArgs({
+        bump,
+        expiration: null,
+        policyState: runtimeState as never,
+        rentCollector: feePayer,
+        seed: new BN(preparedPolicy.policy.seed.toString()),
+        settings: settingsPda,
+        signers: create.signers,
+        staleTransactionIndex: new BN(0),
+        start: runtimeTimestamp,
+        threshold: create.threshold,
+        timeLock: create.timeLock,
+        transactionIndex: new BN(0),
+      }).serialize();
+      return {
+        data,
+        executable: false,
+        lamports: 1,
+        owner: programId,
+        rentEpoch: 0,
+      };
     };
-    const [, bump] = pda.getPolicyPda({
-      policySeed: Number(classic.policy.seed),
-      programId,
-      settingsPda,
-    });
-    const [data] = Policy.fromArgs({
-      bump,
-      expiration: null,
-      policyState: runtimeState as never,
-      rentCollector: feePayer,
-      seed: new BN(classic.policy.seed.toString()),
-      settings: settingsPda,
-      signers: create.signers,
-      staleTransactionIndex: new BN(0),
-      start: runtimeTimestamp,
-      threshold: create.threshold,
-      timeLock: create.timeLock,
-      transactionIndex: new BN(0),
-    }).serialize();
-    const finalizedClassic = {
-      data,
-      executable: false,
-      lamports: 1,
-      owner: programId,
-      rentEpoch: 0,
-    };
+    const classic = initial.policies[0];
+    const token2022 = initial.policies[1];
+    const finalizedClassic = materializePolicy(classic);
+    const finalizedToken2022 = materializePolicy(token2022);
+    const getProgramAccounts = mock(async () => []);
+    const rpcRequest = mock(async () => ({ result: [] }));
+    const getMultipleAccountsInfo = mock(async () => [finalizedClassic]);
     const resumedClient = createSmartAccountVaultsClient({
       connection: {
+        _rpcRequest: rpcRequest,
         getAccountInfo: mock(async (address: PublicKey) =>
           address.equals(settingsPda)
             ? createSerializedSettingsAccount(new BN(7))
             : null
         ),
-        getProgramAccounts: mock(async () => [
-          { account: finalizedClassic, pubkey: classic.policy.account },
-        ]),
+        getMultipleAccountsInfo,
+        getProgramAccounts,
       } as never,
       programId,
     });
@@ -1629,6 +1645,14 @@ describe("prepareEarnUsdcDeposit", () => {
       feePayer,
       maxSlippageBps: 50,
       dailySourceMintSpendingCap: BigInt(300_000_000),
+      projectedPolicies: [
+        {
+          account: classic.policy.account,
+          lastSeenSlot: BigInt(123),
+          seed: classic.policy.seed,
+          sourceShard: "classic",
+        },
+      ],
     });
 
     expect(
@@ -1641,6 +1665,79 @@ describe("prepareEarnUsdcDeposit", () => {
       { existing: true, seed: BigInt(7), shard: "classic" },
       { existing: false, seed: BigInt(8), shard: "token_2022" },
     ]);
+    expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
+    expect(getProgramAccounts).not.toHaveBeenCalled();
+    expect(rpcRequest).not.toHaveBeenCalled();
+
+    const completeClient = createSmartAccountVaultsClient({
+      connection: {
+        _rpcRequest: rpcRequest,
+        getAccountInfo: mock(async (address: PublicKey) =>
+          address.equals(settingsPda)
+            ? createSerializedSettingsAccount(new BN(8))
+            : null
+        ),
+        getMultipleAccountsInfo: mock(async () => [
+          finalizedClassic,
+          finalizedToken2022,
+        ]),
+        getProgramAccounts,
+      } as never,
+      programId,
+    });
+    const complete = await completeClient.prepareEarnCrossMintSwapPolicies({
+      settingsPda,
+      walletAddress,
+      signer: backendSigner,
+      feePayer,
+      maxSlippageBps: 50,
+      dailySourceMintSpendingCap: BigInt(300_000_000),
+      projectedPolicies: [
+        {
+          account: classic.policy.account,
+          seed: classic.policy.seed,
+          sourceShard: "classic",
+        },
+        {
+          account: token2022.policy.account,
+          seed: token2022.policy.seed,
+          sourceShard: "token_2022",
+        },
+      ],
+    });
+    expect(complete.policies.every((entry) => entry.existing)).toBe(true);
+    expect(complete.policies.every((entry) => !entry.prepared)).toBe(true);
+
+    const staleClient = createSmartAccountVaultsClient({
+      connection: {
+        _rpcRequest: rpcRequest,
+        getAccountInfo: mock(async (address: PublicKey) =>
+          address.equals(settingsPda)
+            ? createSerializedSettingsAccount(new BN(7))
+            : null
+        ),
+        getMultipleAccountsInfo: mock(async () => [null]),
+        getProgramAccounts,
+      } as never,
+      programId,
+    });
+    await expect(
+      staleClient.prepareEarnCrossMintSwapPolicies({
+        settingsPda,
+        walletAddress,
+        signer: backendSigner,
+        feePayer,
+        maxSlippageBps: 50,
+        dailySourceMintSpendingCap: BigInt(300_000_000),
+        projectedPolicies: [
+          {
+            account: classic.policy.account,
+            seed: classic.policy.seed,
+            sourceShard: "classic",
+          },
+        ],
+      })
+    ).rejects.toThrow("is missing on-chain");
   });
 
   test("rejects zero amount deposits", async () => {

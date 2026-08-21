@@ -1,11 +1,22 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 
 import { getFrontendSolanaRpcFetch } from "./rpc-rate-limit";
 
 afterEach(() => {
   globalThis.__loyalFrontendSolanaRpcWindow = undefined;
-  delete process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND;
+  globalThis.__loyalFrontendSolanaRpcInflight = undefined;
+  globalThis.__loyalFrontendSolanaRpcRecent = undefined;
+  process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND = undefined;
 });
+
+const rpcRequest = (method: string) =>
+  [
+    "https://example.invalid/rpc",
+    {
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params: [] }),
+      method: "POST",
+    },
+  ] as const;
 
 test("dispatches a burst concurrently and defers overflow to the next window", async () => {
   process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND = "3";
@@ -13,7 +24,7 @@ test("dispatches a burst concurrently and defers overflow to the next window", a
 
   const startedAt = Date.now();
   const dispatchOffsets: number[] = [];
-  const rpcFetch = getFrontendSolanaRpcFetch((async () => {
+  const rpcFetch = getFrontendSolanaRpcFetch((() => {
     dispatchOffsets.push(Date.now() - startedAt);
     return new Response("{}", { status: 200 });
   }) as unknown as typeof fetch);
@@ -27,4 +38,44 @@ test("dispatches a burst concurrently and defers overflow to the next window", a
   const deferred = dispatchOffsets.filter((offset) => offset >= 900);
   expect(immediate).toHaveLength(3);
   expect(deferred).toHaveLength(2);
+});
+
+test("retries throttled and browser-obscured read failures", async () => {
+  process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND = "100";
+  const responses: Array<Response | TypeError> = [
+    new Response("rate limited", { status: 429 }),
+    new TypeError("Failed to fetch"),
+    new Response('{"jsonrpc":"2.0","id":1,"result":null}', {
+      status: 200,
+    }),
+  ];
+  const fetchImpl = mock(() => {
+    const next = responses.shift();
+    if (next === undefined) {
+      throw new Error("mock RPC response queue is empty");
+    }
+    if (next instanceof Error) {
+      throw next;
+    }
+    return next;
+  });
+  const rpcFetch = getFrontendSolanaRpcFetch(fetchImpl as never);
+
+  const response = await rpcFetch(...rpcRequest("getAccountInfo"));
+
+  expect(response.status).toBe(200);
+  expect(fetchImpl).toHaveBeenCalledTimes(3);
+});
+
+test("never retries transaction submission", async () => {
+  process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND = "100";
+  const fetchImpl = mock(
+    async () => new Response("rate limited", { status: 429 })
+  );
+  const rpcFetch = getFrontendSolanaRpcFetch(fetchImpl as never);
+
+  const response = await rpcFetch(...rpcRequest("sendTransaction"));
+
+  expect(response.status).toBe(429);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
 });

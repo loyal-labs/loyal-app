@@ -17,6 +17,19 @@ describe("Earn realtime targeted invalidation", () => {
     });
   });
 
+  test("refreshes Autoswap state when the chain projection changes", () => {
+    expect(
+      resolveEarnRealtimeRefreshPlan([
+        { eventType: EARN_REALTIME_EVENT_TYPES.autoswap },
+      ])
+    ).toEqual({
+      earnings: false,
+      earnState: true,
+      position: false,
+      transactions: false,
+    });
+  });
+
   test("refreshes rebalance-backed activity, position, and earnings", () => {
     expect(
       resolveEarnRealtimeRefreshPlan([

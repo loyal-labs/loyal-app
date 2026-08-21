@@ -261,18 +261,6 @@ export const crossMintVaultOptIns = loyalYieldSchema.table(
     vaultIndex: smallint("vault_index").notNull(),
     vaultPubkey: text("vault_pubkey").notNull(),
     enabled: boolean("enabled").notNull(),
-    classicPolicyAccount: text("classic_policy_account").notNull(),
-    classicPolicySeed: bigint("classic_policy_seed", {
-      mode: "bigint",
-    }).notNull(),
-    token2022PolicyAccount: text("token_2022_policy_account").notNull(),
-    token2022PolicySeed: bigint("token_2022_policy_seed", {
-      mode: "bigint",
-    }).notNull(),
-    maxSlippageBps: integer("max_slippage_bps").notNull(),
-    dailySourceMintSpendingCap: bigint("daily_source_mint_spending_cap", {
-      mode: "bigint",
-    }).notNull(),
     generation: bigint("generation", { mode: "bigint" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),

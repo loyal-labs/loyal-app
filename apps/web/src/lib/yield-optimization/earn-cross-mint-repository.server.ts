@@ -171,57 +171,6 @@ export async function findEarnCrossMintState(
   return (await findEarnCrossMintSnapshot(scope)).autoswap;
 }
 
-export async function recordEarnCrossMintEnrollment(
-  args: EarnCrossMintScope & {
-    boundPolicies: EarnCrossMintState["boundPolicies"];
-    dailySourceMintSpendingCap: bigint;
-    maxSlippageBps: number;
-  }
-): Promise<boolean> {
-  const client = getYieldOptimizationClient();
-  const { crossMintVaultOptIns } = client.tables;
-  const byShard = new Map(
-    args.boundPolicies.map((policy) => [policy.sourceShard, policy] as const)
-  );
-  const classic = byShard.get("classic");
-  const token2022 = byShard.get("token_2022");
-  if (!(classic && token2022) || byShard.size !== 2) {
-    throw new Error("Autoswap enrollment requires exactly two permissions.");
-  }
-
-  const inserted = await client.db
-    .insert(crossMintVaultOptIns)
-    .values({
-      classicPolicyAccount: classic.account,
-      classicPolicySeed: BigInt(classic.seed),
-      cluster: args.cluster,
-      createdAt: new Date(),
-      dailySourceMintSpendingCap: args.dailySourceMintSpendingCap,
-      enabled: true,
-      generation: BigInt(1),
-      maxSlippageBps: args.maxSlippageBps,
-      settings: args.settings,
-      token2022PolicyAccount: token2022.account,
-      token2022PolicySeed: BigInt(token2022.seed),
-      updatedAt: new Date(),
-      vaultIndex: args.vaultIndex,
-      vaultPubkey: args.vaultPubkey,
-    })
-    .onConflictDoNothing()
-    .returning({ generation: crossMintVaultOptIns.generation });
-  if (inserted.length === 1) {
-    return true;
-  }
-
-  const existing = await loadEarnCrossMintOptIn(args);
-  if (!existing) {
-    throw new Error("Autoswap enrollment could not be recorded.");
-  }
-  // Policy identity and risk settings are authoritative in the finalized
-  // projection. Preserve existing user intent on setup-confirm retries.
-  return existing.enabled;
-}
-
 export async function setEarnCrossMintEnabled(
   scope: EarnCrossMintScope & {
     enabled: boolean;
