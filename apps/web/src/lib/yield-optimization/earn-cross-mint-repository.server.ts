@@ -1,7 +1,11 @@
 import "server-only";
 
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
+import {
+  deriveEarnCrossMintPolicyIndex,
+  type EarnCrossMintPolicyIndex,
+} from "./earn-cross-mint-policy-index.shared";
 import { getYieldOptimizationClient } from "./yield-neon-client.server";
 
 export type EarnCrossMintBoundPolicy = {
@@ -43,6 +47,11 @@ export type EarnCrossMintScope = {
   vaultPubkey: string;
 };
 
+export type EarnCrossMintSnapshot = {
+  autoswap: EarnCrossMintState | null;
+  autoswapIndex: EarnCrossMintPolicyIndex;
+};
+
 type EarnCrossMintStoredScope = Omit<EarnCrossMintScope, "authority">;
 
 function optInWhere(
@@ -69,23 +78,6 @@ async function loadEarnCrossMintOptIn(scope: EarnCrossMintStoredScope) {
   return optIn ?? null;
 }
 
-function boundPoliciesFromOptIn(
-  optIn: NonNullable<Awaited<ReturnType<typeof loadEarnCrossMintOptIn>>>
-): EarnCrossMintState["boundPolicies"] {
-  return [
-    {
-      account: optIn.classicPolicyAccount,
-      seed: optIn.classicPolicySeed.toString(),
-      sourceShard: "classic",
-    },
-    {
-      account: optIn.token2022PolicyAccount,
-      seed: optIn.token2022PolicySeed.toString(),
-      sourceShard: "token_2022",
-    },
-  ];
-}
-
 function getExecuteRows(result: unknown): Record<string, unknown>[] {
   if (
     result &&
@@ -98,89 +90,85 @@ function getExecuteRows(result: unknown): Record<string, unknown>[] {
   return Array.isArray(result) ? (result as Record<string, unknown>[]) : [];
 }
 
+export async function findEarnCrossMintSnapshot(
+  scope: EarnCrossMintScope
+): Promise<EarnCrossMintSnapshot> {
+  const client = getYieldOptimizationClient();
+  const { crossMintSwapPolicies, crossMintVaultOptIns } = client.tables;
+  const [[optIn], rows] = await Promise.all([
+    client.db
+      .select()
+      .from(crossMintVaultOptIns)
+      .where(optInWhere(scope, crossMintVaultOptIns))
+      .limit(1),
+    client.db
+      .select()
+      .from(crossMintSwapPolicies)
+      .where(
+        and(
+          eq(crossMintSwapPolicies.cluster, scope.cluster),
+          eq(crossMintSwapPolicies.settings, scope.settings),
+          eq(crossMintSwapPolicies.authority, scope.authority),
+          eq(crossMintSwapPolicies.vaultIndex, scope.vaultIndex),
+          eq(crossMintSwapPolicies.vaultPubkey, scope.vaultPubkey)
+        )
+      )
+      .orderBy(desc(crossMintSwapPolicies.lastSeenSlot)),
+  ]);
+  const autoswapIndex = deriveEarnCrossMintPolicyIndex(rows);
+  if (!optIn || autoswapIndex.state !== "complete") {
+    return { autoswap: null, autoswapIndex };
+  }
+
+  const [classic, token2022] = autoswapIndex.policies;
+  if (!(classic && token2022)) {
+    return { autoswap: null, autoswapIndex };
+  }
+  const pairIsFinalized = autoswapIndex.policies.every(
+    (policy) => policy.sourceCommitment === "finalized"
+  );
+  const boundPolicies: EarnCrossMintState["boundPolicies"] = [
+    {
+      account: classic.account,
+      seed: classic.seed,
+      sourceShard: "classic",
+    },
+    {
+      account: token2022.account,
+      seed: token2022.seed,
+      sourceShard: "token_2022",
+    },
+  ];
+  const policies = pairIsFinalized
+    ? [classic, token2022].map((policy, index) => ({
+        ...boundPolicies[index],
+        lastSeenSignature: policy.lastSeenSignature,
+        lastSeenSlot: policy.lastSeenSlot,
+      }))
+    : [];
+
+  return {
+    autoswap: {
+      boundPolicies,
+      dailySourceMintSpendingCap: classic.dailySourceMintSpendingCap,
+      enabled: optIn.enabled,
+      generation: optIn.generation.toString(),
+      maxSlippageBps: classic.maxSlippageBps,
+      policies,
+      status: optIn.enabled
+        ? pairIsFinalized
+          ? "on"
+          : "finalizing"
+        : "paused",
+    },
+    autoswapIndex,
+  };
+}
+
 export async function findEarnCrossMintState(
   scope: EarnCrossMintScope
 ): Promise<EarnCrossMintState | null> {
-  const client = getYieldOptimizationClient();
-  const { crossMintSwapPolicies, crossMintVaultOptIns } = client.tables;
-  const [optIn] = await client.db
-    .select()
-    .from(crossMintVaultOptIns)
-    .where(optInWhere(scope, crossMintVaultOptIns))
-    .limit(1);
-  if (!optIn) {
-    return null;
-  }
-
-  const boundPolicies = boundPoliciesFromOptIn(optIn);
-  const rows = await client.db
-    .select()
-    .from(crossMintSwapPolicies)
-    .where(
-      and(
-        eq(crossMintSwapPolicies.cluster, scope.cluster),
-        eq(crossMintSwapPolicies.settings, scope.settings),
-        eq(crossMintSwapPolicies.authority, scope.authority),
-        eq(crossMintSwapPolicies.vaultIndex, scope.vaultIndex),
-        eq(crossMintSwapPolicies.vaultPubkey, scope.vaultPubkey),
-        inArray(
-          crossMintSwapPolicies.policyAccount,
-          boundPolicies.map((policy) => policy.account)
-        )
-      )
-    );
-  const byAccount = new Map(rows.map((row) => [row.policyAccount, row]));
-  if (byAccount.size !== rows.length) {
-    throw new Error(
-      "Autoswap policy state is ambiguous; an enrolled policy has duplicate catalog rows."
-    );
-  }
-
-  const policies = boundPolicies.flatMap((bound) => {
-    const row = byAccount.get(bound.account);
-    if (!row) {
-      return [];
-    }
-    if (
-      row.policySeed?.toString() !== bound.seed ||
-      row.sourceShard !== bound.sourceShard ||
-      row.maxSlippageBps !== optIn.maxSlippageBps ||
-      row.dailySourceMintSpendingCap !== optIn.dailySourceMintSpendingCap
-    ) {
-      // Invalid catalog evidence must block resume/start without hiding the
-      // exact enrolled accounts that the user still needs to delete.
-      return [];
-    }
-    if (
-      !row.active ||
-      !row.startEligible ||
-      row.sourceCommitment !== "finalized" ||
-      (row.lastMutation !== "create" && row.lastMutation !== "update")
-    ) {
-      return [];
-    }
-    return [
-      {
-        ...bound,
-        lastSeenSignature: row.lastSeenSignature,
-        lastSeenSlot: row.lastSeenSlot.toString(),
-      },
-    ];
-  });
-
-  return {
-    boundPolicies,
-    dailySourceMintSpendingCap: optIn.dailySourceMintSpendingCap.toString(),
-    enabled: optIn.enabled,
-    generation: optIn.generation.toString(),
-    maxSlippageBps: optIn.maxSlippageBps,
-    policies,
-    status: optIn.enabled
-      ? policies.length === 2
-        ? "on"
-        : "finalizing"
-      : "paused",
-  };
+  return (await findEarnCrossMintSnapshot(scope)).autoswap;
 }
 
 export async function recordEarnCrossMintEnrollment(
@@ -226,26 +214,16 @@ export async function recordEarnCrossMintEnrollment(
   }
 
   const existing = await loadEarnCrossMintOptIn(args);
-  if (
-    !existing ||
-    existing.classicPolicyAccount !== classic.account ||
-    existing.classicPolicySeed !== BigInt(classic.seed) ||
-    existing.token2022PolicyAccount !== token2022.account ||
-    existing.token2022PolicySeed !== BigInt(token2022.seed) ||
-    existing.maxSlippageBps !== args.maxSlippageBps ||
-    existing.dailySourceMintSpendingCap !== args.dailySourceMintSpendingCap
-  ) {
-    throw new Error(
-      "Autoswap policy identity and risk settings are immutable; delete the existing enrollment first."
-    );
+  if (!existing) {
+    throw new Error("Autoswap enrollment could not be recorded.");
   }
-  // Preserve the existing `enabled` value: an old setup-confirm retry must not
-  // silently resume an enrollment the user paused after setup.
+  // Policy identity and risk settings are authoritative in the finalized
+  // projection. Preserve existing user intent on setup-confirm retries.
   return existing.enabled;
 }
 
 export async function setEarnCrossMintEnabled(
-  scope: EarnCrossMintStoredScope & {
+  scope: EarnCrossMintScope & {
     enabled: boolean;
     expectedGeneration: bigint;
   }
@@ -285,36 +263,12 @@ export async function setEarnCrossMintEnabled(
             ${scope.expectedGeneration + BigInt(1)}
           ) THEN 'idempotent'
         ELSE 'stale'
-      END AS kind,
-      COALESCE(updated.enabled, current.enabled) AS enabled,
-      COALESCE(updated.generation, current.generation) AS generation,
-      COALESCE(updated.classic_policy_account, current.classic_policy_account)
-        AS "classicPolicyAccount",
-      COALESCE(updated.classic_policy_seed, current.classic_policy_seed)
-        AS "classicPolicySeed",
-      COALESCE(updated.token_2022_policy_account, current.token_2022_policy_account)
-        AS "token2022PolicyAccount",
-      COALESCE(updated.token_2022_policy_seed, current.token_2022_policy_seed)
-        AS "token2022PolicySeed",
-      COALESCE(updated.max_slippage_bps, current.max_slippage_bps)
-        AS "maxSlippageBps",
-      COALESCE(
-        updated.daily_source_mint_spending_cap,
-        current.daily_source_mint_spending_cap
-      ) AS "dailySourceMintSpendingCap"
+      END AS kind
     FROM current_enrollment AS current
     LEFT JOIN updated_enrollment AS updated ON true
     UNION ALL
     SELECT
-      'missing' AS kind,
-      NULL AS enabled,
-      NULL AS generation,
-      NULL AS "classicPolicyAccount",
-      NULL AS "classicPolicySeed",
-      NULL AS "token2022PolicyAccount",
-      NULL AS "token2022PolicySeed",
-      NULL AS "maxSlippageBps",
-      NULL AS "dailySourceMintSpendingCap"
+      'missing' AS kind
     WHERE NOT EXISTS (SELECT 1 FROM current_enrollment)
   `);
   const [row] = getExecuteRows(queryResult);
@@ -328,23 +282,16 @@ export async function setEarnCrossMintEnabled(
   ) {
     throw new Error("Autoswap transition returned an invalid outcome.");
   }
+  const state = await findEarnCrossMintState(scope);
+  if (!state) {
+    return { enrollment: null, kind: "missing" };
+  }
   const enrollment: EarnCrossMintEnrollment = {
-    boundPolicies: [
-      {
-        account: String(row.classicPolicyAccount),
-        seed: String(row.classicPolicySeed),
-        sourceShard: "classic",
-      },
-      {
-        account: String(row.token2022PolicyAccount),
-        seed: String(row.token2022PolicySeed),
-        sourceShard: "token_2022",
-      },
-    ],
-    dailySourceMintSpendingCap: String(row.dailySourceMintSpendingCap),
-    enabled: row.enabled === true,
-    generation: String(row.generation),
-    maxSlippageBps: Number(row.maxSlippageBps),
+    boundPolicies: state.boundPolicies,
+    dailySourceMintSpendingCap: state.dailySourceMintSpendingCap,
+    enabled: state.enabled,
+    generation: state.generation,
+    maxSlippageBps: state.maxSlippageBps,
   };
   return { enrollment, kind: row.kind };
 }
@@ -379,21 +326,24 @@ export async function removeEarnCrossMintOptIn(
 ): Promise<void> {
   const client = getYieldOptimizationClient();
   const { crossMintVaultOptIns } = client.tables;
-  const current = await loadEarnCrossMintOptIn(scope);
-  if (!current) {
+  const [optIn, current] = await Promise.all([
+    loadEarnCrossMintOptIn(scope),
+    findEarnCrossMintState(scope),
+  ]);
+  if (!optIn) {
     return;
   }
-  if (current.enabled) {
+  if (!current) {
+    throw new Error("Autoswap policy state is unavailable for deletion.");
+  }
+  if (optIn.enabled) {
     throw new Error("Autoswap must be paused before deletion.");
   }
-  if (current.generation !== scope.expectedGeneration) {
+  if (optIn.generation !== scope.expectedGeneration) {
     throw new Error("Autoswap state changed before deletion confirmation.");
   }
   const expected = new Set(scope.expectedPolicyAccounts);
-  const bound = new Set([
-    current.classicPolicyAccount,
-    current.token2022PolicyAccount,
-  ]);
+  const bound = new Set(current.boundPolicies.map((policy) => policy.account));
   if (
     expected.size !== 2 ||
     bound.size !== 2 ||
@@ -409,20 +359,7 @@ export async function removeEarnCrossMintOptIn(
       and(
         optInWhere(scope, crossMintVaultOptIns),
         eq(crossMintVaultOptIns.enabled, false),
-        eq(crossMintVaultOptIns.generation, scope.expectedGeneration),
-        eq(
-          crossMintVaultOptIns.classicPolicyAccount,
-          current.classicPolicyAccount
-        ),
-        eq(
-          crossMintVaultOptIns.token2022PolicyAccount,
-          current.token2022PolicyAccount
-        ),
-        eq(crossMintVaultOptIns.classicPolicySeed, current.classicPolicySeed),
-        eq(
-          crossMintVaultOptIns.token2022PolicySeed,
-          current.token2022PolicySeed
-        )
+        eq(crossMintVaultOptIns.generation, scope.expectedGeneration)
       )
     )
     .returning({ generation: crossMintVaultOptIns.generation });

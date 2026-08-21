@@ -103,12 +103,9 @@ export async function POST(request: Request) {
       walletAddress: principal.walletAddress,
     });
     const transition = await setEarnCrossMintEnabled({
-      cluster,
+      ...scope,
       enabled: false,
       expectedGeneration,
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      vaultPubkey: vaultPubkey.toBase58(),
     });
     if (transition.kind === "missing") {
       return jsonError(404, "autoswap_not_found", "Autoswap is not installed.");
@@ -182,8 +179,7 @@ export async function POST(request: Request) {
       return jsonError(error.status, error.code, error.message);
     }
     console.error("[earn-cross-mint-delete-prepare] prepare failed", {
-      errorMessage:
-        error instanceof Error ? error.message : "Unknown error.",
+      errorMessage: error instanceof Error ? error.message : "Unknown error.",
       errorName: error instanceof Error ? error.name : "UnknownError",
       stack: error instanceof Error ? error.stack : undefined,
     });

@@ -138,12 +138,9 @@ export async function POST(request: Request) {
       });
     }
     const transition = await setEarnCrossMintEnabled({
-      cluster,
+      ...scope,
       enabled: input.enabled,
       expectedGeneration: BigInt(input.expectedGeneration),
-      settings: principal.settingsPda,
-      vaultIndex: EARN_VAULT_INDEX,
-      vaultPubkey: vaultPubkey.toBase58(),
     });
     if (transition.kind === "missing") {
       return jsonError(404, "autoswap_not_found", "Autoswap is not installed.");

@@ -34,18 +34,31 @@ afterAll(async () => {
 
 describe("Autoswap enrollment transition authority", () => {
   test.skipIf(!isDisposableDatabase)(
-    "classifies concurrent, retried, stale, ABA-stale, and missing transitions",
+    "reads projected policy state for a nullable opt-in and classifies transitions",
     async () => {
       if (!database) {
         throw new Error("Disposable database was not configured.");
       }
       const suffix = randomUUID();
       const scope = {
+        authority: `transition-authority-${suffix}`,
         cluster: "mainnet-beta",
         settings: `transition-settings-${suffix}`,
         vaultIndex: 1,
         vaultPubkey: `transition-vault-${suffix}`,
       };
+      const policies = [
+        {
+          account: `classic-policy-${suffix}`,
+          seed: BigInt(101),
+          sourceShard: "classic",
+        },
+        {
+          account: `token-2022-policy-${suffix}`,
+          seed: BigInt(202),
+          sourceShard: "token_2022",
+        },
+      ] as const;
 
       try {
         await database`
@@ -55,12 +68,6 @@ describe("Autoswap enrollment transition authority", () => {
             vault_index,
             vault_pubkey,
             enabled,
-            classic_policy_account,
-            classic_policy_seed,
-            token_2022_policy_account,
-            token_2022_policy_seed,
-            max_slippage_bps,
-            daily_source_mint_spending_cap,
             generation
           ) values (
             ${scope.cluster},
@@ -68,15 +75,73 @@ describe("Autoswap enrollment transition authority", () => {
             ${scope.vaultIndex},
             ${scope.vaultPubkey},
             true,
-            'classic-policy',
-            101,
-            'token-2022-policy',
-            202,
-            50,
-            100000000,
             10
           )
         `;
+        for (const policy of policies) {
+          await database`
+            insert into loyal_yield.cross_mint_swap_policies (
+              cluster,
+              settings,
+              authority,
+              policy_seed,
+              policy_account,
+              vault_index,
+              vault_pubkey,
+              delegated_signer,
+              source_shard,
+              max_slippage_bps,
+              daily_source_mint_spending_cap,
+              manifest_fingerprint,
+              active,
+              start_eligible,
+              last_mutation,
+              source_commitment,
+              last_seen_slot,
+              last_seen_signature
+            ) values (
+              ${scope.cluster},
+              ${scope.settings},
+              ${scope.authority},
+              ${policy.seed.toString()},
+              ${policy.account},
+              ${scope.vaultIndex},
+              ${scope.vaultPubkey},
+              'transition-signer',
+              ${policy.sourceShard},
+              50,
+              100000000,
+              'transition-test',
+              true,
+              true,
+              'create',
+              'finalized',
+              100,
+              ${`transition-signature-${policy.sourceShard}`}
+            )
+          `;
+        }
+
+        const initial = await repository.findEarnCrossMintState(scope);
+        expect(initial).toMatchObject({
+          boundPolicies: [
+            {
+              account: policies[0].account,
+              seed: policies[0].seed.toString(),
+              sourceShard: "classic",
+            },
+            {
+              account: policies[1].account,
+              seed: policies[1].seed.toString(),
+              sourceShard: "token_2022",
+            },
+          ],
+          dailySourceMintSpendingCap: "100000000",
+          enabled: true,
+          generation: "10",
+          maxSlippageBps: 50,
+          status: "on",
+        });
 
         const concurrent = await Promise.all([
           repository.setEarnCrossMintEnabled({
@@ -148,6 +213,13 @@ describe("Autoswap enrollment transition authority", () => {
         });
         expect(missing).toEqual({ enrollment: null, kind: "missing" });
       } finally {
+        await database`
+          delete from loyal_yield.cross_mint_swap_policies
+          where cluster = ${scope.cluster}
+            and policy_account in ${database(
+              policies.map((policy) => policy.account)
+            )}
+        `;
         await database`
           delete from loyal_yield.cross_mint_vault_opt_ins
           where cluster = ${scope.cluster}
