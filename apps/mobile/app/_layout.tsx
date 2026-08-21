@@ -10,6 +10,7 @@ import { SplashAnimation } from "@/components/SplashAnimation";
 import { WalletAuthGate } from "@/components/wallet/WalletAuthGate";
 import { initAnalytics, track } from "@/lib/analytics/analytics";
 import { APP_EVENTS } from "@/lib/analytics/app-events";
+import { initAttribution } from "@/lib/analytics/attribution";
 import { AppReadyProvider } from "@/lib/app-ready";
 import { SignApprovalProvider } from "@/lib/wallet/sign-approval";
 import { WalletProvider } from "@/lib/wallet/wallet-provider";
@@ -59,12 +60,17 @@ export default function RootLayout() {
   useEffect(() => {
     void initAnalytics();
     track(APP_EVENTS.opened);
+    // twclid/utm_* capture from deep links + Android install referrer.
+    const removeAttributionListener = initAttribution();
     const subscription = AppState.addEventListener("change", (next) => {
       if (next === "active") {
         track(APP_EVENTS.opened);
       }
     });
-    return () => subscription.remove();
+    return () => {
+      subscription.remove();
+      removeAttributionListener();
+    };
   }, []);
 
   // Handle notification tap while app is running

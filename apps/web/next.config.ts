@@ -94,6 +94,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // apple-app-site-association has no file extension, so Next/Vercel
+        // would otherwise serve it as application/octet-stream. Apple's CDN
+        // requires application/json (and no redirect) for Universal Links.
+        source: "/.well-known/apple-app-site-association",
+        headers: [{ key: "Content-Type", value: "application/json" }],
+      },
+      {
         source: "/app/cherry",
         headers: [
           ...COMMON_SECURITY_HEADERS,

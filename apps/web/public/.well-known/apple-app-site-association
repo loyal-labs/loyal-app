@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["AP32T55T29.com.askloyal.app", "AP32T55T29.com.askloyal.app.dev"],
+        "components": [{ "/": "/ul/*" }]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["AP32T55T29.com.askloyal.app", "AP32T55T29.com.askloyal.app.dev"]
+  }
+}

@@ -80,6 +80,7 @@
         "react-native-mmkv": "^3.3.3",
         "react-native-nitro-modules": "^0.35.0",
         "react-native-onesignal": "5.2.14",
+        "react-native-play-install-referrer": "^1.1.9",
         "react-native-qrcode-svg": "^6.3.21",
         "react-native-reanimated": "~4.1.1",
         "react-native-safe-area-context": "~5.6.0",
@@ -2159,6 +2160,8 @@
     "react-native-nitro-modules": ["react-native-nitro-modules@0.35.3", "", { "peerDependencies": { "react": "*", "react-native": "*" } }, "sha512-pfPfFtGeMfFpLo4HidTFs5zsAs1wRh9qaWGSiF5UeI2YQaAgRHPlson0UNxw25pTCLV9NBrKgSDaMVfPEXXbNw=="],
 
     "react-native-onesignal": ["react-native-onesignal@5.2.14", "", { "dependencies": { "invariant": "^2.2.2" } }, "sha512-wVnV3oQ62fCa6tJYqAjLVHym2jspu5h7hdKC03/tlUria7Z8qpYtykpX2GhB5iXrtk36+w1ZxyiFSSo2W2/dVA=="],
+
+    "react-native-play-install-referrer": ["react-native-play-install-referrer@1.1.9", "", {}, "sha512-COKQA/eS2I9NigxZDVZuLFzGNLBXF4+o3o9EIgULx+aagjVQexlPBh4g9fdnhiSvZk1rzq/asVwIJKRPc9Cy7A=="],
 
     "react-native-qrcode-svg": ["react-native-qrcode-svg@6.3.21", "", { "dependencies": { "prop-types": "^15.8.0", "qrcode": "^1.5.4", "text-encoding": "^0.7.0" }, "peerDependencies": { "react": "*", "react-native": ">=0.63.4", "react-native-svg": ">=14.0.0" } }, "sha512-6vcj4rcdpWedvphDR+NSJcudJykNuLgNGFwm2p4xYjR8RdyTzlrELKI5LkO4ANS9cQUbqsfkpippPv64Q2tUtA=="],
 
