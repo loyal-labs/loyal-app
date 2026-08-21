@@ -849,7 +849,7 @@ export function EarnVaultRebalanceFrequencyChart({
                       ? "No confirmed rebalances occurred in this window; every vault is shown at zero."
                       : "Hover a dot for the exact vault, current deposit, reserve APY, and counts for every window."}
                     {showTable
-                      ? " The table shows the exact top 100 current deposits; chart points are representative samples."
+                      ? " The table shows the exact top 100 current deposits."
                       : " Idle-only vaults use the neutral legend color."}
                     {!showTable && useLogScale && zeroDepositCount > 0
                       ? ` ${zeroDepositCount.toLocaleString("en-US")} vault${

@@ -1138,7 +1138,7 @@ function AuditSummaryStrip({
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>
-          Showing {activePage.rows.length.toLocaleString()} newest in-progress
+          Showing {activePage.rows.length.toLocaleString("en-US")} newest in-progress
           rows
         </span>
         {activePage.nextCursor ? (
@@ -1445,13 +1445,13 @@ function RebalanceAuditCard({
                 <TabsTrigger value="completed_rebalances" className="h-10">
                   Completed rebalances
                   <Badge variant="outline">
-                    {state.data.summary.completedRebalances.toLocaleString()}
+                    {state.data.summary.completedRebalances.toLocaleString("en-US")}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="completed_deposits" className="h-10">
                   Completed deposits
                   <Badge variant="outline">
-                    {state.data.summary.completedDeposits.toLocaleString()}
+                    {state.data.summary.completedDeposits.toLocaleString("en-US")}
                   </Badge>
                 </TabsTrigger>
                 <TabsTrigger value="errors" className="h-10">
@@ -1461,7 +1461,7 @@ function RebalanceAuditCard({
                       state.data.summary.errors > 0 ? "destructive" : "outline"
                     }
                   >
-                    {state.data.summary.errors.toLocaleString()}
+                    {state.data.summary.errors.toLocaleString("en-US")}
                   </Badge>
                 </TabsTrigger>
               </TabsList>
@@ -1495,7 +1495,7 @@ function RebalanceAuditCard({
                     type="button"
                     variant={errorFilter === value ? "secondary" : "ghost"}
                   >
-                    {label} ({count.toLocaleString()})
+                    {label} ({count.toLocaleString("en-US")})
                   </Button>
                 ))}
               </div>
@@ -1509,7 +1509,7 @@ function RebalanceAuditCard({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs text-muted-foreground">
               <span>
-                Showing {state.data.page.rows.length.toLocaleString()} newest
+                Showing {state.data.page.rows.length.toLocaleString("en-US")} newest
                 rows
               </span>
               <Button

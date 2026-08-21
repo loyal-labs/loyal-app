@@ -701,8 +701,7 @@ export function ExecutedEarnRebalancesChart({
           </p>
         ) : (
           <p className="mt-3 text-xs text-muted-foreground">
-            Showing the exact 50 most recent executions in the selected range;
-            chart points are representative samples.
+            Showing the exact 50 most recent executions in the selected range.
           </p>
         )}
       </CardContent>

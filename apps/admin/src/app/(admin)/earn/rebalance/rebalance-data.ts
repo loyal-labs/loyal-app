@@ -1883,11 +1883,7 @@ export async function getExecutedEarnRebalanceHistory({
           ROW_NUMBER() OVER (
             PARTITION BY executed.route_mode, executed.liquidity_mint
             ORDER BY executed.executed_at DESC, executed.id DESC
-          )::integer AS detail_rank,
-          NTILE(50) OVER (
-            PARTITION BY executed.route_mode, executed.liquidity_mint
-            ORDER BY executed.executed_at ASC, executed.id ASC
-          )::integer AS chart_bucket
+          )::integer AS detail_rank
         FROM executed
         INNER JOIN ranked_users
           ON ranked_users.authority = executed.authority
@@ -1896,7 +1892,7 @@ export async function getExecutedEarnRebalanceHistory({
           ON swap_fee.decision_id = executed.id
       ),
       chart_rows AS (
-        SELECT DISTINCT ON (route_mode, liquidity_mint, chart_bucket)
+        SELECT
           id,
           executed_at,
           amount_raw,
@@ -1912,7 +1908,6 @@ export async function getExecutedEarnRebalanceHistory({
           current_deposit_raw::text AS current_deposit_raw,
           user_rank
         FROM execution_rows
-        ORDER BY route_mode, liquidity_mint, chart_bucket, executed_at DESC, id DESC
       ),
       detail_rows AS (
         SELECT
@@ -2336,23 +2331,11 @@ export async function getEarnVaultRebalanceFrequency({
               ranked_vault.liquidity_mint,
               ranked_vault.current_reserve
             ORDER BY ranked_vault.current_deposit_raw DESC, ranked_vault.vault_pubkey DESC
-          )::integer AS detail_rank,
-          NTILE(50) OVER (
-            PARTITION BY
-              ranked_vault.route_mode,
-              ranked_vault.liquidity_mint,
-              ranked_vault.current_reserve
-            ORDER BY ranked_vault.current_deposit_raw ASC, ranked_vault.vault_pubkey ASC
-          )::integer AS chart_bucket
+          )::integer AS detail_rank
         FROM ranked_vaults AS ranked_vault
       ),
       chart_rows AS (
-        SELECT DISTINCT ON (
-          route_mode,
-          liquidity_mint,
-          current_reserve,
-          chart_bucket
-        )
+        SELECT
           id::text AS vault_id,
           vault_pubkey,
           current_reserve,
@@ -2367,8 +2350,6 @@ export async function getEarnVaultRebalanceFrequency({
           deposit_rank
           ,vault_count
         FROM frequency_rows
-        ORDER BY route_mode, liquidity_mint, current_reserve, chart_bucket,
-          current_deposit_raw DESC, vault_pubkey DESC
       ),
       detail_rows AS (
         SELECT
