@@ -73,6 +73,7 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
   a: "activity",
   c: "crypto",
   e: "earn",
+  m: "earnmax",
   s: "stables",
 };
 
