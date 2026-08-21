@@ -28,6 +28,15 @@ npx eas build --profile preview --platform android
 npx eas build --profile production --platform all
 ```
 
+### OTA Release Notes
+
+OTA publishes use `ota-notes.txt` by default. For an iOS-only publish, set
+`OTA_NOTES_FILE=ios` so `app.config.ts` reads `ota-notes-ios.txt`:
+
+```bash
+OTA_NOTES_FILE=ios eas update --platform ios ...
+```
+
 ## Architecture
 
 ### Directory Structure
