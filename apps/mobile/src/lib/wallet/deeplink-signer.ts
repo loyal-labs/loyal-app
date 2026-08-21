@@ -79,14 +79,15 @@ export async function getInstalledDeeplinkWallets(): Promise<
   return installed.filter((p): p is DeeplinkWalletProvider => p !== null);
 }
 
-// Return path the wallet redirects to. Production uses our universal link
-// (AASA + Associated Domains ship with ASK-2199 and must be in the binary);
-// dev builds use the dev-client custom scheme (loyal-dev://ul/wallet/<action>)
-// so the flow is testable before associated domains are configured.
+// Return path the wallet redirects to. Always the custom scheme
+// (loyal://ul/wallet/<action>, loyal-dev:// in dev clients): iOS routes it to
+// the app deterministically, and the app is guaranteed installed since it
+// initiated the flow. The https universal link was tried first and Phantom
+// opened it in Safari instead of the app (programmatic opens of universal
+// links are not guaranteed to leave the browser, even with valid AASA) —
+// verified live 2026-08-21, so do not switch this back to https.
 function buildRedirectLink(action: DeeplinkMethod): string {
-  return __DEV__
-    ? Linking.createURL(`ul/wallet/${action}`)
-    : `https://askloyal.com/ul/wallet/${action}`;
+  return Linking.createURL(`ul/wallet/${action}`);
 }
 
 function deeplinkCluster(): "mainnet-beta" | "devnet" {
