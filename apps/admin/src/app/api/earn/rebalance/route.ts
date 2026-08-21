@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import {
   getCurrentSafeReserveApyStatuses,
   getKaminoTimescaleDb,
-  getSafeReserveApyMonitorData,
   getSafeReserveApyMonitorDataFromStatuses,
 } from "@/lib/kamino/timescale-reserve-client.server";
 import type { SafeReserveApyMonitorData } from "@/lib/kamino/timescale-reserve-monitor.shared";
@@ -80,20 +79,73 @@ function serializeApyData(data: SafeReserveApyMonitorData) {
   };
 }
 
-async function loadRebalanceMonitorData(
-  apyDataPromise: Promise<SafeReserveApyMonitorData> = getSafeReserveApyMonitorData()
+function serializeOverviewData(
+  statuses: Awaited<ReturnType<typeof getCurrentSafeReserveApyStatuses>>,
+  routes: Awaited<ReturnType<typeof getActiveReserveRoutes>>,
+  decisions: Awaited<ReturnType<typeof getRecentRebalanceDecisions>>,
+  eligibilityFloorRaw: bigint | null
 ) {
-  const [
-    apyData,
-    routes,
-    decisions,
-    activity,
-    last30DaysRebalances,
-    autodeposit,
-  ] = await Promise.all([
-    apyDataPromise,
+  return {
+    decisions: decisions.map((decision) => ({
+      ...decision,
+      amountRaw: decision.amountRaw?.toString() ?? null,
+      confirmedSlot: decision.confirmedSlot?.toString() ?? null,
+    })),
+    eligibilityFloorRaw: eligibilityFloorRaw?.toString() ?? null,
+    routes: routes.map((route) => ({
+      ...route,
+      activeAumRaw: route.activeAumRaw.toString(),
+    })),
+    statuses,
+  };
+}
+
+type CurrentSafeReserveStatuses = Awaited<
+  ReturnType<typeof getCurrentSafeReserveApyStatuses>
+>;
+
+function getDefaultEligibilityFloorRaw(statuses: CurrentSafeReserveStatuses) {
+  const defaultMint = EARN_STABLECOIN_DESCRIPTORS.find(
+    (descriptor) => descriptor.symbol === "USDC"
+  )?.mint;
+
+  return computeRebalanceEligibilityFloorRaw(
+    statuses.filter((status) => status.liquidityMint === defaultMint),
+    STABLECOIN_DECIMALS
+  );
+}
+
+async function loadRebalanceOverviewData(
+  statusesPromise: Promise<
+    Awaited<ReturnType<typeof getCurrentSafeReserveApyStatuses>>
+  > = getCurrentSafeReserveApyStatuses(getKaminoTimescaleDb())
+) {
+  const [statuses, routes, decisions] = await Promise.all([
+    statusesPromise,
     getActiveReserveRoutes(),
     getRecentRebalanceDecisions(),
+  ]);
+
+  return serializeOverviewData(
+    statuses,
+    routes,
+    decisions,
+    getDefaultEligibilityFloorRaw(statuses)
+  );
+}
+
+async function loadRebalanceApyHistoryData(
+  statuses: Awaited<ReturnType<typeof getCurrentSafeReserveApyStatuses>>
+) {
+  return {
+    apyData: serializeApyData(
+      await getSafeReserveApyMonitorDataFromStatuses(statuses)
+    ),
+  };
+}
+
+async function loadRebalanceOperationsData() {
+  const [activity, last30DaysRebalances, autodeposit] = await Promise.all([
     getRebalanceActivity(),
     getLast30DaysRebalanceSeries(),
     getAutodepositTimeSeries(),
@@ -105,7 +157,6 @@ async function loadRebalanceMonitorData(
       maxSwapFeeLamports: point.maxSwapFeeLamports.toString(),
       swapFeeLamports: point.swapFeeLamports.toString(),
     })),
-    apyData: serializeApyData(apyData),
     autodeposit: autodeposit.map((range) => ({
       bucketHours: range.bucketHours,
       key: range.key,
@@ -120,16 +171,7 @@ async function loadRebalanceMonitorData(
         postPullKaminoTopUp: point.postPullKaminoTopUp,
       })),
     })),
-    decisions: decisions.map((decision) => ({
-      ...decision,
-      amountRaw: decision.amountRaw?.toString() ?? null,
-      confirmedSlot: decision.confirmedSlot?.toString() ?? null,
-    })),
     last30DaysRebalances,
-    routes: routes.map((route) => ({
-      ...route,
-      activeAumRaw: route.activeAumRaw.toString(),
-    })),
   };
 }
 
@@ -200,6 +242,12 @@ async function loadExecutedRebalances() {
   }
 }
 
+async function loadRebalanceExecutionsData() {
+  return {
+    executedRebalances: await loadExecutedRebalances(),
+  };
+}
+
 async function loadVaultRebalanceFrequency(eligibilityFloorRaw: bigint | null) {
   try {
     const frequency = await getEarnVaultRebalanceFrequency({
@@ -229,6 +277,25 @@ async function loadVaultRebalanceFrequency(eligibilityFloorRaw: bigint | null) {
       vaultCount: 0,
     };
   }
+}
+
+async function loadRebalanceFrequencyData(
+  statusesPromise?: Promise<CurrentSafeReserveStatuses>,
+  suppliedEligibilityFloorRaw?: bigint | null
+) {
+  const eligibilityFloorRaw =
+    suppliedEligibilityFloorRaw === undefined
+      ? getDefaultEligibilityFloorRaw(
+          await (statusesPromise ??
+            getCurrentSafeReserveApyStatuses(getKaminoTimescaleDb()))
+        )
+      : suppliedEligibilityFloorRaw;
+
+  return {
+    vaultRebalanceFrequency: await loadVaultRebalanceFrequency(
+      eligibilityFloorRaw
+    ),
+  };
 }
 
 function serializeVaultFrequency(
@@ -284,51 +351,114 @@ async function loadInitialAudit() {
   };
 }
 
-export async function loadRebalancePageData() {
+async function loadRebalancePageData() {
   const currentStatusesPromise = getCurrentSafeReserveApyStatuses(
     getKaminoTimescaleDb()
   );
-  const apyDataPromise = currentStatusesPromise.then((statuses) =>
-    getSafeReserveApyMonitorDataFromStatuses(statuses)
+  const overviewPromise = loadRebalanceOverviewData(currentStatusesPromise);
+  const apyHistoryPromise = currentStatusesPromise.then(
+    loadRebalanceApyHistoryData
   );
-  const monitorDataPromise = loadRebalanceMonitorData(apyDataPromise);
-  const executedRebalancesPromise = loadExecutedRebalances();
+  const operationsPromise = loadRebalanceOperationsData();
+  const executedRebalancesPromise = loadRebalanceExecutionsData();
   const initialAuditPromise = loadInitialAudit();
-  const frequencyPromise = currentStatusesPromise.then((statuses) => {
-    const defaultMint = EARN_STABLECOIN_DESCRIPTORS.find(
-      (descriptor) => descriptor.symbol === "USDC"
-    )?.mint;
-    const eligibilityFloorRaw = computeRebalanceEligibilityFloorRaw(
-      statuses.filter((status) => status.liquidityMint === defaultMint),
-      STABLECOIN_DECIMALS
-    );
-
-    return loadVaultRebalanceFrequency(eligibilityFloorRaw);
-  });
+  const frequencyPromise = loadRebalanceFrequencyData(currentStatusesPromise);
   const [
-    monitorData,
-    executedRebalances,
-    vaultRebalanceFrequency,
+    overview,
+    apyHistory,
+    operations,
+    executions,
+    frequency,
     initialAudit,
   ] = await Promise.all([
-    monitorDataPromise,
+    overviewPromise,
+    apyHistoryPromise,
+    operationsPromise,
     executedRebalancesPromise,
     frequencyPromise,
     initialAuditPromise,
   ]);
 
   return {
-    ...monitorData,
-    executedRebalances,
+    ...overview,
+    ...apyHistory,
+    ...operations,
+    executedRebalances: executions.executedRebalances,
     initialAudit,
-    vaultRebalanceFrequency,
+    vaultRebalanceFrequency: frequency.vaultRebalanceFrequency,
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const section = new URL(request.url).searchParams.get("section");
+  const headers = {
+    "Cache-Control": "private, no-store",
+  };
+
+  if (section === "overview") {
+    return NextResponse.json(await loadRebalanceOverviewData(), { headers });
+  }
+
+  if (section === "apy-history") {
+    const rawStatuses = new URL(request.url).searchParams.get("statuses");
+    if (!rawStatuses) {
+      return NextResponse.json(
+        { error: "statuses is required" },
+        { headers, status: 400 }
+      );
+    }
+
+    try {
+      const statuses = JSON.parse(rawStatuses) as Awaited<
+        ReturnType<typeof getCurrentSafeReserveApyStatuses>
+      >;
+      if (!Array.isArray(statuses)) {
+        throw new Error("statuses must be an array");
+      }
+      return NextResponse.json(await loadRebalanceApyHistoryData(statuses), {
+        headers,
+      });
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid statuses payload" },
+        { headers, status: 400 }
+      );
+    }
+  }
+
+  if (section === "operations") {
+    return NextResponse.json(await loadRebalanceOperationsData(), { headers });
+  }
+
+  if (section === "executions") {
+    return NextResponse.json(await loadRebalanceExecutionsData(), { headers });
+  }
+
+  if (section === "frequency") {
+    const rawFloor = new URL(request.url).searchParams.get(
+      "eligibilityFloorRaw"
+    );
+    if (rawFloor === null || (rawFloor !== "null" && !/^\d+$/.test(rawFloor))) {
+      return NextResponse.json(
+        { error: "eligibilityFloorRaw is required" },
+        { headers, status: 400 }
+      );
+    }
+    const eligibilityFloorRaw = rawFloor === "null" ? null : BigInt(rawFloor);
+    return NextResponse.json(
+      await loadRebalanceFrequencyData(undefined, eligibilityFloorRaw),
+      { headers }
+    );
+  }
+
+  if (section) {
+    return NextResponse.json(
+      { error: `Unknown rebalance section: ${section}` },
+      { headers, status: 400 }
+    );
+  }
+
   return NextResponse.json(await loadRebalancePageData(), {
-    headers: {
-      "Cache-Control": "private, no-store",
-    },
+    headers,
   });
 }
