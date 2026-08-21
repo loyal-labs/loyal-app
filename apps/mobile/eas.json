@@ -60,6 +60,7 @@
     "dapp-store": {
       "autoIncrement": true,
       "channel": "dapp-store",
+      "environment": "production",
       "env": {
         "DAPP_STORE_BUILD": "true",
         "EXPO_PUBLIC_API_BASE_URL": "https://solana-telegram-transactions.vercel.app",
