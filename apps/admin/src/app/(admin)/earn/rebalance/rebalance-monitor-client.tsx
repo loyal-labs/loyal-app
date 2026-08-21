@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDownIcon, ArrowUpIcon, RefreshCwIcon } from "lucide-react";
 
 import {
@@ -279,11 +279,6 @@ function deserializeApyData(
     window: data.window,
   };
 }
-
-type LoadState =
-  | { status: "loading" }
-  | { data: RebalanceApiData; status: "ready" }
-  | { message: string; status: "error" };
 
 type ApySortDirection = "asc" | "desc";
 
@@ -1617,286 +1612,566 @@ function RebalanceDecisionAuditFallback() {
   );
 }
 
-function RebalanceMonitorFallback() {
+function OverviewFallback() {
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
+    <div className="grid gap-6">
+      <Skeleton className="h-24 w-full" />
       <CurrentReserveApyFallback />
-      <ApyChartFallback />
-      <ApyChartFallback />
-      <ApyChartFallback />
+    </div>
+  );
+}
+
+type RebalanceOverviewWireData = Pick<
+  RebalanceApiWireData,
+  "decisions" | "routes"
+> & {
+  eligibilityFloorRaw: string | null;
+  statuses: SafeReserveApyStatusRow[];
+};
+type RebalanceApyHistoryWireData = Pick<RebalanceApiWireData, "apyData">;
+type RebalanceOperationsWireData = Pick<
+  RebalanceApiWireData,
+  "activity" | "autodeposit" | "last30DaysRebalances"
+>;
+type RebalanceExecutionsWireData = Pick<
+  RebalanceApiWireData,
+  "executedRebalances"
+>;
+type RebalanceFrequencyWireData = Pick<
+  RebalanceApiWireData,
+  "vaultRebalanceFrequency"
+>;
+type RebalanceSectionState<T> = {
+  data?: T;
+  message?: string;
+  ref: (element: HTMLElement | null) => void;
+  status: "error" | "idle" | "loading" | "ready";
+};
+
+function useProgressiveSection<T>(
+  endpoint: string,
+  options: { enabled?: boolean; immediate?: boolean } = {}
+): RebalanceSectionState<T> {
+  const { enabled = true, immediate = false } = options;
+  const [element, setElement] = useState<HTMLElement | null>(null);
+  const started = useRef(false);
+  const [state, setState] = useState<Omit<RebalanceSectionState<T>, "ref">>({
+    status: "idle",
+  });
+
+  useEffect(() => {
+    if (!enabled || !element || started.current) {
+      return;
+    }
+
+    let activeController: AbortController | null = null;
+    let mounted = true;
+    const load = async () => {
+      if (started.current) {
+        return;
+      }
+      started.current = true;
+      const controller = new AbortController();
+      activeController = controller;
+      setState({ status: "loading" });
+
+      try {
+        const response = await fetch(endpoint, {
+          cache: "no-store",
+          credentials: "same-origin",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(
+            `Rebalance section request failed: ${response.status}`
+          );
+        }
+        const data = (await response.json()) as T;
+        if (mounted) {
+          setState({ data, status: "ready" });
+        }
+      } catch (error) {
+        if (!mounted || controller.signal.aborted) {
+          return;
+        }
+        setState({
+          message:
+            error instanceof Error
+              ? error.message
+              : "Rebalance section request failed.",
+          status: "error",
+        });
+      }
+    };
+
+    if (immediate) {
+      void load();
+      return () => {
+        mounted = false;
+        activeController?.abort();
+      };
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          observer.disconnect();
+          void load();
+        }
+      },
+      { rootMargin: "0px" }
+    );
+    observer.observe(element);
+    return () => {
+      mounted = false;
+      activeController?.abort();
+      observer.disconnect();
+    };
+  }, [element, enabled, endpoint, immediate]);
+
+  return { ...state, ref: setElement };
+}
+
+function ProgressiveSection<T>({
+  children,
+  fallback,
+  name,
+  section,
+}: {
+  children: ReactNode;
+  fallback: ReactNode;
+  name: string;
+  section: RebalanceSectionState<T>;
+}) {
+  const reservedHeightBySection: Record<string, string> = {
+    "rebalance-apy-history": "h-[52rem]",
+    "rebalance-audit": "min-h-[108rem]",
+    "rebalance-executions": "h-[46rem]",
+    "rebalance-frequency": "h-[48rem]",
+    "rebalance-operations": "min-h-[44rem]",
+    "rebalance-overview": "h-[42rem]",
+  };
+  const reservedHeight =
+    section.status === "idle" || section.status === "loading"
+      ? reservedHeightBySection[name]
+      : undefined;
+
+  return (
+    <section
+      className={`grid gap-6 ${reservedHeight ?? ""}`}
+      data-progressive-section={name}
+      data-progressive-state={section.status}
+      ref={section.ref}
+    >
+      {section.status === "ready" ? (
+        children
+      ) : section.status === "error" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-bold">Section unavailable</CardTitle>
+            <CardDescription>
+              {section.message ?? "This section could not be loaded."}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : (
+        fallback
+      )}
+    </section>
+  );
+}
+
+function OperationsFallback() {
+  return <Skeleton className="h-[44rem] w-full" />;
+}
+
+function ExecutionsFallback() {
+  return <Skeleton className="h-[36rem] w-full" />;
+}
+
+function FrequencyFallback() {
+  return <Skeleton className="h-[40rem] w-full" />;
+}
+
+function AuditFallback() {
+  return (
+    <div className="min-h-[48rem]">
       <RebalanceDecisionAuditFallback />
     </div>
   );
 }
 
-function deserializeRebalanceApiData(
-  wireData: RebalanceApiWireData
-): RebalanceApiData {
+function deserializeOverviewData(
+  wireData: RebalanceOverviewWireData
+): Pick<RebalanceApiData, "apyData" | "decisions" | "routes"> {
+  const series = wireData.statuses.map((status, index) => ({
+    key: `reserve${index + 1}`,
+    label:
+      `${
+        status.symbol ??
+        getEarnStablecoinSymbol(status.liquidityMint) ??
+        "Unknown"
+      } · ` + `${status.marketName ?? status.market}`,
+    liquidityMint: status.liquidityMint,
+    marketName: status.marketName,
+    reserve: status.reserve,
+  }));
+
   return {
-    ...wireData,
-    apyData: deserializeApyData(wireData.apyData),
-    executedRebalances: {
-      ...wireData.executedRebalances,
-      chartPoints: wireData.executedRebalances.chartPoints.map((row) =>
-        deserializeExecutedRebalance(row, wireData.executedRebalances.strings)
-      ),
-      details: wireData.executedRebalances.details.map((row) =>
-        deserializeExecutedRebalance(row, wireData.executedRebalances.strings)
-      ),
+    apyData: {
+      chartPoints: [],
+      generatedAt: "",
+      sampleIntervalMinutes: 30,
+      series,
+      statuses: wireData.statuses,
+      window: { endedAt: "", startedAt: "" },
     },
-    vaultRebalanceFrequency: {
-      ...wireData.vaultRebalanceFrequency,
-      chartPoints: wireData.vaultRebalanceFrequency.chartPoints.map(
-        deserializeVaultFrequency
-      ),
-      details: wireData.vaultRebalanceFrequency.details.map(
-        deserializeVaultFrequency
-      ),
-    },
+    decisions: wireData.decisions,
+    routes: wireData.routes,
   };
 }
 
-export function RebalanceMonitorClient({
-  initialData,
-}: {
-  initialData?: RebalanceApiWireData;
-}) {
-  const [state, setState] = useState<LoadState>(() =>
-    initialData
-      ? { data: deserializeRebalanceApiData(initialData), status: "ready" }
-      : { status: "loading" }
+function encodeStatusesForRequest(statuses: SafeReserveApyStatusRow[]) {
+  return encodeURIComponent(JSON.stringify(statuses));
+}
+
+function deserializeExecutionsData(
+  wireData: RebalanceExecutionsWireData
+): RebalanceApiData["executedRebalances"] {
+  return {
+    ...wireData.executedRebalances,
+    chartPoints: wireData.executedRebalances.chartPoints.map((row) =>
+      deserializeExecutedRebalance(row, wireData.executedRebalances.strings)
+    ),
+    details: wireData.executedRebalances.details.map((row) =>
+      deserializeExecutedRebalance(row, wireData.executedRebalances.strings)
+    ),
+  };
+}
+
+function deserializeFrequencyData(
+  wireData: RebalanceFrequencyWireData
+): RebalanceApiData["vaultRebalanceFrequency"] {
+  return {
+    ...wireData.vaultRebalanceFrequency,
+    chartPoints: wireData.vaultRebalanceFrequency.chartPoints.map(
+      deserializeVaultFrequency
+    ),
+    details: wireData.vaultRebalanceFrequency.details.map(
+      deserializeVaultFrequency
+    ),
+  };
+}
+
+export function RebalanceMonitorClient() {
+  const overview = useProgressiveSection<RebalanceOverviewWireData>(
+    "/api/earn/rebalance?section=overview",
+    { immediate: true }
+  );
+  const apyHistoryEndpoint = overview.data
+    ? `/api/earn/rebalance?section=apy-history&statuses=${encodeStatusesForRequest(
+        overview.data.statuses
+      )}`
+    : "/api/earn/rebalance?section=apy-history";
+  const apyHistory = useProgressiveSection<RebalanceApyHistoryWireData>(
+    apyHistoryEndpoint,
+    { enabled: overview.status === "ready" }
+  );
+  const operations = useProgressiveSection<RebalanceOperationsWireData>(
+    "/api/earn/rebalance?section=operations",
+    { enabled: overview.status === "ready" }
+  );
+  const executions = useProgressiveSection<RebalanceExecutionsWireData>(
+    "/api/earn/rebalance?section=executions",
+    { enabled: overview.status === "ready" }
+  );
+  const frequencyEndpoint = overview.data
+    ? `/api/earn/rebalance?section=frequency&eligibilityFloorRaw=${
+        overview.data.eligibilityFloorRaw ?? "null"
+      }`
+    : "/api/earn/rebalance?section=frequency";
+  const frequency = useProgressiveSection<RebalanceFrequencyWireData>(
+    frequencyEndpoint,
+    { enabled: overview.status === "ready" }
+  );
+  const audit = useProgressiveSection<AuditApiData>(
+    "/api/earn/rebalance/audit?errorFilter=all&range=24h&routeMode=same_mint&view=completed_rebalances",
+    { enabled: overview.status === "ready" }
   );
   const [selectedMint, setSelectedMint] = useState("USDC");
+  const overviewData = overview.data
+    ? deserializeOverviewData(overview.data)
+    : undefined;
+  const loadedApyData = apyHistory.data
+    ? deserializeApyData(apyHistory.data.apyData)
+    : undefined;
+  const displayApyData = overviewData
+    ? loadedApyData ?? overviewData.apyData
+    : undefined;
+  const operationsData = operations.data;
+  const executionsData = executions.data
+    ? deserializeExecutionsData(executions.data)
+    : undefined;
+  const frequencyData = frequency.data
+    ? deserializeFrequencyData(frequency.data)
+    : undefined;
 
-  useEffect(() => {
-    if (initialData) {
-      return;
-    }
-
-    const controller = new AbortController();
-
-    async function loadMonitor() {
-      try {
-        const response = await fetch("/api/earn/rebalance", {
-          credentials: "same-origin",
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            `Rebalance monitor request failed: ${response.status}`
-          );
-        }
-
-        const wireData = (await response.json()) as RebalanceApiWireData;
-        setState({
-          data: deserializeRebalanceApiData(wireData),
-          status: "ready",
-        });
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-
-        setState({
-          message:
-            error instanceof Error
-              ? error.message
-              : "Rebalance monitor request failed.",
-          status: "error",
-        });
-      }
-    }
-
-    void loadMonitor();
-
-    return () => controller.abort();
-  }, [initialData]);
-
-  if (state.status === "loading") {
-    return <RebalanceMonitorFallback />;
-  }
-
-  if (state.status === "error") {
-    return (
-      <div className="mx-auto w-full max-w-4xl">
-        <Card>
-          <CardHeader>
-            <CardTitle className="font-bold">Rebalance monitor</CardTitle>
-            <CardDescription>{state.message}</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
-  }
-
-  const reserveLabels = createReserveLabelMap(state.data.apyData);
   const selectedDescriptor = EARN_STABLECOIN_DESCRIPTORS.find(
     ({ symbol }) => symbol === selectedMint
   );
   const selectedMintAddress = selectedDescriptor?.mint ?? null;
-  const filteredApyData = selectedMintAddress
-    ? {
-        ...state.data.apyData,
-        series: state.data.apyData.series.filter(
-          (series) => series.liquidityMint === selectedMintAddress
-        ),
-        statuses: state.data.apyData.statuses.filter(
-          (status) => status.liquidityMint === selectedMintAddress
-        ),
-      }
-    : state.data.apyData;
-  const filteredRoutes = selectedMintAddress
-    ? state.data.routes.filter(
-        (route) => route.liquidityMint === selectedMintAddress
-      )
-    : state.data.routes;
-  const filteredDecisions = selectedMintAddress
-    ? state.data.decisions.filter(
-        (decision) =>
-          decision.routeMode === "cross_mint" ||
-          decision.liquidityMint === selectedMintAddress
-      )
-    : state.data.decisions;
-  const filteredExecutedRebalances = selectedMintAddress
-    ? {
-        ...state.data.executedRebalances,
-        chartPoints: state.data.executedRebalances.chartPoints.filter(
-          (execution) =>
-            execution.routeMode === "cross_mint" ||
-            execution.liquidityMint === selectedMintAddress
-        ),
-        details: state.data.executedRebalances.details.filter(
-          (execution) =>
-            execution.routeMode === "cross_mint" ||
-            execution.liquidityMint === selectedMintAddress
-        ),
-        summaries: state.data.executedRebalances.summaries.filter(
+  const reserveLabels = overviewData
+    ? createReserveLabelMap(overviewData.apyData)
+    : new Map<string, string>();
+  const filteredApyData = displayApyData
+    ? selectedMintAddress
+      ? {
+          ...displayApyData,
+          series: displayApyData.series.filter(
+            (series) => series.liquidityMint === selectedMintAddress
+          ),
+          statuses: displayApyData.statuses.filter(
+            (status) => status.liquidityMint === selectedMintAddress
+          ),
+        }
+      : displayApyData
+    : undefined;
+  const filteredRoutes = overviewData
+    ? selectedMintAddress
+      ? overviewData.routes.filter(
+          (route) => route.liquidityMint === selectedMintAddress
+        )
+      : overviewData.routes
+    : [];
+  const filteredDecisions = overviewData
+    ? selectedMintAddress
+      ? overviewData.decisions.filter(
+          (decision) =>
+            decision.routeMode === "cross_mint" ||
+            decision.liquidityMint === selectedMintAddress
+        )
+      : overviewData.decisions
+    : [];
+  const filteredExecutedRebalances = executionsData
+    ? selectedMintAddress
+      ? {
+          ...executionsData,
+          chartPoints: executionsData.chartPoints.filter(
+            (execution) =>
+              execution.routeMode === "cross_mint" ||
+              execution.liquidityMint === selectedMintAddress
+          ),
+          details: executionsData.details.filter(
+            (execution) =>
+              execution.routeMode === "cross_mint" ||
+              execution.liquidityMint === selectedMintAddress
+          ),
+          summaries: executionsData.summaries.filter(
+            (summary) =>
+              summary.routeMode === "cross_mint" ||
+              summary.liquidityMint === selectedMintAddress
+          ),
+        }
+      : executionsData
+    : undefined;
+  const filteredFrequencyVaults = frequencyData
+    ? selectedMintAddress
+      ? frequencyData.chartPoints.filter(
+          (vault) =>
+            vault.routeMode === "cross_mint" ||
+            vault.liquidityMint === selectedMintAddress
+        )
+      : frequencyData.chartPoints
+    : [];
+  const filteredFrequencyDetails = frequencyData
+    ? selectedMintAddress
+      ? frequencyData.details.filter(
+          (vault) =>
+            vault.routeMode === "cross_mint" ||
+            vault.liquidityMint === selectedMintAddress
+        )
+      : frequencyData.details
+    : [];
+  const filteredFrequencySummaries = frequencyData
+    ? selectedMintAddress
+      ? frequencyData.summaries.filter(
           (summary) =>
             summary.routeMode === "cross_mint" ||
             summary.liquidityMint === selectedMintAddress
+        )
+      : frequencyData.summaries
+    : [];
+  const filteredVaultRebalanceFrequency = frequencyData
+    ? {
+        ...frequencyData,
+        chartPoints: filteredFrequencyVaults,
+        details: filteredFrequencyDetails,
+        summaries: filteredFrequencySummaries,
+        vaultCount: filteredFrequencySummaries.reduce(
+          (total, summary) => total + summary.vaultCount,
+          0
         ),
       }
-    : state.data.executedRebalances;
-  const filteredFrequencyVaults = selectedMintAddress
-    ? state.data.vaultRebalanceFrequency.chartPoints.filter(
-        (vault) =>
-          vault.routeMode === "cross_mint" ||
-          vault.liquidityMint === selectedMintAddress
-      )
-    : state.data.vaultRebalanceFrequency.chartPoints;
-  const filteredFrequencyDetails = selectedMintAddress
-    ? state.data.vaultRebalanceFrequency.details.filter(
-        (vault) =>
-          vault.routeMode === "cross_mint" ||
-          vault.liquidityMint === selectedMintAddress
-      )
-    : state.data.vaultRebalanceFrequency.details;
-  const filteredFrequencySummaries = selectedMintAddress
-    ? state.data.vaultRebalanceFrequency.summaries.filter(
-        (summary) =>
-          summary.routeMode === "cross_mint" ||
-          summary.liquidityMint === selectedMintAddress
-      )
-    : state.data.vaultRebalanceFrequency.summaries;
-  const filteredVaultRebalanceFrequency = {
-    ...state.data.vaultRebalanceFrequency,
-    chartPoints: filteredFrequencyVaults,
-    details: filteredFrequencyDetails,
-    summaries: filteredFrequencySummaries,
-    vaultCount: filteredFrequencySummaries.reduce(
-      (total, summary) => total + summary.vaultCount,
-      0
-    ),
-  };
-  const crossMintApyData = getCrossMintApyData(state.data.apyData);
+    : undefined;
+  const crossMintApyData = displayApyData
+    ? getCrossMintApyData(displayApyData)
+    : undefined;
 
   return (
-    <div className="mx-auto grid w-full max-w-4xl gap-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="font-bold">Stablecoin filter</CardTitle>
-          <CardDescription>
-            Filters same-mint reserves, executions, and vault frequency.
-            Crossmint cards show all Crossmint routes and the best currently
-            eligible Safe reserve for each supported target mint.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Select value={selectedMint} onValueChange={setSelectedMint}>
-            <SelectTrigger className="w-full sm:w-56">
-              <SelectValue>
-                {selectedMint === "all" ? "All stablecoins" : selectedMint}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All stablecoins</SelectItem>
-              {EARN_STABLECOIN_DESCRIPTORS.map(({ mint, symbol }) => (
-                <SelectItem key={mint} value={symbol}>
-                  {symbol}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
-      <CurrentReserveApyCard
-        dataByRouteMode={{
-          cross_mint: {
-            routes: state.data.routes.filter((route) =>
-              crossMintApyData.series.some(
-                (series) => series.reserve === route.currentReserve
-              )
-            ),
-            rows: state.data.apyData.statuses.filter((status) =>
-              crossMintApyData.series.some(
-                (series) => series.reserve === status.reserve
-              )
-            ),
-          },
-          same_mint: {
-            routes: filteredRoutes,
-            rows: filteredApyData.statuses,
-          },
-        }}
-      />
-      <SafeReserveApyChart
-        dataByRouteMode={{
-          cross_mint: crossMintApyData,
-          same_mint: filteredApyData,
-        }}
-        decisionMarkersByRouteMode={{
-          cross_mint: toDecisionMarkers(
-            filteredDecisions.filter(
-              (decision) => decision.routeMode === "cross_mint"
-            )
-          ),
-          same_mint: toDecisionMarkers(
-            filteredDecisions.filter(
-              (decision) => decision.routeMode === "same_mint"
-            )
-          ),
-        }}
-      />
-      <RebalanceActivityChart data={state.data.activity} />
-      <ExecutedEarnRebalancesChart
-        data={filteredExecutedRebalances}
-        key={`executed-${selectedMint}`}
-        liquidityMint={selectedMintAddress}
-        reserveLabels={reserveLabels}
-      />
-      <EarnVaultRebalanceFrequencyChart
-        data={filteredVaultRebalanceFrequency}
-        key={`frequency-${selectedMint}`}
-        liquidityMint={selectedMintAddress}
-        reserveStatuses={filteredApyData.statuses}
-      />
-      <Last30DaysRebalanceChart data={state.data.last30DaysRebalances} />
-      <AutodepositFailuresChart data={state.data.autodeposit} />
-      <RebalanceAuditCard
-        initialData={state.data.initialAudit}
-        reserveLabels={reserveLabels}
-      />
+    <div
+      className="mx-auto grid w-full max-w-4xl gap-6"
+      data-progressive-page="/earn/rebalance"
+    >
+      <ProgressiveSection
+        fallback={<OverviewFallback />}
+        name="rebalance-overview"
+        section={overview}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle className="font-bold">Stablecoin filter</CardTitle>
+            <CardDescription>
+              Filters same-mint reserves, executions, and vault frequency.
+              Crossmint cards show all Crossmint routes and the best currently
+              eligible Safe reserve for each supported target mint.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select value={selectedMint} onValueChange={setSelectedMint}>
+              <SelectTrigger className="w-full sm:w-56">
+                <SelectValue>
+                  {selectedMint === "all" ? "All stablecoins" : selectedMint}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All stablecoins</SelectItem>
+                {EARN_STABLECOIN_DESCRIPTORS.map(({ mint, symbol }) => (
+                  <SelectItem key={mint} value={symbol}>
+                    {symbol}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+        {overviewData &&
+        displayApyData &&
+        filteredApyData &&
+        crossMintApyData ? (
+          <>
+            <CurrentReserveApyCard
+              dataByRouteMode={{
+                cross_mint: {
+                  routes: overviewData.routes.filter((route) =>
+                    crossMintApyData.series.some(
+                      (series) => series.reserve === route.currentReserve
+                    )
+                  ),
+                  rows: displayApyData.statuses.filter((status) =>
+                    crossMintApyData.series.some(
+                      (series) => series.reserve === status.reserve
+                    )
+                  ),
+                },
+                same_mint: {
+                  routes: filteredRoutes,
+                  rows: filteredApyData.statuses,
+                },
+              }}
+            />
+          </>
+        ) : null}
+      </ProgressiveSection>
+      <ProgressiveSection
+        fallback={<ApyChartFallback />}
+        name="rebalance-apy-history"
+        section={apyHistory}
+      >
+        {loadedApyData && filteredApyData && crossMintApyData ? (
+          <SafeReserveApyChart
+            dataByRouteMode={{
+              cross_mint: crossMintApyData,
+              same_mint: filteredApyData,
+            }}
+            decisionMarkersByRouteMode={{
+              cross_mint: toDecisionMarkers(
+                filteredDecisions.filter(
+                  (decision) => decision.routeMode === "cross_mint"
+                )
+              ),
+              same_mint: toDecisionMarkers(
+                filteredDecisions.filter(
+                  (decision) => decision.routeMode === "same_mint"
+                )
+              ),
+            }}
+          />
+        ) : null}
+      </ProgressiveSection>
+      <ProgressiveSection
+        fallback={<OperationsFallback />}
+        name="rebalance-operations"
+        section={operations}
+      >
+        {operationsData ? (
+          <RebalanceActivityChart data={operationsData.activity} />
+        ) : null}
+      </ProgressiveSection>
+      <ProgressiveSection
+        fallback={<ExecutionsFallback />}
+        name="rebalance-executions"
+        section={executions}
+      >
+        {filteredExecutedRebalances ? (
+          <ExecutedEarnRebalancesChart
+            data={filteredExecutedRebalances}
+            key={`executed-${selectedMint}`}
+            liquidityMint={selectedMintAddress}
+            reserveLabels={reserveLabels}
+          />
+        ) : null}
+      </ProgressiveSection>
+      <ProgressiveSection
+        fallback={<FrequencyFallback />}
+        name="rebalance-frequency"
+        section={frequency}
+      >
+        {filteredVaultRebalanceFrequency && filteredApyData ? (
+          <EarnVaultRebalanceFrequencyChart
+            data={filteredVaultRebalanceFrequency}
+            key={`frequency-${selectedMint}`}
+            liquidityMint={selectedMintAddress}
+            reserveStatuses={filteredApyData.statuses}
+          />
+        ) : null}
+      </ProgressiveSection>
+      <div className={`grid gap-6 ${operationsData ? "" : "min-h-[52rem]"}`}>
+        {operationsData ? (
+          <>
+            <Last30DaysRebalanceChart
+              data={operationsData.last30DaysRebalances}
+            />
+            <AutodepositFailuresChart data={operationsData.autodeposit} />
+          </>
+        ) : (
+          <>
+            <Skeleton className="h-[26rem] w-full" />
+            <Skeleton className="h-[25rem] w-full" />
+          </>
+        )}
+      </div>
+      <ProgressiveSection
+        fallback={<AuditFallback />}
+        name="rebalance-audit"
+        section={audit}
+      >
+        {audit.data ? (
+          <RebalanceAuditCard
+            initialData={audit.data}
+            reserveLabels={reserveLabels}
+          />
+        ) : null}
+      </ProgressiveSection>
     </div>
   );
 }

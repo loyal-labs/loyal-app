@@ -174,7 +174,19 @@ function toNullableNumber(value: SqlScalar): number | null {
 
 async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData> {
   const rows = (await getYieldNeonSql().query(`
-    WITH first_submission AS MATERIALIZED (
+    WITH confirmed_decisions AS MATERIALIZED (
+      SELECT
+        decision.id,
+        decision.source_reserve,
+        decision.target_reserve,
+        decision.liquidity_mint,
+        decision.created_at
+      FROM loyal_yield.rebalance_decisions AS decision
+      WHERE decision.status = 'confirmed'
+        AND decision.source_reserve IS NOT NULL
+        AND decision.target_reserve IS NOT NULL
+    ),
+    first_submission AS MATERIALIZED (
       SELECT
         submission.decision_id,
         MIN(submission.created_at) AS signed_at,
@@ -185,6 +197,8 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
           WHERE submission.confirmed_at IS NOT NULL
         ) AS confirmed_at
       FROM loyal_yield.signed_route_submissions AS submission
+      INNER JOIN confirmed_decisions AS decision
+        ON decision.id = submission.decision_id
       WHERE submission.decision_id IS NOT NULL
       GROUP BY submission.decision_id
     ),
@@ -201,7 +215,7 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
         first_submission.submitted_at,
         first_submission.confirmed_at,
         target_reserve.observed_at AS target_observed_at
-      FROM loyal_yield.rebalance_decisions AS decision
+      FROM confirmed_decisions AS decision
       INNER JOIN loyal_yield.rebalance_opportunities AS opportunity
         ON opportunity.decision_id = decision.id
       INNER JOIN loyal_yield.optimizer_epochs AS epoch
@@ -215,9 +229,6 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
       ) AS target_reserve ON true
       INNER JOIN first_submission
         ON first_submission.decision_id = decision.id
-      WHERE decision.status = 'confirmed'
-        AND decision.source_reserve IS NOT NULL
-        AND decision.target_reserve IS NOT NULL
     ),
     valid AS MATERIALIZED (
       SELECT *
@@ -281,6 +292,46 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
         MAX(submitted_at) AS range_ended_at
       FROM measured
     ),
+    stage_definitions(position, key, label) AS (
+      VALUES
+        (1, 'observedToOpportunityMs'::text, 'Observed → opportunity'::text),
+        (2, 'opportunityToReadyMs'::text, 'Opportunity → ready'::text),
+        (3, 'readyToDecisionMs'::text, 'Ready → decision'::text),
+        (4, 'decisionToSignedMs'::text, 'Decision → signed'::text),
+        (5, 'signedToSubmittedMs'::text, 'Signed → submitted'::text),
+        (6, 'submittedToConfirmedMs'::text, 'Submitted → confirmed'::text)
+    ),
+    stage_values AS (
+      SELECT stage.position, stage.value
+      FROM measured
+      CROSS JOIN LATERAL (
+        VALUES
+          (1, measured.observed_to_opportunity_ms),
+          (2, measured.opportunity_to_ready_ms),
+          (3, measured.ready_to_decision_ms),
+          (4, measured.decision_to_signed_ms),
+          (5, measured.signed_to_submitted_ms),
+          (6, measured.submitted_to_confirmed_ms)
+      ) AS stage(position, value)
+      WHERE stage.value IS NOT NULL
+    ),
+    stage_aggregates AS (
+      SELECT
+        definition.position,
+        definition.key,
+        definition.label,
+      COUNT(stage_value.value)::integer AS measured_count,
+      percentile_cont(0.5) WITHIN GROUP (
+          ORDER BY stage_value.value
+        ) AS p50_ms,
+        percentile_cont(0.95) WITHIN GROUP (
+          ORDER BY stage_value.value
+        ) AS p95_ms
+      FROM stage_definitions AS definition
+      LEFT JOIN stage_values AS stage_value
+        ON stage_value.position = definition.position
+      GROUP BY definition.position, definition.key, definition.label
+    ),
     stage_summaries AS (
       SELECT jsonb_agg(
         jsonb_build_object(
@@ -292,95 +343,7 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
         )
         ORDER BY stage.position
       ) AS stages
-      FROM (
-        SELECT
-          1 AS position,
-          'observedToOpportunityMs'::text AS key,
-          'Observed → opportunity'::text AS label,
-          COUNT(measured.observed_to_opportunity_ms)::integer AS measured_count,
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY measured.observed_to_opportunity_ms
-          ) AS p50_ms,
-          percentile_cont(0.95) WITHIN GROUP (
-            ORDER BY measured.observed_to_opportunity_ms
-          ) AS p95_ms
-        FROM measured
-
-        UNION ALL
-
-        SELECT
-          2,
-          'opportunityToReadyMs',
-          'Opportunity → ready',
-          COUNT(measured.opportunity_to_ready_ms)::integer,
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY measured.opportunity_to_ready_ms
-          ),
-          percentile_cont(0.95) WITHIN GROUP (
-            ORDER BY measured.opportunity_to_ready_ms
-          )
-        FROM measured
-
-        UNION ALL
-
-        SELECT
-          3,
-          'readyToDecisionMs',
-          'Ready → decision',
-          COUNT(measured.ready_to_decision_ms)::integer,
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY measured.ready_to_decision_ms
-          ),
-          percentile_cont(0.95) WITHIN GROUP (
-            ORDER BY measured.ready_to_decision_ms
-          )
-        FROM measured
-
-        UNION ALL
-
-        SELECT
-          4,
-          'decisionToSignedMs',
-          'Decision → signed',
-          COUNT(measured.decision_to_signed_ms)::integer,
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY measured.decision_to_signed_ms
-          ),
-          percentile_cont(0.95) WITHIN GROUP (
-            ORDER BY measured.decision_to_signed_ms
-          )
-        FROM measured
-
-        UNION ALL
-
-        SELECT
-          5,
-          'signedToSubmittedMs',
-          'Signed → submitted',
-          COUNT(measured.signed_to_submitted_ms)::integer,
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY measured.signed_to_submitted_ms
-          ),
-          percentile_cont(0.95) WITHIN GROUP (
-            ORDER BY measured.signed_to_submitted_ms
-          )
-        FROM measured
-
-        UNION ALL
-
-        SELECT
-          6,
-          'submittedToConfirmedMs',
-          'Submitted → confirmed',
-          COUNT(measured.submitted_to_confirmed_ms)::integer,
-          percentile_cont(0.5) WITHIN GROUP (
-            ORDER BY measured.submitted_to_confirmed_ms
-          ),
-          percentile_cont(0.95) WITHIN GROUP (
-            ORDER BY measured.submitted_to_confirmed_ms
-          )
-        FROM measured
-      ) AS stage
+      FROM stage_aggregates AS stage
     ),
     chart_points AS (
       SELECT
@@ -422,10 +385,7 @@ async function loadEarnRebalanceLatencyData(): Promise<EarnRebalanceLatencyData>
     ),
     total_confirmed AS (
       SELECT COUNT(*)::integer AS total_confirmed
-        FROM loyal_yield.rebalance_decisions AS total
-        WHERE total.status = 'confirmed'
-          AND total.source_reserve IS NOT NULL
-          AND total.target_reserve IS NOT NULL
+      FROM confirmed_decisions
     )
     SELECT
       summary.measured_count,
