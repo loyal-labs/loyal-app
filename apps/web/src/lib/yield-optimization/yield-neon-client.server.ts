@@ -253,8 +253,8 @@ export const crossMintSwapPolicies = loyalYieldSchema.table(
   }
 );
 
-export const crossMintVaultControls = loyalYieldSchema.table(
-  "cross_mint_vault_controls",
+export const crossMintVaultOptIns = loyalYieldSchema.table(
+  "cross_mint_vault_opt_ins",
   {
     cluster: text("cluster").notNull(),
     settings: text("settings").notNull(),
@@ -1248,7 +1248,7 @@ export const yieldOptimizationSchema = {
   balanceSweepWalletBalanceEvents,
   balanceSweepWalletBalancesCurrent,
   crossMintSwapPolicies,
-  crossMintVaultControls,
+  crossMintVaultOptIns,
   earnDepositOnboardingAttempts,
   earnEarningsSnapshots,
   earnApyHourlySnapshots,
@@ -1289,7 +1289,7 @@ export type YieldOptimizationClientTables = {
   balanceSweepWalletBalanceEvents: typeof balanceSweepWalletBalanceEvents;
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
   crossMintSwapPolicies: typeof crossMintSwapPolicies;
-  crossMintVaultControls: typeof crossMintVaultControls;
+  crossMintVaultOptIns: typeof crossMintVaultOptIns;
   earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
   earnEarningsSnapshots: typeof earnEarningsSnapshots;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
@@ -1323,7 +1323,7 @@ export class YieldOptimizationClient {
     balanceSweepWalletBalanceEvents,
     balanceSweepWalletBalancesCurrent,
     crossMintSwapPolicies,
-    crossMintVaultControls,
+    crossMintVaultOptIns,
     earnDepositOnboardingAttempts,
     earnEarningsSnapshots,
     earnApyHourlySnapshots,
