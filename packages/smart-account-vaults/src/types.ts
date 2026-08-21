@@ -529,7 +529,15 @@ export type SmartAccountEarnCrossMintSwapPoliciesInput = {
   feePayer: PublicKey;
   maxSlippageBps: number;
   dailySourceMintSpendingCap: bigint;
+  projectedPolicies?: readonly SmartAccountEarnCrossMintProjectedPolicyInput[];
   cluster?: LoyalCluster;
+};
+
+export type SmartAccountEarnCrossMintProjectedPolicyInput = {
+  account: PublicKey;
+  lastSeenSlot?: bigint;
+  seed: bigint;
+  sourceShard: "classic" | "token_2022";
 };
 
 export type SmartAccountEarnCrossMintSwapPolicyMetadata = {

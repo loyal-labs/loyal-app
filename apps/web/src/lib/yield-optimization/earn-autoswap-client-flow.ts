@@ -1,5 +1,6 @@
 import {
   createSmartAccountVaultsClient,
+  type SmartAccountEarnCrossMintProjectedPolicyInput,
   type SmartAccountPreparedEarnCrossMintSwapPolicy,
 } from "@loyal-labs/smart-account-vaults";
 import type { PublicKey } from "@solana/web3.js";
@@ -25,14 +26,18 @@ export async function executeEarnAutoswapSetupClient(args: {
   ) => Promise<string>;
 }): Promise<{ completedPolicies: number }> {
   const installed = new Set<"classic" | "token_2022">();
+  let projectedPolicies: SmartAccountEarnCrossMintProjectedPolicyInput[] = [
+    ...(args.input.projectedPolicies ?? []),
+  ];
 
   // Settings.nextPolicySeed advances after each PolicyCreate. Re-read Settings
-  // and re-plan after every confirmed send instead of trusting a stale second
-  // transaction prepared before the first one landed.
+  // and re-plan after every confirmed send. Carry the newly confirmed identity
+  // locally so the second step does not wait for the projection to catch up.
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const preparedSet = await args.client.prepareEarnCrossMintSwapPolicies(
-      args.input
-    );
+    const preparedSet = await args.client.prepareEarnCrossMintSwapPolicies({
+      ...args.input,
+      projectedPolicies: [...projectedPolicies],
+    });
     for (const policy of preparedSet.policies) {
       if (policy.existing) {
         installed.add(policy.sourceShard);
@@ -58,6 +63,14 @@ export async function executeEarnAutoswapSetupClient(args: {
       sourceShard: nextPolicy.sourceShard,
     });
     installed.add(nextPolicy.sourceShard);
+    projectedPolicies = [
+      ...projectedPolicies,
+      {
+        account: nextPolicy.policy.account,
+        seed: nextPolicy.policy.seed,
+        sourceShard: nextPolicy.sourceShard,
+      },
+    ];
     if (installed.size === 2) {
       return { completedPolicies: 2 };
     }

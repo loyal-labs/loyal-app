@@ -6146,6 +6146,70 @@ export function createSmartAccountVaultsClient(
     }
   }
 
+  async function fetchProjectedEarnPolicies(args: {
+    policies: readonly {
+      account: PublicKey;
+      lastSeenSlot?: bigint;
+      seed: bigint;
+      sourceShard: "classic" | "token_2022";
+    }[];
+  }): Promise<RawPolicyEntry[]> {
+    if (args.policies.length === 0) {
+      return [];
+    }
+    const minContextSlot = args.policies.reduce<bigint | undefined>(
+      (highest, policy) =>
+        policy.lastSeenSlot !== undefined &&
+        (highest === undefined || policy.lastSeenSlot > highest)
+          ? policy.lastSeenSlot
+          : highest,
+      undefined
+    );
+    if (
+      minContextSlot !== undefined &&
+      minContextSlot > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      throw new Error(
+        "Cross-mint projection slot is too large for this client."
+      );
+    }
+    const accountInfos = await config.connection.getMultipleAccountsInfo(
+      args.policies.map((policy) => policy.account),
+      minContextSlot === undefined
+        ? "confirmed"
+        : { commitment: "confirmed", minContextSlot: Number(minContextSlot) }
+    );
+    return accountInfos.map((accountInfo, index) => {
+      const projected = args.policies[index];
+      if (!projected) {
+        throw new Error(
+          "Cross-mint projection returned an unexpected account."
+        );
+      }
+      const label = `Projected cross-mint ${projected.sourceShard} policy`;
+      if (!accountInfo) {
+        throw new Error(
+          `${label} ${projected.account.toBase58()} is missing on-chain. Wait for Autoswap state to sync.`
+        );
+      }
+      if (!accountInfo.owner.equals(smartAccountsClient.programId)) {
+        throw new Error(
+          `${label} ${projected.account.toBase58()} has an unexpected owner.`
+        );
+      }
+      try {
+        return deserializePolicyAccount({
+          pubkey: projected.account,
+          account: accountInfo,
+        });
+      } catch {
+        throw new Error(
+          `${label} ${projected.account.toBase58()} is not a decodable policy account.`
+        );
+      }
+    });
+  }
+
   function assertCanonicalEarnPolicy(args: {
     entry: RawPolicyEntry;
     expectedState: generated.PolicyCreationPayload;
@@ -8186,6 +8250,42 @@ export function createSmartAccountVaultsClient(
         args.settingsPda
       );
     const nextSeed = resolveNextPolicySeed(settings).bigint;
+    const projectedPolicies = args.projectedPolicies ?? [];
+    if (projectedPolicies.length > 2) {
+      throw new Error("Autoswap projection contains too many policy accounts.");
+    }
+    const projectedByShard = new Map<
+      "classic" | "token_2022",
+      (typeof projectedPolicies)[number]
+    >();
+    const projectedAccounts = new Set<string>();
+    const projectedSeeds = new Set<bigint>();
+    for (const policy of projectedPolicies) {
+      const account = policy.account.toBase58();
+      if (
+        projectedByShard.has(policy.sourceShard) ||
+        projectedAccounts.has(account) ||
+        projectedSeeds.has(policy.seed)
+      ) {
+        throw new Error("Autoswap projection contains conflicting policies.");
+      }
+      if (policy.seed > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error("Cross-mint policy seed is too large for this client.");
+      }
+      const expectedAccount = pda.getPolicyPda({
+        programId: smartAccountsClient.programId,
+        settingsPda: args.settingsPda,
+        policySeed: Number(policy.seed),
+      })[0];
+      if (!policy.account.equals(expectedAccount)) {
+        throw new Error(
+          `Projected cross-mint ${policy.sourceShard} policy account does not match its seed.`
+        );
+      }
+      projectedByShard.set(policy.sourceShard, policy);
+      projectedAccounts.add(account);
+      projectedSeeds.add(policy.seed);
+    }
     const commonPlanInput = {
       cluster,
       maxSlippageBps: args.maxSlippageBps,
@@ -8198,73 +8298,59 @@ export function createSmartAccountVaultsClient(
         vault: vaultPda,
       },
     };
-    const candidatePlans = createJupiterCrossMintPolicySet({
-      ...commonPlanInput,
-      policySeeds: {
-        classic: nextSeed,
-        token2022: nextSeed + BigInt(1),
-      },
-    });
-    const rawPolicies = await listRawPolicies({
-      settingsPda: args.settingsPda,
-    });
-    const findExisting = (
-      plan: typeof candidatePlans.classic,
-      sourceShard: "classic" | "token_2022"
-    ) => {
-      const expectedState = policyCreationPayloadToState(
-        createEarnCrossMintPolicyCreationPayload({ cluster, plan, vaultPda })
-      );
-      const matches = rawPolicies.filter(({ policy }) => {
-        const [signer] = policy.signers;
-        return (
-          policy.threshold === 1 &&
-          policy.timeLock === 0 &&
-          policy.signers.length === 1 &&
-          Boolean(signer?.key.equals(args.signer)) &&
-          Boolean(
-            signer &&
-              generatedValuesEqual(
-                signer.permissions,
-                createPolicySigner(args.signer).permissions
-              )
-          ) &&
-          programInteractionPolicySecurityEquals(
-            policy.policyState,
-            expectedState
-          )
-        );
-      });
-      if (matches.length > 1) {
-        throw new Error(
-          `Multiple canonical cross-mint ${sourceShard} policies exist; enrollment is ambiguous.`
-        );
-      }
-      return matches[0] ?? null;
-    };
-    const existingClassic = findExisting(candidatePlans.classic, "classic");
-    const existingToken2022 = findExisting(
-      candidatePlans.token2022,
-      "token_2022"
-    );
-    const classicSeed = existingClassic
-      ? toBigInt(existingClassic.policy.seed)
-      : nextSeed;
-    const token2022Seed = existingToken2022
-      ? toBigInt(existingToken2022.policy.seed)
-      : existingClassic
-      ? nextSeed
-      : nextSeed + BigInt(1);
-    if (
-      classicSeed > BigInt(Number.MAX_SAFE_INTEGER) ||
-      token2022Seed > BigInt(Number.MAX_SAFE_INTEGER)
-    ) {
-      throw new Error("Cross-mint policy seed is too large for this client.");
-    }
+    const projectedClassic = projectedByShard.get("classic");
+    const projectedToken2022 = projectedByShard.get("token_2022");
+    const classicSeed = projectedClassic?.seed ?? nextSeed;
+    const token2022Seed =
+      projectedToken2022?.seed ??
+      (projectedClassic ? nextSeed : nextSeed + BigInt(1));
     const plans = createJupiterCrossMintPolicySet({
       ...commonPlanInput,
-      policySeeds: { classic: classicSeed, token2022: token2022Seed },
+      policySeeds: {
+        classic: classicSeed,
+        token2022: token2022Seed,
+      },
     });
+    const projectedEntries = await fetchProjectedEarnPolicies({
+      policies: projectedPolicies,
+    });
+    const entryByAccount = new Map(
+      projectedEntries.map(
+        (entry) => [entry.address.toBase58(), entry] as const
+      )
+    );
+    const resolveExisting = (
+      projected: (typeof projectedPolicies)[number] | undefined,
+      plan: typeof plans.classic
+    ): RawPolicyEntry | null => {
+      if (!projected) {
+        return null;
+      }
+      const entry = entryByAccount.get(projected.account.toBase58());
+      if (!entry) {
+        throw new Error(
+          "Autoswap projection account validation was incomplete."
+        );
+      }
+      assertCanonicalEarnPolicy({
+        entry,
+        expectedState: createEarnCrossMintPolicyCreationPayload({
+          cluster,
+          plan,
+          vaultPda,
+        }),
+        label: `Projected cross-mint ${projected.sourceShard} policy`,
+        policySigner: args.signer,
+        seed: projected.seed,
+        settingsPda: args.settingsPda,
+      });
+      return entry;
+    };
+    const existingClassic = resolveExisting(projectedClassic, plans.classic);
+    const existingToken2022 = resolveExisting(
+      projectedToken2022,
+      plans.token2022
+    );
 
     const prepare = async (
       plan: typeof plans.classic,

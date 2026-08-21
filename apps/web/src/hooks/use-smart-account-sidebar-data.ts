@@ -218,6 +218,20 @@ type EarnStateResponse = {
     }[];
     generation: string;
   } | null;
+  autoswapIndex: {
+    policies: {
+      account: string;
+      dailySourceMintSpendingCap: string;
+      delegatedSigner: string;
+      lastSeenSignature: string;
+      lastSeenSlot: string;
+      maxSlippageBps: number;
+      seed: string;
+      sourceCommitment: "confirmed" | "finalized";
+      sourceShard: "classic" | "token_2022";
+    }[];
+    state: "ambiguous" | "complete" | "empty" | "partial";
+  } | null;
   autoswapAvailable: boolean;
   canonicalVaultPubkey: string;
   loadErrors: {
@@ -6032,11 +6046,24 @@ export function useSmartAccountSidebarData(
           error: "Connected wallet cannot sign transactions.",
         };
       }
-      if (!(overview && earnState?.policySignerPublicKey)) {
+      if (
+        !(
+          overview &&
+          earnState?.policySignerPublicKey &&
+          earnState.autoswapIndex
+        ) ||
+        earnState.loadErrors.autoswap
+      ) {
+        return {
+          success: false,
+          error: "Autoswap state is still syncing. Refresh and try again.",
+        };
+      }
+      if (earnState.autoswapIndex.state === "ambiguous") {
         return {
           success: false,
           error:
-            "Autoswap account context is still loading. Refresh and try again.",
+            "Autoswap state is inconsistent on-chain. Wait for it to reconcile before trying again.",
         };
       }
 
@@ -6056,13 +6083,26 @@ export function useSmartAccountSidebarData(
           connection,
           programId: new PublicKey(overview.programId),
         });
+        const [indexedPolicy] = earnState.autoswapIndex.policies;
         const setup = await executeEarnAutoswapSetupClient({
           client,
           input: {
             cluster: resolveEarnLoyalCluster(solanaEnv),
-            dailySourceMintSpendingCap: request.dailySourceMintSpendingCap,
+            dailySourceMintSpendingCap: indexedPolicy
+              ? BigInt(indexedPolicy.dailySourceMintSpendingCap)
+              : request.dailySourceMintSpendingCap,
             feePayer: wallet.publicKey,
-            maxSlippageBps: DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
+            maxSlippageBps:
+              indexedPolicy?.maxSlippageBps ??
+              DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
+            projectedPolicies: earnState.autoswapIndex.policies.map(
+              (policy) => ({
+                account: new PublicKey(policy.account),
+                lastSeenSlot: BigInt(policy.lastSeenSlot),
+                seed: BigInt(policy.seed),
+                sourceShard: policy.sourceShard,
+              })
+            ),
             settingsPda: new PublicKey(overview.settingsPda),
             signer: new PublicKey(earnState.policySignerPublicKey),
             walletAddress: wallet.publicKey,
@@ -6134,6 +6174,8 @@ export function useSmartAccountSidebarData(
     },
     [
       connection,
+      earnState?.autoswapIndex,
+      earnState?.loadErrors.autoswap,
       earnState?.policySignerPublicKey,
       overview,
       refreshEarnState,
@@ -6197,7 +6239,8 @@ export function useSmartAccountSidebarData(
       if (!overview) {
         return {
           success: false,
-          error: "Autoswap account context is still loading. Refresh and try again.",
+          error:
+            "Autoswap account context is still loading. Refresh and try again.",
         };
       }
 
