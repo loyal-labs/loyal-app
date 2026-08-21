@@ -14,6 +14,10 @@ import {
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
+import {
+  EARN_MAX_APY_LABEL,
+  EARN_MAX_BALANCE_USD,
+} from "@/components/wallet-workspace/facelift/earn-max-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
@@ -98,6 +102,7 @@ export function WalletHomePage({
     Math.max(data.totalUsd - stablecoinsUsd, 0)
   );
   const earnBalance = splitUsdBalance(earnBalanceUsd);
+  const earnMaxBalance = splitUsdBalance(EARN_MAX_BALANCE_USD);
   const totalBalance = splitUsdBalance(data.totalUsd + earnBalanceUsd);
 
   const addressLabel = data.walletAddress
@@ -315,7 +320,7 @@ export function WalletHomePage({
                   </span>
                 </button>
                 <button
-                  className="t-hover relative row-span-2 flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
+                  className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
                   onClick={() => onSelectPage("earn")}
                   type="button"
                 >
@@ -325,10 +330,6 @@ export function WalletHomePage({
                     aria-hidden="true"
                     className="size-10 shrink-0"
                     src={`${ASSET_BASE}/earn-icon.svg`}
-                  />
-                  <ThemedIcon
-                    className="-translate-x-1/2 -translate-y-1/2 absolute top-1/2 left-1/2 size-12 text-tertiary"
-                    src={`${ASSET_BASE}/icon-plus-gray.svg`}
                   />
                   <span className="flex w-full flex-col gap-1">
                     <span className="flex items-center gap-1">
@@ -390,6 +391,45 @@ export function WalletHomePage({
                       isHidden={isBalanceHidden}
                       isRevealed={isWalletDataRevealed}
                       whole={stablecoinsBalance.balanceWhole}
+                    />
+                  </span>
+                </button>
+                {/* Mocked Earn MAX tile — static balance/APY, no feed yet. */}
+                <button
+                  className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
+                  onClick={() => onSelectPage("earnmax")}
+                  type="button"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className="size-10 shrink-0 rounded-[10px]"
+                    src={`${ASSET_BASE}/earn-max-icon.svg`}
+                  />
+                  <span className="flex w-full flex-col gap-1">
+                    <span className="flex items-center gap-1">
+                      <span className="whitespace-nowrap font-semibold text-[15px] text-foreground leading-5">
+                        Earn MAX
+                      </span>
+                      <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          alt=""
+                          aria-hidden="true"
+                          className="h-3 w-2"
+                          src="/wallet-workspace/earn-flash.svg"
+                        />
+                        <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                          {EARN_MAX_APY_LABEL.replace(" APY", "")}
+                        </span>
+                      </span>
+                    </span>
+                    <SplitAmount
+                      fraction={earnMaxBalance.balanceFraction}
+                      isHidden={isBalanceHidden}
+                      isRevealed
+                      whole={earnMaxBalance.balanceWhole}
                     />
                   </span>
                 </button>

@@ -494,6 +494,10 @@ export function FaceliftSidebar({
                   {EARN_MAX_APY_LABEL}
                 </span>
               </span>
+              <ShortcutKey
+                isFlashed={flashedShortcut === "earnmax"}
+                letter="M"
+              />
             </span>
             <SplitAmount
               fraction={earnMaxBalance.balanceFraction}
