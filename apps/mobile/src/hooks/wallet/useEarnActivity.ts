@@ -5,6 +5,7 @@ import {
   type EarnTransactionItem,
 } from "@/lib/solana/earn/earn-api";
 import { mmkv } from "@/lib/storage";
+import { subscribeEarnRealtime } from "@/features/earn-realtime/events";
 
 // Earn transactions are cached to disk per wallet so a returning user sees their
 // last-known history the instant the Earn activity tab opens, instead of a
@@ -86,6 +87,14 @@ export function useEarnActivity(walletAddress: string | null) {
     setHasLoaded(cached !== null);
     void refresh();
   }, [walletAddress, refresh]);
+
+  useEffect(
+    () =>
+      subscribeEarnRealtime(async (invalidation) => {
+        if (invalidation.transactions) await refresh();
+      }),
+    [refresh],
+  );
 
   return { earnTransactions, isLoading, hasLoaded, refresh };
 }

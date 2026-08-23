@@ -4,6 +4,7 @@ import {
   fetchEarnAutodepositState,
   type EarnAutodepositState,
 } from "@/lib/solana/earn/earn-api";
+import { subscribeEarnRealtime } from "@/features/earn-realtime/events";
 
 // Reads the wallet's current Autodeposit state (threshold + on/off + the
 // policy/delegation the floor/toggle/close calls need) from the read-only
@@ -57,6 +58,14 @@ export function useEarnAutodeposit(walletAddress: string | null) {
       setHasLoaded(false);
     }
   }, [walletAddress, refreshAutodeposit]);
+
+  useEffect(
+    () =>
+      subscribeEarnRealtime(async (refresh) => {
+        if (refresh.earnState) await refreshAutodeposit({ throwOnError: true });
+      }),
+    [refreshAutodeposit],
+  );
 
   return { autodeposit, isLoading, hasLoaded, refreshAutodeposit };
 }

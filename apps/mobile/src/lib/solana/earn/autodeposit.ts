@@ -5,10 +5,6 @@ import { PublicKey } from "@solana/web3.js";
 import { track } from "@/lib/analytics/analytics";
 import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
-import {
-  WalletRejectedError,
-  withLandedSignatures,
-} from "@/lib/wallet/rejection";
 import type { Signer } from "@/lib/wallet/signer";
 import {
   type LifecycleFlow,
@@ -16,8 +12,6 @@ import {
 } from "@/services/observability";
 
 import {
-  confirmEarnAutodepositClose,
-  confirmEarnAutodepositSetup,
   EarnApiError,
   type EarnAuthFields,
   type EarnSessionAuth,
@@ -26,16 +20,12 @@ import {
   toggleEarnAutodeposit,
   updateEarnAutodepositFloor,
 } from "./earn-api";
-import { type EarnAuthPurpose, signEarnAuth, withEarnAuth } from "./earn-auth";
+import { type EarnAuthPurpose, signEarnAuth } from "./earn-auth";
 import { clearEarnSession, getEarnSessionToken } from "./earn-session";
 import {
   signAndSendPreparedOperation,
   signAndSendPreparedOperations,
 } from "./send-prepared";
-import {
-  serializePreparedEarnAutodepositClose,
-  serializePreparedEarnAutodepositSetup,
-} from "./wire";
 
 const USDC_DECIMALS = 6;
 // Per-period recurring-delegation cap, matching the web default
@@ -57,31 +47,29 @@ function thresholdUsdToRaw(thresholdUsd: number): string {
   return BigInt(Math.round(thresholdUsd * 10 ** USDC_DECIMALS)).toString();
 }
 
-// The confirm routes re-check the signature with getSignatureStatuses on
-// their own RPC right after the device saw the tx confirm — the same
-// propagation race as send-prepared.ts, but server-side. A transient
-// "unconfirmed_signature" 400 is retried briefly instead of surfacing: the
-// on-chain state has already moved, so losing the confirm strands the DB row
-// (setup stuck pending / a deleted autodeposit that still shows).
-const CONFIRM_RETRY_ATTEMPTS = 4;
-const CONFIRM_RETRY_DELAY_MS = 1500;
-
-async function withUnconfirmedRetry<T>(run: () => Promise<T>): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
+async function persistInitialFloorAfterProjection(args: {
+  auth: EarnAuthFields | EarnSessionAuth;
+  policyAccount: string;
+  recurringDelegation: string;
+  walletBalanceFloorRaw: string;
+}): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 20; attempt++) {
     try {
-      return await run();
+      await updateEarnAutodepositFloor({
+        auth: args.auth,
+        policyAccount: args.policyAccount,
+        recurringDelegation: args.recurringDelegation,
+        vaultIndex: 1,
+        walletBalanceFloorRaw: args.walletBalanceFloorRaw,
+      });
+      return;
     } catch (error) {
-      const transient =
-        error instanceof EarnApiError &&
-        error.code === "unconfirmed_signature";
-      if (!transient || attempt >= CONFIRM_RETRY_ATTEMPTS) {
-        throw error;
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, CONFIRM_RETRY_DELAY_MS),
-      );
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
   }
+  throw lastError;
 }
 
 // The token was rejected (expired/invalid), or the deployed backend predates
@@ -156,7 +144,7 @@ async function loadAutodepositPrepareContext(walletAddress: string): Promise<{
 // Create an Autodeposit: stands up the on-chain recurring-delegation policy that
 // sweeps wallet USDC above `thresholdUsd` into Earn. The setup instructions are
 // built ON-DEVICE with the smart-account-vaults SDK (mirroring the web client);
-// only the per-stage confirms still hit the backend. Multi-stage — the SDK's
+// LaserStream projects each confirmed stage into backend state. Multi-stage — the SDK's
 // chain-driven stage machine returns the one-time subscription-authority init as
 // its own round when needed, then create_policy AND create_recurring_delegation
 // together, so the device signs both in ONE wallet prompt and sends them before
@@ -253,11 +241,6 @@ async function runEarnAutodepositSetup(
     ? BigInt(resume.recurringDelegationExpiryTimestamp)
     : undefined;
 
-  const flowAuth = await signEarnAuth(
-    args.signer,
-    "earn-autodeposit-setup-confirm",
-  );
-
   for (let round = 0; round < MAX_SETUP_STAGES; round++) {
     const stages = await client.prepareEarnUsdcAutodepositSetupBatch({
       amountRaw: BigInt(DEFAULT_AMOUNT_PER_PERIOD_RAW),
@@ -306,7 +289,7 @@ async function runEarnAutodepositSetup(
     // The policy + delegation txs don't depend on each other's state, so both
     // go out before either confirmation — the second tx can't expire waiting
     // behind the first (mirrors the web "send-all-before-confirm" mode).
-    const sent = await signAndSendPreparedOperations({
+    await signAndSendPreparedOperations({
       connection,
       signer: args.signer,
       operations: stages.map((stage) => stage.prepared),
@@ -320,30 +303,11 @@ async function runEarnAutodepositSetup(
       executionMode: stages.length > 1 ? "batch" : "single",
     });
 
-    for (let i = 0; i < stages.length; i++) {
-      const stage = stages[i];
-      await withUnconfirmedRetry(() =>
-        withEarnAuth(
-          args.signer,
-          flowAuth,
-          "earn-autodeposit-setup-confirm",
-          (auth) =>
-            confirmEarnAutodepositSetup({
-              auth,
-              preparedSetup: serializePreparedEarnAutodepositSetup(stage),
-              setupSignature: sent[i].signature,
-              confirmedSlot: sent[i].confirmedSlot,
-              walletBalanceFloorRaw,
-            }),
-        ),
-      ).catch((error) => {
-        flow.failFrom("backend_confirm", error);
-        throw error;
-      });
+    for (const stage of stages) {
       flow.observe(
         SETUP_STAGE_TO_LIFECYCLE[
           stage.stage as keyof typeof SETUP_STAGE_TO_LIFECYCLE
-        ] ?? "backend_confirm",
+        ] ?? "chain_confirm",
       );
 
       // Thread the (generated) policy seed into the next round so every stage
@@ -365,6 +329,25 @@ async function runEarnAutodepositSetup(
       stages[stages.length - 1].stage === "create_recurring_delegation" ||
       stages[stages.length - 1].stage === "approve_token_delegate"
     ) {
+      const completed = stages[stages.length - 1];
+      const policyAccount = completed.persistence.policyAccount;
+      const recurringDelegation = completed.persistence.recurringDelegation;
+      if (!policyAccount || !recurringDelegation) {
+        throw new Error(
+          "Autodeposit setup completed without its policy/delegation identity.",
+        );
+      }
+      await withEarnSessionOrAuth(
+        args.signer,
+        "earn-autodeposit-floor-confirm",
+        (auth) =>
+          persistInitialFloorAfterProjection({
+            auth,
+            policyAccount,
+            recurringDelegation,
+            walletBalanceFloorRaw,
+          }),
+      );
       track(EARN_EVENTS.autodepositEnabled, {
         source: "setup",
         threshold_usd: args.thresholdUsd,
@@ -468,10 +451,8 @@ export async function setEarnAutodepositActive(args: {
 const MAX_DUPLICATE_CLOSES = 4;
 
 // Delete an Autodeposit: tears down the on-chain recurring delegation (one
-// signed tx per policy, built on-device with the SDK) and records each closed
-// target via the backend confirm. After the requested close, any leftover
-// live row `/state` still surfaces is closed too, so "delete" means no live
-// Autodeposit remains.
+// signed tx per policy, built on-device with the SDK). LaserStream projects
+// each confirmed close from chain state; the client does not report it back.
 export async function executeEarnAutodepositClose(args: {
   signer: Signer;
   policy: string;
@@ -494,38 +475,14 @@ export async function executeEarnAutodepositClose(args: {
           walletAddress: args.signer.publicKey.toBase58(),
         });
   flow?.start("prepare");
-  // A close transaction can land before the wallet is prompted again for the
-  // backend-confirm auth message. Keep only signatures that have not yet been
-  // recorded by the backend so a post-submit decline stays loud without
-  // turning a later, genuinely pre-submit decline into an error.
-  const unrecordedSignatures: string[] = [];
   try {
-    await runEarnAutodepositClose(args, flow, unrecordedSignatures);
+    await runEarnAutodepositClose(args, flow);
     flow?.complete("ui_commit");
   } catch (error) {
-    const classified = attachUnrecordedCloseProgress(
-      error,
-      unrecordedSignatures,
-    );
     // Latched to a no-op when an inner stage already failed the flow.
-    flow?.failFrom("prepare", classified);
-    throw classified;
+    flow?.failFrom("prepare", error);
+    throw error;
   }
-}
-
-function attachUnrecordedCloseProgress(
-  error: unknown,
-  unrecordedSignatures: readonly string[],
-): unknown {
-  if (
-    !(error instanceof WalletRejectedError) ||
-    unrecordedSignatures.length === 0
-  ) {
-    return error;
-  }
-  return withLandedSignatures(error, [
-    ...new Set([...error.landedSignatures, ...unrecordedSignatures]),
-  ]);
 }
 
 async function runEarnAutodepositClose(
@@ -536,7 +493,6 @@ async function runEarnAutodepositClose(
     source?: "deleted" | "withdraw";
   },
   flow: LifecycleFlow<"earn.autodeposit.configuration"> | null,
-  unrecordedSignatures: string[],
 ): Promise<void> {
   const walletAddress = args.signer.publicKey;
   const connection = getConnection();
@@ -549,9 +505,6 @@ async function runEarnAutodepositClose(
     programId: context.programId,
   });
 
-  // One auth message covers every confirm; signed lazily after the first close
-  // tx so a rejected wallet prompt doesn't burn an auth signature.
-  let flowAuth: Awaited<ReturnType<typeof signEarnAuth>> | null = null;
   const closeOne = async (policy: string, recurringDelegation: string) => {
     const preparedClose = await client.prepareEarnUsdcAutodepositClose({
       cluster: context.cluster,
@@ -564,52 +517,16 @@ async function runEarnAutodepositClose(
       walletAddress,
     });
 
-    const sent = await signAndSendPreparedOperation({
+    await signAndSendPreparedOperation({
       connection,
       signer: args.signer,
       operation: preparedClose.prepared,
     }).catch((error) => {
-      const classified = attachUnrecordedCloseProgress(
-        error,
-        unrecordedSignatures,
-      );
-      flow?.failFrom("wallet_approval", classified);
-      throw classified;
+      flow?.failFrom("wallet_approval", error);
+      throw error;
     });
-    unrecordedSignatures.push(sent.signature);
     flow?.observe("wallet_approval", { chainState: "confirmed" });
-
-    try {
-      flowAuth ??= await signEarnAuth(
-        args.signer,
-        "earn-autodeposit-close-confirm",
-      );
-      const auth = flowAuth;
-      await withUnconfirmedRetry(() =>
-        withEarnAuth(
-          args.signer,
-          auth,
-          "earn-autodeposit-close-confirm",
-          (retryAuth) =>
-            confirmEarnAutodepositClose({
-              auth: retryAuth,
-              preparedClose:
-                serializePreparedEarnAutodepositClose(preparedClose),
-              closeSignature: sent.signature,
-              confirmedSlot: sent.confirmedSlot,
-            }),
-        ),
-      );
-    } catch (error) {
-      const classified = attachUnrecordedCloseProgress(
-        error,
-        unrecordedSignatures,
-      );
-      flow?.failFrom("backend_confirm", classified);
-      throw classified;
-    }
-    unrecordedSignatures.length = 0;
-    flow?.observe("backend_confirm");
+    flow?.observe("chain_confirm");
   };
 
   await closeOne(args.policy, args.recurringDelegation);

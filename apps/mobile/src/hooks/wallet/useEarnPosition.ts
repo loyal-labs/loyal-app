@@ -6,6 +6,7 @@ import {
   type EarnHoldingItem,
   type EarnPosition,
 } from "@/lib/solana/earn/earn-api";
+import { subscribeEarnRealtime } from "@/features/earn-realtime/events";
 
 // After a local deposit/withdraw, the backend read-model (`/state`
 // `currentAmountRaw`) is written synchronously by the confirm call, so it's the
@@ -139,6 +140,14 @@ export function useEarnPosition(walletAddress: string | null) {
       setHasLoaded(false);
     }
   }, [walletAddress, refreshEarnPosition]);
+
+  useEffect(
+    () =>
+      subscribeEarnRealtime(async (refresh) => {
+        if (refresh.position) await refreshEarnPosition();
+      }),
+    [refreshEarnPosition],
+  );
 
   return {
     position,

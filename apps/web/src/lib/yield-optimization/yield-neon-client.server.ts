@@ -213,7 +213,7 @@ export const routePolicies = loyalYieldSchema.table(
     universePreset: text("universe_preset"),
     riskProfile: text("risk_profile"),
     swapLanes: jsonb("swap_lanes").$type<YieldSwapLane[]>().notNull(),
-    active: boolean("active").notNull(),
+    active: boolean("desired_active").notNull(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
     lastSeenSlot: bigint("last_seen_slot", { mode: "bigint" }).notNull(),
