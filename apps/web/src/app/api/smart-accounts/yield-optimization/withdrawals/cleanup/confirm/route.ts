@@ -8,7 +8,6 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   assertEarnFullExitProven,
   EarnCleanupConfirmError,
@@ -149,35 +148,6 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      persistence.autodepositClose &&
-      (!body.autodepositCloseSignature || !body.autodepositCloseConfirmedSlot)
-    ) {
-      return jsonError(
-        400,
-        "missing_autodeposit_close",
-        "Autodeposit close confirmation is required before Earn cleanup."
-      );
-    }
-
-    if (
-      persistence.autodepositClose &&
-      body.autodepositCloseSignature &&
-      body.autodepositCloseConfirmedSlot
-    ) {
-      const autodepositCloseSlot = await resolveConfirmedSignatureSlot({
-        connection,
-        signature: body.autodepositCloseSignature,
-      });
-      if (BigInt(body.autodepositCloseConfirmedSlot) !== autodepositCloseSlot) {
-        return jsonError(
-          400,
-          "autodeposit_close_slot_mismatch",
-          "Confirmed Autodeposit close slot does not match the transaction status."
-        );
-      }
-    }
-
     const minContextSlot = Number(confirmedSlot);
     if (!Number.isSafeInteger(minContextSlot) || minContextSlot < 0) {
       return jsonError(
@@ -221,25 +191,6 @@ export async function POST(request: Request) {
         walletAddress: principal.walletAddress,
       });
       return jsonError(error.status, error.code, error.message);
-    }
-
-    if (
-      persistence.autodepositClose &&
-      body.autodepositCloseSignature &&
-      body.autodepositCloseConfirmedSlot
-    ) {
-      await recordClosedAutodepositTarget({
-        cluster: persistence.cluster,
-        closeSignature: body.autodepositCloseSignature,
-        confirmedSlot: BigInt(body.autodepositCloseConfirmedSlot),
-        delegatedSigner: persistence.autodepositClose.delegatedSigner,
-        policyAccount: persistence.autodepositClose.policyAccount,
-        recurringDelegation: persistence.autodepositClose.recurringDelegation,
-        settings: persistence.settings,
-        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-        vaultPubkey: persistence.vaultPubkey,
-        walletAddress: persistence.walletAddress,
-      });
     }
 
     await recordConfirmedEarnCleanup({

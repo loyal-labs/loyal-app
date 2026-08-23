@@ -484,8 +484,6 @@ export type EarnWithdrawConfirmArgs = {
   stepIndex?: number;
   withdrawalSignature: string;
   confirmedSlot: string;
-  autodepositCloseSignature?: string;
-  autodepositCloseConfirmedSlot?: string;
 };
 
 export async function confirmEarnWithdraw(
@@ -562,26 +560,6 @@ export function toWithdrawPrepareSource(
 
 // --- Autodeposit ----------------------------------------------------------
 
-export type EarnAutodepositSetupStage =
-  | "initialize_subscription_authority"
-  | "approve_token_delegate"
-  | "create_policy"
-  | "create_recurring_delegation";
-
-// Only the fields the mobile orchestrator reads are typed; the whole object is
-// echoed back to `setup/confirm` opaquely (the backend rebuilds the canonical
-// confirm payload from it).
-export type WirePreparedEarnAutodepositSetup = {
-  prepared: WirePreparedOperation;
-  stage: EarnAutodepositSetupStage;
-  policy: { seed: string | null };
-  persistence: { policySeed: string | null };
-};
-
-export type WirePreparedEarnAutodepositClose = {
-  prepared: WirePreparedOperation;
-};
-
 // A pending Autodeposit "bootstrap" sweep — the surplus the backend scheduled to
 // move into Earn ~1h after setup (or after a threshold edit). Mirrors the web
 // `LoadedEarnAutodepositScheduledSweep`. `remainingAmountRaw > 0` means it's
@@ -655,27 +633,6 @@ export async function fetchEarnAutodepositState(
   return (await res.json()) as EarnAutodepositStateResponse;
 }
 
-export async function confirmEarnAutodepositSetup(args: {
-  auth: EarnAuthFields;
-  preparedSetup: WirePreparedEarnAutodepositSetup;
-  setupSignature: string;
-  confirmedSlot: string;
-  walletBalanceFloorRaw: string;
-}): Promise<void> {
-  const { auth, ...rest } = args;
-  const res = await fetch(
-    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/setup/confirm`,
-    {
-      method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({ ...auth, ...rest }),
-    },
-  );
-  if (!res.ok) {
-    await throwEarnError(res, "Failed to confirm Autodeposit setup.");
-  }
-}
-
 export async function updateEarnAutodepositFloor(args: {
   auth: EarnAuthFields | EarnSessionAuth;
   policyAccount: string;
@@ -718,26 +675,6 @@ export async function toggleEarnAutodeposit(args: {
   );
   if (!res.ok) {
     await throwEarnError(res, "Failed to update Autodeposit on/off state.");
-  }
-}
-
-export async function confirmEarnAutodepositClose(args: {
-  auth: EarnAuthFields;
-  preparedClose: WirePreparedEarnAutodepositClose;
-  closeSignature: string;
-  confirmedSlot: string;
-}): Promise<void> {
-  const { auth, ...rest } = args;
-  const res = await fetch(
-    `${env.earnApiBaseUrl}/api/smart-accounts/mobile/earn/autodeposit/close/confirm`,
-    {
-      method: "POST",
-      headers: earnHeaders(),
-      body: JSON.stringify({ ...auth, ...rest }),
-    },
-  );
-  if (!res.ok) {
-    await throwEarnError(res, "Failed to confirm Autodeposit removal.");
   }
 }
 

@@ -122,6 +122,7 @@ export const LIFECYCLE_STAGES = {
     "create_policy",
     "create_recurring_delegation",
     "slot_resolve",
+    "chain_confirm",
     "backend_confirm",
     "bootstrap",
     "ui_commit",

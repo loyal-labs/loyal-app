@@ -334,6 +334,7 @@ type LifecycleStageMap = {
     | "wallet_approval"
     | "create_policy"
     | "create_recurring_delegation"
+    | "chain_confirm"
     | "backend_confirm"
     | "bootstrap"
     | "ui_commit";
