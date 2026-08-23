@@ -568,9 +568,7 @@ describe("Earn autodeposit load state", () => {
       })
     );
 
-    expect(availableAtMs).toBe(
-      new Date("2026-06-16T00:00:30.000Z").getTime()
-    );
+    expect(availableAtMs).toBe(new Date("2026-06-16T00:00:30.000Z").getTime());
     expect(
       formatLoadedScheduledSweepAvailableIn(
         availableAtMs!,

@@ -1796,6 +1796,21 @@ async function persistInitialAutodepositFloorAfterProjection(args: {
   throw lastError;
 }
 
+function requireAutodepositProjectionIdentity(persistence: {
+  policyAccount?: string | null;
+  recurringDelegation?: string | null;
+}): { policyAccount: string; recurringDelegation: string } {
+  if (!persistence.policyAccount || !persistence.recurringDelegation) {
+    throw new Error(
+      "Autodeposit setup completed without its policy/delegation identity."
+    );
+  }
+  return {
+    policyAccount: persistence.policyAccount,
+    recurringDelegation: persistence.recurringDelegation,
+  };
+}
+
 async function postEarnAutodepositToggle(args: {
   active: boolean;
   observabilityFlowId?: string;
@@ -7812,8 +7827,7 @@ export function useSmartAccountSidebarData(
 
             if (
               !(
-                recurringDelegationConfirmedSlot &&
-                recurringDelegationSignature
+                recurringDelegationConfirmedSlot && recurringDelegationSignature
               )
             ) {
               return {
@@ -7823,11 +7837,13 @@ export function useSmartAccountSidebarData(
               };
             }
 
+            const projectionIdentity = requireAutodepositProjectionIdentity(
+              batchNextPreparedSetup.persistence
+            );
             await persistInitialAutodepositFloorAfterProjection({
               observabilityFlowId: request.observabilityFlowId,
-              policyAccount: batchNextPreparedSetup.persistence.policyAccount,
-              recurringDelegation:
-                batchNextPreparedSetup.persistence.recurringDelegation,
+              policyAccount: projectionIdentity.policyAccount,
+              recurringDelegation: projectionIdentity.recurringDelegation,
               walletBalanceFloorRaw: request.walletBalanceFloorRaw,
             });
 
@@ -7920,10 +7936,13 @@ export function useSmartAccountSidebarData(
             });
 
         if (completedAutodepositSetup) {
+          const projectionIdentity = requireAutodepositProjectionIdentity(
+            preparedSetup.persistence
+          );
           await persistInitialAutodepositFloorAfterProjection({
             observabilityFlowId: request.observabilityFlowId,
-            policyAccount: preparedSetup.persistence.policyAccount,
-            recurringDelegation: preparedSetup.persistence.recurringDelegation,
+            policyAccount: projectionIdentity.policyAccount,
+            recurringDelegation: projectionIdentity.recurringDelegation,
             walletBalanceFloorRaw: request.walletBalanceFloorRaw,
           });
         }
