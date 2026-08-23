@@ -248,6 +248,7 @@ export type EarnData = {
   autodepositStatusCounts: {
     active: number;
     closed: number;
+    inconsistent: number;
     paused: number;
     pending: number;
   };
@@ -489,7 +490,7 @@ async function loadEarnData(): Promise<EarnData> {
         (SELECT COUNT(DISTINCT policy_account)::text FROM loyal_yield.route_policies WHERE active = true) AS unique_earn_policies,
         (SELECT COUNT(DISTINCT policy.policy_account)::text FROM loyal_yield.balance_sweep_policies AS policy
           INNER JOIN loyal_yield.balance_sweep_targets AS target ON target.balance_sweep_policy_id = policy.id
-          WHERE policy.active = true AND target.active = true AND target.lifecycle_status = 'active') AS active_autodeposit_policies
+          WHERE policy.active = true AND target.desired_active = true AND target.chain_status = 'active') AS active_autodeposit_policies
       FROM normalized_active_positions
     ),
     top_positions AS (
@@ -581,15 +582,17 @@ async function loadEarnData(): Promise<EarnData> {
         target.last_seen_at,
         CASE
           WHEN policy.active = true
-            AND target.active = true
-            AND target.lifecycle_status = 'active'
+            AND target.desired_active = true
+            AND target.chain_status = 'active'
             THEN 'active'
           WHEN policy.active = true
-            AND target.active = false
-            AND target.lifecycle_status = 'active'
+            AND target.desired_active = false
+            AND target.chain_status = 'active'
             THEN 'paused'
-          WHEN target.lifecycle_status IN ('pending_delegation', 'closing')
+          WHEN target.chain_status = 'pending'
             THEN 'pending'
+          WHEN target.chain_status = 'inconsistent'
+            THEN 'inconsistent'
           ELSE 'closed'
         END AS status
       FROM loyal_yield.balance_sweep_targets AS target
@@ -631,8 +634,8 @@ async function loadEarnData(): Promise<EarnData> {
       LEFT JOIN loyal_yield.balance_sweep_policies AS policy
         ON policy.id = target.balance_sweep_policy_id
       WHERE policy.active = true
-        AND target.active = true
-        AND target.lifecycle_status = 'active'
+        AND target.desired_active = true
+        AND target.chain_status = 'active'
     ),
     executions AS (
       SELECT
@@ -718,6 +721,7 @@ async function loadEarnData(): Promise<EarnData> {
   const autodepositStatusCounts = {
     active: 0,
     closed: 0,
+    inconsistent: 0,
     paused: 0,
     pending: 0,
   };

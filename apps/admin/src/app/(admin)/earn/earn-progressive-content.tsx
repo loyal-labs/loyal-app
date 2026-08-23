@@ -926,8 +926,8 @@ export function EarnDetailsContent({
                         Autodeposit status
                       </CardTitle>
                       <CardDescription>
-                        Active requires policy active, target active, and active
-                        lifecycle
+                        Active requires policy active, desired scheduling, and
+                        finalized active chain state
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
