@@ -1,7 +1,21 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { describe, expect, test } from "bun:test";
-import { unstable_getResponseFromNextConfig } from "next/experimental/testing/server";
 
 import nextConfig from "./next.config";
+
+// Next's config test helper reads globalThis.AsyncLocalStorage, which Node sets
+// through its server runtime but Bun does not — without this the whole file
+// throws "AsyncLocalStorage accessed in runtime where it is not available"
+// before any test runs. Assign it before the helper module is evaluated, hence
+// the dynamic import below.
+(
+  globalThis as typeof globalThis & { AsyncLocalStorage?: unknown }
+).AsyncLocalStorage ??= AsyncLocalStorage;
+
+const { unstable_getResponseFromNextConfig } = await import(
+  "next/experimental/testing/server"
+);
 
 describe("frame security headers", () => {
   test("allows only the Cherry entry to be framed by the Cherry web host", async () => {
@@ -30,6 +44,33 @@ describe("frame security headers", () => {
 
       expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN");
       expect(response.headers.get("content-security-policy")).toBeNull();
+    }
+  });
+});
+
+describe("earn banner asset caching", () => {
+  test("serves versioned banner art as immutable", async () => {
+    const response = await unstable_getResponseFromNextConfig({
+      url: "https://askloyal.com/wallet-workspace/facelift/earn-banner-art-dog.svg?v=abc123",
+      nextConfig,
+    });
+
+    expect(response.headers.get("cache-control")).toBe(
+      "public, max-age=31536000, immutable"
+    );
+  });
+
+  test("leaves unversioned requests on the default revalidate policy", async () => {
+    for (const url of [
+      "https://askloyal.com/wallet-workspace/facelift/earn-banner-art-dog.svg",
+      "https://askloyal.com/wallet-workspace/facelift/earn-icon.svg?v=abc123",
+    ]) {
+      const response = await unstable_getResponseFromNextConfig({
+        url,
+        nextConfig,
+      });
+
+      expect(response.headers.get("cache-control")).toBeNull();
     }
   });
 });
