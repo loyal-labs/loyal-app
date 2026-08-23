@@ -90,6 +90,16 @@ export {
   subscriptionTransferRecurringData,
 } from "./subscriptions.ts";
 export {
+  EARN_MAX_MANIFEST_VERSION,
+  EARN_MAX_VAULT_INDEX,
+  createEarnMaxPolicyManifest,
+  deriveEarnMaxTopology,
+} from "./earn-max.ts";
+export type {
+  EarnMaxPolicyPreparation,
+  EarnMaxTopology,
+} from "./earn-max.ts";
+export {
   JupiterCrossMintSourceShard,
   LoyalCluster,
   MaxFeeBps,
