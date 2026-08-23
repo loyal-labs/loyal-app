@@ -31,7 +31,7 @@ function getConnection(cluster: SolanaEnv): Connection {
   }
   const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
-    commitment: "finalized",
+    commitment: "confirmed",
     disableRetryOnRateLimit: true,
     fetch: getFrontendSolanaRpcFetch(globalThis.fetch),
     wsEndpoint: websocketEndpoint,

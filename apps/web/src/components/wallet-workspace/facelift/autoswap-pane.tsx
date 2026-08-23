@@ -221,7 +221,7 @@ export function AutoswapPane({
 
           {isFinalizing ? (
             <p className="mt-4 rounded-2xl bg-primary/10 px-4 py-3 text-[13px] leading-5 text-primary">
-              The policies are finalized on-chain. Loyal is verifying both
+              The policies are confirmed on-chain. Loyal is verifying both
               permissions before routing can begin.
             </p>
           ) : null}

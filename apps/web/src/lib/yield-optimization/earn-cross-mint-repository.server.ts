@@ -124,8 +124,8 @@ export async function findEarnCrossMintSnapshot(
   if (!(classic && token2022)) {
     return { autoswap: null, autoswapIndex };
   }
-  const pairIsFinalized = autoswapIndex.policies.every(
-    (policy) => policy.sourceCommitment === "finalized"
+  const pairIsReady = autoswapIndex.policies.every((policy) =>
+    ["confirmed", "finalized"].includes(policy.sourceCommitment)
   );
   const boundPolicies: EarnCrossMintState["boundPolicies"] = [
     {
@@ -139,7 +139,7 @@ export async function findEarnCrossMintSnapshot(
       sourceShard: "token_2022",
     },
   ];
-  const policies = pairIsFinalized
+  const policies = pairIsReady
     ? [classic, token2022].map((policy, index) => ({
         ...boundPolicies[index],
         lastSeenSignature: policy.lastSeenSignature,
@@ -156,7 +156,7 @@ export async function findEarnCrossMintSnapshot(
       maxSlippageBps: classic.maxSlippageBps,
       policies,
       status: optIn.enabled
-        ? pairIsFinalized
+        ? pairIsReady
           ? "on"
           : "finalizing"
         : "paused",

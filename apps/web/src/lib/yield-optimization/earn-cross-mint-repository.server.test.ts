@@ -19,7 +19,7 @@ const projectionRow = {
   policyAccount: "classic-policy",
   policySeed: BigInt(7),
   settings: "settings",
-  sourceCommitment: "finalized",
+  sourceCommitment: "confirmed",
   sourceShard: "classic",
   startEligible: true,
   vaultIndex: 1,
