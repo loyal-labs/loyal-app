@@ -116,6 +116,54 @@ export function createProgramInteractionPolicyInstruction(
   });
 }
 
+export function updateProgramInteractionPolicyInstruction(
+  config: LoyalClusterConfig,
+  context: SquadsContext,
+  constraints: readonly InstructionConstraint[],
+  policy: PublicKey,
+  spendingLimits: readonly DailySpendingLimit[] = []
+): TransactionInstruction {
+  const payload = compileProgramInteractionPayload(
+    context.accountIndex,
+    constraints,
+    spendingLimits
+  );
+  const encoder = new BytesEncoder();
+  encoder.pushBytes(EXECUTE_SETTINGS_TRANSACTION_SYNC_DISCRIMINATOR);
+  encoder.pushU8(SQUADS_SYNC_SIGNER_COUNT);
+  encoder.pushVec([undefined], () => {
+    encoder.pushU8(8);
+    encoder.pushPubkey(policy);
+    encoder.pushVec([context.delegatedSigner], (signer) => {
+      encoder.pushPubkey(signer);
+      encoder.pushU8(SQUADS_FULL_PERMISSIONS_MASK);
+    });
+    encoder.pushU16(1);
+    encoder.pushU32(0);
+    encoder.pushU8(4);
+    encodeProgramInteractionPayload(encoder, payload);
+    encoder.pushOption<never>(undefined, () => undefined);
+  });
+  encoder.pushOption<string>(undefined, (memo) => {
+    const bytes = new TextEncoder().encode(memo);
+    encoder.pushU32(bytes.length);
+    encoder.pushBytes(bytes);
+  });
+
+  return new TransactionInstruction({
+    programId: config.squadsSmartAccountProgramId,
+    keys: [
+      { pubkey: context.settings, isSigner: false, isWritable: true },
+      { pubkey: context.authority, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: config.squadsSmartAccountProgramId, isSigner: false, isWritable: false },
+      { pubkey: context.authority, isSigner: true, isWritable: false },
+      { pubkey: policy, isSigner: false, isWritable: true },
+    ],
+    data: Buffer.from(encoder.finish()),
+  });
+}
+
 type CompiledPayload = {
   accountIndex: number;
   pubkeyTable: PublicKey[];
