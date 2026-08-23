@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import type { SQL } from "drizzle-orm";
+import { getTableColumns, type SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 
 mock.module("server-only", () => ({}));
@@ -421,6 +421,14 @@ function createLoadedScheduledSweep(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Earn autodeposit load state", () => {
+  test("Autodeposit desired state maps to the migrated database column", async () => {
+    const { balanceSweepTargets } = await import("./yield-neon-client.server");
+
+    expect(getTableColumns(balanceSweepTargets).active.name).toBe(
+      "desired_active"
+    );
+  });
+
   test("active policy and active target load as active", async () => {
     const { findCurrentEarnAutodepositState } = await import(
       "./earn-autodeposit-repository.server"
