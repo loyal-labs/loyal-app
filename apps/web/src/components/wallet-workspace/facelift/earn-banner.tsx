@@ -7,6 +7,15 @@ import { BannerTitleChars } from "@/components/wallet-workspace/facelift/wallet-
 import { LOYAL_TOKEN_MINT } from "@/lib/market/loyal-token-ticker.shared";
 
 const ASSET_BASE = "/wallet-workspace/facelift";
+// Banner art remounts on every carousel rotation, so it is served immutable
+// (see the cache rule in next.config.ts). The commit hash is what invalidates
+// it: a deploy changes the URL, so a rotation never re-hits the network but a
+// release never serves stale artwork.
+const ASSET_VERSION = process.env.NEXT_PUBLIC_GIT_COMMIT_HASH ?? "dev";
+
+function bannerAsset(file: string): string {
+  return `${ASSET_BASE}/${file}?v=${ASSET_VERSION}`;
+}
 
 // Same autoplay clock as the mobile home carousel; the story pill fill reads
 // it too, so the bar always lands exactly when the banner rolls.
@@ -42,7 +51,7 @@ function TiltedIconPair({ rightArt }: { rightArt: string }) {
           alt=""
           aria-hidden="true"
           className="size-full"
-          src={`${ASSET_BASE}/earn-banner-art-dog.svg`}
+          src={bannerAsset("earn-banner-art-dog.svg")}
         />
       </div>
       <div className="absolute left-[179.23px] top-[241.23px] size-[169.82px]">
@@ -107,14 +116,14 @@ function Texture({ src }: { src: string }) {
 const BANNERS: EarnBannerConfig[] = [
   {
     accent: "#f9363c",
-    art: <TiltedIconPair rightArt={`${ASSET_BASE}/earn-banner-art-x.svg`} />,
+    art: <TiltedIconPair rightArt={bannerAsset("earn-banner-art-x.svg")} />,
     buttonColor: "black",
     buttonLabel: "Follow",
     fade: FADE_RED,
     href: "https://x.com/loyal_hq",
-    icon: `${ASSET_BASE}/earn-banner-icon-x.svg`,
+    icon: bannerAsset("earn-banner-icon-x.svg"),
     key: "x",
-    texture: <Texture src={`${ASSET_BASE}/earn-banner-tex-red.png`} />,
+    texture: <Texture src={bannerAsset("earn-banner-tex-red.png")} />,
     title: "Follow Loyal on X",
     titleClassName: "w-[244px] text-white",
   },
@@ -129,7 +138,7 @@ const BANNERS: EarnBannerConfig[] = [
           alt=""
           aria-hidden="true"
           className="size-full"
-          src={`${ASSET_BASE}/earn-banner-art-mascot.svg`}
+          src={bannerAsset("earn-banner-art-mascot.svg")}
         />
       </div>
     ),
@@ -137,22 +146,22 @@ const BANNERS: EarnBannerConfig[] = [
     buttonLabel: "Go to Jupiter",
     fade: FADE_MAROON,
     href: `https://jup.ag/tokens/${LOYAL_TOKEN_MINT}`,
-    icon: `${ASSET_BASE}/earn-banner-icon-jupiter.svg`,
+    icon: bannerAsset("earn-banner-icon-jupiter.svg"),
     key: "jupiter",
-    texture: <Texture src={`${ASSET_BASE}/earn-banner-tex-dark.png`} />,
+    texture: <Texture src={bannerAsset("earn-banner-tex-dark.png")} />,
     title: "Buy $LOYAL on Jupiter",
     titleClassName: "w-[270px] text-white",
   },
   {
     accent: "#f9363c",
     art: (
-      <TiltedIconPair rightArt={`${ASSET_BASE}/earn-banner-art-telegram.svg`} />
+      <TiltedIconPair rightArt={bannerAsset("earn-banner-art-telegram.svg")} />
     ),
     buttonColor: "black",
     buttonLabel: "Join",
     fade: FADE_RED,
     href: "https://t.me/loyal_tgchat",
-    icon: `${ASSET_BASE}/earn-banner-icon-telegram.svg`,
+    icon: bannerAsset("earn-banner-icon-telegram.svg"),
     key: "telegram",
     // The zigzag is a single oversized vector (Figma 4965:65661), placed with
     // its design offsets rather than covered like the raster textures.
@@ -164,7 +173,7 @@ const BANNERS: EarnBannerConfig[] = [
             alt=""
             aria-hidden="true"
             className="block size-full max-w-none"
-            src={`${ASSET_BASE}/earn-banner-tex-zigzag.svg`}
+            src={bannerAsset("earn-banner-tex-zigzag.svg")}
           />
         </div>
       </div>
@@ -181,7 +190,7 @@ const BANNERS: EarnBannerConfig[] = [
           alt=""
           aria-hidden="true"
           className="size-full"
-          src={`${ASSET_BASE}/earn-banner-art-coins.svg`}
+          src={bannerAsset("earn-banner-art-coins.svg")}
         />
       </div>
     ),
@@ -189,9 +198,9 @@ const BANNERS: EarnBannerConfig[] = [
     buttonLabel: "Set up Autodeposit",
     fade: FADE_MAROON,
     href: null,
-    icon: `${ASSET_BASE}/earn-banner-icon-autodeposit.svg`,
+    icon: bannerAsset("earn-banner-icon-autodeposit.svg"),
     key: "autodeposit",
-    texture: <Texture src={`${ASSET_BASE}/earn-banner-tex-dark.png`} />,
+    texture: <Texture src={bannerAsset("earn-banner-tex-dark.png")} />,
     title: "Earn more without manual deposits",
     titleClassName: "w-[352px] text-[#f9363c]",
   },

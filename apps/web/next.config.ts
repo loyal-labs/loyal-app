@@ -101,6 +101,22 @@ const nextConfig: NextConfig = {
         headers: [{ key: "Content-Type", value: "application/json" }],
       },
       {
+        // The Earn banner carousel remounts its artwork every few seconds, and
+        // Next serves /public with `max-age=0, must-revalidate`, so each
+        // rotation cost a revalidation round-trip per asset (ASK-2214).
+        // earn-banner.tsx requests these with a ?v=<commit> buster, so a deploy
+        // always produces a fresh URL — hence immutable is safe here, and the
+        // `has` guard keeps it off unversioned (hand-typed) requests.
+        source: "/wallet-workspace/facelift/:asset(earn-banner-.*)",
+        has: [{ type: "query", key: "v" }],
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
+      {
         source: "/app/cherry",
         headers: [
           ...COMMON_SECURITY_HEADERS,
