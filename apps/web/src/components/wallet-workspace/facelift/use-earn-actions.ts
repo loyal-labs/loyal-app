@@ -2184,19 +2184,12 @@ export function useEarnActions(deps: {
           });
 
           if (!(result.success && result.preparedSetup)) {
-            if (result.status === "confirmation_record_failed") {
-              tracker.fail("backend_confirm", {
-                chainState: "confirmed",
-                errorCode: "record_failed",
-                persistenceState: "failed",
-              });
-            }
             throw new Error(result.error ?? "Autodeposit setup failed.");
           }
 
-          tracker.observe("backend_confirm", {
+          tracker.observe("chain_confirm", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: "not_started",
           });
 
           if (result.preparedSetup.stage !== "create_recurring_delegation") {
@@ -2213,10 +2206,6 @@ export function useEarnActions(deps: {
           if (!policyAccount) {
             throw new Error("Autodeposit policy account was not returned.");
           }
-          if (result.bootstrapSweep) {
-            tracker.observe("bootstrap", { persistenceState: "recorded" });
-          }
-
           setAutodepositOverride({
             config: {
               amount: amountLabel,
@@ -2245,7 +2234,6 @@ export function useEarnActions(deps: {
             operation: "autodeposit_setup",
             resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
             signature: result.signature,
-            targetId: result.targetId,
           });
           if (walletSubmittedAtMs !== null) {
             captureBrowserLoadingMetricAfterPaint({
@@ -2257,7 +2245,7 @@ export function useEarnActions(deps: {
           }
           tracker.complete("ui_commit", {
             chainState: "confirmed",
-            persistenceState: "recorded",
+            persistenceState: "not_started",
           });
           earnToast.success(
             previousConfig ? "Autodeposit updated" : "Autodeposit created"
@@ -2287,7 +2275,7 @@ export function useEarnActions(deps: {
           });
           earnToast.error("Couldn't save Autodeposit");
         } else {
-          tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+          tracker.fail("chain_confirm", { errorCode: "unexpected_error" });
           earnToast.error("Couldn't save Autodeposit");
         }
         const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
@@ -2518,18 +2506,11 @@ export function useEarnActions(deps: {
         recurringDelegation: config.recurringDelegation,
       });
       if (!result.success) {
-        if (result.status === "confirmation_record_failed") {
-          tracker.fail("backend_confirm", {
-            chainState: "confirmed",
-            errorCode: "record_failed",
-            persistenceState: "failed",
-          });
-        }
         throw new Error(result.error ?? "Autodeposit close failed.");
       }
-      tracker.observe("backend_confirm", {
+      tracker.observe("chain_confirm", {
         chainState: "confirmed",
-        persistenceState: "recorded",
+        persistenceState: "not_started",
       });
       setAutodepositOverride({ config: null });
       autodepositClosePreparedRef.current = null;
@@ -2537,7 +2518,6 @@ export function useEarnActions(deps: {
         operation: "autodeposit_close",
         resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
         signature: result.signature,
-        targetId: result.targetId,
       });
       if (walletSubmittedAtMs !== null) {
         captureBrowserLoadingMetricAfterPaint({
@@ -2549,7 +2529,7 @@ export function useEarnActions(deps: {
       }
       tracker.complete("ui_commit", {
         chainState: "confirmed",
-        persistenceState: "recorded",
+        persistenceState: "not_started",
       });
       earnToast.success("Autodeposit deleted");
       return true;
@@ -2563,7 +2543,7 @@ export function useEarnActions(deps: {
       if (isWalletCancellation(error)) {
         tracker.cancel("wallet_approval", { errorCode: "wallet_rejected" });
       } else {
-        tracker.fail("backend_confirm", { errorCode: "unexpected_error" });
+        tracker.fail("chain_confirm", { errorCode: "unexpected_error" });
         earnToast.error("Couldn't delete Autodeposit");
       }
       const loadingFailurePhase = resolveBrowserLoadingFailurePhase({
