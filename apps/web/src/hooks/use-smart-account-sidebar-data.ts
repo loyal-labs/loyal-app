@@ -7788,6 +7788,7 @@ export function useSmartAccountSidebarData(
                 wallet: walletBridge,
                 prepared: batchPreparedSetups.map((setup) => setup.prepared),
                 confirm: true,
+                sendMode: "send-all-before-confirm",
                 onTransactionSent: ({ index }) => {
                   request.onWalletSubmitted?.();
                   const sentSetup = batchPreparedSetups[index];
