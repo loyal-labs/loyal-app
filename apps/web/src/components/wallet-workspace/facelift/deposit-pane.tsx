@@ -6,7 +6,7 @@ import {
 } from "@loyal-labs/actions";
 import { resolveSolanaEnv } from "@loyal-labs/solana-rpc";
 import { CircleDollarSign, Landmark, PenLine, TrendingUp } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { sanitizeBucksAmountInput } from "@/components/wallet-sidebar/earn-detail-view";
 import {
@@ -144,17 +144,23 @@ const DEPOSIT_DOCS_URL =
 // sheet, system num keyboard under the focused amount input).
 export function DepositPane({
   data: earnData,
+  earnMaxAside,
   initialSourceKey,
   onBack,
   onOpenChart,
 }: {
   data: EarnPositionData;
+  /** Earn MAX mock variant: replaces the explainer aside with this node,
+   * targets Earn MAX · Looping, raises the minimum to $10,000, and makes the
+   * confirm CTA a no-op (never hits the real deposit endpoints). */
+  earnMaxAside?: ReactNode;
   /** Preselects the deposit source (keys are mints) — e.g. a stables-row
    * Earn pill. Unknown or absent keys fall back to the default source. */
   initialSourceKey?: string | null;
   onBack: () => void;
   onOpenChart: () => void;
 }) {
+  const isEarnMax = earnMaxAside !== undefined;
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
   const { apy, isLoaded: isApyLoaded } = useEarnForecastApyStatus();
@@ -236,7 +242,8 @@ export function DepositPane({
   const amountLabel = amountUsd.toLocaleString("en-US", {
     maximumFractionDigits: 2,
   });
-  const isBelowMinimum = amountUsd < MIN_DEPOSIT_USD;
+  const minDepositUsd = isEarnMax ? 10_000 : MIN_DEPOSIT_USD;
+  const isBelowMinimum = amountUsd < minDepositUsd;
   const isInsufficient = !isBelowMinimum && amountUsd > sourceUsd;
   const isValidAmount = !(isBelowMinimum || isInsufficient);
   const isSubmitting = actions.isDepositPending;
@@ -245,7 +252,8 @@ export function DepositPane({
   // amount, so hitting Deposit skips the prepare's longest network leg.
   const prefetchDeposit = actions.prefetchDepositPreparation;
   useEffect(() => {
-    if (!isValidAmount) {
+    // Earn MAX is a mock — never touch the real prepare endpoints.
+    if (!isValidAmount || isEarnMax) {
       return;
     }
     const timer = window.setTimeout(
@@ -253,7 +261,7 @@ export function DepositPane({
       300
     );
     return () => window.clearTimeout(timer);
-  }, [amount, isValidAmount, prefetchDeposit, selectedSource.mint]);
+  }, [amount, isEarnMax, isValidAmount, prefetchDeposit, selectedSource.mint]);
 
   const handleAmountChange = (rawValue: string) => {
     const sanitized = sanitizeBucksAmountInput(rawValue, amount);
@@ -262,6 +270,10 @@ export function DepositPane({
     }
   };
   const handleSubmit = async () => {
+    if (isEarnMax) {
+      // TODO(earn-max): wire real deposit
+      return;
+    }
     const didDeposit = await actions.submitDeposit({
       amountLabel: amount,
       forecastApyBps: apy.apyBps,
@@ -531,20 +543,18 @@ export function DepositPane({
                   alt=""
                   aria-hidden="true"
                   className="size-11"
-                  src={`${ASSET_BASE}/earn-icon.svg`}
+                  src={`${ASSET_BASE}/${
+                    isEarnMax ? "earn-max-icon.svg" : "earn-icon.svg"
+                  }`}
                 />
               </div>
               <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
                 <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">
-                  to Earn
+                  {isEarnMax ? "to Earn MAX · Looping" : "to Earn"}
                 </span>
                 <span className="flex items-center">
-                  {/* Skeleton the badge until the real APY lands, then reveal
-                    + pop — the fallback APY would otherwise flash. */}
-                  <SkeletonReveal
-                    isRevealed={isApyLoaded}
-                    skeletonClassName="rounded-lg bg-accent-selected"
-                  >
+                  {isEarnMax ? (
+                    // Static mock APY — no Earn MAX forecast feed yet.
                     <span className="inline-flex items-center gap-1 rounded-lg bg-positive/[0.14] px-2 py-0.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -554,18 +564,38 @@ export function DepositPane({
                         src="/wallet-workspace/earn-flash.svg"
                       />
                       <span className="whitespace-nowrap font-medium text-[16px] text-positive leading-5 tracking-[0.06px]">
-                        {isApyLoaded ? (
-                          <PopDigits
-                            segments={[
-                              { text: formatEarnApyLabel(apy.apyBps) },
-                            ]}
-                          />
-                        ) : (
-                          formatEarnApyLabel(apy.apyBps)
-                        )}
+                        20.48% APY
                       </span>
                     </span>
-                  </SkeletonReveal>
+                  ) : (
+                    // Skeleton the badge until the real APY lands, then
+                    // reveal + pop — the fallback APY would otherwise flash.
+                    <SkeletonReveal
+                      isRevealed={isApyLoaded}
+                      skeletonClassName="rounded-lg bg-accent-selected"
+                    >
+                      <span className="inline-flex items-center gap-1 rounded-lg bg-positive/[0.14] px-2 py-0.5">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          alt=""
+                          aria-hidden="true"
+                          className="h-5 w-3"
+                          src="/wallet-workspace/earn-flash.svg"
+                        />
+                        <span className="whitespace-nowrap font-medium text-[16px] text-positive leading-5 tracking-[0.06px]">
+                          {isApyLoaded ? (
+                            <PopDigits
+                              segments={[
+                                { text: formatEarnApyLabel(apy.apyBps) },
+                              ]}
+                            />
+                          ) : (
+                            formatEarnApyLabel(apy.apyBps)
+                          )}
+                        </span>
+                      </span>
+                    </SkeletonReveal>
+                  )}
                 </span>
               </div>
             </div>
@@ -600,7 +630,9 @@ export function DepositPane({
                   ? "Insufficient balance"
                   : isValidAmount
                   ? `Deposit ${amountLabel} ${selectedSource.symbol}`
-                  : `Minimum deposit is $${MIN_DEPOSIT_USD}`
+                  : `Minimum deposit is $${minDepositUsd.toLocaleString(
+                      "en-US"
+                    )}`
               }
             />
           </button>
@@ -609,14 +641,17 @@ export function DepositPane({
 
       {/* Explainer: fixed right pane on wide viewports (the slot the chart
         column vacates for this screen), overlay via the header ? below
-        1204px — same split the Autodeposit screen uses. */}
-      <FlowExplainerAside title="How Deposit works">
-        <FlowDiagram
-          docsHref={DEPOSIT_DOCS_URL}
-          footnote={DEPOSIT_FOOTNOTE}
-          steps={depositSteps}
-        />
-      </FlowExplainerAside>
+        1204px — same split the Autodeposit screen uses. Earn MAX swaps it
+        for its Info & FAQs card. */}
+      {earnMaxAside ?? (
+        <FlowExplainerAside title="How Deposit works">
+          <FlowDiagram
+            docsHref={DEPOSIT_DOCS_URL}
+            footnote={DEPOSIT_FOOTNOTE}
+            steps={depositSteps}
+          />
+        </FlowExplainerAside>
+      )}
 
       <FlowExplainerOverlay
         isOpen={isInfoOpen}
