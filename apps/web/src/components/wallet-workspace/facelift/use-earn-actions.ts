@@ -7,6 +7,7 @@ import type {
 } from "@loyal-labs/smart-account-vaults";
 import type { ConfirmedOnchainMutation } from "@loyal-labs/shared";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
 import {
   type Dispatch,
   type SetStateAction,
@@ -52,6 +53,9 @@ import {
   parseTokenAmountLabelToRaw,
   resolveEarnMutationSmartAccountPlan,
   resolveEarnRealtimeResources,
+  selectFullExitWithdrawTargets,
+  toEarnWithdrawReserveTarget,
+  toEarnWithdrawVaultsSource,
 } from "@/components/wallet-workspace/facelift/earn-actions-support";
 import {
   CONFIRM_IN_WALLET_MESSAGE,
@@ -105,9 +109,6 @@ import {
   EarnPolicyUpdateRequiredClientError,
   getEarnDepositUserErrorMessage,
   isConfirmedSlotUnavailableError,
-  prepareEarnCleanupOnServer,
-  prepareEarnDepositOnServer,
-  prepareEarnWithdrawOnServer,
   type SmartAccountSidebarData,
 } from "@/hooks/use-smart-account-sidebar-data";
 import { useAuthCapability } from "@/lib/auth/capability";
@@ -819,24 +820,46 @@ export function useEarnActions(deps: {
       if (amountRaw <= BigInt(0)) {
         return;
       }
-      void prepareEarnDepositOnServer({ amountRaw, mint }).catch(() => null);
+      void smartAccountData
+        .prepareEarnDeposit({ amountRaw, mint })
+        .catch(() => null);
     },
-    [depositSource.decimals, smartAccountData.overview]
+    [depositSource.decimals, smartAccountData]
   );
 
   const prepareEarnWithdrawInBrowser = useCallback(
     async (
-      draft: EarnWithdrawDraft,
-      observabilityFlowId?: string
+      draft: EarnWithdrawDraft
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
       const requestedAmountRaw = getEarnWithdrawDraftAmountRaw(draft);
-      return prepareEarnWithdrawOnServer({
-        amountRaw: draft.mode === "full" ? "max" : requestedAmountRaw,
-        observabilityFlowId,
-        sourceId: draft.source.sourceId,
+      const fullExit = selectFullExitWithdrawTargets(draft);
+      const autodeposit = smartAccountData.earnAutodeposit;
+      return smartAccountData.prepareEarnWithdraw({
+        amountRaw: requestedAmountRaw,
+        mode: draft.mode,
+        source: toEarnWithdrawVaultsSource(draft.source),
+        target:
+          draft.source.type === "reserve"
+            ? toEarnWithdrawReserveTarget(draft.source)
+            : undefined,
+        ...(draft.mode === "full"
+          ? {
+              fullWithdrawalTargets: fullExit.fullWithdrawalTargets,
+              ...(autodeposit?.recurringDelegation
+                ? {
+                    autodepositClose: {
+                      policy: new PublicKey(autodeposit.policyAccount),
+                      recurringDelegation: new PublicKey(
+                        autodeposit.recurringDelegation
+                      ),
+                    },
+                  }
+                : {}),
+            }
+          : {}),
       });
     },
-    []
+    [smartAccountData]
   );
 
   // ---- Deposit (app-wallet-workspace.tsx:5165-5332 + 5508-5843) ----
@@ -964,10 +987,9 @@ export function useEarnActions(deps: {
             operation: "earn.deposit",
             rpcEndpoint: connection.rpcEndpoint,
             run: () =>
-              prepareEarnDepositOnServer({
+              smartAccountData.prepareEarnDeposit({
                 amountRaw,
                 mint: args.mint,
-                observabilityFlowId: tracker.flowId,
               }),
           });
         // The reserve verification feed can flap a mint out of eligibility
@@ -1394,7 +1416,7 @@ export function useEarnActions(deps: {
           flowId: tracker.flowId,
           operation: "earn.withdrawal",
           rpcEndpoint: connection.rpcEndpoint,
-          run: () => prepareEarnWithdrawInBrowser(draft, tracker.flowId),
+          run: () => prepareEarnWithdrawInBrowser(draft),
         });
         const shouldBypassWithdrawPreview =
           draft.mode === "partial" &&
@@ -1576,8 +1598,7 @@ export function useEarnActions(deps: {
               targetId: result.targetId,
             });
             const nextPreparedWithdraw = await prepareEarnWithdrawInBrowser(
-              draft,
-              tracker.flowId
+              draft
             );
             if (nextPreparedWithdraw.autodepositClosePrepared) {
               throw new Error(
@@ -1788,12 +1809,7 @@ export function useEarnActions(deps: {
           flowId: tracker.flowId,
           operation: "earn.close",
           rpcEndpoint: connection.rpcEndpoint,
-          run: () =>
-            prepareEarnCleanupOnServer({
-              minContextSlot:
-                fullWithdrawalConfirmedSlotRef.current ?? undefined,
-              observabilityFlowId: tracker.flowId,
-            }),
+          run: () => smartAccountData.prepareEarnCleanup(),
         });
       } catch (error) {
         tracker.fail("full_exit_verify", {

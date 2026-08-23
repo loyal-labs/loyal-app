@@ -23,9 +23,6 @@ import {
 
 const EARN_POSITION_CACHE_VERSION = 6;
 const EARN_POSITION_REFRESH_DEBOUNCE_MS = 350;
-const EARN_POSITION_RECONCILE_MIN_DELTA_RAW = BigInt(10_000);
-const EARN_POSITION_RECONCILE_ENDPOINT =
-  "/api/smart-accounts/yield-optimization/position/reconcile";
 
 export type ActiveEarnPositionHolding = {
   amountRaw: string;
@@ -196,84 +193,6 @@ function shouldKeepCurrentPositionOverConfirmed(args: {
     confirmedAmountRaw !== null &&
     currentAmountRaw > confirmedAmountRaw
   );
-}
-
-function getEarnPositionSourceSignature(
-  position: ActiveEarnPosition | null | undefined
-): string | null {
-  if (!position) {
-    return null;
-  }
-
-  const holdings =
-    position.holdings && position.holdings.length > 0
-      ? position.holdings
-      : [
-          {
-            kind: "kamino" as const,
-            liquidityMint: position.currentHolding.liquidityMint,
-            market: position.currentHolding.market,
-            reserve: position.currentHolding.reserve,
-          },
-        ];
-
-  return holdings
-    .map((holding) =>
-      [
-        holding.kind,
-        holding.liquidityMint,
-        holding.market ?? "",
-        holding.reserve ?? "",
-      ].join(":")
-    )
-    .sort()
-    .join("|");
-}
-
-function shouldRequestPositionReconciliation(args: {
-  base: ActiveEarnPosition | null;
-  rpc: ActiveEarnPosition | null;
-}): boolean {
-  if (!(args.base && args.rpc)) {
-    return false;
-  }
-
-  const baseAmountRaw = parseEarnRawAmount(args.base.currentTotalAmountRaw);
-  const rpcAmountRaw = parseEarnRawAmount(args.rpc.currentTotalAmountRaw);
-  if (baseAmountRaw !== null && rpcAmountRaw !== null) {
-    const delta =
-      baseAmountRaw > rpcAmountRaw
-        ? baseAmountRaw - rpcAmountRaw
-        : rpcAmountRaw - baseAmountRaw;
-    if (delta >= EARN_POSITION_RECONCILE_MIN_DELTA_RAW) {
-      return true;
-    }
-  }
-
-  return (
-    getEarnPositionSourceSignature(args.base) !==
-    getEarnPositionSourceSignature(args.rpc)
-  );
-}
-
-async function requestEarnPositionReconciliation() {
-  const response = await fetch(EARN_POSITION_RECONCILE_ENDPOINT, {
-    body: JSON.stringify({ force: true }),
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
-
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as {
-      error?: { message?: string };
-    } | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to reconcile Earn position."
-    );
-  }
 }
 
 export function getEarnPositionCacheKey(args: {
@@ -456,7 +375,6 @@ export function useActiveEarnPosition({
     EarnRpcWatchedAccount[]
   >([]);
   const positionRef = useRef<ActiveEarnPosition | null>(null);
-  const reconcileRequestKeyRef = useRef<string | null>(null);
   const refreshDirtyRef = useRef(false);
   const refreshGenerationRef = useRef(0);
   const positionScope = [
@@ -755,34 +673,7 @@ export function useActiveEarnPosition({
       }
       if (next) {
         commitRpcPosition(next);
-        const confirmedPosition = await confirmedPositionPromise;
-        if (cancelled || activePositionScopeRef.current !== positionScope) {
-          return;
-        }
-        const basePosition =
-          confirmedPosition === undefined ? rpcBasePosition : confirmedPosition;
-        if (
-          shouldRequestPositionReconciliation({
-            base: basePosition,
-            rpc: next.position,
-          })
-        ) {
-          const reconcileRequestKey = [
-            basePosition?.currentTotalAmountRaw ?? "none",
-            next.position?.currentTotalAmountRaw ?? "none",
-            getEarnPositionSourceSignature(basePosition) ?? "none",
-            getEarnPositionSourceSignature(next.position) ?? "none",
-          ].join("|");
-          if (reconcileRequestKeyRef.current !== reconcileRequestKey) {
-            reconcileRequestKeyRef.current = reconcileRequestKey;
-            requestEarnPositionReconciliation().catch((error) => {
-              console.warn(
-                "[earn-position] failed to reconcile stale confirmed position",
-                error
-              );
-            });
-          }
-        }
+        void confirmedPositionPromise;
         return;
       }
 

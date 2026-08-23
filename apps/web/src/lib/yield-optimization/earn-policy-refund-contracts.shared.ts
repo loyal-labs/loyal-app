@@ -83,7 +83,9 @@ export type EarnPolicyRefundVaultEntry = {
 };
 
 export type EarnPolicyRefundScanResponse = {
+  cluster?: string;
   policies: EarnPolicyRefundScanPolicy[];
+  programId?: string;
   recurringDelegations: EarnPolicyRefundRecurringDelegation[];
   settingsPda: string;
   vault: EarnPolicyRefundVaultEntry | null;

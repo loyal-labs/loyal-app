@@ -82,15 +82,20 @@ export async function GET(request: Request) {
     }
 
     const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
+    const serverEnv = getServerEnv();
     const scan = await scanEarnPolicyRefunds({
       connection: getConnection(solanaEnv),
-      programId: new PublicKey(getServerEnv().loyalSmartAccounts.programId),
+      programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
       settingsPda: account.settingsPda,
       solanaEnv,
       walletAddress,
     });
 
-    return NextResponse.json({ scan });
+    return NextResponse.json({
+      cluster: solanaEnv,
+      programId: serverEnv.loyalSmartAccounts.programId,
+      scan,
+    });
   } catch (error) {
     console.error("[mobile-earn-policy-refunds-scan] failed", {
       errorMessage: error instanceof Error ? error.message : String(error),
