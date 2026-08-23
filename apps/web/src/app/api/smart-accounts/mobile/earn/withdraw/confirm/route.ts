@@ -23,7 +23,7 @@ import {
 
 // Mobile twin of `yield-optimization/withdrawals/confirm`. The device echoes
 // back the serialized prepared withdraw it signed plus, for one step at a time,
-// that step's signature + slot (and the optional autodeposit-close signature).
+// that step's signature + slot. Autodeposit close is projected from chain.
 // This route rebuilds the canonical confirm payload server-side (the web client
 // does this in-browser) and defers to the shared `verifyConfirmedEarnWithdrawal`
 // core so the security-critical canonicalization can't drift.
@@ -32,8 +32,6 @@ type MobileWithdrawConfirmFields = {
   stepIndex?: number;
   withdrawalSignature: string;
   confirmedSlot: string;
-  autodepositCloseSignature?: string;
-  autodepositCloseConfirmedSlot?: string;
 };
 
 function jsonError(
@@ -63,10 +61,6 @@ function deriveEarnVaultAddress(settingsPda: string): string {
       accountIndex: EARN_DEPOSIT_VAULT_INDEX,
     })[0]
     .toBase58();
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function parseMobileWithdrawConfirmFields(
@@ -108,10 +102,6 @@ function parseMobileWithdrawConfirmFields(
     stepIndex,
     withdrawalSignature: record.withdrawalSignature,
     confirmedSlot: record.confirmedSlot,
-    autodepositCloseSignature: optionalString(record.autodepositCloseSignature),
-    autodepositCloseConfirmedSlot: optionalString(
-      record.autodepositCloseConfirmedSlot
-    ),
   };
 }
 
@@ -211,8 +201,6 @@ export async function POST(request: Request) {
       signature: fields.withdrawalSignature,
       confirmedSlot: fields.confirmedSlot,
       smartAccountAddress,
-      autodepositCloseSignature: fields.autodepositCloseSignature,
-      autodepositCloseConfirmedSlot: fields.autodepositCloseConfirmedSlot,
     });
     const input = parseEarnWithdrawalConfirmRequestBody(confirmBody);
 
