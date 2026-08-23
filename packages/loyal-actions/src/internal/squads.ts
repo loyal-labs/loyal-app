@@ -12,6 +12,8 @@ const SQUADS_SEED_PREFIX = new TextEncoder().encode("smart_account");
 const SQUADS_SEED_POLICY = new TextEncoder().encode("policy");
 const SQUADS_FULL_PERMISSIONS_MASK = 7;
 const SQUADS_SYNC_SIGNER_COUNT = 1;
+const POLICY_CREATION_PAYLOAD_LEGACY_PROGRAM_INTERACTION = 3;
+const POLICY_CREATION_PAYLOAD_PROGRAM_INTERACTION = 4;
 const EXECUTE_SETTINGS_TRANSACTION_SYNC_DISCRIMINATOR = [
   138, 209, 64, 163, 79, 67, 233, 76,
 ] as const;
@@ -80,7 +82,8 @@ export function createProgramInteractionPolicyInstruction(
   context: SquadsContext,
   constraints: readonly InstructionConstraint[],
   policySeed: PolicySeed,
-  spendingLimits: readonly DailySpendingLimit[] = []
+  spendingLimits: readonly DailySpendingLimit[] = [],
+  creationEncoding: "compact" | "legacy" = "compact"
 ): TransactionInstruction {
   const normalizedSeed = normalizeU64(policySeed, "policySeed");
   const actionAccount = deriveActionAccount(
@@ -88,15 +91,24 @@ export function createProgramInteractionPolicyInstruction(
     context.settings,
     normalizedSeed
   );
-  const data = serializeSettingsActions(
-    context.delegatedSigner,
-    normalizedSeed,
-    compileProgramInteractionPayload(
-      context.accountIndex,
-      constraints,
-      spendingLimits
-    )
-  );
+  const data =
+    creationEncoding === "legacy"
+      ? serializeLegacySettingsActions(
+          context.delegatedSigner,
+          normalizedSeed,
+          context.accountIndex,
+          constraints,
+          spendingLimits
+        )
+      : serializeSettingsActions(
+          context.delegatedSigner,
+          normalizedSeed,
+          compileProgramInteractionPayload(
+            context.accountIndex,
+            constraints,
+            spendingLimits
+          )
+        );
 
   return new TransactionInstruction({
     programId: config.squadsSmartAccountProgramId,
@@ -140,7 +152,7 @@ export function updateProgramInteractionPolicyInstruction(
     });
     encoder.pushU16(1);
     encoder.pushU32(0);
-    encoder.pushU8(4);
+    encoder.pushU8(POLICY_CREATION_PAYLOAD_PROGRAM_INTERACTION);
     encodeProgramInteractionPayload(encoder, payload);
     encoder.pushOption<never>(undefined, () => undefined);
   });
@@ -280,7 +292,7 @@ function encodePolicyCreateAction(
 ): void {
   encoder.pushU8(7);
   encoder.pushU64(seed);
-  encoder.pushU8(4);
+  encoder.pushU8(POLICY_CREATION_PAYLOAD_PROGRAM_INTERACTION);
   encodeProgramInteractionPayload(encoder, payload);
   encoder.pushVec([delegatedSigner], (signer) => {
     encoder.pushPubkey(signer);
@@ -292,6 +304,89 @@ function encodePolicyCreateAction(
     encoder.pushU64(timestamp)
   );
   encoder.pushOption<never>(undefined, () => undefined);
+}
+
+function serializeLegacySettingsActions(
+  delegatedSigner: PublicKey,
+  seed: bigint,
+  accountIndex: number,
+  constraints: readonly InstructionConstraint[],
+  spendingLimits: readonly DailySpendingLimit[]
+): Uint8Array {
+  const encoder = new BytesEncoder();
+  encoder.pushBytes(EXECUTE_SETTINGS_TRANSACTION_SYNC_DISCRIMINATOR);
+  encoder.pushU8(SQUADS_SYNC_SIGNER_COUNT);
+  encoder.pushVec([undefined], () => {
+    encoder.pushU8(7);
+    encoder.pushU64(seed);
+    encoder.pushU8(POLICY_CREATION_PAYLOAD_LEGACY_PROGRAM_INTERACTION);
+    encodeLegacyProgramInteractionPayload(
+      encoder,
+      accountIndex,
+      constraints,
+      spendingLimits
+    );
+    encoder.pushVec([delegatedSigner], (signer) => {
+      encoder.pushPubkey(signer);
+      encoder.pushU8(SQUADS_FULL_PERMISSIONS_MASK);
+    });
+    encoder.pushU16(1);
+    encoder.pushU32(0);
+    encoder.pushOption<bigint>(undefined, (timestamp) =>
+      encoder.pushU64(timestamp)
+    );
+    encoder.pushOption<never>(undefined, () => undefined);
+  });
+  encoder.pushOption<string>(undefined, (memo) => {
+    const bytes = new TextEncoder().encode(memo);
+    encoder.pushU32(bytes.length);
+    encoder.pushBytes(bytes);
+  });
+  return encoder.finish();
+}
+
+function encodeLegacyProgramInteractionPayload(
+  encoder: BytesEncoder,
+  accountIndex: number,
+  constraints: readonly InstructionConstraint[],
+  spendingLimits: readonly DailySpendingLimit[]
+): void {
+  encoder.pushU8(accountIndex);
+  encoder.pushVec(constraints, (constraint) => {
+    encoder.pushPubkey(constraint.programId);
+    encoder.pushVec(constraint.accountConstraints, (accountConstraint) => {
+      encoder.pushU8(accountConstraint.accountIndex);
+      if (accountConstraint.kind.type === "pubkey") {
+        encoder.pushU8(0);
+        encoder.pushVec(accountConstraint.kind.pubkeys, (pubkey) =>
+          encoder.pushPubkey(pubkey)
+        );
+      } else {
+        encoder.pushU8(1);
+        encoder.pushVec(
+          accountConstraint.kind.dataConstraints,
+          (dataConstraint) => encodeDataConstraint(encoder, dataConstraint)
+        );
+      }
+      encoder.pushOption(accountConstraint.owner, (owner) =>
+        encoder.pushPubkey(owner)
+      );
+    });
+    encoder.pushVec(constraint.dataConstraints, (dataConstraint) =>
+      encodeDataConstraint(encoder, dataConstraint)
+    );
+  });
+  encoder.pushOption<never>(undefined, () => undefined);
+  encoder.pushOption<never>(undefined, () => undefined);
+  encoder.pushVec(spendingLimits, (spendingLimit) => {
+    encoder.pushPubkey(spendingLimit.mint);
+    encoder.pushI64(BigInt(0));
+    encoder.pushOption<bigint>(undefined, (expiration) =>
+      encoder.pushI64(expiration)
+    );
+    encoder.pushU8(1);
+    encoder.pushU64(spendingLimit.maxPerPeriod);
+  });
 }
 
 function encodeProgramInteractionPayload(

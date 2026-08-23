@@ -112,6 +112,7 @@ function pubkey(accountIndex: number, ...pubkeys: PublicKey[]) {
 export function createEarnMaxPolicyManifest(input: {
   authority: PublicKey;
   delegatedSigner: PublicKey;
+  firstPolicySeed: bigint;
   settings: PublicKey;
 }): readonly EarnMaxPolicyPreparation[] {
   const config = clusterConfigFor(LoyalCluster.MainnetBeta);
@@ -143,7 +144,9 @@ export function createEarnMaxPolicyManifest(input: {
       family.includes("swap")
         ? [finalConstraint]
         : [refreshReserve, refreshObligation, finalConstraint],
-      seed
+      seed,
+      [],
+      "legacy"
     );
     const policy = instruction.keys[5]!.pubkey;
     return {
@@ -169,7 +172,7 @@ export function createEarnMaxPolicyManifest(input: {
   };
 
   return [
-    policy("deposit", BigInt(32), {
+    policy("deposit", input.firstPolicySeed, {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault), pubkey(1, topology.obligation),
@@ -178,7 +181,7 @@ export function createEarnMaxPolicyManifest(input: {
       ],
       dataConstraints: [sliceEquals(DEPOSIT)],
     }),
-    policy("repay", BigInt(33), {
+    policy("repay", input.firstPolicySeed + BigInt(1), {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault), pubkey(1, topology.obligation), pubkey(3, DEBT_RESERVE),
@@ -187,7 +190,7 @@ export function createEarnMaxPolicyManifest(input: {
       ],
       dataConstraints: [sliceEquals(REPAY)],
     }),
-    policy("borrow", BigInt(34), {
+    policy("borrow", input.firstPolicySeed + BigInt(2), {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault), pubkey(1, topology.obligation), pubkey(4, DEBT_RESERVE),
@@ -196,7 +199,7 @@ export function createEarnMaxPolicyManifest(input: {
       ],
       dataConstraints: [sliceEquals(BORROW)],
     }),
-    policy("forward_swap", BigInt(35), {
+    policy("forward_swap", input.firstPolicySeed + BigInt(3), {
       programId: config.jupiterV6ProgramId,
       accountConstraints: [
         pubkey(0, TOKEN), pubkey(2, topology.vault), pubkey(3, topology.claimCustody),
@@ -206,7 +209,7 @@ export function createEarnMaxPolicyManifest(input: {
       ],
       dataConstraints: [sliceEquals(SHARED_ACCOUNTS_ROUTE)],
     }),
-    policy("withdraw", BigInt(36), {
+    policy("withdraw", input.firstPolicySeed + BigInt(4), {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault), pubkey(1, topology.obligation),
@@ -215,7 +218,7 @@ export function createEarnMaxPolicyManifest(input: {
       ],
       dataConstraints: [sliceEquals(WITHDRAW)],
     }),
-    policy("reverse_swap", BigInt(44), {
+    policy("reverse_swap", input.firstPolicySeed + BigInt(5), {
       programId: config.jupiterV6ProgramId,
       accountConstraints: [
         pubkey(0, TOKEN), pubkey(2, topology.vault), pubkey(3, topology.collateralCustody),

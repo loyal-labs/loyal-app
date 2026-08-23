@@ -152,6 +152,24 @@ function rawAmount(value: unknown): bigint | null {
   return null;
 }
 
+function projectedPolicies(value: unknown): Array<{
+  account: string;
+  matches: boolean;
+  seed: bigint;
+}> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const policy = record(entry);
+    const seed = rawAmount(policy?.seed);
+    return policy &&
+      typeof policy.account === "string" &&
+      typeof policy.matches === "boolean" &&
+      seed !== null
+      ? [{ account: policy.account, matches: policy.matches, seed }]
+      : [];
+  });
+}
+
 export async function prepareTransaction(request: Request) {
   const authenticated = await principal(request);
   if (!authenticated) {
@@ -174,19 +192,23 @@ export async function prepareTransaction(request: Request) {
     const connection = getConnection();
     if (parsed.action === "install_policies") {
       const projected = await readEarnMaxState(authenticated.settingsPda);
-      const matchingPolicyAccounts = new Set<string>();
-      if (Array.isArray(projected?.policy_accounts)) {
-        for (const value of projected.policy_accounts) {
-          const evidence = record(value);
-          if (evidence?.matches === true && typeof evidence.account === "string") {
-            matchingPolicyAccounts.add(evidence.account);
-          }
-        }
-      }
+      const projectedBindings = projectedPolicies(projected?.policy_accounts);
+      const matchingPolicyAccounts = new Set(
+        projectedBindings
+          .filter((binding) => binding.matches)
+          .map((binding) => binding.account)
+      );
+      const firstPolicySeed = projectedBindings.length === 6
+        ? projectedBindings.reduce(
+            (minimum, binding) => binding.seed < minimum ? binding.seed : minimum,
+            projectedBindings[0]!.seed
+          )
+        : undefined;
       const operations = await prepareEarnMaxInstall({
         connection,
         delegatedSigner: getDeploymentPolicySignerPublicKey(),
         feePayer,
+        firstPolicySeed,
         matchingPolicyAccounts,
         programId,
         settings,
@@ -269,7 +291,17 @@ export async function prepareTransaction(request: Request) {
     if (withdrawal && withdrawal.status !== "claimed") {
       return jsonError(409, "earn_max_withdrawal_open", "The Earn MAX withdrawal is not complete.");
     }
-    const operation = await prepareEarnMaxClose({ connection, feePayer, programId, settings });
+    const policyBindings = projectedPolicies(state.policy_accounts);
+    if (policyBindings.length !== 6) {
+      return jsonError(409, "earn_max_policy_projection_incomplete", "The exact Earn MAX policy set is unavailable.");
+    }
+    const operation = await prepareEarnMaxClose({
+      connection,
+      feePayer,
+      policies: policyBindings.map((binding) => new PublicKey(binding.account)),
+      programId,
+      settings,
+    });
     return NextResponse.json({
       action: parsed.action,
       preparedOperations: operation ? [serializePreparedOperation(operation)] : [],
