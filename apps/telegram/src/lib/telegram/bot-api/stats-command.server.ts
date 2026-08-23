@@ -334,8 +334,8 @@ export async function loadLoyalStats(): Promise<LoyalStatsRefresh | null> {
             INNER JOIN loyal_yield.balance_sweep_targets AS target
               ON target.balance_sweep_policy_id = policy.id
             WHERE policy.active = true
-              AND target.active = true
-              AND target.lifecycle_status = 'active'
+              AND target.desired_active = true
+              AND target.chain_status = 'active'
           ) AS active_autodeposit_policies,
           COALESCE(
             (
