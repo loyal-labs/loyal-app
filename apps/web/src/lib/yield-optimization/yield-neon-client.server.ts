@@ -725,7 +725,7 @@ export const balanceSweepTargets = loyalYieldSchema.table(
     maxAmountPerPeriod: bigint("max_amount_per_period", {
       mode: "bigint",
     }).notNull(),
-    active: boolean("active").notNull(),
+    active: boolean("desired_active").notNull(),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
     lastSeenSlot: bigint("last_seen_slot", { mode: "bigint" }).notNull(),
@@ -751,7 +751,16 @@ export const balanceSweepTargets = loyalYieldSchema.table(
       "recurring_delegation_confirmed_slot",
       { mode: "bigint" }
     ),
-    lifecycleStatus: text("lifecycle_status").default("active").notNull(),
+    lifecycleStatus: text("chain_status").default("pending").notNull(),
+    chainObservationSlot: bigint("chain_observation_slot", {
+      mode: "bigint",
+    })
+      .default(sql`0`)
+      .notNull(),
+    setupGeneration: bigint("setup_generation", { mode: "bigint" })
+      .default(sql`1`)
+      .notNull(),
+    bootstrapGeneration: bigint("bootstrap_generation", { mode: "bigint" }),
     closeSignature: text("close_signature"),
     closeSlot: bigint("close_slot", { mode: "bigint" }),
     closedAt: timestamp("closed_at", { withTimezone: true }),
