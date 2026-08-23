@@ -42,6 +42,7 @@ import {
   createSubscriptionSweepPolicyPlan,
   createJupiterCrossMintPolicyPlan,
   createJupiterCrossMintPolicySet,
+  createEarnMaxPolicyManifest,
   createVaultSubscriptionSweepPolicyPlan,
   createVaultYieldRoutingPolicyPlan,
   createLoyalActionsSdk,
@@ -78,6 +79,27 @@ const smartAccount = {
   authority,
   delegatedSigner,
 };
+
+describe("Earn MAX policy manifest", () => {
+  test("uses the mainnet-compatible legacy create payload for all six policies", () => {
+    const manifest = createEarnMaxPolicyManifest({
+      authority,
+      delegatedSigner,
+      firstPolicySeed: BigInt(234),
+      settings,
+    });
+
+    expect(manifest).toHaveLength(6);
+    expect(manifest.map((entry) => decodePolicyCreate(entry.instruction.data).seed)).toEqual([
+      BigInt(234),
+      BigInt(235),
+      BigInt(236),
+      BigInt(237),
+      BigInt(238),
+      BigInt(239),
+    ]);
+  });
+});
 
 describe("Loyal cluster helpers", () => {
   test("normalizes canonical and legacy cluster names", () => {
@@ -420,9 +442,60 @@ function decodePolicyCreate(data: Uint8Array): {
   expect(cursor.readU32()).toBe(1);
   expect(cursor.readU8()).toBe(7);
   const seed = cursor.readU64();
-  expect(cursor.readU8()).toBe(4);
-  const payload = decodeProgramInteractionPayload(cursor);
+  const payloadTag = cursor.readU8();
+  const payload =
+    payloadTag === 3
+      ? decodeLegacyProgramInteractionPayload(cursor)
+      : decodeProgramInteractionPayload(cursor);
   return { seed, payload };
+}
+
+function decodeLegacyProgramInteractionPayload(cursor: Cursor) {
+  const accountIndex = cursor.readU8();
+  const pubkeyTable: PublicKey[] = [];
+  const tableIndex = (pubkey: PublicKey) => {
+    const existing = pubkeyTable.findIndex((candidate) =>
+      candidate.equals(pubkey)
+    );
+    if (existing !== -1) return existing;
+    pubkeyTable.push(pubkey);
+    return pubkeyTable.length - 1;
+  };
+  const instructionConstraints = cursor.readVec(() => ({
+    programIdIndex: tableIndex(cursor.readPubkey()),
+    accountConstraints: cursor.readVec(() => {
+      const accountIndex = cursor.readU8();
+      const kindTag = cursor.readU8();
+      const kind =
+        kindTag === 0
+          ? {
+              type: "pubkey" as const,
+              pubkeyIndexes: cursor.readVec(() => tableIndex(cursor.readPubkey())),
+            }
+          : {
+              type: "accountData" as const,
+              dataConstraints: cursor.readVec(() => decodeDataConstraint(cursor)),
+            };
+      const owner = cursor.readOption(() => cursor.readPubkey());
+      return {
+        accountIndex,
+        kind,
+        ownerIndex: owner ? tableIndex(owner) : undefined,
+      };
+    }),
+    dataConstraints: cursor.readVec(() => decodeDataConstraint(cursor)),
+  }));
+  expect(cursor.readOption(() => cursor.readU8())).toBeUndefined();
+  expect(cursor.readOption(() => cursor.readU8())).toBeUndefined();
+  const spendingLimits = cursor.readVec(() => {
+    const mint = cursor.readPubkey();
+    expect(cursor.readU64()).toBe(BigInt(0));
+    expect(cursor.readOption(() => cursor.readU64())).toBeUndefined();
+    const period = cursor.readU8();
+    const maxPerPeriod = cursor.readU64();
+    return { mint, maxPerPeriod, period };
+  });
+  return { accountIndex, pubkeyTable, instructionConstraints, spendingLimits };
 }
 
 function decodeProgramInteractionPayload(cursor: Cursor) {
@@ -558,6 +631,11 @@ class Cursor {
 
   readSmallVec<T>(decode: () => T): T[] {
     const length = this.readU8();
+    return Array.from({ length }, decode);
+  }
+
+  readVec<T>(decode: () => T): T[] {
+    const length = this.readU32();
     return Array.from({ length }, decode);
   }
 

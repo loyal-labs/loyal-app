@@ -117,13 +117,26 @@ export async function prepareEarnMaxInstall(input: {
   connection: Connection;
   delegatedSigner: PublicKey;
   feePayer: PublicKey;
+  firstPolicySeed?: bigint;
   programId: PublicKey;
   settings: PublicKey;
   matchingPolicyAccounts: ReadonlySet<string>;
 }): Promise<Prepared[]> {
+  const client = createLoyalSmartAccountsClient({
+    connection: input.connection,
+    programId: input.programId,
+  });
+  const firstPolicySeed =
+    input.firstPolicySeed ??
+    BigInt(
+      (
+        await client.smartAccounts.queries.fetchSettings(input.settings)
+      ).policySeed?.toString() ?? "0"
+    ) + BigInt(1);
   const manifest = createEarnMaxPolicyManifest({
     authority: input.feePayer,
     delegatedSigner: input.delegatedSigner,
+    firstPolicySeed,
     settings: input.settings,
   });
   const accounts = await input.connection.getMultipleAccountsInfo(
@@ -312,16 +325,12 @@ export async function prepareEarnMaxClaim(input: {
 export async function prepareEarnMaxClose(input: {
   connection: Connection;
   feePayer: PublicKey;
+  policies: readonly PublicKey[];
   programId: PublicKey;
   settings: PublicKey;
 }): Promise<Prepared | null> {
-  const policies = createEarnMaxPolicyManifest({
-    authority: input.feePayer,
-    delegatedSigner: input.feePayer,
-    settings: input.settings,
-  }).map((entry) => entry.policy);
-  const accounts = await input.connection.getMultipleAccountsInfo(policies, "confirmed");
-  const existing = policies.filter((_, index) => accounts[index]);
+  const accounts = await input.connection.getMultipleAccountsInfo([...input.policies], "confirmed");
+  const existing = input.policies.filter((_, index) => accounts[index]);
   if (existing.length === 0) return null;
   return createSmartAccountVaultsClient({
     connection: input.connection,
