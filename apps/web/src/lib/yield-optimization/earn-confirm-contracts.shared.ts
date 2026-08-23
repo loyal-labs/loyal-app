@@ -401,8 +401,6 @@ export function buildEarnDepositConfirmRequestBody({
 }
 
 export function buildEarnWithdrawalConfirmRequestBody({
-  autodepositCloseConfirmedSlot,
-  autodepositCloseSignature,
   confirmedSlot,
   preparedWithdraw,
   preparedStep,
@@ -414,11 +412,10 @@ export function buildEarnWithdrawalConfirmRequestBody({
   signature: string;
   confirmedSlot: string;
   smartAccountAddress: string;
-  autodepositCloseSignature?: string;
-  autodepositCloseConfirmedSlot?: string;
 }): EarnWithdrawalConfirmRequestBody {
   const source = preparedStep ?? preparedWithdraw;
-  const { autodepositClose, ...persistence } = source.persistence;
+  const persistence = { ...source.persistence };
+  delete persistence.autodepositClose;
   const targetReserve =
     persistence.targetReserve ?? persistence.sourceTokenAccount;
   if (!targetReserve) {
@@ -429,15 +426,6 @@ export function buildEarnWithdrawalConfirmRequestBody({
     ...persistence,
     market: persistence.market ?? null,
     targetReserve,
-    ...(autodepositClose
-      ? {
-          autodepositClose: {
-            ...autodepositClose,
-            closeSignature: autodepositCloseSignature ?? signature,
-            confirmedSlot: autodepositCloseConfirmedSlot ?? confirmedSlot,
-          },
-        }
-      : {}),
     smartAccountAddress,
     withdrawalSignature: signature,
     confirmedSlot,

@@ -94,9 +94,6 @@ import {
   fetchEarnPrepare,
 } from "@/lib/yield-optimization/earn-prepare-request.client";
 import {
-  buildEarnAutodepositCloseConfirmRequestBody,
-  buildEarnAutodepositSetupConfirmRequestBody,
-  type EarnAutodepositCloseConfirmResponse,
   type EarnAutodepositFloorUpdateConfirmRequestBody,
   type EarnAutodepositSetupConfirmResponse,
   type EarnAutodepositToggleConfirmRequestBody,
@@ -1746,65 +1743,6 @@ async function postConfirmedEarnDeposit(args: {
   }
 }
 
-async function postConfirmedEarnAutodepositSetup(args: {
-  observabilityFlowId?: string;
-  preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
-  signature: string;
-  confirmedSlot: string;
-  walletBalanceFloorRaw: bigint;
-}): Promise<EarnAutodepositSetupConfirmResponse> {
-  const body = buildEarnAutodepositSetupConfirmRequestBody(args);
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/autodeposit/setup/confirm",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      body: JSON.stringify(body),
-    }
-  );
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed Autodeposit setup."
-    );
-  }
-
-  return (await response.json()) as EarnAutodepositSetupConfirmResponse;
-}
-
-async function postConfirmedEarnAutodepositClose(args: {
-  observabilityFlowId?: string;
-  preparedClose: SmartAccountPreparedEarnUsdcAutodepositClose;
-  signature: string;
-  confirmedSlot: string;
-}): Promise<EarnAutodepositCloseConfirmResponse> {
-  const body = buildEarnAutodepositCloseConfirmRequestBody(args);
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/autodeposit/close/confirm",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      body: JSON.stringify(body),
-    }
-  );
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed Autodeposit close."
-    );
-  }
-
-  return (await response.json()) as EarnAutodepositCloseConfirmResponse;
-}
-
 async function postEarnAutodepositFloorUpdate(args: {
   observabilityFlowId?: string;
   policyAccount: string;
@@ -1838,6 +1776,25 @@ async function postEarnAutodepositFloorUpdate(args: {
   }
 
   return (await response.json()) as EarnAutodepositSetupConfirmResponse;
+}
+
+async function persistInitialAutodepositFloorAfterProjection(args: {
+  observabilityFlowId?: string;
+  policyAccount: string;
+  recurringDelegation: string;
+  walletBalanceFloorRaw: bigint;
+}): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await postEarnAutodepositFloorUpdate(args);
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  throw lastError;
 }
 
 async function postEarnAutodepositToggle(args: {
@@ -2156,8 +2113,6 @@ async function postConfirmedEarnDepositPolicyStage(args: {
 
 async function postConfirmedEarnWithdraw(args: {
   observabilityFlowId?: string;
-  autodepositCloseConfirmedSlot?: string;
-  autodepositCloseSignature?: string;
   preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
   preparedStep?: SmartAccountPreparedEarnUsdcWithdraw["withdrawSteps"][number];
   signature: string;
@@ -2203,8 +2158,6 @@ async function postConfirmedEarnWithdraw(args: {
 
 async function postConfirmedEarnCleanup(args: {
   observabilityFlowId?: string;
-  autodepositCloseConfirmedSlot?: string;
-  autodepositCloseSignature?: string;
   preparedCleanup: PreparedEarnUsdcCleanup;
   signature: string;
   confirmedSlot: string;
@@ -2216,8 +2169,6 @@ async function postConfirmedEarnCleanup(args: {
       credentials: "include",
       headers: observabilityJsonHeaders(args.observabilityFlowId),
       body: JSON.stringify({
-        autodepositCloseConfirmedSlot: args.autodepositCloseConfirmedSlot,
-        autodepositCloseSignature: args.autodepositCloseSignature,
         cleanupSignature: args.signature,
         confirmedSlot: args.confirmedSlot,
         preparedCleanup: serializePreparedEarnUsdcCleanup({
@@ -7220,9 +7171,6 @@ export function useSmartAccountSidebarData(
           };
         }
 
-        let autodepositCloseSignature: string | undefined;
-        let autodepositCloseConfirmedSlot: string | undefined;
-
         if (autodepositClosePrepared) {
           const closeSendResult = await sendPreparedEarnWithClusterPreflight({
             expectedCluster: expectedEarnCluster,
@@ -7239,32 +7187,6 @@ export function useSmartAccountSidebarData(
           });
           if (!closeSendResult.success) {
             return closeSendResult;
-          }
-          autodepositCloseSignature = closeSendResult.signature;
-          autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
-            connection,
-            signature: autodepositCloseSignature,
-          });
-          try {
-            await postConfirmedEarnAutodepositClose({
-              observabilityFlowId: request.observabilityFlowId,
-              preparedClose: autodepositClosePrepared,
-              signature: autodepositCloseSignature,
-              confirmedSlot: autodepositCloseConfirmedSlot,
-            });
-          } catch (error) {
-            return {
-              success: false,
-              signature: autodepositCloseSignature,
-              confirmedSlot: autodepositCloseConfirmedSlot,
-              status: "confirmation_record_failed",
-              mode: request.mode,
-              amountRaw: request.amountRaw.toString(),
-              error:
-                error instanceof Error
-                  ? error.message
-                  : "Failed to record confirmed Autodeposit close.",
-            };
           }
         }
 
@@ -7293,8 +7215,6 @@ export function useSmartAccountSidebarData(
         const recordWithdrawalConfirmation = async () => {
           await postConfirmedEarnWithdraw({
             observabilityFlowId: request.observabilityFlowId,
-            autodepositCloseConfirmedSlot,
-            autodepositCloseSignature,
             preparedWithdraw,
             preparedStep,
             signature,
@@ -7418,9 +7338,6 @@ export function useSmartAccountSidebarData(
           }));
         const autodepositClosePrepared =
           preparedCleanup.autodepositClosePrepared ?? null;
-        let autodepositCloseSignature: string | undefined;
-        let autodepositCloseConfirmedSlot: string | undefined;
-
         if (autodepositClosePrepared) {
           const closeSendResult = await sendPreparedEarnWithClusterPreflight({
             expectedCluster: expectedEarnCluster,
@@ -7438,11 +7355,6 @@ export function useSmartAccountSidebarData(
           if (!closeSendResult.success) {
             return closeSendResult;
           }
-          autodepositCloseSignature = closeSendResult.signature;
-          autodepositCloseConfirmedSlot = await resolveConfirmedSignatureSlot({
-            connection,
-            signature: autodepositCloseSignature,
-          });
         }
 
         const sendResult = await sendPreparedEarnWithClusterPreflight({
@@ -7470,8 +7382,6 @@ export function useSmartAccountSidebarData(
         try {
           await postConfirmedEarnCleanup({
             observabilityFlowId: request.observabilityFlowId,
-            autodepositCloseConfirmedSlot,
-            autodepositCloseSignature,
             preparedCleanup,
             signature,
             confirmedSlot,
@@ -7835,26 +7745,15 @@ export function useSmartAccountSidebarData(
               return { success: false, error: nativeSolError };
             }
 
-            const confirmationRecordFailureRef: {
-              current: {
-                confirmedSlot: string;
-                error: unknown;
-                preparedSetup: SmartAccountPreparedEarnUsdcAutodepositSetup;
-                signature: string;
-              } | null;
-            } = { current: null };
             let policyConfirmedSlot: string | undefined;
             let policySignature: string | undefined;
             let recurringDelegationConfirmedSlot: string | undefined;
             let recurringDelegationSent = false;
             let recurringDelegationSignature: string | undefined;
-            let confirmResponse:
-              | EarnAutodepositSetupConfirmResponse
-              | undefined;
 
             try {
-              // Keep the one-prompt signAll UX, but confirm and record each
-              // setup stage before sending the next dependent transaction.
+              // Keep the one-prompt signAll UX. Solana confirmation proves
+              // transaction success; LaserStream owns the backend projection.
               await sendPreparedBatchWithWallet({
                 connection,
                 wallet: walletBridge,
@@ -7882,58 +7781,16 @@ export function useSmartAccountSidebarData(
                           signature,
                         })
                       : String(slot);
-                  try {
-                    const response = await postConfirmedEarnAutodepositSetup({
-                      observabilityFlowId: request.observabilityFlowId,
-                      preparedSetup: confirmedSetup,
-                      signature,
-                      confirmedSlot,
-                      walletBalanceFloorRaw: request.walletBalanceFloorRaw,
-                    });
-                    if (confirmedSetup.stage === "create_policy") {
-                      policyConfirmedSlot = confirmedSlot;
-                      policySignature = signature;
-                    } else {
-                      recurringDelegationConfirmedSlot = confirmedSlot;
-                      recurringDelegationSignature = signature;
-                    }
-                    if (
-                      confirmedSetup.stage === "create_recurring_delegation"
-                    ) {
-                      confirmResponse = response;
-                    }
-                  } catch (error) {
-                    confirmationRecordFailureRef.current = {
-                      confirmedSlot,
-                      error,
-                      preparedSetup: confirmedSetup,
-                      signature,
-                    };
-                    throw error;
+                  if (confirmedSetup.stage === "create_policy") {
+                    policyConfirmedSlot = confirmedSlot;
+                    policySignature = signature;
+                  } else {
+                    recurringDelegationConfirmedSlot = confirmedSlot;
+                    recurringDelegationSignature = signature;
                   }
                 },
               });
             } catch (error) {
-              const confirmationRecordFailure =
-                confirmationRecordFailureRef.current;
-              if (confirmationRecordFailure) {
-                return {
-                  success: false,
-                  signature: confirmationRecordFailure.signature,
-                  ...getEarnAutodepositSetupSignatureFields(
-                    confirmationRecordFailure.preparedSetup,
-                    confirmationRecordFailure.signature
-                  ),
-                  confirmedSlot: confirmationRecordFailure.confirmedSlot,
-                  status: "confirmation_record_failed",
-                  preparedSetup: confirmationRecordFailure.preparedSetup,
-                  error:
-                    confirmationRecordFailure.error instanceof Error
-                      ? confirmationRecordFailure.error.message
-                      : "Failed to record confirmed Autodeposit setup.",
-                };
-              }
-
               if (
                 policySignature &&
                 policyConfirmedSlot &&
@@ -7961,7 +7818,6 @@ export function useSmartAccountSidebarData(
 
             if (
               !(
-                confirmResponse &&
                 recurringDelegationConfirmedSlot &&
                 recurringDelegationSignature
               )
@@ -7973,21 +7829,23 @@ export function useSmartAccountSidebarData(
               };
             }
 
-            const scheduledSweeps = confirmResponse.bootstrapSweep?.sweep
-              ? [confirmResponse.bootstrapSweep.sweep]
-              : [];
+            await persistInitialAutodepositFloorAfterProjection({
+              observabilityFlowId: request.observabilityFlowId,
+              policyAccount: batchNextPreparedSetup.persistence.policyAccount,
+              recurringDelegation:
+                batchNextPreparedSetup.persistence.recurringDelegation,
+              walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+            });
 
             return {
               success: true,
               signature: recurringDelegationSignature,
-              targetId: confirmResponse.target?.id,
               policySignature,
               recurringDelegationSignature,
               confirmedSlot: recurringDelegationConfirmedSlot,
               status: "executed",
               preparedSetup: batchNextPreparedSetup,
-              bootstrapSweep: confirmResponse.bootstrapSweep,
-              scheduledSweeps,
+              scheduledSweeps: [],
             };
           }
         }
@@ -8027,32 +7885,6 @@ export function useSmartAccountSidebarData(
             connection,
             signature: setupSend.signature,
           }));
-        let confirmResponse: EarnAutodepositSetupConfirmResponse;
-        try {
-          confirmResponse = await postConfirmedEarnAutodepositSetup({
-            observabilityFlowId: request.observabilityFlowId,
-            preparedSetup,
-            signature: setupSend.signature,
-            confirmedSlot,
-            walletBalanceFloorRaw: request.walletBalanceFloorRaw,
-          });
-        } catch (error) {
-          return {
-            success: false,
-            signature: setupSend.signature,
-            ...getEarnAutodepositSetupSignatureFields(
-              preparedSetup,
-              setupSend.signature
-            ),
-            confirmedSlot,
-            status: "confirmation_record_failed",
-            preparedSetup,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to record confirmed Autodeposit setup.",
-          };
-        }
         const completedAutodepositSetup =
           preparedSetup.stage === "create_recurring_delegation" ||
           preparedSetup.stage === "approve_token_delegate";
@@ -8093,17 +7925,18 @@ export function useSmartAccountSidebarData(
               walletBalanceFloorRaw: request.walletBalanceFloorRaw,
             });
 
-        const scheduledSweeps =
-          confirmResponse.bootstrapSweep?.sweep && completedAutodepositSetup
-            ? [confirmResponse.bootstrapSweep.sweep]
-            : completedAutodepositSetup
-            ? []
-            : undefined;
+        if (completedAutodepositSetup) {
+          await persistInitialAutodepositFloorAfterProjection({
+            observabilityFlowId: request.observabilityFlowId,
+            policyAccount: preparedSetup.persistence.policyAccount,
+            recurringDelegation: preparedSetup.persistence.recurringDelegation,
+            walletBalanceFloorRaw: request.walletBalanceFloorRaw,
+          });
+        }
 
         return {
           success: true,
           signature: setupSend.signature,
-          targetId: confirmResponse.target?.id,
           ...getEarnAutodepositSetupSignatureFields(
             preparedSetup,
             setupSend.signature
@@ -8112,8 +7945,7 @@ export function useSmartAccountSidebarData(
           status: "executed",
           preparedSetup,
           nextPreparedSetup,
-          bootstrapSweep: confirmResponse.bootstrapSweep,
-          scheduledSweeps,
+          scheduledSweeps: completedAutodepositSetup ? [] : undefined,
         };
       } catch (err) {
         const error =
@@ -8269,31 +8101,9 @@ export function useSmartAccountSidebarData(
           connection,
           signature: closeSend.signature,
         });
-        let confirmResponse: EarnAutodepositCloseConfirmResponse;
-        try {
-          confirmResponse = await postConfirmedEarnAutodepositClose({
-            observabilityFlowId: request.observabilityFlowId,
-            preparedClose,
-            signature: closeSend.signature,
-            confirmedSlot,
-          });
-        } catch (error) {
-          return {
-            success: false,
-            signature: closeSend.signature,
-            confirmedSlot,
-            status: "confirmation_record_failed",
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to record confirmed Autodeposit close.",
-          };
-        }
-
         return {
           success: true,
           signature: closeSend.signature,
-          targetId: confirmResponse.target?.id,
           confirmedSlot,
           status: "executed",
         };
