@@ -414,8 +414,8 @@ export function buildEarnWithdrawalConfirmRequestBody({
   smartAccountAddress: string;
 }): EarnWithdrawalConfirmRequestBody {
   const source = preparedStep ?? preparedWithdraw;
-  const persistence = { ...source.persistence };
-  delete persistence.autodepositClose;
+  const { autodepositClose, ...persistence } = source.persistence;
+  void autodepositClose;
   const targetReserve =
     persistence.targetReserve ?? persistence.sourceTokenAccount;
   if (!targetReserve) {
