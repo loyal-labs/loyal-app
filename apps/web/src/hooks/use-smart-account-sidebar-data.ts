@@ -8076,7 +8076,9 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      const walletBridge = createWalletAdapterBridge(wallet);
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
       if (!walletBridge) {
         return {
           success: false,
