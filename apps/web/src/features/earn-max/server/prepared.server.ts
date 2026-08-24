@@ -78,7 +78,7 @@ function transferChecked(input: {
       { pubkey: input.source, isSigner: false, isWritable: true },
       { pubkey: input.mint, isSigner: false, isWritable: false },
       { pubkey: input.destination, isSigner: false, isWritable: true },
-      { pubkey: input.owner, isSigner: true, isWritable: false },
+      { pubkey: input.owner, isSigner: true, isWritable: true },
     ],
     data: Buffer.concat([Buffer.from([12]), amount, Buffer.from([6])]),
   });
