@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import {
   codecs,
   createLoyalSmartAccountsClient,
@@ -40,6 +40,7 @@ import { earnAutodepositConfigFromLoadedState } from "../src/lib/yield-optimizat
 
 type SetupStage =
   | "approve_token_delegate"
+  | "close_autodeposit"
   | "create_policy"
   | "create_recurring_delegation"
   | "initialize_subscription_authority";
@@ -65,8 +66,11 @@ type RecordedTransaction = {
 
 type Args = {
   authSecret?: string;
+  closeOutput?: string;
+  closeReady?: string;
   eventsUrl?: string;
   expectedReason?: string;
+  expectedUiState?: "created" | "deleted";
   output: string;
   pendingFloorReady?: string;
   postgresUrl?: string;
@@ -96,8 +100,14 @@ function parseArgs(argv: string[]): { command: string; args: Args } {
     command,
     args: {
       authSecret: values["auth-secret"],
+      closeOutput: values["close-output"],
+      closeReady: values["close-ready"],
       eventsUrl: values["events-url"],
       expectedReason: values["expected-reason"],
+      expectedUiState: values["expected-ui-state"] as
+        | "created"
+        | "deleted"
+        | undefined,
       output: values.output,
       pendingFloorReady: values["pending-floor-ready"],
       postgresUrl: values["postgres-url"],
@@ -236,6 +246,9 @@ async function createLocalSmartAccount(
 async function setup(args: Args) {
   if (!(args.rpcUrl && args.treasury)) {
     throw new Error("setup requires --rpc-url and --treasury.");
+  }
+  if (Boolean(args.closeReady) !== Boolean(args.closeOutput)) {
+    throw new Error("setup requires both --close-ready and --close-output.");
   }
   const connection = new Connection(args.rpcUrl, "confirmed");
   const { delegatedSigner, settingsPda, wallet } =
@@ -473,6 +486,73 @@ async function setup(args: Args) {
     output: `${args.output}.transactions.ndjson`,
     transactions,
   });
+  if (args.closeReady && args.closeOutput) {
+    let closeRequested = false;
+    for (let attempt = 0; attempt < 1200; attempt += 1) {
+      try {
+        await access(args.closeReady);
+        closeRequested = true;
+        break;
+      } catch {
+        await Bun.sleep(100);
+      }
+    }
+    if (!closeRequested) {
+      throw new Error("Local verifier did not request Autodeposit close.");
+    }
+    const preparedClose = await vaults.prepareEarnUsdcAutodepositClose({
+      cluster: LoyalCluster.MainnetBeta,
+      feePayer: wallet.publicKey,
+      policy: new PublicKey(completedState.policyAccount),
+      policySigner: delegatedSigner.publicKey,
+      recurringDelegation: new PublicKey(completedState.recurringDelegation),
+      settingsPda,
+      signer: wallet.publicKey,
+      walletAddress: wallet.publicKey,
+    });
+    const closeSignature = await vaults.sdk.send(preparedClose.prepared, {
+      confirm: true,
+      signers: [wallet],
+    });
+    await waitForFinalized(connection, closeSignature);
+    if (
+      await connection.getAccountInfo(
+        new PublicKey(completedState.recurringDelegation),
+        "finalized"
+      )
+    ) {
+      throw new Error(
+        "Autodeposit close left the recurring delegation on-chain."
+      );
+    }
+    if (
+      await connection.getAccountInfo(
+        new PublicKey(completedState.policyAccount),
+        "finalized"
+      )
+    ) {
+      throw new Error("Autodeposit close left the sweep policy on-chain.");
+    }
+    const closedTokenAccount = await getAccount(
+      connection,
+      new PublicKey(completedState.walletUsdcAta),
+      "finalized",
+      TOKEN_PROGRAM_ID
+    );
+    if (
+      closedTokenAccount.delegate !== null ||
+      closedTokenAccount.delegatedAmount !== BigInt(0)
+    ) {
+      throw new Error(
+        "Autodeposit close left the wallet token delegate active."
+      );
+    }
+    await writeChainTransactions({
+      connection,
+      output: args.closeOutput,
+      transactions: [{ signature: closeSignature, stage: "close_autodeposit" }],
+    });
+  }
 }
 
 function issueLocalToken(state: LocalState, authSecret: string): string {
@@ -498,12 +578,12 @@ function issueLocalToken(state: LocalState, authSecret: string): string {
 }
 
 async function listen(args: Args) {
+  const expectedUiState = args.expectedUiState ?? "created";
   if (
     !(
       args.authSecret &&
       args.eventsUrl &&
       args.expectedReason &&
-      args.pendingFloorReady &&
       args.postgresUrl &&
       args.state
     )
@@ -524,6 +604,11 @@ async function listen(args: Args) {
     "../src/lib/yield-optimization/earn-state-serializers.server"
   );
   const persistFloor = async () => {
+    if (!pendingFloorReady) {
+      throw new Error(
+        "created UI verification requires --pending-floor-ready."
+      );
+    }
     for (let attempt = 0; attempt < 600; attempt += 1) {
       try {
         await repository.updateAutodepositWalletBalanceFloor({
@@ -558,10 +643,13 @@ async function listen(args: Args) {
   const controller = new AbortController();
   let matched = false;
   let floorError: unknown;
-  const floorUpdate = persistFloor().catch((error) => {
-    floorError = error;
-    controller.abort();
-  });
+  const floorUpdate =
+    expectedUiState === "created"
+      ? persistFloor().catch((error) => {
+          floorError = error;
+          controller.abort();
+        })
+      : Promise.resolve();
   const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
     await consumeEarnRealtimeStream({
@@ -618,6 +706,32 @@ async function listen(args: Args) {
     vaultIndex: 1,
     walletAddress: state.walletAddress,
   });
+  const output = JSON.parse(await readFile(args.output, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  if (expectedUiState === "deleted") {
+    if (current) {
+      throw new Error("SSE refresh still loaded a deleted Autodeposit target.");
+    }
+    await writeFile(
+      args.output,
+      JSON.stringify(
+        {
+          ...output,
+          ui: {
+            isOn: false,
+            isPending: false,
+            keepAmount: null,
+            state: "deleted",
+          },
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
   if (!current) {
     throw new Error("SSE refresh did not load an Autodeposit target.");
   }
@@ -631,10 +745,6 @@ async function listen(args: Args) {
     throw new Error("SSE refresh did not load the active Autodeposit floor.");
   }
   const toggle = resolveEarnAutodepositTogglePresentation(config.state);
-  const output = JSON.parse(await readFile(args.output, "utf8")) as Record<
-    string,
-    unknown
-  >;
   await writeFile(
     args.output,
     JSON.stringify(
