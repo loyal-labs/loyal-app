@@ -8,7 +8,10 @@ import {
   smartAccounts,
 } from "@loyal-labs/loyal-smart-accounts";
 import { LoyalCluster } from "@loyal-labs/actions";
-import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
+import {
+  createSmartAccountVaultsClient,
+  sendPreparedWithWallet,
+} from "@loyal-labs/smart-account-vaults";
 import bs58 from "bs58";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
@@ -67,8 +70,7 @@ type RecordedTransaction = {
 
 async function verifyAcceptedButMissingSubmission(args: {
   connection: Connection;
-  prepared: Parameters<typeof sendEarnAutodepositSetupBatch>[0]["prepared"];
-  wallet: Keypair;
+  submit: () => Promise<unknown>;
 }): Promise<void> {
   const originalConfirmTransaction = args.connection.confirmTransaction;
   const originalSendRawTransaction = args.connection.sendRawTransaction;
@@ -101,37 +103,7 @@ async function verifyAcceptedButMissingSubmission(args: {
 
   let reportedMissingSubmission = false;
   try {
-    await sendEarnAutodepositSetupBatch({
-      connection: args.connection,
-      prepared: args.prepared,
-      wallet: {
-        publicKey: args.wallet.publicKey,
-        signAllTransactions: async <
-          T extends Transaction | VersionedTransaction
-        >(
-          unsignedTransactions: T[]
-        ) => {
-          for (const transaction of unsignedTransactions) {
-            if (transaction instanceof Transaction) {
-              transaction.partialSign(args.wallet);
-            } else {
-              transaction.sign([args.wallet]);
-            }
-          }
-          return unsignedTransactions;
-        },
-        signTransaction: async <T extends Transaction | VersionedTransaction>(
-          transaction: T
-        ) => {
-          if (transaction instanceof Transaction) {
-            transaction.partialSign(args.wallet);
-          } else {
-            transaction.sign([args.wallet]);
-          }
-          return transaction;
-        },
-      },
-    });
+    await args.submit();
   } catch (error) {
     reportedMissingSubmission =
       error instanceof Error &&
@@ -165,6 +137,34 @@ async function verifyAcceptedButMissingSubmission(args: {
       "Missing Autodeposit transaction did not surface an unresolved confirmation error."
     );
   }
+}
+
+function createLocalWalletBridge(wallet: Keypair) {
+  return {
+    publicKey: wallet.publicKey,
+    signAllTransactions: async <T extends Transaction | VersionedTransaction>(
+      unsignedTransactions: T[]
+    ) => {
+      for (const transaction of unsignedTransactions) {
+        if (transaction instanceof Transaction) {
+          transaction.partialSign(wallet);
+        } else {
+          transaction.sign([wallet]);
+        }
+      }
+      return unsignedTransactions;
+    },
+    signTransaction: async <T extends Transaction | VersionedTransaction>(
+      transaction: T
+    ) => {
+      if (transaction instanceof Transaction) {
+        transaction.partialSign(wallet);
+      } else {
+        transaction.sign([wallet]);
+      }
+      return transaction;
+    },
+  };
 }
 
 type Args = {
@@ -385,6 +385,7 @@ async function setup(args: Args) {
   );
 
   const transactions: RecordedTransaction[] = [];
+  const walletBridge = createLocalWalletBridge(wallet);
   const walletBalanceFloorRaw = BigInt(2_000_000);
   const nonce = BigInt(42);
   let policySeed: bigint | undefined;
@@ -428,8 +429,12 @@ async function setup(args: Args) {
     if (!missingSubmissionVerified) {
       await verifyAcceptedButMissingSubmission({
         connection,
-        prepared: stagesToSend.map((stage) => stage.prepared),
-        wallet,
+        submit: () =>
+          sendEarnAutodepositSetupBatch({
+            connection,
+            prepared: stagesToSend.map((stage) => stage.prepared),
+            wallet: walletBridge,
+          }),
       });
       missingSubmissionVerified = true;
     }
@@ -446,33 +451,7 @@ async function setup(args: Args) {
         });
       },
       prepared: stagesToSend.map((stage) => stage.prepared),
-      wallet: {
-        publicKey: wallet.publicKey,
-        signAllTransactions: async <
-          T extends Transaction | VersionedTransaction
-        >(
-          unsignedTransactions: T[]
-        ) => {
-          for (const transaction of unsignedTransactions) {
-            if (transaction instanceof Transaction) {
-              transaction.partialSign(wallet);
-            } else {
-              transaction.sign([wallet]);
-            }
-          }
-          return unsignedTransactions;
-        },
-        signTransaction: async <T extends Transaction | VersionedTransaction>(
-          transaction: T
-        ) => {
-          if (transaction instanceof Transaction) {
-            transaction.partialSign(wallet);
-          } else {
-            transaction.sign([wallet]);
-          }
-          return transaction;
-        },
-      },
+      wallet: walletBridge,
     });
 
     for (const stage of stagesToSend) {
@@ -622,9 +601,21 @@ async function setup(args: Args) {
       signer: wallet.publicKey,
       walletAddress: wallet.publicKey,
     });
-    const closeSignature = await vaults.sdk.send(preparedClose.prepared, {
+    await verifyAcceptedButMissingSubmission({
+      connection,
+      submit: () =>
+        sendPreparedWithWallet({
+          confirm: true,
+          connection,
+          prepared: preparedClose.prepared,
+          wallet: walletBridge,
+        }),
+    });
+    const closeSignature = await sendPreparedWithWallet({
       confirm: true,
-      signers: [wallet],
+      connection,
+      prepared: preparedClose.prepared,
+      wallet: walletBridge,
     });
     await waitForFinalized(connection, closeSignature);
     if (
