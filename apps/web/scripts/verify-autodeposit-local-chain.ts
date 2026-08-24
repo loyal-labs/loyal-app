@@ -287,16 +287,28 @@ async function setup(args: Args) {
       });
       transactions.push({ signature, stage: setupStage });
       if (setupStage !== "initialize_subscription_authority") {
-        policySeed = BigInt(stage.policy.seed ?? stage.persistence.policySeed);
+        const nextPolicySeed =
+          stage.policy.seed ?? stage.persistence.policySeed;
+        if (nextPolicySeed === null) {
+          throw new Error(`Autodeposit ${setupStage} omitted the policy seed.`);
+        }
+        policySeed = BigInt(nextPolicySeed);
       }
       if (
         setupStage === "create_recurring_delegation" ||
         setupStage === "approve_token_delegate"
       ) {
+        const { policyAccount, policySeed: persistedPolicySeed } =
+          stage.persistence;
+        if (policyAccount === null || persistedPolicySeed === null) {
+          throw new Error(
+            `Autodeposit ${setupStage} omitted persisted policy identity.`
+          );
+        }
         completedState = {
           delegatedSigner: delegatedSigner.publicKey.toBase58(),
-          policyAccount: stage.persistence.policyAccount,
-          policySeed: stage.persistence.policySeed,
+          policyAccount,
+          policySeed: persistedPolicySeed,
           recurringDelegation: stage.persistence.recurringDelegation,
           settingsPda: settingsPda.toBase58(),
           subscriptionAuthority: stage.persistence.subscriptionAuthority,
