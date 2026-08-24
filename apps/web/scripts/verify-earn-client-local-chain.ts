@@ -38,6 +38,7 @@ import {
   EARN_REALTIME_EVENT_TYPES,
   type EarnRealtimeInvalidation,
 } from "../src/features/earn-realtime/types";
+import { resolveRequiredClientEarnPolicy } from "../src/features/earn-policy/resolve-client-policy";
 
 const INITIAL_DEPOSIT_RAW = BigInt(4_000_000);
 const TOP_UP_RAW = BigInt(2_000_000);
@@ -77,6 +78,7 @@ type LocalState = {
   obligation: string;
   policyAccount: string;
   policySeed: string;
+  projectedPolicyRefreshCount: number;
   reserve: string;
   reserveLiquiditySupply: string;
   settingsPda: string;
@@ -381,6 +383,52 @@ function policy(state: LocalState) {
   };
 }
 
+async function projectedPolicy(state: LocalState, path: string) {
+  const projectedState = JSON.parse(await readFile(path, "utf8")) as {
+    policy: {
+      account: string;
+      seed: string;
+      setupPolicy: { account: string; seed: string } | null;
+    } | null;
+    settingsPda: string;
+  };
+  let committed = false;
+  const resolved = await resolveRequiredClientEarnPolicy({
+    currentState: { policy: null, settingsPda: state.settingsPda },
+    expectedSettingsPda: state.settingsPda,
+    onRefreshed: () => {
+      committed = true;
+    },
+    refreshState: async () => {
+      state.projectedPolicyRefreshCount += 1;
+      return projectedState;
+    },
+  });
+  if (!committed || state.projectedPolicyRefreshCount !== 1) {
+    throw new Error(
+      "Existing-position policy was not recovered by one refresh."
+    );
+  }
+  if (
+    resolved.account !== state.policyAccount ||
+    resolved.seed !== state.policySeed ||
+    resolved.setupPolicy?.account !== state.setupPolicyAccount ||
+    resolved.setupPolicy.seed !== state.setupPolicySeed
+  ) {
+    throw new Error(
+      "Refreshed client policy differs from LaserStream projection."
+    );
+  }
+  return {
+    account: new PublicKey(resolved.account),
+    seed: BigInt(resolved.seed),
+    setupPolicy: {
+      account: new PublicKey(resolved.setupPolicy.account),
+      seed: BigInt(resolved.setupPolicy.seed),
+    },
+  };
+}
+
 function assertNoApiConfirmation(state: LocalState): void {
   if (state.forbiddenApiRequests.length)
     throw new Error(
@@ -409,6 +457,7 @@ async function initial(args: Args): Promise<void> {
     obligation: manifest.addresses.obligation!,
     policyAccount: "",
     policySeed: "",
+    projectedPolicyRefreshCount: 0,
     reserve: manifest.addresses.reserve!,
     reserveLiquiditySupply: manifest.addresses.reserveLiquiditySupply!,
     settingsPda: settingsPda.toBase58(),
@@ -561,6 +610,10 @@ async function next(
       );
     } else {
       const partial = command === "partial";
+      const yieldRoutingPolicy =
+        partial && args["projected-state"]
+          ? await projectedPolicy(state, args["projected-state"])
+          : policy(state);
       const amountRaw = partial ? PARTIAL_WITHDRAW_RAW : FULL_WITHDRAW_RAW;
       const currentAmountRaw = partial ? BigInt(6_000_000) : BigInt(4_000_000);
       const base = {
@@ -579,7 +632,7 @@ async function next(
           market: new PublicKey(state.market),
           reserve: new PublicKey(state.reserve),
         },
-        yieldRoutingPolicy: policy(state),
+        yieldRoutingPolicy,
       };
       const prepared = await vaults.prepareEarnUsdcWithdraw(
         partial ? { ...base, mode: "partial" } : { ...base, mode: "full" }

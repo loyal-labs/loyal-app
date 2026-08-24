@@ -65,6 +65,7 @@ import {
   createBrowserLifecycleTracker,
 } from "@/features/observability/client";
 import type { BrowserErrorOperation } from "@/features/observability/error-contract";
+import { resolveRequiredClientEarnPolicy } from "@/features/earn-policy/resolve-client-policy";
 import {
   resolveSmartAccountMutationRefreshPlan,
   resolveSmartAccountRefreshError,
@@ -1693,6 +1694,7 @@ async function fetchEarnState(options?: {
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/earn-state",
     {
+      cache: "no-store",
       credentials: "include",
     }
   );
@@ -7016,10 +7018,19 @@ export function useSmartAccountSidebarData(
       request: EarnWithdrawClientPrepareRequest
     ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
       const context = getEarnAutodepositPrepareContext();
-      const policy = earnState?.policy;
-      if (!policy) {
-        throw new Error("Earn policy is unavailable. Refresh and retry.");
-      }
+      const policy = await resolveRequiredClientEarnPolicy({
+        currentState: earnState,
+        expectedSettingsPda: context.settingsPda.toBase58(),
+        onRefreshed: (nextEarnState) => {
+          setEarnState(nextEarnState);
+          setOverview((current) =>
+            current
+              ? mergeEarnVaultIntoOverview(current, nextEarnState)
+              : current
+          );
+        },
+        refreshState: () => fetchEarnState({ strict: true }),
+      });
       const base = {
         amountRaw: request.amountRaw,
         closePoliciesOnFullWithdrawal:
@@ -7053,7 +7064,7 @@ export function useSmartAccountSidebarData(
           : { ...base, mode: "partial" }
       );
     },
-    [earnState?.policy, getEarnAutodepositPrepareContext]
+    [earnState, getEarnAutodepositPrepareContext]
   );
 
   const prepareEarnCleanup = useCallback(
@@ -7061,10 +7072,19 @@ export function useSmartAccountSidebarData(
       request: { minContextSlot?: number } = {}
     ): Promise<PreparedEarnUsdcCleanup> => {
       const context = getEarnAutodepositPrepareContext();
-      const policy = earnState?.policy;
-      if (!policy) {
-        throw new Error("Earn policy is unavailable. Refresh and retry.");
-      }
+      const policy = await resolveRequiredClientEarnPolicy({
+        currentState: earnState,
+        expectedSettingsPda: context.settingsPda.toBase58(),
+        onRefreshed: (nextEarnState) => {
+          setEarnState(nextEarnState);
+          setOverview((current) =>
+            current
+              ? mergeEarnVaultIntoOverview(current, nextEarnState)
+              : current
+          );
+        },
+        refreshState: () => fetchEarnState({ strict: true }),
+      });
       const snapshot = await context.client.fetchEarnVaultRefundSnapshot({
         cluster: context.cluster,
         minContextSlot: request.minContextSlot,
@@ -7102,7 +7122,7 @@ export function useSmartAccountSidebarData(
         );
       return { ...preparedCleanup, estimatedRefundLamports };
     },
-    [earnState?.policy, getEarnAutodepositPrepareContext]
+    [earnState, getEarnAutodepositPrepareContext]
   );
 
   const prepareEarnAutodepositSetup = useCallback(
