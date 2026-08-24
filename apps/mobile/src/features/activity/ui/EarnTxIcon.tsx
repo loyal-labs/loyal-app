@@ -119,7 +119,7 @@ export function EarnTxCompoundIcon({
     destination?: EarnTransactionAccount;
   };
 }) {
-  if (item.kind === "autodeposit_action") {
+  if (item.kind === "autodeposit_action" || item.kind === "autoswap_action") {
     return (
       <View style={styles.singleClip}>
         <EarnYieldIcon size={48} />

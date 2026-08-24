@@ -11,6 +11,10 @@ export function getEarnTransactionRowLabel(
       return "Create allowance";
     case "autodeposit_closed":
       return "Remove allowance";
+    case "autoswap_created":
+      return "Enable Autoswap";
+    case "autoswap_closed":
+      return "Disable Autoswap";
     case "balance_sweep":
       return "Balance sweep";
     case "deposit_initialized":
@@ -34,6 +38,8 @@ export function getEarnTransactionRowLabel(
       return "Balance sweep";
     case "autodeposit_action":
       return "Allowance";
+    case "autoswap_action":
+      return "Autoswap";
     default:
       return "Transaction";
   }

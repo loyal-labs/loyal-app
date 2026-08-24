@@ -47,9 +47,7 @@ function RouteRow({
     <div className="flex h-[60px] w-full items-center rounded-2xl px-4">
       <div className="flex shrink-0 items-center py-2 pr-3">{icon}</div>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-2">
-        <p className="text-[13px] leading-4 text-muted-foreground">
-          {label}
-        </p>
+        <p className="text-[13px] leading-4 text-muted-foreground">{label}</p>
         <p className="truncate font-medium text-[16px] text-foreground leading-5">
           {value}
           {valueSuffix ? (
@@ -174,7 +172,8 @@ export function EarnTransactionDetailPane({
   const publicEnv = usePublicEnv();
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
-  const isAllowanceAction = item.kind === "autodeposit_action";
+  const isAllowanceAction =
+    item.kind === "autodeposit_action" || item.kind === "autoswap_action";
   const title = getEarnTransactionRowLabel(item);
   const confirmedAt = item.confirmedAt ?? item.sortTimestamp;
   const dateLabel =

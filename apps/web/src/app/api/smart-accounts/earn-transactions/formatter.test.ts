@@ -15,9 +15,53 @@ type AutodepositEvent = Extract<
   EarnTransactionEvent,
   { type: "autodeposit_action" }
 >;
-type YieldPositionEvent = Exclude<EarnTransactionEvent, AutodepositEvent>;
+type LifecycleEvent = Extract<
+  EarnTransactionEvent,
+  { type: "earn_lifecycle_action" }
+>;
+type YieldPositionEvent = Exclude<
+  EarnTransactionEvent,
+  AutodepositEvent | LifecycleEvent
+>;
 
 describe("earn transaction formatter", () => {
+  test("formats Autodeposit and Autoswap lifecycle rows from the activity ledger", () => {
+    const baseEvent = {
+      amountRaw: BigInt(0),
+      confirmedAt: new Date("2026-08-24T07:00:00.000Z"),
+      confirmedSlot: BigInt(900),
+      id: "earn-activity:1",
+      metadata: {},
+      signature: "lifecycle-signature",
+      type: "earn_lifecycle_action" as const,
+    };
+
+    const serialized = [
+      "autodeposit_created",
+      "autodeposit_closed",
+      "autoswap_created",
+      "autoswap_closed",
+    ].map((actionType) =>
+      serializeEarnTransactionEvent({
+        ...baseEvent,
+        actionType,
+      } as LifecycleEvent)
+    );
+
+    expect(serialized.map((event) => event.eventType)).toEqual([
+      "autodeposit_created",
+      "autodeposit_closed",
+      "autoswap_created",
+      "autoswap_closed",
+    ]);
+    expect(serialized.map((event) => event.kind)).toEqual([
+      "autodeposit_action",
+      "autodeposit_action",
+      "autoswap_action",
+      "autoswap_action",
+    ]);
+  });
+
   test("collapses duplicate rebalance rows from the same signature", () => {
     const usdcMint = STABLECOIN_MINTS.USDC.toBase58();
     const mainToOnre = serializeEarnTransactionEvent({

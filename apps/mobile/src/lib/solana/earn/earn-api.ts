@@ -932,6 +932,7 @@ export async function fetchEarnEarnings(
 
 export type EarnTransactionKind =
   | "autodeposit_action"
+  | "autoswap_action"
   | "balance_sweep"
   | "deposit"
   | "withdraw"
@@ -941,6 +942,8 @@ export type EarnTransactionKind =
 export type EarnTransactionEventType =
   | "autodeposit_closed"
   | "autodeposit_created"
+  | "autoswap_closed"
+  | "autoswap_created"
   | "balance_sweep"
   | "deposit_initialized"
   | "deposit_top_up"

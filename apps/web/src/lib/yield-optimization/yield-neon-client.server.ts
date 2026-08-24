@@ -410,6 +410,49 @@ export const earnEarningsSnapshots = loyalYieldSchema.table(
   ]
 );
 
+export type EarnActivityEventType =
+  | "autodeposit_created"
+  | "autodeposit_closed"
+  | "autoswap_created"
+  | "autoswap_closed";
+
+// earnActivityEvents maps loyal_yield.earn_activity_events.
+export const earnActivityEvents = loyalYieldSchema.table(
+  "earn_activity_events",
+  {
+    id: bigserial("id", { mode: "bigint" }).primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    cluster: text("cluster").notNull(),
+    settings: text("settings").notNull(),
+    authority: text("authority").notNull(),
+    walletAddress: text("wallet").notNull(),
+    vaultIndex: smallint("vault_index").notNull(),
+    vaultPubkey: text("vault_pubkey").notNull(),
+    eventType: text("event_type").$type<EarnActivityEventType>().notNull(),
+    signature: text("signature").notNull(),
+    instructionIndex: integer("instruction_index").notNull(),
+    eventSlot: bigint("event_slot", { mode: "bigint" }).notNull(),
+    eventAt: timestamp("event_at", { withTimezone: true }).notNull(),
+    entityKind: text("entity_kind").notNull(),
+    entityKey: text("entity_key").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("earn_activity_events_idempotency_key_key").on(
+      table.idempotencyKey
+    ),
+    index("earn_activity_events_history_idx").on(
+      table.cluster,
+      table.settings,
+      table.walletAddress,
+      table.vaultIndex,
+      table.eventAt,
+      table.id
+    ),
+  ]
+);
+
 export const userYieldPositionHoldingEvents = loyalYieldSchema.table(
   "user_yield_position_holding_events",
   {
@@ -1258,6 +1301,7 @@ export const yieldOptimizationSchema = {
   balanceSweepWalletBalancesCurrent,
   crossMintSwapPolicies,
   crossMintVaultOptIns,
+  earnActivityEvents,
   earnDepositOnboardingAttempts,
   earnEarningsSnapshots,
   earnApyHourlySnapshots,
@@ -1299,6 +1343,7 @@ export type YieldOptimizationClientTables = {
   balanceSweepWalletBalancesCurrent: typeof balanceSweepWalletBalancesCurrent;
   crossMintSwapPolicies: typeof crossMintSwapPolicies;
   crossMintVaultOptIns: typeof crossMintVaultOptIns;
+  earnActivityEvents: typeof earnActivityEvents;
   earnDepositOnboardingAttempts: typeof earnDepositOnboardingAttempts;
   earnEarningsSnapshots: typeof earnEarningsSnapshots;
   earnApyHourlySnapshots: typeof earnApyHourlySnapshots;
@@ -1333,6 +1378,7 @@ export class YieldOptimizationClient {
     balanceSweepWalletBalancesCurrent,
     crossMintSwapPolicies,
     crossMintVaultOptIns,
+    earnActivityEvents,
     earnDepositOnboardingAttempts,
     earnEarningsSnapshots,
     earnApyHourlySnapshots,

@@ -136,6 +136,10 @@ export function getEarnTransactionRowLabel(
       return "Create allowance";
     case "autodeposit_closed":
       return "Remove allowance";
+    case "autoswap_created":
+      return "Enable Autoswap";
+    case "autoswap_closed":
+      return "Disable Autoswap";
     case "balance_sweep":
       return "Balance sweep";
     case "deposit_initialized":
@@ -157,6 +161,8 @@ export function getEarnTransactionRowLabel(
       return "Balance sweep";
     case "autodeposit_action":
       return "Allowance";
+    case "autoswap_action":
+      return "Autoswap";
   }
 }
 
@@ -167,7 +173,8 @@ export function buildEarnTransactionDetail(
   const isDeposit = item.kind === "deposit" || item.kind === "balance_sweep";
   const isMovement =
     item.kind === "rebalance" || item.kind === "reconciliation";
-  const isAutodepositAction = item.kind === "autodeposit_action";
+  const isAutodepositAction =
+    item.kind === "autodeposit_action" || item.kind === "autoswap_action";
   const confirmedAt = getEarnTransactionConfirmedAt(item);
   const timestamp =
     formatEarnTransactionTimestamp(confirmedAt, timeZone) ?? item.timestamp;
@@ -532,7 +539,8 @@ function EarnTransactionRow({
       type="button"
     >
       <span style={{ display: "flex", padding: "6px 12px 6px 0" }}>
-        {item.kind === "autodeposit_action" ? (
+        {item.kind === "autodeposit_action" ||
+        item.kind === "autoswap_action" ? (
           // Allowance create/remove moves no funds, so a single Earn coin
           // reads better than the USDC <-> Kamino flow pair. Clipped round
           // to match the other transaction icons.

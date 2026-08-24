@@ -6,7 +6,8 @@ import { WalletAuthError } from "@/features/identity/server/wallet-auth-errors";
 import { decodeWalletAddress } from "@/features/identity/server/wallet-auth-signature";
 import { findReadyCurrentUserSmartAccount } from "@/features/smart-accounts/server/service";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { findEarnActivityEventsForVault } from "@/lib/yield-optimization/earn-activity-repository.server";
+import { findEarnAutodepositSweepHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   findYieldPositionHistoryEventsForVault,
   syncConfirmedRebalanceHoldingEventsForVault,
@@ -25,7 +26,11 @@ import {
 // optimizer decisions into history rows; it never provisions a smart account.
 const EARN_VAULT_INDEX = 1;
 
-function jsonError(status: number, code: string, message: string): NextResponse {
+function jsonError(
+  status: number,
+  code: string,
+  message: string
+): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
@@ -103,14 +108,20 @@ export async function GET(request: Request) {
       walletAddress,
     });
 
-    const [positionEvents, autodepositEvents] = await Promise.all([
+    const [positionEvents, lifecycleEvents, sweepEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({
         cluster,
         settings: account.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress,
       }),
-      findEarnAutodepositHistoryEvents({
+      findEarnActivityEventsForVault({
+        cluster,
+        settings: account.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress,
+      }),
+      findEarnAutodepositSweepHistoryEvents({
         settings: account.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress,
@@ -118,7 +129,7 @@ export async function GET(request: Request) {
     ]);
 
     const autodepositDepositSignatures = new Set(
-      autodepositEvents
+      sweepEvents
         .map((event) => event.depositSignature)
         .filter((signature): signature is string => Boolean(signature))
     );
@@ -131,7 +142,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       transactions: sortEarnTransactions(
         collapseDuplicateEarnRebalanceTransactions(
-          [...visiblePositionEvents, ...autodepositEvents].map(
+          [...visiblePositionEvents, ...lifecycleEvents, ...sweepEvents].map(
             serializeEarnTransactionEvent
           )
         )
