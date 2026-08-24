@@ -176,6 +176,10 @@ export async function readEarnMaxSummary(
     policyStatus:
       typeof row.policy_status === "string" ? row.policy_status : null,
     realizedApyBps: nullableNumber(row.realized_apy_bps),
+    strategyKey:
+      typeof record(route?.position)?.strategyKey === "string"
+        ? String(record(route?.position)?.strategyKey)
+        : null,
     withdrawal: withdrawalView(route),
   };
 }

@@ -62,6 +62,15 @@ function viewModel(input: {
   summary: EarnMaxSummaryResponse | null;
 }): EarnMaxViewModel {
   const summary = input.summary?.summary;
+  const strategyLabels: Record<string, string> = {
+    onyc_usdc: "ONyc / USDC",
+    onyc_usds: "ONyc / USDS",
+    prime_usdc: "PRIME / USDC",
+    prime_pyusd: "PRIME / PYUSD",
+    prime_usds: "PRIME / USDS",
+    syrup_usdc_usdc: "syrupUSDC / USDC",
+    syrup_usdc_pyusd: "syrupUSDC / PYUSD",
+  };
   return {
     activity: input.activity?.operations ?? [],
     balanceUsd: summary?.balanceUsd ?? 0,
@@ -75,7 +84,9 @@ function viewModel(input: {
     policyStatus: summary?.policyStatus ?? null,
     realizedApyBps: summary?.realizedApyBps ?? null,
     status: summary?.goal ?? "not_installed",
-    strategyLabel: "syrupUSDC / USDC",
+    strategyLabel:
+      (summary?.strategyKey && strategyLabels[summary.strategyKey]) ??
+      "Earn MAX",
     withdrawal: summary?.withdrawal ?? null,
   };
 }

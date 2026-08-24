@@ -31,32 +31,15 @@ const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 const ASSOCIATED_TOKEN = new PublicKey(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
-const MARKET_AUTHORITY = new PublicKey(
-  "6QbtpY2jDNcncRFmVf343NThnCdaY8gCAsYATPnYQR9g"
-);
 const MEMO = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
-const MARKET = new PublicKey("6WEGfej9B9wjxRs6t4BYpb9iCXd8CpTpJ8fVSNzHCC5y");
-const COLLATERAL_RESERVE = new PublicKey(
-  "AwCyCPZYJSZ93xcVKNK7jR8e1BHzJXq1D4bReNuh9woY"
-);
-const DEBT_RESERVE = new PublicKey(
-  "Atj6UREVWa7WxbF2EMKNyfmYUY1U1txughe2gjhcPDCo"
-);
-const PYUSD_DEBT_RESERVE = new PublicKey(
-  "92qeAka3ZzCGPfJriDXrE7tiNqfATVCAM6ZjjctR3TrS"
-);
-const COLLATERAL_MINT = new PublicKey(
-  "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj"
-);
-const CLAIM_MINT = new PublicKey(
+export const USDC_MINT = new PublicKey(
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
 export const PYUSD_MINT = new PublicKey(
   "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
 );
-const DEBT_FARM = new PublicKey("87gUNr8LwYJCT25HjPEHnrfBBjwEMAjfqCfnKcJNqy9Y");
-const PYUSD_DEBT_FARM = new PublicKey(
-  "9AUA7XZ1rynUsZcmVCgj8UFdQuDozFSMpaNGBZAtiPWj"
+export const USDS_MINT = new PublicKey(
+  "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"
 );
 const USER_METADATA_SEED = new TextEncoder().encode("user_meta");
 const INIT_USER_METADATA = [117, 169, 176, 69, 197, 23, 15, 162] as const;
@@ -69,6 +52,114 @@ const BORROW = [161, 128, 143, 245, 171, 199, 194, 6] as const;
 const REPAY = [116, 174, 213, 76, 180, 53, 210, 144] as const;
 const WITHDRAW = [235, 52, 119, 152, 149, 197, 20, 7] as const;
 const SHARED_ACCOUNTS_ROUTE = [193, 32, 155, 51, 65, 214, 156, 129] as const;
+
+export type EarnMaxStrategyKey =
+  | "onyc_usdc"
+  | "onyc_usds"
+  | "prime_usdc"
+  | "prime_pyusd"
+  | "prime_usds"
+  | "syrup_usdc_usdc"
+  | "syrup_usdc_pyusd";
+
+type EarnMaxStrategyTemplate = {
+  key: EarnMaxStrategyKey;
+  label: string;
+  market: string;
+  marketAuthority: string;
+  collateralReserve: string;
+  collateralMint: string;
+  collateralLiquiditySupply: string;
+  collateralReceiptSupply: string;
+  debtReserve: string;
+  debtMint: string;
+  debtTokenProgram: "token" | "token2022";
+  debtLiquiditySupply: string;
+  debtFeeVault: string;
+  debtFarm?: string;
+  targetLtvBps: number;
+};
+
+const STRATEGY_TEMPLATES: readonly EarnMaxStrategyTemplate[] = [
+  {
+    key: "onyc_usdc", label: "ONyc / USDC",
+    market: "47tfyEG9SsdEnUm9cw5kY9BXngQGqu3LBoop9j5uTAv8", marketAuthority: "FsvTiXTUFDc4aLbrov4PrvDTjXCWCniL1dxTUkZ1T2ss",
+    collateralReserve: "6ZxkBSJEqsXA3Kdm2PDAzHLUdPTPUK93Lf4bAezec1UQ", collateralMint: "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
+    collateralLiquiditySupply: "9YuHgsPVGgWrkpsaRZmeZCV2uXweMEn6TEAcusQKRjgG", collateralReceiptSupply: "2c42iUaea3QVLvSPQHUBZBwqdvpiQo5vmePq9qx8eo",
+    debtReserve: "AYL4LMc4ZCVyq3Z7XPJGWDM4H9PiWjqXAAuuHBEGVR2Z", debtMint: USDC_MINT.toBase58(), debtTokenProgram: "token",
+    debtLiquiditySupply: "8BkQTZsT8ssKMU643De4iiV5Wf3pENdUFTsdtHPueKjB", debtFeeVault: "5iLRav31Y7DJwM6bZ7s92jqvV3zd1wZMcp4mYeKXh8cj",
+    debtFarm: "7vNfe1qX8iDxP5p3A4fosrjLqdn1YjmmGcZZkG2b4APF", targetLtvBps: 5_000,
+  },
+  {
+    key: "onyc_usds", label: "ONyc / USDS",
+    market: "47tfyEG9SsdEnUm9cw5kY9BXngQGqu3LBoop9j5uTAv8", marketAuthority: "FsvTiXTUFDc4aLbrov4PrvDTjXCWCniL1dxTUkZ1T2ss",
+    collateralReserve: "6ZxkBSJEqsXA3Kdm2PDAzHLUdPTPUK93Lf4bAezec1UQ", collateralMint: "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
+    collateralLiquiditySupply: "9YuHgsPVGgWrkpsaRZmeZCV2uXweMEn6TEAcusQKRjgG", collateralReceiptSupply: "2c42iUaea3QVLvSPQHUBZBwqdvpiQo5vmePq9qx8eo",
+    debtReserve: "3yDc9ARvtPLhYxZLgucZGuBtZ9bHshBvXTwHxGe3nhmC", debtMint: USDS_MINT.toBase58(), debtTokenProgram: "token",
+    debtLiquiditySupply: "21Skwocv5cJoftyejSTtXVaHJWTg88xcWGQtnRvUyKLx", debtFeeVault: "CmMAn2UtLWHsQhwv31Trz4BZwVravs2jgxZYK2daTHaK",
+    debtFarm: "5piFMvvPonJM8zJbCGoPD2jZt59hNURDLDTpXQzgbydc", targetLtvBps: 5_000,
+  },
+  {
+    key: "prime_usdc", label: "PRIME / USDC",
+    market: "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA", marketAuthority: "9SLBVnPz8dRGvafST6zNBZYSSt3HtdU68XQLGR13t3uM",
+    collateralReserve: "BUTND9T7Ux4KR8RAEgd4WoZwnP7xA279oA1y3iPVcvSh", collateralMint: "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
+    collateralLiquiditySupply: "FkSkbRU5A6JXRXo5uaFwCS7jQ6jHYa1DxFtfpXfTz352", collateralReceiptSupply: "Eg4wKFWc8aGfAqrcmYu3paz2afY5VqJMo17K95Y4VqFN",
+    debtReserve: "9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu", debtMint: USDC_MINT.toBase58(), debtTokenProgram: "token",
+    debtLiquiditySupply: "H6JUwz8c61eQnYUx8avGXydKztKPyGvgWAUjmZUPS3BC", debtFeeVault: "BzSw9sWTxUumr2wHhDiezkaLy3QZQS1KT4a9Fz8GvAQ6", targetLtvBps: 6_500,
+  },
+  {
+    key: "prime_pyusd", label: "PRIME / PYUSD",
+    market: "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA", marketAuthority: "9SLBVnPz8dRGvafST6zNBZYSSt3HtdU68XQLGR13t3uM",
+    collateralReserve: "BUTND9T7Ux4KR8RAEgd4WoZwnP7xA279oA1y3iPVcvSh", collateralMint: "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
+    collateralLiquiditySupply: "FkSkbRU5A6JXRXo5uaFwCS7jQ6jHYa1DxFtfpXfTz352", collateralReceiptSupply: "Eg4wKFWc8aGfAqrcmYu3paz2afY5VqJMo17K95Y4VqFN",
+    debtReserve: "3ZUAwhEtK8XWfK4fy98z4yoptm4GeyeAu21L11HPXaZ5", debtMint: PYUSD_MINT.toBase58(), debtTokenProgram: "token2022",
+    debtLiquiditySupply: "4LF3i8grZPRbk8d6gXvzRux4rYjGd5AmqrpLLYFpPKKt", debtFeeVault: "4b9U55muKtwx9RimJSuztvyZaKWkmaoferVexgvxrYJr", targetLtvBps: 6_500,
+  },
+  {
+    key: "prime_usds", label: "PRIME / USDS",
+    market: "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA", marketAuthority: "9SLBVnPz8dRGvafST6zNBZYSSt3HtdU68XQLGR13t3uM",
+    collateralReserve: "BUTND9T7Ux4KR8RAEgd4WoZwnP7xA279oA1y3iPVcvSh", collateralMint: "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
+    collateralLiquiditySupply: "FkSkbRU5A6JXRXo5uaFwCS7jQ6jHYa1DxFtfpXfTz352", collateralReceiptSupply: "Eg4wKFWc8aGfAqrcmYu3paz2afY5VqJMo17K95Y4VqFN",
+    debtReserve: "7SzMWArC8WAenndXFmRyfvcvrNPodqUFkmPrmmoRZvn4", debtMint: USDS_MINT.toBase58(), debtTokenProgram: "token",
+    debtLiquiditySupply: "5tP1kDJBYnjtrpUaRQhsrU1Y28ahiJVjz8p9mbqJFpz5", debtFeeVault: "DjmdtvsvctUXCZ32y6UGdCEvXPTds6Ci7LFnVhw5HaQY", targetLtvBps: 6_500,
+  },
+  {
+    key: "syrup_usdc_usdc", label: "syrupUSDC / USDC",
+    market: "6WEGfej9B9wjxRs6t4BYpb9iCXd8CpTpJ8fVSNzHCC5y", marketAuthority: "6QbtpY2jDNcncRFmVf343NThnCdaY8gCAsYATPnYQR9g",
+    collateralReserve: "AwCyCPZYJSZ93xcVKNK7jR8e1BHzJXq1D4bReNuh9woY", collateralMint: "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
+    collateralLiquiditySupply: "8Se5SK1Tty2bH4EQVrKW8hwr9Lc9E2cEbkaN59DpcB6i", collateralReceiptSupply: "21GK6yHS3MKhTnF5pN5FuSmnpLiyPXTDrpxxbqMEoX58",
+    debtReserve: "Atj6UREVWa7WxbF2EMKNyfmYUY1U1txughe2gjhcPDCo", debtMint: USDC_MINT.toBase58(), debtTokenProgram: "token",
+    debtLiquiditySupply: "BBcwMNSMyhhBnYE9pevEvkxKHGzTafMP9v3j7Kk7nAWM", debtFeeVault: "HH7GLnRcGHJrdkEueVVj7mccNUjnSeWobDmtu9cHLkJV",
+    debtFarm: "87gUNr8LwYJCT25HjPEHnrfBBjwEMAjfqCfnKcJNqy9Y", targetLtvBps: 6_500,
+  },
+  {
+    key: "syrup_usdc_pyusd", label: "syrupUSDC / PYUSD",
+    market: "6WEGfej9B9wjxRs6t4BYpb9iCXd8CpTpJ8fVSNzHCC5y", marketAuthority: "6QbtpY2jDNcncRFmVf343NThnCdaY8gCAsYATPnYQR9g",
+    collateralReserve: "AwCyCPZYJSZ93xcVKNK7jR8e1BHzJXq1D4bReNuh9woY", collateralMint: "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
+    collateralLiquiditySupply: "8Se5SK1Tty2bH4EQVrKW8hwr9Lc9E2cEbkaN59DpcB6i", collateralReceiptSupply: "21GK6yHS3MKhTnF5pN5FuSmnpLiyPXTDrpxxbqMEoX58",
+    debtReserve: "92qeAka3ZzCGPfJriDXrE7tiNqfATVCAM6ZjjctR3TrS", debtMint: PYUSD_MINT.toBase58(), debtTokenProgram: "token2022",
+    debtLiquiditySupply: "GUENeLN1ufX4K5622DbyYoQFhaWxMKoCFycvLSEYsykN", debtFeeVault: "AwnzukUiajn7b3T9hXcwy19RLPZcHmLANUeqZnzXT6dU",
+    debtFarm: "9AUA7XZ1rynUsZcmVCgj8UFdQuDozFSMpaNGBZAtiPWj", targetLtvBps: 6_500,
+  },
+] as const;
+
+export type EarnMaxStrategyTopology = {
+  key: EarnMaxStrategyKey;
+  label: string;
+  market: PublicKey;
+  marketAuthority: PublicKey;
+  collateralReserve: PublicKey;
+  collateralMint: PublicKey;
+  collateralCustody: PublicKey;
+  debtReserve: PublicKey;
+  debtMint: PublicKey;
+  debtTokenProgram: PublicKey;
+  debtCustody: PublicKey;
+  debtFarm?: PublicKey;
+  debtFarmUser?: PublicKey;
+  obligation: PublicKey;
+  targetLtvBps: number;
+};
 
 export type EarnMaxTopology = {
   vault: PublicKey;
@@ -86,6 +177,7 @@ export type EarnMaxTopology = {
   claimMint: PublicKey;
   debtFarm: PublicKey;
   pyusdDebtFarm: PublicKey;
+  strategies: readonly EarnMaxStrategyTopology[];
 };
 
 export type EarnMaxPolicyPreparation = {
@@ -119,52 +211,45 @@ export function deriveEarnMaxTopology(settings: PublicKey): EarnMaxTopology {
     ],
     config.squadsSmartAccountProgramId
   )[0];
-  const obligation = PublicKey.findProgramAddressSync(
-    [
-      Uint8Array.of(1),
-      Uint8Array.of(0),
-      vault.toBytes(),
-      MARKET.toBytes(),
-      COLLATERAL_MINT.toBytes(),
-      CLAIM_MINT.toBytes(),
-    ],
-    KLEND
-  )[0];
-  const debtFarmUser = PublicKey.findProgramAddressSync(
-    [FARM_USER_SEED, DEBT_FARM.toBytes(), obligation.toBytes()],
-    FARMS
-  )[0];
-  const pyusdObligation = PublicKey.findProgramAddressSync(
-    [
-      Uint8Array.of(1),
-      Uint8Array.of(0),
-      vault.toBytes(),
-      MARKET.toBytes(),
-      COLLATERAL_MINT.toBytes(),
-      PYUSD_MINT.toBytes(),
-    ],
-    KLEND
-  )[0];
-  const pyusdDebtFarmUser = PublicKey.findProgramAddressSync(
-    [FARM_USER_SEED, PYUSD_DEBT_FARM.toBytes(), pyusdObligation.toBytes()],
-    FARMS
-  )[0];
+  const strategies = STRATEGY_TEMPLATES.map((template): EarnMaxStrategyTopology => {
+    const market = new PublicKey(template.market);
+    const collateralMint = new PublicKey(template.collateralMint);
+    const debtMint = new PublicKey(template.debtMint);
+    const debtTokenProgram = template.debtTokenProgram === "token" ? TOKEN : TOKEN_2022;
+    const obligation = PublicKey.findProgramAddressSync([
+      Uint8Array.of(1), Uint8Array.of(0), vault.toBytes(), market.toBytes(), collateralMint.toBytes(), debtMint.toBytes(),
+    ], KLEND)[0];
+    const debtFarm = template.debtFarm ? new PublicKey(template.debtFarm) : undefined;
+    return {
+      key: template.key, label: template.label, market,
+      marketAuthority: new PublicKey(template.marketAuthority),
+      collateralReserve: new PublicKey(template.collateralReserve), collateralMint,
+      collateralCustody: associatedToken(vault, collateralMint),
+      debtReserve: new PublicKey(template.debtReserve), debtMint, debtTokenProgram,
+      debtCustody: associatedToken(vault, debtMint, debtTokenProgram), debtFarm,
+      debtFarmUser: debtFarm ? PublicKey.findProgramAddressSync([FARM_USER_SEED, debtFarm.toBytes(), obligation.toBytes()], FARMS)[0] : undefined,
+      obligation, targetLtvBps: template.targetLtvBps,
+    };
+  });
+  const syrupUsdc = strategies.find(({ key }) => key === "syrup_usdc_usdc")!;
+  const syrupPyusd = strategies.find(({ key }) => key === "syrup_usdc_pyusd")!;
   return {
     vault,
-    claimCustody: associatedToken(vault, CLAIM_MINT),
-    collateralCustody: associatedToken(vault, COLLATERAL_MINT),
-    obligation,
-    debtFarmUser,
-    pyusdCustody: associatedToken(vault, PYUSD_MINT, TOKEN_2022),
-    pyusdObligation,
-    pyusdDebtFarmUser,
-    market: MARKET,
-    collateralReserve: COLLATERAL_RESERVE,
-    debtReserve: DEBT_RESERVE,
-    collateralMint: COLLATERAL_MINT,
-    claimMint: CLAIM_MINT,
-    debtFarm: DEBT_FARM,
-    pyusdDebtFarm: PYUSD_DEBT_FARM,
+    claimCustody: associatedToken(vault, USDC_MINT),
+    collateralCustody: syrupUsdc.collateralCustody,
+    obligation: syrupUsdc.obligation,
+    debtFarmUser: syrupUsdc.debtFarmUser!,
+    pyusdCustody: syrupPyusd.debtCustody,
+    pyusdObligation: syrupPyusd.obligation,
+    pyusdDebtFarmUser: syrupPyusd.debtFarmUser!,
+    market: syrupUsdc.market,
+    collateralReserve: syrupUsdc.collateralReserve,
+    debtReserve: syrupUsdc.debtReserve,
+    collateralMint: syrupUsdc.collateralMint,
+    claimMint: USDC_MINT,
+    debtFarm: syrupUsdc.debtFarm!,
+    pyusdDebtFarm: syrupPyusd.debtFarm!,
+    strategies,
   };
 }
 
@@ -178,6 +263,10 @@ function sliceEquals(value: readonly number[]) {
 
 function pubkey(accountIndex: number, ...pubkeys: PublicKey[]) {
   return { accountIndex, kind: { type: "pubkey" as const, pubkeys } };
+}
+
+function uniquePubkeys(pubkeys: readonly PublicKey[]): PublicKey[] {
+  return [...new Map(pubkeys.map((value) => [value.toBase58(), value])).values()];
 }
 
 export function createEarnMaxPolicyManifest(input: {
@@ -233,82 +322,36 @@ export function createEarnMaxPolicyManifest(input: {
     };
   };
 
-  const swapLane = (
-    source: PublicKey,
-    destination: PublicKey,
-    sourceMint: PublicKey,
-    destinationMint: PublicKey,
-    optionalTokenProgram: PublicKey
-  ) => ({
+  const swapLane = (source: PublicKey, destination: PublicKey) => ({
     programId: config.jupiterV6ProgramId,
     accountConstraints: [
-      pubkey(0, TOKEN),
       pubkey(2, topology.vault),
       pubkey(3, source),
       pubkey(6, destination),
-      pubkey(7, sourceMint),
-      pubkey(8, destinationMint),
-      pubkey(9, config.jupiterV6ProgramId),
-      pubkey(10, optionalTokenProgram),
     ],
     dataConstraints: [sliceEquals(SHARED_ACCOUNTS_ROUTE)],
   });
 
-  const USDC_TO_SYRUP = swapLane(
-    topology.claimCustody,
-    topology.collateralCustody,
-    CLAIM_MINT,
-    COLLATERAL_MINT,
-    config.jupiterV6ProgramId
-  );
-  const SYRUP_TO_USDC = swapLane(
-    topology.collateralCustody,
-    topology.claimCustody,
-    COLLATERAL_MINT,
-    CLAIM_MINT,
-    config.jupiterV6ProgramId
-  );
-  const PYUSD_TO_SYRUP = swapLane(
-    topology.pyusdCustody,
-    topology.collateralCustody,
-    PYUSD_MINT,
-    COLLATERAL_MINT,
-    TOKEN_2022
-  );
-  const SYRUP_TO_PYUSD = swapLane(
-    topology.collateralCustody,
-    topology.pyusdCustody,
-    COLLATERAL_MINT,
-    PYUSD_MINT,
-    TOKEN_2022
-  );
-  const USDC_TO_PYUSD = swapLane(
-    topology.claimCustody,
-    topology.pyusdCustody,
-    CLAIM_MINT,
-    PYUSD_MINT,
-    TOKEN_2022
-  );
-  const PYUSD_TO_USDC = swapLane(
-    topology.pyusdCustody,
-    topology.claimCustody,
-    PYUSD_MINT,
-    CLAIM_MINT,
-    TOKEN_2022
-  );
+  const obligations = topology.strategies.map(({ obligation }) => obligation);
+  const collateralReserves = uniquePubkeys(topology.strategies.map(({ collateralReserve }) => collateralReserve));
+  const collateralCustodies = uniquePubkeys(topology.strategies.map(({ collateralCustody }) => collateralCustody));
+  const debtReserves = topology.strategies.map(({ debtReserve }) => debtReserve);
+  const debtCustodies = uniquePubkeys(topology.strategies.map(({ debtCustody }) => debtCustody));
+  const debtTokenPrograms = uniquePubkeys(topology.strategies.map(({ debtTokenProgram }) => debtTokenProgram));
 
   const collateralConstraints = [
     {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, topology.obligation, topology.pyusdObligation),
-        pubkey(4, COLLATERAL_RESERVE),
-        pubkey(9, topology.collateralCustody),
+        pubkey(1, ...obligations),
+        pubkey(4, ...collateralReserves),
+        pubkey(9, ...collateralCustodies),
         pubkey(11, TOKEN),
         pubkey(12, TOKEN),
         pubkey(14, KLEND),
         pubkey(15, KLEND),
+        pubkey(16, FARMS),
       ],
       dataConstraints: [sliceEquals(DEPOSIT)],
     },
@@ -316,13 +359,14 @@ export function createEarnMaxPolicyManifest(input: {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, topology.obligation, topology.pyusdObligation),
-        pubkey(4, COLLATERAL_RESERVE),
-        pubkey(9, topology.collateralCustody),
+        pubkey(1, ...obligations),
+        pubkey(4, ...collateralReserves),
+        pubkey(9, ...collateralCustodies),
         pubkey(11, TOKEN),
         pubkey(12, TOKEN),
         pubkey(14, KLEND),
         pubkey(15, KLEND),
+        pubkey(16, FARMS),
       ],
       dataConstraints: [sliceEquals(WITHDRAW)],
     },
@@ -332,12 +376,10 @@ export function createEarnMaxPolicyManifest(input: {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, topology.obligation),
-        pubkey(4, DEBT_RESERVE),
-        pubkey(8, topology.claimCustody),
-        pubkey(10, TOKEN),
-        pubkey(12, topology.debtFarmUser),
-        pubkey(13, DEBT_FARM),
+        pubkey(1, ...obligations),
+        pubkey(4, ...debtReserves),
+        pubkey(8, ...debtCustodies),
+        pubkey(10, ...debtTokenPrograms),
         pubkey(14, FARMS),
       ],
       dataConstraints: [sliceEquals(BORROW)],
@@ -346,53 +388,19 @@ export function createEarnMaxPolicyManifest(input: {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, topology.obligation),
-        pubkey(3, DEBT_RESERVE),
-        pubkey(6, topology.claimCustody),
-        pubkey(7, TOKEN),
-        pubkey(9, topology.debtFarmUser),
-        pubkey(10, DEBT_FARM),
-        pubkey(12, FARMS),
-      ],
-      dataConstraints: [sliceEquals(REPAY)],
-    },
-    {
-      programId: KLEND,
-      accountConstraints: [
-        pubkey(0, topology.vault),
-        pubkey(1, topology.pyusdObligation),
-        pubkey(4, PYUSD_DEBT_RESERVE),
-        pubkey(8, topology.pyusdCustody),
-        pubkey(10, TOKEN_2022),
-        pubkey(12, topology.pyusdDebtFarmUser),
-        pubkey(13, PYUSD_DEBT_FARM),
-        pubkey(14, FARMS),
-      ],
-      dataConstraints: [sliceEquals(BORROW)],
-    },
-    {
-      programId: KLEND,
-      accountConstraints: [
-        pubkey(0, topology.vault),
-        pubkey(1, topology.pyusdObligation),
-        pubkey(3, PYUSD_DEBT_RESERVE),
-        pubkey(6, topology.pyusdCustody),
-        pubkey(7, TOKEN_2022),
-        pubkey(9, topology.pyusdDebtFarmUser),
-        pubkey(10, PYUSD_DEBT_FARM),
+        pubkey(1, ...obligations),
+        pubkey(3, ...debtReserves),
+        pubkey(6, ...debtCustodies),
+        pubkey(7, ...debtTokenPrograms),
         pubkey(12, FARMS),
       ],
       dataConstraints: [sliceEquals(REPAY)],
     },
   ] as const;
-  const swapConstraints = [
-    USDC_TO_SYRUP,
-    SYRUP_TO_USDC,
-    PYUSD_TO_SYRUP,
-    SYRUP_TO_PYUSD,
-    USDC_TO_PYUSD,
-    PYUSD_TO_USDC,
-  ] as const;
+  const swapConstraints = topology.strategies.flatMap((strategy) => [
+    swapLane(strategy.debtCustody, strategy.collateralCustody),
+    swapLane(strategy.collateralCustody, strategy.debtCustody),
+  ]);
 
   return [
     policy("collateral", input.firstPolicySeed, collateralConstraints, [
@@ -402,7 +410,7 @@ export function createEarnMaxPolicyManifest(input: {
       debtConstraints[1],
     ]),
     policy("swap", input.firstPolicySeed + BigInt(2), swapConstraints, [
-      SYRUP_TO_USDC,
+      swapConstraints[1]!,
     ]),
   ];
 }
@@ -470,21 +478,22 @@ function prepared(
 function createAssociatedTokenAccount(
   payer: PublicKey,
   owner: PublicKey,
-  mint: PublicKey
+  mint: PublicKey,
+  tokenProgram = TOKEN
 ): TransactionInstruction {
   return new TransactionInstruction({
     programId: ASSOCIATED_TOKEN,
     keys: [
       { pubkey: payer, isSigner: true, isWritable: true },
       {
-        pubkey: associatedToken(owner, mint),
+        pubkey: associatedToken(owner, mint, tokenProgram),
         isSigner: false,
         isWritable: true,
       },
       { pubkey: owner, isSigner: false, isWritable: false },
       { pubkey: mint, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN, isSigner: false, isWritable: false },
+      { pubkey: tokenProgram, isSigner: false, isWritable: false },
     ],
     data: Buffer.from([1]),
   });
@@ -621,124 +630,114 @@ export async function buildEarnMaxSetupInstructions(input: {
     [USER_METADATA_SEED, topology.vault.toBytes()],
     KLEND
   )[0];
-  const [claimInfo, collateralInfo, metadataInfo, obligationInfo, farmInfo] =
-    await input.connection.getMultipleAccountsInfo(
-      [
-        topology.claimCustody,
-        topology.collateralCustody,
-        userMetadata,
-        topology.obligation,
-        topology.debtFarmUser,
-      ],
-      "confirmed"
-    );
-  const direct: TransactionInstruction[] = [];
-  if (!claimInfo)
-    direct.push(
-      createAssociatedTokenAccount(
-        input.feePayer,
-        topology.vault,
-        topology.claimMint
-      )
-    );
-  if (!collateralInfo)
-    direct.push(
-      createAssociatedTokenAccount(
-        input.feePayer,
-        topology.vault,
-        topology.collateralMint
-      )
-    );
-  const inner: TransactionInstruction[] = [];
-  if (!metadataInfo) inner.push(initUserMetadata(topology.vault, userMetadata));
-  if (!obligationInfo) {
-    inner.push(
-      new TransactionInstruction({
-        programId: KLEND,
-        keys: [
-          { pubkey: topology.vault, isSigner: true, isWritable: false },
-          { pubkey: topology.vault, isSigner: true, isWritable: true },
-          { pubkey: topology.obligation, isSigner: false, isWritable: true },
-          { pubkey: topology.market, isSigner: false, isWritable: false },
-          {
-            pubkey: topology.collateralMint,
-            isSigner: false,
-            isWritable: false,
-          },
-          { pubkey: topology.claimMint, isSigner: false, isWritable: false },
-          { pubkey: userMetadata, isSigner: false, isWritable: false },
-          { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-          {
-            pubkey: SystemProgram.programId,
-            isSigner: false,
-            isWritable: false,
-          },
-        ],
-        data: Buffer.from([...INIT_OBLIGATION, 1, 0]),
-      })
-    );
-  }
-  if (!farmInfo) {
-    inner.push(
-      new TransactionInstruction({
-        programId: KLEND,
-        keys: [
-          { pubkey: topology.vault, isSigner: true, isWritable: true },
-          { pubkey: topology.vault, isSigner: false, isWritable: false },
-          { pubkey: topology.obligation, isSigner: false, isWritable: true },
-          { pubkey: MARKET_AUTHORITY, isSigner: false, isWritable: false },
-          { pubkey: topology.debtReserve, isSigner: false, isWritable: true },
-          { pubkey: topology.debtFarm, isSigner: false, isWritable: true },
-          { pubkey: topology.debtFarmUser, isSigner: false, isWritable: true },
-          { pubkey: topology.market, isSigner: false, isWritable: false },
-          { pubkey: FARMS, isSigner: false, isWritable: false },
-          { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-          {
-            pubkey: SystemProgram.programId,
-            isSigner: false,
-            isWritable: false,
-          },
-        ],
-        data: Buffer.from([...INIT_OBLIGATION_FARM, 1]),
-      })
-    );
-  }
+  const custodians = uniquePubkeys([
+    topology.claimCustody,
+    ...topology.strategies.flatMap((strategy) => [strategy.collateralCustody, strategy.debtCustody]),
+  ]);
+  const accountKeys = [
+    ...custodians,
+    userMetadata,
+    ...topology.strategies.map(({ obligation }) => obligation),
+    ...topology.strategies.flatMap(({ debtFarmUser }) => debtFarmUser ? [debtFarmUser] : []),
+  ];
+  const accountInfos = await input.connection.getMultipleAccountsInfo(accountKeys, "confirmed");
+  const info = new Map(accountKeys.map((key, index) => [key.toBase58(), accountInfos[index]]));
   const operations: EarnMaxClientOperation[] = [];
-  if (inner.length > 0) {
+  const custodyMetadata = uniquePubkeys([
+    USDC_MINT,
+    ...topology.strategies.map(({ collateralMint }) => collateralMint),
+    ...topology.strategies.map(({ debtMint }) => debtMint),
+  ]).map((mint) => {
+    const strategy = topology.strategies.find(({ debtMint }) => debtMint.equals(mint));
+    return { mint, tokenProgram: strategy?.debtTokenProgram ?? TOKEN };
+  });
+  for (const { mint, tokenProgram } of custodyMetadata) {
+    const custody = associatedToken(topology.vault, mint, tokenProgram);
+    if (!info.get(custody.toBase58())) {
+      operations.push(prepared({
+        instructions: [createAssociatedTokenAccount(input.feePayer, topology.vault, mint, tokenProgram)],
+        operation: `earnMaxCustodySetup:${mint.toBase58()}`,
+        payer: input.feePayer,
+        programId: input.programId,
+      }));
+    }
+  }
+  const missingMetadata = !info.get(userMetadata.toBase58());
+  const missingObligations = topology.strategies.filter(({ obligation }) => !info.get(obligation.toBase58()));
+  const missingFarms = topology.strategies.filter(({ debtFarmUser }) => debtFarmUser && !info.get(debtFarmUser.toBase58()));
+  const setupCount = Number(missingMetadata) + missingObligations.length + missingFarms.length;
+  if (setupCount > 0) {
     const vaultLamports = await input.connection.getBalance(
       topology.vault,
       "confirmed"
     );
-    const topUp = Math.max(0, SETUP_RENT_BUFFER_LAMPORTS - vaultLamports);
+    const topUp = Math.max(0, SETUP_RENT_BUFFER_LAMPORTS * setupCount - vaultLamports);
     if (topUp > 0) {
-      direct.unshift(
-        SystemProgram.transfer({
+      operations.unshift(prepared({
+        instructions: [SystemProgram.transfer({
           fromPubkey: input.feePayer,
           toPubkey: topology.vault,
           lamports: topUp,
-        })
-      );
-    }
-  }
-  if (direct.length > 0) {
-    operations.push(
-      prepared({
-        instructions: direct,
-        operation: "earnMaxCustodySetup",
+        })],
+        operation: "earnMaxRentSetup",
         payer: input.feePayer,
         programId: input.programId,
-      })
-    );
+      }));
+    }
   }
-  if (inner.length > 0) {
-    operations.push(
-      await buildVaultExecution({
-        ...input,
-        inner,
-        vault: topology.vault,
-        operation: "earnMaxObligationSetup",
-      })
-    );
+  if (missingMetadata) {
+    operations.push(await buildVaultExecution({
+      ...input,
+      inner: [initUserMetadata(topology.vault, userMetadata)],
+      vault: topology.vault,
+      operation: "earnMaxUserMetadataSetup",
+    }));
+  }
+  for (const strategy of missingObligations) {
+    const init = new TransactionInstruction({
+      programId: KLEND,
+      keys: [
+        { pubkey: topology.vault, isSigner: true, isWritable: false },
+        { pubkey: topology.vault, isSigner: true, isWritable: true },
+        { pubkey: strategy.obligation, isSigner: false, isWritable: true },
+        { pubkey: strategy.market, isSigner: false, isWritable: false },
+        { pubkey: strategy.collateralMint, isSigner: false, isWritable: false },
+        { pubkey: strategy.debtMint, isSigner: false, isWritable: false },
+        { pubkey: userMetadata, isSigner: false, isWritable: false },
+        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.from([...INIT_OBLIGATION, 1, 0]),
+    });
+    operations.push(await buildVaultExecution({
+      ...input, inner: [init], vault: topology.vault,
+      operation: `earnMaxObligationSetup:${strategy.key}`,
+    }));
+  }
+  for (const strategy of missingFarms) {
+    const debtFarm = strategy.debtFarm!;
+    const debtFarmUser = strategy.debtFarmUser!;
+    const init = new TransactionInstruction({
+      programId: KLEND,
+      keys: [
+        { pubkey: topology.vault, isSigner: true, isWritable: true },
+        { pubkey: topology.vault, isSigner: false, isWritable: false },
+        { pubkey: strategy.obligation, isSigner: false, isWritable: true },
+        { pubkey: strategy.marketAuthority, isSigner: false, isWritable: false },
+        { pubkey: strategy.debtReserve, isSigner: false, isWritable: true },
+        { pubkey: debtFarm, isSigner: false, isWritable: true },
+        { pubkey: debtFarmUser, isSigner: false, isWritable: true },
+        { pubkey: strategy.market, isSigner: false, isWritable: false },
+        { pubkey: FARMS, isSigner: false, isWritable: false },
+        { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      data: Buffer.from([...INIT_OBLIGATION_FARM, 1]),
+    });
+    operations.push(await buildVaultExecution({
+      ...input, inner: [init], vault: topology.vault,
+      operation: `earnMaxDebtFarmSetup:${strategy.key}`,
+    }));
   }
   return operations;
 }
@@ -952,5 +951,5 @@ export async function buildEarnMaxCloseInstructions(input: {
 }
 
 export function deriveEarnMaxWalletClaimAta(wallet: PublicKey): PublicKey {
-  return associatedToken(wallet, CLAIM_MINT);
+  return associatedToken(wallet, USDC_MINT);
 }
