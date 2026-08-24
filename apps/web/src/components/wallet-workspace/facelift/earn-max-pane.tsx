@@ -1,319 +1,388 @@
 "use client";
 
-import { Lock, MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { ArrowLeft, Check, Clock3, RefreshCw, X } from "lucide-react";
+import { useMemo, useState } from "react";
 
-import { splitEarnBalanceDisplay } from "@/components/wallet-sidebar/earn-detail-view";
 import {
   ScrambledPopDigits,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
-import { DepositPane } from "@/components/wallet-workspace/facelift/deposit-pane";
-import {
-  EarnActivityCard,
-  type ExecuteNowControls,
-} from "@/components/wallet-workspace/facelift/earn-activity-card";
-import {
-  type ChartTab,
-  EarnChartPane,
-} from "@/components/wallet-workspace/facelift/earn-chart-pane";
-import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
-import {
-  MiddlePaneSlide,
-  PaneReveal,
-} from "@/components/wallet-workspace/facelift/pane-transitions";
-import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
-import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
+import type { EarnMaxActions, EarnMaxViewModel } from "@/features/earn-max";
 
-const ASSET_BASE = "/wallet-workspace/facelift";
-
-// Mocked Earn MAX display values — UI mock only, no backend yet.
-export const EARN_MAX_BALANCE_USD = 24_232.56;
-export const EARN_MAX_APY_LABEL = "20.48% APY";
-
-// Never runs: the mock passes no scheduled sweeps to the activity card.
-const NOOP_EXECUTE_NOW: ExecuteNowControls = {
-  error: null,
-  isPending: false,
-  progressBySlot: {},
-  run: () => Promise.resolve(false),
-};
-
-function ApyPill() {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-lg bg-positive/[0.14] px-2 py-0.5">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt=""
-        aria-hidden="true"
-        className="h-4 w-2.5"
-        src="/wallet-workspace/earn-flash.svg"
-      />
-      <span className="whitespace-nowrap font-medium text-[13px] text-positive leading-4 tracking-[0.06px]">
-        {EARN_MAX_APY_LABEL}
-      </span>
-    </span>
-  );
+function apyLabel(bps: number | null) {
+  return bps === null ? "—" : `${(bps / 100).toFixed(2)}% APY`;
 }
 
-// Dashed-circle placeholder tile — strategy art is not designed yet.
-function DashedIconTile() {
-  return (
-    <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent-selected">
-      <span
-        aria-hidden="true"
-        className="size-5 rounded-full border-2 border-dashed border-tertiary"
-      />
-    </span>
-  );
+function usd(value: number | null) {
+  return value === null
+    ? "—"
+    : value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
-// Placeholder Info & FAQs card (Earn MAX design) — real copy comes later.
-export function EarnMaxInfoFaqsCard({
-  className = "",
-}: {
-  className?: string;
-}) {
+function splitBalance(value: number) {
+  const formatted = value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const [whole, fraction = "00"] = formatted.split(".");
+  return { whole: `$${whole}`, fraction: `.${fraction}` };
+}
+
+function rawUsdc(value: string): bigint | null {
+  if (!/^\d+(?:\.\d{0,6})?$/.test(value.trim())) return null;
+  const [whole, fraction = ""] = value.trim().split(".");
+  return BigInt(whole!) * BigInt(1_000_000) + BigInt(fraction.padEnd(6, "0"));
+}
+
+function EarnMaxChart({ points }: { points: EarnMaxViewModel["performance"] }) {
+  const path = useMemo(() => {
+    if (points.length < 2) return "";
+    const values = points.map((point) => point.equityUsd);
+    const low = Math.min(...values);
+    const range = Math.max(Math.max(...values) - low, 0.01);
+    return points
+      .map((point, index) => {
+        const x = (index / (points.length - 1)) * 100;
+        const y = 100 - ((point.equityUsd - low) / range) * 88 - 6;
+        return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+  }, [points]);
   return (
-    <section
-      className={`flex w-full flex-col overflow-clip rounded-3xl bg-card ${className}`}
-    >
-      <header className="flex w-full items-center p-2">
-        <h2 className="min-w-0 flex-1 truncate py-2.5 pl-4 font-semibold text-[20px] text-foreground leading-6">
-          Info & FAQs
-        </h2>
-      </header>
-      <div className="flex min-h-40 w-full flex-1 items-center justify-center pb-6">
-        <p className="text-[20px] text-muted-foreground leading-6">Content</p>
+    <section className="flex min-h-56 flex-col rounded-3xl bg-card p-6">
+      <div className="flex items-center justify-between">
+        <h2 className="font-semibold text-[20px]">Performance</h2>
+        <span className="text-[13px] text-muted-foreground">
+          {points.length > 1
+            ? `${points.length} confirmed observations`
+            : "Collecting history"}
+        </span>
+      </div>
+      <div className="mt-5 min-h-36 flex-1 rounded-2xl bg-accent p-3">
+        {path ? (
+          <svg
+            aria-label="Earn MAX equity history"
+            className="h-full w-full"
+            preserveAspectRatio="none"
+            viewBox="0 0 100 100"
+          >
+            <path
+              d={path}
+              fill="none"
+              stroke="var(--positive)"
+              strokeLinecap="round"
+              strokeWidth="2"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+        ) : (
+          <div className="flex h-full items-center justify-center text-[14px] text-muted-foreground">
+            History appears after confirmed position snapshots.
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-// Deposit-screen right pane: the Info & FAQs card fills the slot the chart
-// column vacates (same split FlowExplainerAside uses).
-function EarnMaxInfoFaqsAside() {
+function AmountPane({
+  actions,
+  kind,
+  onBack,
+}: {
+  actions: EarnMaxActions;
+  kind: "deposit" | "withdraw";
+  onBack: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const parsed = rawUsdc(amount);
+  const submit = async () => {
+    if (!parsed || parsed <= BigInt(0)) return;
+    const ok =
+      kind === "deposit"
+        ? await actions.deposit(parsed)
+        : await actions.requestWithdrawal(parsed);
+    if (ok) onBack();
+  };
   return (
-    <aside className="hidden h-full w-[400px] shrink-0 flex-col min-[1204px]:flex">
-      <EarnMaxInfoFaqsCard className="flex-1 shrink" />
-    </aside>
+    <section className="flex h-full min-w-0 flex-1 flex-col rounded-3xl bg-card p-6 max-[795px]:rounded-none">
+      <header className="flex items-center gap-3">
+        <button
+          aria-label="Back"
+          className="rounded-full p-2 hover:bg-accent"
+          onClick={onBack}
+          type="button"
+        >
+          <ArrowLeft className="size-5" />
+        </button>
+        <h1 className="font-semibold text-[22px]">
+          {kind === "deposit" ? "Deposit" : "Withdraw"}
+        </h1>
+      </header>
+      <div className="mx-auto mt-12 flex w-full max-w-lg flex-col gap-4">
+        <label
+          className="text-[14px] text-muted-foreground"
+          htmlFor="earn-max-amount"
+        >
+          USDC amount
+        </label>
+        <div className="flex items-center rounded-2xl bg-accent px-5 py-4">
+          <span className="text-[28px] text-muted-foreground">$</span>
+          <input
+            autoFocus
+            className="min-w-0 flex-1 bg-transparent px-2 text-[36px] outline-none"
+            id="earn-max-amount"
+            inputMode="decimal"
+            onChange={(event) => setAmount(event.target.value)}
+            placeholder="0.00"
+            value={amount}
+          />
+          <span className="font-medium">USDC</span>
+        </div>
+        {kind === "withdraw" ? (
+          <button
+            className="self-end text-[14px] text-positive"
+            onClick={() =>
+              void actions.requestWithdrawal("max").then((ok) => ok && onBack())
+            }
+            type="button"
+          >
+            Withdraw full balance
+          </button>
+        ) : null}
+        <button
+          className="mt-4 rounded-full bg-foreground px-5 py-3 font-medium text-background disabled:opacity-40"
+          disabled={!parsed || parsed <= BigInt(0)}
+          onClick={() => void submit()}
+          type="button"
+        >
+          Confirm {kind}
+        </button>
+      </div>
+    </section>
   );
 }
 
-// Earn MAX center pane — mirrors EarnPositionPane's structure with mocked
-// balance and strategy cards; the transactions list is the real Earn one.
-function EarnMaxPositionPane({
-  data,
-  onDeposit,
-  onViewAllActivity,
+function WithdrawalCard({
+  actions,
+  value,
 }: {
-  data: EarnPositionData;
-  onDeposit: () => void;
-  onViewAllActivity: () => void;
+  actions: EarnMaxActions;
+  value: NonNullable<EarnMaxViewModel["withdrawal"]>;
 }) {
-  const { isBalanceHidden } = useBalanceVisibility();
-  const balance = splitEarnBalanceDisplay(EARN_MAX_BALANCE_USD);
-
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col">
-      <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-y-auto">
-        <section className="flex w-full shrink-0 flex-col overflow-clip rounded-3xl bg-card max-[795px]:rounded-t-none">
-          <header className="flex w-full items-center p-2">
-            <div className="flex min-w-0 flex-1 items-center gap-2 py-2 pl-4">
-              <h1 className="whitespace-nowrap font-semibold text-[24px] text-foreground leading-7">
-                Earn MAX
-              </h1>
-              <InfoTooltip
-                iconClassName="size-6"
-                placement="bottom"
-                text="Earn MAX strategies. Coming soon."
-              />
-            </div>
-            <div className="flex shrink-0 items-start gap-2 pl-3 max-[795px]:hidden">
-              <button
-                className="t-hover flex items-center justify-center gap-2 rounded-full bg-accent p-2.5 hover:-translate-y-0.5 hover:bg-accent-active active:translate-y-0"
-                // TODO(earn-max): no Earn MAX withdraw design yet — mock no-op.
-                onClick={() => undefined}
-                type="button"
-              >
-                <ThemedIcon
-                  className="size-6 text-muted-foreground"
-                  src={`${ASSET_BASE}/icon-withdraw-arrow.svg`}
-                />
-                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-foreground leading-5">
-                  Withdraw
-                </span>
-              </button>
-              <button
-                className="t-hover flex items-center justify-center gap-2 rounded-full bg-foreground p-2.5 hover:-translate-y-0.5 hover:bg-foreground/90 active:translate-y-0"
-                onClick={onDeposit}
-                type="button"
-              >
-                <ThemedIcon
-                  className="size-6 text-background"
-                  src={`${ASSET_BASE}/icon-plus.svg`}
-                />
-                <span className="whitespace-nowrap pr-2.5 font-medium text-[16px] text-background leading-5">
-                  Deposit
-                </span>
-              </button>
-            </div>
-          </header>
+    <section className="rounded-3xl border border-border bg-card p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-medium">Withdrawal {value.status}</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Ready by{" "}
+            {value.readyBy
+              ? new Date(value.readyBy).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "—"}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          {value.canCancel ? (
+            <button
+              className="rounded-full bg-accent px-4 py-2 text-[14px]"
+              onClick={() => void actions.cancelWithdrawal()}
+              type="button"
+            >
+              Cancel
+            </button>
+          ) : null}
+          {value.canClaim ? (
+            <button
+              className="rounded-full bg-foreground px-4 py-2 text-[14px] text-background"
+              onClick={() => void actions.claim()}
+              type="button"
+            >
+              Claim now
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
 
-          <div className="w-full p-2">
-            <div className="flex h-[86px] w-full flex-col items-start gap-0.5 rounded-[20px] px-4 py-2">
-              <p className="whitespace-nowrap text-[16px] leading-5 text-muted-foreground">
-                Balance
-              </p>
-              <p
-                className="whitespace-nowrap font-semibold text-[40px] leading-[46px] [font-variant-numeric:tabular-nums] max-[760px]:text-[clamp(30px,9.5vw,40px)] max-[760px]:leading-[1.08]"
-                style={{
-                  color: isBalanceHidden
-                    ? "var(--tertiary)"
-                    : "var(--foreground)",
-                }}
-              >
-                <ScrambledPopDigits
-                  isHidden={isBalanceHidden}
-                  segments={[
-                    { text: balance.whole },
-                    { color: "var(--tertiary)", text: balance.fraction },
-                  ]}
-                />
-              </p>
-            </div>
-          </div>
-
-          <div className="w-full p-2 pt-0">
-            <div className="grid w-full grid-cols-2 gap-2 max-[560px]:grid-cols-1">
-              <div className="flex flex-col gap-6 rounded-3xl bg-accent p-4">
-                <div className="flex w-full items-start justify-between">
-                  <DashedIconTile />
-                  <div className="flex items-center gap-1">
-                    <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
-                      Low risk
-                    </span>
-                    <button
-                      aria-label="Looping options"
-                      className="t-hover flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-accent-active"
-                      // TODO(earn-max): strategy menu not designed yet.
-                      onClick={() => undefined}
-                      type="button"
-                    >
-                      <MoreHorizontal className="size-5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="flex items-center gap-2">
-                    <span className="font-medium text-[16px] text-foreground leading-5">
-                      Looping
-                    </span>
-                    <ApyPill />
-                  </span>
-                  <span className="flex items-baseline gap-1 whitespace-nowrap">
-                    <span className="font-semibold text-[20px] text-foreground leading-6">
-                      $14,777
-                      <span className="text-tertiary">.14</span>
-                    </span>
-                    <span className="text-[13px] leading-4">
-                      <span className="text-positive">+$125.76</span>
-                      <span className="text-muted-foreground">{" · 30D"}</span>
-                    </span>
-                  </span>
-                </div>
-              </div>
-              <div className="flex flex-col gap-6 rounded-3xl bg-accent p-4">
-                <div className="flex w-full items-start justify-between">
-                  <DashedIconTile />
-                  <Lock
-                    aria-hidden="true"
-                    className="size-5 text-muted-foreground"
-                  />
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-medium text-[16px] text-muted-foreground leading-5">
-                    Delta Neutral
-                  </span>
-                  <span className="font-semibold text-[20px] text-muted-foreground leading-6">
-                    $0.00
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <EarnActivityCard
-          executeNow={NOOP_EXECUTE_NOW}
-          holdings={[]}
-          onSelectTransaction={() => undefined}
-          onViewAllActivity={onViewAllActivity}
-          onWithdrawSource={() => undefined}
-          pendingSignatures={[]}
-          placeholderSecondaryTab="Label"
-          refreshKey={data.actions.earnTransactionsRefreshKey}
-          scheduledSweeps={[]}
-          selectedTransactionId={null}
-          settingsPda={data.settingsPda}
-          walletAddress={data.walletAddress}
+export function EarnMaxPage({
+  actions,
+  view,
+}: {
+  actions: EarnMaxActions;
+  view: EarnMaxViewModel;
+}) {
+  const [screen, setScreen] = useState<"main" | "deposit" | "withdraw">("main");
+  const { isBalanceHidden } = useBalanceVisibility();
+  if (screen !== "main") {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-1 p-2 max-[795px]:p-0">
+        <AmountPane
+          actions={actions}
+          kind={screen}
+          onBack={() => setScreen("main")}
         />
       </div>
-    </div>
-  );
-}
-
-// Earn MAX page — self-contained "main | deposit" view state; reuses the real
-// EarnChartPane (with the Info & FAQs card in the stats slot) and the
-// DepositPane in its Earn MAX mock variant.
-export function EarnMaxPage({
-  chartTab,
-  data,
-  isChartExpanded,
-  onChartExpandedChange,
-  onSelectChartTab,
-  onViewAllActivity,
-}: {
-  chartTab: ChartTab | null;
-  data: EarnPositionData;
-  isChartExpanded: boolean;
-  onChartExpandedChange: (isExpanded: boolean) => void;
-  onSelectChartTab: (tab: ChartTab) => void;
-  onViewAllActivity: () => void;
-}) {
-  const [view, setView] = useState<"main" | "deposit">("main");
-
+    );
+  }
+  const balance = splitBalance(view.balanceUsd);
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-1 gap-2 p-2 max-[795px]:gap-0 max-[795px]:p-0">
-      <MiddlePaneSlide
-        actionPane={
-          view === "deposit" ? (
-            <DepositPane
-              data={data}
-              earnMaxAside={<EarnMaxInfoFaqsAside />}
-              onBack={() => setView("main")}
-              onOpenChart={() => onChartExpandedChange(true)}
-            />
-          ) : null
-        }
-      >
-        <PaneReveal>
-          <EarnMaxPositionPane
-            data={data}
-            onDeposit={() => setView("deposit")}
-            onViewAllActivity={onViewAllActivity}
-          />
-        </PaneReveal>
-      </MiddlePaneSlide>
-      <EarnChartPane
-        earnData={data}
-        hideAside={view === "deposit"}
-        isExpanded={isChartExpanded}
-        onExpandedChange={onChartExpandedChange}
-        onSelectTab={onSelectChartTab}
-        selectedTab={chartTab}
-        statsPanel={<EarnMaxInfoFaqsCard className="min-h-60 shrink-0" />}
-      />
+    <div className="grid h-full min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_400px] gap-2 overflow-y-auto p-2 max-[1203px]:grid-cols-1 max-[795px]:p-0">
+      <main className="flex min-w-0 flex-col gap-2">
+        <section className="rounded-3xl bg-card p-6 max-[795px]:rounded-t-none">
+          <header className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-semibold text-[24px]">Earn MAX</h1>
+                <span className="rounded-lg bg-positive/[0.14] px-2 py-1 text-[13px] text-positive">
+                  {apyLabel(view.forecastApyBps)}
+                </span>
+              </div>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                {view.strategyLabel} · {view.status.replaceAll("_", " ")}
+              </p>
+            </div>
+            <button
+              aria-label="Refresh Earn MAX"
+              className="rounded-full p-2 hover:bg-accent"
+              onClick={() => void actions.refresh()}
+              type="button"
+            >
+              <RefreshCw
+                className={`size-5 ${view.isLoading ? "animate-spin" : ""}`}
+              />
+            </button>
+          </header>
+          <div className="mt-8">
+            <p className="text-[14px] text-muted-foreground">Position equity</p>
+            <p className="mt-1 whitespace-nowrap font-semibold text-[42px] [font-variant-numeric:tabular-nums]">
+              <ScrambledPopDigits
+                isHidden={isBalanceHidden}
+                segments={[
+                  { text: balance.whole },
+                  { color: "var(--tertiary)", text: balance.fraction },
+                ]}
+              />
+            </p>
+          </div>
+          <div className="mt-7 grid grid-cols-3 gap-2 max-[620px]:grid-cols-1">
+            <div className="rounded-2xl bg-accent p-4">
+              <p className="text-[13px] text-muted-foreground">Earned</p>
+              <p className="mt-1 font-medium">{usd(view.earnedUsd)}</p>
+            </div>
+            <div className="rounded-2xl bg-accent p-4">
+              <p className="text-[13px] text-muted-foreground">Realized APY</p>
+              <p className="mt-1 font-medium">
+                {apyLabel(view.realizedApyBps)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-accent p-4">
+              <p className="text-[13px] text-muted-foreground">History</p>
+              <p className="mt-1 font-medium">
+                {view.coverage === "complete" ? "Complete" : "Building"}
+              </p>
+            </div>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-2">
+            {view.policyStatus !== "ready" ? (
+              <button
+                className="rounded-full bg-foreground px-5 py-3 font-medium text-background"
+                disabled={view.isBusy}
+                onClick={() => void actions.install()}
+                type="button"
+              >
+                Install policies
+              </button>
+            ) : (
+              <>
+                <button
+                  className="rounded-full bg-foreground px-5 py-3 font-medium text-background"
+                  disabled={view.isBusy}
+                  onClick={() => setScreen("deposit")}
+                  type="button"
+                >
+                  Deposit / top up
+                </button>
+                <button
+                  className="rounded-full bg-accent px-5 py-3 font-medium"
+                  disabled={view.isBusy || view.balanceUsd <= 0}
+                  onClick={() => setScreen("withdraw")}
+                  type="button"
+                >
+                  Withdraw
+                </button>
+                {view.balanceUsd === 0 && view.status === "claimed" ? (
+                  <button
+                    className="rounded-full bg-accent px-5 py-3 font-medium"
+                    disabled={view.isBusy}
+                    onClick={() => void actions.close()}
+                    type="button"
+                  >
+                    Close policies
+                  </button>
+                ) : null}
+              </>
+            )}
+          </div>
+          {view.error ? (
+            <p className="mt-4 rounded-xl bg-destructive/10 p-3 text-[14px] text-destructive">
+              {view.error}
+            </p>
+          ) : null}
+        </section>
+        {view.withdrawal ? (
+          <WithdrawalCard actions={actions} value={view.withdrawal} />
+        ) : null}
+        <section className="rounded-3xl bg-card p-6">
+          <h2 className="font-semibold text-[20px]">Activity</h2>
+          <div className="mt-4 divide-y divide-border">
+            {view.activity.length === 0 ? (
+              <p className="py-6 text-[14px] text-muted-foreground">
+                No confirmed Earn MAX activity yet.
+              </p>
+            ) : (
+              view.activity.slice(0, 12).map((item) => (
+                <div className="flex items-center gap-3 py-3" key={item.id}>
+                  <span className="rounded-full bg-accent p-2">
+                    {item.status === "reconciled" ? (
+                      <Check className="size-4 text-positive" />
+                    ) : (
+                      <Clock3 className="size-4" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium capitalize">
+                      {item.action.replaceAll("_", " ")}
+                    </p>
+                    <p className="text-[12px] text-muted-foreground">
+                      {item.timestamp
+                        ? new Date(item.timestamp).toLocaleString()
+                        : "Confirming"}
+                    </p>
+                  </div>
+                  {item.signature ? (
+                    <a
+                      aria-label="View transaction"
+                      className="rounded-full p-2 hover:bg-accent"
+                      href={`https://solscan.io/tx/${item.signature}`}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <X className="size-4 rotate-45" />
+                    </a>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+      </main>
+      <EarnMaxChart points={view.performance} />
     </div>
   );
 }

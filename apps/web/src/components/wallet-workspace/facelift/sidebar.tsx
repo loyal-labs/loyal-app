@@ -16,10 +16,6 @@ import {
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
 import { DropdownReveal } from "@/components/wallet-workspace/facelift/dropdown-reveal";
-import {
-  EARN_MAX_APY_LABEL,
-  EARN_MAX_BALANCE_USD,
-} from "@/components/wallet-workspace/facelift/earn-max-pane";
 import { InfoTooltip } from "@/components/wallet-workspace/facelift/info-tooltip";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
 import { ReceiveSheet } from "@/components/wallet-workspace/facelift/receive-sheet";
@@ -139,16 +135,22 @@ function ShortcutKey({
 export function FaceliftSidebar({
   activePage,
   earnBalanceUsd,
+  earnMaxBalanceUsd,
+  earnMaxForecastApyBps,
   flashedShortcut,
   isEarnBalanceLoading,
+  isEarnMaxBalanceLoading,
   onSelectPage,
   onUnseenActivityChange,
 }: {
   activePage: WorkspacePage;
   earnBalanceUsd: number;
+  earnMaxBalanceUsd: number;
+  earnMaxForecastApyBps: number | null;
   /** Section whose shortcut key was just pressed — flashes its kbd hint. */
   flashedShortcut: WorkspacePage | null;
   isEarnBalanceLoading: boolean;
+  isEarnMaxBalanceLoading: boolean;
   onSelectPage: (page: WorkspacePage) => void;
   onUnseenActivityChange?: (hasUnseen: boolean) => void;
 }) {
@@ -243,9 +245,15 @@ export function FaceliftSidebar({
   const stablecoinsBalance = splitUsdBalance(stablecoinsUsd);
   const cryptoBalance = splitUsdBalance(cryptoUsd);
   const earnBalance = splitUsdBalance(earnBalanceUsd);
-  const earnMaxBalance = splitUsdBalance(EARN_MAX_BALANCE_USD);
-  // Wallet total (stablecoins + crypto) plus the Earn position.
-  const totalBalance = splitUsdBalance(data.totalUsd + earnBalanceUsd);
+  const earnMaxBalance = splitUsdBalance(earnMaxBalanceUsd);
+  const earnMaxApyLabel =
+    earnMaxForecastApyBps === null
+      ? "—"
+      : `${(earnMaxForecastApyBps / 100).toFixed(2)}% APY`;
+  // Wallet total plus both independently projected Earn products.
+  const totalBalance = splitUsdBalance(
+    data.totalUsd + earnBalanceUsd + earnMaxBalanceUsd
+  );
 
   const addressLabel = data.walletAddress
     ? `${data.walletAddress.slice(0, 4)}…${data.walletAddress.slice(-4)}`
@@ -262,7 +270,9 @@ export function FaceliftSidebar({
     isHydrated &&
     (!isSignedIn || (data.walletAddress !== null && !data.isLoading));
   const isEarnBalanceRevealed = !isEarnBalanceLoading;
-  const isTotalRevealed = isWalletDataRevealed && isEarnBalanceRevealed;
+  const isEarnMaxBalanceRevealed = !isEarnMaxBalanceLoading;
+  const isTotalRevealed =
+    isWalletDataRevealed && isEarnBalanceRevealed && isEarnMaxBalanceRevealed;
   const hasReportedBalancesReadyRef = useRef(false);
   useEffect(() => {
     if (
@@ -462,7 +472,7 @@ export function FaceliftSidebar({
           </span>
         </button>
 
-        {/* Mocked Earn MAX row — static balance/APY, no live feed yet. */}
+        {/* Earn MAX values come from the confirmed projection read model. */}
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
             activePage === "earnmax" ? "bg-accent" : "hover:bg-accent"
@@ -491,7 +501,7 @@ export function FaceliftSidebar({
                   src="/wallet-workspace/earn-flash.svg"
                 />
                 <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                  {EARN_MAX_APY_LABEL}
+                  {earnMaxApyLabel}
                 </span>
               </span>
               <ShortcutKey
@@ -502,7 +512,7 @@ export function FaceliftSidebar({
             <SplitAmount
               fraction={earnMaxBalance.balanceFraction}
               isHidden={isBalanceHidden}
-              isRevealed
+              isRevealed={isEarnMaxBalanceRevealed}
               whole={earnMaxBalance.balanceWhole}
             />
           </span>

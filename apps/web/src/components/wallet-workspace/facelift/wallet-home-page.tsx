@@ -14,10 +14,6 @@ import {
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
 import { copyTextToClipboard } from "@/components/wallet-workspace/facelift/copy-text";
-import {
-  EARN_MAX_APY_LABEL,
-  EARN_MAX_BALANCE_USD,
-} from "@/components/wallet-workspace/facelift/earn-max-pane";
 import { MobileTabBar } from "@/components/wallet-workspace/facelift/mobile-tab-bar";
 import { PaneReveal } from "@/components/wallet-workspace/facelift/pane-transitions";
 import { PopDigits } from "@/components/wallet-workspace/facelift/pop-digits";
@@ -52,13 +48,19 @@ const ASSET_BASE = "/wallet-workspace/facelift";
 // up mid-visit just shows it as a plain pane).
 export function WalletHomePage({
   earnBalanceUsd,
+  earnMaxBalanceUsd,
+  earnMaxForecastApyBps,
   isEarnBalanceLoading,
+  isEarnMaxBalanceLoading,
   onSelectPage,
   onSetUpAutodeposit,
   showActivityBadge,
 }: {
   earnBalanceUsd: number;
+  earnMaxBalanceUsd: number;
+  earnMaxForecastApyBps: number | null;
   isEarnBalanceLoading: boolean;
+  isEarnMaxBalanceLoading: boolean;
   onSelectPage: (page: WorkspacePage) => void;
   onSetUpAutodeposit: () => void;
   showActivityBadge: boolean;
@@ -102,8 +104,14 @@ export function WalletHomePage({
     Math.max(data.totalUsd - stablecoinsUsd, 0)
   );
   const earnBalance = splitUsdBalance(earnBalanceUsd);
-  const earnMaxBalance = splitUsdBalance(EARN_MAX_BALANCE_USD);
-  const totalBalance = splitUsdBalance(data.totalUsd + earnBalanceUsd);
+  const earnMaxBalance = splitUsdBalance(earnMaxBalanceUsd);
+  const earnMaxApyLabel =
+    earnMaxForecastApyBps === null
+      ? "—"
+      : `${(earnMaxForecastApyBps / 100).toFixed(2)}%`;
+  const totalBalance = splitUsdBalance(
+    data.totalUsd + earnBalanceUsd + earnMaxBalanceUsd
+  );
 
   const addressLabel = data.walletAddress
     ? `${data.walletAddress.slice(0, 4)}…${data.walletAddress.slice(-4)}`
@@ -114,7 +122,9 @@ export function WalletHomePage({
     isHydrated &&
     (!isSignedIn || (data.walletAddress !== null && !data.isLoading));
   const isEarnBalanceRevealed = !isEarnBalanceLoading;
-  const isTotalRevealed = isWalletDataRevealed && isEarnBalanceRevealed;
+  const isEarnMaxBalanceRevealed = !isEarnMaxBalanceLoading;
+  const isTotalRevealed =
+    isWalletDataRevealed && isEarnBalanceRevealed && isEarnMaxBalanceRevealed;
 
   // Copied feedback, same icon swap the sidebar chip uses.
   const [isCopied, setIsCopied] = useState(false);
@@ -394,7 +404,7 @@ export function WalletHomePage({
                     />
                   </span>
                 </button>
-                {/* Mocked Earn MAX tile — static balance/APY, no feed yet. */}
+                {/* Earn MAX values come from the confirmed projection read model. */}
                 <button
                   className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
                   onClick={() => onSelectPage("earnmax")}
@@ -421,14 +431,14 @@ export function WalletHomePage({
                           src="/wallet-workspace/earn-flash.svg"
                         />
                         <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                          {EARN_MAX_APY_LABEL.replace(" APY", "")}
+                          {earnMaxApyLabel}
                         </span>
                       </span>
                     </span>
                     <SplitAmount
                       fraction={earnMaxBalance.balanceFraction}
                       isHidden={isBalanceHidden}
-                      isRevealed
+                      isRevealed={isEarnMaxBalanceRevealed}
                       whole={earnMaxBalance.balanceWhole}
                     />
                   </span>

@@ -92,10 +92,18 @@ export {
 export {
   EARN_MAX_MANIFEST_VERSION,
   EARN_MAX_VAULT_INDEX,
+  buildEarnMaxClaimInstructions,
+  buildEarnMaxCloseInstructions,
+  buildEarnMaxDepositInstructions,
+  buildEarnMaxInstallInstructions,
+  buildEarnMaxWithdrawalCancelInstructions,
+  buildEarnMaxWithdrawalRequestInstructions,
   createEarnMaxPolicyManifest,
+  deriveEarnMaxWalletClaimAta,
   deriveEarnMaxTopology,
 } from "./earn-max.ts";
 export type {
+  EarnMaxClientOperation,
   EarnMaxPolicyPreparation,
   EarnMaxTopology,
 } from "./earn-max.ts";

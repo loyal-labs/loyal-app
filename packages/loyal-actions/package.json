@@ -29,6 +29,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@loyal-labs/loyal-smart-accounts": "workspace:*",
     "@loyal-labs/solana-rpc": "^0.1.1",
     "@solana/web3.js": "^1.98.4"
   },

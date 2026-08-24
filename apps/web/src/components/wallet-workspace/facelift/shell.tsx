@@ -43,6 +43,7 @@ import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-ho
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useEarnMax } from "@/features/earn-max";
 import { useAuthCapability } from "@/lib/auth/capability";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
@@ -155,6 +156,10 @@ export function WorkspaceFaceliftShell() {
   // so the mobile tab bar's clock shows the same badge.
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const earnData = useEarnPositionData();
+  const earnMax = useEarnMax({
+    settingsPda: earnData.settingsPda,
+    walletAddress: earnData.walletAddress,
+  });
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
   // Send/Swap/Shield screens — including re-selecting the page it's already on.
   const [navigationNonce, setNavigationNonce] = useState(0);
@@ -363,8 +368,11 @@ export function WorkspaceFaceliftShell() {
         <FaceliftSidebar
           activePage={activePage}
           earnBalanceUsd={earnData.earnBalanceUsd}
+          earnMaxBalanceUsd={earnMax.view.balanceUsd}
+          earnMaxForecastApyBps={earnMax.view.forecastApyBps}
           flashedShortcut={flashedShortcut}
           isEarnBalanceLoading={isPositionLoading}
+          isEarnMaxBalanceLoading={earnMax.view.isLoading}
           onSelectPage={handleSelectPage}
           onUnseenActivityChange={setHasUnseenActivity}
         />
@@ -376,7 +384,10 @@ export function WorkspaceFaceliftShell() {
           {activePage === "wallet" ? (
             <WalletHomePage
               earnBalanceUsd={earnData.earnBalanceUsd}
+              earnMaxBalanceUsd={earnMax.view.balanceUsd}
+              earnMaxForecastApyBps={earnMax.view.forecastApyBps}
               isEarnBalanceLoading={isPositionLoading}
+              isEarnMaxBalanceLoading={earnMax.view.isLoading}
               onSelectPage={handleSelectPage}
               onSetUpAutodeposit={() => {
                 setActivePage("earn");
@@ -392,15 +403,7 @@ export function WorkspaceFaceliftShell() {
               walletAddress={earnData.walletAddress}
             />
           ) : activePage === "earnmax" ? (
-            // Mocked Earn MAX section — owns its own main/deposit view state.
-            <EarnMaxPage
-              chartTab={chartTab}
-              data={earnData}
-              isChartExpanded={isChartExpanded}
-              onChartExpandedChange={setIsChartExpanded}
-              onSelectChartTab={setChartTab}
-              onViewAllActivity={() => handleSelectPage("activity")}
-            />
+            <EarnMaxPage actions={earnMax.actions} view={earnMax.view} />
           ) : activePage !== "earn" ? (
             <CryptoPage
               navigationNonce={navigationNonce}
