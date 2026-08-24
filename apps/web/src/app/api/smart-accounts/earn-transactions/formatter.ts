@@ -1,4 +1,5 @@
 import type { EarnAutodepositHistoryEventRecord } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import type { EarnLifecycleActivityEventRecord } from "@/lib/yield-optimization/earn-activity-repository.server";
 import {
   resolveEarnTransactionMarketIcon,
   resolveEarnTransactionMarketLabel,
@@ -6,6 +7,7 @@ import {
 import type { UserYieldPositionHistoryEventRecord } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const AUTODEPOSIT_LABEL = "Autodeposit";
+const AUTOSWAP_LABEL = "Autoswap";
 const MAIN_USDC_LABEL = "Main";
 const EARN_VAULT_LABEL = "Earn";
 const MAIN_USDC_ICON = "/agents/Agent-01.svg";
@@ -13,6 +15,7 @@ const EARN_VAULT_ICON = null;
 
 export type EarnTransactionKind =
   | "autodeposit_action"
+  | "autoswap_action"
   | "balance_sweep"
   | "deposit"
   | "reconciliation"
@@ -21,6 +24,7 @@ export type EarnTransactionKind =
 
 export type EarnTransactionEvent =
   | EarnAutodepositHistoryEventRecord
+  | EarnLifecycleActivityEventRecord
   | UserYieldPositionHistoryEventRecord;
 
 export type SerializedEarnTransaction = {
@@ -36,6 +40,8 @@ export type SerializedEarnTransaction = {
     | UserYieldPositionHistoryEventRecord["eventType"]
     | "autodeposit_closed"
     | "autodeposit_created"
+    | "autoswap_closed"
+    | "autoswap_created"
     | "balance_sweep";
   id: string;
   kind: EarnTransactionKind;
@@ -134,7 +140,10 @@ function formatTimestamp(date: Date): string {
 
 function serializeKind(
   event: UserYieldPositionHistoryEventRecord
-): Exclude<EarnTransactionKind, "autodeposit_action" | "balance_sweep"> {
+): Exclude<
+  EarnTransactionKind,
+  "autodeposit_action" | "autoswap_action" | "balance_sweep"
+> {
   if (event.type === "withdrawal") {
     return "withdraw";
   }
@@ -149,7 +158,10 @@ function serializeKind(
 
 function resolveTransactionAmountRaw(args: {
   event: UserYieldPositionHistoryEventRecord;
-  kind: Exclude<EarnTransactionKind, "autodeposit_action" | "balance_sweep">;
+  kind: Exclude<
+    EarnTransactionKind,
+    "autodeposit_action" | "autoswap_action" | "balance_sweep"
+  >;
 }): bigint {
   const { event, kind } = args;
   if (kind === "withdraw") {
@@ -170,40 +182,56 @@ function resolveTransactionAmountRaw(args: {
 function serializeAutodepositActionEvent(
   event: EarnAutodepositHistoryEventRecord
 ): SerializedEarnTransaction {
-  const isBalanceSweep = event.actionType === "balance_sweep";
-  const transactionAmountRaw = isBalanceSweep ? event.amountRaw : BigInt(0);
-  const isCreate = event.actionType === "create";
-
   return {
-    amount: formatDisplayUsdcAmount(
-      transactionAmountRaw,
-      isBalanceSweep ? "in" : "neutral"
-    ),
+    amount: formatDisplayUsdcAmount(event.amountRaw, "in"),
     confirmedAt: event.confirmedAt.toISOString(),
     confirmedSlot: event.confirmedSlot.toString(),
     dateGroup: formatDateGroup(event.confirmedAt),
     destination: {
-      icon: isCreate || isBalanceSweep ? EARN_VAULT_ICON : null,
-      label: isCreate || isBalanceSweep ? EARN_VAULT_LABEL : AUTODEPOSIT_LABEL,
+      icon: EARN_VAULT_ICON,
+      label: EARN_VAULT_LABEL,
     },
-    eventType: isBalanceSweep
-      ? "balance_sweep"
-      : isCreate
-      ? "autodeposit_created"
-      : "autodeposit_closed",
+    eventType: "balance_sweep",
     id: event.id,
-    kind: isBalanceSweep ? "balance_sweep" : "autodeposit_action",
+    kind: "balance_sweep",
     liquidityMint: null,
-    rawAmount: formatExactUsdcAmount(transactionAmountRaw),
+    rawAmount: formatExactUsdcAmount(event.amountRaw),
     signature: event.signature,
     sortTimestamp: event.confirmedAt.toISOString(),
     source: {
-      icon: isBalanceSweep || isCreate ? MAIN_USDC_ICON : EARN_VAULT_ICON,
-      label: isBalanceSweep
-        ? MAIN_USDC_LABEL
-        : isCreate
-        ? MAIN_USDC_LABEL
-        : EARN_VAULT_LABEL,
+      icon: MAIN_USDC_ICON,
+      label: MAIN_USDC_LABEL,
+    },
+    timestamp: formatTimestamp(event.confirmedAt),
+  };
+}
+
+function serializeLifecycleActionEvent(
+  event: EarnLifecycleActivityEventRecord
+): SerializedEarnTransaction {
+  const isAutoswap = event.actionType.startsWith("autoswap_");
+  const isCreate = event.actionType.endsWith("_created");
+  const featureLabel = isAutoswap ? AUTOSWAP_LABEL : AUTODEPOSIT_LABEL;
+
+  return {
+    amount: formatDisplayUsdcAmount(BigInt(0), "neutral"),
+    confirmedAt: event.confirmedAt.toISOString(),
+    confirmedSlot: event.confirmedSlot.toString(),
+    dateGroup: formatDateGroup(event.confirmedAt),
+    destination: {
+      icon: isCreate ? EARN_VAULT_ICON : null,
+      label: isCreate ? EARN_VAULT_LABEL : featureLabel,
+    },
+    eventType: event.actionType,
+    id: event.id,
+    kind: isAutoswap ? "autoswap_action" : "autodeposit_action",
+    liquidityMint: null,
+    rawAmount: formatExactUsdcAmount(BigInt(0)),
+    signature: event.signature,
+    sortTimestamp: event.confirmedAt.toISOString(),
+    source: {
+      icon: isCreate ? MAIN_USDC_ICON : EARN_VAULT_ICON,
+      label: isCreate ? MAIN_USDC_LABEL : EARN_VAULT_LABEL,
     },
     timestamp: formatTimestamp(event.confirmedAt),
   };
@@ -214,6 +242,9 @@ export function serializeEarnTransactionEvent(
 ): SerializedEarnTransaction {
   if (event.type === "autodeposit_action") {
     return serializeAutodepositActionEvent(event);
+  }
+  if (event.type === "earn_lifecycle_action") {
+    return serializeLifecycleActionEvent(event);
   }
 
   const kind = serializeKind(event);

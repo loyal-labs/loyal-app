@@ -3,7 +3,8 @@ import { LoyalCluster } from "@loyal-labs/actions";
 
 import { resolveAuthenticatedPrincipalFromRequest } from "@/features/identity/server/auth-session";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
-import { findEarnAutodepositHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { findEarnActivityEventsForVault } from "@/lib/yield-optimization/earn-activity-repository.server";
+import { findEarnAutodepositSweepHistoryEvents } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   findYieldPositionHistoryEventsForVault,
   syncConfirmedRebalanceHoldingEventsForVault,
@@ -68,21 +69,27 @@ export async function GET(request: Request) {
       walletAddress: principal.walletAddress,
     });
 
-    const [positionEvents, autodepositEvents] = await Promise.all([
+    const [positionEvents, lifecycleEvents, sweepEvents] = await Promise.all([
       findYieldPositionHistoryEventsForVault({
         cluster,
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress: principal.walletAddress,
       }),
-      findEarnAutodepositHistoryEvents({
+      findEarnActivityEventsForVault({
+        cluster,
+        settings: principal.settingsPda,
+        vaultIndex: EARN_VAULT_INDEX,
+        walletAddress: principal.walletAddress,
+      }),
+      findEarnAutodepositSweepHistoryEvents({
         settings: principal.settingsPda,
         vaultIndex: EARN_VAULT_INDEX,
         walletAddress: principal.walletAddress,
       }),
     ]);
     const autodepositDepositSignatures = new Set(
-      autodepositEvents
+      sweepEvents
         .map((event) => event.depositSignature)
         .filter((signature): signature is string => Boolean(signature))
     );
@@ -95,7 +102,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       transactions: sortEarnTransactions(
         collapseDuplicateEarnRebalanceTransactions(
-          [...visiblePositionEvents, ...autodepositEvents].map(
+          [...visiblePositionEvents, ...lifecycleEvents, ...sweepEvents].map(
             serializeEarnTransactionEvent
           )
         )

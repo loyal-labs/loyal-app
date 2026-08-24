@@ -4,6 +4,7 @@ export type EarnTransactionItem = {
   id: string;
   kind:
     | "autodeposit_action"
+    | "autoswap_action"
     | "balance_sweep"
     | "deposit"
     | "withdraw"
@@ -12,6 +13,8 @@ export type EarnTransactionItem = {
   eventType:
     | "autodeposit_closed"
     | "autodeposit_created"
+    | "autoswap_closed"
+    | "autoswap_created"
     | "balance_sweep"
     | "deposit_initialized"
     | "deposit_top_up"

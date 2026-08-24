@@ -325,7 +325,8 @@ export function TransactionRow({
   const content = (
     <>
       <span className="flex items-center py-2 pr-3">
-        {item.kind === "autodeposit_action" ? (
+        {item.kind === "autodeposit_action" ||
+        item.kind === "autoswap_action" ? (
           <span className="inline-flex size-11 shrink-0 overflow-hidden rounded-full">
             <EarnYieldIcon size={44} />
           </span>

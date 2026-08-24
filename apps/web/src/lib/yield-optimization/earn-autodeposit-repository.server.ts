@@ -162,7 +162,7 @@ export type CurrentEarnAutodepositState = {
 };
 
 export type EarnAutodepositHistoryEventRecord = {
-  actionType: "balance_sweep" | "close" | "create";
+  actionType: "balance_sweep";
   amountRaw: bigint;
   confirmedAt: Date;
   confirmedSlot: bigint;
@@ -174,20 +174,6 @@ export type EarnAutodepositHistoryEventRecord = {
   type: "autodeposit_action";
   walletBalanceFloorRaw: bigint | null;
 };
-
-type EarnAutodepositHistoryTarget = Pick<
-  BalanceSweepTargetRecord,
-  | "closeSignature"
-  | "closeSlot"
-  | "closedAt"
-  | "firstSeenAt"
-  | "id"
-  | "policyAccount"
-  | "policyConfirmedSlot"
-  | "policySignature"
-  | "recurringDelegation"
-  | "walletBalanceFloorRaw"
->;
 
 type EarnAutodepositRepositoryDependencies = {
   client: YieldOptimizationClient;
@@ -1288,7 +1274,7 @@ export async function scheduleBootstrapEarnAutodepositSweep(
   };
 }
 
-export async function findEarnAutodepositHistoryEvents(
+export async function findEarnAutodepositSweepHistoryEvents(
   input: {
     settings: string;
     vaultIndex: 1;
@@ -1299,38 +1285,25 @@ export async function findEarnAutodepositHistoryEvents(
     "client"
   > = createDependencies()
 ): Promise<EarnAutodepositHistoryEventRecord[]> {
-  const [targets, executions] = await Promise.all([
-    dependencies.client.db
-      .select()
-      .from(balanceSweepTargets)
-      .where(
-        and(
-          eq(balanceSweepTargets.settings, input.settings),
-          eq(balanceSweepTargets.vaultIndex, input.vaultIndex),
-          eq(balanceSweepTargets.wallet, input.walletAddress)
-        )
-      ),
-    dependencies.client.db
-      .select({
-        execution: balanceSweepExecutions,
-        target: balanceSweepTargets,
-      })
-      .from(balanceSweepExecutions)
-      .innerJoin(
-        balanceSweepTargets,
-        eq(balanceSweepExecutions.targetId, balanceSweepTargets.id)
+  const executions = await dependencies.client.db
+    .select({
+      execution: balanceSweepExecutions,
+      target: balanceSweepTargets,
+    })
+    .from(balanceSweepExecutions)
+    .innerJoin(
+      balanceSweepTargets,
+      eq(balanceSweepExecutions.targetId, balanceSweepTargets.id)
+    )
+    .where(
+      and(
+        eq(balanceSweepTargets.settings, input.settings),
+        eq(balanceSweepTargets.vaultIndex, input.vaultIndex),
+        eq(balanceSweepTargets.wallet, input.walletAddress)
       )
-      .where(
-        and(
-          eq(balanceSweepTargets.settings, input.settings),
-          eq(balanceSweepTargets.vaultIndex, input.vaultIndex),
-          eq(balanceSweepTargets.wallet, input.walletAddress)
-        )
-      ),
-  ]);
+    );
 
-  const targetEvents = targets.flatMap(buildEarnAutodepositTargetHistoryEvents);
-  const sweepEvents = executions.map(({ execution, target }) => ({
+  const events = executions.map(({ execution, target }) => ({
     actionType: "balance_sweep" as const,
     amountRaw: execution.amountRaw,
     confirmedAt: execution.decodedAt ?? execution.receivedAt,
@@ -1346,8 +1319,6 @@ export async function findEarnAutodepositHistoryEvents(
     type: "autodeposit_action" as const,
     walletBalanceFloorRaw: target.walletBalanceFloorRaw,
   }));
-  const events = [...targetEvents, ...sweepEvents];
-
   return events.sort((a, b) => {
     const confirmedAtDelta = b.confirmedAt.getTime() - a.confirmedAt.getTime();
     if (confirmedAtDelta !== 0) {
@@ -1358,50 +1329,6 @@ export async function findEarnAutodepositHistoryEvents(
     }
     return a.id.localeCompare(b.id);
   });
-}
-
-export function buildEarnAutodepositTargetHistoryEvents(
-  target: EarnAutodepositHistoryTarget
-): EarnAutodepositHistoryEventRecord[] {
-  const history: EarnAutodepositHistoryEventRecord[] = [];
-
-  if (target.policySignature && target.policyConfirmedSlot != null) {
-    history.push({
-      actionType: "create",
-      amountRaw: BigInt(0),
-      confirmedAt: target.firstSeenAt,
-      confirmedSlot: target.policyConfirmedSlot,
-      depositSignature: null,
-      id: `autodeposit:create:${target.id.toString()}`,
-      policyAccount: target.policyAccount,
-      recurringDelegation: target.recurringDelegation,
-      signature: target.policySignature,
-      type: "autodeposit_action",
-      walletBalanceFloorRaw: target.walletBalanceFloorRaw,
-    });
-  }
-
-  if (
-    target.closeSignature !== null &&
-    target.closeSlot !== null &&
-    target.closedAt !== null
-  ) {
-    history.push({
-      actionType: "close",
-      amountRaw: BigInt(0),
-      confirmedAt: target.closedAt,
-      confirmedSlot: target.closeSlot,
-      depositSignature: null,
-      id: `autodeposit:close:${target.id.toString()}`,
-      policyAccount: target.policyAccount,
-      recurringDelegation: target.recurringDelegation,
-      signature: target.closeSignature,
-      type: "autodeposit_action",
-      walletBalanceFloorRaw: target.walletBalanceFloorRaw,
-    });
-  }
-
-  return history;
 }
 
 // The sweep worker's notify payload only carries the wallet address; the
