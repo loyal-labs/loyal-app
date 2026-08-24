@@ -306,6 +306,54 @@ export function createEarnMaxPolicyManifest(input: {
 export type EarnMaxClientOperation =
   PreparedLoyalSmartAccountsOperation<string>;
 
+async function resolveEarnMaxInstallSeedBase(input: {
+  connection: Connection;
+  delegatedSigner: PublicKey;
+  feePayer: PublicKey;
+  firstPolicySeed?: bigint;
+  programId: PublicKey;
+  settings: PublicKey;
+}): Promise<bigint> {
+  const currentPolicySeed = BigInt(
+    (
+      await createLoyalSmartAccountsClient({
+        connection: input.connection,
+        programId: input.programId,
+      }).smartAccounts.queries.fetchSettings(input.settings)
+    ).policySeed?.toString() ?? "0"
+  );
+  if (input.firstPolicySeed === undefined) return currentPolicySeed + BigInt(1);
+
+  const requestedPolicySeed = input.firstPolicySeed;
+  const requestedManifest = createEarnMaxPolicyManifest({
+    authority: input.feePayer,
+    delegatedSigner: input.delegatedSigner,
+    firstPolicySeed: requestedPolicySeed,
+    settings: input.settings,
+  });
+  const requestedAccounts = await input.connection.getMultipleAccountsInfo(
+    requestedManifest.map((entry) => entry.policy),
+    "confirmed"
+  );
+  const existingCount = requestedAccounts.filter(Boolean).length;
+  const requestedLastSeed =
+    requestedPolicySeed + BigInt(requestedManifest.length - 1);
+
+  if (existingCount === 0 && currentPolicySeed >= requestedLastSeed) {
+    return currentPolicySeed + BigInt(1);
+  }
+  if (
+    existingCount > 0 &&
+    existingCount < requestedManifest.length &&
+    currentPolicySeed > requestedLastSeed
+  ) {
+    throw new Error(
+      "Earn MAX policy manifest is partially missing after the Settings policy seed advanced."
+    );
+  }
+  return requestedPolicySeed;
+}
+
 function prepared(
   input: Omit<
     EarnMaxClientOperation,
@@ -402,17 +450,7 @@ export async function buildEarnMaxInstallInstructions(input: {
   settings: PublicKey;
   matchingPolicyAccounts?: ReadonlySet<string>;
 }): Promise<EarnMaxClientOperation[]> {
-  const client = createLoyalSmartAccountsClient({
-    connection: input.connection,
-    programId: input.programId,
-  });
-  const firstPolicySeed =
-    input.firstPolicySeed ??
-    BigInt(
-      (
-        await client.smartAccounts.queries.fetchSettings(input.settings)
-      ).policySeed?.toString() ?? "0"
-    ) + BigInt(1);
+  const firstPolicySeed = await resolveEarnMaxInstallSeedBase(input);
   const manifest = createEarnMaxPolicyManifest({
     authority: input.feePayer,
     delegatedSigner: input.delegatedSigner,
