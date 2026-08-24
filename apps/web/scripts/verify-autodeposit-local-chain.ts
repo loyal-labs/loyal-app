@@ -36,6 +36,7 @@ import {
   resolveEarnAutodepositTogglePresentation,
   sendEarnAutodepositSetupBatch,
 } from "../src/lib/yield-optimization/earn-autodeposit-client-flow";
+import { earnAutodepositConfigFromLoadedState } from "../src/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 
 type SetupStage =
   | "approve_token_delegate"
@@ -53,6 +54,7 @@ type LocalState = {
   vaultPubkey: string;
   vaultUsdcAta: string;
   walletAddress: string;
+  walletBalanceFloorRaw: string;
   walletUsdcAta: string;
 };
 
@@ -66,6 +68,8 @@ type Args = {
   eventsUrl?: string;
   expectedReason?: string;
   output: string;
+  pendingFloorReady?: string;
+  postgresUrl?: string;
   rpcUrl?: string;
   state?: string;
   treasury?: string;
@@ -95,6 +99,8 @@ function parseArgs(argv: string[]): { command: string; args: Args } {
       eventsUrl: values["events-url"],
       expectedReason: values["expected-reason"],
       output: values.output,
+      pendingFloorReady: values["pending-floor-ready"],
+      postgresUrl: values["postgres-url"],
       rpcUrl: values["rpc-url"],
       state: values.state,
       treasury: values.treasury,
@@ -263,6 +269,7 @@ async function setup(args: Args) {
   );
 
   const transactions: RecordedTransaction[] = [];
+  const walletBalanceFloorRaw = BigInt(2_000_000);
   const nonce = BigInt(42);
   let policySeed: bigint | undefined;
   let completedState: LocalState | null = null;
@@ -273,7 +280,7 @@ async function setup(args: Args) {
       cluster: LoyalCluster.MainnetBeta,
       expiryTimestamp: BigInt(0),
       feePayer: wallet.publicKey,
-      minimumDelegatorBalanceRaw: BigInt(0),
+      minimumDelegatorBalanceRaw: walletBalanceFloorRaw,
       nonce,
       periodLengthSeconds: BigInt(3600),
       policySeed,
@@ -374,6 +381,7 @@ async function setup(args: Args) {
           vaultPubkey: stage.persistence.vaultPubkey,
           vaultUsdcAta: stage.persistence.vaultUsdcAta,
           walletAddress: wallet.publicKey.toBase58(),
+          walletBalanceFloorRaw: walletBalanceFloorRaw.toString(),
           walletUsdcAta: stage.persistence.walletUsdcAta,
         };
       }
@@ -491,13 +499,56 @@ function issueLocalToken(state: LocalState, authSecret: string): string {
 
 async function listen(args: Args) {
   if (
-    !(args.authSecret && args.eventsUrl && args.expectedReason && args.state)
+    !(
+      args.authSecret &&
+      args.eventsUrl &&
+      args.expectedReason &&
+      args.pendingFloorReady &&
+      args.postgresUrl &&
+      args.state
+    )
   ) {
     throw new Error(
-      "listen requires --auth-secret, --events-url, --expected-reason, and --state."
+      "listen requires auth, events, pending-floor, PostgreSQL, and state arguments."
     );
   }
+  const pendingFloorReady = args.pendingFloorReady;
+  const postgresUrl = args.postgresUrl;
   const state = JSON.parse(await readFile(args.state, "utf8")) as LocalState;
+  process.env.NEON_DATABASE_URL = postgresUrl;
+  process.env.YIELD_OPTIMIZATION_LOCAL_DATABASE_URL = postgresUrl;
+  const repository = await import(
+    "../src/lib/yield-optimization/earn-autodeposit-repository.server"
+  );
+  const { serializeAutodepositState } = await import(
+    "../src/lib/yield-optimization/earn-state-serializers.server"
+  );
+  const persistFloor = async () => {
+    for (let attempt = 0; attempt < 600; attempt += 1) {
+      try {
+        await repository.updateAutodepositWalletBalanceFloor({
+          policyAccount: state.policyAccount,
+          recurringDelegation: state.recurringDelegation,
+          settings: state.settingsPda,
+          vaultIndex: 1,
+          walletAddress: state.walletAddress,
+          walletBalanceFloorRaw: BigInt(state.walletBalanceFloorRaw),
+        });
+        await writeFile(pendingFloorReady, "ready\n");
+        return;
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "Autodeposit target does not exist."
+        ) {
+          await Bun.sleep(100);
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Web did not find the pending Autodeposit target.");
+  };
   const response: EarnRealtimeTokenResponse = {
     accessToken: issueLocalToken(state, args.authSecret),
     eventsUrl: args.eventsUrl,
@@ -506,6 +557,11 @@ async function listen(args: Args) {
   };
   const controller = new AbortController();
   let matched = false;
+  let floorError: unknown;
+  const floorUpdate = persistFloor().catch((error) => {
+    floorError = error;
+    controller.abort();
+  });
   const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
     await consumeEarnRealtimeStream({
@@ -534,25 +590,67 @@ async function listen(args: Args) {
       signal: controller.signal,
     });
   } catch (error) {
-    if (
-      !(
-        matched &&
-        typeof error === "object" &&
-        error !== null &&
-        "name" in error &&
-        error.name === "AbortError"
-      )
-    ) {
+    const aborted =
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "AbortError";
+    if (!(aborted && (matched || floorError))) {
       throw error;
     }
   } finally {
     clearTimeout(timeout);
   }
   if (!matched) {
+    if (floorError) {
+      throw floorError;
+    }
     throw new Error(
       `Web SSE consumer did not receive ${args.expectedReason} Autodeposit state.`
     );
   }
+  await floorUpdate;
+  if (floorError) {
+    throw floorError;
+  }
+  const current = await repository.findCurrentEarnAutodepositState({
+    settings: state.settingsPda,
+    vaultIndex: 1,
+    walletAddress: state.walletAddress,
+  });
+  if (!current) {
+    throw new Error("SSE refresh did not load an Autodeposit target.");
+  }
+  const loaded = serializeAutodepositState({
+    ...current,
+    depositedThisPeriodRaw: BigInt(0),
+    scheduledSweeps: [],
+  });
+  const config = earnAutodepositConfigFromLoadedState(loaded);
+  if (!(config && config.state === "created" && config.keepAmount === "2")) {
+    throw new Error("SSE refresh did not load the active Autodeposit floor.");
+  }
+  const toggle = resolveEarnAutodepositTogglePresentation(config.state);
+  const output = JSON.parse(await readFile(args.output, "utf8")) as Record<
+    string,
+    unknown
+  >;
+  await writeFile(
+    args.output,
+    JSON.stringify(
+      {
+        ...output,
+        ui: {
+          isOn: toggle.isOn,
+          isPending: toggle.isPending,
+          keepAmount: config.keepAmount,
+          state: config.state,
+        },
+      },
+      null,
+      2
+    )
+  );
 }
 
 const { command, args } = parseArgs(process.argv.slice(2));
@@ -560,4 +658,8 @@ if (command === "setup") {
   await setup(args);
 } else {
   await listen(args);
+  // The local PostgreSQL adapter keeps a pooled socket open. The verifier has
+  // completed all writes and assertions at this point, so close the process
+  // instead of leaving the shell harness waiting on that idle socket.
+  process.exit(0);
 }
