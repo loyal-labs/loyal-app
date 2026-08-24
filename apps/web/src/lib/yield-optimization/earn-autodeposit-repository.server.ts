@@ -2285,13 +2285,52 @@ export async function updateAutodepositWalletBalanceFloor(
   if (existing.lifecycleStatus === "closed") {
     throw new Error("Closed autodeposit targets cannot be updated.");
   }
-  if (!existing.active || existing.lifecycleStatus !== "active") {
+  if (!existing.active) {
     throw new Error("Pending autodeposit targets cannot be updated.");
   }
   if (
-    !existing.recurringDelegation ||
+    existing.recurringDelegation &&
     existing.recurringDelegation !== input.recurringDelegation
   ) {
+    throw new Error("Autodeposit recurring delegation does not match target.");
+  }
+  if (existing.lifecycleStatus === "pending") {
+    const updated = await client.db.execute(sql`
+      UPDATE ${balanceSweepTargets}
+      SET wallet_balance_floor_raw = ${input.walletBalanceFloorRaw}
+      WHERE ${balanceSweepTargets.id} = ${existing.id}
+        AND ${balanceSweepTargets.policyAccount} = ${input.policyAccount}
+        AND ${balanceSweepTargets.settings} = ${input.settings}
+        AND ${balanceSweepTargets.wallet} = ${input.walletAddress}
+        AND ${balanceSweepTargets.vaultIndex} = ${input.vaultIndex}
+        AND ${balanceSweepTargets.active} = true
+        AND ${balanceSweepTargets.lifecycleStatus} = 'pending'
+        AND (
+          ${balanceSweepTargets.recurringDelegation} IS NULL
+          OR ${balanceSweepTargets.recurringDelegation} = ${input.recurringDelegation}
+        )
+      RETURNING ${balanceSweepTargets.id}
+    `);
+    if (getExecuteRows(updated).length !== 1) {
+      throw new Error(
+        "Failed to update pending autodeposit wallet balance floor."
+      );
+    }
+    return {
+      rebaselineSweep: {
+        reason: "wallet_balance_projection_missing",
+        status: "skipped",
+      },
+      target: {
+        ...existing,
+        walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+      },
+    };
+  }
+  if (existing.lifecycleStatus !== "active") {
+    throw new Error("Pending autodeposit targets cannot be updated.");
+  }
+  if (!existing.recurringDelegation) {
     throw new Error("Autodeposit recurring delegation does not match target.");
   }
 
