@@ -89,6 +89,7 @@ import {
   isStablecoinMint,
 } from "@/lib/wallet/stablecoin-classification";
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
+import { sendEarnAutodepositSetupBatch } from "@/lib/yield-optimization/earn-autodeposit-client-flow";
 import {
   EarnPrepareRequestError,
   fetchEarnPrepare,
@@ -7763,12 +7764,10 @@ export function useSmartAccountSidebarData(
             try {
               // Keep the one-prompt signAll UX. Solana confirmation proves
               // transaction success; LaserStream owns the backend projection.
-              await sendPreparedBatchWithWallet({
+              await sendEarnAutodepositSetupBatch({
                 connection,
                 wallet: walletBridge,
                 prepared: batchPreparedSetups.map((setup) => setup.prepared),
-                confirm: true,
-                sendMode: "send-all-before-confirm",
                 onTransactionSent: ({ index }) => {
                   request.onWalletSubmitted?.();
                   const sentSetup = batchPreparedSetups[index];
