@@ -7,7 +7,8 @@
   "include": [
     "next-env.d.ts",
     "src/app/api/smart-accounts/earn-max/**/*.ts",
-    "src/features/earn-max/**/*.ts"
+    "src/features/earn-max/**/*.ts",
+    "src/components/wallet-workspace/facelift/earn-max-pane.tsx"
   ],
   "exclude": ["**/*.test.ts", "**/*.test.tsx"]
 }

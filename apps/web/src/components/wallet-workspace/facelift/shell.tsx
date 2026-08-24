@@ -20,6 +20,7 @@ import {
 } from "@/components/wallet-workspace/facelift/earn-chart-pane";
 import { startEarnEarningsPrefetch } from "@/components/wallet-workspace/facelift/earn-earnings-prefetch";
 import { EarnEmptyPane } from "@/components/wallet-workspace/facelift/earn-empty-pane";
+import { EarnMaxPage } from "@/components/wallet-workspace/facelift/earn-max-pane";
 import { EarnToastHost } from "@/components/wallet-workspace/facelift/earn-toast";
 import { EarnStatsPanel } from "@/components/wallet-workspace/facelift/earn-stats-panel";
 import { EarnPositionPane } from "@/components/wallet-workspace/facelift/earn-position-pane";
@@ -42,6 +43,7 @@ import { WalletHomePage } from "@/components/wallet-workspace/facelift/wallet-ho
 import { WithdrawPane } from "@/components/wallet-workspace/facelift/withdraw-pane";
 import { usePublicEnv } from "@/contexts/public-env-context";
 import { useSignInModal } from "@/contexts/sign-in-modal-context";
+import { useEarnMax } from "@/features/earn-max";
 import { useAuthCapability } from "@/lib/auth/capability";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
@@ -52,6 +54,7 @@ export type WorkspacePage =
   | "stables"
   | "activity"
   | "earn"
+  | "earnmax"
   | "wallet";
 
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit" | "autoswap";
@@ -62,6 +65,7 @@ const WORKSPACE_PAGES: WorkspacePage[] = [
   "stables",
   "activity",
   "earn",
+  "earnmax",
   "wallet",
 ];
 
@@ -70,6 +74,7 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
   a: "activity",
   c: "crypto",
   e: "earn",
+  m: "earnmax",
   s: "stables",
 };
 
@@ -151,6 +156,10 @@ export function WorkspaceFaceliftShell() {
   // so the mobile tab bar's clock shows the same badge.
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const earnData = useEarnPositionData();
+  const earnMax = useEarnMax({
+    settingsPda: earnData.settingsPda,
+    walletAddress: earnData.walletAddress,
+  });
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
   // Send/Swap/Shield screens — including re-selecting the page it's already on.
   const [navigationNonce, setNavigationNonce] = useState(0);
@@ -359,8 +368,11 @@ export function WorkspaceFaceliftShell() {
         <FaceliftSidebar
           activePage={activePage}
           earnBalanceUsd={earnData.earnBalanceUsd}
+          earnMaxBalanceUsd={earnMax.view.balanceUsd}
+          earnMaxForecastApyBps={earnMax.view.forecastApyBps}
           flashedShortcut={flashedShortcut}
           isEarnBalanceLoading={isPositionLoading}
+          isEarnMaxBalanceLoading={earnMax.view.isLoading}
           onSelectPage={handleSelectPage}
           onUnseenActivityChange={setHasUnseenActivity}
         />
@@ -372,7 +384,10 @@ export function WorkspaceFaceliftShell() {
           {activePage === "wallet" ? (
             <WalletHomePage
               earnBalanceUsd={earnData.earnBalanceUsd}
+              earnMaxBalanceUsd={earnMax.view.balanceUsd}
+              earnMaxForecastApyBps={earnMax.view.forecastApyBps}
               isEarnBalanceLoading={isPositionLoading}
+              isEarnMaxBalanceLoading={earnMax.view.isLoading}
               onSelectPage={handleSelectPage}
               onSetUpAutodeposit={() => {
                 setActivePage("earn");
@@ -387,6 +402,8 @@ export function WorkspaceFaceliftShell() {
               settingsPda={earnData.settingsPda}
               walletAddress={earnData.walletAddress}
             />
+          ) : activePage === "earnmax" ? (
+            <EarnMaxPage actions={earnMax.actions} view={earnMax.view} />
           ) : activePage !== "earn" ? (
             <CryptoPage
               navigationNonce={navigationNonce}

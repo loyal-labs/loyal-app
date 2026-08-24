@@ -9,7 +9,7 @@ const EARN_MAX_VAULT_INDEX = 0;
 type QueryResult = { rows?: unknown[] } | unknown[];
 
 function rows(result: QueryResult): Record<string, unknown>[] {
-  const values = Array.isArray(result) ? result : (result.rows ?? []);
+  const values = Array.isArray(result) ? result : result.rows ?? [];
   return values.filter(
     (value): value is Record<string, unknown> =>
       typeof value === "object" && value !== null
@@ -106,11 +106,21 @@ export async function readEarnMaxState(settings: string) {
   return rows(result as QueryResult)[0] ?? null;
 }
 
-export async function readEarnMaxHistory(settings: string) {
+export async function readEarnMaxActivity(settings: string) {
   const client = getYieldOptimizationClient();
   const [operationsResult, snapshotsResult] = await Promise.all([
     client.db.execute(sql`
-      SELECT operation.*
+      SELECT
+        operation.operation_id,
+        operation.action,
+        operation.strategy_key,
+        operation.status,
+        operation.transaction_signature,
+        operation.source_instruction_index,
+        operation.confirmed_slot,
+        operation.expected_effects,
+        operation.created_at,
+        operation.updated_at
       FROM loyal_yield.multiply_operations operation
       INNER JOIN loyal_yield.multiply_route_states route
         ON route.route_key = operation.route_key
@@ -120,7 +130,21 @@ export async function readEarnMaxHistory(settings: string) {
       LIMIT 100
     `),
     client.db.execute(sql`
-      SELECT snapshot.*
+      SELECT
+        snapshot.id,
+        snapshot.generation,
+        snapshot.observed_slot,
+        snapshot.observed_at,
+        snapshot.strategy_key,
+        snapshot.equity_usd_micros,
+        snapshot.leverage_bps,
+        snapshot.ltv_bps,
+        snapshot.health_factor_ppm,
+        snapshot.forecast_apy_bps,
+        snapshot.valuation_source,
+        snapshot.valuation_slot,
+        snapshot.valuation_observed_at,
+        snapshot.coverage_start_at
       FROM loyal_yield.multiply_position_snapshots snapshot
       INNER JOIN loyal_yield.multiply_route_states route
         ON route.route_key = snapshot.route_key
@@ -136,122 +160,19 @@ export async function readEarnMaxHistory(settings: string) {
   };
 }
 
-type WithdrawalRequest = {
-  amountRaw: bigint | "max";
-  destination: string;
-  idempotencyKey: string;
-  settings: string;
-};
-
-function numericBigInt(value: unknown): bigint | null {
-  if (typeof value === "bigint") return value;
-  if (typeof value === "number" && Number.isSafeInteger(value)) {
-    return BigInt(value);
-  }
-  if (typeof value === "string" && /^\d+$/.test(value)) {
-    return BigInt(value);
-  }
-  return null;
-}
-
-export class EarnMaxWithdrawalConflict extends Error {}
-
-export async function requestEarnMaxWithdrawal(input: WithdrawalRequest) {
-  const client = getYieldOptimizationClient();
-  const currentResult = await client.db.execute(sql`
-    SELECT route_key, state, state_version
-    FROM loyal_yield.multiply_route_states
-    WHERE settings = ${input.settings}
-      AND vault_index = ${EARN_MAX_VAULT_INDEX}
-    LIMIT 1
-  `);
-  const current = rows(currentResult as QueryResult)[0];
-  if (!current) throw new Error("Earn MAX route is not ready.");
-  const state = current.state;
-  if (typeof state !== "object" || state === null) {
-    throw new Error("Earn MAX route state is invalid.");
-  }
-  const routeState = state as Record<string, unknown>;
-  const existing = routeState.withdrawal;
-  if (typeof existing === "object" && existing !== null) {
-    const withdrawal = existing as Record<string, unknown>;
-    if (withdrawal.requestId === input.idempotencyKey) {
-      return routeState;
-    }
-    if (withdrawal.status !== "claimed") {
-      throw new EarnMaxWithdrawalConflict(
-        "Another Earn MAX withdrawal is already active."
-      );
-    }
-  }
-  if (routeState.currentOperationId !== null) {
-    throw new EarnMaxWithdrawalConflict(
-      "Earn MAX is finishing another capital movement."
-    );
-  }
-
-  let amountRaw = input.amountRaw;
-  if (amountRaw === "max") {
-    const latestResult = await client.db.execute(sql`
-      SELECT equity_usd_micros
-      FROM loyal_yield.multiply_position_snapshots
-      WHERE route_key = ${String(current.route_key)}
-      ORDER BY observed_slot DESC, id DESC
-      LIMIT 1
-    `);
-    const latest = rows(latestResult as QueryResult)[0];
-    amountRaw = numericBigInt(latest?.equity_usd_micros) ?? BigInt(0);
-  }
-  if (amountRaw <= BigInt(0) || amountRaw > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error("Earn MAX withdrawal amount is unavailable or out of range.");
-  }
-
-  const requestedAt = new Date();
-  const claimableAt = new Date(requestedAt.getTime() + 10 * 60 * 1000);
-  const generation = numericBigInt(routeState.generation);
-  const stateVersion = numericBigInt(current.state_version);
-  if (generation === null || stateVersion === null || generation !== stateVersion) {
-    throw new Error("Earn MAX route generation drifted.");
-  }
-  const nextGeneration = generation + BigInt(1);
-  const next = {
-    ...routeState,
-    generation: Number(nextGeneration),
-    goal: "withdraw",
-    withdrawal: {
-      amountRaw: Number(amountRaw),
-      claimSignature: null,
-      claimableAt: claimableAt.toISOString(),
-      destinationAccount: input.destination,
-      requestId: input.idempotencyKey,
-      requestedAt: requestedAt.toISOString(),
-      status: "requested",
-      unwindCompletedAt: null,
-    },
-    frontend: {
-      ...(routeState.frontend as Record<string, unknown>),
-      generation: Number(nextGeneration),
-      status: "withdrawing",
-      withdrawalStatus: "requested",
-    },
+export async function readEarnMaxPerformance(settings: string) {
+  const state = await readEarnMaxState(settings);
+  if (!state) return null;
+  return {
+    coverage_start_at: state.coverage_start_at,
+    earned_usd_micros: state.earned_usd_micros,
+    equity_usd_micros: state.equity_usd_micros,
+    forecast_apy_bps: state.forecast_apy_bps,
+    performance_coverage: state.performance_coverage,
+    realized_apy_bps: state.realized_apy_bps,
+    valuation_observed_at: state.valuation_observed_at,
+    valuation_slot: state.valuation_slot,
   };
-  const updateResult = await client.db.execute(sql`
-    UPDATE loyal_yield.multiply_route_states
-    SET state = ${JSON.stringify(next)}::jsonb,
-        state_version = state_version + 1,
-        updated_at = now()
-    WHERE route_key = ${String(current.route_key)}
-      AND state_version = ${stateVersion}
-      AND state ->> 'currentOperationId' IS NULL
-    RETURNING state
-  `);
-  const updated = rows(updateResult as QueryResult)[0];
-  if (!updated) {
-    throw new EarnMaxWithdrawalConflict(
-      "Earn MAX state changed while requesting withdrawal."
-    );
-  }
-  return updated.state;
 }
 
 export { EARN_MAX_VAULT_INDEX };

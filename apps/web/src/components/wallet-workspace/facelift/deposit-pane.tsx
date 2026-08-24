@@ -236,7 +236,8 @@ export function DepositPane({
   const amountLabel = amountUsd.toLocaleString("en-US", {
     maximumFractionDigits: 2,
   });
-  const isBelowMinimum = amountUsd < MIN_DEPOSIT_USD;
+  const minDepositUsd = MIN_DEPOSIT_USD;
+  const isBelowMinimum = amountUsd < minDepositUsd;
   const isInsufficient = !isBelowMinimum && amountUsd > sourceUsd;
   const isValidAmount = !(isBelowMinimum || isInsufficient);
   const isSubmitting = actions.isDepositPending;
@@ -539,8 +540,8 @@ export function DepositPane({
                   to Earn
                 </span>
                 <span className="flex items-center">
-                  {/* Skeleton the badge until the real APY lands, then reveal
-                    + pop — the fallback APY would otherwise flash. */}
+                  {/* Skeleton the badge until the real APY lands, then
+                    reveal + pop — the fallback APY would otherwise flash. */}
                   <SkeletonReveal
                     isRevealed={isApyLoaded}
                     skeletonClassName="rounded-lg bg-accent-selected"
@@ -600,7 +601,9 @@ export function DepositPane({
                   ? "Insufficient balance"
                   : isValidAmount
                   ? `Deposit ${amountLabel} ${selectedSource.symbol}`
-                  : `Minimum deposit is $${MIN_DEPOSIT_USD}`
+                  : `Minimum deposit is $${minDepositUsd.toLocaleString(
+                      "en-US"
+                    )}`
               }
             />
           </button>

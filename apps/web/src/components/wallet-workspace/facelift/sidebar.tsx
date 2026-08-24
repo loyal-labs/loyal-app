@@ -2,7 +2,13 @@
 
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Moon, Sun } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   ScrambledPopDigits,
@@ -129,16 +135,22 @@ function ShortcutKey({
 export function FaceliftSidebar({
   activePage,
   earnBalanceUsd,
+  earnMaxBalanceUsd,
+  earnMaxForecastApyBps,
   flashedShortcut,
   isEarnBalanceLoading,
+  isEarnMaxBalanceLoading,
   onSelectPage,
   onUnseenActivityChange,
 }: {
   activePage: WorkspacePage;
   earnBalanceUsd: number;
+  earnMaxBalanceUsd: number;
+  earnMaxForecastApyBps: number | null;
   /** Section whose shortcut key was just pressed — flashes its kbd hint. */
   flashedShortcut: WorkspacePage | null;
   isEarnBalanceLoading: boolean;
+  isEarnMaxBalanceLoading: boolean;
   onSelectPage: (page: WorkspacePage) => void;
   onUnseenActivityChange?: (hasUnseen: boolean) => void;
 }) {
@@ -233,8 +245,15 @@ export function FaceliftSidebar({
   const stablecoinsBalance = splitUsdBalance(stablecoinsUsd);
   const cryptoBalance = splitUsdBalance(cryptoUsd);
   const earnBalance = splitUsdBalance(earnBalanceUsd);
-  // Wallet total (stablecoins + crypto) plus the Earn position.
-  const totalBalance = splitUsdBalance(data.totalUsd + earnBalanceUsd);
+  const earnMaxBalance = splitUsdBalance(earnMaxBalanceUsd);
+  const earnMaxApyLabel =
+    earnMaxForecastApyBps === null
+      ? "—"
+      : `${(earnMaxForecastApyBps / 100).toFixed(2)}% APY`;
+  // Wallet total plus both independently projected Earn products.
+  const totalBalance = splitUsdBalance(
+    data.totalUsd + earnBalanceUsd + earnMaxBalanceUsd
+  );
 
   const addressLabel = data.walletAddress
     ? `${data.walletAddress.slice(0, 4)}…${data.walletAddress.slice(-4)}`
@@ -251,7 +270,9 @@ export function FaceliftSidebar({
     isHydrated &&
     (!isSignedIn || (data.walletAddress !== null && !data.isLoading));
   const isEarnBalanceRevealed = !isEarnBalanceLoading;
-  const isTotalRevealed = isWalletDataRevealed && isEarnBalanceRevealed;
+  const isEarnMaxBalanceRevealed = !isEarnMaxBalanceLoading;
+  const isTotalRevealed =
+    isWalletDataRevealed && isEarnBalanceRevealed && isEarnMaxBalanceRevealed;
   const hasReportedBalancesReadyRef = useRef(false);
   useEffect(() => {
     if (
@@ -322,9 +343,7 @@ export function FaceliftSidebar({
             <button
               aria-label="Activity"
               className={`t-hover relative flex size-11 items-center justify-center rounded-3xl ${
-                activePage === "activity"
-                  ? "bg-accent"
-                  : "hover:bg-accent"
+                activePage === "activity" ? "bg-accent" : "hover:bg-accent"
               }`}
               onClick={() => onSelectPage("activity")}
               type="button"
@@ -453,11 +472,55 @@ export function FaceliftSidebar({
           </span>
         </button>
 
+        {/* Earn MAX values come from the confirmed projection read model. */}
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
-            activePage === "stables"
-              ? "bg-accent"
-              : "hover:bg-accent"
+            activePage === "earnmax" ? "bg-accent" : "hover:bg-accent"
+          }`}
+          onClick={() => onSelectPage("earnmax")}
+          type="button"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt=""
+            aria-hidden="true"
+            className="mr-3 size-11 shrink-0"
+            src={`${ASSET_BASE}/earn-max-icon.svg`}
+          />
+          <span className="flex min-w-0 flex-1 flex-col gap-1 py-2">
+            <span className="flex items-center gap-1">
+              <span className="whitespace-nowrap text-[13px] leading-4 text-muted-foreground">
+                Earn MAX
+              </span>
+              <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  alt=""
+                  aria-hidden="true"
+                  className="h-3 w-2"
+                  src="/wallet-workspace/earn-flash.svg"
+                />
+                <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                  {earnMaxApyLabel}
+                </span>
+              </span>
+              <ShortcutKey
+                isFlashed={flashedShortcut === "earnmax"}
+                letter="M"
+              />
+            </span>
+            <SplitAmount
+              fraction={earnMaxBalance.balanceFraction}
+              isHidden={isBalanceHidden}
+              isRevealed={isEarnMaxBalanceRevealed}
+              whole={earnMaxBalance.balanceWhole}
+            />
+          </span>
+        </button>
+
+        <button
+          className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
+            activePage === "stables" ? "bg-accent" : "hover:bg-accent"
           }`}
           onClick={() => onSelectPage("stables")}
           type="button"
@@ -490,9 +553,7 @@ export function FaceliftSidebar({
 
         <button
           className={`t-hover group flex w-full items-center rounded-2xl px-4 text-left ${
-            activePage === "crypto"
-              ? "bg-accent"
-              : "hover:bg-accent"
+            activePage === "crypto" ? "bg-accent" : "hover:bg-accent"
           }`}
           onClick={() => onSelectPage("crypto")}
           type="button"
@@ -612,13 +673,21 @@ export function FaceliftSidebar({
                   data-icon="a"
                   role="img"
                   aria-label="Copy address"
-                  style={{ "--icon": `url("${ASSET_BASE}/icon-copy.svg")` } as CSSProperties}
+                  style={
+                    {
+                      "--icon": `url("${ASSET_BASE}/icon-copy.svg")`,
+                    } as CSSProperties
+                  }
                 />
                 <span
                   aria-hidden="true"
                   className="t-icon icon-themed size-6 text-tertiary"
                   data-icon="b"
-                  style={{ "--icon": `url("${ASSET_BASE}/icon-check.svg")` } as CSSProperties}
+                  style={
+                    {
+                      "--icon": `url("${ASSET_BASE}/icon-check.svg")`,
+                    } as CSSProperties
+                  }
                 />
               </span>
             </span>
@@ -642,7 +711,9 @@ export function FaceliftSidebar({
               />
             </button>
             <button
-              aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
+              aria-label={
+                isDark ? "Switch to light theme" : "Switch to dark theme"
+              }
               className="t-hover flex size-11 items-center justify-center rounded-3xl text-tertiary hover:bg-accent"
               onClick={(event) => {
                 // Wipe from the toggle itself (also right for keyboard
@@ -655,7 +726,11 @@ export function FaceliftSidebar({
               }}
               type="button"
             >
-              {isDark ? <Sun className="size-6" /> : <Moon className="size-6" />}
+              {isDark ? (
+                <Sun className="size-6" />
+              ) : (
+                <Moon className="size-6" />
+              )}
             </button>
           </div>
 
