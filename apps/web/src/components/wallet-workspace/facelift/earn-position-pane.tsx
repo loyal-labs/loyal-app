@@ -27,6 +27,7 @@ import { ThemedIcon } from "@/components/wallet-workspace/facelift/themed-icon";
 import { useEarnForecastApyStatus } from "@/components/wallet-workspace/facelift/use-earn-forecast-apy-status";
 import type { EarnPositionData } from "@/components/wallet-workspace/facelift/use-earn-position-data";
 import { formatEarnApyLabel } from "@/lib/kamino/earn-forecast.shared";
+import { resolveEarnAutodepositTogglePresentation } from "@/lib/yield-optimization/earn-autodeposit-client-flow";
 import { formatAutodepositUsdLabel } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import type { EarnTransactionItem } from "@/lib/yield-optimization/earn-transactions.client";
 
@@ -71,15 +72,13 @@ export function EarnPositionPane({
   // while toggling the knob optimistically shows the target position and the
   // hook reverts the state on failure.
   const autodepositState = autodeposit?.state ?? null;
-  const isAutodepositToggling =
-    autodepositState === "pausing" || autodepositState === "resuming";
+  const autodepositToggle = autodepositState
+    ? resolveEarnAutodepositTogglePresentation(autodepositState)
+    : null;
+  const isAutodepositToggling = autodepositToggle?.isPending ?? false;
   const autodepositLabel = autodeposit
-    ? autodepositState === "pausing"
-      ? "Pausing…"
-      : autodepositState === "resuming"
-      ? "Resuming…"
-      : autodepositState === "paused"
-      ? "Paused"
+    ? autodepositToggle?.label
+      ? autodepositToggle.label
       : `Anything above ${formatAutodepositUsdLabel(autodeposit.keepAmount)}`
     : "Start earning the moment your money arrives";
   const autodepositLabelHasAmount = Boolean(
@@ -242,19 +241,14 @@ export function EarnPositionPane({
                     />
                   </button>
                   <AutodepositToggle
-                    disabled={
-                      autodeposit.state === "creating" || isAutodepositToggling
+                    disabled={autodepositToggle?.disabled}
+                    isOn={autodepositToggle?.isOn ?? false}
+                    isPending={autodepositToggle?.isPending}
+                    onToggle={
+                      autodepositToggle?.opensSetup
+                        ? onOpenAutodeposit
+                        : data.toggleAutodeposit
                     }
-                    isOn={
-                      isAutodepositToggling
-                        ? autodeposit.state === "resuming"
-                        : autodeposit.state !== "creating" &&
-                          autodeposit.state !== "paused"
-                    }
-                    isPending={
-                      isAutodepositToggling || autodeposit.state === "creating"
-                    }
-                    onToggle={data.toggleAutodeposit}
                   />
                 </div>
               ) : (
