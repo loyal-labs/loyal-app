@@ -253,7 +253,12 @@ export async function prepareTransaction(request: Request) {
 
     if (parsed.action === "claim") {
       const withdrawal = record(route.withdrawal);
-      const amountRaw = rawAmount(withdrawal?.amountRaw);
+      const requestedAmountRaw = rawAmount(withdrawal?.amountRaw);
+      const availableAmountRaw = rawAmount(state.claim_raw);
+      let amountRaw: bigint | null = null;
+      if (requestedAmountRaw !== null && availableAmountRaw !== null) {
+        amountRaw = requestedAmountRaw < availableAmountRaw ? requestedAmountRaw : availableAmountRaw;
+      }
       if (withdrawal?.status !== "claimable" || !amountRaw || amountRaw <= BigInt(0)) {
         return jsonError(409, "earn_max_not_claimable", "The withdrawal is not claimable yet.");
       }
