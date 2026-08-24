@@ -647,6 +647,26 @@ export async function buildEarnMaxDepositInstructions(input: {
           owner: input.feePayer,
           source: associatedToken(input.feePayer, topology.claimMint),
         }),
+        earnMaxCashFlowMemo({
+          accounts: [
+            { pubkey: input.feePayer, isSigner: true, isWritable: false },
+            { pubkey: input.settings, isSigner: false, isWritable: false },
+            {
+              pubkey: topology.claimCustody,
+              isSigner: false,
+              isWritable: false,
+            },
+            {
+              pubkey: associatedToken(input.feePayer, topology.claimMint),
+              isSigner: false,
+              isWritable: false,
+            },
+            { pubkey: input.programId, isSigner: false, isWritable: false },
+          ],
+          value: `loyal:earn-max:v1:deposit:${
+            input.amountRaw
+          }:${input.settings.toBase58()}`,
+        }),
       ],
       operation: "earnMaxDeposit",
       payer: input.feePayer,
@@ -676,6 +696,19 @@ function earnMaxIntent(
     // carry the vault through the writable-signer account class.
     keys: [{ pubkey: vault, isSigner: true, isWritable: true }],
     data: Buffer.from(value, "utf8"),
+  });
+}
+
+function earnMaxCashFlowMemo(input: {
+  accounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+  value: string;
+}): TransactionInstruction {
+  if (Buffer.byteLength(input.value) > 220)
+    throw new Error("Earn MAX cash-flow evidence is too large.");
+  return new TransactionInstruction({
+    programId: MEMO,
+    keys: input.accounts,
+    data: Buffer.from(input.value, "utf8"),
   });
 }
 
@@ -734,6 +767,7 @@ export async function buildEarnMaxClaimInstructions(input: {
   connection: Connection;
   feePayer: PublicKey;
   programId: PublicKey;
+  requestId: string;
   settings: PublicKey;
 }): Promise<{ destination: PublicKey; operation: EarnMaxClientOperation }> {
   const topology = deriveEarnMaxTopology(input.settings);
@@ -751,6 +785,21 @@ export async function buildEarnMaxClaimInstructions(input: {
           mint: topology.claimMint,
           owner: topology.vault,
           source: topology.claimCustody,
+        }),
+        earnMaxCashFlowMemo({
+          accounts: [
+            { pubkey: topology.vault, isSigner: true, isWritable: true },
+            { pubkey: input.settings, isSigner: false, isWritable: false },
+            {
+              pubkey: topology.claimCustody,
+              isSigner: false,
+              isWritable: false,
+            },
+            { pubkey: destination, isSigner: false, isWritable: false },
+          ],
+          value: `loyal:earn-max:v1:claim:${requestId(input.requestId)}:${
+            input.amountRaw
+          }:${destination.toBase58()}:${input.settings.toBase58()}`,
         }),
       ],
     }),

@@ -4,6 +4,13 @@ import { sql } from "drizzle-orm";
 
 import { getYieldOptimizationClient } from "@/lib/yield-optimization/yield-neon-client.server";
 
+import type {
+  EarnMaxActivityResponse,
+  EarnMaxPolicyBinding,
+  EarnMaxSummary,
+  EarnMaxWithdrawalView,
+} from "../types";
+
 const EARN_MAX_VAULT_INDEX = 0;
 
 type QueryResult = { rows?: unknown[] } | unknown[];
@@ -16,34 +23,77 @@ function rows(result: QueryResult): Record<string, unknown>[] {
   );
 }
 
-export async function readEarnMaxState(settings: string) {
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function rawString(value: unknown): string {
+  return typeof value === "bigint" || typeof value === "number"
+    ? String(value)
+    : typeof value === "string" && /^-?\d+$/.test(value)
+    ? value
+    : "0";
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function dollars(value: unknown): number {
+  return Number(BigInt(rawString(value))) / 1_000_000;
+}
+
+function policyBindings(value: unknown): EarnMaxPolicyBinding[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const binding = record(entry);
+    if (!binding || typeof binding.account !== "string") return [];
+    return [
+      {
+        account: binding.account,
+        matches: binding.matches === true,
+        seed: rawString(binding.seed),
+      },
+    ];
+  });
+}
+
+function withdrawalView(
+  route: Record<string, unknown> | null
+): EarnMaxWithdrawalView | null {
+  const withdrawal = record(route?.withdrawal);
+  const status = withdrawal?.status;
+  if (
+    !withdrawal ||
+    !["requested", "unwinding", "claimable", "claimed"].includes(String(status))
+  ) {
+    return null;
+  }
+  return {
+    amountRaw: rawString(withdrawal.amountRaw),
+    canCancel: status === "requested" && route?.currentOperationId === null,
+    canClaim: status === "claimable",
+    readyBy: String(withdrawal.readyBy ?? ""),
+    requestId: String(withdrawal.requestId ?? ""),
+    status: status as EarnMaxWithdrawalView["status"],
+  };
+}
+
+export async function readEarnMaxSummary(
+  settings: string
+): Promise<EarnMaxSummary | null> {
   const result = await getYieldOptimizationClient().db.execute(sql`
     SELECT
-      route.route_key,
       route.state,
-      route.state_version,
-      route.updated_at,
-      policy.manifest_version,
-      policy.manifest_sha256,
       policy.status AS policy_status,
       policy.policy_accounts,
-      policy.observed_signature AS policy_observed_signature,
-      policy.observed_slot AS policy_observed_slot,
       snapshot.equity_usd_micros,
       snapshot.claim_raw,
-      snapshot.collateral_raw,
-      snapshot.debt_raw,
-      snapshot.collateral_value_usd_micros,
-      snapshot.debt_value_usd_micros,
-      snapshot.leverage_bps,
-      snapshot.ltv_bps,
-      snapshot.health_factor_ppm,
-      snapshot.supply_apy_bps,
-      snapshot.borrow_apy_bps,
       snapshot.forecast_apy_bps,
-      snapshot.valuation_source,
-      snapshot.valuation_slot,
-      snapshot.valuation_observed_at,
       snapshot.coverage_start_at,
       cash.confirmed_deposit_raw,
       cash.confirmed_claim_raw,
@@ -103,24 +153,44 @@ export async function readEarnMaxState(settings: string) {
       AND policy.vault_index = ${EARN_MAX_VAULT_INDEX}
     LIMIT 1
   `);
-  return rows(result as QueryResult)[0] ?? null;
+  const row = rows(result as QueryResult)[0];
+  if (!row) return null;
+  const route = record(row.state);
+  return {
+    balanceUsd: dollars(row.equity_usd_micros),
+    claimAmountRaw: rawString(row.claim_raw),
+    coverage:
+      row.performance_coverage === "complete"
+        ? "complete"
+        : "history_incomplete",
+    currentOperationId:
+      typeof route?.currentOperationId === "string"
+        ? route.currentOperationId
+        : null,
+    earnedUsd:
+      row.earned_usd_micros === null ? null : dollars(row.earned_usd_micros),
+    forecastApyBps: nullableNumber(row.forecast_apy_bps),
+    goal: typeof route?.goal === "string" ? route.goal : "not_installed",
+    policyAccounts: policyBindings(row.policy_accounts),
+    policyStatus:
+      typeof row.policy_status === "string" ? row.policy_status : null,
+    realizedApyBps: nullableNumber(row.realized_apy_bps),
+    withdrawal: withdrawalView(route),
+  };
 }
 
-export async function readEarnMaxActivity(settings: string) {
+export async function readEarnMaxActivity(
+  settings: string
+): Promise<EarnMaxActivityResponse> {
   const client = getYieldOptimizationClient();
   const [operationsResult, snapshotsResult] = await Promise.all([
     client.db.execute(sql`
       SELECT
         operation.operation_id,
         operation.action,
-        operation.strategy_key,
         operation.status,
         operation.transaction_signature,
-        operation.source_instruction_index,
-        operation.confirmed_slot,
-        operation.expected_effects,
-        operation.created_at,
-        operation.updated_at
+        operation.created_at
       FROM loyal_yield.multiply_operations operation
       INNER JOIN loyal_yield.multiply_route_states route
         ON route.route_key = operation.route_key
@@ -131,20 +201,9 @@ export async function readEarnMaxActivity(settings: string) {
     `),
     client.db.execute(sql`
       SELECT
-        snapshot.id,
-        snapshot.generation,
-        snapshot.observed_slot,
         snapshot.observed_at,
-        snapshot.strategy_key,
         snapshot.equity_usd_micros,
-        snapshot.leverage_bps,
-        snapshot.ltv_bps,
-        snapshot.health_factor_ppm,
-        snapshot.forecast_apy_bps,
-        snapshot.valuation_source,
-        snapshot.valuation_slot,
-        snapshot.valuation_observed_at,
-        snapshot.coverage_start_at
+        snapshot.valuation_observed_at
       FROM loyal_yield.multiply_position_snapshots snapshot
       INNER JOIN loyal_yield.multiply_route_states route
         ON route.route_key = snapshot.route_key
@@ -154,24 +213,30 @@ export async function readEarnMaxActivity(settings: string) {
       LIMIT 500
     `),
   ]);
+  const operations = rows(operationsResult as QueryResult).map((operation) => ({
+    action: String(operation.action ?? "activity"),
+    id: String(operation.operation_id ?? ""),
+    signature:
+      typeof operation.transaction_signature === "string"
+        ? operation.transaction_signature
+        : null,
+    status: String(operation.status ?? "unknown"),
+    timestamp: String(operation.created_at ?? ""),
+  }));
+  const performance = rows(snapshotsResult as QueryResult)
+    .flatMap((snapshot) => {
+      const equity = nullableNumber(snapshot.equity_usd_micros);
+      const timestamp = String(
+        snapshot.valuation_observed_at ?? snapshot.observed_at ?? ""
+      );
+      return equity === null || timestamp.length === 0
+        ? []
+        : [{ equityUsd: equity / 1_000_000, timestamp }];
+    })
+    .reverse();
   return {
-    operations: rows(operationsResult as QueryResult),
-    snapshots: rows(snapshotsResult as QueryResult),
-  };
-}
-
-export async function readEarnMaxPerformance(settings: string) {
-  const state = await readEarnMaxState(settings);
-  if (!state) return null;
-  return {
-    coverage_start_at: state.coverage_start_at,
-    earned_usd_micros: state.earned_usd_micros,
-    equity_usd_micros: state.equity_usd_micros,
-    forecast_apy_bps: state.forecast_apy_bps,
-    performance_coverage: state.performance_coverage,
-    realized_apy_bps: state.realized_apy_bps,
-    valuation_observed_at: state.valuation_observed_at,
-    valuation_slot: state.valuation_slot,
+    operations,
+    performance,
   };
 }
 
