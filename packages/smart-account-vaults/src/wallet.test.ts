@@ -1,6 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts-core";
-import type { Connection, Transaction, VersionedTransaction } from "@solana/web3.js";
+import type {
+  Connection,
+  Transaction,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 
 import type { WalletAdapterLike } from "./types";
@@ -44,14 +48,14 @@ function createRejectingWallet(error = new Error("wallet rejected")) {
 
 function createSignAllTransactionsMock() {
   return mock(
-    async (transactions: (Transaction | VersionedTransaction)[]) =>
-      transactions
+    async (transactions: (Transaction | VersionedTransaction)[]) => transactions
   ) as unknown as NonNullable<WalletAdapterLike["signAllTransactions"]>;
 }
 
 function createConnection(args: {
   confirmTransaction?: ReturnType<typeof mock>;
   getAccountInfo?: ReturnType<typeof mock>;
+  getSignatureStatuses?: ReturnType<typeof mock>;
   logs?: string[];
   sendRawTransaction?: ReturnType<typeof mock>;
   simulateTransaction?: ReturnType<typeof mock>;
@@ -68,9 +72,9 @@ function createConnection(args: {
 
   return {
     confirmTransaction:
-      args.confirmTransaction ??
-      mock(async () => ({ value: { err: null } })),
+      args.confirmTransaction ?? mock(async () => ({ value: { err: null } })),
     getAccountInfo: args.getAccountInfo,
+    getSignatureStatuses: args.getSignatureStatuses,
     getLatestBlockhash: mock(async () => ({
       blockhash: recentBlockhash,
       lastValidBlockHeight: 123,
@@ -84,6 +88,40 @@ function createConnection(args: {
 }
 
 describe("wallet prepared sends", () => {
+  test("simulates once when an accepted signature never appears on chain", async () => {
+    const sendTransaction = mock(async () => "missing-signature");
+    const connection = createConnection({
+      confirmTransaction: mock(async () => {
+        throw new Error("block height exceeded");
+      }),
+      getSignatureStatuses: mock(async () => ({ value: [null] })),
+      logs: [
+        "Program SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG invoke [1]",
+        "Program 11111111111111111111111111111111 invoke [2]",
+        "Transfer: insufficient lamports 236920, need 2268960",
+        "Program 11111111111111111111111111111111 failed: custom program error: 0x1",
+      ],
+    });
+
+    await expect(
+      sendPreparedWithWallet({
+        connection,
+        prepared: createPrepared(),
+        wallet: {
+          publicKey: feePayer,
+          sendTransaction,
+          signTransaction: mock(
+            async <T extends VersionedTransaction>(transaction: T) =>
+              transaction
+          ),
+        },
+      })
+    ).rejects.toThrow("Top up at least 0.00203204 SOL");
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
+  });
+
   test("simulates after wallet send failure and surfaces insufficient SOL top-up", async () => {
     const connection = createConnection({
       logs: [
@@ -253,14 +291,16 @@ describe("wallet prepared sends", () => {
         publicKey: feePayer,
         signAllTransactions: createSignAllTransactionsMock(),
         signTransaction: mock(
-          async <T extends VersionedTransaction>(transaction: T) =>
-            transaction
+          async <T extends VersionedTransaction>(transaction: T) => transaction
         ),
       },
     });
 
     expect(signatures).toEqual(["signature-1", "signature-2"]);
-    expect(events.slice(0, 2)).toEqual(["send:signature-1", "send:signature-2"]);
+    expect(events.slice(0, 2)).toEqual([
+      "send:signature-1",
+      "send:signature-2",
+    ]);
     expect(events.indexOf("confirm:signature-1")).toBeGreaterThan(1);
     expect(events.indexOf("confirm:signature-2")).toBeGreaterThan(1);
     expect(events).toContain("callback:signature-1");

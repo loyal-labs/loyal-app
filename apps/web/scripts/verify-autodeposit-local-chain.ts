@@ -9,6 +9,7 @@ import {
 } from "@loyal-labs/loyal-smart-accounts";
 import { LoyalCluster } from "@loyal-labs/actions";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
+import bs58 from "bs58";
 import {
   createAssociatedTokenAccountIdempotentInstruction,
   getAccount,
@@ -23,7 +24,7 @@ import {
   sendAndConfirmTransaction,
   Transaction,
   TransactionMessage,
-  type VersionedTransaction,
+  VersionedTransaction,
 } from "@solana/web3.js";
 
 import { resolveEarnRealtimeRefreshPlan } from "../src/features/earn-realtime/invalidation";
@@ -63,6 +64,108 @@ type RecordedTransaction = {
   signature: string;
   stage: SetupStage;
 };
+
+async function verifyAcceptedButMissingSubmission(args: {
+  connection: Connection;
+  prepared: Parameters<typeof sendEarnAutodepositSetupBatch>[0]["prepared"];
+  wallet: Keypair;
+}): Promise<void> {
+  const originalConfirmTransaction = args.connection.confirmTransaction;
+  const originalSendRawTransaction = args.connection.sendRawTransaction;
+  const originalSimulateTransaction = args.connection.simulateTransaction;
+  let droppedSignature: string | null = null;
+  let simulationObserved = false;
+
+  args.connection.sendRawTransaction = async (rawTransaction) => {
+    const signedTransaction = VersionedTransaction.deserialize(
+      new Uint8Array(rawTransaction)
+    );
+    const payerSignature = signedTransaction.signatures[0];
+    if (!payerSignature || payerSignature.every((byte) => byte === 0)) {
+      throw new Error("Verifier received an unsigned raw transaction.");
+    }
+    droppedSignature = bs58.encode(payerSignature);
+    return droppedSignature;
+  };
+  args.connection.confirmTransaction = (async () => {
+    throw new Error("block height exceeded before the signature appeared");
+  }) as Connection["confirmTransaction"];
+  args.connection.simulateTransaction = ((...callArgs: unknown[]) => {
+    simulationObserved = true;
+    return Reflect.apply(
+      originalSimulateTransaction,
+      args.connection,
+      callArgs
+    );
+  }) as Connection["simulateTransaction"];
+
+  let reportedMissingSubmission = false;
+  try {
+    await sendEarnAutodepositSetupBatch({
+      connection: args.connection,
+      prepared: args.prepared,
+      wallet: {
+        publicKey: args.wallet.publicKey,
+        signAllTransactions: async <
+          T extends Transaction | VersionedTransaction
+        >(
+          unsignedTransactions: T[]
+        ) => {
+          for (const transaction of unsignedTransactions) {
+            if (transaction instanceof Transaction) {
+              transaction.partialSign(args.wallet);
+            } else {
+              transaction.sign([args.wallet]);
+            }
+          }
+          return unsignedTransactions;
+        },
+        signTransaction: async <T extends Transaction | VersionedTransaction>(
+          transaction: T
+        ) => {
+          if (transaction instanceof Transaction) {
+            transaction.partialSign(args.wallet);
+          } else {
+            transaction.sign([args.wallet]);
+          }
+          return transaction;
+        },
+      },
+    });
+  } catch (error) {
+    reportedMissingSubmission =
+      error instanceof Error &&
+      error.message.includes("confirmation is unresolved");
+  } finally {
+    args.connection.confirmTransaction = originalConfirmTransaction;
+    args.connection.sendRawTransaction = originalSendRawTransaction;
+    args.connection.simulateTransaction = originalSimulateTransaction;
+  }
+
+  if (!droppedSignature) {
+    throw new Error("Verifier did not capture the accepted transaction.");
+  }
+  const status = (
+    await args.connection.getSignatureStatuses([droppedSignature], {
+      searchTransactionHistory: true,
+    })
+  ).value[0];
+  if (status) {
+    throw new Error(
+      "Verifier's dropped transaction unexpectedly reached chain."
+    );
+  }
+  if (!simulationObserved) {
+    throw new Error(
+      "Missing Autodeposit transaction was not simulated before reporting failure."
+    );
+  }
+  if (!reportedMissingSubmission) {
+    throw new Error(
+      "Missing Autodeposit transaction did not surface an unresolved confirmation error."
+    );
+  }
+}
 
 type Args = {
   authSecret?: string;
@@ -287,6 +390,7 @@ async function setup(args: Args) {
   let policySeed: bigint | undefined;
   let completedState: LocalState | null = null;
   let interruptedAfterPolicy = false;
+  let missingSubmissionVerified = false;
   for (let round = 0; round < 4; round += 1) {
     const stages = await vaults.prepareEarnUsdcAutodepositSetupBatch({
       amountRaw: BigInt(1_000_000),
@@ -321,6 +425,14 @@ async function setup(args: Args) {
     const stageByPrepared = new Map(
       stagesToSend.map((stage) => [stage.prepared, stage] as const)
     );
+    if (!missingSubmissionVerified) {
+      await verifyAcceptedButMissingSubmission({
+        connection,
+        prepared: stagesToSend.map((stage) => stage.prepared),
+        wallet,
+      });
+      missingSubmissionVerified = true;
+    }
     await sendEarnAutodepositSetupBatch({
       connection,
       onTransactionConfirmed: ({ prepared, signature }) => {
