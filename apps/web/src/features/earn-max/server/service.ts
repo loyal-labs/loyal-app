@@ -12,7 +12,7 @@ import { readEarnMaxActivity, readEarnMaxSummary } from "./repository.server";
 import type { EarnMaxSummaryResponse } from "../types";
 
 const headers = {
-  "x-loyal-earn-max-contract": "earn-max-v3",
+  "x-loyal-earn-max-contract": "earn-max-v4",
   "x-loyal-deployment-revision":
     process.env.VERCEL_GIT_COMMIT_SHA ??
     process.env.RENDER_GIT_COMMIT ??

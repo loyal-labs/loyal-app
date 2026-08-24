@@ -151,6 +151,7 @@ export async function readEarnMaxSummary(
     ) cash ON TRUE
     WHERE policy.settings = ${settings}
       AND policy.vault_index = ${EARN_MAX_VAULT_INDEX}
+      AND policy.manifest_version = 'earn-max-v2'
     LIMIT 1
   `);
   const row = rows(result as QueryResult)[0];
@@ -196,6 +197,7 @@ export async function readEarnMaxActivity(
         ON route.route_key = operation.route_key
       WHERE route.settings = ${settings}
         AND route.vault_index = ${EARN_MAX_VAULT_INDEX}
+        AND route.state ->> 'engineVersion' = 'earn_max_v2'
       ORDER BY operation.created_at DESC, operation.operation_id DESC
       LIMIT 100
     `),
@@ -209,6 +211,7 @@ export async function readEarnMaxActivity(
         ON route.route_key = snapshot.route_key
       WHERE route.settings = ${settings}
         AND route.vault_index = ${EARN_MAX_VAULT_INDEX}
+        AND route.state ->> 'engineVersion' = 'earn_max_v2'
       ORDER BY snapshot.observed_slot DESC, snapshot.id DESC
       LIMIT 500
     `),

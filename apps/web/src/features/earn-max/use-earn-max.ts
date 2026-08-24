@@ -202,7 +202,7 @@ export function useEarnMax(input: {
             delegatedSigner: new PublicKey(config.delegatedSigner),
             feePayer,
             firstPolicySeed:
-              seeds.length === 6
+              seeds.length === 3
                 ? seeds.reduce((left, right) => (left < right ? left : right))
                 : undefined,
             matchingPolicyAccounts: new Set(

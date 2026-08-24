@@ -21,12 +21,13 @@ import { LoyalCluster } from "./types.ts";
 const SMART_ACCOUNT_SEED = new TextEncoder().encode("smart_account");
 const FARM_USER_SEED = new TextEncoder().encode("user");
 
-export const EARN_MAX_MANIFEST_VERSION = "earn-max-v1";
+export const EARN_MAX_MANIFEST_VERSION = "earn-max-v2";
 export const EARN_MAX_VAULT_INDEX = 0;
 
 const KLEND = new PublicKey("KLend2g3cP87fffoy8q1mQqGKjrxjC8boSyAYavgmjD");
 const FARMS = new PublicKey("FarmsPZpWu9i7Kky8tPN37rs2TpmMrAZrC7S7vJa91Hr");
 const TOKEN = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const TOKEN_2022 = new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 const ASSOCIATED_TOKEN = new PublicKey(
   "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
 );
@@ -41,21 +42,28 @@ const COLLATERAL_RESERVE = new PublicKey(
 const DEBT_RESERVE = new PublicKey(
   "Atj6UREVWa7WxbF2EMKNyfmYUY1U1txughe2gjhcPDCo"
 );
+const PYUSD_DEBT_RESERVE = new PublicKey(
+  "92qeAka3ZzCGPfJriDXrE7tiNqfATVCAM6ZjjctR3TrS"
+);
 const COLLATERAL_MINT = new PublicKey(
   "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj"
 );
 const CLAIM_MINT = new PublicKey(
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
+export const PYUSD_MINT = new PublicKey(
+  "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
+);
 const DEBT_FARM = new PublicKey("87gUNr8LwYJCT25HjPEHnrfBBjwEMAjfqCfnKcJNqy9Y");
+const PYUSD_DEBT_FARM = new PublicKey(
+  "9AUA7XZ1rynUsZcmVCgj8UFdQuDozFSMpaNGBZAtiPWj"
+);
 const USER_METADATA_SEED = new TextEncoder().encode("user_meta");
 const INIT_USER_METADATA = [117, 169, 176, 69, 197, 23, 15, 162] as const;
 const INIT_OBLIGATION = [251, 10, 231, 76, 27, 11, 159, 96] as const;
 const INIT_OBLIGATION_FARM = [136, 63, 15, 186, 211, 152, 168, 164] as const;
 const SETUP_RENT_BUFFER_LAMPORTS = 39_532_800;
 
-const REFRESH_RESERVE = [2, 218, 138, 235, 79, 201, 25, 102] as const;
-const REFRESH_OBLIGATION = [33, 132, 147, 228, 151, 192, 72, 89] as const;
 const DEPOSIT = [216, 224, 191, 27, 204, 151, 102, 175] as const;
 const BORROW = [161, 128, 143, 245, 171, 199, 194, 6] as const;
 const REPAY = [116, 174, 213, 76, 180, 53, 210, 144] as const;
@@ -68,32 +76,34 @@ export type EarnMaxTopology = {
   collateralCustody: PublicKey;
   obligation: PublicKey;
   debtFarmUser: PublicKey;
+  pyusdCustody: PublicKey;
+  pyusdObligation: PublicKey;
+  pyusdDebtFarmUser: PublicKey;
   market: PublicKey;
   collateralReserve: PublicKey;
   debtReserve: PublicKey;
   collateralMint: PublicKey;
   claimMint: PublicKey;
   debtFarm: PublicKey;
+  pyusdDebtFarm: PublicKey;
 };
 
 export type EarnMaxPolicyPreparation = {
-  family:
-    | "deposit"
-    | "borrow"
-    | "forward_swap"
-    | "reverse_swap"
-    | "repay"
-    | "withdraw";
+  family: "collateral" | "debt" | "swap";
   seed: bigint;
   policy: PublicKey;
   instruction: TransactionInstruction;
   updateInstruction: TransactionInstruction;
 };
 
-function associatedToken(owner: PublicKey, mint: PublicKey): PublicKey {
+function associatedToken(
+  owner: PublicKey,
+  mint: PublicKey,
+  tokenProgram = TOKEN
+): PublicKey {
   const config = clusterConfigFor(LoyalCluster.MainnetBeta);
   return PublicKey.findProgramAddressSync(
-    [owner.toBytes(), TOKEN.toBytes(), mint.toBytes()],
+    [owner.toBytes(), tokenProgram.toBytes(), mint.toBytes()],
     config.associatedTokenProgramId
   )[0];
 }
@@ -124,18 +134,37 @@ export function deriveEarnMaxTopology(settings: PublicKey): EarnMaxTopology {
     [FARM_USER_SEED, DEBT_FARM.toBytes(), obligation.toBytes()],
     FARMS
   )[0];
+  const pyusdObligation = PublicKey.findProgramAddressSync(
+    [
+      Uint8Array.of(1),
+      Uint8Array.of(0),
+      vault.toBytes(),
+      MARKET.toBytes(),
+      COLLATERAL_MINT.toBytes(),
+      PYUSD_MINT.toBytes(),
+    ],
+    KLEND
+  )[0];
+  const pyusdDebtFarmUser = PublicKey.findProgramAddressSync(
+    [FARM_USER_SEED, PYUSD_DEBT_FARM.toBytes(), pyusdObligation.toBytes()],
+    FARMS
+  )[0];
   return {
     vault,
     claimCustody: associatedToken(vault, CLAIM_MINT),
     collateralCustody: associatedToken(vault, COLLATERAL_MINT),
     obligation,
     debtFarmUser,
+    pyusdCustody: associatedToken(vault, PYUSD_MINT, TOKEN_2022),
+    pyusdObligation,
+    pyusdDebtFarmUser,
     market: MARKET,
     collateralReserve: COLLATERAL_RESERVE,
     debtReserve: DEBT_RESERVE,
     collateralMint: COLLATERAL_MINT,
     claimMint: CLAIM_MINT,
     debtFarm: DEBT_FARM,
+    pyusdDebtFarm: PYUSD_DEBT_FARM,
   };
 }
 
@@ -159,22 +188,15 @@ export function createEarnMaxPolicyManifest(input: {
 }): readonly EarnMaxPolicyPreparation[] {
   const config = clusterConfigFor(LoyalCluster.MainnetBeta);
   const topology = deriveEarnMaxTopology(input.settings);
-  const refreshReserve = {
-    programId: KLEND,
-    accountConstraints: [pubkey(0, COLLATERAL_RESERVE, DEBT_RESERVE)],
-    dataConstraints: [sliceEquals(REFRESH_RESERVE)],
-  };
-  const refreshObligation = {
-    programId: KLEND,
-    accountConstraints: [pubkey(1, topology.obligation)],
-    dataConstraints: [sliceEquals(REFRESH_OBLIGATION)],
-  };
   const policy = (
     family: EarnMaxPolicyPreparation["family"],
     seed: bigint,
-    finalConstraint: Parameters<
+    constraints: Parameters<
       typeof createProgramInteractionPolicyInstruction
-    >[2][number]
+    >[2],
+    bootstrapConstraints: Parameters<
+      typeof createProgramInteractionPolicyInstruction
+    >[2]
   ): EarnMaxPolicyPreparation => {
     const instruction = createProgramInteractionPolicyInstruction(
       config,
@@ -185,9 +207,7 @@ export function createEarnMaxPolicyManifest(input: {
         accountIndex: EARN_MAX_VAULT_INDEX,
         vault: topology.vault,
       },
-      family.includes("swap")
-        ? [finalConstraint]
-        : [refreshReserve, refreshObligation, finalConstraint],
+      bootstrapConstraints,
       seed,
       [],
       "legacy"
@@ -207,20 +227,82 @@ export function createEarnMaxPolicyManifest(input: {
           accountIndex: EARN_MAX_VAULT_INDEX,
           vault: topology.vault,
         },
-        family.includes("swap")
-          ? [finalConstraint]
-          : [refreshReserve, refreshObligation, finalConstraint],
+        constraints,
         policy
       ),
     };
   };
 
-  return [
-    policy("deposit", input.firstPolicySeed, {
+  const swapLane = (
+    source: PublicKey,
+    destination: PublicKey,
+    sourceMint: PublicKey,
+    destinationMint: PublicKey,
+    optionalTokenProgram: PublicKey
+  ) => ({
+    programId: config.jupiterV6ProgramId,
+    accountConstraints: [
+      pubkey(0, TOKEN),
+      pubkey(2, topology.vault),
+      pubkey(3, source),
+      pubkey(6, destination),
+      pubkey(7, sourceMint),
+      pubkey(8, destinationMint),
+      pubkey(9, config.jupiterV6ProgramId),
+      pubkey(10, optionalTokenProgram),
+    ],
+    dataConstraints: [sliceEquals(SHARED_ACCOUNTS_ROUTE)],
+  });
+
+  const USDC_TO_SYRUP = swapLane(
+    topology.claimCustody,
+    topology.collateralCustody,
+    CLAIM_MINT,
+    COLLATERAL_MINT,
+    config.jupiterV6ProgramId
+  );
+  const SYRUP_TO_USDC = swapLane(
+    topology.collateralCustody,
+    topology.claimCustody,
+    COLLATERAL_MINT,
+    CLAIM_MINT,
+    config.jupiterV6ProgramId
+  );
+  const PYUSD_TO_SYRUP = swapLane(
+    topology.pyusdCustody,
+    topology.collateralCustody,
+    PYUSD_MINT,
+    COLLATERAL_MINT,
+    TOKEN_2022
+  );
+  const SYRUP_TO_PYUSD = swapLane(
+    topology.collateralCustody,
+    topology.pyusdCustody,
+    COLLATERAL_MINT,
+    PYUSD_MINT,
+    TOKEN_2022
+  );
+  const USDC_TO_PYUSD = swapLane(
+    topology.claimCustody,
+    topology.pyusdCustody,
+    CLAIM_MINT,
+    PYUSD_MINT,
+    TOKEN_2022
+  );
+  const PYUSD_TO_USDC = swapLane(
+    topology.pyusdCustody,
+    topology.claimCustody,
+    PYUSD_MINT,
+    CLAIM_MINT,
+    TOKEN_2022
+  );
+
+  const collateralConstraints = [
+    {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, topology.obligation),
+        pubkey(1, topology.obligation, topology.pyusdObligation),
         pubkey(4, COLLATERAL_RESERVE),
         pubkey(9, topology.collateralCustody),
         pubkey(11, TOKEN),
@@ -229,22 +311,24 @@ export function createEarnMaxPolicyManifest(input: {
         pubkey(15, KLEND),
       ],
       dataConstraints: [sliceEquals(DEPOSIT)],
-    }),
-    policy("repay", input.firstPolicySeed + BigInt(1), {
+    },
+    {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, topology.obligation),
-        pubkey(3, DEBT_RESERVE),
-        pubkey(6, topology.claimCustody),
-        pubkey(7, TOKEN),
-        pubkey(9, topology.debtFarmUser),
-        pubkey(10, DEBT_FARM),
-        pubkey(12, FARMS),
+        pubkey(1, topology.obligation, topology.pyusdObligation),
+        pubkey(4, COLLATERAL_RESERVE),
+        pubkey(9, topology.collateralCustody),
+        pubkey(11, TOKEN),
+        pubkey(12, TOKEN),
+        pubkey(14, KLEND),
+        pubkey(15, KLEND),
       ],
-      dataConstraints: [sliceEquals(REPAY)],
-    }),
-    policy("borrow", input.firstPolicySeed + BigInt(2), {
+      dataConstraints: [sliceEquals(WITHDRAW)],
+    },
+  ] as const;
+  const debtConstraints = [
+    {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
@@ -257,49 +341,69 @@ export function createEarnMaxPolicyManifest(input: {
         pubkey(14, FARMS),
       ],
       dataConstraints: [sliceEquals(BORROW)],
-    }),
-    policy("forward_swap", input.firstPolicySeed + BigInt(3), {
-      programId: config.jupiterV6ProgramId,
-      accountConstraints: [
-        pubkey(0, TOKEN),
-        pubkey(2, topology.vault),
-        pubkey(3, topology.claimCustody),
-        pubkey(6, topology.collateralCustody),
-        pubkey(7, CLAIM_MINT),
-        pubkey(8, COLLATERAL_MINT),
-        pubkey(9, config.jupiterV6ProgramId),
-        pubkey(10, config.jupiterV6ProgramId),
-      ],
-      dataConstraints: [sliceEquals(SHARED_ACCOUNTS_ROUTE)],
-    }),
-    policy("withdraw", input.firstPolicySeed + BigInt(4), {
+    },
+    {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
         pubkey(1, topology.obligation),
-        pubkey(4, COLLATERAL_RESERVE),
-        pubkey(9, topology.collateralCustody),
-        pubkey(11, TOKEN),
-        pubkey(12, TOKEN),
-        pubkey(14, KLEND),
-        pubkey(15, KLEND),
-      ],
-      dataConstraints: [sliceEquals(WITHDRAW)],
-    }),
-    policy("reverse_swap", input.firstPolicySeed + BigInt(5), {
-      programId: config.jupiterV6ProgramId,
-      accountConstraints: [
-        pubkey(0, TOKEN),
-        pubkey(2, topology.vault),
-        pubkey(3, topology.collateralCustody),
+        pubkey(3, DEBT_RESERVE),
         pubkey(6, topology.claimCustody),
-        pubkey(7, COLLATERAL_MINT),
-        pubkey(8, CLAIM_MINT),
-        pubkey(9, config.jupiterV6ProgramId),
-        pubkey(10, config.jupiterV6ProgramId),
+        pubkey(7, TOKEN),
+        pubkey(9, topology.debtFarmUser),
+        pubkey(10, DEBT_FARM),
+        pubkey(12, FARMS),
       ],
-      dataConstraints: [sliceEquals(SHARED_ACCOUNTS_ROUTE)],
-    }),
+      dataConstraints: [sliceEquals(REPAY)],
+    },
+    {
+      programId: KLEND,
+      accountConstraints: [
+        pubkey(0, topology.vault),
+        pubkey(1, topology.pyusdObligation),
+        pubkey(4, PYUSD_DEBT_RESERVE),
+        pubkey(8, topology.pyusdCustody),
+        pubkey(10, TOKEN_2022),
+        pubkey(12, topology.pyusdDebtFarmUser),
+        pubkey(13, PYUSD_DEBT_FARM),
+        pubkey(14, FARMS),
+      ],
+      dataConstraints: [sliceEquals(BORROW)],
+    },
+    {
+      programId: KLEND,
+      accountConstraints: [
+        pubkey(0, topology.vault),
+        pubkey(1, topology.pyusdObligation),
+        pubkey(3, PYUSD_DEBT_RESERVE),
+        pubkey(6, topology.pyusdCustody),
+        pubkey(7, TOKEN_2022),
+        pubkey(9, topology.pyusdDebtFarmUser),
+        pubkey(10, PYUSD_DEBT_FARM),
+        pubkey(12, FARMS),
+      ],
+      dataConstraints: [sliceEquals(REPAY)],
+    },
+  ] as const;
+  const swapConstraints = [
+    USDC_TO_SYRUP,
+    SYRUP_TO_USDC,
+    PYUSD_TO_SYRUP,
+    SYRUP_TO_PYUSD,
+    USDC_TO_PYUSD,
+    PYUSD_TO_USDC,
+  ] as const;
+
+  return [
+    policy("collateral", input.firstPolicySeed, collateralConstraints, [
+      collateralConstraints[1],
+    ]),
+    policy("debt", input.firstPolicySeed + BigInt(1), debtConstraints, [
+      debtConstraints[1],
+    ]),
+    policy("swap", input.firstPolicySeed + BigInt(2), swapConstraints, [
+      SYRUP_TO_USDC,
+    ]),
   ];
 }
 
@@ -465,14 +569,25 @@ export async function buildEarnMaxInstallInstructions(input: {
   return manifest.flatMap((entry, index) =>
     accounts[index] && matching.has(entry.policy.toBase58())
       ? []
+      : accounts[index]
+      ? [
+          prepared({
+            instructions: [entry.updateInstruction],
+            operation: `earnMaxInstall:update:${entry.family}`,
+            payer: input.feePayer,
+            programId: input.programId,
+          }),
+        ]
       : [
           prepared({
-            instructions: [
-              accounts[index] ? entry.updateInstruction : entry.instruction,
-            ],
-            operation: `earnMaxInstall:${
-              accounts[index] ? "update" : "create"
-            }:${entry.family}`,
+            instructions: [entry.instruction],
+            operation: `earnMaxInstall:create:${entry.family}`,
+            payer: input.feePayer,
+            programId: input.programId,
+          }),
+          prepared({
+            instructions: [entry.updateInstruction],
+            operation: `earnMaxInstall:update:${entry.family}`,
             payer: input.feePayer,
             programId: input.programId,
           }),
@@ -663,7 +778,7 @@ export async function buildEarnMaxDepositInstructions(input: {
             },
             { pubkey: input.programId, isSigner: false, isWritable: false },
           ],
-          value: `loyal:earn-max:v1:deposit:${
+          value: `loyal:earn-max:v2:deposit:${
             input.amountRaw
           }:${input.settings.toBase58()}`,
         }),
@@ -733,7 +848,7 @@ export async function buildEarnMaxWithdrawalRequestInstructions(input: {
     inner: [
       earnMaxIntent(
         topology.vault,
-        `loyal:earn-max:v1:withdraw:${requestId(
+        `loyal:earn-max:v2:withdraw:${requestId(
           input.requestId
         )}:${amount}:${input.destination.toBase58()}`
       ),
@@ -756,7 +871,7 @@ export async function buildEarnMaxWithdrawalCancelInstructions(input: {
     inner: [
       earnMaxIntent(
         topology.vault,
-        `loyal:earn-max:v1:cancel:${requestId(input.requestId)}`
+        `loyal:earn-max:v2:cancel:${requestId(input.requestId)}`
       ),
     ],
   });
@@ -797,7 +912,7 @@ export async function buildEarnMaxClaimInstructions(input: {
             },
             { pubkey: destination, isSigner: false, isWritable: false },
           ],
-          value: `loyal:earn-max:v1:claim:${requestId(input.requestId)}:${
+          value: `loyal:earn-max:v2:claim:${requestId(input.requestId)}:${
             input.amountRaw
           }:${destination.toBase58()}:${input.settings.toBase58()}`,
         }),
