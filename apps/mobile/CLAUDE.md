@@ -26,6 +26,9 @@ npx eas build --profile preview --platform android
 
 # Production build
 npx eas build --profile production --platform all
+
+# Dapp Store Android APK (production EAS environment)
+npx eas build --profile dapp-store --platform android
 ```
 
 ### OTA Release Notes
@@ -46,6 +49,7 @@ mobile/
   app/                     # Expo Router file-based routes
     _layout.tsx            # Root layout (fonts, splash, navigation)
     (tabs)/                # Main tab routes (home, wallet, browser, etc.)
+    ul/[...path].tsx       # Wallet deeplink return route
     +not-found.tsx         # 404 screen
     summaries/             # Summary detail screens
   src/
@@ -73,6 +77,8 @@ mobile/
 - **Styling**: NativeWind v5 (Tailwind CSS v4) — use `className` prop on components from `src/tw/` wrappers
 - **SVGs**: Imported as React components via `react-native-svg-transformer` (configured in `metro.config.js`)
 - **Animations**: Lottie via `@lottiefiles/dotlottie-react` and `lottie-react-native`
+- **iOS wallet deeplinks**: Phantom and Solflare connections return through the custom `loyal://` (or `loyal-dev://`) scheme and are handled by `app/ul/[...path].tsx`; generated redirects should not be changed back to the HTTPS universal link.
+- **Wallet recovery**: For supported iOS local wallets with iCloud backup enabled, “Remove from this device” keeps the iCloud copy while “Delete everywhere” removes it. A restored wallet re-enables biometrics after its first successful PIN unlock.
 
 ### Environment Variables
 
