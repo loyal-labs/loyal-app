@@ -23,6 +23,7 @@ import {
   sendAndConfirmTransaction,
   Transaction,
   TransactionMessage,
+  type VersionedTransaction,
 } from "@solana/web3.js";
 
 import { resolveEarnRealtimeRefreshPlan } from "../src/features/earn-realtime/invalidation";
@@ -31,6 +32,10 @@ import {
   type EarnRealtimeTokenResponse,
 } from "../src/features/earn-realtime/stream";
 import { EARN_REALTIME_EVENT_TYPES } from "../src/features/earn-realtime/types";
+import {
+  resolveEarnAutodepositTogglePresentation,
+  sendEarnAutodepositSetupBatch,
+} from "../src/lib/yield-optimization/earn-autodeposit-client-flow";
 
 type SetupStage =
   | "approve_token_delegate"
@@ -261,6 +266,7 @@ async function setup(args: Args) {
   const nonce = BigInt(42);
   let policySeed: bigint | undefined;
   let completedState: LocalState | null = null;
+  let interruptedAfterPolicy = false;
   for (let round = 0; round < 4; round += 1) {
     const stages = await vaults.prepareEarnUsdcAutodepositSetupBatch({
       amountRaw: BigInt(1_000_000),
@@ -279,13 +285,66 @@ async function setup(args: Args) {
     if (stages.length === 0) {
       throw new Error("Web Autodeposit setup prepared no stages.");
     }
-    for (const stage of stages) {
+    if (
+      interruptedAfterPolicy &&
+      stages.some((stage) => stage.stage === "create_policy")
+    ) {
+      throw new Error(
+        "Partial Autodeposit retry prepared a duplicate policy before projection caught up."
+      );
+    }
+
+    const policyOnlyStage = !interruptedAfterPolicy
+      ? stages.find((stage) => stage.stage === "create_policy")
+      : undefined;
+    const stagesToSend = policyOnlyStage ? [policyOnlyStage] : stages;
+    const stageByPrepared = new Map(
+      stagesToSend.map((stage) => [stage.prepared, stage] as const)
+    );
+    await sendEarnAutodepositSetupBatch({
+      connection,
+      onTransactionConfirmed: ({ prepared, signature }) => {
+        const stage = stageByPrepared.get(prepared);
+        if (!stage) {
+          throw new Error("Confirmed an unknown Autodeposit setup stage.");
+        }
+        transactions.push({
+          signature,
+          stage: stage.stage as SetupStage,
+        });
+      },
+      prepared: stagesToSend.map((stage) => stage.prepared),
+      wallet: {
+        publicKey: wallet.publicKey,
+        signAllTransactions: async <
+          T extends Transaction | VersionedTransaction
+        >(
+          unsignedTransactions: T[]
+        ) => {
+          for (const transaction of unsignedTransactions) {
+            if (transaction instanceof Transaction) {
+              transaction.partialSign(wallet);
+            } else {
+              transaction.sign([wallet]);
+            }
+          }
+          return unsignedTransactions;
+        },
+        signTransaction: async <T extends Transaction | VersionedTransaction>(
+          transaction: T
+        ) => {
+          if (transaction instanceof Transaction) {
+            transaction.partialSign(wallet);
+          } else {
+            transaction.sign([wallet]);
+          }
+          return transaction;
+        },
+      },
+    });
+
+    for (const stage of stagesToSend) {
       const setupStage = stage.stage as SetupStage;
-      const signature = await vaults.sdk.send(stage.prepared, {
-        confirm: true,
-        signers: [wallet],
-      });
-      transactions.push({ signature, stage: setupStage });
       if (setupStage !== "initialize_subscription_authority") {
         const nextPolicySeed =
           stage.policy.seed ?? stage.persistence.policySeed;
@@ -319,12 +378,43 @@ async function setup(args: Args) {
         };
       }
     }
+    if (policyOnlyStage) {
+      interruptedAfterPolicy = true;
+      const partialSetupToggle =
+        resolveEarnAutodepositTogglePresentation("creating");
+      if (
+        partialSetupToggle.disabled ||
+        partialSetupToggle.isOn ||
+        partialSetupToggle.isPending ||
+        partialSetupToggle.label !== "Finish setup" ||
+        !partialSetupToggle.opensSetup
+      ) {
+        throw new Error(
+          "Partial Autodeposit setup is not recoverable from the web toggle."
+        );
+      }
+      continue;
+    }
     if (completedState) {
       break;
     }
   }
   if (!completedState) {
     throw new Error("Web Autodeposit setup did not reach delegation creation.");
+  }
+  if (!interruptedAfterPolicy) {
+    throw new Error("Web verifier did not exercise partial setup recovery.");
+  }
+  const completedSetupToggle =
+    resolveEarnAutodepositTogglePresentation("created");
+  if (
+    completedSetupToggle.disabled ||
+    !completedSetupToggle.isOn ||
+    completedSetupToggle.isPending ||
+    completedSetupToggle.label !== null ||
+    completedSetupToggle.opensSetup
+  ) {
+    throw new Error("Completed Autodeposit setup does not render as active.");
   }
   const stageSequence = transactions.map((transaction) => transaction.stage);
   const expectedStages = [
