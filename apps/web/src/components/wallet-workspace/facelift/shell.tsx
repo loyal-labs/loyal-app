@@ -157,7 +157,7 @@ export function WorkspaceFaceliftShell() {
   const earnData = useEarnPositionData();
   const earnMax = useEarnMax({
     settingsPda: EARN_MAX_VISIBLE ? earnData.settingsPda : undefined,
-    walletAddress: EARN_MAX_VISIBLE ? earnData.walletAddress : undefined,
+    walletAddress: EARN_MAX_VISIBLE ? earnData.walletAddress : null,
   });
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
   // Send/Swap/Shield screens — including re-selecting the page it's already on.
@@ -408,7 +408,7 @@ export function WorkspaceFaceliftShell() {
             />
           ) : EARN_MAX_VISIBLE && activePage === "earnmax" ? (
             <EarnMaxPage actions={earnMax.actions} view={earnMax.view} />
-          ) : activePage !== "earn" ? (
+          ) : activePage !== "earn" && activePage !== "earnmax" ? (
             <CryptoPage
               navigationNonce={navigationNonce}
               onBack={() => handleSelectPage("wallet")}
