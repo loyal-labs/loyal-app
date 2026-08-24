@@ -81,7 +81,7 @@ const smartAccount = {
 };
 
 describe("Earn MAX policy manifest", () => {
-  test("uses the mainnet-compatible legacy create payload for all six policies", () => {
+  test("fits the exact three-policy legacy manifest in Solana packets", () => {
     const manifest = createEarnMaxPolicyManifest({
       authority,
       delegatedSigner,
@@ -89,15 +89,40 @@ describe("Earn MAX policy manifest", () => {
       settings,
     });
 
-    expect(manifest).toHaveLength(6);
-    expect(manifest.map((entry) => decodePolicyCreate(entry.instruction.data).seed)).toEqual([
-      BigInt(234),
-      BigInt(235),
-      BigInt(236),
-      BigInt(237),
-      BigInt(238),
-      BigInt(239),
+    expect(manifest).toHaveLength(3);
+    expect(manifest.map((entry) => entry.family)).toEqual([
+      "collateral",
+      "debt",
+      "swap",
     ]);
+    expect(
+      manifest.map((entry) => decodePolicyCreate(entry.instruction.data).seed)
+    ).toEqual([BigInt(234), BigInt(235), BigInt(236)]);
+    const wireBytes = manifest.map((entry) => ({
+      create: new VersionedTransaction(
+        new TransactionMessage({
+          payerKey: authority,
+          recentBlockhash: PublicKey.default.toBase58(),
+          instructions: [entry.instruction],
+        }).compileToLegacyMessage()
+      ).serialize().length,
+      update: new VersionedTransaction(
+        new TransactionMessage({
+          payerKey: authority,
+          recentBlockhash: PublicKey.default.toBase58(),
+          instructions: [entry.updateInstruction],
+        }).compileToLegacyMessage()
+      ).serialize().length,
+    }));
+    expect(wireBytes).toEqual([
+      { create: 758, update: 726 },
+      { create: 726, update: 1110 },
+      { create: 726, update: 1080 },
+    ]);
+    for (const pair of wireBytes) {
+      expect(pair.create).toBeLessThan(1232);
+      expect(pair.update).toBeLessThan(1232);
+    }
   });
 });
 
@@ -470,11 +495,15 @@ function decodeLegacyProgramInteractionPayload(cursor: Cursor) {
         kindTag === 0
           ? {
               type: "pubkey" as const,
-              pubkeyIndexes: cursor.readVec(() => tableIndex(cursor.readPubkey())),
+              pubkeyIndexes: cursor.readVec(() =>
+                tableIndex(cursor.readPubkey())
+              ),
             }
           : {
               type: "accountData" as const,
-              dataConstraints: cursor.readVec(() => decodeDataConstraint(cursor)),
+              dataConstraints: cursor.readVec(() =>
+                decodeDataConstraint(cursor)
+              ),
             };
       const owner = cursor.readOption(() => cursor.readPubkey());
       return {
