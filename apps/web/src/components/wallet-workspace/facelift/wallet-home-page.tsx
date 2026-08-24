@@ -55,6 +55,7 @@ export function WalletHomePage({
   onSelectPage,
   onSetUpAutodeposit,
   showActivityBadge,
+  showEarnMax,
 }: {
   earnBalanceUsd: number;
   earnMaxBalanceUsd: number;
@@ -64,6 +65,7 @@ export function WalletHomePage({
   onSelectPage: (page: WorkspacePage) => void;
   onSetUpAutodeposit: () => void;
   showActivityBadge: boolean;
+  showEarnMax: boolean;
 }) {
   const data = useWalletDesktopData({});
   const publicEnv = usePublicEnv();
@@ -110,7 +112,7 @@ export function WalletHomePage({
       ? "—"
       : `${(earnMaxForecastApyBps / 100).toFixed(2)}%`;
   const totalBalance = splitUsdBalance(
-    data.totalUsd + earnBalanceUsd + earnMaxBalanceUsd
+    data.totalUsd + earnBalanceUsd + (showEarnMax ? earnMaxBalanceUsd : 0)
   );
 
   const addressLabel = data.walletAddress
@@ -124,7 +126,9 @@ export function WalletHomePage({
   const isEarnBalanceRevealed = !isEarnBalanceLoading;
   const isEarnMaxBalanceRevealed = !isEarnMaxBalanceLoading;
   const isTotalRevealed =
-    isWalletDataRevealed && isEarnBalanceRevealed && isEarnMaxBalanceRevealed;
+    isWalletDataRevealed &&
+    isEarnBalanceRevealed &&
+    (!showEarnMax || isEarnMaxBalanceRevealed);
 
   // Copied feedback, same icon swap the sidebar chip uses.
   const [isCopied, setIsCopied] = useState(false);
@@ -404,45 +408,46 @@ export function WalletHomePage({
                     />
                   </span>
                 </button>
-                {/* Earn MAX values come from the confirmed projection read model. */}
-                <button
-                  className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
-                  onClick={() => onSelectPage("earnmax")}
-                  type="button"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    alt=""
-                    aria-hidden="true"
-                    className="size-10 shrink-0 rounded-[10px]"
-                    src={`${ASSET_BASE}/earn-max-icon.svg`}
-                  />
-                  <span className="flex w-full flex-col gap-1">
-                    <span className="flex items-center gap-1">
-                      <span className="whitespace-nowrap font-semibold text-[15px] text-foreground leading-5">
-                        Earn MAX
-                      </span>
-                      <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          alt=""
-                          aria-hidden="true"
-                          className="h-3 w-2"
-                          src="/wallet-workspace/earn-flash.svg"
-                        />
-                        <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
-                          {earnMaxApyLabel}
+                {showEarnMax ? (
+                  <button
+                    className="t-hover flex flex-col items-start justify-between overflow-clip rounded-3xl bg-accent p-4 text-left hover:bg-accent-selected"
+                    onClick={() => onSelectPage("earnmax")}
+                    type="button"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      alt=""
+                      aria-hidden="true"
+                      className="size-10 shrink-0 rounded-[10px]"
+                      src={`${ASSET_BASE}/earn-max-icon.svg`}
+                    />
+                    <span className="flex w-full flex-col gap-1">
+                      <span className="flex items-center gap-1">
+                        <span className="whitespace-nowrap font-semibold text-[15px] text-foreground leading-5">
+                          Earn MAX
+                        </span>
+                        <span className="inline-flex items-center gap-0.5 rounded-md bg-positive/[0.14] px-1 py-px">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            alt=""
+                            aria-hidden="true"
+                            className="h-3 w-2"
+                            src="/wallet-workspace/earn-flash.svg"
+                          />
+                          <span className="whitespace-nowrap pt-px font-medium text-positive text-[11px] leading-[13px] tracking-[0.06px]">
+                            {earnMaxApyLabel}
+                          </span>
                         </span>
                       </span>
+                      <SplitAmount
+                        fraction={earnMaxBalance.balanceFraction}
+                        isHidden={isBalanceHidden}
+                        isRevealed={isEarnMaxBalanceRevealed}
+                        whole={earnMaxBalance.balanceWhole}
+                      />
                     </span>
-                    <SplitAmount
-                      fraction={earnMaxBalance.balanceFraction}
-                      isHidden={isBalanceHidden}
-                      isRevealed={isEarnMaxBalanceRevealed}
-                      whole={earnMaxBalance.balanceWhole}
-                    />
-                  </span>
-                </button>
+                  </button>
+                ) : null}
               </div>
             </div>
           </section>

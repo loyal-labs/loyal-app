@@ -60,12 +60,12 @@ export type WorkspacePage =
 type MiddleView = "earn" | "deposit" | "withdraw" | "autodeposit" | "autoswap";
 
 const PAGE_STORAGE_KEY = "loyal:workspace-page";
+const EARN_MAX_VISIBLE = false;
 const WORKSPACE_PAGES: WorkspacePage[] = [
   "crypto",
   "stables",
   "activity",
   "earn",
-  "earnmax",
   "wallet",
 ];
 
@@ -74,7 +74,6 @@ const SHORTCUT_PAGES: Partial<Record<string, WorkspacePage>> = {
   a: "activity",
   c: "crypto",
   e: "earn",
-  m: "earnmax",
   s: "stables",
 };
 
@@ -157,8 +156,8 @@ export function WorkspaceFaceliftShell() {
   const [hasUnseenActivity, setHasUnseenActivity] = useState(false);
   const earnData = useEarnPositionData();
   const earnMax = useEarnMax({
-    settingsPda: earnData.settingsPda,
-    walletAddress: earnData.walletAddress,
+    settingsPda: EARN_MAX_VISIBLE ? earnData.settingsPda : undefined,
+    walletAddress: EARN_MAX_VISIBLE ? earnData.walletAddress : null,
   });
   // Bumped on every sidebar selection so CryptoPage abandons its in-progress
   // Send/Swap/Shield screens — including re-selecting the page it's already on.
@@ -195,6 +194,9 @@ export function WorkspaceFaceliftShell() {
     publicEnv.solanaEnv,
   ]);
   const handleSelectPage = (page: WorkspacePage) => {
+    if (!EARN_MAX_VISIBLE && page === "earnmax") {
+      return;
+    }
     // Disconnected wallets live on Earn — every other page needs a session,
     // so tapping one opens the connect-wallet modal instead of navigating.
     if (!isSignedIn && page !== "earn") {
@@ -375,6 +377,7 @@ export function WorkspaceFaceliftShell() {
           isEarnMaxBalanceLoading={earnMax.view.isLoading}
           onSelectPage={handleSelectPage}
           onUnseenActivityChange={setHasUnseenActivity}
+          showEarnMax={EARN_MAX_VISIBLE}
         />
         <div
           className={`flex h-full min-w-0 flex-1 flex-col ${
@@ -394,6 +397,7 @@ export function WorkspaceFaceliftShell() {
                 setMiddleView("autodeposit");
               }}
               showActivityBadge={hasUnseenActivity}
+              showEarnMax={EARN_MAX_VISIBLE}
             />
           ) : activePage === "activity" ? (
             <ActivityPage
@@ -402,9 +406,9 @@ export function WorkspaceFaceliftShell() {
               settingsPda={earnData.settingsPda}
               walletAddress={earnData.walletAddress}
             />
-          ) : activePage === "earnmax" ? (
+          ) : EARN_MAX_VISIBLE && activePage === "earnmax" ? (
             <EarnMaxPage actions={earnMax.actions} view={earnMax.view} />
-          ) : activePage !== "earn" ? (
+          ) : activePage !== "earn" && activePage !== "earnmax" ? (
             <CryptoPage
               navigationNonce={navigationNonce}
               onBack={() => handleSelectPage("wallet")}
