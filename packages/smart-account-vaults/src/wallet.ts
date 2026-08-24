@@ -286,7 +286,9 @@ async function confirmSubmittedTransaction(args: {
   blockhash: string;
   connection: PreparedConnection;
   lastValidBlockHeight: number;
+  prepared?: PreparedOperation;
   signature: string;
+  transaction?: VersionedTransaction;
 }): Promise<number | undefined> {
   try {
     const confirmation = await args.connection.confirmTransaction(
@@ -310,12 +312,14 @@ async function confirmSubmittedTransaction(args: {
     // Confirmation transports can time out after a transaction has landed.
     // Reconcile the returned signature before reporting failure; callers must
     // never interpret an ambiguous confirmation as permission to resend.
+    let signatureAbsent = false;
     try {
       const { value } = await args.connection.getSignatureStatuses(
         [args.signature],
         { searchTransactionHistory: true }
       );
       const status = value[0] ?? null;
+      signatureAbsent = status === null;
       if (status?.err) {
         throw new Error(
           `Transaction ${args.signature} failed: ${JSON.stringify(status.err)}`
@@ -336,6 +340,18 @@ async function confirmSubmittedTransaction(args: {
       }
       // Preserve the original confirmation failure below. A secondary RPC
       // failure is not evidence that the transaction was absent.
+    }
+
+    if (signatureAbsent && args.prepared && args.transaction) {
+      const diagnostic = await getSimulationDiagnosticError({
+        connection: args.connection,
+        error: confirmationError,
+        prepared: args.prepared,
+        transaction: args.transaction,
+      });
+      if (diagnostic) {
+        throw diagnostic;
+      }
     }
 
     const error = new Error(
@@ -389,7 +405,9 @@ export async function sendPreparedWithWallet({
       blockhash: latestBlockhash.blockhash,
       connection,
       lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+      prepared,
       signature,
+      transaction,
     });
     await onTransactionConfirmed?.({ prepared, signature, slot });
   }
@@ -508,7 +526,9 @@ export async function sendPreparedBatchWithWallet({
             blockhash: latestBlockhash.blockhash,
             connection,
             lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            prepared: sent.operation,
             signature: sent.signature,
+            transaction: sent.transaction,
           });
         }
 
@@ -570,7 +590,9 @@ export async function sendPreparedBatchWithWallet({
         blockhash: latestBlockhash.blockhash,
         connection,
         lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        prepared: operation,
         signature,
+        transaction: signedTransaction,
       });
     }
 
