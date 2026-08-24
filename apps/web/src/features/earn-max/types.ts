@@ -8,6 +8,12 @@ export type EarnMaxActivityItem = {
   timestamp: string;
 };
 
+export type EarnMaxPolicyBinding = {
+  account: string;
+  matches: boolean;
+  seed: string;
+};
+
 export type EarnMaxPerformancePoint = {
   equityUsd: number;
   timestamp: string;
@@ -20,6 +26,33 @@ export type EarnMaxWithdrawalView = {
   readyBy: string;
   requestId: string;
   status: "requested" | "unwinding" | "claimable" | "claimed";
+};
+
+export type EarnMaxSummary = {
+  balanceUsd: number;
+  claimAmountRaw: string;
+  coverage: EarnMaxCoverage;
+  currentOperationId: string | null;
+  earnedUsd: number | null;
+  forecastApyBps: number | null;
+  goal: string;
+  policyAccounts: EarnMaxPolicyBinding[];
+  policyStatus: string | null;
+  realizedApyBps: number | null;
+  withdrawal: EarnMaxWithdrawalView | null;
+};
+
+export type EarnMaxSummaryResponse = {
+  config: {
+    delegatedSigner: string;
+    programId: string;
+  };
+  summary: EarnMaxSummary | null;
+};
+
+export type EarnMaxActivityResponse = {
+  operations: EarnMaxActivityItem[];
+  performance: EarnMaxPerformancePoint[];
 };
 
 export type EarnMaxViewModel = {

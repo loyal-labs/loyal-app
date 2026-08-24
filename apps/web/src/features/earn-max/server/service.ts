@@ -7,21 +7,19 @@ import { assertAuthenticatedWalletControlsSettings } from "@/features/smart-acco
 import { getServerEnv } from "@/lib/core/config/server";
 import { getDeploymentPolicySignerPublicKey } from "@/lib/yield-optimization/deployment-policy-signer.server";
 
-import {
-  readEarnMaxActivity,
-  readEarnMaxPerformance,
-  readEarnMaxState,
-} from "./repository.server";
+import { readEarnMaxActivity, readEarnMaxSummary } from "./repository.server";
+
+import type { EarnMaxSummaryResponse } from "../types";
 
 const headers = {
-  "x-loyal-earn-max-contract": "earn-max-v2",
+  "x-loyal-earn-max-contract": "earn-max-v3",
   "x-loyal-deployment-revision":
     process.env.VERCEL_GIT_COMMIT_SHA ??
     process.env.RENDER_GIT_COMMIT ??
     "unknown",
 };
 
-function json(value: unknown, status = 200) {
+function json<T>(value: T, status = 200) {
   return NextResponse.json(value, { headers, status });
 }
 
@@ -36,9 +34,9 @@ async function settingsFor(request: Request): Promise<string | null> {
   return principal.settingsPda;
 }
 
-async function authenticatedRead(
+async function authenticatedRead<T>(
   request: Request,
-  read: (settings: string) => Promise<unknown>
+  read: (settings: string) => Promise<T>
 ) {
   const settings = await settingsFor(request);
   if (!settings) {
@@ -52,23 +50,17 @@ async function authenticatedRead(
   return json(await read(settings));
 }
 
-export function getState(request: Request) {
-  return authenticatedRead(request, async (settings) => {
-    const state = await readEarnMaxState(settings);
-    return {
+export function getSummary(request: Request) {
+  return authenticatedRead<EarnMaxSummaryResponse>(
+    request,
+    async (settings) => ({
       config: {
         delegatedSigner: getDeploymentPolicySignerPublicKey().toBase58(),
         programId: getServerEnv().loyalSmartAccounts.programId,
       },
-      state,
-    };
-  });
-}
-
-export function getPerformance(request: Request) {
-  return authenticatedRead(request, async (settings) => ({
-    performance: await readEarnMaxPerformance(settings),
-  }));
+      summary: await readEarnMaxSummary(settings),
+    })
+  );
 }
 
 export function getActivity(request: Request) {
