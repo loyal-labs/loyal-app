@@ -495,8 +495,7 @@ function initUserMetadata(vault: PublicKey, userMetadata: PublicKey) {
   });
 }
 
-export async function buildEarnMaxDepositInstructions(input: {
-  amountRaw: bigint;
+export async function buildEarnMaxSetupInstructions(input: {
   connection: Connection;
   feePayer: PublicKey;
   programId: PublicKey;
@@ -626,6 +625,18 @@ export async function buildEarnMaxDepositInstructions(input: {
       })
     );
   }
+  return operations;
+}
+
+export async function buildEarnMaxDepositInstructions(input: {
+  amountRaw: bigint;
+  connection: Connection;
+  feePayer: PublicKey;
+  programId: PublicKey;
+  settings: PublicKey;
+}): Promise<EarnMaxClientOperation[]> {
+  const topology = deriveEarnMaxTopology(input.settings);
+  const operations = await buildEarnMaxSetupInstructions(input);
   operations.push(
     prepared({
       instructions: [

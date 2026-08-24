@@ -96,6 +96,7 @@ export {
   buildEarnMaxCloseInstructions,
   buildEarnMaxDepositInstructions,
   buildEarnMaxInstallInstructions,
+  buildEarnMaxSetupInstructions,
   buildEarnMaxWithdrawalCancelInstructions,
   buildEarnMaxWithdrawalRequestInstructions,
   createEarnMaxPolicyManifest,

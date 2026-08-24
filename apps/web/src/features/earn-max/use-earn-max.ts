@@ -5,6 +5,7 @@ import {
   buildEarnMaxCloseInstructions,
   buildEarnMaxDepositInstructions,
   buildEarnMaxInstallInstructions,
+  buildEarnMaxSetupInstructions,
   buildEarnMaxWithdrawalCancelInstructions,
   buildEarnMaxWithdrawalRequestInstructions,
   deriveEarnMaxWalletClaimAta,
@@ -382,17 +383,23 @@ export function useEarnMax(input: {
           if (!current?.canClaim || amountRaw <= BigInt(0))
             throw new Error("Earn MAX withdrawal is not claimable.");
           const { feePayer, programId, settings } = context();
-          return [
-            (
-              await buildEarnMaxClaimInstructions({
-                amountRaw,
-                connection,
-                feePayer,
-                programId,
-                settings,
-              })
-            ).operation,
-          ];
+          const setup =
+            amountRaw < available
+              ? await buildEarnMaxSetupInstructions({
+                  connection,
+                  feePayer,
+                  programId,
+                  settings,
+                })
+              : [];
+          const claim = await buildEarnMaxClaimInstructions({
+            amountRaw,
+            connection,
+            feePayer,
+            programId,
+            settings,
+          });
+          return [...setup, claim.operation];
         }),
       close: () =>
         run(async () => {
