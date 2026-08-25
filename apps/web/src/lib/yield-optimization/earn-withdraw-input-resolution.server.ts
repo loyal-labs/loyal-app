@@ -501,7 +501,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     withdrawTarget =
       selectedSource.type === "reserve"
         ? reserveSourceWithdrawTarget(selectedSource)
-        : snapshotReserveTarget(snapshot.holdings);
+        : (snapshotReserveTarget(snapshot.holdings) ?? undefined);
   } else if (legacyRequest) {
     const selected = selectLegacyEarnWithdrawSource(
       snapshotSources,
@@ -527,7 +527,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     withdrawTarget =
       selected.type === "reserve"
         ? reserveSourceWithdrawTarget(selected)
-        : snapshotReserveTarget(snapshot.holdings);
+        : (snapshotReserveTarget(snapshot.holdings) ?? undefined);
   } else {
     if (args.sourceId === null) {
       throw new EarnWithdrawResolveError(
