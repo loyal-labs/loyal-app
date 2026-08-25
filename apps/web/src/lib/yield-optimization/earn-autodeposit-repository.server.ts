@@ -1943,6 +1943,113 @@ export async function recordConfirmedAutodepositTokenApproval(
   return target;
 }
 
+// Released clients still call setup confirmation after the transaction lands.
+// Persist only the user's configuration. LaserStream owns chain_status,
+// signatures, observed slots, policy rows, and delegation projection.
+export async function recordAutodepositSetupIntent(
+  input: ConfirmedEarnAutodepositSetupInput,
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  assertSetupHasPolicy(input);
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const existing = await findTargetForAutodepositSetup({
+    client,
+    policyAccount: input.policyAccount,
+    recurringDelegation: input.recurringDelegation,
+  });
+  if (existing) {
+    assertTargetCanResumeAutodepositSetup(existing, input);
+    if (existing.lifecycleStatus === "closed") {
+      throw new Error(
+        "Closed autodeposit targets cannot be reactivated. Create a new autodeposit policy with a new policy seed."
+      );
+    }
+  }
+
+  const intentInsert = {
+    ...targetValuesFromSetup(input, null, now, true, "pending_policy" as const),
+    chainObservationSlot: BigInt(0),
+    lastSeenSignature: `intent:${input.policyAccount}`,
+    lastSeenSlot: BigInt(0),
+    lifecycleStatus: "pending",
+    policyConfirmedSlot: null,
+    policySignature: null,
+    recurringDelegationConfirmedSlot: null,
+    recurringDelegationSignature: null,
+  };
+  const [target] = await client.db
+    .insert(balanceSweepTargets)
+    .values(intentInsert)
+    .onConflictDoUpdate({
+      target: [balanceSweepTargets.policyAccount],
+      set: {
+        active: true,
+        maxAmountPerPeriod: input.amountPerPeriodRaw,
+        periodLengthSeconds: input.periodLengthSeconds,
+        recurringDelegationExpiryTimestamp: input.expiryTimestamp,
+        recurringDelegationNonce: input.nonce,
+        startTimestamp: input.startTimestamp,
+        walletBalanceFloorRaw: input.walletBalanceFloorRaw,
+      },
+    })
+    .returning();
+
+  if (!target) {
+    throw new Error("Failed to record autodeposit setup intent.");
+  }
+  return target;
+}
+
+// Closing Autodeposit changes the user's desired state immediately. The chain
+// projector records whether the policy and delegation actually closed.
+export async function recordAutodepositCloseIntent(
+  input: ConfirmedEarnAutodepositCloseInput,
+  dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
+): Promise<BalanceSweepTargetRecord> {
+  const { client } = dependencies;
+  const now = dependencies.now();
+  const existing = await findTargetByPolicy({
+    client,
+    policyAccount: input.policyAccount,
+  });
+  if (!existing) {
+    throw new Error("Autodeposit target does not exist.");
+  }
+  if (
+    existing.settings !== input.settings ||
+    existing.wallet !== input.walletAddress ||
+    existing.vaultIndex !== input.vaultIndex ||
+    existing.vaultPubkey !== input.vaultPubkey
+  ) {
+    throw new Error("Autodeposit close target does not match the wallet.");
+  }
+  if (!existing.delegatedSigners.includes(input.delegatedSigner)) {
+    throw new Error("Autodeposit close signer does not match target policy.");
+  }
+  if (
+    existing.recurringDelegation &&
+    existing.recurringDelegation !== input.recurringDelegation
+  ) {
+    throw new Error("Autodeposit recurring delegation does not match target.");
+  }
+
+  await cancelScheduledAutodepositTransactionsForClose({
+    client,
+    now,
+    targetId: existing.id,
+  });
+  const [target] = await client.db
+    .update(balanceSweepTargets)
+    .set({ active: false })
+    .where(eq(balanceSweepTargets.id, existing.id))
+    .returning();
+  if (!target) {
+    throw new Error("Failed to record autodeposit close intent.");
+  }
+  return target;
+}
+
 export async function recordClosedAutodepositTarget(
   input: ConfirmedEarnAutodepositCloseInput,
   dependencies: EarnAutodepositRepositoryDependencies = createDependencies()
@@ -2786,8 +2893,7 @@ export async function activateAutodepositTargetWithBackfilledSetup(
   const policyConfirmedSlot =
     existing.policyConfirmedSlot ?? input.policyConfirmedSlot;
   const recurringDelegationSignature =
-    existing.recurringDelegationSignature ??
-    input.recurringDelegationSignature;
+    existing.recurringDelegationSignature ?? input.recurringDelegationSignature;
   const recurringDelegationConfirmedSlot =
     existing.recurringDelegationConfirmedSlot ??
     input.recurringDelegationConfirmedSlot;

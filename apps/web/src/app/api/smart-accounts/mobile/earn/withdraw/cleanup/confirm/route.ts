@@ -17,10 +17,7 @@ import {
   EarnCleanupConfirmError,
   resolveConfirmedSignatureSlot,
 } from "@/lib/yield-optimization/earn-cleanup-confirm.server";
-import {
-  findEarnCleanupVaultState,
-  recordConfirmedEarnCleanup,
-} from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { findEarnCleanupVaultState } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
@@ -49,8 +46,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -68,10 +64,7 @@ function parseMobileEarnCleanupConfirmFields(
     throw new Error("Invalid request body.");
   }
   const record = body as Record<string, unknown>;
-  if (
-    typeof record.cleanupSignature !== "string" ||
-    !record.cleanupSignature
-  ) {
+  if (typeof record.cleanupSignature !== "string" || !record.cleanupSignature) {
     throw new Error("cleanupSignature is required.");
   }
   if (
@@ -211,24 +204,17 @@ export async function POST(request: Request) {
       settingsPda: settingsPdaKey,
     });
 
-    await recordConfirmedEarnCleanup({
-      cleanupSignature: fields.cleanupSignature,
-      cluster,
-      confirmedSlot: BigInt(fields.confirmedSlot),
-      settings: settingsPda,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      vaultPubkey: earnVaultPda.toBase58(),
-      walletAddress,
-    });
-
-    console.info("[mobile-earn-withdraw-cleanup-confirm] full exit closed", {
-      cleanupSignature: fields.cleanupSignature,
-      confirmedSlot: fields.confirmedSlot,
-      settings: settingsPda,
-      status: "full_exit_closed",
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      walletAddress,
-    });
+    console.info(
+      "[mobile-earn-withdraw-cleanup-confirm] verified for LaserStream projection",
+      {
+        cleanupSignature: fields.cleanupSignature,
+        confirmedSlot: fields.confirmedSlot,
+        settings: settingsPda,
+        status: "full_exit_closed",
+        vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+        walletAddress,
+      }
+    );
     return NextResponse.json({ ok: true, status: "full_exit_closed" });
   } catch (error) {
     if (error instanceof EarnCleanupConfirmError) {

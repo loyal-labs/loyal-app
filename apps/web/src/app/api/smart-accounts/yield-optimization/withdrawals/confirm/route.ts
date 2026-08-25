@@ -6,12 +6,12 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { parseEarnWithdrawalConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   EarnWithdrawConfirmError,
-  recordConfirmedEarnWithdrawal,
+  verifyConfirmedEarnWithdrawal,
 } from "@/lib/yield-optimization/earn-withdraw-confirm.server";
 import type { ConfirmedYieldWithdrawalInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Session (web) Earn withdrawal confirm. Auth comes from the wallet session;
-// the validation + recording is the shared `recordConfirmedEarnWithdrawal`
+// validation is shared with the released-mobile compatibility route
 // core, which the mobile twin (`mobile/earn/withdraw/confirm`) also uses so the
 // security-critical canonicalization can't drift between the two.
 function jsonError(
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await recordConfirmedEarnWithdrawal({
+    const result = await verifyConfirmedEarnWithdrawal({
       principal: {
         walletAddress: principal.walletAddress,
         smartAccountAddress: principal.smartAccountAddress,

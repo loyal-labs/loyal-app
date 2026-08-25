@@ -13,12 +13,7 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { parseEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
-import {
-  findCurrentEarnDepositOnboardingAttempt,
-  recordConfirmedEarnDepositOnboardingPolicyStage,
-  type ConfirmedYieldRoutePolicyInput,
-  type RoutePolicyRecord,
-} from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { type ConfirmedYieldRoutePolicyInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_POLICY_VAULT_INDEX = 1;
 
@@ -175,8 +170,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -216,13 +210,26 @@ async function resolveConfirmedSignatureSlot(args: {
   return BigInt(status.slot);
 }
 
-function serializePolicy(policy: RoutePolicyRecord) {
+function serializeVerifiedPolicy(
+  input: ConfirmedYieldRoutePolicyInput,
+  stage: "route_policy" | "setup_policy"
+) {
+  const setup = stage === "setup_policy";
   return {
-    account: policy.policyAccount,
-    id: policy.id.toString(),
-    seed: policy.policySeed.toString(),
-    vaultIndex: policy.vaultIndex,
-    vaultPubkey: policy.vaultPubkey,
+    account:
+      setup && input.setupPolicyAccount
+        ? input.setupPolicyAccount
+        : input.policyAccount,
+    id: (setup && input.setupPolicyId
+      ? input.setupPolicyId
+      : input.policyId
+    ).toString(),
+    seed: (setup && input.setupPolicySeed
+      ? input.setupPolicySeed
+      : input.policySeed
+    ).toString(),
+    vaultIndex: input.vaultIndex,
+    vaultPubkey: input.vaultPubkey,
   };
 }
 
@@ -258,27 +265,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (input.stage === "setup_policy") {
-      const attempt = await findCurrentEarnDepositOnboardingAttempt({
-        settings: input.settings,
-        vaultIndex: input.vaultIndex,
-        vaultPubkey: input.vaultPubkey,
-        walletAddress: input.walletAddress,
-      });
-      if (!attempt?.routePolicySignature || !attempt.routePolicyConfirmedSlot) {
-        return jsonError(
-          409,
-          "missing_route_policy_stage",
-          "Confirm the Earn route policy before confirming the setup policy."
-        );
-      }
-      input = {
-        ...input,
-        policyConfirmedSlot: attempt.routePolicyConfirmedSlot,
-        policySignature: attempt.routePolicySignature,
-      };
-    }
-
     input = {
       ...createCanonicalPolicyInput(input, input.stage),
       stage: input.stage,
@@ -345,12 +331,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const policy = await recordConfirmedEarnDepositOnboardingPolicyStage(
-    input,
-    input.stage
-  );
-
   return NextResponse.json({
-    policy: serializePolicy(policy),
+    policy: serializeVerifiedPolicy(input, input.stage),
   });
 }

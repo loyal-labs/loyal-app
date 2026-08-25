@@ -7,9 +7,7 @@ import {
 } from "@loyal-labs/smart-account-vaults";
 import { type Connection, PublicKey } from "@solana/web3.js";
 
-import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
 import {
-  earnReserveTargetFromActivePosition,
   type EarnUsdcReserveTarget,
 } from "@/lib/yield-optimization/earn-reserve-target.server";
 import {
@@ -24,7 +22,6 @@ import type {
 } from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
 import {
   findActiveYieldRoutePolicyPair,
-  findReconciledActiveYieldPositionForVault,
   type RoutePolicyRecord,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
@@ -34,6 +31,11 @@ import {
 // the exact same input. Everything here is the decision "WHAT to withdraw";
 // the caller decides where the instruction build ("HOW") runs.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
+const POLICY_PROJECTION_RETRY_DELAYS_MS = [0, 100, 250, 500, 1_000] as const;
+
+async function waitForPolicyProjection(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
 
 // Resolution failures the routes surface as specific HTTP responses rather
 // than a generic 500. Every rejection that describes the CALLER's state — no
@@ -411,61 +413,40 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     logTag,
   } = args;
   const settingsPdaKey = new PublicKey(settingsPda);
-  // Reconcile the DB position against the live on-chain Kamino obligation
-  // before deriving the withdrawal target — otherwise a stale snapshot points
-  // the withdraw at a reserve/market whose vanilla obligation doesn't exist
-  // (KLEND_OBLIGATION_NOT_FOUND). Mirrors the web `withdrawals/prepare` route.
-  await reconcileEarnVaultPosition({
-    authority: walletAddress,
-    cluster,
-    connection,
-    force: true,
-    settings: settingsPda,
-    vaultPubkey: earnVaultPda.toBase58(),
-  });
-  const [policyResult, position] = await Promise.all([
-    findActiveYieldRoutePolicyPair({
+  // Policy identity is durable setup metadata. The money position itself is
+  // derived from the live chain snapshot below, so a newly finalized deposit
+  // can be withdrawn before LaserStream has projected its aggregate row.
+  let policyResult: Awaited<ReturnType<typeof findActiveYieldRoutePolicyPair>> =
+    null;
+  for (const delayMs of POLICY_PROJECTION_RETRY_DELAYS_MS) {
+    if (delayMs > 0) {
+      await waitForPolicyProjection(delayMs);
+    }
+    policyResult = await findActiveYieldRoutePolicyPair({
       authority: walletAddress,
       cluster,
       settings: settingsPda,
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       vaultPubkey: earnVaultPda.toBase58(),
-    }),
-    findReconciledActiveYieldPositionForVault({
-      cluster,
-      settings: settingsPda,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      walletAddress,
-    }),
-  ]);
+    });
+    if (policyResult?.routePolicy) {
+      break;
+    }
+  }
   if (!policyResult?.routePolicy) {
-    console.warn(`[${logTag}] missing active Earn policy`, {
+    console.warn(`[${logTag}] Earn policy projection still pending`, {
       cluster,
       settings: settingsPda,
       vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
       walletAddress,
     });
     throw new EarnWithdrawResolveError(
-      409,
-      "missing_earn_policy",
-      "Set up the Earn policy before withdrawing."
+      503,
+      "earn_policy_projection_pending",
+      "The confirmed Earn policy is still updating. Retry this withdrawal."
     );
   }
   const policy = policyResult.routePolicy;
-
-  if (!position) {
-    console.warn(`[${logTag}] missing active Earn position`, {
-      cluster,
-      settings: settingsPda,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      walletAddress,
-    });
-    throw new EarnWithdrawResolveError(
-      409,
-      "missing_earn_position",
-      "No active Earn position was found for this withdrawal."
-    );
-  }
 
   const snapshot = await fetchEarnRpcHoldingsSnapshot({
     cluster,
@@ -520,8 +501,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     withdrawTarget =
       selectedSource.type === "reserve"
         ? reserveSourceWithdrawTarget(selectedSource)
-        : (snapshotReserveTarget(snapshot.holdings) ??
-          earnReserveTargetFromActivePosition(position, cluster));
+        : snapshotReserveTarget(snapshot.holdings);
   } else if (legacyRequest) {
     const selected = selectLegacyEarnWithdrawSource(
       snapshotSources,
@@ -547,8 +527,7 @@ export async function resolveEarnUsdcWithdrawInput(args: {
     withdrawTarget =
       selected.type === "reserve"
         ? reserveSourceWithdrawTarget(selected)
-        : (snapshotReserveTarget(snapshot.holdings) ??
-          earnReserveTargetFromActivePosition(position, cluster));
+        : snapshotReserveTarget(snapshot.holdings);
   } else {
     if (args.sourceId === null) {
       throw new EarnWithdrawResolveError(

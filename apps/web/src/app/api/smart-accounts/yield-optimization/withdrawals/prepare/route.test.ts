@@ -93,7 +93,6 @@ function holdingsSnapshot(holdings: SnapshotHolding[]) {
 
 let currentPrincipal: typeof principal | null = principal;
 let currentPolicy: typeof activePolicy | null = activePolicy;
-let currentPosition: typeof activePosition | null = activePosition;
 let currentSnapshot = holdingsSnapshot([
   kaminoHolding({
     amountRaw: "600000",
@@ -108,6 +107,8 @@ let currentSnapshot = holdingsSnapshot([
   idleHolding("10000"),
 ]);
 let prepareCalls: Record<string, unknown>[] = [];
+let policyLookupCount = 0;
+let policyMissesRemaining = 0;
 
 mock.module("@/features/identity/server/auth-session", () => ({
   resolveAuthenticatedPrincipalFromRequest: async () => currentPrincipal,
@@ -146,13 +147,6 @@ mock.module("@/lib/yield-optimization/deployment-policy-signer.server", () => ({
     new PublicKey("11111111111111111111111111111115"),
 }));
 
-mock.module(
-  "@/lib/yield-optimization/earn-position-reconciliation.server",
-  () => ({
-    reconcileEarnVaultPosition: async () => ({ status: "refreshed" }),
-  })
-);
-
 mock.module("@/lib/yield-optimization/earn-rpc-holdings.client", () => ({
   fetchEarnRpcHoldingsSnapshot: async () => currentSnapshot,
 }));
@@ -185,14 +179,19 @@ mock.module(
 );
 
 mock.module("@/lib/yield-optimization/yield-deposit-repository.server", () => ({
-  findActiveYieldRoutePolicyPair: async () =>
-    currentPolicy
+  findActiveYieldRoutePolicyPair: async () => {
+    policyLookupCount += 1;
+    if (policyMissesRemaining > 0) {
+      policyMissesRemaining -= 1;
+      return null;
+    }
+    return currentPolicy
       ? {
           routePolicy: currentPolicy,
           setupPolicy: activeSetupPolicy,
         }
-      : null,
-  findReconciledActiveYieldPositionForVault: async () => currentPosition,
+      : null;
+  },
 }));
 
 mock.module("@loyal-labs/smart-account-vaults", () => ({
@@ -218,7 +217,6 @@ describe("Earn withdrawal prepare route", () => {
   beforeEach(() => {
     currentPrincipal = principal;
     currentPolicy = activePolicy;
-    currentPosition = activePosition;
     currentSnapshot = holdingsSnapshot([
       kaminoHolding({
         amountRaw: "600000",
@@ -233,6 +231,8 @@ describe("Earn withdrawal prepare route", () => {
       idleHolding("10000"),
     ]);
     prepareCalls = [];
+    policyLookupCount = 0;
+    policyMissesRemaining = 0;
   });
 
   test("max drains only the exact selected source", async () => {
@@ -315,7 +315,7 @@ describe("Earn withdrawal prepare route", () => {
     expect(prepareCalls).toHaveLength(0);
   });
 
-  test("returns missing_earn_policy when the route policy is absent", async () => {
+  test("returns a retryable response while the route policy is still projecting", async () => {
     const { POST } = await import("./route");
     currentPolicy = null;
 
@@ -327,13 +327,15 @@ describe("Earn withdrawal prepare route", () => {
     );
     const payload = await response.json();
 
-    expect(response.status).toBe(409);
-    expect(payload.error.code).toBe("missing_earn_policy");
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("1");
+    expect(payload.error.code).toBe("earn_policy_projection_pending");
+    expect(policyLookupCount).toBe(5);
   });
 
-  test("returns missing_earn_position when the active position is absent", async () => {
+  test("recovers when LaserStream projects the policy during the retry window", async () => {
     const { POST } = await import("./route");
-    currentPosition = null;
+    policyMissesRemaining = 1;
 
     const response = await POST(
       createRequest({
@@ -341,10 +343,23 @@ describe("Earn withdrawal prepare route", () => {
         sourceId: `reserve:${activePosition.currentReserve}`,
       })
     );
-    const payload = await response.json();
 
-    expect(response.status).toBe(409);
-    expect(payload.error.code).toBe("missing_earn_position");
+    expect(response.status).toBe(200);
+    expect(policyLookupCount).toBe(2);
+    expect(prepareCalls).toHaveLength(1);
+  });
+
+  test("prepares from chain state without a projected active-position row", async () => {
+    const { POST } = await import("./route");
+
+    const response = await POST(
+      createRequest({
+        amountRaw: "max",
+        sourceId: `reserve:${activePosition.currentReserve}`,
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(prepareCalls).toHaveLength(1);
   });
 
   test("returns missing_earn_withdraw_source when the snapshot holds nothing", async () => {

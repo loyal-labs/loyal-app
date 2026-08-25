@@ -33,9 +33,7 @@ import {
   type EarnAutodepositSetupConfirmResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
-  recordConfirmedAutodepositDelegation,
-  recordConfirmedAutodepositTokenApproval,
-  recordPendingAutodepositSetup,
+  recordAutodepositSetupIntent,
   scheduleBootstrapEarnAutodepositSweep,
   type BalanceSweepTargetRecord,
   type ConfirmedEarnAutodepositSetupInput,
@@ -569,12 +567,7 @@ export async function POST(request: Request) {
 
   let target: BalanceSweepTargetRecord;
   try {
-    target =
-      input.setupStage === "create_recurring_delegation"
-        ? await recordConfirmedAutodepositDelegation(input)
-        : input.setupStage === "approve_token_delegate"
-        ? await recordConfirmedAutodepositTokenApproval(input)
-        : await recordPendingAutodepositSetup(input);
+    target = await recordAutodepositSetupIntent(input);
   } catch (error) {
     const message =
       error instanceof Error

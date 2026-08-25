@@ -559,6 +559,7 @@ export type PreparedEarnUsdcCleanup = SmartAccountPreparedEarnUsdcCleanup & {
 };
 
 export type EarnCleanupRequest = {
+  minContextSlot?: string;
   onWalletSubmitted?: () => void;
   observabilityFlowId?: string;
   preparedCleanup?: PreparedEarnUsdcCleanup;
@@ -1957,13 +1958,21 @@ export async function prepareEarnWithdrawOnServer(args: {
 }
 
 export async function prepareEarnCleanupOnServer(
-  args: { fetchImpl?: typeof fetch; observabilityFlowId?: string } = {}
+  args: {
+    fetchImpl?: typeof fetch;
+    minContextSlot?: string;
+    observabilityFlowId?: string;
+  } = {}
 ): Promise<PreparedEarnUsdcCleanup> {
   const fetchImpl = args.fetchImpl ?? fetch;
   const response = await fetchImpl(
     "/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare",
     {
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        ...(args.minContextSlot
+          ? { minContextSlot: args.minContextSlot }
+          : {}),
+      }),
       credentials: "include",
       headers: observabilityJsonHeaders(args.observabilityFlowId),
       method: "POST",
@@ -7409,7 +7418,11 @@ export function useSmartAccountSidebarData(
       setIsActionPending(true);
       try {
         const preparedCleanup =
-          request.preparedCleanup ?? (await prepareEarnCleanupOnServer());
+          request.preparedCleanup ??
+          (await prepareEarnCleanupOnServer({
+            minContextSlot: request.minContextSlot,
+            observabilityFlowId: request.observabilityFlowId,
+          }));
         const autodepositClosePrepared =
           preparedCleanup.autodepositClosePrepared ?? null;
         let autodepositCloseSignature: string | undefined;

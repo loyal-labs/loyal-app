@@ -39,7 +39,10 @@ const DEFAULT_AVD = "SkyVerse_API_35";
 const DEFAULT_METRO_PORT = 8081;
 const DEFAULT_PROXY_PORT = 4319;
 const MAINNET_ACK = "I_ACKNOWLEDGE_MAINNET";
-const UPSTREAM = "https://askloyal.com";
+const UPSTREAM =
+  process.env.MOBILE_WITHDRAW_UPSTREAM ?? "https://askloyal.com";
+const solanaEnv = process.env.MOBILE_WITHDRAW_SOLANA_ENV ?? "mainnet";
+const isIsolatedLocalnet = solanaEnv === "localnet";
 const LIFECYCLE_PATH = "/api/observability/mobile/events";
 const ERROR_PATH = "/api/observability/mobile/errors";
 const METRICS_PATH = "/api/observability/mobile/metrics";
@@ -128,6 +131,9 @@ let emulatorSerial: string | null = null;
 let seedDepositActionBounds: UiNode["bounds"] | null = null;
 let materializedPrivateTransactionsEntry:
   | { entryPath: string; linkTarget: string }
+  | undefined;
+let patchedKaminoClientSource:
+  | { path: string; source: string }
   | undefined;
 const seededDepositSources: { path: string; source: string }[] = [];
 
@@ -309,6 +315,45 @@ function restorePrivateTransactionsEntry(): void {
   unlinkSync(entryPath);
   symlinkSync(linkTarget, entryPath);
   materializedPrivateTransactionsEntry = undefined;
+}
+
+function routeKaminoInstructionApiThroughVerifier(): void {
+  if (!isIsolatedLocalnet) return;
+  const path = resolve(
+    import.meta.dir,
+    "../../../packages/smart-account-vaults/src/client.ts",
+  );
+  const source = readFileSync(path, "utf8");
+  const replacements = [
+    [
+      "https://api.kamino.finance/ktx/klend/deposit-instructions",
+      `http://127.0.0.1:${proxyPort}/ktx/klend/deposit-instructions`,
+    ],
+    [
+      "https://api.kamino.finance/ktx/klend/withdraw-instructions",
+      `http://127.0.0.1:${proxyPort}/ktx/klend/withdraw-instructions`,
+    ],
+  ] as const;
+  let patched = source;
+  for (const [from, to] of replacements) {
+    assert.equal(
+      patched.split(from).length - 1,
+      1,
+      `The verifier could not locate Kamino instruction URL ${from}.`,
+    );
+    patched = patched.replace(from, to);
+  }
+  writeFileSync(path, patched);
+  patchedKaminoClientSource = { path, source };
+}
+
+function restoreKaminoClientSource(): void {
+  if (!patchedKaminoClientSource) return;
+  writeFileSync(
+    patchedKaminoClientSource.path,
+    patchedKaminoClientSource.source,
+  );
+  patchedKaminoClientSource = undefined;
 }
 
 function injectIncidentNativeSolRequirement(): void {
@@ -580,7 +625,12 @@ function assembleVerifierApk(
     );
     mkdirSync(dirname(legacyWorkletsPath), { recursive: true });
     copyFileSync(workletsCandidates[0]!, legacyWorkletsPath);
-    run("./gradlew", ["app:assembleDebug", ...gradleArgs], {
+    run("./gradlew", [
+      "app:assembleDebug",
+      "--exclude-task",
+      `:react-native-worklets:buildCMakeDebug[${androidAbi}][worklets]`,
+      ...gradleArgs,
+    ], {
       cwd: androidRoot,
       env,
     });
@@ -729,8 +779,23 @@ async function dismissDevClientIntro(): Promise<void> {
       },
       180_000,
     );
-    if (next.kind === "close") tap(next.node);
-    await waitForNode("Import Existing Wallet", 180_000);
+    if (next.kind === "close") {
+      // Expo's developer-menu Close control is not reliably activated by an
+      // accessibility-coordinate tap on headless emulators. Android Back is
+      // the native dismissal path and avoids waiting on the obscured app UI.
+      adbRun(["shell", "input", "keyevent", "KEYCODE_BACK"]);
+    }
+    try {
+      await waitForNode("Import Existing Wallet", 180_000);
+    } catch (error) {
+      const visibleLabels = dumpUi()
+        .flatMap((node) => [node.text, node.contentDescription])
+        .filter(Boolean)
+        .slice(0, 80);
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; visible UI labels: ${JSON.stringify(visibleLabels)}`,
+      );
+    }
   }
 }
 
@@ -810,11 +875,13 @@ async function importWallet(secretInputValue: string): Promise<void> {
       const nodes = dumpUi();
       const error = findKnownImportError(nodes);
       if (error) throw new Error(`Wallet import validation failed: ${error}`);
+      const importModalOpen = findNode(nodes, "Import Wallet") !== null;
       if (
         findNode(nodes, "Importing wallet...") ||
-        findNode(nodes, "Skip for now") ||
-        findNode(nodes, "Earn") ||
-        findNode(nodes, "Deposit")
+        (!importModalOpen &&
+          (findNode(nodes, "Skip for now") ||
+            findNode(nodes, "Earn") ||
+            findNode(nodes, "Deposit")))
       ) {
         importStarted = true;
         break;
@@ -834,6 +901,7 @@ async function importWallet(secretInputValue: string): Promise<void> {
     "wallet import completion",
     () => {
       const nodes = dumpUi();
+      if (findNode(nodes, "Import Wallet")) return false;
       const skip = findNode(nodes, "Skip for now");
       if (skip) return { kind: "skip" as const, node: skip };
       const earnScreen = findNode(nodes, "Earn") ?? findNode(nodes, "Deposit");
@@ -917,11 +985,12 @@ function verifierEnv(): NodeJS.ProcessEnv {
     ANDROID_HOME: androidRoot,
     ANDROID_SDK_ROOT: androidRoot,
     APP_VARIANT: "development",
-    EXPO_PUBLIC_API_BASE_URL:
-      process.env.EXPO_PUBLIC_API_BASE_URL ??
-      "https://solana-telegram-transactions.vercel.app",
+    EXPO_PUBLIC_API_BASE_URL: isIsolatedLocalnet
+      ? `http://127.0.0.1:${proxyPort}`
+      : process.env.EXPO_PUBLIC_API_BASE_URL ??
+        "https://solana-telegram-transactions.vercel.app",
     EXPO_PUBLIC_EARN_API_BASE_URL: `http://127.0.0.1:${proxyPort}`,
-    EXPO_PUBLIC_SOLANA_ENV: "mainnet",
+    EXPO_PUBLIC_SOLANA_ENV: solanaEnv,
     JAVA_HOME:
       process.env.JAVA_HOME ??
       "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home",
@@ -975,6 +1044,11 @@ async function proxyRequest(request: Request): Promise<Response> {
     startedAt: new Date(startedAtMs).toISOString(),
     status: upstreamResponse.status,
   });
+  if (isIsolatedLocalnet) {
+    console.info(
+      `[withdraw-e2e] local API ${request.method} ${url.pathname} -> ${upstreamResponse.status}`,
+    );
+  }
   const responseHeaders = new Headers(upstreamResponse.headers);
   responseHeaders.delete("content-encoding");
   responseHeaders.delete("content-length");
@@ -1012,8 +1086,30 @@ function lifecycleStageDurations(flowName: string): Record<string, number> {
 }
 
 async function driveWithdraw(): Promise<void> {
-  console.info("[withdraw-e2e] opening Earn tab");
-  await tapLabel("Earn");
+  await waitFor(
+    "the imported wallet's initial Earn state read",
+    () =>
+      apiTimings.some(
+        (timing) =>
+          timing.method === "GET" &&
+          timing.pathname === "/api/smart-accounts/mobile/earn/state" &&
+          timing.status === 200,
+      ) || false,
+    180_000,
+  );
+  console.info("[withdraw-e2e] imported wallet Earn state loaded");
+  const initialNodes = dumpUi();
+  const earnTab = findNode(initialNodes, "Earn");
+  if (earnTab) {
+    console.info("[withdraw-e2e] opening Earn tab");
+    tap(earnTab);
+  } else {
+    assert.ok(
+      findNode(initialNodes, "Deposit"),
+      "The imported wallet opened neither the Earn tab nor the Earn screen.",
+    );
+    console.info("[withdraw-e2e] Earn screen is already open");
+  }
   console.info("[withdraw-e2e] opening withdrawal sheet");
   let maxButton: UiNode | null = null;
   let withdrawActionBounds: UiNode["bounds"] | null = null;
@@ -1444,6 +1540,7 @@ async function main(): Promise<void> {
   }
   if (
     mode !== "insufficient-sol" &&
+    !isIsolatedLocalnet &&
     process.env.CONFIRM_MAINNET_WITHDRAW !== MAINNET_ACK
   ) {
     throw new Error(
@@ -1522,13 +1619,23 @@ async function main(): Promise<void> {
         env,
       });
     }
-    assembleVerifierApk(androidRoot, env);
     const apk = join(androidRoot, "app/build/outputs/apk/debug/app-debug.apk");
+    if (
+      process.env.MOBILE_WITHDRAW_REUSE_APK !== "1" ||
+      !existsSync(apk)
+    ) {
+      assembleVerifierApk(androidRoot, env);
+    }
     adbRun(["install", "-r", apk]);
     adbRun(["shell", "pm", "clear", APP_PACKAGE]);
     adbRun(["reverse", `tcp:${metroPort}`, `tcp:${metroPort}`]);
     adbRun(["reverse", `tcp:${proxyPort}`, `tcp:${proxyPort}`]);
+    if (isIsolatedLocalnet) {
+      adbRun(["reverse", "tcp:8899", "tcp:8899"]);
+      adbRun(["reverse", "tcp:8900", "tcp:8900"]);
+    }
     materializeWorktreePrivateTransactionsEntry();
+    routeKaminoInstructionApiThroughVerifier();
     if (mode === "insufficient-sol") {
       openDepositSheetInVerifierBundle();
     }
@@ -1694,6 +1801,7 @@ try {
     spawnSync(adb, ["-s", emulatorSerial!, "emu", "kill"], { stdio: "ignore" });
   }
   restorePrivateTransactionsEntry();
+  restoreKaminoClientSource();
   restoreDepositSource();
   processLog.end();
   if (process.exitCode !== 1)

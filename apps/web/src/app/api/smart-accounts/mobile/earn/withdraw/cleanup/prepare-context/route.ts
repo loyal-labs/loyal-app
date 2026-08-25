@@ -17,7 +17,6 @@ import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-fu
 import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
 import {
   findEarnCleanupVaultState,
-  findLatestFullYieldWithdrawalForVault,
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Phase two of a full mobile withdrawal. The backend only resolves a fresh,
@@ -165,34 +164,10 @@ export async function POST(request: Request) {
     }
 
     const connection = getConnection(solanaEnv);
-    const latestFullWithdrawal = await findLatestFullYieldWithdrawalForVault({
-      settings: settingsPda,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      vaultPubkey: earnVaultPda.toBase58(),
-      walletAddress,
-    });
-    if (!latestFullWithdrawal) {
-      return jsonError(
-        409,
-        "missing_full_withdrawal",
-        "A confirmed full withdrawal is required before closing Earn accounts."
-      );
-    }
-    const serverMinContextSlot = Number(latestFullWithdrawal.confirmedSlot);
-    if (
-      !Number.isSafeInteger(serverMinContextSlot) ||
-      serverMinContextSlot < 0
-    ) {
-      return jsonError(
-        409,
-        "missing_full_exit_verification_anchor",
-        "The confirmed full withdrawal slot is outside the supported range."
-      );
-    }
-    const minContextSlot = Math.max(
-      requestedMinContextSlot,
-      serverMinContextSlot
-    );
+    // The client obtained this slot from its confirmed withdrawal. The zero
+    // proof below is authoritative, so cleanup must not wait for LaserStream
+    // to insert the corresponding withdrawal row first.
+    const minContextSlot = requestedMinContextSlot;
 
     let proof: Awaited<ReturnType<typeof verifyEarnFullExitZeroBalances>>;
     try {

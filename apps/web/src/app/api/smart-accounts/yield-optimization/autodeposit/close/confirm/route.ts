@@ -17,7 +17,7 @@ import {
   type EarnAutodepositCloseConfirmResponse,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
-  recordClosedAutodepositTarget,
+  recordAutodepositCloseIntent,
   type BalanceSweepTargetRecord,
   type ConfirmedEarnAutodepositCloseInput,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
@@ -101,8 +101,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -231,7 +230,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const target = await recordClosedAutodepositTarget(input);
+    const target = await recordAutodepositCloseIntent(input);
     return NextResponse.json({ target: serializeTarget(target) });
   } catch (error) {
     return jsonError(

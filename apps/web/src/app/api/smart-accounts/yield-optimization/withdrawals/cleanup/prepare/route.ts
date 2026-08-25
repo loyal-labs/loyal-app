@@ -28,15 +28,17 @@ import {
 } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
+const PROJECTION_RETRY_DELAYS_MS = [0, 100, 250, 500, 1_000] as const;
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
 function jsonError(
   status: number,
   code: string,
-  message: string
+  message: string,
+  headers?: HeadersInit
 ): NextResponse {
-  return NextResponse.json({ error: { code, message } }, { status });
+  return NextResponse.json({ error: { code, message } }, { headers, status });
 }
 
 function getConfiguredSolanaEnv(): SolanaEnv {
@@ -58,6 +60,14 @@ function getConnection(cluster: SolanaEnv): Connection {
   });
   connectionCache.set(cluster, connection);
   return connection;
+}
+
+function parseMinContextSlot(value: unknown): number | null {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    return null;
+  }
+  const slot = Number(value);
+  return Number.isSafeInteger(slot) ? slot : null;
 }
 
 export async function POST(request: Request) {
@@ -99,26 +109,60 @@ export async function POST(request: Request) {
     }
 
     const connection = getConnection(solanaEnv);
-    const latestFullWithdrawal = await findLatestFullYieldWithdrawalForVault({
-      settings: principal.settingsPda,
-      vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
-      vaultPubkey: earnVaultPda.toBase58(),
-      walletAddress: principal.walletAddress,
-    });
-    if (!latestFullWithdrawal) {
-      return jsonError(
-        409,
-        "missing_full_withdrawal",
-        "A confirmed full withdrawal is required before closing Earn accounts."
-      );
+    let requestBody: unknown = {};
+    try {
+      requestBody = await request.json();
+    } catch {
+      // Released web bundles sent an empty request. Preserve that contract by
+      // falling back to the projected full-withdrawal slot below.
     }
-    const minContextSlot = Number(latestFullWithdrawal.confirmedSlot);
-    if (!Number.isSafeInteger(minContextSlot) || minContextSlot < 0) {
-      return jsonError(
-        409,
-        "missing_full_exit_verification_anchor",
-        "A confirmed full withdrawal is required before closing Earn accounts."
-      );
+    const requestedMinContextSlot =
+      requestBody !== null &&
+      typeof requestBody === "object" &&
+      "minContextSlot" in requestBody
+        ? (requestBody as { minContextSlot?: unknown }).minContextSlot
+        : undefined;
+    let minContextSlot: number;
+    if (requestedMinContextSlot !== undefined) {
+      const parsedSlot = parseMinContextSlot(requestedMinContextSlot);
+      if (parsedSlot === null) {
+        return jsonError(
+          400,
+          "invalid_request",
+          "minContextSlot must be a non-negative safe integer string."
+        );
+      }
+      minContextSlot = parsedSlot;
+    } else {
+      let latestFullWithdrawal: Awaited<
+        ReturnType<typeof findLatestFullYieldWithdrawalForVault>
+      > = null;
+      for (const delayMs of PROJECTION_RETRY_DELAYS_MS) {
+        if (delayMs > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        }
+        latestFullWithdrawal = await findLatestFullYieldWithdrawalForVault({
+          settings: principal.settingsPda,
+          vaultIndex: EARN_DEPOSIT_VAULT_INDEX,
+          vaultPubkey: earnVaultPda.toBase58(),
+          walletAddress: principal.walletAddress,
+        });
+        if (latestFullWithdrawal) {
+          break;
+        }
+      }
+      const projectedSlot = latestFullWithdrawal
+        ? Number(latestFullWithdrawal.confirmedSlot)
+        : Number.NaN;
+      if (!Number.isSafeInteger(projectedSlot) || projectedSlot < 0) {
+        return jsonError(
+          503,
+          "full_withdrawal_projection_pending",
+          "The confirmed Earn withdrawal is still updating. Retry cleanup.",
+          { "Retry-After": "1" }
+        );
+      }
+      minContextSlot = projectedSlot;
     }
 
     let zeroProof: Awaited<ReturnType<typeof verifyEarnFullExitZeroBalances>>;
