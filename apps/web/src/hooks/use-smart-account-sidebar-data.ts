@@ -713,6 +713,18 @@ export type EarnAutodepositToggleResult = {
 export type EarnAutoswapSetupResult = {
   success: boolean;
   completedPolicies?: number;
+  policies?: readonly [
+    {
+      account: string;
+      seed: string;
+      sourceShard: "classic" | "token_2022";
+    },
+    {
+      account: string;
+      seed: string;
+      sourceShard: "classic" | "token_2022";
+    }
+  ];
   error?: string;
 };
 
@@ -726,6 +738,7 @@ export type EarnAutoswapToggleResult = {
 
 export type EarnAutoswapDeleteResult = {
   success: boolean;
+  removedPolicyAccounts?: readonly string[];
   error?: string;
 };
 
@@ -6148,7 +6161,23 @@ export function useSmartAccountSidebarData(
           stageCount: 2,
           stageIndex: completedPolicies,
         });
-        return { success: true, completedPolicies };
+        const [classicPolicy, token2022Policy] = setup.policies;
+        return {
+          success: true,
+          completedPolicies,
+          policies: [
+            {
+              account: classicPolicy.account.toBase58(),
+              seed: classicPolicy.seed.toString(),
+              sourceShard: classicPolicy.sourceShard,
+            },
+            {
+              account: token2022Policy.account.toBase58(),
+              seed: token2022Policy.seed.toString(),
+              sourceShard: token2022Policy.sourceShard,
+            },
+          ],
+        };
       } catch (err) {
         const error =
           err instanceof Error ? err.message : "Autoswap setup failed.";
@@ -6311,7 +6340,10 @@ export function useSmartAccountSidebarData(
         tracker.complete("ui_commit", {
           chainState: "confirmed",
         });
-        return { success: true };
+        return {
+          success: true,
+          removedPolicyAccounts: removal.policies,
+        };
       } catch (err) {
         await refreshEarnState().catch(() => undefined);
         const error =

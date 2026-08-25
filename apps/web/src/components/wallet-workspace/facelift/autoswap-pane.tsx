@@ -243,7 +243,7 @@ export function AutoswapPane({
           {current ? (
             <button
               className="t-hover flex h-12 w-full items-center justify-center rounded-full bg-destructive/[0.08] font-medium text-[16px] text-destructive enabled:hover:bg-destructive/[0.14] disabled:opacity-60"
-              disabled={isPending}
+              disabled={isPending || isFinalizing}
               onClick={() => void handleDelete()}
               type="button"
             >
@@ -251,6 +251,8 @@ export function AutoswapPane({
                 text={
                   isPending
                     ? "Removing · takes ~1 minute…"
+                    : isFinalizing
+                    ? "Waiting for verification…"
                     : isDeleteArmed
                     ? "Confirm delete"
                     : "Delete Autoswap"

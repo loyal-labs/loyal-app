@@ -7,7 +7,7 @@ import {
 } from "./earn-autoswap-client-flow";
 
 const key = () => PublicKey.unique();
-const prepared = (id: string) => ({ id }) as never;
+const prepared = (id: string) => ({ id } as never);
 const policy = (
   sourceShard: "classic" | "token_2022",
   seed: bigint,
@@ -42,12 +42,16 @@ describe("Autoswap client flow", () => {
       sendPrepared,
     });
 
-    expect(result).toEqual({ completedPolicies: 2 });
+    expect(result.completedPolicies).toBe(2);
+    expect(result.policies.map((item) => item.sourceShard)).toEqual([
+      "classic",
+      "token_2022",
+    ]);
     expect(prepare).toHaveBeenCalledTimes(2);
     expect(sendPrepared).toHaveBeenCalledTimes(2);
     const calls = sendPrepared.mock.calls as unknown as [
       unknown,
-      { sourceShard: string },
+      { sourceShard: string }
     ][];
     expect(calls.map((call) => call[1].sourceShard)).toEqual([
       "classic",
@@ -81,11 +85,15 @@ describe("Autoswap client flow", () => {
       sendPrepared,
     });
 
-    expect(result).toEqual({ completedPolicies: 2 });
+    expect(result.completedPolicies).toBe(2);
+    expect(result.policies.map((item) => item.sourceShard)).toEqual([
+      "classic",
+      "token_2022",
+    ]);
     expect(sendPrepared).toHaveBeenCalledTimes(1);
     const sendCalls = sendPrepared.mock.calls as unknown as [
       unknown,
-      { policyNumber: number; sourceShard: string },
+      { policyNumber: number; sourceShard: string }
     ][];
     expect(sendCalls[0]?.[1]).toEqual({
       policyNumber: 2,
@@ -119,12 +127,15 @@ describe("Autoswap client flow", () => {
       expect.objectContaining({ seed: BigInt(10), sourceShard: "classic" }),
     ]);
 
-    const resumedPrepare = mock(async (_input: unknown) => ({
-      policies: [
-        { ...classic, existing: true, prepared: undefined },
-        token2022,
-      ],
-    }));
+    const resumedPrepare = mock(async (input: unknown) => {
+      void input;
+      return {
+        policies: [
+          { ...classic, existing: true, prepared: undefined },
+          token2022,
+        ],
+      };
+    });
     const resumedSend = mock(async () => "signature");
     await executeEarnAutoswapSetupClient({
       client: { prepareEarnCrossMintSwapPolicies: resumedPrepare } as never,
@@ -154,7 +165,11 @@ describe("Autoswap client flow", () => {
       sendPrepared,
     });
 
-    expect(result).toEqual({ completedPolicies: 2 });
+    expect(result.completedPolicies).toBe(2);
+    expect(result.policies.map((item) => item.sourceShard)).toEqual([
+      "classic",
+      "token_2022",
+    ]);
     expect(sendPrepared).not.toHaveBeenCalled();
   });
 
