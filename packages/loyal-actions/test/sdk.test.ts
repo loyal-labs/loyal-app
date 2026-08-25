@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  type Connection,
   PublicKey,
   TransactionMessage,
   VersionedTransaction,
@@ -43,6 +44,7 @@ import {
   createJupiterCrossMintPolicyPlan,
   createJupiterCrossMintPolicySet,
   createEarnMaxPolicyManifest,
+  buildEarnMaxDepositInstructions,
   deriveEarnMaxTopology,
   createVaultSubscriptionSweepPolicyPlan,
   createVaultYieldRoutingPolicyPlan,
@@ -159,6 +161,31 @@ describe("Earn MAX policy manifest", () => {
       "ef32ee403e4a472b19f927e14a224e318b8572073c7bd40260b6c4b1be45e224",
       "ad1b0ca8316a1e03644b27c0e6050dc58703326f9f095db2697e58de5df72f5c",
       "88320a43b00cafad090780a28ec23c773e5ef595621d4262ba08fc208ebbc2af",
+    ]);
+  });
+
+  test("keeps deposit evidence executable by supplying only the real Memo signer", async () => {
+    const connection = {
+      getBalance: async () => 0,
+      getMultipleAccountsInfo: async (keys: readonly PublicKey[]) =>
+        keys.map(() => ({ data: Buffer.alloc(0) })),
+    } as unknown as Connection;
+    const operations = await buildEarnMaxDepositInstructions({
+      amountRaw: 400_000n,
+      connection,
+      feePayer: authority,
+      programId: new PublicKey("SMRTzfY6DfH5ik3TKiyLFfXexV8uSG3d2UksSCYdunG"),
+      settings,
+    });
+    const deposit = operations.at(-1)!;
+    const memo = deposit.instructions.at(-1)!;
+
+    expect(deposit.operation).toBe("earnMaxDeposit");
+    expect(memo.programId.toBase58()).toBe(
+      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+    );
+    expect(memo.keys).toEqual([
+      { pubkey: authority, isSigner: true, isWritable: false },
     ]);
   });
 });
