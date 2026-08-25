@@ -5,6 +5,7 @@ import type {
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
+import type { ConfirmedAutodepositSetupIdentity } from "@loyal-labs/shared";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
   type Dispatch,
@@ -144,6 +145,9 @@ export type EarnAutodepositConfigView = Omit<
 // state catches up.
 export type EarnAutodepositOverride = {
   config: EarnAutodepositConfigView | null;
+  confirmedSetup?: ConfirmedAutodepositSetupIdentity & {
+    walletAddress: string;
+  };
 } | null;
 
 type PositionUpdater =
@@ -2228,6 +2232,12 @@ export function useEarnActions(deps: {
               setupNonce: result.preparedSetup.persistence.nonce,
               startTimestamp: result.preparedSetup.persistence.startTimestamp,
               state: "created",
+            },
+            confirmedSetup: {
+              policyAccount,
+              recurringDelegation:
+                result.preparedSetup.persistence.recurringDelegation,
+              walletAddress: authenticatedWalletAddress!,
             },
           });
           registerExpectedEarnMutation({
