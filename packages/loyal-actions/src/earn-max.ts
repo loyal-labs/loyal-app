@@ -594,7 +594,9 @@ export async function buildEarnMaxInstallInstructions(input: {
   const swap = missing.find((entry) => entry.family === "swap");
   let swapLookupTable: AddressLookupTableAccount | undefined;
   if (swap) {
-    const recentSlot = await input.connection.getSlot("confirmed");
+    const confirmedSlot = await input.connection.getSlot("confirmed");
+    if (confirmedSlot < 1) throw new Error("Solana confirmed slot is invalid.");
+    const recentSlot = confirmedSlot - 1;
     const [createLookupTable, lookupTableAddress] =
       AddressLookupTableProgram.createLookupTable({
         authority: input.feePayer,
