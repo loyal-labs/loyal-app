@@ -40,6 +40,13 @@ const DEFAULT_AMOUNT_PER_PERIOD_RAW = (
 // recurring delegation); guard against a stage that never advances.
 const MAX_SETUP_STAGES = 4;
 
+export type ConfirmedEarnAutodepositSetup = {
+  policyAccount: string;
+  recurringDelegation: string;
+  vaultIndex: 1;
+  walletBalanceFloorRaw: string;
+};
+
 function thresholdUsdToRaw(thresholdUsd: number): string {
   if (!Number.isFinite(thresholdUsd) || thresholdUsd < 0) {
     throw new Error("Autodeposit threshold must be zero or greater.");
@@ -159,7 +166,7 @@ export async function executeEarnAutodepositSetup(args: {
   // The caller's loading-metric flow id, so the metric point and this flow's
   // events share one `loyal.flow.id`.
   flowId?: string;
-}): Promise<void> {
+}): Promise<ConfirmedEarnAutodepositSetup> {
   const flow = startLifecycleFlow({
     ...(args.flowId ? { flowId: args.flowId } : {}),
     flowName: "earn.autodeposit.configuration",
@@ -168,7 +175,7 @@ export async function executeEarnAutodepositSetup(args: {
   });
   flow.start("prepare");
   try {
-    await runEarnAutodepositSetup(args, flow);
+    return await runEarnAutodepositSetup(args, flow);
   } catch (error) {
     // Latched to a no-op when an inner stage already failed the flow.
     flow.failFrom("prepare", error);
@@ -192,7 +199,7 @@ async function runEarnAutodepositSetup(
     thresholdUsd: number;
   },
   flow: LifecycleFlow<"earn.autodeposit.configuration">,
-): Promise<void> {
+): Promise<ConfirmedEarnAutodepositSetup> {
   const walletBalanceFloorRaw = thresholdUsdToRaw(args.thresholdUsd);
   const walletAddress = args.signer.publicKey;
   const connection = getConnection();
@@ -353,7 +360,12 @@ async function runEarnAutodepositSetup(
         threshold_usd: args.thresholdUsd,
       });
       flow.complete("ui_commit");
-      return;
+      return {
+        policyAccount,
+        recurringDelegation,
+        vaultIndex: 1,
+        walletBalanceFloorRaw,
+      };
     }
   }
 
