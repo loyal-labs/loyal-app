@@ -1,7 +1,7 @@
 "use client";
 
-import { useWallet } from "@solana/wallet-adapter-react";
-import { useConnection } from "@solana/wallet-adapter-react";
+import { shouldRetainConfirmedAutodepositSetup } from "@loyal-labs/shared";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useMainAccountUsdcBalance } from "@/components/wallet-workspace/facelift/earn-actions-support";
@@ -149,13 +149,38 @@ export function useEarnPositionData(): EarnPositionData {
   >(null);
   const toggleInFlightRef = useRef(false);
 
-  // Fresh loaded state wins over the overlay — but not while the request is
-  // still in flight (a background refresh mid-flight would snap the knob back).
+  // A setup confirmed by the wallet is intentionally ahead of the DB-backed
+  // projection. Pending refreshes for that same setup must not turn the UI
+  // back into "Finish setup"; the settled reconciliation event releases it.
+  // Other mutations keep the original fresh-state-wins behavior.
   useEffect(() => {
     if (!toggleInFlightRef.current) {
-      setAutodepositOverride(null);
+      setAutodepositOverride((current) => {
+        if (!current?.confirmedSetup) {
+          return null;
+        }
+        if (current.confirmedSetup.walletAddress !== walletAddress) {
+          return null;
+        }
+        return shouldRetainConfirmedAutodepositSetup({
+          canonical: loadedAutodepositConfig
+            ? {
+                phase:
+                  loadedAutodepositConfig.state === "creating"
+                    ? "pending"
+                    : "settled",
+                policyAccount: loadedAutodepositConfig.policyAccount,
+                recurringDelegation:
+                  loadedAutodepositConfig.recurringDelegation || null,
+              }
+            : null,
+          confirmed: current.confirmedSetup,
+        })
+          ? current
+          : null;
+      });
     }
-  }, [loadedAutodepositConfig]);
+  }, [loadedAutodepositConfig, walletAddress]);
 
   const autodepositConfig: EarnAutodepositConfigView | null =
     autodepositOverride ? autodepositOverride.config : loadedAutodepositConfig;

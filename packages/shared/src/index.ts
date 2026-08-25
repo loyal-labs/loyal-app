@@ -3,6 +3,11 @@ export {
   TRUSTED_DAPP_CATEGORIES,
 } from "./dapp-categories";
 export type { TrustedDappCategory } from "./dapp-categories";
+export { shouldRetainConfirmedAutodepositSetup } from "./autodeposit-optimistic";
+export type {
+  CanonicalAutodepositSetupProjection,
+  ConfirmedAutodepositSetupIdentity,
+} from "./autodeposit-optimistic";
 export {
   isDustSolTransfer,
   isDustTokenTransfer,
