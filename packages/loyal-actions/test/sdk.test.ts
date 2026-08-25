@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import {
+  AddressLookupTableAccount,
   type Connection,
   PublicKey,
   TransactionMessage,
@@ -132,35 +133,41 @@ describe("Earn MAX policy manifest", () => {
     expect(
       manifest.map((entry) => decodePolicyCreate(entry.instruction.data).seed)
     ).toEqual([BigInt(234), BigInt(235), BigInt(236)]);
-    const wireBytes = manifest.map((entry) => ({
-      create: new VersionedTransaction(
+    const swap = manifest[2]!;
+    const lookupAddresses = [
+      swap.instruction.programId,
+      ...swap.instruction.keys
+        .filter(({ isSigner }) => !isSigner)
+        .map(({ pubkey }) => pubkey),
+    ].filter(
+      (candidate, index, values) =>
+        values.findIndex((value) => value.equals(candidate)) === index
+    );
+    const lookup = new AddressLookupTableAccount({
+      key: PublicKey.unique(),
+      state: {
+        authority,
+        addresses: lookupAddresses,
+        deactivationSlot: BigInt("18446744073709551615"),
+        lastExtendedSlot: 1,
+        lastExtendedSlotStartIndex: 0,
+      },
+    });
+    const wireBytes = manifest.map((entry) =>
+      new VersionedTransaction(
         new TransactionMessage({
           payerKey: authority,
           recentBlockhash: PublicKey.default.toBase58(),
           instructions: [entry.instruction],
-        }).compileToLegacyMessage()
-      ).serialize().length,
-      update: new VersionedTransaction(
-        new TransactionMessage({
-          payerKey: authority,
-          recentBlockhash: PublicKey.default.toBase58(),
-          instructions: [entry.updateInstruction],
-        }).compileToLegacyMessage()
-      ).serialize().length,
-    }));
-    expect(wireBytes).toEqual([
-      { create: 1085, update: 1074 },
-      { create: 1128, update: 1214 },
-      { create: 531, update: 1186 },
-    ]);
-    for (const pair of wireBytes) {
-      expect(pair.create).toBeLessThan(1232);
-      expect(pair.update).toBeLessThan(1232);
-    }
-    expect(manifest.map(({ updateInstruction }) => instructionFingerprint(updateInstruction))).toEqual([
-      "ef32ee403e4a472b19f927e14a224e318b8572073c7bd40260b6c4b1be45e224",
-      "ad1b0ca8316a1e03644b27c0e6050dc58703326f9f095db2697e58de5df72f5c",
-      "88320a43b00cafad090780a28ec23c773e5ef595621d4262ba08fc208ebbc2af",
+        }).compileToV0Message(entry.family === "swap" ? [lookup] : [])
+      ).serialize().length
+    );
+    expect(wireBytes).toEqual([1138, 1138, 1227]);
+    for (const bytes of wireBytes) expect(bytes).toBeLessThan(1232);
+    expect(manifest.map(({ instruction }) => instructionFingerprint(instruction))).toEqual([
+      "c9aae4e32ef1659c0f9ef7367f7e3f920809bb5842e4d838c67681b6de39ca43",
+      "791ba0305d76427d970f3550989707767da2aadac7d0979acecaff2a40a7db4e",
+      "6e50e231456bb7a67fb551b219ef56fc2bf83b5f1594a5b6d80c82eb1e0475ad",
     ]);
   });
 
@@ -188,6 +195,7 @@ describe("Earn MAX policy manifest", () => {
       { pubkey: authority, isSigner: true, isWritable: false },
     ]);
   });
+
 });
 
 describe("Loyal cluster helpers", () => {
