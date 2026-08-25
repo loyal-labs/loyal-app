@@ -10,6 +10,10 @@ import type {
   EarnMaxSummary,
   EarnMaxWithdrawalView,
 } from "../types";
+import {
+  projectEarnMaxActivity,
+  type EarnMaxOperationActivityRow,
+} from "./activity.server";
 
 const EARN_MAX_VAULT_INDEX = 0;
 
@@ -188,12 +192,14 @@ export async function readEarnMaxActivity(
   settings: string
 ): Promise<EarnMaxActivityResponse> {
   const client = getYieldOptimizationClient();
-  const [operationsResult, snapshotsResult] = await Promise.all([
+  const [operationsResult, snapshotsResult, routeResult] = await Promise.all([
     client.db.execute(sql`
       SELECT
         operation.operation_id,
         operation.action,
         operation.status,
+        operation.strategy_key,
+        operation.expected_effects,
         operation.transaction_signature,
         operation.created_at
       FROM loyal_yield.multiply_operations operation
@@ -203,7 +209,7 @@ export async function readEarnMaxActivity(
         AND route.vault_index = ${EARN_MAX_VAULT_INDEX}
         AND route.state ->> 'engineVersion' = 'earn_max_v2'
       ORDER BY operation.created_at DESC, operation.operation_id DESC
-      LIMIT 100
+      LIMIT 500
     `),
     client.db.execute(sql`
       SELECT
@@ -219,17 +225,33 @@ export async function readEarnMaxActivity(
       ORDER BY snapshot.observed_slot DESC, snapshot.id DESC
       LIMIT 500
     `),
+    client.db.execute(sql`
+      SELECT route.state
+      FROM loyal_yield.multiply_route_states route
+      WHERE route.settings = ${settings}
+        AND route.vault_index = ${EARN_MAX_VAULT_INDEX}
+        AND route.state ->> 'engineVersion' = 'earn_max_v2'
+      LIMIT 1
+    `),
   ]);
-  const operations = rows(operationsResult as QueryResult).map((operation) => ({
+  const operations: EarnMaxOperationActivityRow[] = rows(
+    operationsResult as QueryResult
+  ).map((operation) => ({
     action: String(operation.action ?? "activity"),
+    expectedEffects: operation.expected_effects,
     id: String(operation.operation_id ?? ""),
     signature:
       typeof operation.transaction_signature === "string"
         ? operation.transaction_signature
         : null,
     status: String(operation.status ?? "unknown"),
+    strategyKey:
+      typeof operation.strategy_key === "string"
+        ? operation.strategy_key
+        : null,
     timestamp: String(operation.created_at ?? ""),
   }));
+  const routeState = rows(routeResult as QueryResult)[0]?.state ?? null;
   const performance = rows(snapshotsResult as QueryResult)
     .flatMap((snapshot) => {
       const equity = nullableNumber(snapshot.equity_usd_micros);
@@ -242,7 +264,7 @@ export async function readEarnMaxActivity(
     })
     .reverse();
   return {
-    operations,
+    events: projectEarnMaxActivity(operations, routeState),
     performance,
   };
 }

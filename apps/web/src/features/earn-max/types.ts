@@ -1,10 +1,20 @@
 export type EarnMaxCoverage = "complete" | "history_incomplete";
 
 export type EarnMaxActivityItem = {
-  action: string;
+  amountRaw: string;
   id: string;
+  kind: "deposit" | "withdrawal";
   signature: string | null;
-  status: string;
+  status:
+    | "requested"
+    | "unwinding"
+    | "ready"
+    | "processing"
+    | "completed"
+    | "cancelling"
+    | "cancelled"
+    | "needs_attention";
+  strategyKey: string | null;
   timestamp: string;
 };
 
@@ -52,7 +62,7 @@ export type EarnMaxSummaryResponse = {
 };
 
 export type EarnMaxActivityResponse = {
-  operations: EarnMaxActivityItem[];
+  events: EarnMaxActivityItem[];
   performance: EarnMaxPerformancePoint[];
 };
 

@@ -72,7 +72,7 @@ function viewModel(input: {
     syrup_usdc_pyusd: "syrupUSDC / PYUSD",
   };
   return {
-    activity: input.activity?.operations ?? [],
+    activity: input.activity?.events ?? [],
     balanceUsd: summary?.balanceUsd ?? 0,
     coverage: summary?.coverage ?? "history_incomplete",
     earnedUsd: summary?.earnedUsd ?? null,

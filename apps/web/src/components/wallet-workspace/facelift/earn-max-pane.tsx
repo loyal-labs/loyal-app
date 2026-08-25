@@ -7,7 +7,11 @@ import {
   ScrambledPopDigits,
   useBalanceVisibility,
 } from "@/components/wallet-workspace/facelift/balance-visibility";
-import type { EarnMaxActions, EarnMaxViewModel } from "@/features/earn-max";
+import type {
+  EarnMaxActions,
+  EarnMaxActivityItem,
+  EarnMaxViewModel,
+} from "@/features/earn-max";
 
 function apyLabel(bps: number | null) {
   return bps === null ? "—" : `${(bps / 100).toFixed(2)}% APY`;
@@ -32,6 +36,23 @@ function rawUsdc(value: string): bigint | null {
   if (!/^\d+(?:\.\d{0,6})?$/.test(value.trim())) return null;
   const [whole, fraction = ""] = value.trim().split(".");
   return BigInt(whole!) * BigInt(1_000_000) + BigInt(fraction.padEnd(6, "0"));
+}
+
+function activityLabel(item: EarnMaxActivityItem) {
+  if (item.kind === "deposit") return "Deposit";
+  return item.status === "cancelled" ? "Withdrawal cancelled" : "Withdrawal";
+}
+
+function activityAmount(item: EarnMaxActivityItem) {
+  const raw = /^\d+$/.test(item.amountRaw) ? BigInt(item.amountRaw) : BigInt(0);
+  const cents =
+    raw === BigInt(0) ? raw : (raw + BigInt(9_999)) / BigInt(10_000);
+  const whole = cents / BigInt(100);
+  const fraction = (cents % BigInt(100)).toString().padStart(2, "0");
+  let sign = "-";
+  if (item.status === "cancelled") sign = "";
+  else if (item.kind === "deposit") sign = "+";
+  return `${sign}$${whole.toLocaleString("en-US")}.${fraction}`;
 }
 
 function EarnMaxChart({ points }: { points: EarnMaxViewModel["performance"] }) {
@@ -349,15 +370,15 @@ export function EarnMaxPage({
               view.activity.slice(0, 12).map((item) => (
                 <div className="flex items-center gap-3 py-3" key={item.id}>
                   <span className="rounded-full bg-accent p-2">
-                    {item.status === "reconciled" ? (
+                    {item.status === "completed" ? (
                       <Check className="size-4 text-positive" />
                     ) : (
                       <Clock3 className="size-4" />
                     )}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium capitalize">
-                      {item.action.replaceAll("_", " ")}
+                    <p className="truncate font-medium">
+                      {activityLabel(item)}
                     </p>
                     <p className="text-[12px] text-muted-foreground">
                       {item.timestamp
@@ -365,6 +386,15 @@ export function EarnMaxPage({
                         : "Confirming"}
                     </p>
                   </div>
+                  <span
+                    className={
+                      item.kind === "deposit"
+                        ? "font-medium text-positive"
+                        : "font-medium"
+                    }
+                  >
+                    {activityAmount(item)}
+                  </span>
                   {item.signature ? (
                     <a
                       aria-label="View transaction"
