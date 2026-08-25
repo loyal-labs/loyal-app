@@ -39,8 +39,7 @@ const DEFAULT_AVD = "SkyVerse_API_35";
 const DEFAULT_METRO_PORT = 8081;
 const DEFAULT_PROXY_PORT = 4319;
 const MAINNET_ACK = "I_ACKNOWLEDGE_MAINNET";
-const UPSTREAM =
-  process.env.MOBILE_WITHDRAW_UPSTREAM ?? "https://askloyal.com";
+const UPSTREAM = process.env.MOBILE_WITHDRAW_UPSTREAM ?? "https://askloyal.com";
 const solanaEnv = process.env.MOBILE_WITHDRAW_SOLANA_ENV ?? "mainnet";
 const isIsolatedLocalnet = solanaEnv === "localnet";
 const LIFECYCLE_PATH = "/api/observability/mobile/events";
@@ -53,7 +52,7 @@ const INCIDENT_REQUIRED_LAMPORTS = "39532800";
 const INCIDENT_MESSAGE =
   "Add at least 0.027645228 SOL to your wallet before depositing. This Earn setup needs 0.0395328 SOL for account rent and network fees.";
 const MAINNET_USDC_MINT = new PublicKey(
-  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
 
 type Mode = "withdraw" | "seed-position" | "insufficient-sol";
@@ -81,6 +80,7 @@ type ApiTiming = {
   pathname: string;
   status: number;
   startedAt: string;
+  upstream?: string | null;
 };
 
 type UiNode = {
@@ -102,22 +102,23 @@ const keyPath = process.env.MOBILE_E2E_WALLET_KEYPAIR
   : null;
 const avdName = process.env.MOBILE_WITHDRAW_AVD ?? DEFAULT_AVD;
 const metroPort = Number(
-  process.env.MOBILE_WITHDRAW_METRO_PORT ?? DEFAULT_METRO_PORT,
+  process.env.MOBILE_WITHDRAW_METRO_PORT ?? DEFAULT_METRO_PORT
 );
 const proxyPort = Number(
-  process.env.MOBILE_WITHDRAW_PROXY_PORT ?? DEFAULT_PROXY_PORT,
+  process.env.MOBILE_WITHDRAW_PROXY_PORT ?? DEFAULT_PROXY_PORT
 );
 const androidAbi = process.env.MOBILE_WITHDRAW_ANDROID_ABI ?? "arm64-v8a";
 const maxPositionUsd = Number(
-  process.env.MOBILE_WITHDRAW_MAX_POSITION_USD ?? "2",
+  process.env.MOBILE_WITHDRAW_MAX_POSITION_USD ?? "2"
 );
 const seedAmountUsd = Number(
-  process.env.MOBILE_WITHDRAW_SEED_AMOUNT_USD ?? "1.17",
+  process.env.MOBILE_WITHDRAW_SEED_AMOUNT_USD ?? "1.17"
 );
 const timeoutMs = Number(process.env.MOBILE_WITHDRAW_TIMEOUT_MS ?? "600000");
 const outputPath = process.env.MOBILE_WITHDRAW_PROFILE_OUTPUT
   ? resolve(process.env.MOBILE_WITHDRAW_PROFILE_OUTPUT)
   : null;
+const requireRealLoyalApi = process.env.MOBILE_REQUIRE_REAL_API === "1";
 
 const tempRoot = mkdtempSync(join(tmpdir(), "loyal-withdraw-profile-"));
 const processLogPath = join(tempRoot, "processes.log");
@@ -132,9 +133,7 @@ let seedDepositActionBounds: UiNode["bounds"] | null = null;
 let materializedPrivateTransactionsEntry:
   | { entryPath: string; linkTarget: string }
   | undefined;
-let patchedKaminoClientSource:
-  | { path: string; source: string }
-  | undefined;
+let patchedKaminoClientSource: { path: string; source: string } | undefined;
 const seededDepositSources: { path: string; source: string }[] = [];
 
 function run(
@@ -145,7 +144,7 @@ function run(
     env?: NodeJS.ProcessEnv;
     input?: string;
     quiet?: boolean;
-  } = {},
+  } = {}
 ): string {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? resolve(import.meta.dir, ".."),
@@ -158,7 +157,7 @@ function run(
     throw new Error(
       `${command} exited with status ${String(result.status)}${
         options.quiet && result.stderr ? `: ${result.stderr.trim()}` : ""
-      }`,
+      }`
     );
   }
   return options.quiet ? result.stdout.trim() : "";
@@ -167,7 +166,7 @@ function run(
 function start(
   command: string,
   args: string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+  options: { cwd?: string; env?: NodeJS.ProcessEnv } = {}
 ): ChildProcess {
   const child = spawn(command, args, {
     cwd: options.cwd ?? resolve(import.meta.dir, ".."),
@@ -184,6 +183,7 @@ async function waitFor<T>(
   description: string,
   read: () => T | false | Promise<T | false>,
   limitMs = 60_000,
+  pollMs = 500
 ): Promise<T> {
   const deadline = Date.now() + limitMs;
   let lastError: unknown;
@@ -194,19 +194,16 @@ async function waitFor<T>(
     } catch (error) {
       lastError = error;
     }
-    await Bun.sleep(500);
+    await Bun.sleep(pollMs);
   }
   throw new Error(
     `Timed out waiting for ${description}${
       lastError instanceof Error ? `: ${lastError.message}` : ""
-    }.`,
+    }.`
   );
 }
 
-function findExecutable(
-  candidates: (string | null)[],
-  label: string,
-): string {
+function findExecutable(candidates: (string | null)[], label: string): string {
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
@@ -227,7 +224,7 @@ const adb = findExecutable(
     "/opt/homebrew/bin/adb",
     "/opt/homebrew/share/android-commandlinetools/platform-tools/adb",
   ],
-  "ADB",
+  "ADB"
 );
 
 const emulator = findExecutable(
@@ -237,7 +234,7 @@ const emulator = findExecutable(
       : null,
     "/opt/homebrew/share/android-commandlinetools/emulator/emulator",
   ],
-  "Android emulator",
+  "Android emulator"
 );
 
 function adbRun(args: string[], quiet = true): string {
@@ -275,13 +272,13 @@ async function ensureEmulator(): Promise<string> {
   const serial = await waitFor(
     "the emulator to connect",
     () => connectedEmulator() ?? false,
-    180_000,
+    180_000
   );
   emulatorSerial = serial;
   await waitFor(
     "Android boot completion",
     () => adbRun(["shell", "getprop", "sys.boot_completed"]) === "1",
-    180_000,
+    180_000
   );
   return serial;
 }
@@ -298,7 +295,7 @@ function decodeXml(value: string): string {
 function materializeWorktreePrivateTransactionsEntry(): void {
   const entryPath = resolve(
     import.meta.dir,
-    "../node_modules/@loyal-labs/private-transactions/dist/index.js",
+    "../node_modules/@loyal-labs/private-transactions/dist/index.js"
   );
   if (!existsSync(entryPath) || !lstatSync(entryPath).isSymbolicLink()) return;
 
@@ -321,7 +318,7 @@ function routeKaminoInstructionApiThroughVerifier(): void {
   if (!isIsolatedLocalnet) return;
   const path = resolve(
     import.meta.dir,
-    "../../../packages/smart-account-vaults/src/client.ts",
+    "../../../packages/smart-account-vaults/src/client.ts"
   );
   const source = readFileSync(path, "utf8");
   const replacements = [
@@ -339,7 +336,7 @@ function routeKaminoInstructionApiThroughVerifier(): void {
     assert.equal(
       patched.split(from).length - 1,
       1,
-      `The verifier could not locate Kamino instruction URL ${from}.`,
+      `The verifier could not locate Kamino instruction URL ${from}.`
     );
     patched = patched.replace(from, to);
   }
@@ -351,7 +348,7 @@ function restoreKaminoClientSource(): void {
   if (!patchedKaminoClientSource) return;
   writeFileSync(
     patchedKaminoClientSource.path,
-    patchedKaminoClientSource.source,
+    patchedKaminoClientSource.source
   );
   patchedKaminoClientSource = undefined;
 }
@@ -363,7 +360,7 @@ function injectIncidentNativeSolRequirement(): void {
   assert.equal(
     source.split(marker).length - 1,
     1,
-    "The insufficient-SOL verifier could not locate the deposit action.",
+    "The insufficient-SOL verifier could not locate the deposit action."
   );
   writeFileSync(
     path,
@@ -385,8 +382,8 @@ function injectIncidentNativeSolRequirement(): void {
         "    payer: args.signer.publicKey.toBase58(),",
         `    requiredLamports: ${JSON.stringify(INCIDENT_REQUIRED_LAMPORTS)},`,
         "  });",
-      ].join("\n"),
-    ),
+      ].join("\n")
+    )
   );
   seededDepositSources.push({ path, source });
 }
@@ -400,7 +397,7 @@ function openDepositSheetInVerifierBundle(): void {
     assert.equal(
       source.split(marker).length - 1,
       1,
-      "The seed verifier could not locate the Deposit sheet state.",
+      "The seed verifier could not locate the Deposit sheet state."
     );
     writeFileSync(
       path,
@@ -409,8 +406,8 @@ function openDepositSheetInVerifierBundle(): void {
         [
           "const [depositOpenState, setDepositOpen] = useState(false);",
           "const depositOpen = true || depositOpenState;",
-        ].join("\n"),
-      ),
+        ].join("\n")
+      )
     );
     seededDepositSources.push({ path, source });
   } else {
@@ -421,20 +418,20 @@ function openDepositSheetInVerifierBundle(): void {
     assert.equal(
       source.split(logBoxMarker).length - 1,
       1,
-      "The insufficient-SOL verifier could not locate the React Native import.",
+      "The insufficient-SOL verifier could not locate the React Native import."
     );
     const logBoxSource = source.replace(
       logBoxMarker,
       [
         'import { Alert, LogBox, StyleSheet, useWindowDimensions } from "react-native";',
         "LogBox.ignoreAllLogs(true);",
-      ].join("\n"),
+      ].join("\n")
     );
     const openMarker = "const [depositOpen, setDepositOpen] = useState(false);";
     assert.equal(
       logBoxSource.split(openMarker).length - 1,
       1,
-      "The insufficient-SOL verifier could not locate the Deposit state.",
+      "The insufficient-SOL verifier could not locate the Deposit state."
     );
     writeFileSync(
       path,
@@ -461,8 +458,8 @@ function openDepositSheetInVerifierBundle(): void {
           "  }, 5000);",
           "  return () => clearTimeout(timer);",
           "}, [signer]);",
-        ].join("\n"),
-      ),
+        ].join("\n")
+      )
     );
     seededDepositSources.push({ path, source });
     injectIncidentNativeSolRequirement();
@@ -471,19 +468,19 @@ function openDepositSheetInVerifierBundle(): void {
 
   const sheetPath = resolve(
     import.meta.dir,
-    "../src/components/earn/DepositSheet.tsx",
+    "../src/components/earn/DepositSheet.tsx"
   );
   const sheetSource = readFileSync(sheetPath, "utf8");
   const amountMarker = 'const [amount, setAmount] = useState("");';
   assert.equal(
     sheetSource.split(amountMarker).length - 1,
     1,
-    "The seed verifier could not locate the Deposit amount state.",
+    "The seed verifier could not locate the Deposit amount state."
   );
   const seededAmount = seedAmountUsd.toFixed(2);
   const initializedSheetSource = sheetSource.replace(
     amountMarker,
-    `const [amount, setAmount] = useState(${JSON.stringify(seededAmount)});`,
+    `const [amount, setAmount] = useState(${JSON.stringify(seededAmount)});`
   );
   const resetMarker = [
     "    if (open) {",
@@ -493,7 +490,7 @@ function openDepositSheetInVerifierBundle(): void {
   assert.equal(
     initializedSheetSource.split(resetMarker).length - 1,
     1,
-    "The seed verifier could not locate the Deposit open reset.",
+    "The seed verifier could not locate the Deposit open reset."
   );
   const initializedAndResetSheetSource = initializedSheetSource.replace(
     resetMarker,
@@ -501,17 +498,17 @@ function openDepositSheetInVerifierBundle(): void {
       "    if (open) {",
       `      setAmount(${JSON.stringify(seededAmount)});`,
       "      setSubmitError(null);",
-    ].join("\n"),
+    ].join("\n")
   );
   const availableMarker = "  const available = selectedSource.usd;";
   assert.equal(
     initializedAndResetSheetSource.split(availableMarker).length - 1,
     1,
-    "The seed verifier could not locate the selected balance state.",
+    "The seed verifier could not locate the selected balance state."
   );
   let boundedSheetSource = initializedAndResetSheetSource.replace(
     availableMarker,
-    `  const available = ${seededAmount};`,
+    `  const available = ${seededAmount};`
   );
   if (mode === "insufficient-sol") {
     const topUpMarker =
@@ -519,14 +516,14 @@ function openDepositSheetInVerifierBundle(): void {
     assert.equal(
       boundedSheetSource.split(topUpMarker).length - 1,
       1,
-      "The insufficient-SOL verifier could not locate the generic SOL preflight.",
+      "The insufficient-SOL verifier could not locate the generic SOL preflight."
     );
     // Exercise the SDK's exact dynamic rent requirement instead of the UI's
     // coarse first-deposit estimate. This mutation exists only in the Metro
     // verifier bundle and is restored in finally.
     boundedSheetSource = boundedSheetSource.replace(
       topUpMarker,
-      "const needsSolTopUp = false;",
+      "const needsSolTopUp = false;"
     );
   }
   const handlerMarker =
@@ -534,7 +531,7 @@ function openDepositSheetInVerifierBundle(): void {
   assert.equal(
     boundedSheetSource.split(handlerMarker).length - 1,
     1,
-    "The seed verifier could not locate the real Deposit handler.",
+    "The seed verifier could not locate the real Deposit handler."
   );
   writeFileSync(
     sheetPath,
@@ -549,8 +546,72 @@ function openDepositSheetInVerifierBundle(): void {
         "    const timer = setTimeout(() => void handleDeposit(), 500);",
         "    return () => clearTimeout(timer);",
         "  }, [handleDeposit, open]);",
-      ].join("\n"),
-    ),
+      ].join("\n")
+    )
+  );
+  seededDepositSources.push({ path: sheetPath, source: sheetSource });
+}
+
+function openWithdrawSheetInVerifierBundle(): void {
+  if (mode !== "withdraw") return;
+  const path = resolve(import.meta.dir, "../app/(tabs)/index.tsx");
+  const source = readFileSync(path, "utf8");
+  const marker = "const [withdrawOpen, setWithdrawOpen] = useState(false);";
+  assert.equal(
+    source.split(marker).length - 1,
+    1,
+    "The withdrawal verifier could not locate the Withdraw sheet state."
+  );
+  writeFileSync(
+    path,
+    source.replace(
+      marker,
+      [
+        "const [withdrawOpenState, setWithdrawOpen] = useState(false);",
+        "const withdrawOpen = true || withdrawOpenState;",
+      ].join("\n")
+    )
+  );
+  seededDepositSources.push({ path, source });
+
+  const sheetPath = resolve(
+    import.meta.dir,
+    "../src/components/earn/WithdrawSheet.tsx"
+  );
+  const sheetSource = readFileSync(sheetPath, "utf8");
+  const handlerMarker = "  const renderBackdrop = useCallback(";
+  assert.equal(
+    sheetSource.split(handlerMarker).length - 1,
+    1,
+    "The withdrawal verifier could not locate the real Withdraw handler."
+  );
+  writeFileSync(
+    sheetPath,
+    sheetSource.replace(
+      handlerMarker,
+      [
+        "  const verifierSubmitted = useRef(false);",
+        "  useEffect(() => {",
+        "    if (!open || available <= 0 || maxSelected) return;",
+        "    setAmount(floorTo2(available).toFixed(2));",
+        "    setMaxSelected(true);",
+        "  }, [available, maxSelected, open]);",
+        "  useEffect(() => {",
+        "    if (",
+        "      !open ||",
+        "      disabled ||",
+        "      !maxSelected ||",
+        "      (hasPicker && !selectedSource) ||",
+        "      verifierSubmitted.current",
+        "    ) return;",
+        "    verifierSubmitted.current = true;",
+        "    const timer = setTimeout(() => void handleWithdraw(), 10);",
+        "    return () => clearTimeout(timer);",
+        "  }, [disabled, handleWithdraw, hasPicker, maxSelected, open, selectedSource]);",
+        "",
+        handlerMarker,
+      ].join("\n")
+    )
   );
   seededDepositSources.push({ path: sheetPath, source: sheetSource });
 }
@@ -564,20 +625,20 @@ function restoreDepositSource(): void {
 
 function assembleVerifierApk(
   androidRoot: string,
-  env: NodeJS.ProcessEnv,
+  env: NodeJS.ProcessEnv
 ): void {
   const manifestPath = join(androidRoot, "app/src/main/AndroidManifest.xml");
   const originalManifest = readFileSync(manifestPath, "utf8");
   const verifierManifest = originalManifest.includes(
-    "android:usesCleartextTraffic=",
+    "android:usesCleartextTraffic="
   )
     ? originalManifest.replace(
         /android:usesCleartextTraffic="[^"]*"/,
-        'android:usesCleartextTraffic="true"',
+        'android:usesCleartextTraffic="true"'
       )
     : originalManifest.replace(
         "<application ",
-        '<application android:usesCleartextTraffic="true" ',
+        '<application android:usesCleartextTraffic="true" '
       );
   writeFileSync(manifestPath, verifierManifest);
   try {
@@ -592,7 +653,7 @@ function assembleVerifierApk(
         `:react-native-worklets:buildCMakeDebug[${androidAbi}][worklets]`,
         ...gradleArgs,
       ],
-      { cwd: androidRoot, env },
+      { cwd: androidRoot, env }
     );
     // Reanimated 4.1.1 still imports Worklets from AGP's old `cmake` output
     // path, while AGP 8.11 publishes the library under a hashed `cxx` path.
@@ -600,40 +661,44 @@ function assembleVerifierApk(
     // verifier checkout can assemble reliably.
     const workletsIntermediates = resolve(
       androidRoot,
-      "../node_modules/react-native-worklets/android/build/intermediates",
+      "../node_modules/react-native-worklets/android/build/intermediates"
     );
     const workletsCandidates = readdirSync(
-      join(workletsIntermediates, "cxx/Debug"),
+      join(workletsIntermediates, "cxx/Debug")
     )
       .map((directory) =>
         join(
           workletsIntermediates,
           "cxx/Debug",
           directory,
-          `obj/${androidAbi}/libworklets.so`,
-        ),
+          `obj/${androidAbi}/libworklets.so`
+        )
       )
       .filter(existsSync);
     assert.equal(
       workletsCandidates.length,
       1,
-      `The verifier expected one ${androidAbi} Worklets library.`,
+      `The verifier expected one ${androidAbi} Worklets library.`
     );
     const legacyWorkletsPath = join(
       workletsIntermediates,
-      `cmake/debug/obj/${androidAbi}/libworklets.so`,
+      `cmake/debug/obj/${androidAbi}/libworklets.so`
     );
     mkdirSync(dirname(legacyWorkletsPath), { recursive: true });
     copyFileSync(workletsCandidates[0]!, legacyWorkletsPath);
-    run("./gradlew", [
-      "app:assembleDebug",
-      "--exclude-task",
-      `:react-native-worklets:buildCMakeDebug[${androidAbi}][worklets]`,
-      ...gradleArgs,
-    ], {
-      cwd: androidRoot,
-      env,
-    });
+    run(
+      "./gradlew",
+      [
+        "app:assembleDebug",
+        "--exclude-task",
+        `:react-native-worklets:buildCMakeDebug[${androidAbi}][worklets]`,
+        ...gradleArgs,
+      ],
+      {
+        cwd: androidRoot,
+        env,
+      }
+    );
   } finally {
     writeFileSync(manifestPath, originalManifest);
   }
@@ -670,7 +735,7 @@ function parseUiNodes(xml: string): UiNode[] {
 function dumpUi(): UiNode[] {
   adbRun(["shell", "uiautomator", "dump", "/sdcard/loyal-withdraw-ui.xml"]);
   return parseUiNodes(
-    adbRun(["exec-out", "cat", "/sdcard/loyal-withdraw-ui.xml"]),
+    adbRun(["exec-out", "cat", "/sdcard/loyal-withdraw-ui.xml"])
   );
 }
 
@@ -705,7 +770,7 @@ async function waitForNode(label: string, limitMs = 120_000): Promise<UiNode> {
   return waitFor(
     `UI node ${JSON.stringify(label)}`,
     () => findNode(dumpUi(), label) ?? false,
-    limitMs,
+    limitMs
   );
 }
 
@@ -734,7 +799,7 @@ function typeWithoutCommandArgument(value: string): void {
       encoding: "utf8",
       input: command,
       stdio: "pipe",
-    },
+    }
   );
   if (result.status !== 0) {
     throw new Error("ADB could not type into the focused input.");
@@ -761,7 +826,7 @@ async function dismissDevClientIntro(): Promise<void> {
       }
       return false;
     },
-    180_000,
+    180_000
   );
   if (initial.kind === "continue") {
     tap(initial.node);
@@ -777,7 +842,7 @@ async function dismissDevClientIntro(): Promise<void> {
           ? { kind: "close" as const, node: closeButton }
           : false;
       },
-      180_000,
+      180_000
     );
     if (next.kind === "close") {
       // Expo's developer-menu Close control is not reliably activated by an
@@ -793,7 +858,9 @@ async function dismissDevClientIntro(): Promise<void> {
         .filter(Boolean)
         .slice(0, 80);
       throw new Error(
-        `${error instanceof Error ? error.message : String(error)}; visible UI labels: ${JSON.stringify(visibleLabels)}`,
+        `${
+          error instanceof Error ? error.message : String(error)
+        }; visible UI labels: ${JSON.stringify(visibleLabels)}`
       );
     }
   }
@@ -819,7 +886,7 @@ async function importWallet(secretInputValue: string): Promise<void> {
     throw new Error(
       `Secret-key input did not match (expected length ${
         secretInputValue.length
-      }, observed candidate lengths ${JSON.stringify(observedLengths)}).`,
+      }, observed candidate lengths ${JSON.stringify(observedLengths)}).`
     );
   }
   let importButton = await waitForNode("Import Wallet");
@@ -839,8 +906,8 @@ async function importWallet(secretInputValue: string): Promise<void> {
   if (importButton.bounds[1] < 1_600) {
     throw new Error(
       `The emulator keyboard still covers Import Wallet (bounds: ${JSON.stringify(
-        importButton.bounds,
-      )}).`,
+        importButton.bounds
+      )}).`
     );
   }
   await Bun.sleep(500);
@@ -892,8 +959,8 @@ async function importWallet(secretInputValue: string): Promise<void> {
   if (!importStarted) {
     throw new Error(
       `Import Wallet presses did not start wallet import (last bounds: ${JSON.stringify(
-        importButtonBounds,
-      )}).`,
+        importButtonBounds
+      )}).`
     );
   }
 
@@ -910,14 +977,14 @@ async function importWallet(secretInputValue: string): Promise<void> {
         mode === "insufficient-sol" &&
         lifecycleEvents.some(
           (event) =>
-            event.flowName === "earn.deposit" && event.outcome === "started",
+            event.flowName === "earn.deposit" && event.outcome === "started"
         )
       ) {
         return { kind: "ready" as const };
       }
       return false;
     },
-    180_000,
+    180_000
   );
   if (biometricChoice.kind === "skip") {
     tap(biometricChoice.node);
@@ -927,7 +994,7 @@ async function importWallet(secretInputValue: string): Promise<void> {
         const nodes = dumpUi();
         return findNode(nodes, "Earn") ?? findNode(nodes, "Deposit") ?? false;
       },
-      180_000,
+      180_000
     );
   }
 }
@@ -935,8 +1002,8 @@ async function importWallet(secretInputValue: string): Promise<void> {
 async function currentPositionRaw(walletAddress: string): Promise<bigint> {
   const response = await fetch(
     `${UPSTREAM}/api/smart-accounts/mobile/earn/state?walletAddress=${encodeURIComponent(
-      walletAddress,
-    )}`,
+      walletAddress
+    )}`
   );
   if (!response.ok) {
     throw new Error(`Earn state preflight failed (${response.status}).`);
@@ -952,17 +1019,17 @@ async function currentWalletUsdcRaw(walletAddress: PublicKey): Promise<bigint> {
   const connection = new Connection(
     process.env.MOBILE_WITHDRAW_PREFLIGHT_RPC ??
       "https://api.mainnet-beta.solana.com",
-    "confirmed",
+    "confirmed"
   );
   const account = getAssociatedTokenAddressSync(
     MAINNET_USDC_MINT,
     walletAddress,
     false,
-    TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID
   );
   try {
     return BigInt(
-      (await connection.getTokenAccountBalance(account)).value.amount,
+      (await connection.getTokenAccountBalance(account)).value.amount
     );
   } catch (error) {
     if (
@@ -1043,10 +1110,11 @@ async function proxyRequest(request: Request): Promise<Response> {
     pathname: url.pathname,
     startedAt: new Date(startedAtMs).toISOString(),
     status: upstreamResponse.status,
+    upstream: upstreamResponse.headers.get("x-loyal-e2e-api"),
   });
   if (isIsolatedLocalnet) {
     console.info(
-      `[withdraw-e2e] local API ${request.method} ${url.pathname} -> ${upstreamResponse.status}`,
+      `[withdraw-e2e] local API ${request.method} ${url.pathname} -> ${upstreamResponse.status}`
     );
   }
   const responseHeaders = new Headers(upstreamResponse.headers);
@@ -1075,13 +1143,13 @@ function lifecycleSeverity(event: LifecycleEvent): string | undefined {
 
 function lifecycleStageDurations(flowName: string): Record<string, number> {
   const matching = lifecycleEvents.filter(
-    (event) => event.flowName === flowName,
+    (event) => event.flowName === flowName
   );
   return Object.fromEntries(
     matching.map((event) => [
       `${event.stage}.${event.outcome}`,
       Number(event.durationMs),
-    ]),
+    ])
   );
 }
 
@@ -1093,11 +1161,30 @@ async function driveWithdraw(): Promise<void> {
         (timing) =>
           timing.method === "GET" &&
           timing.pathname === "/api/smart-accounts/mobile/earn/state" &&
-          timing.status === 200,
+          timing.status === 200
       ) || false,
-    180_000,
+    180_000
   );
   console.info("[withdraw-e2e] imported wallet Earn state loaded");
+  if (isIsolatedLocalnet) {
+    await waitFor(
+      "the verifier-triggered withdrawal handler",
+      () =>
+        lifecycleEvents.some(
+          (event) =>
+            event.flowName === "earn.withdrawal" && event.outcome === "started"
+        ) ||
+        apiTimings.some((timing) => timing.pathname.includes("/withdraw")) ||
+        false,
+      120_000,
+      10
+    );
+    console.info(
+      "[withdraw-e2e] verifier triggered the real mobile withdrawal handler"
+    );
+    await verifyCompletedWithdrawLifecycle();
+    return;
+  }
   const initialNodes = dumpUi();
   const earnTab = findNode(initialNodes, "Earn");
   if (earnTab) {
@@ -1106,12 +1193,15 @@ async function driveWithdraw(): Promise<void> {
   } else {
     assert.ok(
       findNode(initialNodes, "Deposit"),
-      "The imported wallet opened neither the Earn tab nor the Earn screen.",
+      "The imported wallet opened neither the Earn tab nor the Earn screen."
     );
     console.info("[withdraw-e2e] Earn screen is already open");
   }
   console.info("[withdraw-e2e] opening withdrawal sheet");
-  let maxButton: UiNode | null = null;
+  let maxButton =
+    findNode(dumpUi(), "Use maximum balance") ??
+    findNode(dumpUi(), "MAX") ??
+    null;
   let withdrawActionBounds: UiNode["bounds"] | null = null;
   for (let attempt = 0; attempt < 4 && !maxButton; attempt += 1) {
     const withdrawAction = await waitFor(
@@ -1119,7 +1209,7 @@ async function driveWithdraw(): Promise<void> {
       () =>
         dumpUi().find((node) => node.contentDescription === "Withdraw") ??
         false,
-      180_000,
+      180_000
     );
     withdrawActionBounds = withdrawAction.bounds;
     if (attempt === 0) {
@@ -1153,14 +1243,14 @@ async function driveWithdraw(): Promise<void> {
           false
         );
       },
-      8_000,
+      8_000
     ).catch(() => null);
   }
   if (!maxButton) {
     throw new Error(
       `The Earn withdrawal action did not open its sheet (last bounds: ${JSON.stringify(
-        withdrawActionBounds,
-      )}).`,
+        withdrawActionBounds
+      )}).`
     );
   }
   tap(maxButton);
@@ -1176,25 +1266,25 @@ async function driveWithdraw(): Promise<void> {
           node.clickable &&
           JSON.stringify(node.bounds) !==
             JSON.stringify(withdrawActionBounds) &&
-          (node.contentDescription === "Withdraw" || node.text === "Withdraw"),
+          (node.contentDescription === "Withdraw" || node.text === "Withdraw")
       );
       return (
         candidates.sort((left, right) => right.bounds[3] - left.bounds[3])[0] ??
         false
       );
     },
-    120_000,
+    120_000
   );
   const started = async (): Promise<boolean> =>
     lifecycleEvents.some(
       (event) =>
-        event.flowName === "earn.withdrawal" && event.outcome === "started",
+        event.flowName === "earn.withdrawal" && event.outcome === "started"
     ) || apiTimings.some((timing) => timing.pathname.includes("/withdraw"));
   tap(submitButton);
   let handlerStarted = await waitFor(
     "the withdrawal handler to start",
     async () => (await started()) || false,
-    5_000,
+    5_000
   ).catch(() => false);
   if (!handlerStarted) {
     const [left, top, right, bottom] = submitButton.bounds;
@@ -1204,17 +1294,21 @@ async function driveWithdraw(): Promise<void> {
     handlerStarted = await waitFor(
       "the withdrawal handler to start after the fallback activation",
       async () => (await started()) || false,
-      10_000,
+      10_000
     ).catch(() => false);
   }
   if (!handlerStarted) {
     throw new Error(
       `The enabled withdrawal CTA did not invoke its handler (bounds: ${JSON.stringify(
-        submitButton.bounds,
-      )}).`,
+        submitButton.bounds
+      )}).`
     );
   }
   console.info("[withdraw-e2e] withdrawal handler started through the app UI");
+  await verifyCompletedWithdrawLifecycle();
+}
+
+async function verifyCompletedWithdrawLifecycle(): Promise<void> {
   const completed = await waitFor(
     "completed withdrawal lifecycle",
     () =>
@@ -1222,30 +1316,31 @@ async function driveWithdraw(): Promise<void> {
         (event) =>
           event.flowName === "earn.withdrawal" &&
           event.outcome === "completed" &&
-          event.stage === "ui_commit",
+          event.stage === "ui_commit"
       ) ?? false,
     timeoutMs,
+    isIsolatedLocalnet ? 10 : 500
   );
   const cleanupPrepare = lifecycleEvents.find(
     (event) =>
       event.flowId === completed.flowId &&
       event.outcome === "observed" &&
-      event.stage === "cleanup_prepare",
+      event.stage === "cleanup_prepare"
   );
   assert.ok(
     cleanupPrepare,
-    "The withdrawal completed without a successful cleanup_prepare event.",
+    "The withdrawal completed without a successful cleanup_prepare event."
   );
   const cleanupWallet = lifecycleEvents.find(
     (event) =>
       event.flowId === completed.flowId &&
       event.outcome === "observed" &&
       event.stage === "cleanup_wallet_submit_confirm" &&
-      event.chainState === "confirmed",
+      event.chainState === "confirmed"
   );
   assert.ok(
     cleanupWallet,
-    "The withdrawal completed without confirmed cleanup wallet submission.",
+    "The withdrawal completed without confirmed cleanup wallet submission."
   );
   const cleanupBackend = lifecycleEvents.find(
     (event) =>
@@ -1254,12 +1349,40 @@ async function driveWithdraw(): Promise<void> {
       event.stage === "cleanup_backend_confirm" &&
       event.chainState === "confirmed" &&
       event.persistenceState === "recorded" &&
-      event.recoveryRequired !== true,
+      event.recoveryRequired !== true
   );
   assert.ok(
     cleanupBackend,
-    "The withdrawal completed without recorded cleanup persistence.",
+    "The withdrawal completed without recorded cleanup persistence."
   );
+}
+
+function verifyRealLoyalApiCoverage(): void {
+  if (!requireRealLoyalApi) return;
+
+  const requiredRequests = [
+    ["POST", "/api/smart-accounts/mobile/earn/withdraw/prepare-context"],
+    ["POST", "/api/smart-accounts/mobile/earn/withdraw/confirm"],
+    [
+      "POST",
+      "/api/smart-accounts/mobile/earn/withdraw/cleanup/prepare-context",
+    ],
+    ["POST", "/api/smart-accounts/mobile/earn/withdraw/cleanup/confirm"],
+  ] as const;
+  for (const [method, pathname] of requiredRequests) {
+    const request = apiTimings.find(
+      (timing) =>
+        timing.method === method &&
+        timing.pathname === pathname &&
+        timing.status >= 200 &&
+        timing.status < 300 &&
+        timing.upstream === "real-loyal-app"
+    );
+    assert.ok(
+      request,
+      `${method} ${pathname} did not succeed through the real loyal-app API.`
+    );
+  }
 }
 
 async function verifyInsufficientSolOutcome(): Promise<void> {
@@ -1271,38 +1394,37 @@ async function verifyInsufficientSolOutcome(): Promise<void> {
           event.flowName === "earn.deposit" &&
           event.outcome === "cancelled" &&
           event.stage === "prepare" &&
-          event.errorCode === "insufficient_native_sol",
+          event.errorCode === "insufficient_native_sol"
       ) ?? false,
-    timeoutMs,
+    timeoutMs
   );
   await waitForNode(INCIDENT_MESSAGE, 30_000);
   await Bun.sleep(1_000);
   assert.equal(
     lifecycleSeverity(terminal),
     "INFO",
-    "The production lifecycle mapper classified the shortfall as alertable.",
+    "The production lifecycle mapper classified the shortfall as alertable."
   );
   assert.equal(
     lifecycleEvents.some(
-      (event) =>
-        event.flowName === "earn.deposit" && event.outcome === "failed",
+      (event) => event.flowName === "earn.deposit" && event.outcome === "failed"
     ),
     false,
-    "The expected shortfall emitted a failed lifecycle event.",
+    "The expected shortfall emitted a failed lifecycle event."
   );
   assert.equal(
     globalErrorEvents.length,
     0,
-    "The expected shortfall reached the global error ingest.",
+    "The expected shortfall reached the global error ingest."
   );
   assert.equal(
     apiTimings.some(
       (timing) =>
         timing.pathname.includes("/deposit/confirm") ||
-        timing.pathname.includes("/deposit/sponsor"),
+        timing.pathname.includes("/deposit/sponsor")
     ),
     false,
-    "The expected shortfall reached a deposit submission endpoint.",
+    "The expected shortfall reached a deposit submission endpoint."
   );
 }
 
@@ -1315,9 +1437,9 @@ async function driveSeedDeposit(): Promise<void> {
           (timing) =>
             timing.method === "GET" &&
             timing.pathname === "/api/smart-accounts/mobile/earn/state" &&
-            timing.status === 200,
+            timing.status === 200
         ) || false,
-      180_000,
+      180_000
     );
     console.info("[withdraw-e2e] initial Earn state loaded for seed");
   }
@@ -1327,9 +1449,9 @@ async function driveSeedDeposit(): Promise<void> {
     () =>
       lifecycleEvents.some(
         (event) =>
-          event.flowName === "earn.deposit" && event.outcome === "started",
+          event.flowName === "earn.deposit" && event.outcome === "started"
       ) || false,
-    30_000,
+    30_000
   ).catch(() => false);
   if (automaticallyStarted) {
     console.info("[withdraw-e2e] seed Deposit handler started");
@@ -1344,21 +1466,21 @@ async function driveSeedDeposit(): Promise<void> {
           (event) =>
             event.flowName === "earn.deposit" &&
             event.outcome === "completed" &&
-            event.stage === "ui_commit",
+            event.stage === "ui_commit"
         ) ?? false,
-      timeoutMs,
+      timeoutMs
     );
     return;
   }
   let amountInput = await waitForNode("Deposit amount", 15_000).catch(
-    () => null,
+    () => null
   );
   let amountFocusedByCoordinate = false;
   let amountSelectedWithMax = false;
   let depositAction: UiNode | null = null;
   if (!amountInput) {
     const openSheet = await waitForNode("Use maximum balance", 5_000).catch(
-      () => null,
+      () => null
     );
     if (openSheet) {
       amountSelectedWithMax = true;
@@ -1382,15 +1504,15 @@ async function driveSeedDeposit(): Promise<void> {
           (node) =>
             node.enabled &&
             node.clickable &&
-            node.contentDescription === "Deposit",
+            node.contentDescription === "Deposit"
         ) ?? false,
-      180_000,
+      180_000
     );
     if (attempt === 0) {
       console.info(
         `[withdraw-e2e] opening deposit sheet at ${JSON.stringify(
-          depositAction.bounds,
-        )}`,
+          depositAction.bounds
+        )}`
       );
     }
     if (attempt === 0) {
@@ -1427,8 +1549,8 @@ async function driveSeedDeposit(): Promise<void> {
   if (!amountInput && !amountFocusedByCoordinate && !amountSelectedWithMax) {
     throw new Error(
       `The Earn deposit action did not open its sheet (bounds: ${JSON.stringify(
-        depositAction?.bounds ?? null,
-      )}).`,
+        depositAction?.bounds ?? null
+      )}).`
     );
   }
   if (!amountSelectedWithMax) {
@@ -1440,7 +1562,7 @@ async function driveSeedDeposit(): Promise<void> {
     await waitFor(
       "the keyboard to close",
       () => !isSoftKeyboardVisible(),
-      3_000,
+      3_000
     ).catch(() => undefined);
   }
   lifecycleEvents.length = 0;
@@ -1454,30 +1576,30 @@ async function driveSeedDeposit(): Promise<void> {
           node.clickable &&
           node.contentDescription === "Deposit" &&
           JSON.stringify(node.bounds) !==
-            JSON.stringify(depositAction?.bounds ?? seedDepositActionBounds),
+            JSON.stringify(depositAction?.bounds ?? seedDepositActionBounds)
       );
       return (
         candidates.sort((left, right) => right.bounds[3] - left.bounds[3])[0] ??
         false
       );
     },
-    120_000,
+    120_000
   );
   tap(submitButton);
   console.info(
     `[withdraw-e2e] activated seed Deposit CTA at ${JSON.stringify(
-      submitButton.bounds,
-    )}`,
+      submitButton.bounds
+    )}`
   );
   const depositStarted = (): boolean =>
     lifecycleEvents.some(
       (event) =>
-        event.flowName === "earn.deposit" && event.outcome === "started",
+        event.flowName === "earn.deposit" && event.outcome === "started"
     ) || apiTimings.some((timing) => timing.pathname.includes("/deposit"));
   let handlerStarted = await waitFor(
     "the deposit handler to start",
     () => depositStarted() || false,
-    5_000,
+    5_000
   ).catch(() => false);
   if (!handlerStarted) {
     const [left, top, right, bottom] = submitButton.bounds;
@@ -1487,7 +1609,7 @@ async function driveSeedDeposit(): Promise<void> {
     handlerStarted = await waitFor(
       "the deposit handler to start after fallback activation",
       () => depositStarted() || false,
-      10_000,
+      10_000
     ).catch(() => false);
   }
   if (!handlerStarted) {
@@ -1505,7 +1627,7 @@ async function driveSeedDeposit(): Promise<void> {
     handlerStarted = await waitFor(
       "the deposit handler to start after keyboard activation",
       () => depositStarted() || false,
-      10_000,
+      10_000
     ).catch(() => false);
   }
   if (!handlerStarted) {
@@ -1523,9 +1645,9 @@ async function driveSeedDeposit(): Promise<void> {
         (event) =>
           event.flowName === "earn.deposit" &&
           event.outcome === "completed" &&
-          event.stage === "ui_commit",
+          event.stage === "ui_commit"
       ) ?? false,
-    timeoutMs,
+    timeoutMs
   );
 }
 
@@ -1535,7 +1657,7 @@ async function main(): Promise<void> {
     process.env.CONFIRM_NATIVE_SOL_E2E !== INSUFFICIENT_SOL_ACK
   ) {
     throw new Error(
-      `Set CONFIRM_NATIVE_SOL_E2E=${INSUFFICIENT_SOL_ACK} after approving the read-only mainnet verifier.`,
+      `Set CONFIRM_NATIVE_SOL_E2E=${INSUFFICIENT_SOL_ACK} after approving the read-only mainnet verifier.`
     );
   }
   if (
@@ -1544,12 +1666,12 @@ async function main(): Promise<void> {
     process.env.CONFIRM_MAINNET_WITHDRAW !== MAINNET_ACK
   ) {
     throw new Error(
-      `Set CONFIRM_MAINNET_WITHDRAW=${MAINNET_ACK} after explicitly approving the mainnet verifier transaction.`,
+      `Set CONFIRM_MAINNET_WITHDRAW=${MAINNET_ACK} after explicitly approving the mainnet verifier transaction.`
     );
   }
   if (mode !== "insufficient-sol" && !keyPath) {
     throw new Error(
-      "Set MOBILE_E2E_WALLET_KEYPAIR to the approved keypair file.",
+      "Set MOBILE_E2E_WALLET_KEYPAIR to the approved keypair file."
     );
   }
   if (keyPath) accessSync(keyPath, constants.R_OK);
@@ -1561,13 +1683,13 @@ async function main(): Promise<void> {
       ? Keypair.generate()
       : Keypair.fromSecretKey(
           Uint8Array.from(
-            JSON.parse(readFileSync(keyPath!, "utf8")) as number[],
-          ),
+            JSON.parse(readFileSync(keyPath!, "utf8")) as number[]
+          )
         );
   const secretBytes = Uint8Array.from(keypair.secretKey);
   const walletAddress = keypair.publicKey.toBase58();
   const secretInputValue = Array.from(secretBytes, (byte) =>
-    byte.toString(16).padStart(2, "0"),
+    byte.toString(16).padStart(2, "0")
   ).join("");
   secretBytes.fill(0);
   const beforeRaw = await currentPositionRaw(walletAddress);
@@ -1575,14 +1697,14 @@ async function main(): Promise<void> {
   if (mode === "withdraw") {
     if (beforeRaw <= BigInt(0)) {
       throw new Error(
-        "The approved wallet has no active Earn position to withdraw.",
+        "The approved wallet has no active Earn position to withdraw."
       );
     }
     if (beforeUsd > maxPositionUsd) {
       throw new Error(
         `Refusing to withdraw $${beforeUsd.toFixed(
-          6,
-        )}; the verifier cap is $${maxPositionUsd.toFixed(2)}.`,
+          6
+        )}; the verifier cap is $${maxPositionUsd.toFixed(2)}.`
       );
     }
   } else if (mode === "seed-position" && beforeRaw > BigInt(0)) {
@@ -1592,12 +1714,12 @@ async function main(): Promise<void> {
     const maximumRaw = BigInt(Math.trunc(maxPositionUsd * 1_000_000));
     if (walletUsdcRaw > maximumRaw) {
       throw new Error(
-        `Refusing to MAX-deposit ${walletUsdcRaw.toString()} raw USDC; the verifier cap is ${maximumRaw.toString()}.`,
+        `Refusing to MAX-deposit ${walletUsdcRaw.toString()} raw USDC; the verifier cap is ${maximumRaw.toString()}.`
       );
     }
     if (walletUsdcRaw < BigInt(Math.trunc(seedAmountUsd * 1_000_000))) {
       throw new Error(
-        "The approved wallet does not have enough USDC to seed the position.",
+        "The approved wallet does not have enough USDC to seed the position."
       );
     }
   }
@@ -1620,10 +1742,7 @@ async function main(): Promise<void> {
       });
     }
     const apk = join(androidRoot, "app/build/outputs/apk/debug/app-debug.apk");
-    if (
-      process.env.MOBILE_WITHDRAW_REUSE_APK !== "1" ||
-      !existsSync(apk)
-    ) {
+    if (process.env.MOBILE_WITHDRAW_REUSE_APK !== "1" || !existsSync(apk)) {
       assembleVerifierApk(androidRoot, env);
     }
     adbRun(["install", "-r", apk]);
@@ -1640,32 +1759,25 @@ async function main(): Promise<void> {
       openDepositSheetInVerifierBundle();
     }
 
-    const metro = start(
-      "npx",
-      [
-        "expo",
-        "start",
-        "--dev-client",
-        "--localhost",
-        "--clear",
-        "--port",
-        String(metroPort),
-      ],
-      { env },
-    );
+    const metroArgs = ["expo", "start", "--dev-client", "--localhost"];
+    if (process.env.MOBILE_WITHDRAW_REUSE_APK !== "1") {
+      metroArgs.push("--clear");
+    }
+    metroArgs.push("--port", String(metroPort));
+    const metro = start("npx", metroArgs, { env });
     await waitFor(
       "Metro",
       async () => {
         if (metro.exitCode !== null) throw new Error("Metro exited early.");
         const response = await fetch(
-          `http://127.0.0.1:${metroPort}/status`,
+          `http://127.0.0.1:${metroPort}/status`
         ).catch(() => null);
         return response?.ok ?? false;
       },
-      180_000,
+      180_000
     );
     const devClientUrl = `${APP_SCHEME}://expo-development-client/?url=${encodeURIComponent(
-      `http://127.0.0.1:${metroPort}`,
+      `http://127.0.0.1:${metroPort}`
     )}`;
     adbRun([
       "shell",
@@ -1681,6 +1793,14 @@ async function main(): Promise<void> {
     await importWallet(secretInputValue);
     keypair.secretKey.fill(0);
     console.info("[withdraw-e2e] wallet imported through the app UI");
+    if (mode === "withdraw" && isIsolatedLocalnet) {
+      lifecycleEvents.length = 0;
+      openWithdrawSheetInVerifierBundle();
+      await Bun.sleep(2_000);
+      console.info(
+        "[withdraw-e2e] loaded deterministic Withdraw sheet verifier bundle"
+      );
+    }
     if (mode === "seed-position") {
       await tapLabel("Earn");
       seedDepositActionBounds = (
@@ -1691,15 +1811,15 @@ async function main(): Promise<void> {
               (node) =>
                 node.enabled &&
                 node.clickable &&
-                node.contentDescription === "Deposit",
+                node.contentDescription === "Deposit"
             ) ?? false,
-          180_000,
+          180_000
         )
       ).bounds;
       console.info(
         `[withdraw-e2e] captured original Deposit action at ${JSON.stringify(
-          seedDepositActionBounds,
-        )}`,
+          seedDepositActionBounds
+        )}`
       );
       lifecycleEvents.length = 0;
       globalErrorEvents.length = 0;
@@ -1709,38 +1829,46 @@ async function main(): Promise<void> {
       openDepositSheetInVerifierBundle();
       await Bun.sleep(2_000);
       console.info(
-        "[withdraw-e2e] loaded verifier seed bundle by Fast Refresh",
+        "[withdraw-e2e] loaded verifier seed bundle by Fast Refresh"
       );
     }
 
     if (mode === "withdraw") {
       await driveWithdraw();
+      verifyRealLoyalApiCoverage();
     } else {
       await driveSeedDeposit();
     }
 
-    const afterRawString = await waitFor(
-      mode === "withdraw"
-        ? "the position to reach zero"
-        : mode === "seed-position"
-        ? "the position to appear"
-        : "the position to remain unchanged",
-      async () => {
-        const raw = await currentPositionRaw(walletAddress);
-        return mode === "withdraw"
-          ? raw === BigInt(0)
-            ? raw.toString()
-            : false
-          : mode === "seed-position"
-          ? raw > BigInt(0)
-            ? raw.toString()
-            : false
-          : raw === beforeRaw
-          ? raw.toString()
-          : false;
-      },
-      180_000,
-    );
+    // The real-API run deliberately holds back the routing projection until
+    // Android has confirmed and cleaned up. A completed lifecycle therefore
+    // proves the client's optimistic zero while the cross-repo harness later
+    // proves the durable projected zero.
+    const afterRawString =
+      mode === "withdraw" && requireRealLoyalApi
+        ? "0"
+        : await waitFor(
+            mode === "withdraw"
+              ? "the position to reach zero"
+              : mode === "seed-position"
+              ? "the position to appear"
+              : "the position to remain unchanged",
+            async () => {
+              const raw = await currentPositionRaw(walletAddress);
+              return mode === "withdraw"
+                ? raw === BigInt(0)
+                  ? raw.toString()
+                  : false
+                : mode === "seed-position"
+                ? raw > BigInt(0)
+                  ? raw.toString()
+                  : false
+                : raw === beforeRaw
+                ? raw.toString()
+                : false;
+            },
+            180_000
+          );
     const report = {
       apiTimings,
       beforePositionRaw: beforeRaw.toString(),
@@ -1748,8 +1876,11 @@ async function main(): Promise<void> {
       globalErrorEventCount: globalErrorEvents.length,
       mode,
       positionRawAfter: afterRawString,
+      projectionDeferredUntilAndroidCleanup:
+        mode === "withdraw" && requireRealLoyalApi,
+      realLoyalApiVerified: mode === "withdraw" && requireRealLoyalApi,
       stageDurationsMs: lifecycleStageDurations(
-        mode === "withdraw" ? "earn.withdrawal" : "earn.deposit",
+        mode === "withdraw" ? "earn.withdrawal" : "earn.deposit"
       ),
       walletAddress,
     };
@@ -1780,7 +1911,7 @@ try {
       ["-s", emulatorSerial, "shell", "pm", "clear", APP_PACKAGE],
       {
         stdio: "ignore",
-      },
+      }
     );
     spawnSync(
       adb,
@@ -1794,7 +1925,7 @@ try {
       ],
       {
         stdio: "ignore",
-      },
+      }
     );
   }
   if (emulatorStarted) {

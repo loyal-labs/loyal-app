@@ -9,7 +9,7 @@ const crossRepoE2e = process.argv.includes("--cross-repo-e2e");
 
 function optionValue(name: string): string | null {
   const index = process.argv.indexOf(name);
-  return index >= 0 ? (process.argv[index + 1] ?? null) : null;
+  return index >= 0 ? process.argv[index + 1] ?? null : null;
 }
 
 const routingRootOption = optionValue("--routing-root");
@@ -47,6 +47,7 @@ const changedWebTypeScriptFiles = [
   "src/app/api/smart-accounts/yield-optimization/withdrawals/prepare/route.test.ts",
   "src/components/wallet-workspace/facelift/use-earn-actions.ts",
   "src/hooks/use-smart-account-sidebar-data.ts",
+  "src/lib/core/database.ts",
   "src/lib/yield-optimization/earn-autodeposit-repository.server.ts",
   "src/lib/yield-optimization/earn-confirm-single-writer.server.test.ts",
   "src/lib/yield-optimization/earn-deposit-confirm.server.ts",
@@ -155,6 +156,26 @@ check(
 const withdrawPrepareSource = source(
   "apps/web/src/lib/yield-optimization/earn-withdraw-input-resolution.server.ts"
 );
+
+const sidebarDataSource = source(
+  "apps/web/src/hooks/use-smart-account-sidebar-data.ts"
+);
+const withdrawExecutionSource = sidebarDataSource.slice(
+  sidebarDataSource.indexOf("const executeEarnWithdraw ="),
+  sidebarDataSource.indexOf("const executeEarnCleanup =")
+);
+const cleanupExecutionSource = sidebarDataSource.slice(
+  sidebarDataSource.indexOf("const executeEarnCleanup ="),
+  sidebarDataSource.indexOf("const executeEarnAutodeposit")
+);
+check(
+  "web withdrawal keeps signed bytes and broadcasts through the app RPC",
+  withdrawExecutionSource.includes("signThenSendRaw: true")
+);
+check(
+  "web cleanup keeps signed bytes and broadcasts through the app RPC",
+  cleanupExecutionSource.includes("signThenSendRaw: true")
+);
 check(
   "withdraw preparation retries a temporarily unprojected policy",
   withdrawPrepareSource.includes("POLICY_PROJECTION_RETRY_DELAYS_MS") &&
@@ -226,7 +247,10 @@ if (failures.length === 0 && crossRepoE2e) {
   check(
     "cross-repo web client driver exists",
     existsSync(
-      resolve(clientAppRoot, "apps/web/scripts/verify-earn-client-local-chain.ts")
+      resolve(
+        clientAppRoot,
+        "apps/web/scripts/verify-earn-client-local-chain.ts"
+      )
     ),
     clientAppRoot
   );
@@ -243,6 +267,11 @@ if (failures.length === 0 && crossRepoE2e) {
       {
         cwd: routingRoot,
         encoding: "utf8",
+        env: {
+          ...process.env,
+          MOBILE_EARN_REAL_API: "1",
+          MOBILE_REQUIRE_REAL_API: "1",
+        },
         stdio: "inherit",
       }
     );

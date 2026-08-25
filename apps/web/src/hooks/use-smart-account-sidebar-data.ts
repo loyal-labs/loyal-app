@@ -1969,9 +1969,7 @@ export async function prepareEarnCleanupOnServer(
     "/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare",
     {
       body: JSON.stringify({
-        ...(args.minContextSlot
-          ? { minContextSlot: args.minContextSlot }
-          : {}),
+        ...(args.minContextSlot ? { minContextSlot: args.minContextSlot } : {}),
       }),
       credentials: "include",
       headers: observabilityJsonHeaders(args.observabilityFlowId),
@@ -7192,7 +7190,13 @@ export function useSmartAccountSidebarData(
         return { success: false, error: "Amount must be greater than 0." };
       }
 
-      const walletBridge = createWalletAdapterBridge(wallet);
+      // Keep the signed bytes in the app and broadcast them through the same
+      // RPC connection used for confirmation. An extension-owned
+      // sendTransaction() can return a signature without giving us the exact
+      // signed blockhash or a transaction we can safely rebroadcast.
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
       if (!walletBridge) {
         return {
           success: false,
@@ -7405,7 +7409,9 @@ export function useSmartAccountSidebarData(
         };
       }
 
-      const walletBridge = createWalletAdapterBridge(wallet);
+      const walletBridge = createWalletAdapterBridge(wallet, {
+        signThenSendRaw: true,
+      });
       if (!walletBridge) {
         return {
           success: false,
