@@ -171,7 +171,7 @@ describe("Earn MAX policy manifest", () => {
     ]);
   });
 
-  test("keeps deposit evidence executable by supplying only the real Memo signer", async () => {
+  test("builds a deposit as one exact SPL transfer without semantic evidence", async () => {
     const connection = {
       getBalance: async () => 0,
       getMultipleAccountsInfo: async (keys: readonly PublicKey[]) =>
@@ -185,15 +185,16 @@ describe("Earn MAX policy manifest", () => {
       settings,
     });
     const deposit = operations.at(-1)!;
-    const memo = deposit.instructions.at(-1)!;
+    const transfer = deposit.instructions.at(-1)!;
 
     expect(deposit.operation).toBe("earnMaxDeposit");
-    expect(memo.programId.toBase58()).toBe(
-      "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+    expect(deposit.instructions).toHaveLength(1);
+    expect(transfer.programId.toBase58()).toBe(
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
     );
-    expect(memo.keys).toEqual([
-      { pubkey: authority, isSigner: true, isWritable: false },
-    ]);
+    expect(transfer.keys[2]?.pubkey).toEqual(
+      deriveEarnMaxTopology(settings).claimCustody
+    );
   });
 
 });
