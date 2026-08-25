@@ -4,6 +4,8 @@ import {
   type PreparedLoyalSmartAccountsOperation,
 } from "@loyal-labs/loyal-smart-accounts";
 import {
+  AddressLookupTableAccount,
+  AddressLookupTableProgram,
   PublicKey,
   SYSVAR_RENT_PUBKEY,
   SystemProgram,
@@ -14,7 +16,6 @@ import {
 import { clusterConfigFor } from "./cluster.ts";
 import {
   createProgramInteractionPolicyInstruction,
-  updateProgramInteractionPolicyInstruction,
 } from "./internal/squads.ts";
 import { LoyalCluster } from "./types.ts";
 
@@ -170,7 +171,6 @@ export type EarnMaxPolicyPreparation = {
   seed: bigint;
   policy: PublicKey;
   instruction: TransactionInstruction;
-  updateInstruction: TransactionInstruction;
 };
 
 function associatedToken(
@@ -246,8 +246,41 @@ function sliceEquals(value: readonly number[]) {
   };
 }
 
+function u16Equals(value: number) {
+  return {
+    dataOffset: BigInt(0),
+    dataValue: { type: "u16Le" as const, value },
+    operator: "equals" as const,
+  };
+}
+
 function pubkey(accountIndex: number, ...pubkeys: PublicKey[]) {
   return { accountIndex, kind: { type: "pubkey" as const, pubkeys } };
+}
+
+function accountDataPubkey(
+  accountIndex: number,
+  owner: PublicKey,
+  dataOffset: bigint,
+  value: PublicKey
+) {
+  return {
+    accountIndex,
+    kind: {
+      type: "accountData" as const,
+      dataConstraints: [
+        {
+          dataOffset,
+          dataValue: {
+            type: "u8Slice" as const,
+            value: [...value.toBytes()],
+          },
+          operator: "equals" as const,
+        },
+      ],
+    },
+    owner,
+  };
 }
 
 function uniquePubkeys(pubkeys: readonly PublicKey[]): PublicKey[] {
@@ -265,12 +298,7 @@ export function createEarnMaxPolicyManifest(input: {
   const policy = (
     family: EarnMaxPolicyPreparation["family"],
     seed: bigint,
-    constraints: Parameters<
-      typeof createProgramInteractionPolicyInstruction
-    >[2],
-    bootstrapConstraints: Parameters<
-      typeof createProgramInteractionPolicyInstruction
-    >[2]
+    constraints: Parameters<typeof createProgramInteractionPolicyInstruction>[2]
   ): EarnMaxPolicyPreparation => {
     const instruction = createProgramInteractionPolicyInstruction(
       config,
@@ -281,7 +309,7 @@ export function createEarnMaxPolicyManifest(input: {
         accountIndex: EARN_MAX_VAULT_INDEX,
         vault: topology.vault,
       },
-      bootstrapConstraints,
+      constraints,
       seed,
       [],
       "legacy"
@@ -292,51 +320,45 @@ export function createEarnMaxPolicyManifest(input: {
       seed,
       policy,
       instruction,
-      updateInstruction: updateProgramInteractionPolicyInstruction(
-        config,
-        {
-          settings: input.settings,
-          authority: input.authority,
-          delegatedSigner: input.delegatedSigner,
-          accountIndex: EARN_MAX_VAULT_INDEX,
-          vault: topology.vault,
-        },
-        constraints,
-        policy
-      ),
     };
   };
 
-  const swapLane = (source: PublicKey, destination: PublicKey) => ({
+  const swapBiclique = (
+    sources: readonly PublicKey[],
+    destinations: readonly PublicKey[]
+  ) => ({
     programId: config.jupiterV6ProgramId,
     accountConstraints: [
       pubkey(2, topology.vault),
-      pubkey(3, source),
-      pubkey(6, destination),
+      pubkey(3, ...sources),
+      pubkey(6, ...destinations),
     ],
-    dataConstraints: [sliceEquals(SHARED_ACCOUNTS_ROUTE)],
+    dataConstraints: [
+      u16Equals(
+        SHARED_ACCOUNTS_ROUTE[0] | (SHARED_ACCOUNTS_ROUTE[1] << 8)
+      ),
+    ],
   });
 
-  const obligations = topology.strategies.map(({ obligation }) => obligation);
+  const markets = uniquePubkeys(topology.strategies.map(({ market }) => market));
   const collateralReserves = uniquePubkeys(topology.strategies.map(({ collateralReserve }) => collateralReserve));
   const collateralCustodies = uniquePubkeys(topology.strategies.map(({ collateralCustody }) => collateralCustody));
-  const debtReserves = topology.strategies.map(({ debtReserve }) => debtReserve);
   const debtCustodies = uniquePubkeys(topology.strategies.map(({ debtCustody }) => debtCustody));
-  const debtTokenPrograms = uniquePubkeys(topology.strategies.map(({ debtTokenProgram }) => debtTokenProgram));
+  const obligationOwnedByVault = accountDataPubkey(
+    1,
+    KLEND,
+    BigInt(64),
+    topology.vault
+  );
 
   const collateralConstraints = [
     {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, ...obligations),
+        obligationOwnedByVault,
         pubkey(4, ...collateralReserves),
         pubkey(9, ...collateralCustodies),
-        pubkey(11, TOKEN),
-        pubkey(12, TOKEN),
-        pubkey(14, KLEND),
-        pubkey(15, KLEND),
-        pubkey(16, FARMS),
       ],
       dataConstraints: [sliceEquals(DEPOSIT)],
     },
@@ -344,14 +366,9 @@ export function createEarnMaxPolicyManifest(input: {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, ...obligations),
+        obligationOwnedByVault,
         pubkey(4, ...collateralReserves),
         pubkey(9, ...collateralCustodies),
-        pubkey(11, TOKEN),
-        pubkey(12, TOKEN),
-        pubkey(14, KLEND),
-        pubkey(15, KLEND),
-        pubkey(16, FARMS),
       ],
       dataConstraints: [sliceEquals(WITHDRAW)],
     },
@@ -361,11 +378,9 @@ export function createEarnMaxPolicyManifest(input: {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, ...obligations),
-        pubkey(4, ...debtReserves),
+        obligationOwnedByVault,
+        pubkey(2, ...markets),
         pubkey(8, ...debtCustodies),
-        pubkey(10, ...debtTokenPrograms),
-        pubkey(14, FARMS),
       ],
       dataConstraints: [sliceEquals(BORROW)],
     },
@@ -373,30 +388,32 @@ export function createEarnMaxPolicyManifest(input: {
       programId: KLEND,
       accountConstraints: [
         pubkey(0, topology.vault),
-        pubkey(1, ...obligations),
-        pubkey(3, ...debtReserves),
+        obligationOwnedByVault,
+        pubkey(2, ...markets),
         pubkey(6, ...debtCustodies),
-        pubkey(7, ...debtTokenPrograms),
-        pubkey(12, FARMS),
       ],
       dataConstraints: [sliceEquals(REPAY)],
     },
   ] as const;
-  const swapConstraints = topology.strategies.flatMap((strategy) => [
-    swapLane(strategy.debtCustody, strategy.collateralCustody),
-    swapLane(strategy.collateralCustody, strategy.debtCustody),
-  ]);
+  const strategy = (key: EarnMaxStrategyKey) =>
+    topology.strategies.find((candidate) => candidate.key === key)!;
+  const usdc = strategy("onyc_usdc").debtCustody;
+  const usds = strategy("onyc_usds").debtCustody;
+  const pyusd = strategy("prime_pyusd").debtCustody;
+  const onyc = strategy("onyc_usdc").collateralCustody;
+  const prime = strategy("prime_usdc").collateralCustody;
+  const syrup = strategy("syrup_usdc_usdc").collateralCustody;
+  const swapConstraints = [
+    swapBiclique([usdc, usds], [onyc, prime]),
+    swapBiclique([usdc, pyusd], [prime, syrup]),
+    swapBiclique([onyc, prime], [usdc, usds]),
+    swapBiclique([prime, syrup], [usdc, pyusd]),
+  ];
 
   return [
-    policy("collateral", input.firstPolicySeed, collateralConstraints, [
-      collateralConstraints[1],
-    ]),
-    policy("debt", input.firstPolicySeed + BigInt(1), debtConstraints, [
-      debtConstraints[1],
-    ]),
-    policy("swap", input.firstPolicySeed + BigInt(2), swapConstraints, [
-      swapConstraints[1]!,
-    ]),
+    policy("collateral", input.firstPolicySeed, collateralConstraints),
+    policy("debt", input.firstPolicySeed + BigInt(1), debtConstraints),
+    policy("swap", input.firstPolicySeed + BigInt(2), swapConstraints),
   ];
 }
 
@@ -455,9 +472,10 @@ function prepared(
   input: Omit<
     EarnMaxClientOperation,
     "lookupTableAccounts" | "requiresConfirmation"
-  >
+  >,
+  lookupTableAccounts: readonly AddressLookupTableAccount[] = []
 ): EarnMaxClientOperation {
-  return { ...input, lookupTableAccounts: [], requiresConfirmation: true };
+  return { ...input, lookupTableAccounts, requiresConfirmation: true };
 }
 
 function createAssociatedTokenAccount(
@@ -560,33 +578,81 @@ export async function buildEarnMaxInstallInstructions(input: {
     "confirmed"
   );
   const matching = input.matchingPolicyAccounts ?? new Set<string>();
-  return manifest.flatMap((entry, index) =>
-    accounts[index] && matching.has(entry.policy.toBase58())
-      ? []
-      : accounts[index]
-      ? [
-          prepared({
-            instructions: [entry.updateInstruction],
-            operation: `earnMaxInstall:update:${entry.family}`,
-            payer: input.feePayer,
-            programId: input.programId,
-          }),
-        ]
-      : [
-          prepared({
-            instructions: [entry.instruction],
-            operation: `earnMaxInstall:create:${entry.family}`,
-            payer: input.feePayer,
-            programId: input.programId,
-          }),
-          prepared({
-            instructions: [entry.updateInstruction],
-            operation: `earnMaxInstall:update:${entry.family}`,
-            payer: input.feePayer,
-            programId: input.programId,
-          }),
-        ]
-  );
+  const missing = manifest.filter((entry, index) => {
+    const exists = Boolean(accounts[index]);
+    const matches = matching.has(entry.policy.toBase58());
+    if (exists && !matches) {
+      throw new Error(
+        `Earn MAX ${entry.family} policy exists with non-canonical bytes; close it before reinstalling.`
+      );
+    }
+    return !exists;
+  });
+  if (missing.length === 0) return [];
+
+  const operations: EarnMaxClientOperation[] = [];
+  const swap = missing.find((entry) => entry.family === "swap");
+  let swapLookupTable: AddressLookupTableAccount | undefined;
+  if (swap) {
+    const recentSlot = await input.connection.getSlot("confirmed");
+    const [createLookupTable, lookupTableAddress] =
+      AddressLookupTableProgram.createLookupTable({
+        authority: input.feePayer,
+        payer: input.feePayer,
+        recentSlot,
+      });
+    const addresses = uniquePubkeys([
+      swap.instruction.programId,
+      ...swap.instruction.keys
+        .filter(({ isSigner }) => !isSigner)
+        .map(({ pubkey }) => pubkey),
+    ]);
+    const extendLookupTable = AddressLookupTableProgram.extendLookupTable({
+      authority: input.feePayer,
+      lookupTable: lookupTableAddress,
+      payer: input.feePayer,
+      addresses,
+    });
+    swapLookupTable = new AddressLookupTableAccount({
+      key: lookupTableAddress,
+      state: {
+        authority: input.feePayer,
+        addresses,
+        deactivationSlot: BigInt("18446744073709551615"),
+        lastExtendedSlot: recentSlot,
+        lastExtendedSlotStartIndex: 0,
+      },
+    });
+    operations.push(
+      prepared({
+        instructions: [createLookupTable],
+        operation: "earnMaxInstall:createLookupTable",
+        payer: input.feePayer,
+        programId: AddressLookupTableProgram.programId,
+      }),
+      prepared({
+        instructions: [extendLookupTable],
+        operation: "earnMaxInstall:extendLookupTable",
+        payer: input.feePayer,
+        programId: AddressLookupTableProgram.programId,
+      })
+    );
+  }
+
+  for (const entry of missing) {
+    operations.push(
+      prepared(
+        {
+          instructions: [entry.instruction],
+          operation: `earnMaxInstall:create:${entry.family}`,
+          payer: input.feePayer,
+          programId: input.programId,
+        },
+        entry.family === "swap" && swapLookupTable ? [swapLookupTable] : []
+      )
+    );
+  }
+  return operations;
 }
 
 function initUserMetadata(vault: PublicKey, userMetadata: PublicKey) {
