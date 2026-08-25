@@ -227,6 +227,7 @@ export default function EarnScreen() {
   // drive the on-chain policy and refresh this.
   const {
     autodeposit,
+    confirmAutodepositSetup,
     hasLoaded: autodepositLoaded,
     refreshAutodeposit,
   } = useEarnAutodeposit(walletAddress);
@@ -835,11 +836,12 @@ export default function EarnScreen() {
             flowId: metric.flowId,
           });
         } else {
-          await executeEarnAutodepositSetup({
+          const confirmedSetup = await executeEarnAutodepositSetup({
             signer,
             thresholdUsd,
             flowId: metric.flowId,
           });
+          confirmAutodepositSetup(confirmedSetup);
         }
         try {
           const fresh = await refreshAutodeposit({ throwOnError: true });
@@ -880,6 +882,7 @@ export default function EarnScreen() {
       autodepositSetupMode,
       autodeposit,
       refreshAutodeposit,
+      confirmAutodepositSetup,
       expectScheduledSweep,
       refreshActivityAutodeposit,
       router,

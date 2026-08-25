@@ -8,6 +8,7 @@ import {
   smartAccounts,
 } from "@loyal-labs/loyal-smart-accounts";
 import { LoyalCluster } from "@loyal-labs/actions";
+import { shouldRetainConfirmedAutodepositSetup } from "@loyal-labs/shared";
 import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
@@ -513,6 +514,40 @@ async function setup(args: Args) {
   }
   if (!completedState) {
     throw new Error("Web Autodeposit setup did not reach delegation creation.");
+  }
+  const confirmedSetup = {
+    policyAccount: completedState.policyAccount,
+    recurringDelegation: completedState.recurringDelegation,
+  };
+  const pendingProjection = {
+    phase: "pending" as const,
+    policyAccount: completedState.policyAccount,
+    recurringDelegation: completedState.recurringDelegation,
+  };
+  if (
+    !shouldRetainConfirmedAutodepositSetup({
+      canonical: null,
+      confirmed: confirmedSetup,
+    }) ||
+    !shouldRetainConfirmedAutodepositSetup({
+      canonical: pendingProjection,
+      confirmed: confirmedSetup,
+    }) ||
+    shouldRetainConfirmedAutodepositSetup({
+      canonical: { ...pendingProjection, phase: "settled" },
+      confirmed: confirmedSetup,
+    }) ||
+    shouldRetainConfirmedAutodepositSetup({
+      canonical: {
+        ...pendingProjection,
+        policyAccount: delegatedSigner.publicKey.toBase58(),
+      },
+      confirmed: confirmedSetup,
+    })
+  ) {
+    throw new Error(
+      "Confirmed Autodeposit setup did not survive the pre-reconciliation projection gap."
+    );
   }
   if (!interruptedAfterPolicy) {
     throw new Error("Web verifier did not exercise partial setup recovery.");
