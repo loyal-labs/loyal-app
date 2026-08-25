@@ -9,6 +9,7 @@ import { env } from "@/config/env";
 import { track } from "@/lib/analytics/analytics";
 import { EARN_EVENTS } from "@/lib/analytics/earn-events";
 import { getConnection } from "@/lib/solana/rpc/connection";
+import { assertNativeSolRequirement } from "@/lib/wallet/insufficient-sol-error";
 import type { Signer } from "@/lib/wallet/signer";
 import {
   type LifecycleFlow,
@@ -78,6 +79,8 @@ async function signSendAndConfirmDeposit(args: {
   wirePreparedDeposit: WirePreparedEarnDeposit;
   flow: LifecycleFlow<"earn.deposit">;
 }): Promise<EarnDepositResult> {
+  assertNativeSolRequirement(args.wirePreparedDeposit.nativeSolRequirement);
+
   const connection = getConnection();
   const operations = [
     args.stages.policySetup,

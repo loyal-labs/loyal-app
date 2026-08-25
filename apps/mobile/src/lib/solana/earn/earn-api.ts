@@ -1,4 +1,5 @@
 import { env } from "@/config/env";
+import type { SmartAccountNativeSolRequirement } from "@loyal-labs/smart-account-vaults";
 import {
   fetchWithTimeout,
   FetchTimeoutError,
@@ -47,6 +48,7 @@ function earnAuthParts(auth: EarnAuthFields | EarnSessionAuth): {
 // The serialized prepared deposit. Only the fields mobile needs to sign+send are
 // typed; the whole object is echoed back to `confirm` opaquely.
 export type WirePreparedEarnDeposit = {
+  nativeSolRequirement?: SmartAccountNativeSolRequirement;
   prepared: WirePreparedOperation;
   policySetupPrepared?: WirePreparedOperation | null;
   policyFinalizePrepared?: WirePreparedOperation | null;
