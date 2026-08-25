@@ -14,6 +14,23 @@ type PreparedPolicy = NonNullable<
   SmartAccountPreparedEarnCrossMintSwapPolicy["prepared"]
 >;
 
+export type ConfirmedAutoswapPolicy =
+  SmartAccountEarnCrossMintProjectedPolicyInput;
+
+function completeAutoswapPolicies(
+  policies: readonly ConfirmedAutoswapPolicy[]
+): readonly [ConfirmedAutoswapPolicy, ConfirmedAutoswapPolicy] {
+  const byShard = new Map(
+    policies.map((policy) => [policy.sourceShard, policy] as const)
+  );
+  const classic = byShard.get("classic");
+  const token2022 = byShard.get("token_2022");
+  if (!(classic && token2022)) {
+    throw new Error("Autoswap setup did not retain both confirmed identities.");
+  }
+  return [classic, token2022];
+}
+
 export async function executeEarnAutoswapSetupClient(args: {
   client: AutoswapClient;
   input: Parameters<AutoswapClient["prepareEarnCrossMintSwapPolicies"]>[0];
@@ -27,7 +44,10 @@ export async function executeEarnAutoswapSetupClient(args: {
       sourceShard: "classic" | "token_2022";
     }
   ) => Promise<string>;
-}): Promise<{ completedPolicies: number }> {
+}): Promise<{
+  completedPolicies: number;
+  policies: readonly [ConfirmedAutoswapPolicy, ConfirmedAutoswapPolicy];
+}> {
   const installed = new Set<"classic" | "token_2022">();
   let projectedPolicies: SmartAccountEarnCrossMintProjectedPolicyInput[] = [
     ...(args.input.projectedPolicies ?? []),
@@ -44,10 +64,27 @@ export async function executeEarnAutoswapSetupClient(args: {
     for (const policy of preparedSet.policies) {
       if (policy.existing) {
         installed.add(policy.sourceShard);
+        if (
+          !projectedPolicies.some(
+            (current) => current.sourceShard === policy.sourceShard
+          )
+        ) {
+          projectedPolicies = [
+            ...projectedPolicies,
+            {
+              account: policy.policy.account,
+              seed: policy.policy.seed,
+              sourceShard: policy.sourceShard,
+            },
+          ];
+        }
       }
     }
     if (installed.size === 2) {
-      return { completedPolicies: 2 };
+      return {
+        completedPolicies: 2,
+        policies: completeAutoswapPolicies(projectedPolicies),
+      };
     }
 
     const nextPolicy = preparedSet.policies
@@ -74,7 +111,10 @@ export async function executeEarnAutoswapSetupClient(args: {
     args.onPolicyConfirmed?.(confirmedPolicy);
     projectedPolicies = [...projectedPolicies, confirmedPolicy];
     if (installed.size === 2) {
-      return { completedPolicies: 2 };
+      return {
+        completedPolicies: 2,
+        policies: completeAutoswapPolicies(projectedPolicies),
+      };
     }
   }
 
