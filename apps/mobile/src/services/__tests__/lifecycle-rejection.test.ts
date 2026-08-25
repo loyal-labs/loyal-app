@@ -5,6 +5,7 @@
 // emitted envelope is asserted directly.
 
 import { WalletRejectedError } from "@/lib/wallet/rejection";
+import { InsufficientSolError } from "@/lib/wallet/insufficient-sol-error";
 import { UserRejectedSigningError } from "@/lib/wallet/sign-approval/with-confirmation";
 import { WalletSessionError } from "@/lib/wallet/wallet-session-error";
 import { mapLifecycleErrorCode, startLifecycleFlow } from "../observability";
@@ -84,6 +85,20 @@ describe("wallet rejection classification", () => {
       stage: "prepare",
       errorCode: "unexpected_error",
     });
+  });
+
+  it("treats insufficient native SOL as expected user state", () => {
+    const sent = captureEnvelopes();
+    newFlow().failFrom("prepare", new InsufficientSolError());
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        outcome: "cancelled",
+        stage: "prepare",
+        errorCode: "insufficient_native_sol",
+      }),
+    ]);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("preserves caller diagnostics while reclassifying the outcome", async () => {

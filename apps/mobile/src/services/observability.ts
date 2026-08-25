@@ -661,11 +661,14 @@ export function startLifecycleFlow<F extends LifecycleFlowName>(args: {
     failFrom: (stage, error, diagnostics) => {
       if (terminal) return;
       const errorCode = mapLifecycleErrorCode(error);
-      // Only a decline that changed nothing on-chain is a clean cancellation.
-      // Declining after an earlier step landed leaves confirmed-but-unrecorded
-      // state, which has to stay at ERROR so on-call still sees it.
+      // A wallet decline or known balance shortfall that changed nothing
+      // on-chain is expected user state, so it stays at INFO. A decline after
+      // an earlier step landed leaves confirmed-but-unrecorded state and must
+      // stay at ERROR so on-call still sees it.
       const cancelled =
-        errorCode === "wallet_rejected" && !hasLandedProgress(error);
+        (errorCode === "wallet_rejected" ||
+          errorCode === "insufficient_native_sol") &&
+        !hasLandedProgress(error);
       const httpStatus = httpStatusOf(error);
       // An explicit `errorDetail` from the call site wins: it was passed
       // because the caller knew something the error shape does not carry.

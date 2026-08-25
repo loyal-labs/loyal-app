@@ -7,12 +7,23 @@
 // user-facing shape of that condition so flows can fail fast with advice,
 // under its own lifecycle code (`insufficient_native_sol`).
 
+import type { SmartAccountNativeSolRequirement } from "@loyal-labs/smart-account-vaults";
 import type { Connection, PublicKey } from "@solana/web3.js";
 
+const LAMPORTS_PER_SOL = BigInt(1_000_000_000);
+
+function formatLamports(lamports: bigint): string {
+  const whole = lamports / LAMPORTS_PER_SOL;
+  const fraction = lamports % LAMPORTS_PER_SOL;
+  if (fraction === BigInt(0)) return whole.toString();
+  return `${whole}.${fraction.toString().padStart(9, "0").replace(/0+$/, "")}`;
+}
+
 export class InsufficientSolError extends Error {
-  constructor() {
+  constructor(message?: string) {
     super(
-      "Your wallet needs a little SOL to pay Solana network fees. Your funds are safe — add SOL and try again.",
+      message ??
+        "Your wallet needs a little SOL to pay Solana network fees. Your funds are safe. Add SOL and try again.",
     );
     this.name = "InsufficientSolError";
   }
@@ -22,7 +33,28 @@ export class InsufficientSolError extends Error {
 export function isInsufficientSolError(
   error: unknown,
 ): error is InsufficientSolError {
-  return error instanceof InsufficientSolError;
+  return (
+    error instanceof InsufficientSolError ||
+    (error instanceof Error && error.name === "InsufficientSolError")
+  );
+}
+
+/** Block a prepared Earn action before the wallet sees an underfunded tx. */
+export function assertNativeSolRequirement(
+  requirement: SmartAccountNativeSolRequirement | null | undefined,
+): void {
+  if (!requirement || requirement.canProceed) return;
+
+  const deficitLamports = BigInt(requirement.deficitLamports);
+  if (deficitLamports <= BigInt(0)) return;
+
+  throw new InsufficientSolError(
+    `Add at least ${formatLamports(
+      deficitLamports,
+    )} SOL to your wallet before depositing. This Earn setup needs ${formatLamports(
+      BigInt(requirement.requiredLamports),
+    )} SOL for account rent and network fees.`,
+  );
 }
 
 // Fails ONLY on evidence: an RPC error here must not block a flow the real

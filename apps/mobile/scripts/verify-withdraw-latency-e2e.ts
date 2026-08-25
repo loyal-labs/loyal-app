@@ -7,8 +7,10 @@ import {
   existsSync,
   lstatSync,
   mkdtempSync,
+  mkdirSync,
   readlinkSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   unlinkSync,
@@ -23,12 +25,13 @@ import {
   type SpawnSyncReturns,
 } from "node:child_process";
 
-import { Keypair } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+
+import { buildOtlpLifecyclePayload } from "../../web/src/features/observability/otlp";
 
 const APP_PACKAGE = "com.loyal.app.dev";
 const APP_SCHEME = "loyal-dev";
@@ -38,17 +41,26 @@ const DEFAULT_PROXY_PORT = 4319;
 const MAINNET_ACK = "I_ACKNOWLEDGE_MAINNET";
 const UPSTREAM = "https://askloyal.com";
 const LIFECYCLE_PATH = "/api/observability/mobile/events";
+const ERROR_PATH = "/api/observability/mobile/errors";
 const METRICS_PATH = "/api/observability/mobile/metrics";
+const INSUFFICIENT_SOL_ACK = "I_ACKNOWLEDGE_MAINNET_READ_ONLY";
+const INCIDENT_BALANCE_LAMPORTS = "11887572";
+const INCIDENT_DEFICIT_LAMPORTS = "27645228";
+const INCIDENT_REQUIRED_LAMPORTS = "39532800";
+const INCIDENT_MESSAGE =
+  "Add at least 0.027645228 SOL to your wallet before depositing. This Earn setup needs 0.0395328 SOL for account rent and network fees.";
 const MAINNET_USDC_MINT = new PublicKey(
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 );
 
-type Mode = "withdraw" | "seed-position";
+type Mode = "withdraw" | "seed-position" | "insufficient-sol";
 
 type LifecycleEvent = {
   chainState?: string;
   durationMs: number;
   elapsedMs: number;
+  errorCode?: string;
+  errorDetail?: string;
   flowId: string;
   flowName: string;
   flowVariant: string;
@@ -79,6 +91,8 @@ type UiNode = {
 
 const mode: Mode = process.argv.includes("--seed-position")
   ? "seed-position"
+  : process.argv.includes("--insufficient-sol")
+  ? "insufficient-sol"
   : "withdraw";
 const keyPath = process.env.MOBILE_E2E_WALLET_KEYPAIR
   ? resolve(process.env.MOBILE_E2E_WALLET_KEYPAIR)
@@ -90,6 +104,7 @@ const metroPort = Number(
 const proxyPort = Number(
   process.env.MOBILE_WITHDRAW_PROXY_PORT ?? DEFAULT_PROXY_PORT,
 );
+const androidAbi = process.env.MOBILE_WITHDRAW_ANDROID_ABI ?? "arm64-v8a";
 const maxPositionUsd = Number(
   process.env.MOBILE_WITHDRAW_MAX_POSITION_USD ?? "2",
 );
@@ -106,6 +121,7 @@ const processLogPath = join(tempRoot, "processes.log");
 const processLog = createWriteStream(processLogPath, { flags: "a" });
 const children: ChildProcess[] = [];
 const lifecycleEvents: LifecycleEvent[] = [];
+const globalErrorEvents: unknown[] = [];
 const apiTimings: ApiTiming[] = [];
 let emulatorStarted = false;
 let emulatorSerial: string | null = null;
@@ -182,7 +198,7 @@ async function waitFor<T>(
 }
 
 function findExecutable(
-  candidates: Array<string | null>,
+  candidates: (string | null)[],
   label: string,
 ): string {
   for (const candidate of candidates) {
@@ -295,27 +311,118 @@ function restorePrivateTransactionsEntry(): void {
   materializedPrivateTransactionsEntry = undefined;
 }
 
-function openDepositSheetInSeedBundle(): void {
-  if (mode !== "seed-position") return;
-  const path = resolve(import.meta.dir, "../app/(tabs)/index.tsx");
+function injectIncidentNativeSolRequirement(): void {
+  const path = resolve(import.meta.dir, "../src/lib/solana/earn/deposit.ts");
   const source = readFileSync(path, "utf8");
-  const marker = "const [depositOpen, setDepositOpen] = useState(false);";
+  const marker = "  const amountRaw = usdToStableRaw(args.amountUsd);";
   assert.equal(
     source.split(marker).length - 1,
     1,
-    "The seed verifier could not locate the Deposit sheet state.",
+    "The insufficient-SOL verifier could not locate the deposit action.",
   );
   writeFileSync(
     path,
     source.replace(
       marker,
       [
-        "const [depositOpenState, setDepositOpen] = useState(false);",
-        "const depositOpen = true || depositOpenState;",
+        marker,
+        "  assertNativeSolRequirement({",
+        `    balanceLamports: ${JSON.stringify(INCIDENT_BALANCE_LAMPORTS)},`,
+        '    balanceSource: "queried",',
+        "    canProceed: false,",
+        `    deficitLamports: ${JSON.stringify(INCIDENT_DEFICIT_LAMPORTS)},`,
+        "    items: [{",
+        '      kind: "kamino_setup_top_up",',
+        '      label: "Kamino setup account rent",',
+        `      lamports: ${JSON.stringify(INCIDENT_REQUIRED_LAMPORTS)},`,
+        '      stage: "deposit",',
+        "    }],",
+        "    payer: args.signer.publicKey.toBase58(),",
+        `    requiredLamports: ${JSON.stringify(INCIDENT_REQUIRED_LAMPORTS)},`,
+        "  });",
       ].join("\n"),
     ),
   );
   seededDepositSources.push({ path, source });
+}
+
+function openDepositSheetInVerifierBundle(): void {
+  if (mode === "withdraw") return;
+  if (mode === "seed-position") {
+    const path = resolve(import.meta.dir, "../app/(tabs)/index.tsx");
+    const source = readFileSync(path, "utf8");
+    const marker = "const [depositOpen, setDepositOpen] = useState(false);";
+    assert.equal(
+      source.split(marker).length - 1,
+      1,
+      "The seed verifier could not locate the Deposit sheet state.",
+    );
+    writeFileSync(
+      path,
+      source.replace(
+        marker,
+        [
+          "const [depositOpenState, setDepositOpen] = useState(false);",
+          "const depositOpen = true || depositOpenState;",
+        ].join("\n"),
+      ),
+    );
+    seededDepositSources.push({ path, source });
+  } else {
+    const path = resolve(import.meta.dir, "../app/(tabs)/index.tsx");
+    const source = readFileSync(path, "utf8");
+    const logBoxMarker =
+      'import { Alert, StyleSheet, useWindowDimensions } from "react-native";';
+    assert.equal(
+      source.split(logBoxMarker).length - 1,
+      1,
+      "The insufficient-SOL verifier could not locate the React Native import.",
+    );
+    const logBoxSource = source.replace(
+      logBoxMarker,
+      [
+        'import { Alert, LogBox, StyleSheet, useWindowDimensions } from "react-native";',
+        "LogBox.ignoreAllLogs(true);",
+      ].join("\n"),
+    );
+    const openMarker = "const [depositOpen, setDepositOpen] = useState(false);";
+    assert.equal(
+      logBoxSource.split(openMarker).length - 1,
+      1,
+      "The insufficient-SOL verifier could not locate the Deposit state.",
+    );
+    writeFileSync(
+      path,
+      logBoxSource.replace(
+        openMarker,
+        [
+          "const [depositOpen, setDepositOpen] = useState(false);",
+          "const insufficientSolVerifierStarted = useRef(false);",
+          "useEffect(() => {",
+          "  if (!signer || insufficientSolVerifierStarted.current) return;",
+          "  const timer = setTimeout(() => {",
+          "    if (insufficientSolVerifierStarted.current) return;",
+          "    insufficientSolVerifierStarted.current = true;",
+          "    void executeEarnDeposit({",
+          "      signer,",
+          `      amountUsd: ${seedAmountUsd.toFixed(2)},`,
+          "      mint: SOLANA_USDC_MINT_MAINNET,",
+          "    }).catch((error) => {",
+          "      Alert.alert(",
+          '        "Deposit unavailable",',
+          '        error instanceof Error ? error.message : "Deposit failed. Please try again.",',
+          "      );",
+          "    });",
+          "  }, 5000);",
+          "  return () => clearTimeout(timer);",
+          "}, [signer]);",
+        ].join("\n"),
+      ),
+    );
+    seededDepositSources.push({ path, source });
+    injectIncidentNativeSolRequirement();
+    return;
+  }
 
   const sheetPath = resolve(
     import.meta.dir,
@@ -333,7 +440,11 @@ function openDepositSheetInSeedBundle(): void {
     amountMarker,
     `const [amount, setAmount] = useState(${JSON.stringify(seededAmount)});`,
   );
-  const resetMarker = 'setAmount("");';
+  const resetMarker = [
+    "    if (open) {",
+    '      setAmount("");',
+    "      setSubmitError(null);",
+  ].join("\n");
   assert.equal(
     initializedSheetSource.split(resetMarker).length - 1,
     1,
@@ -341,23 +452,40 @@ function openDepositSheetInSeedBundle(): void {
   );
   const initializedAndResetSheetSource = initializedSheetSource.replace(
     resetMarker,
-    `setAmount(${JSON.stringify(seededAmount)});`,
+    [
+      "    if (open) {",
+      `      setAmount(${JSON.stringify(seededAmount)});`,
+      "      setSubmitError(null);",
+    ].join("\n"),
   );
-  const availableMarker = [
-    "const available = Number.isFinite(availableUsdc ?? NaN)",
-    "    ? (availableUsdc as number)",
-    "    : 0;",
-  ].join("\n");
+  const availableMarker = "  const available = selectedSource.usd;";
   assert.equal(
     initializedAndResetSheetSource.split(availableMarker).length - 1,
     1,
-    "The seed verifier could not locate the available USDC state.",
+    "The seed verifier could not locate the selected balance state.",
   );
-  const boundedSheetSource = initializedAndResetSheetSource.replace(
+  let boundedSheetSource = initializedAndResetSheetSource.replace(
     availableMarker,
-    `const available = ${seededAmount};`,
+    `  const available = ${seededAmount};`,
   );
-  const handlerMarker = "  }, [amount, available, onDeposit]);";
+  if (mode === "insufficient-sol") {
+    const topUpMarker =
+      "const needsSolTopUp = (firstDepositSolShortfall ?? 0) > 0;";
+    assert.equal(
+      boundedSheetSource.split(topUpMarker).length - 1,
+      1,
+      "The insufficient-SOL verifier could not locate the generic SOL preflight.",
+    );
+    // Exercise the SDK's exact dynamic rent requirement instead of the UI's
+    // coarse first-deposit estimate. This mutation exists only in the Metro
+    // verifier bundle and is restored in finally.
+    boundedSheetSource = boundedSheetSource.replace(
+      topUpMarker,
+      "const needsSolTopUp = false;",
+    );
+  }
+  const handlerMarker =
+    "  }, [amount, available, onDeposit, selectedSource.mint]);";
   assert.equal(
     boundedSheetSource.split(handlerMarker).length - 1,
     1,
@@ -408,7 +536,54 @@ function assembleVerifierApk(
       );
   writeFileSync(manifestPath, verifierManifest);
   try {
-    run("./gradlew", ["app:assembleDebug"], { cwd: androidRoot, env });
+    assert.match(androidAbi, /^(?:arm64-v8a|x86_64)$/);
+    const gradleArgs = [
+      "--no-parallel",
+      `-PreactNativeArchitectures=${androidAbi}`,
+    ];
+    run(
+      "./gradlew",
+      [
+        `:react-native-worklets:buildCMakeDebug[${androidAbi}][worklets]`,
+        ...gradleArgs,
+      ],
+      { cwd: androidRoot, env },
+    );
+    // Reanimated 4.1.1 still imports Worklets from AGP's old `cmake` output
+    // path, while AGP 8.11 publishes the library under a hashed `cxx` path.
+    // Materialize the compatibility copy after Worklets has built so a fresh
+    // verifier checkout can assemble reliably.
+    const workletsIntermediates = resolve(
+      androidRoot,
+      "../node_modules/react-native-worklets/android/build/intermediates",
+    );
+    const workletsCandidates = readdirSync(
+      join(workletsIntermediates, "cxx/Debug"),
+    )
+      .map((directory) =>
+        join(
+          workletsIntermediates,
+          "cxx/Debug",
+          directory,
+          `obj/${androidAbi}/libworklets.so`,
+        ),
+      )
+      .filter(existsSync);
+    assert.equal(
+      workletsCandidates.length,
+      1,
+      `The verifier expected one ${androidAbi} Worklets library.`,
+    );
+    const legacyWorkletsPath = join(
+      workletsIntermediates,
+      `cmake/debug/obj/${androidAbi}/libworklets.so`,
+    );
+    mkdirSync(dirname(legacyWorkletsPath), { recursive: true });
+    copyFileSync(workletsCandidates[0]!, legacyWorkletsPath);
+    run("./gradlew", ["app:assembleDebug", ...gradleArgs], {
+      cwd: androidRoot,
+      env,
+    });
   } finally {
     writeFileSync(manifestPath, originalManifest);
   }
@@ -638,7 +813,8 @@ async function importWallet(secretInputValue: string): Promise<void> {
       if (
         findNode(nodes, "Importing wallet...") ||
         findNode(nodes, "Skip for now") ||
-        findNode(nodes, "Earn")
+        findNode(nodes, "Earn") ||
+        findNode(nodes, "Deposit")
       ) {
         importStarted = true;
         break;
@@ -660,15 +836,31 @@ async function importWallet(secretInputValue: string): Promise<void> {
       const nodes = dumpUi();
       const skip = findNode(nodes, "Skip for now");
       if (skip) return { kind: "skip" as const, node: skip };
-      const earn = findNode(nodes, "Earn");
-      if (earn) return { kind: "ready" as const, node: earn };
+      const earnScreen = findNode(nodes, "Earn") ?? findNode(nodes, "Deposit");
+      if (earnScreen) return { kind: "ready" as const };
+      if (
+        mode === "insufficient-sol" &&
+        lifecycleEvents.some(
+          (event) =>
+            event.flowName === "earn.deposit" && event.outcome === "started",
+        )
+      ) {
+        return { kind: "ready" as const };
+      }
       return false;
     },
     180_000,
   );
   if (biometricChoice.kind === "skip") {
     tap(biometricChoice.node);
-    await waitForNode("Earn", 180_000);
+    await waitFor(
+      "the Earn screen",
+      () => {
+        const nodes = dumpUi();
+        return findNode(nodes, "Earn") ?? findNode(nodes, "Deposit") ?? false;
+      },
+      180_000,
+    );
   }
 }
 
@@ -754,6 +946,10 @@ async function proxyRequest(request: Request): Promise<Response> {
     if (isLifecycleEvent(body)) lifecycleEvents.push(body);
     return Response.json({ accepted: true }, { status: 202 });
   }
+  if (request.method === "POST" && url.pathname === ERROR_PATH) {
+    globalErrorEvents.push(await request.json().catch(() => null));
+    return Response.json({ accepted: true }, { status: 202 });
+  }
   if (request.method === "POST" && url.pathname === METRICS_PATH) {
     return Response.json({ accepted: true }, { status: 202 });
   }
@@ -788,6 +984,19 @@ async function proxyRequest(request: Request): Promise<Response> {
     status: upstreamResponse.status,
     statusText: upstreamResponse.statusText,
   });
+}
+
+function lifecycleSeverity(event: LifecycleEvent): string | undefined {
+  const payload = buildOtlpLifecyclePayload({
+    deploymentEnvironment: "prod",
+    pathname: "/",
+    release: "android-e2e",
+    runtime: "mobile",
+    serviceName: "loyal-mobile",
+    source: "mobile_app",
+    ...event,
+  });
+  return payload.resourceLogs[0]?.scopeLogs[0]?.logRecords[0]?.severityText;
 }
 
 function lifecycleStageDurations(flowName: string): Record<string, number> {
@@ -957,19 +1166,65 @@ async function driveWithdraw(): Promise<void> {
   );
 }
 
-async function driveSeedDeposit(): Promise<void> {
-  await waitFor(
-    "the initial Earn state reads",
+async function verifyInsufficientSolOutcome(): Promise<void> {
+  const terminal = await waitFor(
+    "cancelled insufficient-SOL lifecycle",
     () =>
-      apiTimings.some(
-        (timing) =>
-          timing.method === "GET" &&
-          timing.pathname === "/api/smart-accounts/mobile/earn/state" &&
-          timing.status === 200,
-      ) || false,
-    180_000,
+      lifecycleEvents.find(
+        (event) =>
+          event.flowName === "earn.deposit" &&
+          event.outcome === "cancelled" &&
+          event.stage === "prepare" &&
+          event.errorCode === "insufficient_native_sol",
+      ) ?? false,
+    timeoutMs,
   );
-  console.info("[withdraw-e2e] initial Earn state loaded for seed");
+  await waitForNode(INCIDENT_MESSAGE, 30_000);
+  await Bun.sleep(1_000);
+  assert.equal(
+    lifecycleSeverity(terminal),
+    "INFO",
+    "The production lifecycle mapper classified the shortfall as alertable.",
+  );
+  assert.equal(
+    lifecycleEvents.some(
+      (event) =>
+        event.flowName === "earn.deposit" && event.outcome === "failed",
+    ),
+    false,
+    "The expected shortfall emitted a failed lifecycle event.",
+  );
+  assert.equal(
+    globalErrorEvents.length,
+    0,
+    "The expected shortfall reached the global error ingest.",
+  );
+  assert.equal(
+    apiTimings.some(
+      (timing) =>
+        timing.pathname.includes("/deposit/confirm") ||
+        timing.pathname.includes("/deposit/sponsor"),
+    ),
+    false,
+    "The expected shortfall reached a deposit submission endpoint.",
+  );
+}
+
+async function driveSeedDeposit(): Promise<void> {
+  if (mode !== "insufficient-sol") {
+    await waitFor(
+      "the initial Earn state reads",
+      () =>
+        apiTimings.some(
+          (timing) =>
+            timing.method === "GET" &&
+            timing.pathname === "/api/smart-accounts/mobile/earn/state" &&
+            timing.status === 200,
+        ) || false,
+      180_000,
+    );
+    console.info("[withdraw-e2e] initial Earn state loaded for seed");
+  }
   await Bun.sleep(2_000);
   const automaticallyStarted = await waitFor(
     "the verifier seed Deposit handler",
@@ -982,6 +1237,10 @@ async function driveSeedDeposit(): Promise<void> {
   ).catch(() => false);
   if (automaticallyStarted) {
     console.info("[withdraw-e2e] seed Deposit handler started");
+    if (mode === "insufficient-sol") {
+      await verifyInsufficientSolOutcome();
+      return;
+    }
     await waitFor(
       "completed deposit lifecycle",
       () =>
@@ -1157,6 +1416,10 @@ async function driveSeedDeposit(): Promise<void> {
     throw new Error("The seed Deposit CTA did not invoke its real handler.");
   }
   console.info("[withdraw-e2e] seed Deposit handler started");
+  if (mode === "insufficient-sol") {
+    await verifyInsufficientSolOutcome();
+    return;
+  }
   await waitFor(
     "completed deposit lifecycle",
     () =>
@@ -1171,24 +1434,40 @@ async function driveSeedDeposit(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  if (process.env.CONFIRM_MAINNET_WITHDRAW !== MAINNET_ACK) {
+  if (
+    mode === "insufficient-sol" &&
+    process.env.CONFIRM_NATIVE_SOL_E2E !== INSUFFICIENT_SOL_ACK
+  ) {
+    throw new Error(
+      `Set CONFIRM_NATIVE_SOL_E2E=${INSUFFICIENT_SOL_ACK} after approving the read-only mainnet verifier.`,
+    );
+  }
+  if (
+    mode !== "insufficient-sol" &&
+    process.env.CONFIRM_MAINNET_WITHDRAW !== MAINNET_ACK
+  ) {
     throw new Error(
       `Set CONFIRM_MAINNET_WITHDRAW=${MAINNET_ACK} after explicitly approving the mainnet verifier transaction.`,
     );
   }
-  if (!keyPath) {
+  if (mode !== "insufficient-sol" && !keyPath) {
     throw new Error(
       "Set MOBILE_E2E_WALLET_KEYPAIR to the approved keypair file.",
     );
   }
-  accessSync(keyPath, constants.R_OK);
+  if (keyPath) accessSync(keyPath, constants.R_OK);
   assert.ok(Number.isFinite(maxPositionUsd) && maxPositionUsd > 0);
   assert.ok(Number.isFinite(seedAmountUsd) && seedAmountUsd > 0);
 
-  const secretBytes = Uint8Array.from(
-    JSON.parse(readFileSync(keyPath, "utf8")) as number[],
-  );
-  const keypair = Keypair.fromSecretKey(secretBytes);
+  const keypair =
+    mode === "insufficient-sol"
+      ? Keypair.generate()
+      : Keypair.fromSecretKey(
+          Uint8Array.from(
+            JSON.parse(readFileSync(keyPath!, "utf8")) as number[],
+          ),
+        );
+  const secretBytes = Uint8Array.from(keypair.secretKey);
   const walletAddress = keypair.publicKey.toBase58();
   const secretInputValue = Array.from(secretBytes, (byte) =>
     byte.toString(16).padStart(2, "0"),
@@ -1209,9 +1488,9 @@ async function main(): Promise<void> {
         )}; the verifier cap is $${maxPositionUsd.toFixed(2)}.`,
       );
     }
-  } else if (beforeRaw > BigInt(0)) {
+  } else if (mode === "seed-position" && beforeRaw > BigInt(0)) {
     throw new Error("Seed-position mode requires no active Earn position.");
-  } else {
+  } else if (mode === "seed-position") {
     const walletUsdcRaw = await currentWalletUsdcRaw(keypair.publicKey);
     const maximumRaw = BigInt(Math.trunc(maxPositionUsd * 1_000_000));
     if (walletUsdcRaw > maximumRaw) {
@@ -1228,6 +1507,7 @@ async function main(): Promise<void> {
 
   const proxy = Bun.serve({
     hostname: "127.0.0.1",
+    idleTimeout: 60,
     port: proxyPort,
     fetch: proxyRequest,
   });
@@ -1249,6 +1529,9 @@ async function main(): Promise<void> {
     adbRun(["reverse", `tcp:${metroPort}`, `tcp:${metroPort}`]);
     adbRun(["reverse", `tcp:${proxyPort}`, `tcp:${proxyPort}`]);
     materializeWorktreePrivateTransactionsEntry();
+    if (mode === "insufficient-sol") {
+      openDepositSheetInVerifierBundle();
+    }
 
     const metro = start(
       "npx",
@@ -1312,10 +1595,11 @@ async function main(): Promise<void> {
         )}`,
       );
       lifecycleEvents.length = 0;
+      globalErrorEvents.length = 0;
       apiTimings.length = 0;
     }
-    openDepositSheetInSeedBundle();
     if (mode === "seed-position") {
+      openDepositSheetInVerifierBundle();
       await Bun.sleep(2_000);
       console.info(
         "[withdraw-e2e] loaded verifier seed bundle by Fast Refresh",
@@ -1331,16 +1615,22 @@ async function main(): Promise<void> {
     const afterRawString = await waitFor(
       mode === "withdraw"
         ? "the position to reach zero"
-        : "the position to appear",
+        : mode === "seed-position"
+        ? "the position to appear"
+        : "the position to remain unchanged",
       async () => {
         const raw = await currentPositionRaw(walletAddress);
         return mode === "withdraw"
           ? raw === BigInt(0)
             ? raw.toString()
             : false
-          : raw > BigInt(0)
+          : mode === "seed-position"
+          ? raw > BigInt(0)
             ? raw.toString()
-            : false;
+            : false
+          : raw === beforeRaw
+          ? raw.toString()
+          : false;
       },
       180_000,
     );
@@ -1348,6 +1638,7 @@ async function main(): Promise<void> {
       apiTimings,
       beforePositionRaw: beforeRaw.toString(),
       lifecycleEvents,
+      globalErrorEventCount: globalErrorEvents.length,
       mode,
       positionRawAfter: afterRawString,
       stageDurationsMs: lifecycleStageDurations(
