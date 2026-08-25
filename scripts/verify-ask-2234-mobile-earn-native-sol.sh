@@ -14,4 +14,6 @@ npx jest \
   src/services/__tests__/lifecycle-rejection.test.ts \
   --runInBand
 
-echo "PASS: ASK-2234 blocks underfunded Earn deposits before wallet submission and keeps them out of Errors alerts"
+bun run verify:insufficient-sol:e2e
+
+echo "PASS: ASK-2234 shows the exact top-up message, emits INFO without a global error, and submits no deposit"
