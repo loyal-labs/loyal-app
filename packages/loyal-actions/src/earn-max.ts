@@ -814,17 +814,6 @@ export async function buildEarnMaxDepositInstructions(input: {
           owner: input.feePayer,
           source: associatedToken(input.feePayer, topology.claimMint),
         }),
-        earnMaxCashFlowMemo({
-          // SPL Memo requires every supplied account to sign. The memo text
-          // binds Settings and amount; LaserStream derives custody/source and
-          // proves them against the confirmed transfer in this transaction.
-          accounts: [
-            { pubkey: input.feePayer, isSigner: true, isWritable: false },
-          ],
-          value: `loyal:earn-max:v2:deposit:${
-            input.amountRaw
-          }:${input.settings.toBase58()}`,
-        }),
       ],
       operation: "earnMaxDeposit",
       payer: input.feePayer,
@@ -854,19 +843,6 @@ function earnMaxIntent(
     // carry the vault through the writable-signer account class.
     keys: [{ pubkey: vault, isSigner: true, isWritable: true }],
     data: Buffer.from(value, "utf8"),
-  });
-}
-
-function earnMaxCashFlowMemo(input: {
-  accounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
-  value: string;
-}): TransactionInstruction {
-  if (Buffer.byteLength(input.value) > 220)
-    throw new Error("Earn MAX cash-flow evidence is too large.");
-  return new TransactionInstruction({
-    programId: MEMO,
-    keys: input.accounts,
-    data: Buffer.from(input.value, "utf8"),
   });
 }
 
@@ -943,17 +919,6 @@ export async function buildEarnMaxClaimInstructions(input: {
           mint: topology.claimMint,
           owner: topology.vault,
           source: topology.claimCustody,
-        }),
-        earnMaxCashFlowMemo({
-          // The Squads vault is the only Memo account because every Memo
-          // account must sign. Settings, destination and amount are in the
-          // payload and independently reconciled to confirmed token deltas.
-          accounts: [
-            { pubkey: topology.vault, isSigner: true, isWritable: true },
-          ],
-          value: `loyal:earn-max:v2:claim:${requestId(input.requestId)}:${
-            input.amountRaw
-          }:${destination.toBase58()}:${input.settings.toBase58()}`,
         }),
       ],
     }),
