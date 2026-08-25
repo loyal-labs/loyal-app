@@ -8,6 +8,7 @@ import {
   smartAccounts,
 } from "@loyal-labs/loyal-smart-accounts";
 import { LoyalCluster } from "@loyal-labs/actions";
+import { shouldRetainConfirmedOnchainMutation } from "@loyal-labs/shared";
 import type { SmartAccountEarnCrossMintProjectedPolicyInput } from "@loyal-labs/smart-account-vaults";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
 import {
@@ -233,6 +234,41 @@ async function setup(args: Args) {
   if (result.completedPolicies !== 2 || signatures.length !== 2) {
     throw new Error("Web Autoswap setup did not submit both policies.");
   }
+  const confirmedSetup = {
+    identities: result.policies.map((policy) => policy.account.toBase58()),
+    operation: "install" as const,
+  };
+  if (
+    !shouldRetainConfirmedOnchainMutation({
+      canonical: null,
+      confirmed: confirmedSetup,
+    }) ||
+    !shouldRetainConfirmedOnchainMutation({
+      canonical: {
+        identities: confirmedSetup.identities,
+        phase: "pending",
+      },
+      confirmed: confirmedSetup,
+    }) ||
+    shouldRetainConfirmedOnchainMutation({
+      canonical: {
+        identities: confirmedSetup.identities,
+        phase: "settled",
+      },
+      confirmed: confirmedSetup,
+    }) ||
+    shouldRetainConfirmedOnchainMutation({
+      canonical: {
+        identities: [delegatedSigner.publicKey.toBase58()],
+        phase: "pending",
+      },
+      confirmed: confirmedSetup,
+    })
+  ) {
+    throw new Error(
+      "Confirmed Autoswap setup did not survive the pre-reconciliation projection gap."
+    );
+  }
   const installed = await vaults.prepareEarnCrossMintSwapPolicies({
     cluster: LoyalCluster.MainnetBeta,
     dailySourceMintSpendingCap: BigInt(1_000_000_000),
@@ -300,6 +336,31 @@ async function close(args: Args) {
   );
   if (remaining.some(Boolean)) {
     throw new Error("Autoswap policy accounts remain on chain after close.");
+  }
+  const confirmedClose = {
+    identities: state.policies,
+    operation: "remove" as const,
+  };
+  if (
+    !shouldRetainConfirmedOnchainMutation({
+      canonical: { identities: state.policies, phase: "settled" },
+      confirmed: confirmedClose,
+    }) ||
+    shouldRetainConfirmedOnchainMutation({
+      canonical: null,
+      confirmed: confirmedClose,
+    }) ||
+    shouldRetainConfirmedOnchainMutation({
+      canonical: {
+        identities: [state.delegatedSigner],
+        phase: "settled",
+      },
+      confirmed: confirmedClose,
+    })
+  ) {
+    throw new Error(
+      "Confirmed Autoswap close did not hide the stale pre-reconciliation projection."
+    );
   }
 }
 

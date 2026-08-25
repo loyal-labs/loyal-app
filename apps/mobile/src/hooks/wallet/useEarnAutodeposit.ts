@@ -1,16 +1,22 @@
-import { shouldRetainConfirmedAutodepositSetup } from "@loyal-labs/shared";
+import {
+  shouldRetainConfirmedOnchainMutation,
+  type ConfirmedOnchainMutation,
+} from "@loyal-labs/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { subscribeEarnRealtime } from "@/features/earn-realtime/events";
-import type { ConfirmedEarnAutodepositSetup } from "@/lib/solana/earn/autodeposit";
+import type {
+  ConfirmedEarnAutodepositClose,
+  ConfirmedEarnAutodepositSetup,
+} from "@/lib/solana/earn/autodeposit";
 import {
   fetchEarnAutodepositState,
   type EarnAutodepositState,
 } from "@/lib/solana/earn/earn-api";
 
-type OptimisticSetup = {
-  identity: ConfirmedEarnAutodepositSetup;
-  state: EarnAutodepositState;
+type OptimisticMutation = {
+  confirmed: ConfirmedOnchainMutation;
+  state: EarnAutodepositState | null;
   walletAddress: string;
 };
 
@@ -24,15 +30,18 @@ export function useEarnAutodeposit(walletAddress: string | null) {
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const fetchIdRef = useRef(0);
-  const optimisticSetupRef = useRef<OptimisticSetup | null>(null);
+  const optimisticMutationRef = useRef<OptimisticMutation | null>(null);
 
   const confirmAutodepositSetup = useCallback(
     (confirmed: ConfirmedEarnAutodepositSetup) => {
       if (!walletAddress) {
         return;
       }
-      const optimistic: OptimisticSetup = {
-        identity: confirmed,
+      const optimistic: OptimisticMutation = {
+        confirmed: {
+          identities: [confirmed.policyAccount],
+          operation: "install",
+        },
         state: {
           active: true,
           lifecycleStatus: "active",
@@ -45,8 +54,26 @@ export function useEarnAutodeposit(walletAddress: string | null) {
         },
         walletAddress,
       };
-      optimisticSetupRef.current = optimistic;
+      optimisticMutationRef.current = optimistic;
       setAutodeposit(optimistic.state);
+    },
+    [walletAddress],
+  );
+
+  const confirmAutodepositClose = useCallback(
+    (confirmed: ConfirmedEarnAutodepositClose) => {
+      if (!walletAddress) {
+        return;
+      }
+      optimisticMutationRef.current = {
+        confirmed: {
+          identities: confirmed.policyAccounts,
+          operation: "remove",
+        },
+        state: null,
+        walletAddress,
+      };
+      setAutodeposit(null);
     },
     [walletAddress],
   );
@@ -62,12 +89,13 @@ export function useEarnAutodeposit(walletAddress: string | null) {
       setIsLoading(true);
       try {
         const state = await fetchEarnAutodepositState(walletAddress);
-        const optimistic = optimisticSetupRef.current;
+        const optimistic = optimisticMutationRef.current;
         let nextAutodeposit = state.autodeposit;
         if (optimistic?.walletAddress === walletAddress) {
-          const retain = shouldRetainConfirmedAutodepositSetup({
+          const retain = shouldRetainConfirmedOnchainMutation({
             canonical: state.autodeposit
               ? {
+                  identities: [state.autodeposit.policyAccount],
                   phase:
                     state.autodeposit.lifecycleStatus === "pending_policy" ||
                     state.autodeposit.lifecycleStatus ===
@@ -75,17 +103,14 @@ export function useEarnAutodeposit(walletAddress: string | null) {
                     state.autodeposit.status === "pending"
                       ? "pending"
                       : "settled",
-                  policyAccount: state.autodeposit.policyAccount,
-                  recurringDelegation:
-                    state.autodeposit.recurringDelegation ?? null,
                 }
               : null,
-            confirmed: optimistic.identity,
+            confirmed: optimistic.confirmed,
           });
           if (retain) {
             nextAutodeposit = optimistic.state;
           } else {
-            optimisticSetupRef.current = null;
+            optimisticMutationRef.current = null;
           }
         }
         if (fetchId === fetchIdRef.current) {
@@ -114,7 +139,7 @@ export function useEarnAutodeposit(walletAddress: string | null) {
     if (walletAddress) {
       refreshAutodeposit();
     } else {
-      optimisticSetupRef.current = null;
+      optimisticMutationRef.current = null;
       setAutodeposit(null);
       setHasLoaded(false);
     }
@@ -130,6 +155,7 @@ export function useEarnAutodeposit(walletAddress: string | null) {
 
   return {
     autodeposit,
+    confirmAutodepositClose,
     confirmAutodepositSetup,
     isLoading,
     hasLoaded,

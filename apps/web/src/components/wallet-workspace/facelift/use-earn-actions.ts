@@ -5,7 +5,7 @@ import type {
   SmartAccountPreparedEarnUsdcDeposit,
   SmartAccountPreparedEarnUsdcWithdraw,
 } from "@loyal-labs/smart-account-vaults";
-import type { ConfirmedAutodepositSetupIdentity } from "@loyal-labs/shared";
+import type { ConfirmedOnchainMutation } from "@loyal-labs/shared";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
   type Dispatch,
@@ -145,7 +145,7 @@ export type EarnAutodepositConfigView = Omit<
 // state catches up.
 export type EarnAutodepositOverride = {
   config: EarnAutodepositConfigView | null;
-  confirmedSetup?: ConfirmedAutodepositSetupIdentity & {
+  confirmedMutation?: ConfirmedOnchainMutation & {
     walletAddress: string;
   };
 } | null;
@@ -1561,7 +1561,14 @@ export function useEarnActions(deps: {
               }
               throw new Error(result.error ?? "Autodeposit close failed.");
             }
-            setAutodepositOverride({ config: null });
+            setAutodepositOverride({
+              config: null,
+              confirmedMutation: {
+                identities: [preparedClose.policy.account.toBase58()],
+                operation: "remove",
+                walletAddress: authenticatedWalletAddress!,
+              },
+            });
             registerExpectedEarnMutation({
               operation: "autodeposit_close",
               resources: EARN_AUTODEPOSIT_MUTATION_RESOURCES,
@@ -1726,6 +1733,7 @@ export function useEarnActions(deps: {
       }
     },
     [
+      authenticatedWalletAddress,
       creditMainAccountUsdcBalance,
       connection.rpcEndpoint,
       ensureCanSignAccountAction,
@@ -2233,10 +2241,9 @@ export function useEarnActions(deps: {
               startTimestamp: result.preparedSetup.persistence.startTimestamp,
               state: "created",
             },
-            confirmedSetup: {
-              policyAccount,
-              recurringDelegation:
-                result.preparedSetup.persistence.recurringDelegation,
+            confirmedMutation: {
+              identities: [policyAccount],
+              operation: "install",
               walletAddress: authenticatedWalletAddress!,
             },
           });
@@ -2315,6 +2322,7 @@ export function useEarnActions(deps: {
       }
     },
     [
+      authenticatedWalletAddress,
       autodepositConfig,
       canMutateAccount,
       connection.rpcEndpoint,
@@ -2522,7 +2530,14 @@ export function useEarnActions(deps: {
         chainState: "confirmed",
         persistenceState: "not_started",
       });
-      setAutodepositOverride({ config: null });
+      setAutodepositOverride({
+        config: null,
+        confirmedMutation: {
+          identities: [config.policyAccount],
+          operation: "remove",
+          walletAddress: authenticatedWalletAddress!,
+        },
+      });
       autodepositClosePreparedRef.current = null;
       registerExpectedEarnMutation({
         operation: "autodeposit_close",
@@ -2588,6 +2603,7 @@ export function useEarnActions(deps: {
       earnToast.settle();
     }
   }, [
+    authenticatedWalletAddress,
     autodepositConfig,
     ensureCanSignAccountAction,
     registerExpectedEarnMutation,
