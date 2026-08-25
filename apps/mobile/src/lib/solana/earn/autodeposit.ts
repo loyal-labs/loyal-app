@@ -462,6 +462,10 @@ export async function setEarnAutodepositActive(args: {
 // leftover silently sweeping and blocking full withdrawals.
 const MAX_DUPLICATE_CLOSES = 4;
 
+export type ConfirmedEarnAutodepositClose = {
+  policyAccounts: readonly string[];
+};
+
 // Delete an Autodeposit: tears down the on-chain recurring delegation (one
 // signed tx per policy, built on-device with the SDK). LaserStream projects
 // each confirmed close from chain state; the client does not report it back.
@@ -474,7 +478,7 @@ export async function executeEarnAutodepositClose(args: {
   // events share one `loyal.flow.id`. Ignored for the nested withdrawal close,
   // which emits no flow of its own.
   flowId?: string;
-}): Promise<void> {
+}): Promise<ConfirmedEarnAutodepositClose> {
   // A close nested inside a withdrawal is already traced as that flow's
   // `autodeposit_close` stage — only a standalone delete gets its own flow.
   const flow =
@@ -488,8 +492,9 @@ export async function executeEarnAutodepositClose(args: {
         });
   flow?.start("prepare");
   try {
-    await runEarnAutodepositClose(args, flow);
+    const confirmed = await runEarnAutodepositClose(args, flow);
     flow?.complete("ui_commit");
+    return confirmed;
   } catch (error) {
     // Latched to a no-op when an inner stage already failed the flow.
     flow?.failFrom("prepare", error);
@@ -505,7 +510,7 @@ async function runEarnAutodepositClose(
     source?: "deleted" | "withdraw";
   },
   flow: LifecycleFlow<"earn.autodeposit.configuration"> | null,
-): Promise<void> {
+): Promise<ConfirmedEarnAutodepositClose> {
   const walletAddress = args.signer.publicKey;
   const connection = getConnection();
 
@@ -565,6 +570,7 @@ async function runEarnAutodepositClose(
   track(EARN_EVENTS.autodepositDisabled, {
     source: args.source ?? "deleted",
   });
+  return { policyAccounts: [...closed] };
 }
 
 // Trigger the pending scheduled Autodeposit sweep to run now instead of waiting

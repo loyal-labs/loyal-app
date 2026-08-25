@@ -8,7 +8,7 @@ import {
   smartAccounts,
 } from "@loyal-labs/loyal-smart-accounts";
 import { LoyalCluster } from "@loyal-labs/actions";
-import { shouldRetainConfirmedAutodepositSetup } from "@loyal-labs/shared";
+import { shouldRetainConfirmedOnchainMutation } from "@loyal-labs/shared";
 import {
   createSmartAccountVaultsClient,
   sendPreparedWithWallet,
@@ -516,31 +516,30 @@ async function setup(args: Args) {
     throw new Error("Web Autodeposit setup did not reach delegation creation.");
   }
   const confirmedSetup = {
-    policyAccount: completedState.policyAccount,
-    recurringDelegation: completedState.recurringDelegation,
+    identities: [completedState.policyAccount],
+    operation: "install" as const,
   };
   const pendingProjection = {
+    identities: [completedState.policyAccount],
     phase: "pending" as const,
-    policyAccount: completedState.policyAccount,
-    recurringDelegation: completedState.recurringDelegation,
   };
   if (
-    !shouldRetainConfirmedAutodepositSetup({
+    !shouldRetainConfirmedOnchainMutation({
       canonical: null,
       confirmed: confirmedSetup,
     }) ||
-    !shouldRetainConfirmedAutodepositSetup({
+    !shouldRetainConfirmedOnchainMutation({
       canonical: pendingProjection,
       confirmed: confirmedSetup,
     }) ||
-    shouldRetainConfirmedAutodepositSetup({
+    shouldRetainConfirmedOnchainMutation({
       canonical: { ...pendingProjection, phase: "settled" },
       confirmed: confirmedSetup,
     }) ||
-    shouldRetainConfirmedAutodepositSetup({
+    shouldRetainConfirmedOnchainMutation({
       canonical: {
         ...pendingProjection,
-        policyAccount: delegatedSigner.publicKey.toBase58(),
+        identities: [delegatedSigner.publicKey.toBase58()],
       },
       confirmed: confirmedSetup,
     })
@@ -683,6 +682,34 @@ async function setup(args: Args) {
     ) {
       throw new Error(
         "Autodeposit close left the wallet token delegate active."
+      );
+    }
+    const confirmedClose = {
+      identities: [completedState.policyAccount],
+      operation: "remove" as const,
+    };
+    if (
+      !shouldRetainConfirmedOnchainMutation({
+        canonical: {
+          identities: [completedState.policyAccount],
+          phase: "settled",
+        },
+        confirmed: confirmedClose,
+      }) ||
+      shouldRetainConfirmedOnchainMutation({
+        canonical: null,
+        confirmed: confirmedClose,
+      }) ||
+      shouldRetainConfirmedOnchainMutation({
+        canonical: {
+          identities: [completedState.recurringDelegation],
+          phase: "settled",
+        },
+        confirmed: confirmedClose,
+      })
+    ) {
+      throw new Error(
+        "Confirmed Autodeposit close did not hide the stale pre-reconciliation projection."
       );
     }
     await writeChainTransactions({

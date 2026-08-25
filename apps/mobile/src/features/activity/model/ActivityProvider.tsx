@@ -211,8 +211,11 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     hasLoaded: hasLoadedEarn,
     refresh: refreshEarnTransactions,
   } = useEarnActivity(publicKey);
-  const { autodeposit, refreshAutodeposit: refreshAutodepositState } =
-    useEarnAutodeposit(publicKey);
+  const {
+    autodeposit,
+    confirmAutodepositClose,
+    refreshAutodeposit: refreshAutodepositState,
+  } = useEarnAutodeposit(publicKey);
 
   // Keep the Earn feed warm app-wide: the hook prefetches once on mount (so the
   // data is usually ready before the user opens the Earn activity tab), and this
@@ -241,7 +244,8 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     (autodeposit?.scheduledSweeps ?? []).some(
       (sweep) =>
         /^\d+$/.test(sweep.remainingAmountRaw) &&
-        BigInt(sweep.remainingAmountRaw) >= EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
+        BigInt(sweep.remainingAmountRaw) >=
+          EARN_SCHEDULED_SWEEP_MIN_VISIBLE_RAW,
     );
   const { tokenHoldings, refreshTokenHoldings } = useTokenHoldings(
     hasScheduledSweepCandidate ? publicKey : null,
@@ -612,7 +616,9 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
   // Scan for refundable closed Earn accounts. Read-only — never prompts Seed
   // Vault. Resolves to the fresh list so callers can route the user to the
   // Earn feed when refunds exist.
-  const refreshEarnRefunds = useCallback(async (): Promise<EarnRefundItem[]> => {
+  const refreshEarnRefunds = useCallback(async (): Promise<
+    EarnRefundItem[]
+  > => {
     if (!publicKey) {
       setEarnRefunds([]);
       setEarnLockedRefundLamports(0);
@@ -694,7 +700,10 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
           item.kind === "policy"
             ? { kind: "policy", policyAccount: item.account }
             : item.kind === "recurring_delegation"
-              ? { kind: "recurring_delegation", recurringDelegation: item.account }
+              ? {
+                  kind: "recurring_delegation",
+                  recurringDelegation: item.account,
+                }
               : { kind: "vault" };
         await executeEarnRefund({ signer, request });
         // Drop the row right away, then rescan for anything remaining. The
@@ -754,11 +763,12 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
             setDeletingAutodeposit(true);
             void (async () => {
               try {
-                await executeEarnAutodepositClose({
+                const confirmedClose = await executeEarnAutodepositClose({
                   signer,
                   policy: policyAccount,
                   recurringDelegation,
                 });
+                confirmAutodepositClose(confirmedClose);
                 // The close tx already refunded the rent — clear the row now,
                 // then rescan (the chain read can lag a beat behind).
                 setEarnLockedRefundLamports(0);
@@ -784,6 +794,7 @@ export function ActivityProvider({ children }: { children: ReactNode }) {
     signer,
     state,
     deletingAutodeposit,
+    confirmAutodepositClose,
     refreshAutodepositState,
     refreshEarnRefunds,
   ]);
