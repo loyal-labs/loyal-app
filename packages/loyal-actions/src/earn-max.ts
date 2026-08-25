@@ -69,13 +69,9 @@ type EarnMaxStrategyTemplate = {
   marketAuthority: string;
   collateralReserve: string;
   collateralMint: string;
-  collateralLiquiditySupply: string;
-  collateralReceiptSupply: string;
   debtReserve: string;
   debtMint: string;
   debtTokenProgram: "token" | "token2022";
-  debtLiquiditySupply: string;
-  debtFeeVault: string;
   debtFarm?: string;
   targetLtvBps: number;
 };
@@ -85,60 +81,49 @@ const STRATEGY_TEMPLATES: readonly EarnMaxStrategyTemplate[] = [
     key: "onyc_usdc", label: "ONyc / USDC",
     market: "47tfyEG9SsdEnUm9cw5kY9BXngQGqu3LBoop9j5uTAv8", marketAuthority: "FsvTiXTUFDc4aLbrov4PrvDTjXCWCniL1dxTUkZ1T2ss",
     collateralReserve: "6ZxkBSJEqsXA3Kdm2PDAzHLUdPTPUK93Lf4bAezec1UQ", collateralMint: "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
-    collateralLiquiditySupply: "9YuHgsPVGgWrkpsaRZmeZCV2uXweMEn6TEAcusQKRjgG", collateralReceiptSupply: "2c42iUaea3QVLvSPQHUBZBwqdvpiQo5vmePq9qx8eo",
     debtReserve: "AYL4LMc4ZCVyq3Z7XPJGWDM4H9PiWjqXAAuuHBEGVR2Z", debtMint: USDC_MINT.toBase58(), debtTokenProgram: "token",
-    debtLiquiditySupply: "8BkQTZsT8ssKMU643De4iiV5Wf3pENdUFTsdtHPueKjB", debtFeeVault: "5iLRav31Y7DJwM6bZ7s92jqvV3zd1wZMcp4mYeKXh8cj",
     debtFarm: "7vNfe1qX8iDxP5p3A4fosrjLqdn1YjmmGcZZkG2b4APF", targetLtvBps: 5_000,
   },
   {
     key: "onyc_usds", label: "ONyc / USDS",
     market: "47tfyEG9SsdEnUm9cw5kY9BXngQGqu3LBoop9j5uTAv8", marketAuthority: "FsvTiXTUFDc4aLbrov4PrvDTjXCWCniL1dxTUkZ1T2ss",
     collateralReserve: "6ZxkBSJEqsXA3Kdm2PDAzHLUdPTPUK93Lf4bAezec1UQ", collateralMint: "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
-    collateralLiquiditySupply: "9YuHgsPVGgWrkpsaRZmeZCV2uXweMEn6TEAcusQKRjgG", collateralReceiptSupply: "2c42iUaea3QVLvSPQHUBZBwqdvpiQo5vmePq9qx8eo",
     debtReserve: "3yDc9ARvtPLhYxZLgucZGuBtZ9bHshBvXTwHxGe3nhmC", debtMint: USDS_MINT.toBase58(), debtTokenProgram: "token",
-    debtLiquiditySupply: "21Skwocv5cJoftyejSTtXVaHJWTg88xcWGQtnRvUyKLx", debtFeeVault: "CmMAn2UtLWHsQhwv31Trz4BZwVravs2jgxZYK2daTHaK",
     debtFarm: "5piFMvvPonJM8zJbCGoPD2jZt59hNURDLDTpXQzgbydc", targetLtvBps: 5_000,
   },
   {
     key: "prime_usdc", label: "PRIME / USDC",
     market: "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA", marketAuthority: "9SLBVnPz8dRGvafST6zNBZYSSt3HtdU68XQLGR13t3uM",
     collateralReserve: "BUTND9T7Ux4KR8RAEgd4WoZwnP7xA279oA1y3iPVcvSh", collateralMint: "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
-    collateralLiquiditySupply: "FkSkbRU5A6JXRXo5uaFwCS7jQ6jHYa1DxFtfpXfTz352", collateralReceiptSupply: "Eg4wKFWc8aGfAqrcmYu3paz2afY5VqJMo17K95Y4VqFN",
     debtReserve: "9GJ9GBRwCp4pHmWrQ43L5xpc9Vykg7jnfwcFGN8FoHYu", debtMint: USDC_MINT.toBase58(), debtTokenProgram: "token",
-    debtLiquiditySupply: "H6JUwz8c61eQnYUx8avGXydKztKPyGvgWAUjmZUPS3BC", debtFeeVault: "BzSw9sWTxUumr2wHhDiezkaLy3QZQS1KT4a9Fz8GvAQ6", targetLtvBps: 6_500,
+    targetLtvBps: 6_500,
   },
   {
     key: "prime_pyusd", label: "PRIME / PYUSD",
     market: "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA", marketAuthority: "9SLBVnPz8dRGvafST6zNBZYSSt3HtdU68XQLGR13t3uM",
     collateralReserve: "BUTND9T7Ux4KR8RAEgd4WoZwnP7xA279oA1y3iPVcvSh", collateralMint: "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
-    collateralLiquiditySupply: "FkSkbRU5A6JXRXo5uaFwCS7jQ6jHYa1DxFtfpXfTz352", collateralReceiptSupply: "Eg4wKFWc8aGfAqrcmYu3paz2afY5VqJMo17K95Y4VqFN",
     debtReserve: "3ZUAwhEtK8XWfK4fy98z4yoptm4GeyeAu21L11HPXaZ5", debtMint: PYUSD_MINT.toBase58(), debtTokenProgram: "token2022",
-    debtLiquiditySupply: "4LF3i8grZPRbk8d6gXvzRux4rYjGd5AmqrpLLYFpPKKt", debtFeeVault: "4b9U55muKtwx9RimJSuztvyZaKWkmaoferVexgvxrYJr", targetLtvBps: 6_500,
+    targetLtvBps: 6_500,
   },
   {
     key: "prime_usds", label: "PRIME / USDS",
     market: "CqAoLuqWtavaVE8deBjMKe8ZfSt9ghR6Vb8nfsyabyHA", marketAuthority: "9SLBVnPz8dRGvafST6zNBZYSSt3HtdU68XQLGR13t3uM",
     collateralReserve: "BUTND9T7Ux4KR8RAEgd4WoZwnP7xA279oA1y3iPVcvSh", collateralMint: "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
-    collateralLiquiditySupply: "FkSkbRU5A6JXRXo5uaFwCS7jQ6jHYa1DxFtfpXfTz352", collateralReceiptSupply: "Eg4wKFWc8aGfAqrcmYu3paz2afY5VqJMo17K95Y4VqFN",
     debtReserve: "7SzMWArC8WAenndXFmRyfvcvrNPodqUFkmPrmmoRZvn4", debtMint: USDS_MINT.toBase58(), debtTokenProgram: "token",
-    debtLiquiditySupply: "5tP1kDJBYnjtrpUaRQhsrU1Y28ahiJVjz8p9mbqJFpz5", debtFeeVault: "DjmdtvsvctUXCZ32y6UGdCEvXPTds6Ci7LFnVhw5HaQY", targetLtvBps: 6_500,
+    targetLtvBps: 6_500,
   },
   {
     key: "syrup_usdc_usdc", label: "syrupUSDC / USDC",
     market: "6WEGfej9B9wjxRs6t4BYpb9iCXd8CpTpJ8fVSNzHCC5y", marketAuthority: "6QbtpY2jDNcncRFmVf343NThnCdaY8gCAsYATPnYQR9g",
     collateralReserve: "AwCyCPZYJSZ93xcVKNK7jR8e1BHzJXq1D4bReNuh9woY", collateralMint: "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
-    collateralLiquiditySupply: "8Se5SK1Tty2bH4EQVrKW8hwr9Lc9E2cEbkaN59DpcB6i", collateralReceiptSupply: "21GK6yHS3MKhTnF5pN5FuSmnpLiyPXTDrpxxbqMEoX58",
     debtReserve: "Atj6UREVWa7WxbF2EMKNyfmYUY1U1txughe2gjhcPDCo", debtMint: USDC_MINT.toBase58(), debtTokenProgram: "token",
-    debtLiquiditySupply: "BBcwMNSMyhhBnYE9pevEvkxKHGzTafMP9v3j7Kk7nAWM", debtFeeVault: "HH7GLnRcGHJrdkEueVVj7mccNUjnSeWobDmtu9cHLkJV",
     debtFarm: "87gUNr8LwYJCT25HjPEHnrfBBjwEMAjfqCfnKcJNqy9Y", targetLtvBps: 6_500,
   },
   {
     key: "syrup_usdc_pyusd", label: "syrupUSDC / PYUSD",
     market: "6WEGfej9B9wjxRs6t4BYpb9iCXd8CpTpJ8fVSNzHCC5y", marketAuthority: "6QbtpY2jDNcncRFmVf343NThnCdaY8gCAsYATPnYQR9g",
     collateralReserve: "AwCyCPZYJSZ93xcVKNK7jR8e1BHzJXq1D4bReNuh9woY", collateralMint: "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
-    collateralLiquiditySupply: "8Se5SK1Tty2bH4EQVrKW8hwr9Lc9E2cEbkaN59DpcB6i", collateralReceiptSupply: "21GK6yHS3MKhTnF5pN5FuSmnpLiyPXTDrpxxbqMEoX58",
     debtReserve: "92qeAka3ZzCGPfJriDXrE7tiNqfATVCAM6ZjjctR3TrS", debtMint: PYUSD_MINT.toBase58(), debtTokenProgram: "token2022",
-    debtLiquiditySupply: "GUENeLN1ufX4K5622DbyYoQFhaWxMKoCFycvLSEYsykN", debtFeeVault: "AwnzukUiajn7b3T9hXcwy19RLPZcHmLANUeqZnzXT6dU",
     debtFarm: "9AUA7XZ1rynUsZcmVCgj8UFdQuDozFSMpaNGBZAtiPWj", targetLtvBps: 6_500,
   },
 ] as const;
@@ -762,20 +747,11 @@ export async function buildEarnMaxDepositInstructions(input: {
           source: associatedToken(input.feePayer, topology.claimMint),
         }),
         earnMaxCashFlowMemo({
+          // SPL Memo requires every supplied account to sign. The memo text
+          // binds Settings and amount; LaserStream derives custody/source and
+          // proves them against the confirmed transfer in this transaction.
           accounts: [
             { pubkey: input.feePayer, isSigner: true, isWritable: false },
-            { pubkey: input.settings, isSigner: false, isWritable: false },
-            {
-              pubkey: topology.claimCustody,
-              isSigner: false,
-              isWritable: false,
-            },
-            {
-              pubkey: associatedToken(input.feePayer, topology.claimMint),
-              isSigner: false,
-              isWritable: false,
-            },
-            { pubkey: input.programId, isSigner: false, isWritable: false },
           ],
           value: `loyal:earn-max:v2:deposit:${
             input.amountRaw
@@ -901,15 +877,11 @@ export async function buildEarnMaxClaimInstructions(input: {
           source: topology.claimCustody,
         }),
         earnMaxCashFlowMemo({
+          // The Squads vault is the only Memo account because every Memo
+          // account must sign. Settings, destination and amount are in the
+          // payload and independently reconciled to confirmed token deltas.
           accounts: [
             { pubkey: topology.vault, isSigner: true, isWritable: true },
-            { pubkey: input.settings, isSigner: false, isWritable: false },
-            {
-              pubkey: topology.claimCustody,
-              isSigner: false,
-              isWritable: false,
-            },
-            { pubkey: destination, isSigner: false, isWritable: false },
           ],
           value: `loyal:earn-max:v2:claim:${requestId(input.requestId)}:${
             input.amountRaw
