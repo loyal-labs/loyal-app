@@ -106,6 +106,8 @@ export {
 export type {
   EarnMaxClientOperation,
   EarnMaxPolicyPreparation,
+  EarnMaxStrategyKey,
+  EarnMaxStrategyTopology,
   EarnMaxTopology,
 } from "./earn-max.ts";
 export {

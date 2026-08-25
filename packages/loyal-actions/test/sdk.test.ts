@@ -43,6 +43,7 @@ import {
   createJupiterCrossMintPolicyPlan,
   createJupiterCrossMintPolicySet,
   createEarnMaxPolicyManifest,
+  deriveEarnMaxTopology,
   createVaultSubscriptionSweepPolicyPlan,
   createVaultYieldRoutingPolicyPlan,
   createLoyalActionsSdk,
@@ -80,6 +81,28 @@ const smartAccount = {
   delegatedSigner,
 };
 
+function instructionFingerprint(instruction: {
+  data: Uint8Array;
+  keys: readonly { isSigner: boolean; isWritable: boolean; pubkey: PublicKey }[];
+  programId: PublicKey;
+}): string {
+  const digest = createHash("sha256");
+  const length = (value: number) => {
+    const bytes = Buffer.alloc(4);
+    bytes.writeUInt32LE(value);
+    digest.update(bytes);
+  };
+  digest.update(instruction.programId.toBytes());
+  length(instruction.keys.length);
+  for (const key of instruction.keys) {
+    digest.update(key.pubkey.toBytes());
+    digest.update(Uint8Array.of(Number(key.isSigner), Number(key.isWritable)));
+  }
+  length(instruction.data.length);
+  digest.update(instruction.data);
+  return digest.digest("hex");
+}
+
 describe("Earn MAX policy manifest", () => {
   test("fits the exact three-policy legacy manifest in Solana packets", () => {
     const manifest = createEarnMaxPolicyManifest({
@@ -94,6 +117,15 @@ describe("Earn MAX policy manifest", () => {
       "collateral",
       "debt",
       "swap",
+    ]);
+    expect(deriveEarnMaxTopology(settings).strategies.map(({ key }) => key)).toEqual([
+      "onyc_usdc",
+      "onyc_usds",
+      "prime_usdc",
+      "prime_pyusd",
+      "prime_usds",
+      "syrup_usdc_usdc",
+      "syrup_usdc_pyusd",
     ]);
     expect(
       manifest.map((entry) => decodePolicyCreate(entry.instruction.data).seed)
@@ -115,14 +147,19 @@ describe("Earn MAX policy manifest", () => {
       ).serialize().length,
     }));
     expect(wireBytes).toEqual([
-      { create: 758, update: 726 },
-      { create: 726, update: 1110 },
-      { create: 726, update: 1080 },
+      { create: 1085, update: 1074 },
+      { create: 1128, update: 1214 },
+      { create: 531, update: 1186 },
     ]);
     for (const pair of wireBytes) {
       expect(pair.create).toBeLessThan(1232);
       expect(pair.update).toBeLessThan(1232);
     }
+    expect(manifest.map(({ updateInstruction }) => instructionFingerprint(updateInstruction))).toEqual([
+      "ef32ee403e4a472b19f927e14a224e318b8572073c7bd40260b6c4b1be45e224",
+      "ad1b0ca8316a1e03644b27c0e6050dc58703326f9f095db2697e58de5df72f5c",
+      "88320a43b00cafad090780a28ec23c773e5ef595621d4262ba08fc208ebbc2af",
+    ]);
   });
 });
 

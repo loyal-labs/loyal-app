@@ -39,6 +39,7 @@ export type EarnMaxSummary = {
   policyAccounts: EarnMaxPolicyBinding[];
   policyStatus: string | null;
   realizedApyBps: number | null;
+  strategyKey: string | null;
   withdrawal: EarnMaxWithdrawalView | null;
 };
 
