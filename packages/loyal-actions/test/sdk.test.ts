@@ -195,6 +195,7 @@ describe("Earn MAX policy manifest", () => {
       { pubkey: authority, isSigner: true, isWritable: false },
     ]);
   });
+
 });
 
 describe("Loyal cluster helpers", () => {
