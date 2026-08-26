@@ -81,6 +81,7 @@ type LocalState = {
   projectedPolicyRefreshCount: number;
   reserve: string;
   reserveLiquiditySupply: string;
+  resumedInitialDeposit: boolean;
   settingsPda: string;
   setupPolicyAccount: string;
   setupPolicySeed: string;
@@ -510,6 +511,7 @@ async function initial(args: Args): Promise<void> {
     projectedPolicyRefreshCount: 0,
     reserve: manifest.addresses.reserve!,
     reserveLiquiditySupply: manifest.addresses.reserveLiquiditySupply!,
+    resumedInitialDeposit: false,
     settingsPda: settingsPda.toBase58(),
     setupPolicyAccount: "",
     setupPolicySeed: "",
@@ -556,7 +558,7 @@ async function initial(args: Args): Promise<void> {
       connection,
       programId: PROGRAM_ID,
     });
-    const prepared = await vaults.prepareEarnUsdcDeposit({
+    const initialPrepared = await vaults.prepareEarnUsdcDeposit({
       amountRaw: INITIAL_DEPOSIT_RAW,
       cluster: LoyalCluster.MainnetBeta,
       feePayer: localWallet().publicKey,
@@ -566,40 +568,70 @@ async function initial(args: Args): Promise<void> {
     });
     if (
       !(
-        prepared.policySetupPrepared &&
-        prepared.policyFinalizePrepared &&
-        prepared.setupPolicy
+        initialPrepared.policySetupPrepared &&
+        initialPrepared.policyFinalizePrepared &&
+        initialPrepared.setupPolicy
       )
     ) {
       throw new Error("Initial deposit omitted client policy stages.");
     }
-    state.policyAccount = prepared.policy.account.toBase58();
-    state.policySeed = prepared.policy.seed.toString();
-    state.setupPolicyAccount = prepared.setupPolicy.account.toBase58();
-    state.setupPolicySeed = prepared.setupPolicy.seed.toString();
+    const routePolicyTransaction = await sendPrepared(
+      connection,
+      vaults,
+      initialPrepared.policySetupPrepared,
+      "route_policy"
+    );
+
+    // Reproduce the reported resumed deposit: route policy landed on-chain,
+    // but neither policy has reached the projected client state yet. A fresh
+    // client prepare must discover that route policy, prepare only the missing
+    // setup policy, and continue into the deposit without an API confirmation.
+    const resumedPrepared = await vaults.prepareEarnUsdcDeposit({
+      amountRaw: INITIAL_DEPOSIT_RAW,
+      cluster: LoyalCluster.MainnetBeta,
+      feePayer: localWallet().publicKey,
+      policySigner: policySigner().publicKey,
+      settingsPda,
+      walletAddress: localWallet().publicKey,
+    });
     if (
-      prepared.vault.pubkey.toBase58() !== state.vaultPubkey ||
-      prepared.targetReserve.obligation.toBase58() !== state.obligation
+      resumedPrepared.policySetupPrepared ||
+      !resumedPrepared.policyFinalizePrepared ||
+      !resumedPrepared.setupPolicy
+    ) {
+      throw new Error(
+        "Resumed deposit did not reuse the confirmed route policy and prepare only its missing setup policy."
+      );
+    }
+    if (
+      !resumedPrepared.policy.account.equals(initialPrepared.policy.account) ||
+      resumedPrepared.policy.seed !== initialPrepared.policy.seed
+    ) {
+      throw new Error("Resumed deposit changed the confirmed route policy.");
+    }
+    state.resumedInitialDeposit = true;
+    state.policyAccount = resumedPrepared.policy.account.toBase58();
+    state.policySeed = resumedPrepared.policy.seed.toString();
+    state.setupPolicyAccount = resumedPrepared.setupPolicy.account.toBase58();
+    state.setupPolicySeed = resumedPrepared.setupPolicy.seed.toString();
+    if (
+      resumedPrepared.vault.pubkey.toBase58() !== state.vaultPubkey ||
+      resumedPrepared.targetReserve.obligation.toBase58() !== state.obligation
     ) {
       throw new Error("Client builder targeted unexpected local accounts.");
     }
     const records = [
+      routePolicyTransaction,
       await sendPrepared(
         connection,
         vaults,
-        prepared.policySetupPrepared,
-        "route_policy"
-      ),
-      await sendPrepared(
-        connection,
-        vaults,
-        prepared.policyFinalizePrepared,
+        resumedPrepared.policyFinalizePrepared,
         "setup_policy"
       ),
       await sendPrepared(
         connection,
         vaults,
-        prepared.prepared,
+        resumedPrepared.prepared,
         "initial_deposit"
       ),
     ];

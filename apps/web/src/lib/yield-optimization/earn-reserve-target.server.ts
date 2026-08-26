@@ -180,6 +180,59 @@ export function assertSafeUsdcEarnReserveMetadata(args: {
   });
 }
 
+export async function assertVerifiedSafeUsdcEarnReserveMetadata(args: {
+  cluster: LoyalCluster;
+  liquidityMint: string;
+  market: string | null;
+  targetReserve: string;
+}): Promise<{
+  liquidityMint: string;
+  market: string;
+  targetReserve: string;
+}> {
+  const metadata = assertSafeUsdcEarnReserveMetadata(args);
+
+  if (args.cluster === LoyalCluster.Devnet) {
+    const canonicalTarget = getKaminoUsdcEarnTargetForCluster(args.cluster);
+    if (
+      metadata.market !== canonicalTarget.market.toBase58() ||
+      metadata.targetReserve !== canonicalTarget.reserve.toBase58()
+    ) {
+      throw new Error(
+        "Earn reserve does not match the configured devnet target."
+      );
+    }
+    return metadata;
+  }
+
+  const observations = await getLatestReserveObservationsByReserve({
+    reserves: [metadata.targetReserve],
+  });
+  if (observations === null) {
+    throw new Error("Earn reserve verification feed is unavailable.");
+  }
+
+  const observation = observations.find(
+    (candidate) => candidate.reserve === metadata.targetReserve
+  );
+  if (!observation) {
+    throw new Error("Earn reserve is not in the verified reserve index.");
+  }
+  if (observation.market !== metadata.market) {
+    throw new Error("Earn reserve does not belong to the supplied market.");
+  }
+  if (observation.liquidityMint !== metadata.liquidityMint) {
+    throw new Error("Earn reserve does not use the supplied liquidity mint.");
+  }
+  if (
+    observation.totalSupplyUsdEstimate <= MIN_ELIGIBLE_RESERVE_TOTAL_SUPPLY_USD
+  ) {
+    throw new Error("Earn reserve is below the liquidity floor.");
+  }
+
+  return metadata;
+}
+
 export function assertSafeEarnReserveMetadata(args: {
   cluster: LoyalCluster;
   expectedLiquidityMint: string;

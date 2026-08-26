@@ -18,6 +18,15 @@ export type EarnDepositPolicySignatureResolution =
     }
   | { error: string };
 
+export async function resolveEarnDepositConfirmedSlot(args: {
+  fallback: () => Promise<string>;
+  transportSlot?: number;
+}): Promise<string> {
+  return args.transportSlot === undefined
+    ? args.fallback()
+    : String(args.transportSlot);
+}
+
 export function getEarnDepositReviewStages(args: {
   preparedDeposit?: SmartAccountPreparedEarnUsdcDeposit | null;
   requiresPolicySetup?: boolean;

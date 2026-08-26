@@ -102,6 +102,7 @@ import {
   DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
   type EarnCrossMintToggleResponse,
 } from "@/lib/yield-optimization/earn-cross-mint-policy-contracts.shared";
+import { resolveEarnDepositConfirmedSlot } from "@/lib/yield-optimization/earn-deposit-flow.shared";
 import {
   executeEarnAutoswapSetupClient,
   prepareEarnAutoswapDeletionClient,
@@ -5606,6 +5607,7 @@ export function useSmartAccountSidebarData(
               "Prepared Earn setup policy is missing. Review Earn again before signing.",
           };
         }
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "policy setup",
@@ -5616,16 +5618,21 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedPolicy.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
             }),
         });
         if (!sendResult.success) {
           return sendResult;
         }
         const signature = sendResult.signature;
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature,
+        const confirmedSlot = await resolveEarnDepositConfirmedSlot({
+          transportSlot: walletConfirmedSlot,
+          fallback: () =>
+            resolveConfirmedSignatureSlot({ connection, signature }),
         });
+        let setupWalletConfirmedSlot: number | undefined;
         const setupSendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "setup policy setup",
@@ -5636,15 +5643,22 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: setupPolicyPrepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                setupWalletConfirmedSlot = slot;
+              },
             }),
         });
         if (!setupSendResult.success) {
           return setupSendResult;
         }
         const setupPolicySignature = setupSendResult.signature;
-        const setupPolicyConfirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature: setupPolicySignature,
+        const setupPolicyConfirmedSlot = await resolveEarnDepositConfirmedSlot({
+          transportSlot: setupWalletConfirmedSlot,
+          fallback: () =>
+            resolveConfirmedSignatureSlot({
+              connection,
+              signature: setupPolicySignature,
+            }),
         });
 
         return {
@@ -6114,6 +6128,7 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation:
@@ -6125,6 +6140,9 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
@@ -6134,9 +6152,13 @@ export function useSmartAccountSidebarData(
 
         let confirmedSlot: string;
         try {
-          confirmedSlot = await resolveConfirmedSignatureSlot({
-            connection,
-            signature: sendResult.signature,
+          confirmedSlot = await resolveEarnDepositConfirmedSlot({
+            transportSlot: walletConfirmedSlot,
+            fallback: () =>
+              resolveConfirmedSignatureSlot({
+                connection,
+                signature: sendResult.signature,
+              }),
           });
         } catch (error) {
           captureBrowserError(error, "earn.deposit.confirmation");
@@ -6348,7 +6370,7 @@ export function useSmartAccountSidebarData(
             onTransactionSent: () => {
               request.onWalletSubmitted?.();
             },
-            onTransactionConfirmed: async ({ index, signature }) => {
+            onTransactionConfirmed: async ({ index, signature, slot }) => {
               const confirmedStage = batchStages[index];
               if (!confirmedStage) {
                 throw new Error(
@@ -6358,9 +6380,10 @@ export function useSmartAccountSidebarData(
 
               let confirmedSlot: string;
               try {
-                confirmedSlot = await resolveConfirmedSignatureSlot({
-                  connection,
-                  signature,
+                confirmedSlot = await resolveEarnDepositConfirmedSlot({
+                  transportSlot: slot,
+                  fallback: () =>
+                    resolveConfirmedSignatureSlot({ connection, signature }),
                 });
               } catch (error) {
                 confirmationRecordFailureRef.current = {
@@ -6565,6 +6588,7 @@ export function useSmartAccountSidebarData(
             vaultAddress: preparedDeposit.vault.pubkey.toBase58(),
           }
         );
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "deposit",
@@ -6575,6 +6599,9 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedDeposit.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
@@ -6587,9 +6614,10 @@ export function useSmartAccountSidebarData(
         });
         let confirmedSlot: string;
         try {
-          confirmedSlot = await resolveConfirmedSignatureSlot({
-            connection,
-            signature,
+          confirmedSlot = await resolveEarnDepositConfirmedSlot({
+            transportSlot: walletConfirmedSlot,
+            fallback: () =>
+              resolveConfirmedSignatureSlot({ connection, signature }),
           });
         } catch (error) {
           captureBrowserError(error, "earn.deposit.confirmation");
