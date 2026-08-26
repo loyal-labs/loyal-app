@@ -16,6 +16,9 @@ import { parseEarnPolicyConfirmRequestBody } from "@/lib/yield-optimization/earn
 import { type ConfirmedYieldRoutePolicyInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_POLICY_VAULT_INDEX = 1;
+const CONFIRMED_SIGNATURE_STATUS_ATTEMPTS = 12;
+const CONFIRMED_SIGNATURE_STATUS_RETRY_MS = 350;
+const CONFIRMED_SIGNATURE_STATUS_RETRY_MAX_MS = 5000;
 
 const connectionCache = new Map<SolanaEnv, Connection>();
 
@@ -186,28 +189,49 @@ async function resolveConfirmedSignatureSlot(args: {
   operation: "route policy setup" | "setup policy setup";
   signature: string;
 }): Promise<bigint> {
-  const { value } = await getConnection(args.cluster).getSignatureStatuses(
-    [args.signature],
-    { searchTransactionHistory: true }
-  );
-  const status = value[0];
+  const connection = getConnection(args.cluster);
 
-  if (!status || status.err) {
-    throw new Error(`${args.operation} transaction is not confirmed.`);
-  }
-
-  if (
-    status.confirmationStatus !== "confirmed" &&
-    status.confirmationStatus !== "finalized"
+  // The confirmation endpoint can reach an RPC node whose status index trails
+  // the browser and finalized LaserStream projection. Keep the request open for
+  // the same bounded lag window used by the client instead of rejecting a
+  // policy transaction that has already landed (ASK-2005).
+  for (
+    let attempt = 0;
+    attempt < CONFIRMED_SIGNATURE_STATUS_ATTEMPTS;
+    attempt += 1
   ) {
-    throw new Error(`${args.operation} transaction is not confirmed.`);
+    const { value } = await connection.getSignatureStatuses(
+      [args.signature],
+      { searchTransactionHistory: true }
+    );
+    const status = value[0] ?? null;
+
+    if (status?.err) {
+      throw new Error(`${args.operation} transaction failed on-chain.`);
+    }
+
+    if (
+      typeof status?.slot === "number" &&
+      (status.confirmationStatus === "confirmed" ||
+        status.confirmationStatus === "finalized")
+    ) {
+      return BigInt(status.slot);
+    }
+
+    if (attempt < CONFIRMED_SIGNATURE_STATUS_ATTEMPTS - 1) {
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          Math.min(
+            CONFIRMED_SIGNATURE_STATUS_RETRY_MS * 2 ** attempt,
+            CONFIRMED_SIGNATURE_STATUS_RETRY_MAX_MS
+          )
+        )
+      );
+    }
   }
 
-  if (typeof status.slot !== "number") {
-    throw new Error("Confirmed transaction slot is unavailable.");
-  }
-
-  return BigInt(status.slot);
+  throw new Error(`${args.operation} transaction is not confirmed.`);
 }
 
 function serializeVerifiedPolicy(
