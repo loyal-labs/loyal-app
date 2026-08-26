@@ -22,7 +22,12 @@ const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
   "getProgramAccountsV2",
   "getTokenAccountsByOwner",
 ]);
-const RETRYABLE_RPC_METHODS = RECENTLY_CACHEABLE_RPC_METHODS;
+const RETRYABLE_RPC_METHODS = new Set([
+  ...RECENTLY_CACHEABLE_RPC_METHODS,
+  // Activity is loaded in the background when a wallet session appears.
+  // Retry transport failures, but do not cache this changing history page.
+  "getSignaturesForAddress",
+]);
 
 type RpcFetch = typeof fetch;
 

@@ -67,6 +67,37 @@ test("retries throttled and browser-obscured read failures", async () => {
   expect(fetchImpl).toHaveBeenCalledTimes(3);
 });
 
+test("retries activity reads without caching their result", async () => {
+  process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND = "100";
+  const responses: Array<Response | TypeError> = [
+    new TypeError("Failed to fetch"),
+    new Response('{"jsonrpc":"2.0","id":1,"result":[]}', { status: 200 }),
+    new Response('{"jsonrpc":"2.0","id":2,"result":[]}', { status: 200 }),
+  ];
+  const fetchImpl = mock(() => {
+    const next = responses.shift();
+    if (next === undefined) {
+      throw new Error("mock RPC response queue is empty");
+    }
+    if (next instanceof Error) {
+      throw next;
+    }
+    return next;
+  });
+  const rpcFetch = getFrontendSolanaRpcFetch(fetchImpl as never);
+
+  const firstResponse = await rpcFetch(
+    ...rpcRequest("getSignaturesForAddress")
+  );
+  const secondResponse = await rpcFetch(
+    ...rpcRequest("getSignaturesForAddress")
+  );
+
+  expect(firstResponse.status).toBe(200);
+  expect(secondResponse.status).toBe(200);
+  expect(fetchImpl).toHaveBeenCalledTimes(3);
+});
+
 test("never retries transaction submission", async () => {
   process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND = "100";
   const fetchImpl = mock(
