@@ -20,10 +20,12 @@ const behavioralTests = [
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/prepare/route.test.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.test.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm/route.test.ts",
+  "apps/web/src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts",
 ] as const;
 const mockIsolatedBehavioralTests = new Set([
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/prepare/route.test.ts",
   "apps/web/src/app/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare/route.test.ts",
+  "apps/web/src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts",
 ]);
 const changedWebTypeScriptFiles = [
   "scripts/verify-earn-confirm-single-writer.ts",
@@ -51,6 +53,8 @@ const changedWebTypeScriptFiles = [
   "src/lib/yield-optimization/earn-autodeposit-repository.server.ts",
   "src/lib/yield-optimization/earn-confirm-single-writer.server.test.ts",
   "src/lib/yield-optimization/earn-deposit-confirm.server.ts",
+  "src/lib/yield-optimization/earn-full-exit-zero-proof.server.test.ts",
+  "src/lib/yield-optimization/earn-full-exit-zero-proof.server.ts",
   "src/lib/yield-optimization/earn-withdraw-confirm.server.ts",
   "src/lib/yield-optimization/earn-withdraw-input-resolution.server.ts",
 ] as const;

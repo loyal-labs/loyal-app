@@ -1321,39 +1321,45 @@ async function verifyCompletedWithdrawLifecycle(): Promise<void> {
     timeoutMs,
     isIsolatedLocalnet ? 10 : 500
   );
-  const cleanupPrepare = lifecycleEvents.find(
-    (event) =>
-      event.flowId === completed.flowId &&
-      event.outcome === "observed" &&
-      event.stage === "cleanup_prepare"
+  await waitFor(
+    "successful cleanup_prepare lifecycle",
+    () =>
+      lifecycleEvents.find(
+        (event) =>
+          event.flowId === completed.flowId &&
+          event.outcome === "observed" &&
+          event.stage === "cleanup_prepare"
+      ) ?? false,
+    10_000,
+    10
   );
-  assert.ok(
-    cleanupPrepare,
-    "The withdrawal completed without a successful cleanup_prepare event."
+  await waitFor(
+    "confirmed cleanup wallet submission lifecycle",
+    () =>
+      lifecycleEvents.find(
+        (event) =>
+          event.flowId === completed.flowId &&
+          event.outcome === "observed" &&
+          event.stage === "cleanup_wallet_submit_confirm" &&
+          event.chainState === "confirmed"
+      ) ?? false,
+    10_000,
+    10
   );
-  const cleanupWallet = lifecycleEvents.find(
-    (event) =>
-      event.flowId === completed.flowId &&
-      event.outcome === "observed" &&
-      event.stage === "cleanup_wallet_submit_confirm" &&
-      event.chainState === "confirmed"
-  );
-  assert.ok(
-    cleanupWallet,
-    "The withdrawal completed without confirmed cleanup wallet submission."
-  );
-  const cleanupBackend = lifecycleEvents.find(
-    (event) =>
-      event.flowId === completed.flowId &&
-      event.outcome === "observed" &&
-      event.stage === "cleanup_backend_confirm" &&
-      event.chainState === "confirmed" &&
-      event.persistenceState === "recorded" &&
-      event.recoveryRequired !== true
-  );
-  assert.ok(
-    cleanupBackend,
-    "The withdrawal completed without recorded cleanup persistence."
+  await waitFor(
+    "recorded cleanup persistence lifecycle",
+    () =>
+      lifecycleEvents.find(
+        (event) =>
+          event.flowId === completed.flowId &&
+          event.outcome === "observed" &&
+          event.stage === "cleanup_backend_confirm" &&
+          event.chainState === "confirmed" &&
+          event.persistenceState === "recorded" &&
+          event.recoveryRequired !== true
+      ) ?? false,
+    10_000,
+    10
   );
 }
 

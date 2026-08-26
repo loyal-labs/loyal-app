@@ -115,6 +115,35 @@ function createInput() {
 }
 
 describe("Earn full-exit zero proof", () => {
+  test("fills a confirmation-only policy reference from the canonical Earn universe", async () => {
+    const fetchHoldingsSnapshot = mock(
+      async (input: { policy: Record<string, unknown> }) => {
+        expect(input.policy.stableMints).toEqual(
+          expect.arrayContaining([
+            cashMint.toBase58(),
+            usdcMint.toBase58(),
+            usdtMint.toBase58(),
+          ])
+        );
+        expect(input.policy.kaminoLiquidityMints).toEqual(
+          input.policy.stableMints
+        );
+        expect(Array.isArray(input.policy.kaminoMarkets)).toBe(true);
+        expect((input.policy.kaminoMarkets as string[]).length).toBeGreaterThan(
+          0
+        );
+        return createHoldingsSnapshot([]);
+      }
+    );
+
+    const proof = await verifyEarnFullExitZeroBalances(createInput(), {
+      fetchHoldingsSnapshot: fetchHoldingsSnapshot as never,
+      fetchVaultSnapshot: async () => createVaultSnapshot({}),
+    });
+
+    expect(proof.status).toBe("policy_close_required");
+  });
+
   test("keeps closure blocked when a second policy reserve is still positive", async () => {
     const secondReserve = new PublicKey(
       "11111111111111111111111111111119"

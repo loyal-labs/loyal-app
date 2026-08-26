@@ -1,6 +1,10 @@
 import "server-only";
 
-import type { LoyalCluster } from "@loyal-labs/actions";
+import {
+  getRiskBasketMarketsForCluster,
+  type LoyalCluster,
+  RiskBasket,
+} from "@loyal-labs/actions";
 import {
   createSmartAccountVaultsClient,
   type SmartAccountEarnVaultRefundSnapshot,
@@ -50,6 +54,25 @@ type EarnFullExitZeroProofDependencies = {
   }) => Promise<SmartAccountEarnVaultRefundSnapshot>;
   sleep?: (milliseconds: number) => Promise<void>;
 };
+
+function resolveFullExitPolicyMetadata(args: {
+  cluster: LoyalCluster;
+  policy: EarnRpcPolicyMetadata;
+}): EarnRpcPolicyMetadata {
+  const canonicalMints = getEarnProductAssetsForCluster(args.cluster).map(
+    (asset) => asset.mint.toBase58()
+  );
+  return {
+    ...args.policy,
+    kaminoLiquidityMints: args.policy.kaminoLiquidityMints ?? canonicalMints,
+    kaminoMarkets:
+      args.policy.kaminoMarkets ??
+      getRiskBasketMarketsForCluster(args.cluster, RiskBasket.Safe).map(
+        (market) => market.toBase58()
+      ),
+    stableMints: args.policy.stableMints ?? canonicalMints,
+  };
+}
 
 function isMinContextSlotError(error: unknown): boolean {
   if (
@@ -225,6 +248,10 @@ export async function verifyEarnFullExitZeroBalances(
       new Promise<void>((resolve) => {
         setTimeout(resolve, milliseconds);
       }));
+  const policy = resolveFullExitPolicyMetadata({
+    cluster: args.cluster,
+    policy: args.policy,
+  });
 
   const [holdingsSnapshot, vaultSnapshot] = await readWithSlotLagRetry({
     read: () =>
@@ -233,7 +260,7 @@ export async function verifyEarnFullExitZeroBalances(
           cluster: args.cluster,
           connection: args.connection,
           minContextSlot: args.minContextSlot,
-          policy: args.policy,
+          policy,
           programId: args.programId,
           requireCompleteReserveReads: true,
           settingsPda: args.settingsPda,
