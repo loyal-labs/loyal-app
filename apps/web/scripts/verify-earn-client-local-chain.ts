@@ -95,10 +95,17 @@ function parseArgs(argv: string[]): { command: string; args: Args } {
   const [command, ...rest] = argv;
   if (
     !command ||
-    !["initial", "topup", "partial", "full", "listen"].includes(command)
+    ![
+      "initial",
+      "topup",
+      "partial",
+      "full",
+      "listen",
+      "wait-finalized",
+    ].includes(command)
   ) {
     throw new Error(
-      "Expected initial, topup, partial, full, or listen command."
+      "Expected initial, topup, partial, full, listen, or wait-finalized command."
     );
   }
   const args: Args = {};
@@ -271,6 +278,37 @@ async function finalizedSlot(
   throw new Error(`Transaction ${signature} did not finalize.`);
 }
 
+async function confirmedSlot(
+  connection: Connection,
+  signature: string
+): Promise<number> {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const status = (
+      await connection.getSignatureStatuses([signature], {
+        searchTransactionHistory: true,
+      })
+    ).value[0];
+    if (status?.err)
+      throw new Error(
+        `Transaction ${signature} failed: ${JSON.stringify(status.err)}`
+      );
+    if (
+      status?.confirmationStatus === "confirmed" ||
+      status?.confirmationStatus === "finalized"
+    ) {
+      const transaction = await connection.getTransaction(signature, {
+        commitment: "confirmed",
+        maxSupportedTransactionVersion: 0,
+      });
+      if (!transaction)
+        throw new Error(`Confirmed transaction ${signature} was not found.`);
+      return transaction.slot;
+    }
+    await Bun.sleep(100);
+  }
+  throw new Error(`Transaction ${signature} was not confirmed.`);
+}
+
 async function sendPrepared(
   connection: Connection,
   client: ReturnType<typeof createSmartAccountVaultsClient>,
@@ -281,7 +319,7 @@ async function sendPrepared(
     confirm: true,
     signers: [localWallet()],
   });
-  return { signature, slot: await finalizedSlot(connection, signature), stage };
+  return { signature, slot: await confirmedSlot(connection, signature), stage };
 }
 
 async function createSmartAccount(
@@ -293,7 +331,7 @@ async function createSmartAccount(
     wallet.publicKey,
     20 * LAMPORTS_PER_SOL
   );
-  await finalizedSlot(connection, airdrop);
+  await confirmedSlot(connection, airdrop);
   const [settingsPda] = pda.getSettingsPda({
     accountIndex: BigInt(1),
     programId: PROGRAM_ID,
@@ -327,6 +365,18 @@ async function writeTransactions(
   );
 }
 
+async function waitFinalized(args: Args): Promise<void> {
+  required(args, "rpc-url", "transaction");
+  const connection = localConnection(args["rpc-url"]!);
+  const records = (await readFile(args.transaction!, "utf8"))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as ChainTransaction);
+  await Promise.all(
+    records.map((record) => finalizedSlot(connection, record.signature))
+  );
+}
+
 async function assertBalances(
   connection: Connection,
   state: LocalState,
@@ -343,27 +393,27 @@ async function assertBalances(
   const walletAccount = await getAccount(
     connection,
     walletAta,
-    "finalized",
+    "confirmed",
     TOKEN_PROGRAM_ID
   );
   if (walletAccount.amount !== walletRaw)
     throw new Error(`Wallet balance ${walletAccount.amount} != ${walletRaw}.`);
   const obligation = await connection.getAccountInfo(
     new PublicKey(state.obligation),
-    "finalized"
+    "confirmed"
   );
   if (!obligation || obligation.data.readBigUInt64LE(128) !== obligationRaw) {
     throw new Error(`Obligation did not reach ${obligationRaw}.`);
   }
   const collateralInfo = await connection.getAccountInfo(
     new PublicKey(state.vaultCollateralAta),
-    "finalized"
+    "confirmed"
   );
   if (collateralRaw === BigInt(0) && !collateralInfo) return;
   const collateral = await getAccount(
     connection,
     new PublicKey(state.vaultCollateralAta),
-    "finalized",
+    "confirmed",
     TOKEN_PROGRAM_ID
   );
   if (collateral.amount !== collateralRaw)
@@ -488,7 +538,7 @@ async function initial(args: Args): Promise<void> {
         )
       ),
       [localWallet()],
-      { commitment: "finalized" }
+      { commitment: "confirmed" }
     );
     await mintToChecked(
       connection,
@@ -499,7 +549,7 @@ async function initial(args: Args): Promise<void> {
       INITIAL_WALLET_BALANCE_RAW,
       6,
       [],
-      { commitment: "finalized" },
+      { commitment: "confirmed" },
       TOKEN_PROGRAM_ID
     );
     const vaults = createSmartAccountVaultsClient({
@@ -702,6 +752,7 @@ async function listen(args: Args): Promise<void> {
   const reasons: string[] = [];
   const controller = new AbortController();
   let complete = false;
+  let output: string | null = null;
   const timeout = setTimeout(() => controller.abort(), 180_000);
   try {
     await consumeEarnRealtimeStream({
@@ -730,14 +781,12 @@ async function listen(args: Args): Promise<void> {
           )
             throw new Error("Incomplete SSE refresh plan.");
           complete = true;
-          void writeFile(
-            args.output!,
-            JSON.stringify(
-              { events, refreshPlan, transactionReasons: reasons },
-              null,
-              2
-            )
-          ).finally(() => controller.abort());
+          output = JSON.stringify(
+            { events, refreshPlan, transactionReasons: reasons },
+            null,
+            2
+          );
+          controller.abort();
         }
       },
     });
@@ -757,10 +806,12 @@ async function listen(args: Args): Promise<void> {
   }
   if (!complete)
     throw new Error(`SSE transaction reasons were ${reasons.join(", ")}.`);
+  await writeFile(args.output!, output!);
 }
 
 const { command, args } = parseArgs(process.argv.slice(2));
 if (command === "initial") await initial(args);
 else if (command === "topup" || command === "partial" || command === "full")
   await next(command, args);
+else if (command === "wait-finalized") await waitFinalized(args);
 else await listen(args);
