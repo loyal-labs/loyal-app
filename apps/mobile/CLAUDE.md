@@ -12,6 +12,15 @@ npx expo lint              # ESLint
 npm test                   # Jest unit tests
 ```
 
+### Earn Verification
+
+From `/apps/mobile`, run the focused insufficient-native-SOL verifier with its
+explicit read-only acknowledgement:
+
+```bash
+CONFIRM_NATIVE_SOL_E2E=I_ACKNOWLEDGE_MAINNET_READ_ONLY bun run verify:insufficient-sol:e2e
+```
+
 ### EAS Build Profiles
 
 ```bash
