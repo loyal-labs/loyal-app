@@ -57,11 +57,28 @@ mock.module("@/lib/solana/rpc-rate-limit", () => ({
 }));
 
 mock.module("@loyal-labs/actions", () => ({
+  Stablecoin: {
+    CASH: "CASH",
+    PYUSD: "PYUSD",
+    USDC: "USDC",
+    USDG: "USDG",
+    USDS: "USDS",
+    USDT: "USDT",
+  },
   getKaminoUsdcEarnTargetForCluster: () => ({
     liquidityMint: new PublicKey(canonical.liquidityMint),
     market: new PublicKey(canonical.market),
     reserve: new PublicKey(canonical.reserve),
   }),
+  getStablecoinMintForCluster: () => new PublicKey(canonical.liquidityMint),
+  getStablecoinsForCluster: () => [
+    "CASH",
+    "PYUSD",
+    "USDC",
+    "USDG",
+    "USDS",
+    "USDT",
+  ],
   normalizeLoyalCluster: (cluster: string) => cluster,
   resolveLoyalClusterForSolanaEnv: () => "mainnet-beta",
 }));
@@ -85,26 +102,29 @@ mock.module("@/lib/yield-optimization/earn-confirm-contracts.shared", () => ({
   parseEarnWithdrawalConfirmRequestBody: () => parsedInput,
 }));
 
-mock.module("@/lib/yield-optimization/earn-reserve-target.server", () => ({
-  assertSafeUsdcEarnReserveMetadata: (input: {
-    liquidityMint: string;
-    market: string | null;
-    targetReserve: string;
-  }) => {
-    if (
-      input.liquidityMint !== canonical.liquidityMint ||
-      input.market !== canonical.market ||
-      input.targetReserve !== canonical.reserve
-    ) {
-      throw new Error("Earn reserve metadata mismatch.");
-    }
+const assertCanonicalReserve = (input: {
+  liquidityMint: string;
+  market: string | null;
+  targetReserve: string;
+}) => {
+  if (
+    input.liquidityMint !== canonical.liquidityMint ||
+    input.market !== canonical.market ||
+    input.targetReserve !== canonical.reserve
+  ) {
+    throw new Error("Earn reserve metadata mismatch.");
+  }
 
-    return {
-      liquidityMint: input.liquidityMint,
-      market: input.market,
-      targetReserve: input.targetReserve,
-    };
-  },
+  return {
+    liquidityMint: input.liquidityMint,
+    market: input.market,
+    targetReserve: input.targetReserve,
+  };
+};
+
+mock.module("@/lib/yield-optimization/earn-reserve-target.server", () => ({
+  assertSafeEarnReserveMetadata: assertCanonicalReserve,
+  assertSafeUsdcEarnReserveMetadata: assertCanonicalReserve,
   findEarnReserveTargetIneligibility: async () => null,
 }));
 
@@ -369,7 +389,7 @@ describe("Earn withdrawal confirm route", () => {
     })) as never;
   });
 
-  test("does not reconcile holdings until zero verification succeeds", async () => {
+  test("verifies a full withdrawal without writing or reconciling", async () => {
     const { POST } = await import("./route");
 
     const response = await POST(
@@ -384,12 +404,9 @@ describe("Earn withdrawal confirm route", () => {
       position: { status: "active" },
       status: "full_exit_incomplete",
     });
-    expect(callOrder).toEqual(["record-withdrawal", "verify-zero"]);
+    expect(callOrder).toEqual(["verify-zero"]);
     expect(reconcileCalls).toEqual([]);
-    expect(withdrawalCalls[0]).toMatchObject({
-      mode: "full",
-      withdrawalSignature: "withdrawal-signature",
-    });
+    expect(withdrawalCalls).toEqual([]);
   });
 
   test("rejects policy close metadata on every withdrawal confirmation", async () => {
@@ -415,7 +432,7 @@ describe("Earn withdrawal confirm route", () => {
     expect(callOrder).toEqual([]);
   });
 
-  test("returns retryable after recording when post-withdraw RPC verification fails", async () => {
+  test("returns retryable when the chain proof is not yet readable", async () => {
     const { POST } = await import("./route");
     fullExitProofError = new Error("minimum context slot has not been reached");
 
@@ -430,11 +447,11 @@ describe("Earn withdrawal confirm route", () => {
     expect(await response.json()).toMatchObject({
       error: { code: "full_exit_verification_retryable" },
     });
-    expect(callOrder).toEqual(["record-withdrawal", "verify-zero"]);
+    expect(callOrder).toEqual(["verify-zero"]);
     expect(reconcileCalls).toEqual([]);
   });
 
-  test("reports policy close required without closing the active position", async () => {
+  test("reports policy close required without a projection write", async () => {
     const { POST } = await import("./route");
     fullExitProofStatus = "policy_close_required";
 
@@ -450,15 +467,9 @@ describe("Earn withdrawal confirm route", () => {
       position: { status: "active" },
       status: "policy_close_required",
     });
-    expect(callOrder).toEqual([
-      "record-withdrawal",
-      "verify-zero",
-      "reconcile",
-    ]);
-    expect(reconcileCalls[0]).toMatchObject({
-      minContextSlot: 300,
-      purpose: "post_withdrawal_zero_proof",
-    });
+    expect(callOrder).toEqual(["verify-zero"]);
+    expect(reconcileCalls).toEqual([]);
+    expect(withdrawalCalls).toEqual([]);
   });
 });
 
@@ -537,7 +548,7 @@ describe("Earn deposit confirm route", () => {
     })) as never;
   });
 
-  test("records a confirmed canonical deposit for the authenticated principal", async () => {
+  test("verifies a confirmed canonical deposit without a projection write", async () => {
     const { POST } = await import("../../deposits/confirm/route");
 
     const response = await POST(
@@ -548,28 +559,14 @@ describe("Earn deposit confirm route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(depositCalls).toHaveLength(1);
-    expect(depositCalls[0]).toMatchObject({
-      cluster: "mainnet-beta",
-      confirmedSlot: BigInt(300),
-      depositSignature: "deposit-signature",
-      liquidityMint: canonical.liquidityMint,
-      market: canonical.market,
-      policyAccount: canonical.policyAccount,
-      policyConfirmedSlot: BigInt(300),
-      policyId: BigInt(7),
-      policySeed: BigInt(7),
-      setupPolicyAccount: canonical.setupPolicyAccount,
-      setupPolicyConfirmedSlot: BigInt(300),
-      setupPolicyId: BigInt(8),
-      setupPolicySeed: BigInt(8),
-      setupPolicySignature: "setup-policy-signature",
-      settings: principal.settingsPda,
-      targetReserve: canonical.reserve,
-      vaultIndex: 1,
-      vaultPubkey: canonical.vaultPubkey,
-      walletAddress: principal.walletAddress,
+    expect(await response.json()).toMatchObject({
+      position: {
+        currentHolding: { observedSlot: "300" },
+        id: "deposit-signature",
+        status: "active",
+      },
     });
+    expect(depositCalls).toEqual([]);
   });
 
   test("rejects principal mismatches before recording", async () => {
@@ -621,7 +618,10 @@ describe("Earn deposit confirm route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(depositCalls[0]).toMatchObject({ confirmedSlot: BigInt(300) });
+    expect(await response.json()).toMatchObject({
+      position: { currentHolding: { observedSlot: "300" } },
+    });
+    expect(depositCalls).toEqual([]);
   });
 
   test("rejects missing sessions before recording", async () => {

@@ -43,9 +43,7 @@ import {
   type WireSmartAccountPreparedEarnUsdcAutodepositSetup,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
-  recordConfirmedAutodepositDelegation,
-  recordConfirmedAutodepositTokenApproval,
-  recordPendingAutodepositSetup,
+  recordAutodepositSetupIntent,
   scheduleBootstrapEarnAutodepositSweep,
   type BalanceSweepTargetRecord,
   type ConfirmedEarnAutodepositSetupInput,
@@ -672,12 +670,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const target =
-    input.setupStage === "create_recurring_delegation"
-      ? await recordConfirmedAutodepositDelegation(input)
-      : input.setupStage === "approve_token_delegate"
-      ? await recordConfirmedAutodepositTokenApproval(input)
-      : await recordPendingAutodepositSetup(input);
+  const target = await recordAutodepositSetupIntent(input);
   let bootstrapSweep: EarnAutodepositSetupConfirmResponse["bootstrapSweep"];
   if (target.active && target.lifecycleStatus === "active") {
     try {

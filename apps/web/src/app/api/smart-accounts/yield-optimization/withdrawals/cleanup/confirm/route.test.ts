@@ -60,6 +60,9 @@ mock.module("@/lib/solana/rpc-rate-limit", () => ({
 mock.module(
   "@/lib/yield-optimization/earn-autodeposit-repository.server",
   () => ({
+    recordAutodepositCloseIntent: async () => {
+      throw new Error("Autodeposit closure was not expected.");
+    },
     recordClosedAutodepositTarget: async () => {
       throw new Error("Autodeposit closure was not expected.");
     },
@@ -147,8 +150,9 @@ describe("Earn cleanup confirm route", () => {
 
   test("rejects cleanup prepared for another wallet before chain reads", async () => {
     const { POST } = await import("./route");
-    preparedWalletAddress = Keypair.fromSeed(new Uint8Array(32).fill(4))
-      .publicKey.toBase58();
+    preparedWalletAddress = Keypair.fromSeed(
+      new Uint8Array(32).fill(4)
+    ).publicKey.toBase58();
 
     const response = await POST(createRequest());
 
@@ -193,7 +197,7 @@ describe("Earn cleanup confirm route", () => {
     expect(callOrder).toEqual(["verify-zero", "verify-policy-accounts"]);
   });
 
-  test("closes database state only after balances and policy accounts verify", async () => {
+  test("acknowledges verified cleanup without writing projected state", async () => {
     const { POST } = await import("./route");
 
     const response = await POST(createRequest());
@@ -203,11 +207,7 @@ describe("Earn cleanup confirm route", () => {
       ok: true,
       status: "full_exit_closed",
     });
-    expect(cleanupRecordCount).toBe(1);
-    expect(callOrder).toEqual([
-      "verify-zero",
-      "verify-policy-accounts",
-      "record-cleanup",
-    ]);
+    expect(cleanupRecordCount).toBe(0);
+    expect(callOrder).toEqual(["verify-zero", "verify-policy-accounts"]);
   });
 });

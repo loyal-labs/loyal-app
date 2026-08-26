@@ -20,15 +20,7 @@ import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
 import { pollRpcRead } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import { verifyEarnFullExitZeroBalances } from "@/lib/yield-optimization/earn-full-exit-zero-proof.server";
 import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
-import { serializeRoutePolicyState } from "@/lib/yield-optimization/earn-state-serializers.server";
-import {
-  findEarnCleanupVaultState,
-  findReconciledActiveYieldPositionForVault,
-  recordConfirmedYieldWithdrawal,
-  type ConfirmedYieldWithdrawalInput,
-  type UserYieldPositionRecord,
-} from "@/lib/yield-optimization/yield-deposit-repository.server";
-import { reconcileEarnVaultPosition } from "@/lib/yield-optimization/earn-position-reconciliation.server";
+import { type ConfirmedYieldWithdrawalInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 import {
   applyConfirmedWithdrawalTransactionProof,
   type ConfirmedWithdrawalTransactionProof,
@@ -516,31 +508,40 @@ async function resolveConfirmedSignatureSlot(args: {
   return slot;
 }
 
-export function serializeWithdrawPosition(position: UserYieldPositionRecord) {
+export function serializeVerifiedWithdrawPosition(
+  input: ConfirmedYieldWithdrawalInput,
+  verifiedAt = new Date()
+) {
+  const sourceAmountRaw = input.sourceAmountRaw ?? input.withdrawnAmountRaw;
+  const currentAmountRaw =
+    input.mode === "full" && input.isFinalStep !== false
+      ? BigInt(0)
+      : sourceAmountRaw > input.withdrawnAmountRaw
+      ? sourceAmountRaw - input.withdrawnAmountRaw
+      : BigInt(0);
   return {
     currentHolding: {
-      amountRaw: position.currentAmountRaw.toString(),
-      liquidityMint: position.currentLiquidityMint,
-      market: position.currentMarket,
-      observedAt: position.currentObservedAt.toISOString(),
-      observedSlot: position.currentObservedSlot.toString(),
+      amountRaw: currentAmountRaw.toString(),
+      liquidityMint: input.liquidityMint,
+      market: input.market,
+      observedAt: verifiedAt.toISOString(),
+      observedSlot: input.confirmedSlot.toString(),
       provenance: {
-        lastHoldingEventId: position.lastHoldingEventId?.toString() ?? null,
-        lastRebalanceDecisionId:
-          position.lastRebalanceDecisionId?.toString() ?? null,
+        lastHoldingEventId: null,
+        lastRebalanceDecisionId: null,
       },
-      reserve: position.currentReserve,
+      reserve: input.targetReserve,
     },
-    id: position.id.toString(),
+    id: input.withdrawalSignature,
     initialHolding: {
-      liquidityMint: position.initialLiquidityMint,
-      market: position.initialMarket,
-      reserve: position.initialReserve,
-      supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
+      liquidityMint: input.liquidityMint,
+      market: input.market,
+      reserve: input.targetReserve,
+      supplyApyBps: null,
     },
-    currentTotalAmountRaw: position.currentAmountRaw.toString(),
-    principalAmountRaw: position.principalAmountRaw.toString(),
-    status: position.status,
+    currentTotalAmountRaw: currentAmountRaw.toString(),
+    principalAmountRaw: currentAmountRaw.toString(),
+    status: "active" as const,
   };
 }
 
@@ -555,7 +556,7 @@ export type EarnWithdrawConfirmationResult = {
     amountRaw: string;
     mint: string;
   }>;
-  position: ReturnType<typeof serializeWithdrawPosition>;
+  position: ReturnType<typeof serializeVerifiedWithdrawPosition>;
   remainingHoldings: Array<{
     amountRaw: string;
     kind: "idle" | "kamino";
@@ -574,10 +575,9 @@ function toSafeContextSlot(slot: bigint): number {
   return value;
 }
 
-// Validates + records a confirmed Earn withdrawal against the authenticated
-// principal. Throws `EarnWithdrawConfirmError` (with an HTTP status) on any
-// validation failure; returns the serialized post-withdrawal position.
-export async function recordConfirmedEarnWithdrawal(args: {
+// Validates a confirmed Earn withdrawal against the authenticated principal.
+// LaserStream is the only writer of the resulting Earn state.
+export async function verifyConfirmedEarnWithdrawal(args: {
   principal: EarnWithdrawConfirmPrincipal;
   input: ConfirmedYieldWithdrawalInput;
   solanaEnv: SolanaEnv;
@@ -679,72 +679,14 @@ export async function recordConfirmedEarnWithdrawal(args: {
     });
   }
 
-  let position: UserYieldPositionRecord;
-  try {
-    position = await recordConfirmedYieldWithdrawal(input);
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Confirmed yield withdrawal could not be recorded.";
-    if (
-      message.startsWith("Duplicate withdrawal ") ||
-      message.includes("Withdrawal source") ||
-      message.includes("Withdrawal target does not match") ||
-      message.includes("Withdrawal exceeds")
-    ) {
-      rejectWithdrawConfirm({
-        status: 409,
-        code: "withdrawal_conflict",
-        message,
-        context: {
-          settings: input.settings,
-          walletAddress: input.walletAddress,
-          withdrawalSignature: input.withdrawalSignature,
-        },
-      });
-    }
-
-    console.error("[earn-withdraw-confirm] record failed", {
-      cluster: input.cluster,
-      errorMessage: message,
-      errorName: error instanceof Error ? error.name : typeof error,
-      settings: input.settings,
-      signature: input.withdrawalSignature,
-      stack: error instanceof Error ? error.stack : undefined,
-      vaultIndex: input.vaultIndex,
-      walletAddress: input.walletAddress,
-    });
-    throw new EarnWithdrawConfirmError(500, "record_failed", message);
-  }
-
   const connection = getConnection(solanaEnv);
   const cluster = normalizeLoyalCluster(input.cluster);
+  const position = serializeVerifiedWithdrawPosition(input);
 
   if (input.mode !== "full") {
-    await reconcileEarnVaultPosition({
-      authority: input.walletAddress,
-      cluster,
-      connection,
-      force: true,
-      settings: input.settings,
-      vaultPubkey: input.vaultPubkey,
-    }).catch((error) => {
-      console.warn("[earn-withdraw-confirm] partial reconcile failed", {
-        cluster: input.cluster,
-        errorMessage:
-          error instanceof Error ? error.message : "Unknown reconcile error.",
-        errorName: error instanceof Error ? error.name : typeof error,
-        settings: input.settings,
-        signature: input.withdrawalSignature,
-        vaultIndex: input.vaultIndex,
-        walletAddress: input.walletAddress,
-      });
-    });
-
     return {
       blockingTokenAccounts: [],
-      position: serializeWithdrawPosition(position),
+      position,
       remainingHoldings: [],
       status: "withdrawal_recorded",
     };
@@ -753,7 +695,7 @@ export async function recordConfirmedEarnWithdrawal(args: {
   if (input.isFinalStep === false) {
     return {
       blockingTokenAccounts: [],
-      position: serializeWithdrawPosition(position),
+      position,
       remainingHoldings: [],
       status: "full_exit_incomplete",
     };
@@ -761,51 +703,27 @@ export async function recordConfirmedEarnWithdrawal(args: {
 
   try {
     const minContextSlot = toSafeContextSlot(input.confirmedSlot);
-    const cleanupState = await findEarnCleanupVaultState({
-      authority: input.walletAddress,
-      settings: input.settings,
-      vaultIndex: input.vaultIndex,
-      vaultPubkey: input.vaultPubkey,
-    });
-    if (!cleanupState) {
-      throw new Error(
-        "Active Earn policy state is unavailable for full-exit verification."
-      );
-    }
-
     const serverEnv = getServerEnv();
     const proof = await verifyEarnFullExitZeroBalances({
       cluster,
       connection,
       minContextSlot,
-      policy: serializeRoutePolicyState(
-        cleanupState.routePolicy,
-        cleanupState.setupPolicy
-      ),
+      policy: {
+        account: input.policyAccount,
+        seed: input.policySeed.toString(),
+        setupPolicy:
+          input.setupPolicyAccount && input.setupPolicySeed
+            ? {
+                account: input.setupPolicyAccount,
+                seed: input.setupPolicySeed.toString(),
+              }
+            : null,
+        vaultIndex: input.vaultIndex,
+        vaultPubkey: input.vaultPubkey,
+      },
       programId: new PublicKey(serverEnv.loyalSmartAccounts.programId),
       settingsPda: new PublicKey(input.settings),
     });
-    let reconciledPosition = position;
-    if (proof.status === "policy_close_required") {
-      await reconcileEarnVaultPosition({
-        authority: input.walletAddress,
-        cluster,
-        connection,
-        force: true,
-        minContextSlot: toSafeContextSlot(BigInt(proof.observedSlot)),
-        purpose: "post_withdrawal_zero_proof",
-        settings: input.settings,
-        vaultPubkey: input.vaultPubkey,
-      });
-      reconciledPosition =
-        (await findReconciledActiveYieldPositionForVault({
-          cluster,
-          settings: input.settings,
-          vaultIndex: input.vaultIndex,
-          walletAddress: input.walletAddress,
-        })) ?? position;
-    }
-
     console.info("[earn-withdraw-confirm] full exit verification", {
       blockingTokenAccountCount: proof.blockingTokenAccounts.length,
       cleanupTokenAccountCount: proof.cleanupTokenAccounts.length,
@@ -821,7 +739,7 @@ export async function recordConfirmedEarnWithdrawal(args: {
 
     return {
       blockingTokenAccounts: proof.blockingTokenAccounts,
-      position: serializeWithdrawPosition(reconciledPosition),
+      position,
       remainingHoldings: proof.remainingHoldings.map((holding) => ({
         amountRaw: holding.amountRaw,
         kind: holding.kind,

@@ -5,7 +5,7 @@ import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-ov
 import { parseEarnDepositConfirmRequestBody } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   EarnDepositConfirmError,
-  recordConfirmedEarnDeposit,
+  verifyConfirmedEarnDeposit,
   resolvePolicyCreationSignatureFromChain,
 } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import {
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
       input = await resolveReusedPolicyCitation(input, principal.walletAddress);
     }
 
-    const position = await recordConfirmedEarnDeposit({
+    const position = await verifyConfirmedEarnDeposit({
       principal: {
         walletAddress: principal.walletAddress,
         smartAccountAddress: principal.smartAccountAddress,

@@ -23,7 +23,7 @@ import {
   type WireSmartAccountPreparedEarnUsdcAutodepositClose,
 } from "@/lib/yield-optimization/earn-autodeposit-prepare-contracts.shared";
 import {
-  recordClosedAutodepositTarget,
+  recordAutodepositCloseIntent,
   type BalanceSweepTargetRecord,
   type ConfirmedEarnAutodepositCloseInput,
 } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
@@ -60,8 +60,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -178,7 +177,10 @@ function parseMobileCloseConfirmFields(
     throw new Error("Request body must be an object.");
   }
   const record = body as Record<string, unknown>;
-  if (typeof record.preparedClose !== "object" || record.preparedClose === null) {
+  if (
+    typeof record.preparedClose !== "object" ||
+    record.preparedClose === null
+  ) {
     throw new Error("preparedClose is required.");
   }
   if (typeof record.closeSignature !== "string" || !record.closeSignature) {
@@ -209,7 +211,10 @@ export async function POST(request: Request) {
       body,
       // Accepts the flow's prepare signature too — the device signs one auth
       // message per flow (see authenticateMobileWalletRequest).
-      purpose: ["earn-autodeposit-close-confirm", "earn-autodeposit-close-prepare"],
+      purpose: [
+        "earn-autodeposit-close-confirm",
+        "earn-autodeposit-close-prepare",
+      ],
     }));
   } catch (error) {
     if (error instanceof WalletAuthError) {
@@ -338,7 +343,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const target = await recordClosedAutodepositTarget(input);
+    const target = await recordAutodepositCloseIntent(input);
     return NextResponse.json({ target: serializeTarget(target) });
   } catch (error) {
     return jsonError(

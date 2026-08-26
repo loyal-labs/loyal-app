@@ -17,7 +17,7 @@ import {
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   EarnDepositConfirmError,
-  recordConfirmedEarnDeposit,
+  verifyConfirmedEarnDeposit,
   resolvePolicyCreationSignatureFromChain,
 } from "@/lib/yield-optimization/earn-deposit-confirm.server";
 import {
@@ -33,7 +33,7 @@ import { findActiveYieldRoutePolicyPair } from "@/lib/yield-optimization/yield-d
 // Mobile twin of `yield-optimization/deposits/confirm`. The device echoes back
 // the serialized prepared deposit it signed plus each stage's signature+slot;
 // this route rebuilds the canonical confirm payload server-side (the web client
-// does this in-browser) and defers to the shared `recordConfirmedEarnDeposit`.
+// does this in-browser) and defers to the shared `verifyConfirmedEarnDeposit`.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 type MobileConfirmFields = {
@@ -63,7 +63,10 @@ function parseMobileConfirmFields(body: unknown): MobileConfirmFields {
     throw new Error("Request body must be an object.");
   }
   const record = body as Record<string, unknown>;
-  if (typeof record.preparedDeposit !== "object" || record.preparedDeposit === null) {
+  if (
+    typeof record.preparedDeposit !== "object" ||
+    record.preparedDeposit === null
+  ) {
     throw new Error("preparedDeposit is required.");
   }
   if (typeof record.depositSignature !== "string" || !record.depositSignature) {
@@ -181,7 +184,9 @@ export async function POST(request: Request) {
       fields.preparedDeposit
     );
 
-    const programId = new PublicKey(getServerEnv().loyalSmartAccounts.programId);
+    const programId = new PublicKey(
+      getServerEnv().loyalSmartAccounts.programId
+    );
     const [earnVaultPda] = pda.getSmartAccountPda({
       accountIndex: EARN_DEPOSIT_VAULT_INDEX,
       programId,
@@ -279,7 +284,8 @@ export async function POST(request: Request) {
 
     const resolution = resolveEarnDepositConfirmPolicySignature({
       activePolicy,
-      policySignature: fields.policySignature ?? adoptedPolicyCreation?.signature,
+      policySignature:
+        fields.policySignature ?? adoptedPolicyCreation?.signature,
       policyConfirmedSlot:
         fields.policyConfirmedSlot ?? adoptedPolicyCreation?.slot ?? undefined,
       setupPolicySignature: fields.setupPolicySignature,
@@ -289,13 +295,17 @@ export async function POST(request: Request) {
     if ("error" in resolution) {
       // This 400 strands the on-chain deposit until yield routing observes and
       // reconciles it — never let it pass silently.
-      console.error("[mobile-earn-deposit-confirm] policy signature unresolved", {
-        depositSignature: fields.depositSignature,
-        message: resolution.error,
-        policyAccount: reusedPolicyAccount,
-        policyInitialization: preparedDeposit.persistence.policyInitialization,
-        walletAddress,
-      });
+      console.error(
+        "[mobile-earn-deposit-confirm] policy signature unresolved",
+        {
+          depositSignature: fields.depositSignature,
+          message: resolution.error,
+          policyAccount: reusedPolicyAccount,
+          policyInitialization:
+            preparedDeposit.persistence.policyInitialization,
+          walletAddress,
+        }
+      );
       return jsonError(400, "policy_signature_unresolved", resolution.error);
     }
 
@@ -313,7 +323,7 @@ export async function POST(request: Request) {
     });
     const input = parseEarnDepositConfirmRequestBody(confirmBody);
 
-    const position = await recordConfirmedEarnDeposit({
+    const position = await verifyConfirmedEarnDeposit({
       principal: { walletAddress, smartAccountAddress, settingsPda },
       input,
     });

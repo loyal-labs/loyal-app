@@ -8,17 +8,14 @@ import { getServerEnv } from "@/lib/core/config/server";
 import { resolveLoyalWebSolanaEnvFromEnv } from "@/lib/core/config/solana-env-override";
 import { getServerSolanaEndpoints } from "@/lib/solana/rpc-endpoints.server";
 import { getFrontendSolanaRpcFetch } from "@/lib/solana/rpc-rate-limit";
-import { recordClosedAutodepositTarget } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
+import { recordAutodepositCloseIntent } from "@/lib/yield-optimization/earn-autodeposit-repository.server";
 import {
   assertEarnFullExitProven,
   EarnCleanupConfirmError,
   resolveConfirmedSignatureSlot,
 } from "@/lib/yield-optimization/earn-cleanup-confirm.server";
 import { parseEarnWithdrawCleanupConfirmRequestBody } from "@/lib/yield-optimization/earn-withdraw-cleanup-contracts.shared";
-import {
-  findEarnCleanupVaultState,
-  recordConfirmedEarnCleanup,
-} from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { findEarnCleanupVaultState } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
@@ -38,8 +35,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -103,9 +99,7 @@ export async function POST(request: Request) {
   }
 
   const solanaEnv = resolveLoyalWebSolanaEnvFromEnv(process.env);
-  if (
-    persistence.cluster !== resolveLoyalClusterForSolanaEnv(solanaEnv)
-  ) {
+  if (persistence.cluster !== resolveLoyalClusterForSolanaEnv(solanaEnv)) {
     return jsonError(
       400,
       "cluster_mismatch",
@@ -228,7 +222,7 @@ export async function POST(request: Request) {
       body.autodepositCloseSignature &&
       body.autodepositCloseConfirmedSlot
     ) {
-      await recordClosedAutodepositTarget({
+      await recordAutodepositCloseIntent({
         cluster: persistence.cluster,
         closeSignature: body.autodepositCloseSignature,
         confirmedSlot: BigInt(body.autodepositCloseConfirmedSlot),
@@ -242,24 +236,17 @@ export async function POST(request: Request) {
       });
     }
 
-    await recordConfirmedEarnCleanup({
-      cleanupSignature: body.cleanupSignature,
-      cluster: persistence.cluster,
-      confirmedSlot,
-      settings: persistence.settings,
-      vaultIndex: persistence.vaultIndex,
-      vaultPubkey: persistence.vaultPubkey,
-      walletAddress: persistence.walletAddress,
-    });
-
-    console.info("[earn-withdraw-cleanup-confirm] full exit closed", {
-      cleanupSignature: body.cleanupSignature,
-      confirmedSlot: confirmedSlot.toString(),
-      settings: persistence.settings,
-      status: "full_exit_closed",
-      vaultIndex: persistence.vaultIndex,
-      walletAddress: persistence.walletAddress,
-    });
+    console.info(
+      "[earn-withdraw-cleanup-confirm] verified for LaserStream projection",
+      {
+        cleanupSignature: body.cleanupSignature,
+        confirmedSlot: confirmedSlot.toString(),
+        settings: persistence.settings,
+        status: "full_exit_closed",
+        vaultIndex: persistence.vaultIndex,
+        walletAddress: persistence.walletAddress,
+      }
+    );
     return NextResponse.json({ ok: true, status: "full_exit_closed" });
   } catch (error) {
     if (error instanceof EarnCleanupConfirmError) {

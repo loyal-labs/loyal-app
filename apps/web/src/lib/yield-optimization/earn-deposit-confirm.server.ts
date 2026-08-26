@@ -21,21 +21,15 @@ import {
   assertSafeEarnReserveMetadata,
   findEarnReserveTargetIneligibility,
 } from "@/lib/yield-optimization/earn-reserve-target.server";
-import {
-  markEarnDepositOnboardingAccountingFailed,
-  markEarnDepositOnboardingComplete,
-  recordEarnDepositOnboardingDepositSignature,
-  recordConfirmedYieldDeposit,
-  type ConfirmedYieldDepositInput,
-  type UserYieldPositionRecord,
-} from "@/lib/yield-optimization/yield-deposit-repository.server";
+import { type ConfirmedYieldDepositInput } from "@/lib/yield-optimization/yield-deposit-repository.server";
 
 // Shared core of the Earn deposit "confirm" step. Both the session-authed web
 // route (`yield-optimization/deposits/confirm`) and the wallet-signed mobile
-// route (`mobile/earn/deposit/confirm`) call `recordConfirmedEarnDeposit` so the
+// route (`mobile/earn/deposit/confirm`) call `verifyConfirmedEarnDeposit` so the
 // security-critical canonicalization + on-chain slot verification can never
-// drift between surfaces. The caller supplies the authenticated principal (from
-// a session or a verified wallet signature); this module owns everything after.
+// drift between surfaces. Finalized LaserStream projection is the sole writer of
+// Earn policy, deposit, holding, and position state. This compatibility endpoint
+// verifies and acknowledges released-client requests without racing that writer.
 const EARN_DEPOSIT_VAULT_INDEX = 1;
 
 const connectionCache = new Map<SolanaEnv, Connection>();
@@ -104,7 +98,9 @@ export type EarnDepositConfirmPrincipal = {
   settingsPda: string;
 };
 
-export type SerializedYieldPosition = ReturnType<typeof serializePosition>;
+export type SerializedYieldPosition = ReturnType<
+  typeof serializeVerifiedDepositPosition
+>;
 
 function getConfiguredSolanaEnv(): SolanaEnv {
   return resolveLoyalWebSolanaEnvFromEnv(process.env);
@@ -391,8 +387,7 @@ function getConnection(cluster: SolanaEnv): Connection {
     return cached;
   }
 
-  const { rpcEndpoint, websocketEndpoint } =
-    getServerSolanaEndpoints(cluster);
+  const { rpcEndpoint, websocketEndpoint } = getServerSolanaEndpoints(cluster);
   const connection = new Connection(rpcEndpoint, {
     commitment: "confirmed",
     disableRetryOnRateLimit: true,
@@ -521,37 +516,39 @@ async function resolveConfirmedDepositTransactionProof(args: {
   return { principalAmountRaw };
 }
 
-function serializePosition(position: UserYieldPositionRecord) {
+export function serializeVerifiedDepositPosition(
+  input: ConfirmedYieldDepositInput,
+  verifiedAt = new Date()
+) {
   return {
     currentHolding: {
-      amountRaw: position.currentAmountRaw.toString(),
-      liquidityMint: position.currentLiquidityMint,
-      market: position.currentMarket,
-      observedAt: position.currentObservedAt.toISOString(),
-      observedSlot: position.currentObservedSlot.toString(),
+      amountRaw: input.principalAmountRaw.toString(),
+      liquidityMint: input.liquidityMint,
+      market: input.market,
+      observedAt: verifiedAt.toISOString(),
+      observedSlot: input.confirmedSlot.toString(),
       provenance: {
-        lastHoldingEventId: position.lastHoldingEventId?.toString() ?? null,
-        lastRebalanceDecisionId:
-          position.lastRebalanceDecisionId?.toString() ?? null,
+        lastHoldingEventId: null,
+        lastRebalanceDecisionId: null,
       },
-      reserve: position.currentReserve,
+      reserve: input.targetReserve,
     },
-    id: position.id.toString(),
+    id: input.depositSignature,
     initialHolding: {
-      liquidityMint: position.initialLiquidityMint,
-      market: position.initialMarket,
-      reserve: position.initialReserve,
-      supplyApyBps: position.initialSupplyApyBps?.toString() ?? null,
+      liquidityMint: input.liquidityMint,
+      market: input.market,
+      reserve: input.targetReserve,
+      supplyApyBps: input.targetSupplyApyBps?.toString() ?? null,
     },
-    principalAmountRaw: position.principalAmountRaw.toString(),
-    status: position.status,
+    principalAmountRaw: input.principalAmountRaw.toString(),
+    status: "active" as const,
   };
 }
 
 // Validates a confirmed Earn deposit against the authenticated principal and
-// the on-chain transaction status, then records the position. Throws
+// the on-chain transaction status. Throws
 // `EarnDepositConfirmError` (status + code) on any rejection.
-export async function recordConfirmedEarnDeposit(args: {
+export async function verifyConfirmedEarnDeposit(args: {
   principal: EarnDepositConfirmPrincipal;
   input: ConfirmedYieldDepositInput;
 }): Promise<SerializedYieldPosition> {
@@ -673,7 +670,10 @@ export async function recordConfirmedEarnDeposit(args: {
           error instanceof Error
             ? error.message
             : "Route policy setup transaction is not confirmed.",
-        context: { ...rejectionContext, policySignature: input.policySignature },
+        context: {
+          ...rejectionContext,
+          policySignature: input.policySignature,
+        },
       });
     }
 
@@ -709,82 +709,25 @@ export async function recordConfirmedEarnDeposit(args: {
     }
 
     if (input.setupPolicyConfirmedSlot !== setupPolicyConfirmedSlot) {
-      console.warn("[earn-deposit-confirm] corrected client setup policy slot", {
-        ...rejectionContext,
-        clientSlot: input.setupPolicyConfirmedSlot?.toString() ?? null,
-        resolvedSlot: setupPolicyConfirmedSlot.toString(),
-      });
+      console.warn(
+        "[earn-deposit-confirm] corrected client setup policy slot",
+        {
+          ...rejectionContext,
+          clientSlot: input.setupPolicyConfirmedSlot?.toString() ?? null,
+          resolvedSlot: setupPolicyConfirmedSlot.toString(),
+        }
+      );
       input = { ...input, setupPolicyConfirmedSlot };
     }
   }
 
-  try {
-    await recordEarnDepositOnboardingDepositSignature(input);
-  } catch (error) {
-    console.warn("[earn-deposit-confirm] failed to record onboarding deposit", {
-      depositSignature: input.depositSignature,
-      errorMessage:
-        error instanceof Error ? error.message : "Unknown record error.",
-      errorName: error instanceof Error ? error.name : typeof error,
-      settings: input.settings,
-      walletAddress: input.walletAddress,
-    });
-  }
-
-  let position: UserYieldPositionRecord;
-  try {
-    position = await recordConfirmedYieldDeposit(input);
-  } catch (error) {
-    console.error("[earn-deposit-confirm] record failed", {
-      amountRaw: input.principalAmountRaw.toString(),
-      cluster: input.cluster,
-      depositSignature: input.depositSignature,
-      errorMessage:
-        error instanceof Error ? error.message : "Unknown record error.",
-      errorName: error instanceof Error ? error.name : typeof error,
-      policyAccount: input.policyAccount,
-      policyInitialization: input.policyInitialization,
-      policySeed: input.policySeed.toString(),
-      settings: input.settings,
-      stack: error instanceof Error ? error.stack : undefined,
-      walletAddress: input.walletAddress,
-    });
-    await markEarnDepositOnboardingAccountingFailed(
-      input,
-      "record_failed"
-    ).catch((markError) => {
-      console.warn("[earn-deposit-confirm] failed to mark accounting failure", {
-        depositSignature: input.depositSignature,
-        errorMessage:
-          markError instanceof Error
-            ? markError.message
-            : "Unknown mark error.",
-        errorName:
-          markError instanceof Error ? markError.name : typeof markError,
-        settings: input.settings,
-        walletAddress: input.walletAddress,
-      });
-    });
-    throw new EarnDepositConfirmError({
-      status: 409,
-      code: "record_failed",
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to record confirmed earn deposit.",
-    });
-  }
-
-  await markEarnDepositOnboardingComplete(input).catch((error) => {
-    console.warn("[earn-deposit-confirm] failed to mark onboarding complete", {
-      depositSignature: input.depositSignature,
-      errorMessage:
-        error instanceof Error ? error.message : "Unknown mark error.",
-      errorName: error instanceof Error ? error.name : typeof error,
-      settings: input.settings,
-      walletAddress: input.walletAddress,
-    });
+  console.info("[earn-deposit-confirm] verified for LaserStream projection", {
+    cluster: input.cluster,
+    confirmedSlot: input.confirmedSlot.toString(),
+    depositSignature: input.depositSignature,
+    settings: input.settings,
+    walletAddress: input.walletAddress,
   });
 
-  return serializePosition(position);
+  return serializeVerifiedDepositPosition(input);
 }

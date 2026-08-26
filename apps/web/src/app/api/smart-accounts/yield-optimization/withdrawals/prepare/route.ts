@@ -33,9 +33,10 @@ const connectionCache = new Map<SolanaEnv, Connection>();
 function jsonError(
   status: number,
   code: string,
-  message: string
+  message: string,
+  headers?: HeadersInit
 ): NextResponse {
-  return NextResponse.json({ error: { code, message } }, { status });
+  return NextResponse.json({ error: { code, message } }, { headers, status });
 }
 
 function getConfiguredSolanaEnv(): SolanaEnv {
@@ -135,7 +136,10 @@ export async function POST(request: Request) {
       return jsonError(
         normalizedError.status,
         normalizedError.code,
-        normalizedError.message
+        normalizedError.message,
+        normalizedError.code === "earn_policy_projection_pending"
+          ? { "Retry-After": "1" }
+          : undefined
       );
     }
     if (isSmartAccountProvisioningError(error)) {

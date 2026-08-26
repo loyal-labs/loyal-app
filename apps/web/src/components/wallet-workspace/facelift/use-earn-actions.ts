@@ -335,6 +335,7 @@ export function useEarnActions(deps: {
     tracker: LifecycleTracker;
   } | null>(null);
   const withdrawTrackerRef = useRef<LifecycleTracker | null>(null);
+  const fullWithdrawalConfirmedSlotRef = useRef<string | null>(null);
   const autodepositTrackerRef = useRef<LifecycleTracker | null>(null);
   const autodepositClosePreparedRef =
     useRef<SmartAccountPreparedEarnUsdcAutodepositClose | null>(null);
@@ -1646,6 +1647,8 @@ export function useEarnActions(deps: {
             });
           }
           if (draft.mode === "full") {
+            fullWithdrawalConfirmedSlotRef.current =
+              result.confirmedSlot ?? null;
             // The flow stays open: the rent-cleanup phase completes it.
             tracker.observe("full_exit_verify", {
               chainState: "confirmed",
@@ -1775,6 +1778,8 @@ export function useEarnActions(deps: {
           rpcEndpoint: connection.rpcEndpoint,
           run: () =>
             prepareEarnCleanupOnServer({
+              minContextSlot:
+                fullWithdrawalConfirmedSlotRef.current ?? undefined,
               observabilityFlowId: tracker.flowId,
             }),
         });
@@ -1808,6 +1813,7 @@ export function useEarnActions(deps: {
       });
       earnToast.loading(CONFIRM_IN_WALLET_MESSAGE);
       const result = await smartAccountData.executeEarnCleanup({
+        minContextSlot: fullWithdrawalConfirmedSlotRef.current ?? undefined,
         observabilityFlowId: tracker.flowId,
         onWalletSubmitted: markWalletSubmitted,
         preparedCleanup,
@@ -1844,6 +1850,7 @@ export function useEarnActions(deps: {
         persistenceState: "recorded",
       });
       withdrawTrackerRef.current = null;
+      fullWithdrawalConfirmedSlotRef.current = null;
       earnToast.success("Policies closed");
       return true;
     } catch (error) {

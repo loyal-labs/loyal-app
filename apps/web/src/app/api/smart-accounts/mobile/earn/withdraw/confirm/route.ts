@@ -14,7 +14,7 @@ import {
 } from "@/lib/yield-optimization/earn-confirm-contracts.shared";
 import {
   EarnWithdrawConfirmError,
-  recordConfirmedEarnWithdrawal,
+  verifyConfirmedEarnWithdrawal,
 } from "@/lib/yield-optimization/earn-withdraw-confirm.server";
 import {
   hydratePreparedEarnUsdcWithdraw,
@@ -25,7 +25,7 @@ import {
 // back the serialized prepared withdraw it signed plus, for one step at a time,
 // that step's signature + slot (and the optional autodeposit-close signature).
 // This route rebuilds the canonical confirm payload server-side (the web client
-// does this in-browser) and defers to the shared `recordConfirmedEarnWithdrawal`
+// does this in-browser) and defers to the shared `verifyConfirmedEarnWithdrawal`
 // core so the security-critical canonicalization can't drift.
 type MobileWithdrawConfirmFields = {
   preparedWithdraw: WireSmartAccountPreparedEarnUsdcWithdraw;
@@ -216,7 +216,7 @@ export async function POST(request: Request) {
     });
     const input = parseEarnWithdrawalConfirmRequestBody(confirmBody);
 
-    const result = await recordConfirmedEarnWithdrawal({
+    const result = await verifyConfirmedEarnWithdrawal({
       principal: { walletAddress, smartAccountAddress, settingsPda },
       input,
       solanaEnv: getConfiguredSolanaEnv(),
