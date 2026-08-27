@@ -42,6 +42,8 @@ export type EarnWithdrawCleanupPrepareResponse = {
 };
 
 export type EarnWithdrawCleanupConfirmRequestBody = {
+  autodepositCloseConfirmedSlot?: string;
+  autodepositCloseSignature?: string;
   cleanupSignature: string;
   confirmedSlot: string;
   preparedCleanup: WireSmartAccountPreparedEarnUsdcCleanup;
@@ -155,10 +157,21 @@ export function parseEarnWithdrawCleanupConfirmRequestBody(
   if (!preparedCleanup || typeof preparedCleanup !== "object") {
     throw new Error("preparedCleanup must be an object.");
   }
+  const autodepositCloseSignature = record.autodepositCloseSignature;
+  const autodepositCloseConfirmedSlot = record.autodepositCloseConfirmedSlot;
+
   return {
     cleanupSignature: readNonEmptyString(record, "cleanupSignature"),
     confirmedSlot: readUnsignedIntegerString(record, "confirmedSlot"),
     preparedCleanup:
       preparedCleanup as WireSmartAccountPreparedEarnUsdcCleanup,
+    ...(typeof autodepositCloseSignature === "string" &&
+    autodepositCloseSignature.trim().length > 0
+      ? { autodepositCloseSignature: autodepositCloseSignature.trim() }
+      : {}),
+    ...(typeof autodepositCloseConfirmedSlot === "string" &&
+    /^\d+$/.test(autodepositCloseConfirmedSlot.trim())
+      ? { autodepositCloseConfirmedSlot: autodepositCloseConfirmedSlot.trim() }
+      : {}),
   };
 }
