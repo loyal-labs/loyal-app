@@ -606,6 +606,9 @@ export const loyalStatsSnapshots = pgTable(
       .$type<LoyalStatsAumSeriesPoint[]>()
       .default([])
       .notNull(),
+    lastEarnFlowEventId: bigint("last_earn_flow_event_id", {
+      mode: "bigint",
+    }),
     refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

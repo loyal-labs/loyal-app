@@ -204,6 +204,13 @@
       "when": 1786885799372,
       "tag": "0028_smiling_union_jack",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787811929938,
+      "tag": "0029_special_living_lightning",
+      "breakpoints": true
     }
   ]
 }

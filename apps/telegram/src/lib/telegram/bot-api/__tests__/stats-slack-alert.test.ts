@@ -1,16 +1,39 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 mock.module("server-only", () => ({}));
 
-import {
-  createLoyalStatsAumAlert,
-  sendLoyalStatsAumAlert,
-} from "../stats-slack-alert.server";
+type AlertModule = typeof import("../stats-slack-alert.server");
+type EarnFlow = Parameters<AlertModule["createLoyalStatsEarnFlowAlert"]>[0];
+let createLoyalStatsEarnFlowAlert: AlertModule["createLoyalStatsEarnFlowAlert"];
+let sendLoyalStatsEarnFlowAlert: AlertModule["sendLoyalStatsEarnFlowAlert"];
 
 const originalFetch = globalThis.fetch;
 const raw = (value: string | number): bigint => BigInt(value);
+const flow = (
+  direction: "deposit" | "withdrawal",
+  amountRaw: bigint
+): EarnFlow => ({
+  amountRaw,
+  direction,
+  eventId: BigInt(42),
+  signature: "5ignature",
+  walletAddress: "HtxtbgA4EhGXUTJg5vztYAtPrYezHfg5QBe4CXny8XcJ",
+});
 
-describe("stats Slack AUM alerts", () => {
+describe("stats Slack Earn flow alerts", () => {
+  beforeAll(async () => {
+    ({ createLoyalStatsEarnFlowAlert, sendLoyalStatsEarnFlowAlert } =
+      await import("../stats-slack-alert.server"));
+  });
+
   beforeEach(() => {
     delete process.env.SLACK_STATS_WEBHOOK_URL;
     globalThis.fetch = originalFetch;
@@ -21,36 +44,35 @@ describe("stats Slack AUM alerts", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("alerts only when the snapshot-to-snapshot change reaches 5,000 USDC", () => {
-    const previous = raw("100000000000");
-
+  test("alerts only when a finalized flow reaches 5,000 USDC", () => {
     expect(
-      createLoyalStatsAumAlert(previous, previous + raw("4999999999"))
+      createLoyalStatsEarnFlowAlert(flow("deposit", raw("4999999999")))
     ).toBeNull();
     expect(
-      createLoyalStatsAumAlert(previous, previous - raw("4999999999"))
+      createLoyalStatsEarnFlowAlert(flow("withdrawal", raw("4999999999")))
     ).toBeNull();
 
     expect(
-      createLoyalStatsAumAlert(previous, previous + raw("5000000000"))
-        ?.direction
-    ).toBe("increased");
+      createLoyalStatsEarnFlowAlert(flow("deposit", raw("5000000000")))?.eventId
+    ).toBe(BigInt(42));
     expect(
-      createLoyalStatsAumAlert(previous, previous - raw("5000000000"))
-        ?.direction
-    ).toBe("decreased");
+      createLoyalStatsEarnFlowAlert(flow("withdrawal", raw("5000000000")))
+        ?.eventId
+    ).toBe(BigInt(42));
   });
 
-  test("formats positive and negative messages as human USDC values", () => {
+  test("formats finalized flows with wallet and Orb Markets links", () => {
     expect(
-      createLoyalStatsAumAlert(raw("121125850000"), raw("126410220000"))?.text
-    ).toBe("📈 Earn AUM increased by $5,284.37\nCurrent Earn AUM: $126,410.22");
+      createLoyalStatsEarnFlowAlert(flow("deposit", raw("5284370000")))?.text
+    ).toBe(
+      "📥 Earn deposit confirmed: $5,284.37\nWallet: <https://orbmarkets.io/address/HtxtbgA4EhGXUTJg5vztYAtPrYezHfg5QBe4CXny8XcJ|HtxtbgA4EhGXUTJg5vztYAtPrYezHfg5QBe4CXny8XcJ>\n<https://orbmarkets.io/tx/5ignature|View on Orb Markets>"
+    );
     expect(
-      createLoyalStatsAumAlert(raw("126410220000"), raw("120290220000"))?.text
-    ).toBe("📉 Earn AUM decreased by $6,120.00\nCurrent Earn AUM: $120,290.22");
+      createLoyalStatsEarnFlowAlert(flow("withdrawal", raw("6120000000")))?.text
+    ).toContain("📤 Earn withdrawal confirmed: $6,120.00");
   });
 
-  test("posts the alert payload to the configured webhook", async () => {
+  test("posts the finalized flow payload to the configured webhook", async () => {
     process.env.SLACK_STATS_WEBHOOK_URL =
       "https://hooks.slack.com/services/test/stats/webhook";
     const fetchMock = mock(
@@ -59,10 +81,8 @@ describe("stats Slack AUM alerts", () => {
     );
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const result = await sendLoyalStatsAumAlert(
-      raw("121125850000"),
-      raw("126410220000")
-    );
+    const earnFlow = flow("deposit", raw("5284370000"));
+    const result = await sendLoyalStatsEarnFlowAlert(earnFlow);
 
     expect(result.status).toBe("sent");
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -70,13 +90,13 @@ describe("stats Slack AUM alerts", () => {
       "https://hooks.slack.com/services/test/stats/webhook"
     );
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
-      text: "📈 Earn AUM increased by $5,284.37\nCurrent Earn AUM: $126,410.22",
+      text: createLoyalStatsEarnFlowAlert(earnFlow)?.text,
     });
   });
 
   test("keeps missing configuration and delivery failures non-throwing", async () => {
     expect(
-      await sendLoyalStatsAumAlert(raw("100000000000"), raw("105000000000"))
+      await sendLoyalStatsEarnFlowAlert(flow("deposit", raw("5000000000")))
     ).toMatchObject({ status: "not_configured" });
 
     process.env.SLACK_STATS_WEBHOOK_URL =
@@ -89,7 +109,7 @@ describe("stats Slack AUM alerts", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     expect(
-      await sendLoyalStatsAumAlert(raw("100000000000"), raw("105000000000"))
+      await sendLoyalStatsEarnFlowAlert(flow("withdrawal", raw("5000000000")))
     ).toMatchObject({ status: "failed" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

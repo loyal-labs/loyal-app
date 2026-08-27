@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 
-import { loadLoyalStats } from "@/lib/telegram/bot-api/stats-command.server";
 import {
+  loadFinalizedEarnFlows,
+  loadLoyalStats,
+} from "@/lib/telegram/bot-api/stats-command.server";
+import {
+  advanceLoyalStatsEarnFlowCursor,
   loadLoyalStatsSnapshotForRefresh,
   upsertLoyalStatsSnapshot,
 } from "@/lib/telegram/bot-api/stats-persistence.server";
-import { sendLoyalStatsAumAlert } from "@/lib/telegram/bot-api/stats-slack-alert.server";
+import { sendLoyalStatsEarnFlowAlert } from "@/lib/telegram/bot-api/stats-slack-alert.server";
 
 import { validateCronAuthHeader } from "../_shared/auth";
 
@@ -39,37 +43,50 @@ export async function POST(request: Request): Promise<NextResponse> {
     const refreshedAt = new Date();
     await upsertLoyalStatsSnapshot(stats, refreshedAt);
 
-    const slackAlert = previousStats
-      ? await sendLoyalStatsAumAlert(
-          previousStats.totalAumRaw,
-          stats.totalAumRaw
-        )
-      : { status: "skipped_no_previous_snapshot" as const };
+    const flowBatch = await loadFinalizedEarnFlows(
+      previousStats?.lastEarnFlowEventId ?? null,
+      previousStats?.refreshedAt ?? null
+    );
+    let flowAlertStatus: "caught_up" | "failed" | "not_configured" =
+      "caught_up";
+    let processedFlowCount = 0;
 
-    if (slackAlert.status === "failed") {
-      console.error("[cron/telegram-stats] Slack AUM alert failed", {
-        currentAumRaw: slackAlert.alert.currentAumRaw.toString(),
-        deltaRaw: slackAlert.alert.deltaRaw.toString(),
-      });
-    } else if (slackAlert.status === "not_configured") {
-      console.error("[cron/telegram-stats] Slack AUM alert is not configured", {
-        currentAumRaw: slackAlert.alert.currentAumRaw.toString(),
-        deltaRaw: slackAlert.alert.deltaRaw.toString(),
-      });
+    if (flowBatch.flows.length === 0) {
+      await advanceLoyalStatsEarnFlowCursor(flowBatch.cursor);
+    }
+
+    for (const flow of flowBatch.flows) {
+      const delivery = await sendLoyalStatsEarnFlowAlert(flow);
+      if (
+        delivery.status === "failed" ||
+        delivery.status === "not_configured"
+      ) {
+        flowAlertStatus = delivery.status;
+        console.error("[cron/telegram-stats] Slack Earn flow alert blocked", {
+          eventId: flow.eventId.toString(),
+          status: delivery.status,
+        });
+        break;
+      }
+
+      await advanceLoyalStatsEarnFlowCursor(flow.eventId);
+      processedFlowCount += 1;
     }
 
     const elapsedMs = Date.now() - startedAt;
     console.info("[cron/telegram-stats] Snapshot refreshed", {
       elapsedMs,
+      flowAlertStatus,
+      processedFlowCount,
       refreshedAt: refreshedAt.toISOString(),
-      slackAlertStatus: slackAlert.status,
     });
 
     return NextResponse.json({
       elapsedMs,
+      flowAlertStatus,
       ok: true,
+      processedFlowCount,
       refreshedAt: refreshedAt.toISOString(),
-      slackAlertStatus: slackAlert.status,
     });
   } catch (error) {
     const elapsedMs = Date.now() - startedAt;

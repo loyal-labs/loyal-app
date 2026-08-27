@@ -130,6 +130,27 @@ type YieldStatsRow = {
   unique_earn_users: string | number | bigint | null;
 };
 
+type EarnFlowRow = {
+  amount_raw: string | number | bigint | null;
+  event_id: string | number | bigint | null;
+  event_type: string | null;
+  signature: string | null;
+  wallet_address: string | null;
+};
+
+export type FinalizedEarnFlow = {
+  amountRaw: bigint;
+  direction: "deposit" | "withdrawal";
+  eventId: bigint;
+  signature: string;
+  walletAddress: string;
+};
+
+export type FinalizedEarnFlowBatch = {
+  cursor: bigint;
+  flows: FinalizedEarnFlow[];
+};
+
 export type LoyalStatsRefresh = LoyalStats & {
   activeAutodepositPolicies: number;
   activePrincipalRaw: bigint;
@@ -176,6 +197,98 @@ function parseCountMetric(
     throw new Error(`Invalid ${label} returned by Yield Neon`);
   }
   return parsed;
+}
+
+function parseEarnFlowRow(row: EarnFlowRow): FinalizedEarnFlow {
+  const isDeposit =
+    row.event_type === "deposit_initialized" ||
+    row.event_type === "deposit_top_up";
+  const isWithdrawal =
+    row.event_type === "withdrawal_partial" ||
+    row.event_type === "withdrawal_full";
+  if ((!isDeposit && !isWithdrawal) || !row.signature || !row.wallet_address) {
+    throw new Error("Invalid finalized Earn flow returned by Yield Neon");
+  }
+
+  return {
+    amountRaw: parseRawMetric(row.amount_raw, "finalized Earn flow amount"),
+    direction: isDeposit ? "deposit" : "withdrawal",
+    eventId: parseRawMetric(row.event_id, "finalized Earn flow event ID"),
+    signature: row.signature,
+    walletAddress: row.wallet_address,
+  };
+}
+
+export async function loadFinalizedEarnFlows(
+  afterEventId: bigint | null,
+  bootstrapAfter: Date | null = null
+): Promise<FinalizedEarnFlowBatch> {
+  const sql = getYieldNeonSql();
+  let cursor = afterEventId;
+
+  if (cursor === null) {
+    const rows = bootstrapAfter
+      ? ((await sql`
+          SELECT COALESCE(MAX(id), 0)::text AS event_id
+          FROM loyal_yield.user_yield_position_holding_events
+          WHERE event_type IN (
+            'deposit_initialized',
+            'deposit_top_up',
+            'withdrawal_partial',
+            'withdrawal_full'
+          )
+            AND created_at <= ${bootstrapAfter.toISOString()}::timestamptz
+        `) as { event_id: string | number | bigint | null }[])
+      : ((await sql`
+          SELECT COALESCE(MAX(id), 0)::text AS event_id
+          FROM loyal_yield.user_yield_position_holding_events
+          WHERE event_type IN (
+            'deposit_initialized',
+            'deposit_top_up',
+            'withdrawal_partial',
+            'withdrawal_full'
+          )
+        `) as { event_id: string | number | bigint | null }[]);
+    cursor = parseRawMetric(rows[0]?.event_id, "latest Earn flow event ID");
+    if (bootstrapAfter === null) {
+      return { cursor, flows: [] };
+    }
+  }
+
+  const rows = (await sql`
+    SELECT
+      event.id::text AS event_id,
+      event.event_type::text AS event_type,
+      event.source_signature AS signature,
+      position.wallet_address,
+      CASE
+        WHEN event.event_type IN ('deposit_initialized', 'deposit_top_up')
+          THEN deposit.principal_amount_raw
+        ELSE withdrawal.withdrawn_amount_raw
+      END::text AS amount_raw
+    FROM loyal_yield.user_yield_position_holding_events AS event
+    INNER JOIN loyal_yield.user_yield_positions AS position
+      ON position.id = event.position_id
+    LEFT JOIN loyal_yield.user_yield_position_deposits AS deposit
+      ON deposit.id = event.source_deposit_id
+    LEFT JOIN loyal_yield.user_yield_position_withdrawals AS withdrawal
+      ON withdrawal.id = event.source_withdrawal_id
+    WHERE event.id > ${cursor.toString()}::bigint
+      AND event.event_type IN (
+        'deposit_initialized',
+        'deposit_top_up',
+        'withdrawal_partial',
+        'withdrawal_full'
+      )
+    ORDER BY event.id ASC
+    LIMIT 100
+  `) as EarnFlowRow[];
+  const flows = rows.map(parseEarnFlowRow);
+
+  return {
+    cursor: flows.at(-1)?.eventId ?? cursor,
+    flows,
+  };
 }
 
 function parseAumSeries(value: unknown): LoyalStatsRefresh["earnAumSeries"] {
