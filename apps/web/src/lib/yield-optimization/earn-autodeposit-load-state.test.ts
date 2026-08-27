@@ -236,11 +236,15 @@ function createFloorUpdateClient({
 }
 
 function createBootstrapClient({
+  conflictingEvent = null,
+  eventInserted = true,
   existingLot = null,
   existingProjection = [],
   insertedLot,
   scheduledSweep,
 }: {
+  conflictingEvent?: unknown | null;
+  eventInserted?: boolean;
   existingLot?: unknown | null;
   existingProjection?: unknown[];
   insertedLot?: unknown;
@@ -250,24 +254,19 @@ function createBootstrapClient({
   const executeSql: string[] = [];
   const insertValues: Record<string, unknown>[] = [];
   const slotId = BigInt(42);
-  let selectCallCount = 0;
-  const selectQuery = {
-    from() {
-      return selectQuery;
-    },
-    limit() {
-      selectCallCount += 1;
-      if (selectCallCount === 1) {
-        return existingProjection;
-      }
-      if (selectCallCount === 2) {
-        return existingLot ? [existingLot] : [];
-      }
-      return [];
-    },
-    where() {
-      return selectQuery;
-    },
+  const createSelectQuery = (rows: unknown[]) => {
+    const selectQuery = {
+      from() {
+        return selectQuery;
+      },
+      limit() {
+        return rows;
+      },
+      where() {
+        return selectQuery;
+      },
+    };
+    return selectQuery;
   };
   const insertQuery = {
     onConflictDoNothing() {
@@ -279,6 +278,9 @@ function createBootstrapClient({
     returning() {
       if (insertValues.length === 1) {
         return [insertValues[0]];
+      }
+      if (insertValues.length === 2 && eventInserted) {
+        return [insertValues[1]];
       }
       if (insertValues.length === 3 && insertedLot) {
         return [insertedLot];
@@ -304,8 +306,16 @@ function createBootstrapClient({
         insert() {
           return insertQuery;
         },
-        select() {
-          return selectQuery;
+        select(fields?: Record<string, unknown>) {
+          if (!fields || "amountRaw" in fields) {
+            return createSelectQuery(existingProjection);
+          }
+          if ("source" in fields && "targetId" in fields) {
+            return createSelectQuery(
+              conflictingEvent ? [conflictingEvent] : []
+            );
+          }
+          return createSelectQuery(existingLot ? [existingLot] : []);
         },
       },
     },
@@ -1457,6 +1467,94 @@ describe("Earn autodeposit load state", () => {
       sourceEventId: BigInt(-11),
       status: "open",
       targetId: BigInt(11),
+    });
+  });
+
+  test("legacy mobile setup cannot attach a bootstrap lot to a retained routing event", async () => {
+    const { scheduleBootstrapEarnAutodepositSweep } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const { client, getInsertValues } = createBootstrapClient({
+      conflictingEvent: {
+        source: "laserstream_autodeposit_activation",
+        targetId: BigInt(1),
+      },
+      eventInserted: false,
+    });
+
+    await expect(
+      scheduleBootstrapEarnAutodepositSweep(
+        {
+          snapshot: {
+            accountDataHash: "hash",
+            amountRaw: BigInt(1_000_000_000),
+            mint: "mint",
+            observedAt: new Date("2026-06-16T00:00:00.000Z"),
+            observedSlot: BigInt(500),
+            owner: "wallet",
+            source: "app_autodeposit_setup_confirm",
+            sourceCommitment: "confirmed",
+          },
+          target: createRecord({
+            id: BigInt(2),
+            walletBalanceFloorRaw: BigInt(500_000_000),
+          }) as never,
+        },
+        {
+          client,
+          now: () => new Date("2026-06-16T00:05:00.000Z"),
+        } as never
+      )
+    ).rejects.toThrow(
+      "Autodeposit bootstrap event ID -2 for target 2 conflicts with target 1 from laserstream_autodeposit_activation."
+    );
+    expect(getInsertValues()).toHaveLength(2);
+  });
+
+  test("legacy mobile reconciliation can reuse its App-owned bootstrap event", async () => {
+    const { scheduleBootstrapEarnAutodepositSweep } = await import(
+      "./earn-autodeposit-repository.server"
+    );
+    const { client } = createBootstrapClient({
+      conflictingEvent: {
+        source: "mobile_autodeposit_artifact_reconcile",
+        targetId: BigInt(2),
+      },
+      eventInserted: false,
+      existingLot: {
+        id: BigInt(41),
+        scheduledSlotId: BigInt(42),
+        status: "suppressed",
+        targetId: BigInt(2),
+      },
+    });
+
+    const result = await scheduleBootstrapEarnAutodepositSweep(
+      {
+        snapshot: {
+          accountDataHash: "hash",
+          amountRaw: BigInt(1_000_000_000),
+          mint: "mint",
+          observedAt: new Date("2026-06-16T00:00:00.000Z"),
+          observedSlot: BigInt(500),
+          owner: "wallet",
+          source: "app_autodeposit_setup_confirm",
+          sourceCommitment: "confirmed",
+        },
+        target: createRecord({
+          id: BigInt(2),
+          walletBalanceFloorRaw: BigInt(500_000_000),
+        }) as never,
+      },
+      {
+        client,
+        now: () => new Date("2026-06-16T00:05:00.000Z"),
+      } as never
+    );
+
+    expect(result).toEqual({
+      reason: "bootstrap_sweep_already_closed",
+      status: "skipped",
     });
   });
 
