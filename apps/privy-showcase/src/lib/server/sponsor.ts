@@ -74,6 +74,13 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1_000;
 const SESSION_TTL_MS = 60 * 60 * 1_000;
 const POLICY_SETUP_WALLET_SOL_FLOOR_LAMPORTS = 100_000_000;
 const KAMINO_SETUP_MAX_SPONSOR_DEBIT_LAMPORTS = 30_000_000;
+/** A fresh Kamino position needs three setup stages, and the vaults client
+ *  prepares exactly one per call: the vault's user metadata, then the
+ *  obligation, then the farm user state for the reserve's collateral farm.
+ *  Kamino Main's USDC reserve does carry a collateral farm, so every new
+ *  wallet reaches the third stage. The bound stays tight rather than open
+ *  ended so a stage that never lands cannot drain the sponsor. */
+const KAMINO_SETUP_MAX_STAGES = 3;
 export const DEMO_SESSION_COOKIE = "loyal_privy_demo_session";
 
 /** The sponsor's own RPC. When DEMO_SERVER_RPC_URL is mounted (a keyed
@@ -1080,7 +1087,11 @@ export async function executeDemoMove(args: {
       settings,
     });
     const supportingSignatures: string[] = [];
-    for (let setupAttempt = 0; move.setupPrepared && setupAttempt < 2; setupAttempt += 1) {
+    for (
+      let setupAttempt = 0;
+      move.setupPrepared && setupAttempt < KAMINO_SETUP_MAX_STAGES;
+      setupAttempt += 1
+    ) {
       const setupLatest = await args.connection.getLatestBlockhash("finalized");
       const setupTransaction = compilePreparedOperation({
         blockhash: setupLatest.blockhash,
@@ -1112,7 +1123,9 @@ export async function executeDemoMove(args: {
       });
     }
     if (move.setupPrepared) {
-      throw new Error("Kamino setup did not converge after two finalized stages.");
+      throw new Error(
+        `Kamino setup did not converge after ${KAMINO_SETUP_MAX_STAGES} finalized stages.`
+      );
     }
     const latest = await args.connection.getLatestBlockhash("finalized");
     const transaction = compilePreparedOperation({
