@@ -4,14 +4,17 @@ import { PublicKey } from "@solana/web3.js";
 
 export const DEMO_CLUSTER = LoyalCluster.MainnetBeta;
 export const DEMO_CLUSTER_NAME = "mainnet-beta" as const;
-export const MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" as const;
+export const MAINNET_GENESIS_HASH =
+  "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" as const;
 export const SQUADS_PROGRAM_ID = PROGRAM_ID;
 export const CANONICAL_USDC_MINT = new PublicKey(
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
 export const EARN_VAULT_INDEX = 1;
-export const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
-export const DEFAULT_WS_URL = "wss://api.mainnet-beta.solana.com";
+export const DEFAULT_RPC_URL =
+  "https://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
+export const DEFAULT_WS_URL =
+  "wss://guendolen-nvqjc4-fast-mainnet.helius-rpc.com";
 
 export function assertMainnetRpcUrl(value: string): string {
   const lower = value.toLowerCase();
@@ -27,13 +30,9 @@ export function assertMainnetRpcUrl(value: string): string {
 }
 
 export function getPublicRpcUrl(): string {
-  return assertMainnetRpcUrl(
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? DEFAULT_RPC_URL
-  );
+  return assertMainnetRpcUrl(DEFAULT_RPC_URL);
 }
 
 export function getPublicWsUrl(): string {
-  return assertMainnetRpcUrl(
-    process.env.NEXT_PUBLIC_SOLANA_WS_URL ?? DEFAULT_WS_URL
-  );
+  return assertMainnetRpcUrl(DEFAULT_WS_URL);
 }

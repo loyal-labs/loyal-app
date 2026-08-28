@@ -5,12 +5,23 @@ import {
   pda,
   type PreparedLoyalSmartAccountsOperation,
 } from "@loyal-labs/loyal-smart-accounts";
-import type { WalletAdapterLike } from "@loyal-labs/smart-account-vaults";
-import { sendPreparedWithWallet } from "@loyal-labs/smart-account-vaults";
-import { Connection, PublicKey } from "@solana/web3.js";
-import { findSmartAccountsForSigner } from "./discovery";
+import {
+  freezePreparedOperation,
+} from "@loyal-labs/loyal-smart-accounts-core";
+import { Buffer } from "buffer";
+import { Connection, PublicKey, TransactionInstruction } from "@solana/web3.js";
+import bs58 from "bs58";
 import { SQUADS_PROGRAM_ID } from "./constants";
-import { waitForFinalized } from "./rpc";
+
+const MEMO_PROGRAM_ID = new PublicKey(
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
+);
+const CREATION_APPROVAL_MEMO =
+  "Privy Loyal demo: create sponsored smart account";
+// The deployed Settings layout has one variable-width COption before signers.
+// Its canonical encodings therefore place the first signer at 92 (None) or
+// 124 (Some). Do not add a dataSize filter: accounts may be overallocated.
+const CANONICAL_SETTINGS_SIGNER_OFFSETS = [92, 124] as const;
 
 export type PreparedSmartAccountCreation = {
   accountIndex: bigint;
@@ -18,32 +29,52 @@ export type PreparedSmartAccountCreation = {
   prepared: PreparedLoyalSmartAccountsOperation<string>;
 };
 
-export function shouldReprepareCreation(args: {
-  error: unknown;
-  attempt: number;
-  maxAttempts: number;
-}): boolean {
-  const mayHaveSubmitted = Boolean(
-    args.error &&
-      typeof args.error === "object" &&
-      (args.error as { transactionWasSubmitted?: unknown })
-        .transactionWasSubmitted
-  );
-  const message =
-    args.error instanceof Error
-      ? `${args.error.name}: ${args.error.message}`.toLowerCase()
-      : String(args.error).toLowerCase();
-  const isDeterministicIndexCollision = [
-    "account already in use",
-    "accountalreadyinuse",
-    "already been allocated",
-    "settings account already exists",
-  ].some((marker) => message.includes(marker));
-  return (
-    isDeterministicIndexCollision &&
-    !mayHaveSubmitted &&
-    args.attempt + 1 < args.maxAttempts
-  );
+export type ExistingSmartAccount = {
+  accountIndex: bigint;
+  settings: PublicKey;
+  transactionIndex: bigint;
+};
+
+function decodeExactSmartAccount(args: {
+  data: Buffer;
+  owner: PublicKey;
+  pubkey: PublicKey;
+  wallet: PublicKey;
+}): ExistingSmartAccount | null {
+  if (!args.owner.equals(SQUADS_PROGRAM_ID)) return null;
+  let settings: ReturnType<typeof accounts.Settings.deserialize>[0];
+  try {
+    [settings] = accounts.Settings.deserialize(args.data);
+  } catch {
+    return null;
+  }
+  const exactRoot =
+    settings.threshold === 1 &&
+    settings.timeLock === 0 &&
+    settings.signers.length === 1 &&
+    settings.signers[0]?.key.equals(args.wallet) === true &&
+    settings.signers[0].permissions.mask === 0b111;
+  if (!exactRoot) return null;
+  return {
+    accountIndex: BigInt(settings.seed.toString()),
+    settings: args.pubkey,
+    transactionIndex: BigInt(settings.transactionIndex.toString()),
+  };
+}
+
+export async function loadExistingSmartAccount(args: {
+  connection: Connection;
+  settings: PublicKey;
+  wallet: PublicKey;
+}): Promise<ExistingSmartAccount | null> {
+  const account = await args.connection.getAccountInfo(args.settings, "finalized");
+  if (!account) return null;
+  return decodeExactSmartAccount({
+    data: account.data,
+    owner: account.owner,
+    pubkey: args.settings,
+    wallet: args.wallet,
+  });
 }
 
 export function assertCreatedSettingsBoundary(args: {
@@ -65,8 +96,65 @@ export function assertCreatedSettingsBoundary(args: {
     throw new Error("Created Settings signer permissions are incomplete.");
 }
 
+export async function findExistingSmartAccount(args: {
+  connection: Connection;
+  wallet: PublicKey;
+}): Promise<ExistingSmartAccount | null> {
+  const rowGroups = await Promise.all(
+    CANONICAL_SETTINGS_SIGNER_OFFSETS.map((signerOffset) =>
+      args.connection.getProgramAccounts(SQUADS_PROGRAM_ID, {
+        commitment: "finalized",
+        filters: [
+          {
+            memcmp: {
+              offset: 0,
+              bytes: bs58.encode(Uint8Array.from(accounts.settingsDiscriminator)),
+            },
+          },
+          {
+            memcmp: {
+              offset: signerOffset,
+              bytes: args.wallet.toBase58(),
+            },
+          },
+        ],
+      })
+    )
+  );
+  const rows = [
+    ...new Map(
+      rowGroups
+        .flat()
+        .map((row) => [row.pubkey.toBase58(), row] as const)
+    ).values(),
+  ];
+  const matches: ExistingSmartAccount[] = [];
+
+  for (const row of rows) {
+    const match = decodeExactSmartAccount({
+      data: row.account.data,
+      owner: row.account.owner,
+      pubkey: row.pubkey,
+      wallet: args.wallet,
+    });
+    if (match) matches.push(match);
+  }
+
+  // Repeated demo attempts may have created more than one valid account. Reuse
+  // the newest one deterministically instead of offering to create yet another.
+  matches.sort((a, b) =>
+    a.accountIndex === b.accountIndex
+      ? b.settings.toBase58().localeCompare(a.settings.toBase58())
+      : a.accountIndex > b.accountIndex
+        ? -1
+        : 1
+  );
+  return matches[0] ?? null;
+}
+
 export async function prepareSmartAccountCreation(args: {
   connection: Connection;
+  sponsor: PublicKey;
   wallet: PublicKey;
 }): Promise<PreparedSmartAccountCreation> {
   const client = createLoyalSmartAccountsClient({
@@ -88,87 +176,27 @@ export async function prepareSmartAccountCreation(args: {
   const prepared = await client.features.smartAccounts.prepare.create({
     programId: SQUADS_PROGRAM_ID,
     treasury: programConfig.treasury,
-    creator: args.wallet,
+    creator: args.sponsor,
     settings,
     settingsAuthority: null,
     threshold: 1,
     signers: [{ key: args.wallet, permissions: codecs.Permissions.all() }],
     timeLock: 0,
     rentCollector: null,
-    memo: "Loyal Privy compatibility showcase",
+    memo: "Loyal Privy Earn demo",
   });
-  return { accountIndex, settings, prepared };
-}
-
-export async function createSmartAccountWithCollisionRecovery(args: {
-  connection: Connection;
-  wallet: WalletAdapterLike;
-  maxAttempts?: number;
-}): Promise<{
-  settings: PublicKey;
-  signature: string | null;
-  discovered: boolean;
-}> {
-  const existing = await findSmartAccountsForSigner(
-    args.connection,
-    args.wallet.publicKey
-  );
-  const eligibleExisting = existing.find((account) => account.eligible);
-  if (eligibleExisting)
-    return {
-      settings: eligibleExisting.settings,
-      signature: null,
-      discovered: true,
-    };
-
-  const maxAttempts = args.maxAttempts ?? 2;
-  let lastError: unknown;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const creation = await prepareSmartAccountCreation({
-      connection: args.connection,
-      wallet: args.wallet.publicKey,
-    });
-    try {
-      const signature = await sendPreparedWithWallet({
-        connection: args.connection,
-        wallet: args.wallet,
-        prepared: creation.prepared,
-        confirm: false,
-      });
-      await waitForFinalized(args.connection, signature);
-      const settings = await accounts.Settings.fromAccountAddress(
-        args.connection,
-        creation.settings,
-        "finalized"
-      );
-      assertCreatedSettingsBoundary({
-        wallet: args.wallet.publicKey,
-        threshold: settings.threshold,
-        timeLock: settings.timeLock,
-        signers: settings.signers.map((signer) => ({
-          key: signer.key,
-          permissionMask: signer.permissions.mask,
-        })),
-      });
-      return { settings: creation.settings, signature, discovered: false };
-    } catch (error) {
-      lastError = error;
-      const rescanned = await findSmartAccountsForSigner(
-        args.connection,
-        args.wallet.publicKey
-      );
-      const eligibleRescan = rescanned.find((account) => account.eligible);
-      if (eligibleRescan)
-        return {
-          settings: eligibleRescan.settings,
-          signature: null,
-          discovered: true,
-        };
-      if (!shouldReprepareCreation({ error, attempt, maxAttempts }))
-        throw error;
-      // A global Settings index may have been consumed between prepare and send.
-      // Re-read ProgramConfig and build a fresh transaction; never replay bytes.
-    }
-  }
-  throw lastError;
+  const approval = new TransactionInstruction({
+    programId: MEMO_PROGRAM_ID,
+    keys: [{ pubkey: args.wallet, isSigner: true, isWritable: false }],
+    data: Buffer.from(CREATION_APPROVAL_MEMO, "utf8"),
+  });
+  return {
+    accountIndex,
+    settings,
+    prepared: freezePreparedOperation({
+      ...prepared,
+      payer: args.sponsor,
+      instructions: [...prepared.instructions, approval],
+    }),
+  };
 }

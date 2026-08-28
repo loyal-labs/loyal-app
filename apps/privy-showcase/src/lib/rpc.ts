@@ -12,9 +12,37 @@ import {
   MAINNET_GENESIS_HASH,
 } from "./constants";
 
+/** The keyless shared endpoint throttles bursts with 429s, and browsers
+ *  report those as opaque CORS failures because the 429 carries no
+ *  Access-Control-Allow-Origin header. Retry with backoff instead of
+ *  surfacing "Failed to fetch" for a transient throttle. */
+export const fetchWithBackoff = (async (input, init) => {
+  let delayMs = 500;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const response = await fetch(input as RequestInfo, init);
+      if (response.status !== 429 || attempt >= 3) return response;
+    } catch (error) {
+      if (attempt >= 3) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    delayMs *= 2;
+  }
+}) as typeof fetch;
+
 export function createMainnetConnection(): Connection {
-  return new Connection(getPublicRpcUrl(), {
+  // Browsers speak JSON-RPC to the same-origin proxy, which forwards to the
+  // server's RPC; direct browser calls to the shared endpoint hit CORS and
+  // rate limits. WebSocket subscriptions stay direct: they are exempt from
+  // CORS and cannot be proxied through a Next route. Node contexts (the
+  // sponsor, tests, the verifier) keep the direct URL.
+  const url =
+    typeof window === "undefined"
+      ? getPublicRpcUrl()
+      : new URL("/api/rpc", window.location.origin).toString();
+  return new Connection(url, {
     commitment: "finalized",
+    fetch: fetchWithBackoff,
     wsEndpoint: getPublicWsUrl(),
   });
 }
@@ -30,9 +58,10 @@ export async function assertMainnetConnection(
   }
 }
 
-export async function waitForFinalized(
+export async function waitForCommitment(
   connection: Connection,
   signature: string,
+  target: "confirmed" | "finalized",
   timeoutMs = 90_000
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -45,12 +74,25 @@ export async function waitForFinalized(
       throw new Error(
         `Transaction ${signature} failed: ${JSON.stringify(status.err)}`
       );
-    if (status?.confirmationStatus === "finalized") return;
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    if (
+      status?.confirmationStatus === "finalized" ||
+      status?.confirmationStatus === target
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   throw new Error(
-    `Transaction ${signature} did not finalize within ${timeoutMs}ms.`
+    `Transaction ${signature} did not reach ${target} within ${timeoutMs}ms.`
   );
+}
+
+export async function waitForFinalized(
+  connection: Connection,
+  signature: string,
+  timeoutMs = 90_000
+): Promise<void> {
+  return waitForCommitment(connection, signature, "finalized", timeoutMs);
 }
 
 export function createPrivyWalletAdapter(args: {
