@@ -6,6 +6,7 @@ import {
   applyEarnRpcSnapshotToPosition,
   calculateWeightedEarnApyBps,
   isActiveEarnPosition,
+  resolveFailedEarnPositionLoad,
 } from "./use-active-earn-position";
 
 function holding(
@@ -106,5 +107,51 @@ describe("multi-source Earn portfolio state", () => {
 
     expect(updated?.principalAmountRaw).toBe("100000000");
     expect(updated?.currentTotalAmountRaw).toBe("101000000");
+  });
+
+  test("does not resolve an empty-cache RPC failure as a zero balance", () => {
+    const firstFailure = resolveFailedEarnPositionLoad({
+      attempt: 0,
+      cachedPosition: null,
+      confirmedPosition: null,
+      currentPosition: null,
+    });
+    const finalFailure = resolveFailedEarnPositionLoad({
+      attempt: 1,
+      cachedPosition: null,
+      confirmedPosition: null,
+      currentPosition: null,
+    });
+
+    expect(firstFailure.kind).toBe("retry");
+    expect(finalFailure.kind).toBe("unresolved");
+  });
+
+  test("preserves trustworthy position data when the live RPC read fails", () => {
+    const cachedPosition = {
+      currentTotalAmountRaw: "100000000",
+      status: "active",
+    } as ActiveEarnPosition;
+    const confirmedPosition = {
+      currentTotalAmountRaw: "110000000",
+      status: "active",
+    } as ActiveEarnPosition;
+
+    expect(
+      resolveFailedEarnPositionLoad({
+        attempt: 0,
+        cachedPosition,
+        confirmedPosition: null,
+        currentPosition: null,
+      }).kind
+    ).toBe("preserve-existing");
+    expect(
+      resolveFailedEarnPositionLoad({
+        attempt: 0,
+        cachedPosition,
+        confirmedPosition,
+        currentPosition: null,
+      })
+    ).toEqual({ kind: "confirmed", position: confirmedPosition });
   });
 });

@@ -232,6 +232,28 @@ function getEarnPositionSourceSignature(
     .join("|");
 }
 
+export function resolveFailedEarnPositionLoad(args: {
+  attempt: number;
+  cachedPosition: ActiveEarnPosition | null;
+  confirmedPosition: ActiveEarnPosition | null | undefined;
+  currentPosition: ActiveEarnPosition | null;
+}):
+  | { kind: "confirmed"; position: ActiveEarnPosition }
+  | { kind: "preserve-existing" }
+  | { kind: "retry" }
+  | { kind: "unresolved" } {
+  if (args.confirmedPosition) {
+    return { kind: "confirmed", position: args.confirmedPosition };
+  }
+  if (args.cachedPosition ?? args.currentPosition) {
+    return { kind: "preserve-existing" };
+  }
+  if (args.attempt + 1 < EARN_POSITION_INITIAL_LOAD_MAX_ATTEMPTS) {
+    return { kind: "retry" };
+  }
+  return { kind: "unresolved" };
+}
+
 function shouldRequestPositionReconciliation(args: {
   base: ActiveEarnPosition | null;
   rpc: ActiveEarnPosition | null;
@@ -775,17 +797,23 @@ export function useActiveEarnPosition({
           "[earn-position] failed to load live active position",
           error
         );
-        if (confirmedPosition) {
-          commitConfirmedPosition(confirmedPosition);
+        const resolution = resolveFailedEarnPositionLoad({
+          attempt,
+          cachedPosition: cached,
+          confirmedPosition,
+          currentPosition: positionRef.current,
+        });
+        if (resolution.kind === "confirmed") {
+          commitConfirmedPosition(resolution.position);
           return;
         }
-        if (cached ?? positionRef.current) {
+        if (resolution.kind === "preserve-existing") {
           setHasResolved(true);
           setIsLoading(false);
           return;
         }
         setHasResolved(false);
-        if (attempt + 1 < EARN_POSITION_INITIAL_LOAD_MAX_ATTEMPTS) {
+        if (resolution.kind === "retry") {
           setIsLoading(true);
           retryTimer = setTimeout(() => {
             retryTimer = null;
