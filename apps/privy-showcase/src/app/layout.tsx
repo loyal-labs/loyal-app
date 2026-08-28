@@ -1,17 +1,19 @@
+import { GeistMono } from "geist/font/mono";
+import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Privy × Loyal — Smart Account Autodeposit",
+  title: "Loyal × Privy — Make money move itself",
   description:
-    "Mainnet compatibility showcase for Privy embedded Solana wallets and Loyal/Squads smart accounts.",
+    "One-time setup, four on-chain rules, zero further signatures: USDC routes itself between a Privy wallet, a Loyal smart account, and Kamino yield.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html className={`${GeistSans.variable} ${GeistMono.variable}`} lang="en">
       <body>
         <Providers>{children}</Providers>
       </body>

@@ -10,20 +10,21 @@ export function Providers({ children }: { children: ReactNode }) {
   if (!appId) {
     return (
       <main>
-        <header>
-          <div>
-            <span className="eyebrow">PRIVY × LOYAL</span>
-            <h1>Configuration required.</h1>
+        <section className="hero">
+          <div className="shell">
+            <header className="hero-grid">
+              <div>
+                <span className="eyebrow">Loyal × Privy</span>
+                <h1>Configuration required</h1>
+                <p className="lede">
+                  Mount <code>NEXT_PUBLIC_PRIVY_APP_ID</code> through 1Password,
+                  then restart the demo. No credential should be written to a
+                  tracked env file.
+                </p>
+              </div>
+            </header>
           </div>
-          <div className="network">
-            <i /> Solana mainnet-beta
-          </div>
-        </header>
-        <p className="lede">
-          Mount <code>NEXT_PUBLIC_PRIVY_APP_ID</code> through 1Password, then
-          restart the demo. No credential should be written to a tracked env
-          file.
-        </p>
+        </section>
       </main>
     );
   }
@@ -34,11 +35,12 @@ export function Providers({ children }: { children: ReactNode }) {
       config={{
         loginMethods: ["email"],
         appearance: {
-          walletChainType: "solana-only",
+          walletChainType: "ethereum-and-solana",
           showWalletLoginFirst: false,
         },
         embeddedWallets: {
-          solana: { createOnLogin: "users-without-wallets" },
+          ethereum: { createOnLogin: "all-users" },
+          solana: { createOnLogin: "all-users" },
         },
         solana: {
           rpcs: {

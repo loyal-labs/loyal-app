@@ -422,6 +422,18 @@ export type SmartAccountUseSpendingLimitInput = {
   memo?: string;
 };
 
+export type SmartAccountUseTokenSpendingLimitInput = {
+  settingsPda: PublicKey;
+  feePayer: PublicKey;
+  signer: PublicKey;
+  spendingLimitPolicy: PublicKey;
+  mint: PublicKey;
+  destination: PublicKey;
+  amountRaw: bigint;
+  decimals: number;
+  memo?: string;
+};
+
 export type SmartAccountEarnUsdcReserveTargetInput = {
   reserve: PublicKey;
   market: PublicKey;
@@ -432,6 +444,15 @@ export type SmartAccountEarnUsdcReserveTargetInput = {
   reserveLiquiditySupply?: PublicKey;
 };
 
+/**
+ * The default policy universe is intentionally unchanged. The Main market
+ * scope is an explicit opt-in for flows that must not authorize any other
+ * Kamino market or stablecoin.
+ */
+export type SmartAccountEarnPolicyScope =
+  | "default"
+  | "kamino_main_usdc";
+
 export type SmartAccountEarnUsdcDepositInput = {
   settingsPda: PublicKey;
   walletAddress: PublicKey;
@@ -439,6 +460,7 @@ export type SmartAccountEarnUsdcDepositInput = {
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
+  policyScope?: SmartAccountEarnPolicyScope;
   target?: SmartAccountEarnUsdcReserveTargetInput;
   initializeYieldRoutingPolicy?: boolean;
   yieldRoutingPolicy?: {
@@ -466,6 +488,7 @@ export type SmartAccountEarnUsdcYieldRoutingPolicyInput = {
   signer: PublicKey;
   feePayer: PublicKey;
   cluster?: LoyalCluster;
+  policyScope?: SmartAccountEarnPolicyScope;
   target?: SmartAccountEarnUsdcReserveTargetInput;
   memo?: string;
 };
@@ -529,15 +552,7 @@ export type SmartAccountEarnCrossMintSwapPoliciesInput = {
   feePayer: PublicKey;
   maxSlippageBps: number;
   dailySourceMintSpendingCap: bigint;
-  projectedPolicies?: readonly SmartAccountEarnCrossMintProjectedPolicyInput[];
   cluster?: LoyalCluster;
-};
-
-export type SmartAccountEarnCrossMintProjectedPolicyInput = {
-  account: PublicKey;
-  lastSeenSlot?: bigint;
-  seed: bigint;
-  sourceShard: "classic" | "token_2022";
 };
 
 export type SmartAccountEarnCrossMintSwapPolicyMetadata = {
@@ -700,6 +715,7 @@ type SmartAccountEarnUsdcWithdrawBaseInput = {
   feePayer: PublicKey;
   amountRaw: bigint;
   cluster?: LoyalCluster;
+  policyScope?: SmartAccountEarnPolicyScope;
   closePoliciesOnFullWithdrawal?: boolean;
   source?:
     | {
@@ -1126,6 +1142,39 @@ export type SmartAccountEarnUsdcAutodepositPullMetadata = {
   subscriptionAuthority: string;
   walletUsdcAta: string;
   vaultUsdcAta: string;
+};
+
+export type SmartAccountEarnUsdcKaminoExecutionInput = {
+  settingsPda: PublicKey;
+  policy: PublicKey;
+  /** Optional init-obligation policy for a first delegated deposit. */
+  setupPolicy?: PublicKey;
+  policySigner: PublicKey;
+  feePayer: PublicKey;
+  amountRaw: bigint;
+  cluster?: LoyalCluster;
+  target?: SmartAccountEarnUsdcReserveTargetInput;
+  memo?: string;
+};
+
+export type SmartAccountPreparedEarnUsdcKaminoExecution = {
+  prepared: PreparedLoyalSmartAccountsOperation<string>;
+  setupPrepared?: PreparedLoyalSmartAccountsOperation<string> | null;
+  policy: PublicKey;
+  setupPolicy?: PublicKey | null;
+  vault: {
+    accountIndex: 1;
+    pubkey: PublicKey;
+    usdcAta: PublicKey;
+    collateralAta: PublicKey | null;
+  };
+  target: {
+    market: PublicKey;
+    reserve: PublicKey;
+    liquidityMint: PublicKey;
+    liquidityTokenProgram: PublicKey;
+    obligation: PublicKey;
+  };
 };
 
 export type SmartAccountPreparedEarnUsdcAutodepositPull = {

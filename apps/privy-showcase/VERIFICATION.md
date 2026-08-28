@@ -1,21 +1,133 @@
-# Verification status
+# Privy Earn demo — verifier-first contract
 
-Last verified: 2026-08-04 (America/Los_Angeles)
+This demo has one deliberately small, observable state machine. It does not
+authorize arbitrary transactions, and the verifier never signs or submits one.
 
-Overall: **BLOCKED on the explicitly gated live mainnet canary.** The implementation and non-mutating verifier pass; no automated check submitted a transaction.
+## User-visible state machine
 
-1. **PASS — Workspace.** `bun install --frozen-lockfile` and `bun run --cwd examples/privy-showcase verify` pass. No production frontend build was run.
-2. **PASS — Privy implementation.** Email-only auth provisions a Solana embedded wallet, displays its address, and configures only `solana:mainnet` plus mainnet-only RPC guards.
-3. **PASS — Discovery.** Finalized `getProgramAccounts` uses the Settings discriminator, decodes variable signer arrays, lists all signer matches, and labels synchronous-demo eligibility. Malformed, wrong-owner, and signer decoding tests pass.
-4. **PASS — Creation implementation.** The client reads fresh ProgramConfig, derives the next Settings PDA, makes the Privy wallet creator/fee payer/sole all-permissions signer, waits for finalization, verifies Settings, and refuses blind replay after an ambiguous submission.
-5. **PASS — Autodeposit implementation.** All resumable setup stages run client-side; nonce/seed are persisted before signatures; canonical mainnet USDC, vault index 1, policy signer, delegation, cap, period, and expiry are verified from finalized state. The mutable wallet floor is explicitly labeled application-enforced.
-6. **PASS — Delegated sweep implementation.** Privy identity-token auth, embedded-wallet ownership, a short-lived signed finalized-state snapshot, chain rereads, canonical artifact checks, bounded amount, simulation, policy-key-only signing, finalization, and exact balance reconciliation are present. The intent fixes the blockhash and exact amount, so concurrent instances construct the same Solana transaction signature; stale or completed snapshots fail before a new send. Negative authorization, deterministic-replay, and stale-snapshot tests pass.
-7. **PASS — Withdrawal implementation.** The client exposes no destination input: vault-index-1 canonical USDC can return only to the same Privy wallet ATA. Withdraw and close-autodeposit are separate actions, with amount/destination tests.
-8. **PASS — Static safety.** Server secrets are confined to server modules, example secret values are blank, the backend key is rejected as a root signer, the API surface is limited to sweep config/challenge/execute, and automated verification contains no submission path.
-9. **BLOCKED — Live canary.** Required inputs: a Privy app ID and secret, identity tokens enabled in the Privy dashboard, a persistent backend policy key stored through 1Password, a mainnet RPC that supports `getProgramAccounts`, deliberately bounded SOL/USDC funding, and explicit approval to submit the walkthrough transactions.
+The page must make these steps explicit and keep completed steps visible:
 
-Verifier command:
+1. **Connect** — sign in with Privy and select the embedded Solana wallet.
+2. **Balance** — display finalized canonical USDC sent directly to that wallet.
+   The demo must not expose an in-app funding action.
+3. **Create smart account** — search finalized Settings accounts for the wallet
+   first; create one only when no eligible account exists. Reload finalized
+   state after creation.
+4. **Create policies** — search by Settings account and reuse only an exact
+   bundle. Create missing artifacts with the wallet as Settings authority and
+   `SMART_ACCOUNT_SPONSOR_PUBKEY` as delegated policy signer:
+
+   - one recurring-delegation autodeposit policy: wallet USDC → vault 1;
+   - one Earn route policy pinned to Kamino Main Market USDC;
+   - one Earn setup policy pinned to Kamino Main Market USDC;
+   - one USDC SpendingLimit policy: vault 1 → this wallet only.
+
+   The four items above are four physical Policy accounts. Subscription
+   authority, recurring delegation, token approval, ATAs, and Kamino obligation
+   accounts are setup artifacts, not additional policies. Any extra policy,
+   duplicate, incompatible signer, or non-Main market is a hard failure.
+
+5. **Move money** — each button sends a fixed movement request to the backend.
+   The backend authenticates the Privy wallet, reconstructs the one allowed
+   operation, signs with the delegated sponsor key, simulates with signature
+   verification, broadcasts once, waits for finalization, and reloads balances:
+
+   | Step | Fixed transition | Amount |
+   | --- | --- | ---: |
+   | A | wallet → smart account vault 1 | 2 USDC |
+   | B | smart account vault 1 → Kamino Main USDC | 2 USDC |
+   | C | Kamino Main USDC → smart account vault 1 | 1 USDC |
+   | D | smart account vault 1 → originating wallet | 1 USDC |
+
+6. **Withdraw** — beside Sign out, let the authenticated user enter another
+   Solana address and amount. Build only a canonical-USDC transfer from the
+   embedded wallet, require a Privy signature, wait for finalization, and then
+   refresh the wallet balance. This user-authorized transfer is separate from
+   the delegated backend state machine.
+
+The UI must derive and label the three actual money states from finalized chain
+data: **In wallet**, **In smart account**, and **In Kamino**. Kamino means the
+vault’s position in the canonical Main USDC reserve/collateral, not an
+unrelated token balance.
+
+## Static acceptance checks
+
+Run from the monorepo root:
 
 ```sh
-bun run --cwd examples/privy-showcase verify
+bun run --cwd apps/privy-showcase verify:demo
 ```
+
+The verifier checks, at minimum:
+
+- no funding action, plus separate connect/withdraw/account/policy actions,
+  two chained scenario actions (payday sweep, just-in-time purchase) that
+  decompose into exactly the four fixed backend moves, and four explicit
+  movement actions;
+- finalized existing-account discovery before account creation;
+- idempotent policy discovery and the exact four-policy topology;
+- recurring autodeposit, Main-only Earn route/setup, and USDC wallet-exit
+  SpendingLimit implementation markers;
+- one authenticated backend route with explicit movement kinds;
+- wallet identity binding, sponsor-key environment consistency, and delegated
+  sponsor signing;
+- mainnet-beta, canonical USDC, vault index 1, and Kamino Main boundaries;
+- no browser persistence, generic sweep/replay endpoint, worker, scheduler, or
+  transaction submission primitive in the verifier itself.
+
+A passing static verifier means the requested contract is present: account
+discovery, the exact policy bundle, the three balance projections, and the
+four backend movement transitions. Without the mounted 1Password environment
+the live section reports `BLOCKED`, which is the expected local result.
+
+## Finalized walkthrough evidence
+
+After an explicitly approved walkthrough, run the same command with all values
+below. Values are public addresses/signatures; never pass a private key:
+
+```sh
+bun run --cwd apps/privy-showcase verify:demo -- \
+  --wallet <PRIVY_WALLET> \
+  --settings <SETTINGS_ACCOUNT> \
+  --autodeposit-policy <POLICY> \
+  --earn-route-policy <POLICY> \
+  --earn-setup-policy <POLICY> \
+  --spending-limit-policy <POLICY> \
+  --wallet-to-smart-signature <FINALIZED_SIGNATURE> \
+  --smart-to-kamino-signature <FINALIZED_SIGNATURE> \
+  --kamino-to-smart-signature <FINALIZED_SIGNATURE> \
+  --smart-to-wallet-signature <FINALIZED_SIGNATURE>
+```
+
+The live verifier then proves:
+
+- mainnet RPC and a funded sponsor;
+- `EARN_POLICY_SPONSOR_PK` derives exactly the configured
+  `SMART_ACCOUNT_SPONSOR_PUBKEY`;
+- the wallet is the sole all-permissions Settings signer;
+- exactly the four named physical policies exist, all with the delegated
+  sponsor signer;
+- autodeposit is bounded to this wallet/vault pair, Earn route/setup include
+  only the canonical Main Market target, and the SpendingLimit is USDC vault →
+  this wallet;
+- all four signatures finalized successfully;
+- token deltas match wallet→vault (+2), vault→Kamino (-2 plus collateral),
+  Kamino→vault (+1 plus collateral reduction), and vault→wallet (+1);
+- final chain-derived wallet, vault, and Main collateral balances are
+  non-negative and the walkthrough leaves a positive Kamino position.
+
+`PASS` requires every check. `FAIL` identifies a violated contract.
+`BLOCKED` identifies missing external configuration or walkthrough evidence and
+prints the exact rerun inputs. External configuration is supplied through the
+mounted 1Password environment; the verifier does not authorize transactions.
+
+## Implementation order
+
+1. Implement finalized account discovery/create and reload.
+2. Implement exact policy discovery/create, including delegated signer and
+   USDC SpendingLimit.
+3. Implement three balance reads and the four backend movement transitions.
+4. Make the UI copy explain the source, destination, amount, signer/fee model,
+   and resulting money state for every button.
+5. Run lint/typecheck/tests through `verify:demo`, then collect one approved
+   finalized walkthrough and rerun the live verifier.

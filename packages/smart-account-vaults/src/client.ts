@@ -27,6 +27,7 @@ import {
   SUBSCRIPTION_TRANSFER_DELEGATOR_OFFSET,
   SUBSCRIPTION_TRANSFER_MINT_OFFSET,
   KAMINO_USER_METADATA_SEED,
+  KAMINO_INIT_OBLIGATION_DISCRIMINATOR,
   KAMINO_VANILLA_OBLIGATION_ID,
   KAMINO_VANILLA_OBLIGATION_TAG,
   JUPITER_SHARED_ACCOUNTS_ROUTE_V2_DISCRIMINATOR,
@@ -129,9 +130,11 @@ import type {
   SmartAccountEarnUsdcAutodepositSetupAccountEvidence,
   SmartAccountEarnUsdcAutodepositPullInput,
   SmartAccountEarnUsdcAutodepositSetupInput,
+  SmartAccountEarnPolicyScope,
   SmartAccountCustomInstructionProposalInput,
   SmartAccountEarnUsdcCleanupInput,
   SmartAccountEarnUsdcDepositInput,
+  SmartAccountEarnUsdcKaminoExecutionInput,
   SmartAccountEarnVaultRefundInput,
   SmartAccountEarnVaultRefundSnapshot,
   SmartAccountEarnUsdcReserveTargetInput,
@@ -149,6 +152,7 @@ import type {
   SmartAccountPreparedEarnUsdcAutodepositSetup,
   SmartAccountPreparedEarnUsdcCleanup,
   SmartAccountPreparedEarnUsdcDeposit,
+  SmartAccountPreparedEarnUsdcKaminoExecution,
   SmartAccountPreparedEarnVaultRefund,
   SmartAccountPreparedEarnUsdcWithdrawStep,
   SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
@@ -170,6 +174,7 @@ import type {
   SmartAccountTokenTransferProposalInput,
   SmartAccountTransferProposalInput,
   SmartAccountUseSpendingLimitInput,
+  SmartAccountUseTokenSpendingLimitInput,
   SmartAccountVaultSnapshot,
   SmartAccountVaultBaseSnapshot,
   SmartAccountVaultsClientConfig,
@@ -304,6 +309,9 @@ const SYSVAR_RENT_PUBKEY = new PublicKey(
   "SysvarRent111111111111111111111111111111111"
 );
 const DEFAULT_PUBKEY = PublicKey.default;
+const KAMINO_INIT_USER_METADATA_DISCRIMINATOR = Uint8Array.from([
+  117, 169, 176, 69, 197, 23, 15, 162,
+]);
 const KAMINO_DEVNET_USDC_RESERVE_LIQUIDITY_SUPPLY = new PublicKey(
   "Bh45cPkpfRvz9hAs23ye5TowsGbhbh4BXT4AGww8JfES"
 );
@@ -375,6 +383,9 @@ const KAMINO_INIT_OBLIGATION_FARMS_FOR_RESERVE_DISCRIMINATOR =
 const KAMINO_RESERVE_FARM_KIND_COLLATERAL = 0;
 const KAMINO_REFRESH_OBLIGATION_DISCRIMINATOR = [
   33, 132, 147, 228, 151, 192, 72, 89,
+] as const;
+const KAMINO_REFRESH_RESERVE_DISCRIMINATOR = [
+  2, 218, 138, 235, 79, 201, 25, 102,
 ] as const;
 
 type KaminoDepositInstructionResponse = {
@@ -491,7 +502,23 @@ function resolveKaminoEarnTarget(
   return resolvedTarget;
 }
 
-function resolveEarnPolicyUniverse(cluster: LoyalCluster): EarnPolicyUniverse {
+function resolveEarnPolicyUniverse(
+  cluster: LoyalCluster,
+  policyScope: SmartAccountEarnPolicyScope = "default",
+  target?: KaminoEarnTarget
+): EarnPolicyUniverse {
+  if (policyScope === "kamino_main_usdc") {
+    const mainTarget = target ?? resolveKaminoEarnTarget(cluster);
+    return {
+      kaminoLiquidityMints: [mainTarget.liquidityMint],
+      kaminoMarkets: [mainTarget.market],
+      riskProfile: EARN_RISK_PROFILE,
+      routeModes: EARN_ROUTE_MODES,
+      stableMints: [mainTarget.liquidityMint],
+      universePreset: "kamino_main_usdc",
+    };
+  }
+
   const stableMints = [...getStablecoinMintsForCluster(cluster)];
   return {
     kaminoLiquidityMints: stableMints,
@@ -1545,6 +1572,7 @@ function createLocalKaminoDepositInstruction(args: {
 }
 
 function createLocalKaminoInitObligationFarmsForReserveInstruction(args: {
+  feePayer?: PublicKey;
   obligation: PublicKey;
   reserveAccounts: KaminoReserveTokenAccounts;
   target: KaminoEarnTarget;
@@ -1566,7 +1594,11 @@ function createLocalKaminoInitObligationFarmsForReserveInstruction(args: {
   return new TransactionInstruction({
     programId: args.target.lendProgramId,
     keys: [
-      { pubkey: args.vaultPda, isSigner: true, isWritable: true },
+      {
+        pubkey: args.feePayer ?? args.vaultPda,
+        isSigner: true,
+        isWritable: true,
+      },
       { pubkey: args.vaultPda, isSigner: false, isWritable: false },
       { pubkey: args.obligation, isSigner: false, isWritable: true },
       { pubkey: lendingMarketAuthority, isSigner: false, isWritable: false },
@@ -2011,6 +2043,9 @@ function createEarnKaminoInstructionConstraint(args: {
 }
 
 function createEarnProgramInteractionPolicyCreationPayload(args: {
+  compactFarmSetup?: boolean;
+  includeFarmSetup?: boolean;
+  includeRefresh?: boolean;
   liquidityMintOwner?: PublicKey | null;
   target: KaminoEarnTarget;
   universe: EarnPolicyUniverse;
@@ -2035,12 +2070,68 @@ function createEarnProgramInteractionPolicyCreationPayload(args: {
     universe: args.universe,
     vaultPda: args.vaultPda,
   });
+  const farmSetupConstraint: generated.InstructionConstraint = {
+    programId: args.target.lendProgramId,
+    accountConstraints:
+      args.compactFarmSetup === false
+        ? [
+            pubkeyAccountConstraint(1, [args.vaultPda]),
+            pubkeyAccountConstraint(2, [
+              deriveKaminoVanillaObligation(
+                args.vaultPda,
+                args.target.market,
+                args.target.lendProgramId
+              ),
+            ]),
+            pubkeyAccountConstraint(4, [args.target.reserve]),
+            pubkeyAccountConstraint(7, args.universe.kaminoMarkets),
+            pubkeyAccountConstraint(8, [KAMINO_FARMS_PROGRAM_ID]),
+            pubkeyAccountConstraint(9, [SYSVAR_RENT_PUBKEY]),
+            pubkeyAccountConstraint(10, [SystemProgram.programId]),
+          ]
+        : [
+            pubkeyAccountConstraint(1, [args.vaultPda]),
+            pubkeyAccountConstraint(4, [args.target.reserve]),
+            pubkeyAccountConstraint(7, args.universe.kaminoMarkets),
+          ],
+    dataConstraints: [
+      dataSliceEquals([
+        ...KAMINO_INIT_OBLIGATION_FARMS_FOR_RESERVE_DISCRIMINATOR,
+        KAMINO_RESERVE_FARM_KIND_COLLATERAL,
+      ]),
+    ],
+  };
+  const refreshReserveConstraint: generated.InstructionConstraint = {
+    programId: args.target.lendProgramId,
+    accountConstraints: [pubkeyAccountConstraint(0, [args.target.reserve])],
+    dataConstraints: [dataSliceEquals(KAMINO_REFRESH_RESERVE_DISCRIMINATOR)],
+  };
+  const refreshObligationConstraint: generated.InstructionConstraint = {
+    programId: args.target.lendProgramId,
+    accountConstraints: [
+      pubkeyAccountConstraint(1, [
+        deriveKaminoVanillaObligation(
+          args.vaultPda,
+          args.target.market,
+          args.target.lendProgramId
+        ),
+      ]),
+    ],
+    dataConstraints: [dataSliceEquals(KAMINO_REFRESH_OBLIGATION_DISCRIMINATOR)],
+  };
   return {
     __kind: "ProgramInteraction",
     fields: [
       {
         accountIndex: EARN_DEPOSIT_VAULT_INDEX,
-        instructionsConstraints: [withdrawConstraint, depositConstraint],
+        instructionsConstraints: [
+          withdrawConstraint,
+          depositConstraint,
+          ...(args.includeFarmSetup === false ? [] : [farmSetupConstraint]),
+          ...(args.includeRefresh === false
+            ? []
+            : [refreshReserveConstraint, refreshObligationConstraint]),
+        ],
         preHook: null,
         postHook: null,
         spendingLimits: [],
@@ -2127,7 +2218,7 @@ function createEarnCrossMintPolicyCreationPayload(args: {
   };
 }
 
-function deriveKaminoVanillaObligation(
+export function deriveKaminoVanillaObligation(
   vault: PublicKey,
   lendingMarket: PublicKey,
   lendProgramId: PublicKey
@@ -2156,6 +2247,7 @@ function deriveKaminoUserMetadata(
 }
 
 function createEarnKaminoInitObligationInstructionConstraint(args: {
+  feePayer: PublicKey;
   target: KaminoEarnTarget;
   universe: EarnPolicyUniverse;
   vaultPda: PublicKey;
@@ -2178,7 +2270,7 @@ function createEarnKaminoInitObligationInstructionConstraint(args: {
     programId: args.target.lendProgramId,
     accountConstraints: [
       pubkeyAccountConstraint(0, [args.vaultPda]),
-      pubkeyAccountConstraint(1, [args.vaultPda]),
+      pubkeyAccountConstraint(1, [args.feePayer]),
       pubkeyAccountConstraint(2, obligations),
       pubkeyAccountConstraint(3, marketList),
       pubkeyAccountConstraint(4, [DEFAULT_PUBKEY]),
@@ -2193,7 +2285,66 @@ function createEarnKaminoInitObligationInstructionConstraint(args: {
   };
 }
 
+function createEarnKaminoInitUserMetadataInstructionConstraint(args: {
+  feePayer: PublicKey;
+  target: KaminoEarnTarget;
+  vaultPda: PublicKey;
+}): generated.InstructionConstraint {
+  return {
+    programId: args.target.lendProgramId,
+    accountConstraints: [
+      pubkeyAccountConstraint(0, [args.vaultPda]),
+      pubkeyAccountConstraint(1, [args.feePayer]),
+      pubkeyAccountConstraint(2, [
+        deriveKaminoUserMetadata(args.vaultPda, args.target.lendProgramId),
+      ]),
+      pubkeyAccountConstraint(3, [args.target.lendProgramId]),
+      pubkeyAccountConstraint(4, [SYSVAR_RENT_PUBKEY]),
+      pubkeyAccountConstraint(5, [SystemProgram.programId]),
+    ],
+    dataConstraints: [
+      dataSliceEquals([
+        ...KAMINO_INIT_USER_METADATA_DISCRIMINATOR,
+        ...DEFAULT_PUBKEY.toBytes(),
+      ]),
+    ],
+  };
+}
+
+function createKaminoInitUserMetadataInstruction(args: {
+  feePayer: PublicKey;
+  target: KaminoEarnTarget;
+  vaultPda: PublicKey;
+}): TransactionInstruction {
+  const userMetadata = deriveKaminoUserMetadata(
+    args.vaultPda,
+    args.target.lendProgramId
+  );
+  return new TransactionInstruction({
+    programId: args.target.lendProgramId,
+    keys: [
+      { pubkey: args.vaultPda, isSigner: true, isWritable: false },
+      { pubkey: args.feePayer, isSigner: true, isWritable: true },
+      { pubkey: userMetadata, isSigner: false, isWritable: true },
+      {
+        pubkey: args.target.lendProgramId,
+        isSigner: false,
+        isWritable: false,
+      },
+      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([
+      Buffer.from(KAMINO_INIT_USER_METADATA_DISCRIMINATOR),
+      DEFAULT_PUBKEY.toBuffer(),
+    ]),
+  });
+}
+
 function createEarnInitObligationPolicyCreationPayload(args: {
+  feePayer: PublicKey;
+  includeUserMetadata?: boolean;
+  initObligationFeePayer?: PublicKey;
   target: KaminoEarnTarget;
   universe: EarnPolicyUniverse;
   vaultPda: PublicKey;
@@ -2204,7 +2355,13 @@ function createEarnInitObligationPolicyCreationPayload(args: {
       {
         accountIndex: EARN_DEPOSIT_VAULT_INDEX,
         instructionsConstraints: [
-          createEarnKaminoInitObligationInstructionConstraint(args),
+          ...(args.includeUserMetadata === false
+            ? []
+            : [createEarnKaminoInitUserMetadataInstructionConstraint(args)]),
+          createEarnKaminoInitObligationInstructionConstraint({
+            ...args,
+            feePayer: args.initObligationFeePayer ?? args.feePayer,
+          }),
         ],
         preHook: null,
         postHook: null,
@@ -3792,87 +3949,6 @@ function createSettingsTransactionFilters(
   ];
 }
 
-type ProgramAccountsV2Page = {
-  accounts?: {
-    pubkey: string;
-    account: {
-      data: [string, string];
-      executable: boolean;
-      lamports: number;
-      owner: string;
-      rentEpoch?: number;
-    };
-  }[];
-  paginationKey?: string | null;
-};
-
-const GET_PROGRAM_ACCOUNTS_V2_PAGE_LIMIT = 1_000;
-const JSON_RPC_METHOD_NOT_FOUND = -32601;
-
-// Helius deprioritizes plain getProgramAccounts on account-heavy programs and
-// requires getProgramAccountsV2 with pagination, so prefer V2 when the
-// connection exposes a raw RPC channel and fall back for RPCs without it
-// (local test validators, mocked connections).
-async function getProgramAccountsCompat(
-  connection: Connection,
-  programId: PublicKey,
-  config: {
-    commitment: "confirmed";
-    filters: GetProgramAccountsFilter[];
-  }
-): Promise<readonly { pubkey: PublicKey; account: AccountInfo<Buffer> }[]> {
-  const rpcRequest = (
-    connection as Connection & {
-      _rpcRequest?: (methodName: string, args: unknown[]) => Promise<unknown>;
-    }
-  )._rpcRequest?.bind(connection);
-  if (!rpcRequest) {
-    return connection.getProgramAccounts(programId, config);
-  }
-  const collected: { pubkey: PublicKey; account: AccountInfo<Buffer> }[] = [];
-  let paginationKey: string | null = null;
-  do {
-    const response = (await rpcRequest("getProgramAccountsV2", [
-      programId.toBase58(),
-      {
-        commitment: config.commitment,
-        encoding: "base64",
-        filters: config.filters,
-        limit: GET_PROGRAM_ACCOUNTS_V2_PAGE_LIMIT,
-        ...(paginationKey ? { paginationKey } : {}),
-      },
-    ])) as {
-      error?: { code?: number; message?: string };
-      result?: ProgramAccountsV2Page & { value?: ProgramAccountsV2Page };
-    };
-    if (response.error) {
-      if (response.error.code === JSON_RPC_METHOD_NOT_FOUND) {
-        return connection.getProgramAccounts(programId, config);
-      }
-      throw new Error(
-        response.error.message ?? "getProgramAccountsV2 request failed."
-      );
-    }
-    const page = response.result?.accounts
-      ? response.result
-      : response.result?.value;
-    for (const entry of page?.accounts ?? []) {
-      collected.push({
-        pubkey: new PublicKey(entry.pubkey),
-        account: {
-          data: Buffer.from(entry.account.data[0], "base64"),
-          executable: entry.account.executable,
-          lamports: entry.account.lamports,
-          owner: new PublicKey(entry.account.owner),
-          rentEpoch: entry.account.rentEpoch,
-        },
-      });
-    }
-    paginationKey = page?.paginationKey ?? null;
-  } while (paginationKey);
-  return collected;
-}
-
 function createPolicyFilters(
   settingsPda: PublicKey
 ): GetProgramAccountsFilter[] {
@@ -5079,8 +5155,7 @@ export function createSmartAccountVaultsClient(
   async function fetchPolicyAccounts(args: {
     settingsPda: PublicKey;
   }): Promise<DeserializedPolicyAccount[]> {
-    const policyAccounts = await getProgramAccountsCompat(
-      config.connection,
+    const policyAccounts = await config.connection.getProgramAccounts(
       smartAccountsClient.programId,
       {
         commitment: "confirmed",
@@ -6056,8 +6131,7 @@ export function createSmartAccountVaultsClient(
   }
 
   async function listRawPolicies(args: { settingsPda: PublicKey }) {
-    const policyAccounts = await getProgramAccountsCompat(
-      config.connection,
+    const policyAccounts = await config.connection.getProgramAccounts(
       smartAccountsClient.programId,
       {
         commitment: "confirmed",
@@ -6146,71 +6220,8 @@ export function createSmartAccountVaultsClient(
     }
   }
 
-  async function fetchProjectedEarnPolicies(args: {
-    policies: readonly {
-      account: PublicKey;
-      lastSeenSlot?: bigint;
-      seed: bigint;
-      sourceShard: "classic" | "token_2022";
-    }[];
-  }): Promise<RawPolicyEntry[]> {
-    if (args.policies.length === 0) {
-      return [];
-    }
-    const minContextSlot = args.policies.reduce<bigint | undefined>(
-      (highest, policy) =>
-        policy.lastSeenSlot !== undefined &&
-        (highest === undefined || policy.lastSeenSlot > highest)
-          ? policy.lastSeenSlot
-          : highest,
-      undefined
-    );
-    if (
-      minContextSlot !== undefined &&
-      minContextSlot > BigInt(Number.MAX_SAFE_INTEGER)
-    ) {
-      throw new Error(
-        "Cross-mint projection slot is too large for this client."
-      );
-    }
-    const accountInfos = await config.connection.getMultipleAccountsInfo(
-      args.policies.map((policy) => policy.account),
-      minContextSlot === undefined
-        ? "confirmed"
-        : { commitment: "confirmed", minContextSlot: Number(minContextSlot) }
-    );
-    return accountInfos.map((accountInfo, index) => {
-      const projected = args.policies[index];
-      if (!projected) {
-        throw new Error(
-          "Cross-mint projection returned an unexpected account."
-        );
-      }
-      const label = `Projected cross-mint ${projected.sourceShard} policy`;
-      if (!accountInfo) {
-        throw new Error(
-          `${label} ${projected.account.toBase58()} is missing on-chain. Wait for Autoswap state to sync.`
-        );
-      }
-      if (!accountInfo.owner.equals(smartAccountsClient.programId)) {
-        throw new Error(
-          `${label} ${projected.account.toBase58()} has an unexpected owner.`
-        );
-      }
-      try {
-        return deserializePolicyAccount({
-          pubkey: projected.account,
-          account: accountInfo,
-        });
-      } catch {
-        throw new Error(
-          `${label} ${projected.account.toBase58()} is not a decodable policy account.`
-        );
-      }
-    });
-  }
-
   function assertCanonicalEarnPolicy(args: {
+    allowSignerMismatch?: boolean;
     entry: RawPolicyEntry;
     expectedState: generated.PolicyCreationPayload;
     label: string;
@@ -6248,16 +6259,18 @@ export function createSmartAccountVaultsClient(
     }
 
     const [policySigner] = policy.signers;
-    if (!policySigner?.key.equals(args.policySigner)) {
-      throw new Error(`${args.label} deployment signer does not match.`);
-    }
-    if (
-      !generatedValuesEqual(
-        policySigner.permissions,
-        createPolicySigner(args.policySigner).permissions
-      )
-    ) {
-      throw new Error(`${args.label} signer permissions are not canonical.`);
+    if (!args.allowSignerMismatch) {
+      if (!policySigner?.key.equals(args.policySigner)) {
+        throw new Error(`${args.label} deployment signer does not match.`);
+      }
+      if (
+        !generatedValuesEqual(
+          policySigner.permissions,
+          createPolicySigner(args.policySigner).permissions
+        )
+      ) {
+        throw new Error(`${args.label} signer permissions are not canonical.`);
+      }
     }
     if (
       !programInteractionPolicySecurityEquals(
@@ -6278,6 +6291,53 @@ export function createSmartAccountVaultsClient(
     }
   }
 
+  function hasCanonicalPolicySigner(
+    entry: RawPolicyEntry,
+    policySigner: PublicKey
+  ): boolean {
+    const [signer] = entry.policy.signers;
+    return (
+      entry.policy.signers.length === 1 &&
+      signer?.key.equals(policySigner) === true &&
+      generatedValuesEqual(
+        signer.permissions,
+        createPolicySigner(policySigner).permissions
+      )
+    );
+  }
+
+  async function prepareCanonicalEarnPolicySignerRepair(args: {
+    creator: PublicKey;
+    entry: RawPolicyEntry;
+    expectedState: generated.PolicyCreationPayload;
+    feePayer: PublicKey;
+    label: string;
+    policySigner: PublicKey;
+    settingsPda: PublicKey;
+  }): Promise<PreparedLoyalSmartAccountsOperation<string>> {
+    const repair = await prepareSettingsChange({
+      actions: [
+        {
+          __kind: "PolicyUpdate",
+          policy: args.entry.address,
+          signers: [createPolicySigner(args.policySigner)],
+          threshold: 1,
+          timeLock: 0,
+          policyUpdatePayload: args.expectedState,
+          expirationArgs: null,
+        },
+      ],
+      creator: args.creator,
+      feePayer: args.feePayer,
+      memo: `Repair ${args.label} delegated signer`,
+      operation: "repairEarnPolicySigner",
+      policies: [args.entry.address],
+      settingsPda: args.settingsPda,
+      spendingLimits: [],
+    });
+    return repair.prepared;
+  }
+
   async function createEarnYieldRoutingPolicyOperation(args: {
     cluster: LoyalCluster;
     feePayer: PublicKey;
@@ -6285,6 +6345,8 @@ export function createSmartAccountVaultsClient(
     policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
+    policyScope?: SmartAccountEarnPolicyScope;
+    target?: SmartAccountEarnUsdcReserveTargetInput;
   }): Promise<{
     finalizeOperation?: PreparedLoyalSmartAccountsOperation<string>;
     operation: PreparedLoyalSmartAccountsOperation<string>;
@@ -6303,6 +6365,7 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda,
       accountIndex: EARN_DEPOSIT_VAULT_INDEX,
     })[0];
+    const target = resolveKaminoEarnTarget(args.cluster, args.target);
     const plan = createYieldRoutePolicyPlan({
       cluster: args.cluster,
       policySeed: args.policySeed,
@@ -6339,8 +6402,33 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda,
       policySeed: Number(setupPolicySeed),
     })[0];
-    const earnTarget = resolveKaminoEarnTarget(args.cluster);
-    const earnUniverse = earnPolicyUniverseFromPlan(plan);
+    const earnTarget = target;
+    const earnUniverse =
+      args.policyScope === "kamino_main_usdc"
+        ? resolveEarnPolicyUniverse(args.cluster, args.policyScope, target)
+        : earnPolicyUniverseFromPlan(plan);
+    const policyPersistence = {
+      ...plan.persistence,
+      kaminoLiquidityMints: earnUniverse.kaminoLiquidityMints.map((mint) =>
+        mint.toBase58()
+      ),
+      kaminoMarkets: earnUniverse.kaminoMarkets.map((market) =>
+        market.toBase58()
+      ),
+      stableMints: earnUniverse.stableMints.map((mint) => mint.toBase58()),
+      universePreset: earnUniverse.universePreset,
+    };
+    const setupPolicyPersistence = {
+      ...setupPlan.persistence,
+      kaminoLiquidityMints: earnUniverse.kaminoLiquidityMints.map((mint) =>
+        mint.toBase58()
+      ),
+      kaminoMarkets: earnUniverse.kaminoMarkets.map((market) =>
+        market.toBase58()
+      ),
+      stableMints: earnUniverse.stableMints.map((mint) => mint.toBase58()),
+      universePreset: earnUniverse.universePreset,
+    };
     const routePolicyPayload =
       createEarnProgramInteractionPolicyCreationPayload({
         target: earnTarget,
@@ -6348,6 +6436,7 @@ export function createSmartAccountVaultsClient(
         vaultPda: vault,
       });
     const setupPolicyPayload = createEarnInitObligationPolicyCreationPayload({
+      feePayer: args.feePayer,
       target: earnTarget,
       universe: earnUniverse,
       vaultPda: vault,
@@ -6357,11 +6446,12 @@ export function createSmartAccountVaultsClient(
       policySeed: bigint;
       policyStage: EarnPolicyCreateSimulationDiagnosticsMetadata["policyStage"];
       payload: generated.PolicyCreationPayload;
+      transactionFeePayer?: PublicKey;
     }) => {
       const operation =
         await smartAccountsClient.features.execution.prepare.executeSettingsTransactionSync(
           {
-            feePayer: args.feePayer,
+            feePayer: policyArgs.transactionFeePayer ?? args.feePayer,
             settingsPda: args.settingsPda,
             signers: [args.signer],
             actions: [
@@ -6416,6 +6506,11 @@ export function createSmartAccountVaultsClient(
       policySeed: setupPolicySeed,
       policyStage: "setup",
       payload: setupPolicyPayload,
+      // The canonical setup payload embeds Loyal's sponsor as Kamino's
+      // future metadata fee payer. Paying this one-time policy transaction
+      // from the already-prefunded wallet avoids a second signature and keeps
+      // the two-constraint PolicyCreate below Solana's packet limit.
+      transactionFeePayer: args.signer,
     });
     const setupOperationLength = preparedPacketLength(setupOperation);
     if (
@@ -6430,10 +6525,10 @@ export function createSmartAccountVaultsClient(
     return {
       finalizeOperation: setupOperation,
       operation,
-      persistence: plan.persistence,
+      persistence: policyPersistence,
       policyAccount,
       setupOperation,
-      setupPersistence: setupPlan.persistence,
+      setupPersistence: setupPolicyPersistence,
       setupPolicyAccount,
       setupPolicySeed,
       nativeSolRentCandidates: [
@@ -6478,6 +6573,8 @@ export function createSmartAccountVaultsClient(
     policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
+    policyScope?: SmartAccountEarnPolicyScope;
+    target?: SmartAccountEarnUsdcReserveTargetInput;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
     if (typeof config.connection.getAccountInfo !== "function") {
       throw new Error(
@@ -6511,6 +6608,8 @@ export function createSmartAccountVaultsClient(
       policySigner: args.policySigner,
       settingsPda: args.settingsPda,
       signer: args.signer,
+      policyScope: args.policyScope,
+      target: args.target,
     });
 
     return {
@@ -6534,6 +6633,8 @@ export function createSmartAccountVaultsClient(
     policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
+    policyScope?: SmartAccountEarnPolicyScope;
+    target?: SmartAccountEarnUsdcReserveTargetInput;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
     const {
       setupOperation,
@@ -6548,6 +6649,8 @@ export function createSmartAccountVaultsClient(
       policySigner: args.policySigner,
       settingsPda: args.settingsPda,
       signer: args.signer,
+      policyScope: args.policyScope,
+      target: args.target,
     });
 
     return {
@@ -6572,6 +6675,8 @@ export function createSmartAccountVaultsClient(
     cluster: LoyalCluster;
     requiredDepositTokenProgram?: PublicKey;
     settingsPda: PublicKey;
+    policyScope?: SmartAccountEarnPolicyScope;
+    target?: SmartAccountEarnUsdcReserveTargetInput;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
     if (typeof config.connection.getProgramAccounts !== "function") {
       throw new Error(
@@ -6584,8 +6689,12 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda,
       accountIndex: EARN_DEPOSIT_VAULT_INDEX,
     })[0];
-    const target = resolveKaminoEarnTarget(args.cluster);
-    const universe = resolveEarnPolicyUniverse(args.cluster);
+    const target = resolveKaminoEarnTarget(args.cluster, args.target);
+    const universe = resolveEarnPolicyUniverse(
+      args.cluster,
+      args.policyScope,
+      target
+    );
     const compatibleState = policyCreationPayloadToState(
       createEarnProgramInteractionPolicyCreationPayload({
         target,
@@ -6595,6 +6704,8 @@ export function createSmartAccountVaultsClient(
     );
     const legacyState = policyCreationPayloadToState(
       createEarnProgramInteractionPolicyCreationPayload({
+        includeFarmSetup: false,
+        includeRefresh: false,
         liquidityMintOwner: TOKEN_PROGRAM_ID,
         target,
         universe,
@@ -6664,6 +6775,8 @@ export function createSmartAccountVaultsClient(
     policySigner: PublicKey;
     settingsPda: PublicKey;
     signer: PublicKey;
+    policyScope?: SmartAccountEarnPolicyScope;
+    target?: SmartAccountEarnUsdcReserveTargetInput;
   }): Promise<ResolvedEarnYieldRoutingPolicy> {
     const settingsPromise =
       smartAccountsClient.smartAccounts.queries.fetchSettings(args.settingsPda);
@@ -6675,26 +6788,66 @@ export function createSmartAccountVaultsClient(
       settingsPda: args.settingsPda,
       accountIndex: EARN_DEPOSIT_VAULT_INDEX,
     })[0];
-    const target = resolveKaminoEarnTarget(args.cluster);
-    const universe = resolveEarnPolicyUniverse(args.cluster);
+    const target = resolveKaminoEarnTarget(args.cluster, args.target);
+    const universe = resolveEarnPolicyUniverse(
+      args.cluster,
+      args.policyScope,
+      target
+    );
     const expectedRouteState =
       createEarnProgramInteractionPolicyCreationPayload({
         target,
         universe,
         vaultPda: vault,
       });
+    const expectedPreFarmRouteState =
+      createEarnProgramInteractionPolicyCreationPayload({
+        includeFarmSetup: false,
+        includeRefresh: false,
+        target,
+        universe,
+        vaultPda: vault,
+      });
+    const expectedPreRefreshRouteState =
+      createEarnProgramInteractionPolicyCreationPayload({
+        compactFarmSetup: false,
+        includeRefresh: false,
+        target,
+        universe,
+        vaultPda: vault,
+      });
     const expectedLegacyRouteState =
       createEarnProgramInteractionPolicyCreationPayload({
+        includeFarmSetup: false,
+        includeRefresh: false,
         liquidityMintOwner: TOKEN_PROGRAM_ID,
         target,
         universe,
         vaultPda: vault,
       });
     const expectedSetupState = createEarnInitObligationPolicyCreationPayload({
+      feePayer: args.feePayer,
       target,
       universe,
       vaultPda: vault,
     });
+    const expectedLegacySetupState =
+      createEarnInitObligationPolicyCreationPayload({
+        feePayer: args.feePayer,
+        includeUserMetadata: false,
+        initObligationFeePayer: vault,
+        target,
+        universe,
+        vaultPda: vault,
+      });
+    const expectedVaultPaidSetupState =
+      createEarnInitObligationPolicyCreationPayload({
+        feePayer: args.feePayer,
+        initObligationFeePayer: vault,
+        target,
+        universe,
+        vaultPda: vault,
+      });
     const routeGeneration = (
       entry: RawPolicyEntry
     ): EarnRoutePolicyGeneration | null => {
@@ -6702,6 +6855,22 @@ export function createSmartAccountVaultsClient(
         generatedValuesEqual(
           entry.policy.policyState,
           policyCreationPayloadToState(expectedRouteState)
+        )
+      ) {
+        return "compatible";
+      }
+      if (
+        generatedValuesEqual(
+          entry.policy.policyState,
+          policyCreationPayloadToState(expectedPreFarmRouteState)
+        )
+      ) {
+        return "compatible";
+      }
+      if (
+        generatedValuesEqual(
+          entry.policy.policyState,
+          policyCreationPayloadToState(expectedPreRefreshRouteState)
         )
       ) {
         return "compatible";
@@ -6726,21 +6895,38 @@ export function createSmartAccountVaultsClient(
     const assertRoute = (
       entry: RawPolicyEntry,
       seed: bigint,
-      generation: EarnRoutePolicyGeneration
+      generation: EarnRoutePolicyGeneration,
+      allowSignerMismatch = false
     ) =>
       assertCanonicalEarnPolicy({
+        allowSignerMismatch,
         entry,
         expectedState:
-          generation === "compatible"
-            ? expectedRouteState
-            : expectedLegacyRouteState,
+          generatedValuesEqual(
+            entry.policy.policyState,
+            policyCreationPayloadToState(expectedPreFarmRouteState)
+          )
+            ? expectedPreFarmRouteState
+            : generatedValuesEqual(
+                entry.policy.policyState,
+                policyCreationPayloadToState(expectedPreRefreshRouteState)
+              )
+              ? expectedPreRefreshRouteState
+            : generation === "compatible"
+              ? expectedRouteState
+              : expectedLegacyRouteState,
         label: "Earn route policy",
         policySigner: args.policySigner,
         seed,
         settingsPda: args.settingsPda,
       });
-    const assertSetup = (entry: RawPolicyEntry, seed: bigint) =>
+    const assertSetup = (
+      entry: RawPolicyEntry,
+      seed: bigint,
+      allowSignerMismatch = false
+    ) =>
       assertCanonicalEarnPolicy({
+        allowSignerMismatch,
         entry,
         expectedState: expectedSetupState,
         label: "Earn setup policy",
@@ -6828,6 +7014,8 @@ export function createSmartAccountVaultsClient(
         policySigner: args.policySigner,
         settingsPda: args.settingsPda,
         signer: args.signer,
+        policyScope: args.policyScope,
+        target: args.target,
       });
     }
 
@@ -6854,8 +7042,9 @@ export function createSmartAccountVaultsClient(
     const routes: Array<{
       entry: RawPolicyEntry;
       generation: EarnRoutePolicyGeneration;
+      needsRepair: boolean;
     }> = [];
-    const setups: RawPolicyEntry[] = [];
+    const setups: Array<{ entry: RawPolicyEntry; needsRepair: boolean }> = [];
     for (const entry of policies) {
       const state = entry.policy.policyState;
       if (state.__kind !== "ProgramInteraction") {
@@ -6886,8 +7075,15 @@ export function createSmartAccountVaultsClient(
       const seed = toBigInt(entry.policy.seed);
       const generation = routeGeneration(entry);
       if (generation) {
-        assertRoute(entry, seed, generation);
-        routes.push({ entry, generation });
+        assertRoute(entry, seed, generation, true);
+        routes.push({
+          entry,
+          generation,
+          needsRepair: !generatedValuesEqual(
+            state,
+            policyCreationPayloadToState(expectedRouteState)
+          ),
+        });
         continue;
       }
       if (
@@ -6896,8 +7092,44 @@ export function createSmartAccountVaultsClient(
           policyCreationPayloadToState(expectedSetupState)
         )
       ) {
-        assertSetup(entry, seed);
-        setups.push(entry);
+        assertSetup(entry, seed, true);
+        setups.push({ entry, needsRepair: false });
+        continue;
+      }
+      if (
+        generatedValuesEqual(
+          state,
+          policyCreationPayloadToState(expectedLegacySetupState)
+        )
+      ) {
+        assertCanonicalEarnPolicy({
+          allowSignerMismatch: true,
+          entry,
+          expectedState: expectedLegacySetupState,
+          label: "Legacy Earn setup policy",
+          policySigner: args.policySigner,
+          seed,
+          settingsPda: args.settingsPda,
+        });
+        setups.push({ entry, needsRepair: true });
+        continue;
+      }
+      if (
+        generatedValuesEqual(
+          state,
+          policyCreationPayloadToState(expectedVaultPaidSetupState)
+        )
+      ) {
+        assertCanonicalEarnPolicy({
+          allowSignerMismatch: true,
+          entry,
+          expectedState: expectedVaultPaidSetupState,
+          label: "Vault-paid Earn setup policy",
+          policySigner: args.policySigner,
+          seed,
+          settingsPda: args.settingsPda,
+        });
+        setups.push({ entry, needsRepair: true });
         continue;
       }
       // Kamino-shaped but not canonical: a legacy-format pair created by an
@@ -6912,7 +7144,7 @@ export function createSmartAccountVaultsClient(
     }
 
     const setupBySeed = new Map(
-      setups.map((entry) => [toBigInt(entry.policy.seed), entry] as const)
+      setups.map((setup) => [toBigInt(setup.entry.policy.seed), setup] as const)
     );
     const sortedRoutes = routes.sort((left, right) => {
       if (left.generation !== right.generation) {
@@ -6930,11 +7162,43 @@ export function createSmartAccountVaultsClient(
       if (setupSeed > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new Error("Earn setup policy seed is too large for this client.");
       }
-      const setupEntry = setupBySeed.get(setupSeed);
-      if (setupEntry) {
+      const setup = setupBySeed.get(setupSeed);
+      if (setup) {
+        const setupEntry = setup.entry;
         assertSelectedMintCapability(route.generation);
+        const operation =
+          !route.needsRepair &&
+          hasCanonicalPolicySigner(route.entry, args.policySigner)
+          ? undefined
+          : await prepareCanonicalEarnPolicySignerRepair({
+              creator: args.signer,
+              entry: route.entry,
+              expectedState: expectedRouteState,
+              feePayer: args.signer,
+              label: "Earn route policy",
+              policySigner: args.policySigner,
+              settingsPda: args.settingsPda,
+            });
+        const finalizeOperation =
+          !setup.needsRepair &&
+          hasCanonicalPolicySigner(setupEntry, args.policySigner)
+          ? undefined
+          : await prepareCanonicalEarnPolicySignerRepair({
+              creator: args.signer,
+              entry: setupEntry,
+              expectedState: expectedSetupState,
+              // See the create path above: the policy still constrains the
+              // sponsor for runtime metadata creation, while this one-time
+              // wallet-authorized repair uses the prefunded wallet as payer.
+              feePayer: args.signer,
+              label: "Earn setup policy",
+              policySigner: args.policySigner,
+              settingsPda: args.settingsPda,
+            });
         return {
           account: route.entry.address,
+          finalizeOperation,
+          operation,
           seed: routeSeed,
           setupAccount: setupEntry.address,
           setupSeed,
@@ -6986,6 +7250,8 @@ export function createSmartAccountVaultsClient(
         policySigner: args.policySigner,
         settingsPda: args.settingsPda,
         signer: args.signer,
+        policyScope: args.policyScope,
+        target: args.target,
       });
     }
 
@@ -7032,6 +7298,8 @@ export function createSmartAccountVaultsClient(
       policySigner: args.policySigner,
       settingsPda: args.settingsPda,
       signer: args.signer,
+      policyScope: args.policyScope,
+      target: args.target,
     });
   }
 
@@ -7567,6 +7835,531 @@ export function createSmartAccountVaultsClient(
     }
   }
 
+  /**
+   * Prepare a delegated ProgramInteraction execution for the canonical
+   * Main-market USDC route. This deliberately executes only the Kamino
+   * instruction selected by the KTX response; account creation and policy
+   * setup belong to their own user-authorized setup stages.
+   */
+  async function prepareEarnUsdcKaminoExecution(
+    direction: "deposit" | "withdraw",
+    args: SmartAccountEarnUsdcKaminoExecutionInput
+  ): Promise<SmartAccountPreparedEarnUsdcKaminoExecution> {
+    if (args.amountRaw <= BigInt(0)) {
+      throw new Error("Kamino execution amount must be greater than 0.");
+    }
+
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const target = resolveKaminoEarnTarget(cluster, args.target);
+    const canonicalTarget = resolveKaminoEarnTarget(cluster);
+    if (
+      !target.market.equals(canonicalTarget.market) ||
+      !target.liquidityMint.equals(canonicalTarget.liquidityMint)
+    ) {
+      throw new Error(
+        "Delegated Earn execution is restricted to the Kamino Main USDC market."
+      );
+    }
+
+    const vaultPda = pda.getSmartAccountPda({
+      programId: smartAccountsClient.programId,
+      settingsPda: args.settingsPda,
+      accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+    })[0];
+    const obligation = deriveKaminoVanillaObligation(
+      vaultPda,
+      target.market,
+      target.lendProgramId
+    );
+    const vaultUsdcAta = getAssociatedTokenAddressSync(
+      target.liquidityMint,
+      vaultPda,
+      true,
+      target.liquidityTokenProgram
+    );
+
+    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+      args.policy
+    );
+    if (!policy.settings.equals(args.settingsPda)) {
+      throw new Error("Kamino execution policy does not belong to Settings.");
+    }
+    if (
+      policy.threshold !== 1 ||
+      policy.timeLock !== 0 ||
+      policy.signers.length !== 1 ||
+      !policy.signers[0]!.key.equals(args.policySigner)
+    ) {
+      throw new Error("Kamino execution policy signer configuration is invalid.");
+    }
+    for (const permission of [
+      Permission.Initiate,
+      Permission.Vote,
+      Permission.Execute,
+    ]) {
+      if (!Permissions.has(policy.signers[0]!.permissions, permission)) {
+        throw new Error("Kamino execution policy signer permissions are incomplete.");
+      }
+    }
+    if (policy.policyState.__kind !== "ProgramInteraction") {
+      throw new Error("Kamino execution requires a ProgramInteraction policy.");
+    }
+    const interaction = policy.policyState.fields[0];
+    if (interaction.accountIndex !== EARN_DEPOSIT_VAULT_INDEX) {
+      throw new Error("Kamino execution policy must target the Earn vault.");
+    }
+    const expectedState = policyCreationPayloadToState(
+      createEarnProgramInteractionPolicyCreationPayload({
+        target,
+        universe: resolveEarnPolicyUniverse(
+          cluster,
+          "kamino_main_usdc",
+          target
+        ),
+        vaultPda,
+      })
+    );
+    if (!generatedValuesEqual(policy.policyState, expectedState)) {
+      throw new Error(
+        "Kamino execution policy is not the canonical Main-market policy."
+      );
+    }
+
+    let reserveAccounts: KaminoReserveTokenAccounts | undefined;
+    if (
+      cluster !== LoyalCluster.Devnet &&
+      typeof config.connection.getAccountInfo === "function"
+    ) {
+      const reserveAccount = await config.connection.getAccountInfo(
+        target.reserve,
+        "confirmed"
+      );
+      if (!reserveAccount) {
+        throw new Error("Selected Kamino reserve account was not found.");
+      }
+      reserveAccounts = validateKaminoEarnReserveAccount({
+        account: reserveAccount,
+        target,
+      });
+    }
+
+    const bundle =
+      direction === "deposit"
+        ? cluster === LoyalCluster.Devnet
+          ? (() => {
+              const collateralMint =
+                reserveAccounts?.reserveCollateralMint ??
+                target.reserveCollateralMint;
+              if (!collateralMint) {
+                throw new Error("Kamino collateral mint is unavailable.");
+              }
+              const collateralAta = getAssociatedTokenAddressSync(
+                collateralMint,
+                vaultPda,
+                true,
+                TOKEN_PROGRAM_ID
+              );
+              const instruction = createLocalKaminoDepositInstruction({
+                amountRaw: args.amountRaw,
+                obligation,
+                reserveAccounts,
+                target,
+                vaultPda,
+                vaultUsdcAta,
+                vaultCollateralAta: collateralAta,
+                liquidityTokenProgram: target.liquidityTokenProgram,
+              });
+              return {
+                instruction,
+                instructions: [instruction],
+                lookupTableAddresses: [],
+                matchingInstructions: [instruction],
+              };
+            })()
+          : await fetchKaminoDepositInstruction({
+              amountRaw: args.amountRaw,
+              depositDiscriminator: target.depositDiscriminator,
+              lendProgramId: target.lendProgramId,
+              market: target.market,
+              reserve: target.reserve,
+              wallet: vaultPda,
+            })
+        : cluster === LoyalCluster.Devnet
+        ? (() => {
+            const collateralMint =
+              reserveAccounts?.reserveCollateralMint ??
+              target.reserveCollateralMint;
+            if (!collateralMint) {
+              throw new Error("Kamino collateral mint is unavailable.");
+            }
+            const collateralAta = getAssociatedTokenAddressSync(
+              collateralMint,
+              vaultPda,
+              true,
+              TOKEN_PROGRAM_ID
+            );
+            const instruction = createLocalKaminoWithdrawInstruction({
+              amountRaw: args.amountRaw,
+              obligation,
+              reserveAccounts,
+              target,
+              vaultPda,
+              vaultUsdcAta,
+              vaultCollateralAta: collateralAta,
+              liquidityTokenProgram: target.liquidityTokenProgram,
+            });
+            return {
+              instruction,
+              instructions: [instruction],
+              lookupTableAddresses: [],
+              matchingInstructions: [instruction],
+            };
+          })()
+        : await fetchKaminoWithdrawInstruction({
+            amountRaw: args.amountRaw,
+            lendProgramId: target.lendProgramId,
+            market: target.market,
+            reserve: target.reserve,
+            withdrawDiscriminator: target.withdrawDiscriminator,
+            wallet: vaultPda,
+          });
+
+    if (direction === "withdraw") {
+      const safeMarkets = new Set([target.market.toBase58()]);
+      for (const instruction of
+        bundle.matchingInstructions.length > 0
+          ? bundle.matchingInstructions
+          : [bundle.instruction]) {
+        validateKaminoWithdrawInstruction({
+          instruction,
+          lendProgramId: target.lendProgramId,
+          withdrawDiscriminator: target.withdrawDiscriminator,
+          vaultPda,
+          vaultUsdcAta,
+          market: target.market,
+          liquidityMint: target.liquidityMint,
+          liquidityTokenProgram: target.liquidityTokenProgram,
+          safeMarkets,
+        });
+      }
+    }
+
+    let setupPrepared: PreparedLoyalSmartAccountsOperation<string> | null =
+      null;
+    if (direction === "deposit" && args.setupPolicy) {
+      const setupInstruction = bundle.instructions.find((instruction) =>
+        dataStartsWithDiscriminator(
+          instruction.data,
+          target.initObligationDiscriminator
+        )
+      );
+      const userMetadata = deriveKaminoUserMetadata(
+        vaultPda,
+        target.lendProgramId
+      );
+      const userMetadataAccount = await config.connection.getAccountInfo(
+        userMetadata,
+        "confirmed"
+      );
+      if (
+        userMetadataAccount &&
+        !userMetadataAccount.owner.equals(target.lendProgramId)
+      ) {
+        throw new Error("Kamino user metadata has an unexpected owner.");
+      }
+
+      let selectedSetupInstruction: TransactionInstruction | null = null;
+      let setupConstraintIndex = 0;
+      let selectedSetupPolicy = args.setupPolicy;
+      if (!userMetadataAccount) {
+        selectedSetupInstruction = createKaminoInitUserMetadataInstruction({
+          feePayer: args.feePayer,
+          target,
+          vaultPda,
+        });
+      } else if (setupInstruction) {
+        selectedSetupInstruction = new TransactionInstruction({
+          programId: setupInstruction.programId,
+          keys: setupInstruction.keys.map((account, index) =>
+            index === 1
+              ? {
+                  pubkey: args.feePayer,
+                  isSigner: true,
+                  isWritable: true,
+                }
+              : account
+          ),
+          data: setupInstruction.data,
+        });
+        setupConstraintIndex = 1;
+      } else if (
+        reserveAccounts &&
+        !reserveAccounts.farmCollateral.equals(PublicKey.default)
+      ) {
+        const farmUserState = deriveKaminoFarmUserStatePda({
+          farmState: reserveAccounts.farmCollateral,
+          owner: obligation,
+        });
+        const farmUserStateAccount = await config.connection.getAccountInfo(
+          farmUserState,
+          "confirmed"
+        );
+        if (!farmUserStateAccount) {
+          selectedSetupInstruction =
+            createLocalKaminoInitObligationFarmsForReserveInstruction({
+              feePayer: args.feePayer,
+              obligation,
+              reserveAccounts,
+              target,
+              vaultPda,
+            });
+          setupConstraintIndex = 2;
+          selectedSetupPolicy = args.policy;
+        }
+      }
+
+      if (selectedSetupInstruction) {
+        if (selectedSetupPolicy.equals(args.setupPolicy)) {
+        const setupPolicy =
+          await smartAccountsClient.policies.queries.fetchPolicy(
+            args.setupPolicy
+          );
+        if (
+          !setupPolicy.settings.equals(args.settingsPda) ||
+          setupPolicy.threshold !== 1 ||
+          setupPolicy.timeLock !== 0 ||
+          setupPolicy.signers.length !== 1 ||
+          !setupPolicy.signers[0]!.key.equals(args.policySigner)
+        ) {
+          throw new Error("Kamino setup policy signer configuration is invalid.");
+        }
+        for (const permission of [
+          Permission.Initiate,
+          Permission.Vote,
+          Permission.Execute,
+        ]) {
+          if (!Permissions.has(setupPolicy.signers[0]!.permissions, permission)) {
+            throw new Error(
+              "Kamino setup policy signer permissions are incomplete."
+            );
+          }
+        }
+        if (setupPolicy.policyState.__kind !== "ProgramInteraction") {
+          throw new Error("Kamino setup requires a ProgramInteraction policy.");
+        }
+        const expectedSetupState = policyCreationPayloadToState(
+          createEarnInitObligationPolicyCreationPayload({
+            feePayer: args.feePayer,
+            target,
+            universe: resolveEarnPolicyUniverse(
+              cluster,
+              "kamino_main_usdc",
+              target
+            ),
+            vaultPda,
+          })
+        );
+        if (!generatedValuesEqual(setupPolicy.policyState, expectedSetupState)) {
+          throw new Error(
+            "Kamino setup policy is not the canonical Main-market policy."
+          );
+        }
+        }
+        const compiledSetup = instructionsToSynchronousTransactionDetailsV2({
+          vaultPda,
+          members: [args.policySigner],
+          transaction_instructions: [selectedSetupInstruction],
+        });
+        const setupPayload: generated.PolicyPayload = {
+          __kind: "ProgramInteraction",
+          fields: [
+            {
+              instructionConstraintIndices: Uint8Array.from([
+                setupConstraintIndex,
+              ]),
+              transactionPayload: {
+                __kind: "SyncTransaction",
+                fields: [
+                  {
+                    accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+                    instructions: compiledSetup.instructions,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+        setupPrepared =
+          await smartAccountsClient.features.execution.prepare.executePolicyPayloadSync(
+            {
+              feePayer: args.feePayer,
+              policy: selectedSetupPolicy,
+              accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+              numSigners: 1,
+              policyPayload: setupPayload,
+              instruction_accounts: compiledSetup.accounts,
+              memo: args.memo,
+            } as never
+          );
+      }
+    }
+
+    const executionDiscriminator =
+      direction === "deposit"
+        ? target.depositDiscriminator
+        : target.withdrawDiscriminator;
+    const refreshAndExecutionInstructions = bundle.instructions.filter(
+      (instruction) =>
+        dataStartsWithDiscriminator(
+          instruction.data,
+          KAMINO_REFRESH_RESERVE_DISCRIMINATOR
+        ) ||
+        dataStartsWithDiscriminator(
+          instruction.data,
+          KAMINO_REFRESH_OBLIGATION_DISCRIMINATOR
+        ) ||
+        dataStartsWithDiscriminator(instruction.data, executionDiscriminator)
+    );
+    const matchingInstructions =
+      refreshAndExecutionInstructions.length > 0
+        ? refreshAndExecutionInstructions
+        : bundle.matchingInstructions.length > 0
+          ? bundle.matchingInstructions
+          : [bundle.instruction];
+    const matchingConstraintIndices = matchingInstructions.map(
+      (instruction) =>
+        dataStartsWithDiscriminator(
+          instruction.data,
+          KAMINO_REFRESH_RESERVE_DISCRIMINATOR
+        )
+            ? 3
+            : dataStartsWithDiscriminator(
+                  instruction.data,
+                  KAMINO_REFRESH_OBLIGATION_DISCRIMINATOR
+                )
+              ? 4
+              : direction === "deposit"
+                ? 1
+                : 0
+    );
+    const compiled = instructionsToSynchronousTransactionDetailsV2({
+      vaultPda,
+      members: [args.policySigner],
+      transaction_instructions: matchingInstructions,
+    });
+    const policyPayload: generated.PolicyPayload = {
+      __kind: "ProgramInteraction",
+      fields: [
+        {
+          instructionConstraintIndices: Uint8Array.from(
+            matchingConstraintIndices
+          ),
+          transactionPayload: {
+            __kind: "SyncTransaction",
+            fields: [
+              {
+                accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+                instructions: compiled.instructions,
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const execution =
+      await smartAccountsClient.features.execution.prepare.executePolicyPayloadSync(
+        {
+          feePayer: args.feePayer,
+          policy: args.policy,
+          accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+          numSigners: 1,
+          policyPayload,
+          instruction_accounts: compiled.accounts,
+          memo: args.memo,
+        } as never
+      );
+
+    const collateralMint =
+      reserveAccounts?.reserveCollateralMint ?? target.reserveCollateralMint;
+    const collateralAta = collateralMint
+      ? getAssociatedTokenAddressSync(
+          collateralMint,
+          vaultPda,
+          true,
+          TOKEN_PROGRAM_ID
+        )
+      : null;
+    const ataSetup = [
+      createAssociatedTokenAccountIdempotentInstruction(
+        args.feePayer,
+        vaultUsdcAta,
+        vaultPda,
+        target.liquidityMint,
+        target.liquidityTokenProgram
+      ),
+      ...(collateralAta
+        ? [
+            createAssociatedTokenAccountIdempotentInstruction(
+              args.feePayer,
+              collateralAta,
+              vaultPda,
+              collateralMint!,
+              TOKEN_PROGRAM_ID
+            ),
+          ]
+        : []),
+    ];
+    const lookupTableAccounts = await resolveKaminoLookupTableAccounts({
+      addresses: bundle.lookupTableAddresses,
+      connection: config.connection,
+    });
+
+    return {
+      prepared: freezePreparedOperation({
+        operation:
+          direction === "deposit"
+            ? "earnUsdcKaminoDepositPolicy"
+            : "earnUsdcKaminoWithdrawPolicy",
+        payer: args.feePayer,
+        programId: smartAccountsClient.programId,
+        requiresConfirmation: true,
+        instructions: [...ataSetup, ...execution.instructions],
+        lookupTableAccounts: dedupeLookupTableAccounts([
+          ...(execution.lookupTableAccounts ?? []),
+          ...lookupTableAccounts,
+        ]),
+      }),
+      setupPrepared,
+      policy: args.policy,
+      setupPolicy: args.setupPolicy ?? null,
+      vault: {
+        accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+        pubkey: vaultPda,
+        usdcAta: vaultUsdcAta,
+        collateralAta,
+      },
+      target: {
+        market: target.market,
+        reserve: target.reserve,
+        liquidityMint: target.liquidityMint,
+        liquidityTokenProgram: target.liquidityTokenProgram,
+        obligation,
+      },
+    };
+  }
+
+  async function prepareEarnUsdcKaminoDeposit(
+    args: SmartAccountEarnUsdcKaminoExecutionInput
+  ): Promise<SmartAccountPreparedEarnUsdcKaminoExecution> {
+    return prepareEarnUsdcKaminoExecution("deposit", args);
+  }
+
+  async function prepareEarnUsdcKaminoWithdraw(
+    args: SmartAccountEarnUsdcKaminoExecutionInput
+  ): Promise<SmartAccountPreparedEarnUsdcKaminoExecution> {
+    return prepareEarnUsdcKaminoExecution("withdraw", args);
+  }
+
   async function prepareEarnUsdcDeposit(
     args: SmartAccountEarnUsdcDepositInput
   ): Promise<SmartAccountPreparedEarnUsdcDeposit> {
@@ -7576,7 +8369,11 @@ export function createSmartAccountVaultsClient(
 
     const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
     const earnTarget = resolveKaminoEarnTarget(cluster, args.target);
-    const earnUniverse = resolveEarnPolicyUniverse(cluster);
+    const earnUniverse = resolveEarnPolicyUniverse(
+      cluster,
+      args.policyScope,
+      earnTarget
+    );
     const serializedEarnUniverse = serializeEarnPolicyUniverse(earnUniverse);
     const usdcMint = earnTarget.liquidityMint;
     const liquidityTokenProgram = earnTarget.liquidityTokenProgram;
@@ -7655,6 +8452,8 @@ export function createSmartAccountVaultsClient(
             policySigner: args.policySigner,
             settingsPda: args.settingsPda,
             signer: args.walletAddress,
+            policyScope: args.policyScope,
+            target: args.target,
           })
         : args.yieldRoutingPolicy
         ? resolveEarnYieldRoutingPolicyForPreparation({
@@ -7668,11 +8467,15 @@ export function createSmartAccountVaultsClient(
             policySigner: args.policySigner,
             settingsPda: args.settingsPda,
             signer: args.walletAddress,
+            policyScope: args.policyScope,
+            target: args.target,
           })
         : resolveEarnYieldRoutingPolicyForExecution({
             cluster,
             requiredDepositTokenProgram: liquidityTokenProgram,
             settingsPda: args.settingsPda,
+            policyScope: args.policyScope,
+            target: args.target,
           });
     const earnPolicyPromise = resolveEarnPolicyForDeposit();
     // Legacy route policies are valid for classic SPL Token deposits but
@@ -8188,6 +8991,8 @@ export function createSmartAccountVaultsClient(
       policySigner: args.signer,
       settingsPda: args.settingsPda,
       signer: args.walletAddress,
+      policyScope: args.policyScope,
+      target: args.target,
     });
 
     return {
@@ -8236,6 +9041,44 @@ export function createSmartAccountVaultsClient(
     };
   }
 
+  // Control-plane-only resolver for callers that provision or recover the
+  // canonical Kamino route/setup pair without also constructing a deposit.
+  // This deliberately reuses the production partial-pair recovery path and
+  // therefore stays idempotent across a finalized route-only interruption.
+  async function prepareEarnUsdcYieldRoutingPolicyState(
+    args: SmartAccountEarnUsdcYieldRoutingPolicyInput
+  ) {
+    const cluster = args.cluster ?? LoyalCluster.MainnetBeta;
+    const target = resolveKaminoEarnTarget(cluster, args.target);
+    const resolved = await resolveEarnYieldRoutingPolicyForPreparation({
+      cluster,
+      feePayer: args.feePayer,
+      liquidityTokenProgram: target.liquidityTokenProgram,
+      policyScope: args.policyScope,
+      policySigner: args.signer,
+      settingsPda: args.settingsPda,
+      signer: args.walletAddress,
+      target: args.target,
+    });
+    if (!resolved.setupAccount || resolved.setupSeed === undefined) {
+      throw new Error("Canonical Earn setup policy resolution is incomplete.");
+    }
+    return {
+      policy: {
+        account: resolved.account,
+        id: resolved.seed,
+        seed: resolved.seed,
+      },
+      policyFinalizePrepared: resolved.finalizeOperation ?? null,
+      policySetupPrepared: resolved.operation ?? null,
+      setupPolicy: {
+        account: resolved.setupAccount,
+        id: resolved.setupSeed,
+        seed: resolved.setupSeed,
+      },
+    };
+  }
+
   async function prepareEarnCrossMintSwapPolicies(
     args: SmartAccountEarnCrossMintSwapPoliciesInput
   ): Promise<SmartAccountPreparedEarnCrossMintSwapPolicies> {
@@ -8250,42 +9093,6 @@ export function createSmartAccountVaultsClient(
         args.settingsPda
       );
     const nextSeed = resolveNextPolicySeed(settings).bigint;
-    const projectedPolicies = args.projectedPolicies ?? [];
-    if (projectedPolicies.length > 2) {
-      throw new Error("Autoswap projection contains too many policy accounts.");
-    }
-    const projectedByShard = new Map<
-      "classic" | "token_2022",
-      (typeof projectedPolicies)[number]
-    >();
-    const projectedAccounts = new Set<string>();
-    const projectedSeeds = new Set<bigint>();
-    for (const policy of projectedPolicies) {
-      const account = policy.account.toBase58();
-      if (
-        projectedByShard.has(policy.sourceShard) ||
-        projectedAccounts.has(account) ||
-        projectedSeeds.has(policy.seed)
-      ) {
-        throw new Error("Autoswap projection contains conflicting policies.");
-      }
-      if (policy.seed > BigInt(Number.MAX_SAFE_INTEGER)) {
-        throw new Error("Cross-mint policy seed is too large for this client.");
-      }
-      const expectedAccount = pda.getPolicyPda({
-        programId: smartAccountsClient.programId,
-        settingsPda: args.settingsPda,
-        policySeed: Number(policy.seed),
-      })[0];
-      if (!policy.account.equals(expectedAccount)) {
-        throw new Error(
-          `Projected cross-mint ${policy.sourceShard} policy account does not match its seed.`
-        );
-      }
-      projectedByShard.set(policy.sourceShard, policy);
-      projectedAccounts.add(account);
-      projectedSeeds.add(policy.seed);
-    }
     const commonPlanInput = {
       cluster,
       maxSlippageBps: args.maxSlippageBps,
@@ -8298,59 +9105,73 @@ export function createSmartAccountVaultsClient(
         vault: vaultPda,
       },
     };
-    const projectedClassic = projectedByShard.get("classic");
-    const projectedToken2022 = projectedByShard.get("token_2022");
-    const classicSeed = projectedClassic?.seed ?? nextSeed;
-    const token2022Seed =
-      projectedToken2022?.seed ??
-      (projectedClassic ? nextSeed : nextSeed + BigInt(1));
-    const plans = createJupiterCrossMintPolicySet({
+    const candidatePlans = createJupiterCrossMintPolicySet({
       ...commonPlanInput,
       policySeeds: {
-        classic: classicSeed,
-        token2022: token2022Seed,
+        classic: nextSeed,
+        token2022: nextSeed + BigInt(1),
       },
     });
-    const projectedEntries = await fetchProjectedEarnPolicies({
-      policies: projectedPolicies,
+    const rawPolicies = await listRawPolicies({
+      settingsPda: args.settingsPda,
     });
-    const entryByAccount = new Map(
-      projectedEntries.map(
-        (entry) => [entry.address.toBase58(), entry] as const
-      )
-    );
-    const resolveExisting = (
-      projected: (typeof projectedPolicies)[number] | undefined,
-      plan: typeof plans.classic
-    ): RawPolicyEntry | null => {
-      if (!projected) {
-        return null;
-      }
-      const entry = entryByAccount.get(projected.account.toBase58());
-      if (!entry) {
+    const findExisting = (
+      plan: typeof candidatePlans.classic,
+      sourceShard: "classic" | "token_2022"
+    ) => {
+      const expectedState = policyCreationPayloadToState(
+        createEarnCrossMintPolicyCreationPayload({ cluster, plan, vaultPda })
+      );
+      const matches = rawPolicies.filter(({ policy }) => {
+        const [signer] = policy.signers;
+        return (
+          policy.threshold === 1 &&
+          policy.timeLock === 0 &&
+          policy.signers.length === 1 &&
+          Boolean(signer?.key.equals(args.signer)) &&
+          Boolean(
+            signer &&
+              generatedValuesEqual(
+                signer.permissions,
+                createPolicySigner(args.signer).permissions
+              )
+          ) &&
+          programInteractionPolicySecurityEquals(
+            policy.policyState,
+            expectedState
+          )
+        );
+      });
+      if (matches.length > 1) {
         throw new Error(
-          "Autoswap projection account validation was incomplete."
+          `Multiple canonical cross-mint ${sourceShard} policies exist; enrollment is ambiguous.`
         );
       }
-      assertCanonicalEarnPolicy({
-        entry,
-        expectedState: createEarnCrossMintPolicyCreationPayload({
-          cluster,
-          plan,
-          vaultPda,
-        }),
-        label: `Projected cross-mint ${projected.sourceShard} policy`,
-        policySigner: args.signer,
-        seed: projected.seed,
-        settingsPda: args.settingsPda,
-      });
-      return entry;
+      return matches[0] ?? null;
     };
-    const existingClassic = resolveExisting(projectedClassic, plans.classic);
-    const existingToken2022 = resolveExisting(
-      projectedToken2022,
-      plans.token2022
+    const existingClassic = findExisting(candidatePlans.classic, "classic");
+    const existingToken2022 = findExisting(
+      candidatePlans.token2022,
+      "token_2022"
     );
+    const classicSeed = existingClassic
+      ? toBigInt(existingClassic.policy.seed)
+      : nextSeed;
+    const token2022Seed = existingToken2022
+      ? toBigInt(existingToken2022.policy.seed)
+      : existingClassic
+      ? nextSeed
+      : nextSeed + BigInt(1);
+    if (
+      classicSeed > BigInt(Number.MAX_SAFE_INTEGER) ||
+      token2022Seed > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      throw new Error("Cross-mint policy seed is too large for this client.");
+    }
+    const plans = createJupiterCrossMintPolicySet({
+      ...commonPlanInput,
+      policySeeds: { classic: classicSeed, token2022: token2022Seed },
+    });
 
     const prepare = async (
       plan: typeof plans.classic,
@@ -8605,6 +9426,8 @@ export function createSmartAccountVaultsClient(
       : await resolveEarnYieldRoutingPolicyForExecution({
           cluster,
           settingsPda: args.settingsPda,
+          policyScope: args.policyScope,
+          target: args.target,
         });
     const policyAccount = earnPolicy.account;
     const setupPolicyAccount = earnPolicy.setupAccount ?? null;
@@ -10970,7 +11793,9 @@ export function createSmartAccountVaultsClient(
         preparedLength > EARN_POLICY_PACKET_DATA_SIZE
       ) {
         throw new Error(
-          "Earn Autodeposit policy setup exceeds the Solana transaction size limit."
+          preparedLength === null
+            ? "Earn Autodeposit policy setup could not be serialized within the Solana transaction size limit."
+            : `Earn Autodeposit policy setup is ${preparedLength} bytes; Solana permits ${EARN_POLICY_PACKET_DATA_SIZE}.`
         );
       }
       const nativeSolRequirement = await estimateNativeSolRequirement({
@@ -11631,6 +12456,86 @@ export function createSmartAccountVaultsClient(
     );
   }
 
+  async function prepareUseTokenSpendingLimitPolicy(
+    args: SmartAccountUseTokenSpendingLimitInput
+  ): Promise<PreparedLoyalSmartAccountsOperation<string>> {
+    if (args.amountRaw <= BigInt(0)) {
+      throw new Error(
+        "Token spending-limit transfer amount must be greater than 0."
+      );
+    }
+
+    if (
+      args.amountRaw >= BigInt(1) << BigInt(64) ||
+      !Number.isInteger(args.decimals) ||
+      args.decimals < 0 ||
+      args.decimals > 255
+    ) {
+      throw new Error(
+        "Token spending-limit transfer arguments are invalid."
+      );
+    }
+
+    const policy = await smartAccountsClient.policies.queries.fetchPolicy(
+      args.spendingLimitPolicy
+    );
+    const policyState = policy.policyState;
+
+    if (!policy.settings.equals(args.settingsPda)) {
+      throw new Error("Spending-limit policy does not belong to this vault.");
+    }
+
+    if (
+      policyState.__kind !== "SpendingLimit" ||
+      policyState.fields[0].spendingLimit.mint.equals(PublicKey.default)
+    ) {
+      throw new Error(
+        "A token spending-limit policy is required for token transfer."
+      );
+    }
+
+    if (!policyState.fields[0].spendingLimit.mint.equals(args.mint)) {
+      throw new Error(
+        "Spending-limit policy mint does not match token transfer mint."
+      );
+    }
+
+    const policyPayload: generated.PolicyPayload = {
+      __kind: "SpendingLimit",
+      fields: [
+        {
+          amount: toBn(args.amountRaw),
+          destination: args.destination,
+          decimals: args.decimals,
+        },
+      ],
+    };
+    const executionAccounts = await getSpendingLimitPolicyExecutionAccounts({
+      policy,
+      policyPayload,
+    });
+    const instructionAccounts: AccountMeta[] = [
+      {
+        pubkey: args.signer,
+        isSigner: true,
+        isWritable: false,
+      },
+      ...executionAccounts.accountMetas,
+    ];
+
+    return smartAccountsClient.features.execution.prepare.executePolicyPayloadSync(
+      {
+        feePayer: args.feePayer,
+        policy: args.spendingLimitPolicy,
+        accountIndex: policyState.fields[0].sourceAccountIndex,
+        numSigners: 1,
+        policyPayload,
+        instruction_accounts: instructionAccounts,
+        memo: args.memo,
+      } as never
+    );
+  }
+
   async function resolveMintTokenProgramId(
     mint: PublicKey
   ): Promise<PublicKey> {
@@ -11734,16 +12639,6 @@ export function createSmartAccountVaultsClient(
         isWritable: true,
       },
       {
-        pubkey: payload.destination,
-        isSigner: false,
-        isWritable: true,
-      },
-      {
-        pubkey: mint,
-        isSigner: false,
-        isWritable: false,
-      },
-      {
         pubkey: sourceTokenAccount,
         isSigner: false,
         isWritable: true,
@@ -11752,6 +12647,11 @@ export function createSmartAccountVaultsClient(
         pubkey: destinationTokenAccount,
         isSigner: false,
         isWritable: true,
+      },
+      {
+        pubkey: mint,
+        isSigner: false,
+        isWritable: false,
       },
       {
         pubkey: tokenProgramId,
@@ -12050,9 +12950,12 @@ export function createSmartAccountVaultsClient(
     prepareRemoveSpendingLimitPolicy,
     prepareRemoveSpendingLimitProposal: prepareRemoveSpendingLimitPolicy,
     prepareEarnUsdcYieldRoutingPolicy,
+    prepareEarnUsdcYieldRoutingPolicyState,
     prepareEarnCrossMintSwapPolicies,
     assertEarnCrossMintCanonicalArtifacts,
     prefetchEarnUsdcDepositInstructions,
+    prepareEarnUsdcKaminoDeposit,
+    prepareEarnUsdcKaminoWithdraw,
     prepareEarnUsdcDeposit,
     prepareEarnUsdcWithdraw,
     prepareEarnUsdcCleanup,
@@ -12091,9 +12994,11 @@ export function createSmartAccountVaultsClient(
       prepareCloseYieldRoutingPoliciesSync({
         ...args,
         policies: [args.policy],
-      }),
+    }),
     prepareUseSolSpendingLimitPolicy,
     prepareUseSolSpendingLimit: prepareUseSolSpendingLimitPolicy,
+    prepareUseTokenSpendingLimitPolicy,
+    prepareUseTokenSpendingLimit: prepareUseTokenSpendingLimitPolicy,
     prepareApproveProposal,
     prepareRejectProposal,
     prepareExecuteProposal,

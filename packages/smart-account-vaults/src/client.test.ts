@@ -478,6 +478,59 @@ function createSerializedSweepPolicyAccount(seed = new BN(3)) {
   };
 }
 
+function createSerializedTokenSpendingLimitPolicyAccount(
+  mint = STABLECOIN_MINTS[Stablecoin.USDC]
+) {
+  const [data] = Policy.fromArgs({
+    bump: 255,
+    expiration: null,
+    policyState: {
+      __kind: "SpendingLimit",
+      fields: [
+        {
+          sourceAccountIndex: 1,
+          destinations: [walletAddress],
+          spendingLimit: {
+            mint,
+            timeConstraints: {
+              start: new BN(0),
+              expiration: null,
+              period: { __kind: "Daily" },
+              accumulateUnused: false,
+            },
+            quantityConstraints: {
+              maxPerPeriod: new BN(2_000_000),
+              maxPerUse: new BN(2_000_000),
+              enforceExactQuantity: false,
+            },
+            usage: {
+              remainingInPeriod: new BN(2_000_000),
+              lastReset: new BN(0),
+            },
+          },
+        },
+      ],
+    },
+    rentCollector: walletAddress,
+    seed: new BN(9),
+    settings: settingsPda,
+    signers: [{ key: backendSigner, permissions: { mask: 7 } }],
+    staleTransactionIndex: new BN(0),
+    start: new BN(0),
+    threshold: 1,
+    timeLock: 0,
+    transactionIndex: new BN(0),
+  }).serialize();
+
+  return {
+    data,
+    executable: false,
+    lamports: 1,
+    owner: programId,
+    rentEpoch: 0,
+  };
+}
+
 function createSerializedSettingsAccount(policySeed: BN | null = null) {
   const [data] = Settings.fromArgs({
     accountUtilization: 0,
@@ -1031,6 +1084,99 @@ describe("root Settings signer changes", () => {
   });
 });
 
+describe("token spending-limit execution", () => {
+  test("builds a USDC policy execution with the smart-account and wallet token accounts", async () => {
+    const usdcMint = STABLECOIN_MINTS[Stablecoin.USDC];
+    const getAccountInfo = mock(async (account: PublicKey) => {
+      if (account.equals(policyAccount)) {
+        return createSerializedTokenSpendingLimitPolicyAccount(usdcMint);
+      }
+      if (account.equals(usdcMint)) {
+        return {
+          data: Buffer.alloc(82),
+          executable: false,
+          lamports: 1,
+          owner: TOKEN_PROGRAM_ID,
+          rentEpoch: 0,
+        };
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareUseTokenSpendingLimitPolicy({
+      amountRaw: BigInt(1_250_000),
+      decimals: 6,
+      destination: walletAddress,
+      feePayer,
+      mint: usdcMint,
+      settingsPda,
+      signer: backendSigner,
+      spendingLimitPolicy: policyAccount,
+    });
+
+    expect(result.instructions).toHaveLength(1);
+    const instruction = result.instructions[0]!;
+    expect(instruction.keys.slice(2).map((key) => key.pubkey.toBase58())).toEqual([
+      backendSigner.toBase58(),
+      deriveVault().toBase58(),
+      getAssociatedTokenAddressSync(usdcMint, deriveVault(), true).toBase58(),
+      getAssociatedTokenAddressSync(usdcMint, walletAddress, true).toBase58(),
+      usdcMint.toBase58(),
+      TOKEN_PROGRAM_ID.toBase58(),
+    ]);
+
+    const [decoded] = generated.executeTransactionSyncV2Struct.deserialize(
+      Buffer.from(instruction.data)
+    );
+    expect(decoded.args.accountIndex).toBe(1);
+    expect(decoded.args.numSigners).toBe(1);
+    expect(decoded.args.payload.__kind).toBe("Policy");
+    if (decoded.args.payload.__kind !== "Policy") {
+      throw new Error("Expected a policy payload.");
+    }
+    const [payload] = decoded.args.payload.fields;
+    expect(payload.__kind).toBe("SpendingLimit");
+    if (payload.__kind !== "SpendingLimit") {
+      throw new Error("Expected a spending-limit payload.");
+    }
+    expect(payload.fields[0]?.amount.toString()).toBe("1250000");
+    expect(payload.fields[0]?.destination.toBase58()).toBe(
+      walletAddress.toBase58()
+    );
+    expect(payload.fields[0]?.decimals).toBe(6);
+  });
+
+  test("rejects a SOL spending-limit policy for token execution", async () => {
+    const getAccountInfo = mock(async (account: PublicKey) => {
+      if (account.equals(policyAccount)) {
+        return createSerializedTokenSpendingLimitPolicyAccount(PublicKey.default);
+      }
+      return null;
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    await expect(
+      client.prepareUseTokenSpendingLimitPolicy({
+        amountRaw: BigInt(1),
+        decimals: 6,
+        destination: walletAddress,
+        feePayer,
+        mint: STABLECOIN_MINTS[Stablecoin.USDC],
+        settingsPda,
+        signer: backendSigner,
+        spendingLimitPolicy: policyAccount,
+      })
+    ).rejects.toThrow("A token spending-limit policy is required");
+  });
+});
+
 describe("prepareEarnUsdcDeposit", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -1456,20 +1602,126 @@ describe("prepareEarnUsdcDeposit", () => {
     );
   });
 
+  test("opts into a Main-market-only routing policy universe", async () => {
+    const getAccountInfo = mock(async (_address: PublicKey) =>
+      createSerializedSettingsAccount(new BN(6))
+    );
+    const client = createSmartAccountVaultsClient({
+      connection: { getAccountInfo } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcYieldRoutingPolicy({
+      settingsPda,
+      walletAddress,
+      signer: backendSigner,
+      feePayer,
+      policyScope: "kamino_main_usdc",
+    });
+
+    const routeCreate = decodeGeneratedPolicyCreate(result.prepared.instructions[0]);
+    expect(routeCreate.policyCreationPayload.__kind).toBe("ProgramInteraction");
+    if (routeCreate.policyCreationPayload.__kind !== "ProgramInteraction") {
+      throw new Error("Expected a ProgramInteraction route policy.");
+    }
+    const routeConstraints =
+      routeCreate.policyCreationPayload.fields[0]!.instructionsConstraints;
+    expect(routeConstraints).toHaveLength(2);
+    for (const constraint of routeConstraints) {
+      expect(generatedPubkeyConstraintValues(constraint.accountConstraints, 2)).toEqual([
+        kaminoMarket.toBase58(),
+      ]);
+    }
+    expect(
+      generatedPubkeyConstraintValues(routeConstraints[1]!.accountConstraints, 5)
+    ).toEqual([STABLECOIN_MINTS[Stablecoin.USDC].toBase58()]);
+    expect(result.persistence).toMatchObject({
+      universePreset: "kamino_main_usdc",
+      kaminoMarkets: [kaminoMarket.toBase58()],
+      kaminoLiquidityMints: [STABLECOIN_MINTS[Stablecoin.USDC].toBase58()],
+      stableMints: [STABLECOIN_MINTS[Stablecoin.USDC].toBase58()],
+    });
+  });
+
+  test("prepares delegated Kamino Main deposit and withdrawal executions", async () => {
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async () =>
+          createSerializedSettingsAccount(new BN(6))
+        ),
+      } as never,
+      programId,
+    });
+    const policyCreate = await client.prepareEarnUsdcYieldRoutingPolicy({
+      settingsPda,
+      walletAddress,
+      signer: backendSigner,
+      feePayer,
+      cluster: LoyalCluster.Devnet,
+      policyScope: "kamino_main_usdc",
+    });
+    const routeCreate = decodeGeneratedPolicyCreate(
+      policyCreate.prepared.instructions[0]
+    );
+    const policy = Policy.fromArgs({
+      bump: 255,
+      expiration: null,
+      policyState: routeCreate.policyCreationPayload as never,
+      rentCollector: feePayer,
+      seed: new BN(policyCreate.policy.seed.toString()),
+      settings: settingsPda,
+      signers: [{ key: backendSigner, permissions: { mask: 7 } }],
+      staleTransactionIndex: new BN(0),
+      start: new BN(0),
+      threshold: 1,
+      timeLock: 0,
+      transactionIndex: new BN(0),
+    });
+    client.sdk.policies.queries.fetchPolicy = mock(async () => policy) as never;
+
+    const deposit = await client.prepareEarnUsdcKaminoDeposit({
+      settingsPda,
+      policy: policyCreate.policy.account,
+      policySigner: backendSigner,
+      feePayer,
+      amountRaw: BigInt(1_000_000),
+      cluster: LoyalCluster.Devnet,
+    });
+    const withdraw = await client.prepareEarnUsdcKaminoWithdraw({
+      settingsPda,
+      policy: policyCreate.policy.account,
+      policySigner: backendSigner,
+      feePayer,
+      amountRaw: BigInt(500_000),
+      cluster: LoyalCluster.Devnet,
+    });
+
+    expect(
+      deposit.prepared.instructions[deposit.prepared.instructions.length - 1]
+        ?.programId.toBase58()
+    ).toBe(
+      programId.toBase58()
+    );
+    expect(
+      withdraw.prepared.instructions[withdraw.prepared.instructions.length - 1]
+        ?.programId.toBase58()
+    ).toBe(
+      programId.toBase58()
+    );
+    expect(deposit.prepared.instructions).toHaveLength(3);
+    expect(withdraw.prepared.instructions).toHaveLength(3);
+  });
+
   test("prepares separate canonical cross-mint policy shards", async () => {
     const getAccountInfo = mock(async (address: PublicKey) =>
       address.equals(settingsPda)
         ? createSerializedSettingsAccount(new BN(6))
         : null
     );
-    const getProgramAccounts = mock(async () => []);
-    const rpcRequest = mock(async () => ({ result: [] }));
     const client = createSmartAccountVaultsClient({
       connection: {
-        _rpcRequest: rpcRequest,
         getAccountInfo,
-        getMultipleAccountsInfo: mock(async () => []),
-        getProgramAccounts,
+        getProgramAccounts: mock(async () => []),
       } as never,
       programId,
     });
@@ -1528,8 +1780,6 @@ describe("prepareEarnUsdcDeposit", () => {
         walletAddress: walletAddress.toBase58(),
       });
     }
-    expect(getProgramAccounts).not.toHaveBeenCalled();
-    expect(rpcRequest).not.toHaveBeenCalled();
   });
 
   test("reuses a finalized cross-mint policy with materialized spending usage", async () => {
@@ -1540,7 +1790,7 @@ describe("prepareEarnUsdcDeposit", () => {
             ? createSerializedSettingsAccount(new BN(6))
             : null
         ),
-        getMultipleAccountsInfo: mock(async () => []),
+        getProgramAccounts: mock(async () => []),
       } as never,
       programId,
     });
@@ -1552,88 +1802,78 @@ describe("prepareEarnUsdcDeposit", () => {
       maxSlippageBps: 50,
       dailySourceMintSpendingCap: BigInt(300_000_000),
     });
-    const runtimeTimestamp = new BN(1_786_936_896);
-    const materializePolicy = (
-      preparedPolicy: (typeof initial.policies)[number]
-    ) => {
-      const create = decodeGeneratedPolicyCreate(
-        preparedPolicy.prepared?.instructions[0]
-      );
-      if (create.policyCreationPayload.__kind !== "ProgramInteraction") {
-        throw new Error("Expected ProgramInteraction policy payload.");
-      }
-      const [payload] = create.policyCreationPayload.fields;
-      const runtimeState = {
-        __kind: "ProgramInteraction" as const,
-        fields: [
-          {
-            ...payload,
-            spendingLimits: [...payload.spendingLimits]
-              .reverse()
-              .map((limit) => ({
-                ...limit,
-                quantityConstraints: {
-                  ...limit.quantityConstraints,
-                  enforceExactQuantity: false,
-                  maxPerUse: new BN(0),
-                },
-                timeConstraints: {
-                  ...limit.timeConstraints,
-                  accumulateUnused: false,
-                  start: runtimeTimestamp,
-                },
-                usage: {
-                  lastReset: runtimeTimestamp,
-                  remainingInPeriod: limit.quantityConstraints.maxPerPeriod,
-                },
-              })),
-          },
-        ],
-      };
-      const [, bump] = pda.getPolicyPda({
-        policySeed: Number(preparedPolicy.policy.seed),
-        programId,
-        settingsPda,
-      });
-      const [data] = Policy.fromArgs({
-        bump,
-        expiration: null,
-        policyState: runtimeState as never,
-        rentCollector: feePayer,
-        seed: new BN(preparedPolicy.policy.seed.toString()),
-        settings: settingsPda,
-        signers: create.signers,
-        staleTransactionIndex: new BN(0),
-        start: runtimeTimestamp,
-        threshold: create.threshold,
-        timeLock: create.timeLock,
-        transactionIndex: new BN(0),
-      }).serialize();
-      return {
-        data,
-        executable: false,
-        lamports: 1,
-        owner: programId,
-        rentEpoch: 0,
-      };
-    };
     const classic = initial.policies[0];
-    const token2022 = initial.policies[1];
-    const finalizedClassic = materializePolicy(classic);
-    const finalizedToken2022 = materializePolicy(token2022);
-    const getProgramAccounts = mock(async () => []);
-    const rpcRequest = mock(async () => ({ result: [] }));
-    const getMultipleAccountsInfo = mock(async () => [finalizedClassic]);
+    const create = decodeGeneratedPolicyCreate(
+      classic.prepared?.instructions[0]
+    );
+    if (create.policyCreationPayload.__kind !== "ProgramInteraction") {
+      throw new Error("Expected ProgramInteraction policy payload.");
+    }
+    const [payload] = create.policyCreationPayload.fields;
+    const runtimeTimestamp = new BN(1_786_936_896);
+    const runtimeState = {
+      __kind: "ProgramInteraction" as const,
+      fields: [
+        {
+          ...payload,
+          spendingLimits: [...payload.spendingLimits]
+            .reverse()
+            .map((limit) => ({
+              ...limit,
+              quantityConstraints: {
+                ...limit.quantityConstraints,
+                enforceExactQuantity: false,
+                maxPerUse: new BN(0),
+              },
+              timeConstraints: {
+                ...limit.timeConstraints,
+                accumulateUnused: false,
+                start: runtimeTimestamp,
+              },
+              usage: {
+                lastReset: runtimeTimestamp,
+                remainingInPeriod: limit.quantityConstraints.maxPerPeriod,
+              },
+            })),
+        },
+      ],
+    };
+    const [, bump] = pda.getPolicyPda({
+      policySeed: Number(classic.policy.seed),
+      programId,
+      settingsPda,
+    });
+    const [data] = Policy.fromArgs({
+      bump,
+      expiration: null,
+      policyState: runtimeState as never,
+      rentCollector: feePayer,
+      seed: new BN(classic.policy.seed.toString()),
+      settings: settingsPda,
+      signers: create.signers,
+      staleTransactionIndex: new BN(0),
+      start: runtimeTimestamp,
+      threshold: create.threshold,
+      timeLock: create.timeLock,
+      transactionIndex: new BN(0),
+    }).serialize();
+    const finalizedClassic = {
+      data,
+      executable: false,
+      lamports: 1,
+      owner: programId,
+      rentEpoch: 0,
+    };
     const resumedClient = createSmartAccountVaultsClient({
       connection: {
-        _rpcRequest: rpcRequest,
         getAccountInfo: mock(async (address: PublicKey) =>
           address.equals(settingsPda)
             ? createSerializedSettingsAccount(new BN(7))
             : null
         ),
-        getMultipleAccountsInfo,
-        getProgramAccounts,
+        getProgramAccounts: mock(async () => [
+          { account: finalizedClassic, pubkey: classic.policy.account },
+        ]),
       } as never,
       programId,
     });
@@ -1645,14 +1885,6 @@ describe("prepareEarnUsdcDeposit", () => {
       feePayer,
       maxSlippageBps: 50,
       dailySourceMintSpendingCap: BigInt(300_000_000),
-      projectedPolicies: [
-        {
-          account: classic.policy.account,
-          lastSeenSlot: BigInt(123),
-          seed: classic.policy.seed,
-          sourceShard: "classic",
-        },
-      ],
     });
 
     expect(
@@ -1665,79 +1897,6 @@ describe("prepareEarnUsdcDeposit", () => {
       { existing: true, seed: BigInt(7), shard: "classic" },
       { existing: false, seed: BigInt(8), shard: "token_2022" },
     ]);
-    expect(getMultipleAccountsInfo).toHaveBeenCalledTimes(1);
-    expect(getProgramAccounts).not.toHaveBeenCalled();
-    expect(rpcRequest).not.toHaveBeenCalled();
-
-    const completeClient = createSmartAccountVaultsClient({
-      connection: {
-        _rpcRequest: rpcRequest,
-        getAccountInfo: mock(async (address: PublicKey) =>
-          address.equals(settingsPda)
-            ? createSerializedSettingsAccount(new BN(8))
-            : null
-        ),
-        getMultipleAccountsInfo: mock(async () => [
-          finalizedClassic,
-          finalizedToken2022,
-        ]),
-        getProgramAccounts,
-      } as never,
-      programId,
-    });
-    const complete = await completeClient.prepareEarnCrossMintSwapPolicies({
-      settingsPda,
-      walletAddress,
-      signer: backendSigner,
-      feePayer,
-      maxSlippageBps: 50,
-      dailySourceMintSpendingCap: BigInt(300_000_000),
-      projectedPolicies: [
-        {
-          account: classic.policy.account,
-          seed: classic.policy.seed,
-          sourceShard: "classic",
-        },
-        {
-          account: token2022.policy.account,
-          seed: token2022.policy.seed,
-          sourceShard: "token_2022",
-        },
-      ],
-    });
-    expect(complete.policies.every((entry) => entry.existing)).toBe(true);
-    expect(complete.policies.every((entry) => !entry.prepared)).toBe(true);
-
-    const staleClient = createSmartAccountVaultsClient({
-      connection: {
-        _rpcRequest: rpcRequest,
-        getAccountInfo: mock(async (address: PublicKey) =>
-          address.equals(settingsPda)
-            ? createSerializedSettingsAccount(new BN(7))
-            : null
-        ),
-        getMultipleAccountsInfo: mock(async () => [null]),
-        getProgramAccounts,
-      } as never,
-      programId,
-    });
-    await expect(
-      staleClient.prepareEarnCrossMintSwapPolicies({
-        settingsPda,
-        walletAddress,
-        signer: backendSigner,
-        feePayer,
-        maxSlippageBps: 50,
-        dailySourceMintSpendingCap: BigInt(300_000_000),
-        projectedPolicies: [
-          {
-            account: classic.policy.account,
-            seed: classic.policy.seed,
-            sourceShard: "classic",
-          },
-        ],
-      })
-    ).rejects.toThrow("is missing on-chain");
   });
 
   test("rejects zero amount deposits", async () => {
