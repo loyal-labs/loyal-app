@@ -48,6 +48,7 @@ import { createOrFindPolicies, findExistingPolicies } from "@/lib/policy-setup";
 import {
   assertMainnetConnection,
   createMainnetConnection,
+  waitForConfirmed,
   waitForFinalized,
 } from "@/lib/rpc";
 import type {
@@ -115,7 +116,6 @@ export default function Home() {
   const [sponsor, setSponsor] = useState<PublicKey | null>(null);
   const [policySigner, setPolicySigner] = useState<PublicKey | null>(null);
   const [settings, setSettings] = useState<PublicKey | null>(null);
-  const [settingsWasFound, setSettingsWasFound] = useState(false);
   const [accountDiscoveryComplete, setAccountDiscoveryComplete] = useState(false);
   const [existingPolicies, setExistingPolicies] =
     useState<DemoPolicyBundle | null>(null);
@@ -142,6 +142,31 @@ export default function Home() {
   const pushEvidence = useCallback((entry: Omit<Evidence, "at">) => {
     setEvidence((current) => [{ ...entry, at: Date.now() }, ...current]);
   }, []);
+
+  // Evidence lands as soon as a transaction is confirmed so the demo can
+  // keep moving; this quietly upgrades the entry's wording once the same
+  // signature reaches finalized commitment.
+  const upgradeEvidenceWhenFinalized = useCallback(
+    (signature: string) => {
+      void waitForFinalized(connection, signature)
+        .then(() => {
+          setEvidence((current) =>
+            current.map((item) =>
+              item.signature === signature
+                ? {
+                    ...item,
+                    detail: item.detail
+                      .replace("Confirmed", "Finalized")
+                      .replace("confirmed", "finalized"),
+                  }
+                : item
+            )
+          );
+        })
+        .catch(() => {});
+    },
+    [connection]
+  );
 
   const celebrate = useCallback((title: string, detail: string) => {
     window.clearTimeout(celebrationTimeoutRef.current);
@@ -213,7 +238,7 @@ export default function Home() {
       const ata = resolveWalletUsdcAccount(walletKey);
       let walletBalanceRaw = 0n;
       try {
-        const balance = await connection.getTokenAccountBalance(ata, "finalized");
+        const balance = await connection.getTokenAccountBalance(ata, "confirmed");
         walletBalanceRaw = BigInt(balance.value.amount);
       } catch (error) {
         if (
@@ -262,13 +287,11 @@ export default function Home() {
       const found = await findExistingSmartAccount({ connection, wallet: walletKey });
       if (!found) {
         setSettings(null);
-        setSettingsWasFound(false);
         setExistingPolicies(null);
         setStatus("Wallet connected. Next: create the smart account. Loyal sponsors it.");
         return;
       }
       setSettings(found.settings);
-      setSettingsWasFound(true);
       if (!policySigner) {
         setExistingPolicies(null);
         setStatus("Smart account found. The delegated policy key is not configured.");
@@ -355,7 +378,7 @@ export default function Home() {
               setBalanceError("A live balance update could not be decoded.");
             }
           },
-          "finalized"
+          "confirmed"
         )
       );
     }
@@ -493,12 +516,21 @@ export default function Home() {
         throw new Error(result.error ?? `${args.label} failed safely.`);
       }
       pushEvidence({
-        detail: "Finalized on mainnet-beta",
+        detail: "Confirmed on mainnet-beta",
         label: args.label,
         signature: result.signature,
       });
+      upgradeEvidenceWhenFinalized(result.signature);
     },
-    [connection, ensureDemoSession, pushEvidence, signTransaction, sponsor, wallet]
+    [
+      connection,
+      ensureDemoSession,
+      pushEvidence,
+      signTransaction,
+      sponsor,
+      upgradeEvidenceWhenFinalized,
+      wallet,
+    ]
   );
 
   async function withdrawWalletUsdc() {
@@ -559,18 +591,19 @@ export default function Home() {
       wallet,
     });
     const signature = bs58.encode(sent.signature);
-    setStatus("Withdrawal submitted. Waiting for mainnet finalization…");
-    await waitForFinalized(connection, signature);
+    setStatus("Withdrawal submitted. Waiting for mainnet confirmation…");
+    await waitForConfirmed(connection, signature);
     await loadBalances();
     pushEvidence({
-      detail: "Privy wallet signed · finalized on mainnet-beta",
+      detail: "Privy wallet signed · confirmed on mainnet-beta",
       label: `Withdraw ${formatUsdc(amountRaw)} USDC`,
       signature,
     });
+    upgradeEvidenceWhenFinalized(signature);
     setWithdrawOpen(false);
     setWithdrawAmount("");
     setWithdrawDestination("");
-    setStatus(`Withdrawal finalized to ${destination.toBase58()}.`);
+    setStatus(`Withdrawal confirmed to ${destination.toBase58()}.`);
   }
 
   async function createAccount() {
@@ -579,7 +612,6 @@ export default function Home() {
     const found = await findExistingSmartAccount({ connection, wallet: walletKey });
     if (found) {
       setSettings(found.settings);
-      setSettingsWasFound(true);
       setStatus("Existing smart account found. No new account was created.");
       return;
     }
@@ -594,13 +626,12 @@ export default function Home() {
       settingsAddress: creation.settings,
       stage: "settings",
     });
-    // The backend already reloaded and validated this exact finalized Settings
+    // The backend already reloaded and validated this exact confirmed Settings
     // account before returning success. Use that address immediately; the
     // signer-indexed discovery path will recover it on the next page load.
     setSettings(creation.settings);
-    setSettingsWasFound(false);
     setAccountDiscoveryComplete(true);
-    setStatus("Smart account created and finalized. Next: turn on its four rules.");
+    setStatus("Smart account created and confirmed. Next: turn on its four rules.");
   }
 
   async function createPolicies() {
@@ -628,10 +659,11 @@ export default function Home() {
     }
     if (prefund.signature) {
       pushEvidence({
-        detail: "Finalized on mainnet-beta",
+        detail: "Confirmed on mainnet-beta",
         label: "Fund one-time policy setup costs",
         signature: prefund.signature,
       });
+      upgradeEvidenceWhenFinalized(prefund.signature);
     }
     const bundle = await createOrFindPolicies({
       connection,
@@ -704,16 +736,18 @@ export default function Home() {
           }
           for (const signature of result.supportingSignatures ?? []) {
             pushEvidence({
-              detail: "One-time Kamino account setup · finalized",
+              detail: "One-time Kamino account setup · confirmed",
               label: "Prepare Kamino position",
               signature,
             });
+            upgradeEvidenceWhenFinalized(signature);
           }
           pushEvidence({
-            detail: "Policy-signed by Loyal · finalized and reconciled",
+            detail: "Policy-signed by Loyal · confirmed and reconciled",
             label,
             signature: result.signature,
           });
+          upgradeEvidenceWhenFinalized(result.signature);
           break;
         }
         await loadBalances();
@@ -721,13 +755,21 @@ export default function Home() {
         setActiveMove(null);
       }
     },
-    [ensureDemoSession, existingPolicies, loadBalances, pushEvidence, settings, wallet]
+    [
+      ensureDemoSession,
+      existingPolicies,
+      loadBalances,
+      pushEvidence,
+      settings,
+      upgradeEvidenceWhenFinalized,
+      wallet,
+    ]
   );
 
   const runSingleMove = (action: DemoMoveAction, label: string) =>
     run(`${label}…`, async () => {
       await executeMove(action, label);
-      setStatus(`${label} finalized on mainnet. Balances update live from chain.`);
+      setStatus(`${label} confirmed on mainnet. Balances update live from chain.`);
     });
 
   const runScenario = (name: string, steps: MoveStep[]) =>
@@ -740,7 +782,7 @@ export default function Home() {
       setStatus(`${name} complete. Both hops signed by the policy key, not the wallet.`);
       celebrate(
         "Money moved itself",
-        `${name} finalized on mainnet with zero wallet signatures.`
+        `${name} confirmed on mainnet with zero wallet signatures.`
       );
     });
 
@@ -918,7 +960,7 @@ export default function Home() {
               <h3>Top up</h3>
               <p>
                 Send Solana USDC to the address in step 1. The balance updates
-                from finalized chain state.
+                live from confirmed chain state.
               </p>
               <span className="big-balance">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1102,7 +1144,7 @@ export default function Home() {
 
         <section className="section">
           <div data-reveal="fade">
-            <h2 className="section-title">Finalized evidence</h2>
+            <h2 className="section-title">On-chain evidence</h2>
             <p className="section-sub">
               Every transaction settles on Solana mainnet-beta. Open any receipt
               on Orb Markets to verify it independently.

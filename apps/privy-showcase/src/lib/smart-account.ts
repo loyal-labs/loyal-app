@@ -67,7 +67,7 @@ export async function loadExistingSmartAccount(args: {
   settings: PublicKey;
   wallet: PublicKey;
 }): Promise<ExistingSmartAccount | null> {
-  const account = await args.connection.getAccountInfo(args.settings, "finalized");
+  const account = await args.connection.getAccountInfo(args.settings, "confirmed");
   if (!account) return null;
   return decodeExactSmartAccount({
     data: account.data,
@@ -103,7 +103,7 @@ export async function findExistingSmartAccount(args: {
   const rowGroups = await Promise.all(
     CANONICAL_SETTINGS_SIGNER_OFFSETS.map((signerOffset) =>
       args.connection.getProgramAccounts(SQUADS_PROGRAM_ID, {
-        commitment: "finalized",
+        commitment: "confirmed",
         filters: [
           {
             memcmp: {
@@ -166,7 +166,7 @@ export async function prepareSmartAccountCreation(args: {
   })[0];
   const programConfig = await client.programConfig.queries.fetchProgramConfig(
     programConfigPda,
-    "finalized"
+    "confirmed"
   );
   const accountIndex = BigInt(programConfig.smartAccountIndex.toString()) + 1n;
   const settings = pda.getSettingsPda({

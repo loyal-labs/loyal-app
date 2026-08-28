@@ -88,9 +88,18 @@ async function verifyStatic() {
   const relativeRoutes = apiRoutes.map((path) => relative(root, path));
   record("surface.one_backend_route", relativeRoutes.length === 1 && relativeRoutes[0] === "src/app/api/sponsor/route.ts", "one authenticated backend route owns setup and fixed money moves", `found API routes: ${relativeRoutes.join(", ")}`);
 
-  const forbiddenPatterns = [/localStorage/, /sweepIntent/, /\/api\/sweep/, /PRIVY_APP_SECRET/, /PRIVY_SHOWCASE_POLICY_SIGNER_PK/, /webhook/i, /scheduler/i, /queue/i];
+  const forbiddenPatterns = [/localStorage/, /sweepIntent/, /\/api\/sweep/, /webhook/i, /scheduler/i, /queue/i];
   const forbiddenHits = forbiddenPatterns.filter((pattern) => pattern.test(executableSource)).map((pattern) => pattern.toString());
   record("surface.no_unbounded_machinery", forbiddenHits.length === 0, "no browser persistence, generic sweep, worker, or replay machinery is present", `forbidden executable patterns remain: ${forbiddenHits.join(", ")}`);
+
+  const secretEnvPattern = /process\.env\.(SMART_ACCOUNT_SPONSOR_PK|EARN_POLICY_SPONSOR_PK)\b/;
+  const secretEnvOutsideServer = sourceEntries
+    .filter(([path]) => !path.includes("/lib/server/"))
+    .filter(([, text]) => secretEnvPattern.test(text))
+    .map(([path]) => relative(root, path));
+  const sponsorModule = sourceEntries.find(([path]) => path.endsWith("lib/server/sponsor.ts"));
+  const sponsorIsServerOnly = sponsorModule?.[1].includes('import "server-only"') === true;
+  record("surface.server_secret_boundary", secretEnvOutsideServer.length === 0 && sponsorIsServerOnly, "sponsor and policy private keys are only read inside the server-only sponsor module", `secret env reads outside src/lib/server: ${secretEnvOutsideServer.join(", ") || "none"}; sponsor.ts server-only import present: ${sponsorIsServerOnly}`);
 
   const requiredDependencies = ["@privy-io/node", "jose", "tweetnacl"].filter((name) => !(name in packageJson.dependencies));
   record("surface.server_dependencies", requiredDependencies.length === 0, "the authenticated server dependencies are installed", `missing dependencies: ${requiredDependencies.join(", ")}`);
@@ -330,6 +339,7 @@ async function verifyLive() {
   );
 
   const moneyState = await readDemoMoneyState({
+    commitment: "finalized",
     connection,
     settings: settingsAddress,
     wallet,

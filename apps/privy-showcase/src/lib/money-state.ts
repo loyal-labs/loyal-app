@@ -12,7 +12,7 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import type { Connection } from "@solana/web3.js";
+import type { Commitment, Connection } from "@solana/web3.js";
 import { PublicKey } from "@solana/web3.js";
 import {
   CANONICAL_USDC_MINT,
@@ -82,10 +82,11 @@ export function resolveDemoMoneyAccounts(args: {
 
 async function tokenBalanceOrZero(
   connection: Connection,
-  account: PublicKey
+  account: PublicKey,
+  commitment: Commitment
 ): Promise<bigint> {
   try {
-    const balance = await connection.getTokenAccountBalance(account, "finalized");
+    const balance = await connection.getTokenAccountBalance(account, commitment);
     return BigInt(balance.value.amount);
   } catch (error) {
     if (
@@ -99,10 +100,14 @@ async function tokenBalanceOrZero(
 }
 
 export async function readDemoMoneyState(args: {
+  commitment?: Commitment;
   connection: Connection;
   settings: PublicKey;
   wallet: PublicKey;
 }): Promise<DemoMoneySnapshot> {
+  // The in-flow pipeline reads at "confirmed" so each hop can chain without
+  // waiting for finalization; the verify:demo auditor passes "finalized".
+  const commitment = args.commitment ?? "confirmed";
   const accounts = resolveDemoMoneyAccounts(args);
   const [
     walletUsdcRaw,
@@ -112,13 +117,13 @@ export async function readDemoMoneyState(args: {
     reserveAccount,
   ] =
     await Promise.all([
-      tokenBalanceOrZero(args.connection, accounts.walletUsdcAta),
-      tokenBalanceOrZero(args.connection, accounts.smartAccountUsdcAta),
+      tokenBalanceOrZero(args.connection, accounts.walletUsdcAta, commitment),
+      tokenBalanceOrZero(args.connection, accounts.smartAccountUsdcAta, commitment),
       accounts.kaminoCollateralAta
-        ? tokenBalanceOrZero(args.connection, accounts.kaminoCollateralAta)
+        ? tokenBalanceOrZero(args.connection, accounts.kaminoCollateralAta, commitment)
         : Promise.resolve(0n),
-      args.connection.getAccountInfo(accounts.kaminoObligation, "finalized"),
-      args.connection.getAccountInfo(accounts.kaminoReserve, "finalized"),
+      args.connection.getAccountInfo(accounts.kaminoObligation, commitment),
+      args.connection.getAccountInfo(accounts.kaminoReserve, commitment),
     ]);
   if (!reserveAccount) {
     throw new Error("Kamino Main USDC reserve is unavailable.");

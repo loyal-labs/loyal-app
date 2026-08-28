@@ -22,16 +22,26 @@ import {
   SQUADS_PROGRAM_ID,
 } from "../constants";
 import { readDemoMoneyState, type DemoMoneyState } from "../money-state";
-import { assertMainnetConnection, waitForFinalized } from "../rpc";
-import type {
-  DemoExpectedMoneyState,
-  DemoMoveRequestBody,
-  DemoPolicyBundle,
-  SponsorPrefundRequestBody,
-  SponsorPolicyReference,
-  SponsorRequestBody,
-  SponsorSetupRequestBody,
-  SponsorStage,
+import { assertExpectedMoneyState, reconcileMove } from "../move-reconciliation";
+import { assertMainnetConnection, waitForConfirmed } from "../rpc";
+import {
+  AUTODEPOSIT_AMOUNT_RAW,
+  AUTODEPOSIT_EXPIRY,
+  AUTODEPOSIT_NONCE,
+  AUTODEPOSIT_PERIOD_SECONDS,
+  AUTODEPOSIT_STAGE_BY_SDK_STAGE,
+  type DemoExpectedMoneyState,
+  type DemoMoveRequestBody,
+  type DemoPolicyBundle,
+  EXIT_DAILY_LIMIT_RAW,
+  KAMINO_DEPOSIT_AMOUNT_RAW,
+  KAMINO_WITHDRAW_AMOUNT_RAW,
+  type SponsorPrefundRequestBody,
+  type SponsorPolicyReference,
+  type SponsorRequestBody,
+  type SponsorSetupRequestBody,
+  type SponsorStage,
+  WALLET_RETURN_AMOUNT_RAW,
 } from "../sponsor-protocol";
 import {
   assertSignedTransactionMatchesExpected,
@@ -46,14 +56,6 @@ import {
   prepareSmartAccountCreation,
 } from "../smart-account";
 
-const AUTODEPOSIT_AMOUNT_RAW = 2_000_000n;
-const AUTODEPOSIT_NONCE = 0n;
-const AUTODEPOSIT_PERIOD_SECONDS = 30n * 24n * 60n * 60n;
-const AUTODEPOSIT_EXPIRY = 9_223_372_036_854_775_807n;
-const KAMINO_DEPOSIT_AMOUNT_RAW = 2_000_000n;
-const KAMINO_WITHDRAW_AMOUNT_RAW = 1_000_000n;
-const WALLET_RETURN_AMOUNT_RAW = 1_000_000n;
-const EXIT_DAILY_LIMIT_RAW = 10_000_000n;
 const RATE_WINDOW_MS = 10 * 60 * 1_000;
 const RATE_LIMIT = 32;
 const CHALLENGE_TTL_MS = 5 * 60 * 1_000;
@@ -285,6 +287,9 @@ export function enforceSameOrigin(request: Request): void {
 }
 
 export function enforceRateLimit(key: string, now = Date.now()): void {
+  for (const [entryKey, entry] of rateEntries) {
+    if (entry.resetAt <= now) rateEntries.delete(entryKey);
+  }
   const current = rateEntries.get(key);
   if (!current || current.resetAt <= now) {
     rateEntries.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
@@ -320,7 +325,7 @@ async function expectedSetupOperation(args: {
   settings: PublicKey;
 }): Promise<PreparedLoyalSmartAccountsOperation<string>> {
   if (args.body.stage === "settings") {
-    const existing = await args.connection.getAccountInfo(args.settings, "finalized");
+    const existing = await args.connection.getAccountInfo(args.settings, "confirmed");
     if (existing) badRequest("The smart account already exists.");
     const creation = await prepareSmartAccountCreation({
       connection: args.connection,
@@ -336,7 +341,7 @@ async function expectedSetupOperation(args: {
   const settingsAccount = await accounts.Settings.fromAccountAddress(
     args.connection,
     args.settings,
-    "finalized"
+    "confirmed"
   );
   assertSettings(settingsAccount, args.wallet);
   const client = createSmartAccountVaultsClient({
@@ -362,14 +367,9 @@ async function expectedSetupOperation(args: {
       startTimestamp: 0n,
       walletAddress: args.wallet,
     });
-    const expectedStage: Record<typeof setup.stage, SponsorStage> = {
-      initialize_subscription_authority: "autodeposit-authority",
-      create_policy: "autodeposit-policy",
-      create_recurring_delegation: "autodeposit-delegation",
-      approve_token_delegate: "autodeposit-approval",
-    };
-    if (expectedStage[setup.stage] !== args.body.stage) {
-      badRequest(`Expected ${expectedStage[setup.stage]} before this setup stage.`);
+    const expectedStage = AUTODEPOSIT_STAGE_BY_SDK_STAGE[setup.stage];
+    if (expectedStage !== args.body.stage) {
+      badRequest(`Expected ${expectedStage} before this setup stage.`);
     }
     return setup.prepared;
   }
@@ -443,7 +443,7 @@ async function assertExactPolicySet(args: {
     badRequest("The four policy references must be distinct.");
   }
   const rows = await args.connection.getProgramAccounts(SQUADS_PROGRAM_ID, {
-    commitment: "finalized",
+    commitment: "confirmed",
     filters: [
       { memcmp: { offset: 0, bytes: bs58.encode(Uint8Array.from(policyDiscriminator)) } },
       { memcmp: { offset: 8, bytes: args.settings.toBase58() } },
@@ -645,51 +645,15 @@ async function submitExactlyOnce(args: {
     if (sent !== expectedSignature) throw new Error("RPC returned an unexpected signature.");
   }
   try {
-    await waitForFinalized(args.connection, expectedSignature);
+    await waitForConfirmed(args.connection, expectedSignature);
   } catch {
     throw new SponsorRequestError(
       502,
-      "Transaction was submitted but finalization is unresolved.",
+      "Transaction was submitted but confirmation is unresolved.",
       expectedSignature
     );
   }
   return expectedSignature;
-}
-
-function assertExpectedMoneyState(
-  actual: DemoMoneyState,
-  expected: Omit<DemoMoneyState, "vault">
-): void {
-  if (
-    actual.walletUsdcRaw !== expected.walletUsdcRaw ||
-    actual.smartAccountUsdcRaw !== expected.smartAccountUsdcRaw ||
-    actual.kaminoUsdcRaw !== expected.kaminoUsdcRaw
-  ) {
-    throw new SponsorRequestError(409, "Money state changed. Refresh balances and try again.");
-  }
-}
-
-function reconcileMove(
-  action: DemoMoveRequestBody["action"],
-  before: DemoMoneyState,
-  after: DemoMoneyState
-): void {
-  const smartAccountDelta = after.smartAccountUsdcRaw - before.smartAccountUsdcRaw;
-  const ok =
-    action === "wallet_to_smart_account"
-      ? before.walletUsdcRaw - after.walletUsdcRaw === AUTODEPOSIT_AMOUNT_RAW &&
-        after.smartAccountUsdcRaw - before.smartAccountUsdcRaw === AUTODEPOSIT_AMOUNT_RAW
-      : action === "smart_account_to_kamino"
-      ? before.smartAccountUsdcRaw - after.smartAccountUsdcRaw === KAMINO_DEPOSIT_AMOUNT_RAW &&
-        after.kaminoUsdcRaw > before.kaminoUsdcRaw
-      : action === "kamino_to_smart_account"
-      ? smartAccountDelta >= KAMINO_WITHDRAW_AMOUNT_RAW &&
-        smartAccountDelta <= KAMINO_WITHDRAW_AMOUNT_RAW + 2n &&
-        after.kaminoUsdcRaw < before.kaminoUsdcRaw
-      : before.smartAccountUsdcRaw - after.smartAccountUsdcRaw ===
-          WALLET_RETURN_AMOUNT_RAW &&
-        after.walletUsdcRaw - before.walletUsdcRaw === WALLET_RETURN_AMOUNT_RAW;
-  if (!ok) throw new Error("Finalized balances do not match the fixed money movement.");
 }
 
 export async function sponsorSetupTransaction(args: {
@@ -773,7 +737,7 @@ export async function sponsorSetupTransaction(args: {
     const created = await accounts.Settings.fromAccountAddress(
       args.connection,
       settings,
-      "finalized"
+      "confirmed"
     );
     assertSettings(created, args.wallet);
   }
@@ -800,14 +764,14 @@ export async function prefundPolicySetup(args: {
     const settingsAccount = await accounts.Settings.fromAccountAddress(
       args.connection,
       settings,
-      "finalized"
+      "confirmed"
     );
     assertSettings(settingsAccount, args.wallet);
-    const balance = await args.connection.getBalance(args.wallet, "finalized");
+    const balance = await args.connection.getBalance(args.wallet, "confirmed");
     const existingPolicies = await args.connection.getProgramAccounts(
       SQUADS_PROGRAM_ID,
       {
-        commitment: "finalized",
+        commitment: "confirmed",
         filters: [
           {
             memcmp: {
@@ -827,7 +791,7 @@ export async function prefundPolicySetup(args: {
       completedPrefunds.add(lockKey);
       return {};
     }
-    const latest = await args.connection.getLatestBlockhash("finalized");
+    const latest = await args.connection.getLatestBlockhash("confirmed");
     const prepared: PreparedLoyalSmartAccountsOperation<string> = {
       operation: "privyDemoPolicySetupPrefund",
       payer: args.sponsor.publicKey,
@@ -857,9 +821,9 @@ export async function prefundPolicySetup(args: {
       connection: args.connection,
       transaction,
     });
-    const fundedBalance = await args.connection.getBalance(args.wallet, "finalized");
+    const fundedBalance = await args.connection.getBalance(args.wallet, "confirmed");
     if (fundedBalance < POLICY_SETUP_WALLET_SOL_FLOOR_LAMPORTS) {
-      throw new Error("Finalized policy setup funding did not reach its fixed floor.");
+      throw new Error("Confirmed policy setup funding did not reach its fixed floor.");
     }
     completedPrefunds.add(lockKey);
     return { signature };
@@ -899,7 +863,7 @@ export async function executeDemoMove(args: {
     });
     const supportingSignatures: string[] = [];
     for (let setupAttempt = 0; move.setupPrepared && setupAttempt < 2; setupAttempt += 1) {
-      const setupLatest = await args.connection.getLatestBlockhash("finalized");
+      const setupLatest = await args.connection.getLatestBlockhash("confirmed");
       const setupTransaction = compilePreparedOperation({
         blockhash: setupLatest.blockhash,
         prepared: move.setupPrepared,
@@ -930,9 +894,9 @@ export async function executeDemoMove(args: {
       });
     }
     if (move.setupPrepared) {
-      throw new Error("Kamino setup did not converge after two finalized stages.");
+      throw new Error("Kamino setup did not converge after two confirmed stages.");
     }
-    const latest = await args.connection.getLatestBlockhash("finalized");
+    const latest = await args.connection.getLatestBlockhash("confirmed");
     const transaction = compilePreparedOperation({
       blockhash: latest.blockhash,
       prepared: move.prepared,
@@ -950,7 +914,7 @@ export async function executeDemoMove(args: {
       settings,
       wallet: args.wallet,
     });
-    reconcileMove(args.body.action, before, after);
+    reconcileMove(args.body.action, before, after, signature);
     return { signature, supportingSignatures };
   } finally {
     inFlightMoves.delete(lockKey);

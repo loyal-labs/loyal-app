@@ -12,9 +12,13 @@ import {
   MAINNET_GENESIS_HASH,
 } from "./constants";
 
+// The demo pipeline moves at "confirmed" (optimistic supermajority, ~2-4s)
+// instead of "finalized" (~15s): every read and wait between chained stages
+// rides this default, while evidence display upgrades to finalized in the
+// background and the verify:demo auditor still reads finalized state.
 export function createMainnetConnection(): Connection {
   return new Connection(getPublicRpcUrl(), {
-    commitment: "finalized",
+    commitment: "confirmed",
     wsEndpoint: getPublicWsUrl(),
   });
 }
@@ -30,10 +34,12 @@ export async function assertMainnetConnection(
   }
 }
 
-export async function waitForFinalized(
+async function waitForCommitment(
   connection: Connection,
   signature: string,
-  timeoutMs = 90_000
+  accepted: readonly ("confirmed" | "finalized")[],
+  timeoutMs: number,
+  pollMs: number
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -45,12 +51,39 @@ export async function waitForFinalized(
       throw new Error(
         `Transaction ${signature} failed: ${JSON.stringify(status.err)}`
       );
-    if (status?.confirmationStatus === "finalized") return;
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    if (
+      status?.confirmationStatus &&
+      accepted.includes(status.confirmationStatus as "confirmed" | "finalized")
+    ) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   throw new Error(
-    `Transaction ${signature} did not finalize within ${timeoutMs}ms.`
+    `Transaction ${signature} did not reach ${accepted[0]} within ${timeoutMs}ms.`
   );
+}
+
+export async function waitForConfirmed(
+  connection: Connection,
+  signature: string,
+  timeoutMs = 60_000
+): Promise<void> {
+  return waitForCommitment(
+    connection,
+    signature,
+    ["confirmed", "finalized"],
+    timeoutMs,
+    750
+  );
+}
+
+export async function waitForFinalized(
+  connection: Connection,
+  signature: string,
+  timeoutMs = 90_000
+): Promise<void> {
+  return waitForCommitment(connection, signature, ["finalized"], timeoutMs, 1_500);
 }
 
 export function createPrivyWalletAdapter(args: {

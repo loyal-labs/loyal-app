@@ -47,7 +47,7 @@ describe("sponsored Settings boundary", () => {
     ).toThrow("permissions");
   });
 
-  test("filters finalized discovery by wallet without assuming allocation size", async () => {
+  test("filters confirmed discovery by wallet without assuming allocation size", async () => {
     const wallet = Keypair.generate().publicKey;
     const configs: GetProgramAccountsConfig[] = [];
     const connection = {
@@ -63,8 +63,8 @@ describe("sponsored Settings boundary", () => {
     expect(await findExistingSmartAccount({ connection, wallet })).toBeNull();
     expect(configs).toHaveLength(2);
     expect(configs.map((config) => config.commitment)).toEqual([
-      "finalized",
-      "finalized",
+      "confirmed",
+      "confirmed",
     ]);
     expect(configs.map((config) => config.filters)).toEqual([
       [

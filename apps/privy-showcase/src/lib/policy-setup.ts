@@ -15,13 +15,16 @@ import {
   EARN_VAULT_INDEX,
   SQUADS_PROGRAM_ID,
 } from "./constants";
-import type { DemoPolicyBundle, SponsorStage } from "./sponsor-protocol";
-
-const AUTODEPOSIT_AMOUNT_RAW = 2_000_000n;
-const AUTODEPOSIT_NONCE = 0n;
-const AUTODEPOSIT_PERIOD_SECONDS = 30n * 24n * 60n * 60n;
-const AUTODEPOSIT_EXPIRY = 9_223_372_036_854_775_807n;
-const EXIT_DAILY_LIMIT_RAW = 10_000_000n;
+import {
+  AUTODEPOSIT_AMOUNT_RAW,
+  AUTODEPOSIT_EXPIRY,
+  AUTODEPOSIT_NONCE,
+  AUTODEPOSIT_PERIOD_SECONDS,
+  AUTODEPOSIT_STAGE_BY_SDK_STAGE,
+  type DemoPolicyBundle,
+  EXIT_DAILY_LIMIT_RAW,
+  type SponsorStage,
+} from "./sponsor-protocol";
 
 type SetupSender = (args: {
   autodepositPolicySeed?: bigint;
@@ -39,7 +42,7 @@ function clientFor(connection: Connection) {
 
 async function listPolicyReferences(connection: Connection, settings: PublicKey) {
   const rows = await connection.getProgramAccounts(SQUADS_PROGRAM_ID, {
-    commitment: "finalized",
+    commitment: "confirmed",
     filters: [
       {
         memcmp: {
@@ -251,17 +254,11 @@ async function createOrRepairAutodeposit(args: {
       throw new Error("Could not resolve the next autodeposit setup stage.");
     }
     selectedSeed = setup.policy.seed;
-    const stage: Record<typeof setup.stage, SponsorStage> = {
-      initialize_subscription_authority: "autodeposit-authority",
-      create_policy: "autodeposit-policy",
-      create_recurring_delegation: "autodeposit-delegation",
-      approve_token_delegate: "autodeposit-approval",
-    };
     await args.send({
       autodepositPolicySeed: selectedSeed,
       label: `Autodeposit: ${setup.stage.replaceAll("_", " ")}`,
       prepared: setup.prepared,
-      stage: stage[setup.stage],
+      stage: AUTODEPOSIT_STAGE_BY_SDK_STAGE[setup.stage],
     });
   }
   throw new Error("Autodeposit setup did not converge after seven finalized stages.");
