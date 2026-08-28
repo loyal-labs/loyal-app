@@ -2,6 +2,10 @@ import "server-only";
 
 import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 
+import {
+  createBootstrapWalletBalanceEventId,
+  isAppAutodepositBootstrapEventSource,
+} from "./earn-autodeposit-event-id.shared";
 import type {
   ConfirmedEarnAutodepositCloseInput,
   ConfirmedEarnAutodepositSetupInput,
@@ -391,10 +395,6 @@ async function markSupersededAutodepositPolicyInactive(args: {
       lastSeenSlot: args.input.confirmedSlot,
     })
     .where(eq(balanceSweepPolicies.policyAccount, args.existing.policyAccount));
-}
-
-function createBootstrapWalletBalanceEventId(targetId: bigint): bigint {
-  return -targetId;
 }
 
 function addOneHour(date: Date): Date {
@@ -1072,6 +1072,12 @@ export async function scheduleBootstrapEarnAutodepositSweep(
   const { client } = dependencies;
   const now = dependencies.now();
   const { snapshot, target } = input;
+  const sourceEventId = createBootstrapWalletBalanceEventId(target.id);
+  if (!isAppAutodepositBootstrapEventSource(snapshot.source)) {
+    throw new Error(
+      `Autodeposit bootstrap source ${snapshot.source} cannot use the App event ID range.`
+    );
+  }
   const existingProjection = await client.db
     .select()
     .from(balanceSweepWalletBalancesCurrent)
@@ -1110,11 +1116,10 @@ export async function scheduleBootstrapEarnAutodepositSweep(
     };
   }
 
-  const sourceEventId = createBootstrapWalletBalanceEventId(target.id);
   const previousAmountRaw = existingProjection[0]?.amountRaw ?? null;
   const surplusRaw = snapshot.amountRaw - floorRaw;
 
-  await client.db
+  const insertedEvents = await client.db
     .insert(balanceSweepWalletBalanceEvents)
     .values({
       accountDataHash: snapshot.accountDataHash,
@@ -1144,7 +1149,31 @@ export async function scheduleBootstrapEarnAutodepositSweep(
     })
     .onConflictDoNothing({
       target: [balanceSweepWalletBalanceEvents.eventId],
-    });
+    })
+    .returning({ eventId: balanceSweepWalletBalanceEvents.eventId });
+
+  if (!insertedEvents[0]) {
+    const [conflictingEvent] = await client.db
+      .select({
+        source: balanceSweepWalletBalanceEvents.source,
+        targetId: balanceSweepWalletBalanceEvents.targetId,
+      })
+      .from(balanceSweepWalletBalanceEvents)
+      .where(eq(balanceSweepWalletBalanceEvents.eventId, sourceEventId))
+      .limit(1);
+    if (
+      !conflictingEvent ||
+      conflictingEvent.targetId !== target.id ||
+      !isAppAutodepositBootstrapEventSource(conflictingEvent.source)
+    ) {
+      const owner = conflictingEvent
+        ? `target ${conflictingEvent.targetId.toString()} from ${conflictingEvent.source}`
+        : "an event that could not be loaded";
+      throw new Error(
+        `Autodeposit bootstrap event ID ${sourceEventId.toString()} for target ${target.id.toString()} conflicts with ${owner}.`
+      );
+    }
+  }
 
   const [existingLot] = await client.db
     .select({
@@ -1152,11 +1181,17 @@ export async function scheduleBootstrapEarnAutodepositSweep(
       remainingAmountRaw: balanceSweepSurplusLots.remainingAmountRaw,
       scheduledSlotId: balanceSweepSurplusLots.scheduledSlotId,
       status: balanceSweepSurplusLots.status,
+      targetId: balanceSweepSurplusLots.targetId,
     })
     .from(balanceSweepSurplusLots)
     .where(eq(balanceSweepSurplusLots.sourceEventId, sourceEventId))
     .limit(1);
 
+  if (existingLot && existingLot.targetId !== target.id) {
+    throw new Error(
+      `Autodeposit bootstrap event ID ${sourceEventId.toString()} for target ${target.id.toString()} is linked to a lot for target ${existingLot.targetId.toString()}.`
+    );
+  }
   if (existingLot && existingLot.status === "open") {
     let slotId = existingLot.scheduledSlotId;
     if (!slotId) {
@@ -1254,11 +1289,17 @@ export async function scheduleBootstrapEarnAutodepositSweep(
       id: balanceSweepSurplusLots.id,
       scheduledSlotId: balanceSweepSurplusLots.scheduledSlotId,
       status: balanceSweepSurplusLots.status,
+      targetId: balanceSweepSurplusLots.targetId,
     })
     .from(balanceSweepSurplusLots)
     .where(eq(balanceSweepSurplusLots.sourceEventId, sourceEventId))
     .limit(1);
 
+  if (raceWinnerLot && raceWinnerLot.targetId !== target.id) {
+    throw new Error(
+      `Autodeposit bootstrap event ID ${sourceEventId.toString()} for target ${target.id.toString()} raced with a lot for target ${raceWinnerLot.targetId.toString()}.`
+    );
+  }
   if (raceWinnerLot?.status === "open") {
     const raceWinnerSlotId = raceWinnerLot.scheduledSlotId ?? slotId;
     if (!raceWinnerLot.scheduledSlotId) {
