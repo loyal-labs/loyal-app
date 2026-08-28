@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { accounts, type PreparedLoyalSmartAccountsOperation } from "@loyal-labs/loyal-smart-accounts";
 import { compilePreparedOperation, policyDiscriminator, toBigInt } from "@loyal-labs/loyal-smart-accounts-core";
 import { createSmartAccountVaultsClient } from "@loyal-labs/smart-account-vaults";
@@ -13,7 +13,12 @@ import {
 } from "@solana/web3.js";
 import { verifyAccessToken } from "@privy-io/node";
 import bs58 from "bs58";
-import { createRemoteJWKSet, type JWTVerifyGetKey } from "jose";
+import {
+  createRemoteJWKSet,
+  jwtVerify,
+  SignJWT,
+  type JWTVerifyGetKey,
+} from "jose";
 import nacl from "tweetnacl";
 import {
   assertMainnetRpcUrl,
@@ -131,19 +136,9 @@ const SETUP_MAX_SPONSOR_DEBIT_LAMPORTS: Record<SponsorStage, number> = {
 };
 
 type RateEntry = { count: number; resetAt: number };
-type WalletChallenge = {
-  expiresAt: number;
-  message: string;
-  userId: string;
-  wallet: string;
-};
-type WalletSession = {
-  expiresAt: number;
-  userId: string;
-  wallet: string;
-};
-const walletChallenges = new Map<string, WalletChallenge>();
-const walletSessions = new Map<string, WalletSession>();
+const CHALLENGE_AUDIENCE = "loyal-privy-demo/challenge";
+const SESSION_AUDIENCE = "loyal-privy-demo/session";
+const TOKEN_ISSUER = "loyal-privy-demo";
 const rateEntries = new Map<string, RateEntry>();
 const inFlightAccountCreations = new Set<string>();
 const inFlightMoves = new Set<string>();
@@ -234,13 +229,70 @@ async function verifyPrivyAccessUser(args: {
   }
 }
 
-function pruneWalletAuth(now = Date.now()): void {
-  for (const [id, value] of walletChallenges) {
-    if (value.expiresAt <= now) walletChallenges.delete(id);
+/** Challenges and sessions used to live in module-scope Maps. Each Lambda
+ *  instance had its own, so a session minted on one instance was invisible to
+ *  the next request and every sponsor call failed with a 401. Both tokens are
+ *  now self-contained JWTs: any instance can verify one without shared state. */
+let sessionKeyCache: Uint8Array | null = null;
+
+function getSessionKey(): Uint8Array {
+  if (sessionKeyCache) return sessionKeyCache;
+  const material =
+    process.env.DEMO_SESSION_SECRET ?? process.env.EARN_POLICY_SPONSOR_PK;
+  if (!material) {
+    throw new Error(
+      "DEMO_SESSION_SECRET or EARN_POLICY_SPONSOR_PK must be configured to sign demo sessions."
+    );
   }
-  for (const [id, value] of walletSessions) {
-    if (value.expiresAt <= now) walletSessions.delete(id);
-  }
+  sessionKeyCache = new Uint8Array(
+    createHash("sha256")
+      .update(`loyal-privy-demo/session-key/v1\n${material}`)
+      .digest()
+  );
+  return sessionKeyCache;
+}
+
+function challengeMessage(args: {
+  expiresAt: number;
+  nonce: string;
+  origin: string;
+  wallet: string;
+}): string {
+  return [
+    "Authorize the Loyal Privy demo",
+    `Origin: ${args.origin}`,
+    `Wallet: ${args.wallet}`,
+    `Challenge: ${args.nonce}`,
+    `Expires: ${new Date(args.expiresAt).toISOString()}`,
+  ].join("\n");
+}
+
+async function signAuthToken(args: {
+  audience: string;
+  claims: Record<string, string | number>;
+  expiresAt: number;
+  userId: string;
+}): Promise<string> {
+  return await new SignJWT(args.claims)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(TOKEN_ISSUER)
+    .setAudience(args.audience)
+    .setSubject(args.userId)
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(args.expiresAt / 1_000))
+    .sign(getSessionKey());
+}
+
+async function readAuthToken(args: {
+  audience: string;
+  token: string;
+}): Promise<Record<string, unknown> & { sub?: string }> {
+  const { payload } = await jwtVerify(args.token, getSessionKey(), {
+    algorithms: ["HS256"],
+    audience: args.audience,
+    issuer: TOKEN_ISSUER,
+  });
+  return payload;
 }
 
 export async function createWalletChallenge(args: {
@@ -249,21 +301,20 @@ export async function createWalletChallenge(args: {
   wallet: PublicKey;
 }): Promise<{ challengeId: string; message: string }> {
   const userId = await verifyPrivyAccessUser({ accessToken: args.accessToken });
-  pruneWalletAuth();
-  const challengeId = randomBytes(18).toString("base64url");
+  const nonce = randomBytes(18).toString("base64url");
   const expiresAt = Date.now() + CHALLENGE_TTL_MS;
-  const message = [
-    "Authorize the Loyal Privy demo",
-    `Origin: ${args.origin}`,
-    `Wallet: ${args.wallet.toBase58()}`,
-    `Challenge: ${challengeId}`,
-    `Expires: ${new Date(expiresAt).toISOString()}`,
-  ].join("\n");
-  walletChallenges.set(challengeId, {
+  const wallet = args.wallet.toBase58();
+  const message = challengeMessage({
     expiresAt,
-    message,
+    nonce,
+    origin: args.origin,
+    wallet,
+  });
+  const challengeId = await signAuthToken({
+    audience: CHALLENGE_AUDIENCE,
+    claims: { expiresAt, nonce, origin: args.origin, wallet },
+    expiresAt,
     userId,
-    wallet: args.wallet.toBase58(),
   });
   return { challengeId, message };
 }
@@ -275,17 +326,33 @@ export async function verifyWalletChallenge(args: {
   wallet: PublicKey;
 }): Promise<{ expiresAt: number; sessionToken: string; userId: string }> {
   const userId = await verifyPrivyAccessUser({ accessToken: args.accessToken });
-  pruneWalletAuth();
-  const challenge = walletChallenges.get(args.challengeId);
-  walletChallenges.delete(args.challengeId);
+  let claims: Record<string, unknown> & { sub?: string };
+  try {
+    claims = await readAuthToken({
+      audience: CHALLENGE_AUDIENCE,
+      token: args.challengeId,
+    });
+  } catch {
+    throw new SponsorRequestError(401, "The wallet challenge is invalid or expired.");
+  }
+  const expiresAt = typeof claims.expiresAt === "number" ? claims.expiresAt : 0;
   if (
-    !challenge ||
-    challenge.expiresAt <= Date.now() ||
-    challenge.userId !== userId ||
-    challenge.wallet !== args.wallet.toBase58()
+    claims.sub !== userId ||
+    claims.wallet !== args.wallet.toBase58() ||
+    typeof claims.nonce !== "string" ||
+    typeof claims.origin !== "string" ||
+    expiresAt <= Date.now()
   ) {
     throw new SponsorRequestError(401, "The wallet challenge is invalid or expired.");
   }
+  const challenge = {
+    message: challengeMessage({
+      expiresAt,
+      nonce: claims.nonce,
+      origin: claims.origin,
+      wallet: args.wallet.toBase58(),
+    }),
+  };
   if (!/^[A-Za-z0-9+/]{86}==$/.test(args.signature)) {
     throw new SponsorRequestError(400, "The wallet challenge signature is invalid.");
   }
@@ -300,38 +367,43 @@ export async function verifyWalletChallenge(args: {
   ) {
     throw new SponsorRequestError(401, "The wallet challenge signature is invalid.");
   }
-  const sessionToken = randomBytes(32).toString("base64url");
-  const expiresAt = Date.now() + SESSION_TTL_MS;
-  walletSessions.set(sessionToken, {
-    expiresAt,
+  const sessionExpiresAt = Date.now() + SESSION_TTL_MS;
+  const sessionToken = await signAuthToken({
+    audience: SESSION_AUDIENCE,
+    claims: { wallet: args.wallet.toBase58() },
+    expiresAt: sessionExpiresAt,
     userId,
-    wallet: args.wallet.toBase58(),
   });
-  return { expiresAt, sessionToken, userId };
+  return { expiresAt: sessionExpiresAt, sessionToken, userId };
 }
 
-export function authenticatePrivyWallet(args: {
+export async function authenticatePrivyWallet(args: {
   cookieHeader: string | null;
   wallet: PublicKey;
-}): string {
-  pruneWalletAuth();
+}): Promise<string> {
   const sessionToken = args.cookieHeader
     ?.split(";")
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${DEMO_SESSION_COOKIE}=`))
     ?.slice(DEMO_SESSION_COOKIE.length + 1);
-  const session = sessionToken ? walletSessions.get(sessionToken) : undefined;
-  if (
-    !session ||
-    session.expiresAt <= Date.now() ||
-    session.wallet !== args.wallet.toBase58()
-  ) {
+  let claims: (Record<string, unknown> & { sub?: string }) | null = null;
+  if (sessionToken) {
+    try {
+      claims = await readAuthToken({
+        audience: SESSION_AUDIENCE,
+        token: sessionToken,
+      });
+    } catch {
+      claims = null;
+    }
+  }
+  if (!claims || !claims.sub || claims.wallet !== args.wallet.toBase58()) {
     throw new SponsorRequestError(
       401,
       "Authorize this Privy wallet for the demo before requesting sponsorship."
     );
   }
-  return session.userId;
+  return claims.sub;
 }
 
 export function enforceSameOrigin(request: Request): void {

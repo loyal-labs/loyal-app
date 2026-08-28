@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     }
     if (untrusted?.kind === "session-status") {
       const wallet = parsePublicKey(untrusted.wallet, "Wallet");
-      authenticatePrivyWallet({
+      await authenticatePrivyWallet({
         cookieHeader: request.headers.get("cookie"),
         wallet,
       });
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       const wallet = parsePublicKey(untrusted.wallet, "Wallet");
       if (
         typeof untrusted.challengeId !== "string" ||
-        untrusted.challengeId.length > 64 ||
+        untrusted.challengeId.length > 4_096 ||
         typeof untrusted.signature !== "string" ||
         untrusted.signature.length > 128
       ) {
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
     }
     const body = parseSponsorBody(text);
     const wallet = parsePublicKey(body.wallet, "Wallet");
-    const userId = authenticatePrivyWallet({
+    const userId = await authenticatePrivyWallet({
       cookieHeader: request.headers.get("cookie"),
       wallet,
     });
