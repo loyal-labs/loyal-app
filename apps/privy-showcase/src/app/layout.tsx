@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Providers } from "./providers";
 import "./styles.css";
+import "@/components/demo-toast.css";
 
 export const metadata: Metadata = {
   title: "Loyal × Privy — Make money move itself",

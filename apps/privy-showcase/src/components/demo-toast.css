@@ -1,0 +1,340 @@
+/* Demo toast — ported from the webapp's Earn action toast (apps/web
+   globals.css transitions.dev blocks: toast open/close, icon swap, text
+   swap, task-steps card, loading dots). Self-contained so the in-flight
+   page redesign can restyle everything else without touching it. */
+
+:root {
+  --toast-open: 350ms;
+  --toast-close: 250ms;
+  --toast-distance: -16px; /* top-anchored: drops in from above */
+  --toast-blur: 2px;
+  --toast-scale: 0.97;
+  --toast-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --toast-spin-dur: 900ms;
+  --toast-resize-dur: 300ms;
+  --toast-resize-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --icon-swap-dur: 250ms;
+  --icon-swap-blur: 2px;
+  --icon-swap-start-scale: 0.25;
+  --icon-swap-ease: ease-in-out;
+  --check-path-dur: 500ms;
+  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
+  --check-ease-path: cubic-bezier(0.22, 1, 0.36, 1);
+  --text-swap-dur: 150ms;
+  --text-swap-translate-y: 4px;
+  --text-swap-blur: 2px;
+  --text-swap-ease: ease-in-out;
+  --dots-dur: 1.4s;
+  --dots-stagger: 200ms;
+  --step-advance-delay: 120ms;
+}
+
+.demo-toast-viewport {
+  pointer-events: none;
+  position: fixed;
+  inset-inline: 0;
+  top: 24px;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+}
+
+.demo-toast {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  box-shadow:
+    0 0 2px 0 rgba(0, 0, 0, 0.08),
+    0 4px 16px 0 rgba(0, 0, 0, 0.08);
+}
+
+.demo-toast-pill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px 0 16px;
+}
+.demo-toast-pill .t-icon-swap {
+  width: 20px;
+  height: 20px;
+}
+
+.demo-toast-steps {
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px;
+}
+.demo-toast-step {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  gap: 10px;
+}
+.demo-toast .t-step-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.demo-toast .t-step-ico svg,
+.demo-toast .t-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.t-step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.2);
+}
+.demo-toast .t-step-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--icon-swap-dur) var(--icon-swap-ease);
+}
+.demo-toast .t-step-label.is-pending {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* transitions.dev — Toast open / close. */
+.t-toast {
+  opacity: 0;
+  transform: translateY(var(--toast-distance)) scale(var(--toast-scale));
+  filter: blur(var(--toast-blur));
+  will-change: transform, opacity, filter;
+  transition:
+    opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease);
+}
+.t-toast.is-open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  transition:
+    opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease);
+}
+
+/* Card ⇄ pill morph rides the resize clock; the open/close list must be
+   restated because .is-open resets `transition` wholesale. */
+.t-toast.t-toast-resize {
+  interpolate-size: allow-keywords;
+  transition:
+    opacity var(--toast-close) var(--toast-ease),
+    transform var(--toast-close) var(--toast-ease),
+    filter var(--toast-close) var(--toast-ease),
+    height var(--toast-resize-dur) var(--toast-resize-ease),
+    width var(--toast-resize-dur) var(--toast-resize-ease);
+}
+.t-toast.t-toast-resize.is-open {
+  transition:
+    opacity var(--toast-open) var(--toast-ease),
+    transform var(--toast-open) var(--toast-ease),
+    filter var(--toast-open) var(--toast-ease),
+    height var(--toast-resize-dur) var(--toast-resize-ease),
+    width var(--toast-resize-dur) var(--toast-resize-ease);
+}
+
+/* transitions.dev — Icon swap with THREE stacked states (a: pending spinner,
+   b: success check, c: error cross). */
+.t-icon-swap {
+  position: relative;
+  display: inline-grid;
+}
+.t-icon-swap .t-icon {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--icon-swap-dur) var(--icon-swap-ease),
+    filter var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--icon-swap-ease);
+  will-change: opacity, filter, transform;
+  opacity: 0;
+  filter: blur(var(--icon-swap-blur));
+  transform: scale(var(--icon-swap-start-scale));
+}
+.t-icon-swap[data-state="a"] .t-icon[data-icon="a"],
+.t-icon-swap[data-state="b"] .t-icon[data-icon="b"],
+.t-icon-swap[data-state="c"] .t-icon[data-icon="c"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: scale(1);
+}
+
+.t-toast-spinner {
+  animation: t-toast-spin var(--toast-spin-dur) linear infinite;
+  transform-origin: center;
+}
+@keyframes t-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The check strokes itself in on the morph to success (35 = the calibrated
+   length of the shared check path). */
+.demo-toast .t-icon[data-icon="b"] svg path,
+.t-step-ico[data-ico="b"] svg path {
+  stroke-dasharray: 35;
+  stroke-dashoffset: 35;
+}
+.t-icon-swap[data-state="b"] .t-icon[data-icon="b"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) forwards;
+}
+@keyframes t-check-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Step rows: four-state icon stack (p: pending dot, a: spinner, b: check,
+   c: cross); the incoming icon pops on the bob ease, the check swings
+   upright while stroke-drawing, and the next step's spinner waits a beat so
+   the landing check reads before the handoff. */
+.t-step-icon {
+  position: relative;
+}
+.t-step-ico {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(var(--icon-swap-start-scale));
+  filter: blur(var(--icon-swap-blur));
+  transition:
+    opacity var(--icon-swap-dur) var(--icon-swap-ease),
+    transform var(--icon-swap-dur) var(--check-ease-bob),
+    filter var(--icon-swap-dur) var(--icon-swap-ease);
+}
+.t-step-ico[data-ico="b"] {
+  transform: scale(var(--icon-swap-start-scale)) rotate(-80deg);
+}
+.t-step-icon[data-state="p"] .t-step-ico[data-ico="p"],
+.t-step-icon[data-state="a"] .t-step-ico[data-ico="a"],
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"],
+.t-step-icon[data-state="c"] .t-step-ico[data-ico="c"] {
+  opacity: 1;
+  transform: scale(1);
+  filter: blur(0);
+}
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"] {
+  transform: scale(1) rotate(0deg);
+}
+.t-step-icon[data-state="b"] .t-step-ico[data-ico="b"] svg path {
+  animation: t-check-draw var(--check-path-dur) var(--check-ease-path) forwards;
+}
+.t-step-icon[data-state="a"] .t-step-ico[data-ico="a"] {
+  transition-delay: var(--step-advance-delay);
+}
+
+/* The active step's label shimmers while its stage works. */
+.t-step-active {
+  background-image: linear-gradient(
+    90deg,
+    var(--foreground) 42%,
+    rgba(0, 0, 0, 0.35) 50%,
+    var(--foreground) 58%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: t-step-shimmer 1.6s linear infinite;
+}
+@keyframes t-step-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* transitions.dev — text states swap. */
+.t-text-swap {
+  display: inline-block;
+  transition:
+    transform var(--text-swap-dur) var(--text-swap-ease),
+    filter var(--text-swap-dur) var(--text-swap-ease),
+    opacity var(--text-swap-dur) var(--text-swap-ease);
+}
+.t-text-swap.is-exit {
+  transform: translateY(calc(var(--text-swap-translate-y) * -1));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+}
+.t-text-swap.is-enter-start {
+  transform: translateY(var(--text-swap-translate-y));
+  filter: blur(var(--text-swap-blur));
+  opacity: 0;
+  transition: none;
+}
+
+/* The waiting ellipsis as three staggered blinking dots. */
+.t-loading-dots span {
+  animation: t-dot-blink var(--dots-dur) ease-in-out infinite;
+}
+.t-loading-dots span:nth-child(2) {
+  animation-delay: var(--dots-stagger);
+}
+.t-loading-dots span:nth-child(3) {
+  animation-delay: calc(var(--dots-stagger) * 2);
+}
+@keyframes t-dot-blink {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-toast,
+  .t-icon-swap .t-icon,
+  .t-step-ico,
+  .t-step-label,
+  .t-text-swap {
+    transition: none !important;
+  }
+  .t-toast-spinner,
+  .t-loading-dots span,
+  .t-step-active {
+    animation: none !important;
+  }
+  .t-step-active {
+    background-image: none;
+    color: var(--foreground);
+  }
+  .demo-toast .t-icon[data-icon="b"] svg path,
+  .t-step-ico[data-ico="b"] svg path {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+  }
+}

@@ -32,6 +32,11 @@ import {
 } from "@solana/web3.js";
 import bs58 from "bs58";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  demoToast,
+  DemoToastHost,
+  STAGE_TOAST_MESSAGES,
+} from "@/components/demo-toast";
 import { FlowDiagram } from "@/components/flow-diagram";
 import { OrbAddress, orbUrl, shortSignature } from "@/components/orb-address";
 import { ScrollReveals } from "@/components/scroll-reveals";
@@ -413,10 +418,13 @@ export default function Home() {
     try {
       await action();
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Action failed.";
       setStatusKind("error");
-      setStatus(error instanceof Error ? error.message : "Action failed.");
+      setStatus(message);
+      demoToast.error(message);
     } finally {
       setBusy(false);
+      demoToast.settle();
     }
   }, []);
 
@@ -490,6 +498,7 @@ export default function Home() {
         prepared: args.prepared,
       });
       setStatus(`One-time setup: approve "${args.label}" in Privy…`);
+      demoToast.loading(STAGE_TOAST_MESSAGES[args.stage]);
       const signed = await signTransaction({
         chain: "solana:mainnet",
         transaction: transaction.serialize(),
@@ -585,6 +594,7 @@ export default function Home() {
       }).compileToV0Message()
     );
     setStatus("Approve the canonical USDC withdrawal in Privy…");
+    demoToast.loading("Approve the withdrawal in Privy");
     const sent = await signAndSendTransaction({
       chain: "solana:mainnet",
       transaction: transaction.serialize(),
@@ -592,6 +602,7 @@ export default function Home() {
     });
     const signature = bs58.encode(sent.signature);
     setStatus("Withdrawal submitted. Waiting for mainnet confirmation…");
+    demoToast.loading("Confirming");
     await waitForConfirmed(connection, signature);
     await loadBalances();
     pushEvidence({
@@ -604,6 +615,7 @@ export default function Home() {
     setWithdrawAmount("");
     setWithdrawDestination("");
     setStatus(`Withdrawal confirmed to ${destination.toBase58()}.`);
+    demoToast.success("Withdrawal confirmed");
   }
 
   async function createAccount() {
@@ -632,6 +644,7 @@ export default function Home() {
     setSettings(creation.settings);
     setAccountDiscoveryComplete(true);
     setStatus("Smart account created and confirmed. Next: turn on its four rules.");
+    demoToast.success("Smart account created");
   }
 
   async function createPolicies() {
@@ -641,6 +654,8 @@ export default function Home() {
     const walletKey = new PublicKey(wallet.address);
     await ensureDemoSession();
     setStatus("Loyal is covering the one-time rule setup costs…");
+    demoToast.begin("create-policies");
+    demoToast.loading("Covering setup costs");
     const prefundResponse = await fetch("/api/sponsor", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -684,6 +699,7 @@ export default function Home() {
     setStatus(
       "All four rules are live. From here, money moves with zero wallet signatures."
     );
+    demoToast.success("All four rules are live");
   }
 
   const executeMove = useCallback(
@@ -768,18 +784,27 @@ export default function Home() {
 
   const runSingleMove = (action: DemoMoveAction, label: string) =>
     run(`${label}…`, async () => {
+      demoToast.loading(label);
       await executeMove(action, label);
       setStatus(`${label} confirmed on mainnet. Balances update live from chain.`);
+      demoToast.success(`${label} · confirmed`);
     });
 
-  const runScenario = (name: string, steps: MoveStep[]) =>
+  const runScenario = (
+    name: string,
+    flow: "payday" | "purchase",
+    steps: MoveStep[]
+  ) =>
     run(`${name} starting…`, async () => {
+      demoToast.begin(flow);
       for (let index = 0; index < steps.length; index++) {
         const step = steps[index]!;
         setStatus(`${name} · hop ${index + 1} of ${steps.length}: ${step.label}…`);
+        demoToast.loading(step.label);
         await executeMove(step.action, step.label);
       }
       setStatus(`${name} complete. Both hops signed by the policy key, not the wallet.`);
+      demoToast.success(`${name} complete`);
       celebrate(
         "Money moved itself",
         `${name} confirmed on mainnet with zero wallet signatures.`
@@ -800,6 +825,7 @@ export default function Home() {
 
   return (
     <main>
+      <DemoToastHost />
       <ScrollReveals />
 
       <section className="hero">
@@ -1060,7 +1086,9 @@ export default function Home() {
                 className="scenario payday"
                 data-primary-action
                 disabled={!setupReady || busy || walletUsdcRaw < WALLET_TO_SMART_RAW}
-                onClick={() => void runScenario("Payday sweep", PAYDAY_STEPS)}
+                onClick={() =>
+                  void runScenario("Payday sweep", "payday", PAYDAY_STEPS)
+                }
               >
                 <b>Run payday sweep</b>
                 <span>
@@ -1072,7 +1100,13 @@ export default function Home() {
                 className="scenario purchase"
                 data-primary-action
                 disabled={!setupReady || busy || kaminoPositionRaw < KAMINO_TO_SMART_RAW}
-                onClick={() => void runScenario("Just-in-time purchase", PURCHASE_STEPS)}
+                onClick={() =>
+                  void runScenario(
+                    "Just-in-time purchase",
+                    "purchase",
+                    PURCHASE_STEPS
+                  )
+                }
               >
                 <b>Fund a purchase</b>
                 <span>
