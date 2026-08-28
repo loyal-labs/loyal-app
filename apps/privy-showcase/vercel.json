@@ -1,4 +1,4 @@
 {
   "installCommand": "cd ../.. && bun install --frozen-lockfile",
-  "buildCommand": "bun run --bun next build"
+  "buildCommand": "cd ../.. && bunx turbo run build --filter='@loyal-labs/privy-showcase^...' && cd apps/privy-showcase && bun run --bun next build"
 }
