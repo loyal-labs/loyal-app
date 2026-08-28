@@ -1,0 +1,4 @@
+{
+  "installCommand": "cd ../.. && bun install --frozen-lockfile",
+  "buildCommand": "bun run --bun next build"
+}
