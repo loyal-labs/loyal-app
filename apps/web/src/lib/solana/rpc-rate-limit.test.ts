@@ -40,10 +40,12 @@ test("dispatches a burst concurrently and defers overflow to the next window", a
   expect(deferred).toHaveLength(2);
 });
 
-test("retries throttled and browser-obscured read failures", async () => {
+test("retries a sustained burst of browser-obscured read failures", async () => {
   process.env.FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_SECOND = "100";
   const responses: Array<Response | TypeError> = [
     new Response("rate limited", { status: 429 }),
+    new TypeError("Failed to fetch"),
+    new Response("temporarily unavailable", { status: 503 }),
     new TypeError("Failed to fetch"),
     new Response('{"jsonrpc":"2.0","id":1,"result":null}', {
       status: 200,
@@ -64,7 +66,7 @@ test("retries throttled and browser-obscured read failures", async () => {
   const response = await rpcFetch(...rpcRequest("getAccountInfo"));
 
   expect(response.status).toBe(200);
-  expect(fetchImpl).toHaveBeenCalledTimes(3);
+  expect(fetchImpl).toHaveBeenCalledTimes(5);
 });
 
 test("retries activity reads without caching their result", async () => {
