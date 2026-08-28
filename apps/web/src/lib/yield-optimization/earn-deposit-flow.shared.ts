@@ -2,6 +2,19 @@ import type { SmartAccountPreparedEarnUsdcDeposit } from "@loyal-labs/smart-acco
 
 export type EarnDepositReviewStage = "deposit" | "policy" | "policy-finalize";
 
+export const EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE =
+  "A transaction for this deposit was submitted, but confirmation is still pending. Refresh Earn before trying again so you do not submit it twice.";
+export const EARN_DEPOSIT_POLICY_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE =
+  "An Earn setup transaction was submitted, but confirmation is still pending. Refresh Earn, then continue this deposit. No USDC was deposited yet.";
+
+export function getEarnDepositSubmittedTransactionMessage(
+  stage: EarnDepositReviewStage | null
+): string {
+  return stage === "policy" || stage === "policy-finalize"
+    ? EARN_DEPOSIT_POLICY_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE
+    : EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE;
+}
+
 export type EarnDepositPolicySignatureSource = {
   account: string;
   lastSeenSignature?: string | null;

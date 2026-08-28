@@ -24,6 +24,9 @@ const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
 ]);
 const RETRYABLE_RPC_METHODS = new Set([
   ...RECENTLY_CACHEABLE_RPC_METHODS,
+  // Confirmation recovery must survive the same transient transport failures
+  // as account reads. Never cache either changing response.
+  "getSignatureStatuses",
   // Activity is loaded in the background when a wallet session appears.
   // Retry transport failures, but do not cache this changing history page.
   "getSignaturesForAddress",

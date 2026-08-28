@@ -102,7 +102,11 @@ import {
   DEFAULT_AUTOSWAP_MAX_SLIPPAGE_BPS,
   type EarnCrossMintToggleResponse,
 } from "@/lib/yield-optimization/earn-cross-mint-policy-contracts.shared";
-import { resolveEarnDepositConfirmedSlot } from "@/lib/yield-optimization/earn-deposit-flow.shared";
+import {
+  EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE,
+  getEarnDepositSubmittedTransactionMessage,
+  resolveEarnDepositConfirmedSlot,
+} from "@/lib/yield-optimization/earn-deposit-flow.shared";
 import {
   executeEarnAutoswapSetupClient,
   prepareEarnAutoswapDeletionClient,
@@ -831,7 +835,7 @@ export function getEarnDepositUserErrorMessage(
     normalized.includes("was submitted, but its confirmation is unresolved");
 
   if (transactionWasSubmitted) {
-    return "A transaction for this deposit was submitted, but confirmation is still pending. Refresh Earn before trying again so you do not submit it twice.";
+    return EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE;
   }
 
   if (
@@ -6177,18 +6181,20 @@ export function useSmartAccountSidebarData(
           status: "executed",
         };
       } catch (err) {
-        const error = getEarnDepositUserErrorMessage(
-          err,
-          request.stage === "policy"
-            ? "Earn policy setup failed."
-            : "Earn policy finalization failed."
-        );
+        const signature = getSubmittedTransactionSignature(err);
+        const error = signature
+          ? getEarnDepositSubmittedTransactionMessage(request.stage)
+          : getEarnDepositUserErrorMessage(
+              err,
+              request.stage === "policy"
+                ? "Earn policy setup failed."
+                : "Earn policy finalization failed."
+            );
         reportWalletActionFailure(
           "executeEarnDepositPolicyStage",
           "earn.deposit_policy_stage.execute",
           err
         );
-        const signature = getSubmittedTransactionSignature(err);
         return {
           success: false,
           ...(signature ? { signature } : {}),
@@ -6360,6 +6366,12 @@ export function useSmartAccountSidebarData(
             signature: string;
           } | null;
         } = { current: null };
+        const latestSubmittedBatchTransactionRef: {
+          current: {
+            signature: string;
+            stage: EarnDepositBatchStage;
+          } | null;
+        } = { current: null };
 
         try {
           await sendPreparedBatchWithWallet({
@@ -6367,7 +6379,14 @@ export function useSmartAccountSidebarData(
             wallet: walletBridge,
             prepared: batchStages.map((stage) => stage.prepared),
             confirm: true,
-            onTransactionSent: () => {
+            onTransactionSent: ({ index, signature }) => {
+              const submittedStage = batchStages[index];
+              if (submittedStage) {
+                latestSubmittedBatchTransactionRef.current = {
+                  signature,
+                  stage: submittedStage.stage,
+                };
+              }
               request.onWalletSubmitted?.();
             },
             onTransactionConfirmed: async ({ index, signature, slot }) => {
@@ -6442,12 +6461,21 @@ export function useSmartAccountSidebarData(
           }
 
           const submittedSignature = getSubmittedTransactionSignature(error);
+          const latestSubmittedBatchTransaction =
+            latestSubmittedBatchTransactionRef.current;
+          const submittedStage =
+            submittedSignature &&
+            latestSubmittedBatchTransaction?.signature === submittedSignature
+              ? latestSubmittedBatchTransaction.stage
+              : null;
           return {
             success: false,
             ...(submittedSignature ? { signature: submittedSignature } : {}),
             ...collectedSignatureFields(),
             resumeStage: resolveResumeStage(),
-            error: getEarnDepositUserErrorMessage(error),
+            error: submittedSignature
+              ? getEarnDepositSubmittedTransactionMessage(submittedStage)
+              : getEarnDepositUserErrorMessage(error),
           };
         }
 

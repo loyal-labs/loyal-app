@@ -122,6 +122,43 @@ describe("wallet prepared sends", () => {
     expect(connection.simulateTransaction).toHaveBeenCalledTimes(1);
   });
 
+  test("polls a temporarily absent signature before declaring confirmation unresolved", async () => {
+    const getSignatureStatuses = mock()
+      .mockResolvedValueOnce({ value: [null] })
+      .mockResolvedValueOnce({
+        value: [
+          {
+            confirmationStatus: "finalized",
+            confirmations: null,
+            err: null,
+            slot: 321,
+          },
+        ],
+      });
+    const connection = createConnection({
+      confirmTransaction: mock(async () => {
+        throw new Error("confirmation transport failed");
+      }),
+      getSignatureStatuses,
+    });
+
+    const signature = await sendPreparedWithWallet({
+      connection,
+      confirm: true,
+      prepared: createPrepared(),
+      wallet: {
+        publicKey: feePayer,
+        sendTransaction: mock(async () => "delayed-signature"),
+        signTransaction: mock(
+          async <T extends VersionedTransaction>(transaction: T) => transaction
+        ),
+      },
+    });
+
+    expect(signature).toBe("delayed-signature");
+    expect(getSignatureStatuses).toHaveBeenCalledTimes(2);
+  });
+
   test("simulates after wallet send failure and surfaces insufficient SOL top-up", async () => {
     const connection = createConnection({
       logs: [

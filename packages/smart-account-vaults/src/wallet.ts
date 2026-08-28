@@ -20,6 +20,13 @@ type SimulatedTransactionValue = Awaited<
   ReturnType<PreparedConnection["simulateTransaction"]>
 >["value"];
 
+const SUBMITTED_SIGNATURE_STATUS_MAX_ATTEMPTS = 3;
+const SUBMITTED_SIGNATURE_STATUS_RETRY_DELAY_MS = 500;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function attachCause(error: Error, cause: unknown, logs?: string[]): Error {
   (error as Error & { cause?: unknown; logs?: string[] }).cause ??= cause;
   if (logs) {
@@ -312,36 +319,57 @@ async function confirmSubmittedTransaction(args: {
     // Confirmation transports can time out after a transaction has landed.
     // Reconcile the returned signature before reporting failure; callers must
     // never interpret an ambiguous confirmation as permission to resend.
-    let signatureAbsent = false;
-    try {
-      const { value } = await args.connection.getSignatureStatuses(
-        [args.signature],
-        { searchTransactionHistory: true }
-      );
-      const status = value[0] ?? null;
-      signatureAbsent = status === null;
-      if (status?.err) {
-        throw new Error(
-          `Transaction ${args.signature} failed: ${JSON.stringify(status.err)}`
+    let allSuccessfulStatusProbesWereAbsent = true;
+    let successfulStatusProbeCount = 0;
+    for (
+      let attempt = 0;
+      attempt < SUBMITTED_SIGNATURE_STATUS_MAX_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const { value } = await args.connection.getSignatureStatuses(
+          [args.signature],
+          { searchTransactionHistory: true }
         );
+        successfulStatusProbeCount += 1;
+        const status = value[0] ?? null;
+        if (status?.err) {
+          throw new Error(
+            `Transaction ${args.signature} failed: ${JSON.stringify(
+              status.err
+            )}`
+          );
+        }
+        if (status) {
+          allSuccessfulStatusProbesWereAbsent = false;
+        }
+        if (
+          status?.confirmationStatus === "confirmed" ||
+          status?.confirmationStatus === "finalized"
+        ) {
+          return status.slot;
+        }
+      } catch (statusError) {
+        if (
+          statusError instanceof Error &&
+          statusError.message.startsWith(
+            `Transaction ${args.signature} failed:`
+          )
+        ) {
+          throw statusError;
+        }
+        // A secondary RPC failure is not evidence that the transaction was
+        // absent. Keep polling because the transport or index can recover.
+        allSuccessfulStatusProbesWereAbsent = false;
       }
-      if (
-        status?.confirmationStatus === "confirmed" ||
-        status?.confirmationStatus === "finalized"
-      ) {
-        return status.slot;
+
+      if (attempt + 1 < SUBMITTED_SIGNATURE_STATUS_MAX_ATTEMPTS) {
+        await wait(SUBMITTED_SIGNATURE_STATUS_RETRY_DELAY_MS);
       }
-    } catch (statusError) {
-      if (
-        statusError instanceof Error &&
-        statusError.message.startsWith(`Transaction ${args.signature} failed:`)
-      ) {
-        throw statusError;
-      }
-      // Preserve the original confirmation failure below. A secondary RPC
-      // failure is not evidence that the transaction was absent.
     }
 
+    const signatureAbsent =
+      successfulStatusProbeCount > 0 && allSuccessfulStatusProbesWereAbsent;
     if (signatureAbsent && args.prepared && args.transaction) {
       const diagnostic = await getSimulationDiagnosticError({
         connection: args.connection,
