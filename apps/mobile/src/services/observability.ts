@@ -355,6 +355,7 @@ type LifecycleErrorCode =
   | "unconfirmed_signature"
   | "backend_confirmation_failed"
   | "send_failed"
+  | "earn_withdraw_underfilled"
   | "insufficient_native_sol"
   | "wallet_rejected"
   | "wallet_account_mismatch"
@@ -483,6 +484,9 @@ export function mapLifecycleErrorCode(error: unknown): LifecycleErrorCode {
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: unknown }).code;
     if (code === "unconfirmed_signature") return "unconfirmed_signature";
+    if (code === "earn_withdraw_underfilled") {
+      return "earn_withdraw_underfilled";
+    }
     return "request_failed";
   }
   // Only a connection-level TypeError is a failed request. Every other one is

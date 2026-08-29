@@ -196,6 +196,9 @@ export const LIFECYCLE_ERROR_CODES = [
   "wallet_unavailable",
   "wallet_mismatch",
   "simulation_failed",
+  // Kamino KTX could not provide enough collateral to preserve the exact
+  // partial Earn withdrawal output after bounded rounding adjustments.
+  "earn_withdraw_underfilled",
   // The route's output fell below the quote's minimum-out (Jupiter 6001).
   "slippage_exceeded",
   "send_failed",

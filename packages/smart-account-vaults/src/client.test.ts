@@ -1787,7 +1787,7 @@ describe("prepareEarnUsdcWithdraw", () => {
 
   test("[earn-withdraw-exact-output] preserves partial liquidity intent across a non-1 exchange rate", async () => {
     const requestedLiquidityAmountRaw = BigInt(100_000_000);
-    const collateralInstructionAmountRaw = BigInt(95_150_000);
+    const collateralInstructionAmountRaw = BigInt(95_238_096);
     const fetchMock = mockKaminoWithdrawInstruction({
       instructionAmountRaw: () => collateralInstructionAmountRaw,
     });
@@ -1807,6 +1807,14 @@ describe("prepareEarnUsdcWithdraw", () => {
     }));
     const client = createSmartAccountVaultsClient({
       connection: {
+        getAccountInfo: mock(async (account: PublicKey) =>
+          account.equals(kaminoReserve)
+            ? createSerializedKaminoReserveAccount({
+                collateralSupplyRaw: BigInt(100_000_000),
+                liquidityAvailableAmountRaw: BigInt(105_000_000),
+              })
+            : null
+        ),
         getLatestBlockhash: mock(async () => ({
           blockhash: "11111111111111111111111111111111",
           lastValidBlockHeight: 1,
@@ -1872,13 +1880,102 @@ describe("prepareEarnUsdcWithdraw", () => {
     });
   });
 
-  test("[earn-withdraw-exact-output] rejects an underfilled partial simulation before returning a transaction", async () => {
+  test("[earn-withdraw-exact-output] dynamically increases KTX collateral after a rounded-down simulation", async () => {
     const requestedLiquidityAmountRaw = BigInt(100_000_000);
-    mockKaminoWithdrawInstruction({
-      instructionAmountRaw: () => BigInt(95_150_000),
+    const requiredCollateralAmountRaw = BigInt(95_238_096);
+    const fetchMock = mockKaminoWithdrawInstruction({
+      instructionAmountRaw: () => requiredCollateralAmountRaw - BigInt(6),
+    });
+    let simulationCount = 0;
+    const simulateTransaction = mock(async () => {
+      simulationCount += 1;
+      return {
+        value: {
+          accounts: [
+            {
+              data: [
+                createSimulatedTokenAccountData(
+                  simulationCount === 1
+                    ? requestedLiquidityAmountRaw - BigInt(6)
+                    : requestedLiquidityAmountRaw + BigInt(1)
+                ),
+                "base64",
+              ],
+            },
+          ],
+          err: null,
+          logs: [],
+        },
+      };
     });
     const client = createSmartAccountVaultsClient({
       connection: {
+        getAccountInfo: mock(async (account: PublicKey) =>
+          account.equals(kaminoReserve)
+            ? createSerializedKaminoReserveAccount({
+                collateralSupplyRaw: BigInt(100_000_000),
+                liquidityAvailableAmountRaw: BigInt(105_000_000),
+              })
+            : null
+        ),
+        getLatestBlockhash: mock(async () => ({
+          blockhash: "11111111111111111111111111111111",
+          lastValidBlockHeight: 1,
+        })),
+        getTokenAccountBalance: mock(async () => ({
+          context: { slot: 1 },
+          value: {
+            amount: "0",
+            decimals: 6,
+            uiAmount: 0,
+            uiAmountString: "0",
+          },
+        })),
+        simulateTransaction,
+      } as never,
+      programId,
+    });
+
+    const result = await client.prepareEarnUsdcWithdraw({
+      settingsPda,
+      walletAddress,
+      feePayer,
+      policySigner: backendSigner,
+      amountRaw: requestedLiquidityAmountRaw,
+      mode: "partial",
+      yieldRoutingPolicy: {
+        account: policyAccount,
+        seed: BigInt(7),
+      },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(simulateTransaction).toHaveBeenCalledTimes(2);
+    expect(result.persistence).toMatchObject({
+      kaminoWithdrawAmountRaw: (
+        requiredCollateralAmountRaw + BigInt(1)
+      ).toString(),
+      requestedWithdrawAmountRaw: requestedLiquidityAmountRaw.toString(),
+      walletTransferAmountRaw: requestedLiquidityAmountRaw.toString(),
+      withdrawnAmountRaw: requestedLiquidityAmountRaw.toString(),
+    });
+  });
+
+  test("[earn-withdraw-exact-output] rejects an underfilled partial simulation with a typed error", async () => {
+    const requestedLiquidityAmountRaw = BigInt(100_000_000);
+    mockKaminoWithdrawInstruction({
+      instructionAmountRaw: () => BigInt(95_238_096),
+    });
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async (account: PublicKey) =>
+          account.equals(kaminoReserve)
+            ? createSerializedKaminoReserveAccount({
+                collateralSupplyRaw: BigInt(100_000_000),
+                liquidityAvailableAmountRaw: BigInt(105_000_000),
+              })
+            : null
+        ),
         getLatestBlockhash: mock(async () => ({
           blockhash: "11111111111111111111111111111111",
           lastValidBlockHeight: 1,
@@ -1923,9 +2020,77 @@ describe("prepareEarnUsdcWithdraw", () => {
           seed: BigInt(7),
         },
       })
-    ).rejects.toThrow(
-      "Kamino withdrawal simulation produced less liquidity than requested."
-    );
+    ).rejects.toMatchObject({
+      code: "earn_withdraw_underfilled",
+      message:
+        "Kamino withdrawal simulation produced less liquidity than requested.",
+      name: "EarnWithdrawUnderfilledError",
+    });
+  });
+
+  test("[earn-withdraw-exact-output] bounds simulation-guided rounding adjustments", async () => {
+    const requestedLiquidityAmountRaw = BigInt(100_000_000);
+    const fetchMock = mockKaminoWithdrawInstruction({
+      instructionAmountRaw: () => BigInt(95_238_095),
+    });
+    const simulateTransaction = mock(async () => ({
+      value: {
+        accounts: [
+          {
+            data: [
+              createSimulatedTokenAccountData(BigInt(95_238_095)),
+              "base64",
+            ],
+          },
+        ],
+        err: null,
+        logs: [],
+      },
+    }));
+    const client = createSmartAccountVaultsClient({
+      connection: {
+        getAccountInfo: mock(async (account: PublicKey) =>
+          account.equals(kaminoReserve)
+            ? createSerializedKaminoReserveAccount({
+                collateralSupplyRaw: BigInt(100_000_000),
+                liquidityAvailableAmountRaw: BigInt(105_000_000),
+              })
+            : null
+        ),
+        getLatestBlockhash: mock(async () => ({
+          blockhash: "11111111111111111111111111111111",
+          lastValidBlockHeight: 1,
+        })),
+        getTokenAccountBalance: mock(async () => ({
+          context: { slot: 1 },
+          value: {
+            amount: "0",
+            decimals: 6,
+            uiAmount: 0,
+            uiAmountString: "0",
+          },
+        })),
+        simulateTransaction,
+      } as never,
+      programId,
+    });
+
+    await expect(
+      client.prepareEarnUsdcWithdraw({
+        settingsPda,
+        walletAddress,
+        feePayer,
+        policySigner: backendSigner,
+        amountRaw: requestedLiquidityAmountRaw,
+        mode: "partial",
+        yieldRoutingPolicy: {
+          account: policyAccount,
+          seed: BigInt(7),
+        },
+      })
+    ).rejects.toMatchObject({ code: "earn_withdraw_underfilled" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(simulateTransaction).toHaveBeenCalledTimes(3);
   });
 
   test("[earn-withdraw-account-drift] retries AccountNotFound once and returns a typed error", async () => {

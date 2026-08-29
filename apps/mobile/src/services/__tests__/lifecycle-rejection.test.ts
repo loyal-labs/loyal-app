@@ -61,6 +61,26 @@ describe("wallet rejection classification", () => {
     expect(mapLifecycleErrorCode({ code: "unconfirmed_signature" })).toBe(
       "unconfirmed_signature",
     );
+    expect(mapLifecycleErrorCode({ code: "earn_withdraw_underfilled" })).toBe(
+      "earn_withdraw_underfilled",
+    );
+  });
+
+  it("emits a typed failure when bounded Earn withdrawal adjustment is exhausted", () => {
+    const sent = captureEnvelopes();
+    const error = Object.assign(new Error("withdrawal underfilled"), {
+      code: "earn_withdraw_underfilled",
+    });
+
+    newFlow().failFrom("prepare", error);
+
+    expect(sent).toEqual([
+      expect.objectContaining({
+        errorCode: "earn_withdraw_underfilled",
+        outcome: "failed",
+        stage: "prepare",
+      }),
+    ]);
   });
 
   it("emits cancelled, not failed, when the user declines the prompt", async () => {
