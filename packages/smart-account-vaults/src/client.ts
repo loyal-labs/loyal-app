@@ -193,6 +193,18 @@ export const EARN_POLICY_UPDATE_REQUIRED_CODE =
 export const EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE =
   "earn_withdraw_required_account_missing" as const;
 
+export const EARN_WITHDRAW_UNDERFILLED_CODE =
+  "earn_withdraw_underfilled" as const;
+
+export class EarnWithdrawUnderfilledError extends Error {
+  readonly code = EARN_WITHDRAW_UNDERFILLED_CODE;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "EarnWithdrawUnderfilledError";
+  }
+}
+
 export class EarnWithdrawRequiredAccountMissingError extends Error {
   readonly accountRole = "transaction_account" as const;
   readonly code = EARN_WITHDRAW_REQUIRED_ACCOUNT_MISSING_CODE;
@@ -8901,6 +8913,9 @@ export function createSmartAccountVaultsClient(
       instructions: TransactionInstruction[];
       kaminoWithdrawAmountRaw: bigint;
       lookupTableAddresses: PublicKey[];
+      reserveSnapshot: KaminoReserveSnapshot | null;
+      target: KaminoEarnTarget;
+      withdrawDiscriminator: readonly number[];
     };
 
     type ProvisionalWithdrawBatch = Omit<
@@ -8930,6 +8945,24 @@ export function createSmartAccountVaultsClient(
       instruction.data.length >= 16
         ? readUint64LE(instruction.data, 8)
         : fallback;
+
+    const replaceWithdrawInstructionAmountRaw = (
+      instruction: TransactionInstruction,
+      amountRaw: bigint
+    ): TransactionInstruction => {
+      if (instruction.data.length < 16) {
+        throw new EarnWithdrawUnderfilledError(
+          "Kamino returned a partial withdrawal instruction without an amount."
+        );
+      }
+      const data = Buffer.from(instruction.data);
+      data.writeBigUInt64LE(amountRaw, 8);
+      return new TransactionInstruction({
+        data,
+        keys: instruction.keys,
+        programId: instruction.programId,
+      });
+    };
 
     const chunkReserveWithdrawals = (
       withdrawals: ProvisionalReserveWithdrawal[]
@@ -9328,6 +9361,9 @@ export function createSmartAccountVaultsClient(
           ],
           kaminoWithdrawAmountRaw: stepKaminoWithdrawAmountRaw,
           lookupTableAddresses: kaminoWithdrawBundle.lookupTableAddresses,
+          reserveSnapshot,
+          target: plan.target,
+          withdrawDiscriminator: plan.target.withdrawDiscriminator,
         });
       }
 
@@ -9370,11 +9406,11 @@ export function createSmartAccountVaultsClient(
         (total, withdrawal) => total + withdrawal.amountRaw,
         BigInt(0)
       );
-      const batchKaminoWithdrawAmountRaw = batch.reduce(
+      let batchKaminoWithdrawAmountRaw = batch.reduce(
         (total, withdrawal) => total + withdrawal.kaminoWithdrawAmountRaw,
         BigInt(0)
       );
-      const batchExpectedRedeemedAmountRaw = batch.reduce(
+      let batchExpectedRedeemedAmountRaw = batch.reduce(
         (total, withdrawal) => total + withdrawal.expectedRedeemedAmountRaw,
         BigInt(0)
       );
@@ -9382,26 +9418,6 @@ export function createSmartAccountVaultsClient(
         isFinalExit && isFinalBatch
           ? fullWithdrawVaultUsdcRemainderRaw
           : BigInt(0);
-      const compiledWithdrawPrefix =
-        instructionsToSynchronousTransactionDetailsV2({
-          vaultPda,
-          members: [args.walletAddress],
-          transaction_instructions: batch.flatMap(
-            (withdrawal) => withdrawal.instructions
-          ),
-        });
-      const withdrawPrefixExecution =
-        await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
-          {
-            feePayer: args.feePayer,
-            settingsPda: args.settingsPda,
-            accountIndex: EARN_DEPOSIT_VAULT_INDEX,
-            numSigners: 1,
-            instructions: compiledWithdrawPrefix.instructions,
-            instruction_accounts: compiledWithdrawPrefix.accounts,
-            memo: args.memo,
-          } as never
-        );
       // A prior full exit's cleanup closes the vault's USDC and collateral
       // ATAs while sweeps/rebalances can still land funds afterwards; klend's
       // withdraw requires both destination token accounts to exist, so
@@ -9453,35 +9469,146 @@ export function createSmartAccountVaultsClient(
             ? Promise.resolve(fullWithdrawVaultUsdcRemainderRaw)
             : getTokenAccountAmountOrZero(config.connection, vaultUsdcAta),
         ]);
-      const {
-        amountRaw: simulatedVaultUsdcAmountRaw,
-        lamportAccountLamports: simulatedVaultLamports,
-      } = await simulatePreparedTokenAccountAmount({
-        connection: config.connection,
-        lamportAccount: isFinalExit && isFinalBatch ? vaultPda : undefined,
-        prepared: freezePreparedOperation({
-          operation: "earnUsdcWithdrawPrefixSimulation",
-          payer: args.feePayer,
-          programId: smartAccountsClient.programId,
-          requiresConfirmation: false,
-          instructions: [
-            createAssociatedTokenAccountIdempotentInstruction(
-              args.feePayer,
-              walletUsdcAta,
-              args.walletAddress,
-              usdcMint,
-              liquidityTokenProgram
+      const simulateWithdrawPrefix = async () => {
+        const compiledWithdrawPrefix =
+          instructionsToSynchronousTransactionDetailsV2({
+            vaultPda,
+            members: [args.walletAddress],
+            transaction_instructions: batch.flatMap(
+              (withdrawal) => withdrawal.instructions
             ),
-            ...vaultAtaSetupInstructions,
-            ...withdrawPrefixExecution.instructions,
-          ],
-          lookupTableAccounts: dedupeLookupTableAccounts([
-            ...(withdrawPrefixExecution.lookupTableAccounts ?? []),
-            ...batchKaminoLookupTableAccounts,
-          ]),
-        }),
-        tokenAccount: vaultUsdcAta,
+          });
+        const withdrawPrefixExecution =
+          await smartAccountsClient.features.execution.prepare.executeTransactionSyncV2(
+            {
+              feePayer: args.feePayer,
+              settingsPda: args.settingsPda,
+              accountIndex: EARN_DEPOSIT_VAULT_INDEX,
+              numSigners: 1,
+              instructions: compiledWithdrawPrefix.instructions,
+              instruction_accounts: compiledWithdrawPrefix.accounts,
+              memo: args.memo,
+            } as never
+          );
+        return simulatePreparedTokenAccountAmount({
+          connection: config.connection,
+          lamportAccount: isFinalExit && isFinalBatch ? vaultPda : undefined,
+          prepared: freezePreparedOperation({
+            operation: "earnUsdcWithdrawPrefixSimulation",
+            payer: args.feePayer,
+            programId: smartAccountsClient.programId,
+            requiresConfirmation: false,
+            instructions: [
+              createAssociatedTokenAccountIdempotentInstruction(
+                args.feePayer,
+                walletUsdcAta,
+                args.walletAddress,
+                usdcMint,
+                liquidityTokenProgram
+              ),
+              ...vaultAtaSetupInstructions,
+              ...withdrawPrefixExecution.instructions,
+            ],
+            lookupTableAccounts: dedupeLookupTableAccounts([
+              ...(withdrawPrefixExecution.lookupTableAccounts ?? []),
+              ...batchKaminoLookupTableAccounts,
+            ]),
+          }),
+          tokenAccount: vaultUsdcAta,
+        });
+      };
+
+      let prefixSimulation = await simulateWithdrawPrefix();
+      let simulatedRedeemedOnlyAmountRaw = resolveSimulatedRedeemedAmountRaw({
+        currentVaultUsdcAmountRaw,
+        simulatedVaultUsdcAmountRaw: prefixSimulation.amountRaw,
       });
+      const maxRoundingAdjustmentAttempts = 2;
+      for (
+        let adjustmentAttempt = 0;
+        args.mode !== "full" &&
+        simulatedRedeemedOnlyAmountRaw < batchAmountRaw &&
+        adjustmentAttempt < maxRoundingAdjustmentAttempts;
+        adjustmentAttempt += 1
+      ) {
+        const withdrawal = batch.length === 1 ? batch[0]! : null;
+        if (!withdrawal) {
+          throw new EarnWithdrawUnderfilledError(
+            "Kamino could not safely adjust a split partial withdrawal."
+          );
+        }
+        if (!withdrawal.reserveSnapshot) {
+          withdrawal.reserveSnapshot = (
+            await resolveEarnPartialWithdrawAmounts({
+              connection: config.connection,
+              requestedWithdrawAmountRaw: withdrawal.amountRaw,
+              target: withdrawal.target,
+            })
+          ).snapshot;
+        }
+        const liquidityShortfallRaw =
+          batchAmountRaw - simulatedRedeemedOnlyAmountRaw;
+        const collateralAdjustmentRaw =
+          calculateKaminoCollateralAmountForRedeemableLiquidityRaw({
+            liquidityAmountRaw: liquidityShortfallRaw,
+            snapshot: withdrawal.reserveSnapshot,
+          }) + BigInt(1);
+        const adjustedCollateralAmountRaw =
+          withdrawal.kaminoWithdrawAmountRaw + collateralAdjustmentRaw;
+        let replacedInstructionCount = 0;
+        withdrawal.instructions = withdrawal.instructions.map((instruction) => {
+          if (
+            instruction.programId.equals(withdrawal.instruction.programId) &&
+            dataStartsWithDiscriminator(
+              instruction.data,
+              withdrawal.withdrawDiscriminator
+            )
+          ) {
+            replacedInstructionCount += 1;
+            return replaceWithdrawInstructionAmountRaw(
+              instruction,
+              adjustedCollateralAmountRaw
+            );
+          }
+          return instruction;
+        });
+        if (replacedInstructionCount !== 1) {
+          throw new EarnWithdrawUnderfilledError(
+            "Kamino returned an unsupported partial withdrawal instruction split."
+          );
+        }
+        withdrawal.instruction = replaceWithdrawInstructionAmountRaw(
+          withdrawal.instruction,
+          adjustedCollateralAmountRaw
+        );
+        withdrawal.kaminoWithdrawAmountRaw = adjustedCollateralAmountRaw;
+        withdrawal.expectedRedeemedAmountRaw =
+          calculateKaminoRedeemableLiquidityAmountRaw({
+            collateralAmountRaw: adjustedCollateralAmountRaw,
+            snapshot: withdrawal.reserveSnapshot,
+          });
+        prefixSimulation = await simulateWithdrawPrefix();
+        simulatedRedeemedOnlyAmountRaw = resolveSimulatedRedeemedAmountRaw({
+          currentVaultUsdcAmountRaw,
+          simulatedVaultUsdcAmountRaw: prefixSimulation.amountRaw,
+        });
+      }
+      if (
+        args.mode !== "full" &&
+        simulatedRedeemedOnlyAmountRaw < batchAmountRaw
+      ) {
+        throw new EarnWithdrawUnderfilledError(
+          "Kamino withdrawal simulation produced less liquidity than requested."
+        );
+      }
+      batchKaminoWithdrawAmountRaw = batch.reduce(
+        (total, withdrawal) => total + withdrawal.kaminoWithdrawAmountRaw,
+        BigInt(0)
+      );
+      batchExpectedRedeemedAmountRaw = batch.reduce(
+        (total, withdrawal) => total + withdrawal.expectedRedeemedAmountRaw,
+        BigInt(0)
+      );
       // Sweep what the vault will hold AFTER the withdraw prefix runs: klend's
       // v2 full withdraw closes the emptied obligation and refunds its rent
       // (~0.024 SOL) to the vault inside this same transaction, so the
@@ -9491,20 +9618,9 @@ export function createSmartAccountVaultsClient(
       // cleanup flow; the sweep can only undershoot, never overdraw.
       const vaultSweepLamports =
         isFinalExit && isFinalBatch
-          ? simulatedVaultLamports ?? fullWithdrawVaultSweepLamports
+          ? prefixSimulation.lamportAccountLamports ??
+            fullWithdrawVaultSweepLamports
           : BigInt(0);
-      const simulatedRedeemedOnlyAmountRaw = resolveSimulatedRedeemedAmountRaw({
-        currentVaultUsdcAmountRaw,
-        simulatedVaultUsdcAmountRaw,
-      });
-      if (
-        args.mode !== "full" &&
-        simulatedRedeemedOnlyAmountRaw < batchAmountRaw
-      ) {
-        throw new Error(
-          "Kamino withdrawal simulation produced less liquidity than requested."
-        );
-      }
       const redeemedTransferAmountRaw =
         simulatedRedeemedOnlyAmountRaw > BigInt(0)
           ? simulatedRedeemedOnlyAmountRaw

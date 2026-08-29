@@ -445,10 +445,13 @@ describe("executeEarnWithdraw", () => {
       ...context,
       withdrawInput: { ...context.withdrawInput, mode: "partial" },
     });
-    // A plain error from the SDK build is a bug or a rejected input, not a
-    // transport blip: connection-retry throws it through unretried.
-    const semanticError = new Error(
-      "Kamino withdrawal simulation produced less liquidity than requested.",
+    // A semantic SDK error is not a transport blip: connection-retry throws
+    // it through unretried even when it carries a stable telemetry code.
+    const semanticError = Object.assign(
+      new Error(
+        "Kamino withdrawal simulation produced less liquidity than requested.",
+      ),
+      { code: "earn_withdraw_underfilled" },
     );
     prepareEarnUsdcWithdraw.mockRejectedValue(semanticError);
 
