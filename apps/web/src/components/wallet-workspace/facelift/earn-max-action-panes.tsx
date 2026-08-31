@@ -41,19 +41,31 @@ export function EarnMaxInfinityBadge({ className }: { className: string }) {
   );
 }
 
-/** USDC coin with the red Earn MAX marker — the transaction/source icon. */
-export function EarnMaxDualIcon() {
+/** USDC coin + the red Earn MAX marker, source top-left → destination
+ * bottom-right — same direction contract as the Earn activity DualIcon:
+ * deposits read Main → Earn MAX, withdrawals Earn MAX → Main. */
+export function EarnMaxDualIcon({
+  isWithdraw = false,
+}: {
+  isWithdraw?: boolean;
+}) {
+  const coin = (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      alt=""
+      className="absolute inset-0 size-full"
+      src={getTokenIconUrl("USDC")}
+    />
+  );
+  const marker = <EarnMaxInfinityBadge className="size-full" />;
   return (
     <span className="relative block size-11 shrink-0">
       <span className="absolute top-0 left-0 block size-[30px] overflow-hidden rounded-full">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt=""
-          className="absolute inset-0 size-full"
-          src={getTokenIconUrl("USDC")}
-        />
+        {isWithdraw ? marker : coin}
       </span>
-      <EarnMaxInfinityBadge className="absolute right-0 bottom-0 size-[30px]" />
+      <span className="absolute right-0 bottom-0 block size-[30px] overflow-hidden rounded-full">
+        {isWithdraw ? coin : marker}
+      </span>
     </span>
   );
 }
@@ -472,7 +484,7 @@ export function EarnMaxWithdrawPane({
         <div className="relative flex h-36 w-full flex-col gap-1 p-2">
           <div className="flex w-full items-center rounded-2xl px-4">
             <div className="py-2 pr-3">
-              <EarnMaxDualIcon />
+              <EarnMaxDualIcon isWithdraw />
             </div>
             <span className="flex h-[60px] min-w-0 flex-1 flex-col gap-0.5 py-[9px]">
               <span className="whitespace-nowrap text-[13px] text-muted-foreground leading-4">

@@ -185,7 +185,7 @@ export function OperationRow({
   const content = (
     <>
       <span className="flex items-center py-2 pr-3">
-        <EarnMaxDualIcon />
+        <EarnMaxDualIcon isWithdraw={isWithdraw} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-[11px]">
         <span className="truncate font-medium text-[16px] text-foreground leading-5 tracking-[-0.176px]">
@@ -263,7 +263,7 @@ export function EarnMaxTransactionDetailPane({
     <div className="flex h-full min-h-0 w-full flex-col">
       <header className="flex w-full shrink-0 items-center p-2">
         <div className="flex shrink-0 items-center pr-3 pl-4">
-          <EarnMaxDualIcon />
+          <EarnMaxDualIcon isWithdraw={isWithdraw} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <h2 className="truncate font-semibold text-[20px] text-foreground leading-6 tracking-[-0.22px]">
