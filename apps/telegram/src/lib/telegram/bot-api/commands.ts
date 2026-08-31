@@ -6,11 +6,12 @@ import {
 } from "@loyal-labs/db-core/schema";
 import { eq } from "drizzle-orm";
 import type { CommandContext, Context } from "grammy";
-import { Bot } from "grammy";
+import { Bot, InlineKeyboard } from "grammy";
 
 import { getDatabase } from "@/lib/core/database";
 import { fetchTokenMetricsByMint } from "@/lib/jupiter/server";
 import { captureCommunityPhotoToCdn } from "@/lib/telegram/community-photo-service";
+import { MINI_APP_LINK } from "@/lib/telegram/constants";
 import { getOrCreateUser } from "@/lib/telegram/user-service";
 import { getTelegramDisplayName, isCommunityChat } from "@/lib/telegram/utils";
 
@@ -28,7 +29,6 @@ import { LOYAL_COMMUNITY_CHAT_ID } from "./constants";
 import { replyWithAutoCleanup } from "./helper-message-cleanup";
 import { evictActiveCommunityCache } from "./message-handlers";
 import { sendNotificationSettingsMessage } from "./notification-settings";
-import { sendStartCarousel } from "./start-carousel";
 import { formatStatsCommandMessage } from "./stats-command";
 import {
   claimStatsCommand,
@@ -198,11 +198,22 @@ async function syncActivationForExistingCommunity(params: {
   );
 }
 
+const SUNSET_MESSAGE =
+  "The Loyal Telegram app is sunset. Loyal now lives at askloyal.com.\n\n" +
+  "If you have a wallet in the Telegram app, open the app to export your private key.";
+
 export async function handleStartCommand(
   ctx: CommandContext<Context>,
-  bot: Bot
+  _bot: Bot
 ): Promise<void> {
-  await sendStartCarousel(ctx, bot);
+  const keyboard = new InlineKeyboard()
+    .url("Open askloyal.com", "https://askloyal.com")
+    .row()
+    .url("Export wallet key", MINI_APP_LINK);
+  await ctx.reply(SUNSET_MESSAGE, {
+    reply_markup: keyboard,
+    message_thread_id: ctx.message?.message_thread_id,
+  });
   trackBotEvent(BOT_START_COMMAND_EVENT, createCommandTrackingProperties(ctx));
 }
 

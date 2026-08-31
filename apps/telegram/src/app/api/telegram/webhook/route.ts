@@ -29,10 +29,6 @@ import {
   handleNotificationSettingsCallback,
   NOTIFICATION_SETTINGS_CALLBACK_DATA_REGEX,
 } from "@/lib/telegram/bot-api/notification-settings";
-import {
-  handleStartCarouselCallback,
-  START_CAROUSEL_CALLBACK_DATA_REGEX,
-} from "@/lib/telegram/bot-api/start-carousel";
 import { resolveSummaryCommunityPeerId } from "@/lib/telegram/bot-api/summary-chat-id";
 import {
   handleSummaryVoteCallback,
@@ -110,10 +106,6 @@ bot.inlineQuery(SUMMARY_INLINE_QUERY_REGEX, async (ctx) => {
 
 bot.on("inline_query", async (ctx) => {
   await handleInlineQuery(ctx as InlineQueryContext<Context>);
-});
-
-bot.callbackQuery(START_CAROUSEL_CALLBACK_DATA_REGEX, async (ctx) => {
-  await handleStartCarouselCallback(ctx);
 });
 
 bot.callbackQuery(NOTIFICATION_SETTINGS_CALLBACK_DATA_REGEX, async (ctx) => {
