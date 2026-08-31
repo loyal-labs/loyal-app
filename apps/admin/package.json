@@ -10,7 +10,9 @@
     "prebuild": "bun run --cwd ../.. build:packages",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "bun run verify:admin-endpoint-auth && next lint",
+    "test:admin-auth": "bun test src/lib/admin-auth.test.ts 'src/app/(admin)/dapps/actions.auth.test.ts'",
+    "verify:admin-endpoint-auth": "bun scripts/verify-admin-endpoint-auth.ts",
     "verify:earn-multi-stablecoin": "bun scripts/verify-earn-multi-stablecoin-monitoring.ts",
     "shadcn:init": "bunx shadcn@latest init",
     "shadcn:add": "bunx shadcn@latest add"

@@ -15,6 +15,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 
 type ActionResult = { success: true; message: string } | { error: string };
 
@@ -72,6 +73,8 @@ function redirectWithActionResult(result: ActionResult): never {
 export async function sendManualPushNotification(
   formData: FormData
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const title = String(formData.get("title") ?? "").trim();
   const body = String(formData.get("body") ?? "").trim();
   const createdBy = String(formData.get("createdBy") ?? "").trim() || null;
@@ -233,6 +236,8 @@ export async function sendManualPushNotification(
 }
 
 export async function checkPushReceipts(sendId: string): Promise<ActionResult> {
+  await requireAdminSession();
+
   const db = getDatabase();
   const ticketRows = (await db
     .select({
@@ -338,10 +343,14 @@ export async function checkPushReceipts(sendId: string): Promise<ActionResult> {
 }
 
 export async function submitManualPushNotification(formData: FormData) {
+  await requireAdminSession();
+
   redirectWithActionResult(await sendManualPushNotification(formData));
 }
 
 export async function submitPushReceiptCheck(formData: FormData) {
+  await requireAdminSession();
+
   const sendId = String(formData.get("sendId") ?? "");
   redirectWithActionResult(await checkPushReceipts(sendId));
 }

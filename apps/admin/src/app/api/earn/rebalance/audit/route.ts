@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { requireAdminSession } from "@/lib/require-admin-session";
+
 import {
   decodeRebalanceAuditCursor,
   getRebalanceAuditActivePage,
@@ -41,6 +43,8 @@ function parseEnum<T extends string>(
 }
 
 export async function GET(request: Request) {
+  await requireAdminSession();
+
   const url = new URL(request.url);
   const view = parseEnum(url.searchParams.get("view"), views, "errors");
   const range = parseEnum(url.searchParams.get("range"), ranges, "24h");

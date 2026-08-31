@@ -3,6 +3,7 @@ import { asc } from "drizzle-orm";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { featureRegistry, runtimeFlags } from "@loyal-labs/db-core/schema";
 
 import { FlagForm } from "./flag-form";
@@ -11,6 +12,8 @@ import { FlagList } from "./flag-list";
 export const dynamic = "force-dynamic";
 
 export default async function FlagsPage() {
+  await requireAdminSession();
+
   const db = getDatabase();
   const features = await db.query.featureRegistry.findMany({
     orderBy: [asc(featureRegistry.title)],

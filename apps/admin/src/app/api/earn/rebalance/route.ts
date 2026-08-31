@@ -6,6 +6,7 @@ import {
   getSafeReserveApyMonitorDataFromStatuses,
 } from "@/lib/kamino/timescale-reserve-client.server";
 import type { SafeReserveApyMonitorData } from "@/lib/kamino/timescale-reserve-monitor.shared";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   EARN_STABLECOIN_DESCRIPTORS,
   STABLECOIN_DECIMALS,
@@ -390,6 +391,8 @@ async function loadRebalancePageData() {
 }
 
 export async function GET(request: Request) {
+  await requireAdminSession();
+
   const section = new URL(request.url).searchParams.get("section");
   const headers = {
     "Cache-Control": "private, no-store",

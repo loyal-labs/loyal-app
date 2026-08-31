@@ -4,6 +4,7 @@ import { asc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   featureAppStatuses,
   featureRegistry,
@@ -27,6 +28,8 @@ function getOptionalTextValue(formData: FormData, key: string): string | null {
 }
 
 export async function getFeaturesForMatrix() {
+  await requireAdminSession();
+
   const db = getDatabase();
 
   return db.query.featureRegistry.findMany({
@@ -45,6 +48,8 @@ export async function getFeaturesForMatrix() {
 }
 
 export async function createFeature(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
   const title = getOptionalTextValue(formData, "title");
   const key = getOptionalTextValue(formData, "key");
   const description = getOptionalTextValue(formData, "description");

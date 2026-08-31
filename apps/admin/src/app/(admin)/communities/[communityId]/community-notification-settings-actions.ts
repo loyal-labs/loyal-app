@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 
 import { CACHE_TAGS, communityTag } from "@/lib/data-cache";
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { communities } from "@loyal-labs/db-core/schema";
 
 const UUID_PATTERN =
@@ -54,6 +55,8 @@ export async function updateCommunityNotificationSettings(
   communityId: string,
   formData: FormData
 ) {
+  await requireAdminSession();
+
   if (!UUID_PATTERN.test(communityId)) {
     return;
   }

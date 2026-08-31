@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { requireAdminSession } from "@/lib/require-admin-session";
+
 import {
   getEarnVaultOpportunityCounts,
   type RebalanceRouteMode,
@@ -11,6 +13,8 @@ export const runtime = "nodejs";
 const routeModes = new Set<RebalanceRouteMode>(["same_mint", "cross_mint"]);
 
 export async function GET(request: Request) {
+  await requireAdminSession();
+
   const url = new URL(request.url);
   const vaultId = url.searchParams.get("vaultId") ?? "";
   const routeMode = url.searchParams.get("routeMode") ?? "";

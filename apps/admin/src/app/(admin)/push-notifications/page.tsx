@@ -8,6 +8,7 @@ import { desc, eq, inArray, sql } from "drizzle-orm";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 
 import { ManualPushPanel } from "./manual-push-panel";
 
@@ -65,6 +66,8 @@ function getActionMessage(
 export default async function PushNotificationsPage({
   searchParams,
 }: PushNotificationsPageProps) {
+  await requireAdminSession();
+
   const resolvedSearchParams = (await searchParams) ?? {};
   const result = toSingleValue(resolvedSearchParams.result);
   const message = toSingleValue(resolvedSearchParams.message);

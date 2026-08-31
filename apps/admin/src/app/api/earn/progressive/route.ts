@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { requireAdminSession } from "@/lib/require-admin-session";
+
 import { getEarnFundingData } from "../../../(admin)/earn/earn-funding-data";
 import { getEarnStablecoinMonitoring } from "../../../(admin)/earn/earn-stablecoin-monitoring";
 import { getAdminEarnSnapshot } from "../../../(admin)/earn/earn-snapshot";
@@ -16,6 +18,8 @@ function serialize(value: unknown) {
 }
 
 export async function GET(request: Request) {
+  await requireAdminSession();
+
   const searchParams = new URL(request.url).searchParams;
   const section = searchParams.get("section");
 

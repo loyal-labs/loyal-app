@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   featureAppStatuses,
   featureEvidence,
@@ -21,6 +22,8 @@ export default async function FeatureDetailPage({
 }: {
   params: Promise<{ featureId: string }>;
 }) {
+  await requireAdminSession();
+
   const { featureId } = await params;
   const db = getDatabase();
 

@@ -5,6 +5,7 @@ import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, XIcon } from "lucide-reac
 
 import { getDatabase } from "@/lib/core/database";
 import { CACHE_TAGS, DATA_CACHE_TTL_SECONDS } from "@/lib/data-cache";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   type CommunityParserType,
   communities,
@@ -231,6 +232,8 @@ async function getHomePageData(
 }
 
 export default async function Home({ searchParams }: HomePageProps) {
+  await requireAdminSession();
+
   const resolvedSearchParams = (await searchParams) ?? {};
   const pageParam = Array.isArray(resolvedSearchParams.page)
     ? resolvedSearchParams.page[0]

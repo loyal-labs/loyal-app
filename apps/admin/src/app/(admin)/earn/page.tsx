@@ -2,6 +2,7 @@ import { Suspense } from "react";
 
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
+import { requireAdminSession } from "@/lib/require-admin-session";
 
 import {
   EarnProgressiveClient,
@@ -79,11 +80,13 @@ async function EarnMonitoringSection({
   }
 }
 
-export default function EarnPage({
+export default async function EarnPage({
   searchParams,
 }: {
   searchParams?: Promise<EarnPageSearchParams>;
 }) {
+  await requireAdminSession();
+
   return (
     <PageContainer>
       <SectionHeader

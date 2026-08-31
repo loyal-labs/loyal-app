@@ -1,6 +1,7 @@
 import { AddressLink } from "@/components/blockchain/address-link";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   Card,
   CardContent,
@@ -40,6 +41,8 @@ function formatOptionalUsd(value: number | null) {
 }
 
 export default async function TransfersPage() {
+  await requireAdminSession();
+
   const [
     { assets, shieldPoints, totalShielded, totalUnshielded, tvl },
     { points: gaslessPoints, totalSpent },

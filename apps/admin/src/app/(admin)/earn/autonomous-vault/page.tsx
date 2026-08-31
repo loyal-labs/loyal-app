@@ -2,6 +2,7 @@ import { AddressLink } from "@/components/blockchain/address-link";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
 import { Badge } from "@/components/ui/badge";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   Card,
   CardContent,
@@ -68,6 +69,8 @@ function ValueCard({
 }
 
 export default async function AutonomousVaultPage() {
+  await requireAdminSession();
+
   const data = await getAutonomousVaultData();
 
   return (

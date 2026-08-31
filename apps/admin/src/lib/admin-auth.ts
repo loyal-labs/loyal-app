@@ -194,6 +194,24 @@ export async function verifySessionToken(token: string | undefined | null) {
   return payload as SessionPayload;
 }
 
+export class AdminAuthenticationError extends Error {
+  constructor() {
+    super("Unauthorized");
+    this.name = "AdminAuthenticationError";
+  }
+}
+
+export async function requireValidAdminSessionToken(
+  token: string | undefined | null
+): Promise<SessionPayload> {
+  const session = await verifySessionToken(token);
+  if (!session) {
+    throw new AdminAuthenticationError();
+  }
+
+  return session;
+}
+
 export function isSafeNextPath(value: string | undefined | null) {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
     return false;

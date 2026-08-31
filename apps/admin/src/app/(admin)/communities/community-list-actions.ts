@@ -4,6 +4,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { CACHE_TAGS, communityTag } from "@/lib/data-cache";
 import { communities } from "@loyal-labs/db-core/schema";
 
@@ -16,6 +17,8 @@ export async function setCommunityActiveStatus(
   communityId: string,
   nextIsActive: boolean
 ): Promise<CommunityActionResult> {
+  await requireAdminSession();
+
   if (!UUID_PATTERN.test(communityId)) {
     return { error: "Invalid community ID" };
   }

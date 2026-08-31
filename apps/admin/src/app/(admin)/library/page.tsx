@@ -4,12 +4,15 @@ import { asc } from "drizzle-orm";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 
 import { LibraryList } from "./library-list";
 
 export const dynamic = "force-dynamic";
 
 export default async function LibraryPage() {
+  await requireAdminSession();
+
   const db = getDatabase();
 
   const [sectionRows, articleRows] = await Promise.all([

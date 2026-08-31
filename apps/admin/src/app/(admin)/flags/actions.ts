@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   featureFlagLinks,
   runtimeFlags,
@@ -72,6 +73,8 @@ function getFlagValues(formData: FormData) {
 }
 
 export async function createRuntimeFlag(formData: FormData) {
+  await requireAdminSession();
+
   const { key, description, audience, targetEnvironments, notes, enabled } =
     getFlagValues(formData);
 
@@ -103,6 +106,8 @@ export async function createRuntimeFlag(formData: FormData) {
 }
 
 export async function updateRuntimeFlag(id: string, formData: FormData) {
+  await requireAdminSession();
+
   const { key, description, audience, targetEnvironments, notes, enabled } =
     getFlagValues(formData);
 
@@ -136,6 +141,8 @@ export async function updateRuntimeFlag(id: string, formData: FormData) {
 }
 
 export async function toggleRuntimeFlag(id: string, enabled: boolean) {
+  await requireAdminSession();
+
   const db = getDatabase();
 
   await db
@@ -158,6 +165,8 @@ function revalidateFlagSurfaces(featureId?: string) {
 }
 
 export async function deleteRuntimeFlag(id: string) {
+  await requireAdminSession();
+
   const db = getDatabase();
 
   await db.delete(runtimeFlags).where(eq(runtimeFlags.id, id));
@@ -165,6 +174,8 @@ export async function deleteRuntimeFlag(id: string) {
 }
 
 export async function linkFlagToFeature(formData: FormData) {
+  await requireAdminSession();
+
   const flagId = getTrimmedString(formData, "flagId");
   const featureId = getTrimmedString(formData, "featureId");
 
@@ -191,6 +202,8 @@ export async function linkFlagToFeature(formData: FormData) {
 }
 
 export async function unlinkFlagFromFeature(linkId: string, featureId: string) {
+  await requireAdminSession();
+
   const db = getDatabase();
 
   await db.delete(featureFlagLinks).where(eq(featureFlagLinks.id, linkId));

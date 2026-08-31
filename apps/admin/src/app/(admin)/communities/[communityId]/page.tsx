@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { CommunityTrendLineChart } from "../community-trend-line-chart";
 import { CommunityMessagesBarChart } from "./community-messages-bar-chart";
 import { CommunityActiveUsersBarChart } from "./community-active-users-bar-chart";
@@ -24,6 +25,8 @@ type CommunityPageProps = {
 };
 
 export default async function CommunityPage({ params, searchParams }: CommunityPageProps) {
+  await requireAdminSession();
+
   const { communityId } = await params;
   const resolvedSearchParams = (await searchParams) ?? {};
   const pageParam = Array.isArray(resolvedSearchParams.page)

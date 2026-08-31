@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import {
   featureAppStatuses,
   featureEvidence,
@@ -60,6 +61,8 @@ export async function updateFeatureStatus(
   statusId: string,
   formData: FormData
 ): Promise<void> {
+  await requireAdminSession();
+
   const featureId = getStringValue(formData, "featureId");
   const status = getStringValue(formData, "status");
 
@@ -82,6 +85,8 @@ export async function updateFeatureStatus(
 }
 
 export async function addFeatureEvidence(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
   const featureId = getStringValue(formData, "featureId");
   const featureAppStatusId = getStringValue(formData, "featureAppStatusId");
   const type = getStringValue(formData, "type");
@@ -112,6 +117,8 @@ export async function addFeatureEvidence(formData: FormData): Promise<void> {
 }
 
 export async function linkFeatureFlag(formData: FormData): Promise<void> {
+  await requireAdminSession();
+
   const featureId = getStringValue(formData, "featureId");
   const flagId = getStringValue(formData, "flagId");
 
@@ -142,6 +149,8 @@ export async function unlinkFeatureFlag(
   linkId: string,
   featureId: string
 ): Promise<void> {
+  await requireAdminSession();
+
   const db = getDatabase();
 
   await db.delete(featureFlagLinks).where(eq(featureFlagLinks.id, linkId));

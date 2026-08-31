@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { trustedDapps } from "@loyal-labs/db-core/schema";
 
 import { ALLOWLIST_SEED } from "./allowlist-seed";
@@ -82,6 +83,8 @@ function readForm(formData: FormData): {
 export async function addTrustedDapp(
   formData: FormData
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const fields = readForm(formData);
   if (!fields.origin) return { error: "Origin must be a valid http(s) URL" };
   if (!fields.startUrl)
@@ -113,6 +116,8 @@ export async function updateTrustedDapp(
   id: string,
   formData: FormData
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const fields = readForm(formData);
   if (!fields.origin) return { error: "Origin must be a valid http(s) URL" };
   if (!fields.startUrl)
@@ -145,6 +150,8 @@ export async function updateTrustedDapp(
 }
 
 export async function deleteTrustedDapp(id: string): Promise<ActionResult> {
+  await requireAdminSession();
+
   const db = getDatabase();
   await db.delete(trustedDapps).where(eq(trustedDapps.id, id));
   revalidatePath("/dapps");
@@ -155,6 +162,8 @@ export async function toggleTrustedDappActive(
   id: string,
   isActive: boolean
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const db = getDatabase();
   await db
     .update(trustedDapps)
@@ -171,6 +180,8 @@ export async function toggleTrustedDappActive(
  * clobbering admin edits (name / isActive / displayOrder).
  */
 export async function seedAllowlist(): Promise<SeedResult> {
+  await requireAdminSession();
+
   const db = getDatabase();
 
   const existing = await db

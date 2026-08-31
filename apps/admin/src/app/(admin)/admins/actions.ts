@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { admins } from "@loyal-labs/db-core/schema";
 
 function parseTelegramId(value: string): bigint | null {
@@ -19,6 +20,8 @@ function parseTelegramId(value: string): bigint | null {
 }
 
 export async function addAdmin(formData: FormData) {
+  await requireAdminSession();
+
   const telegramId = formData.get("telegramId") as string;
   const displayName = formData.get("displayName") as string;
   const username = (formData.get("username") as string) || null;
@@ -56,6 +59,8 @@ export async function addAdmin(formData: FormData) {
 }
 
 export async function updateAdmin(id: string, formData: FormData) {
+  await requireAdminSession();
+
   const telegramId = formData.get("telegramId") as string;
   const displayName = formData.get("displayName") as string;
   const username = (formData.get("username") as string) || null;
@@ -96,6 +101,8 @@ export async function updateAdmin(id: string, formData: FormData) {
 }
 
 export async function deleteAdmin(id: string) {
+  await requireAdminSession();
+
   const db = getDatabase();
   await db.delete(admins).where(eq(admins.id, id));
   revalidatePath("/admins");

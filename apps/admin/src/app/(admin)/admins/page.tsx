@@ -1,6 +1,7 @@
 import { desc } from "drizzle-orm";
 
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { admins } from "@loyal-labs/db-core/schema";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
@@ -10,6 +11,8 @@ import { AdminList } from "./admin-list";
 export const dynamic = "force-dynamic";
 
 export default async function AdminsPage() {
+  await requireAdminSession();
+
   const db = getDatabase();
   const rows = await db
     .select()

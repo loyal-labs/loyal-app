@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getEarnStablecoinByMint } from "@/lib/earn/stablecoin-monitor.shared";
+import { requireAdminSession } from "@/lib/require-admin-session";
 
 import {
   getEarnVaultRebalanceFrequency,
@@ -11,6 +12,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
+  await requireAdminSession();
+
   const searchParams = new URL(request.url).searchParams;
   const kind = searchParams.get("kind");
   const liquidityMint = searchParams.get("liquidityMint");

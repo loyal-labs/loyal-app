@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { requireAdminSession } from "@/lib/require-admin-session";
 import { RecentRegistrationsTable } from "./recent-registrations-table";
 import { SmartAccountCreationsChart } from "./smart-account-creations-chart";
 import { SmartAccountSponsorshipSpendChart } from "./smart-account-sponsorship-spend-chart";
@@ -15,6 +16,8 @@ import { getSmartAccountsData } from "./smart-accounts-data";
 export const dynamic = "force-dynamic";
 
 export default async function SmartAccountsPage() {
+  await requireAdminSession();
+
   const {
     creationPoints,
     registrations,

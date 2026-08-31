@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 
 import { serverEnv } from "@/lib/core/config/server";
 import { getDatabase } from "@/lib/core/database";
+import { requireAdminSession } from "@/lib/require-admin-session";
 
 type ActionResult = { error?: string; success?: boolean };
 
@@ -29,6 +30,8 @@ function readOptionalString(value: FormDataEntryValue | null): string | null {
 export async function addLibrarySection(
   formData: FormData
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const title = readString(formData.get("title"));
   if (!title) return { error: "Title is required" };
 
@@ -47,6 +50,8 @@ export async function updateLibrarySection(
   id: string,
   formData: FormData
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const title = readString(formData.get("title"));
   if (!title) return { error: "Title is required" };
 
@@ -66,6 +71,8 @@ export async function updateLibrarySection(
 }
 
 export async function deleteLibrarySection(id: string): Promise<ActionResult> {
+  await requireAdminSession();
+
   const db = getDatabase();
   try {
     await db.delete(librarySections).where(eq(librarySections.id, id));
@@ -121,6 +128,8 @@ function validateArticle(
 export async function addLibraryArticle(
   formData: FormData
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const fields = readArticleFields(formData);
   const invalid = validateArticle(fields);
   if (invalid) return { error: invalid };
@@ -147,6 +156,8 @@ export async function updateLibraryArticle(
   id: string,
   formData: FormData
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const fields = readArticleFields(formData);
   const invalid = validateArticle(fields);
   if (invalid) return { error: invalid };
@@ -189,6 +200,8 @@ export async function updateLibraryArticle(
 }
 
 export async function deleteLibraryArticle(id: string): Promise<ActionResult> {
+  await requireAdminSession();
+
   const db = getDatabase();
   await db.delete(libraryArticles).where(eq(libraryArticles.id, id));
   revalidatePath("/library");
@@ -199,6 +212,8 @@ export async function toggleLibraryArticleActive(
   id: string,
   isActive: boolean
 ): Promise<ActionResult> {
+  await requireAdminSession();
+
   const db = getDatabase();
   const [existing] = await db
     .select({ publishedAt: libraryArticles.publishedAt })
@@ -227,6 +242,8 @@ export async function toggleLibraryArticleActive(
 export async function uploadLibraryCover(
   formData: FormData
 ): Promise<{ url?: string; error?: string }> {
+  await requireAdminSession();
+
   const file = formData.get("file");
   if (!(file instanceof File)) {
     return { error: "No file provided" };

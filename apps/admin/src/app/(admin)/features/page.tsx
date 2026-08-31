@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageContainer } from "@/components/layout/page-container";
 import { SectionHeader } from "@/components/layout/section-header";
+import { requireAdminSession } from "@/lib/require-admin-session";
 
 import { createFeature, getFeaturesForMatrix } from "./actions";
 import { FeatureMatrix } from "./feature-matrix";
@@ -9,6 +10,8 @@ import { FeatureMatrix } from "./feature-matrix";
 export const dynamic = "force-dynamic";
 
 export default async function FeaturesPage() {
+  await requireAdminSession();
+
   const features = await getFeaturesForMatrix();
 
   return (
