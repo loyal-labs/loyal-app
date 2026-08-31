@@ -198,7 +198,12 @@ export function FaceliftSidebar({
   const loadActivity = data.loadActivity;
   useEffect(() => {
     if (data.walletAddress) {
-      void loadActivity();
+      void loadActivity().catch((error) => {
+        console.warn(
+          "[wallet-activity] failed to load unseen-activity badge",
+          error
+        );
+      });
     }
   }, [data.walletAddress, loadActivity]);
   const latestActivityAt = data.allActivityRows[0]?.rawTimestamp ?? 0;

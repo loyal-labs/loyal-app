@@ -69,6 +69,7 @@ describe("Earn mutation reconciliation", () => {
   test("registered-first SSE owns each resource once and cancels the fallback", () => {
     const scheduled = new Map<number, () => void>();
     let timer = 0;
+    let coveredCount = 0;
     let fallbackCount = 0;
     const registry = new EarnMutationReconciliationRegistry({
       schedule: (callback) => {
@@ -80,6 +81,9 @@ describe("Earn mutation reconciliation", () => {
     registry.register(
       {
         key: "deposit:signature-a",
+        onCovered: () => {
+          coveredCount += 1;
+        },
         operation: "deposit",
         resources: ["position", "transactions", "earnings"],
         signature: "signature-a",
@@ -108,6 +112,7 @@ describe("Earn mutation reconciliation", () => {
     ]);
     reconciliation.accept(true);
     for (const callback of scheduled.values()) callback();
+    expect(coveredCount).toBe(1);
     expect(fallbackCount).toBe(0);
   });
 
@@ -198,6 +203,7 @@ describe("Earn mutation reconciliation", () => {
 
     scheduled.find(({ delayMs }) => delayMs === 2_500)?.callback();
     await Promise.resolve();
+    await Promise.resolve();
     const event = planned("21", EARN_REALTIME_EVENT_TYPES.allowance, [
       "state",
       "transactions",
@@ -207,6 +213,33 @@ describe("Earn mutation reconciliation", () => {
     expect(fallbackReads).toEqual([["state", "transactions"]]);
     expect(late.resources).toEqual(["state", "transactions"]);
     late.accept(true);
+  });
+
+  test("reports a mutation whose durable projection never arrives", () => {
+    const scheduled: Array<{ callback: () => void; delayMs: number }> = [];
+    let expiredCount = 0;
+    const registry = new EarnMutationReconciliationRegistry({
+      retentionMs: 15_000,
+      schedule: (callback, delayMs) => {
+        scheduled.push({ callback, delayMs });
+        return () => undefined;
+      },
+    });
+    registry.register(
+      {
+        key: "deposit:missing-projection",
+        onExpired: () => {
+          expiredCount += 1;
+        },
+        operation: "deposit",
+        resources: ["position", "transactions"],
+        signature: "missing-projection",
+      },
+      async () => undefined
+    );
+
+    scheduled.find(({ delayMs }) => delayMs === 15_000)?.callback();
+    expect(expiredCount).toBe(1);
   });
 
   test("an accepted event covers a mutation registered while its read is in flight", () => {

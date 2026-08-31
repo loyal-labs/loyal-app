@@ -7,7 +7,9 @@ import {
 import {
   combineSmartAccountNativeSolRequirements,
   createSmartAccountVaultsClient,
+  isEarnPolicyUpdateRequiredError,
   type SmartAccountEarnCrossMintProjectedPolicyInput,
+  type SmartAccountEarnUsdcWithdrawInput,
   type SmartAccountNativeSolRequirement,
   type SmartAccountOverview,
   type SmartAccountOverviewBase,
@@ -17,7 +19,6 @@ import {
   type SmartAccountPreparedEarnUsdcCleanup,
   type SmartAccountPreparedEarnUsdcDeposit,
   type SmartAccountPreparedEarnUsdcWithdraw,
-  type SmartAccountPreparedEarnUsdcYieldRoutingPolicy,
   type SmartAccountProposalSnapshot,
   type SmartAccountSignerPermission,
   type SmartAccountSignerSnapshot,
@@ -64,6 +65,7 @@ import {
   createBrowserLifecycleTracker,
 } from "@/features/observability/client";
 import type { BrowserErrorOperation } from "@/features/observability/error-contract";
+import { resolveRequiredClientEarnPolicy } from "@/features/earn-policy/resolve-client-policy";
 import {
   resolveSmartAccountMutationRefreshPlan,
   resolveSmartAccountRefreshError,
@@ -91,10 +93,6 @@ import {
 import type { LoadedEarnAutodepositScheduledSweep } from "@/lib/yield-optimization/earn-autodeposit-loaded-state.shared";
 import { sendEarnAutodepositSetupBatch } from "@/lib/yield-optimization/earn-autodeposit-client-flow";
 import {
-  EarnPrepareRequestError,
-  fetchEarnPrepare,
-} from "@/lib/yield-optimization/earn-prepare-request.client";
-import {
   type EarnAutodepositFloorUpdateConfirmRequestBody,
   type EarnAutodepositSetupConfirmResponse,
   type EarnAutodepositToggleConfirmRequestBody,
@@ -105,36 +103,15 @@ import {
   type EarnCrossMintToggleResponse,
 } from "@/lib/yield-optimization/earn-cross-mint-policy-contracts.shared";
 import {
+  EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE,
+  getEarnDepositSubmittedTransactionMessage,
+  resolveEarnDepositConfirmedSlot,
+} from "@/lib/yield-optimization/earn-deposit-flow.shared";
+import {
   executeEarnAutoswapSetupClient,
   prepareEarnAutoswapDeletionClient,
 } from "@/lib/yield-optimization/earn-autoswap-client-flow";
-import {
-  buildEarnDepositConfirmRequestBody,
-  buildEarnDepositPolicyStageConfirmRequestBody,
-  buildEarnPolicyConfirmRequestBody,
-  buildEarnWithdrawalConfirmRequestBody,
-} from "@/lib/yield-optimization/earn-confirm-contracts.shared";
-import {
-  isReusedEarnDepositPolicy,
-  resolveEarnDepositConfirmPolicySignature,
-} from "@/lib/yield-optimization/earn-deposit-flow.shared";
-import {
-  type EarnDepositPrepareResponse,
-  hydratePreparedEarnUsdcDeposit,
-} from "@/lib/yield-optimization/earn-deposit-prepare-contracts.shared";
-import {
-  type EarnPolicyPrepareResponse,
-  hydratePreparedEarnUsdcYieldRoutingPolicy,
-} from "@/lib/yield-optimization/earn-policy-prepare-contracts.shared";
-import {
-  type EarnWithdrawCleanupPrepareResponse,
-  hydratePreparedEarnUsdcCleanup,
-  serializePreparedEarnUsdcCleanup,
-} from "@/lib/yield-optimization/earn-withdraw-cleanup-contracts.shared";
-import {
-  type EarnWithdrawPrepareResponse,
-  hydratePreparedEarnUsdcWithdraw,
-} from "@/lib/yield-optimization/earn-withdraw-prepare-contracts.shared";
+import { resolveEarnProductAsset } from "@/lib/yield-optimization/earn-product-mints.shared";
 
 import { useSolanaWalletDataClient } from "./use-solana-wallet-data-client";
 import { createTokenMarketMintsSignature } from "./use-wallet-desktop-data";
@@ -572,6 +549,18 @@ export type EarnCleanupResult = {
   error?: string;
 };
 
+export type EarnWithdrawClientPrepareRequest = {
+  amountRaw: bigint;
+  autodepositClose?: { policy: PublicKey; recurringDelegation: PublicKey };
+  closePoliciesOnFullWithdrawal?: boolean;
+  fullWithdrawalTargets?: NonNullable<
+    SmartAccountEarnUsdcWithdrawInput["fullWithdrawalTargets"]
+  >;
+  mode: "partial" | "full";
+  source?: NonNullable<SmartAccountEarnUsdcWithdrawInput["source"]>;
+  target?: NonNullable<SmartAccountEarnUsdcWithdrawInput["target"]>;
+};
+
 export type EarnAutodepositSetupRequest = {
   amountRaw: bigint;
   expiryTimestamp?: bigint;
@@ -846,7 +835,7 @@ export function getEarnDepositUserErrorMessage(
     normalized.includes("was submitted, but its confirmation is unresolved");
 
   if (transactionWasSubmitted) {
-    return "A transaction for this deposit was submitted, but confirmation is still pending. Refresh Earn before trying again so you do not submit it twice.";
+    return EARN_DEPOSIT_SUBMITTED_CONFIRMATION_UNRESOLVED_MESSAGE;
   }
 
   if (
@@ -1216,6 +1205,16 @@ export type SmartAccountSidebarData = {
   executeEarnCleanup: (
     request: EarnCleanupRequest
   ) => Promise<EarnCleanupResult>;
+  prepareEarnDeposit: (request: {
+    amountRaw: bigint;
+    mint: string;
+  }) => Promise<SmartAccountPreparedEarnUsdcDeposit>;
+  prepareEarnWithdraw: (
+    request: EarnWithdrawClientPrepareRequest
+  ) => Promise<SmartAccountPreparedEarnUsdcWithdraw>;
+  prepareEarnCleanup: (request?: {
+    minContextSlot?: number;
+  }) => Promise<PreparedEarnUsdcCleanup>;
   prepareEarnAutodepositSetup: (
     request: Omit<EarnAutodepositSetupRequest, "preparedSetup">
   ) => Promise<SmartAccountPreparedEarnUsdcAutodepositSetup>;
@@ -1700,6 +1699,7 @@ async function fetchEarnState(options?: {
   const response = await fetch(
     "/api/smart-accounts/yield-optimization/earn-state",
     {
+      cache: "no-store",
       credentials: "include",
     }
   );
@@ -1723,38 +1723,6 @@ function observabilityJsonHeaders(flowId?: string): Record<string, string> {
     "Content-Type": "application/json",
     ...(flowId ? { "x-loyal-flow-id": flowId } : {}),
   };
-}
-
-async function postConfirmedEarnDeposit(args: {
-  observabilityFlowId?: string;
-  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
-  signature: string;
-  confirmedSlot: string;
-  smartAccountAddress: string;
-  policyConfirmedSlot?: string;
-  policySignature?: string;
-  setupPolicyConfirmedSlot?: string;
-  setupPolicySignature?: string;
-}) {
-  const body = buildEarnDepositConfirmRequestBody(args);
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/deposits/confirm",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      body: JSON.stringify(body),
-    }
-  );
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed earn deposit."
-    );
-  }
 }
 
 async function postEarnAutodepositFloorUpdate(args: {
@@ -1860,49 +1828,6 @@ async function postEarnAutodepositToggle(args: {
   return (await response.json()) as EarnAutodepositToggleConfirmResponse;
 }
 
-export async function prepareEarnDepositOnServer(args: {
-  amountRaw: bigint;
-  fetchImpl?: typeof fetch;
-  mint: string;
-  observabilityFlowId?: string;
-}): Promise<SmartAccountPreparedEarnUsdcDeposit> {
-  const fetchImpl = args.fetchImpl ?? fetch;
-  const response = await fetchEarnPrepare({
-    body: JSON.stringify({
-      amountRaw: args.amountRaw.toString(),
-      mint: args.mint,
-    }),
-    fetchImpl,
-    flowId: args.observabilityFlowId,
-    url: "/api/smart-accounts/yield-optimization/deposits/prepare",
-  });
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    if (
-      response.status === 409 &&
-      payload?.error?.code === "earn_policy_update_required"
-    ) {
-      throw new EarnPolicyUpdateRequiredClientError(
-        payload.error.message ??
-          "Update your Earn policy before depositing this asset."
-      );
-    }
-    throw new EarnPrepareRequestError(
-      payload?.error?.message ?? "Failed to prepare earn deposit.",
-      {
-        code: payload?.error?.code,
-        httpStatus: response.status,
-      }
-    );
-  }
-
-  const payload = (await response.json()) as EarnDepositPrepareResponse;
-  return hydratePreparedEarnUsdcDeposit(payload.preparedDeposit);
-}
-
 export class EarnPolicyUpdateRequiredClientError extends Error {
   readonly code = "earn_policy_update_required";
 
@@ -1910,93 +1835,6 @@ export class EarnPolicyUpdateRequiredClientError extends Error {
     super(message);
     this.name = "EarnPolicyUpdateRequiredClientError";
   }
-}
-
-export async function prepareEarnWithdrawOnServer(args: {
-  amountRaw: bigint | "max";
-  fetchImpl?: typeof fetch;
-  observabilityFlowId?: string;
-  sourceId: string;
-}): Promise<SmartAccountPreparedEarnUsdcWithdraw> {
-  const response = await fetchEarnPrepare({
-    body: JSON.stringify({
-      amountRaw: args.amountRaw === "max" ? "max" : args.amountRaw.toString(),
-      sourceId: args.sourceId,
-    }),
-    fetchImpl: args.fetchImpl ?? fetch,
-    flowId: args.observabilityFlowId,
-    url: "/api/smart-accounts/yield-optimization/withdrawals/prepare",
-  });
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new EarnPrepareRequestError(
-      payload?.error?.message ?? "Failed to prepare Earn withdrawal.",
-      {
-        code: payload?.error?.code,
-        httpStatus: response.status,
-      }
-    );
-  }
-  const payload = (await response.json()) as EarnWithdrawPrepareResponse;
-  return hydratePreparedEarnUsdcWithdraw(payload.preparedWithdraw);
-}
-
-export async function prepareEarnCleanupOnServer(
-  args: {
-    fetchImpl?: typeof fetch;
-    minContextSlot?: string;
-    observabilityFlowId?: string;
-  } = {}
-): Promise<PreparedEarnUsdcCleanup> {
-  const fetchImpl = args.fetchImpl ?? fetch;
-  const response = await fetchImpl(
-    "/api/smart-accounts/yield-optimization/withdrawals/cleanup/prepare",
-    {
-      body: JSON.stringify({
-        ...(args.minContextSlot ? { minContextSlot: args.minContextSlot } : {}),
-      }),
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      method: "POST",
-    }
-  );
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to prepare Earn cleanup."
-    );
-  }
-
-  const payload = (await response.json()) as EarnWithdrawCleanupPrepareResponse;
-  return hydratePreparedEarnUsdcCleanup(payload.preparedCleanup);
-}
-
-async function prepareEarnPolicyOnServer(): Promise<SmartAccountPreparedEarnUsdcYieldRoutingPolicy> {
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/policies/prepare",
-    {
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-    }
-  );
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to prepare earn policy."
-    );
-  }
-
-  const payload = (await response.json()) as EarnPolicyPrepareResponse;
-  return hydratePreparedEarnUsdcYieldRoutingPolicy(payload.preparedPolicy);
 }
 
 async function postEarnAutoswapToggle(args: {
@@ -2050,172 +1888,6 @@ async function fetchEarnAutoswapDeleteReadiness(args: {
     policies: string[];
     status: "off" | "ready";
   };
-}
-
-async function postConfirmedEarnPolicySetup(args: {
-  preparedPolicy: SmartAccountPreparedEarnUsdcYieldRoutingPolicy;
-  signature: string;
-  confirmedSlot: string;
-  setupPolicySignature: string;
-  setupPolicyConfirmedSlot: string;
-}) {
-  const routeBody = buildEarnPolicyConfirmRequestBody({
-    confirmedSlot: args.confirmedSlot,
-    preparedPolicy: args.preparedPolicy,
-    signature: args.signature,
-    stage: "route_policy",
-  });
-  const routeResponse = await fetch(
-    "/api/smart-accounts/yield-optimization/policies/confirm",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(routeBody),
-    }
-  );
-
-  if (!routeResponse.ok) {
-    const payload = (await routeResponse
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed earn policy."
-    );
-  }
-
-  const setupBody = buildEarnPolicyConfirmRequestBody({
-    confirmedSlot: args.setupPolicyConfirmedSlot,
-    preparedPolicy: args.preparedPolicy,
-    setupPolicyConfirmedSlot: args.setupPolicyConfirmedSlot,
-    setupPolicySignature: args.setupPolicySignature,
-    signature: args.setupPolicySignature,
-    stage: "setup_policy",
-  });
-  const setupResponse = await fetch(
-    "/api/smart-accounts/yield-optimization/policies/confirm",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(setupBody),
-    }
-  );
-
-  if (!setupResponse.ok) {
-    const payload = (await setupResponse
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed earn setup policy."
-    );
-  }
-}
-
-async function postConfirmedEarnDepositPolicyStage(args: {
-  observabilityFlowId?: string;
-  preparedDeposit: SmartAccountPreparedEarnUsdcDeposit;
-  signature: string;
-  confirmedSlot: string;
-  stage: "policy" | "policy-finalize";
-}) {
-  const body = buildEarnDepositPolicyStageConfirmRequestBody(args);
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/policies/confirm",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      body: JSON.stringify(body),
-    }
-  );
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed Earn policy stage."
-    );
-  }
-}
-
-async function postConfirmedEarnWithdraw(args: {
-  observabilityFlowId?: string;
-  preparedWithdraw: SmartAccountPreparedEarnUsdcWithdraw;
-  preparedStep?: SmartAccountPreparedEarnUsdcWithdraw["withdrawSteps"][number];
-  signature: string;
-  confirmedSlot: string;
-  smartAccountAddress: string;
-}) {
-  const body = buildEarnWithdrawalConfirmRequestBody(args);
-  const send = () =>
-    fetch("/api/smart-accounts/yield-optimization/withdrawals/confirm", {
-      method: "POST",
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      body: JSON.stringify(body),
-    });
-  let response: Response | null = null;
-  let lastTransportError: unknown;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      response = await send();
-      if (response.ok || response.status < 500 || attempt === 1) {
-        break;
-      }
-    } catch (error) {
-      lastTransportError = error;
-      if (attempt === 1) {
-        throw error;
-      }
-    }
-  }
-  if (!response) {
-    throw lastTransportError;
-  }
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed earn withdrawal."
-    );
-  }
-}
-
-async function postConfirmedEarnCleanup(args: {
-  observabilityFlowId?: string;
-  preparedCleanup: PreparedEarnUsdcCleanup;
-  signature: string;
-  confirmedSlot: string;
-}) {
-  const response = await fetch(
-    "/api/smart-accounts/yield-optimization/withdrawals/cleanup/confirm",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: observabilityJsonHeaders(args.observabilityFlowId),
-      body: JSON.stringify({
-        cleanupSignature: args.signature,
-        confirmedSlot: args.confirmedSlot,
-        preparedCleanup: serializePreparedEarnUsdcCleanup({
-          estimatedRefundLamports: args.preparedCleanup.estimatedRefundLamports,
-          preparedCleanup: args.preparedCleanup,
-        }),
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const payload = (await response
-      .json()
-      .catch(() => null)) as SmartAccountRouteErrorResponse | null;
-    throw new Error(
-      payload?.error?.message ?? "Failed to record confirmed Earn cleanup."
-    );
-  }
 }
 
 export function shouldInitializeEarnYieldRoutingPolicyForDeposit({
@@ -5904,7 +5576,20 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
-        const preparedPolicy = await prepareEarnPolicyOnServer();
+        if (!(overview && earnState?.policySignerPublicKey)) {
+          throw new Error("Earn context is unavailable. Refresh and retry.");
+        }
+        const client = createSmartAccountVaultsClient({
+          connection,
+          programId: new PublicKey(overview.programId),
+        });
+        const preparedPolicy = await client.prepareEarnUsdcYieldRoutingPolicy({
+          cluster: expectedEarnCluster,
+          feePayer: wallet.publicKey,
+          settingsPda: new PublicKey(overview.settingsPda),
+          signer: new PublicKey(earnState.policySignerPublicKey),
+          walletAddress: wallet.publicKey,
+        });
         const setupPolicyPrepared = preparedPolicy.finalizePrepared;
         if (!setupPolicyPrepared) {
           return {
@@ -5913,6 +5598,7 @@ export function useSmartAccountSidebarData(
               "Prepared Earn setup policy is missing. Review Earn again before signing.",
           };
         }
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "policy setup",
@@ -5923,16 +5609,21 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedPolicy.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
             }),
         });
         if (!sendResult.success) {
           return sendResult;
         }
         const signature = sendResult.signature;
-        const confirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature,
+        const confirmedSlot = await resolveEarnDepositConfirmedSlot({
+          transportSlot: walletConfirmedSlot,
+          fallback: () =>
+            resolveConfirmedSignatureSlot({ connection, signature }),
         });
+        let setupWalletConfirmedSlot: number | undefined;
         const setupSendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "setup policy setup",
@@ -5943,23 +5634,22 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: setupPolicyPrepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                setupWalletConfirmedSlot = slot;
+              },
             }),
         });
         if (!setupSendResult.success) {
           return setupSendResult;
         }
         const setupPolicySignature = setupSendResult.signature;
-        const setupPolicyConfirmedSlot = await resolveConfirmedSignatureSlot({
-          connection,
-          signature: setupPolicySignature,
-        });
-
-        await postConfirmedEarnPolicySetup({
-          preparedPolicy,
-          signature,
-          confirmedSlot,
-          setupPolicySignature,
-          setupPolicyConfirmedSlot,
+        const setupPolicyConfirmedSlot = await resolveEarnDepositConfirmedSlot({
+          transportSlot: setupWalletConfirmedSlot,
+          fallback: () =>
+            resolveConfirmedSignatureSlot({
+              connection,
+              signature: setupPolicySignature,
+            }),
         });
 
         return {
@@ -6010,7 +5700,7 @@ export function useSmartAccountSidebarData(
         setIsActionPending(false);
       }
     },
-    [connection, earnState, solanaEnv, user?.walletAddress, wallet]
+    [connection, earnState, overview, solanaEnv, user?.walletAddress, wallet]
   );
 
   const executeEarnAutoswapSetup = useCallback(
@@ -6429,6 +6119,7 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation:
@@ -6440,6 +6131,9 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
@@ -6449,44 +6143,19 @@ export function useSmartAccountSidebarData(
 
         let confirmedSlot: string;
         try {
-          confirmedSlot = await resolveConfirmedSignatureSlot({
-            connection,
-            signature: sendResult.signature,
+          confirmedSlot = await resolveEarnDepositConfirmedSlot({
+            transportSlot: walletConfirmedSlot,
+            fallback: () =>
+              resolveConfirmedSignatureSlot({
+                connection,
+                signature: sendResult.signature,
+              }),
           });
         } catch (error) {
           captureBrowserError(error, "earn.deposit.confirmation");
           return {
             success: false,
             signature: sendResult.signature,
-            status: "confirmation_record_failed",
-            error: EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
-          };
-        }
-
-        try {
-          await postConfirmedEarnDepositPolicyStage({
-            observabilityFlowId: request.observabilityFlowId,
-            confirmedSlot,
-            preparedDeposit: request.preparedDeposit,
-            signature: sendResult.signature,
-            stage: request.stage,
-          });
-        } catch (error) {
-          captureBrowserError(error, "earn.deposit.confirmation");
-          console.warn(
-            "[executeEarnDepositPolicyStage] confirmation record failed",
-            {
-              confirmedSlot,
-              errorMessage:
-                error instanceof Error ? error.message : "Unknown error.",
-              signature: sendResult.signature,
-              stage: request.stage,
-            }
-          );
-          return {
-            success: false,
-            signature: sendResult.signature,
-            confirmedSlot,
             status: "confirmation_record_failed",
             error: EARN_DEPOSIT_POLICY_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
           };
@@ -6499,18 +6168,20 @@ export function useSmartAccountSidebarData(
           status: "executed",
         };
       } catch (err) {
-        const error = getEarnDepositUserErrorMessage(
-          err,
-          request.stage === "policy"
-            ? "Earn policy setup failed."
-            : "Earn policy finalization failed."
-        );
+        const signature = getSubmittedTransactionSignature(err);
+        const error = signature
+          ? getEarnDepositSubmittedTransactionMessage(request.stage)
+          : getEarnDepositUserErrorMessage(
+              err,
+              request.stage === "policy"
+                ? "Earn policy setup failed."
+                : "Earn policy finalization failed."
+            );
         reportWalletActionFailure(
           "executeEarnDepositPolicyStage",
           "earn.deposit_policy_stage.execute",
           err
         );
-        const signature = getSubmittedTransactionSignature(err);
         return {
           success: false,
           ...(signature ? { signature } : {}),
@@ -6682,6 +6353,12 @@ export function useSmartAccountSidebarData(
             signature: string;
           } | null;
         } = { current: null };
+        const latestSubmittedBatchTransactionRef: {
+          current: {
+            signature: string;
+            stage: EarnDepositBatchStage;
+          } | null;
+        } = { current: null };
 
         try {
           await sendPreparedBatchWithWallet({
@@ -6689,10 +6366,17 @@ export function useSmartAccountSidebarData(
             wallet: walletBridge,
             prepared: batchStages.map((stage) => stage.prepared),
             confirm: true,
-            onTransactionSent: () => {
+            onTransactionSent: ({ index, signature }) => {
+              const submittedStage = batchStages[index];
+              if (submittedStage) {
+                latestSubmittedBatchTransactionRef.current = {
+                  signature,
+                  stage: submittedStage.stage,
+                };
+              }
               request.onWalletSubmitted?.();
             },
-            onTransactionConfirmed: async ({ index, signature }) => {
+            onTransactionConfirmed: async ({ index, signature, slot }) => {
               const confirmedStage = batchStages[index];
               if (!confirmedStage) {
                 throw new Error(
@@ -6702,9 +6386,10 @@ export function useSmartAccountSidebarData(
 
               let confirmedSlot: string;
               try {
-                confirmedSlot = await resolveConfirmedSignatureSlot({
-                  connection,
-                  signature,
+                confirmedSlot = await resolveEarnDepositConfirmedSlot({
+                  transportSlot: slot,
+                  fallback: () =>
+                    resolveConfirmedSignatureSlot({ connection, signature }),
                 });
               } catch (error) {
                 confirmationRecordFailureRef.current = {
@@ -6719,24 +6404,6 @@ export function useSmartAccountSidebarData(
                 confirmedStage.stage === "policy" ||
                 confirmedStage.stage === "policy-finalize"
               ) {
-                try {
-                  await postConfirmedEarnDepositPolicyStage({
-                    observabilityFlowId: request.observabilityFlowId,
-                    confirmedSlot,
-                    preparedDeposit: request.preparedDeposit,
-                    signature,
-                    stage: confirmedStage.stage,
-                  });
-                } catch (error) {
-                  confirmationRecordFailureRef.current = {
-                    confirmedSlot,
-                    error,
-                    stage: confirmedStage.stage,
-                    signature,
-                  };
-                  throw error;
-                }
-
                 if (confirmedStage.stage === "policy") {
                   policyConfirmedSlot = confirmedSlot;
                   policySignature = signature;
@@ -6747,56 +6414,8 @@ export function useSmartAccountSidebarData(
                 return;
               }
 
-              // A top-up signs no policy transaction, so the confirm route
-              // resolves the reused policy's citation itself (DB row, else
-              // chain). Citing it here would dead-end every wallet whose row is
-              // gone — e.g. after a full Earn exit.
-              const policySignatureResolution = isReusedEarnDepositPolicy(
-                request.preparedDeposit
-              )
-                ? null
-                : resolveEarnDepositConfirmPolicySignature({
-                    activePolicy: currentEarnState?.policy ?? null,
-                    policyConfirmedSlot,
-                    policySignature,
-                    preparedDeposit: request.preparedDeposit,
-                    setupPolicyConfirmedSlot,
-                    setupPolicySignature,
-                  });
-              if (
-                policySignatureResolution &&
-                "error" in policySignatureResolution
-              ) {
-                throw new Error(policySignatureResolution.error);
-              }
-
               depositConfirmedSlot = confirmedSlot;
               depositSignature = signature;
-              try {
-                await postConfirmedEarnDeposit({
-                  observabilityFlowId: request.observabilityFlowId,
-                  preparedDeposit: request.preparedDeposit,
-                  policyConfirmedSlot:
-                    policySignatureResolution?.policyConfirmedSlot,
-                  policySignature: policySignatureResolution?.policySignature,
-                  setupPolicyConfirmedSlot:
-                    policySignatureResolution?.setupPolicyConfirmedSlot,
-                  setupPolicySignature:
-                    policySignatureResolution?.setupPolicySignature,
-                  signature,
-                  confirmedSlot,
-                  smartAccountAddress:
-                    request.preparedDeposit.vault.pubkey.toBase58(),
-                });
-              } catch (error) {
-                confirmationRecordFailureRef.current = {
-                  confirmedSlot,
-                  error,
-                  stage: confirmedStage.stage,
-                  signature,
-                };
-                throw error;
-              }
             },
           });
         } catch (error) {
@@ -6829,12 +6448,26 @@ export function useSmartAccountSidebarData(
           }
 
           const submittedSignature = getSubmittedTransactionSignature(error);
+          const latestSubmittedBatchTransaction =
+            latestSubmittedBatchTransactionRef.current;
+          const latestSubmittedStageIndex = latestSubmittedBatchTransaction
+            ? batchStages.findIndex(
+                ({ stage }) => stage === latestSubmittedBatchTransaction.stage
+              )
+            : -1;
+          const submittedStage = submittedSignature
+            ? latestSubmittedBatchTransaction?.signature === submittedSignature
+              ? latestSubmittedBatchTransaction.stage
+              : batchStages[latestSubmittedStageIndex + 1]?.stage ?? null
+            : null;
           return {
             success: false,
             ...(submittedSignature ? { signature: submittedSignature } : {}),
             ...collectedSignatureFields(),
             resumeStage: resolveResumeStage(),
-            error: getEarnDepositUserErrorMessage(error),
+            error: submittedSignature
+              ? getEarnDepositSubmittedTransactionMessage(submittedStage)
+              : getEarnDepositUserErrorMessage(error),
           };
         }
 
@@ -6935,15 +6568,15 @@ export function useSmartAccountSidebarData(
         console.log("[executeEarnDeposit] preparing Earn USDC deposit", {
           amountRaw: request.amountRaw.toString(),
           cluster: expectedEarnCluster,
-          prepareLocation: request.preparedDeposit ? "preview" : "server",
+          prepareLocation: "client",
         });
-        const preparedDeposit =
-          request.preparedDeposit ??
-          (await prepareEarnDepositOnServer({
-            amountRaw: request.amountRaw,
-            mint: request.mint,
-            observabilityFlowId: request.observabilityFlowId,
-          }));
+        const preparedDeposit = request.preparedDeposit;
+        if (!preparedDeposit) {
+          return {
+            success: false,
+            error: "Prepare the Earn deposit on this device before signing.",
+          };
+        }
         if (
           preparedDeposit.persistence.principalAmountRaw !==
           request.amountRaw.toString()
@@ -6975,42 +6608,7 @@ export function useSmartAccountSidebarData(
             vaultAddress: preparedDeposit.vault.pubkey.toBase58(),
           }
         );
-        const currentEarnState = earnState ?? (await fetchEarnState());
-        if (currentEarnState && currentEarnState !== earnState) {
-          setEarnState(currentEarnState);
-        }
-        const onboarding = currentEarnState?.onboarding;
-        // See the staged flow above: the confirm route owns the reused policy's
-        // citation, so a top-up must not be blocked on the browser's copy of it.
-        const policySignatureResolution = isReusedEarnDepositPolicy(
-          preparedDeposit
-        )
-          ? null
-          : resolveEarnDepositConfirmPolicySignature({
-              activePolicy: currentEarnState?.policy ?? null,
-              policyConfirmedSlot:
-                request.policyConfirmedSlot ??
-                onboarding?.policy?.lastSeenSlot ??
-                currentEarnState?.policy?.lastSeenSlot,
-              policySignature:
-                request.policySignature ??
-                onboarding?.policy?.lastSeenSignature ??
-                currentEarnState?.policy?.lastSeenSignature,
-              preparedDeposit,
-              setupPolicyConfirmedSlot:
-                request.setupPolicyConfirmedSlot ??
-                onboarding?.setupPolicy?.lastSeenSlot,
-              setupPolicySignature:
-                request.setupPolicySignature ??
-                onboarding?.setupPolicy?.lastSeenSignature,
-            });
-        if (policySignatureResolution && "error" in policySignatureResolution) {
-          return {
-            success: false,
-            error: policySignatureResolution.error,
-          };
-        }
-
+        let walletConfirmedSlot: number | undefined;
         const sendResult = await sendPreparedEarnWithClusterPreflight({
           expectedCluster: expectedEarnCluster,
           operation: "deposit",
@@ -7021,6 +6619,9 @@ export function useSmartAccountSidebarData(
               wallet: walletBridge,
               prepared: preparedDeposit.prepared,
               confirm: true,
+              onTransactionConfirmed: ({ slot }) => {
+                walletConfirmedSlot = slot;
+              },
               onTransactionSent: request.onWalletSubmitted,
             }),
         });
@@ -7033,9 +6634,10 @@ export function useSmartAccountSidebarData(
         });
         let confirmedSlot: string;
         try {
-          confirmedSlot = await resolveConfirmedSignatureSlot({
-            connection,
-            signature,
+          confirmedSlot = await resolveEarnDepositConfirmedSlot({
+            transportSlot: walletConfirmedSlot,
+            fallback: () =>
+              resolveConfirmedSignatureSlot({ connection, signature }),
           });
         } catch (error) {
           captureBrowserError(error, "earn.deposit.confirmation");
@@ -7055,65 +6657,6 @@ export function useSmartAccountSidebarData(
           confirmedSlot,
           signature,
         });
-
-        const recordDepositConfirmation = async () => {
-          await postConfirmedEarnDeposit({
-            observabilityFlowId: request.observabilityFlowId,
-            preparedDeposit,
-            policyConfirmedSlot: policySignatureResolution?.policyConfirmedSlot,
-            policySignature: policySignatureResolution?.policySignature,
-            setupPolicyConfirmedSlot:
-              policySignatureResolution?.setupPolicyConfirmedSlot,
-            setupPolicySignature:
-              policySignatureResolution?.setupPolicySignature,
-            signature,
-            confirmedSlot,
-            smartAccountAddress: preparedDeposit.vault.pubkey.toBase58(),
-          });
-          console.log("[executeEarnDeposit] backend confirmation posted", {
-            confirmedSlot,
-            signature,
-          });
-        };
-
-        const shouldRecordDepositConfirmationAsync =
-          request.recordConfirmationAsync &&
-          preparedDeposit.persistence.policyInitialization === "reuse";
-
-        if (shouldRecordDepositConfirmationAsync) {
-          void recordDepositConfirmation().catch((error) => {
-            captureBrowserError(error, "earn.deposit.confirmation");
-            console.warn(
-              "[executeEarnDeposit] async backend confirmation failed",
-              {
-                confirmedSlot,
-                errorMessage:
-                  error instanceof Error ? error.message : "Unknown error.",
-                errorName: error instanceof Error ? error.name : typeof error,
-                signature,
-              }
-            );
-          });
-        } else {
-          try {
-            await recordDepositConfirmation();
-          } catch (error) {
-            captureBrowserError(error, "earn.deposit.confirmation");
-            console.warn("[executeEarnDeposit] confirmation record failed", {
-              confirmedSlot,
-              errorMessage:
-                error instanceof Error ? error.message : "Unknown error.",
-              signature,
-            });
-            return {
-              success: true,
-              signature,
-              confirmedSlot,
-              status: "confirmation_record_failed",
-              error: EARN_DEPOSIT_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
-            };
-          }
-        }
 
         return {
           success: true,
@@ -7140,7 +6683,6 @@ export function useSmartAccountSidebarData(
     },
     [
       connection,
-      earnState,
       overview,
       solanaEnv,
       user?.smartAccountAddress,
@@ -7260,59 +6802,13 @@ export function useSmartAccountSidebarData(
           signature,
         });
 
-        const recordWithdrawalConfirmation = async () => {
-          await postConfirmedEarnWithdraw({
-            observabilityFlowId: request.observabilityFlowId,
-            preparedWithdraw,
-            preparedStep,
-            signature,
-            confirmedSlot,
-            smartAccountAddress: preparedWithdraw.vault.pubkey.toBase58(),
-          });
-
-          try {
-            await Promise.resolve(request.onConfirmationRecorded?.());
-          } catch (error) {
-            console.warn(
-              "[executeEarnWithdraw] post-confirm UI refresh failed",
-              error
-            );
-          }
-        };
-        const shouldRecordConfirmationAsync =
-          request.mode === "partial" &&
-          request.recordConfirmationAsync &&
-          selectedStepIndex === preparedWithdraw.withdrawSteps.length - 1;
-
-        if (shouldRecordConfirmationAsync) {
-          void recordWithdrawalConfirmation().catch((error) => {
-            console.warn(
-              "[executeEarnWithdraw] async backend confirmation failed",
-              {
-                confirmedSlot,
-                errorMessage:
-                  error instanceof Error ? error.message : "Unknown error.",
-                errorName: error instanceof Error ? error.name : typeof error,
-                mode: request.mode,
-                signature,
-                stepIndex: selectedStepIndex,
-              }
-            );
-          });
-        } else {
-          try {
-            await recordWithdrawalConfirmation();
-          } catch {
-            return {
-              success: true,
-              signature,
-              confirmedSlot,
-              status: "confirmation_record_failed",
-              mode: request.mode,
-              amountRaw: request.amountRaw.toString(),
-              error: EARN_WITHDRAW_CONFIRMED_BUT_NOT_RECORDED_MESSAGE,
-            };
-          }
+        try {
+          await Promise.resolve(request.onConfirmationRecorded?.());
+        } catch (error) {
+          console.warn(
+            "[executeEarnWithdraw] projected-state refresh failed",
+            error
+          );
         }
 
         return {
@@ -7378,12 +6874,13 @@ export function useSmartAccountSidebarData(
 
       setIsActionPending(true);
       try {
-        const preparedCleanup =
-          request.preparedCleanup ??
-          (await prepareEarnCleanupOnServer({
-            minContextSlot: request.minContextSlot,
-            observabilityFlowId: request.observabilityFlowId,
-          }));
+        const preparedCleanup = request.preparedCleanup;
+        if (!preparedCleanup) {
+          return {
+            success: false,
+            error: "Prepare Earn cleanup on this device before signing.",
+          };
+        }
         const autodepositClosePrepared =
           preparedCleanup.autodepositClosePrepared ?? null;
         if (autodepositClosePrepared) {
@@ -7426,28 +6923,6 @@ export function useSmartAccountSidebarData(
           connection,
           signature,
         });
-
-        try {
-          await postConfirmedEarnCleanup({
-            observabilityFlowId: request.observabilityFlowId,
-            preparedCleanup,
-            signature,
-            confirmedSlot,
-          });
-        } catch (error) {
-          return {
-            success: false,
-            signature,
-            confirmedSlot,
-            status: "confirmation_record_failed",
-            idleTransferAmountRaw:
-              preparedCleanup.persistence.idleTransferAmountRaw,
-            error:
-              error instanceof Error
-                ? error.message
-                : "Failed to record confirmed Earn cleanup.",
-          };
-        }
 
         return {
           success: true,
@@ -7519,6 +6994,184 @@ export function useSmartAccountSidebarData(
     user?.walletAddress,
     wallet.publicKey,
   ]);
+
+  const prepareEarnDeposit = useCallback(
+    async (request: {
+      amountRaw: bigint;
+      mint: string;
+    }): Promise<SmartAccountPreparedEarnUsdcDeposit> => {
+      const context = getEarnAutodepositPrepareContext();
+      const asset = resolveEarnProductAsset({
+        cluster: context.cluster,
+        mint: request.mint,
+      });
+      const reserve = bestApyReservesByStablecoin?.reserves.find(
+        (candidate) =>
+          candidate.liquidityMint === request.mint && candidate.market
+      );
+      if (!reserve?.market) {
+        throw new Error(
+          "No eligible Safe Kamino reserve is available for this Earn asset."
+        );
+      }
+      const policy = earnState?.policy;
+      try {
+        return await context.client.prepareEarnUsdcDeposit({
+          amountRaw: request.amountRaw,
+          cluster: context.cluster,
+          feePayer: context.feePayer,
+          initializeYieldRoutingPolicy: !policy,
+          policySigner: context.policySigner,
+          revokeStrayUsdcDelegate: false,
+          settingsPda: context.settingsPda,
+          target: {
+            liquidityMint: asset.mint,
+            liquidityTokenProgram: asset.tokenProgramId,
+            market: new PublicKey(reserve.market),
+            reserve: new PublicKey(reserve.reserve),
+            supplyApyBps: BigInt(Math.round(reserve.supplyApy * 10_000)),
+          },
+          walletAddress: context.walletAddress,
+          ...(policy
+            ? {
+                yieldRoutingPolicy: {
+                  account: new PublicKey(policy.account),
+                  seed: BigInt(policy.seed),
+                  setupPolicy: policy.setupPolicy
+                    ? {
+                        account: new PublicKey(policy.setupPolicy.account),
+                        seed: BigInt(policy.setupPolicy.seed),
+                      }
+                    : null,
+                },
+              }
+            : {}),
+        });
+      } catch (error) {
+        if (isEarnPolicyUpdateRequiredError(error)) {
+          throw new EarnPolicyUpdateRequiredClientError(error.message);
+        }
+        throw error;
+      }
+    },
+    [
+      bestApyReservesByStablecoin?.reserves,
+      earnState?.policy,
+      getEarnAutodepositPrepareContext,
+    ]
+  );
+
+  const prepareEarnWithdraw = useCallback(
+    async (
+      request: EarnWithdrawClientPrepareRequest
+    ): Promise<SmartAccountPreparedEarnUsdcWithdraw> => {
+      const context = getEarnAutodepositPrepareContext();
+      const policy = await resolveRequiredClientEarnPolicy({
+        currentState: earnState,
+        expectedSettingsPda: context.settingsPda.toBase58(),
+        onRefreshed: (nextEarnState) => {
+          setEarnState(nextEarnState);
+          setOverview((current) =>
+            current
+              ? mergeEarnVaultIntoOverview(current, nextEarnState)
+              : current
+          );
+        },
+        refreshState: () => fetchEarnState({ strict: true }),
+      });
+      const base = {
+        amountRaw: request.amountRaw,
+        closePoliciesOnFullWithdrawal:
+          request.closePoliciesOnFullWithdrawal ?? false,
+        cluster: context.cluster,
+        feePayer: context.feePayer,
+        fullWithdrawalTargets: request.fullWithdrawalTargets,
+        policySigner: context.policySigner,
+        settingsPda: context.settingsPda,
+        source: request.source,
+        target: request.target,
+        walletAddress: context.walletAddress,
+        yieldRoutingPolicy: {
+          account: new PublicKey(policy.account),
+          seed: BigInt(policy.seed),
+          setupPolicy: policy.setupPolicy
+            ? {
+                account: new PublicKey(policy.setupPolicy.account),
+                seed: BigInt(policy.setupPolicy.seed),
+              }
+            : null,
+        },
+      };
+      return context.client.prepareEarnUsdcWithdraw(
+        request.mode === "full"
+          ? {
+              ...base,
+              mode: "full",
+              autodepositClose: request.autodepositClose,
+            }
+          : { ...base, mode: "partial" }
+      );
+    },
+    [earnState, getEarnAutodepositPrepareContext]
+  );
+
+  const prepareEarnCleanup = useCallback(
+    async (
+      request: { minContextSlot?: number } = {}
+    ): Promise<PreparedEarnUsdcCleanup> => {
+      const context = getEarnAutodepositPrepareContext();
+      const policy = await resolveRequiredClientEarnPolicy({
+        currentState: earnState,
+        expectedSettingsPda: context.settingsPda.toBase58(),
+        onRefreshed: (nextEarnState) => {
+          setEarnState(nextEarnState);
+          setOverview((current) =>
+            current
+              ? mergeEarnVaultIntoOverview(current, nextEarnState)
+              : current
+          );
+        },
+        refreshState: () => fetchEarnState({ strict: true }),
+      });
+      const snapshot = await context.client.fetchEarnVaultRefundSnapshot({
+        cluster: context.cluster,
+        minContextSlot: request.minContextSlot,
+        settingsPda: context.settingsPda,
+      });
+      const preparedCleanup = await context.client.prepareEarnUsdcCleanup({
+        cluster: context.cluster,
+        feePayer: context.feePayer,
+        policySigner: context.policySigner,
+        settingsPda: context.settingsPda,
+        vaultTokenAccounts: snapshot.tokenAccounts.map((account) => ({
+          address: account.address,
+          amountRaw: account.amountRaw,
+          decimals: 6,
+          mint: account.mint,
+          tokenProgramId: account.tokenProgramId,
+        })),
+        walletAddress: context.walletAddress,
+        yieldRoutingPolicy: {
+          account: new PublicKey(policy.account),
+          seed: BigInt(policy.seed),
+          setupPolicy: policy.setupPolicy
+            ? {
+                account: new PublicKey(policy.setupPolicy.account),
+                seed: BigInt(policy.setupPolicy.seed),
+              }
+            : null,
+        },
+      });
+      const estimatedRefundLamports =
+        Number(snapshot.lamports) +
+        snapshot.tokenAccounts.reduce(
+          (sum, account) => sum + account.lamports,
+          0
+        );
+      return { ...preparedCleanup, estimatedRefundLamports };
+    },
+    [earnState, getEarnAutodepositPrepareContext]
+  );
 
   const prepareEarnAutodepositSetup = useCallback(
     async (
@@ -8239,6 +7892,9 @@ export function useSmartAccountSidebarData(
     executeEarnPolicySetup,
     executeEarnWithdraw,
     executeEarnCleanup,
+    prepareEarnDeposit,
+    prepareEarnWithdraw,
+    prepareEarnCleanup,
     prepareEarnAutodepositSetup,
     prepareEarnAutodepositClose,
     executeEarnAutodepositSetup,

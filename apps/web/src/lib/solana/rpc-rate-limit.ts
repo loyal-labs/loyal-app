@@ -3,7 +3,7 @@
 // 429 whose missing CORS headers surface only as `TypeError: Failed to fetch`.
 const DEFAULT_FRONTEND_SOLANA_RPC_MAX_REQUESTS_PER_WINDOW = 5;
 const FRONTEND_SOLANA_RPC_WINDOW_MS = 1000;
-const FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS = 3;
+const FRONTEND_SOLANA_RPC_MAX_READ_ATTEMPTS = 5;
 const FRONTEND_SOLANA_RPC_RETRY_BASE_DELAY_MS = 250;
 const FRONTEND_SOLANA_RPC_RETRY_MAX_DELAY_MS = 2000;
 const FRONTEND_SOLANA_RPC_RETRY_JITTER_MS = 125;
@@ -23,7 +23,15 @@ const RECENTLY_CACHEABLE_RPC_METHODS = new Set([
   "getProgramAccountsV2",
   "getTokenAccountsByOwner",
 ]);
-const RETRYABLE_RPC_METHODS = RECENTLY_CACHEABLE_RPC_METHODS;
+const RETRYABLE_RPC_METHODS = new Set([
+  ...RECENTLY_CACHEABLE_RPC_METHODS,
+  // Confirmation recovery must survive the same transient transport failures
+  // as account reads. Never cache either changing response.
+  "getSignatureStatuses",
+  // Activity is loaded in the background when a wallet session appears.
+  // Retry transport failures, but do not cache this changing history page.
+  "getSignaturesForAddress",
+]);
 const TRANSACTION_CRITICAL_RPC_METHODS = new Set([
   "getBlockHeight",
   "getLatestBlockhash",

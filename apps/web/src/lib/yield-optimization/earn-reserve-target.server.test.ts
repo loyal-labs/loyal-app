@@ -3,17 +3,29 @@ import {
   getRiskBasketMarketsForCluster,
   LoyalCluster,
   RiskBasket,
+  Stablecoin,
 } from "@loyal-labs/actions";
 import { PublicKey } from "@solana/web3.js";
 
-import type { CurrentBestApyReserveByStablecoin } from "@/lib/kamino/timescale-reserve-client.server";
+import type {
+  CurrentBestApyReserveByStablecoin,
+  TimescaleReservePresenceRow,
+} from "@/lib/kamino/timescale-reserve-client.server";
 import { getEarnProductAssetsForCluster } from "./earn-product-mints.shared";
 
 mock.module("server-only", () => ({}));
 
-const { selectBestSafeEarnReserveTarget } = await import(
-  "./earn-reserve-target.server"
-);
+let latestReserveObservations: TimescaleReservePresenceRow[] | null = [];
+
+mock.module("@/lib/kamino/timescale-reserve-client.server", () => ({
+  getCurrentBestApyReserveByStablecoin: async () => [],
+  getLatestReserveObservationsByReserve: async () => latestReserveObservations,
+}));
+
+const {
+  assertVerifiedSafeUsdcEarnReserveMetadata,
+  selectBestSafeEarnReserveTarget,
+} = await import("./earn-reserve-target.server");
 
 describe("Earn same-mint reserve selection", () => {
   test("selects a Safe reserve with the exact mint and token program for every product", () => {
@@ -78,5 +90,80 @@ describe("Earn same-mint reserve selection", () => {
     });
 
     expect(target).toBeNull();
+  });
+});
+
+describe("confirmed Earn reserve metadata", () => {
+  test("accepts a verified Safe reserve outside the legacy fixed market", async () => {
+    const cluster = LoyalCluster.MainnetBeta;
+    const productMint = getEarnProductAssetsForCluster(cluster).find(
+      (candidate) => candidate.stablecoin === Stablecoin.USDC
+    );
+    const safeMarkets = getRiskBasketMarketsForCluster(
+      cluster,
+      RiskBasket.Safe
+    );
+    const market = safeMarkets[1] ?? safeMarkets[0];
+    if (!(productMint && market)) {
+      throw new Error("mainnet Earn universe must not be empty");
+    }
+    const reserve = PublicKey.unique().toBase58();
+    latestReserveObservations = [
+      {
+        liquidityMint: productMint.mint.toBase58(),
+        market: market.toBase58(),
+        observedAt: new Date(),
+        reserve,
+        totalSupplyUsdEstimate: 1_000_000,
+      },
+    ];
+
+    await expect(
+      assertVerifiedSafeUsdcEarnReserveMetadata({
+        cluster,
+        liquidityMint: productMint.mint.toBase58(),
+        market: market.toBase58(),
+        targetReserve: reserve,
+      })
+    ).resolves.toEqual({
+      liquidityMint: productMint.mint.toBase58(),
+      market: market.toBase58(),
+      targetReserve: reserve,
+    });
+  });
+
+  test("rejects a reserve whose verified market does not match", async () => {
+    const cluster = LoyalCluster.MainnetBeta;
+    const productMint = getEarnProductAssetsForCluster(cluster).find(
+      (candidate) => candidate.stablecoin === Stablecoin.USDC
+    );
+    const safeMarkets = getRiskBasketMarketsForCluster(
+      cluster,
+      RiskBasket.Safe
+    );
+    const requestedMarket = safeMarkets[0];
+    const indexedMarket = safeMarkets[1] ?? PublicKey.unique();
+    if (!(productMint && requestedMarket)) {
+      throw new Error("mainnet Earn universe must not be empty");
+    }
+    const reserve = PublicKey.unique().toBase58();
+    latestReserveObservations = [
+      {
+        liquidityMint: productMint.mint.toBase58(),
+        market: indexedMarket.toBase58(),
+        observedAt: new Date(),
+        reserve,
+        totalSupplyUsdEstimate: 1_000_000,
+      },
+    ];
+
+    await expect(
+      assertVerifiedSafeUsdcEarnReserveMetadata({
+        cluster,
+        liquidityMint: productMint.mint.toBase58(),
+        market: requestedMarket.toBase58(),
+        targetReserve: reserve,
+      })
+    ).rejects.toThrow("does not belong to the supplied market");
   });
 });
