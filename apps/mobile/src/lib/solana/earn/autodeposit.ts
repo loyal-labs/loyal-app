@@ -39,6 +39,11 @@ const DEFAULT_AMOUNT_PER_PERIOD_RAW = (
 // At most three setup stages (init authority -> create policy -> create
 // recurring delegation); guard against a stage that never advances.
 const MAX_SETUP_STAGES = 4;
+// LaserStream is the canonical writer for confirmed closes. Give finalized
+// projection enough time to remove a just-closed row before deciding whether
+// another historical duplicate remains.
+const CLOSE_PROJECTION_ATTEMPTS = 30;
+const CLOSE_PROJECTION_RETRY_DELAY_MS = 1_000;
 
 export type ConfirmedEarnAutodepositSetup = {
   policyAccount: string;
@@ -154,8 +159,9 @@ async function loadAutodepositPrepareContext(walletAddress: string): Promise<{
 // LaserStream projects each confirmed stage into backend state. Multi-stage — the SDK's
 // chain-driven stage machine returns the one-time subscription-authority init as
 // its own round when needed, then create_policy AND create_recurring_delegation
-// together, so the device signs both in ONE wallet prompt and sends them before
-// confirming. Existing broken setups (policy + delegation live but the wallet
+// together. Signers that support batching can approve both in one prompt, but
+// the policy must confirm before the dependent delegation is broadcast.
+// Existing broken setups (policy + delegation live but the wallet
 // ATA's token approval missing/foreign) get an approval-only repair stage
 // instead. One auth message covers all confirms. The nonce is fixed for the
 // whole flow; the policy seed is threaded across rounds, and a half-finished
@@ -293,14 +299,14 @@ async function runEarnAutodepositSetup(
       }
     }
 
-    // The policy + delegation txs don't depend on each other's state, so both
-    // go out before either confirmation — the second tx can't expire waiting
-    // behind the first (mirrors the web "send-all-before-confirm" mode).
+    // The recurring-delegation transaction is prepared with the policy assumed
+    // to exist. Batch-sign when supported, but confirm each stage before the
+    // next broadcast so preflight cannot race the policy creation.
     await signAndSendPreparedOperations({
       connection,
       signer: args.signer,
       operations: stages.map((stage) => stage.prepared),
-      sendMode: "send-all-before-confirm",
+      sendMode: "confirm-each",
     }).catch((error) => {
       flow.failFrom("wallet_approval", error);
       throw error;
@@ -502,6 +508,31 @@ export async function executeEarnAutodepositClose(args: {
   }
 }
 
+async function waitForProjectedAutodepositAfterClose(args: {
+  closedPolicyAccounts: ReadonlySet<string>;
+  walletAddress: string;
+}): Promise<
+  Awaited<ReturnType<typeof fetchEarnAutodepositState>>["autodeposit"]
+> {
+  for (let attempt = 0; attempt < CLOSE_PROJECTION_ATTEMPTS; attempt++) {
+    const { autodeposit } = await fetchEarnAutodepositState(args.walletAddress);
+    if (
+      !autodeposit ||
+      !args.closedPolicyAccounts.has(autodeposit.policyAccount)
+    ) {
+      return autodeposit;
+    }
+    if (attempt + 1 < CLOSE_PROJECTION_ATTEMPTS) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, CLOSE_PROJECTION_RETRY_DELAY_MS),
+      );
+    }
+  }
+  throw new Error(
+    "The Autodeposit close confirmed, but Earn state has not refreshed yet. Retry after a moment.",
+  );
+}
+
 async function runEarnAutodepositClose(
   args: {
     signer: Signer;
@@ -548,20 +579,22 @@ async function runEarnAutodepositClose(
 
   await closeOne(args.policy, args.recurringDelegation);
 
-  // Sweep duplicates: `/state` surfaces the next live row once the previous
-  // close is recorded. Rows without a recorded delegation can't be closed
-  // here (and don't block withdrawals); the seen-set stops a stale read from
-  // looping on an already-closed policy.
+  // Sweep duplicates: `/state` surfaces the next live row only after
+  // LaserStream records the previous close. Poll through the expected stale
+  // row instead of treating it as proof that no historical duplicate exists.
   const closed = new Set([args.policy]);
-  for (let round = 0; round < MAX_DUPLICATE_CLOSES; round++) {
-    const { autodeposit } = await fetchEarnAutodepositState(
-      walletAddress.toBase58(),
-    );
-    if (
-      !autodeposit?.recurringDelegation ||
-      closed.has(autodeposit.policyAccount)
-    ) {
+  for (;;) {
+    const autodeposit = await waitForProjectedAutodepositAfterClose({
+      closedPolicyAccounts: closed,
+      walletAddress: walletAddress.toBase58(),
+    });
+    if (!autodeposit?.recurringDelegation) {
       break;
+    }
+    if (closed.size >= MAX_DUPLICATE_CLOSES) {
+      throw new Error(
+        "Too many Autodeposit policies are still active. Retry after the confirmed closes are projected.",
+      );
     }
     await closeOne(autodeposit.policyAccount, autodeposit.recurringDelegation);
     closed.add(autodeposit.policyAccount);

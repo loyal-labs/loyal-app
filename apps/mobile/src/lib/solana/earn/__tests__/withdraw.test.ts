@@ -15,6 +15,7 @@ const createSmartAccountVaultsClient = jest.fn(() => ({
 }));
 const fetchEarnWithdrawCleanupPrepareContext = jest.fn();
 const fetchEarnWithdrawPrepareContext = jest.fn();
+const executeEarnAutodepositClose = jest.fn();
 const signAndSendPreparedOperations = jest.fn();
 const observeLifecycle = jest.fn();
 const failFromLifecycle = jest.fn();
@@ -89,7 +90,7 @@ jest.mock("@/services/observability", () => ({
 }));
 
 jest.mock("../autodeposit", () => ({
-  executeEarnAutodepositClose: jest.fn(),
+  executeEarnAutodepositClose,
 }));
 
 jest.mock("../earn-api", () => ({
@@ -214,6 +215,10 @@ describe("executeEarnWithdraw", () => {
     prepareEarnUsdcCleanup.mockResolvedValue({
       prepared: cleanupOperation,
     });
+    executeEarnAutodepositClose.mockReset();
+    executeEarnAutodepositClose.mockResolvedValue({
+      policyAccounts: ["autodeposit-policy"],
+    });
     // clearAllMocks does not drain queued mockResolvedValueOnce values; reset
     // so tests that send only the withdraw don't leak a stale cleanup entry.
     signAndSendPreparedOperations.mockReset();
@@ -257,6 +262,40 @@ describe("executeEarnWithdraw", () => {
       cleanupSignature: "cleanup-signature",
       withdrawalSignatures: ["withdraw-signature"],
     });
+  });
+
+  test("waits past a stale confirmed Autodeposit close before withdrawing", async () => {
+    jest.useFakeTimers();
+    const finalContext = fullFinalExitContext();
+    const staleCloseContext = {
+      ...finalContext,
+      withdrawInput: {
+        ...finalContext.withdrawInput,
+        autodepositClose: {
+          policy: "autodeposit-policy",
+          recurringDelegation: "autodeposit-delegation",
+        },
+      },
+    };
+    fetchEarnWithdrawPrepareContext
+      .mockReset()
+      .mockResolvedValueOnce(staleCloseContext)
+      .mockResolvedValueOnce(staleCloseContext)
+      .mockResolvedValueOnce(finalContext);
+
+    const withdrawPromise = executeEarnWithdraw({
+      amountUsd: 1,
+      mode: "full",
+      signer,
+    });
+    await jest.runAllTimersAsync();
+    const result = await withdrawPromise;
+    jest.useRealTimers();
+
+    expect(executeEarnAutodepositClose).toHaveBeenCalledTimes(1);
+    expect(fetchEarnWithdrawPrepareContext).toHaveBeenCalledTimes(3);
+    expect(prepareEarnUsdcWithdraw).toHaveBeenCalledTimes(1);
+    expect(result.withdrawalSignatures).toEqual(["withdraw-signature"]);
   });
 
   test("returns the landed withdrawal when cleanup fails", async () => {
