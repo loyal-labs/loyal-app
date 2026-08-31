@@ -124,9 +124,6 @@ export const serverEnv = {
   get messageEncryptionKey(): string | undefined {
     return getOptionalEnv("MESSAGE_ENCRYPTION_KEY");
   },
-  get deploymentPrivateKey(): string {
-    return getRequiredEnv("DEPLOYMENT_PK");
-  },
   get askLoyalBotToken(): string {
     return getRequiredEnv("ASKLOYAL_TGBOT_KEY");
   },

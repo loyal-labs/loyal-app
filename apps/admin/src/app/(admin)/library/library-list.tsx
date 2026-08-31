@@ -397,7 +397,7 @@ function ArticleForm({
           <Input
             name="title"
             required
-            placeholder="Shielded transfers release"
+            placeholder="Wallet release notes"
             defaultValue={initial?.title ?? ""}
           />
         </label>

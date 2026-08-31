@@ -6,8 +6,6 @@ import {
   Transaction,
 } from "@solana/web3.js";
 
-import { publicEnv } from "@/lib/core/config/public";
-
 import { getConnection, getWebsocketConnection } from "../rpc/connection";
 import { SimpleWallet } from "./wallet-implementation";
 import { ensureWalletKeypair } from "./wallet-keypair-logic";
@@ -46,14 +44,6 @@ export const getCustomWalletProvider = async (
   const connection = getWebsocketConnection();
   const wallet = new SimpleWallet(keypair);
   return new AnchorProvider(connection, wallet);
-};
-
-export const getGaslessPublicKey = async (): Promise<PublicKey> => {
-  const publicKey = publicEnv.gasPublicKey;
-  if (!publicKey) {
-    throw new Error("NEXT_PUBLIC_GAS_PUBLIC_KEY is not set");
-  }
-  return new PublicKey(publicKey);
 };
 
 export const getWalletPublicKey = async (): Promise<PublicKey> => {

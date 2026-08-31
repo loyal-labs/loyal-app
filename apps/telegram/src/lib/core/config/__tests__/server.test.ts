@@ -16,7 +16,6 @@ const SERVER_ENV_KEYS = [
   "JUPITER_API_KEY",
   "IRYS_SOLANA_KEY",
   "MESSAGE_ENCRYPTION_KEY",
-  "DEPLOYMENT_PK",
   "ASKLOYAL_TGBOT_KEY",
   "TELEGRAM_SETUP_SECRET",
   "NEXT_PUBLIC_MIXPANEL_TOKEN",
@@ -58,7 +57,6 @@ let serverEnv: {
   jupiterApiKey: string;
   irysSolanaKey: string;
   messageEncryptionKey: string | undefined;
-  deploymentPrivateKey: string;
   askLoyalBotToken: string;
   telegramSetupSecret: string;
   mixpanelToken: string | undefined;

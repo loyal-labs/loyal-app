@@ -172,7 +172,6 @@
         "@loyal-labs/db-core": "workspace:*",
         "@loyal-labs/llm-core": "workspace:*",
         "@loyal-labs/llm-server": "workspace:*",
-        "@loyal-labs/private-transactions": "workspace:*",
         "@loyal-labs/shared": "workspace:*",
         "@loyal-labs/solana-rpc": "workspace:*",
         "@loyal-labs/solana-wallet": "workspace:*",
