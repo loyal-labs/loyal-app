@@ -212,12 +212,35 @@ export async function requireValidAdminSessionToken(
   return session;
 }
 
-export function isSafeNextPath(value: string | undefined | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return false;
+export function getSafeNextPath(
+  value: string | undefined | null,
+  baseUrl: string | URL
+): string | null {
+  if (!value || !value.startsWith("/")) {
+    return null;
   }
 
-  return !/[\r\n]/.test(value);
+  let base: URL;
+  let target: URL;
+  try {
+    base = typeof baseUrl === "string" ? new URL(baseUrl) : baseUrl;
+    target = new URL(value, base);
+  } catch {
+    return null;
+  }
+
+  if (target.origin !== base.origin) {
+    return null;
+  }
+
+  return `${target.pathname}${target.search}${target.hash}`;
+}
+
+export function isSafeNextPath(
+  value: string | undefined | null,
+  baseUrl: string | URL
+) {
+  return getSafeNextPath(value, baseUrl) !== null;
 }
 
 export function getSessionCookieOptions() {

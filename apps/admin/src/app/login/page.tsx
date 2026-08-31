@@ -1,7 +1,7 @@
 import Image from "next/image"
 import { LoginForm } from "@/components/login-form"
-import { ADMIN_SESSION_COOKIE, isSafeNextPath, verifySessionToken } from "@/lib/admin-auth"
-import { cookies } from "next/headers"
+import { ADMIN_SESSION_COOKIE, getSafeNextPath, verifySessionToken } from "@/lib/admin-auth"
+import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 
 type LoginPageProps = {
@@ -22,8 +22,15 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const resolvedSearchParams = (await searchParams) ?? {}
   const nextPathValue = toSingleValue(resolvedSearchParams.next)
   const errorValue = toSingleValue(resolvedSearchParams.error)
-  const safeNextPath = isSafeNextPath(nextPathValue) ? nextPathValue : undefined
-  const nextPath = safeNextPath === "/" ? "/overview" : safeNextPath
+  const headerStore = await headers()
+  const host = headerStore.get("host")
+  const forwardedProtocol = headerStore.get("x-forwarded-proto")
+  const protocol = forwardedProtocol?.split(",")[0]?.trim() || "https"
+  const requestBaseUrl = host ? `${protocol}://${host}` : undefined
+  const safeNextPath = requestBaseUrl
+    ? getSafeNextPath(nextPathValue, requestBaseUrl)
+    : null
+  const nextPath = safeNextPath === "/" ? "/overview" : safeNextPath ?? undefined
 
   const cookieStore = await cookies()
   const sessionToken = cookieStore.get(ADMIN_SESSION_COOKIE)?.value

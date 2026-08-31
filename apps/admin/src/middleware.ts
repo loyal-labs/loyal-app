@@ -3,8 +3,8 @@ import type { NextRequest } from "next/server";
 import {
   ADMIN_SESSION_COOKIE,
   createSessionPayload,
+  getSafeNextPath,
   getSessionCookieOptions,
-  isSafeNextPath,
   signSessionToken,
   verifySessionToken,
 } from "@/lib/admin-auth";
@@ -53,12 +53,9 @@ export async function middleware(request: NextRequest) {
     }
 
     const requestedNextPath = request.nextUrl.searchParams.get("next");
+    const safeNextPath = getSafeNextPath(requestedNextPath, request.url);
     const destinationCandidate =
-      requestedNextPath && isSafeNextPath(requestedNextPath)
-        ? requestedNextPath === "/"
-          ? "/overview"
-          : requestedNextPath
-        : "/overview";
+      !safeNextPath || safeNextPath === "/" ? "/overview" : safeNextPath;
     const destination =
       destinationCandidate === "/login" ? "/overview" : destinationCandidate;
 
@@ -80,8 +77,9 @@ export async function middleware(request: NextRequest) {
 
   const loginUrl = new URL("/login", request.url);
   const nextPath = `${pathname}${search}`;
-  if (isSafeNextPath(nextPath)) {
-    loginUrl.searchParams.set("next", nextPath);
+  const safeNextPath = getSafeNextPath(nextPath, request.url);
+  if (safeNextPath) {
+    loginUrl.searchParams.set("next", safeNextPath);
   }
 
   const status =

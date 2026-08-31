@@ -2,18 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   ADMIN_SESSION_COOKIE,
   createSessionPayload,
+  getSafeNextPath,
   getSessionCookieOptions,
-  isSafeNextPath,
   signSessionToken,
   validateAdminCredentials,
 } from "@/lib/admin-auth";
 
-function getPostLoginPath(nextPathValue: string | null | undefined) {
-  if (!nextPathValue || !isSafeNextPath(nextPathValue)) {
+function getPostLoginPath(
+  nextPathValue: string | null | undefined,
+  requestUrl: string
+) {
+  const safeNextPath = getSafeNextPath(nextPathValue, requestUrl);
+  if (!safeNextPath || safeNextPath === "/") {
     return "/overview";
   }
 
-  return nextPathValue === "/" ? "/overview" : nextPathValue;
+  return safeNextPath;
 }
 
 function getLoginRedirectUrl(
@@ -38,7 +42,7 @@ export async function POST(request: NextRequest) {
   const nextPathValue = formData.get("next");
   const nextPath =
     typeof nextPathValue === "string"
-      ? getPostLoginPath(nextPathValue)
+      ? getPostLoginPath(nextPathValue, request.url)
       : "/overview";
 
   if (typeof login !== "string" || typeof password !== "string") {
